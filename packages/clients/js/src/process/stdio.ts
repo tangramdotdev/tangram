@@ -89,22 +89,23 @@ export namespace Stdio {
 			| { kind: "notification"; value: ClientNotification }
 			| { kind: "request"; value: ClientRequest };
 
-		export type ClientNotification = {
-			kind: "chunk";
-			value: tg.Process.Stdio.Chunk;
-		};
+		export type ClientNotification = never;
 
-		export type ClientRequest = { kind: "end" };
+		export type ClientRequest =
+			| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
+			| { kind: "end"; value: { position: number } };
 
 		export type ServerMessage =
 			| { kind: "notification"; value: ServerNotification }
 			| { kind: "response"; value: ServerResponse };
 
-		export type ServerNotification =
-			| { kind: "stop" }
-			| { kind: "write"; value: { position: number } };
+		export type ServerNotification = { kind: "stop" };
 
-		export type ServerResponse = { kind: "end" };
+		export type ServerResponse =
+			| { kind: "end" }
+			| { kind: "write"; value: Output };
+
+		export type Output = { closed: boolean; length: number };
 	}
 
 	export class Reader {

@@ -14,6 +14,7 @@ use {
 		response::{Ext as _, builder::Ext as _},
 	},
 	tangram_messenger::prelude::*,
+	tangram_store::Store as _,
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
@@ -286,12 +287,10 @@ impl Session {
 		streams: BTreeSet<tg::process::stdio::Stream>,
 		sender: async_channel::Sender<tg::Result<tg::process::stdio::Chunk>>,
 	) -> tg::Result<()> {
-		let mut closed = BTreeSet::new();
 		let mut wakeups = if arg.timeout == Some(Duration::ZERO) {
 			None
 		} else {
-			let mut wakeups: Vec<BoxStream<'static, Option<tg::process::stdio::Stream>>> =
-				Vec::new();
+			let mut wakeups: Vec<BoxStream<'static, ()>> = Vec::new();
 			let subject = format!("processes.{id}.log");
 			let log_wakeups = self
 				.server
@@ -299,7 +298,7 @@ impl Session {
 				.subscribe::<()>(subject)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
-				.map(|_| None)
+				.map(|_| ())
 				.boxed();
 			wakeups.push(log_wakeups);
 			let subject = format!("processes.{id}.status");
@@ -309,7 +308,7 @@ impl Session {
 				.subscribe::<()>(subject)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to subscribe"))?
-				.map(|_| None)
+				.map(|_| ())
 				.boxed();
 			wakeups.push(status_wakeups);
 			for &stream in &streams {
@@ -320,7 +319,7 @@ impl Session {
 					.subscribe::<()>(subject)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to subscribe"))?
-					.map(move |_| Some(stream))
+					.map(|_| ())
 					.boxed();
 				wakeups.push(close_wakeups);
 			}
@@ -328,7 +327,7 @@ impl Session {
 				self.server.config.process.stdio_wakeup_interval,
 			))
 			.skip(1)
-			.map(|_| None)
+			.map(|_| ())
 			.boxed();
 			wakeups.push(interval);
 			let wakeups = stream::select_all(wakeups);
@@ -347,9 +346,10 @@ impl Session {
 			let data = indexed
 				.data
 				.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+			// Read the completion marker before draining so every committed chunk is visible.
 			let output_finished = data.log.is_some()
 				|| data.status.is_finished() && data.started_at.is_none()
-				|| streams.iter().all(|stream| closed.contains(stream));
+				|| self.server.store.try_get_log_end(id).await?.is_some();
 			let mut stream = self
 				.process_log_stream(id, arg.position, arg.length, arg.size, streams.clone())
 				.await
@@ -391,12 +391,9 @@ impl Session {
 			let Some(wakeups) = &mut wakeups else {
 				break;
 			};
-			let Some(wakeup) = wakeups.next().await else {
+			let Some(()) = wakeups.next().await else {
 				break;
 			};
-			if let Some(stream) = wakeup {
-				closed.insert(stream);
-			}
 		}
 
 		Ok(())

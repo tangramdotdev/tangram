@@ -48,10 +48,7 @@ pub enum ClientMessage {
 	tangram_serialize::Serialize,
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ClientNotification {
-	#[tangram_serialize(id = 0)]
-	Chunk(super::Chunk),
-}
+pub enum ClientNotification {}
 
 #[derive(
 	Clone,
@@ -63,8 +60,11 @@ pub enum ClientNotification {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientRequest {
+	#[tangram_serialize(id = 1)]
+	Chunk(super::Chunk),
+
 	#[tangram_serialize(id = 0)]
-	End,
+	End { position: u64 },
 }
 
 #[derive(Clone, Debug, Default)]
@@ -102,9 +102,6 @@ pub enum ServerMessage {
 pub enum ServerNotification {
 	#[tangram_serialize(id = 0)]
 	Stop,
-
-	#[tangram_serialize(id = 1)]
-	Write { position: u64 },
 }
 
 #[derive(
@@ -119,6 +116,26 @@ pub enum ServerNotification {
 pub enum ServerResponse {
 	#[tangram_serialize(id = 0)]
 	End,
+
+	#[tangram_serialize(id = 1)]
+	Write(Output),
+}
+
+/// The completed prefix of a write request, including bytes already written by an earlier attempt.
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Output {
+	#[tangram_serialize(id = 0)]
+	pub closed: bool,
+	#[tangram_serialize(id = 1)]
+	pub length: u64,
 }
 
 impl<O> tg::Process<O> {

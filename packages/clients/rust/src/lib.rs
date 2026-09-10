@@ -68,6 +68,7 @@ pub mod children;
 pub mod clean;
 pub mod command;
 pub mod compiler;
+pub mod control;
 pub mod diagnostic;
 pub mod directory;
 pub mod document;

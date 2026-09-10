@@ -66,6 +66,56 @@ impl Store {
 			.await
 	}
 
+	pub(super) async fn put_log_end(&self, arg: log::end::Arg) -> tg::Result<()> {
+		self.send_write_request(super::request::Request::PutLogEnd(arg))
+			.await?;
+		Ok(())
+	}
+
+	pub(super) fn put_log_end_with_transaction(
+		db: &Db,
+		transaction: &mut lmdb::RwTxn<'_>,
+		arg: &log::end::Arg,
+	) -> tg::Result<()> {
+		let key = StoreKey::Log(Key::End {
+			process: &arg.process,
+		})
+		.pack_to_vec();
+		let value = tangram_serialize::to_vec(&arg.end)
+			.map_err(|error| tg::error!(!error, "failed to serialize the log end"))?;
+		db.put(transaction, &key, &value)
+			.map_err(|error| tg::error!(!error, "failed to store the log end"))?;
+		Ok(())
+	}
+
+	pub(super) async fn try_get_log_end(
+		&self,
+		process: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::log::End>> {
+		let request = crate::read::Request::TryGetLogEnd(process.clone());
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetLogEnd(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+		Ok(output)
+	}
+
+	pub(super) fn try_get_log_end_with_transaction(
+		db: &Db,
+		transaction: &lmdb::RoTxn<'_>,
+		process: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::log::End>> {
+		let key = StoreKey::Log(Key::End { process }).pack_to_vec();
+		let value = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to get the log end"))?;
+		let output = value
+			.map(tangram_serialize::from_slice)
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to deserialize the log end"))?;
+		Ok(output)
+	}
+
 	pub(super) async fn try_get_log_length(
 		&self,
 		arg: log::length::Arg,
@@ -98,6 +148,9 @@ impl Store {
 		arg: &log::delete::Arg,
 	) -> tg::Result<()> {
 		let process = &arg.process;
+		let key = StoreKey::Log(Key::End { process }).pack_to_vec();
+		db.delete(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to delete the log end"))?;
 		let start = StoreKey::Log(Key::Entry {
 			position: 0,
 			process,

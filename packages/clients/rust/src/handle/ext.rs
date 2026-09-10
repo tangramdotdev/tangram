@@ -491,7 +491,9 @@ pub trait Ext: tg::Handle {
 	) -> impl Future<
 		Output = tg::Result<(
 			tg::sandbox::control::Output,
-			impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
+			impl Stream<Item = tg::Result<tg::control::Event<tg::sandbox::control::ServerMessage>>>
+			+ Send
+			+ 'static,
 		)>,
 	> + Send {
 		async move {
@@ -554,6 +556,7 @@ pub trait Ext: tg::Handle {
 							{
 								Ok((_, stream)) => {
 									state.stream.replace(stream.boxed());
+									return Some((Ok(tg::control::Event::Reconnect), state));
 								},
 								Err(error) => {
 									tracing::error!(error = %error.trace(), "failed to reconnect the control stream");
@@ -564,7 +567,7 @@ pub trait Ext: tg::Handle {
 						match state.stream.as_mut().unwrap().next().await {
 							Some(Ok(event)) => {
 								state.retries.take();
-								return Some((Ok(event), state));
+								return Some((Ok(tg::control::Event::Message(event)), state));
 							},
 							Some(Err(error)) => {
 								tracing::error!(error = %error.trace(), "the control stream returned an error");
@@ -591,7 +594,9 @@ pub trait Ext: tg::Handle {
 		Output = tg::Result<
 			Option<(
 				tg::process::control::Output,
-				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+				impl Stream<Item = tg::Result<tg::control::Event<tg::process::control::ServerMessage>>>
+				+ Send
+				+ 'static,
 			)>,
 		>,
 	> + Send {
@@ -660,6 +665,7 @@ pub trait Ext: tg::Handle {
 							{
 								Ok(Some((_, stream))) => {
 									state.stream.replace(stream.boxed());
+									return Some((Ok(tg::control::Event::Reconnect), state));
 								},
 								Ok(None) => {
 									let error = tg::error!("failed to find the process");
@@ -674,7 +680,7 @@ pub trait Ext: tg::Handle {
 						match state.stream.as_mut().unwrap().next().await {
 							Some(Ok(event)) => {
 								state.retries.take();
-								return Some((Ok(event), state));
+								return Some((Ok(tg::control::Event::Message(event)), state));
 							},
 							Some(Err(error)) => {
 								tracing::error!(error = %error.trace(), "the control stream returned an error");
@@ -929,7 +935,7 @@ pub trait Ext: tg::Handle {
 				input_sender.send(Ok(None)).await.ok();
 			});
 
-			let combined = arg.streams.len() > 1;
+			let mut position = 0;
 			let mut connected = false;
 			let mut end_sent = false;
 			let id = id.clone();
@@ -983,8 +989,8 @@ pub trait Ext: tg::Handle {
 					if !arg.streams.contains(&chunk.stream) {
 						return Err(tg::error!("invalid process stdio stream"));
 					}
-					let message = tg::process::stdio::write::ClientMessage::Notification(
-						tg::process::stdio::write::ClientNotification::Chunk(chunk.clone()),
+					let message = tg::process::stdio::write::ClientMessage::Request(
+						tg::process::stdio::write::ClientRequest::Chunk(chunk.clone()),
 					);
 					if sender.as_ref().unwrap().send(Ok(message)).await.is_err() {
 						output.take();
@@ -994,7 +1000,7 @@ pub trait Ext: tg::Handle {
 					pending_sent = true;
 				} else if pending.is_none() && input_ended && !end_sent {
 					let message = tg::process::stdio::write::ClientMessage::Request(
-						tg::process::stdio::write::ClientRequest::End,
+						tg::process::stdio::write::ClientRequest::End { position },
 					);
 					if sender.as_ref().unwrap().send(Ok(message)).await.is_err() {
 						output.take();
@@ -1035,41 +1041,31 @@ pub trait Ext: tg::Handle {
 						sender.take();
 					},
 					Event::Output(Some(Ok(
-						tg::process::stdio::write::ServerMessage::Notification(
-							tg::process::stdio::write::ServerNotification::Write { position },
+						tg::process::stdio::write::ServerMessage::Response(
+							tg::process::stdio::write::ServerResponse::Write(output),
 						),
 					))) => {
 						retries.take();
 						let Some(mut chunk) = pending.take() else {
 							continue;
 						};
-						let start = if combined {
-							chunk.combined_position
-						} else {
-							chunk.stream_position
-						};
-						let end = start
-							.checked_add(chunk.bytes.len().to_u64().unwrap())
+						if output.length > chunk.bytes.len().to_u64().unwrap() {
+							return Err(tg::error!("invalid process stdio write length"));
+						}
+						position = chunk
+							.stream_position
+							.checked_add(output.length)
 							.ok_or_else(|| tg::error!("the stdio position is too large"))?;
-						if position > end {
-							return Err(tg::error!(
-								%end,
-								%position,
-								"invalid process stdio write position"
-							));
+						if output.closed {
+							return Ok(());
 						}
-						if position <= start {
-							pending = Some(chunk);
-							pending_sent = false;
-							continue;
-						}
-						if position < end {
-							let overlap = (position - start).to_usize().unwrap();
-							chunk.bytes = chunk.bytes.slice(overlap..);
-							chunk.combined_position += overlap.to_u64().unwrap();
-							chunk.stream_position += overlap.to_u64().unwrap();
+						if output.length < chunk.bytes.len().to_u64().unwrap() {
+							chunk.bytes = chunk.bytes.slice(output.length.to_usize().unwrap()..);
+							chunk.combined_position += output.length;
+							chunk.stream_position = position;
 							pending = Some(chunk);
 						}
+
 						pending_sent = false;
 					},
 					Event::Output(Some(Ok(

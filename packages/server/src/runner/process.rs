@@ -989,7 +989,6 @@ impl Session {
 		&self,
 		arg: WriteProcessLogTaskArg,
 		finished: tokio::sync::oneshot::Receiver<()>,
-		pending_requests: control::ProcessControlRequests,
 		sender: control::ProcessControlSender,
 	) -> tg::Result<()> {
 		let WriteProcessLogTaskArg {
@@ -1015,8 +1014,8 @@ impl Session {
 				stream_ended = true;
 				break;
 			};
+			let length = u64::try_from(bytes.len()).unwrap();
 			let prepared = (|| {
-				let length = u64::try_from(bytes.len()).unwrap();
 				let stream_position = match stream {
 					tg::process::stdio::Stream::Stderr => stderr_position,
 					tg::process::stdio::Stream::Stdin => {
@@ -1075,13 +1074,8 @@ impl Session {
 			stderr_position = next_stderr_position;
 			stdout_position = next_stdout_position;
 			let priority = crate::control::Priority::Low;
-			let response = Self::send_process_control_client_request_inner(
-				&sender,
-				&pending_requests,
-				arg,
-				priority,
-			)
-			.await;
+			let response =
+				Self::send_process_control_client_request_inner(&sender, arg, priority).await;
 			let response = match response {
 				Ok(response) => response,
 				Err(error) => {
@@ -1089,7 +1083,7 @@ impl Session {
 					break;
 				},
 			};
-			let request = Self::receive_process_log_response(response, permit, next_position);
+			let request = Self::receive_process_log_response(response, permit, length);
 			requests.push_back(request);
 			if requests.len() >= LOG_REQUEST_CONCURRENCY
 				&& let Some(request_result) = requests.next().await
@@ -1113,63 +1107,50 @@ impl Session {
 		drop(receiver);
 		drop(requests);
 
-		// End the log.
+		// Commit the end only after every chunk has a successful response.
+		result?;
 		finished
 			.await
 			.map_err(|_| tg::error!("failed to receive the process finish notification"))?;
-		let end_result = Self::send_process_log_end(&sender, &pending_requests, position).await;
-		if result.is_ok() {
-			result = end_result;
-		}
+		let end = tg::process::log::End {
+			position,
+			stderr_position,
+			stdout_position,
+		};
+		Self::send_process_log_end(&sender, end).await?;
 
-		result
+		Ok(())
 	}
 
 	async fn send_process_log_end(
 		sender: &control::ProcessControlSender,
-		pending_requests: &control::ProcessControlRequests,
-		position: u64,
+		end: tg::process::log::End,
 	) -> tg::Result<()> {
 		let arg = tg::process::control::ClientRequestArg::Write(
-			tg::process::control::WriteClientRequestArg::End,
+			tg::process::control::WriteClientRequestArg::End(end),
 		);
-		let priority = crate::control::Priority::Low;
-		let output =
-			Self::send_process_control_client_request(sender, pending_requests, arg, priority)
-				.boxed()
-				.await?
-				.try_unwrap_write()
-				.map_err(|_| tg::error!("expected a write process response"))?;
-		if output.position != position {
-			return Err(tg::error!(
-				expected = %position,
-				actual = %output.position,
-				"received an invalid log position"
-			));
-		}
-
+		Self::send_process_control_client_request(sender, arg, crate::control::Priority::Low)
+			.boxed()
+			.await?
+			.try_unwrap_write()
+			.map_err(|_| tg::error!("expected a write process response"))?;
 		Ok(())
 	}
 
 	fn receive_process_log_response(
 		response: control::ProcessControlResponseReceiver,
 		permit: tokio::sync::OwnedSemaphorePermit,
-		expected_position: u64,
+		length: u64,
 	) -> BoxFuture<'static, tg::Result<()>> {
 		async move {
 			let output = Self::receive_process_control_client_response(response)
 				.await?
 				.try_unwrap_write()
 				.map_err(|_| tg::error!("expected a write process response"))?;
-			if output.position != expected_position {
-				return Err(tg::error!(
-					expected = %expected_position,
-					actual = %output.position,
-					"received an invalid log position"
-				));
+			if output.closed || output.length != length {
+				return Err(tg::error!("the log write did not complete"));
 			}
 			drop(permit);
-
 			Ok(())
 		}
 		.boxed()

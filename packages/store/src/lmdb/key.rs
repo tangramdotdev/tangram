@@ -12,6 +12,7 @@ pub enum Key<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, num_derive::FromPrimitive, num_derive::ToPrimitive)]
 #[repr(u8)]
 pub enum Kind {
+	LogEnd = 6,
 	LogEntry = 2,
 	LogStreamPosition = 3,
 	Object = 0,
@@ -27,6 +28,10 @@ impl fdbt::TuplePack for Key<'_> {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
+			Self::Log(crate::lmdb::log::Key::End { process }) => {
+				(Kind::LogEnd.to_i32().unwrap(), process.to_bytes().as_ref())
+					.pack(writer, tuple_depth)
+			},
 			Self::Log(crate::lmdb::log::Key::Entry { position, process }) => (
 				Kind::LogEntry.to_i32().unwrap(),
 				process.to_bytes().as_ref(),

@@ -1,9 +1,20 @@
-use {super::Store, crate::log, num::ToPrimitive as _, std::borrow::Cow};
+use {
+	super::Store, crate::log, num::ToPrimitive as _, std::borrow::Cow, tangram_client::prelude::*,
+};
 
 impl Store {
 	#[expect(clippy::needless_pass_by_value)]
 	pub fn delete_log(&self, arg: log::delete::Arg) {
 		self.state().logs.remove(&arg.process);
+	}
+
+	pub fn put_log_end(&self, arg: log::end::Arg) {
+		self.state().logs.entry(arg.process).or_default().end = Some(arg.end);
+	}
+
+	#[must_use]
+	pub fn try_get_log_end(&self, process: &tg::process::Id) -> Option<tg::process::log::End> {
+		self.state().logs.get(process)?.end
 	}
 
 	pub fn put_log(&self, arg: log::put::Arg) {
@@ -146,7 +157,7 @@ impl Store {
 
 #[cfg(test)]
 mod tests {
-	use {super::*, bytes::Bytes, std::collections::BTreeSet, tangram_client::prelude::*};
+	use {super::*, bytes::Bytes, std::collections::BTreeSet};
 
 	fn collect_bytes(entries: Vec<log::read::Entry<'_>>) -> Bytes {
 		entries

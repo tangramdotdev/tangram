@@ -35,6 +35,7 @@ pub mod exec;
 pub mod get;
 pub mod handle;
 pub mod id;
+pub mod log;
 pub mod metadata;
 pub mod put;
 pub mod run;

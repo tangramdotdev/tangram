@@ -2,7 +2,7 @@ use {
 	crate::Session,
 	dashmap::DashSet,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
-	std::sync::Arc,
+	std::{borrow::Cow, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{
@@ -94,6 +94,7 @@ impl Session {
 		let output = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
 				self.try_get_process_control_stream_local(arg, stream)
+					.boxed()
 					.await?
 			},
 			tg::Location::Local(tg::location::Local {
@@ -162,6 +163,32 @@ impl Session {
 				"a process on the shortcut path must have a parent"
 			));
 		}
+		// Load the stream configuration once for this connection.
+		let write_data = if let Some(data) = &data {
+			Cow::Borrowed(data)
+		} else {
+			let data = session
+				.get_process_from_index(&id)
+				.await?
+				.data
+				.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+			Cow::Owned(data)
+		};
+		let streams = [
+			write_data
+				.stderr
+				.is_log()
+				.then_some(tg::process::stdio::Stream::Stderr),
+			write_data
+				.stdout
+				.is_log()
+				.then_some(tg::process::stdio::Stream::Stdout),
+		]
+		.into_iter()
+		.flatten()
+		.collect();
+		let compacted = write_data.log.is_some();
+		drop(write_data);
 		let forwarded_requests = Arc::new(DashSet::new());
 		let (sender_high, receiver_high) = tokio::sync::mpsc::channel(512);
 		let (sender_low, receiver_low) = tokio::sync::mpsc::channel(512);
@@ -175,9 +202,11 @@ impl Session {
 		let (write_sender, write_receiver) = tokio::sync::mpsc::channel(512);
 		let write_task =
 			session.spawn_process_control_write_task(self::write::RunProcessControlWriteTaskArg {
+				compacted,
 				id: id.clone(),
 				receiver: write_receiver,
 				sender: control_sender.clone(),
+				streams,
 			});
 
 		let subject = format!("processes.{id}.control.server");
@@ -758,6 +787,10 @@ impl tangram_messenger::Payload for Connected {
 }
 
 impl crate::control::Output for tg::process::control::ClientMessage {
+	fn is_request(&self) -> bool {
+		matches!(self, Self::Request(_))
+	}
+
 	fn id(&self) -> Option<&str> {
 		match self {
 			Self::Ack(_) | Self::Notification(_) => None,
@@ -777,9 +810,7 @@ impl crate::control::Input<tg::process::control::ServerMessage>
 			Self::Request(request) => crate::control::InputKind::Message {
 				id: Some(&request.id),
 			},
-			Self::Response(response) => crate::control::InputKind::Message {
-				id: Some(&response.id),
-			},
+			Self::Response(response) => crate::control::InputKind::Response { id: &response.id },
 		}
 	}
 
@@ -810,6 +841,10 @@ impl crate::control::Input<tg::process::control::ServerMessage>
 }
 
 impl crate::control::Output for tg::process::control::ServerMessage {
+	fn is_request(&self) -> bool {
+		matches!(self, Self::Request(_))
+	}
+
 	fn id(&self) -> Option<&str> {
 		match self {
 			Self::Ack(_) | Self::Notification(_) => None,
@@ -829,9 +864,7 @@ impl crate::control::Input<tg::process::control::ClientMessage>
 			Self::Request(request) => crate::control::InputKind::Message {
 				id: Some(&request.id),
 			},
-			Self::Response(response) => crate::control::InputKind::Message {
-				id: Some(&response.id),
-			},
+			Self::Response(response) => crate::control::InputKind::Response { id: &response.id },
 		}
 	}
 

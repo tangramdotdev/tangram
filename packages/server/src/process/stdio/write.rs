@@ -181,11 +181,13 @@ impl Session {
 			None
 		};
 		let mut input = pin!(input);
-		let mut position = 0;
 		while let Some(message) = input.try_next().await? {
 			match message {
-				tg::process::stdio::write::ClientMessage::Notification(
-					tg::process::stdio::write::ClientNotification::Chunk(chunk),
+				tg::process::stdio::write::ClientMessage::Notification(notification) => {
+					match notification {}
+				},
+				tg::process::stdio::write::ClientMessage::Request(
+					tg::process::stdio::write::ClientRequest::Chunk(chunk),
 				) => {
 					if !streams.contains(&chunk.stream) {
 						return Err(tg::error!(
@@ -193,14 +195,11 @@ impl Session {
 							"received an unexpected stdio stream"
 						));
 					}
-					let start = chunk.stream_position;
-					let end = start
-						.checked_add(chunk.bytes.len().to_u64().unwrap())
-						.ok_or_else(|| tg::error!("the stdio position is too large"))?;
+					let length = chunk.bytes.len().to_u64().unwrap();
 					let output = match destination {
 						Destination::Null => tg::process::control::WriteClientResponseOutput {
 							closed: false,
-							position: end,
+							length,
 						},
 						Destination::Pipe => {
 							let wait = wait
@@ -210,16 +209,15 @@ impl Session {
 								.await?
 						},
 					};
-					position = output.position;
+					send_write_response(sender, output).await;
 					if output.closed {
 						send_end_response(sender).await;
 
 						return Ok(());
 					}
-					send_write_notification(sender, position).await;
 				},
 				tg::process::stdio::write::ClientMessage::Request(
-					tg::process::stdio::write::ClientRequest::End,
+					tg::process::stdio::write::ClientRequest::End { position },
 				) => {
 					if destination == Destination::Pipe {
 						let chunk = tg::process::stdio::Chunk {
@@ -232,11 +230,8 @@ impl Session {
 						let wait = wait
 							.as_mut()
 							.ok_or_else(|| tg::error!("missing the process wait future"))?;
-						let output = self
-							.write_process_stdin_chunk_local(id, chunk, wait)
+						self.write_process_stdin_chunk_local(id, chunk, wait)
 							.await?;
-						position = output.position;
-						send_write_notification(sender, position).await;
 					}
 					send_end_response(sender).await;
 
@@ -256,7 +251,6 @@ impl Session {
 		chunk: tg::process::stdio::Chunk,
 		wait: &mut BoxFuture<'static, tg::Result<()>>,
 	) -> tg::Result<tg::process::control::WriteClientResponseOutput> {
-		let position = chunk.stream_position;
 		crate::checkpoint!(
 			self.server,
 			"process.stdio.write.request",
@@ -273,7 +267,7 @@ impl Session {
 				result?;
 				tg::process::control::WriteClientResponseOutput {
 					closed: true,
-					position,
+					length: 0,
 				}
 			},
 			response = &mut response => response?,
@@ -428,12 +422,12 @@ async fn send_end_response(
 	sender.send(Ok(message)).await.ok();
 }
 
-async fn send_write_notification(
+async fn send_write_response(
 	sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
-	position: u64,
+	output: tg::process::stdio::write::Output,
 ) {
-	let message = tg::process::stdio::write::ServerMessage::Notification(
-		tg::process::stdio::write::ServerNotification::Write { position },
+	let message = tg::process::stdio::write::ServerMessage::Response(
+		tg::process::stdio::write::ServerResponse::Write(output),
 	);
 	sender.send(Ok(message)).await.ok();
 }

@@ -5,6 +5,10 @@ use {
 
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-control";
 
+pub type WriteClientResponseOutput = tg::process::stdio::write::Output;
+
+pub type WriteServerResponseOutput = tg::process::stdio::write::Output;
+
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -547,20 +551,7 @@ pub enum WriteClientRequestArg {
 	Chunk(tg::process::stdio::Chunk),
 
 	#[tangram_serialize(id = 1)]
-	End,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct WriteServerResponseOutput {
-	#[tangram_serialize(id = 0)]
-	pub position: u64,
+	End(tg::process::log::End),
 }
 
 #[derive(
@@ -600,23 +591,6 @@ pub struct TtyServerRequestArg {
 pub struct ReadClientResponseOutput {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub chunk: Option<tg::process::stdio::Chunk>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct WriteClientResponseOutput {
-	/// Whether the process stdin is closed.
-	#[tangram_serialize(id = 1)]
-	pub closed: bool,
-
-	#[tangram_serialize(id = 0)]
-	pub position: u64,
 }
 
 #[derive(

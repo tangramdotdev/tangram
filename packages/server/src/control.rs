@@ -1,33 +1,22 @@
 use {
 	crate::Session,
 	dashmap::DashMap,
-	futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream},
-	std::{marker::PhantomData, sync::Arc, time::Duration},
+	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, stream::BoxStream},
+	std::{
+		marker::PhantomData,
+		pin::Pin,
+		sync::Arc,
+		task::{Context, Poll},
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_messenger::{Messenger as _, Payload},
 };
 
 #[cfg(test)]
-mod tests {
-	use futures::StreamExt as _;
+mod tests;
 
-	#[tokio::test]
-	async fn priority_stream() {
-		let (sender_high, receiver_high) = tokio::sync::mpsc::channel(2);
-		let (sender_low, receiver_low) = tokio::sync::mpsc::channel(2);
-		sender_low.send(1).await.unwrap();
-		sender_low.send(2).await.unwrap();
-		sender_high.send(3).await.unwrap();
-		drop(sender_high);
-		drop(sender_low);
-		let output = super::priority_stream(receiver_high, receiver_low)
-			.collect::<Vec<_>>()
-			.await;
-
-		assert_eq!(output, vec![3, 1, 2]);
-	}
-}
-
+// Acknowledgements confirm receipt only. Requests remain pending until a response; reconnects replay them with the same IDs. Responses retry until acknowledged.
 pub(crate) trait Input<O> {
 	fn kind(&self) -> InputKind<'_>;
 
@@ -41,17 +30,21 @@ pub(crate) trait Input<O> {
 pub(crate) enum InputKind<'a> {
 	Ack { id: &'a str },
 	Message { id: Option<&'a str> },
+	Response { id: &'a str },
 }
 
 pub(crate) trait Output {
 	fn id(&self) -> Option<&str>;
+
+	fn is_request(&self) -> bool {
+		false
+	}
 }
 
 pub(crate) struct Stream<I, O> {
-	_marker: PhantomData<fn() -> O>,
-	inner: BoxStream<'static, tg::Result<I>>,
 	inbox: Arc<DashMap<String, ()>>,
 	inbox_ttl: Duration,
+	inner: BoxStream<'static, tg::Result<tg::control::Event<I>>>,
 	send_tasks: [tokio::task::JoinHandle<()>; 2],
 	sender: Sender<I, O>,
 }
@@ -59,13 +52,20 @@ pub(crate) struct Stream<I, O> {
 pub(crate) struct Sender<I, O> {
 	inner_high: tokio::sync::mpsc::Sender<O>,
 	inner_low: tokio::sync::mpsc::Sender<O>,
-	_marker: PhantomData<fn() -> I>,
 	notify: Arc<tokio::sync::Notify>,
 	outbox: Arc<DashMap<String, OutboxEntry<O>>>,
+	responses: Arc<DashMap<String, tokio::sync::oneshot::Sender<I>>>,
+}
+
+pub(crate) struct Response<I, O> {
+	id: String,
+	receiver: tokio::sync::oneshot::Receiver<I>,
+	sender: Sender<I, O>,
 }
 
 #[derive(Clone)]
 struct OutboxEntry<O> {
+	acknowledged: bool,
 	message: O,
 	priority: Priority,
 }
@@ -125,14 +125,32 @@ where
 		sender_low: tokio::sync::mpsc::Sender<O>,
 		options: StreamOptions,
 	) -> Self {
+		let stream = stream.map_ok(tg::control::Event::Message).boxed();
+		Self::new_reconnecting_with_priorities(stream, sender_high, sender_low, options)
+	}
+
+	pub(crate) fn new_reconnecting(
+		stream: BoxStream<'static, tg::Result<tg::control::Event<I>>>,
+		sender: tokio::sync::mpsc::Sender<O>,
+		options: StreamOptions,
+	) -> Self {
+		Self::new_reconnecting_with_priorities(stream, sender.clone(), sender, options)
+	}
+
+	pub(crate) fn new_reconnecting_with_priorities(
+		stream: BoxStream<'static, tg::Result<tg::control::Event<I>>>,
+		sender_high: tokio::sync::mpsc::Sender<O>,
+		sender_low: tokio::sync::mpsc::Sender<O>,
+		options: StreamOptions,
+	) -> Self {
 		let StreamOptions { inbox_ttl, retry } = options;
 		let inbox = Arc::new(DashMap::new());
 		let sender = Sender {
 			inner_high: sender_high,
 			inner_low: sender_low,
-			_marker: PhantomData,
 			notify: Arc::new(tokio::sync::Notify::new()),
 			outbox: Arc::new(DashMap::new()),
+			responses: Arc::new(DashMap::new()),
 		};
 		let send_tasks = [Priority::High, Priority::Low].map(|priority| {
 			let retry = retry.clone();
@@ -141,7 +159,7 @@ where
 				let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
 				while retries.next().await.is_some() {
 					for message in sender.messages(priority) {
-						if sender.send_with_priority(message, priority).await.is_err() {
+						if sender.send_inner(message, priority).await.is_err() {
 							return;
 						}
 					}
@@ -149,12 +167,11 @@ where
 			})
 		});
 		Self {
-			inner: stream,
 			inbox,
 			inbox_ttl,
+			inner: stream,
 			send_tasks,
 			sender,
-			_marker: PhantomData,
 		}
 	}
 
@@ -163,7 +180,6 @@ where
 			let Some(message) = self.recv_without_ack().await? else {
 				return Ok(None);
 			};
-
 			match message.kind() {
 				InputKind::Ack { .. } => {},
 				InputKind::Message { id } => {
@@ -174,19 +190,41 @@ where
 					}
 					return Ok(Some(message));
 				},
+				InputKind::Response { id } => {
+					let id = id.to_owned();
+					let priority = self.input_priority(&message);
+					self.sender
+						.send_with_priority(I::create_ack_message(id.clone()), priority)
+						.await?;
+					self.sender.remove(&id);
+					if let Some((_, sender)) = self.sender.responses.remove(&id) {
+						sender.send(message).ok();
+					} else {
+						return Ok(Some(message));
+					}
+				},
 			}
 		}
 	}
 
 	pub(crate) async fn recv_without_ack(&mut self) -> tg::Result<Option<I>> {
 		loop {
-			let Some(message) = self.inner.try_next().await? else {
+			let Some(event) = self.inner.try_next().await? else {
 				return Ok(None);
 			};
-
+			let message = match event {
+				tg::control::Event::Message(message) => message,
+				tg::control::Event::Reconnect => {
+					// Receipt acknowledgements apply only to the previous connection.
+					for mut entry in self.sender.outbox.iter_mut() {
+						entry.acknowledged = false;
+					}
+					continue;
+				},
+			};
 			match message.kind() {
 				InputKind::Ack { id } => {
-					self.sender.remove(id);
+					self.sender.acknowledge(id);
 					if self.inbox.contains_key(id) {
 						let id = id.to_owned();
 						let inbox = self.inbox.clone();
@@ -209,6 +247,12 @@ where
 					self.sender
 						.send_with_priority(I::create_ack_message(id.to_owned()), priority)
 						.await?;
+				},
+				InputKind::Response { id } => {
+					if !self.sender.responses.contains_key(id) {
+						self.sender.remove(id);
+					}
+					return Ok(Some(message));
 				},
 			}
 		}
@@ -234,7 +278,7 @@ where
 	fn input_priority(&self, message: &I) -> Priority {
 		match message.kind() {
 			InputKind::Ack { .. } | InputKind::Message { id: None } => message.priority(),
-			InputKind::Message { id: Some(id) } => self
+			InputKind::Message { id: Some(id) } | InputKind::Response { id } => self
 				.sender
 				.priority(id)
 				.unwrap_or_else(|| message.priority()),
@@ -248,6 +292,7 @@ where
 
 impl<I, O> Drop for Stream<I, O> {
 	fn drop(&mut self) {
+		self.sender.responses.clear();
 		for task in &self.send_tasks {
 			task.abort();
 		}
@@ -259,15 +304,16 @@ impl<I, O> Clone for Sender<I, O> {
 		Self {
 			inner_high: self.inner_high.clone(),
 			inner_low: self.inner_low.clone(),
-			_marker: PhantomData,
 			notify: self.notify.clone(),
 			outbox: self.outbox.clone(),
+			responses: self.responses.clone(),
 		}
 	}
 }
 
 impl<I, O> Sender<I, O>
 where
+	I: Send + 'static,
 	O: Output + Clone + Send + Sync + 'static,
 {
 	pub(crate) async fn send(&self, message: O) -> tg::Result<()> {
@@ -282,23 +328,63 @@ where
 		let id = message.id().map(str::to_owned);
 		if let Some(id) = &id {
 			let entry = OutboxEntry {
+				acknowledged: false,
 				message: message.clone(),
 				priority,
 			};
 			self.outbox.insert(id.clone(), entry);
 		}
+		self.send_inner(message, priority).await?;
+		Ok(())
+	}
+
+	fn send_inner(
+		&self,
+		message: O,
+		priority: Priority,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		let id = message.id().map(str::to_owned);
 		let sender = match priority {
 			Priority::High => &self.inner_high,
 			Priority::Low => &self.inner_low,
 		};
-		if sender.send(message).await.is_err() {
+		sender.send(message).map_err(move |_| {
 			if let Some(id) = id {
 				self.remove(&id);
 			}
+			tg::error!("failed to send the control message")
+		})
+	}
 
-			return Err(tg::error!("failed to send the control message"));
+	pub(crate) async fn request(
+		&self,
+		message: O,
+		priority: Priority,
+	) -> tg::Result<Response<I, O>> {
+		let id = message
+			.id()
+			.filter(|_| message.is_request())
+			.ok_or_else(|| tg::error!("expected a control request"))?
+			.to_owned();
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		self.responses.insert(id.clone(), sender);
+		let response = Response {
+			id,
+			receiver,
+			sender: self.clone(),
+		};
+		self.send_with_priority(message, priority).await?;
+		Ok(response)
+	}
+
+	fn acknowledge(&self, id: &str) {
+		if let Some(mut entry) = self.outbox.get_mut(id)
+			&& entry.message.is_request()
+		{
+			entry.acknowledged = true;
+			return;
 		}
-		Ok(())
+		self.remove(id);
 	}
 
 	pub(crate) fn remove(&self, id: &str) {
@@ -324,9 +410,26 @@ where
 	fn messages(&self, priority: Priority) -> Vec<O> {
 		self.outbox
 			.iter()
-			.filter(|entry| entry.value().priority == priority)
+			.filter(|entry| !entry.value().acknowledged && entry.value().priority == priority)
 			.map(|entry| entry.value().message.clone())
 			.collect()
+	}
+}
+
+impl<I, O> Future for Response<I, O> {
+	type Output = Result<I, tokio::sync::oneshot::error::RecvError>;
+
+	fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+		Pin::new(&mut self.receiver).poll(cx)
+	}
+}
+
+impl<I, O> Drop for Response<I, O> {
+	fn drop(&mut self) {
+		self.sender.responses.remove(&self.id);
+		if self.sender.outbox.remove(&self.id).is_some() && self.sender.outbox.is_empty() {
+			self.sender.notify.notify_waiters();
+		}
 	}
 }
 

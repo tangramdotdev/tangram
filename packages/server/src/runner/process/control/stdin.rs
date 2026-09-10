@@ -144,7 +144,9 @@ impl Session {
 		}
 		let output = tg::process::control::WriteClientResponseOutput {
 			closed: true,
-			position,
+			length: position
+				.saturating_sub(start)
+				.min(chunk.bytes.len().to_u64().unwrap()),
 		};
 
 		Ok(output)
@@ -177,7 +179,7 @@ impl Session {
 			*closed = true;
 			let output = tg::process::control::WriteClientResponseOutput {
 				closed: true,
-				position: *position,
+				length: 0,
 			};
 
 			return Ok(output);
@@ -185,7 +187,7 @@ impl Session {
 		if end <= *position {
 			let output = tg::process::control::WriteClientResponseOutput {
 				closed: false,
-				position: *position,
+				length: chunk.bytes.len().to_u64().unwrap(),
 			};
 
 			return Ok(output);
@@ -220,7 +222,7 @@ impl Session {
 		}
 		let output = tg::process::control::WriteClientResponseOutput {
 			closed: *closed,
-			position: *position,
+			length: position.saturating_sub(start).min(end - start),
 		};
 
 		Ok(output)

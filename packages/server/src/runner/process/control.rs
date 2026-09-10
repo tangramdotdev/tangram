@@ -5,7 +5,6 @@ use {
 	},
 	crate::session::Session,
 	bytes::Bytes,
-	dashmap::DashMap,
 	futures::{FutureExt as _, TryFutureExt as _, stream::BoxStream},
 	std::sync::Arc,
 	tangram_client::prelude::*,
@@ -22,19 +21,17 @@ pub(super) type ProcessControlSender = crate::control::Sender<
 	tg::process::control::ClientMessage,
 >;
 
-pub(super) type ProcessControlRequests =
-	Arc<DashMap<String, tokio::sync::oneshot::Sender<tg::process::control::ServerResponse>>>;
-
-pub(super) type ProcessControlResponseReceiver =
-	tokio::sync::oneshot::Receiver<tg::process::control::ServerResponse>;
-
-struct PendingRequestsGuard(ProcessControlRequests);
+pub(super) type ProcessControlResponseReceiver = crate::control::Response<
+	tg::process::control::ServerMessage,
+	tg::process::control::ClientMessage,
+>;
 
 pub(super) struct RunProcessControlTaskArg {
 	pub exited: Stopper,
 	pub finish: tokio::sync::oneshot::Receiver<tg::process::Data>,
 	pub log: Option<super::WriteProcessLogTaskArg>,
-	pub requests: BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+	pub requests:
+		BoxStream<'static, tg::Result<tg::control::Event<tg::process::control::ServerMessage>>>,
 	pub retention_stopper: Stopper,
 	pub sandbox: tangram_sandbox::Sandbox,
 	pub sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
@@ -55,7 +52,6 @@ struct RunProcessControlHandlerTaskArg {
 		tg::process::control::ClientMessage,
 	>,
 	output_sender: tokio::sync::mpsc::Sender<(String, tg::process::control::ReadServerRequestArg)>,
-	pending_requests: ProcessControlRequests,
 	sender: ProcessControlSender,
 	signal_sender:
 		tokio::sync::mpsc::Sender<(String, tg::process::control::SignalServerRequestArg)>,
@@ -163,22 +159,20 @@ impl Session {
 			stdout,
 			stdout_buffered,
 		} = arg;
-		let control = crate::control::Stream::new_with_priorities(
+		let control = crate::control::Stream::new_reconnecting_with_priorities(
 			requests,
 			sender_high,
 			sender_low,
 			crate::control::stream_options(),
 		);
 		let sender = control.sender();
-		let pending_requests = Arc::new(DashMap::new());
 		let (finished_sender, finished_receiver) = tokio::sync::oneshot::channel();
 		let log_task = log.map(|arg| {
 			let session = self.clone();
-			let pending_requests = pending_requests.clone();
 			let sender = sender.clone();
 			Task::spawn(move |_| async move {
 				session
-					.write_process_log_task(arg, finished_receiver, pending_requests, sender)
+					.write_process_log_task(arg, finished_receiver, sender)
 					.boxed()
 					.await
 			})
@@ -236,7 +230,6 @@ impl Session {
 			self.spawn_process_control_handler_task(RunProcessControlHandlerTaskArg {
 				control,
 				output_sender,
-				pending_requests: pending_requests.clone(),
 				sender: sender.clone(),
 				signal_sender,
 				stdin_sender,
@@ -250,22 +243,17 @@ impl Session {
 			tg::process::control::FinishClientRequestArg { data },
 		);
 		let priority = crate::control::Priority::High;
-		let receiver = Self::send_process_control_client_request_inner(
-			&sender,
-			&pending_requests,
-			arg,
-			priority,
-		)
-		.boxed()
-		.await
-		.map_err(|error| tg::error!(!error, "failed to send the finish process request"))?;
-		finished_sender.send(()).ok();
+		let receiver = Self::send_process_control_client_request_inner(&sender, arg, priority)
+			.boxed()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the finish process request"))?;
 		let output = Self::receive_process_control_client_response(receiver)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to receive the finish process response"))?;
 		output
 			.try_unwrap_finish()
 			.map_err(|_| tg::error!("expected a finish process response"))?;
+		finished_sender.send(()).ok();
 		let log_result = if let Some(log_task) = log_task {
 			match log_task.wait().await {
 				Ok(result) => result,
@@ -306,48 +294,26 @@ impl Session {
 
 	pub(super) async fn send_process_control_client_request(
 		sender: &ProcessControlSender,
-		pending_requests: &ProcessControlRequests,
 		arg: tg::process::control::ClientRequestArg,
 		priority: crate::control::Priority,
 	) -> tg::Result<tg::process::control::ServerResponseOutput> {
-		let receiver = Self::send_process_control_client_request_inner(
-			sender,
-			pending_requests,
-			arg,
-			priority,
-		)
-		.await?;
+		let receiver =
+			Self::send_process_control_client_request_inner(sender, arg, priority).await?;
 		Self::receive_process_control_client_response(receiver).await
 	}
 
-	pub(super) async fn send_process_control_client_request_inner(
+	pub(super) fn send_process_control_client_request_inner(
 		sender: &ProcessControlSender,
-		pending_requests: &ProcessControlRequests,
 		arg: tg::process::control::ClientRequestArg,
 		priority: crate::control::Priority,
-	) -> tg::Result<ProcessControlResponseReceiver> {
-		// Create the request and response channel.
+	) -> impl Future<Output = tg::Result<ProcessControlResponseReceiver>> + Send {
 		let id = crate::control::id();
-		let (response_sender, response_receiver) = tokio::sync::oneshot::channel();
-		pending_requests.insert(id.clone(), response_sender);
 		let request =
 			tg::process::control::ClientMessage::Request(tg::process::control::ClientRequest {
 				arg,
-				id: id.clone(),
+				id,
 			});
-
-		// Send the request.
-		let result = match priority {
-			crate::control::Priority::High => sender.send(request).await,
-			crate::control::Priority::Low => sender.send_low(request).await,
-		};
-		if let Err(error) = result {
-			pending_requests.remove(&id);
-
-			return Err(error);
-		}
-
-		Ok(response_receiver)
+		sender.request(request, priority)
 	}
 
 	pub(super) async fn receive_process_control_client_response(
@@ -357,6 +323,9 @@ impl Session {
 		let response = response_receiver
 			.await
 			.map_err(|_| tg::error!("the process control response stream ended"))?;
+		let tg::process::control::ServerMessage::Response(response) = response else {
+			return Err(tg::error!("expected a control response"));
+		};
 		if let Some(error) = response.error {
 			let error = tg::Error::try_from(error)
 				.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
@@ -375,14 +344,8 @@ impl Session {
 		arg: RunProcessControlHandlerTaskArg,
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
-		let pending_requests = arg.pending_requests.clone();
 		Task::spawn(move |_| {
-			async move {
-				let _guard = PendingRequestsGuard(pending_requests);
-
-				session.run_process_control_handler_task(arg).boxed().await
-			}
-			.inspect_err(
+			async move { session.run_process_control_handler_task(arg).boxed().await }.inspect_err(
 				|error| tracing::error!(error = %error.trace(), "the process control handler task failed"),
 			)
 		})
@@ -395,7 +358,6 @@ impl Session {
 		let RunProcessControlHandlerTaskArg {
 			mut control,
 			output_sender,
-			pending_requests,
 			sender,
 			signal_sender,
 			stdin_sender,
@@ -550,12 +512,7 @@ impl Session {
 						},
 					}
 				},
-				tg::process::control::ServerMessage::Response(response) => {
-					sender.remove(&response.id);
-					if let Some((_, sender)) = pending_requests.remove(&response.id) {
-						sender.send(response).ok();
-					}
-				},
+				tg::process::control::ServerMessage::Response(_) => {},
 				tg::process::control::ServerMessage::Ack(_) => unreachable!(),
 				tg::process::control::ServerMessage::Notification(notification) => {
 					match notification {}
@@ -564,11 +521,5 @@ impl Session {
 		}
 
 		Ok(())
-	}
-}
-
-impl Drop for PendingRequestsGuard {
-	fn drop(&mut self) {
-		self.0.clear();
 	}
 }
