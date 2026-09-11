@@ -1,6 +1,6 @@
 use ../../../test.nu *
 
-# import.meta.module is a referent to the module's own source with empty options.
+# import.meta.module refers to the module's own source; empty referent options are omitted.
 
 let server = server spawn
 
@@ -9,4 +9,4 @@ let path = artifact {
 }
 
 let output = tg build $path
-snapshot --normalize-ids $output 'tg.module({"kind":"ts","referent":{"node":fil_010000000000000000000000000000000000000000000000000000,"options":{}}})'
+snapshot --normalize-ids $output 'tg.module({"kind":"ts","referent":{"node":fil_010000000000000000000000000000000000000000000000000000}})'
