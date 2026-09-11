@@ -3,8 +3,7 @@ create table if not exists objects (
 	id blob,
 	put blob,
 	primary key ((id), put)
-) with clustering order by (put desc)
-	and tombstone_gc = {'mode': 'repair'};
+) with clustering order by (put desc);
 
 create table if not exists object_cache (
 	cache blob,
@@ -12,8 +11,7 @@ create table if not exists object_cache (
 	partition bigint,
 	put blob,
 	primary key ((partition), cache)
-) with clustering order by (cache asc)
-	and tombstone_gc = {'mode': 'repair'};
+) with clustering order by (cache asc);
 
 create table if not exists archive_queue (
 	indexer blob,
@@ -21,8 +19,7 @@ create table if not exists archive_queue (
 	object blob,
 	put blob,
 	primary key ((indexer), sequence)
-) with clustering order by (sequence asc)
-	and tombstone_gc = {'mode': 'repair'};
+) with clustering order by (sequence asc);
 
 create table if not exists index_queue (
 	indexer blob,
@@ -32,8 +29,7 @@ create table if not exists index_queue (
 	fragments bigint,
 	payload blob,
 	primary key ((indexer), sequence)
-) with clustering order by (sequence asc)
-	and tombstone_gc = {'mode': 'repair'};
+) with clustering order by (sequence asc);
 
 create table if not exists logs (
 	process blob,
@@ -46,5 +42,4 @@ create table if not exists logs (
 	stream_position bigint,
 	"timestamp" bigint,
 	primary key ((process), kind, position)
-) with clustering order by (kind asc, position asc)
-	and tombstone_gc = {'mode': 'repair'};
+) with clustering order by (kind asc, position asc);
