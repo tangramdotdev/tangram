@@ -292,7 +292,8 @@ impl Index {
 				..Default::default()
 			};
 			async move {
-				let result = txn.get_range(&range, 1, false).await;
+				// A snapshot is sufficient because processing an update atomically preserves its version in downstream work.
+				let result = txn.get_range(&range, 1, true).await;
 				let entries = crate::fdb::retry!(result);
 				let Some(entry) = entries.first() else {
 					return Ok(ControlFlow::Break(None));
@@ -567,15 +568,13 @@ impl Index {
 			};
 
 			if let Some(source) = source {
-				let propagate = if source == Source::Put || changed {
-					true
-				} else {
-					let propagated_version = crate::fdb::propagate!(
-						Self::try_get_update_propagated_version(txn, subspace, &id, &kind).await
-					);
-					propagated_version
-						.is_some_and(|propagated_version| version < propagated_version)
-				};
+				let propagated_version = crate::fdb::propagate!(
+					Self::try_get_update_propagated_version(txn, subspace, &id, &kind).await
+				);
+				let propagate = source == Source::Put
+					|| changed || propagated_version
+					.as_ref()
+					.is_some_and(|propagated_version| version < *propagated_version);
 				if propagate {
 					crate::fdb::propagate!(
 						Self::enqueue_parents(txn, subspace, &id, &kind, &version, partition_total)
@@ -592,6 +591,18 @@ impl Index {
 						tg::Either::Right(id) => id.to_bytes(),
 					};
 					let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+					// Keep one cleanup entry for the retained propagated version.
+					if let Some(previous) =
+						propagated_version.filter(|previous| *previous != version)
+					{
+						let key = crate::fdb::Key::Update(Key::Clean {
+							id: id.clone(),
+							kind: kind.clone(),
+							partition,
+							version: previous,
+						});
+						txn.clear(&Self::pack(subspace, &key));
+					}
 					let key = crate::fdb::Key::Update(Key::Clean {
 						id: id.clone(),
 						kind: kind.clone(),

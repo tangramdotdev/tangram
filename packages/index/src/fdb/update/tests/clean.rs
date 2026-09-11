@@ -147,6 +147,7 @@ async fn cleaning_respects_other_partitions_and_newer_versions() {
 		] {
 			enqueue(index, &id, &kind).await;
 			drain(index).await;
+			let previous = version(index, &id, &kind).await.unwrap();
 			enqueue(index, &blocker_id, &kind).await;
 			assign(index, &blocker_id, &kind, queue, other_partition).await;
 			enqueue(index, &id, &kind).await;
@@ -156,6 +157,25 @@ async fn cleaning_respects_other_partitions_and_newer_versions() {
 				.await
 				.unwrap();
 			let expected = version(index, &id, &kind).await.unwrap();
+
+			// Recreate a stale cleanup entry to verify that it cannot delete a newer version.
+			crate::fdb::run(&index.database, |txn| {
+				let id = &id;
+				let kind = &kind;
+				let previous = &previous;
+				async move {
+					let key = crate::fdb::Key::Update(Key::Clean {
+						id: id.clone(),
+						kind: kind.clone(),
+						partition,
+						version: previous.clone(),
+					});
+					txn.set(&Index::pack(&index.subspace, &key), &[]);
+					Ok(ControlFlow::Break(()))
+				}
+			})
+			.await
+			.unwrap();
 
 			// The old cleanup entry is eligible, but the current version is still needed.
 			let output = index
@@ -241,6 +261,109 @@ async fn concurrent_propagation_conflicts_with_cleaning() {
 		assert_eq!(version(index, &id, &Kind::Node).await, Some(expected));
 		index.clean(clean_arg(100, 0, 2)).await.unwrap();
 		assert!(version(index, &id, &Kind::Node).await.is_none());
+	})
+	.await;
+}
+
+#[tokio::test]
+#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
+async fn unrelated_queue_progress_does_not_conflict_with_cleaning() {
+	run(async |index| {
+		let mut object = directory(&[]);
+		object.touched_at = 100;
+		let id = tg::Either::Left(object.id.clone());
+		let missing = tg::object::Id::new(tg::object::Kind::Directory, &vec![0].into());
+		let mut unrelated = directory(&[("missing", missing)]);
+		unrelated.touched_at = 100;
+		let unrelated_id = tg::Either::Left(unrelated.id.clone());
+		put(index, vec![object, unrelated]).await;
+		drain(index).await;
+		let subject = tg::authorization::Subject::User(tg::user::Id::new());
+		for (kind, queue) in [
+			(Kind::Grant(subject), crate::update::Kind::Grant),
+			(Kind::Node, crate::update::Kind::Node),
+		] {
+			index.clean(clean_arg(100, 0, 2)).await.unwrap();
+			enqueue(index, &id, &kind).await;
+			drain(index).await;
+			enqueue(index, &unrelated_id, &kind).await;
+
+			// Pause cleanup after it has read the queue heads and selected this item's version.
+			let transaction = index.database.create_trx().unwrap();
+			let transaction = crate::fdb::Transaction::new(transaction);
+			let arg = crate::fdb::clean::TransactionArg {
+				batch_size: 100,
+				max_object_touched_at: 0,
+				max_process_touched_at: 0,
+				max_sandbox_touched_at: 0,
+				now: 0,
+				partition_end: 2,
+				partition_start: 0,
+				partition_total: 2,
+				subspace: &index.subspace,
+				txn: &transaction,
+				usage_partition_total: 1,
+			};
+			let ControlFlow::Break(output) = Index::clean_with_transaction(arg).await.unwrap()
+			else {
+				panic!("the cleaning transaction failed");
+			};
+			assert!(!output.done);
+
+			// Consuming another item's queue entry must not invalidate the cleanup transaction.
+			assert_eq!(index.update_batch(queue, 100, 0, 2).await.unwrap().count, 1);
+			transaction.take().unwrap().commit().await.unwrap();
+			assert!(version(index, &id, &kind).await.is_none());
+		}
+	})
+	.await;
+}
+
+#[tokio::test]
+#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
+async fn replacing_propagated_versions_replaces_cleanup_entries() {
+	run(async |index| {
+		let mut object = directory(&[]);
+		object.touched_at = 100;
+		let id = tg::Either::Left(object.id.clone());
+		put(index, vec![object]).await;
+		drain(index).await;
+		let subject = tg::authorization::Subject::User(tg::user::Id::new());
+		for kind in [Kind::Grant(subject), Kind::Node] {
+			enqueue(index, &id, &kind).await;
+			drain(index).await;
+			let previous = version(index, &id, &kind).await.unwrap();
+			for _ in 0..4 {
+				enqueue(index, &id, &kind).await;
+				drain(index).await;
+				assert_eq!(
+					count_clean_entries(index).await,
+					count_versions(index).await
+				);
+			}
+
+			// Lowering the propagated version must replace the cleanup entry as well.
+			crate::fdb::run(&index.database, |txn| {
+				let id = &id;
+				let kind = &kind;
+				let previous = &previous;
+				async move {
+					Index::enqueue_update_propagate(&txn, &index.subspace, id, kind, previous, 2)
+						.await
+				}
+			})
+			.await
+			.unwrap();
+			drain(index).await;
+			assert_eq!(version(index, &id, &kind).await, Some(previous));
+			assert_eq!(
+				count_clean_entries(index).await,
+				count_versions(index).await
+			);
+		}
+		index.clean(clean_arg(100, 0, 2)).await.unwrap();
+		assert_eq!(count_clean_entries(index).await, 0);
+		assert_eq!(count_versions(index).await, 0);
 	})
 	.await;
 }

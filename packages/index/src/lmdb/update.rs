@@ -339,6 +339,20 @@ impl Index {
 						.map_err(|error| tg::error!(!error, "failed to get the update item"))?
 						.is_some()
 					{
+						// Keep one cleanup entry for the retained propagated version.
+						if let Some(previous) =
+							propagated_version.filter(|previous| *previous != version)
+						{
+							let key = crate::lmdb::Key::Update(Key::Clean {
+								id: id.clone(),
+								kind: kind.clone(),
+								version: previous,
+							});
+							db.delete(transaction, &Self::pack(subspace, &key))
+								.map_err(|error| {
+									tg::error!(!error, "failed to delete the update clean key")
+								})?;
+						}
 						db.put(transaction, &key, &version.to_be_bytes())
 							.map_err(|error| {
 								tg::error!(!error, "failed to put the propagated update version")

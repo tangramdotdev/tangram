@@ -149,6 +149,21 @@ async fn cleaning_retains_pending_versions_and_ignores_stale_entries() {
 		assert!(expected > oldest);
 		enqueue(&index, &blocker, &kind, Some(oldest));
 
+		// Recreate a stale cleanup entry to verify that it cannot delete a newer version.
+		{
+			let mut transaction = index.env.write_txn().unwrap();
+			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Clean {
+				id: id.clone(),
+				kind: kind.clone(),
+				version: previous,
+			});
+			index
+				.db
+				.put(&mut transaction, &Index::pack(&index.subspace, &key), &[])
+				.unwrap();
+			transaction.commit().unwrap();
+		}
+
 		// The old cleanup entry is eligible, but the current version is still needed.
 		assert!(!index.clean(clean_arg(1)).await.unwrap().done);
 		assert_eq!(version(&index, &id, &kind), Some(expected));
@@ -163,6 +178,31 @@ async fn cleaning_retains_pending_versions_and_ignores_stale_entries() {
 		index.clean(clean_arg(100)).await.unwrap();
 		assert!(version(&index, &id, &kind).is_none());
 	}
+}
+
+#[tokio::test]
+async fn replacing_propagated_versions_replaces_cleanup_entries() {
+	let (_dir, index) = super::super::new_index();
+	let mut object = object(0, []);
+	object.touched_at = 100;
+	let id = tg::Either::Left(object.id.clone());
+	put(&index, vec![object]).await;
+	drain(&index, crate::update::Kind::Node).await;
+	let subject = tg::authorization::Subject::User(tg::user::Id::new());
+	for (kind, queue) in [
+		(Kind::Grant(subject), crate::update::Kind::Grant),
+		(Kind::Node, crate::update::Kind::Node),
+	] {
+		for expected in [100, 200, 150, 150, 300, 50] {
+			enqueue(&index, &id, &kind, Some(expected));
+			drain(&index, queue).await;
+			assert_eq!(version(&index, &id, &kind), Some(expected));
+			assert_eq!(count_clean_entries(&index), count_versions(&index));
+		}
+	}
+	index.clean(clean_arg(100)).await.unwrap();
+	assert_eq!(count_clean_entries(&index), 0);
+	assert_eq!(count_versions(&index), 0);
 }
 
 fn version(
