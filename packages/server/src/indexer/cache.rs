@@ -11,6 +11,14 @@ pub(crate) struct Cache(Arc<RwLock<Vec<tg::indexer::Id>>>);
 
 impl Cache {
 	#[must_use]
+	pub fn is_empty(&self) -> bool {
+		self.0
+			.read()
+			.expect("failed to read the indexer cache")
+			.is_empty()
+	}
+
+	#[must_use]
 	pub fn available(&self) -> Vec<tg::indexer::Id> {
 		self.0
 			.read()

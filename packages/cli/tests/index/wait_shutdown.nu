@@ -15,7 +15,11 @@ let config = {
 	advanced: { checkpoints: true, single_directory: false, single_process: false },
 	database: { kind: 'sqlite', path: ($directory | path join database.sqlite3) },
 	index: { kind: 'lmdb', map_size: 268_435_456, path: ($directory | path join index) },
-	indexer: { cache: { poll_interval: 0.01 }, cleaning: false },
+	indexer: {
+		cache: { poll_interval: 0.01 },
+		cleaning: false,
+		updates: { nodes: { batch_size: 1 } },
+	},
 	messenger: { kind: 'nats', url: $'nats://127.0.0.1:($port)' },
 	roles: [api indexer],
 	store: {
@@ -68,21 +72,26 @@ wait_until { ps | where pid == $pid | is-empty } 'A must shut down without drain
 
 # The caller must send B another wait instead of treating A's deletion as completion.
 tg --url $b.url checkpoint wait indexer.request.receive $b_wait_watch 0 | ignore
+let complete_watch = tg --url $api.url checkpoint watch indexer.wait.complete --params $params | from json | get watch
 tg --url $b.url checkpoint continue indexer.request.receive $b_wait_watch 0
+
+# B must finish its local wait while the API continues waiting for the shared updates.
+tg --url $api.url checkpoint wait indexer.wait.complete $complete_watch 0 | ignore
+tg --url $api.url checkpoint unwatch indexer.wait.complete $complete_watch
 let pending = try {
 	job recv --tag $request --timeout 200ms | ignore
 	false
 } catch {
 	true
 }
-assert $pending 'the replacement wait must include the shared updates'
+assert $pending 'the server wait must include the shared updates after the local wait finishes'
 tg --url $b.url checkpoint unwatch indexer.update.node.batch $update_watch
 let output = job recv --tag $request --timeout 10sec
 success $output 'the replacement wait must finish after the shared updates'
 let metadata = tg --url $api.url object metadata $object | from json
 assert equal $metadata.subtree.count 5 'the departed indexer must preserve all of its input'
 
-# Losing the last indexer while a wait is outstanding must return an error.
+# Losing the last indexer while a local wait is outstanding must return an error.
 let request = job spawn {
 	let id = job id
 	let output = tg --url $url index | complete
@@ -99,6 +108,26 @@ snapshot --normalize $output.stderr '
 	-> no indexers are available
 
 '
+
+# Losing the last indexer after its local wait finishes must fail the pending shared wait.
+let c = server spawn --name c --config ($config | merge deep {
+	indexer: { updates: { nodes: { partitions: { start: 0, end: 0 } } } },
+})
+tg --url $api.url put 'tg.directory({ "x.txt": tg.file("xxx"), "y.txt": tg.file("yyy") })' | ignore
+let shared_watch = tg --url $api.url checkpoint watch index.wait.updates | from json | get watch
+let request = job spawn {
+	let id = job id
+	let output = tg --url $url index | complete
+	$output | job send --tag $id 0
+}
+tg --url $api.url checkpoint wait index.wait.updates $shared_watch 0 | ignore
+let pid = open ($c.directory | path join lock) | into int
+kill --signal 2 $pid
+wait_until { ps | where pid == $pid | is-empty } 'C must shut down after completing its local wait'
+tg --url $api.url checkpoint unwatch index.wait.updates $shared_watch
+let output = job recv --tag $request --timeout 10sec
+failure $output 'shared work must not be abandoned when the last indexer disappears'
+assert ($output.stderr | str contains 'no indexers are available')
 
 server stop $api
 job kill $messenger

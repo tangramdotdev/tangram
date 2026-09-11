@@ -128,6 +128,7 @@ pub struct State {
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<tg::Result<()>>,
+	index_wait_sender: self::index::WaitSender,
 	indexers: self::indexer::Cache,
 	#[cfg(target_os = "linux")]
 	ip_pool: tangram_sandbox::network::ip::Pool,
@@ -481,11 +482,6 @@ impl Server {
 					"the indexer request concurrency must be greater than zero"
 				));
 			}
-			if indexer.request.poll_interval.is_zero() {
-				return Err(tg::error!(
-					"the indexer request poll interval must be greater than zero"
-				));
-			}
 		}
 
 		if config.scheduler.request_concurrency == 0 {
@@ -603,6 +599,16 @@ impl Server {
 		}
 
 		// Validate the indexer configuration.
+		if config.indexer.request.wait_concurrency == 0 {
+			return Err(tg::error!(
+				"the index wait concurrency must be greater than zero"
+			));
+		}
+		if config.indexer.request.poll_interval.is_zero() {
+			return Err(tg::error!(
+				"the indexer request poll interval must be greater than zero"
+			));
+		}
 		if config.indexer.batch.timeout.is_zero() {
 			return Err(tg::error!(
 				"the indexer batch timeout must be greater than zero"
@@ -944,6 +950,10 @@ impl Server {
 		// Create the index tasks.
 		let index_tasks = tangram_futures::task::Set::default();
 
+		// Create the index wait channel.
+		let (index_wait_sender, index_wait_receiver) =
+			tokio::sync::mpsc::channel(config.indexer.request.wait_concurrency);
+
 		// Create the library.
 		let library = Mutex::new(None);
 
@@ -1134,6 +1144,7 @@ impl Server {
 			diagnostics,
 			index,
 			index_tasks,
+			index_wait_sender,
 			indexers,
 			#[cfg(target_os = "linux")]
 			ip_pool,
@@ -1298,6 +1309,14 @@ impl Server {
 			}
 			drop(checkout_guard);
 		}
+
+		// Spawn the shared index wait task.
+		let index_wait_task = Task::spawn({
+			let server = server.clone();
+			move |stopper| async move {
+				server.index_wait_task(index_wait_receiver, stopper).await;
+			}
+		});
 
 		// Spawn the indexer cache task.
 		let indexer_cache_task = Task::spawn({
@@ -1610,6 +1629,15 @@ impl Server {
 
 				// Finish the index tasks after their producers have stopped.
 				server.index_tasks.wait().await;
+
+				// Stop the index wait task after its callers have stopped.
+				index_wait_task.stop();
+				let result = index_wait_task.wait().await;
+				if let Err(error) = result
+					&& !error.is_cancelled()
+				{
+					tracing::error!(?error, "the index wait task panicked");
+				}
 
 				// Stop the indexer task.
 				if let Some(task) = indexer_task {

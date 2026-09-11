@@ -1,6 +1,5 @@
 use {
 	super::{Indexer, State, queue, wait},
-	crate::Session,
 	futures::{StreamExt as _, TryStreamExt as _, future},
 	std::{
 		ops::ControlFlow,
@@ -114,16 +113,6 @@ struct Guard {
 	id: String,
 	state: Arc<Mutex<State>>,
 	writing: bool,
-}
-
-impl Session {
-	pub(crate) async fn send_indexer_request(
-		&self,
-		indexer: Option<&tg::indexer::Id>,
-		arg: RequestArg,
-	) -> tg::Result<tg::Result<ResponseOutput>> {
-		self.server.send_indexer_request(indexer, arg).await
-	}
 }
 
 impl crate::Server {

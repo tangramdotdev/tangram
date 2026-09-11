@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Concurrent requests to await indexing share the indexer and all complete.
+# Concurrent requests share the server waiter and keep their own cutoffs.
 
 let server = server spawn --config {
 	advanced: {
@@ -35,25 +35,28 @@ let wait_watch = (
 let first = index_background $server.url
 tg --url $server.url checkpoint wait indexer.request.wait $wait_watch 0 | ignore
 
-# Start a second request and hold it after the indexer records it. At this point
-# both requests are live in the indexer.
+# Queue a later request while the first batch is waiting for local tasks.
 let receive_watch = (
 	tg --url $server.url checkpoint watch indexer.request.receive
 	| from json
 	| get watch
 )
 let second = index_background $server.url
+tg --url $server.url checkpoint continue indexer.request.wait $wait_watch 0
+
+# The later request starts its own local wait after the first batch finishes.
 tg --url $server.url checkpoint wait indexer.request.receive $receive_watch 0 | ignore
 
 tg --url $server.url checkpoint continue indexer.request.receive $receive_watch 0
 tg --url $server.url checkpoint unwatch indexer.request.receive $receive_watch
-tg --url $server.url checkpoint continue indexer.request.wait $wait_watch 0
-tg --url $server.url checkpoint unwatch indexer.request.wait $wait_watch
+tg --url $server.url checkpoint wait indexer.request.wait $wait_watch 1 | ignore
 
-for index in [$first $second] {
-	let output = job recv --tag $index --timeout 10sec
-	success $output
-}
+# The first request must finish even while the later local wait remains blocked.
+let output = job recv --tag $first --timeout 10sec
+success $output
+tg --url $server.url checkpoint unwatch indexer.request.wait $wait_watch
+let output = job recv --tag $second --timeout 10sec
+success $output
 
 let metadata = tg --url $server.url object metadata $id | from json
 assert ($metadata.subtree.count > 0)

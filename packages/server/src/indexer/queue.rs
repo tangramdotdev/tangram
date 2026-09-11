@@ -300,16 +300,6 @@ impl Queues {
 		}
 	}
 
-	#[must_use]
-	pub fn index_read_sequence(&self) -> u64 {
-		self.index.read_sequence
-	}
-
-	#[must_use]
-	pub fn index_target_sequence(&self) -> u64 {
-		self.index.write_sequence
-	}
-
 	pub fn insert_index_fragment(
 		&mut self,
 		fragment: crate::store::index::queue::Fragment,

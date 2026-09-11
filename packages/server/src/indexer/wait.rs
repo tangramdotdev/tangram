@@ -1,10 +1,9 @@
 use {
 	crate::{Server, indexer::Indexer},
-	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, stream::FuturesUnordered},
 	std::{collections::BTreeMap, sync::Mutex},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
-	tangram_index::prelude::*,
 };
 
 #[cfg(test)]
@@ -16,7 +15,6 @@ pub(super) type Sender = tokio::sync::mpsc::Sender<Request>;
 type TaskWaits = FuturesUnordered<futures::future::BoxFuture<'static, Vec<String>>>;
 
 struct State {
-	database_index_outbox_batch_id: Option<crate::database::index::outbox::BatchId>,
 	task_waits: TaskWaits,
 	waits: BTreeMap<String, Request>,
 }
@@ -29,23 +27,13 @@ pub(super) struct Request {
 
 #[derive(Clone, Copy)]
 pub(super) enum RequestState {
-	DatabaseIndexOutbox,
-	DatabaseIndexOutboxPending,
-	IndexQueue,
-	IndexQueuePending { sequence: u64 },
-	LogCompactions { transaction_id: Option<u64> },
+	Queues,
+	QueuesPending {
+		archive_sequence: u64,
+		index_sequence: u64,
+	},
 	Tasks,
-	Updates { transaction_id: Option<u64> },
-}
-
-impl Server {
-	pub(crate) async fn wait_for_indexing_local(&self) -> tg::Result<()> {
-		self.send_indexer_request(None, super::RequestArg::Wait)
-			.await??
-			.try_unwrap_wait()
-			.map_err(|_| tg::error!("expected a wait response"))?;
-		Ok(())
-	}
+	TasksPending,
 }
 
 impl Indexer {
@@ -93,14 +81,19 @@ impl Indexer {
 				},
 				_ = interval.tick(), if !state.waits.is_empty() => {
 					state.waits.retain(|_, request| !request.sender.is_closed());
-					state.start_task_wait(&self.server);
-					let result = tokio::select! {
-						() = stopper.wait() => return Ok(()),
-						result = state.poll(&self.server, queues) => result,
-					};
-					if let Err(error) = result {
-						state.fail(&error);
+					if !state.waits.values().any(|request| matches!(request.state, RequestState::TasksPending)) {
+						state.task_waits.clear();
 					}
+					state.start_task_wait(&self.server);
+					let (read, target) = {
+						let state = queues.lock().unwrap();
+						(state.queues.read_sequences(), state.queues.target_sequences())
+					};
+					state.poll_queues(
+						self.server.config.advanced.single_process,
+						read,
+						target,
+					);
 				},
 			}
 		}
@@ -108,226 +101,45 @@ impl Indexer {
 }
 
 impl State {
-	fn fail(&mut self, error: &tg::Error) {
-		self.database_index_outbox_batch_id = None;
-		self.task_waits.clear();
-		for (_, request) in std::mem::take(&mut self.waits) {
-			let error = error.clone();
-			request
-				.sender
-				.send(Err(tg::error!(!error, "failed to await indexing")))
-				.ok();
-		}
-	}
-
 	fn new() -> Self {
 		Self {
-			database_index_outbox_batch_id: None,
 			task_waits: TaskWaits::new(),
 			waits: BTreeMap::new(),
 		}
 	}
-	async fn poll(&mut self, server: &Server, queues: &Mutex<super::State>) -> tg::Result<()> {
-		// Wait for the index queue.
-		let (read_sequence, target_sequence) = {
-			let state = queues.lock().unwrap();
-			(
-				state.queues.index_read_sequence(),
-				state.queues.index_target_sequence(),
-			)
-		};
-		self.poll_index_queue(
-			server.config.advanced.single_process,
-			read_sequence,
-			target_sequence,
-		);
 
-		// Wait for the database index outbox.
-		let region = server.config.region.clone().unwrap_or_default();
-		self.poll_database_index_outbox(server.config.indexer.log_compaction.enabled, |batch| {
-			let arg = crate::database::index::outbox::TryGetBatchArg {
-				batch,
-				region: region.clone(),
-			};
-			server.database.try_get_index_outbox_batch_at_or_before(arg)
-		})
-		.await?;
-
-		// Wait for the log compaction queue.
-		self.set_log_compaction_target_transactions(server.index.get_transaction_id())
-			.await?;
-		self.poll_log_compactions(server.index.try_get_oldest_log_compaction_transaction_id())
-			.await?;
-
-		// Wait for the index update queue.
-		self.set_update_target_transactions(server.index.get_transaction_id())
-			.await?;
-		self.poll_updates(|kind| server.index.try_get_oldest_update_transaction_id(kind))
-			.await?;
-
-		Ok(())
-	}
-
-	fn poll_index_queue(&mut self, single_process: bool, read_sequence: u64, target_sequence: u64) {
-		if single_process {
-			for request in self.waits.values_mut() {
-				if matches!(request.state, RequestState::IndexQueue) {
-					request.state = RequestState::DatabaseIndexOutbox;
-				}
-			}
-			return;
-		}
-
-		// Snapshot the next batch of requests.
-		if self
-			.waits
-			.values()
-			.any(|request| matches!(request.state, RequestState::IndexQueue))
-		{
-			let sequence = target_sequence;
-			for request in self.waits.values_mut() {
-				if matches!(request.state, RequestState::IndexQueue) {
-					request.state = RequestState::IndexQueuePending { sequence };
-				}
-			}
-		}
-
-		// Poll the active batch of requests.
+	fn poll_queues(&mut self, single_process: bool, read: (u64, u64), target: (u64, u64)) {
+		// Capture both private queue cutoffs for the next batch of requests.
 		for request in self.waits.values_mut() {
-			let RequestState::IndexQueuePending { sequence } = request.state else {
-				continue;
-			};
-			if read_sequence >= sequence {
-				request.state = RequestState::DatabaseIndexOutbox;
-			}
-		}
-	}
-
-	async fn poll_database_index_outbox<F>(
-		&mut self,
-		log_compaction: bool,
-		read: impl Fn(Option<crate::database::index::outbox::BatchId>) -> F,
-	) -> tg::Result<()>
-	where
-		F: Future<Output = tg::Result<Option<crate::database::index::outbox::BatchId>>>,
-	{
-		// Poll the active batch of requests.
-		if let Some(batch) = self.database_index_outbox_batch_id {
-			let batch = read(Some(batch))
-				.await
-				.map_err(|error| tg::error!(!error, "failed to poll the database index outbox"))?;
-			if batch.is_some() {
-				return Ok(());
-			}
-			for request in self.waits.values_mut() {
-				if matches!(request.state, RequestState::DatabaseIndexOutboxPending) {
-					request.state = if log_compaction {
-						RequestState::LogCompactions {
-							transaction_id: None,
-						}
-					} else {
-						RequestState::Updates {
-							transaction_id: None,
-						}
-					};
-				}
-			}
-			self.database_index_outbox_batch_id = None;
-
-			return Ok(());
-		}
-
-		// Snapshot the next batch of requests.
-		let snapshot = self
-			.waits
-			.values()
-			.any(|request| matches!(request.state, RequestState::DatabaseIndexOutbox));
-		if !snapshot {
-			return Ok(());
-		}
-		let batch = read(None)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to snapshot the database index outbox"))?;
-		for request in self.waits.values_mut() {
-			if !matches!(request.state, RequestState::DatabaseIndexOutbox) {
-				continue;
-			}
-			request.state = if batch.is_some() {
-				RequestState::DatabaseIndexOutboxPending
-			} else if log_compaction {
-				RequestState::LogCompactions {
-					transaction_id: None,
-				}
-			} else {
-				RequestState::Updates {
-					transaction_id: None,
-				}
-			};
-		}
-		self.database_index_outbox_batch_id = batch;
-
-		Ok(())
-	}
-
-	async fn set_log_compaction_target_transactions(
-		&mut self,
-		read: impl Future<Output = tg::Result<u64>>,
-	) -> tg::Result<()> {
-		let set_transaction = self.waits.values().any(|request| {
-			matches!(
-				request.state,
-				RequestState::LogCompactions {
-					transaction_id: None
-				}
-			)
-		});
-		if !set_transaction {
-			return Ok(());
-		}
-		let transaction_id = read.await?;
-		for request in self.waits.values_mut() {
-			if let RequestState::LogCompactions {
-				transaction_id: transaction @ None,
-			} = &mut request.state
-			{
-				*transaction = Some(transaction_id);
-			}
-		}
-
-		Ok(())
-	}
-
-	async fn poll_log_compactions(
-		&mut self,
-		read: impl Future<Output = tg::Result<Option<u64>>>,
-	) -> tg::Result<()> {
-		let poll = self.waits.values().any(|request| {
-			matches!(
-				request.state,
-				RequestState::LogCompactions {
-					transaction_id: Some(_)
-				}
-			)
-		});
-		if !poll {
-			return Ok(());
-		}
-		let oldest = read.await?;
-		for request in self.waits.values_mut() {
-			let RequestState::LogCompactions {
-				transaction_id: Some(transaction_id),
-			} = request.state
-			else {
-				continue;
-			};
-			if oldest.is_none_or(|oldest| oldest > transaction_id) {
-				request.state = RequestState::Updates {
-					transaction_id: None,
+			if matches!(request.state, RequestState::Queues) {
+				request.state = RequestState::QueuesPending {
+					archive_sequence: target.0,
+					index_sequence: target.1,
 				};
 			}
 		}
 
-		Ok(())
+		// Finish each request once both queues have passed its cutoffs.
+		let ids = self
+			.waits
+			.iter()
+			.filter_map(|(id, request)| {
+				let RequestState::QueuesPending {
+					archive_sequence,
+					index_sequence,
+				} = request.state
+				else {
+					return None;
+				};
+				(single_process || (read.0 >= archive_sequence && read.1 >= index_sequence))
+					.then(|| id.clone())
+			})
+			.collect::<Vec<_>>();
+		for id in ids {
+			if let Some(request) = self.waits.remove(&id) {
+				request.sender.send(Ok(())).ok();
+			}
+		}
 	}
 
 	fn start_task_wait(&mut self, server: &Server) {
@@ -336,9 +148,14 @@ impl State {
 		}
 		let ids = self
 			.waits
-			.iter()
-			.filter(|(_, request)| matches!(request.state, RequestState::Tasks))
-			.map(|(id, _)| id.clone())
+			.iter_mut()
+			.filter_map(|(id, request)| {
+				if !matches!(request.state, RequestState::Tasks) {
+					return None;
+				}
+				request.state = RequestState::TasksPending;
+				Some(id.clone())
+			})
 			.collect::<Vec<_>>();
 		if ids.is_empty() {
 			return;
@@ -363,86 +180,9 @@ impl State {
 			let Some(request) = self.waits.get_mut(&id) else {
 				continue;
 			};
-			if matches!(request.state, RequestState::Tasks) {
-				request.state = RequestState::IndexQueue;
+			if matches!(request.state, RequestState::TasksPending) {
+				request.state = RequestState::Queues;
 			}
 		}
-	}
-
-	async fn set_update_target_transactions(
-		&mut self,
-		read: impl Future<Output = tg::Result<u64>>,
-	) -> tg::Result<()> {
-		let set_transaction = self.waits.values().any(|request| {
-			matches!(
-				request.state,
-				RequestState::Updates {
-					transaction_id: None
-				}
-			)
-		});
-		if !set_transaction {
-			return Ok(());
-		}
-		let transaction_id = read.await?;
-		for request in self.waits.values_mut() {
-			if let RequestState::Updates {
-				transaction_id: transaction @ None,
-			} = &mut request.state
-			{
-				*transaction = Some(transaction_id);
-			}
-		}
-
-		Ok(())
-	}
-
-	async fn poll_updates<F>(
-		&mut self,
-		read: impl Fn(tangram_index::update::Kind) -> F,
-	) -> tg::Result<()>
-	where
-		F: Future<Output = tg::Result<Option<u64>>>,
-	{
-		let poll = self.waits.values().any(|request| {
-			matches!(
-				request.state,
-				RequestState::Updates {
-					transaction_id: Some(_)
-				}
-			)
-		});
-		if !poll {
-			return Ok(());
-		}
-		let oldests = future::try_join3(
-			read(tangram_index::update::Kind::Grant),
-			read(tangram_index::update::Kind::Node),
-			read(tangram_index::update::Kind::Storage),
-		)
-		.await?;
-		let ids = self
-			.waits
-			.iter()
-			.filter_map(|(id, request)| {
-				let RequestState::Updates {
-					transaction_id: Some(transaction_id),
-				} = request.state
-				else {
-					return None;
-				};
-				[oldests.0, oldests.1, oldests.2]
-					.into_iter()
-					.all(|oldest| oldest.is_none_or(|oldest| oldest > transaction_id))
-					.then(|| id.clone())
-			})
-			.collect::<Vec<_>>();
-		for id in ids {
-			if let Some(request) = self.waits.remove(&id) {
-				request.sender.send(Ok(())).ok();
-			}
-		}
-
-		Ok(())
 	}
 }

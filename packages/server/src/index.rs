@@ -8,6 +8,10 @@ use {
 	tangram_index::{self as index, Index as _},
 };
 
+mod wait;
+
+pub(crate) use self::wait::Sender as WaitSender;
+
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
@@ -1024,77 +1028,9 @@ impl Session {
 
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
 		progress.spinner("index", "waiting for indexing");
-		if self.server.config.advanced.single_process {
-			self.server.wait_for_indexing_local().await?;
-			progress.finish("index");
-			return Ok(());
-		}
-		let indexers = self
-			.server
-			.get_indexers()
-			.await?
-			.into_iter()
-			.map(|indexer| indexer.id)
-			.collect::<Vec<_>>();
-		if indexers.is_empty() {
-			return Err(tg::error!("no indexers are available"));
-		}
-		future::try_join_all(
-			indexers
-				.iter()
-				.map(|indexer| self.wait_for_indexer(indexer)),
-		)
-		.await?;
+		self.server.wait_for_indexing().await?;
 		progress.finish("index");
 		Ok(())
-	}
-
-	async fn wait_for_indexer(&self, indexer: &tg::indexer::Id) -> tg::Result<()> {
-		let mut indexer = indexer.clone();
-		loop {
-			let result = {
-				let request =
-					self.send_indexer_request(Some(&indexer), crate::indexer::RequestArg::Wait);
-				tokio::pin!(request);
-				let mut interval =
-					tokio::time::interval(self.server.config.indexer.cache.poll_interval);
-				interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-				loop {
-					tokio::select! {
-						result = &mut request => break Some(result),
-						_ = interval.tick() => {
-							let arg = index::indexer::get::Arg { id: indexer.clone() };
-							if self.server.index.try_get_indexer(arg).await?.is_none() {
-								break None;
-							}
-						},
-					}
-				}
-			};
-			if let Some(Ok(Ok(output))) = result {
-				output
-					.try_unwrap_wait()
-					.map_err(|_| tg::error!("expected a wait response"))?;
-				crate::checkpoint!(self.server, "indexer.wait.complete", %indexer).await;
-				return Ok(());
-			}
-			let arg = index::indexer::get::Arg {
-				id: indexer.clone(),
-			};
-			if self.server.index.try_get_indexer(arg).await?.is_none() {
-				// A fresh wait must cover the departed indexer's final shared work.
-				indexer = self
-					.server
-					.get_indexers()
-					.await?
-					.into_iter()
-					.next()
-					.ok_or_else(|| tg::error!("no indexers are available"))?
-					.id;
-				continue;
-			}
-			tokio::time::sleep(self.server.config.indexer.cache.poll_interval).await;
-		}
 	}
 }
 
