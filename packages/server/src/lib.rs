@@ -1806,11 +1806,11 @@ async fn load_token_keys(config: Option<&config::TokenKeys>, path: &Path) -> tg:
 				},
 				None => load_or_create_token_private_key(config, path).await?,
 			};
-			Some(tg::authorization::PrivateKey::new(
-				config.name.clone(),
-				config.algorithm,
-				bytes,
-			))
+			let key =
+				tg::authorization::PrivateKey::new(config.name.clone(), config.algorithm, bytes);
+			tg::authorization::PublicKey::from_private_key(&key)?;
+
+			Some(key)
 		},
 		None => None,
 	};
