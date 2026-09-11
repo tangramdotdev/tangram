@@ -628,10 +628,16 @@ export class Printer {
 			"mutation",
 			this.map(
 				Object.fromEntries(
-					Object.entries(value_.inner).map(([key, value_]) => [
-						key,
-						() => this.value(value_ as tg.Value),
-					]),
+					Object.entries(value_.inner)
+						.filter(
+							([key, value_]) =>
+								key !== "separator" ||
+								(value_ !== undefined && value_ !== null),
+						)
+						.map(([key, value_]) => [
+							key,
+							() => this.value(value_ as tg.Value),
+						]),
 				),
 			),
 		);
