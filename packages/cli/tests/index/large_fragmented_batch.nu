@@ -15,7 +15,7 @@ let server = server spawn --config {
 	index: { map_size: 268_435_456 },
 	indexer: { batch: { retry: { max_retries: 0 } } },
 	messenger: { kind: 'nats', url: $'nats://127.0.0.1:($port)' },
-	store: { map_size: 268_435_456 },
+	cache: { map_size: 268_435_456 },
 }
 
 # Unique children make the directory's single index item exceed one MiB.

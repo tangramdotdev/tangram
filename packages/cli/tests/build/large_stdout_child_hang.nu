@@ -4,7 +4,7 @@ use ../../test.nu *
 
 let server = server spawn --config {
 	indexer: { log_compaction: false }
-	store: {
+	cache: {
 		map_size: 20_971_520,
 	}
 }

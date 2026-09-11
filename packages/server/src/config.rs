@@ -21,6 +21,8 @@ pub struct Config {
 
 	pub billing: Option<Billing>,
 
+	pub cache: Cache,
+
 	pub checkin: Checkin,
 
 	pub checkouts: bool,
@@ -60,8 +62,6 @@ pub struct Config {
 	pub scheduler: Scheduler,
 
 	pub sandbox: Sandbox,
-
-	pub store: Store,
 
 	pub sync: Sync,
 
@@ -724,16 +724,16 @@ pub struct IndexQueue {
 }
 
 #[derive(Clone, Debug)]
-pub enum Store {
-	Lmdb(LmdbStore),
+pub enum Cache {
+	Lmdb(LmdbCache),
 
-	Memory(MemoryStore),
+	Memory(MemoryCache),
 
-	Scylla(ScyllaStore),
+	Scylla(ScyllaCache),
 }
 
 #[derive(Clone, Debug)]
-pub struct LmdbStore {
+pub struct LmdbCache {
 	pub map_size: usize,
 
 	pub path: PathBuf,
@@ -748,13 +748,13 @@ pub struct LmdbStore {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct MemoryStore {}
+pub struct MemoryCache {}
 
 #[derive(Clone, Debug)]
-pub struct ScyllaStore {
+pub struct ScyllaCache {
 	pub addr: String,
 
-	pub capacity: Option<ScyllaStoreCapacity>,
+	pub capacity: Option<ScyllaCacheCapacity>,
 
 	pub connections: Option<usize>,
 
@@ -766,18 +766,18 @@ pub struct ScyllaStore {
 
 	pub password: Option<String>,
 
-	pub speculative_execution: Option<ScyllaStoreSpeculativeExecution>,
+	pub speculative_execution: Option<ScyllaCacheSpeculativeExecution>,
 
 	pub username: Option<String>,
 }
 
 #[derive(Clone, Debug)]
-pub enum ScyllaStoreCapacity {
-	Prometheus(ScyllaStorePrometheusCapacity),
+pub enum ScyllaCacheCapacity {
+	Prometheus(ScyllaCachePrometheusCapacity),
 }
 
 #[derive(Clone, Debug)]
-pub struct ScyllaStorePrometheusCapacity {
+pub struct ScyllaCachePrometheusCapacity {
 	pub available_query: String,
 
 	pub total_query: String,
@@ -788,21 +788,21 @@ pub struct ScyllaStorePrometheusCapacity {
 }
 
 #[derive(Clone, Debug)]
-pub enum ScyllaStoreSpeculativeExecution {
-	Percentile(ScyllaStorePercentileSpeculativeExecution),
+pub enum ScyllaCacheSpeculativeExecution {
+	Percentile(ScyllaCachePercentileSpeculativeExecution),
 
-	Simple(ScyllaStoreSimpleSpeculativeExecution),
+	Simple(ScyllaCacheSimpleSpeculativeExecution),
 }
 
 #[derive(Clone, Debug)]
-pub struct ScyllaStorePercentileSpeculativeExecution {
+pub struct ScyllaCachePercentileSpeculativeExecution {
 	pub max_retry_count: usize,
 
 	pub percentile: f64,
 }
 
 #[derive(Clone, Debug)]
-pub struct ScyllaStoreSimpleSpeculativeExecution {
+pub struct ScyllaCacheSimpleSpeculativeExecution {
 	pub max_retry_count: usize,
 
 	pub retry_interval: u64,
@@ -1301,6 +1301,7 @@ impl Default for Config {
 			authentication: Authentication::default(),
 			authorization: Authorization::default(),
 			billing: None,
+			cache: Cache::default(),
 			checkin: Checkin::default(),
 			checkouts: true,
 			database: Database::default(),
@@ -1321,7 +1322,6 @@ impl Default for Config {
 			runner: Runner::default(),
 			scheduler: Scheduler::default(),
 			sandbox: Sandbox::default(),
-			store: Store::default(),
 			sync: Sync::default(),
 			usage: Usage::default(),
 			version: None,
@@ -1772,17 +1772,17 @@ impl Default for IndexQueue {
 	}
 }
 
-impl Default for Store {
+impl Default for Cache {
 	fn default() -> Self {
-		Self::Lmdb(LmdbStore::default())
+		Self::Lmdb(LmdbCache::default())
 	}
 }
 
-impl Default for LmdbStore {
+impl Default for LmdbCache {
 	fn default() -> Self {
 		Self {
 			map_size: 1_099_511_627_776,
-			path: PathBuf::from("store.lmdb"),
+			path: PathBuf::from("cache.lmdb"),
 			posix_sem_prefix: None,
 			read_batch_size: 64,
 			read_concurrency: 4,
@@ -1791,7 +1791,7 @@ impl Default for LmdbStore {
 	}
 }
 
-impl LmdbStore {
+impl LmdbCache {
 	/// Returns the configured POSIX semaphore prefix or the app group default.
 	#[must_use]
 	pub fn resolved_posix_sem_prefix(&self) -> Option<String> {

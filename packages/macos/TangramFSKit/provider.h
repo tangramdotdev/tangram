@@ -113,11 +113,11 @@ typedef struct {
 	// The retention of an unreferenced cache-only node after its last access.
 	uint64_t node_ttl_secs;
 	// The map size with which to open the store. It must be at least the server's.
-	uint64_t store_map_size;
+	uint64_t cache_map_size;
 	// The store's path within the data directory. NULL or empty selects the default.
-	const char *store_path;
+	const char *cache_path;
 	// The prefix for the store's POSIX lock semaphores. It must match the server's. NULL or empty selects the default hash-derived names.
-	const char *store_posix_sem_prefix;
+	const char *cache_posix_sem_prefix;
 	// The principal the mount serves, in the display form of a principal. NULL or empty leaves the mount unenforced.
 	const char *principal;
 	// The authorization tokens the mount holds, as a JSON array of authorization tokens. NULL or empty provides no tokens.

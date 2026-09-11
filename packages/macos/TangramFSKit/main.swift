@@ -304,11 +304,11 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		// least as large as the writer's. A zero map size and an empty path select
 		// the defaults, which match the server's.
 		let options = mountOptions(options)
-		let storeMapSize = options["store_map_size"].flatMap(UInt64.init) ?? 0
-		let storePath = options["store_path"] ?? ""
+		let cacheMapSize = options["cache_map_size"].flatMap(UInt64.init) ?? 0
+		let cachePath = options["cache_path"] ?? ""
 
 		// Share the LMDB lock through the app group.
-		let storePosixSemPrefix = options["store_posix_sem_prefix"] ?? "\(appGroupIdentifier)/lmdb"
+		let cachePosixSemPrefix = options["cache_posix_sem_prefix"] ?? "\(appGroupIdentifier)/lmdb"
 
 		// Read the principal and authorization tokens used to authorize artifacts; an empty principal disables enforcement.
 		let principal = options["principal"] ?? ""
@@ -332,21 +332,21 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 
 		var provider: TgVfsProvider?
 		logger.info(
-			"creating provider for socket=\(socket, privacy: .public) data=\(dataDirectory, privacy: .public) store_map_size=\(storeMapSize, privacy: .public) store_path=\(storePath, privacy: .public) store_posix_sem_prefix=\(storePosixSemPrefix, privacy: .public)",
+			"creating provider for socket=\(socket, privacy: .public) data=\(dataDirectory, privacy: .public) cache_map_size=\(cacheMapSize, privacy: .public) cache_path=\(cachePath, privacy: .public) cache_posix_sem_prefix=\(cachePosixSemPrefix, privacy: .public)",
 		)
 		let status = socket.withCString { socket in
 			dataDirectory.withCString { dataDirectory in
-				storePath.withCString { storePath in
-					storePosixSemPrefix.withCString { storePosixSemPrefix in
+				cachePath.withCString { cachePath in
+					cachePosixSemPrefix.withCString { cachePosixSemPrefix in
 						principal.withCString { principal in
 							tokens.withCString { tokens in
 								var config = TgConfig(
 									data_directory: dataDirectory,
 									node_eviction_interval_secs: nodeEvictionIntervalSeconds,
 									node_ttl_secs: nodeTTLSeconds,
-									store_map_size: storeMapSize,
-									store_path: storePath,
-									store_posix_sem_prefix: storePosixSemPrefix,
+									cache_map_size: cacheMapSize,
+									cache_path: cachePath,
+									cache_posix_sem_prefix: cachePosixSemPrefix,
 									principal: principal,
 									tokens: tokens,
 								)

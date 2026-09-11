@@ -2,7 +2,7 @@ use {
 	crate::{
 		Session,
 		checkin::{
-			Graph, GraphData, IndexCheckoutArgs, IndexObjectArgs, StoreArgs,
+			CacheArgs, Graph, GraphData, IndexCheckoutArgs, IndexObjectArgs,
 			graph::{Contents, Node, Petgraph, Variant},
 			path::Paths,
 		},
@@ -23,7 +23,7 @@ pub(super) struct CheckinCreateArtifactsArg<'a> {
 	pub graph: &'a mut Graph,
 	pub paths: &'a Paths,
 	pub next: usize,
-	pub store_args: &'a mut StoreArgs,
+	pub cache_args: &'a mut CacheArgs,
 	pub index_object_args: &'a mut IndexObjectArgs,
 	pub index_checkout_args: &'a mut IndexCheckoutArgs,
 	pub graph_data: &'a mut GraphData,
@@ -36,7 +36,7 @@ struct CheckinCreateNodeArtifactArg<'a> {
 	config: &'a Checkin,
 	graph: &'a mut Graph,
 	paths: &'a Paths,
-	store_args: &'a mut StoreArgs,
+	cache_args: &'a mut CacheArgs,
 	index_object_args: &'a mut IndexObjectArgs,
 	index: usize,
 	time_to_touch: std::time::Duration,
@@ -46,7 +46,7 @@ struct CheckinCreateNodeArtifactArg<'a> {
 struct CheckinCreateGraphArg<'a> {
 	graph: &'a mut Graph,
 	paths: &'a Paths,
-	store_args: &'a mut StoreArgs,
+	cache_args: &'a mut CacheArgs,
 	index_object_args: &'a mut IndexObjectArgs,
 	graph_data: &'a mut GraphData,
 	next: usize,
@@ -57,7 +57,7 @@ struct CheckinCreateGraphArg<'a> {
 
 struct CheckinCreatePointerArtifactArg<'a> {
 	graph: &'a mut Graph,
-	store_args: &'a mut StoreArgs,
+	cache_args: &'a mut CacheArgs,
 	index_object_args: &'a mut IndexObjectArgs,
 	graph_id: &'a tg::graph::Id,
 	local: usize,
@@ -69,7 +69,7 @@ struct CheckinCreatePointerArtifactArg<'a> {
 struct CheckinUpdateBlobCheckoutPointersArg<'a> {
 	arg: &'a tg::checkin::Arg,
 	graph: &'a Graph,
-	store_args: &'a mut StoreArgs,
+	cache_args: &'a mut CacheArgs,
 	index_object_args: &'a mut IndexObjectArgs,
 	index_checkout_args: &'a mut IndexCheckoutArgs,
 	root: &'a Path,
@@ -86,7 +86,7 @@ impl Session {
 			graph,
 			paths,
 			next,
-			store_args,
+			cache_args,
 			index_object_args,
 			index_checkout_args,
 			graph_data,
@@ -116,7 +116,7 @@ impl Session {
 					config,
 					graph,
 					paths,
-					store_args,
+					cache_args,
 					index_object_args,
 					index: scc[0],
 					time_to_touch,
@@ -127,7 +127,7 @@ impl Session {
 				let arg = CheckinCreateGraphArg {
 					graph,
 					paths,
-					store_args,
+					cache_args,
 					index_object_args,
 					graph_data,
 					next,
@@ -143,7 +143,7 @@ impl Session {
 		let update_arg = CheckinUpdateBlobCheckoutPointersArg {
 			arg,
 			graph,
-			store_args,
+			cache_args,
 			index_object_args,
 			index_checkout_args,
 			root,
@@ -158,7 +158,7 @@ impl Session {
 		if let tg::graph::data::Edge::Pointer(pointer) = node.edge.as_ref().unwrap().clone() {
 			let arg = CheckinCreatePointerArtifactArg {
 				graph,
-				store_args,
+				cache_args,
 				index_object_args,
 				graph_id: pointer.graph.as_ref().unwrap(),
 				local: pointer.index,
@@ -336,7 +336,7 @@ impl Session {
 			config,
 			graph,
 			paths,
-			store_args,
+			cache_args,
 			index_object_args,
 			index,
 			time_to_touch,
@@ -386,7 +386,7 @@ impl Session {
 				let node = Self::checkin_create_directory(
 					config,
 					entries,
-					store_args,
+					cache_args,
 					index_object_args,
 					time_to_touch,
 					touched_at,
@@ -480,7 +480,7 @@ impl Session {
 			graph,
 			&data,
 			&[index],
-			store_args,
+			cache_args,
 			index_object_args,
 			time_to_touch,
 			touched_at,
@@ -500,7 +500,7 @@ impl Session {
 		let CheckinCreateGraphArg {
 			graph,
 			paths,
-			store_args,
+			cache_args,
 			index_object_args,
 			graph_data,
 			next,
@@ -545,7 +545,7 @@ impl Session {
 			graph,
 			&data,
 			&unique_indices,
-			store_args,
+			cache_args,
 			index_object_args,
 			time_to_touch,
 			touched_at,
@@ -780,7 +780,7 @@ impl Session {
 	fn checkin_create_pointer_artifact(arg: CheckinCreatePointerArtifactArg<'_>) -> tg::Result<()> {
 		let CheckinCreatePointerArtifactArg {
 			graph,
-			store_args,
+			cache_args,
 			index_object_args,
 			graph_id,
 			local,
@@ -821,7 +821,7 @@ impl Session {
 			graph,
 			&data,
 			&[global],
-			store_args,
+			cache_args,
 			index_object_args,
 			time_to_touch,
 			touched_at,
@@ -839,7 +839,7 @@ impl Session {
 		graph: &Graph,
 		data: &tg::object::Data,
 		scc: &[usize],
-		store_args: &mut StoreArgs,
+		cache_args: &mut CacheArgs,
 		index_object_args: &mut IndexObjectArgs,
 		time_to_touch: std::time::Duration,
 		touched_at: i64,
@@ -951,9 +951,9 @@ impl Session {
 				.map(|(a, b)| a + b);
 		}
 
-		// Create the store arg.
+		// Create the cache arg.
 		let put = uuid::Uuid::now_v7().into_bytes();
-		let store_arg = crate::store::object::put::Arg {
+		let cache_arg = crate::cache::object::put::Arg {
 			bytes: Some(bytes),
 			checkout_pointer: None,
 			id: id.clone(),
@@ -974,7 +974,7 @@ impl Session {
 		};
 
 		// Insert into maps.
-		store_args.insert(id.clone(), store_arg);
+		cache_args.insert(id.clone(), cache_arg);
 		index_object_args.insert(id.clone(), index_message);
 
 		Ok((id, stored, metadata))
@@ -984,7 +984,7 @@ impl Session {
 		let CheckinUpdateBlobCheckoutPointersArg {
 			arg,
 			graph,
-			store_args,
+			cache_args,
 			index_object_args,
 			index_checkout_args,
 			root,
@@ -1051,13 +1051,13 @@ impl Session {
 					let id: tg::object::Id = output.id.clone().into();
 
 					// Create and set the checkout pointer.
-					let checkout_pointer = crate::store::object::checkout::Pointer {
+					let checkout_pointer = crate::cache::object::checkout::Pointer {
 						artifact: artifact.clone(),
 						length: output.length,
 						path: path.clone(),
 						position: output.position,
 					};
-					store_args.get_mut(&id).unwrap().checkout_pointer = Some(checkout_pointer);
+					cache_args.get_mut(&id).unwrap().checkout_pointer = Some(checkout_pointer);
 					index_object_args.get_mut(&id).unwrap().checkout = Some(artifact.clone());
 
 					// Add children to the stack.
@@ -1091,7 +1091,7 @@ impl Session {
 
 		// Store the object.
 		let put = uuid::Uuid::now_v7().into_bytes();
-		let store_arg = crate::store::object::put::Arg {
+		let cache_arg = crate::cache::object::put::Arg {
 			bytes: Some(bytes),
 			checkout_pointer: None,
 			id: id.clone(),
@@ -1151,7 +1151,7 @@ impl Session {
 		};
 		// Store and index the object.
 		self.server
-			.put_object_and_index(store_arg, arg)
+			.put_object_and_index(cache_arg, arg)
 			.await
 			.map_err(|error| {
 				tg::error!(!error, "failed to store and index the reference artifact")
@@ -1376,7 +1376,7 @@ impl Session {
 	fn checkin_create_directory(
 		config: &Checkin,
 		entries: BTreeMap<String, tg::graph::data::Edge<tg::artifact::Id>>,
-		store_args: &mut StoreArgs,
+		cache_args: &mut CacheArgs,
 		index_object_args: &mut IndexObjectArgs,
 		time_to_touch: std::time::Duration,
 		touched_at: i64,
@@ -1406,7 +1406,7 @@ impl Session {
 			// Create the leaf directory node and get its ID.
 			let id = Self::checkin_create_directory_node(
 				&leaf_data,
-				store_args,
+				cache_args,
 				index_object_args,
 				time_to_touch,
 				touched_at,
@@ -1423,7 +1423,7 @@ impl Session {
 		Self::checkin_create_directory_branch(
 			config,
 			children,
-			store_args,
+			cache_args,
 			index_object_args,
 			time_to_touch,
 			touched_at,
@@ -1434,7 +1434,7 @@ impl Session {
 	fn checkin_create_directory_branch(
 		config: &Checkin,
 		children: Vec<tg::graph::data::DirectoryChild>,
-		store_args: &mut StoreArgs,
+		cache_args: &mut CacheArgs,
 		index_object_args: &mut IndexObjectArgs,
 		time_to_touch: std::time::Duration,
 		touched_at: i64,
@@ -1463,7 +1463,7 @@ impl Session {
 			// Store the branch and get its ID.
 			let id = Self::checkin_create_directory_node(
 				&branch_data,
-				store_args,
+				cache_args,
 				index_object_args,
 				time_to_touch,
 				touched_at,
@@ -1480,7 +1480,7 @@ impl Session {
 		Self::checkin_create_directory_branch(
 			config,
 			branch_children,
-			store_args,
+			cache_args,
 			index_object_args,
 			time_to_touch,
 			touched_at,
@@ -1490,7 +1490,7 @@ impl Session {
 	/// Create a directory node and return its ID.
 	fn checkin_create_directory_node(
 		directory: &tg::graph::data::Directory,
-		store_args: &mut StoreArgs,
+		cache_args: &mut CacheArgs,
 		index_object_args: &mut IndexObjectArgs,
 		time_to_touch: std::time::Duration,
 		touched_at: i64,
@@ -1556,9 +1556,9 @@ impl Session {
 				.map(|(a, b)| a && b);
 		}
 
-		// Create the store arg.
+		// Create the cache arg.
 		let put = uuid::Uuid::now_v7().into_bytes();
-		let store_arg = crate::store::object::put::Arg {
+		let cache_arg = crate::cache::object::put::Arg {
 			bytes: Some(bytes),
 			checkout_pointer: None,
 			id: id.clone(),
@@ -1579,7 +1579,7 @@ impl Session {
 		};
 
 		// Insert into maps.
-		store_args.insert(id.clone(), store_arg);
+		cache_args.insert(id.clone(), cache_arg);
 		index_object_args.insert(id.clone(), index_message);
 
 		Ok(id.try_into().unwrap())

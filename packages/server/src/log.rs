@@ -9,16 +9,16 @@ use {
 		collections::{BTreeSet, VecDeque},
 		io::{Cursor, SeekFrom},
 	},
+	tangram_cache::{Cache as _, log},
 	tangram_client::{self as tg},
 	tangram_futures::{read::Ext as _, write::Ext as _},
 	tangram_index::prelude::*,
-	tangram_store::{Store as _, log},
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
 enum Inner {
 	Blob(BlobInner),
-	Store(StoreInner),
+	Cache(CacheInner),
 }
 
 struct BlobInner {
@@ -27,7 +27,7 @@ struct BlobInner {
 	index: Index,
 }
 
-struct StoreInner {
+struct CacheInner {
 	session: Session,
 	process: tg::process::Id,
 }
@@ -111,7 +111,7 @@ impl Session {
 
 		let entries = self
 			.server
-			.store
+			.cache
 			.try_read_log(log::read::Arg {
 				process: process.clone(),
 				position: 0,
@@ -215,12 +215,12 @@ impl Session {
 			});
 
 		self.server
-			.store
+			.cache
 			.delete_log(log::delete::Arg {
 				process: process.clone(),
 			})
 			.await
-			.map_err(|error| tg::error!(!error, "failed to delete the process log from store"))?;
+			.map_err(|error| tg::error!(!error, "failed to delete the process log from cache"))?;
 
 		Ok(())
 	}
@@ -269,7 +269,7 @@ impl Session {
 				return Err(tg::error!("unauthorized"));
 			}
 
-			Inner::Store(StoreInner {
+			Inner::Cache(CacheInner {
 				session: self.clone(),
 				process: id.clone(),
 			})
@@ -436,7 +436,7 @@ impl Inner {
 	) -> tg::Result<Vec<log::read::Entry<'static>>> {
 		match self {
 			Inner::Blob(inner) => inner.try_read(position, length, streams).await,
-			Inner::Store(inner) => inner.try_read(position, length, streams).await,
+			Inner::Cache(inner) => inner.try_read(position, length, streams).await,
 		}
 	}
 
@@ -446,12 +446,12 @@ impl Inner {
 	) -> tg::Result<Option<u64>> {
 		match self {
 			Inner::Blob(inner) => inner.try_get_length(streams).await,
-			Inner::Store(inner) => inner.try_get_length(streams).await,
+			Inner::Cache(inner) => inner.try_get_length(streams).await,
 		}
 	}
 
 	async fn try_switch_to_blob(&mut self) -> tg::Result<bool> {
-		let Inner::Store(inner) = self else {
+		let Inner::Cache(inner) = self else {
 			return Ok(false);
 		};
 		let Some(output) = inner
@@ -599,7 +599,7 @@ impl BlobInner {
 	}
 }
 
-impl StoreInner {
+impl CacheInner {
 	async fn try_read(
 		&self,
 		position: u64,
@@ -614,7 +614,7 @@ impl StoreInner {
 		};
 		self.session
 			.server
-			.store
+			.cache
 			.try_read_log(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read the log"))
@@ -630,7 +630,7 @@ impl StoreInner {
 		};
 		self.session
 			.server
-			.store
+			.cache
 			.try_get_log_length(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read the log"))

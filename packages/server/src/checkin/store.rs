@@ -4,7 +4,7 @@ impl Session {
 	#[tracing::instrument(level = "trace", skip_all)]
 	pub(super) async fn checkin_store(
 		&self,
-		args: Vec<crate::store::object::put::Arg>,
+		args: Vec<crate::cache::object::put::Arg>,
 		progress: &crate::progress::Handle<super::TaskOutput>,
 	) -> tg::Result<()> {
 		progress.spinner("storing", "storing");

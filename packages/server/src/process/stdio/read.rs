@@ -6,6 +6,7 @@ use {
 	},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, io::SeekFrom, pin::pin, time::Duration},
+	tangram_cache::Cache as _,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{
@@ -14,7 +15,6 @@ use {
 		response::{Ext as _, builder::Ext as _},
 	},
 	tangram_messenger::prelude::*,
-	tangram_store::Store as _,
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };
 
@@ -362,7 +362,7 @@ impl Session {
 			// Read the completion marker before draining so every committed chunk is visible.
 			let output_finished = data.log.is_some()
 				|| data.status.is_finished() && data.started_at.is_none()
-				|| self.server.store.try_get_log_end(id).await?.is_some();
+				|| self.server.cache.try_get_log_end(id).await?.is_some();
 			let previous = (arg.position, arg.length);
 			let mut stream = self
 				.process_log_stream(id, &mut arg, output_finished, streams.clone())

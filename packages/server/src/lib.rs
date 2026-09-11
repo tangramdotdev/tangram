@@ -33,6 +33,7 @@ mod archive;
 mod authentication;
 mod authorization;
 mod billing;
+mod cache;
 mod check;
 mod checkin;
 mod checkout;
@@ -77,7 +78,6 @@ mod sandbox;
 mod scheduler;
 mod session;
 mod specifier;
-mod store;
 mod sync;
 mod tag;
 mod temp;
@@ -115,6 +115,7 @@ pub struct State {
 	authentication_tokens: Tokens,
 	authorization_tokens: Tokens,
 	billing: Option<self::billing::Stripe>,
+	cache: self::cache::Cache,
 	checkin_tasks: self::checkin::Tasks,
 	checkout_graph_tasks: self::checkout::internal::GraphTasks,
 	checkout_lock: self::checkout::Lock,
@@ -154,7 +155,6 @@ pub struct State {
 	#[cfg(target_os = "linux")]
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
 	shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
-	store: self::store::Store,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -296,8 +296,8 @@ impl Server {
 		let context = Context::root();
 
 		// Validate the archive configuration.
-		if config.archive.is_some() && !matches!(&config.store, self::config::Store::Scylla(_)) {
-			return Err(tg::error!("an archive requires the scylla store"));
+		if config.archive.is_some() && !matches!(&config.cache, self::config::Cache::Scylla(_)) {
+			return Err(tg::error!("an archive requires the scylla cache"));
 		}
 
 		// Create the archive.
@@ -541,32 +541,32 @@ impl Server {
 					"the object cache poll interval must be greater than zero"
 				));
 			}
-			match &config.store {
-				self::config::Store::Lmdb(_) => {},
-				self::config::Store::Memory(_) => {
-					return Err(tg::error!("the memory store does not report capacity"));
+			match &config.cache {
+				self::config::Cache::Lmdb(_) => {},
+				self::config::Cache::Memory(_) => {
+					return Err(tg::error!("the memory cache does not report capacity"));
 				},
-				self::config::Store::Scylla(store) => {
-					let Some(capacity) = &store.capacity else {
+				self::config::Cache::Scylla(cache) => {
+					let Some(capacity) = &cache.capacity else {
 						return Err(tg::error!(
-							"the Scylla store capacity configuration is required for the object cache"
+							"the Scylla cache capacity configuration is required for the object cache"
 						));
 					};
 					match capacity {
-						self::config::ScyllaStoreCapacity::Prometheus(capacity) => {
+						self::config::ScyllaCacheCapacity::Prometheus(capacity) => {
 							if capacity.available_query.trim().is_empty() {
 								return Err(tg::error!(
-									"the Scylla store capacity available query must not be empty"
+									"the Scylla cache capacity available query must not be empty"
 								));
 							}
 							if capacity.total_query.trim().is_empty() {
 								return Err(tg::error!(
-									"the Scylla store capacity total query must not be empty"
+									"the Scylla cache capacity total query must not be empty"
 								));
 							}
 							if capacity.ttl.is_zero() {
 								return Err(tg::error!(
-									"the Scylla store capacity TTL must be greater than zero"
+									"the Scylla cache capacity TTL must be greater than zero"
 								));
 							}
 						},
@@ -1048,9 +1048,9 @@ impl Server {
 			tangram_path: tangram_path.clone(),
 		})?;
 
-		// Create the store.
-		let store = match &config.store {
-			config::Store::Lmdb(lmdb) => {
+		// Create the cache.
+		let cache = match &config.cache {
+			config::Cache::Lmdb(lmdb) => {
 				#[cfg(not(feature = "lmdb"))]
 				{
 					let _ = lmdb;
@@ -1060,12 +1060,12 @@ impl Server {
 				}
 				#[cfg(feature = "lmdb")]
 				{
-					self::store::Store::new_lmdb(&path, lmdb)
-						.map_err(|error| tg::error!(!error, "failed to create the store"))?
+					self::cache::Cache::new_lmdb(&path, lmdb)
+						.map_err(|error| tg::error!(!error, "failed to create the cache"))?
 				}
 			},
-			config::Store::Memory(_) => self::store::Store::new_memory(),
-			config::Store::Scylla(scylla) => {
+			config::Cache::Memory(_) => self::cache::Cache::new_memory(),
+			config::Cache::Scylla(scylla) => {
 				#[cfg(not(feature = "scylla"))]
 				{
 					let _ = scylla;
@@ -1075,9 +1075,9 @@ impl Server {
 				}
 				#[cfg(feature = "scylla")]
 				{
-					self::store::Store::new_scylla(scylla)
+					self::cache::Cache::new_scylla(scylla)
 						.await
-						.map_err(|error| tg::error!(!error, "failed to create the store"))?
+						.map_err(|error| tg::error!(!error, "failed to create the cache"))?
 				}
 			},
 		};
@@ -1138,6 +1138,7 @@ impl Server {
 			authentication_tokens,
 			authorization_tokens,
 			billing,
+			cache,
 			checkin_tasks,
 			checkout_graph_tasks,
 			checkout_lock,
@@ -1177,7 +1178,6 @@ impl Server {
 			#[cfg(target_os = "linux")]
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
 			shutdown,
-			store,
 			tangram_path,
 			temps,
 			version,

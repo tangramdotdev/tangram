@@ -9,9 +9,9 @@ use {
 		collections::{BTreeSet, HashMap, HashSet},
 		time::Duration,
 	},
+	tangram_cache::{Cache as _, log},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
-	tangram_store::{Store as _, log},
 };
 
 pub(super) struct Runners {
@@ -358,7 +358,7 @@ impl Server {
 	}
 
 	async fn end_expired_process_log(&self, process: &tg::process::Id) -> tg::Result<()> {
-		if self.store.try_get_log_end(process).await?.is_some() {
+		if self.cache.try_get_log_end(process).await?.is_some() {
 			return Ok(());
 		}
 
@@ -369,7 +369,7 @@ impl Server {
 				streams,
 			};
 			let position = self
-				.store
+				.cache
 				.try_get_log_length(arg)
 				.await?
 				.unwrap_or_default();
@@ -395,7 +395,7 @@ impl Server {
 		};
 
 		// Persist the marker before publishing completion or scheduling compaction.
-		self.store
+		self.cache
 			.put_log_end(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %process, "failed to store the log end"))?;

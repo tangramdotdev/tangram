@@ -5,10 +5,10 @@ use {
 		collections::{BTreeMap, BTreeSet},
 		ops::ControlFlow,
 	},
+	tangram_cache::Cache as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_index::prelude::*,
-	tangram_store::Store as _,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -33,7 +33,7 @@ pub(super) struct Output {
 
 pub(super) enum ArchiveMessage {
 	Delete(u64),
-	Process(crate::store::archive::queue::Entry),
+	Process(crate::cache::archive::queue::Entry),
 }
 
 pub(super) enum Completion {
@@ -75,10 +75,10 @@ struct Queue {
 
 #[derive(Default)]
 struct Batches {
-	active: BTreeMap<crate::store::index::queue::batch::Id, Batch>,
-	by_expires_at: BTreeSet<(tokio::time::Instant, crate::store::index::queue::batch::Id)>,
-	complete: BTreeSet<crate::store::index::queue::batch::Id>,
-	timed_out: BTreeSet<crate::store::index::queue::batch::Id>,
+	active: BTreeMap<crate::cache::index::queue::batch::Id, Batch>,
+	by_expires_at: BTreeSet<(tokio::time::Instant, crate::cache::index::queue::batch::Id)>,
+	complete: BTreeSet<crate::cache::index::queue::batch::Id>,
+	timed_out: BTreeSet<crate::cache::index::queue::batch::Id>,
 }
 
 struct Batch {
@@ -89,12 +89,12 @@ struct Batch {
 }
 
 struct BatchFragment {
-	fragment: crate::store::index::queue::Fragment,
+	fragment: crate::cache::index::queue::Fragment,
 	sequences: Vec<u64>,
 }
 
 pub(super) struct IndexBatch {
-	fragments: Vec<crate::store::index::queue::Fragment>,
+	fragments: Vec<crate::cache::index::queue::Fragment>,
 	sequences: Vec<u64>,
 }
 
@@ -143,14 +143,14 @@ impl Queues {
 			let sequence_end = sequence_start
 				.saturating_add(RECOVERY_BATCH_SIZE)
 				.min(self.archive.reserved_sequence_end);
-			let arg = crate::store::archive::queue::get::batch::Arg {
+			let arg = crate::cache::archive::queue::get::batch::Arg {
 				indexer: indexer.id().clone(),
 				sequence_end,
 				sequence_start,
 			};
 			let entries = indexer
 				.server
-				.store
+				.cache
 				.get_archive_queue_entries(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to recover archive queue entries"))?;
@@ -177,14 +177,14 @@ impl Queues {
 			let sequence_end = sequence_start
 				.saturating_add(RECOVERY_BATCH_SIZE)
 				.min(self.index.reserved_sequence_end);
-			let arg = crate::store::index::queue::get::batch::Arg {
+			let arg = crate::cache::index::queue::get::batch::Arg {
 				indexer: indexer.id().clone(),
 				sequence_end,
 				sequence_start,
 			};
 			let fragments = indexer
 				.server
-				.store
+				.cache
 				.get_index_queue_fragments(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to recover index queue fragments"))?;
@@ -302,7 +302,7 @@ impl Queues {
 
 	pub fn insert_index_fragment(
 		&mut self,
-		fragment: crate::store::index::queue::Fragment,
+		fragment: crate::cache::index::queue::Fragment,
 		waiter: Option<tokio::sync::oneshot::Sender<tg::Result<()>>>,
 		batch_timeout: std::time::Duration,
 	) -> Output {
@@ -681,7 +681,7 @@ impl Indexer {
 
 	async fn process_archive_entry_with_retry(
 		&self,
-		entry: &crate::store::archive::queue::Entry,
+		entry: &crate::cache::archive::queue::Entry,
 	) -> tg::Result<()> {
 		tangram_futures::retry(&RETRY_OPTIONS, || async {
 			match self.process_archive_entry(entry).await {
@@ -716,7 +716,7 @@ impl Indexer {
 
 	async fn process_archive_entry(
 		&self,
-		entry: &crate::store::archive::queue::Entry,
+		entry: &crate::cache::archive::queue::Entry,
 	) -> tg::Result<()> {
 		let object = self
 			.try_wait_for_object_put(
@@ -727,7 +727,7 @@ impl Indexer {
 			.await?
 			.and_then(|object| object.bytes);
 		let Some(bytes) = object else {
-			tracing::error!(object = %entry.object, put = ?entry.put, "discarding an archive queue entry because the object put is absent from the store");
+			tracing::error!(object = %entry.object, put = ?entry.put, "discarding an archive queue entry because the object put is absent from the cache");
 			return Ok(());
 		};
 		let arg = tangram_archive::object::put::Arg {
@@ -742,7 +742,7 @@ impl Indexer {
 
 	async fn process_index_batch(
 		&self,
-		fragments: &[crate::store::index::queue::Fragment],
+		fragments: &[crate::cache::index::queue::Fragment],
 	) -> tg::Result<()> {
 		// Reassemble the encoded batch in fragment order before decoding it.
 		let len = fragments
@@ -768,7 +768,7 @@ impl Indexer {
 			.wait_for_object_put_batch(&self.server.config.object.index_queue.retry, puts)
 			.await?;
 		if let Some((id, put)) = missing.first() {
-			tracing::error!(%id, ?put, missing_count = missing.len(), "discarding an index queue batch because an object put is absent from the store");
+			tracing::error!(%id, ?put, missing_count = missing.len(), "discarding an index queue batch because an object put is absent from the cache");
 			return Ok(());
 		}
 		crate::checkpoint!(self.server, "index.batch").await;
@@ -779,11 +779,11 @@ impl Indexer {
 
 	async fn delete_archive_sequence(&self, sequence: u64) -> tg::Result<()> {
 		tangram_futures::retry(&RETRY_OPTIONS, || async {
-			let arg = crate::store::archive::queue::delete::Arg {
+			let arg = crate::cache::archive::queue::delete::Arg {
 				indexer: self.id().clone(),
 				sequence,
 			};
-			match self.server.store.delete_archive_queue_entry(arg).await {
+			match self.server.cache.delete_archive_queue_entry(arg).await {
 				Ok(()) => Ok(ControlFlow::Break(())),
 				Err(error) => {
 					tracing::error!(error = %error.trace(), %sequence, "failed to delete an archive queue entry");
@@ -800,13 +800,13 @@ impl Indexer {
 	async fn delete_index_sequences(&self, sequences: &[u64]) -> tg::Result<()> {
 		for &sequence in sequences {
 			tangram_futures::retry(&RETRY_OPTIONS, || async {
-				let arg = crate::store::index::queue::delete::Arg {
+				let arg = crate::cache::index::queue::delete::Arg {
 					indexer: self.id().clone(),
 					sequence,
 				};
 				match self
 					.server
-					.store
+					.cache
 					.delete_index_queue_fragment(arg)
 					.await
 				{
@@ -838,8 +838,8 @@ mod tests {
 	fn expiration_index_tracks_completion_and_abandonment() {
 		let mut queues = Queues::empty();
 		let id = tg::indexer::Id::new();
-		let batch = crate::store::index::queue::batch::Id::new([0; 16]);
-		let fragment = crate::store::index::queue::Fragment {
+		let batch = crate::cache::index::queue::batch::Id::new([0; 16]);
+		let fragment = crate::cache::index::queue::Fragment {
 			batch,
 			fragment: 0,
 			fragments: 2,
@@ -865,7 +865,7 @@ mod tests {
 		assert!(expired.messages.is_empty());
 
 		let mut fragment = fragment;
-		fragment.batch = crate::store::index::queue::batch::Id::new([1; 16]);
+		fragment.batch = crate::cache::index::queue::batch::Id::new([1; 16]);
 		queues.insert_index_fragment(fragment, None, timeout);
 		assert_eq!(queues.batches.by_expires_at.len(), 2);
 		queues.abandon_incomplete_batches();
@@ -875,8 +875,8 @@ mod tests {
 	#[test]
 	fn expires_only_due_batches() {
 		let mut queues = Queues::empty();
-		let fragment = crate::store::index::queue::Fragment {
-			batch: crate::store::index::queue::batch::Id::new([0; 16]),
+		let fragment = crate::cache::index::queue::Fragment {
+			batch: crate::cache::index::queue::batch::Id::new([0; 16]),
 			fragment: 0,
 			fragments: 2,
 			indexer: tg::indexer::Id::new(),
@@ -900,8 +900,8 @@ mod tests {
 	fn duplicate_fragments_preserve_complete_and_timed_out_responses() {
 		for timed_out in [false, true] {
 			let mut queues = Queues::empty();
-			let fragment = crate::store::index::queue::Fragment {
-				batch: crate::store::index::queue::batch::Id::new([0; 16]),
+			let fragment = crate::cache::index::queue::Fragment {
+				batch: crate::cache::index::queue::batch::Id::new([0; 16]),
 				fragment: 0,
 				fragments: if timed_out { 2 } else { 1 },
 				indexer: tg::indexer::Id::new(),
@@ -1021,8 +1021,8 @@ mod tests {
 		let indexer = tg::indexer::Id::new();
 		let state = tangram_index::indexer::Indexer::new(indexer.clone());
 		let mut queues = Queues::new(&state);
-		let batch = crate::store::index::queue::batch::Id::new([0; 16]);
-		let fragment = crate::store::index::queue::Fragment {
+		let batch = crate::cache::index::queue::batch::Id::new([0; 16]);
+		let fragment = crate::cache::index::queue::Fragment {
 			batch,
 			fragment: 1,
 			fragments: 2,
@@ -1039,7 +1039,7 @@ mod tests {
 		));
 		assert!(output.responses.is_empty());
 		assert!(output.messages.is_empty());
-		let fragment = crate::store::index::queue::Fragment {
+		let fragment = crate::cache::index::queue::Fragment {
 			batch,
 			fragment: 0,
 			fragments: 2,

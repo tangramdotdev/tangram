@@ -1,7 +1,7 @@
 use {
 	crate::{
 		Session,
-		checkin::{Graph, IndexObjectArgs, StoreArgs, graph::Contents},
+		checkin::{CacheArgs, Graph, IndexObjectArgs, graph::Contents},
 		write::Destination,
 	},
 	futures::{StreamExt as _, TryStreamExt as _, stream},
@@ -13,7 +13,7 @@ pub(super) struct CheckinCreateBlobsArg<'a> {
 	pub arg: &'a tg::checkin::Arg,
 	pub graph: &'a mut Graph,
 	pub next: usize,
-	pub store_args: &'a mut StoreArgs,
+	pub cache_args: &'a mut CacheArgs,
 	pub index_object_args: &'a mut IndexObjectArgs,
 	pub touched_at: i64,
 	pub progress: &'a crate::progress::Handle<super::TaskOutput>,
@@ -29,7 +29,7 @@ impl Session {
 			arg,
 			graph,
 			next,
-			store_args,
+			cache_args,
 			index_object_args,
 			touched_at,
 			progress,
@@ -73,7 +73,7 @@ impl Session {
 							let destination = if checkout_pointers {
 								None
 							} else {
-								Some(Destination::Store)
+								Some(Destination::Cache)
 							};
 							session
 								.write_inner_sync(file, destination.as_ref(), &progress)
@@ -94,7 +94,7 @@ impl Session {
 		progress.finish("hashing");
 		progress.finish("bytes");
 
-		// Convert blobs to store args and index messages.
+		// Convert blobs to cache args and index messages.
 		let mut entries = Vec::new();
 		for (_, output) in &blobs {
 			let mut stack = vec![output];
@@ -110,9 +110,9 @@ impl Session {
 					data.children(&mut children);
 				}
 
-				// Create the store arg only if needed.
-				let store_arg = if checkout_pointers || bytes.is_some() {
-					Some(crate::store::object::put::Arg {
+				// Create the cache arg only if needed.
+				let cache_arg = if checkout_pointers || bytes.is_some() {
+					Some(crate::cache::object::put::Arg {
 						bytes,
 						checkout_pointer: None,
 						id: id.clone(),
@@ -135,16 +135,16 @@ impl Session {
 					touched_at,
 				};
 
-				entries.push((id, store_arg, index_message));
+				entries.push((id, cache_arg, index_message));
 
 				stack.extend(&output.children);
 			}
 		}
 
 		// Add the entries in reverse topological order.
-		for (id, store_arg, index_message) in entries.into_iter().rev() {
-			if let Some(store_arg) = store_arg {
-				store_args.insert(id.clone(), store_arg);
+		for (id, cache_arg, index_message) in entries.into_iter().rev() {
+			if let Some(cache_arg) = cache_arg {
+				cache_args.insert(id.clone(), cache_arg);
 			}
 			index_object_args.insert(id, index_message);
 		}

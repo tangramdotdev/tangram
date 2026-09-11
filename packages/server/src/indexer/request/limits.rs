@@ -4,7 +4,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-type BatchId = crate::store::index::queue::batch::Id;
+type BatchId = crate::cache::index::queue::batch::Id;
 
 #[derive(Default)]
 pub(in crate::indexer) struct Limits {
@@ -118,7 +118,7 @@ mod tests {
 
 	fn fragment(id: &str, batch: u8, fragment: u64, fragments: u64) -> Request {
 		let arg = IndexRequestArg {
-			batch: crate::store::index::queue::batch::Id::new([batch; 16]),
+			batch: crate::cache::index::queue::batch::Id::new([batch; 16]),
 			fragment,
 			fragments,
 			payload: bytes::Bytes::new(),

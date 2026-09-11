@@ -56,7 +56,7 @@ type IndexObjectArgs =
 
 type IndexCheckoutArgs = Vec<tangram_index::checkout::put::Arg>;
 
-type StoreArgs = IndexMap<tg::object::Id, crate::store::object::put::Arg, tg::id::BuildHasher>;
+type CacheArgs = IndexMap<tg::object::Id, crate::cache::object::put::Arg, tg::id::BuildHasher>;
 
 type GraphData = IndexMap<tg::graph::Id, tg::graph::Data, tg::id::BuildHasher>;
 
@@ -653,7 +653,7 @@ impl Session {
 		let touched_at = self.server.clock.unix_timestamp()?;
 
 		// Create the output collections.
-		let mut store_args = IndexMap::default();
+		let mut cache_args = IndexMap::default();
 		let mut index_object_args = IndexMap::default();
 		let mut index_checkout_args = Vec::new();
 		let mut graph_data = IndexMap::default();
@@ -663,7 +663,7 @@ impl Session {
 			arg: &arg,
 			graph: &mut graph,
 			next,
-			store_args: &mut store_args,
+			cache_args: &mut cache_args,
 			index_object_args: &mut index_object_args,
 			touched_at,
 			progress,
@@ -679,7 +679,7 @@ impl Session {
 			graph: &mut graph,
 			paths: &paths,
 			next,
-			store_args: &mut store_args,
+			cache_args: &mut cache_args,
 			index_object_args: &mut index_object_args,
 			index_checkout_args: &mut index_checkout_args,
 			graph_data: &mut graph_data,
@@ -713,9 +713,9 @@ impl Session {
 		}
 
 		// Store.
-		self.checkin_store(store_args.into_values().collect(), progress)
+		self.checkin_store(cache_args.into_values().collect(), progress)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to write the objects to the store"))?;
+			.map_err(|error| tg::error!(!error, "failed to write the objects to the cache"))?;
 
 		// Write the lock.
 		let reserve_lock_write = || match watch_observation {

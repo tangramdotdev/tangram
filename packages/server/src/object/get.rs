@@ -12,12 +12,12 @@ use {
 		path::PathBuf,
 	},
 	tangram_archive::Archive as _,
+	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_index::prelude::*,
-	tangram_store::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
@@ -692,12 +692,12 @@ impl Server {
 		id: &tg::object::Id,
 		checkout_file: &mut Option<CheckoutFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let arg = crate::store::object::get::Arg {
+		let arg = crate::cache::object::get::Arg {
 			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
-		let output = self.store.try_get_object_sync(&arg)?;
+		let output = self.cache.try_get_object_sync(&arg)?;
 		let object = output.object;
 		let Some(object) = object else {
 			return Ok(None);
@@ -770,12 +770,12 @@ impl Server {
 		&self,
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Bytes>>> {
-		let arg = crate::store::object::get::batch::Arg {
+		let arg = crate::cache::object::get::batch::Arg {
 			bytes: true,
 			ids: ids.to_owned(),
 		};
 		let output = self
-			.store
+			.cache
 			.try_get_object_batch(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get objects"))?;
@@ -817,13 +817,13 @@ impl Server {
 	}
 
 	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
-		let arg = crate::store::object::get::Arg {
+		let arg = crate::cache::object::get::Arg {
 			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
 		let output = self
-			.store
+			.cache
 			.try_get_object(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?;
@@ -860,17 +860,17 @@ impl Server {
 		let Some(object) = output.object else {
 			return Ok(None);
 		};
-		self.spawn_put_object_in_store_task(id.clone(), object.bytes.clone());
+		self.spawn_put_object_in_cache_task(id.clone(), object.bytes.clone());
 
 		Ok(Some(object.bytes))
 	}
 
-	fn spawn_put_object_in_store_task(&self, id: tg::object::Id, bytes: Bytes) {
+	fn spawn_put_object_in_cache_task(&self, id: tg::object::Id, bytes: Bytes) {
 		tokio::spawn({
 			let server = self.clone();
 			async move {
 				let put = uuid::Uuid::now_v7().into_bytes();
-				let object = crate::store::object::put::Arg {
+				let object = crate::cache::object::put::Arg {
 					bytes: Some(bytes),
 					checkout_pointer: None,
 					id: id.clone(),
@@ -879,17 +879,17 @@ impl Server {
 				};
 				let result = if let Some(cache) = &server.config.object.cache {
 					let partition = rand::random_range(0..cache.partition_total);
-					let arg = crate::store::object::cache::put::object::Arg {
+					let arg = crate::cache::object::cache::put::object::Arg {
 						cache: uuid::Uuid::now_v7().into_bytes(),
 						object,
 						partition,
 					};
-					server.store.put_object_cache_entry_with_object(arg).await
+					server.cache.put_object_cache_entry_with_object(arg).await
 				} else {
-					server.store.put_object(object).await
+					server.cache.put_object(object).await
 				};
 				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), %id, "failed to put an object in the store after reading it from the archive");
+					tracing::error!(error = %error.trace(), %id, "failed to put an object in the cache after reading it from the archive");
 				}
 			}
 		});
@@ -897,7 +897,7 @@ impl Server {
 
 	async fn try_read_checkout_pointer(
 		&self,
-		checkout_pointer: &tangram_store::object::checkout::Pointer,
+		checkout_pointer: &tangram_cache::object::checkout::Pointer,
 	) -> tg::Result<Option<Bytes>> {
 		// Read the leaf from the file.
 		let mut path = self
@@ -935,7 +935,7 @@ impl Server {
 
 	fn try_read_checkout_pointer_sync(
 		&self,
-		checkout_pointer: &tangram_store::object::checkout::Pointer,
+		checkout_pointer: &tangram_cache::object::checkout::Pointer,
 		checkout_file: &mut Option<CheckoutFile>,
 	) -> tg::Result<Option<Bytes>> {
 		// Replace the file if necessary.

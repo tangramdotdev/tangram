@@ -5,10 +5,10 @@ use {
 	num::ToPrimitive as _,
 	std::{path::Path, time::Duration},
 	tangram_archive::Archive as _,
+	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_index::prelude::*,
-	tangram_store::prelude::*,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -179,11 +179,11 @@ impl Server {
 				put: object.put,
 			})
 			.collect();
-		let store_args = output
+		let cache_args = output
 			.objects
 			.iter()
 			.cloned()
-			.map(|object| crate::store::object::delete::Arg {
+			.map(|object| crate::cache::object::delete::Arg {
 				id: object.id,
 				put: object.put,
 			})
@@ -201,8 +201,8 @@ impl Server {
 			}
 		};
 		let delete_store_future = async {
-			if let Err(error) = self.store.delete_object_batch(store_args).await {
-				let error = tg::error!(!error, "failed to delete objects from the store");
+			if let Err(error) = self.cache.delete_object_batch(cache_args).await {
+				let error = tg::error!(!error, "failed to delete objects from the cache");
 				tracing::error!(error = %error.trace());
 			}
 		};

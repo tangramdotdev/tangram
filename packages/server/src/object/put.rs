@@ -3,11 +3,11 @@ use {
 	futures::{FutureExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, ops::ControlFlow},
+	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_store::prelude::*,
 };
 
 impl Session {
@@ -66,7 +66,7 @@ impl Session {
 		};
 		let put = uuid::Uuid::now_v7().into_bytes();
 
-		let put_arg = crate::store::object::put::Arg {
+		let put_arg = crate::cache::object::put::Arg {
 			bytes: Some(arg.bytes.clone()),
 			checkout_pointer: None,
 			id: id.clone(),
@@ -298,7 +298,7 @@ impl Session {
 impl Server {
 	pub(crate) async fn put_object_and_index(
 		&self,
-		object: crate::store::object::put::Arg,
+		object: crate::cache::object::put::Arg,
 		index: tangram_index::batch::Arg,
 	) -> tg::Result<()> {
 		let future = self.put_object_and_index_inner(object, index).boxed();
@@ -312,7 +312,7 @@ impl Server {
 
 	async fn put_object_and_index_inner(
 		&self,
-		object: crate::store::object::put::Arg,
+		object: crate::cache::object::put::Arg,
 		index: tangram_index::batch::Arg,
 	) -> tg::Result<()> {
 		if self.config.advanced.single_process {
@@ -335,7 +335,7 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn put_object(&self, arg: crate::store::object::put::Arg) -> tg::Result<()> {
+	pub(crate) async fn put_object(&self, arg: crate::cache::object::put::Arg) -> tg::Result<()> {
 		let future = self.put_object_inner(arg).boxed();
 		let result = tokio::time::timeout(self.config.object.put_timeout, future)
 			.await
@@ -345,10 +345,10 @@ impl Server {
 		Ok(())
 	}
 
-	async fn put_object_inner(&self, arg: crate::store::object::put::Arg) -> tg::Result<()> {
+	async fn put_object_inner(&self, arg: crate::cache::object::put::Arg) -> tg::Result<()> {
 		if self.archive.is_none() {
 			return self
-				.store
+				.cache
 				.put_object(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the object"));
@@ -358,7 +358,7 @@ impl Server {
 		}
 
 		let archive = self.enqueue_object_archive(arg.id.clone(), arg.put);
-		let object_put = self.store.put_object(arg);
+		let object_put = self.cache.put_object(arg);
 		let (object_result, archive_result) = future::join(object_put, archive).await;
 		object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
 		archive_result
@@ -369,7 +369,7 @@ impl Server {
 
 	pub(crate) async fn put_object_batch_and_index(
 		&self,
-		objects: Vec<crate::store::object::put::Arg>,
+		objects: Vec<crate::cache::object::put::Arg>,
 		index: tangram_index::batch::Arg,
 	) -> tg::Result<()> {
 		let future = self
@@ -387,7 +387,7 @@ impl Server {
 
 	async fn put_object_batch_and_index_inner(
 		&self,
-		objects: Vec<crate::store::object::put::Arg>,
+		objects: Vec<crate::cache::object::put::Arg>,
 		index: tangram_index::batch::Arg,
 	) -> tg::Result<()> {
 		if self.config.advanced.single_process {
@@ -412,7 +412,7 @@ impl Server {
 
 	pub(crate) async fn put_object_batch(
 		&self,
-		args: Vec<crate::store::object::put::Arg>,
+		args: Vec<crate::cache::object::put::Arg>,
 	) -> tg::Result<()> {
 		let future = self.put_object_batch_inner(args).boxed();
 		let result = tokio::time::timeout(self.config.object.put_timeout, future)
@@ -425,18 +425,18 @@ impl Server {
 
 	async fn put_object_batch_inner(
 		&self,
-		args: Vec<crate::store::object::put::Arg>,
+		args: Vec<crate::cache::object::put::Arg>,
 	) -> tg::Result<()> {
 		if self.archive.is_none() {
 			return self
-				.store
+				.cache
 				.put_object_batch(args)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the objects"));
 		}
 		if self.config.advanced.single_process {
 			let archive_args = Self::object_archive_args(&args);
-			self.store
+			self.cache
 				.put_object_batch(args)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
@@ -453,7 +453,7 @@ impl Server {
 				.into_iter()
 				.map(|(id, put)| self.enqueue_object_archive(id, put)),
 		);
-		let object_put = self.store.put_object_batch(args);
+		let object_put = self.cache.put_object_batch(args);
 		let (object_result, archive_result) = future::join(object_put, archive).await;
 		object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 		archive_result
@@ -464,7 +464,7 @@ impl Server {
 
 	pub(crate) async fn put_object_batch_local(
 		&self,
-		args: Vec<crate::store::object::put::Arg>,
+		args: Vec<crate::cache::object::put::Arg>,
 	) -> tg::Result<()> {
 		let future = self.put_object_batch_local_inner(args);
 		tokio::time::timeout(self.config.object.put_timeout, future)
@@ -475,14 +475,14 @@ impl Server {
 
 	async fn put_object_batch_local_inner(
 		&self,
-		args: Vec<crate::store::object::put::Arg>,
+		args: Vec<crate::cache::object::put::Arg>,
 	) -> tg::Result<()> {
 		let archive_args = if self.archive.is_some() {
 			Self::object_archive_args(&args)
 		} else {
 			Vec::new()
 		};
-		self.store
+		self.cache
 			.put_object_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
@@ -496,7 +496,7 @@ impl Server {
 	}
 
 	fn object_archive_args(
-		args: &[crate::store::object::put::Arg],
+		args: &[crate::cache::object::put::Arg],
 	) -> Vec<tangram_archive::object::put::Arg> {
 		args.iter()
 			.filter_map(|arg| {

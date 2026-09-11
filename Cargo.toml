@@ -2,6 +2,7 @@
 default-members = ["packages/cli"]
 members = [
   "packages/archive",
+  "packages/cache",
   "packages/cli",
   "packages/clients/js/native",
   "packages/clients/rust",
@@ -17,7 +18,6 @@ members = [
 	"packages/messenger",
   "packages/pool",
   "packages/quickjs",
-	"packages/store",
   "packages/sandbox",
   "packages/scylla/client",
   "packages/serialize",
@@ -194,6 +194,7 @@ syn = { version = "3", features = ["full"] }
 syntect = "5"
 sync_wrapper = "1"
 tangram_archive = { path = "packages/archive" }
+tangram_cache = { path = "packages/cache" }
 tangram_client = { path = "packages/clients/rust" }
 tangram_compiler = { path = "packages/compiler" }
 tangram_database = { path = "packages/database" }
@@ -210,7 +211,6 @@ tangram_quickjs = { path = "packages/quickjs" }
 tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server" }
-tangram_store = { path = "packages/store" }
 tangram_uri = { path = "packages/uri" }
 tangram_util = { path = "packages/util" }
 tangram_v8 = { path = "packages/v8" }

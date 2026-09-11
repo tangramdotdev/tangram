@@ -846,7 +846,7 @@ impl Server {
 				.map(|fragment| bytes.slice_ref(fragment))
 				.collect();
 			let batch =
-				crate::store::index::queue::batch::Id::new(uuid::Uuid::now_v7().into_bytes());
+				crate::cache::index::queue::batch::Id::new(uuid::Uuid::now_v7().into_bytes());
 			self.enqueue_index_batch(batch, fragments).await?;
 
 			return Ok(());
@@ -906,7 +906,7 @@ impl Server {
 
 	async fn enqueue_index_batch(
 		&self,
-		batch: crate::store::index::queue::batch::Id,
+		batch: crate::cache::index::queue::batch::Id,
 		fragments: Vec<bytes::Bytes>,
 	) -> tg::Result<()> {
 		let fragment_count = u64::try_from(fragments.len())
@@ -942,7 +942,7 @@ impl Server {
 	async fn enqueue_index_batch_with_indexer(
 		&self,
 		indexer: &tg::indexer::Id,
-		batch: crate::store::index::queue::batch::Id,
+		batch: crate::cache::index::queue::batch::Id,
 		fragment_count: u64,
 		fragments: &[bytes::Bytes],
 	) -> tg::Result<()> {

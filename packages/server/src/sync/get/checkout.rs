@@ -8,9 +8,9 @@ use {
 		path::PathBuf,
 		sync::{Arc, Mutex},
 	},
+	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
-	tangram_store::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _},
 };
 
@@ -374,13 +374,13 @@ impl Session {
 			.iter()
 			.map(|(id, _)| id.clone().into())
 			.collect::<Vec<_>>();
-		let arg = tangram_store::object::get::batch::Arg {
+		let arg = tangram_cache::object::get::batch::Arg {
 			bytes: true,
 			ids: object_ids.clone(),
 		};
 		let objects_future = async {
 			self.server
-				.store
+				.cache
 				.try_get_object_batch(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get the existing blobs"))
@@ -867,7 +867,7 @@ impl Session {
 				}
 				stack.extend(children_with_positions.into_iter().rev());
 			}
-			let pointer = tangram_store::object::checkout::Pointer {
+			let pointer = tangram_cache::object::checkout::Pointer {
 				artifact: artifact.clone(),
 				length: blob.length,
 				path: None,

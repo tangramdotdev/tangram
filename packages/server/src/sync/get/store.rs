@@ -16,7 +16,7 @@ use {
 
 pub struct ObjectNode {
 	pub bytes: Option<Bytes>,
-	pub checkout_pointer: Option<tangram_store::object::checkout::Pointer>,
+	pub checkout_pointer: Option<tangram_cache::object::checkout::Pointer>,
 	pub id: tg::object::Id,
 	pub length: Option<u64>,
 	pub metadata: Option<tg::object::Metadata>,
@@ -51,12 +51,12 @@ impl Session {
 		object_receiver: tokio::sync::mpsc::Receiver<ObjectNode>,
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
-		let store_config = match &self.server.store {
+		let store_config = match &self.server.cache {
 			#[cfg(feature = "lmdb")]
-			crate::store::Store::Lmdb(_) => &self.server.config.sync.get.store.lmdb,
-			crate::store::Store::Memory(_) => &self.server.config.sync.get.store.memory,
+			crate::cache::Cache::Lmdb(_) => &self.server.config.sync.get.store.lmdb,
+			crate::cache::Cache::Memory(_) => &self.server.config.sync.get.store.memory,
 			#[cfg(feature = "scylla")]
-			crate::store::Store::Scylla(_) => &self.server.config.sync.get.store.scylla,
+			crate::cache::Cache::Scylla(_) => &self.server.config.sync.get.store.scylla,
 		};
 		let concurrency = store_config.object_concurrency;
 		let max_objects_per_batch = store_config.object_max_batch;
@@ -117,7 +117,7 @@ impl Session {
 		state: &State,
 		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
-		// Deserialize the objects and create the store args.
+		// Deserialize the objects and create the cache args.
 		let mut datas = Vec::with_capacity(nodes.len());
 		let mut args = Vec::with_capacity(nodes.len());
 		for node in &nodes {
@@ -131,7 +131,7 @@ impl Session {
 				Some(tg::object::Data::Blob(blob)) => Some(blob.length()),
 				_ => None,
 			});
-			args.push(crate::store::object::put::Arg {
+			args.push(crate::cache::object::put::Arg {
 				bytes: node.bytes.clone(),
 				checkout_pointer: node.checkout_pointer.clone(),
 				id: node.id.clone(),

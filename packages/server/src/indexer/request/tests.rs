@@ -19,7 +19,7 @@ fn subjects_address_an_idless_or_named_indexer() {
 async fn draining_waits_for_writes_queue_completions_and_handlers() {
 	let request = Request {
 		arg: super::RequestArg::Index(super::IndexRequestArg {
-			batch: crate::store::index::queue::batch::Id::new([0; 16]),
+			batch: crate::cache::index::queue::batch::Id::new([0; 16]),
 			fragment: 0,
 			fragments: 2,
 			payload: bytes::Bytes::new(),
@@ -33,8 +33,8 @@ async fn draining_waits_for_writes_queue_completions_and_handlers() {
 	};
 	queues.finish_reservation(reservation);
 	let sequence = queues.try_allocate_sequence(queue::Kind::Index).unwrap();
-	let fragment = crate::store::index::queue::Fragment {
-		batch: crate::store::index::queue::batch::Id::new([0; 16]),
+	let fragment = crate::cache::index::queue::Fragment {
+		batch: crate::cache::index::queue::batch::Id::new([0; 16]),
 		fragment: 0,
 		fragments: 2,
 		indexer: tangram_client::indexer::Id::new(),
@@ -171,7 +171,7 @@ async fn cancelling_a_handler_releases_its_capacity() {
 		writes: 1,
 	};
 	let arg = super::IndexRequestArg {
-		batch: crate::store::index::queue::batch::Id::new([0; 16]),
+		batch: crate::cache::index::queue::batch::Id::new([0; 16]),
 		fragment: 0,
 		fragments: 1,
 		payload: bytes::Bytes::new(),

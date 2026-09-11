@@ -3,10 +3,10 @@ use {
 	futures::{FutureExt as _, StreamExt as _},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, mem, pin::pin, time::Duration},
+	tangram_cache::{Cache as _, log},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_index::prelude::*,
-	tangram_store::{Store as _, log},
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -67,7 +67,7 @@ impl Session {
 		let mut requests = pin!(requests);
 		let mut ended = compacted
 			|| streams.is_empty()
-			|| self.server.store.try_get_log_end(&id).await?.is_some();
+			|| self.server.cache.try_get_log_end(&id).await?.is_some();
 		while let Some(requests) = requests.next().await {
 			self.write_process_control_request_batch(&id, requests, &sender, &mut ended, &streams)
 				.boxed()
@@ -186,7 +186,7 @@ impl Session {
 			return Ok(());
 		}
 		self.server
-			.store
+			.cache
 			.put_log_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the log"))?;
@@ -228,7 +228,7 @@ impl Session {
 		}
 
 		// Persist the writer's final positions before scheduling compaction or reporting success.
-		if let Some(stored) = self.server.store.try_get_log_end(id).await? {
+		if let Some(stored) = self.server.cache.try_get_log_end(id).await? {
 			if stored != end {
 				return Err(tg::error!("the log end positions do not match"));
 			}
@@ -238,7 +238,7 @@ impl Session {
 				process: id.clone(),
 			};
 			self.server
-				.store
+				.cache
 				.put_log_end(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to store the log end"))?;

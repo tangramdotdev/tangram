@@ -22,7 +22,7 @@ let config = {
 	},
 	messenger: { kind: 'nats', url: $'nats://127.0.0.1:($port)' },
 	roles: [api indexer],
-	store: {
+	cache: {
 		kind: 'lmdb',
 		map_size: 268_435_456,
 		path: ($directory | path join store),

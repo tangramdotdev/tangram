@@ -414,7 +414,7 @@ impl Session {
 		// Load the graph data.
 		let (_size, data) = self
 			.server
-			.store
+			.cache
 			.try_get_object_data_sync(&graph_id.clone().into())
 			.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 			.ok_or_else(|| tg::error!("failed to load the graph"))?;
@@ -556,7 +556,7 @@ impl Session {
 
 		// Collect all entries, recursively flattening branches.
 		let entries =
-			crate::directory::collect_directory_entries(&self.server.store, node, graph.as_ref())?;
+			crate::directory::collect_directory_entries(&self.server.cache, node, graph.as_ref())?;
 
 		// Recurse into the entries.
 		for (name, mut edge) in entries {
@@ -807,7 +807,7 @@ impl Session {
 					.clone();
 				let (_size, data) = self
 					.server
-					.store
+					.cache
 					.try_get_object_data_sync(&graph_id.clone().into())
 					.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 					.ok_or_else(|| tg::error!("failed to load the graph"))?;
@@ -845,7 +845,7 @@ impl Session {
 				// Load the object.
 				let (_size, data) = self
 					.server
-					.store
+					.cache
 					.try_get_object_data_sync(&id.clone().into())
 					.map_err(|error| tg::error!(!error, "failed to get the object data"))?
 					.ok_or_else(|| tg::error!("failed to load the object"))?;
@@ -867,7 +867,7 @@ impl Session {
 							.clone();
 						let (_size, data) = self
 							.server
-							.store
+							.cache
 							.try_get_object_data_sync(&graph_id.clone().into())
 							.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 							.ok_or_else(|| tg::error!("failed to load the graph"))?;

@@ -8037,6 +8037,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_cache"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "foundationdb-tuple",
+ "futures",
+ "heed",
+ "indoc",
+ "num",
+ "num-derive 0.5.1",
+ "num-traits",
+ "reqwest 0.13.4",
+ "scylla",
+ "serde",
+ "serde_json",
+ "tangram_client",
+ "tangram_serialize",
+ "tangram_util",
+ "tokio",
+]
+
+[[package]]
 name = "tangram_cli"
 version = "0.0.0"
 dependencies = [
@@ -8543,6 +8565,7 @@ dependencies = [
  "smallvec",
  "sync_wrapper",
  "tangram_archive",
+ "tangram_cache",
  "tangram_client",
  "tangram_compiler",
  "tangram_database",
@@ -8555,7 +8578,6 @@ dependencies = [
  "tangram_pool",
  "tangram_sandbox",
  "tangram_serialize",
- "tangram_store",
  "tangram_uri",
  "tangram_util",
  "tangram_vfs",
@@ -8573,28 +8595,6 @@ dependencies = [
  "unicode-width 0.2.2",
  "uuid",
  "xattr",
-]
-
-[[package]]
-name = "tangram_store"
-version = "0.0.0"
-dependencies = [
- "bytes",
- "foundationdb-tuple",
- "futures",
- "heed",
- "indoc",
- "num",
- "num-derive 0.5.1",
- "num-traits",
- "reqwest 0.13.4",
- "scylla",
- "serde",
- "serde_json",
- "tangram_client",
- "tangram_serialize",
- "tangram_util",
- "tokio",
 ]
 
 [[package]]
@@ -8686,8 +8686,8 @@ dependencies = [
  "libc",
  "num",
  "serde_json",
+ "tangram_cache",
  "tangram_client",
- "tangram_store",
  "tangram_uri",
  "tangram_util",
  "tangram_vfs",

@@ -17,9 +17,9 @@ use {
 			atomic::{AtomicU64, Ordering},
 		},
 	},
+	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
-	tangram_store::prelude::*,
 	tangram_vfs as vfs,
 };
 
@@ -276,16 +276,16 @@ impl Provider {
 		let mut requests = requests.into_iter();
 		let mut responses = Vec::with_capacity(requests.len());
 		while let Some(request) = requests.next() {
-			// Defer a named node request before opening a store transaction.
+			// Defer a named node request before opening a cache transaction.
 			if let Some(response) = self.try_defer_named_request_sync(&request) {
 				responses.push(response);
 				continue;
 			}
 
 			#[cfg(feature = "lmdb")]
-			let transaction = if let crate::store::Store::Lmdb(store) = &self.server.store {
+			let transaction = if let crate::cache::Cache::Lmdb(cache) = &self.server.cache {
 				if transaction.is_none() {
-					transaction = match store.env().read_txn() {
+					transaction = match cache.env().read_txn() {
 						Ok(transaction) => Some(transaction),
 						Err(error) => {
 							tracing::error!(?error, "failed to begin an lmdb read transaction");
@@ -1763,8 +1763,8 @@ impl Provider {
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::EntryKind)>> {
 		#[cfg(feature = "lmdb")]
-		if let crate::store::Store::Lmdb(store) = &self.server.store {
-			let transaction = store.env().read_txn().map_err(|error| {
+		if let crate::cache::Cache::Lmdb(cache) = &self.server.cache {
+			let transaction = cache.env().read_txn().map_err(|error| {
 				tracing::error!(?error, "failed to begin an lmdb read transaction");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
@@ -2065,8 +2065,8 @@ impl Provider {
 		length: u64,
 	) -> std::io::Result<Vec<(String, u64, vfs::Attrs)>> {
 		#[cfg(feature = "lmdb")]
-		if let crate::store::Store::Lmdb(store) = &self.server.store {
-			let transaction = store.env().read_txn().map_err(|error| {
+		if let crate::cache::Cache::Lmdb(cache) = &self.server.cache {
+			let transaction = cache.env().read_txn().map_err(|error| {
 				tracing::error!(?error, "failed to begin an lmdb read transaction");
 				std::io::Error::from_raw_os_error(libc::EIO)
 			})?;
@@ -2693,14 +2693,14 @@ impl Provider {
 
 	async fn blob_length_inner(&self, id: &tg::blob::Id) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
-		let arg = crate::store::object::get::Arg {
+		let arg = crate::cache::object::get::Arg {
 			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
 		let object = self
 			.server
-			.store
+			.cache
 			.try_get_object(arg)
 			.await
 			.map_err(|error| {
@@ -3217,35 +3217,35 @@ impl Provider {
 		&self,
 		id: &tg::object::Id,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<Option<tangram_store::object::Object<'static>>> {
+	) -> std::io::Result<Option<tangram_cache::object::Object<'static>>> {
 		#[cfg(feature = "lmdb")]
-		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
-			(&self.server.store, transaction)
+		if let (crate::cache::Cache::Lmdb(cache), Some(transaction)) =
+			(&self.server.cache, transaction)
 		{
-			let arg = crate::store::object::get::Arg {
+			let arg = crate::cache::object::get::Arg {
 				bytes: true,
 				id: id.clone(),
 				put: None,
 			};
-			return store
+			return cache
 				.try_get_object_with_transaction(transaction, &arg)
 				.map(|output| output.object)
-				.map_err(|error| Self::map_store_sync_error(&error));
+				.map_err(|error| Self::map_cache_sync_error(&error));
 		}
 
 		#[cfg(not(feature = "lmdb"))]
 		let _ = transaction;
 
-		let arg = crate::store::object::get::Arg {
+		let arg = crate::cache::object::get::Arg {
 			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
 		self.server
-			.store
+			.cache
 			.try_get_object_sync(&arg)
 			.map(|output| output.object)
-			.map_err(|error| Self::map_store_sync_error(&error))
+			.map_err(|error| Self::map_cache_sync_error(&error))
 	}
 
 	fn try_get_data(
@@ -3254,24 +3254,24 @@ impl Provider {
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Option<(u64, tg::object::Data)>> {
 		#[cfg(feature = "lmdb")]
-		if let (crate::store::Store::Lmdb(store), Some(transaction)) =
-			(&self.server.store, transaction)
+		if let (crate::cache::Cache::Lmdb(cache), Some(transaction)) =
+			(&self.server.cache, transaction)
 		{
-			return store
+			return cache
 				.try_get_object_data_with_transaction(transaction, id)
-				.map_err(|error| Self::map_store_sync_error(&error));
+				.map_err(|error| Self::map_cache_sync_error(&error));
 		}
 
 		#[cfg(not(feature = "lmdb"))]
 		let _ = transaction;
 
 		self.server
-			.store
+			.cache
 			.try_get_object_data_sync(id)
-			.map_err(|error| Self::map_store_sync_error(&error))
+			.map_err(|error| Self::map_cache_sync_error(&error))
 	}
 
-	fn map_store_sync_error(error: &tg::Error) -> std::io::Error {
+	fn map_cache_sync_error(error: &tg::Error) -> std::io::Error {
 		tracing::error!(error = %error.trace(), "failed to access local object data");
 		std::io::Error::from_raw_os_error(libc::EIO)
 	}

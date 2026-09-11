@@ -33,6 +33,9 @@ pub struct Config {
 	pub billing: Option<Billing>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cache: Option<Cache>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub checkin: Option<Checkin>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -99,9 +102,6 @@ pub struct Config {
 	/// Configure shell behavior.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub shell: Option<Shell>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub store: Option<Store>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sync: Option<SyncOptions>,
@@ -1094,18 +1094,18 @@ pub struct IndexQueue {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
-pub enum Store {
-	Lmdb(LmdbStore),
+pub enum Cache {
+	Lmdb(LmdbCache),
 
-	Memory(MemoryStore),
+	Memory(MemoryCache),
 
-	Scylla(ScyllaStore),
+	Scylla(ScyllaCache),
 }
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct LmdbStore {
+pub struct LmdbCache {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub map_size: Option<usize>,
 
@@ -1128,17 +1128,17 @@ pub struct LmdbStore {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct MemoryStore {}
+pub struct MemoryCache {}
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScyllaStore {
+pub struct ScyllaCache {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub addr: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub capacity: Option<ScyllaStoreCapacity>,
+	pub capacity: Option<ScyllaCacheCapacity>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub connections: Option<usize>,
@@ -1156,7 +1156,7 @@ pub struct ScyllaStore {
 	pub password: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub speculative_execution: Option<ScyllaStoreSpeculativeExecution>,
+	pub speculative_execution: Option<ScyllaCacheSpeculativeExecution>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub username: Option<String>,
@@ -1164,14 +1164,14 @@ pub struct ScyllaStore {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
-pub enum ScyllaStoreCapacity {
-	Prometheus(ScyllaStorePrometheusCapacity),
+pub enum ScyllaCacheCapacity {
+	Prometheus(ScyllaCachePrometheusCapacity),
 }
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScyllaStorePrometheusCapacity {
+pub struct ScyllaCachePrometheusCapacity {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub available_query: Option<String>,
 
@@ -1188,16 +1188,16 @@ pub struct ScyllaStorePrometheusCapacity {
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
-pub enum ScyllaStoreSpeculativeExecution {
-	Percentile(ScyllaStorePercentileSpeculativeExecution),
+pub enum ScyllaCacheSpeculativeExecution {
+	Percentile(ScyllaCachePercentileSpeculativeExecution),
 
-	Simple(ScyllaStoreSimpleSpeculativeExecution),
+	Simple(ScyllaCacheSimpleSpeculativeExecution),
 }
 
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScyllaStorePercentileSpeculativeExecution {
+pub struct ScyllaCachePercentileSpeculativeExecution {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_retry_count: Option<usize>,
 
@@ -1208,7 +1208,7 @@ pub struct ScyllaStorePercentileSpeculativeExecution {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ScyllaStoreSimpleSpeculativeExecution {
+pub struct ScyllaCacheSimpleSpeculativeExecution {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_retry_count: Option<usize>,
 
@@ -2196,7 +2196,7 @@ impl Default for Tracing {
 				"tangram_js=info",
 				"tangram_messenger=info",
 				"tangram_server=info",
-				"tangram_store=info",
+				"tangram_cache=info",
 				"tangram_vfs=info",
 			]
 			.join(","),
@@ -2318,8 +2318,8 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(source) = source.scheduler {
 		target.scheduler = resolve_scheduler(&source);
 	}
-	if let Some(source) = source.store {
-		target.store = resolve_store(source)?;
+	if let Some(source) = source.cache {
+		target.cache = resolve_cache(source)?;
 	}
 	if let Some(source) = source.sync {
 		target.sync = resolve_sync(&source);
@@ -3351,18 +3351,18 @@ fn resolve_index_queue(source: IndexQueue) -> server::IndexQueue {
 	target
 }
 
-fn resolve_store(source: Store) -> tg::Result<server::Store> {
+fn resolve_cache(source: Cache) -> tg::Result<server::Cache> {
 	let target = match source {
-		Store::Lmdb(source) => server::Store::Lmdb(resolve_lmdb_store(source)),
-		Store::Memory(_) => server::Store::Memory(server::MemoryStore {}),
-		Store::Scylla(source) => server::Store::Scylla(resolve_scylla_store(source)?),
+		Cache::Lmdb(source) => server::Cache::Lmdb(resolve_lmdb_cache(source)),
+		Cache::Memory(_) => server::Cache::Memory(server::MemoryCache {}),
+		Cache::Scylla(source) => server::Cache::Scylla(resolve_scylla_cache(source)?),
 	};
 
 	Ok(target)
 }
 
-fn resolve_lmdb_store(source: LmdbStore) -> server::LmdbStore {
-	let mut target = server::LmdbStore::default();
+fn resolve_lmdb_cache(source: LmdbCache) -> server::LmdbCache {
+	let mut target = server::LmdbCache::default();
 	if let Some(value) = source.map_size {
 		target.map_size = value;
 	}
@@ -3384,18 +3384,18 @@ fn resolve_lmdb_store(source: LmdbStore) -> server::LmdbStore {
 	target
 }
 
-fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> {
-	let addr = required(source.addr, "store.addr")?;
+fn resolve_scylla_cache(source: ScyllaCache) -> tg::Result<server::ScyllaCache> {
+	let addr = required(source.addr, "cache.addr")?;
 	let capacity = source
 		.capacity
-		.map(resolve_scylla_store_capacity)
+		.map(resolve_scylla_cache_capacity)
 		.transpose()?;
-	let keyspace = required(source.keyspace, "store.keyspace")?;
+	let keyspace = required(source.keyspace, "cache.keyspace")?;
 	let speculative_execution = source
 		.speculative_execution
-		.map(resolve_scylla_store_speculative_execution)
+		.map(resolve_scylla_cache_speculative_execution)
 		.transpose()?;
-	let target = server::ScyllaStore {
+	let target = server::ScyllaCache {
 		addr,
 		capacity,
 		connections: source.connections,
@@ -3410,55 +3410,55 @@ fn resolve_scylla_store(source: ScyllaStore) -> tg::Result<server::ScyllaStore> 
 	Ok(target)
 }
 
-fn resolve_scylla_store_capacity(
-	source: ScyllaStoreCapacity,
-) -> tg::Result<server::ScyllaStoreCapacity> {
+fn resolve_scylla_cache_capacity(
+	source: ScyllaCacheCapacity,
+) -> tg::Result<server::ScyllaCacheCapacity> {
 	let target = match source {
-		ScyllaStoreCapacity::Prometheus(source) => {
+		ScyllaCacheCapacity::Prometheus(source) => {
 			let available_query =
-				required(source.available_query, "store.capacity.available_query")?;
-			let total_query = required(source.total_query, "store.capacity.total_query")?;
+				required(source.available_query, "cache.capacity.available_query")?;
+			let total_query = required(source.total_query, "cache.capacity.total_query")?;
 			let ttl = source.ttl.unwrap_or(Duration::from_secs(1));
-			let url = required(source.url, "store.capacity.url")?;
-			let target = server::ScyllaStorePrometheusCapacity {
+			let url = required(source.url, "cache.capacity.url")?;
+			let target = server::ScyllaCachePrometheusCapacity {
 				available_query,
 				total_query,
 				ttl,
 				url,
 			};
-			server::ScyllaStoreCapacity::Prometheus(target)
+			server::ScyllaCacheCapacity::Prometheus(target)
 		},
 	};
 
 	Ok(target)
 }
 
-fn resolve_scylla_store_speculative_execution(
-	source: ScyllaStoreSpeculativeExecution,
-) -> tg::Result<server::ScyllaStoreSpeculativeExecution> {
+fn resolve_scylla_cache_speculative_execution(
+	source: ScyllaCacheSpeculativeExecution,
+) -> tg::Result<server::ScyllaCacheSpeculativeExecution> {
 	let target = match source {
-		ScyllaStoreSpeculativeExecution::Percentile(source) => {
-			let source = resolve_scylla_store_percentile_speculative_execution(source)?;
-			server::ScyllaStoreSpeculativeExecution::Percentile(source)
+		ScyllaCacheSpeculativeExecution::Percentile(source) => {
+			let source = resolve_scylla_cache_percentile_speculative_execution(source)?;
+			server::ScyllaCacheSpeculativeExecution::Percentile(source)
 		},
-		ScyllaStoreSpeculativeExecution::Simple(source) => {
-			let source = resolve_scylla_store_simple_speculative_execution(source)?;
-			server::ScyllaStoreSpeculativeExecution::Simple(source)
+		ScyllaCacheSpeculativeExecution::Simple(source) => {
+			let source = resolve_scylla_cache_simple_speculative_execution(source)?;
+			server::ScyllaCacheSpeculativeExecution::Simple(source)
 		},
 	};
 
 	Ok(target)
 }
 
-fn resolve_scylla_store_percentile_speculative_execution(
-	source: ScyllaStorePercentileSpeculativeExecution,
-) -> tg::Result<server::ScyllaStorePercentileSpeculativeExecution> {
+fn resolve_scylla_cache_percentile_speculative_execution(
+	source: ScyllaCachePercentileSpeculativeExecution,
+) -> tg::Result<server::ScyllaCachePercentileSpeculativeExecution> {
 	let max_retry_count = required(
 		source.max_retry_count,
-		"store.speculative_execution.max_retry_count",
+		"cache.speculative_execution.max_retry_count",
 	)?;
-	let percentile = required(source.percentile, "store.speculative_execution.percentile")?;
-	let target = server::ScyllaStorePercentileSpeculativeExecution {
+	let percentile = required(source.percentile, "cache.speculative_execution.percentile")?;
+	let target = server::ScyllaCachePercentileSpeculativeExecution {
 		max_retry_count,
 		percentile,
 	};
@@ -3466,18 +3466,18 @@ fn resolve_scylla_store_percentile_speculative_execution(
 	Ok(target)
 }
 
-fn resolve_scylla_store_simple_speculative_execution(
-	source: ScyllaStoreSimpleSpeculativeExecution,
-) -> tg::Result<server::ScyllaStoreSimpleSpeculativeExecution> {
+fn resolve_scylla_cache_simple_speculative_execution(
+	source: ScyllaCacheSimpleSpeculativeExecution,
+) -> tg::Result<server::ScyllaCacheSimpleSpeculativeExecution> {
 	let max_retry_count = required(
 		source.max_retry_count,
-		"store.speculative_execution.max_retry_count",
+		"cache.speculative_execution.max_retry_count",
 	)?;
 	let retry_interval = required(
 		source.retry_interval,
-		"store.speculative_execution.retry_interval",
+		"cache.speculative_execution.retry_interval",
 	)?;
-	let target = server::ScyllaStoreSimpleSpeculativeExecution {
+	let target = server::ScyllaCacheSimpleSpeculativeExecution {
 		max_retry_count,
 		retry_interval,
 	};
@@ -4232,7 +4232,7 @@ mod tests {
 		assert_eq!(cache.partition_total, 16);
 		assert_eq!(cache.poll_interval, Duration::from_secs(5));
 
-		let source: ScyllaStore = serde_json::from_value(serde_json::json!({
+		let source: ScyllaCache = serde_json::from_value(serde_json::json!({
 			"addr": "127.0.0.1:9042",
 			"capacity": {
 				"kind": "prometheus",
@@ -4241,11 +4241,11 @@ mod tests {
 				"ttl": 2.5,
 				"url": "http://127.0.0.1:9090",
 			},
-			"keyspace": "store",
+			"keyspace": "cache",
 		}))
 		.unwrap();
-		let target = resolve_scylla_store(source).unwrap();
-		let Some(server::ScyllaStoreCapacity::Prometheus(capacity)) = target.capacity else {
+		let target = resolve_scylla_cache(source).unwrap();
+		let Some(server::ScyllaCacheCapacity::Prometheus(capacity)) = target.capacity else {
 			panic!("expected Prometheus capacity");
 		};
 		assert_eq!(

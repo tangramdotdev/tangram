@@ -150,18 +150,18 @@ pub struct TgDirEntryPlus {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct TgConfig {
-	/// The server's data directory, a null-terminated UTF-8 string owned by the caller. The fast path reads the store and the checkouts directory within it directly instead of sending a request to the server. A null pointer disables the fast path.
+	/// The server's data directory, a null-terminated UTF-8 string owned by the caller. The fast path reads the cache and the checkouts directory within it directly instead of sending a request to the server. A null pointer disables the fast path.
 	pub data_directory: *const c_char,
 	/// The interval in seconds at which expired cache-only nodes are swept.
 	pub node_eviction_interval_secs: u64,
 	/// The duration in seconds a cache-only node created by directory enumeration is retained after its most recent access before it becomes eligible for eviction.
 	pub node_ttl_secs: u64,
-	/// The map size with which to open the store. It must be at least the server's, so the server sends its own.
-	pub store_map_size: u64,
-	/// The store's path within the data directory, a null-terminated UTF-8 string owned by the caller. A null pointer or an empty string selects the default.
-	pub store_path: *const c_char,
-	/// The prefix for the store's POSIX lock semaphores, a null-terminated UTF-8 string owned by the caller. It must match the prefix the server opens the store with so that the sandboxed provider and the server share the same lock. A null pointer or an empty string selects the default hash-derived names.
-	pub store_posix_sem_prefix: *const c_char,
+	/// The map size with which to open the cache. It must be at least the server's, so the server sends its own.
+	pub cache_map_size: u64,
+	/// The cache's path within the data directory, a null-terminated UTF-8 string owned by the caller. A null pointer or an empty string selects the default.
+	pub cache_path: *const c_char,
+	/// The prefix for the cache's POSIX lock semaphores, a null-terminated UTF-8 string owned by the caller. It must match the prefix the server opens the cache with so that the sandboxed provider and the server share the same lock. A null pointer or an empty string selects the default hash-derived names.
+	pub cache_posix_sem_prefix: *const c_char,
 	/// The principal the mount serves, a null-terminated UTF-8 string owned by the caller in the display form of a principal. A null pointer or an empty string leaves the mount unenforced.
 	pub principal: *const c_char,
 	/// The authorization tokens the mount holds, a null-terminated UTF-8 string owned by the caller containing a JSON array of authorization tokens. A null pointer or an empty string provides no tokens.
@@ -275,26 +275,26 @@ fn config_from_c(config: &TgConfig) -> std::result::Result<Config, Status> {
 		} else {
 			Duration::from_secs(config.node_ttl_secs)
 		},
-		store_map_size: if config.store_map_size == 0 {
-			default.store_map_size
+		cache_map_size: if config.cache_map_size == 0 {
+			default.cache_map_size
 		} else {
-			config.store_map_size.to_usize().unwrap_or(usize::MAX)
+			config.cache_map_size.to_usize().unwrap_or(usize::MAX)
 		},
-		store_path: if config.store_path.is_null() {
-			default.store_path.clone()
+		cache_path: if config.cache_path.is_null() {
+			default.cache_path.clone()
 		} else {
 			// SAFETY: The caller guarantees that the non-null configuration field points to a terminated C string.
-			unsafe { CStr::from_ptr(config.store_path) }
+			unsafe { CStr::from_ptr(config.cache_path) }
 				.to_str()
 				.ok()
 				.filter(|path| !path.is_empty())
-				.map_or_else(|| default.store_path.clone(), PathBuf::from)
+				.map_or_else(|| default.cache_path.clone(), PathBuf::from)
 		},
-		store_posix_sem_prefix: if config.store_posix_sem_prefix.is_null() {
+		cache_posix_sem_prefix: if config.cache_posix_sem_prefix.is_null() {
 			None
 		} else {
 			// SAFETY: The caller guarantees that the non-null configuration field points to a terminated C string.
-			unsafe { CStr::from_ptr(config.store_posix_sem_prefix) }
+			unsafe { CStr::from_ptr(config.cache_posix_sem_prefix) }
 				.to_str()
 				.ok()
 				.filter(|prefix| !prefix.is_empty())
@@ -1426,9 +1426,9 @@ mod tests {
 			data_directory: std::ptr::null(),
 			node_eviction_interval_secs: 0,
 			node_ttl_secs: 0,
-			store_map_size: 0,
-			store_path: std::ptr::null(),
-			store_posix_sem_prefix: std::ptr::null(),
+			cache_map_size: 0,
+			cache_path: std::ptr::null(),
+			cache_posix_sem_prefix: std::ptr::null(),
 			principal: std::ptr::null(),
 			tokens: std::ptr::null(),
 		}

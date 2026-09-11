@@ -7,9 +7,9 @@ use {
 		collections::BTreeSet,
 		sync::{Arc, Mutex},
 	},
+	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
-	tangram_store::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -524,12 +524,12 @@ impl Session {
 		put_sandbox_args: Vec<tangram_index::sandbox::put::Arg>,
 		put_sandbox_grant_args: Vec<tangram_index::grant::put::Arg>,
 	) -> tg::Result<()> {
-		// Flush the store.
+		// Flush the cache.
 		self.server
-			.store
+			.cache
 			.flush()
 			.await
-			.map_err(|error| tg::error!(!error, "failed to flush the store"))?;
+			.map_err(|error| tg::error!(!error, "failed to flush the cache"))?;
 
 		// Authorize process objects whose subtrees were already stored locally.
 		let process_objects = {

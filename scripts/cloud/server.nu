@@ -27,9 +27,9 @@ let config = {
 		kind: 'nats',
 		url: 'nats://localhost:4222',
 	},
-	store: {
+	cache: {
 		addr: 'localhost:9042',
-		keyspace: 'store',
+		keyspace: 'cache',
 		kind: 'scylla',
 	},
 	process: {

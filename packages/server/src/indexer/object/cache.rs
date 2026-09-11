@@ -1,6 +1,6 @@
 use {
-	super::super::Indexer, futures::future, tangram_client::prelude::*,
-	tangram_futures::task::Stopper, tangram_store::Store as _,
+	super::super::Indexer, futures::future, tangram_cache::Cache as _, tangram_client::prelude::*,
+	tangram_futures::task::Stopper,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -31,7 +31,7 @@ impl Indexer {
 			if stopper.stopped() {
 				return Ok(());
 			}
-			let should_sleep = match self.server.store.try_get_capacity().await {
+			let should_sleep = match self.server.cache.try_get_capacity().await {
 				Ok(Some(capacity)) => {
 					mode = mode.next(&cache.capacity, capacity);
 					if mode == Mode::Idle {
@@ -77,10 +77,10 @@ impl Indexer {
 					}
 				},
 				Ok(None) => {
-					return Err(tg::error!("the store does not report capacity"));
+					return Err(tg::error!("the cache does not report capacity"));
 				},
 				Err(error) => {
-					tracing::error!(error = %error.trace(), "failed to get the store capacity");
+					tracing::error!(error = %error.trace(), "failed to get the cache capacity");
 					empty_partition_count = 0;
 
 					true
@@ -100,22 +100,22 @@ impl Indexer {
 		cache: &crate::config::ObjectCache,
 		partition: u64,
 	) -> tg::Result<usize> {
-		let arg = crate::store::object::cache::get::Arg {
+		let arg = crate::cache::object::cache::get::Arg {
 			batch_size: cache.batch_size,
 			partition,
 		};
 		let entries = self
 			.server
-			.store
+			.cache
 			.get_object_cache_entries(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get object cache entries"))?;
 		let count = entries.len();
 		future::try_join_all(entries.into_iter().map(|entry| async move {
 			let id = entry.id.clone();
-			let arg = crate::store::object::cache::delete::Arg { entry };
+			let arg = crate::cache::object::cache::delete::Arg { entry };
 			self.server
-				.store
+				.cache
 				.delete_object_cache_entry(arg)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to delete an object cache entry"))
@@ -130,7 +130,7 @@ impl Mode {
 	fn next(
 		self,
 		config: &crate::config::CapacityThreshold,
-		capacity: tangram_store::capacity::Capacity,
+		capacity: tangram_cache::capacity::Capacity,
 	) -> Self {
 		match self {
 			Self::Delete if !config.should_stop(capacity.available, capacity.total) => Self::Delete,

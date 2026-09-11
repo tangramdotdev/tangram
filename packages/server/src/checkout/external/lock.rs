@@ -152,7 +152,7 @@ impl Session {
 					// Load the graph data.
 					let (_size, data) = self
 						.server
-						.store
+						.cache
 						.try_get_object_data_sync(&graph_id.clone().into())
 						.map_err(
 							|error| tg::error!(!error, %graph_id, "failed to get the graph object"),
@@ -196,7 +196,7 @@ impl Session {
 				// Load the object.
 				let (_size, data) = self
 					.server
-					.store
+					.cache
 					.try_get_object_data_sync(&id.clone().into())
 					.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 					.ok_or_else(|| tg::error!(%id, "failed to find the object"))?;
@@ -254,7 +254,7 @@ impl Session {
 	) -> tg::Result<tg::graph::data::Node> {
 		// Collect all entries from the directory, flattening branches.
 		let all_entries =
-			crate::directory::collect_directory_entries(&self.server.store, node, graph)?;
+			crate::directory::collect_directory_entries(&self.server.cache, node, graph)?;
 
 		// Transform each entry for the lock.
 		let entries = all_entries
@@ -452,7 +452,7 @@ impl Session {
 	) -> tg::Result<tg::graph::data::Node> {
 		// Collect all entries, flattening branches recursively.
 		let all_entries =
-			crate::directory::collect_directory_entries(&self.server.store, node, Some(graph_id))?;
+			crate::directory::collect_directory_entries(&self.server.cache, node, Some(graph_id))?;
 
 		// Process entries to create lock pointers.
 		let entries = all_entries

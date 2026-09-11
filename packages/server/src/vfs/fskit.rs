@@ -15,14 +15,14 @@ pub struct Server {
 
 #[derive(serde::Serialize)]
 struct Request {
+	#[serde(rename = "cache", skip_serializing_if = "Option::is_none")]
+	cache: Option<Cache>,
+
 	#[serde(rename = "data_directory")]
 	data_directory: PathBuf,
 
 	#[serde(rename = "mount_path")]
 	mount_path: PathBuf,
-
-	#[serde(rename = "store", skip_serializing_if = "Option::is_none")]
-	store: Option<Store>,
 
 	principal: String,
 
@@ -34,9 +34,9 @@ struct Request {
 	type_: &'static str,
 }
 
-/// The store the fast path opens. It is sent only for an LMDB store because the fast path can read no other kind.
+/// The cache the fast path opens. It is sent only for an LMDB cache because the fast path can read no other kind.
 #[derive(serde::Serialize)]
-struct Store {
+struct Cache {
 	#[serde(rename = "map_size")]
 	map_size: u64,
 
@@ -85,11 +85,11 @@ impl Server {
 		let group_socket = Self::group_socket(server)?;
 
 		// Create the request.
-		let store = Self::store(server);
+		let cache = Self::cache(server);
 		let request = Request {
+			cache,
 			data_directory: server.path.clone(),
 			mount_path: path.to_path_buf(),
-			store,
 			principal: principal.to_string(),
 			socket: group_socket,
 			token,
@@ -140,8 +140,8 @@ impl Server {
 		principal: tg::Principal,
 	) -> tg::Result<Self> {
 		let group_socket = Self::group_socket(server)?;
-		let store = Self::store(server);
-		let options = Self::options(store.as_ref(), &group_socket, &principal);
+		let cache = Self::cache(server);
+		let options = Self::options(cache.as_ref(), &group_socket, &principal);
 		let output = tokio::process::Command::new("/sbin/mount")
 			.arg("-F")
 			.arg("-t")
@@ -192,9 +192,9 @@ impl Server {
 		Ok(group_socket)
 	}
 
-	fn store(server: &crate::Server) -> Option<Store> {
-		match &server.config.store {
-			crate::config::Store::Lmdb(config) => Some(Store {
+	fn cache(server: &crate::Server) -> Option<Cache> {
+		match &server.config.cache {
+			crate::config::Cache::Lmdb(config) => Some(Cache {
 				map_size: config.map_size.to_u64().unwrap(),
 				path: server.path.join(&config.path),
 				posix_sem_prefix: config.resolved_posix_sem_prefix(),
@@ -204,7 +204,7 @@ impl Server {
 	}
 
 	/// Builds the value of the mount's `-o` option. The generic options come first, which the mount command consumes itself, and it forwards the rest to the file system extension. A path containing a comma cannot be represented, so it is omitted and the extension uses its default.
-	fn options(store: Option<&Store>, socket: &Path, principal: &tg::Principal) -> String {
+	fn options(cache: Option<&Cache>, socket: &Path, principal: &tg::Principal) -> String {
 		let mut options = vec![
 			"nobrowse".to_owned(),
 			"nodev".to_owned(),
@@ -221,23 +221,23 @@ impl Server {
 		} else {
 			options.push(format!("socket={socket}"));
 		}
-		if let Some(store) = store {
-			options.push(format!("store_map_size={}", store.map_size));
-			let path = store.path.display().to_string();
+		if let Some(cache) = cache {
+			options.push(format!("cache_map_size={}", cache.map_size));
+			let path = cache.path.display().to_string();
 			if path.contains(',') {
 				tracing::error!(
-					"the store path contains a comma, so it cannot be sent to the file system extension"
+					"the cache path contains a comma, so it cannot be sent to the file system extension"
 				);
 			} else {
-				options.push(format!("store_path={path}"));
+				options.push(format!("cache_path={path}"));
 			}
-			if let Some(posix_sem_prefix) = &store.posix_sem_prefix {
+			if let Some(posix_sem_prefix) = &cache.posix_sem_prefix {
 				if posix_sem_prefix.contains(',') {
 					tracing::error!(
-						"the store semaphore prefix contains a comma, so it cannot be sent to the file system extension"
+						"the cache semaphore prefix contains a comma, so it cannot be sent to the file system extension"
 					);
 				} else {
-					options.push(format!("store_posix_sem_prefix={posix_sem_prefix}"));
+					options.push(format!("cache_posix_sem_prefix={posix_sem_prefix}"));
 				}
 			}
 		}

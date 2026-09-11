@@ -30,7 +30,7 @@ pub struct Output {
 }
 
 pub enum Destination {
-	Store,
+	Cache,
 	Temp(Temp),
 }
 
@@ -57,7 +57,7 @@ impl Session {
 			if self.server.checkouts_enabled() && self.server.config.advanced.single_directory {
 				Destination::Temp(Temp::new(&self.server))
 			} else {
-				Destination::Store
+				Destination::Cache
 			};
 
 		// Create the blob.
@@ -104,13 +104,13 @@ impl Session {
 			None
 		};
 
-		// Store and index the blob.
-		let store_args = Self::write_store_args(&blob, checkout_pointer.as_ref());
+		// Cache and index the blob.
+		let cache_args = Self::write_cache_args(&blob, checkout_pointer.as_ref());
 		let index_arg = self
 			.write_index_arg(&blob, checkout_pointer, touched_at, grant_expires_at)
 			.await?;
 		self.server
-			.put_object_batch_and_index(store_args, index_arg)
+			.put_object_batch_and_index(cache_args, index_arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store and index the blob"))?;
 
@@ -145,7 +145,7 @@ impl Session {
 				.unwrap();
 
 		// Persist the leaves without handing work back to the indexer queues.
-		let destination = Destination::Store;
+		let destination = Destination::Cache;
 		let concurrency = self.server.config.object.archive_queue.concurrency;
 		let blob = self
 			.write_inner_with_handle(reader, Some(&destination), concurrency, |arg| {
@@ -155,7 +155,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to write the blob"))?;
 
 		// Persist the branches before applying the index batch.
-		let args = Self::write_store_args(&blob, None);
+		let args = Self::write_cache_args(&blob, None);
 		self.server.put_object_batch_local(args).await?;
 		let arg = self
 			.write_index_arg(&blob, None, touched_at, grant_expires_at)
@@ -194,7 +194,7 @@ impl Session {
 		reader: impl AsyncRead,
 		destination: Option<&Destination>,
 		concurrency: usize,
-		put_object: impl Fn(crate::store::object::put::Arg) -> F,
+		put_object: impl Fn(crate::cache::object::put::Arg) -> F,
 	) -> tg::Result<Output>
 	where
 		F: Future<Output = tg::Result<()>>,
@@ -232,7 +232,7 @@ impl Session {
 			// Create the leaf.
 			let blob = Self::write_inner_leaf(&chunk);
 
-			// Store the leaf if necessary.
+			// Cache the leaf if necessary.
 			match destination {
 				None => (),
 				Some(Destination::Temp(_)) => {
@@ -242,10 +242,10 @@ impl Session {
 						.await
 						.map_err(|error| tg::error!(!error, "failed to write to the file"))?;
 				},
-				Some(Destination::Store) => {
+				Some(Destination::Cache) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
-					let arg = crate::store::object::put::Arg {
+					let arg = crate::cache::object::put::Arg {
 						bytes: Some(bytes.into()),
 						checkout_pointer: None,
 						id: blob.id.clone().into(),
@@ -337,7 +337,7 @@ impl Session {
 			// Create the leaf.
 			let blob = Self::write_inner_leaf(&chunk);
 
-			// Store the leaf if necessary.
+			// Cache the leaf if necessary.
 			match destination {
 				None => (),
 				Some(Destination::Temp(_)) => {
@@ -346,10 +346,10 @@ impl Session {
 						.write_all(&chunk.data)
 						.map_err(|error| tg::error!(!error, "failed to write to the file"))?;
 				},
-				Some(Destination::Store) => {
+				Some(Destination::Cache) => {
 					let mut bytes = vec![0];
 					bytes.extend_from_slice(&chunk.data);
-					let arg = crate::store::object::put::Arg {
+					let arg = crate::cache::object::put::Arg {
 						bytes: Some(bytes.into()),
 						checkout_pointer: None,
 						id: blob.id.clone().into(),
@@ -357,7 +357,7 @@ impl Session {
 						put: blob.put,
 					};
 					self.server
-						.store
+						.cache
 						.put_object_sync(arg)
 						.map_err(|error| tg::error!(!error, "failed to store the leaf"))?;
 				},
@@ -529,10 +529,10 @@ impl Session {
 		Ok(output)
 	}
 
-	pub(crate) fn write_store_args(
+	pub(crate) fn write_cache_args(
 		blob: &Output,
 		checkout_pointer: Option<&(tg::artifact::Id, Option<PathBuf>)>,
-	) -> Vec<crate::store::object::put::Arg> {
+	) -> Vec<crate::cache::object::put::Arg> {
 		let mut args = Vec::new();
 		let mut stack = vec![blob];
 		while let Some(blob) = stack.pop() {
@@ -541,14 +541,14 @@ impl Session {
 				continue;
 			}
 			let checkout_pointer = checkout_pointer.as_ref().map(|(artifact, path)| {
-				crate::store::object::checkout::Pointer {
+				crate::cache::object::checkout::Pointer {
 					artifact: artifact.clone(),
 					length: blob.length,
 					path: path.clone(),
 					position: blob.position,
 				}
 			});
-			args.push(crate::store::object::put::Arg {
+			args.push(crate::cache::object::put::Arg {
 				bytes: blob.bytes.clone(),
 				checkout_pointer,
 				id: blob.id.clone().into(),

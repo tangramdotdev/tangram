@@ -64,7 +64,7 @@ impl Session {
 			tg::Principal::Root => None,
 			principal => Some(principal.try_to_subject()?),
 		};
-		// Create the store and index args.
+		// Create the cache and index args.
 		let mut batch_objects = BTreeSet::new();
 		let mut object_children = BTreeMap::new();
 		let mut object_children_with_tokens = BTreeMap::new();
@@ -77,13 +77,13 @@ impl Session {
 			let data = tg::object::Data::deserialize(object.id.kind(), object.bytes.clone())
 				.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
 
-			// Create the store arg.
+			// Create the cache arg.
 			let length = match &data {
 				tg::object::Data::Blob(blob) => Some(blob.length()),
 				_ => None,
 			};
 			let put = uuid::Uuid::now_v7().into_bytes();
-			put_args.push(crate::store::object::put::Arg {
+			put_args.push(crate::cache::object::put::Arg {
 				bytes: Some(object.bytes.clone()),
 				checkout_pointer: None,
 				id: object.id.clone(),

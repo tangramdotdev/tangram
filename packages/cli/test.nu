@@ -124,7 +124,7 @@ def main [
 
 		let scylla_output = (^timeout 5 tangram_scylla_client 127.0.0.1 9042 -e "SELECT JSON keyspace_name FROM system_schema.keyspaces" | complete)
 		if $scylla_output.exit_code == 0 {
-			let keyspaces = $scylla_output.stdout | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'store_' }
+			let keyspaces = $scylla_output.stdout | lines | str trim | where { $in starts-with '{' } | each { $in | from json | get keyspace_name } | where { $in starts-with 'cache_' }
 			for keyspace in $keyspaces {
 				print -e $"dropping scylla keyspace ($keyspace)"
 				try { tangram_scylla_client 127.0.0.1 9042 -e $"drop keyspace \"($keyspace)\";" e> /dev/null }
@@ -658,7 +658,7 @@ printf '%s\n' "$count"
 
 def acquire_database_instance [pool_path: string] {
 	let postgres_schema_path = $repository_path | path join packages/server/src/database/postgres.sql
-	let scylla_schema_path = $repository_path | path join packages/store/src/scylla.cql
+	let scylla_schema_path = $repository_path | path join packages/cache/src/scylla.cql
 	let result = (^bash -c (database_pool_acquire) _ $pool_path $postgres_schema_path $scylla_schema_path | complete)
 	if $result.exit_code != 0 {
 		error make {
@@ -748,7 +748,7 @@ cleanup_provision() {
 	trap - EXIT
 	rm -rf -- "$temporary_slot_path"
 	if $scylla_created; then
-		timeout --kill-after=2s 10 tangram_scylla_client 127.0.0.1 9042 -e "drop keyspace if exists \"store_$instance\";" >/dev/null 2>&1 || true
+		timeout --kill-after=2s 10 tangram_scylla_client 127.0.0.1 9042 -e "drop keyspace if exists \"cache_$instance\";" >/dev/null 2>&1 || true
 	fi
 	if $postgres_created; then
 		timeout --kill-after=2s 10 dropdb --host=127.0.0.1 --username=postgres --if-exists --force "database_$instance" >/dev/null 2>&1 || true
@@ -772,9 +772,9 @@ run_phase "creating PostgreSQL database $instance" timeout --kill-after=2s "$ope
 postgres_created=true
 run_phase "initializing PostgreSQL database $instance" timeout --kill-after=2s "$operation_timeout" psql --host=127.0.0.1 --username=postgres --dbname="database_$instance" --set=ON_ERROR_STOP=1 --single-transaction --file="$postgres_schema_path" >/dev/null
 
-run_phase "creating ScyllaDB keyspace $instance" timeout --kill-after=2s "$operation_timeout" tangram_scylla_client 127.0.0.1 9042 -e "create keyspace \"store_$instance\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };" >/dev/null
+run_phase "creating ScyllaDB keyspace $instance" timeout --kill-after=2s "$operation_timeout" tangram_scylla_client 127.0.0.1 9042 -e "create keyspace \"cache_$instance\" with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };" >/dev/null
 scylla_created=true
-run_phase "initializing ScyllaDB keyspace $instance" timeout --kill-after=2s "$operation_timeout" tangram_scylla_client 127.0.0.1 9042 -k "store_$instance" -f "$scylla_schema_path" >/dev/null
+run_phase "initializing ScyllaDB keyspace $instance" timeout --kill-after=2s "$operation_timeout" tangram_scylla_client 127.0.0.1 9042 -k "cache_$instance" -f "$scylla_schema_path" >/dev/null
 
 mv -- "$temporary_slot_path" "$slot_path"
 trap - EXIT
@@ -832,7 +832,7 @@ def run_databases [database_pool_workers: int, database_pool_size: int] {
 	let cluster_path = $state_path | path join 'fdb.cluster'
 	let database_pool_path = database_pool_path
 	let postgres_schema_path = $repository_path | path join packages/server/src/database/postgres.sql
-	let scylla_schema_path = $repository_path | path join packages/store/src/scylla.cql
+	let scylla_schema_path = $repository_path | path join packages/cache/src/scylla.cql
 	if ($database_pool_path | path exists) {
 		rm -rf $database_pool_path
 	}
@@ -1878,7 +1878,7 @@ export def --env "server spawn" [
 	}
 
 	# Use unique semaphore names in the namespace FSKit can access.
-	let store_posix_sem_prefix = if $use_fskit {
+	let cache_posix_sem_prefix = if $use_fskit {
 		let app_group_identifier = (identifiers).app_group_identifier
 		$'($app_group_identifier)/((random chars) | str lowercase | str substring 0..5)'
 	} else {
@@ -1894,10 +1894,10 @@ export def --env "server spawn" [
 			kind: 'lmdb',
 			map_size: 10_485_760,
 		},
-		store: {
+		cache: {
 			kind: 'lmdb',
 			map_size: 10_485_760,
-			posix_sem_prefix: $store_posix_sem_prefix,
+			posix_sem_prefix: $cache_posix_sem_prefix,
 		},
 		remotes: {},
 		tokio_single_threaded: true,
@@ -2037,11 +2037,11 @@ export def --env "server spawn" [
 				kind: 'nats',
 				url: 'nats://127.0.0.1:4222',
 			},
-			store: {
+			cache: {
 				addr: '127.0.0.1:9042',
 				connections: 1,
 				keepalive: false,
-				keyspace: $'store_($storage_instance)',
+				keyspace: $'cache_($storage_instance)',
 				kind: 'scylla',
 				partition_offset: $partition_offset,
 			},
@@ -2554,7 +2554,7 @@ def reset_database_instance_once [instance: string, pool_path: string] {
 				(^timeout --kill-after 2s $database_reset_timeout_secs psql --host=127.0.0.1 --username=postgres --dbname=$'database_($instance)' --set=ON_ERROR_STOP=1 --command $postgres_query | complete)
 			},
 			'scylla' => {
-				(^timeout --kill-after 2s $database_reset_timeout_secs tangram_scylla_client 127.0.0.1 9042 -k $'store_($instance)' -e 'truncate archive_queue; truncate index_queue; truncate logs; truncate object_cache; truncate objects;' | complete)
+				(^timeout --kill-after 2s $database_reset_timeout_secs tangram_scylla_client 127.0.0.1 9042 -k $'cache_($instance)' -e 'truncate archive_queue; truncate index_queue; truncate logs; truncate object_cache; truncate objects;' | complete)
 			},
 		}
 

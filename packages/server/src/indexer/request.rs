@@ -5,10 +5,10 @@ use {
 		ops::ControlFlow,
 		sync::{Arc, Mutex},
 	},
+	tangram_cache::Cache as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_messenger::{Messenger as _, Payload},
-	tangram_store::Store as _,
 };
 
 pub(super) mod limits;
@@ -56,7 +56,7 @@ pub(crate) struct ArchiveRequestArg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub(crate) struct IndexRequestArg {
-	pub batch: crate::store::index::queue::batch::Id,
+	pub batch: crate::cache::index::queue::batch::Id,
 	pub fragment: u64,
 	pub fragments: u64,
 	#[serde(with = "bytes_base64")]
@@ -384,18 +384,18 @@ impl Indexer {
 		arg: ArchiveRequestArg,
 	) -> tg::Result<()> {
 		let sequence = Self::allocate_sequence(state, changed, queue::Kind::Archive).await?;
-		let entry = crate::store::archive::queue::Entry {
+		let entry = crate::cache::archive::queue::Entry {
 			indexer: self.id().clone(),
 			object: arg.object,
 			put: arg.put,
 			sequence,
 		};
-		let arg = crate::store::archive::queue::put::Arg {
+		let arg = crate::cache::archive::queue::put::Arg {
 			entry: entry.clone(),
 		};
 		let result = self
 			.server
-			.store
+			.cache
 			.put_archive_queue_entry(arg)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put an archive queue entry"));
@@ -420,7 +420,7 @@ impl Indexer {
 		arg: IndexRequestArg,
 	) -> tg::Result<tokio::sync::oneshot::Receiver<tg::Result<()>>> {
 		let sequence = Self::allocate_sequence(state, changed, queue::Kind::Index).await?;
-		let fragment = crate::store::index::queue::Fragment {
+		let fragment = crate::cache::index::queue::Fragment {
 			batch: arg.batch,
 			fragment: arg.fragment,
 			fragments: arg.fragments,
@@ -428,10 +428,10 @@ impl Indexer {
 			payload: arg.payload,
 			sequence,
 		};
-		let arg = crate::store::index::queue::put::Arg {
+		let arg = crate::cache::index::queue::put::Arg {
 			fragment: fragment.clone(),
 		};
-		if let Err(source) = self.server.store.put_index_queue_fragment(arg).await {
+		if let Err(source) = self.server.cache.put_index_queue_fragment(arg).await {
 			index_sender
 				.send(queue::IndexMessage::Delete(vec![sequence]))
 				.await

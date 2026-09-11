@@ -3,8 +3,8 @@ use {
 	futures::{TryStreamExt as _, stream},
 	std::ops::ControlFlow,
 	tangram_archive::{self as archive, Archive as _},
+	tangram_cache::Cache as _,
 	tangram_client::prelude::*,
-	tangram_store::Store as _,
 };
 
 pub use archive::object;
@@ -96,13 +96,13 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to put an object in the archive"))?;
 		if let Some(config) = &self.config.object.cache {
-			let arg = crate::store::object::cache::put::Arg {
+			let arg = crate::cache::object::cache::put::Arg {
 				cache: uuid::Uuid::now_v7().into_bytes(),
 				id,
 				partition: rand::random_range(0..config.partition_total),
 				put,
 			};
-			self.store.put_object_cache_entry(arg).await?;
+			self.cache.put_object_cache_entry(arg).await?;
 		}
 
 		Ok(())

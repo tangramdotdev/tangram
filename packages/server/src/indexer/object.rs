@@ -1,6 +1,6 @@
 use {
-	super::Indexer, futures::StreamExt as _, std::collections::BTreeSet,
-	tangram_client::prelude::*, tangram_store::Store as _,
+	super::Indexer, futures::StreamExt as _, std::collections::BTreeSet, tangram_cache::Cache as _,
+	tangram_client::prelude::*,
 };
 
 mod cache;
@@ -19,16 +19,16 @@ impl Indexer {
 			if missing.is_empty() {
 				break;
 			}
-			let arg = crate::store::object::get::batch::Arg {
+			let arg = crate::cache::object::get::batch::Arg {
 				bytes: false,
 				ids: missing.iter().map(|(id, _)| id.clone()).collect(),
 			};
 			let outputs = self
 				.server
-				.store
+				.cache
 				.try_get_object_batch(arg)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to get the objects from the store"))?;
+				.map_err(|error| tg::error!(!error, "failed to get the objects from the cache"))?;
 			if outputs.len() != missing.len() {
 				return Err(tg::error!("unexpected object get batch length"));
 			}
@@ -55,19 +55,19 @@ impl Indexer {
 		retry: &crate::config::Retry,
 		id: &tg::object::Id,
 		put: [u8; 16],
-	) -> tg::Result<Option<crate::store::object::Object<'static>>> {
+	) -> tg::Result<Option<crate::cache::object::Object<'static>>> {
 		// A queue entry can become visible before its concurrent object put completes.
 		let options = retry.clone().into();
 		let attempts = tangram_futures::retry::stream(options);
 		futures::pin_mut!(attempts);
 		while attempts.next().await.is_some() {
-			let arg = crate::store::object::get::Arg {
+			let arg = crate::cache::object::get::Arg {
 				bytes: true,
 				id: id.clone(),
 				put: Some(put),
 			};
-			let output = self.server.store.try_get_object(arg).await.map_err(
-				|error| tg::error!(!error, %id, "failed to get an object from the store"),
+			let output = self.server.cache.try_get_object(arg).await.map_err(
+				|error| tg::error!(!error, %id, "failed to get an object from the cache"),
 			)?;
 			if output.object.is_some() {
 				return Ok(output.object);

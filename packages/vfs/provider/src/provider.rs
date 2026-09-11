@@ -15,8 +15,8 @@ use {
 		},
 		time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 	},
+	tangram_cache as cache,
 	tangram_client::prelude::*,
-	tangram_store as store,
 	tangram_uri::Uri,
 	tangram_vfs as vfs,
 	tracing_subscriber::{layer::SubscriberExt as _, util::SubscriberInitExt as _},
@@ -31,11 +31,11 @@ const DEFAULT_NODE_EVICTION_INTERVAL: Duration = Duration::from_secs(30);
 /// The default duration a cache-only node created by directory enumeration is retained after its most recent access before it becomes eligible for eviction.
 const DEFAULT_NODE_TTL: Duration = Duration::from_mins(1);
 
-/// The default map size with which the store is opened. It is the server's default, and the server sends its own if it is configured with another.
-const DEFAULT_STORE_MAP_SIZE: usize = 1_099_511_627_776;
+/// The default map size with which the cache is opened. It is the server's default, and the server sends its own if it is configured with another.
+const DEFAULT_CACHE_MAP_SIZE: usize = 1_099_511_627_776;
 
-/// The default path of the store within the data directory. It is the server's default, and the server sends its own if it is configured with another.
-const DEFAULT_STORE_PATH: &str = "store.lmdb";
+/// The default path of the cache within the data directory. It is the server's default, and the server sends its own if it is configured with another.
+const DEFAULT_CACHE_PATH: &str = "cache.lmdb";
 
 /// The size of a FUSE directory entry header.
 const FUSE_DIRENT_HEADER_SIZE: usize = 24;
@@ -43,7 +43,16 @@ const FUSE_DIRENT_HEADER_SIZE: usize = 24;
 /// The configuration for a provider.
 #[derive(Clone)]
 pub struct Config {
-	/// The server's data directory, which the fast path reads the store and the checkouts directory from. If it is `None`, then the provider uses the client for every request.
+	/// The map size with which to open the cache. LMDB requires a reader to use a map size at least as large as the writer's, so this must be at least the server's.
+	pub cache_map_size: usize,
+
+	/// The path of the cache, which is joined to the data directory.
+	pub cache_path: PathBuf,
+
+	/// An optional base name for the cache's POSIX lock semaphores. It must match the name the server opens the cache with so that the sandboxed provider and the server share the same lock.
+	pub cache_posix_sem_prefix: Option<String>,
+
+	/// The server's data directory, which the fast path reads the cache and the checkouts directory from. If it is `None`, then the provider uses the client for every request.
 	pub data_directory: Option<PathBuf>,
 
 	/// The interval at which expired cache-only nodes are swept.
@@ -51,15 +60,6 @@ pub struct Config {
 
 	/// The duration a cache-only node created by directory enumeration is retained after its most recent access before it becomes eligible for eviction.
 	pub node_ttl: Duration,
-
-	/// The map size with which to open the store. LMDB requires a reader to use a map size at least as large as the writer's, so this must be at least the server's.
-	pub store_map_size: usize,
-
-	/// The path of the store, which is joined to the data directory.
-	pub store_path: PathBuf,
-
-	/// An optional base name for the store's POSIX lock semaphores. It must match the name the server opens the store with so that the sandboxed provider and the server share the same lock.
-	pub store_posix_sem_prefix: Option<String>,
 
 	/// The principal the mount serves. When it is `None` or the root principal, the mount is unenforced and every artifact is accessible. Otherwise the provider authorizes access to each artifact subtree.
 	pub principal: Option<tg::Principal>,
@@ -84,10 +84,10 @@ struct Inner {
 	tokens: BTreeMap<tg::artifact::Id, Vec<tg::authorization::Token>>,
 }
 
-/// The state the fast path requires. It reads the store and the checkouts directory directly instead of sending a request to the server.
+/// The state the fast path requires. It reads the cache and the checkouts directory directly instead of sending a request to the server.
 struct Fast {
+	cache: cache::lmdb::Cache,
 	checkout_path: PathBuf,
-	store: store::lmdb::Store,
 }
 
 struct FileHandle {
@@ -1272,35 +1272,35 @@ impl Inner {
 }
 
 impl Fast {
-	/// Opens the store read only and locates the checkouts directory. Returns `None` if the store cannot be opened, in which case the provider uses the client for every request.
+	/// Opens the cache read only and locates the checkouts directory. Returns `None` if the cache cannot be opened, in which case the provider uses the client for every request.
 	fn new(data_directory: &Path, config: &Config) -> Option<Self> {
-		// Open the store.
-		let path = data_directory.join(&config.store_path);
-		let config = store::lmdb::Config {
-			map_size: config.store_map_size,
+		// Open the cache.
+		let path = data_directory.join(&config.cache_path);
+		let config = cache::lmdb::Config {
+			map_size: config.cache_map_size,
 			path,
-			posix_sem_prefix: config.store_posix_sem_prefix.clone(),
+			posix_sem_prefix: config.cache_posix_sem_prefix.clone(),
 			read_batch_size: 64,
 			read_concurrency: 1,
 			write_batch_size: 8_000,
 		};
-		let store = match store::lmdb::Store::new_readonly(&config) {
+		let cache = match cache::lmdb::Cache::new_readonly(&config) {
 			Err(error) => {
 				tracing::warn!(
 					error = %error.trace(),
-					"failed to open the store, so the fast path is disabled"
+					"failed to open the cache, so the fast path is disabled"
 				);
 				return None;
 			},
-			Ok(store) => store,
+			Ok(cache) => cache,
 		};
 
 		// Locate the checkouts directory.
 		let checkout_path = data_directory.join(CHECKOUTS_DIRECTORY_NAME);
 		tracing::info!(checkout_path = %checkout_path.display(), "enabled the fast path");
 		let fast = Self {
+			cache,
 			checkout_path,
-			store,
 		};
 
 		Some(fast)
@@ -1308,7 +1308,7 @@ impl Fast {
 
 	/// Begins a read transaction. Every request opens its own transaction, because the driver submits one request per batch.
 	fn transaction(&self) -> std::io::Result<lmdb::RoTxn<'_, lmdb::WithTls>> {
-		self.store.env().read_txn().map_err(|error| {
+		self.cache.env().read_txn().map_err(|error| {
 			tracing::debug!(?error, "failed to begin a transaction");
 			fallback()
 		})
@@ -1423,13 +1423,13 @@ impl Fast {
 		&self,
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
-	) -> std::io::Result<Option<store::object::Object<'static>>> {
-		let arg = store::object::get::Arg {
+	) -> std::io::Result<Option<cache::object::Object<'static>>> {
+		let arg = cache::object::get::Arg {
 			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
-		self.store
+		self.cache
 			.try_get_object_with_transaction(transaction, &arg)
 			.map(|output| output.object)
 			.map_err(eio)
@@ -1440,7 +1440,7 @@ impl Fast {
 		transaction: &lmdb::RoTxn<'_>,
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<(u64, tg::object::Data)>> {
-		self.store
+		self.cache
 			.try_get_object_data_with_transaction(transaction, id)
 			.map_err(eio)
 	}
@@ -2162,9 +2162,9 @@ impl Default for Config {
 			data_directory: None,
 			node_eviction_interval: DEFAULT_NODE_EVICTION_INTERVAL,
 			node_ttl: DEFAULT_NODE_TTL,
-			store_map_size: DEFAULT_STORE_MAP_SIZE,
-			store_path: PathBuf::from(DEFAULT_STORE_PATH),
-			store_posix_sem_prefix: None,
+			cache_map_size: DEFAULT_CACHE_MAP_SIZE,
+			cache_path: PathBuf::from(DEFAULT_CACHE_PATH),
+			cache_posix_sem_prefix: None,
 			principal: None,
 			tokens: Vec::new(),
 		}
@@ -2273,7 +2273,7 @@ fn init_logging() {
 	});
 }
 
-/// Creates the error the fast path returns when it cannot serve a request, because the object is not in the local store or is not checked out. The provider falls back to the client, which fetches from a remote if necessary. This matches the sync path of the server's provider, which the fuse server retries asynchronously on `ENOSYS` alone.
+/// Creates the error the fast path returns when it cannot serve a request, because the object is not in the local cache or is not checked out. The provider falls back to the client, which fetches from a remote if necessary. This matches the sync path of the server's provider, which the fuse server retries asynchronously on `ENOSYS` alone.
 fn fallback() -> std::io::Error {
 	std::io::Error::from_raw_os_error(libc::ENOSYS)
 }
@@ -2356,7 +2356,7 @@ mod tests {
 	}
 
 	fn fixture(authorized: bool) -> Fixture {
-		// Create a temporary store containing a directory and one child.
+		// Create a temporary cache containing a directory and one child.
 		let temp = Temp::new().unwrap();
 		std::fs::create_dir(temp.path()).unwrap();
 		let child: tg::artifact::Id = tg::file::Id::new(b"child").into();
@@ -2369,18 +2369,18 @@ mod tests {
 		let data: tg::object::Data = tg::directory::Data::Node(directory).into();
 		let bytes = data.serialize().unwrap();
 		let directory: tg::artifact::Id = tg::directory::Id::new(&bytes).into();
-		let store_path = PathBuf::from("store.lmdb");
-		let store = store::lmdb::Store::new(&store::lmdb::Config {
+		let cache_path = PathBuf::from("cache.lmdb");
+		let cache = cache::lmdb::Cache::new(&cache::lmdb::Config {
 			map_size: 10 * 1024 * 1024,
-			path: temp.path().join(&store_path),
+			path: temp.path().join(&cache_path),
 			posix_sem_prefix: None,
 			read_batch_size: 64,
 			read_concurrency: 1,
 			write_batch_size: 8_000,
 		})
 		.unwrap();
-		store
-			.put_object_sync(store::object::put::Arg {
+		cache
+			.put_object_sync(cache::object::put::Arg {
 				bytes: Some(bytes),
 				checkout_pointer: None,
 				id: tg::object::Id::from(directory.clone()),
@@ -2388,14 +2388,14 @@ mod tests {
 				put: [0; 16],
 			})
 			.unwrap();
-		drop(store);
+		drop(cache);
 
 		// Create a provider whose anonymous principal optionally holds the directory's subtree token.
 		let tokens = authorized.then(|| token(&directory)).into_iter().collect();
 		let config = Config {
 			data_directory: Some(temp.path().to_owned()),
-			store_map_size: 10 * 1024 * 1024,
-			store_path,
+			cache_map_size: 10 * 1024 * 1024,
+			cache_path,
 			principal: Some(tg::Principal::Anonymous),
 			tokens,
 			..Config::default()
