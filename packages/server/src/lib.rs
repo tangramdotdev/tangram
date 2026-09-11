@@ -16,7 +16,7 @@ use {
 		collections::BTreeMap,
 		ops::{ControlFlow, Deref},
 		os::fd::AsRawFd as _,
-		path::PathBuf,
+		path::{Path, PathBuf},
 		sync::{Arc, Mutex, atomic::AtomicU64},
 	},
 	tangram_client::prelude::*,
@@ -1007,10 +1007,17 @@ impl Server {
 		let next_watch_id = AtomicU64::new(0);
 		let watches = DashMap::default();
 
-		// Create the token keys.
-		let authentication_tokens =
-			load_token_keys(Some(&config.authentication.tokens.keys)).await?;
-		let authorization_tokens = load_token_keys(config.authorization.tokens.as_ref()).await?;
+		// Load or create the token keys.
+		let authentication_tokens = load_token_keys(
+			Some(&config.authentication.tokens.keys),
+			&path.join("authentication.key"),
+		)
+		.await?;
+		let authorization_tokens = load_token_keys(
+			config.authorization.tokens.as_ref(),
+			&path.join("authorization.key"),
+		)
+		.await?;
 
 		// Create the billing provider.
 		let billing = config
@@ -1788,7 +1795,7 @@ fn authorization_search_config(
 	}
 }
 
-async fn load_token_keys(config: Option<&config::TokenKeys>) -> tg::Result<Tokens> {
+async fn load_token_keys(config: Option<&config::TokenKeys>, path: &Path) -> tg::Result<Tokens> {
 	let private_key = match config.and_then(|config| config.private_key.as_ref()) {
 		Some(config) => {
 			let bytes = match &config.path {
@@ -1797,21 +1804,13 @@ async fn load_token_keys(config: Option<&config::TokenKeys>) -> tg::Result<Token
 						|error| tg::error!(!error, path = %path.display(), "failed to read the private key"),
 					)?,
 				},
-				None => match config.algorithm {
-					tg::authorization::Algorithm::Ed25519 => {
-						tg::authorization::PrivateKey::generate(
-							config.name.clone(),
-							config.algorithm,
-						)?
-						.bytes
-					},
-				},
+				None => load_or_create_token_private_key(config, path).await?,
 			};
-			Some(tg::authorization::PrivateKey::new(
-				config.name.clone(),
-				config.algorithm,
-				bytes,
-			))
+			let key =
+				tg::authorization::PrivateKey::new(config.name.clone(), config.algorithm, bytes);
+			tg::authorization::PublicKey::from_private_key(&key)?;
+
+			Some(key)
 		},
 		None => None,
 	};
@@ -1856,6 +1855,54 @@ async fn load_token_keys(config: Option<&config::TokenKeys>) -> tg::Result<Token
 	};
 
 	Ok(tokens)
+}
+
+async fn load_or_create_token_private_key(
+	config: &config::TokenPrivateKey,
+	path: &Path,
+) -> tg::Result<Vec<u8>> {
+	// Reuse the private key for the lifetime of the server directory.
+	match tokio::fs::read(path).await {
+		Ok(bytes) => return Ok(bytes),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+		Err(error) => {
+			return Err(
+				tg::error!(!error, path = %path.display(), "failed to read the private key"),
+			);
+		},
+	}
+
+	// Publish a complete key while the server holds the directory lock.
+	let key = tg::authorization::PrivateKey::generate(config.name.clone(), config.algorithm)?;
+	let directory = path.parent().unwrap();
+	let temp_path = directory.join("tmp").join(uuid::Uuid::now_v7().to_string());
+	let mut file = tokio::fs::OpenOptions::new()
+		.write(true)
+		.create_new(true)
+		.mode(0o600)
+		.open(&temp_path)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to create the temporary private key file"))?;
+	scopeguard::defer! {
+		std::fs::remove_file(&temp_path).ok();
+	}
+	file.write_all(&key.bytes)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to write the private key"))?;
+	file.sync_all()
+		.await
+		.map_err(|error| tg::error!(!error, "failed to sync the private key"))?;
+	tokio::fs::rename(&temp_path, path).await.map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to persist the private key"),
+	)?;
+	tokio::fs::File::open(directory)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to open the private key directory"))?
+		.sync_all()
+		.await
+		.map_err(|error| tg::error!(!error, "failed to sync the private key directory"))?;
+
+	Ok(key.bytes)
 }
 
 fn validate_capacity_threshold(
