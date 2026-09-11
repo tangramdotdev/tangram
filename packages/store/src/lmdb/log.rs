@@ -66,6 +66,70 @@ impl Store {
 			.await
 	}
 
+	pub(super) async fn put_log_end(&self, arg: log::end::Arg) -> tg::Result<()> {
+		self.send_write_request(super::request::Request::PutLogEnd(arg))
+			.await?;
+		Ok(())
+	}
+
+	pub(super) fn put_log_end_with_transaction(
+		db: &Db,
+		transaction: &mut lmdb::RwTxn<'_>,
+		arg: &log::end::Arg,
+	) -> tg::Result<()> {
+		let key = StoreKey::Log(Key::End {
+			position: arg.end.position,
+			process: &arg.process,
+		})
+		.pack_to_vec();
+		let value = tangram_serialize::to_vec(&arg.end)
+			.map_err(|error| tg::error!(!error, "failed to serialize the log end"))?;
+		db.put(transaction, &key, &value)
+			.map_err(|error| tg::error!(!error, "failed to store the log end"))?;
+		Ok(())
+	}
+
+	pub(super) async fn try_get_log_end(
+		&self,
+		process: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::log::End>> {
+		let request = crate::read::Request::TryGetLogEnd(process.clone());
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetLogEnd(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+		Ok(output)
+	}
+
+	pub(super) fn try_get_log_end_with_transaction(
+		db: &Db,
+		transaction: &lmdb::RoTxn<'_>,
+		process: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::log::End>> {
+		let start = StoreKey::Log(Key::End {
+			position: 0,
+			process,
+		})
+		.pack_to_vec();
+		let end = StoreKey::Log(Key::End {
+			position: u64::MAX,
+			process,
+		})
+		.pack_to_vec();
+		let Some((key, value)) = db
+			.get_lower_than_or_equal_to(transaction, &end)
+			.map_err(|error| tg::error!(!error, "failed to get the log end"))?
+		else {
+			return Ok(None);
+		};
+		if key < start.as_slice() {
+			return Ok(None);
+		}
+		let output = tangram_serialize::from_slice(value)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the log end"))?;
+		Ok(Some(output))
+	}
+
 	pub(super) async fn try_get_log_length(
 		&self,
 		arg: log::length::Arg,
@@ -98,6 +162,17 @@ impl Store {
 		arg: &log::delete::Arg,
 	) -> tg::Result<()> {
 		let process = &arg.process;
+		let start = StoreKey::Log(Key::End {
+			position: 0,
+			process,
+		})
+		.pack_to_vec();
+		let end = StoreKey::Log(Key::End {
+			position: u64::MAX,
+			process,
+		})
+		.pack_to_vec();
+		Self::delete_log_range_with_transaction(db, transaction, &start, &end)?;
 		let start = StoreKey::Log(Key::Entry {
 			position: 0,
 			process,
@@ -302,11 +377,9 @@ impl Store {
 			process: &arg.process,
 		})
 		.pack_to_vec();
-		let mut current: Option<log::read::Entry<'static>> = None;
-		let mut output = Vec::new();
-		let mut remaining = arg.length;
+		let mut builder = log::read::Builder::new(arg);
 		let mut value = Some(first_value);
-		while remaining > 0 {
+		loop {
 			let value = if let Some(value) = value.take() {
 				value
 			} else {
@@ -324,54 +397,11 @@ impl Store {
 			};
 			let chunk = tangram_serialize::from_slice::<log::read::Entry<'_>>(value)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the log entry"))?;
-			if !arg.streams.contains(&chunk.stream) {
-				continue;
+			if !builder.push(&chunk) {
+				break;
 			}
-			let position = if combined {
-				chunk.position
-			} else {
-				chunk.stream_position
-			};
-			let offset = arg.position.saturating_sub(position);
-			let available = chunk.bytes.len().to_u64().unwrap().saturating_sub(offset);
-			let take = remaining.min(available);
-			if take == 0 {
-				continue;
-			}
-			let bytes = if offset > 0 || take < chunk.bytes.len().to_u64().unwrap() {
-				let start = offset.to_usize().unwrap();
-				let end = (offset + take).to_usize().unwrap();
-				chunk.bytes[start..end].to_vec()
-			} else {
-				chunk.bytes.into_owned()
-			};
-			if let Some(entry) = &mut current {
-				if entry.stream == chunk.stream {
-					entry.bytes.to_mut().extend_from_slice(&bytes);
-				} else {
-					output.push(current.take().unwrap());
-					current = Some(log::read::Entry {
-						bytes: Cow::Owned(bytes),
-						position: chunk.position + offset,
-						stream: chunk.stream,
-						stream_position: chunk.stream_position + offset,
-						timestamp: chunk.timestamp,
-					});
-				}
-			} else {
-				current = Some(log::read::Entry {
-					bytes: Cow::Owned(bytes),
-					position: chunk.position + offset,
-					stream: chunk.stream,
-					stream_position: chunk.stream_position + offset,
-					timestamp: chunk.timestamp,
-				});
-			}
-			remaining -= take;
 		}
-		if let Some(entry) = current {
-			output.push(entry);
-		}
+		let output = builder.finish();
 
 		Ok(output)
 	}

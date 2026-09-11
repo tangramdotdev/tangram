@@ -325,6 +325,17 @@ impl crate::Store for Store {
 		self.put_log_batch(args).await
 	}
 
+	async fn put_log_end(&self, arg: crate::log::end::Arg) -> tg::Result<()> {
+		self.put_log_end(arg).await
+	}
+
+	async fn try_get_log_end(
+		&self,
+		process: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::log::End>> {
+		self.try_get_log_end(process).await
+	}
+
 	async fn put_object(&self, arg: crate::object::put::Arg) -> tg::Result<()> {
 		self.put_object(arg).await
 	}

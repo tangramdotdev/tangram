@@ -91,6 +91,9 @@ impl Store {
 				|error| tg::error!(!error, process = %arg.process, "failed to read a log row"),
 			)? {
 				let record = Record::try_from(row)?;
+				if record.position > arg.position.saturating_add(covered) {
+					break;
+				}
 				covered = covered.saturating_add(record.length);
 				records.push(record);
 				if covered >= arg.length {
@@ -102,13 +105,8 @@ impl Store {
 		self.get_missing_bytes(&arg.process, &process, kind, &mut records)
 			.await?;
 
-		let mut current: Option<log::read::Entry<'static>> = None;
-		let mut output = Vec::new();
-		let mut remaining = arg.length;
+		let mut builder = log::read::Builder::new(&arg);
 		for record in records {
-			if remaining == 0 {
-				break;
-			}
 			if !arg.streams.contains(&record.stream) {
 				return Err(tg::error!(stream = %record.stream, "invalid log stream"));
 			}
@@ -118,42 +116,18 @@ impl Store {
 			if bytes.len() != usize::try_from(record.length).unwrap() {
 				return Err(tg::error!("the log payload length is invalid"));
 			}
-			let offset = arg.position.saturating_sub(record.position);
-			let available = record.length.saturating_sub(offset);
-			let take = remaining.min(available);
-			if take == 0 {
-				continue;
+			let entry = log::read::Entry {
+				bytes: Cow::Borrowed(&bytes),
+				position: record.combined_position,
+				stream: record.stream,
+				stream_position: record.stream_position,
+				timestamp: record.timestamp,
+			};
+			if !builder.push(&entry) {
+				break;
 			}
-			let start = usize::try_from(offset).unwrap();
-			let end = usize::try_from(offset + take).unwrap();
-			let bytes = bytes[start..end].to_vec();
-			if let Some(entry) = &mut current {
-				if entry.stream == record.stream {
-					entry.bytes.to_mut().extend_from_slice(&bytes);
-				} else {
-					output.push(current.take().unwrap());
-					current = Some(log::read::Entry {
-						bytes: Cow::Owned(bytes),
-						position: record.combined_position + offset,
-						stream: record.stream,
-						stream_position: record.stream_position + offset,
-						timestamp: record.timestamp,
-					});
-				}
-			} else {
-				current = Some(log::read::Entry {
-					bytes: Cow::Owned(bytes),
-					position: record.combined_position + offset,
-					stream: record.stream,
-					stream_position: record.stream_position + offset,
-					timestamp: record.timestamp,
-				});
-			}
-			remaining -= take;
 		}
-		if let Some(entry) = current {
-			output.push(entry);
-		}
+		let output = builder.finish();
 
 		Ok(output)
 	}

@@ -9,7 +9,7 @@ impl Session {
 		crate::checkpoint!(self.server, "process.control.finish", id = %id).await;
 		let options = crate::process::put::Options {
 			defer_index: false,
-			enqueue_log_compaction: true,
+			enqueue_log_compaction: false,
 			location: None,
 			store_data: true,
 		};
@@ -52,15 +52,9 @@ impl Session {
 	}
 
 	pub(crate) fn spawn_process_finish_tasks(&self, id: &tg::process::Id) {
-		// Spawn tasks to publish the stdio close messages.
-		for stream in [
-			tg::process::stdio::Stream::Stdin,
-			tg::process::stdio::Stream::Stdout,
-			tg::process::stdio::Stream::Stderr,
-		] {
-			self.server
-				.spawn_publish_process_stdio_close_message_task(id, stream);
-		}
+		// Spawn a task to publish the stdin close message.
+		self.server
+			.spawn_publish_process_stdio_close_message_task(id, tg::process::stdio::Stream::Stdin);
 
 		// Spawn a task to publish the status.
 		self.server.spawn_publish_process_status_task(id);

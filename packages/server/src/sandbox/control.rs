@@ -606,6 +606,10 @@ impl tangram_messenger::Payload for ServerMessage {
 }
 
 impl crate::control::Output for tg::sandbox::control::ClientMessage {
+	fn is_request(&self) -> bool {
+		matches!(self, Self::Request(_))
+	}
+
 	fn id(&self) -> Option<&str> {
 		match self {
 			Self::Ack(_) | Self::Notification(_) => None,
@@ -625,9 +629,7 @@ impl crate::control::Input<tg::sandbox::control::ServerMessage>
 			Self::Request(request) => crate::control::InputKind::Message {
 				id: Some(&request.id),
 			},
-			Self::Response(response) => crate::control::InputKind::Message {
-				id: Some(&response.id),
-			},
+			Self::Response(response) => crate::control::InputKind::Response { id: &response.id },
 		}
 	}
 
@@ -637,6 +639,10 @@ impl crate::control::Input<tg::sandbox::control::ServerMessage>
 }
 
 impl crate::control::Output for tg::sandbox::control::ServerMessage {
+	fn is_request(&self) -> bool {
+		matches!(self, Self::Request(_))
+	}
+
 	fn id(&self) -> Option<&str> {
 		match self {
 			Self::Ack(_) | Self::Notification(_) => None,
@@ -656,9 +662,7 @@ impl crate::control::Input<tg::sandbox::control::ClientMessage>
 			Self::Request(request) => crate::control::InputKind::Message {
 				id: Some(&request.id),
 			},
-			Self::Response(response) => crate::control::InputKind::Message {
-				id: Some(&response.id),
-			},
+			Self::Response(response) => crate::control::InputKind::Response { id: &response.id },
 		}
 	}
 

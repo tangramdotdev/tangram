@@ -16,6 +16,8 @@ use {
 };
 
 mod reader;
+#[cfg(test)]
+mod tests;
 mod writer;
 
 pub use self::{reader::Reader, writer::Writer};
@@ -23,7 +25,6 @@ pub use self::{reader::Reader, writer::Writer};
 pub mod read;
 pub mod write;
 
-pub const SSE_CONTENT_TYPE: &str = "text/event-stream";
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-stdio";
 
 #[derive(
@@ -183,58 +184,83 @@ pub(crate) fn decode<T>(body: Boxed, max_frame_size: u64) -> BoxStream<'static, 
 where
 	T: for<'de> tangram_serialize::Deserialize<'de> + Send + 'static,
 {
-	let mut stream = BodyStream::new(body);
-	let (data_sender, data_receiver) = tokio::sync::mpsc::channel::<tg::Result<Bytes>>(1);
-	let (trailer_sender, trailer_receiver) = tokio::sync::mpsc::channel(1);
-	let task = Task::spawn(|_| async move {
-		while let Some(result) = stream.next().await {
-			match result {
-				Ok(frame) if frame.is_data() => {
-					let data = frame.into_data().unwrap();
-					data_sender.send(Ok(data)).await.ok();
-				},
-				Ok(frame) if frame.is_trailers() => {
-					let trailers = frame.into_trailers().unwrap();
-					trailer_sender.send(trailers).await.ok();
-				},
-				Ok(_) => unreachable!(),
-				Err(_) => break,
-			}
-		}
-	});
-	let reader =
-		StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));
-	let data_messages = stream::try_unfold(reader, move |mut reader| async move {
+	let (reader, trailer_receiver, task) = split_body(body);
+
+	decode_reader_with_trailers(reader, trailer_receiver, task, max_frame_size)
+}
+
+pub(crate) async fn decode_with_output<T, O>(
+	body: Boxed,
+	max_frame_size: u64,
+) -> tg::Result<(O, BoxStream<'static, tg::Result<T>>)>
+where
+	O: serde::de::DeserializeOwned,
+	T: for<'de> tangram_serialize::Deserialize<'de> + Send + 'static,
+{
+	let (mut reader, trailer_receiver, task) = split_body(body);
+	let output =
+		tangram_http::body::output::get(&mut reader, tangram_http::body::output::MAX_LENGTH)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the output"))?;
+	let stream = decode_reader_with_trailers(reader, trailer_receiver, task, max_frame_size);
+
+	Ok((output, stream))
+}
+
+pub(crate) fn decode_reader<T, R>(
+	reader: R,
+	max_frame_size: u64,
+) -> BoxStream<'static, tg::Result<T>>
+where
+	R: tokio::io::AsyncRead + Send + Unpin + 'static,
+	T: for<'de> tangram_serialize::Deserialize<'de> + Send + 'static,
+{
+	let stream = stream::try_unfold(reader, move |mut reader| async move {
 		let length = match reader.try_read_uvarint().await {
 			Ok(Some(length)) => length,
 			Ok(None) => return Ok(None),
 			Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
 			Err(error) => {
-				return Err(tg::error!(!error, "failed to read the stdio frame length"));
+				return Err(tg::error!(!error, "failed to read the stream frame length"));
 			},
 		};
 		if length > max_frame_size {
 			return Err(tg::error!(
 				length = %length,
 				max = %max_frame_size,
-				"stdio frame too large"
+				"stream frame too large"
 			));
 		}
 		let length = usize::try_from(length).map_err(
-			|error| tg::error!(!error, length = %length, "stdio frame length out of range"),
+			|error| tg::error!(!error, length = %length, "stream frame length out of range"),
 		)?;
 		let mut bytes = vec![0; length];
 		if let Err(error) = reader.read_exact(&mut bytes).await {
 			if error.kind() == std::io::ErrorKind::UnexpectedEof {
 				return Ok(None);
 			}
-			return Err(tg::error!(!error, "failed to read the stdio message"));
+			return Err(tg::error!(!error, "failed to read the stream message"));
 		}
 		let message = tangram_serialize::from_slice(&bytes)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the stdio message"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the stream message"))?;
 
 		Ok(Some((message, reader)))
 	});
+
+	stream.boxed()
+}
+
+fn decode_reader_with_trailers<T, R>(
+	reader: R,
+	trailer_receiver: tokio::sync::mpsc::Receiver<http::HeaderMap>,
+	task: Task<()>,
+	max_frame_size: u64,
+) -> BoxStream<'static, tg::Result<T>>
+where
+	R: tokio::io::AsyncRead + Send + Unpin + 'static,
+	T: for<'de> tangram_serialize::Deserialize<'de> + Send + 'static,
+{
+	let data_messages = decode_reader(reader, max_frame_size);
 	let trailer_messages = ReceiverStream::new(trailer_receiver).then(|trailers| async move {
 		let event = trailers
 			.get("x-tg-event")
@@ -254,9 +280,46 @@ where
 
 		Err(error)
 	});
-	let stream = stream::select(data_messages, trailer_messages).attach(task);
+	let stream = data_messages.chain(trailer_messages).attach(task);
 
 	stream.boxed()
+}
+
+fn split_body(
+	body: Boxed,
+) -> (
+	impl tokio::io::AsyncRead + Send + Unpin + 'static,
+	tokio::sync::mpsc::Receiver<http::HeaderMap>,
+	Task<()>,
+) {
+	let mut stream = BodyStream::new(body);
+	let (data_sender, data_receiver) = tokio::sync::mpsc::channel::<Bytes>(1);
+	let (trailer_sender, trailer_receiver) = tokio::sync::mpsc::channel(1);
+	let task = Task::spawn(|_| async move {
+		while let Some(result) = stream.next().await {
+			match result {
+				Ok(frame) if frame.is_data() => {
+					let data = frame.into_data().unwrap();
+					if data_sender.send(data).await.is_err() {
+						break;
+					}
+				},
+				Ok(frame) if frame.is_trailers() => {
+					let trailers = frame.into_trailers().unwrap();
+					trailer_sender.send(trailers).await.ok();
+				},
+				Ok(_) => unreachable!(),
+				Err(error) => {
+					// Only the protocol end handshake completes the operation, so a lost transport ends this attempt and lets the caller reconnect.
+					tracing::debug!(%error, "failed to read the response body");
+					break;
+				},
+			}
+		}
+	});
+	let reader = StreamReader::new(ReceiverStream::new(data_receiver).map(Ok::<_, std::io::Error>));
+
+	(reader, trailer_receiver, task)
 }
 
 pub(super) struct StdioTaskArg<H> {

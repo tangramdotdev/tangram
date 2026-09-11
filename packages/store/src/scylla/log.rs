@@ -1,9 +1,11 @@
 use {indoc::indoc, std::collections::BTreeSet, tangram_client::prelude::*};
 
 mod delete;
+mod end;
 mod put;
 mod read;
 
+const END_KIND: i8 = 3;
 const ENTRY_KIND: i8 = 0;
 const STDERR_KIND: i8 = 2;
 const STDOUT_KIND: i8 = 1;
@@ -13,8 +15,10 @@ pub(super) struct Statements {
 	get_after: scylla::statement::prepared::PreparedStatement,
 	get_at_or_before: scylla::statement::prepared::PreparedStatement,
 	get_by_positions: scylla::statement::prepared::PreparedStatement,
+	get_end: scylla::statement::prepared::PreparedStatement,
 	get_last: scylla::statement::prepared::PreparedStatement,
 	put: scylla::statement::prepared::PreparedStatement,
+	put_end: scylla::statement::prepared::PreparedStatement,
 }
 
 impl Statements {
@@ -112,13 +116,29 @@ impl Statements {
 			.map_err(|error| tg::error!(!error, "failed to prepare the log entry statement"))?;
 		put.set_consistency(scylla::statement::Consistency::LocalQuorum);
 		put.set_is_idempotent(true);
+		let mut get_end = session
+			.prepare(
+				"select bytes from logs where process = ? and kind = ? order by position desc limit 1;",
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to prepare the log end read statement"))?;
+		get_end.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		get_end.set_is_idempotent(true);
+		let mut put_end = session
+			.prepare("insert into logs (process, kind, position, bytes) values (?, ?, ?, ?);")
+			.await
+			.map_err(|error| tg::error!(!error, "failed to prepare the log end write statement"))?;
+		put_end.set_consistency(scylla::statement::Consistency::LocalQuorum);
+		put_end.set_is_idempotent(true);
 		let statements = Self {
 			delete,
 			get_after,
 			get_at_or_before,
 			get_by_positions,
+			get_end,
 			get_last,
 			put,
+			put_end,
 		};
 
 		Ok(statements)

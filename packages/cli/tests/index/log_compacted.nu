@@ -16,6 +16,10 @@ tg wait $id
 
 timeout 10 tg index
 
+wait_until --timeout 10sec {
+	(tg get $id | from json | get log?) != null
+} "the completed log should compact without the fallback interval"
+
 let process = tg get $id | from json
 let log_id = $process.log
 let log = tg get $log_id --blobs

@@ -137,6 +137,10 @@ impl Store {
 			crate::read::Request::GetTransactionId => {
 				crate::read::Response::GetTransactionId(transaction.id() as u64)
 			},
+			crate::read::Request::TryGetLogEnd(process) => {
+				let output = Self::try_get_log_end_with_transaction(db, transaction, &process)?;
+				crate::read::Response::TryGetLogEnd(output)
+			},
 			crate::read::Request::TryGetLogLength(arg) => {
 				let output = Self::try_get_log_length_with_transaction(db, transaction, &arg)?;
 				crate::read::Response::TryGetLogLength(output)

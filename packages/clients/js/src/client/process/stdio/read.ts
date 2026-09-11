@@ -77,6 +77,20 @@ async function* readProcessStdioAll(
 				connection = await reconnect(client, id, nextArg, connection);
 				continue;
 			}
+			if (message.value.kind === "position") {
+				let value = message.value.value;
+				if (
+					!Number.isSafeInteger(value.position) ||
+					value.position < 0 ||
+					(value.length !== null && !Number.isSafeInteger(value.length))
+				) {
+					throw new ProtocolError("invalid process stdio position");
+				}
+				position = value.position;
+				nextArg.position = position;
+				nextArg.length = value.length;
+				continue;
+			}
 			if (message.value.kind !== "chunk") {
 				throw new ProtocolError("invalid process stdio read notification");
 			}
@@ -240,6 +254,10 @@ async function* decodeServerMessages(
 			if (event.event === "notification") {
 				let value = JSON.parse(event.data) as
 					| { kind: "chunk"; value: tg.Process.Stdio.Chunk.Data }
+					| {
+							kind: "position";
+							value: { length: number | null; position: number };
+					  }
 					| { kind: "stop" };
 				if (value.kind === "chunk") {
 					yield {
@@ -249,7 +267,7 @@ async function* decodeServerMessages(
 							value: tg.Process.Stdio.Chunk.fromData(value.value),
 						},
 					};
-				} else if (value.kind === "stop") {
+				} else if (value.kind === "position" || value.kind === "stop") {
 					yield { kind: "notification", value };
 				} else {
 					throw new ProtocolError("invalid process stdio read notification");

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# The owner may still pull and read a live process log. The compaction gate that withholds the log from an unauthorized puller must not withhold it from the process owner, who is authorized to read it. The remote's log compaction task is disabled so the log stays live, exercising the on-demand compaction path during the pull.
+# Sync omits a live process log even when the caller is authorized to read it. The remote's log compaction task is disabled so the log stays live during the pull.
 
 let root_token = random chars
 let remote = server spawn --cloud --name remote --preserve-keys --config {
@@ -31,10 +31,10 @@ let alice_local = server spawn --name alice-local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 
-# Alice pulls her own process with its logs. The on-demand compaction must run for her, since she is authorized to read her own log.
+# Alice pulls her own process with its logs.
 let pulled = tg --url $alice_local.url pull $process --process-logs | complete
-success $pulled "the owner should pull their process log"
+success $pulled "the owner should pull their process"
 
-# Alice reads her own log on her own server.
-let alice_log = tg --url $alice_local.url process log $process | complete
-assert equal ($alice_log.stdout | str trim) "alicesecret"
+# The live log is not transferred.
+let log = tg --url $alice_local.url get $process | from json | get log?
+assert ($log == null) "the uncompacted log should not be sent"

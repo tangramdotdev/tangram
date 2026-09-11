@@ -211,6 +211,7 @@ impl Store {
 			Request::PutLogBatch(args) => {
 				Self::split_items(args, write_batch_size, Request::PutLogBatch)
 			},
+			Request::PutLogEnd(arg) => vec![(Request::PutLogEnd(arg), 1)],
 			Request::PutObject(request) => vec![(Request::PutObject(request), 1)],
 			Request::PutObjectArchiveOutboxEntries(arg) => {
 				Self::split_items(arg.entries, write_batch_size, |entries| {
@@ -282,6 +283,7 @@ impl Store {
 			Request::PutLogBatch(args) => args
 				.iter()
 				.try_for_each(|arg| Self::put_log_with_transaction(db, transaction, arg)),
+			Request::PutLogEnd(arg) => Self::put_log_end_with_transaction(db, transaction, &arg),
 			Request::PutObject(request) => {
 				Self::put_inner_with_transaction(db, transaction, request)
 			},

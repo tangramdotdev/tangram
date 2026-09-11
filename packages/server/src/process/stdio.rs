@@ -1,12 +1,35 @@
 use {
 	crate::Server,
+	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	tangram_client::prelude::*,
-	tangram_futures::{read::Ext as _, write::Ext as _},
-	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
+	tangram_http::{
+		body::{BodyStream, Boxed as BoxBody},
+		request::Ext as _,
+	},
 	tangram_messenger::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
+	tokio_stream::wrappers::ReceiverStream,
+	tokio_util::io::StreamReader,
 };
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[tokio::test]
+	async fn decode_tangram_preserves_error_trailers() {
+		let stream =
+			futures::stream::iter([Ok(7_u64), Err(tg::error!("the test stream failed"))]).boxed();
+		let body = encode_tangram(stream, 1024);
+		let request = http::Request::new(body);
+		let mut stream = decode_tangram::<u64>(request, 1024);
+
+		assert_eq!(stream.try_next().await.unwrap(), Some(7));
+		assert!(stream.try_next().await.is_err());
+	}
+}
 
 pub mod read;
 pub mod write;
@@ -18,32 +41,35 @@ pub(super) enum Encoding {
 }
 
 impl Encoding {
-	pub(super) fn from_accept(value: Option<&mime::Mime>) -> tg::Result<Self> {
+	pub(super) fn from_accept(
+		value: Option<&mime::Mime>,
+		tangram_content_type: &str,
+	) -> tg::Result<Self> {
 		let Some(value) = value else {
 			return Ok(Self::Tangram);
 		};
 		if value.type_() == mime::STAR && value.subtype() == mime::STAR {
 			return Ok(Self::Tangram);
 		}
-		Self::try_from(value).map_err(|_| tg::error!(accept = %value, "invalid accept type"))
+		Self::from_content_type(value, tangram_content_type)
+			.map_err(|_| tg::error!(accept = %value, "invalid accept type"))
 	}
 
-	pub(super) fn content_type(self) -> &'static str {
+	pub(super) fn content_type(self, tangram_content_type: &str) -> mime::Mime {
 		match self {
-			Self::Sse => tg::process::stdio::SSE_CONTENT_TYPE,
-			Self::Tangram => tg::process::stdio::TANGRAM_CONTENT_TYPE,
+			Self::Sse => mime::TEXT_EVENT_STREAM,
+			Self::Tangram => tangram_content_type.parse().unwrap(),
 		}
 	}
-}
 
-impl TryFrom<&mime::Mime> for Encoding {
-	type Error = tg::Error;
-
-	fn try_from(value: &mime::Mime) -> tg::Result<Self> {
+	pub(super) fn from_content_type(
+		value: &mime::Mime,
+		tangram_content_type: &str,
+	) -> tg::Result<Self> {
 		if value.type_() == mime::TEXT && value.subtype() == mime::EVENT_STREAM {
 			return Ok(Self::Sse);
 		}
-		let tangram: mime::Mime = tg::process::stdio::TANGRAM_CONTENT_TYPE.parse().unwrap();
+		let tangram: mime::Mime = tangram_content_type.parse().unwrap();
 		if value.type_() == tangram.type_() && value.subtype() == tangram.subtype() {
 			return Ok(Self::Tangram);
 		}
@@ -102,8 +128,34 @@ fn decode_tangram<T>(
 where
 	T: for<'de> tangram_serialize::Deserialize<'de> + Send + 'static,
 {
-	let reader = request.reader();
-	let stream = futures::stream::try_unfold(reader, move |mut reader| async move {
+	let mut body = BodyStream::new(request.into_body());
+	let (data_sender, data_receiver) = tokio::sync::mpsc::channel::<tg::Result<Bytes>>(1);
+	let (trailer_sender, trailer_receiver) = tokio::sync::mpsc::channel(1);
+	let task = Task::spawn(|_| async move {
+		while let Some(result) = body.next().await {
+			match result {
+				Ok(frame) if frame.is_data() => {
+					let data = frame.into_data().unwrap();
+					if data_sender.send(Ok(data)).await.is_err() {
+						break;
+					}
+				},
+				Ok(frame) if frame.is_trailers() => {
+					let trailers = frame.into_trailers().unwrap();
+					trailer_sender.send(trailers).await.ok();
+				},
+				Ok(_) => unreachable!(),
+				Err(error) => {
+					let error = tg::error!(!error, "failed to read the request body");
+					data_sender.send(Err(error)).await.ok();
+					break;
+				},
+			}
+		}
+	});
+	let reader =
+		StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));
+	let messages = futures::stream::try_unfold(reader, move |mut reader| async move {
 		let Some(length) = reader
 			.try_read_uvarint()
 			.await
@@ -131,6 +183,26 @@ where
 
 		Ok(Some((message, reader)))
 	});
+	let errors = ReceiverStream::new(trailer_receiver).then(|trailers| async move {
+		let event = trailers
+			.get("x-tg-event")
+			.ok_or_else(|| tg::error!("missing event"))?
+			.to_str()
+			.map_err(|error| tg::error!(!error, "invalid event"))?;
+		if event != "error" {
+			return Err(tg::error!("invalid event"));
+		}
+		let data = trailers
+			.get("x-tg-data")
+			.ok_or_else(|| tg::error!("missing data"))?
+			.to_str()
+			.map_err(|error| tg::error!(!error, "invalid data"))?;
+		let error = serde_json::from_str(data)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the header value"))?;
+
+		Err(error)
+	});
+	let stream = messages.chain(errors).attach(task);
 
 	stream.boxed()
 }

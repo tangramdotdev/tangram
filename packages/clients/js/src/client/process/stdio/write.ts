@@ -53,7 +53,7 @@ async function writeProcessStdioAll(
 	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 	connection: Connection,
 ): Promise<void> {
-	let combined = arg.streams.length > 1;
+	let position = 0;
 	let endSent = false;
 	let inputEvent: Promise<WriteEvent> | null = null;
 	let inputEnded = false;
@@ -68,7 +68,7 @@ async function writeProcessStdioAll(
 			outputEvent ??= nextOutput(connection.output);
 			if (pending !== null && !pendingSent) {
 				let message: tg.Process.Stdio.Write.ClientMessage = {
-					kind: "notification",
+					kind: "request",
 					value: { kind: "chunk", value: pending },
 				};
 				if (!connection.input.push(message)) {
@@ -81,7 +81,7 @@ async function writeProcessStdioAll(
 			} else if (pending === null && inputEnded && !endSent) {
 				let message: tg.Process.Stdio.Write.ClientMessage = {
 					kind: "request",
-					value: { kind: "end" },
+					value: { kind: "end", value: { position } },
 				};
 				if (!connection.input.push(message)) {
 					outputEvent = null;
@@ -128,45 +128,46 @@ async function writeProcessStdioAll(
 				continue;
 			}
 			let message = result.value;
-			if (message.kind === "response") {
-				if (message.value.kind !== "end") {
-					throw new ProtocolError("invalid process stdio write response");
-				}
-				return;
-			}
-			if (message.value.kind === "stop") {
+			if (message.kind === "notification") {
 				connection = await reconnect(client, id, arg, connection);
 				endSent = false;
 				pendingSent = false;
 				continue;
 			}
-			if (message.value.kind !== "write") {
-				throw new ProtocolError("invalid process stdio write notification");
+			if (message.value.kind === "end") {
+				return;
 			}
 			if (pending === null) {
-				continue;
+				throw new ProtocolError(
+					"received a write response without a pending request",
+				);
 			}
-			let position = message.value.value.position;
-			let start = combined ? pending.combinedPosition : pending.streamPosition;
-			let end = start + pending.bytes.length;
-			if (!Number.isSafeInteger(position) || position < 0 || position > end) {
-				throw new ProtocolError("invalid process stdio write position");
+			let { closed, length } = message.value.value;
+			if (
+				!Number.isSafeInteger(length) ||
+				length < 0 ||
+				length > pending.bytes.length
+			) {
+				throw new ProtocolError("invalid process stdio write length");
 			}
-			if (position <= start) {
-				pendingSent = false;
-				continue;
+			position = pending.streamPosition + length;
+			if (!Number.isSafeInteger(position)) {
+				throw new ProtocolError("invalid process stdio position");
 			}
-			if (position < end) {
-				let overlap = position - start;
+			if (closed) {
+				return;
+			}
+			if (length < pending.bytes.length) {
 				pending = {
 					...pending,
-					bytes: pending.bytes.subarray(overlap),
-					combinedPosition: pending.combinedPosition + overlap,
-					streamPosition: pending.streamPosition + overlap,
+					bytes: pending.bytes.subarray(length),
+					combinedPosition: pending.combinedPosition + length,
+					streamPosition: position,
 				};
 			} else {
 				pending = null;
 			}
+
 			pendingSent = false;
 		}
 	} finally {
@@ -279,7 +280,7 @@ async function* encodeClientMessages(
 ): AsyncIterableIterator<Body.SseEvent> {
 	for await (let message of input) {
 		let value =
-			message.kind === "notification" && message.value.kind === "chunk"
+			message.kind === "request" && message.value.kind === "chunk"
 				? {
 						...message.value,
 						value: tg.Process.Stdio.Chunk.toData(message.value.value),
@@ -306,7 +307,7 @@ async function* decodeServerMessages(
 				let value = JSON.parse(
 					event.data,
 				) as tg.Process.Stdio.Write.ServerNotification;
-				if (value.kind !== "stop" && value.kind !== "write") {
+				if (value.kind !== "stop") {
 					throw new ProtocolError("invalid process stdio write notification");
 				}
 				yield { kind: "notification", value };
@@ -314,7 +315,7 @@ async function* decodeServerMessages(
 				let value = JSON.parse(
 					event.data,
 				) as tg.Process.Stdio.Write.ServerResponse;
-				if (value.kind !== "end") {
+				if (value.kind !== "end" && value.kind !== "write") {
 					throw new ProtocolError("invalid process stdio write response");
 				}
 				yield { kind: "response", value };

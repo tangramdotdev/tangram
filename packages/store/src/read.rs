@@ -15,6 +15,7 @@ pub(crate) enum Request {
 	GetObjectCacheEntries(object::cache::get::Arg),
 	#[cfg(test)]
 	GetTransactionId,
+	TryGetLogEnd(tg::process::Id),
 	TryGetLogLength(log::length::Arg),
 	TryGetObject(object::get::Arg),
 	TryGetObjectBatch(object::get::batch::Arg),
@@ -28,6 +29,7 @@ pub(crate) enum Response {
 	GetObjectCacheEntries(Vec<object::cache::Entry>),
 	#[cfg(test)]
 	GetTransactionId(u64),
+	TryGetLogEnd(Option<tg::process::log::End>),
 	TryGetLogLength(Option<u64>),
 	TryGetObject(object::get::Output),
 	TryGetObjectBatch(Vec<object::get::Output>),

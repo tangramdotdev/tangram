@@ -355,6 +355,29 @@ impl store::Store for Store {
 		}
 	}
 
+	async fn put_log_end(&self, arg: log::end::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store::Store::put_log_end(store, arg).await,
+			Self::Memory(store) => store::Store::put_log_end(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store::Store::put_log_end(store, arg).await,
+		}
+	}
+
+	async fn try_get_log_end(
+		&self,
+		process: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::log::End>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store::Store::try_get_log_end(store, process).await,
+			Self::Memory(store) => store::Store::try_get_log_end(store, process).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store::Store::try_get_log_end(store, process).await,
+		}
+	}
+
 	async fn put_object(&self, arg: object::put::Arg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "lmdb")]

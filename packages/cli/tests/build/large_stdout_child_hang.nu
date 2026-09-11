@@ -15,7 +15,7 @@ let path = artifact {
 			return await tg.build(noisy);
 		}
 		export function noisy() {
-			for (let i = 0; i < 200000; i++) {
+			for (let i = 0; i < 400000; i++) {
 				console.log("padding line " + i + " ------------------------------------------------------------");
 			}
 			return tg.file("done");

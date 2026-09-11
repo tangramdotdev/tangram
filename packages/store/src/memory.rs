@@ -25,6 +25,7 @@ pub struct Store {
 
 #[derive(Default)]
 struct Log {
+	end: Option<tg::process::log::End>,
 	entries: BTreeMap<u64, crate::log::read::Entry<'static>>,
 	stream_positions: BTreeMap<(tg::process::stdio::Stream, u64), u64>,
 }
@@ -181,6 +182,18 @@ impl crate::Store for Store {
 	async fn put_log_batch(&self, args: Vec<crate::log::put::Arg>) -> tg::Result<()> {
 		self.put_log_batch(args);
 		Ok(())
+	}
+
+	async fn put_log_end(&self, arg: crate::log::end::Arg) -> tg::Result<()> {
+		self.put_log_end(arg);
+		Ok(())
+	}
+
+	async fn try_get_log_end(
+		&self,
+		process: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::log::End>> {
+		Ok(self.try_get_log_end(process))
 	}
 
 	async fn put_object(&self, arg: object::put::Arg) -> tg::Result<()> {

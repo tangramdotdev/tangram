@@ -798,7 +798,7 @@ impl Session {
 
 		let arg = result?;
 
-		self.retain_sandbox_task(arg).await
+		self.retain_sandbox_task(arg).boxed().await
 	}
 
 	async fn run_sandbox_task(
@@ -1122,46 +1122,44 @@ impl Session {
 				),
 				id: request_id.clone(),
 			});
-		sender.send(request).await.map_err(
-			|error| tg::error!(!error, %id, "failed to send the destroy sandbox request"),
-		)?;
-		loop {
-			let message = control
-				.recv_with_ack()
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to receive a sandbox control message"),
-				)?
-				.ok_or_else(|| tg::error!(%id, "the sandbox control stream ended"))?;
-			match message {
-				tg::sandbox::control::ServerMessage::Response(response)
-					if response.id == request_id =>
-				{
-					if let Some(error) = response.error {
-						let error = tg::Error::try_from(error).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the error")
-						})?;
-						return Err(tg::error!(!error, "the destroy sandbox request failed"));
+		let mut response = sender
+			.request(request, crate::control::Priority::High)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to send the destroy sandbox request"),
+			)?;
+		let response = loop {
+			tokio::select! {
+				response = &mut response => {
+					break response.map_err(|_| tg::error!("the sandbox control response stream ended"))?;
+				},
+				message = control.recv_with_ack() => {
+					let message = message?.ok_or_else(|| tg::error!(%id, "the sandbox control stream ended"))?;
+					match message {
+						tg::sandbox::control::ServerMessage::Ack(_) => unreachable!(),
+						tg::sandbox::control::ServerMessage::Notification(notification) => match notification {},
+						tg::sandbox::control::ServerMessage::Request(request) => {
+							self.handle_destroyed_sandbox_control_request(&id, request, &sender).await?;
+						},
+						tg::sandbox::control::ServerMessage::Response(_) => {},
 					}
-					let output = response
-						.output
-						.ok_or_else(|| tg::error!("missing destroy sandbox response output"))?;
-					output
-						.try_unwrap_destroy()
-						.map_err(|_| tg::error!("expected a destroy sandbox response"))?;
-					break;
 				},
-				tg::sandbox::control::ServerMessage::Request(request) => {
-					self.handle_destroyed_sandbox_control_request(&id, request, &sender)
-						.await?;
-				},
-				tg::sandbox::control::ServerMessage::Ack(_) => unreachable!(),
-				tg::sandbox::control::ServerMessage::Notification(notification) => {
-					match notification {}
-				},
-				tg::sandbox::control::ServerMessage::Response(_) => {},
 			}
+		};
+		let tg::sandbox::control::ServerMessage::Response(response) = response else {
+			return Err(tg::error!("expected a sandbox control response"));
+		};
+		if let Some(error) = response.error {
+			let error = tg::Error::try_from(error)
+				.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+			return Err(tg::error!(!error, "the destroy sandbox request failed"));
 		}
+		response
+			.output
+			.ok_or_else(|| tg::error!("missing the destroy sandbox response output"))?
+			.try_unwrap_destroy()
+			.map_err(|_| tg::error!("expected a destroy sandbox response"))?;
+
 		crate::checkpoint!(
 			self.server,
 			"runner.sandbox.destroyed",
@@ -1282,8 +1280,11 @@ impl Session {
 					"failed to connect to the sandbox control stream"
 				)
 			})?;
-		let control =
-			crate::control::Stream::new(control.boxed(), input, crate::control::stream_options());
+		let control = crate::control::Stream::new_reconnecting(
+			control.boxed(),
+			input,
+			crate::control::stream_options(),
+		);
 		self.index_remote_sandbox(&output.id, location, created_at, None)
 			.await?;
 		Ok((output, control))

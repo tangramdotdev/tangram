@@ -102,6 +102,18 @@ pub trait Store {
 		args: Vec<log::put::Arg>,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
+	fn put_log_end(
+		&self,
+		arg: log::end::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+
+	fn try_get_log_end(
+		&self,
+		process: &tangram_client::process::Id,
+	) -> impl std::future::Future<
+		Output = tangram_client::Result<Option<tangram_client::process::log::End>>,
+	> + Send;
+
 	fn put_object(
 		&self,
 		arg: object::put::Arg,

@@ -3,14 +3,15 @@ use {
 		AddRunnerRequestArg, AddRunnerResponseOutput, Operation, RemoveRunnerRequestArg,
 		RemoveRunnerResponseOutput, Scheduler, State,
 	},
-	crate::Server,
+	crate::{Server, Session},
 	futures::FutureExt as _,
 	std::{
-		collections::{HashMap, HashSet},
+		collections::{BTreeSet, HashMap, HashSet},
 		time::Duration,
 	},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
+	tangram_store::{Store as _, log},
 };
 
 pub(super) struct Runners {
@@ -239,6 +240,10 @@ impl Server {
 			let mut data = indexed
 				.data
 				.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
+			let log_needs_compaction = Session::process_log_needs_compaction(&data);
+			if log_needs_compaction {
+				self.end_expired_process_log(&process).boxed().await?;
+			}
 			let finish = data.status.is_started();
 			if finish {
 				data.children.get_or_insert_default();
@@ -275,7 +280,7 @@ impl Server {
 
 				self.index
 					.batch(tangram_index::batch::Arg {
-						items: vec![tangram_index::batch::Item::PutProcess(
+						items: std::iter::once(tangram_index::batch::Item::PutProcess(
 							tangram_index::process::put::Arg {
 								cached: false,
 								children: None,
@@ -294,12 +299,22 @@ impl Server {
 								time_to_touch: self.config.process.time_to_touch,
 								touched_at: now,
 							},
-						)],
+						))
+						.chain(log_needs_compaction.then(|| {
+							tangram_index::batch::Item::EnqueueLogCompaction(process.clone())
+						}))
+						.collect(),
 					})
 					.await
 					.map_err(
 						|source| tg::error!(!source, %process, "failed to update the process in the index"),
 					)?;
+				if log_needs_compaction {
+					self.spawn_publish_log_compaction_notification_task();
+				}
+			}
+			if log_needs_compaction {
+				self.log_notifications.notify(&process);
 			}
 		}
 
@@ -338,6 +353,52 @@ impl Server {
 				|source| tg::error!(!source, %id, "failed to update the destroyed sandbox in the index"),
 			)?;
 		self.spawn_publish_sandbox_status_task(id);
+
+		Ok(())
+	}
+
+	async fn end_expired_process_log(&self, process: &tg::process::Id) -> tg::Result<()> {
+		if self.store.try_get_log_end(process).await?.is_some() {
+			return Ok(());
+		}
+
+		// Recover the stored positions because the expired writer cannot send its end request.
+		let length = async |streams| {
+			let arg = log::length::Arg {
+				process: process.clone(),
+				streams,
+			};
+			let position = self
+				.store
+				.try_get_log_length(arg)
+				.await?
+				.unwrap_or_default();
+			Ok::<_, tg::Error>(position)
+		};
+		let (position, stderr_position, stdout_position) = tokio::try_join!(
+			length(BTreeSet::from([
+				tg::process::stdio::Stream::Stderr,
+				tg::process::stdio::Stream::Stdout,
+			])),
+			length(BTreeSet::from([tg::process::stdio::Stream::Stderr])),
+			length(BTreeSet::from([tg::process::stdio::Stream::Stdout])),
+		)
+		.map_err(|error| tg::error!(!error, %process, "failed to get the log positions"))?;
+		let end = tg::process::log::End {
+			position,
+			stderr_position,
+			stdout_position,
+		};
+		let arg = log::end::Arg {
+			end,
+			process: process.clone(),
+		};
+
+		// Persist the marker before publishing completion or scheduling compaction.
+		self.store
+			.put_log_end(arg)
+			.await
+			.map_err(|error| tg::error!(!error, %process, "failed to store the log end"))?;
 
 		Ok(())
 	}
