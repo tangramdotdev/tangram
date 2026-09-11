@@ -1039,6 +1039,228 @@ async fn authorize_process_object_permissions_require_process_implicit_grants() 
 }
 
 #[tokio::test]
+async fn authorize_process_node_fields_cover_object_subtrees() {
+	let node = tg::authorization::permission::object::Permission::Node;
+	let subtree = tg::authorization::permission::object::Permission::Subtree;
+	for (kind, permission) in [
+		(
+			crate::process::object::Kind::Command,
+			tg::authorization::permission::process::Permission::NodeCommand,
+		),
+		(
+			crate::process::object::Kind::Error,
+			tg::authorization::permission::process::Permission::NodeError,
+		),
+		(
+			crate::process::object::Kind::Log,
+			tg::authorization::permission::process::Permission::NodeLog,
+		),
+		(
+			crate::process::object::Kind::Output,
+			tg::authorization::permission::process::Permission::NodeOutput,
+		),
+	] {
+		let (_directory, index) = new_index();
+		let process = tg::process::Id::new();
+		let child_process = tg::process::Id::new();
+		let sandbox = tg::sandbox::Id::new();
+		let node_reader = tg::user::Id::new();
+		let subtree_reader = tg::user::Id::new();
+		let object = object_id(0);
+		let object_child = object_id(1);
+		let child_object = object_id(2);
+		let child_object_child = object_id(3);
+		let foreign_object = object_id(4);
+		let node_object = object_id(5);
+		let node_object_child = object_id(6);
+		let other_object = object_id(7);
+
+		// Give each process an object subtree, plus references that are not fully authorized.
+		let mut transaction = index.env.write_txn().unwrap();
+		put_sandbox(&index, &mut transaction, &sandbox);
+		for process in [&process, &child_process] {
+			let set = crate::process::Set {
+				children: true,
+				error: true,
+				log: true,
+				output: true,
+			};
+			put_process_with_set(&index, &mut transaction, process, &sandbox, set);
+		}
+		put_process_child(&index, &mut transaction, &process, &child_process);
+		for object in [
+			&object,
+			&object_child,
+			&child_object,
+			&child_object_child,
+			&foreign_object,
+			&node_object,
+			&node_object_child,
+			&other_object,
+		] {
+			put_object(&index, &mut transaction, object);
+		}
+		for (parent, child) in [
+			(&object, &object_child),
+			(&child_object, &child_object_child),
+			(&node_object, &node_object_child),
+		] {
+			put_child(&index, &mut transaction, parent, child);
+		}
+		for (process, object, grant) in [
+			(&process, &object, Some(subtree)),
+			(&child_process, &child_object, Some(subtree)),
+			(&process, &foreign_object, None),
+			(&process, &node_object, Some(node)),
+		] {
+			put_process_object(&index, &mut transaction, process, object, kind);
+			if let Some(grant) = grant {
+				put_process_implicit_grant(
+					&index,
+					&mut transaction,
+					object.clone().into(),
+					process,
+					object_permission(grant),
+				);
+			}
+		}
+		let other_kind = if kind == crate::process::object::Kind::Output {
+			crate::process::object::Kind::Command
+		} else {
+			crate::process::object::Kind::Output
+		};
+		put_process_object(
+			&index,
+			&mut transaction,
+			&process,
+			&other_object,
+			other_kind,
+		);
+		put_process_implicit_grant(
+			&index,
+			&mut transaction,
+			other_object.clone().into(),
+			&process,
+			object_permission(subtree),
+		);
+		for (reader, permission) in [
+			(&node_reader, permission),
+			(&subtree_reader, permission.to_subtree()),
+		] {
+			put_resource_grant(
+				&index,
+				&mut transaction,
+				process.clone().into(),
+				tg::authorization::Subject::User(reader.clone()),
+				tg::authorization::Permission::Process(permission),
+			);
+		}
+		transaction.commit().unwrap();
+
+		// Exercise grants and tokens through both search directions independently and together.
+		let disabled = crate::authorize::SearchConfig {
+			max_depth: 0,
+			max_edges: 0,
+			max_nodes: 0,
+			..Default::default()
+		};
+		for (reader, permission, descendants) in [
+			(&node_reader, permission, false),
+			(&subtree_reader, permission.to_subtree(), true),
+		] {
+			let cases = [
+				(&object, node, true),
+				(&object, subtree, true),
+				(&object_child, node, true),
+				(&object_child, subtree, true),
+				(&child_object, node, descendants),
+				(&child_object, subtree, descendants),
+				(&child_object_child, node, descendants),
+				(&child_object_child, subtree, descendants),
+				(&foreign_object, node, false),
+				(&foreign_object, subtree, false),
+				(&node_object, node, true),
+				(&node_object, subtree, false),
+				(&node_object_child, node, false),
+				(&other_object, node, false),
+			];
+			for node_only in [false, true] {
+				let cases = cases
+					.into_iter()
+					.filter(|(_, permission, _)| !node_only || *permission == node)
+					.collect::<Vec<_>>();
+				for with_token in [false, true] {
+					let principal = if with_token {
+						tg::Principal::Anonymous
+					} else {
+						tg::Principal::User(reader.clone())
+					};
+					let token = with_token.then(|| tg::authorization::Body {
+						expires_at: i64::MAX,
+						permissions: vec![tg::authorization::Permission::Process(permission)],
+						resource: process.clone().into(),
+					});
+					let args = cases
+						.iter()
+						.map(|(object, permission, _)| {
+							let permissions = object_permission(*permission).into();
+							crate::authorize::Arg {
+								requested: permissions,
+								required: permissions,
+								resource: tg::Selector::Id((*object).clone().into()),
+								token: token.clone(),
+							}
+						})
+						.collect::<Vec<_>>();
+					for (search, config) in [
+						("both", crate::authorize::Config::default()),
+						(
+							"ancestor",
+							crate::authorize::Config {
+								descendant: disabled,
+								..Default::default()
+							},
+						),
+						(
+							"descendant",
+							crate::authorize::Config {
+								ancestor: disabled,
+								..Default::default()
+							},
+						),
+						(
+							"descendant paginated",
+							crate::authorize::Config {
+								ancestor: disabled,
+								descendant: crate::authorize::SearchConfig {
+									page_size: 1,
+									..Default::default()
+								},
+								..Default::default()
+							},
+						),
+					] {
+						let outcomes = index
+							.authorize_batch(&args, config, &principal)
+							.await
+							.unwrap();
+						for ((object, object_permission, expected), outcome) in
+							std::iter::zip(cases.iter().copied(), outcomes)
+						{
+							assert_eq!(
+								matches!(outcome, crate::authorize::Outcome::Authorized(_)),
+								expected,
+								"{kind:?} {permission}, {search}, token={with_token}, node_only={node_only}, {object} {object_permission}: {outcome:?}"
+							);
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
+#[tokio::test]
 async fn authorize_parent_permission_flows_to_process_children() {
 	let (_dir, index) = new_index();
 	let child = tg::process::Id::new();

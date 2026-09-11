@@ -553,7 +553,7 @@ impl Search {
 						crate::process::object::Kind::Output,
 					] {
 						let dependency_permission = tg::authorization::Permission::Process(
-							crate::authorize::process_object_permission(kind, permission),
+							crate::authorize::process_object_permission(kind),
 						);
 						let dependency = (tg::Id::from(process.clone()), dependency_permission);
 						if !self.source_authorizes(&dependency) {
@@ -894,11 +894,11 @@ impl Search {
 			implicit_processes.insert(process.clone());
 		}
 		match permission {
-			tg::authorization::Permission::Object(object_permission) => {
+			tg::authorization::Permission::Object(_) => {
 				for (process, kind) in &facts.object_processes {
 					if implicit_processes.contains(process) {
 						let permission = tg::authorization::Permission::Process(
-							crate::authorize::process_object_permission(*kind, *object_permission),
+							crate::authorize::process_object_permission(*kind),
 						);
 						dependencies.push((tg::Id::from(process.clone()), permission));
 					}
