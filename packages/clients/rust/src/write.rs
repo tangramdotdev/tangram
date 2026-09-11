@@ -14,9 +14,11 @@ pub struct Arg {
 	pub checkout_pointers: Option<bool>,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	pub blob: tg::blob::Id,
+	#[serde_as(as = "DisplayFromStr")]
+	pub blob: tg::Referent<tg::blob::Id>,
 }
 
 impl tg::Session {

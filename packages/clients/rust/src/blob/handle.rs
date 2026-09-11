@@ -231,7 +231,7 @@ impl Blob {
 	{
 		let arg = tg::write::Arg::default();
 		let output = handle.write(arg, reader).boxed().await?;
-		let blob = Self::with_id(output.blob);
+		let blob = Self::with_referent(output.blob);
 		Ok(blob)
 	}
 

@@ -166,7 +166,7 @@ impl Session {
 		blob_bytes.extend_from_slice(&entries_bytes);
 
 		let arg = tg::write::Arg::default();
-		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob;
+		let blob = self.write(arg, Cursor::new(blob_bytes)).await?.blob.node;
 		data.log = Some(tg::Referent::with_node(blob.clone()));
 		let touched_at = self.server.clock.unix_timestamp()?;
 
