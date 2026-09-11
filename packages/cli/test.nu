@@ -2541,7 +2541,7 @@ def reset_database_instance_once [instance: string, pool_path: string] {
 		| reverse
 		| each { |table| $'delete from ($table);' }
 		| prepend 'begin;'
-		| append 'insert into index_outbox_batch (next) values (0);'
+		| append 'insert into index_queue_batch (next) values (0);'
 		| append 'commit;'
 		| str join "\n"
 	let foundationdb_command = foundationdb_command $database_reset_timeout

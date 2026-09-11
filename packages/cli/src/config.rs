@@ -563,7 +563,7 @@ pub enum Database {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct DatabaseIndexOutbox {
+pub struct DatabaseIndexQueue {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
 
@@ -577,7 +577,7 @@ pub struct DatabaseIndexOutbox {
 #[serde(deny_unknown_fields)]
 pub struct PostgresDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub index_outbox: Option<DatabaseIndexOutbox>,
+	pub index_queue: Option<DatabaseIndexQueue>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read: Option<PostgresDatabaseConnection>,
@@ -619,7 +619,7 @@ pub struct DatabasePool {
 #[serde(deny_unknown_fields)]
 pub struct SqliteDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub index_outbox: Option<DatabaseIndexOutbox>,
+	pub index_queue: Option<DatabaseIndexQueue>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -636,7 +636,7 @@ pub struct SqliteDatabase {
 #[serde(deny_unknown_fields)]
 pub struct TursoDatabase {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub index_outbox: Option<DatabaseIndexOutbox>,
+	pub index_queue: Option<DatabaseIndexQueue>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub path: Option<PathBuf>,
@@ -2747,8 +2747,8 @@ fn resolve_database(source: Database) -> server::Database {
 
 fn resolve_postgres_database(source: PostgresDatabase) -> server::PostgresDatabase {
 	let mut target = server::PostgresDatabase::default();
-	if let Some(source) = source.index_outbox {
-		target.index_outbox = resolve_database_index_outbox(source);
+	if let Some(source) = source.index_queue {
+		target.index_queue = resolve_database_index_queue(source);
 	}
 	if let Some(source) = source.read {
 		target.read = resolve_postgres_database_connection(source, target.read);
@@ -2777,8 +2777,8 @@ fn resolve_postgres_database_connection(
 
 fn resolve_sqlite_database(source: SqliteDatabase) -> server::SqliteDatabase {
 	let mut target = server::SqliteDatabase::default();
-	if let Some(source) = source.index_outbox {
-		target.index_outbox = resolve_database_index_outbox(source);
+	if let Some(source) = source.index_queue {
+		target.index_queue = resolve_database_index_queue(source);
 	}
 	if let Some(source) = source.pool {
 		target.pool = resolve_database_pool(source);
@@ -2794,8 +2794,8 @@ fn resolve_sqlite_database(source: SqliteDatabase) -> server::SqliteDatabase {
 
 fn resolve_turso_database(source: TursoDatabase) -> server::TursoDatabase {
 	let mut target = server::TursoDatabase::default();
-	if let Some(source) = source.index_outbox {
-		target.index_outbox = resolve_database_index_outbox(source);
+	if let Some(source) = source.index_queue {
+		target.index_queue = resolve_database_index_queue(source);
 	}
 	if let Some(source) = source.pool {
 		target.pool = resolve_database_pool(source);
@@ -2809,8 +2809,8 @@ fn resolve_turso_database(source: TursoDatabase) -> server::TursoDatabase {
 	target
 }
 
-fn resolve_database_index_outbox(source: DatabaseIndexOutbox) -> server::DatabaseIndexOutbox {
-	let mut target = server::DatabaseIndexOutbox::default();
+fn resolve_database_index_queue(source: DatabaseIndexQueue) -> server::DatabaseIndexQueue {
+	let mut target = server::DatabaseIndexQueue::default();
 	if let Some(value) = source.batch_size {
 		target.batch_size = value;
 	}
@@ -4622,7 +4622,7 @@ mod tests {
 		let source: Config = serde_json::from_value(serde_json::json!({
 			"database": {
 				"kind": "sqlite",
-				"index_outbox": { "wakeup_interval": 0.1 },
+				"index_queue": { "wakeup_interval": 0.1 },
 			},
 			"object": {
 				"archive_queue": {
@@ -4661,7 +4661,7 @@ mod tests {
 		let target = resolve_server_config(&source).unwrap();
 
 		assert_eq!(
-			target.database.index_outbox().wakeup_interval,
+			target.database.index_queue().wakeup_interval,
 			Duration::from_millis(100)
 		);
 		assert_eq!(target.object.archive_queue.concurrency, 41);

@@ -17,7 +17,7 @@ type IndexerWaits =
 	FuturesUnordered<futures::future::BoxFuture<'static, (Vec<String>, tg::Result<()>)>>;
 
 struct State {
-	database_index_outbox_batch_id: Option<crate::database::index::outbox::BatchId>,
+	database_index_queue_batch_id: Option<crate::database::index::queue::BatchId>,
 	indexer_waits: IndexerWaits,
 	waits: BTreeMap<String, Request>,
 }
@@ -31,7 +31,7 @@ pub(crate) struct Request {
 #[derive(Clone, Copy)]
 enum RequestState {
 	Inputs {
-		database_index_outbox: Progress<()>,
+		database_index_queue: Progress<()>,
 		indexers: Progress<()>,
 		log_compactions: Progress<u64>,
 	},
@@ -168,14 +168,14 @@ impl Server {
 impl State {
 	fn new() -> Self {
 		Self {
-			database_index_outbox_batch_id: None,
+			database_index_queue_batch_id: None,
 			indexer_waits: IndexerWaits::new(),
 			waits: BTreeMap::new(),
 		}
 	}
 
 	fn fail(&mut self, error: &tg::Error) {
-		self.database_index_outbox_batch_id = None;
+		self.database_index_queue_batch_id = None;
 		self.indexer_waits.clear();
 		for (_, request) in std::mem::take(&mut self.waits) {
 			let error = error.clone();
@@ -203,12 +203,12 @@ impl State {
 			matches!(
 				request.state,
 				RequestState::Inputs {
-					database_index_outbox: Progress::Pending(()),
+					database_index_queue: Progress::Pending(()),
 					..
 				}
 			)
 		}) {
-			self.database_index_outbox_batch_id = None;
+			self.database_index_queue_batch_id = None;
 		}
 	}
 
@@ -268,11 +268,11 @@ impl State {
 		let region = server.config.region.clone().unwrap_or_default();
 		self.poll_inputs(
 			|batch| async move {
-				crate::checkpoint!(server, "index.wait.outbox", ?batch).await;
-				let arg = crate::database::index::outbox::TryGetBatchArg { batch, region };
+				crate::checkpoint!(server, "index.wait.database_index_queue", ?batch).await;
+				let arg = crate::database::index::queue::TryGetBatchArg { batch, region };
 				server
 					.database
-					.try_get_index_outbox_batch_at_or_before(arg)
+					.try_get_index_queue_batch_at_or_before(arg)
 					.await
 			},
 			async {
@@ -316,20 +316,20 @@ impl State {
 
 	async fn poll_inputs<F>(
 		&mut self,
-		read_database_index_outbox: impl FnOnce(Option<crate::database::index::outbox::BatchId>) -> F,
+		read_database_index_queue: impl FnOnce(Option<crate::database::index::queue::BatchId>) -> F,
 		read_transaction_id: impl Future<Output = tg::Result<u64>>,
 		read_log_compactions: impl Future<Output = tg::Result<Option<u64>>>,
 	) -> tg::Result<()>
 	where
-		F: Future<Output = tg::Result<Option<crate::database::index::outbox::BatchId>>>,
+		F: Future<Output = tg::Result<Option<crate::database::index::queue::BatchId>>>,
 	{
-		// Share the outbox target with the active batch, and give later requests a fresh snapshot.
-		let database_index_outbox = async {
+		// Share the queue target with the active batch, and give later requests a fresh snapshot.
+		let database_index_queue = async {
 			let poll = self.waits.values().any(|request| {
 				matches!(
 					request.state,
 					RequestState::Inputs {
-						database_index_outbox: Progress::Ready | Progress::Pending(()),
+						database_index_queue: Progress::Ready | Progress::Pending(()),
 						..
 					}
 				)
@@ -337,9 +337,9 @@ impl State {
 			if !poll {
 				return Ok::<_, tg::Error>(None);
 			}
-			let batch = read_database_index_outbox(self.database_index_outbox_batch_id)
+			let batch = read_database_index_queue(self.database_index_queue_batch_id)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to read the database index outbox"))?;
+				.map_err(|error| tg::error!(!error, "failed to read the database index queue"))?;
 			Ok(Some(batch))
 		};
 
@@ -375,25 +375,25 @@ impl State {
 			let oldest = read_log_compactions.await?;
 			Ok(Some((transaction_id, oldest)))
 		};
-		let (database_index_outbox, log_compactions) =
-			future::try_join(database_index_outbox, log_compactions).await?;
+		let (database_index_queue, log_compactions) =
+			future::try_join(database_index_queue, log_compactions).await?;
 
 		// Advance each input independently without admitting later requests to an older snapshot.
-		if let Some(batch) = database_index_outbox {
-			let pending = self.database_index_outbox_batch_id.is_some();
+		if let Some(batch) = database_index_queue {
+			let pending = self.database_index_queue_batch_id.is_some();
 			for request in self.waits.values_mut() {
 				let RequestState::Inputs {
-					database_index_outbox,
+					database_index_queue,
 					..
 				} = &mut request.state
 				else {
 					continue;
 				};
 				if matches!(
-					(*database_index_outbox, pending),
+					(*database_index_queue, pending),
 					(Progress::Ready, false) | (Progress::Pending(()), true)
 				) {
-					*database_index_outbox = if batch.is_some() {
+					*database_index_queue = if batch.is_some() {
 						Progress::Pending(())
 					} else {
 						Progress::Complete
@@ -402,7 +402,7 @@ impl State {
 			}
 			// A progress read may return an older batch, but the active cutoff must stay fixed.
 			if !pending || batch.is_none() {
-				self.database_index_outbox_batch_id = batch;
+				self.database_index_queue_batch_id = batch;
 			}
 		}
 		if let Some((transaction_id, oldest)) = log_compactions {
@@ -436,7 +436,7 @@ impl State {
 			if matches!(
 				request.state,
 				RequestState::Inputs {
-					database_index_outbox: Progress::Complete,
+					database_index_queue: Progress::Complete,
 					indexers: Progress::Complete,
 					log_compactions: Progress::Complete,
 				}
@@ -523,7 +523,7 @@ impl State {
 impl RequestState {
 	fn new(log_compaction: bool) -> Self {
 		Self::Inputs {
-			database_index_outbox: Progress::Ready,
+			database_index_queue: Progress::Ready,
 			indexers: Progress::Ready,
 			log_compactions: if log_compaction {
 				Progress::Ready

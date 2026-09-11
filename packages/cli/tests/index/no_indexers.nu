@@ -9,7 +9,7 @@ let server = server spawn --config {
 tg --url $server.url group create project | ignore
 let pending = (
 	open ($server.directory | path join database.sqlite3)
-	| query db 'select count(*) as count from index_outbox'
+	| query db 'select count(*) as count from index_queue'
 	| get count.0
 )
 assert ($pending > 0)

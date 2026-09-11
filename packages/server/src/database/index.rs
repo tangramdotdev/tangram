@@ -1,1 +1,1 @@
-pub(crate) mod outbox;
+pub(crate) mod queue;

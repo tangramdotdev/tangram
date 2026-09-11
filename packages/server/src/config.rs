@@ -377,7 +377,7 @@ pub enum Database {
 }
 
 #[derive(Clone, Debug)]
-pub struct DatabaseIndexOutbox {
+pub struct DatabaseIndexQueue {
 	pub batch_size: usize,
 
 	pub wakeup_interval: Duration,
@@ -385,7 +385,7 @@ pub struct DatabaseIndexOutbox {
 
 #[derive(Clone, Debug)]
 pub struct PostgresDatabase {
-	pub index_outbox: DatabaseIndexOutbox,
+	pub index_queue: DatabaseIndexQueue,
 
 	pub read: PostgresDatabaseConnection,
 
@@ -412,7 +412,7 @@ pub struct DatabasePool {
 
 #[derive(Clone, Debug)]
 pub struct SqliteDatabase {
-	pub index_outbox: DatabaseIndexOutbox,
+	pub index_queue: DatabaseIndexQueue,
 
 	pub path: PathBuf,
 
@@ -423,7 +423,7 @@ pub struct SqliteDatabase {
 
 #[derive(Clone, Debug)]
 pub struct TursoDatabase {
-	pub index_outbox: DatabaseIndexOutbox,
+	pub index_queue: DatabaseIndexQueue,
 
 	pub path: PathBuf,
 
@@ -1455,16 +1455,16 @@ impl Default for Database {
 
 impl Database {
 	#[must_use]
-	pub fn index_outbox(&self) -> &DatabaseIndexOutbox {
+	pub fn index_queue(&self) -> &DatabaseIndexQueue {
 		match self {
-			Self::Postgres(config) => &config.index_outbox,
-			Self::Sqlite(config) => &config.index_outbox,
-			Self::Turso(config) => &config.index_outbox,
+			Self::Postgres(config) => &config.index_queue,
+			Self::Sqlite(config) => &config.index_queue,
+			Self::Turso(config) => &config.index_queue,
 		}
 	}
 }
 
-impl Default for DatabaseIndexOutbox {
+impl Default for DatabaseIndexQueue {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
@@ -1477,7 +1477,7 @@ impl Default for PostgresDatabase {
 	fn default() -> Self {
 		let connection = PostgresDatabaseConnection::default();
 		Self {
-			index_outbox: DatabaseIndexOutbox::default(),
+			index_queue: DatabaseIndexQueue::default(),
 			read: connection.clone(),
 			retry: database_retry_default(),
 			write: connection,
@@ -1497,7 +1497,7 @@ impl Default for PostgresDatabaseConnection {
 impl Default for SqliteDatabase {
 	fn default() -> Self {
 		Self {
-			index_outbox: DatabaseIndexOutbox::default(),
+			index_queue: DatabaseIndexQueue::default(),
 			path: PathBuf::from("database.sqlite3"),
 			pool: DatabasePool::default(),
 			retry: database_retry_default(),
@@ -1508,7 +1508,7 @@ impl Default for SqliteDatabase {
 impl Default for TursoDatabase {
 	fn default() -> Self {
 		Self {
-			index_outbox: DatabaseIndexOutbox::default(),
+			index_queue: DatabaseIndexQueue::default(),
 			path: PathBuf::from("database.sqlite3"),
 			pool: DatabasePool::default(),
 			retry: database_retry_default(),

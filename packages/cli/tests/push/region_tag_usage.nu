@@ -14,7 +14,7 @@ let common = {
 	authentication: { users: { providers: { insecure: true } } },
 	database: {
 		kind: sqlite,
-		index_outbox: { wakeup_interval: 0.01 },
+		index_queue: { wakeup_interval: 0.01 },
 		path: $database_path,
 	},
 	usage: true,

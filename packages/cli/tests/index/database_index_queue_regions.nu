@@ -13,7 +13,7 @@ let regions = [
 let common = {
 	database: {
 		kind: 'sqlite',
-		index_outbox: { wakeup_interval: 0.01 },
+		index_queue: { wakeup_interval: 0.01 },
 		path: $database_path,
 	},
 }
@@ -26,11 +26,11 @@ let east_group = tg --url $east.url group create east-project | from json
 let west_group = tg --url $west.url group create west-project | from json
 let rows = (
 	open $database_path
-	| query db 'select region, batch from index_outbox order by batch, region'
+	| query db 'select region, batch from index_queue order by batch, region'
 )
 assert equal ($rows | get batch) [1 1 2 2]
 assert equal ($rows | get region) [east west east west]
-let next = open $database_path | query db 'select next from index_outbox_batch' | get next.0
+let next = open $database_path | query db 'select next from index_queue_batch' | get next.0
 assert equal $next 2
 
 server stop $east

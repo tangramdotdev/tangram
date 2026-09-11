@@ -26,7 +26,7 @@ mod wait;
 pub(crate) use {
 	cache::Cache,
 	cleaning::CleanBatchArg,
-	database::database_index_outbox_subject,
+	database::database_index_queue_subject,
 	request::{ArchiveRequestArg, IndexRequestArg, RequestArg},
 };
 
@@ -63,7 +63,7 @@ struct Tasks {
 	archive_sequence_reservations: SharedTask<tg::Result<()>>,
 	batch_expiration: SharedTask<tg::Result<()>>,
 	cleaning: Task<tg::Result<()>>,
-	database_index_outbox: Task<tg::Result<()>>,
+	database_index_queue: Task<tg::Result<()>>,
 	grant_update: Task<tg::Result<()>>,
 	index_queue: SharedTask<tg::Result<()>>,
 	index_sequence_reservations: SharedTask<tg::Result<()>>,
@@ -270,14 +270,14 @@ impl Server {
 			}
 		});
 
-		// Spawn the database index outbox task.
-		let database_index_outbox_task = Task::spawn({
+		// Spawn the database index queue task.
+		let database_index_queue_task = Task::spawn({
 			let indexer = indexer.clone();
-			let outbox = self.config.database.index_outbox().clone();
+			let queue = self.config.database.index_queue().clone();
 			let region = self.config.region.clone().unwrap_or_default();
 			move |stopper| async move {
 				indexer
-					.database_index_outbox_task(&outbox, &region, &stopper)
+					.database_index_queue_task(&queue, &region, &stopper)
 					.await
 			}
 		});
@@ -467,7 +467,7 @@ impl Server {
 			archive_sequence_reservations: archive_sequence_reservations_task,
 			batch_expiration: batch_expiration_task,
 			cleaning: cleaning_task,
-			database_index_outbox: database_index_outbox_task,
+			database_index_queue: database_index_queue_task,
 			grant_update: grant_update_task,
 			index_queue: index_queue_task,
 			index_sequence_reservations: index_sequence_reservations_task,
@@ -571,7 +571,7 @@ impl Indexer {
 			archive_sequence_reservations,
 			batch_expiration,
 			cleaning,
-			database_index_outbox,
+			database_index_queue,
 			grant_update,
 			index_queue,
 			index_sequence_reservations,
@@ -600,7 +600,7 @@ impl Indexer {
 
 		// Finish the current operations without exhausting the partitions.
 		cleaning.stop();
-		database_index_outbox.stop();
+		database_index_queue.stop();
 		grant_update.stop();
 		log_compaction.stop();
 		node_update.stop();
@@ -611,7 +611,7 @@ impl Indexer {
 		usage_expiration.stop();
 		for (name, task) in [
 			("cleaning", cleaning),
-			("database index outbox", database_index_outbox),
+			("database index queue", database_index_queue),
 			("grant update", grant_update),
 			("log compaction", log_compaction),
 			("node update", node_update),

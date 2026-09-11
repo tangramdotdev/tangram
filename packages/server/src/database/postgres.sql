@@ -182,13 +182,13 @@ create table remotes (
 
 create unique index remotes_principal_name_index on remotes (coalesce(principal, ''), name);
 
-create table index_outbox_batch (
+create table index_queue_batch (
 	next int8 not null
 );
 
-insert into index_outbox_batch (next) values (0);
+insert into index_queue_batch (next) values (0);
 
-create table index_outbox (
+create table index_queue (
 	region text not null,
 	batch int8 not null,
 	payload bytea not null,

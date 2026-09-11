@@ -171,7 +171,7 @@ async fn inputs_run_concurrently_and_share_reads() {
 		Ok(())
 	});
 	let reads = AtomicUsize::new(0);
-	let batch = crate::database::index::outbox::BatchId::new(10);
+	let batch = crate::database::index::queue::BatchId::new(10);
 	let poll = state.poll_inputs(
 		|target| {
 			assert!(target.is_none());
@@ -202,7 +202,7 @@ async fn inputs_run_concurrently_and_share_reads() {
 	assert!(state.waits.values().all(|request| matches!(
 		request.state,
 		RequestState::Inputs {
-			database_index_outbox: Progress::Pending(()),
+			database_index_queue: Progress::Pending(()),
 			indexers: Progress::Complete,
 			log_compactions: Progress::Pending(10),
 		}
@@ -235,7 +235,7 @@ async fn inputs_run_concurrently_and_share_reads() {
 	assert!(state.waits.is_empty());
 	state
 		.poll_inputs(
-			|_| async { panic!("idle waits must not read the outbox") },
+			|_| async { panic!("idle waits must not read the queue") },
 			async { panic!("idle waits must not snapshot compactions") },
 			async { panic!("idle waits must not poll compactions") },
 		)
@@ -257,7 +257,7 @@ async fn updates_wait_for_every_input_in_any_completion_order() {
 		let mut receiver = insert(&mut state, "client", RequestState::new(true));
 		state.start_indexer_wait(async { Ok(()) });
 		let (ids, result) = state.indexer_waits.next().await.unwrap();
-		let batch = crate::database::index::outbox::BatchId::new(10);
+		let batch = crate::database::index::queue::BatchId::new(10);
 		state
 			.poll_inputs(|_| async { Ok(Some(batch)) }, async { Ok(10) }, async {
 				Ok(Some(10))
@@ -313,8 +313,8 @@ async fn later_requests_keep_their_own_input_targets() {
 	let mut state = State::new();
 	let _first = insert(&mut state, "first", RequestState::new(true));
 	state.start_indexer_wait(async { Ok(()) });
-	let first = crate::database::index::outbox::BatchId::new(10);
-	let second = crate::database::index::outbox::BatchId::new(20);
+	let first = crate::database::index::queue::BatchId::new(10);
+	let second = crate::database::index::queue::BatchId::new(20);
 	state
 		.poll_inputs(|_| async { Ok(Some(first)) }, async { Ok(10) }, async {
 			Ok(Some(10))
@@ -340,7 +340,7 @@ async fn later_requests_keep_their_own_input_targets() {
 	assert!(matches!(
 		state.waits["first"].state,
 		RequestState::Inputs {
-			database_index_outbox: Progress::Complete,
+			database_index_queue: Progress::Complete,
 			indexers: Progress::Complete,
 			log_compactions: Progress::Complete,
 		}
@@ -348,7 +348,7 @@ async fn later_requests_keep_their_own_input_targets() {
 	assert!(matches!(
 		state.waits["second"].state,
 		RequestState::Inputs {
-			database_index_outbox: Progress::Ready,
+			database_index_queue: Progress::Ready,
 			indexers: Progress::Ready,
 			log_compactions: Progress::Pending(20),
 		}
@@ -368,11 +368,11 @@ async fn later_requests_keep_their_own_input_targets() {
 		)
 		.await
 		.unwrap();
-	assert_eq!(state.database_index_outbox_batch_id, Some(second));
+	assert_eq!(state.database_index_queue_batch_id, Some(second));
 	assert!(matches!(
 		state.waits["second"].state,
 		RequestState::Inputs {
-			database_index_outbox: Progress::Pending(()),
+			database_index_queue: Progress::Pending(()),
 			indexers: Progress::Complete,
 			log_compactions: Progress::Pending(20),
 		}
@@ -380,13 +380,13 @@ async fn later_requests_keep_their_own_input_targets() {
 }
 
 #[tokio::test]
-async fn canceled_waits_do_not_poll_or_reuse_old_outbox_targets() {
+async fn canceled_waits_do_not_poll_or_reuse_old_queue_targets() {
 	let mut state = State::new();
 	let receiver = insert(&mut state, "first", RequestState::new(false));
 	state.start_indexer_wait(std::future::pending());
 	state
 		.poll_inputs(
-			|_| async { Ok(Some(crate::database::index::outbox::BatchId::new(10))) },
+			|_| async { Ok(Some(crate::database::index::queue::BatchId::new(10))) },
 			async { panic!("disabled compactions must not be snapshotted") },
 			async { panic!("disabled compactions must not be polled") },
 		)
@@ -397,7 +397,7 @@ async fn canceled_waits_do_not_poll_or_reuse_old_outbox_targets() {
 	assert!(state.indexer_waits.is_empty());
 	state
 		.poll_inputs(
-			|_| async { panic!("idle waits must not read the outbox") },
+			|_| async { panic!("idle waits must not read the queue") },
 			async { panic!("idle waits must not snapshot compactions") },
 			async { panic!("idle waits must not poll compactions") },
 		)

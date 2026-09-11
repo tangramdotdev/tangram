@@ -490,16 +490,16 @@ impl Server {
 			));
 		}
 
-		// Validate the database index outbox configuration.
-		let outbox = config.database.index_outbox();
-		if outbox.batch_size == 0 {
+		// Validate the database index queue configuration.
+		let queue = config.database.index_queue();
+		if queue.batch_size == 0 {
 			return Err(tg::error!(
-				"the database index outbox batch size must be greater than zero"
+				"the database index queue batch size must be greater than zero"
 			));
 		}
-		if outbox.wakeup_interval.is_zero() {
+		if queue.wakeup_interval.is_zero() {
 			return Err(tg::error!(
-				"the database index outbox wakeup interval must be greater than zero"
+				"the database index queue wakeup interval must be greater than zero"
 			));
 		}
 

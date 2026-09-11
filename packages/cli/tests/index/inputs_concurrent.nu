@@ -5,7 +5,7 @@ let server = server spawn --config {
 	advanced: { checkpoints: true },
 	indexer: { request: { poll_interval: 0.01 } },
 }
-let waits = [indexer.request.wait index.wait.outbox index.wait.compactions]
+let waits = [indexer.request.wait index.wait.database_index_queue index.wait.compactions]
 let watches = $waits | each {|name|
 	let watch = tg --url $server.url checkpoint watch $name | from json | get watch
 	{ name: $name, watch: $watch }
