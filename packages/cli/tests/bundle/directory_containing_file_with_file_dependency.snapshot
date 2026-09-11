@@ -9,7 +9,10 @@
           "entries": {
             "fil_0143v1bnvb04nrjr0y1x07wwmkv3873ybk9ap6g0a8bjtva5cathmg": {
               "kind": "file",
-              "contents": "dependency"
+              "contents": "dependency",
+              "xattrs": {
+                "user.tangram.token": "<token>"
+              }
             }
           }
         }
@@ -18,7 +21,10 @@
     "file": {
       "kind": "file",
       "contents": "f",
-      "executable": true
+      "executable": true,
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     }
   }
 }

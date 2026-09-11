@@ -1,4 +1,7 @@
 {
   "kind": "file",
-  "contents": "hello"
+  "contents": "hello",
+  "xattrs": {
+    "user.tangram.token": "<token>"
+  }
 }

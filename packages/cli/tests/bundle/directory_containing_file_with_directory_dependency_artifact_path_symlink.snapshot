@@ -12,7 +12,10 @@
               "entries": {
                 "dep": {
                   "kind": "file",
-                  "contents": "dependency"
+                  "contents": "dependency",
+                  "xattrs": {
+                    "user.tangram.token": "<token>"
+                  }
                 },
                 "link": {
                   "kind": "symlink",
@@ -25,7 +28,10 @@
               "entries": {
                 "a": {
                   "kind": "file",
-                  "contents": "a"
+                  "contents": "a",
+                  "xattrs": {
+                    "user.tangram.token": "<token>"
+                  }
                 }
               }
             }
@@ -36,7 +42,10 @@
     "file": {
       "kind": "file",
       "contents": "f",
-      "executable": true
+      "executable": true,
+      "xattrs": {
+        "user.tangram.token": "<token>"
+      }
     },
     "link": {
       "kind": "symlink",
