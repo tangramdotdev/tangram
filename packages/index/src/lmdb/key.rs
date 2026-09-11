@@ -81,6 +81,10 @@ pub enum Kind {
 	StorageUpdateVersion = 63,
 	UsageStarted = 64,
 	UsageUnavailable = 65,
+	GrantUpdatePropagatedVersion = 66,
+	NodeUpdatePropagatedVersion = 67,
+	GrantUpdateClean = 71,
+	NodeUpdateClean = 72,
 }
 
 impl fdbt::TuplePack for Key {
@@ -540,6 +544,22 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
+			Key::Update(crate::lmdb::update::Key::PropagatedVersion { id, kind }) => {
+				let key_kind = match kind {
+					crate::lmdb::update::Kind::Grant(_) => Kind::GrantUpdatePropagatedVersion,
+					crate::lmdb::update::Kind::Node => Kind::NodeUpdatePropagatedVersion,
+					crate::lmdb::update::Kind::Storage(_) => unreachable!(),
+				};
+				key_kind.to_i32().unwrap().pack(w, tuple_depth)?;
+				let id = match id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				let mut offset = id.as_ref().pack(w, tuple_depth)?;
+				offset += pack_update_kind(w, tuple_depth, kind)?;
+				Ok(offset)
+			},
+
 			Key::Update(crate::lmdb::update::Key::Update { id, kind }) => {
 				let key_kind = match kind {
 					crate::lmdb::update::Kind::Grant(_) => Kind::GrantUpdate,
@@ -556,9 +576,15 @@ impl fdbt::TuplePack for Key {
 				Ok(offset)
 			},
 
-			Key::Update(crate::lmdb::update::Key::UpdateVersion { id, kind, version }) => {
+			Key::Update(
+				crate::lmdb::update::Key::UpdateVersion { id, kind, version }
+				| crate::lmdb::update::Key::Clean { id, kind, version },
+			) => {
+				let clean = matches!(self, Key::Update(crate::lmdb::update::Key::Clean { .. }));
 				let key_kind = match kind {
+					crate::lmdb::update::Kind::Grant(_) if clean => Kind::GrantUpdateClean,
 					crate::lmdb::update::Kind::Grant(_) => Kind::GrantUpdateVersion,
+					crate::lmdb::update::Kind::Node if clean => Kind::NodeUpdateClean,
 					crate::lmdb::update::Kind::Node => Kind::NodeUpdateVersion,
 					crate::lmdb::update::Kind::Storage(_) => Kind::StorageUpdateVersion,
 				};
@@ -1431,6 +1457,27 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
+			Kind::GrantUpdatePropagatedVersion | Kind::NodeUpdatePropagatedVersion => {
+				let update_kind = match kind {
+					Kind::GrantUpdatePropagatedVersion => crate::update::Kind::Grant,
+					Kind::NodeUpdatePropagatedVersion => crate::update::Kind::Node,
+					_ => unreachable!(),
+				};
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
+					tg::Either::Right(id)
+				} else if let Ok(id) = tg::object::Id::try_from(id) {
+					tg::Either::Left(id)
+				} else {
+					return Err(fdbt::PackError::Message("invalid id".into()));
+				};
+				let (input, kind) = unpack_update_kind(input, tuple_depth, update_kind)?;
+				let key = Key::Update(crate::lmdb::update::Key::PropagatedVersion { id, kind });
+				Ok((input, key))
+			},
+
 			Kind::GrantUpdate | Kind::NodeUpdate | Kind::StorageUpdate => {
 				let update_kind = match kind {
 					Kind::GrantUpdate => crate::update::Kind::Grant,
@@ -1455,10 +1502,15 @@ impl fdbt::TupleUnpack<'_> for Key {
 				))
 			},
 
-			Kind::GrantUpdateVersion | Kind::NodeUpdateVersion | Kind::StorageUpdateVersion => {
+			Kind::GrantUpdateClean
+			| Kind::GrantUpdateVersion
+			| Kind::NodeUpdateClean
+			| Kind::NodeUpdateVersion
+			| Kind::StorageUpdateVersion => {
+				let clean = matches!(kind, Kind::GrantUpdateClean | Kind::NodeUpdateClean);
 				let update_kind = match kind {
-					Kind::GrantUpdateVersion => crate::update::Kind::Grant,
-					Kind::NodeUpdateVersion => crate::update::Kind::Node,
+					Kind::GrantUpdateClean | Kind::GrantUpdateVersion => crate::update::Kind::Grant,
+					Kind::NodeUpdateClean | Kind::NodeUpdateVersion => crate::update::Kind::Node,
 					Kind::StorageUpdateVersion => crate::update::Kind::Storage,
 					_ => unreachable!(),
 				};
@@ -1474,10 +1526,12 @@ impl fdbt::TupleUnpack<'_> for Key {
 					return Err(fdbt::PackError::Message("invalid id".into()));
 				};
 				let (input, kind) = unpack_update_kind(input, tuple_depth, update_kind)?;
-				Ok((
-					input,
-					Key::Update(crate::lmdb::update::Key::UpdateVersion { id, kind, version }),
-				))
+				let key = if clean {
+					crate::lmdb::update::Key::Clean { id, kind, version }
+				} else {
+					crate::lmdb::update::Key::UpdateVersion { id, kind, version }
+				};
+				Ok((input, Key::Update(key)))
 			},
 		}
 	}

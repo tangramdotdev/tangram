@@ -1,4 +1,5 @@
 mod key;
+mod update;
 pub(super) use key::{ItemKind, Key};
 
 use {
@@ -319,7 +320,19 @@ impl Index {
 			}
 		}
 
-		output.done = grants == 0 && candidates.is_empty();
+		let remaining_batch_size = remaining_batch_size.saturating_sub(candidates.len());
+		let propagated_versions = crate::fdb::propagate!(
+			Self::clean_update_propagated_versions(
+				txn,
+				subspace,
+				remaining_batch_size,
+				partition_start,
+				partition_end,
+				partition_total,
+			)
+			.await
+		);
+		output.done = grants == 0 && candidates.is_empty() && propagated_versions == 0;
 
 		Ok(ControlFlow::Break(output))
 	}
@@ -773,6 +786,7 @@ impl Index {
 		txn.clear(&key);
 
 		let id_bytes = id.to_bytes();
+		Self::clear_update_propagated_versions(txn, subspace, id_bytes.as_ref());
 
 		let prefix = (Kind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, &prefix);
@@ -866,6 +880,7 @@ impl Index {
 			.and_then(|process| process.sandbox);
 		txn.clear(&key);
 		let id_bytes = id.to_bytes();
+		Self::clear_update_propagated_versions(txn, subspace, id_bytes.as_ref());
 
 		let prefix = (Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, &prefix);

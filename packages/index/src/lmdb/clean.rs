@@ -1,4 +1,5 @@
 mod key;
+mod update;
 pub(super) use key::{ItemKind, Key};
 
 use {
@@ -234,7 +235,14 @@ impl Index {
 			}
 		}
 
-		output.done = grants == 0 && candidates.is_empty();
+		let remaining_batch_size = remaining_batch_size.saturating_sub(candidates.len());
+		let propagated_versions = Self::clean_update_propagated_versions(
+			db,
+			subspace,
+			transaction,
+			remaining_batch_size,
+		)?;
+		output.done = grants == 0 && candidates.is_empty() && propagated_versions == 0;
 
 		Ok(output)
 	}
@@ -687,6 +695,7 @@ impl Index {
 			.map_err(|error| tg::error!(!error, "failed to delete object"))?;
 
 		let id_bytes = id.to_bytes();
+		Self::clear_update_propagated_versions(db, subspace, transaction, id_bytes.as_ref())?;
 		let prefix = &(Kind::ObjectChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, prefix);
 		let iter = db
@@ -768,6 +777,7 @@ impl Index {
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete process"))?;
 		let id_bytes = id.to_bytes();
+		Self::clear_update_propagated_versions(db, subspace, transaction, id_bytes.as_ref())?;
 		let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, prefix);
 		let iter = db
