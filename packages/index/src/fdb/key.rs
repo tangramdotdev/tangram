@@ -83,6 +83,8 @@ pub enum Kind {
 	UsageUnavailable = 65,
 	GrantUpdatePropagatedVersion = 66,
 	NodeUpdatePropagatedVersion = 67,
+	StorageUpdatePropagatedVersion = 69,
+	StorageUpdatePutVersion = 68,
 	GrantUpdateClean = 71,
 	NodeUpdateClean = 72,
 }
@@ -590,6 +592,28 @@ impl fdbt::TuplePack for Key {
 				let mut offset = id.as_ref().pack(w, tuple_depth)?;
 				offset += pack_update_kind(w, tuple_depth, kind)?;
 				Ok(offset)
+			},
+
+			Key::Update(
+				crate::fdb::update::Key::StorageUpdatePropagatedVersion { account, id }
+				| crate::fdb::update::Key::StorageUpdatePutVersion { account, id },
+			) => {
+				let kind = match self {
+					Key::Update(crate::fdb::update::Key::StorageUpdatePropagatedVersion {
+						..
+					}) => Kind::StorageUpdatePropagatedVersion,
+					_ => Kind::StorageUpdatePutVersion,
+				};
+				let id = match id {
+					tg::Either::Left(id) => id.to_bytes(),
+					tg::Either::Right(id) => id.to_bytes(),
+				};
+				(
+					kind.to_i32().unwrap(),
+					id.as_ref(),
+					account.id().to_bytes().as_ref(),
+				)
+					.pack(w, tuple_depth)
 			},
 
 			Key::Update(crate::fdb::update::Key::Update { id, kind }) => {
@@ -1517,6 +1541,31 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
+			Kind::StorageUpdatePropagatedVersion | Kind::StorageUpdatePutVersion => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
+				let id = if let Ok(id) = tg::process::Id::try_from(id.clone()) {
+					tg::Either::Right(id)
+				} else if let Ok(id) = tg::object::Id::try_from(id) {
+					tg::Either::Left(id)
+				} else {
+					return Err(fdbt::PackError::Message("invalid id".into()));
+				};
+				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let account = tg::Id::from_slice(&account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let account = crate::usage::Account::try_from(account)
+					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
+				let key = match kind {
+					Kind::StorageUpdatePropagatedVersion => {
+						crate::fdb::update::Key::StorageUpdatePropagatedVersion { account, id }
+					},
+					_ => crate::fdb::update::Key::StorageUpdatePutVersion { account, id },
+				};
+				Ok((input, Key::Update(key)))
+			},
+
 			Kind::GrantUpdatePropagatedVersion | Kind::NodeUpdatePropagatedVersion => {
 				let update_kind = match kind {
 					Kind::GrantUpdatePropagatedVersion => crate::update::Kind::Grant,
@@ -1618,15 +1667,6 @@ fn pack_update_kind<W: std::io::Write>(
 		crate::fdb::update::Kind::Grant(subject) => subject.to_string().pack(w, tuple_depth),
 		crate::fdb::update::Kind::Node => ().pack(w, tuple_depth),
 		crate::fdb::update::Kind::Storage(kind) => match kind {
-			crate::fdb::update::StorageKind::Add {
-				account,
-				touched_at,
-			} => {
-				let mut offset = 0i32.pack(w, tuple_depth)?;
-				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
-				offset += touched_at.pack(w, tuple_depth)?;
-				Ok(offset)
-			},
 			crate::fdb::update::StorageKind::Clean(account) => {
 				let mut offset = 1i32.pack(w, tuple_depth)?;
 				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
@@ -1638,6 +1678,15 @@ fn pack_update_kind<W: std::io::Write>(
 				touched_at,
 			} => {
 				let mut offset = 3i32.pack(w, tuple_depth)?;
+				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
+				offset += touched_at.pack(w, tuple_depth)?;
+				Ok(offset)
+			},
+			crate::fdb::update::StorageKind::Put {
+				account,
+				touched_at,
+			} => {
+				let mut offset = 0i32.pack(w, tuple_depth)?;
 				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
 				offset += touched_at.pack(w, tuple_depth)?;
 				Ok(offset)
@@ -1673,7 +1722,7 @@ fn unpack_update_kind(
 					let account = crate::usage::Account::try_from(account)
 						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 					let kind = match kind {
-						0 => crate::fdb::update::StorageKind::Add {
+						0 => crate::fdb::update::StorageKind::Put {
 							account,
 							touched_at,
 						},

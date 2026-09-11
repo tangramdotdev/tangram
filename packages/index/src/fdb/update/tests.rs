@@ -7,6 +7,7 @@ use {
 };
 
 mod clean;
+mod storage;
 
 static NETWORK: OnceLock<fdb::api::NetworkAutoStop> = OnceLock::new();
 

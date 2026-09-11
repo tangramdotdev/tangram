@@ -61,6 +61,125 @@ async fn a_batch_preserves_an_older_propagation_when_combining_updates() {
 }
 
 #[tokio::test]
+async fn a_batch_preserves_an_older_storage_propagation_when_combining_updates() {
+	let (_dir, index) = super::new_index();
+	let bottom = object(0, []);
+	let leaf = object(1, [bottom.id.clone()]);
+	let middle = object(2, [leaf.id.clone()]);
+	let first = object(3, [middle.id.clone()]);
+	let second = object(4, [leaf.id.clone()]);
+	put(
+		&index,
+		vec![bottom.clone(), leaf, middle, first.clone(), second.clone()],
+	)
+	.await;
+	drain(&index, crate::update::Kind::Node).await;
+	let account = crate::usage::Account::User(tg::user::Id::new());
+	associate(&index, &account, &first.id).await;
+	let cutoff = index.get_transaction_id().await.unwrap();
+	associate(&index, &account, &second.id).await;
+	assert_eq!(
+		index
+			.update_batch(crate::update::Kind::Storage, 2)
+			.await
+			.unwrap()
+			.count,
+		2
+	);
+	let oldest = index
+		.try_get_oldest_update_transaction_id(crate::update::Kind::Storage)
+		.await
+		.unwrap();
+	assert!(
+		oldest.is_some_and(|version| version <= cutoff),
+		"the storage wait lost its pending descendants: {oldest:?} > {cutoff}"
+	);
+	assert!(!associated(&index, &account, &bottom.id));
+	drain(&index, crate::update::Kind::Storage).await;
+	assert!(associated(&index, &account, &bottom.id));
+}
+
+#[tokio::test]
+async fn late_storage_puts_preserve_the_oldest_version() {
+	let (_dir, index) = super::new_index();
+	let leaf = object(0, []);
+	let middle = object(1, [leaf.id.clone()]);
+	let top = object(2, [middle.id.clone()]);
+	put(&index, vec![leaf.clone(), middle.clone(), top.clone()]).await;
+	drain(&index, crate::update::Kind::Node).await;
+	let account = crate::usage::Account::User(tg::user::Id::new());
+	associate(&index, &account, &top.id).await;
+	let cutoff = index.get_transaction_id().await.unwrap();
+	associate(&index, &account, &middle.id).await;
+	assert_eq!(
+		index
+			.update_batch(crate::update::Kind::Storage, 1)
+			.await
+			.unwrap()
+			.count,
+		1
+	);
+	let oldest = index
+		.try_get_oldest_update_transaction_id(crate::update::Kind::Storage)
+		.await
+		.unwrap();
+	assert!(
+		oldest.is_some_and(|version| version <= cutoff),
+		"the late storage put lost its pending descendants: {oldest:?} > {cutoff}"
+	);
+	assert!(!associated(&index, &account, &leaf.id));
+	drain(&index, crate::update::Kind::Storage).await;
+	assert!(associated(&index, &account, &leaf.id));
+
+	// Collection removes the retained versions without evicting the cached objects.
+	let ids = [leaf.id.clone(), middle.id, top.id.clone()];
+	index
+		.touch_objects_with_account(&ids, None, 100, std::time::Duration::ZERO)
+		.await
+		.unwrap();
+	let arg = crate::clean::Arg {
+		batch_size: 100,
+		max_object_touched_at: 0,
+		max_process_touched_at: 0,
+		max_sandbox_touched_at: 0,
+		now: 1,
+		partition_end: 1,
+		partition_start: 0,
+	};
+	for _ in 0..20 {
+		if index.clean(arg.clone()).await.unwrap().done {
+			break;
+		}
+	}
+	assert!(
+		index
+			.try_get_objects(&ids)
+			.await
+			.unwrap()
+			.iter()
+			.all(Option::is_some)
+	);
+	for id in &ids {
+		assert!(!associated(&index, &account, id));
+		let transaction = index.env.read_txn().unwrap();
+		let key = Key::Update(super::super::update::Key::StorageUpdatePutVersion {
+			account: account.clone(),
+			id: tg::Either::Left(id.clone()),
+		});
+		assert!(
+			index
+				.db
+				.get(&transaction, &Index::pack(&index.subspace, &key))
+				.unwrap()
+				.is_none()
+		);
+	}
+	associate(&index, &account, &top.id).await;
+	drain(&index, crate::update::Kind::Storage).await;
+	assert!(associated(&index, &account, &leaf.id));
+}
+
+#[tokio::test]
 async fn propagation_versions_reset_and_repeated_updates_stop() {
 	let (_dir, index) = super::new_index();
 	let child = object(0, []);
@@ -175,6 +294,31 @@ async fn put(index: &Index, objects: Vec<crate::object::put::Arg>) {
 		.collect();
 	let arg = crate::batch::Arg { items };
 	index.batch(arg).await.unwrap();
+}
+
+async fn associate(index: &Index, account: &crate::usage::Account, object: &tg::object::Id) {
+	let arg = crate::usage::storage::put::ObjectArg {
+		account: account.clone(),
+		object: object.clone(),
+		touched_at: 0,
+	};
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutAccountObject(arg)],
+	};
+	index.batch(arg).await.unwrap();
+}
+
+fn associated(index: &Index, account: &crate::usage::Account, object: &tg::object::Id) -> bool {
+	let transaction = index.env.read_txn().unwrap();
+	let key = Key::Usage(super::super::usage::Key::AccountObject {
+		account: account.clone(),
+		object: object.clone(),
+	});
+	index
+		.db
+		.get(&transaction, &Index::pack(&index.subspace, &key))
+		.unwrap()
+		.is_some()
 }
 
 async fn drain(index: &Index, kind: crate::update::Kind) {

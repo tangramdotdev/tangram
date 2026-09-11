@@ -16,6 +16,16 @@ pub enum Key {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		kind: Kind,
 	},
+	/// A completed traversal can be replayed if an older queue marker arrives later.
+	StorageUpdatePropagatedVersion {
+		account: crate::usage::Account,
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+	},
+	/// The oldest put version for an account association is independent of its touch timestamp.
+	StorageUpdatePutVersion {
+		account: crate::usage::Account,
+		id: tg::Either<tg::object::Id, tg::process::Id>,
+	},
 	Update {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		kind: Kind,
@@ -37,13 +47,13 @@ pub enum Kind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StorageKind {
-	Add {
-		account: crate::usage::Account,
-		touched_at: i64,
-	},
 	Clean(crate::usage::Account),
 	CleanAll,
 	Propagate {
+		account: crate::usage::Account,
+		touched_at: i64,
+	},
+	Put {
 		account: crate::usage::Account,
 		touched_at: i64,
 	},

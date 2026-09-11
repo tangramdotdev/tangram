@@ -33,7 +33,10 @@ pub(super) struct NodeUpdate {
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub(super) struct StorageUpdate {}
+pub(super) struct StorageUpdate {
+	#[tangram_serialize(id = 0)]
+	pub version: u64,
+}
 
 #[derive(
 	Clone, Copy, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
@@ -106,8 +109,8 @@ impl NodeUpdate {
 }
 
 impl StorageUpdate {
-	pub fn new() -> Self {
-		Self {}
+	pub fn new(version: u64) -> Self {
+		Self { version }
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
@@ -196,19 +199,19 @@ impl Index {
 					.map_err(|error| tg::error!(!error, "failed to read update version entry"))?;
 				let key = Self::unpack(subspace, key)?;
 				let crate::lmdb::Key::Update(crate::lmdb::update::Key::UpdateVersion {
-					version,
 					id,
 					kind,
+					..
 				}) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				Ok((version, id, kind))
+				Ok((id, kind))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		let mut output = crate::update::Output::default();
-		for (version, id, kind) in entries {
+		for (id, kind) in entries {
 			let key = crate::lmdb::Key::Update(crate::lmdb::update::Key::Update {
 				id: id.clone(),
 				kind: kind.clone(),
@@ -226,8 +229,8 @@ impl Index {
 					(Some(source), version)
 				},
 				Kind::Storage(_) => {
-					StorageUpdate::deserialize(value)?;
-					(None, version)
+					let update = StorageUpdate::deserialize(value)?;
+					(None, update.version)
 				},
 			};
 
@@ -259,7 +262,10 @@ impl Index {
 						process_output.changed
 					},
 				},
-				Kind::Storage(StorageKind::Add {
+				Kind::Storage(
+					StorageKind::Clean(_) | StorageKind::CleanAll | StorageKind::Propagate { .. },
+				) => return Err(tg::error!("unsupported LMDB storage update kind")),
+				Kind::Storage(StorageKind::Put {
 					account,
 					touched_at,
 				}) => match &id {
@@ -296,9 +302,6 @@ impl Index {
 						)
 					}?,
 				},
-				Kind::Storage(
-					StorageKind::Clean(_) | StorageKind::CleanAll | StorageKind::Propagate { .. },
-				) => return Err(tg::error!("unsupported LMDB storage update kind")),
 			};
 
 			if let Some(source) = source {
@@ -1932,10 +1935,10 @@ impl Index {
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get update key"))?
 		{
-			if matches!(kind, Kind::Storage(_)) {
-				return Ok(());
-			}
-			let (existing_source, existing_version) = deserialize_source_update(&kind, existing)?;
+			let (existing_source, existing_version) = match &kind {
+				Kind::Grant(_) | Kind::Node => deserialize_source_update(&kind, existing)?,
+				Kind::Storage(_) => (source, StorageUpdate::deserialize(existing)?.version),
+			};
 			if existing_source == Source::Put {
 				source = Source::Put;
 			}
@@ -1969,6 +1972,57 @@ impl Index {
 		Ok(())
 	}
 
+	pub(super) fn lower_storage_update_put_version(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		account: &crate::usage::Account,
+		version: u64,
+	) -> tg::Result<bool> {
+		let key = Key::StorageUpdatePutVersion {
+			account: account.clone(),
+			id: id.clone(),
+		};
+		let key = Self::pack(subspace, &crate::lmdb::Key::Update(key));
+		let previous = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to get the storage update put version"))?
+			.map(|bytes| bytes.try_into().map(u64::from_be_bytes))
+			.transpose()
+			.map_err(|error| {
+				tg::error!(
+					!error,
+					"failed to deserialize the storage update put version"
+				)
+			})?;
+		if previous.is_some_and(|previous| version >= previous) {
+			return Ok(false);
+		}
+		db.put(transaction, &key, &version.to_be_bytes())
+			.map_err(|error| tg::error!(!error, "failed to put the storage update put version"))?;
+		Ok(true)
+	}
+
+	pub(super) fn clear_storage_update_versions(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		account: &crate::usage::Account,
+	) -> tg::Result<()> {
+		let key = Key::StorageUpdatePutVersion {
+			account: account.clone(),
+			id: id.clone(),
+		};
+		db.delete(
+			transaction,
+			&Self::pack(subspace, &crate::lmdb::Key::Update(key)),
+		)
+		.map_err(|error| tg::error!(!error, "failed to delete the storage update put version"))?;
+		Ok(())
+	}
+
 	pub(super) fn clear_update_propagated_versions(
 		db: &Db,
 		subspace: &fdbt::Subspace,
@@ -1978,6 +2032,7 @@ impl Index {
 		for kind in [
 			KeyKind::GrantUpdatePropagatedVersion,
 			KeyKind::NodeUpdatePropagatedVersion,
+			KeyKind::StorageUpdatePutVersion,
 		] {
 			let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), id));
 			let (_, end) = fdbt::Subspace::from_bytes(prefix.clone()).range();
@@ -2021,7 +2076,7 @@ fn serialize_update(kind: &Kind, source: Source, version: u64) -> tg::Result<Vec
 	let value = match kind {
 		Kind::Grant(_) => GrantUpdate::new(source, version).serialize()?,
 		Kind::Node => NodeUpdate::new(source, version).serialize()?,
-		Kind::Storage(_) => StorageUpdate::new().serialize()?,
+		Kind::Storage(_) => StorageUpdate::new(version).serialize()?,
 	};
 
 	Ok(value)

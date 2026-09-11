@@ -110,7 +110,7 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Left(object.clone()),
-				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Add {
+				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Put {
 					account,
 					touched_at,
 				}),
@@ -161,7 +161,7 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Right(process.clone()),
-				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Add {
+				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Put {
 					account,
 					touched_at,
 				}),
@@ -314,6 +314,20 @@ impl Index {
 				txn.set(&entry_key, &value);
 				Self::put_account_object_clean_key(txn, subspace, arg, partition_total);
 			}
+			if let Some(version) = version {
+				crate::fdb::propagate!(
+					Self::propagate_account_storage(
+						txn,
+						subspace,
+						&tg::Either::Left(arg.object.clone()),
+						&arg.account,
+						arg.touched_at,
+						partition_total,
+						Some(version)
+					)
+					.await
+				);
+			}
 			return Ok(ControlFlow::Break(false));
 		}
 
@@ -360,17 +374,17 @@ impl Index {
 			usage_partition,
 		);
 
-		Self::enqueue_update_with_kind_at_version(
-			txn,
-			subspace,
-			&tg::Either::Left(arg.object.clone()),
-			&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Propagate {
-				account: arg.account.clone(),
-				touched_at: arg.touched_at,
-			}),
-			crate::fdb::update::Source::Put,
-			partition_total,
-			version,
+		crate::fdb::propagate!(
+			Self::propagate_account_storage(
+				txn,
+				subspace,
+				&tg::Either::Left(arg.object.clone()),
+				&arg.account,
+				arg.touched_at,
+				partition_total,
+				version
+			)
+			.await
 		);
 
 		Ok(ControlFlow::Break(true))
@@ -398,6 +412,20 @@ impl Index {
 				let value = entry.serialize()?;
 				txn.set(&entry_key, &value);
 				Self::put_account_process_clean_key(txn, subspace, arg, partition_total);
+			}
+			if let Some(version) = version {
+				crate::fdb::propagate!(
+					Self::propagate_account_storage(
+						txn,
+						subspace,
+						&tg::Either::Right(arg.process.clone()),
+						&arg.account,
+						arg.touched_at,
+						partition_total,
+						Some(version)
+					)
+					.await
+				);
 			}
 			return Ok(ControlFlow::Break(false));
 		}
@@ -434,20 +462,53 @@ impl Index {
 			usage_partition,
 		);
 
+		crate::fdb::propagate!(
+			Self::propagate_account_storage(
+				txn,
+				subspace,
+				&tg::Either::Right(arg.process.clone()),
+				&arg.account,
+				arg.touched_at,
+				partition_total,
+				version
+			)
+			.await
+		);
+
+		Ok(ControlFlow::Break(true))
+	}
+
+	async fn propagate_account_storage(
+		txn: &crate::fdb::Transaction,
+		subspace: &fdbt::Subspace,
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+		account: &crate::usage::Account,
+		touched_at: i64,
+		partition_total: u64,
+		version: Option<&fdbt::Versionstamp>,
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		if let Some(version) = version {
+			let lowered = crate::fdb::propagate!(
+				Self::lower_storage_update_put_version(txn, subspace, id, account, version).await
+			);
+			if !lowered {
+				return Ok(ControlFlow::Break(()));
+			}
+		}
+		let kind = crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Propagate {
+			account: account.clone(),
+			touched_at,
+		});
 		Self::enqueue_update_with_kind_at_version(
 			txn,
 			subspace,
-			&tg::Either::Right(arg.process.clone()),
-			&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Propagate {
-				account: arg.account.clone(),
-				touched_at: arg.touched_at,
-			}),
+			id,
+			&kind,
 			crate::fdb::update::Source::Put,
 			partition_total,
 			version,
 		);
-
-		Ok(ControlFlow::Break(true))
+		Ok(ControlFlow::Break(()))
 	}
 
 	fn put_account_object_clean_key(
