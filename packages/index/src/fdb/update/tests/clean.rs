@@ -7,6 +7,56 @@ use {
 
 #[tokio::test]
 #[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
+async fn cleaning_supports_different_partition_totals() {
+	let partition_totals = crate::fdb::PartitionTotals {
+		cleaning: 1,
+		grant_update: 3,
+		log_compaction: 2,
+		node_update: 4,
+		storage_update: 2,
+		usage: 1,
+	};
+	super::run_with_partition_totals(partition_totals, async |index| {
+		let missing = directory(&[]).id;
+		let mut object = (0..100)
+			.map(|i| directory(&[(&format!("child_{i}"), missing.clone())]))
+			.find(|object| {
+				[3, 4]
+					.into_iter()
+					.all(|total| Index::partition_for_id(object.id.to_bytes().as_ref(), total) != 0)
+			})
+			.unwrap();
+		object.touched_at = 100;
+		let id = tg::Either::Left(object.id.clone());
+		put(index, vec![object]).await;
+		drain(index).await;
+		index.clean(clean_arg(100, 0, 1)).await.unwrap();
+		let blocker = tg::Either::Right(tg::process::Id::new());
+		let subject = tg::authorization::Subject::User(tg::user::Id::new());
+		for (kind, queue) in [
+			(Kind::Grant(subject), crate::update::Kind::Grant),
+			(Kind::Node, crate::update::Kind::Node),
+		] {
+			enqueue(index, &blocker, &kind).await;
+			let last = partition_totals.update(queue) - 1;
+			assign(index, &blocker, &kind, queue, last).await;
+			enqueue(index, &id, &kind).await;
+			assign(index, &id, &kind, queue, 0).await;
+			index.update_batch(queue, 100, 0, 1).await.unwrap();
+			let expected = version(index, &id, &kind).await.unwrap();
+			index.clean(clean_arg(100, 0, 1)).await.unwrap();
+			assert_eq!(version(index, &id, &kind).await, Some(expected));
+			drain(index).await;
+			index.clean(clean_arg(100, 0, 1)).await.unwrap();
+			assert!(version(index, &id, &kind).await.is_none());
+		}
+		assert_eq!(count_clean_entries(index).await, 0);
+	})
+	.await;
+}
+
+#[tokio::test]
+#[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
 async fn cleans_versions_after_collecting_their_objects_and_processes() {
 	run(async |index| {
 		let object = directory(&[]);
@@ -245,10 +295,9 @@ async fn concurrent_propagation_conflicts_with_cleaning() {
 			now: 0,
 			partition_end: 2,
 			partition_start: 0,
-			partition_total: 2,
+			partition_totals: index.partition_totals,
 			subspace: &index.subspace,
 			txn: &transaction,
-			usage_partition_total: 1,
 		};
 		let ControlFlow::Break(output) = Index::clean_with_transaction(arg).await.unwrap() else {
 			panic!("the cleaning transaction failed");
@@ -299,10 +348,9 @@ async fn unrelated_queue_progress_does_not_conflict_with_cleaning() {
 				now: 0,
 				partition_end: 2,
 				partition_start: 0,
-				partition_total: 2,
+				partition_totals: index.partition_totals,
 				subspace: &index.subspace,
 				txn: &transaction,
-				usage_partition_total: 1,
 			};
 			let ControlFlow::Break(output) = Index::clean_with_transaction(arg).await.unwrap()
 			else {
@@ -442,7 +490,11 @@ async fn drain(index: &Index) {
 	for _ in 0..100 {
 		let mut count = 0;
 		for kind in [crate::update::Kind::Grant, crate::update::Kind::Node] {
-			count += index.update_batch(kind, 100, 0, 2).await.unwrap().count;
+			count += index
+				.update_batch(kind, 100, 0, index.partition_totals.update(kind))
+				.await
+				.unwrap()
+				.count;
 		}
 		if count == 0 {
 			return;

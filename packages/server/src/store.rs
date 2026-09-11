@@ -2,7 +2,7 @@
 use std::path::Path;
 use {tangram_client::prelude::*, tangram_store as store};
 
-pub use store::{log, object};
+pub use store::{archive, index, log, object};
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -134,6 +134,72 @@ impl Store {
 }
 
 impl store::Store for Store {
+	async fn delete_archive_queue_entry(&self, arg: archive::queue::delete::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.delete_archive_queue_entry(arg).await,
+			Self::Memory(store) => store::Store::delete_archive_queue_entry(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.delete_archive_queue_entry(arg).await,
+		}
+	}
+
+	async fn delete_index_queue_fragment(&self, arg: index::queue::delete::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.delete_index_queue_fragment(arg).await,
+			Self::Memory(store) => store::Store::delete_index_queue_fragment(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.delete_index_queue_fragment(arg).await,
+		}
+	}
+
+	async fn put_archive_queue_entry(&self, arg: archive::queue::put::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.put_archive_queue_entry(arg).await,
+			Self::Memory(store) => store::Store::put_archive_queue_entry(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.put_archive_queue_entry(arg).await,
+		}
+	}
+
+	async fn put_index_queue_fragment(&self, arg: index::queue::put::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.put_index_queue_fragment(arg).await,
+			Self::Memory(store) => store::Store::put_index_queue_fragment(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.put_index_queue_fragment(arg).await,
+		}
+	}
+
+	async fn try_get_archive_queue_entry(
+		&self,
+		arg: archive::queue::get::Arg,
+	) -> tg::Result<Option<archive::queue::Entry>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.try_get_archive_queue_entry(arg).await,
+			Self::Memory(store) => store::Store::try_get_archive_queue_entry(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.try_get_archive_queue_entry(arg).await,
+		}
+	}
+
+	async fn try_get_index_queue_fragment(
+		&self,
+		arg: index::queue::get::Arg,
+	) -> tg::Result<Option<index::queue::Fragment>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.try_get_index_queue_fragment(arg).await,
+			Self::Memory(store) => store::Store::try_get_index_queue_fragment(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.try_get_index_queue_fragment(arg).await,
+		}
+	}
+
 	async fn contains_object(&self, arg: object::contains::Arg) -> tg::Result<bool> {
 		match self {
 			#[cfg(feature = "lmdb")]
@@ -151,21 +217,6 @@ impl store::Store for Store {
 			Self::Memory(store) => store::Store::delete_object_cache_entry(store, arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(store) => store.delete_object_cache_entry(arg).await,
-		}
-	}
-
-	async fn delete_object_archive_outbox_entries(
-		&self,
-		arg: object::archive::outbox::delete::Arg,
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.delete_object_archive_outbox_entries(arg).await,
-			Self::Memory(store) => {
-				store::Store::delete_object_archive_outbox_entries(store, arg).await
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.delete_object_archive_outbox_entries(arg).await,
 		}
 	}
 
@@ -199,64 +250,6 @@ impl store::Store for Store {
 		}
 	}
 
-	async fn delete_object_index_outbox_batch(
-		&self,
-		arg: object::index::outbox::batch::delete::Arg,
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.delete_object_index_outbox_batch(arg).await,
-			Self::Memory(store) => store::Store::delete_object_index_outbox_batch(store, arg).await,
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.delete_object_index_outbox_batch(arg).await,
-		}
-	}
-
-	async fn delete_object_index_outbox_fragments(
-		&self,
-		arg: object::index::outbox::fragment::delete::Arg,
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.delete_object_index_outbox_fragments(arg).await,
-			Self::Memory(store) => {
-				store::Store::delete_object_index_outbox_fragments(store, arg).await
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.delete_object_index_outbox_fragments(arg).await,
-		}
-	}
-
-	async fn dequeue_object_index_outbox_fragments(
-		&self,
-		arg: object::index::outbox::fragment::dequeue::Arg,
-	) -> tg::Result<Vec<object::index::outbox::fragment::Fragment>> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.dequeue_object_index_outbox_fragments(arg).await,
-			Self::Memory(store) => {
-				store::Store::dequeue_object_index_outbox_fragments(store, arg).await
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.dequeue_object_index_outbox_fragments(arg).await,
-		}
-	}
-
-	async fn dequeue_object_archive_outbox_entries(
-		&self,
-		arg: object::archive::outbox::dequeue::Arg,
-	) -> tg::Result<Vec<object::archive::outbox::Entry>> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.dequeue_object_archive_outbox_entries(arg).await,
-			Self::Memory(store) => {
-				store::Store::dequeue_object_archive_outbox_entries(store, arg).await
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.dequeue_object_archive_outbox_entries(arg).await,
-		}
-	}
-
 	async fn get_object_cache_entries(
 		&self,
 		arg: object::cache::get::Arg,
@@ -267,6 +260,32 @@ impl store::Store for Store {
 			Self::Memory(store) => store::Store::get_object_cache_entries(store, arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(store) => store.get_object_cache_entries(arg).await,
+		}
+	}
+
+	async fn get_archive_queue_entries(
+		&self,
+		arg: archive::queue::get::batch::Arg,
+	) -> tg::Result<Vec<archive::queue::Entry>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.get_archive_queue_entries(arg).await,
+			Self::Memory(store) => store::Store::get_archive_queue_entries(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.get_archive_queue_entries(arg).await,
+		}
+	}
+
+	async fn get_index_queue_fragments(
+		&self,
+		arg: index::queue::get::batch::Arg,
+	) -> tg::Result<Vec<index::queue::Fragment>> {
+		match self {
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(store) => store.get_index_queue_fragments(arg).await,
+			Self::Memory(store) => store::Store::get_index_queue_fragments(store, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(store) => store.get_index_queue_fragments(arg).await,
 		}
 	}
 
@@ -292,36 +311,6 @@ impl store::Store for Store {
 			},
 			#[cfg(feature = "scylla")]
 			Self::Scylla(store) => store.put_object_cache_entry_with_object(arg).await,
-		}
-	}
-
-	async fn put_object_archive_outbox_entries(
-		&self,
-		arg: object::archive::outbox::put::Arg,
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.put_object_archive_outbox_entries(arg).await,
-			Self::Memory(store) => {
-				store::Store::put_object_archive_outbox_entries(store, arg).await
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.put_object_archive_outbox_entries(arg).await,
-		}
-	}
-
-	async fn enqueue_object_index_outbox_batch(
-		&self,
-		arg: object::index::outbox::batch::enqueue::Arg,
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => store.enqueue_object_index_outbox_batch(arg).await,
-			Self::Memory(store) => {
-				store::Store::enqueue_object_index_outbox_batch(store, arg).await
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => store.enqueue_object_index_outbox_batch(arg).await,
 		}
 	}
 
@@ -428,29 +417,6 @@ impl store::Store for Store {
 			Self::Memory(store) => store::Store::try_get_object_batch(store, arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(store) => store.try_get_object_batch(arg).await,
-		}
-	}
-
-	async fn try_get_object_index_outbox_batch_at_or_before(
-		&self,
-		arg: object::index::outbox::batch::get::Arg,
-	) -> tg::Result<Option<object::index::outbox::batch::Id>> {
-		match self {
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(store) => {
-				store
-					.try_get_object_index_outbox_batch_at_or_before(arg)
-					.await
-			},
-			Self::Memory(store) => {
-				store::Store::try_get_object_index_outbox_batch_at_or_before(store, arg).await
-			},
-			#[cfg(feature = "scylla")]
-			Self::Scylla(store) => {
-				store
-					.try_get_object_index_outbox_batch_at_or_before(arg)
-					.await
-			},
 		}
 	}
 

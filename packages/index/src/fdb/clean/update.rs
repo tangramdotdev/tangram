@@ -15,7 +15,7 @@ impl Index {
 		batch_size: usize,
 		partition_start: u64,
 		partition_end: u64,
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<usize, fdb::FdbError>> {
 		let mut candidates = Vec::new();
 		for (kind, key_kind) in [
@@ -31,7 +31,7 @@ impl Index {
 					txn,
 					subspace,
 					kind,
-					partition_total,
+					partition_totals.update(kind),
 				)
 				.await
 			);

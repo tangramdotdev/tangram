@@ -14,7 +14,7 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::process::object::grant::Arg,
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		arg.validate()?;
 		let node = tg::authorization::Permission::Object(
@@ -146,7 +146,7 @@ impl Index {
 			})
 			.collect::<Vec<_>>();
 		crate::fdb::propagate!(
-			Self::put_grants_with_transaction(txn, subspace, &grant_args, partition_total,).await
+			Self::put_grants_with_transaction(txn, subspace, &grant_args, partition_totals).await
 		);
 
 		Ok(ControlFlow::Break(()))

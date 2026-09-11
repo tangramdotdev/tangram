@@ -471,15 +471,23 @@ pub struct FdbIndexAuthorize {
 pub struct FdbIndex {
 	pub authorize: FdbIndexAuthorize,
 
+	pub cleaning_partition_total: u64,
+
 	pub cluster: PathBuf,
+
+	pub grant_update_partition_total: u64,
 
 	pub instance: Option<String>,
 
-	pub partition_total: u64,
+	pub log_compaction_partition_total: u64,
+
+	pub node_update_partition_total: u64,
 
 	pub read_request_batch_size: usize,
 
 	pub read_transaction_concurrency: usize,
+
+	pub storage_update_partition_total: u64,
 
 	pub usage_partition_total: u64,
 
@@ -505,17 +513,37 @@ pub struct LmdbIndex {
 
 #[derive(Clone, Debug, Default)]
 pub struct Indexer {
+	pub batch: IndexerBatch,
+
+	pub cache: IndexerCache,
+
 	pub cleaning: IndexerCleaning,
+
+	pub id: Option<tg::indexer::Id>,
 
 	pub log_compaction: IndexerLogCompaction,
 
-	pub partitions: IndexerPartitions,
+	pub object_cache_partitions: IndexerPartitions,
 
 	pub request: IndexerRequest,
 
 	pub updates: IndexerUpdates,
 
 	pub usage: IndexerUsage,
+
+	pub usage_partitions: IndexerPartitions,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerBatch {
+	pub retry: Retry,
+
+	pub timeout: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerCache {
+	pub poll_interval: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -527,6 +555,8 @@ pub struct IndexerCleaning {
 	pub concurrency: usize,
 
 	pub enabled: bool,
+
+	pub partitions: IndexerPartitions,
 
 	pub poll_interval: Duration,
 }
@@ -540,11 +570,23 @@ pub struct IndexerPartitions {
 
 #[derive(Clone, Debug)]
 pub struct IndexerRequest {
+	pub archive_concurrency: usize,
+
+	/// The maximum number of concurrent message publications.
+	pub concurrency: usize,
+
+	/// The maximum number of pending fragments, reserved for whole batches.
+	pub index_concurrency: usize,
+
 	pub poll_interval: Duration,
+
+	pub response_ttl: Duration,
 
 	pub retry: Retry,
 
 	pub timeout: Duration,
+
+	pub wait_concurrency: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -554,6 +596,8 @@ pub struct IndexerLogCompaction {
 	pub concurrency: usize,
 
 	pub enabled: bool,
+
+	pub partitions: IndexerPartitions,
 
 	pub wakeup_interval: Duration,
 }
@@ -601,6 +645,8 @@ pub struct IndexerUpdate {
 	pub batch_size: usize,
 
 	pub concurrency: usize,
+
+	pub partitions: IndexerPartitions,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -622,7 +668,7 @@ pub struct NatsMessenger {
 
 #[derive(Clone, Debug)]
 pub struct Object {
-	pub archive_outbox: ObjectArchiveOutbox,
+	pub archive_queue: ArchiveQueue,
 
 	pub cache: Option<ObjectCache>,
 
@@ -630,9 +676,11 @@ pub struct Object {
 
 	pub grant_time_to_touch: Duration,
 
-	pub index_outbox: ObjectIndexOutbox,
+	pub index_queue: IndexQueue,
 
 	pub put_timeout: Duration,
+
+	pub queue_checkpoint_interval: Duration,
 
 	pub time_to_index: Duration,
 
@@ -653,27 +701,26 @@ pub struct ObjectCache {
 }
 
 #[derive(Clone, Debug)]
-pub struct ObjectArchiveOutbox {
-	pub batch_size: usize,
-
-	pub partition_total: u64,
+pub struct ArchiveQueue {
+	pub concurrency: usize,
 
 	pub retry: Retry,
 
-	pub wakeup_interval: Duration,
+	pub sequence_reservation_size: u64,
 }
 
 #[derive(Clone, Debug)]
-pub struct ObjectIndexOutbox {
-	pub batch_size: usize,
+pub struct IndexQueue {
+	pub batch_timeout: Duration,
 
+	pub concurrency: usize,
+
+	/// The maximum number of encoded bytes in each index queue fragment.
 	pub fragment_size: usize,
-
-	pub partition_total: u64,
 
 	pub retry: Retry,
 
-	pub wakeup_interval: Duration,
+	pub sequence_reservation_size: u64,
 }
 
 #[derive(Clone, Debug)]
@@ -905,6 +952,9 @@ pub struct Scheduler {
 	pub max_create_sandbox_requests: usize,
 
 	pub max_create_sandbox_requests_per_runner: usize,
+
+	/// The maximum number of unfinished requests of each kind.
+	pub request_concurrency: usize,
 
 	pub runner_ttl: Duration,
 }
@@ -1521,11 +1571,15 @@ impl Default for FdbIndex {
 	fn default() -> Self {
 		Self {
 			authorize: FdbIndexAuthorize::default(),
+			cleaning_partition_total: 1,
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
+			grant_update_partition_total: 1,
 			instance: None,
-			partition_total: 1,
+			log_compaction_partition_total: 1,
+			node_update_partition_total: 1,
 			read_request_batch_size: 64,
 			read_transaction_concurrency: 64,
+			storage_update_partition_total: 1,
 			usage_partition_total: 1,
 			write_operation_batch_size: 8_000,
 			write_transaction_concurrency: 256,
@@ -1546,6 +1600,23 @@ impl Default for LmdbIndex {
 	}
 }
 
+impl Default for IndexerBatch {
+	fn default() -> Self {
+		Self {
+			retry: message_retry_default(),
+			timeout: Duration::from_secs(10),
+		}
+	}
+}
+
+impl Default for IndexerCache {
+	fn default() -> Self {
+		Self {
+			poll_interval: Duration::from_secs(1),
+		}
+	}
+}
+
 impl Default for IndexerCleaning {
 	fn default() -> Self {
 		Self {
@@ -1553,6 +1624,7 @@ impl Default for IndexerCleaning {
 			capacity: None,
 			concurrency: 1,
 			enabled: true,
+			partitions: IndexerPartitions::default(),
 			poll_interval: Duration::from_secs(1),
 		}
 	}
@@ -1567,9 +1639,14 @@ impl Default for IndexerPartitions {
 impl Default for IndexerRequest {
 	fn default() -> Self {
 		Self {
+			archive_concurrency: 64,
+			concurrency: 64,
+			index_concurrency: 4096,
 			poll_interval: Duration::from_millis(10),
+			response_ttl: Duration::from_mins(1),
 			retry: message_retry_default(),
-			timeout: Duration::from_secs(10),
+			timeout: Duration::from_secs(1),
+			wait_concurrency: 1024,
 		}
 	}
 }
@@ -1580,6 +1657,7 @@ impl Default for IndexerLogCompaction {
 			batch_size: 1024,
 			concurrency: 1,
 			enabled: true,
+			partitions: IndexerPartitions::default(),
 			wakeup_interval: Duration::from_mins(1),
 		}
 	}
@@ -1622,6 +1700,7 @@ impl Default for IndexerUpdate {
 		Self {
 			batch_size: 1024,
 			concurrency: 1,
+			partitions: IndexerPartitions::default(),
 		}
 	}
 }
@@ -1641,12 +1720,13 @@ impl Default for NatsMessenger {
 impl Default for Object {
 	fn default() -> Self {
 		Self {
-			archive_outbox: ObjectArchiveOutbox::default(),
+			archive_queue: ArchiveQueue::default(),
 			cache: None,
 			grant_time_to_live: default_object_grant_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
-			index_outbox: ObjectIndexOutbox::default(),
+			index_queue: IndexQueue::default(),
 			put_timeout: default_object_put_timeout(),
+			queue_checkpoint_interval: Duration::from_secs(1),
 			time_to_index: default_time_to_index(),
 			time_to_live: default_time_to_live(),
 			time_to_touch: default_time_to_touch(),
@@ -1670,25 +1750,24 @@ impl Default for ObjectCache {
 	}
 }
 
-impl Default for ObjectArchiveOutbox {
+impl Default for ArchiveQueue {
 	fn default() -> Self {
 		Self {
-			batch_size: 1024,
-			partition_total: 1,
-			retry: object_outbox_retry_default(),
-			wakeup_interval: Duration::from_mins(1),
+			concurrency: 64,
+			retry: queue_retry_default(),
+			sequence_reservation_size: 1024,
 		}
 	}
 }
 
-impl Default for ObjectIndexOutbox {
+impl Default for IndexQueue {
 	fn default() -> Self {
 		Self {
-			batch_size: 1024,
-			fragment_size: 1024,
-			partition_total: 1,
-			retry: object_outbox_retry_default(),
-			wakeup_interval: Duration::from_mins(1),
+			batch_timeout: Duration::from_mins(1),
+			concurrency: 64,
+			fragment_size: 256 * 1024,
+			retry: queue_retry_default(),
+			sequence_reservation_size: 1024,
 		}
 	}
 }
@@ -1797,6 +1876,7 @@ impl Default for Scheduler {
 			max_create_sandbox_requests: default_scheduler_max_create_sandbox_requests(),
 			max_create_sandbox_requests_per_runner:
 				default_scheduler_max_create_sandbox_requests_per_runner(),
+			request_concurrency: 1024,
 			runner_ttl: Duration::from_secs(10),
 		}
 	}
@@ -2195,7 +2275,7 @@ fn message_retry_default() -> Retry {
 	}
 }
 
-fn object_outbox_retry_default() -> Retry {
+fn queue_retry_default() -> Retry {
 	// Keep the default retry duration longer than the default object put timeout.
 	Retry {
 		backoff: Duration::from_millis(25),

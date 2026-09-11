@@ -11,12 +11,13 @@ vfs assert_mounted $server_path
 
 let module = artifact {
 	tangram.ts: '
-		export default () => {
-			const dependency = tg.file("dependency");
-			const file = tg.file({
+		export default async () => {
+			const dependency = await tg.file("dependency");
+			const file = await tg.file({
 				contents: "input",
 				dependencies: { dependency },
 			});
+			await file.store();
 			return { dependency: dependency.id, file: file.id };
 		}
 	'

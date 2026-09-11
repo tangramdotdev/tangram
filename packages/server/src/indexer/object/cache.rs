@@ -1,5 +1,6 @@
 use {
-	super::super::Indexer, futures::future, tangram_client::prelude::*, tangram_store::Store as _,
+	super::super::Indexer, futures::future, tangram_client::prelude::*,
+	tangram_futures::task::Stopper, tangram_store::Store as _,
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -13,14 +14,23 @@ impl Indexer {
 		&self,
 		partitions: &crate::config::IndexerPartitions,
 		cache: Option<&crate::config::ObjectCache>,
+		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let Some(cache) = cache else {
-			return future::pending().await;
+			stopper.wait().await;
+			return Ok(());
 		};
+		if partitions.start == partitions.end {
+			stopper.wait().await;
+			return Ok(());
+		}
 		let mut mode = Mode::Idle;
 		let mut empty_partition_count = 0;
 		let mut partition = partitions.start;
 		loop {
+			if stopper.stopped() {
+				return Ok(());
+			}
 			let should_sleep = match self.server.store.try_get_capacity().await {
 				Ok(Some(capacity)) => {
 					mode = mode.next(&cache.capacity, capacity);
@@ -77,7 +87,10 @@ impl Indexer {
 				},
 			};
 			if should_sleep {
-				tokio::time::sleep(cache.poll_interval).await;
+				tokio::select! {
+					() = stopper.wait() => return Ok(()),
+					() = tokio::time::sleep(cache.poll_interval) => {},
+				}
 			}
 		}
 	}

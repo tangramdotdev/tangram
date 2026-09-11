@@ -111,6 +111,7 @@ pub enum Shutdown {
 
 pub struct State {
 	archive: Option<Archive>,
+	archive_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	authentication_tokens: Tokens,
 	authorization_tokens: Tokens,
 	billing: Option<self::billing::Stripe>,
@@ -127,6 +128,8 @@ pub struct State {
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	index: Index,
 	index_tasks: tangram_futures::task::Set<tg::Result<()>>,
+	index_wait_sender: self::index::WaitSender,
+	indexers: self::indexer::Cache,
 	#[cfg(target_os = "linux")]
 	ip_pool: tangram_sandbox::network::ip::Pool,
 	library: Mutex<Option<Arc<Temp>>>,
@@ -306,9 +309,17 @@ impl Server {
 			})
 			.transpose()?;
 
+		// Create the archive tasks.
+		let archive_tasks = tangram_futures::task::Set::default();
+
 		// Validate the indexer configuration.
 		if config.roles.contains(&self::config::Role::Indexer) {
 			let indexer = &config.indexer;
+			if !config.advanced.single_process && indexer.id.is_none() {
+				return Err(tg::error!(
+					"the indexer ID is required in multi-process mode"
+				));
+			}
 			if indexer.cleaning.enabled {
 				if indexer.cleaning.batch_size == 0 {
 					return Err(tg::error!(
@@ -391,42 +402,92 @@ impl Server {
 					));
 				}
 			}
-			if indexer.request.timeout.is_zero() {
-				return Err(tg::error!(
-					"the indexer request timeout must be greater than zero"
-				));
+			let partitions = match &config.index {
+				self::config::Index::Fdb(index) => [
+					(
+						"cleaning",
+						&indexer.cleaning.partitions,
+						index.cleaning_partition_total,
+					),
+					(
+						"log compaction",
+						&indexer.log_compaction.partitions,
+						index.log_compaction_partition_total,
+					),
+					(
+						"grant update",
+						&indexer.updates.grants.partitions,
+						index.grant_update_partition_total,
+					),
+					(
+						"node update",
+						&indexer.updates.nodes.partitions,
+						index.node_update_partition_total,
+					),
+					(
+						"storage update",
+						&indexer.updates.storage.partitions,
+						index.storage_update_partition_total,
+					),
+					(
+						"usage",
+						&indexer.usage_partitions,
+						index.usage_partition_total,
+					),
+				],
+				self::config::Index::Lmdb(index) => [
+					("cleaning", &indexer.cleaning.partitions, 1),
+					("log compaction", &indexer.log_compaction.partitions, 1),
+					("grant update", &indexer.updates.grants.partitions, 1),
+					("node update", &indexer.updates.nodes.partitions, 1),
+					("storage update", &indexer.updates.storage.partitions, 1),
+					(
+						"usage",
+						&indexer.usage_partitions,
+						index.usage_partition_total,
+					),
+				],
+			};
+			for (name, partitions, total) in partitions {
+				if partitions.end < partitions.start {
+					return Err(tg::error!(
+						"the indexer {name} partition end must not be less than the partition start"
+					));
+				}
+				if partitions.end > total {
+					return Err(tg::error!(
+						"the indexer {name} partition range exceeds the partition total"
+					));
+				}
 			}
-			if indexer.partitions.end <= indexer.partitions.start {
+			let partitions = &indexer.object_cache_partitions;
+			if partitions.end < partitions.start {
 				return Err(tg::error!(
-					"the indexer partition end must be greater than the partition start"
-				));
-			}
-			if !config.advanced.single_process
-				&& indexer.partitions.end > config.object.index_outbox.partition_total
-			{
-				return Err(tg::error!(
-					"the indexer partition range exceeds the object index outbox partition total"
-				));
-			}
-			if config.archive.is_some()
-				&& indexer.partitions.end > config.object.archive_outbox.partition_total
-			{
-				return Err(tg::error!(
-					"the indexer partition range exceeds the object archive outbox partition total"
+					"the indexer object cache partition end must not be less than the partition start"
 				));
 			}
 			if let Some(cache) = &config.object.cache
-				&& indexer.partitions.end > cache.partition_total
+				&& partitions.end > cache.partition_total
 			{
 				return Err(tg::error!(
-					"the indexer partition range exceeds the object cache partition total"
+					"the indexer object cache partition range exceeds the partition total"
 				));
 			}
-			if indexer.request.poll_interval.is_zero() {
+			if indexer.request.archive_concurrency == 0
+				|| indexer.request.concurrency == 0
+				|| indexer.request.index_concurrency == 0
+				|| indexer.request.wait_concurrency == 0
+			{
 				return Err(tg::error!(
-					"the indexer request poll interval must be greater than zero"
+					"the indexer request concurrency must be greater than zero"
 				));
 			}
+		}
+
+		if config.scheduler.request_concurrency == 0 {
+			return Err(tg::error!(
+				"the scheduler request concurrency must be greater than zero"
+			));
 		}
 
 		// Validate the database index outbox configuration.
@@ -442,21 +503,23 @@ impl Server {
 			));
 		}
 
-		// Validate the object archive outbox configuration.
-		let outbox = &config.object.archive_outbox;
-		if outbox.batch_size == 0 {
+		// Validate the queue configuration.
+		if config.object.queue_checkpoint_interval.is_zero() {
 			return Err(tg::error!(
-				"the object archive outbox batch size must be greater than zero"
+				"the queue checkpoint interval must be greater than zero"
 			));
 		}
-		if outbox.partition_total == 0 {
+
+		// Validate the archive queue configuration.
+		let queue = &config.object.archive_queue;
+		if queue.concurrency == 0 {
 			return Err(tg::error!(
-				"the object archive outbox partition total must be greater than zero"
+				"the archive queue concurrency must be greater than zero"
 			));
 		}
-		if outbox.wakeup_interval.is_zero() {
+		if queue.sequence_reservation_size == 0 {
 			return Err(tg::error!(
-				"the object archive outbox wakeup interval must be greater than zero"
+				"the archive queue sequence reservation size must be greater than zero"
 			));
 		}
 
@@ -512,26 +575,58 @@ impl Server {
 			}
 		}
 
-		// Validate the object index outbox configuration.
-		let outbox = &config.object.index_outbox;
-		if outbox.batch_size == 0 {
+		// Validate the index queue configuration.
+		let queue = &config.object.index_queue;
+		if queue.concurrency == 0 {
 			return Err(tg::error!(
-				"the object index outbox batch size must be greater than zero"
+				"the index queue concurrency must be greater than zero"
 			));
 		}
-		if outbox.fragment_size == 0 {
+		if queue.batch_timeout.is_zero() {
 			return Err(tg::error!(
-				"the object index outbox fragment size must be greater than zero"
+				"the index queue batch timeout must be greater than zero"
 			));
 		}
-		if outbox.partition_total == 0 {
+		if queue.fragment_size == 0 {
 			return Err(tg::error!(
-				"the object index outbox partition total must be greater than zero"
+				"the index queue fragment size must be greater than zero"
 			));
 		}
-		if outbox.wakeup_interval.is_zero() {
+		if queue.sequence_reservation_size == 0 {
 			return Err(tg::error!(
-				"the object index outbox wakeup interval must be greater than zero"
+				"the index queue sequence reservation size must be greater than zero"
+			));
+		}
+
+		// Validate the indexer configuration.
+		if config.indexer.request.wait_concurrency == 0 {
+			return Err(tg::error!(
+				"the index wait concurrency must be greater than zero"
+			));
+		}
+		if config.indexer.request.poll_interval.is_zero() {
+			return Err(tg::error!(
+				"the indexer request poll interval must be greater than zero"
+			));
+		}
+		if config.indexer.batch.timeout.is_zero() {
+			return Err(tg::error!(
+				"the indexer batch timeout must be greater than zero"
+			));
+		}
+		if config.indexer.cache.poll_interval.is_zero() {
+			return Err(tg::error!(
+				"the indexer cache poll interval must be greater than zero"
+			));
+		}
+		if config.indexer.request.response_ttl.is_zero() {
+			return Err(tg::error!(
+				"the indexer response TTL must be greater than zero"
+			));
+		}
+		if config.indexer.request.timeout.is_zero() {
+			return Err(tg::error!(
+				"the indexer request timeout must be greater than zero"
 			));
 		}
 
@@ -798,17 +893,21 @@ impl Server {
 					};
 					let options = tangram_index::fdb::Options {
 						authorize,
+						cleaning_partition_total: options.cleaning_partition_total,
 						cluster: options.cluster.clone(),
+						grant_update_partition_total: options.grant_update_partition_total,
 						instance: options.instance.clone(),
+						log_compaction_partition_total: options.log_compaction_partition_total,
 						max_process_depth: config
 							.roles
 							.contains(&self::config::Role::Indexer)
 							.then(|| {
 								u64::try_from(config.indexer.updates.max_process_depth).unwrap()
 							}),
-						partition_total: options.partition_total,
+						node_update_partition_total: options.node_update_partition_total,
 						read_request_batch_size: options.read_request_batch_size,
 						read_transaction_concurrency: options.read_transaction_concurrency,
+						storage_update_partition_total: options.storage_update_partition_total,
 						usage_partition_total: options.usage_partition_total,
 						write_operation_batch_size: options.write_operation_batch_size,
 						write_transaction_concurrency: options.write_transaction_concurrency,
@@ -850,6 +949,10 @@ impl Server {
 
 		// Create the index tasks.
 		let index_tasks = tangram_futures::task::Set::default();
+
+		// Create the index wait channel.
+		let (index_wait_sender, index_wait_receiver) =
+			tokio::sync::mpsc::channel(config.indexer.request.wait_concurrency);
 
 		// Create the library.
 		let library = Mutex::new(None);
@@ -982,6 +1085,9 @@ impl Server {
 		// Create the temp paths.
 		let temps = DashSet::default();
 
+		// Create the indexer cache.
+		let indexers = self::indexer::Cache::default();
+
 		// Create the shutdown channel.
 		let (shutdown, _) = tokio::sync::watch::channel(None);
 
@@ -1028,6 +1134,7 @@ impl Server {
 		// Create the server.
 		let server = Self(Arc::new(State {
 			archive,
+			archive_tasks,
 			authentication_tokens,
 			authorization_tokens,
 			billing,
@@ -1044,6 +1151,8 @@ impl Server {
 			diagnostics,
 			index,
 			index_tasks,
+			index_wait_sender,
+			indexers,
 			#[cfg(target_os = "linux")]
 			ip_pool,
 			library,
@@ -1208,6 +1317,23 @@ impl Server {
 			drop(checkout_guard);
 		}
 
+		// Spawn the shared index wait task.
+		let index_wait_task = Task::spawn({
+			let server = server.clone();
+			move |stopper| async move {
+				server.index_wait_task(index_wait_receiver, stopper).await;
+			}
+		});
+
+		// Spawn the indexer cache task.
+		let indexer_cache_task = Task::spawn({
+			let poll_interval = server.config.indexer.cache.poll_interval;
+			let server = server.clone();
+			move |stopper| async move {
+				server.indexer_cache_task(poll_interval, stopper).await;
+			}
+		});
+
 		// Spawn the indexer task.
 		let indexer_task = server
 			.config
@@ -1217,10 +1343,11 @@ impl Server {
 				let config = server.config.indexer.clone();
 				Task::spawn({
 					let server = server.clone();
-					|_| async move {
-						let result = server.indexer_task(&config).await;
+					|stopper| async move {
+						let result = server.indexer_task(&config, stopper).await;
 						if let Err(error) = result {
-							tracing::error!(error = %error.trace());
+							tracing::error!(error = %error.trace(), "the indexer failed; exiting for crash recovery");
+							std::process::exit(1);
 						}
 					}
 				})
@@ -1375,7 +1502,7 @@ impl Server {
 			async move {
 				tracing::trace!("started");
 
-				// Stop the HTTP and runner tasks.
+				// Stop the HTTP and runner tasks while the indexer continues accepting their writes.
 				if let Some(task) = &http_task {
 					task.stop();
 				}
@@ -1504,13 +1631,24 @@ impl Server {
 				}
 				tracing::trace!("remote list tasks");
 
-				// Abort the index tasks.
-				server.index_tasks.abort_all();
+				// Finish the archive tasks after their producers have stopped.
+				server.archive_tasks.wait().await;
+
+				// Finish the index tasks after their producers have stopped.
 				server.index_tasks.wait().await;
 
-				// Abort the indexer task.
+				// Stop the index wait task after its callers have stopped.
+				index_wait_task.stop();
+				let result = index_wait_task.wait().await;
+				if let Err(error) = result
+					&& !error.is_cancelled()
+				{
+					tracing::error!(?error, "the index wait task panicked");
+				}
+
+				// Stop the indexer task.
 				if let Some(task) = indexer_task {
-					task.abort();
+					task.stop();
 					let result = task.wait().await;
 					if let Err(error) = result
 						&& !error.is_cancelled()
@@ -1518,6 +1656,15 @@ impl Server {
 						tracing::error!(?error, "the index task panicked");
 					}
 					tracing::trace!("indexer task");
+				}
+
+				// Stop the indexer cache task.
+				indexer_cache_task.stop();
+				let result = indexer_cache_task.wait().await;
+				if let Err(error) = result
+					&& !error.is_cancelled()
+				{
+					tracing::error!(?error, "the indexer cache task panicked");
 				}
 
 				// Abort the scheduler task.
@@ -1754,6 +1901,7 @@ impl Deref for Server {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
+		self.archive_tasks.abort_all();
 		self.checkout_graph_tasks.abort_all();
 		self.checkout_tasks.abort_all();
 		self.library.lock().unwrap().take();

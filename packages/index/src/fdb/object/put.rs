@@ -10,8 +10,9 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::object::put::Arg,
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let partition_total = partition_totals.cleaning;
 		let id = &arg.id;
 		if arg.checkout.is_some() {
 			return Err(tg::error!(
@@ -127,14 +128,14 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Left(id.clone()),
-				partition_total,
+				partition_totals.node_update,
 			);
 			crate::fdb::propagate!(
 				Self::enqueue_account_object_from_parents(
 					txn,
 					subspace,
 					id,
-					partition_total,
+					partition_totals.storage_update,
 					touched_at,
 				)
 				.await
@@ -148,10 +149,10 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::object::put::Arg],
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for object in args {
-			crate::fdb::propagate!(Self::put_object(txn, subspace, object, partition_total).await);
+			crate::fdb::propagate!(Self::put_object(txn, subspace, object, partition_totals).await);
 		}
 		Ok(ControlFlow::Break(()))
 	}

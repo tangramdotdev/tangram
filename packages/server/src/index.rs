@@ -1,14 +1,16 @@
 use {
 	crate::{Server, Session},
-	futures::{FutureExt as _, Stream, StreamExt as _},
-	std::{panic::AssertUnwindSafe, time::Duration},
+	futures::{FutureExt as _, Stream, StreamExt as _, future},
+	std::{ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, time::Duration},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::{self as index, Index as _},
-	tangram_messenger::Messenger as _,
-	tangram_store::Store as _,
 };
+
+mod wait;
+
+pub(crate) use self::wait::Sender as WaitSender;
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref)]
@@ -33,6 +35,54 @@ impl Index {
 }
 
 impl index::Index for Index {
+	async fn delete_indexer(&self, arg: index::indexer::delete::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.delete_indexer(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.delete_indexer(arg).await,
+		}
+	}
+
+	async fn get_indexers(&self) -> tg::Result<Vec<index::indexer::Indexer>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.get_indexers().await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.get_indexers().await,
+		}
+	}
+
+	async fn put_indexer(&self, arg: index::indexer::put::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.put_indexer(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.put_indexer(arg).await,
+		}
+	}
+
+	async fn try_get_indexer(
+		&self,
+		arg: index::indexer::get::Arg,
+	) -> tg::Result<Option<index::indexer::Indexer>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_indexer(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_indexer(arg).await,
+		}
+	}
+
+	async fn update_indexer(&self, arg: index::indexer::update::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.update_indexer(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.update_indexer(arg).await,
+		}
+	}
+
 	async fn authorize_batch(
 		&self,
 		args: &[index::authorize::Arg],
@@ -728,12 +778,48 @@ impl index::Index for Index {
 		}
 	}
 
-	fn partition_total(&self) -> u64 {
+	fn cleaning_partition_total(&self) -> u64 {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.partition_total(),
+			Self::Fdb(index) => index.cleaning_partition_total(),
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.partition_total(),
+			Self::Lmdb(index) => index.cleaning_partition_total(),
+		}
+	}
+
+	fn grant_update_partition_total(&self) -> u64 {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.grant_update_partition_total(),
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.grant_update_partition_total(),
+		}
+	}
+
+	fn log_compaction_partition_total(&self) -> u64 {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.log_compaction_partition_total(),
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.log_compaction_partition_total(),
+		}
+	}
+
+	fn node_update_partition_total(&self) -> u64 {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.node_update_partition_total(),
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.node_update_partition_total(),
+		}
+	}
+
+	fn storage_update_partition_total(&self) -> u64 {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.storage_update_partition_total(),
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.storage_update_partition_total(),
 		}
 	}
 
@@ -753,39 +839,15 @@ impl Server {
 			return Ok(());
 		}
 		if !self.config.advanced.single_process {
-			let config = &self.config.object.index_outbox;
-			let fragments = arg
-				.items
+			let config = &self.config.object.index_queue;
+			let bytes: bytes::Bytes = arg.serialize()?.into();
+			let fragments = bytes
 				.chunks(config.fragment_size)
-				.map(|items| {
-					let arg = index::batch::Arg {
-						items: items.to_vec(),
-					};
-					arg.serialize().map(Into::into)
-				})
-				.collect::<tg::Result<Vec<_>>>()?;
-			let batch_id = crate::store::object::index::outbox::batch::Id::new(
-				uuid::Uuid::now_v7().into_bytes(),
-			);
-			let partition = rand::random_range(0..config.partition_total);
-			let arg = crate::store::object::index::outbox::batch::enqueue::Arg {
-				fragments,
-				id: batch_id,
-				partition,
-			};
-			self.store
-				.enqueue_object_index_outbox_batch(arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to enqueue the index batch"))?;
-			let subject = crate::indexer::object_index_outbox_subject(partition);
-			tokio::spawn({
-				let server = self.clone();
-				async move {
-					if let Err(error) = server.messenger.publish(subject, ()).await {
-						tracing::error!(%error, %partition, "failed to publish an object index outbox notification");
-					}
-				}
-			});
+				.map(|fragment| bytes.slice_ref(fragment))
+				.collect();
+			let batch =
+				crate::store::index::queue::batch::Id::new(uuid::Uuid::now_v7().into_bytes());
+			self.enqueue_index_batch(batch, fragments).await?;
 
 			return Ok(());
 		}
@@ -841,6 +903,82 @@ impl Server {
 
 		Ok(())
 	}
+
+	async fn enqueue_index_batch(
+		&self,
+		batch: crate::store::index::queue::batch::Id,
+		fragments: Vec<bytes::Bytes>,
+	) -> tg::Result<()> {
+		let fragment_count = u64::try_from(fragments.len())
+			.map_err(|_| tg::error!("the index batch has too many fragments"))?;
+		let fragments: Arc<[bytes::Bytes]> = fragments.into();
+		let start = rand::random::<u64>();
+		let mut attempt = 0u64;
+		let retry = tangram_futures::retry::Options::from(self.config.indexer.batch.retry.clone());
+		tangram_futures::retry(&retry, || {
+			let fragments = fragments.clone();
+			let index = start.wrapping_add(attempt);
+			let refresh = attempt > 0;
+			attempt = attempt.wrapping_add(1);
+			async move {
+				let indexer = match self.select_indexer(index, refresh).await {
+					Ok(indexer) => indexer,
+					Err(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				let result = self
+					.enqueue_index_batch_with_indexer(&indexer, batch, fragment_count, &fragments)
+					.await;
+				match result {
+					Ok(()) => Ok(ControlFlow::Break(())),
+					Err(error) => Ok(ControlFlow::Continue(error)),
+				}
+			}
+		})
+		.await?;
+
+		Ok(())
+	}
+
+	async fn enqueue_index_batch_with_indexer(
+		&self,
+		indexer: &tg::indexer::Id,
+		batch: crate::store::index::queue::batch::Id,
+		fragment_count: u64,
+		fragments: &[bytes::Bytes],
+	) -> tg::Result<()> {
+		let requests = fragments
+			.iter()
+			.cloned()
+			.enumerate()
+			.map(|(fragment, payload)| {
+				let arg = crate::indexer::RequestArg::Index(crate::indexer::IndexRequestArg {
+					batch,
+					fragment: u64::try_from(fragment).unwrap(),
+					fragments: fragment_count,
+					payload,
+				});
+				async {
+					let output = self
+						.send_indexer_request(Some(indexer), arg)
+						.await
+						.map_err(|source| tg::error!(!source, "failed to send an index request"))?
+						.map_err(|source| {
+							tg::error!(!source, "the indexer failed to enqueue an index fragment")
+						})?;
+					output
+						.try_unwrap_index()
+						.map_err(|_| tg::error!("expected an index response"))?;
+
+					Ok::<_, tg::Error>(())
+				}
+			});
+		let request = future::try_join_all(requests);
+		tokio::time::timeout(self.config.indexer.batch.timeout, request)
+			.await
+			.map_err(|source| tg::error!(!source, "timed out enqueueing an index batch"))??;
+
+		Ok(())
+	}
 }
 
 impl Session {
@@ -890,13 +1028,7 @@ impl Session {
 
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
 		progress.spinner("index", "waiting for indexing");
-		let output = self
-			.send_indexer_request(crate::indexer::RequestArg::Index)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the indexer request"))??;
-		output
-			.try_unwrap_index()
-			.map_err(|_| tg::error!("expected an index response"))?;
+		self.server.wait_for_indexing().await?;
 		progress.finish("index");
 		Ok(())
 	}

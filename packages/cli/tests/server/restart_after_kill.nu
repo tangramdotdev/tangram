@@ -38,3 +38,5 @@ print -e 'the server started again'
 let output = tg health | complete
 success $output "the server must be usable after being killed"
 print -e 'the server is healthy'
+let output = tg index | complete
+success $output "awaiting indexing must work after restarting without an indexer ID"

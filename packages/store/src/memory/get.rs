@@ -4,7 +4,7 @@ impl Store {
 	#[must_use]
 	pub fn try_get_object_sync(&self, arg: &object::get::Arg) -> object::get::Output {
 		let state = self.state();
-		let object = Self::try_get_object_inner(&state, &arg.id);
+		let object = Self::try_get_object_inner(&state, &arg.id, arg.bytes);
 		let object = object.filter(|object| arg.put.is_none_or(|put| object.put == put));
 		object::get::Output { object }
 	}
@@ -18,7 +18,7 @@ impl Store {
 		arg.ids
 			.iter()
 			.map(|id| object::get::Output {
-				object: Self::try_get_object_inner(&state, id),
+				object: Self::try_get_object_inner(&state, id, arg.bytes),
 			})
 			.collect()
 	}
@@ -43,7 +43,13 @@ impl Store {
 	fn try_get_object_inner(
 		state: &super::State,
 		id: &tg::object::Id,
+		bytes: bool,
 	) -> Option<object::Object<'static>> {
-		state.objects.get(id).map(|object| object.object.clone())
+		state.objects.get(id).map(|entry| object::Object {
+			bytes: bytes.then(|| entry.object.bytes.clone()).flatten(),
+			checkout_pointer: entry.object.checkout_pointer.clone(),
+			length: entry.object.length,
+			put: entry.object.put,
+		})
 	}
 }

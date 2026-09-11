@@ -137,7 +137,7 @@ impl Session {
 		);
 
 		// For manual cleaning, process all partitions.
-		let partition_total = self.server.index.partition_total();
+		let partition_total = self.server.index.cleaning_partition_total();
 		loop {
 			let inner_output = match self
 				.server

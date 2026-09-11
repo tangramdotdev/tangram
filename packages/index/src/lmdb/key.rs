@@ -10,6 +10,7 @@ pub enum Key {
 	Clean(crate::lmdb::clean::Key),
 	Grant(crate::lmdb::grant::Key),
 	Group(crate::lmdb::group::Key),
+	Indexer(crate::lmdb::indexer::Key),
 	LogCompaction(crate::lmdb::log::Key),
 	Node(crate::lmdb::node::Key),
 	Object(crate::lmdb::object::Key),
@@ -84,6 +85,7 @@ pub enum Kind {
 	GrantUpdatePropagatedVersion = 66,
 	NodeUpdatePropagatedVersion = 67,
 	StorageUpdatePutVersion = 68,
+	Indexer = 70,
 	GrantUpdateClean = 71,
 	NodeUpdateClean = 72,
 }
@@ -95,6 +97,9 @@ impl fdbt::TuplePack for Key {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
+			Key::Indexer(crate::lmdb::indexer::Key::Indexer(id)) => {
+				(Kind::Indexer.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
+			},
 			Key::Usage(crate::lmdb::usage::Key::AccountObject { account, object }) => (
 				Kind::AccountObject.to_i32().unwrap(),
 				account.id().to_bytes().as_ref(),
@@ -623,6 +628,12 @@ impl fdbt::TupleUnpack<'_> for Key {
 			Kind::from_i32(kind_value).ok_or(fdbt::PackError::Message("invalid kind".into()))?;
 
 		match kind {
+			Kind::Indexer => {
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let id = tg::indexer::Id::from_slice(&id)
+					.map_err(|_| fdbt::PackError::Message("invalid indexer id".into()))?;
+				Ok((input, Key::Indexer(crate::lmdb::indexer::Key::Indexer(id))))
+			},
 			Kind::AccountObject => {
 				let (input, account): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, object): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;

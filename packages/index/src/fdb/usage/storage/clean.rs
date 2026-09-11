@@ -66,8 +66,7 @@ impl Index {
 		now: i64,
 		partition: u64,
 		touched_at: i64,
-		partition_total: u64,
-		usage_partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let candidate = Candidate::Object {
 			account: account.clone(),
@@ -75,15 +74,7 @@ impl Index {
 			partition,
 			touched_at,
 		};
-		Self::clean_account_entry(
-			txn,
-			subspace,
-			&candidate,
-			now,
-			partition_total,
-			usage_partition_total,
-		)
-		.await
+		Self::clean_account_entry(txn, subspace, &candidate, now, partition_totals).await
 	}
 
 	#[allow(clippy::too_many_arguments)]
@@ -95,8 +86,7 @@ impl Index {
 		now: i64,
 		partition: u64,
 		touched_at: i64,
-		partition_total: u64,
-		usage_partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let candidate = Candidate::Process {
 			account: account.clone(),
@@ -104,15 +94,7 @@ impl Index {
 			process: process.clone(),
 			touched_at,
 		};
-		Self::clean_account_entry(
-			txn,
-			subspace,
-			&candidate,
-			now,
-			partition_total,
-			usage_partition_total,
-		)
-		.await
+		Self::clean_account_entry(txn, subspace, &candidate, now, partition_totals).await
 	}
 
 	async fn clean_account_entry(
@@ -120,8 +102,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		candidate: &Candidate,
 		now: i64,
-		partition_total: u64,
-		usage_partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let (entry_key, clean_key, touched_at) = match candidate {
 			Candidate::Object {
@@ -208,8 +189,7 @@ impl Index {
 						account,
 						object,
 						now,
-						partition_total,
-						usage_partition_total,
+						partition_totals,
 					)
 					.await
 				);
@@ -224,8 +204,7 @@ impl Index {
 						account,
 						process,
 						now,
-						partition_total,
-						usage_partition_total,
+						partition_totals,
 					)
 					.await
 				);
@@ -379,16 +358,15 @@ impl Index {
 		Ok(ControlFlow::Break(count))
 	}
 
-	#[allow(clippy::too_many_arguments)]
 	async fn delete_account_object(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		object: &tg::object::Id,
 		now: i64,
-		partition_total: u64,
-		usage_partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let usage_partition_total = partition_totals.usage;
 		let key = Key::Usage(crate::fdb::usage::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
@@ -423,7 +401,7 @@ impl Index {
 				account.clone(),
 			)),
 			crate::fdb::update::Source::Put,
-			partition_total,
+			partition_totals.storage_update,
 		);
 		let value = crate::fdb::propagate!(
 			Self::try_get_object_with_transaction(txn, subspace, object).await
@@ -440,7 +418,8 @@ impl Index {
 			-size,
 			usage_partition,
 		);
-		let partition = Self::partition_for_id(object.to_bytes().as_ref(), partition_total);
+		let partition =
+			Self::partition_for_id(object.to_bytes().as_ref(), partition_totals.cleaning);
 		let key = Key::Clean(crate::fdb::clean::Key::Object {
 			id: object.clone(),
 			partition,
@@ -451,16 +430,15 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 
-	#[allow(clippy::too_many_arguments)]
 	async fn delete_account_process(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		account: &crate::usage::Account,
 		process: &tg::process::Id,
 		now: i64,
-		partition_total: u64,
-		usage_partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let usage_partition_total = partition_totals.usage;
 		let key = Key::Usage(crate::fdb::usage::Key::AccountProcess {
 			account: account.clone(),
 			process: process.clone(),
@@ -495,13 +473,14 @@ impl Index {
 				account.clone(),
 			)),
 			crate::fdb::update::Source::Put,
-			partition_total,
+			partition_totals.storage_update,
 		);
 		let value = crate::fdb::propagate!(
 			Self::try_get_process_with_transaction(txn, subspace, process).await
 		)
 		.ok_or_else(|| tg::error!(%process, "a process with a storage entry is missing"))?;
-		let partition = Self::partition_for_id(process.to_bytes().as_ref(), partition_total);
+		let partition =
+			Self::partition_for_id(process.to_bytes().as_ref(), partition_totals.cleaning);
 		let key = Key::Clean(crate::fdb::clean::Key::Process {
 			id: process.clone(),
 			partition,

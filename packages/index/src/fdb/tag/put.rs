@@ -22,10 +22,10 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::tag::put::Arg],
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
-			crate::fdb::propagate!(Self::put_tag(txn, subspace, arg, partition_total).await);
+			crate::fdb::propagate!(Self::put_tag(txn, subspace, arg, partition_totals).await);
 		}
 		Ok(ControlFlow::Break(()))
 	}
@@ -34,8 +34,9 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::tag::put::Arg,
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let partition_total = partition_totals.cleaning;
 		let key = Key::Tag(crate::fdb::tag::Key::Tag(arg.id.clone()));
 		let key = Self::pack(subspace, &key);
 		let result = txn.get(&key, false).await;
@@ -54,7 +55,7 @@ impl Index {
 							txn,
 							subspace,
 							id,
-							partition_total,
+							partition_totals.storage_update,
 						)
 						.await
 					);
@@ -65,7 +66,7 @@ impl Index {
 							txn,
 							subspace,
 							id,
-							partition_total,
+							partition_totals.storage_update,
 						)
 						.await
 					);

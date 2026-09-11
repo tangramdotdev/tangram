@@ -1,7 +1,9 @@
 #[cfg(feature = "lmdb")]
 mod read;
 
+pub mod archive;
 pub mod capacity;
+pub mod index;
 #[cfg(feature = "lmdb")]
 pub mod lmdb;
 pub mod log;
@@ -22,9 +24,14 @@ pub trait Store {
 		arg: object::cache::delete::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
-	fn delete_object_archive_outbox_entries(
+	fn delete_archive_queue_entry(
 		&self,
-		arg: object::archive::outbox::delete::Arg,
+		arg: archive::queue::delete::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+
+	fn delete_index_queue_fragment(
+		&self,
+		arg: index::queue::delete::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
 	fn delete_log(
@@ -42,52 +49,39 @@ pub trait Store {
 		args: Vec<object::delete::Arg>,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
-	fn delete_object_index_outbox_batch(
-		&self,
-		arg: object::index::outbox::batch::delete::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
-
-	fn delete_object_index_outbox_fragments(
-		&self,
-		arg: object::index::outbox::fragment::delete::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
-
-	fn dequeue_object_index_outbox_fragments(
-		&self,
-		arg: object::index::outbox::fragment::dequeue::Arg,
-	) -> impl std::future::Future<
-		Output = tangram_client::Result<Vec<object::index::outbox::fragment::Fragment>>,
-	> + Send;
-
-	fn dequeue_object_archive_outbox_entries(
-		&self,
-		arg: object::archive::outbox::dequeue::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<Vec<object::archive::outbox::Entry>>>
-	+ Send;
-
 	fn get_object_cache_entries(
 		&self,
 		arg: object::cache::get::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<Vec<object::cache::Entry>>> + Send;
+
+	fn get_archive_queue_entries(
+		&self,
+		arg: archive::queue::get::batch::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<Vec<archive::queue::Entry>>> + Send;
+
+	fn get_index_queue_fragments(
+		&self,
+		arg: index::queue::get::batch::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<Vec<index::queue::Fragment>>> + Send;
 
 	fn put_object_cache_entry(
 		&self,
 		arg: object::cache::put::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
+	fn put_archive_queue_entry(
+		&self,
+		arg: archive::queue::put::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+
+	fn put_index_queue_fragment(
+		&self,
+		arg: index::queue::put::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+
 	fn put_object_cache_entry_with_object(
 		&self,
 		arg: object::cache::put::object::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
-
-	fn put_object_archive_outbox_entries(
-		&self,
-		arg: object::archive::outbox::put::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
-
-	fn enqueue_object_index_outbox_batch(
-		&self,
-		arg: object::index::outbox::batch::enqueue::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
 
 	fn flush(&self) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
@@ -129,6 +123,16 @@ pub trait Store {
 		arg: log::length::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<Option<u64>>> + Send;
 
+	fn try_get_archive_queue_entry(
+		&self,
+		arg: archive::queue::get::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<Option<archive::queue::Entry>>> + Send;
+
+	fn try_get_index_queue_fragment(
+		&self,
+		arg: index::queue::get::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<Option<index::queue::Fragment>>> + Send;
+
 	fn try_get_object(
 		&self,
 		arg: object::get::Arg,
@@ -138,13 +142,6 @@ pub trait Store {
 		&self,
 		arg: object::get::batch::Arg,
 	) -> impl std::future::Future<Output = tangram_client::Result<Vec<object::get::Output>>> + Send;
-
-	fn try_get_object_index_outbox_batch_at_or_before(
-		&self,
-		arg: object::index::outbox::batch::get::Arg,
-	) -> impl std::future::Future<
-		Output = tangram_client::Result<Option<object::index::outbox::batch::Id>>,
-	> + Send;
 
 	fn try_get_capacity(
 		&self,

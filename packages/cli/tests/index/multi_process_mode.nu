@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Indexing uses the object index outbox when the server is not in single process mode.
+# Indexing uses the index queue when the server is not in single process mode.
 
 let server = server spawn --config {
 	advanced: { single_process: false },
@@ -9,10 +9,15 @@ let server = server spawn --config {
 		path: 'database.sqlite3',
 	},
 	indexer: {
-		partitions: { end: 4 },
+		id: 'idx_0000000000000000000000000000',
 	},
 	object: {
-		index_outbox: { partition_total: 4 },
+		archive_queue: { sequence_reservation_size: 2 },
+		index_queue: {
+			fragment_size: 64,
+			sequence_reservation_size: 2,
+		},
+		queue_checkpoint_interval: 0.01,
 	},
 }
 let group = tg --url $server.url group create project | from json

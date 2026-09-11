@@ -366,9 +366,10 @@ impl Index {
 		partition_start: u64,
 		partition_end: u64,
 		max_process_depth: Option<u64>,
-		partition_total: u64,
-		usage_partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<crate::update::Output, fdb::FdbError>> {
+		let cleaning_partition_total = partition_totals.cleaning;
+		let partition_total = partition_totals.update(kind);
 		let mut entries = Vec::new();
 
 		let key_kind = update_version_key_kind(kind).to_i32().unwrap();
@@ -495,7 +496,7 @@ impl Index {
 								subspace,
 								id,
 								subject,
-								partition_total,
+								cleaning_partition_total,
 							)
 							.await
 						)
@@ -507,7 +508,7 @@ impl Index {
 								subspace,
 								id,
 								subject,
-								partition_total,
+								cleaning_partition_total,
 							)
 							.await
 						)
@@ -535,7 +536,7 @@ impl Index {
 							&id,
 							account,
 							cursor.as_ref(),
-							partition_total,
+							cleaning_partition_total,
 						)
 						.await
 					);
@@ -548,7 +549,7 @@ impl Index {
 							subspace,
 							&id,
 							cursor.as_ref(),
-							partition_total,
+							cleaning_partition_total,
 						)
 						.await
 					);
@@ -587,8 +588,7 @@ impl Index {
 									object: object.clone(),
 									touched_at: *touched_at,
 								},
-								partition_total,
-								usage_partition_total,
+								partition_totals,
 								false,
 								Some(&version),
 							)
@@ -605,8 +605,7 @@ impl Index {
 									process: process.clone(),
 									touched_at: *touched_at,
 								},
-								partition_total,
-								usage_partition_total,
+								partition_totals,
 								false,
 								Some(&version),
 							)
@@ -639,7 +638,8 @@ impl Index {
 						tg::Either::Left(id) => id.to_bytes(),
 						tg::Either::Right(id) => id.to_bytes(),
 					};
-					let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
+					let partition =
+						Self::partition_for_id(id_bytes.as_ref(), cleaning_partition_total);
 					// Keep one cleanup entry for the retained propagated version.
 					if let Some(previous) =
 						propagated_version.filter(|previous| *previous != version)
@@ -678,7 +678,8 @@ impl Index {
 				true
 			} else {
 				crate::fdb::propagate!(
-					Self::schedule_update_item_clean(txn, subspace, &id, partition_total).await
+					Self::schedule_update_item_clean(txn, subspace, &id, cleaning_partition_total,)
+						.await
 				);
 				let key = Self::pack(
 					subspace,
@@ -803,7 +804,7 @@ impl Index {
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &crate::usage::Account,
 		cursor: Option<&StorageCursor>,
-		partition_total: u64,
+		storage_update_partition_total: u64,
 		touched_at: i64,
 		version: &fdbt::Versionstamp,
 	) -> tg::Result<ControlFlow<Option<StorageCursor>, fdb::FdbError>> {
@@ -848,7 +849,7 @@ impl Index {
 				&id,
 				&kind,
 				Source::Put,
-				partition_total,
+				storage_update_partition_total,
 				Some(version),
 			);
 		}
@@ -873,7 +874,7 @@ impl Index {
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &crate::usage::Account,
 		cursor: Option<&StorageCursor>,
-		partition_total: u64,
+		cleaning_partition_total: u64,
 	) -> tg::Result<ControlFlow<Option<StorageCursor>, fdb::FdbError>> {
 		let (relationships, cursor) = crate::fdb::propagate!(
 			Self::get_storage_relationships_page(txn, subspace, id, cursor).await
@@ -888,7 +889,7 @@ impl Index {
 								subspace,
 								account,
 								object,
-								partition_total,
+								cleaning_partition_total,
 							)
 							.await
 						},
@@ -898,7 +899,7 @@ impl Index {
 								subspace,
 								account,
 								process,
-								partition_total,
+								cleaning_partition_total,
 							)
 							.await
 						},
@@ -922,7 +923,7 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		cursor: Option<&StorageCursor>,
-		partition_total: u64,
+		cleaning_partition_total: u64,
 	) -> tg::Result<ControlFlow<Option<StorageCursor>, fdb::FdbError>> {
 		let (accounts, cursor) = crate::fdb::propagate!(
 			Self::get_storage_accounts_page(txn, subspace, id, cursor).await
@@ -936,7 +937,7 @@ impl Index {
 							subspace,
 							account,
 							object,
-							partition_total,
+							cleaning_partition_total,
 						)
 						.await
 					},
@@ -946,7 +947,7 @@ impl Index {
 							subspace,
 							account,
 							process,
-							partition_total,
+							cleaning_partition_total,
 						)
 						.await
 					},

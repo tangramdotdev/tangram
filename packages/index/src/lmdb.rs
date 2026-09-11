@@ -15,6 +15,7 @@ mod checkout;
 mod clean;
 mod grant;
 mod group;
+mod indexer;
 mod key;
 mod log;
 mod node;
@@ -253,6 +254,29 @@ impl Drop for Index {
 }
 
 impl crate::Index for Index {
+	async fn delete_indexer(&self, arg: crate::indexer::delete::Arg) -> tg::Result<()> {
+		self.delete_indexer(arg).await
+	}
+
+	async fn get_indexers(&self) -> tg::Result<Vec<crate::indexer::Indexer>> {
+		self.get_indexers().await
+	}
+
+	async fn put_indexer(&self, arg: crate::indexer::put::Arg) -> tg::Result<()> {
+		self.put_indexer(arg).await
+	}
+
+	async fn try_get_indexer(
+		&self,
+		arg: crate::indexer::get::Arg,
+	) -> tg::Result<Option<crate::indexer::Indexer>> {
+		self.try_get_indexer(arg).await
+	}
+
+	async fn update_indexer(&self, arg: crate::indexer::update::Arg) -> tg::Result<()> {
+		self.update_indexer(arg).await
+	}
+
 	async fn get_usage(
 		&self,
 		account: &crate::usage::Account,
@@ -628,7 +652,23 @@ impl crate::Index for Index {
 		self.sync().await
 	}
 
-	fn partition_total(&self) -> u64 {
+	fn cleaning_partition_total(&self) -> u64 {
+		1
+	}
+
+	fn grant_update_partition_total(&self) -> u64 {
+		1
+	}
+
+	fn log_compaction_partition_total(&self) -> u64 {
+		1
+	}
+
+	fn node_update_partition_total(&self) -> u64 {
+		1
+	}
+
+	fn storage_update_partition_total(&self) -> u64 {
 		1
 	}
 }

@@ -16,6 +16,7 @@ mod clean;
 mod error;
 mod grant;
 mod group;
+mod indexer;
 mod key;
 mod log;
 mod node;
@@ -44,10 +45,9 @@ pub(super) use {
 
 pub struct Index {
 	database: Arc<fdb::Database>,
-	partition_total: u64,
+	partition_totals: PartitionTotals,
 	reader_sender: crate::read::Sender,
 	subspace: fdbt::Subspace,
-	usage_partition_total: u64,
 	writer_sender_high: writer::RequestSender,
 	writer_sender_low: writer::RequestSender,
 	writer_sender_medium: writer::RequestSender,
@@ -55,12 +55,16 @@ pub struct Index {
 
 pub struct Options {
 	pub authorize: AuthorizeConfig,
+	pub cleaning_partition_total: u64,
 	pub cluster: std::path::PathBuf,
+	pub grant_update_partition_total: u64,
 	pub instance: Option<String>,
+	pub log_compaction_partition_total: u64,
 	pub max_process_depth: Option<u64>,
-	pub partition_total: u64,
+	pub node_update_partition_total: u64,
 	pub read_request_batch_size: usize,
 	pub read_transaction_concurrency: usize,
+	pub storage_update_partition_total: u64,
 	pub usage_partition_total: u64,
 	pub write_operation_batch_size: usize,
 	pub write_transaction_concurrency: usize,
@@ -69,6 +73,27 @@ pub struct Options {
 #[derive(Clone, Copy, Debug)]
 pub struct AuthorizeConfig {
 	pub concurrency: usize,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct PartitionTotals {
+	pub cleaning: u64,
+	pub grant_update: u64,
+	pub log_compaction: u64,
+	pub node_update: u64,
+	pub storage_update: u64,
+	pub usage: u64,
+}
+
+impl PartitionTotals {
+	#[must_use]
+	fn update(self, kind: crate::update::Kind) -> u64 {
+		match kind {
+			crate::update::Kind::Grant => self.grant_update,
+			crate::update::Kind::Node => self.node_update,
+			crate::update::Kind::Storage => self.storage_update,
+		}
+	}
 }
 
 impl Index {
@@ -84,8 +109,14 @@ impl Index {
 			None => fdbt::Subspace::all(),
 		};
 
-		let partition_total = options.partition_total;
-		let usage_partition_total = options.usage_partition_total;
+		let partition_totals = PartitionTotals {
+			cleaning: options.cleaning_partition_total,
+			grant_update: options.grant_update_partition_total,
+			log_compaction: options.log_compaction_partition_total,
+			node_update: options.node_update_partition_total,
+			storage_update: options.storage_update_partition_total,
+			usage: options.usage_partition_total,
+		};
 
 		let metrics = Metrics::new();
 
@@ -106,7 +137,7 @@ impl Index {
 				Self::reader_task(reader::Arg {
 					authorize_concurrency,
 					database,
-					partition_total,
+					partition_totals,
 					read_request_batch_size,
 					read_transaction_concurrency,
 					receiver: reader_receiver,
@@ -131,12 +162,11 @@ impl Index {
 					database,
 					max_process_depth,
 					metrics,
-					partition_total,
+					partition_totals,
 					receiver_high: writer_receiver_high,
 					receiver_low: writer_receiver_low,
 					receiver_medium: writer_receiver_medium,
 					subspace,
-					usage_partition_total,
 					write_operation_batch_size,
 					write_transaction_concurrency,
 				};
@@ -146,10 +176,9 @@ impl Index {
 
 		let index = Self {
 			database,
-			partition_total,
+			partition_totals,
 			reader_sender,
 			subspace,
-			usage_partition_total,
 			writer_sender_high,
 			writer_sender_low,
 			writer_sender_medium,
@@ -164,10 +193,19 @@ impl Index {
 				"the FDB index authorization concurrency must be greater than zero"
 			));
 		}
-		if options.partition_total == 0 {
-			return Err(tg::error!(
-				"the FDB index partition total must be greater than zero"
-			));
+		for (name, partition_total) in [
+			("cleaning", options.cleaning_partition_total),
+			("grant update", options.grant_update_partition_total),
+			("log compaction", options.log_compaction_partition_total),
+			("node update", options.node_update_partition_total),
+			("storage update", options.storage_update_partition_total),
+			("usage", options.usage_partition_total),
+		] {
+			if partition_total == 0 {
+				return Err(tg::error!(
+					"the FDB index {name} partition total must be greater than zero"
+				));
+			}
 		}
 		if options.read_request_batch_size == 0 {
 			return Err(tg::error!(
@@ -177,11 +215,6 @@ impl Index {
 		if options.read_transaction_concurrency == 0 {
 			return Err(tg::error!(
 				"the FDB index read transaction concurrency must be greater than zero"
-			));
-		}
-		if options.usage_partition_total == 0 {
-			return Err(tg::error!(
-				"the FDB index usage partition total must be greater than zero"
 			));
 		}
 		if options.write_operation_batch_size == 0 {
@@ -239,12 +272,60 @@ impl Index {
 	}
 
 	#[must_use]
+	pub fn cleaning_partition_total(&self) -> u64 {
+		self.partition_totals.cleaning
+	}
+
+	#[must_use]
+	pub fn grant_update_partition_total(&self) -> u64 {
+		self.partition_totals.grant_update
+	}
+
+	#[must_use]
+	pub fn log_compaction_partition_total(&self) -> u64 {
+		self.partition_totals.log_compaction
+	}
+
+	#[must_use]
+	pub fn node_update_partition_total(&self) -> u64 {
+		self.partition_totals.node_update
+	}
+
+	#[must_use]
+	pub fn storage_update_partition_total(&self) -> u64 {
+		self.partition_totals.storage_update
+	}
+
+	#[must_use]
 	pub fn usage_partition_total(&self) -> u64 {
-		self.usage_partition_total
+		self.partition_totals.usage
 	}
 }
 
 impl crate::Index for Index {
+	async fn delete_indexer(&self, arg: crate::indexer::delete::Arg) -> tg::Result<()> {
+		self.delete_indexer(arg).await
+	}
+
+	async fn get_indexers(&self) -> tg::Result<Vec<crate::indexer::Indexer>> {
+		self.get_indexers().await
+	}
+
+	async fn put_indexer(&self, arg: crate::indexer::put::Arg) -> tg::Result<()> {
+		self.put_indexer(arg).await
+	}
+
+	async fn try_get_indexer(
+		&self,
+		arg: crate::indexer::get::Arg,
+	) -> tg::Result<Option<crate::indexer::Indexer>> {
+		self.try_get_indexer(arg).await
+	}
+
+	async fn update_indexer(&self, arg: crate::indexer::update::Arg) -> tg::Result<()> {
+		self.update_indexer(arg).await
+	}
+
 	async fn get_usage(
 		&self,
 		account: &crate::usage::Account,
@@ -622,7 +703,23 @@ impl crate::Index for Index {
 		self.sync().await
 	}
 
-	fn partition_total(&self) -> u64 {
-		self.partition_total
+	fn cleaning_partition_total(&self) -> u64 {
+		self.cleaning_partition_total()
+	}
+
+	fn grant_update_partition_total(&self) -> u64 {
+		self.grant_update_partition_total()
+	}
+
+	fn log_compaction_partition_total(&self) -> u64 {
+		self.log_compaction_partition_total()
+	}
+
+	fn node_update_partition_total(&self) -> u64 {
+		self.node_update_partition_total()
+	}
+
+	fn storage_update_partition_total(&self) -> u64 {
+		self.storage_update_partition_total()
 	}
 }

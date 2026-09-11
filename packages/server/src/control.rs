@@ -1,5 +1,5 @@
 use {
-	crate::Session,
+	crate::Server,
 	dashmap::DashMap,
 	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, stream::BoxStream},
 	std::{
@@ -15,6 +15,8 @@ use {
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) mod requests;
 
 // Acknowledgements confirm receipt only. Requests remain pending until a response; reconnects replay them with the same IDs. Responses retry until acknowledged.
 pub(crate) trait Input<O> {
@@ -50,10 +52,12 @@ pub(crate) struct Stream<I, O> {
 }
 
 pub(crate) struct Sender<I, O> {
+	inbox: Arc<DashMap<String, ()>>,
 	inner_high: tokio::sync::mpsc::Sender<O>,
 	inner_low: tokio::sync::mpsc::Sender<O>,
 	notify: Arc<tokio::sync::Notify>,
 	outbox: Arc<DashMap<String, OutboxEntry<O>>>,
+	outbox_ttl: Option<Duration>,
 	responses: Arc<DashMap<String, tokio::sync::oneshot::Sender<I>>>,
 }
 
@@ -83,6 +87,7 @@ pub(crate) struct Options {
 
 pub(crate) struct StreamOptions {
 	pub inbox_ttl: Duration,
+	pub outbox_ttl: Option<Duration>,
 	pub retry: tangram_futures::retry::Options,
 }
 
@@ -143,13 +148,19 @@ where
 		sender_low: tokio::sync::mpsc::Sender<O>,
 		options: StreamOptions,
 	) -> Self {
-		let StreamOptions { inbox_ttl, retry } = options;
+		let StreamOptions {
+			inbox_ttl,
+			outbox_ttl,
+			retry,
+		} = options;
 		let inbox = Arc::new(DashMap::new());
 		let sender = Sender {
+			inbox: inbox.clone(),
 			inner_high: sender_high,
 			inner_low: sender_low,
 			notify: Arc::new(tokio::sync::Notify::new()),
 			outbox: Arc::new(DashMap::new()),
+			outbox_ttl,
 			responses: Arc::new(DashMap::new()),
 		};
 		let send_tasks = [Priority::High, Priority::Low].map(|priority| {
@@ -224,8 +235,7 @@ where
 			};
 			match message.kind() {
 				InputKind::Ack { id } => {
-					self.sender.acknowledge(id);
-					if self.inbox.contains_key(id) {
+					if self.sender.acknowledge(id) && self.inbox.contains_key(id) {
 						let id = id.to_owned();
 						let inbox = self.inbox.clone();
 						let ttl = self.inbox_ttl;
@@ -244,9 +254,10 @@ where
 						return Ok(Some(message));
 					}
 					let priority = self.input_priority(&message);
-					self.sender
-						.send_with_priority(I::create_ack_message(id.to_owned()), priority)
-						.await?;
+					self.sender.try_send_untracked_with_priority(
+						I::create_ack_message(id.to_owned()),
+						priority,
+					);
 				},
 				InputKind::Response { id } => {
 					if !self.sender.responses.contains_key(id) {
@@ -256,6 +267,12 @@ where
 				},
 			}
 		}
+	}
+
+	pub(crate) fn acknowledge_now(&mut self, id: String) {
+		self.sender
+			.try_send_untracked(I::create_ack_message(id.clone()));
+		self.inbox.insert(id, ());
 	}
 
 	pub(crate) async fn acknowledge(&mut self, id: String) -> tg::Result<()> {
@@ -302,10 +319,12 @@ impl<I, O> Drop for Stream<I, O> {
 impl<I, O> Clone for Sender<I, O> {
 	fn clone(&self) -> Self {
 		Self {
+			inbox: self.inbox.clone(),
 			inner_high: self.inner_high.clone(),
 			inner_low: self.inner_low.clone(),
 			notify: self.notify.clone(),
 			outbox: self.outbox.clone(),
+			outbox_ttl: self.outbox_ttl,
 			responses: self.responses.clone(),
 		}
 	}
@@ -316,6 +335,23 @@ where
 	I: Send + 'static,
 	O: Output + Clone + Send + Sync + 'static,
 {
+	pub(crate) fn try_send_untracked(&self, message: O) {
+		self.try_send_untracked_with_priority(message, Priority::High);
+	}
+
+	fn try_send_untracked_with_priority(&self, message: O, priority: Priority) {
+		let sender = match priority {
+			Priority::High => &self.inner_high,
+			Priority::Low => &self.inner_low,
+		};
+		sender.try_send(message).ok();
+	}
+
+	pub(crate) fn send_now(&self, message: O) {
+		self.insert(&message, Priority::High);
+		self.try_send_untracked(message);
+	}
+
 	pub(crate) async fn send(&self, message: O) -> tg::Result<()> {
 		self.send_with_priority(message, Priority::High).await
 	}
@@ -325,6 +361,12 @@ where
 	}
 
 	async fn send_with_priority(&self, message: O, priority: Priority) -> tg::Result<()> {
+		self.insert(&message, priority);
+		self.send_inner(message, priority).await?;
+		Ok(())
+	}
+
+	fn insert(&self, message: &O, priority: Priority) {
 		let id = message.id().map(str::to_owned);
 		if let Some(id) = &id {
 			let entry = OutboxEntry {
@@ -332,10 +374,25 @@ where
 				message: message.clone(),
 				priority,
 			};
-			self.outbox.insert(id.clone(), entry);
+			let previous = self.outbox.insert(id.clone(), entry);
+			if previous.is_none()
+				&& let Some(ttl) = self.outbox_ttl
+			{
+				let id = id.clone();
+				let inbox = self.inbox.clone();
+				let notify = self.notify.clone();
+				let outbox = self.outbox.clone();
+				tokio::spawn(async move {
+					tokio::time::sleep(ttl).await;
+					if outbox.remove(&id).is_some() {
+						inbox.remove(&id);
+						if outbox.is_empty() {
+							notify.notify_waiters();
+						}
+					}
+				});
+			}
 		}
-		self.send_inner(message, priority).await?;
-		Ok(())
 	}
 
 	fn send_inner(
@@ -377,20 +434,22 @@ where
 		Ok(response)
 	}
 
-	fn acknowledge(&self, id: &str) {
+	fn acknowledge(&self, id: &str) -> bool {
 		if let Some(mut entry) = self.outbox.get_mut(id)
 			&& entry.message.is_request()
 		{
 			entry.acknowledged = true;
-			return;
+			return false;
 		}
-		self.remove(id);
+		self.remove(id)
 	}
 
-	pub(crate) fn remove(&self, id: &str) {
-		if self.outbox.remove(id).is_some() && self.outbox.is_empty() {
+	pub(crate) fn remove(&self, id: &str) -> bool {
+		let removed = self.outbox.remove(id).is_some();
+		if removed && self.outbox.is_empty() {
 			self.notify.notify_waiters();
 		}
+		removed
 	}
 
 	pub(crate) async fn wait_for_empty(&self) {
@@ -452,6 +511,7 @@ where
 pub(crate) fn stream_options() -> StreamOptions {
 	StreamOptions {
 		inbox_ttl: Duration::from_mins(1),
+		outbox_ttl: None,
 		retry: tangram_futures::retry::Options {
 			backoff: Duration::from_secs(1),
 			jitter: Duration::ZERO,
@@ -461,7 +521,7 @@ pub(crate) fn stream_options() -> StreamOptions {
 	}
 }
 
-impl Session {
+impl Server {
 	pub(crate) async fn send_control_request<I, O, Response>(
 		&self,
 		arg: SendControlRequestArg<
@@ -487,7 +547,7 @@ impl Session {
 			response,
 			server_subject,
 		} = arg;
-		let server = self.server.clone();
+		let server = self.clone();
 		let Options { retry, timeout } = options;
 
 		let responses = server

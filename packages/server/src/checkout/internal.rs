@@ -142,7 +142,7 @@ impl Session {
 		Ok(stream)
 	}
 
-	pub(crate) async fn checkout_index_barrier(&self) -> tg::Result<()> {
+	pub(crate) async fn checkout_await_indexing(&self) -> tg::Result<()> {
 		if !self.server.named_checkout_maintenance_enabled() {
 			return Ok(());
 		}
@@ -465,7 +465,7 @@ impl Session {
 			}
 			drop(guard);
 			if attempt == 0 {
-				self.checkout_index_barrier().await?;
+				self.checkout_await_indexing().await?;
 			}
 		}
 

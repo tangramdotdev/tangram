@@ -13,20 +13,23 @@ create table if not exists object_cache (
 	primary key ((partition), cache)
 ) with clustering order by (cache asc);
 
-create table if not exists object_archive_outbox (
+create table if not exists archive_queue (
+	indexer blob,
+	sequence bigint,
 	object blob,
-	partition bigint,
 	put blob,
-	primary key ((partition), put)
-) with clustering order by (put asc);
+	primary key ((indexer), sequence)
+) with clustering order by (sequence asc);
 
-create table if not exists object_index_outbox (
+create table if not exists index_queue (
+	indexer blob,
+	sequence bigint,
 	"batch" blob,
 	fragment bigint,
-	partition bigint,
+	fragments bigint,
 	payload blob,
-	primary key ((partition), "batch", fragment)
-) with clustering order by ("batch" asc, fragment asc);
+	primary key ((indexer), sequence)
+) with clustering order by (sequence asc);
 
 create table if not exists logs (
 	process blob,

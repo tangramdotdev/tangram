@@ -1,13 +1,12 @@
 use {
 	crate::{Server, Session},
-	futures::{FutureExt as _, future},
+	futures::{FutureExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
-	std::collections::BTreeSet,
+	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_messenger::Messenger as _,
 	tangram_store::prelude::*,
 };
 
@@ -354,22 +353,16 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the object"));
 		}
+		if self.config.advanced.single_process {
+			return self.put_object_batch_inner(vec![arg]).await;
+		}
 
-		let entry = self.object_archive_outbox_entry(arg.id.clone(), arg.put);
-		let outbox_arg = crate::store::object::archive::outbox::put::Arg {
-			entries: vec![entry.clone()],
-		};
+		let archive = self.enqueue_object_archive(arg.id.clone(), arg.put);
 		let object_put = self.store.put_object(arg);
-		let outbox_put = self.store.put_object_archive_outbox_entries(outbox_arg);
-		let (object_result, outbox_result) = future::join(object_put, outbox_put).await;
+		let (object_result, archive_result) = future::join(object_put, archive).await;
 		object_result.map_err(|error| tg::error!(!error, "failed to put the object"))?;
-		outbox_result.map_err(|error| {
-			tg::error!(
-				!error,
-				"failed to write an entry to the object archive outbox"
-			)
-		})?;
-		self.spawn_publish_object_archive_outbox_notifications(BTreeSet::from([entry.partition]));
+		archive_result
+			.map_err(|error| tg::error!(!error, "failed to enqueue the object for archiving"))?;
 
 		Ok(())
 	}
@@ -441,57 +434,135 @@ impl Server {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to put the objects"));
 		}
+		if self.config.advanced.single_process {
+			let archive_args = Self::object_archive_args(&args);
+			self.store
+				.put_object_batch(args)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+			self.archive_object_batch_task(archive_args);
+			return Ok(());
+		}
 
 		let entries = args
 			.iter()
-			.map(|arg| self.object_archive_outbox_entry(arg.id.clone(), arg.put))
+			.map(|arg| (arg.id.clone(), arg.put))
 			.collect::<Vec<_>>();
-		let partitions = entries
-			.iter()
-			.map(|entry| entry.partition)
-			.collect::<BTreeSet<_>>();
-		let outbox_arg = crate::store::object::archive::outbox::put::Arg { entries };
+		let archive = future::try_join_all(
+			entries
+				.into_iter()
+				.map(|(id, put)| self.enqueue_object_archive(id, put)),
+		);
 		let object_put = self.store.put_object_batch(args);
-		let outbox_put = self.store.put_object_archive_outbox_entries(outbox_arg);
-		let (object_result, outbox_result) = future::join(object_put, outbox_put).await;
+		let (object_result, archive_result) = future::join(object_put, archive).await;
 		object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
-		outbox_result.map_err(|error| {
-			tg::error!(
-				!error,
-				"failed to write entries to the object archive outbox"
-			)
-		})?;
-		self.spawn_publish_object_archive_outbox_notifications(partitions);
+		archive_result
+			.map_err(|error| tg::error!(!error, "failed to enqueue the objects for archiving"))?;
 
 		Ok(())
 	}
 
-	fn object_archive_outbox_entry(
+	pub(crate) async fn put_object_batch_local(
 		&self,
-		id: tg::object::Id,
-		put: [u8; 16],
-	) -> crate::store::object::archive::outbox::Entry {
-		let partition_total = self.config.object.archive_outbox.partition_total;
-		let bytes = id.to_bytes();
-		let start = bytes.len().saturating_sub(8);
-		let mut suffix = [0; 8];
-		suffix[8 - (bytes.len() - start)..].copy_from_slice(&bytes[start..]);
-		let partition = u64::from_be_bytes(suffix) % partition_total;
-
-		crate::store::object::archive::outbox::Entry { id, partition, put }
+		args: Vec<crate::store::object::put::Arg>,
+	) -> tg::Result<()> {
+		let future = self.put_object_batch_local_inner(args);
+		tokio::time::timeout(self.config.object.put_timeout, future)
+			.await
+			.map_err(|error| tg::error!(!error, "timed out storing and archiving the objects"))??;
+		Ok(())
 	}
 
-	fn spawn_publish_object_archive_outbox_notifications(&self, partitions: BTreeSet<u64>) {
-		tokio::spawn({
-			let server = self.clone();
+	async fn put_object_batch_local_inner(
+		&self,
+		args: Vec<crate::store::object::put::Arg>,
+	) -> tg::Result<()> {
+		let archive_args = if self.archive.is_some() {
+			Self::object_archive_args(&args)
+		} else {
+			Vec::new()
+		};
+		self.store
+			.put_object_batch(args)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
+		stream::iter(archive_args.into_iter().map(Ok))
+			.try_for_each_concurrent(self.config.object.archive_queue.concurrency, |arg| {
+				self.archive_object(arg)
+			})
+			.await?;
+
+		Ok(())
+	}
+
+	fn object_archive_args(
+		args: &[crate::store::object::put::Arg],
+	) -> Vec<tangram_archive::object::put::Arg> {
+		args.iter()
+			.filter_map(|arg| {
+				arg.bytes
+					.as_ref()
+					.map(|bytes| tangram_archive::object::put::Arg {
+						bytes: bytes.clone(),
+						id: arg.id.clone(),
+						put: arg.put,
+					})
+			})
+			.collect()
+	}
+
+	async fn enqueue_object_archive(
+		&self,
+		object: tg::object::Id,
+		put: [u8; 16],
+	) -> tg::Result<()> {
+		let start = rand::random::<u64>();
+		let mut attempt = 0u64;
+		let retry = tangram_futures::retry::Options::from(self.config.indexer.batch.retry.clone());
+		tangram_futures::retry(&retry, || {
+			let index = start.wrapping_add(attempt);
+			let refresh = attempt > 0;
+			attempt = attempt.wrapping_add(1);
+			let object = object.clone();
 			async move {
-				for partition in partitions {
-					let subject = crate::indexer::object_archive_outbox_subject(partition);
-					if let Err(error) = server.messenger.publish(subject, ()).await {
-						tracing::error!(%error, %partition, "failed to publish an object archive outbox notification");
-					}
+				let indexer = match self.select_indexer(index, refresh).await {
+					Ok(indexer) => indexer,
+					Err(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				let result = self
+					.enqueue_object_archive_with_indexer(&indexer, object, put)
+					.await;
+				match result {
+					Ok(()) => Ok(ControlFlow::Break(())),
+					Err(error) => Ok(ControlFlow::Continue(error)),
 				}
 			}
-		});
+		})
+		.await?;
+
+		Ok(())
+	}
+
+	async fn enqueue_object_archive_with_indexer(
+		&self,
+		indexer: &tg::indexer::Id,
+		object: tg::object::Id,
+		put: [u8; 16],
+	) -> tg::Result<()> {
+		let arg =
+			crate::indexer::RequestArg::Archive(crate::indexer::ArchiveRequestArg { object, put });
+		let request = self.send_indexer_request(Some(indexer), arg);
+		let output = tokio::time::timeout(self.config.indexer.batch.timeout, request)
+			.await
+			.map_err(|source| tg::error!(!source, "timed out enqueueing an object for archiving"))?
+			.map_err(|source| tg::error!(!source, "failed to send an archive request"))?
+			.map_err(|source| {
+				tg::error!(!source, "the indexer failed to enqueue an archive entry")
+			})?;
+		output
+			.try_unwrap_archive()
+			.map_err(|_| tg::error!("expected an archive response"))?;
+
+		Ok(())
 	}
 }

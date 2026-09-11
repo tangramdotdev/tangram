@@ -20,6 +20,7 @@ pub(crate) enum Request {
 		partition_end: u64,
 		partition_start: u64,
 	},
+	GetIndexers,
 	GetRequesterSubjects {
 		principal: tg::Principal,
 	},
@@ -59,6 +60,7 @@ pub(crate) enum Request {
 	TryGetIdsForSpecifiers {
 		specifiers: Vec<tg::Specifier>,
 	},
+	TryGetIndexer(crate::indexer::get::Arg),
 	TryGetObjectChildren {
 		id: tg::object::Id,
 	},
@@ -104,6 +106,7 @@ pub(crate) enum Request {
 pub(crate) enum Response {
 	AuthorizeBatch(Vec<crate::authorize::Outcome>),
 	ContainsIds(Vec<bool>),
+	GetIndexers(Vec<crate::indexer::Indexer>),
 	LogCompactionBatch(Vec<crate::log::Entry>),
 	GetRequesterSubjects(Vec<tg::authorization::Subject>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
@@ -116,6 +119,7 @@ pub(crate) enum Response {
 	TryGetCachedProcesses(Vec<(tg::process::Id, crate::process::Process)>),
 	TryGetGroups(Vec<Option<crate::group::Group>>),
 	TryGetIdsForSpecifiers(Vec<Option<tg::Id>>),
+	TryGetIndexer(Option<crate::indexer::Indexer>),
 	TryGetObjectChildren(Option<Vec<tg::object::Id>>),
 	TryGetObjects(Vec<Option<crate::object::Object>>),
 	TryGetOldestLogCompactionTransactionId(Option<u64>),

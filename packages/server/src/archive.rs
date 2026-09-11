@@ -1,4 +1,11 @@
-use {tangram_archive as archive, tangram_client::prelude::*};
+use {
+	crate::Server,
+	futures::{TryStreamExt as _, stream},
+	std::ops::ControlFlow,
+	tangram_archive::{self as archive, Archive as _},
+	tangram_client::prelude::*,
+	tangram_store::Store as _,
+};
 
 pub use archive::object;
 
@@ -37,6 +44,68 @@ impl Archive {
 		let archive = archive::s3::Archive::new(&config)?;
 
 		Ok(Self::S3(archive))
+	}
+}
+
+impl Server {
+	pub(crate) fn archive_object_batch_task(&self, args: Vec<object::put::Arg>) {
+		if args.is_empty() {
+			return;
+		}
+		self.archive_tasks
+			.spawn({
+				let server = self.clone();
+				|_| async move {
+					stream::iter(args.into_iter().map(Ok))
+						.try_for_each_concurrent(
+							server.config.object.archive_queue.concurrency,
+							|arg| server.archive_object_with_retry(arg),
+						)
+						.await
+				}
+			})
+			.detach();
+	}
+
+	async fn archive_object_with_retry(&self, arg: object::put::Arg) -> tg::Result<()> {
+		tangram_futures::retry(&crate::indexer::RETRY_OPTIONS, || {
+			let arg = arg.clone();
+			async move {
+				match self.archive_object(arg).await {
+					Ok(()) => Ok(ControlFlow::Break(())),
+					Err(error) => {
+						tracing::error!(error = %error.trace(), "failed to archive an object");
+						Ok(ControlFlow::Continue(error))
+					},
+				}
+			}
+		})
+		.await?;
+		Ok(())
+	}
+
+	pub(crate) async fn archive_object(&self, arg: object::put::Arg) -> tg::Result<()> {
+		let archive = self
+			.archive
+			.as_ref()
+			.ok_or_else(|| tg::error!("the archive is unavailable"))?;
+		let id = arg.id.clone();
+		let put = arg.put;
+		archive
+			.put_object(arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to put an object in the archive"))?;
+		if let Some(config) = &self.config.object.cache {
+			let arg = crate::store::object::cache::put::Arg {
+				cache: uuid::Uuid::now_v7().into_bytes(),
+				id,
+				partition: rand::random_range(0..config.partition_total),
+				put,
+			};
+			self.store.put_object_cache_entry(arg).await?;
+		}
+
+		Ok(())
 	}
 }
 

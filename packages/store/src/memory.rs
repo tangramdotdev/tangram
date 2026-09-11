@@ -1,5 +1,5 @@
 use {
-	crate::object,
+	crate::{archive, index, object},
 	std::{
 		collections::{BTreeMap, HashMap},
 		sync::{Arc, Mutex, MutexGuard},
@@ -7,14 +7,13 @@ use {
 	tangram_client::prelude::*,
 };
 
-mod archive;
 mod cache;
 mod delete;
 mod flush;
 mod get;
 mod log;
-mod outbox;
 mod put;
+mod queue;
 
 #[derive(Clone, Debug, Default)]
 pub struct Config {}
@@ -32,10 +31,10 @@ struct Log {
 
 #[derive(Default)]
 struct State {
+	archive_queue: BTreeMap<(tg::indexer::Id, u64), crate::archive::queue::Entry>,
+	index_queue: BTreeMap<(tg::indexer::Id, u64), crate::index::queue::Fragment>,
 	logs: Logs,
-	object_archive_outbox: BTreeMap<(u64, [u8; 16]), tg::object::Id>,
 	object_cache: BTreeMap<(u64, [u8; 16]), (tg::object::Id, [u8; 16])>,
-	object_index_outbox: BTreeMap<(u64, [u8; 16], u64), bytes::Bytes>,
 	objects: Objects,
 }
 
@@ -70,6 +69,7 @@ impl Default for Store {
 impl crate::Store for Store {
 	async fn contains_object(&self, arg: object::contains::Arg) -> tg::Result<bool> {
 		let arg = object::get::Arg {
+			bytes: false,
 			id: arg.id,
 			put: Some(arg.put),
 		};
@@ -83,11 +83,13 @@ impl crate::Store for Store {
 		Ok(())
 	}
 
-	async fn delete_object_archive_outbox_entries(
-		&self,
-		arg: object::archive::outbox::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_object_archive_outbox_entries(arg);
+	async fn delete_archive_queue_entry(&self, arg: archive::queue::delete::Arg) -> tg::Result<()> {
+		self.delete_archive_queue_entry(arg);
+		Ok(())
+	}
+
+	async fn delete_index_queue_fragment(&self, arg: index::queue::delete::Arg) -> tg::Result<()> {
+		self.delete_index_queue_fragment(arg);
 		Ok(())
 	}
 
@@ -104,36 +106,6 @@ impl crate::Store for Store {
 		self.delete_object_batch(args)
 	}
 
-	async fn delete_object_index_outbox_batch(
-		&self,
-		arg: crate::object::index::outbox::batch::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_object_index_outbox_batch(arg);
-		Ok(())
-	}
-
-	async fn delete_object_index_outbox_fragments(
-		&self,
-		arg: crate::object::index::outbox::fragment::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_object_index_outbox_fragments(arg);
-		Ok(())
-	}
-
-	async fn dequeue_object_index_outbox_fragments(
-		&self,
-		arg: crate::object::index::outbox::fragment::dequeue::Arg,
-	) -> tg::Result<Vec<crate::object::index::outbox::fragment::Fragment>> {
-		self.dequeue_object_index_outbox_fragments(arg)
-	}
-
-	async fn dequeue_object_archive_outbox_entries(
-		&self,
-		arg: object::archive::outbox::dequeue::Arg,
-	) -> tg::Result<Vec<object::archive::outbox::Entry>> {
-		self.dequeue_object_archive_outbox_entries(arg)
-	}
-
 	async fn get_object_cache_entries(
 		&self,
 		arg: object::cache::get::Arg,
@@ -141,8 +113,32 @@ impl crate::Store for Store {
 		Ok(self.get_object_cache_entries(arg))
 	}
 
+	async fn get_archive_queue_entries(
+		&self,
+		arg: archive::queue::get::batch::Arg,
+	) -> tg::Result<Vec<archive::queue::Entry>> {
+		Ok(self.get_archive_queue_entries(arg))
+	}
+
+	async fn get_index_queue_fragments(
+		&self,
+		arg: index::queue::get::batch::Arg,
+	) -> tg::Result<Vec<index::queue::Fragment>> {
+		Ok(self.get_index_queue_fragments(arg))
+	}
+
 	async fn put_object_cache_entry(&self, arg: object::cache::put::Arg) -> tg::Result<()> {
 		self.put_object_cache_entry(arg)?;
+		Ok(())
+	}
+
+	async fn put_archive_queue_entry(&self, arg: archive::queue::put::Arg) -> tg::Result<()> {
+		self.put_archive_queue_entry(arg);
+		Ok(())
+	}
+
+	async fn put_index_queue_fragment(&self, arg: index::queue::put::Arg) -> tg::Result<()> {
+		self.put_index_queue_fragment(arg);
 		Ok(())
 	}
 
@@ -152,21 +148,6 @@ impl crate::Store for Store {
 	) -> tg::Result<()> {
 		self.put_object_cache_entry_with_object(arg)?;
 		Ok(())
-	}
-
-	async fn put_object_archive_outbox_entries(
-		&self,
-		arg: object::archive::outbox::put::Arg,
-	) -> tg::Result<()> {
-		self.put_object_archive_outbox_entries(arg);
-		Ok(())
-	}
-
-	async fn enqueue_object_index_outbox_batch(
-		&self,
-		arg: crate::object::index::outbox::batch::enqueue::Arg,
-	) -> tg::Result<()> {
-		self.enqueue_object_index_outbox_batch(arg)
 	}
 
 	async fn flush(&self) -> tg::Result<()> {
@@ -208,6 +189,20 @@ impl crate::Store for Store {
 		Ok(self.try_get_log_length(&arg))
 	}
 
+	async fn try_get_archive_queue_entry(
+		&self,
+		arg: archive::queue::get::Arg,
+	) -> tg::Result<Option<archive::queue::Entry>> {
+		Ok(self.try_get_archive_queue_entry(arg))
+	}
+
+	async fn try_get_index_queue_fragment(
+		&self,
+		arg: index::queue::get::Arg,
+	) -> tg::Result<Option<index::queue::Fragment>> {
+		Ok(self.try_get_index_queue_fragment(arg))
+	}
+
 	async fn try_get_object(&self, arg: object::get::Arg) -> tg::Result<object::get::Output> {
 		Ok(self.try_get_object_sync(&arg))
 	}
@@ -217,13 +212,6 @@ impl crate::Store for Store {
 		arg: object::get::batch::Arg,
 	) -> tg::Result<Vec<object::get::Output>> {
 		Ok(self.try_get_object_batch_sync(&arg))
-	}
-
-	async fn try_get_object_index_outbox_batch_at_or_before(
-		&self,
-		arg: crate::object::index::outbox::batch::get::Arg,
-	) -> tg::Result<Option<crate::object::index::outbox::batch::Id>> {
-		self.try_get_object_index_outbox_batch_at_or_before(arg)
 	}
 
 	async fn try_get_capacity(&self) -> tg::Result<Option<crate::capacity::Capacity>> {
@@ -281,7 +269,11 @@ mod tests {
 			.unwrap();
 
 		let object = store
-			.try_get_object_sync(&object::get::Arg { id, put: None })
+			.try_get_object_sync(&object::get::Arg {
+				bytes: true,
+				id,
+				put: None,
+			})
 			.object
 			.unwrap();
 		assert_eq!(object.bytes, Some(Cow::Owned(second_bytes.to_vec())));
@@ -307,6 +299,7 @@ mod tests {
 			.unwrap();
 
 		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: Some([1; 16]),
 		});
@@ -322,6 +315,7 @@ mod tests {
 		.unwrap();
 		assert!(!contains);
 		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: Some([2; 16]),
 		});
@@ -364,6 +358,7 @@ mod tests {
 			.unwrap();
 
 		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		});
@@ -378,6 +373,7 @@ mod tests {
 			})
 			.unwrap();
 		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		});
@@ -390,7 +386,11 @@ mod tests {
 			})
 			.unwrap();
 
-		let output = store.try_get_object_sync(&object::get::Arg { id, put: None });
+		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
+			id,
+			put: None,
+		});
 		assert!(output.object.is_none());
 	}
 }

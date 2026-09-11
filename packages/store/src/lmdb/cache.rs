@@ -274,6 +274,7 @@ mod tests {
 			.await
 			.unwrap();
 		let arg = object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
@@ -289,6 +290,7 @@ mod tests {
 			.await
 			.unwrap();
 		let arg = object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
@@ -308,7 +310,11 @@ mod tests {
 			.await
 			.unwrap();
 		let output = store
-			.try_get_object(object::get::Arg { id, put: None })
+			.try_get_object(object::get::Arg {
+				bytes: true,
+				id,
+				put: None,
+			})
 			.await
 			.unwrap();
 		assert!(output.object.is_none());

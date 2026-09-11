@@ -10,9 +10,9 @@ progress bar during highly concurrent runs.
 ## Cloud databases
 
 Cloud database tests are supported on Linux and macOS. On Linux, install native
-FoundationDB, PostgreSQL, ScyllaDB, and `nats-server`. On macOS, install Docker,
-PostgreSQL, and `nats-server`. Then start the shared databases in a separate
-terminal:
+FoundationDB, PostgreSQL, ScyllaDB 2026.3 or later, and `nats-server`. On macOS,
+install Docker, PostgreSQL, and `nats-server`. Then start the shared databases in
+a separate terminal:
 
 ```sh
 nu packages/cli/test.nu --databases

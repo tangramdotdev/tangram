@@ -219,8 +219,10 @@ impl State {
 			pending_enqueues: HashMap::default(),
 			queue: Queue::new(),
 			requests: super::Requests {
+				active: crate::control::requests::Requests::default(),
 				inbox: std::collections::HashSet::new(),
 				outbox: HashMap::new(),
+				replies: 0,
 			},
 			runners: super::runner::Runners::new(),
 			sandboxes: Sandboxes::new(),

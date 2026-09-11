@@ -30,12 +30,11 @@ pub(super) struct Arg {
 	pub database: Arc<fdb::Database>,
 	pub max_process_depth: Option<u64>,
 	pub metrics: Metrics,
-	pub partition_total: u64,
+	pub partition_totals: crate::fdb::PartitionTotals,
 	pub receiver_high: RequestReceiver,
 	pub receiver_low: RequestReceiver,
 	pub receiver_medium: RequestReceiver,
 	pub subspace: fdbt::Subspace,
-	pub usage_partition_total: u64,
 	pub write_operation_batch_size: usize,
 	pub write_transaction_concurrency: usize,
 }
@@ -56,8 +55,7 @@ struct ExecutionConfig<'a> {
 	authorize: crate::fdb::AuthorizeConfig,
 	max_process_depth: Option<u64>,
 	metrics: &'a Metrics,
-	partition_total: u64,
-	usage_partition_total: u64,
+	partition_totals: crate::fdb::PartitionTotals,
 }
 
 enum TransactionError {
@@ -72,12 +70,11 @@ impl Index {
 			database,
 			max_process_depth,
 			metrics,
-			partition_total,
+			partition_totals,
 			mut receiver_high,
 			mut receiver_low,
 			mut receiver_medium,
 			subspace,
-			usage_partition_total,
 			write_operation_batch_size,
 			write_transaction_concurrency,
 		} = arg;
@@ -158,8 +155,7 @@ impl Index {
 					authorize,
 					max_process_depth,
 					metrics: &metrics,
-					partition_total,
-					usage_partition_total,
+					partition_totals,
 				};
 				Self::execute_batch(&database, &subspace, batch, config).await;
 			}
@@ -210,8 +206,14 @@ impl Index {
 				response: Ok(Self::create_initial_response(&request)),
 				sender: Some(sender),
 			}));
-			if let Request::Batch(arg) = request {
-				let count = arg.items.len();
+			let operation_count = match &request {
+				Request::Batch(arg) => Some(arg.items.len()),
+				Request::DeleteIndexer(_) | Request::PutIndexer(_) | Request::UpdateIndexer(_) => {
+					Some(1)
+				},
+				_ => None,
+			};
+			if let Some(count) = operation_count {
 				if !current_batch.requests.is_empty()
 					&& current_count.saturating_add(count) > max_items
 				{
@@ -222,7 +224,7 @@ impl Index {
 					};
 					current_count = 0;
 				}
-				current_batch.requests.push(Request::Batch(arg));
+				current_batch.requests.push(request);
 				current_batch.trackers.push(tracker.clone());
 				tracker.lock().unwrap().remaining = 1;
 				current_count = current_count.saturating_add(count);
@@ -297,6 +299,7 @@ impl Index {
 			| Request::DeleteGrants(_)
 			| Request::DeleteGroupMembers(_)
 			| Request::DeleteGroups(_)
+			| Request::DeleteIndexer(_)
 			| Request::DeleteOrganizationMembers(_)
 			| Request::DeleteOrganizations(_)
 			| Request::DeleteSandboxes(_)
@@ -307,13 +310,15 @@ impl Index {
 			| Request::PutGrants(_)
 			| Request::PutGroupMembers(_)
 			| Request::PutGroups(_)
+			| Request::PutIndexer(_)
 			| Request::PutObjects(_)
 			| Request::PutOrganizationMembers(_)
 			| Request::PutOrganizations(_)
 			| Request::PutProcesses(_)
 			| Request::PutSandboxes(_)
 			| Request::PutTags(_)
-			| Request::PutUsers(_) => Response::Unit,
+			| Request::PutUsers(_)
+			| Request::UpdateIndexer(_) => Response::Unit,
 			Request::GetUsage { .. } => Response::Usage(crate::usage::Aggregate::default()),
 			Request::TouchCheckouts(_) => Response::Checkouts(Vec::new()),
 			Request::TouchObjects(_) => Response::Objects(Vec::new()),
@@ -325,7 +330,10 @@ impl Index {
 	fn request_into_operations(request: Request) -> (Vec<Item>, Kind) {
 		match request {
 			Request::AggregateUsage(arg) => (vec![Item::AggregateUsage], Kind::AggregateUsage(arg)),
-			Request::Batch(_) => unreachable!(),
+			Request::Batch(_)
+			| Request::DeleteIndexer(_)
+			| Request::PutIndexer(_)
+			| Request::UpdateIndexer(_) => unreachable!(),
 			Request::Clean(crate::fdb::Clean {
 				batch_size,
 				max_object_touched_at,
@@ -1119,10 +1127,11 @@ impl Index {
 	) -> tg::Result<ControlFlow<Response, fdb::FdbError>> {
 		let ExecutionConfig {
 			max_process_depth,
-			partition_total,
-			usage_partition_total,
+			partition_totals,
 			..
 		} = config;
+		let partition_total = partition_totals.cleaning;
+		let usage_partition_total = partition_totals.usage;
 		let response = match request {
 			Request::AggregateUsage(arg) => {
 				let result = Self::aggregate_usage_with_transaction(txn, subspace, arg).await;
@@ -1135,8 +1144,7 @@ impl Index {
 					txn,
 					subspace,
 					arg,
-					config.partition_total,
-					config.usage_partition_total,
+					config.partition_totals,
 				)
 				.await;
 				crate::fdb::propagate!(result);
@@ -1159,9 +1167,8 @@ impl Index {
 					now: *now,
 					partition_end: *partition_end,
 					partition_start: *partition_start,
-					partition_total,
+					partition_totals,
 					subspace,
-					usage_partition_total,
 					txn,
 				};
 				let result = Self::clean_with_transaction(arg).await;
@@ -1183,7 +1190,7 @@ impl Index {
 			},
 			Request::DeleteGrants(args) => {
 				let result =
-					Self::delete_grants_with_transaction(txn, subspace, args, partition_total)
+					Self::delete_grants_with_transaction(txn, subspace, args, partition_totals)
 						.await;
 				crate::fdb::propagate!(result);
 				Response::Unit
@@ -1195,6 +1202,11 @@ impl Index {
 			},
 			Request::DeleteGroups(ids) => {
 				let result = Self::delete_groups_with_transaction(txn, subspace, ids).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
+			},
+			Request::DeleteIndexer(arg) => {
+				let result = Self::delete_indexer_with_transaction(txn, subspace, arg).await;
 				crate::fdb::propagate!(result);
 				Response::Unit
 			},
@@ -1221,7 +1233,7 @@ impl Index {
 			},
 			Request::DeleteTags(tags) => {
 				let result =
-					Self::delete_tags_with_transaction(txn, subspace, tags, partition_total).await;
+					Self::delete_tags_with_transaction(txn, subspace, tags, partition_totals).await;
 				crate::fdb::propagate!(result);
 				Response::Unit
 			},
@@ -1230,7 +1242,7 @@ impl Index {
 					txn,
 					subspace,
 					process,
-					partition_total,
+					partition_totals.log_compaction,
 				)
 				.await;
 				crate::fdb::propagate!(result);
@@ -1261,7 +1273,7 @@ impl Index {
 			},
 			Request::PutGrants(args) => {
 				let result =
-					Self::put_grants_with_transaction(txn, subspace, args, partition_total).await;
+					Self::put_grants_with_transaction(txn, subspace, args, partition_totals).await;
 				crate::fdb::propagate!(result);
 				Response::Unit
 			},
@@ -1275,9 +1287,14 @@ impl Index {
 				crate::fdb::propagate!(result);
 				Response::Unit
 			},
+			Request::PutIndexer(arg) => {
+				let result = Self::put_indexer_with_transaction(txn, subspace, arg).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
+			},
 			Request::PutObjects(args) => {
 				let result =
-					Self::put_objects_with_transaction(txn, subspace, args, partition_total).await;
+					Self::put_objects_with_transaction(txn, subspace, args, partition_totals).await;
 				crate::fdb::propagate!(result);
 				Response::Unit
 			},
@@ -1293,7 +1310,7 @@ impl Index {
 			},
 			Request::PutProcesses(args) => {
 				let result =
-					Self::put_processes_with_transaction(txn, subspace, args, partition_total)
+					Self::put_processes_with_transaction(txn, subspace, args, partition_totals)
 						.await;
 				crate::fdb::propagate!(result);
 				Response::Unit
@@ -1312,7 +1329,7 @@ impl Index {
 			},
 			Request::PutTags(args) => {
 				let result =
-					Self::put_tags_with_transaction(txn, subspace, args, partition_total).await;
+					Self::put_tags_with_transaction(txn, subspace, args, partition_totals).await;
 				crate::fdb::propagate!(result);
 				Response::Unit
 			},
@@ -1362,8 +1379,7 @@ impl Index {
 					txn,
 					subspace,
 					arg,
-					partition_total,
-					usage_partition_total,
+					partition_totals,
 				)
 				.await;
 				let output = crate::fdb::propagate!(result);
@@ -1383,12 +1399,16 @@ impl Index {
 					*partition_start,
 					*partition_end,
 					max_process_depth,
-					partition_total,
-					usage_partition_total,
+					partition_totals,
 				)
 				.await;
 				let output = crate::fdb::propagate!(result);
 				Response::UpdateOutput(output)
+			},
+			Request::UpdateIndexer(arg) => {
+				let result = Self::update_indexer_with_transaction(txn, subspace, arg).await;
+				crate::fdb::propagate!(result);
+				Response::Unit
 			},
 		};
 

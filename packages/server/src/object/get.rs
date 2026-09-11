@@ -693,6 +693,7 @@ impl Server {
 		checkout_file: &mut Option<CheckoutFile>,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let arg = crate::store::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};
@@ -770,6 +771,7 @@ impl Server {
 		ids: &[tg::object::Id],
 	) -> tg::Result<Vec<Option<Bytes>>> {
 		let arg = crate::store::object::get::batch::Arg {
+			bytes: true,
 			ids: ids.to_owned(),
 		};
 		let output = self
@@ -816,6 +818,7 @@ impl Server {
 
 	async fn try_get_object_bytes_local(&self, id: &tg::object::Id) -> tg::Result<Option<Bytes>> {
 		let arg = crate::store::object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		};

@@ -14,6 +14,11 @@ let path = artifact {
 let id = tg build --detach $path | str trim
 tg wait $id
 
+# Process completion precedes the writer's final log message.
+wait_until --timeout 10sec {
+	(tg get $id | from json | get log?) != null
+} "the process log should be compacted before checking its metadata"
+
 tg index
 
 let metadata = tg process metadata $id | from json

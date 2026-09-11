@@ -103,6 +103,7 @@ mod tests {
 			entry: entries[0].clone(),
 		});
 		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		});
@@ -116,6 +117,7 @@ mod tests {
 			})
 			.unwrap();
 		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
 			id: id.clone(),
 			put: None,
 		});
@@ -127,7 +129,11 @@ mod tests {
 		store.delete_object_cache_entry(object::cache::delete::Arg {
 			entry: entries[0].clone(),
 		});
-		let output = store.try_get_object_sync(&object::get::Arg { id, put: None });
+		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
+			id,
+			put: None,
+		});
 		assert!(output.object.is_none());
 	}
 
@@ -151,7 +157,11 @@ mod tests {
 		store.delete_object_cache_entry(object::cache::delete::Arg {
 			entry: entries[0].clone(),
 		});
-		let output = store.try_get_object_sync(&object::get::Arg { id, put: None });
+		let output = store.try_get_object_sync(&object::get::Arg {
+			bytes: true,
+			id,
+			put: None,
+		});
 		assert!(output.object.is_none());
 	}
 }

@@ -24,9 +24,10 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &crate::batch::Arg,
-		partition_total: u64,
-		usage_partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let partition_total = partition_totals.cleaning;
+		let usage_partition_total = partition_totals.usage;
 		for item in &arg.items {
 			match item {
 				crate::batch::Item::DeleteCheckout(id) => {
@@ -40,7 +41,7 @@ impl Index {
 							txn,
 							subspace,
 							std::slice::from_ref(arg),
-							partition_total,
+							partition_totals,
 						)
 						.await
 					);
@@ -92,7 +93,7 @@ impl Index {
 							txn,
 							subspace,
 							std::slice::from_ref(id),
-							partition_total,
+							partition_totals,
 						)
 						.await
 					);
@@ -113,7 +114,7 @@ impl Index {
 							txn,
 							subspace,
 							process,
-							partition_total,
+							partition_totals.log_compaction,
 						)
 						.await
 					);
@@ -132,7 +133,7 @@ impl Index {
 							txn,
 							subspace,
 							std::slice::from_ref(arg),
-							partition_total,
+							partition_totals,
 						)
 						.await
 					);
@@ -157,23 +158,15 @@ impl Index {
 							txn,
 							subspace,
 							std::slice::from_ref(arg),
-							partition_total,
+							partition_totals,
 						)
 						.await
 					);
 				},
 				crate::batch::Item::PutAccountObject(arg) => {
 					crate::fdb::propagate!(
-						Self::put_account_object(
-							txn,
-							subspace,
-							arg,
-							partition_total,
-							usage_partition_total,
-							true,
-							None,
-						)
-						.await
+						Self::put_account_object(txn, subspace, arg, partition_totals, true, None,)
+							.await
 					);
 				},
 				crate::batch::Item::PutAccountProcess(arg) => {
@@ -182,8 +175,7 @@ impl Index {
 							txn,
 							subspace,
 							arg,
-							partition_total,
-							usage_partition_total,
+							partition_totals,
 							true,
 							None,
 						)
@@ -213,7 +205,7 @@ impl Index {
 							txn,
 							subspace,
 							std::slice::from_ref(arg),
-							partition_total,
+							partition_totals,
 						)
 						.await
 					);
@@ -225,7 +217,7 @@ impl Index {
 							txn,
 							subspace,
 							arg,
-							partition_total,
+							partition_totals,
 						)
 						.await
 					);
@@ -248,7 +240,7 @@ impl Index {
 							txn,
 							subspace,
 							std::slice::from_ref(arg),
-							partition_total,
+							partition_totals,
 						)
 						.await
 					);

@@ -21,14 +21,21 @@ impl Value<'_> {
 
 impl Value<'static> {
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		Self::deserialize_with_bytes(bytes, true)
+	}
+
+	pub fn deserialize_with_bytes(bytes: &[u8], include_bytes: bool) -> tg::Result<Self> {
 		let Some((&format, bytes)) = bytes.split_first() else {
 			return Err(tg::error!("empty object value data"));
 		};
 		if format != 0 {
 			return Err(tg::error!("invalid object value format"));
 		}
-		let value: Value<'_> = tangram_serialize::from_slice(bytes)
+		let mut value: Value<'_> = tangram_serialize::from_slice(bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the object value"))?;
+		if !include_bytes {
+			value.object.bytes = None;
+		}
 		let object = value.object.into_static();
 
 		Ok(Self { object })

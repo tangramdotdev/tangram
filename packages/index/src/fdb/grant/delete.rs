@@ -25,8 +25,9 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[crate::grant::delete::Arg],
-		partition_total: u64,
+		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let partition_total = partition_totals.cleaning;
 		for arg in args {
 			for permission in arg.permissions.iter() {
 				let (expires_at, source) = match arg.implicit {
@@ -56,7 +57,7 @@ impl Index {
 						&arg.resource,
 						&arg.subject,
 						permission,
-						partition_total,
+						partition_totals.grant_update,
 					);
 				}
 			}

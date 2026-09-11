@@ -55,8 +55,18 @@ struct PendingEnqueue {
 }
 
 struct Requests {
+	active: crate::control::requests::Requests<RequestKind>,
 	inbox: HashSet<String>,
 	outbox: HashMap<String, Response>,
+	replies: usize,
+}
+
+#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+enum RequestKind {
+	AddRunner,
+	DequeueSandbox,
+	EnqueueSandbox,
+	RemoveRunner,
 }
 
 enum Operation {
@@ -85,6 +95,13 @@ enum Operation {
 	RemoveRunner {
 		id: Option<String>,
 		result: tg::Result<RemoveRunnerResponseOutput>,
+	},
+	Reply {
+		result: tg::Result<()>,
+	},
+	Response {
+		id: String,
+		result: tg::Result<()>,
 	},
 	RetrySandbox {
 		sandbox: tg::sandbox::Id,
@@ -155,6 +172,7 @@ pub(crate) struct Response {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub(crate) enum ResponseOutput {
 	AddRunner(AddRunnerResponseOutput),
+	Busy,
 	DequeueSandbox(DequeueSandboxResponseOutput),
 	EnqueueSandbox(EnqueueSandboxResponseOutput),
 	RemoveRunner(RemoveRunnerResponseOutput),
@@ -247,6 +265,7 @@ struct Config {
 	max_create_sandbox_attempts: usize,
 	max_create_sandbox_requests: usize,
 	max_create_sandbox_requests_per_runner: usize,
+	request_concurrency: usize,
 	runner_ttl: Duration,
 }
 
@@ -396,7 +415,7 @@ impl Session {
 		&self,
 		arg: RequestArg,
 	) -> tg::Result<(tg::scheduler::Id, tg::Result<ResponseOutput>)> {
-		self.send_scheduler_request_inner(None, arg).await
+		self.send_scheduler_request_with_retry(None, arg).await
 	}
 
 	pub(crate) async fn send_scheduler_request_to(
@@ -405,10 +424,32 @@ impl Session {
 		arg: RequestArg,
 	) -> tg::Result<tg::Result<ResponseOutput>> {
 		let (_, response) = self
-			.send_scheduler_request_inner(Some(scheduler), arg)
+			.send_scheduler_request_with_retry(Some(scheduler), arg)
 			.await?;
 
 		Ok(response)
+	}
+
+	async fn send_scheduler_request_with_retry(
+		&self,
+		scheduler: Option<&tg::scheduler::Id>,
+		arg: RequestArg,
+	) -> tg::Result<(tg::scheduler::Id, tg::Result<ResponseOutput>)> {
+		let retry = self.scheduler_message_options().retry;
+		tangram_futures::retry(&retry, || {
+			let arg = arg.clone();
+			async move {
+				let response = self
+					.send_scheduler_request_inner(scheduler, arg)
+					.boxed()
+					.await?;
+				if matches!(response.1, Ok(ResponseOutput::Busy)) {
+					return Ok(ControlFlow::Continue(tg::error!("the scheduler is busy")));
+				}
+				Ok(ControlFlow::Break(response))
+			}
+		})
+		.await
 	}
 
 	async fn send_scheduler_request_inner(
@@ -610,6 +651,7 @@ impl Scheduler {
 			max_create_sandbox_attempts: config.max_create_sandbox_attempts,
 			max_create_sandbox_requests: config.max_create_sandbox_requests,
 			max_create_sandbox_requests_per_runner: config.max_create_sandbox_requests_per_runner,
+			request_concurrency: config.request_concurrency,
 			runner_ttl: config.runner_ttl,
 		};
 
@@ -736,7 +778,9 @@ impl Scheduler {
 		if ack.scheduler != self.id {
 			return;
 		}
-		state.requests.outbox.remove(&ack.id);
+		if state.requests.outbox.remove(&ack.id).is_none() {
+			return;
+		}
 		let duration = self.config.inbox_ttl;
 		state.operations.push(
 			async move {
@@ -749,6 +793,26 @@ impl Scheduler {
 
 	fn acknowledge_request(&self, state: &mut State, request: Request) {
 		let id = request.id.clone();
+		if state.requests.active.contains(&id) || state.requests.inbox.contains(&id) {
+			let response = state.requests.outbox.get(&id).cloned();
+			self.reply_to_request(state, id, response);
+			return;
+		}
+		let kind = match &request.arg {
+			RequestArg::AddRunner(_) => RequestKind::AddRunner,
+			RequestArg::DequeueSandbox(_) => RequestKind::DequeueSandbox,
+			RequestArg::EnqueueSandbox(_) => RequestKind::EnqueueSandbox,
+			RequestArg::RemoveRunner(_) => RequestKind::RemoveRunner,
+		};
+		if !state
+			.requests
+			.active
+			.try_insert(id.clone(), kind, self.config.request_concurrency)
+		{
+			let response = self.response(id.clone(), Ok(ResponseOutput::Busy));
+			self.reply_to_request(state, id, Some(response));
+			return;
+		}
 		let subject = Self::client_subject(&id);
 		let message = Message::Ack(Ack {
 			id: id.clone(),
@@ -763,6 +827,44 @@ impl Scheduler {
 					.await
 					.map_err(|source| tg::error!(!source, "failed to publish a scheduler message"));
 				Operation::Acknowledge { request, result }
+			}
+			.boxed(),
+		);
+	}
+
+	fn reply_to_request(&self, state: &mut State, id: String, response: Option<Response>) {
+		// Bound duplicate and busy replies independently of accepted requests.
+		if state.requests.replies >= self.config.request_concurrency {
+			return;
+		}
+		state.requests.replies += 1;
+		let server = self.server.clone();
+		let scheduler = self.id.clone();
+		state.operations.push(
+			async move {
+				let result = async {
+					let subject = Self::client_subject(&id);
+					let ack = Ack { id, scheduler };
+					server
+						.messenger
+						.publish(subject.clone(), Message::Ack(ack))
+						.await
+						.map_err(|source| {
+							tg::error!(!source, "failed to publish the scheduler ack")
+						})?;
+					if let Some(response) = response {
+						server
+							.messenger
+							.publish(subject, Message::Response(response))
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to publish the scheduler response")
+							})?;
+					}
+					Ok(())
+				}
+				.await;
+				Operation::Reply { result }
 			}
 			.boxed(),
 		);
@@ -864,6 +966,18 @@ impl Scheduler {
 					tracing::error!(error = %error.trace(), "failed to remove the expired runner");
 				}
 			},
+			Operation::Reply { result } => {
+				state.requests.replies -= 1;
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), "failed to reply to a scheduler request");
+				}
+			},
+			Operation::Response { id, result } => {
+				state.requests.active.remove(&id);
+				if let Err(error) = result {
+					tracing::error!(error = %error.trace(), "failed to publish the scheduler response");
+				}
+			},
 			Operation::RetrySandbox { sandbox } => {
 				state.handle_retry_sandbox(&sandbox);
 			},
@@ -882,34 +996,22 @@ impl Scheduler {
 		}
 	}
 
-	fn publish_message(
-		&self,
-		state: &mut State,
-		subject: String,
-		message: Message,
-		context: &'static str,
-	) {
+	fn publish_response(&self, state: &mut State, response: Response) {
+		let subject = Self::client_subject(&response.id);
+		let id = response.id.clone();
 		let server = self.server.clone();
 		state.operations.push(
 			async move {
 				let result = server
 					.messenger
-					.publish(subject, message)
+					.publish(subject, Message::Response(response))
 					.await
-					.map_err(|source| tg::error!(!source, "failed to publish a scheduler message"));
-				Operation::Publish { context, result }
+					.map_err(|source| {
+						tg::error!(!source, "failed to publish the scheduler response")
+					});
+				Operation::Response { id, result }
 			}
 			.boxed(),
-		);
-	}
-
-	fn publish_response(&self, state: &mut State, response: Response) {
-		let subject = Self::client_subject(&response.id);
-		self.publish_message(
-			state,
-			subject,
-			Message::Response(response),
-			"failed to publish the scheduler response",
 		);
 	}
 

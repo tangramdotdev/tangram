@@ -13,7 +13,7 @@ const database_reset_timeout = 30sec
 const foundationdb_container_name = 'tangram_test_foundationdb'
 const foundationdb_image = 'foundationdb/foundationdb:7.3.68'
 const scylla_container_name = 'tangram_test_scylla'
-const scylla_image = 'scylladb/scylla:2026.1.1'
+const scylla_image = 'scylladb/scylla:2026.3.0'
 const server_exit_directory_name = 'server_jobs'
 const worker_cleanup_grace = 75sec
 const worker_exit_grace = 2sec
@@ -2071,6 +2071,14 @@ export def --env "server spawn" [
 	} else {
 		$config
 	}
+	let roles = $config.roles? | default [api indexer runner scheduler]
+	let single_process = $config.advanced.single_process? | default true
+	let config = if (not $single_process) and ('indexer' in $roles) and ($config.indexer?.id? == null) {
+		let id = bytes build 0x[00 00 10 00] (random binary 16) | tg id | into string
+		$config | upsert indexer.id $id
+	} else {
+		$config
+	}
 
 	# Pin token keys to the server directory so restarts can verify existing tokens.
 	let config = if $preserve_keys {
@@ -2546,7 +2554,7 @@ def reset_database_instance_once [instance: string, pool_path: string] {
 				(^timeout --kill-after 2s $database_reset_timeout_secs psql --host=127.0.0.1 --username=postgres --dbname=$'database_($instance)' --set=ON_ERROR_STOP=1 --command $postgres_query | complete)
 			},
 			'scylla' => {
-				(^timeout --kill-after 2s $database_reset_timeout_secs tangram_scylla_client 127.0.0.1 9042 -k $'store_($instance)' -e 'truncate logs; truncate objects; truncate object_cache; truncate object_index_outbox; truncate object_archive_outbox;' | complete)
+				(^timeout --kill-after 2s $database_reset_timeout_secs tangram_scylla_client 127.0.0.1 9042 -k $'store_($instance)' -e 'truncate archive_queue; truncate index_queue; truncate logs; truncate object_cache; truncate objects;' | complete)
 			},
 		}
 

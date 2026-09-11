@@ -1,11 +1,13 @@
 use {
-	super::super::Indexer,
+	super::super::{Indexer, RETRY_OPTIONS},
 	futures::{FutureExt as _, StreamExt as _, stream},
 	std::{
 		collections::{BTreeMap, BTreeSet},
+		ops::ControlFlow,
 		time::Duration,
 	},
 	tangram_client::prelude::*,
+	tangram_futures::task::Stopper,
 	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
 	tokio_stream::wrappers::IntervalStream,
@@ -21,17 +23,25 @@ impl Indexer {
 		&self,
 		outbox: &crate::config::DatabaseIndexOutbox,
 		region: &str,
+		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let wakeup_interval = outbox.wakeup_interval;
-		loop {
-			let result = self
-				.database_index_outbox_task_inner(outbox, region, wakeup_interval)
-				.await;
-			if let Err(error) = result {
-				tracing::error!(error = %error.trace(), "failed to service the database index outbox");
-				tokio::time::sleep(Duration::from_secs(1)).await;
+		tangram_futures::retry(&RETRY_OPTIONS, || async {
+			match self
+				.database_index_outbox_task_inner(outbox, region, wakeup_interval, stopper)
+				.await
+			{
+				Ok(()) => Ok(ControlFlow::Break(())),
+				Err(error) => {
+					tracing::error!(error = %error.trace(), "failed to service the database index outbox");
+
+					Ok(ControlFlow::Continue(error))
+				},
 			}
-		}
+		})
+		.await?;
+
+		Ok(())
 	}
 
 	async fn database_index_outbox_task_inner(
@@ -39,6 +49,7 @@ impl Indexer {
 		outbox: &crate::config::DatabaseIndexOutbox,
 		region: &str,
 		wakeup_interval: Duration,
+		stopper: &Stopper,
 	) -> tg::Result<()> {
 		let subject = database_index_outbox_subject();
 		let notifications = self
@@ -56,9 +67,16 @@ impl Indexer {
 		let wakeups = stream::select(notifications, interval);
 		let mut wakeups = wakeups.boxed();
 		loop {
+			if stopper.stopped() {
+				return Ok(());
+			}
 			while wakeups.next().now_or_never().flatten().is_some() {}
 			let count = self.database_index_outbox_batch(outbox, region).await?;
-			if count == 0 && wakeups.next().await.is_none() {
+			if count == 0
+				&& tokio::select! {
+					() = stopper.wait() => return Ok(()),
+					wakeup = wakeups.next() => wakeup.is_none(),
+				} {
 				return Err(tg::error!("the database index outbox wakeup stream ended"));
 			}
 		}
