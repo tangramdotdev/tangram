@@ -15,8 +15,8 @@ pub enum Key {
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 		kind: Kind,
 	},
-	// The oldest addition for an account association is independent of its touch timestamp.
-	StorageAddition {
+	/// The oldest put version for an account association is independent of its touch timestamp.
+	StorageUpdatePutVersion {
 		account: crate::usage::Account,
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 	},
@@ -40,13 +40,13 @@ pub enum Kind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StorageKind {
-	Add {
-		account: crate::usage::Account,
-		touched_at: i64,
-	},
 	Clean(crate::usage::Account),
 	CleanAll,
 	Propagate {
+		account: crate::usage::Account,
+		touched_at: i64,
+	},
+	Put {
 		account: crate::usage::Account,
 		touched_at: i64,
 	},

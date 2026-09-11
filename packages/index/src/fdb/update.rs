@@ -425,17 +425,19 @@ impl Index {
 						id: id.clone(),
 						kind: kind.clone(),
 					}),
-					Kind::Storage(StorageKind::Add { account, .. }) => Some(Key::StorageAddition {
-						account: account.clone(),
-						id: id.clone(),
-					}),
+					Kind::Storage(StorageKind::Clean(_) | StorageKind::CleanAll) => None,
 					Kind::Storage(StorageKind::Propagate { account, .. }) => {
-						Some(Key::StoragePropagation {
+						Some(Key::StorageUpdatePropagatedVersion {
 							account: account.clone(),
 							id: id.clone(),
 						})
 					},
-					Kind::Storage(StorageKind::Clean(_) | StorageKind::CleanAll) => None,
+					Kind::Storage(StorageKind::Put { account, .. }) => {
+						Some(Key::StorageUpdatePutVersion {
+							account: account.clone(),
+							id: id.clone(),
+						})
+					},
 				};
 				let propagated_version = if let Some(key) = key {
 					crate::fdb::propagate!(
@@ -525,47 +527,6 @@ impl Index {
 						process_output.changed
 					},
 				},
-				Kind::Storage(StorageKind::Add {
-					account,
-					touched_at,
-				}) => match &id {
-					tg::Either::Left(object) => {
-						crate::fdb::propagate!(
-							Self::put_account_object(
-								txn,
-								subspace,
-								&crate::usage::storage::put::ObjectArg {
-									account: account.clone(),
-									object: object.clone(),
-									touched_at: *touched_at,
-								},
-								partition_total,
-								usage_partition_total,
-								false,
-								Some(&version),
-							)
-							.await
-						)
-					},
-					tg::Either::Right(process) => {
-						crate::fdb::propagate!(
-							Self::put_account_process(
-								txn,
-								subspace,
-								&crate::usage::storage::put::ProcessArg {
-									account: account.clone(),
-									process: process.clone(),
-									touched_at: *touched_at,
-								},
-								partition_total,
-								usage_partition_total,
-								false,
-								Some(&version),
-							)
-							.await
-						)
-					},
-				},
 				Kind::Storage(StorageKind::Clean(account)) => {
 					next_cursor = crate::fdb::propagate!(
 						Self::propagate_storage_clean(
@@ -611,6 +572,47 @@ impl Index {
 						.await
 					);
 					false
+				},
+				Kind::Storage(StorageKind::Put {
+					account,
+					touched_at,
+				}) => match &id {
+					tg::Either::Left(object) => {
+						crate::fdb::propagate!(
+							Self::put_account_object(
+								txn,
+								subspace,
+								&crate::usage::storage::put::ObjectArg {
+									account: account.clone(),
+									object: object.clone(),
+									touched_at: *touched_at,
+								},
+								partition_total,
+								usage_partition_total,
+								false,
+								Some(&version),
+							)
+							.await
+						)
+					},
+					tg::Either::Right(process) => {
+						crate::fdb::propagate!(
+							Self::put_account_process(
+								txn,
+								subspace,
+								&crate::usage::storage::put::ProcessArg {
+									account: account.clone(),
+									process: process.clone(),
+									touched_at: *touched_at,
+								},
+								partition_total,
+								usage_partition_total,
+								false,
+								Some(&version),
+							)
+							.await
+						)
+					},
 				},
 			};
 
@@ -742,8 +744,8 @@ impl Index {
 		for kind in [
 			KeyKind::GrantUpdatePropagatedVersion,
 			KeyKind::NodeUpdatePropagatedVersion,
-			KeyKind::StorageAddition,
-			KeyKind::StoragePropagation,
+			KeyKind::StorageUpdatePropagatedVersion,
+			KeyKind::StorageUpdatePutVersion,
 		] {
 			let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), id));
 			let (_, end) = Subspace::from_bytes(prefix.clone()).range();
@@ -751,14 +753,14 @@ impl Index {
 		}
 	}
 
-	pub(super) async fn lower_storage_addition_version(
+	pub(super) async fn lower_storage_update_put_version(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &crate::usage::Account,
 		version: &fdbt::Versionstamp,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
-		let key = Key::StorageAddition {
+		let key = Key::StorageUpdatePutVersion {
 			account: account.clone(),
 			id: id.clone(),
 		};
@@ -774,18 +776,18 @@ impl Index {
 		Ok(ControlFlow::Break(true))
 	}
 
-	pub(super) fn clear_storage_propagations(
+	pub(super) fn clear_storage_update_versions(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &crate::usage::Account,
 	) {
 		for key in [
-			Key::StorageAddition {
+			Key::StorageUpdatePropagatedVersion {
 				account: account.clone(),
 				id: id.clone(),
 			},
-			Key::StoragePropagation {
+			Key::StorageUpdatePutVersion {
 				account: account.clone(),
 				id: id.clone(),
 			},
@@ -822,16 +824,16 @@ impl Index {
 			return Ok(ControlFlow::Break(None));
 		}
 
-		// Resolve the addition version once a versionstamped insertion starts propagating.
+		// Resolve the put version once a versionstamped insertion starts propagating.
 		if cursor.is_none() {
 			crate::fdb::propagate!(
-				Self::lower_storage_addition_version(txn, subspace, id, account, version).await
+				Self::lower_storage_update_put_version(txn, subspace, id, account, version).await
 			);
 		}
 		let (relationships, cursor) = crate::fdb::propagate!(
 			Self::get_storage_relationships_page(txn, subspace, id, cursor).await
 		);
-		let kind = Kind::Storage(StorageKind::Add {
+		let kind = Kind::Storage(StorageKind::Put {
 			account: account.clone(),
 			touched_at,
 		});
@@ -852,7 +854,7 @@ impl Index {
 		}
 
 		if cursor.is_none() {
-			let key = Key::StoragePropagation {
+			let key = Key::StorageUpdatePropagatedVersion {
 				account: account.clone(),
 				id: id.clone(),
 			};

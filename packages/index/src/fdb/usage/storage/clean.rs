@@ -399,7 +399,12 @@ impl Index {
 			object: object.clone(),
 		});
 		txn.clear(&Self::pack(subspace, &key));
-		Self::clear_storage_propagations(txn, subspace, &tg::Either::Left(object.clone()), account);
+		Self::clear_storage_update_versions(
+			txn,
+			subspace,
+			&tg::Either::Left(object.clone()),
+			account,
+		);
 		let usage_partition = rand::random_range(0..usage_partition_total);
 		Self::add_usage_delta(
 			txn,
@@ -466,7 +471,7 @@ impl Index {
 			process: process.clone(),
 		});
 		txn.clear(&Self::pack(subspace, &key));
-		Self::clear_storage_propagations(
+		Self::clear_storage_update_versions(
 			txn,
 			subspace,
 			&tg::Either::Right(process.clone()),

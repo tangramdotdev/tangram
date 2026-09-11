@@ -110,7 +110,7 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Left(object.clone()),
-				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Add {
+				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Put {
 					account,
 					touched_at,
 				}),
@@ -161,7 +161,7 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Right(process.clone()),
-				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Add {
+				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Put {
 					account,
 					touched_at,
 				}),
@@ -489,7 +489,7 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		if let Some(version) = version {
 			let lowered = crate::fdb::propagate!(
-				Self::lower_storage_addition_version(txn, subspace, id, account, version).await
+				Self::lower_storage_update_put_version(txn, subspace, id, account, version).await
 			);
 			if !lowered {
 				return Ok(ControlFlow::Break(()));

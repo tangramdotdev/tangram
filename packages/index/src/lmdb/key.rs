@@ -83,7 +83,7 @@ pub enum Kind {
 	UsageUnavailable = 65,
 	GrantUpdatePropagatedVersion = 66,
 	NodeUpdatePropagatedVersion = 67,
-	StorageAddition = 68,
+	StorageUpdatePutVersion = 68,
 	GrantUpdateClean = 71,
 	NodeUpdateClean = 72,
 }
@@ -561,13 +561,13 @@ impl fdbt::TuplePack for Key {
 				Ok(offset)
 			},
 
-			Key::Update(crate::lmdb::update::Key::StorageAddition { account, id }) => {
+			Key::Update(crate::lmdb::update::Key::StorageUpdatePutVersion { account, id }) => {
 				let id = match id {
 					tg::Either::Left(id) => id.to_bytes(),
 					tg::Either::Right(id) => id.to_bytes(),
 				};
 				(
-					Kind::StorageAddition.to_i32().unwrap(),
+					Kind::StorageUpdatePutVersion.to_i32().unwrap(),
 					id.as_ref(),
 					account.id().to_bytes().as_ref(),
 				)
@@ -1471,7 +1471,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::StorageAddition => {
+			Kind::StorageUpdatePutVersion => {
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
@@ -1487,7 +1487,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let account = crate::usage::Account::try_from(account)
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
-				let key = crate::lmdb::update::Key::StorageAddition { account, id };
+				let key = crate::lmdb::update::Key::StorageUpdatePutVersion { account, id };
 				Ok((input, Key::Update(key)))
 			},
 
@@ -1580,15 +1580,6 @@ fn pack_update_kind<W: std::io::Write>(
 		crate::lmdb::update::Kind::Grant(subject) => subject.to_string().pack(w, tuple_depth),
 		crate::lmdb::update::Kind::Node => ().pack(w, tuple_depth),
 		crate::lmdb::update::Kind::Storage(kind) => match kind {
-			crate::lmdb::update::StorageKind::Add {
-				account,
-				touched_at,
-			} => {
-				let mut offset = 0i32.pack(w, tuple_depth)?;
-				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
-				offset += touched_at.pack(w, tuple_depth)?;
-				Ok(offset)
-			},
 			crate::lmdb::update::StorageKind::Clean(account) => {
 				let mut offset = 1i32.pack(w, tuple_depth)?;
 				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
@@ -1600,6 +1591,15 @@ fn pack_update_kind<W: std::io::Write>(
 				touched_at,
 			} => {
 				let mut offset = 3i32.pack(w, tuple_depth)?;
+				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
+				offset += touched_at.pack(w, tuple_depth)?;
+				Ok(offset)
+			},
+			crate::lmdb::update::StorageKind::Put {
+				account,
+				touched_at,
+			} => {
+				let mut offset = 0i32.pack(w, tuple_depth)?;
 				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
 				offset += touched_at.pack(w, tuple_depth)?;
 				Ok(offset)
@@ -1635,7 +1635,7 @@ fn unpack_update_kind(
 					let account = crate::usage::Account::try_from(account)
 						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 					let kind = match kind {
-						0 => crate::lmdb::update::StorageKind::Add {
+						0 => crate::lmdb::update::StorageKind::Put {
 							account,
 							touched_at,
 						},

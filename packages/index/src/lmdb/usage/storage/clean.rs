@@ -393,7 +393,7 @@ impl Index {
 		});
 		db.delete(transaction, &Self::pack(subspace, &key))
 			.map_err(|error| tg::error!(!error, "failed to delete the object account"))?;
-		Self::clear_storage_propagations(
+		Self::clear_storage_update_versions(
 			db,
 			subspace,
 			transaction,
@@ -475,7 +475,7 @@ impl Index {
 		});
 		db.delete(transaction, &Self::pack(subspace, &key))
 			.map_err(|error| tg::error!(!error, "failed to delete the process account"))?;
-		Self::clear_storage_propagations(
+		Self::clear_storage_update_versions(
 			db,
 			subspace,
 			transaction,

@@ -262,7 +262,10 @@ impl Index {
 						process_output.changed
 					},
 				},
-				Kind::Storage(StorageKind::Add {
+				Kind::Storage(
+					StorageKind::Clean(_) | StorageKind::CleanAll | StorageKind::Propagate { .. },
+				) => return Err(tg::error!("unsupported LMDB storage update kind")),
+				Kind::Storage(StorageKind::Put {
 					account,
 					touched_at,
 				}) => match &id {
@@ -299,9 +302,6 @@ impl Index {
 						)
 					}?,
 				},
-				Kind::Storage(
-					StorageKind::Clean(_) | StorageKind::CleanAll | StorageKind::Propagate { .. },
-				) => return Err(tg::error!("unsupported LMDB storage update kind")),
 			};
 
 			if let Some(source) = source {
@@ -1972,7 +1972,7 @@ impl Index {
 		Ok(())
 	}
 
-	pub(super) fn lower_storage_addition_version(
+	pub(super) fn lower_storage_update_put_version(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -1980,35 +1980,38 @@ impl Index {
 		account: &crate::usage::Account,
 		version: u64,
 	) -> tg::Result<bool> {
-		let key = Key::StorageAddition {
+		let key = Key::StorageUpdatePutVersion {
 			account: account.clone(),
 			id: id.clone(),
 		};
 		let key = Self::pack(subspace, &crate::lmdb::Key::Update(key));
 		let previous = db
 			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to get the storage addition version"))?
+			.map_err(|error| tg::error!(!error, "failed to get the storage update put version"))?
 			.map(|bytes| bytes.try_into().map(u64::from_be_bytes))
 			.transpose()
 			.map_err(|error| {
-				tg::error!(!error, "failed to deserialize the storage addition version")
+				tg::error!(
+					!error,
+					"failed to deserialize the storage update put version"
+				)
 			})?;
 		if previous.is_some_and(|previous| version >= previous) {
 			return Ok(false);
 		}
 		db.put(transaction, &key, &version.to_be_bytes())
-			.map_err(|error| tg::error!(!error, "failed to put the storage addition version"))?;
+			.map_err(|error| tg::error!(!error, "failed to put the storage update put version"))?;
 		Ok(true)
 	}
 
-	pub(super) fn clear_storage_propagations(
+	pub(super) fn clear_storage_update_versions(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &crate::usage::Account,
 	) -> tg::Result<()> {
-		let key = Key::StorageAddition {
+		let key = Key::StorageUpdatePutVersion {
 			account: account.clone(),
 			id: id.clone(),
 		};
@@ -2016,7 +2019,7 @@ impl Index {
 			transaction,
 			&Self::pack(subspace, &crate::lmdb::Key::Update(key)),
 		)
-		.map_err(|error| tg::error!(!error, "failed to delete the storage addition version"))?;
+		.map_err(|error| tg::error!(!error, "failed to delete the storage update put version"))?;
 		Ok(())
 	}
 
@@ -2029,7 +2032,7 @@ impl Index {
 		for kind in [
 			KeyKind::GrantUpdatePropagatedVersion,
 			KeyKind::NodeUpdatePropagatedVersion,
-			KeyKind::StorageAddition,
+			KeyKind::StorageUpdatePutVersion,
 		] {
 			let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), id));
 			let (_, end) = fdbt::Subspace::from_bytes(prefix.clone()).range();

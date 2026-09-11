@@ -8,14 +8,14 @@ use {
 
 #[tokio::test]
 #[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
-async fn coalesced_storage_additions_preserve_the_oldest_version() {
-	super::run(async |index| additions(index, false).await).await;
+async fn coalesced_storage_puts_preserve_the_oldest_version() {
+	super::run(async |index| puts(index, false).await).await;
 }
 
 #[tokio::test]
 #[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
-async fn late_storage_additions_preserve_the_oldest_version() {
-	super::run(async |index| additions(index, true).await).await;
+async fn late_storage_puts_preserve_the_oldest_version() {
+	super::run(async |index| puts(index, true).await).await;
 }
 
 #[tokio::test]
@@ -57,7 +57,7 @@ async fn completed_storage_updates_preserve_the_oldest_version() {
 	.await;
 }
 
-async fn additions(index: &Index, late: bool) {
+async fn puts(index: &Index, late: bool) {
 	// Two directory roots reach the same account through a shared middle directory.
 	let leaf = super::directory(&[]);
 	let middle = super::directory(&[("leaf", leaf.id.clone())]);
@@ -93,7 +93,7 @@ async fn additions(index: &Index, late: bool) {
 		step(index, &old).await;
 	}
 	let entries = queue(index).await;
-	let old = entries.iter().find(|key| matches!(key, Key::UpdateVersion { kind: Kind::Storage(StorageKind::Add { .. }), version: value, .. } if *value == old_version)).unwrap();
+	let old = entries.iter().find(|key| matches!(key, Key::UpdateVersion { kind: Kind::Storage(StorageKind::Put { .. }), version: value, .. } if *value == old_version)).unwrap();
 	step(index, old).await;
 	assert!(!associated(index, &account, &leaf.id).await);
 	let oldest = index
@@ -107,11 +107,11 @@ async fn additions(index: &Index, late: bool) {
 	drain(index).await;
 	assert!(associated(index, &account, &leaf.id).await);
 
-	// A repeated old addition must stop without walking the descendants again.
+	// A repeated old put must stop without walking the descendants again.
 	enqueue(
 		index,
 		&middle.id,
-		&Kind::Storage(StorageKind::Add {
+		&Kind::Storage(StorageKind::Put {
 			account: account.clone(),
 			touched_at: 0,
 		}),
@@ -157,11 +157,11 @@ async fn additions(index: &Index, late: bool) {
 		let account = &account;
 		crate::fdb::run(&index.database, |txn| async move {
 			for key in [
-				Key::StorageAddition {
+				Key::StorageUpdatePutVersion {
 					account: account.clone(),
 					id: tg::Either::Left(id.clone()),
 				},
-				Key::StoragePropagation {
+				Key::StorageUpdatePropagatedVersion {
 					account: account.clone(),
 					id: tg::Either::Left(id.clone()),
 				},

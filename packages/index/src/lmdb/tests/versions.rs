@@ -100,7 +100,7 @@ async fn a_batch_preserves_an_older_storage_propagation_when_combining_updates()
 }
 
 #[tokio::test]
-async fn late_storage_additions_preserve_the_oldest_version() {
+async fn late_storage_puts_preserve_the_oldest_version() {
 	let (_dir, index) = super::new_index();
 	let leaf = object(0, []);
 	let middle = object(1, [leaf.id.clone()]);
@@ -125,7 +125,7 @@ async fn late_storage_additions_preserve_the_oldest_version() {
 		.unwrap();
 	assert!(
 		oldest.is_some_and(|version| version <= cutoff),
-		"the late storage addition lost its pending descendants: {oldest:?} > {cutoff}"
+		"the late storage put lost its pending descendants: {oldest:?} > {cutoff}"
 	);
 	assert!(!associated(&index, &account, &leaf.id));
 	drain(&index, crate::update::Kind::Storage).await;
@@ -162,7 +162,7 @@ async fn late_storage_additions_preserve_the_oldest_version() {
 	for id in &ids {
 		assert!(!associated(&index, &account, id));
 		let transaction = index.env.read_txn().unwrap();
-		let key = Key::Update(super::super::update::Key::StorageAddition {
+		let key = Key::Update(super::super::update::Key::StorageUpdatePutVersion {
 			account: account.clone(),
 			id: tg::Either::Left(id.clone()),
 		});

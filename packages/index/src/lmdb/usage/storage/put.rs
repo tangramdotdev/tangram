@@ -111,7 +111,7 @@ impl Index {
 				subspace,
 				transaction,
 				tg::Either::Left(object.clone()),
-				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Add {
+				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Put {
 					account,
 					touched_at,
 				}),
@@ -158,7 +158,7 @@ impl Index {
 				subspace,
 				transaction,
 				tg::Either::Right(process.clone()),
-				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Add {
+				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Put {
 					account,
 					touched_at,
 				}),
@@ -210,7 +210,7 @@ impl Index {
 		let objects =
 			Self::get_process_objects_with_transaction(db, subspace, transaction, process)?;
 		for account in accounts {
-			let kind = crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Add {
+			let kind = crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Put {
 				account,
 				touched_at,
 			});
@@ -461,7 +461,7 @@ impl Index {
 		version: u64,
 	) -> tg::Result<()> {
 		let id = tg::Either::Left(arg.object.clone());
-		if !Self::lower_storage_addition_version(
+		if !Self::lower_storage_update_put_version(
 			db,
 			subspace,
 			transaction,
@@ -479,7 +479,7 @@ impl Index {
 				subspace,
 				transaction,
 				tg::Either::Left(child),
-				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Add {
+				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Put {
 					account: arg.account.clone(),
 					touched_at: arg.touched_at,
 				}),
@@ -499,7 +499,7 @@ impl Index {
 		version: u64,
 	) -> tg::Result<()> {
 		let id = tg::Either::Right(arg.process.clone());
-		if !Self::lower_storage_addition_version(
+		if !Self::lower_storage_update_put_version(
 			db,
 			subspace,
 			transaction,
@@ -517,7 +517,7 @@ impl Index {
 				subspace,
 				transaction,
 				tg::Either::Right(child),
-				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Add {
+				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Put {
 					account: arg.account.clone(),
 					touched_at: arg.touched_at,
 				}),
@@ -533,7 +533,7 @@ impl Index {
 				subspace,
 				transaction,
 				tg::Either::Left(object),
-				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Add {
+				crate::lmdb::update::Kind::Storage(crate::lmdb::update::StorageKind::Put {
 					account: arg.account.clone(),
 					touched_at: arg.touched_at,
 				}),
