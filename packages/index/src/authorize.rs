@@ -305,9 +305,9 @@ pub(crate) fn write_permission_for_resource(
 
 pub(crate) fn process_object_permission(
 	kind: crate::process::object::Kind,
-	permission: tg::authorization::permission::object::Permission,
 ) -> tg::authorization::permission::process::Permission {
-	let process_permission = match kind {
+	// The node field permission covers the object's subtree; the subtree field permission additionally covers child processes.
+	match kind {
 		crate::process::object::Kind::Command => {
 			tg::authorization::permission::process::Permission::NodeCommand
 		},
@@ -319,12 +319,6 @@ pub(crate) fn process_object_permission(
 		},
 		crate::process::object::Kind::Output => {
 			tg::authorization::permission::process::Permission::NodeOutput
-		},
-	};
-	match permission {
-		tg::authorization::permission::object::Permission::Node => process_permission,
-		tg::authorization::permission::object::Permission::Subtree => {
-			process_permission.to_subtree()
 		},
 	}
 }

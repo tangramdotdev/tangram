@@ -384,12 +384,27 @@ impl Search {
 				..
 			} => {
 				let (after, objects) = output.into_process_objects()?;
-				let candidates = objects
-					.into_iter()
-					.filter_map(|(object, kind)| {
-						Self::process_object_candidate(&process, permission, object, kind, true)
-					})
-					.collect();
+				let kinds = process_object_kinds(permission);
+				// Keep each permission's candidates within the page size.
+				for permission in [
+					tg::authorization::permission::object::Permission::Subtree,
+					tg::authorization::permission::object::Permission::Node,
+				] {
+					let candidates = objects
+						.iter()
+						.filter(|(_, kind)| kinds.contains(kind))
+						.map(|(object, kind)| {
+							Self::process_object_candidate(
+								&process,
+								permission,
+								object.clone(),
+								*kind,
+								true,
+							)
+						})
+						.collect();
+					self.queue_candidates(depth, candidates, DescendantFallback::None);
+				}
 				let fallback = after.map_or(DescendantFallback::None, |after| {
 					DescendantFallback::ProcessObjects {
 						after: Some(after),
@@ -397,7 +412,7 @@ impl Search {
 						process,
 					}
 				});
-				self.queue_candidates(depth, candidates, fallback);
+				self.queue_fallback(depth, fallback);
 
 				return Ok(());
 			},
@@ -799,7 +814,7 @@ impl Search {
 						self.queue_fallback(depth, fallback);
 					}
 				}
-				if !process_object_permissions(permission).is_empty() {
+				if !process_object_kinds(permission).is_empty() {
 					let fallback = DescendantFallback::ProcessObjects {
 						after: None,
 						permission,
@@ -954,19 +969,24 @@ impl Search {
 			let Ok(object) = tg::object::Id::try_from(target.0.clone()) else {
 				continue;
 			};
-			for (kind, object_permission) in process_object_permissions(permission) {
-				if !object_permission.implies(target_permission) {
-					continue;
+			for kind in process_object_kinds(permission) {
+				// Preserve subtree proofs even when only the object node is requested.
+				for permission in [
+					tg::authorization::permission::object::Permission::Subtree,
+					tg::authorization::permission::object::Permission::Node,
+				] {
+					if !permission.implies(target_permission) {
+						continue;
+					}
+					let candidate = Self::process_object_candidate(
+						process,
+						permission,
+						object.clone(),
+						kind,
+						false,
+					);
+					candidates.push(candidate);
 				}
-				let candidate = Self::process_object_candidate(
-					process,
-					permission,
-					object.clone(),
-					kind,
-					false,
-				)
-				.unwrap();
-				candidates.push(candidate);
 			}
 		}
 		self.queue_candidates(depth, candidates, fallback);
@@ -974,15 +994,12 @@ impl Search {
 
 	fn process_object_candidate(
 		process: &tg::process::Id,
-		permission: tg::authorization::permission::process::Permission,
+		permission: tg::authorization::permission::object::Permission,
 		object: tg::object::Id,
 		kind: crate::process::object::Kind,
 		relationship_is_known: bool,
-	) -> Option<DescendantCandidate> {
-		let object_permission = process_object_permissions(permission)
-			.into_iter()
-			.find_map(|(candidate, permission)| (candidate == kind).then_some(permission))?;
-		let grant_permissions = match object_permission {
+	) -> DescendantCandidate {
+		let grant_permissions = match permission {
 			tg::authorization::permission::object::Permission::Node => vec![
 				tg::authorization::permission::object::Permission::Subtree,
 				tg::authorization::permission::object::Permission::Node,
@@ -1011,14 +1028,12 @@ impl Search {
 				proof
 			})
 			.collect();
-		let permission = tg::authorization::Permission::Object(object_permission);
-		let candidate = DescendantCandidate {
+		let permission = tg::authorization::Permission::Object(permission);
+		DescendantCandidate {
 			edges: 2,
 			neighbor: (tg::Id::from(object), permission),
 			proofs,
-		};
-
-		Some(candidate)
+		}
 	}
 
 	fn expand_subject(&mut self, depth: usize, subject: tg::authorization::Subject) {
@@ -1202,12 +1217,9 @@ fn process_child_permissions(
 	}
 }
 
-fn process_object_permissions(
+fn process_object_kinds(
 	permission: tg::authorization::permission::process::Permission,
-) -> Vec<(
-	crate::process::object::Kind,
-	tg::authorization::permission::object::Permission,
-)> {
+) -> Vec<crate::process::object::Kind> {
 	[
 		crate::process::object::Kind::Command,
 		crate::process::object::Kind::Error,
@@ -1215,17 +1227,7 @@ fn process_object_permissions(
 		crate::process::object::Kind::Output,
 	]
 	.into_iter()
-	.filter_map(|kind| {
-		let subtree = tg::authorization::permission::object::Permission::Subtree;
-		let needed = crate::authorize::process_object_permission(kind, subtree);
-		if permission.implies(needed) {
-			return Some((kind, subtree));
-		}
-		let node = tg::authorization::permission::object::Permission::Node;
-		let needed = crate::authorize::process_object_permission(kind, node);
-
-		permission.implies(needed).then_some((kind, node))
-	})
+	.filter(|kind| permission.implies(crate::authorize::process_object_permission(*kind)))
 	.collect()
 }
 
