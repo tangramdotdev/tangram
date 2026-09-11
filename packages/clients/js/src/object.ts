@@ -117,7 +117,7 @@ export namespace Object {
 			this.#object = arg.object ?? null;
 			this.#stored = arg.stored;
 			this.#storePromise = null;
-			this.#tokens = { ...arg.tokens };
+			this.#tokens = tg.Authorization.Tokens.clone(arg.tokens ?? {});
 		}
 
 		get id(): tg.Object.Id {
@@ -182,7 +182,10 @@ export namespace Object {
 			}
 			this.location = object.options?.location ?? null;
 			this.#stored = true;
-			this.tokens = object.options?.tokens ?? {};
+			tg.Authorization.Tokens.inherit(
+				this.#tokens,
+				object.options?.tokens ?? {},
+			);
 		}
 
 		clearStorePromise(promise: Promise<void>): void {
@@ -192,11 +195,11 @@ export namespace Object {
 		}
 
 		get tokens(): tg.Authorization.Tokens {
-			return { ...this.#tokens };
+			return tg.Authorization.Tokens.clone(this.#tokens);
 		}
 
 		set tokens(tokens: tg.Authorization.Tokens) {
-			this.#tokens = { ...tokens };
+			this.#tokens = tg.Authorization.Tokens.clone(tokens);
 		}
 
 		inheritTokens(tokens: tg.Authorization.Tokens): void {
@@ -232,7 +235,7 @@ export namespace Object {
 					this.#location === null
 						? null
 						: tg.Location.Arg.fromLocation(this.#location),
-				tokens: { ...this.#tokens },
+				tokens: this.tokens,
 			};
 			let output = await tg.client.getObject(this.#id!, arg);
 			if (
@@ -240,7 +243,7 @@ export namespace Object {
 				output.tokens !== null &&
 				!tg.Authorization.Tokens.isEmpty(output.tokens)
 			) {
-				this.#tokens = { ...output.tokens };
+				tg.Authorization.Tokens.inherit(this.#tokens, output.tokens);
 			}
 			this.#object = tg.Object.Object.fromData(output.data);
 			for (let child of tg.Object.Object.children(this.#object)) {

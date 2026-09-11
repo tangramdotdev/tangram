@@ -57,21 +57,21 @@ impl Session {
 	pub(crate) async fn try_get_object_metadata_local(
 		&self,
 		id: &tg::object::Id,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let Some(metadata) = self.server.try_get_object_metadata_local(id).await? else {
 			return Ok(None);
 		};
-		self.mask_object_metadata(id, metadata, token).await
+		self.mask_object_metadata(id, metadata, tokens).await
 	}
 
 	pub(crate) async fn mask_object_metadata(
 		&self,
 		id: &tg::object::Id,
 		metadata: tg::object::Metadata,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let Some(authorization) = self.authorize_object_read(resource, true).await? else {
 			return Ok(None);
 		};

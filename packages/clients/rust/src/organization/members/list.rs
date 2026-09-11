@@ -28,18 +28,15 @@ impl tg::Session {
 			"/organizations/{}/members",
 			organization.to_string().replace('/', ":")
 		);
-		let path = Uri::builder()
-			.path(&path)
-			.query_params_strict(&arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.build()
-			.unwrap();
+		let path = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(path)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.empty()
 			.unwrap();
+		let request = tangram_http::request::with_query_params(request, &arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send_with_retry(request)
 			.await

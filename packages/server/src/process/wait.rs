@@ -200,7 +200,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(future) = self
-					.try_wait_process_local(id, arg.tokens.local().cloned())
+					.try_wait_process_local(id, arg.tokens.local().to_vec())
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
 			{
@@ -246,9 +246,9 @@ impl Session {
 	async fn try_wait_process_local(
 		&self,
 		id: &tg::process::Id,
-		token: Option<tg::authorization::Token>,
+		tokens: Vec<tg::authorization::Token>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		let resource = tg::Referent::with_node_and_token(id.clone(), token);
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens);
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);

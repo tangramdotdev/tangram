@@ -6,7 +6,7 @@ use {
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
 	tangram_http::body::BodyStream,
 	tangram_http::response::Ext as _,
-	tangram_uri::{Uri, builder::QueryParamsError},
+	tangram_uri::Uri,
 	tangram_util::serde::{CommaSeparatedString, is_default, is_false, is_true, return_true},
 	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
@@ -135,8 +135,8 @@ pub struct GetNodeMessage {
 	#[tangram_serialize(id = 0)]
 	pub selector: tg::Selector<tg::Id>,
 
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::authorization::Token>,
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Vec::is_empty")]
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -306,8 +306,8 @@ pub struct PutNodeTagMessage {
 	#[tangram_serialize(id = 1)]
 	pub target: tg::Id,
 
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::authorization::Token>,
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Vec::is_empty")]
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -330,8 +330,8 @@ pub struct PutMissingMessage {
 	#[tangram_serialize(id = 0)]
 	pub selector: tg::Selector<tg::Id>,
 
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::authorization::Token>,
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Vec::is_empty")]
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 #[derive(
@@ -394,14 +394,7 @@ impl tg::Session {
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
 		let max_frame_size = self.client().sync.max_frame_size;
 		let method = http::Method::POST;
-		let (arg_in_body, uri) = match Uri::builder().path("/sync").query_params_strict(&arg) {
-			Ok(builder) => (false, builder.build().unwrap()),
-			Err(QueryParamsError::TooLarge) => {
-				let uri = Uri::builder().path("/sync").build().unwrap();
-				(true, uri)
-			},
-			Err(error) => return Err(tg::error!(!error, "failed to serialize the arg")),
-		};
+		let uri = Uri::builder().path("/sync").build().unwrap();
 
 		// Create the body.
 		let stream = stream.then(move |result| async move {
@@ -437,11 +430,7 @@ impl tg::Session {
 			};
 			Ok::<_, tg::Error>(frame)
 		});
-		let mut body = tangram_http::body::Boxed::with_stream(stream);
-		if arg_in_body {
-			body = tangram_http::body::arg::set(body, &arg)
-				.map_err(|error| tg::error!(!error, "failed to add the sync arg"))?;
-		}
+		let body = tangram_http::body::Boxed::with_stream(stream);
 
 		// Send the request.
 		let mut request = http::request::Builder::default();
@@ -453,10 +442,9 @@ impl tg::Session {
 				http::header::CONTENT_TYPE,
 				tg::sync::CONTENT_TYPE.to_string(),
 			);
-		if arg_in_body {
-			request = request.header(tangram_http::body::arg::HEADER, "true");
-		}
 		let request = request.body(body).unwrap();
+		let request = tangram_http::request::with_query_params(request, &arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send(request)
 			.await

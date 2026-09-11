@@ -72,7 +72,7 @@ pub(super) struct Search {
 	pending_nodes: HashMap<tg::Id, PendingAncestorNode>,
 	principal: tg::Principal,
 	queues: BTreeMap<usize, VecDeque<AncestorTask>>,
-	token: Option<(tg::authorization::Body, tg::Id)>,
+	tokens: Vec<tg::authorization::Body>,
 	unresolved: HashSet<Key>,
 	visited: HashSet<Key>,
 	visited_subjects: HashSet<(tg::authorization::Subject, Key)>,
@@ -114,7 +114,7 @@ impl Search {
 		config: crate::authorize::SearchConfig,
 		principal: &tg::Principal,
 		roots: &[Key],
-		token: Option<(tg::authorization::Body, tg::Id)>,
+		tokens: Vec<tg::authorization::Body>,
 		state: &State,
 	) -> Self {
 		let authorization_revision = state.authorization_revision();
@@ -145,7 +145,7 @@ impl Search {
 			pending_nodes: HashMap::new(),
 			principal: principal.clone(),
 			queues,
-			token,
+			tokens,
 			unresolved,
 			visited,
 			visited_subjects: HashSet::new(),
@@ -474,7 +474,8 @@ impl Search {
 				}
 			}
 			debug_assert!(self.source_authorizes(&candidate.dependency));
-			state.authorize_ancestor_or_descendant(candidate.dependency.clone());
+			let expires_at = self.source_expiration(&candidate.dependency).unwrap();
+			state.authorize_with_expiration(candidate.dependency.clone(), expires_at);
 			if !self.add_dependency(
 				state,
 				&checks.dependent,
@@ -524,11 +525,13 @@ impl Search {
 				let parent_permission = tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
 				);
-				if let Some((body, resource)) = &self.token
-					&& body.grants(parent_permission)
-					&& let Ok(parent) = tg::object::Id::try_from(resource.clone())
-					&& parent != object
-				{
+				for body in &self.tokens {
+					let Ok(parent) = tg::object::Id::try_from(body.resource.clone()) else {
+						continue;
+					};
+					if !body.grants(parent_permission) || parent == object {
+						continue;
+					}
 					let dependency = (tg::Id::from(parent.clone()), parent_permission);
 					let check = crate::authorize::Check::ObjectChild {
 						child: object.clone(),
@@ -859,9 +862,10 @@ impl Search {
 			},
 			_ => false,
 		};
-		let token_grants = self.token.as_ref().is_some_and(|(body, token_resource)| {
-			token_resource == resource && body.grants(*permission)
-		});
+		let token_grants = self
+			.tokens
+			.iter()
+			.any(|body| &body.resource == resource && body.grants(*permission));
 		if matches!(
 			permission,
 			tg::authorization::Permission::Sandbox(
@@ -874,8 +878,11 @@ impl Search {
 		{
 			return Ok(());
 		}
-		if principal_is_resource || token_grants {
+		if principal_is_resource {
 			state.authorize_ancestor_or_descendant(key.clone());
+		} else if token_grants {
+			let expires_at = self.source_expiration(key).unwrap();
+			state.authorize_with_expiration(key.clone(), expires_at);
 		}
 		if state.is_authorized(key) {
 			return Ok(());
@@ -1157,29 +1164,31 @@ impl Search {
 		if let tg::Principal::Process(process) = &self.principal {
 			processes.insert(process.clone());
 		}
-		if let Some((body, resource)) = &self.token
-			&& body
-				.permissions
-				.iter()
-				.any(|permission| matches!(permission, tg::authorization::Permission::Process(_)))
-			&& let Ok(process) = tg::process::Id::try_from(resource.clone())
-		{
-			processes.insert(process);
+		for body in &self.tokens {
+			if let Ok(process) = tg::process::Id::try_from(body.resource.clone()) {
+				processes.insert(process);
+			}
 		}
 
 		processes
 	}
 
 	fn source_authorizes(&self, key: &Key) -> bool {
+		self.source_expiration(key).is_some()
+	}
+
+	fn source_expiration(&self, key: &Key) -> Option<i64> {
 		if let tg::authorization::Permission::Process(_) = key.1
 			&& let Ok(process) = tg::process::Id::try_from(key.0.clone())
 			&& matches!(&self.principal, tg::Principal::Process(principal) if principal == &process)
 		{
-			return true;
+			return Some(i64::MAX);
 		}
-		self.token
-			.as_ref()
-			.is_some_and(|(body, resource)| resource == &key.0 && body.grants(key.1))
+		self.tokens
+			.iter()
+			.filter(|body| body.resource == key.0 && body.grants(key.1))
+			.map(|body| body.expires_at)
+			.max()
 	}
 
 	fn add_dependency(

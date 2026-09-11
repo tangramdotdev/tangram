@@ -237,7 +237,7 @@ impl<O> Process<O> {
 			return Ok(None);
 		};
 		if !output.tokens.is_empty() {
-			*self.0.tokens.write().unwrap() = output.tokens;
+			self.0.tokens.write().unwrap().inherit(&output.tokens);
 		}
 		let location = output.location;
 		if let Some(location) = &location {

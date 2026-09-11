@@ -55,7 +55,7 @@ fn tokens(resource: tg::Id, location: &tg::Location) -> tg::authorization::Token
 		signature: Vec::new(),
 	};
 	let mut tokens = tg::authorization::Tokens::default();
-	tokens.set(location.clone(), token);
+	tokens.insert(location.clone(), token);
 
 	tokens
 }

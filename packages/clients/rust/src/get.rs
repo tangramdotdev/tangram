@@ -150,18 +150,15 @@ impl tg::Session {
 		let method = http::Method::GET;
 		arg.options = reference.options().clone();
 		let path = format!("/_/{}", reference.node());
-		let uri = Uri::builder()
-			.path_raw(&path)
-			.query_params_strict(&arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.build()
-			.unwrap();
+		let uri = Uri::builder().path_raw(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::TEXT_EVENT_STREAM.to_string())
 			.empty()
 			.unwrap();
+		let request = tangram_http::request::with_query_params(request, &arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send_with_retry(request)
 			.await

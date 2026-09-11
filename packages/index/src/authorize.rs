@@ -32,11 +32,12 @@ pub struct Arg {
 	pub requested: tg::authorization::permission::Set,
 	pub required: tg::authorization::permission::Set,
 	pub resource: tg::Selector<tg::Id>,
-	pub token: Option<tg::authorization::Body>,
+	pub tokens: Vec<tg::authorization::Body>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Output {
+	pub expires_at: Option<i64>,
 	pub permissions: tg::authorization::permission::Set,
 }
 

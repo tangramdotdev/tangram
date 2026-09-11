@@ -38,15 +38,17 @@ impl Session {
 			.map(|root| {
 				let mut permissions = root_permissions;
 				let resource = tg::Id::from(root.node.clone());
-				let token = root
+				let tokens = root
 					.options
 					.tokens
 					.local()
+					.iter()
 					.filter(|token| {
 						token.body.resource == resource && self.verify_local_token(token)
 					})
-					.cloned();
-				if let Some(token) = &token {
+					.cloned()
+					.collect::<Vec<_>>();
+				for token in &tokens {
 					if token.body.grants(subtree_permission) {
 						permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
 					} else if token
@@ -62,12 +64,12 @@ impl Session {
 				{
 					let permissions = subtree_permission.into();
 					let resource = tg::Selector::Id(resource);
-					let token = token.map(|token| token.body);
+					let tokens = tokens.into_iter().map(|token| token.body).collect();
 					index_args.push(tangram_index::authorize::Arg {
 						required: permissions,
 						requested: permissions,
 						resource,
-						token,
+						tokens,
 					});
 				}
 				tangram_index::process::object::grant::Root {

@@ -18,7 +18,8 @@ tg --url $remote.url --token $alice.token index
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let first = http get --headers { Accept: 'application/json', Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($directory)'
 let child = $first.children | columns | first
-let child_body = token-body ($first.children | get $child | get tokens.local)
+let child_token = $first.children | get $child | get tokens.local.0
+let child_body = token-body $child_token
 let watch = tg --url $remote.url --token $root_token checkpoint watch authorization.index | from json | get watch
 
 for trusted in [false true] {
@@ -26,27 +27,27 @@ for trusted in [false true] {
 		remotes: { default: { token: $bob.token, trusted: $trusted, url: $remote.url } }
 	}
 	let socket = $local.url | str replace 'http+unix://' '' | url decode
-	let query = { location: remote, 'tokens[remote]': $first.tokens.local } | url build-query
+	let query = { location: remote, 'tokens[remote][0]': $child_token, 'tokens[remote][1]': $first.tokens.local.0 } | url build-query
 	let output = http get --max-time 10sec --headers { Accept: 'application/json' } --unix-socket $socket $'http://localhost/objects/($directory)?($query)'
 	let tokens = $output.children | get $child | get tokens
-	assert equal (token-body $tokens.remote) $child_body
-	assert equal (token-body $output.tokens.remote) (token-body $first.tokens.local)
+	assert equal (token-body $tokens.remote.0) $child_body
+	assert equal (token-body $output.tokens.remote.0) (token-body $first.tokens.local.0)
 	if $trusted {
-		assert equal (token-body $tokens.local) $child_body
-		assert equal (token-body $output.tokens.local) (token-body $output.tokens.remote)
-		assert ($tokens.local != $tokens.remote) "the local token must be signed with the local key."
+		assert equal (token-body $tokens.local.0) $child_body
+		assert equal (token-body $output.tokens.local.0) (token-body $output.tokens.remote.0)
+		assert ($tokens.local.0 != $tokens.remote.0) "the local token must be signed with the local key."
 	} else {
 		assert equal ($tokens | columns) [remote]
 		assert equal ($output.tokens | columns) [remote]
 	}
 
 	# The child token must authorize another remote object get without an index lookup.
-	let query = { location: remote, 'tokens[remote]': $tokens.remote } | url build-query
+	let query = { location: remote, 'tokens[remote][0]': $first.tokens.local.0, 'tokens[remote][1]': $tokens.remote.0 } | url build-query
 	let output = http get --max-time 10sec --headers { Accept: 'application/json' } --unix-socket $socket $'http://localhost/objects/($child)?($query)'
 	assert equal $output.data.kind file
 
 	# The Rust client must also send the returned child tokens to the remote.
-	let reference = $'($directory)?location=remote&tokens[remote]=($first.tokens.local | url encode --all)'
+	let reference = $'($directory)?location=remote&tokens[remote][0]=($child_token | url encode --all)&tokens[remote][1]=($first.tokens.local.0 | url encode --all)'
 	let job = job spawn {
 		let job_id = job id
 		let output = tg --url $local.url get --depth inf $reference | complete

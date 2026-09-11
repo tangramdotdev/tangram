@@ -1,16 +1,29 @@
 use {
-	crate::{Error, Result, body},
-	futures::{StreamExt as _, stream},
-	hyper::body::Frame,
+	crate::Result,
+	bytes::Bytes,
+	http_body::{Frame, SizeHint},
 	num::ToPrimitive as _,
+	pin_project::pin_project,
 	serde::de::DeserializeOwned,
-	tangram_futures::{read::Ext as _, write::Ext as _},
+	std::{
+		pin::Pin,
+		task::{Context, Poll},
+	},
+	tangram_futures::read::Ext as _,
 	tangram_uri::builder::QUERY_PARAMS_LENGTH_THRESHOLD,
-	tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _},
+	tokio::io::{AsyncRead, AsyncReadExt as _},
 };
 
 pub const HEADER: &str = "x-tg-arg-in-body";
 pub const THRESHOLD: usize = QUERY_PARAMS_LENGTH_THRESHOLD;
+
+#[pin_project]
+#[derive(Clone)]
+pub struct Body<B> {
+	arg: Option<Bytes>,
+	#[pin]
+	body: B,
+}
 
 pub fn get_header(headers: &http::HeaderMap) -> Result<bool> {
 	let Some(value) = headers.get(HEADER) else {
@@ -42,17 +55,63 @@ where
 	Ok(arg)
 }
 
-pub fn set<T>(body: body::Boxed, arg: &T) -> Result<body::Boxed>
+impl<B> Body<B> {
+	#[must_use]
+	pub fn new(body: B) -> Self {
+		Self { arg: None, body }
+	}
+
+	pub fn with_arg<T>(body: B, arg: &T) -> Result<Self>
+	where
+		T: serde::Serialize,
+	{
+		let arg = serde_json::to_vec(arg)?;
+		let mut bytes = Vec::with_capacity(10 + arg.len());
+		let mut length = arg.len();
+		while length >= 0x80 {
+			bytes.push(u8::try_from(length & 0x7f).unwrap() | 0x80);
+			length >>= 7;
+		}
+		bytes.push(u8::try_from(length).unwrap());
+		bytes.extend_from_slice(&arg);
+		let arg = Some(bytes.into());
+		Ok(Self { arg, body })
+	}
+}
+
+impl<B> http_body::Body for Body<B>
 where
-	T: serde::Serialize,
+	B: http_body::Body<Data = Bytes>,
 {
-	let arg = serde_json::to_vec(arg)?;
-	let stream = stream::once(async move {
-		let mut bytes = Vec::with_capacity(9 + arg.len());
-		bytes.write_uvarint(arg.len().to_u64().unwrap()).await?;
-		bytes.write_all(&arg).await?;
-		Ok::<_, Error>(Frame::data(bytes.into()))
-	})
-	.chain(body.into_stream());
-	Ok(body::Boxed::with_stream(stream))
+	type Data = Bytes;
+	type Error = B::Error;
+
+	fn poll_frame(
+		self: Pin<&mut Self>,
+		cx: &mut Context<'_>,
+	) -> Poll<Option<std::result::Result<Frame<Bytes>, Self::Error>>> {
+		let this = self.project();
+		if let Some(arg) = this.arg.take() {
+			return Poll::Ready(Some(Ok(Frame::data(arg))));
+		}
+		this.body.poll_frame(cx)
+	}
+
+	fn is_end_stream(&self) -> bool {
+		self.arg.is_none() && self.body.is_end_stream()
+	}
+
+	fn size_hint(&self) -> SizeHint {
+		let length = self
+			.arg
+			.as_ref()
+			.map_or(0, |arg| arg.len().to_u64().unwrap());
+		let body = self.body.size_hint();
+		let mut hint = SizeHint::new();
+		hint.set_lower(body.lower().saturating_add(length));
+		if let Some(upper) = body.upper().and_then(|upper| upper.checked_add(length)) {
+			hint.set_upper(upper);
+		}
+		hint
+	}
 }

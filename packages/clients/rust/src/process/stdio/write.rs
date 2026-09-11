@@ -206,12 +206,7 @@ impl tg::Session {
 		}
 		let max_frame_size = self.client().sync.max_frame_size;
 		let path = format!("/processes/{id}/stdio/write");
-		let uri = Uri::builder()
-			.path(&path)
-			.query_params_strict(&arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.build()
-			.unwrap();
+		let uri = Uri::builder().path(&path).build().unwrap();
 		let body = super::encode(input, max_frame_size);
 		let request = http::request::Builder::default()
 			.method(http::Method::POST)
@@ -220,6 +215,8 @@ impl tg::Session {
 			.header(http::header::CONTENT_TYPE, super::TANGRAM_CONTENT_TYPE)
 			.body(body)
 			.unwrap();
+		let request = tangram_http::request::with_query_params(request, &arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send(request)
 			.await

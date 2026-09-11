@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Each lookup inherits the token returned for its parent, so it checks the direct parent first.
+# Each lookup retains its own subtree token, so descending does not search the authorization index for parents.
 
 let server = server spawn --config {
 	tracing: {
@@ -33,16 +33,13 @@ let path = artifact {
 }
 
 let directories = tg build $path | from json
+assert equal ($directories | length) 7
 server stop $server
 let reads = open $server.log
 	| lines
 	| where ($it | str starts-with '{')
 	| each { |line| $line | from json }
-	| where $it.fields.message? == 'check object parent for authorization'
+	| where $it.fields.message? in ['check object parent for authorization', 'read object parents for authorization']
 	| where { |event| $event.fields.object? in $directories }
-	| group-by { |event| $event.fields.object }
-	| values
-	| each { |events| $events | length }
-	| sort
-let expected = $directories | each { 1 }
-assert equal $reads $expected
+	| length
+assert equal $reads 0

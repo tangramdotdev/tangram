@@ -39,7 +39,7 @@ export def checkin-output [
 		error make { msg: 'the checkin failed' }
 	}
 	let uri = $"http://localhost/($event.artifact)" | url parse
-	let token = $uri.params | where key == 'tokens[local]' | first | get value
+	let token = $uri.params | where key == 'tokens[local][0]' | first | get value
 	let permissions = (
 		$token
 		| split row '.'

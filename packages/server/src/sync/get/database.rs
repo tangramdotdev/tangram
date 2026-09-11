@@ -152,7 +152,7 @@ impl Session {
 			let token = self
 				.create_tag_target_token_with_permissions(&message.target, permissions)?
 				.ok_or_else(|| tg::error!("authorization token signing is not configured"))?;
-			message.token = Some(token);
+			message.tokens.push(token);
 		}
 
 		Ok(())
@@ -600,8 +600,8 @@ impl Session {
 			let tg::sync::PutNodeMessage::Tag(message) = node else {
 				continue;
 			};
-			if message.token.is_some() {
-				self.sync_get_database_tag_permissions_from_token(message)?;
+			if !message.tokens.is_empty() {
+				self.sync_get_database_tag_permissions_from_tokens(message)?;
 				continue;
 			}
 			if let Ok(id) = tg::object::Id::try_from(message.target.clone()) {
@@ -662,7 +662,9 @@ impl Session {
 			let tg::sync::PutNodeMessage::Tag(message) = node else {
 				continue;
 			};
-			if let Some(permissions) = self.sync_get_database_tag_permissions_from_token(message)? {
+			if let Some(permissions) =
+				self.sync_get_database_tag_permissions_from_tokens(message)?
+			{
 				outputs.insert(message.id.clone(), permissions);
 				continue;
 			}
@@ -718,18 +720,19 @@ impl Session {
 		Ok(outputs)
 	}
 
-	fn sync_get_database_tag_permissions_from_token(
+	fn sync_get_database_tag_permissions_from_tokens(
 		&self,
 		message: &tg::sync::PutNodeTagMessage,
 	) -> tg::Result<Option<Vec<tg::authorization::Permission>>> {
-		let Some(token) = &message.token else {
+		if message.tokens.is_empty() {
 			return Ok(None);
-		};
-		if token.body.resource != message.target || !self.verify_token(token) {
-			return Err(tg::error!("invalid tag target token"));
 		}
-		let valid =
-			if message.target.kind().is_object() {
+		let mut permissions = BTreeSet::new();
+		for token in &message.tokens {
+			if token.body.resource != message.target || !self.verify_token(token) {
+				return Err(tg::error!("invalid tag target token"));
+			}
+			let valid = if message.target.kind().is_object() {
 				token.body.permissions.iter().all(|permission| {
 					matches!(permission, tg::authorization::Permission::Object(_))
 				})
@@ -754,12 +757,13 @@ impl Session {
 			} else {
 				false
 			};
-		if !valid {
-			return Err(tg::error!("invalid tag target token permissions"));
+			if !valid {
+				return Err(tg::error!("invalid tag target token permissions"));
+			}
+			permissions.extend(token.body.permissions.iter().copied());
 		}
-		let permissions = token.body.permissions.clone();
 
-		Ok(Some(permissions))
+		Ok(Some(permissions.into_iter().collect()))
 	}
 
 	async fn sync_get_database_specifiers_with_transaction(

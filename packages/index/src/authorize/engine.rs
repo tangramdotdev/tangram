@@ -22,7 +22,7 @@ pub(crate) struct Batch {
 	requested: Vec<Option<tg::authorization::permission::Set>>,
 	required: Vec<Option<tg::authorization::permission::Set>>,
 	resources: Vec<Resolution>,
-	search_indices: BTreeMap<(Option<tg::authorization::Body>, bool), usize>,
+	search_indices: BTreeMap<(Vec<tg::authorization::Body>, bool), usize>,
 	searches: Vec<TokenSearch>,
 }
 
@@ -47,7 +47,7 @@ struct TokenSearch {
 	principal: tg::Principal,
 	roots: Vec<Key>,
 	state: State,
-	token: Option<(tg::authorization::Body, tg::Id)>,
+	tokens: Vec<tg::authorization::Body>,
 }
 
 enum TokenPhase {
@@ -173,7 +173,7 @@ impl Batch {
 			return Ok(ControlFlow::Break(outcomes));
 		}
 
-		// Search independent token contexts concurrently while sharing their datastore facts.
+		// Search independent token collections concurrently while sharing their datastore facts.
 		let searches = std::mem::take(&mut batch.searches);
 		let searches = futures::future::try_join_all(searches.into_iter().map(|search| {
 			let client = client.clone();
@@ -207,6 +207,7 @@ impl Batch {
 				.iter()
 				.map(|arg| {
 					super::Outcome::Authorized(super::Output {
+						expires_at: None,
 						permissions: arg.requested,
 					})
 				})
@@ -328,7 +329,7 @@ impl Batch {
 			.map(|(arg, resource)| normalize_permissions(resource.as_ref(), arg.required))
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		let mut roots = BTreeMap::<(Option<tg::authorization::Body>, bool), Vec<Key>>::new();
+		let mut roots = BTreeMap::<(Vec<tg::authorization::Body>, bool), Vec<Key>>::new();
 		for (index, (arg, resource)) in std::iter::zip(&self.args, &resources).enumerate() {
 			let Some((id, _)) = resource else {
 				continue;
@@ -343,22 +344,22 @@ impl Batch {
 			for permission in super::permissions_in_search_order(requested) {
 				let process_parent_delegation = permission.is_read_like();
 				roots
-					.entry((arg.token.clone(), process_parent_delegation))
+					.entry((arg.tokens.clone(), process_parent_delegation))
 					.or_default()
 					.push((id.clone(), permission));
 			}
 		}
 
-		for ((token, process_parent_delegation), roots) in roots {
+		for ((tokens, process_parent_delegation), roots) in roots {
 			let index = self.searches.len();
 			self.search_indices
-				.insert((token.clone(), process_parent_delegation), index);
+				.insert((tokens.clone(), process_parent_delegation), index);
 			self.searches.push(TokenSearch::new(
 				self.config,
 				&self.principal,
 				process_parent_delegation,
 				roots,
-				token,
+				tokens,
 			));
 		}
 		self.phase = BatchPhase::Search { next: 0 };
@@ -395,21 +396,24 @@ impl Batch {
 			}
 			if principal_is_resource(&self.principal, &id) {
 				let output = super::Output {
+					expires_at: None,
 					permissions: arg.requested,
 				};
 				outcomes.push(super::Outcome::Authorized(output));
 				continue;
 			}
+			let mut expires_at = i64::MAX;
 			let mut authorized = requested.empty_like();
 			let mut exhausted = requested.empty_like();
 			for permission in super::permissions_in_search_order(requested) {
 				let process_parent_delegation = permission.is_read_like();
 				let search_index =
-					self.search_indices[&(arg.token.clone(), process_parent_delegation)];
+					self.search_indices[&(arg.tokens.clone(), process_parent_delegation)];
 				let search = &self.searches[search_index];
 				let key = (id.clone(), permission);
 				match search.final_search.outcome(&search.state, &key) {
 					Outcome::Authorized => {
+						expires_at = expires_at.min(search.state.expires_at(&key));
 						super::insert_implied_permissions(&mut authorized, requested, permission);
 						if authorized.contains(requested) {
 							break;
@@ -436,7 +440,11 @@ impl Batch {
 			} else {
 				arg.requested.empty_like()
 			};
-			let output = super::Output { permissions };
+			let expires_at = (expires_at != i64::MAX).then_some(expires_at);
+			let output = super::Output {
+				expires_at,
+				permissions,
+			};
 			let outcome = super::Outcome::from_output(Some(output), arg.requested);
 			outcomes.push(outcome);
 		}
@@ -452,16 +460,12 @@ impl TokenSearch {
 		principal: &tg::Principal,
 		process_parent_delegation: bool,
 		roots: Vec<Key>,
-		token: Option<tg::authorization::Body>,
+		tokens: Vec<tg::authorization::Body>,
 	) -> Self {
 		let mut state = State::default();
 		state.set_process_parent_delegation(process_parent_delegation);
-		let token = token.map(|body| {
-			let resource = body.resource.clone();
-			(body, resource)
-		});
 		let initial =
-			AncestorOrDescendantSearch::new(config, principal, &roots, token.as_ref(), &mut state);
+			AncestorOrDescendantSearch::new(config, principal, &roots, &tokens, &mut state);
 		let final_search = FinalSearch::new(roots.iter().cloned());
 
 		Self {
@@ -473,7 +477,7 @@ impl TokenSearch {
 			principal: principal.clone(),
 			roots,
 			state,
-			token,
+			tokens,
 		}
 	}
 
@@ -491,7 +495,7 @@ impl TokenSearch {
 						let reads = search.take_reads(
 							self.config,
 							&self.principal,
-							self.token.as_ref(),
+							&self.tokens,
 							&mut self.state,
 							limit,
 						)?;
@@ -588,18 +592,18 @@ impl PermissionSearch {
 		&mut self,
 		config: super::Config,
 		principal: &tg::Principal,
-		token: Option<&(tg::authorization::Body, tg::Id)>,
+		tokens: &[tg::authorization::Body],
 		state: &mut State,
 		limit: usize,
 	) -> tg::Result<Vec<Read>> {
 		let (reads, outcome) = match &mut self.phase {
 			PermissionPhase::Complete(_) => return Ok(Vec::new()),
 			PermissionPhase::Process(search) => {
-				let reads = search.take_reads(config, principal, token, state, limit)?;
+				let reads = search.take_reads(config, principal, tokens, state, limit)?;
 				(reads, search.outcome())
 			},
 			PermissionPhase::Subtree(search) => {
-				let reads = search.take_reads(config, principal, token, state, limit)?;
+				let reads = search.take_reads(config, principal, tokens, state, limit)?;
 				(reads, search.outcome())
 			},
 		};
@@ -673,7 +677,7 @@ impl SubtreeEvaluation {
 		&mut self,
 		config: super::Config,
 		principal: &tg::Principal,
-		token: Option<&(tg::authorization::Body, tg::Id)>,
+		tokens: &[tg::authorization::Body],
 		state: &mut State,
 		limit: usize,
 	) -> tg::Result<Vec<Read>> {
@@ -696,7 +700,7 @@ impl SubtreeEvaluation {
 				SubtreePhase::Complete(_) => return Ok(Vec::new()),
 				SubtreePhase::ProcessNodes { current, pending } => {
 					if let Some(search) = current {
-						let reads = search.take_reads(config, principal, token, state, limit)?;
+						let reads = search.take_reads(config, principal, tokens, state, limit)?;
 						if !reads.is_empty() {
 							return Ok(reads);
 						}
@@ -724,7 +728,7 @@ impl SubtreeEvaluation {
 					{
 						SubtreeAction::AuthorizeAncestorOrDescendant { roots } => {
 							let search = AncestorOrDescendantSearch::new(
-								config, principal, &roots, token, state,
+								config, principal, &roots, tokens, state,
 							);
 							self.phase = SubtreePhase::AncestorOrDescendant { roots, search };
 						},
@@ -810,7 +814,7 @@ impl ProcessSearch {
 		&mut self,
 		config: super::Config,
 		principal: &tg::Principal,
-		token: Option<&(tg::authorization::Body, tg::Id)>,
+		tokens: &[tg::authorization::Body],
 		state: &mut State,
 		limit: usize,
 	) -> tg::Result<Vec<Read>> {
@@ -839,7 +843,7 @@ impl ProcessSearch {
 					}
 					let process = tg::process::Id::try_from(self.root.0.clone())?;
 					if let Some(facts) = state.process_facts(&process) {
-						self.prepare_facts(config, principal, token, state, &facts);
+						self.prepare_facts(config, principal, tokens, state, &facts);
 						continue;
 					}
 					let mut reads = Vec::new();
@@ -877,11 +881,11 @@ impl ProcessSearch {
 						process: process_value,
 					};
 					let facts = state.set_process_facts(process, facts);
-					self.prepare_facts(config, principal, token, state, &facts);
+					self.prepare_facts(config, principal, tokens, state, &facts);
 				},
 				ProcessPhase::ObjectFinal { current, pending } => {
 					if let Some(search) = current {
-						let reads = search.take_reads(config, principal, token, state, limit)?;
+						let reads = search.take_reads(config, principal, tokens, state, limit)?;
 						if !reads.is_empty() {
 							return Ok(reads);
 						}
@@ -987,7 +991,7 @@ impl ProcessSearch {
 		&mut self,
 		config: super::Config,
 		principal: &tg::Principal,
-		token: Option<&(tg::authorization::Body, tg::Id)>,
+		tokens: &[tg::authorization::Body],
 		state: &mut State,
 		facts: &ProcessFacts,
 	) {
@@ -1029,7 +1033,7 @@ impl ProcessSearch {
 
 			return;
 		}
-		let search = AncestorOrDescendantSearch::new(config, principal, &roots, token, state);
+		let search = AncestorOrDescendantSearch::new(config, principal, &roots, tokens, state);
 		self.phase = ProcessPhase::ObjectInitial { roots, search };
 	}
 }
@@ -1788,7 +1792,7 @@ mod tests {
 			requested: permissions,
 			required: permissions,
 			resource: tg::Selector::Id(object.into()),
-			token: None,
+			tokens: Vec::new(),
 		};
 		let outcome = run(&[arg], &tg::Principal::Anonymous, default_output);
 
@@ -1908,7 +1912,7 @@ mod tests {
 			.take_reads(
 				super::super::Config::default(),
 				&tg::Principal::Anonymous,
-				None,
+				&[],
 				&mut state,
 				1,
 			)
@@ -2016,7 +2020,7 @@ mod tests {
 			requested: permissions,
 			required: permissions,
 			resource: tg::Selector::Id(resource),
-			token,
+			tokens: token.into_iter().collect(),
 		}
 	}
 

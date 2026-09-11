@@ -17,7 +17,7 @@
                       "kind": "file",
                       "contents": "",
                       "xattrs": {
-                        "user.tangram.dependencies": "[\"a?tokens[local]=<token>\"]",
+                        "user.tangram.dependencies": "[\"a?tokens[local][0]=<token>\"]",
                         "user.tangram.token": "<token>"
                       }
                     }
@@ -33,7 +33,7 @@
       "kind": "file",
       "contents": "",
       "xattrs": {
-        "user.tangram.dependencies": "[\"a?tokens[local]=<token>\"]",
+        "user.tangram.dependencies": "[\"a?tokens[local][0]=<token>\"]",
         "user.tangram.token": "<token>"
       }
     }

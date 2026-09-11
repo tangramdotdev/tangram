@@ -29,18 +29,15 @@ impl tg::Session {
 		&self,
 		arg: tg::grant::list::Arg,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
-		let uri = Uri::builder()
-			.path("/grants")
-			.query_params_strict(&arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.build()
-			.unwrap();
+		let uri = Uri::builder().path("/grants").build().unwrap();
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
 			.empty()
 			.unwrap();
+		let request = tangram_http::request::with_query_params(request, &arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send_with_retry(request)
 			.await

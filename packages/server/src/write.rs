@@ -122,7 +122,7 @@ impl Session {
 			)],
 			grant_expires_at,
 		)?;
-		let blob = tg::Referent::with_node_and_token(blob.id.clone(), token);
+		let blob = tg::Referent::with_node_and_local_tokens(blob.id.clone(), token);
 		let output = tg::write::Output { blob };
 
 		Ok(output)
@@ -174,7 +174,7 @@ impl Session {
 			)],
 			grant_expires_at,
 		)?;
-		let blob = tg::Referent::with_node_and_token(blob.id, token);
+		let blob = tg::Referent::with_node_and_local_tokens(blob.id, token);
 		let output = tg::write::Output { blob };
 
 		Ok(output)

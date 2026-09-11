@@ -115,14 +115,14 @@ impl Session {
 				tg::Selector::Id(id) => {
 					state
 						.queue
-						.enqueue(state.arg.eager, id.clone(), tokens.local().cloned())?;
+						.enqueue(state.arg.eager, id.clone(), tokens.local().to_vec())?;
 				},
 				tg::Selector::Specifier(specifier) => {
 					let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
 						descendants: true,
 						eager: state.arg.eager,
 						selector: tg::Selector::Specifier(specifier.clone()),
-						token: tokens.local().cloned(),
+						tokens: tokens.local().to_vec(),
 					});
 					state
 						.sender
@@ -479,7 +479,8 @@ impl Session {
 					outputs[position] = Some(authorization.permissions);
 					continue;
 				}
-				let resource = tg::Referent::with_node_and_token(id.clone(), authorization.token);
+				let resource =
+					tg::Referent::with_node_and_local_tokens(id.clone(), authorization.tokens);
 				args.push((resource, requested));
 				positions.push(position);
 			}

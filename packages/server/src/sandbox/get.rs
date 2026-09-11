@@ -78,7 +78,7 @@ impl Session {
 		if !self
 			.authorize_sandbox_runner(
 				id,
-				None,
+				&[],
 				tg::authorization::permission::sandbox::Permission::Read,
 			)
 			.await?
@@ -100,7 +100,7 @@ impl Session {
 		// The runner's capabilities belong to the runner, not to the caller.
 		output.tokens.clear();
 		if let Some(token) = self.create_read_token(&id.clone().into())? {
-			output.tokens.set_local(token);
+			output.tokens.insert_local(token);
 		}
 		Ok(Some(output))
 	}
@@ -127,7 +127,7 @@ impl Session {
 		if let Some(output) = &mut output
 			&& let Some(token) = self.create_read_token(&id.clone().into())?
 		{
-			output.tokens.set_local(token);
+			output.tokens.insert_local(token);
 		}
 		Ok(output)
 	}
@@ -370,14 +370,14 @@ impl Session {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				crate::remote::cache::token_valid(output.tokens.local(), &self.server.clock)
+				crate::remote::cache::tokens_valid(output.tokens.local(), &self.server.clock)
 			});
 			if valid || cached {
 				if let Some(output) = &mut output {
-					if !crate::remote::cache::token_valid(output.tokens.local(), &self.server.clock)
-					{
-						output.tokens.remove_local();
-					}
+					crate::remote::cache::remove_expired_tokens(
+						&mut output.tokens,
+						&self.server.clock,
+					);
 					self.set_remote_sandbox_location(output, remote, trusted)?;
 				}
 

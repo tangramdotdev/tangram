@@ -220,16 +220,17 @@ impl Session {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				crate::remote::cache::token_valid(output.referent.token(), &self.server.clock)
+				crate::remote::cache::tokens_valid(
+					output.referent.local_tokens(),
+					&self.server.clock,
+				)
 			});
 			if valid || arg.cached {
 				if let Some(output) = &mut output {
-					if !crate::remote::cache::token_valid(
-						output.referent.token(),
+					crate::remote::cache::remove_expired_tokens(
+						&mut output.referent.options.tokens,
 						&self.server.clock,
-					) {
-						output.referent.options.tokens.clear();
-					}
+					);
 					let location = tg::Location::Remote(remote.clone());
 					self.update_tokens_and_location(
 						&mut output.referent.options.tokens,
@@ -617,16 +618,17 @@ impl Session {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				crate::remote::cache::token_valid(output.referent.token(), &self.server.clock)
+				crate::remote::cache::tokens_valid(
+					output.referent.local_tokens(),
+					&self.server.clock,
+				)
 			});
 			if valid || cached {
 				if let Some(output) = &mut output {
-					if !crate::remote::cache::token_valid(
-						output.referent.token(),
+					crate::remote::cache::remove_expired_tokens(
+						&mut output.referent.options.tokens,
 						&self.server.clock,
-					) {
-						output.referent.options.tokens.clear();
-					}
+					);
 					let location = tg::Location::Remote(remote.clone());
 					self.update_tokens_and_location(
 						&mut output.referent.options.tokens,

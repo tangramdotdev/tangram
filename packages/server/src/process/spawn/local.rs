@@ -21,7 +21,7 @@ pub(super) struct Output {
 	pub sandbox_arg: Option<tg::sandbox::create::Arg>,
 	pub sandbox_token: Option<String>,
 	pub scheduler: Option<tg::scheduler::Id>,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 impl Output {
@@ -384,7 +384,7 @@ impl Session {
 			sandbox_arg,
 			sandbox_token,
 			scheduler: arg.scheduler.clone(),
-			token,
+			tokens: token.into_iter().collect(),
 		};
 		if grant_command {
 			let grant_expires_at = now

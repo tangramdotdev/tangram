@@ -60,21 +60,21 @@ impl Session {
 	pub(crate) async fn try_get_object_availability_local(
 		&self,
 		id: &tg::object::Id,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::object::Availability>> {
 		let Some(storage) = self.server.try_get_object_storage_local(id).await? else {
 			return Ok(None);
 		};
-		self.compute_object_availability(id, storage, token).await
+		self.compute_object_availability(id, storage, tokens).await
 	}
 
 	pub(crate) async fn compute_object_availability(
 		&self,
 		id: &tg::object::Id,
 		storage: tangram_index::object::Storage,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::object::Availability>> {
-		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let Some(authorization) = self.authorize_object_read(resource, true).await? else {
 			return Ok(None);
 		};

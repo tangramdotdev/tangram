@@ -30,7 +30,7 @@ pub(super) struct DatabaseNode {
 	pub id: tg::Id,
 	pub selector: tg::Selector<tg::Id>,
 	pub send: bool,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 pub(super) struct ObjectNode {
@@ -55,7 +55,7 @@ pub(super) struct SandboxNode {
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
 	pub send: bool,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 pub(super) struct SyncPutQueueArg {
@@ -94,9 +94,9 @@ impl Queue {
 		&self,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::authorization::Token>,
+		tokens: Vec<tg::authorization::Token>,
 	) -> tg::Result<()> {
-		self.enqueue_with_descendants(true, eager, id, token)
+		self.enqueue_with_descendants(true, eager, id, tokens)
 	}
 
 	pub fn enqueue_root_with_descendants(
@@ -104,11 +104,11 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::authorization::Token>,
+		tokens: Vec<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		let mut graph = self.graph.lock().unwrap();
 		graph.insert_remote_root(id.clone());
-		self.enqueue_with_descendants_with_graph(&mut graph, descendants, eager, id, token)
+		self.enqueue_with_descendants_with_graph(&mut graph, descendants, eager, id, tokens)
 	}
 
 	pub fn enqueue_with_descendants(
@@ -116,10 +116,10 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::authorization::Token>,
+		tokens: Vec<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		let mut graph = self.graph.lock().unwrap();
-		self.enqueue_with_descendants_with_graph(&mut graph, descendants, eager, id, token)
+		self.enqueue_with_descendants_with_graph(&mut graph, descendants, eager, id, tokens)
 	}
 
 	pub fn enqueue_object(&self, node: raw::ObjectNode) -> tg::Result<()> {
@@ -165,7 +165,7 @@ impl Queue {
 			eager: request.eager,
 			id,
 			selector,
-			token: request.token,
+			tokens: request.tokens,
 		};
 		self.enqueue_database_with_graph(&mut graph, node)
 	}
@@ -204,7 +204,7 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::authorization::Token>,
+		tokens: Vec<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		match id.kind() {
 			tg::id::Kind::Group
@@ -217,7 +217,7 @@ impl Queue {
 					eager,
 					id,
 					selector,
-					token,
+					tokens,
 				};
 				self.enqueue_database_with_graph(graph, node)?;
 			},
@@ -227,7 +227,7 @@ impl Queue {
 					eager,
 					id: id.try_into()?,
 					parent: None,
-					token,
+					tokens,
 				};
 				self.enqueue_process_with_graph(graph, node)?;
 			},
@@ -236,7 +236,7 @@ impl Queue {
 					descendants,
 					eager,
 					id: id.try_into()?,
-					token,
+					tokens,
 				};
 				self.enqueue_sandbox_with_graph(graph, node)?;
 			},
@@ -249,7 +249,7 @@ impl Queue {
 					id,
 					kind: None,
 					parent: None,
-					token,
+					tokens,
 				};
 				self.enqueue_object_with_graph(graph, node)?;
 			},
@@ -267,7 +267,7 @@ impl Queue {
 			node.descendants,
 			&node.id,
 			node.selector.clone(),
-			node.token.clone(),
+			node.tokens.clone(),
 		);
 		if !action.descendants && !action.send {
 			return Ok(());
@@ -278,7 +278,7 @@ impl Queue {
 			id: node.id,
 			selector: node.selector,
 			send: action.send,
-			token: node.token,
+			tokens: node.tokens,
 		};
 		self.pending_nodes.fetch_add(1, Ordering::Relaxed);
 		if self.database.force_send(node).is_err() {
@@ -294,9 +294,7 @@ impl Queue {
 		graph: &mut Graph,
 		node: raw::ObjectNode,
 	) -> tg::Result<()> {
-		if let Some(token) = &node.token {
-			graph.update_object_token(&node.id, token.clone());
-		}
+		graph.update_object_tokens(&node.id, node.tokens.clone());
 		let parent = node.parent.clone();
 		let (action, _) =
 			graph.update_object_remote(node.descendants, &node.id, parent, node.kind, None);
@@ -327,9 +325,7 @@ impl Queue {
 		graph: &mut Graph,
 		node: raw::ProcessNode,
 	) -> tg::Result<()> {
-		if let Some(token) = &node.token {
-			graph.update_process_token(&node.id, token.clone());
-		}
+		graph.update_process_tokens(&node.id, node.tokens.clone());
 		let parent = node.parent.clone().map(Into::into);
 		let (action, _) = graph.update_process_remote(node.descendants, &node.id, parent, None);
 		let available = graph.process_remote_available(&node.id);
@@ -359,7 +355,7 @@ impl Queue {
 		node: raw::SandboxNode,
 	) -> tg::Result<()> {
 		let id = node.id.clone().into();
-		let action = graph.update_node_remote(node.descendants, &id, node.token.clone());
+		let action = graph.update_node_remote(node.descendants, &id, node.tokens.clone());
 		if !action.descendants && !action.send {
 			return Ok(());
 		}
@@ -368,7 +364,7 @@ impl Queue {
 			eager: node.eager,
 			id: node.id,
 			send: action.send,
-			token: node.token,
+			tokens: node.tokens,
 		};
 		self.pending_nodes.fetch_add(1, Ordering::Relaxed);
 		if self.sandbox.force_send(node).is_err() {
@@ -415,7 +411,7 @@ impl Session {
 					eager: node.eager,
 					id: node.id,
 					send: node.send,
-					token: node.token,
+					tokens: node.tokens,
 				};
 				database_sender
 					.send(node)
@@ -489,7 +485,7 @@ impl Session {
 					eager: node.eager,
 					id: node.id,
 					send: node.send,
-					token: node.token,
+					tokens: node.tokens,
 				};
 				sandbox_sender
 					.send(node)
@@ -549,7 +545,8 @@ impl Session {
 			if authorization.permissions.contains(requested) {
 				continue;
 			}
-			let resource = tg::Referent::with_node_and_token(node.id.clone(), authorization.token);
+			let resource =
+				tg::Referent::with_node_and_local_tokens(node.id.clone(), authorization.tokens);
 			authorization_args.push((resource, requested));
 			authorization_positions.push(position);
 		}
@@ -587,7 +584,7 @@ impl Session {
 				if node.send {
 					let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 						selector: tg::Selector::Id(node.id.clone().into()),
-						token: None,
+						tokens: Vec::new(),
 					});
 					state.sender.send(Ok(message)).await.ok();
 					state
@@ -620,7 +617,7 @@ impl Session {
 					id: node.id,
 					kind: node.kind,
 					send: node.send,
-					token: authorization.token,
+					tokens: authorization.tokens,
 				};
 				store_object_sender
 					.send(node)
@@ -672,7 +669,8 @@ impl Session {
 			if authorization.permissions.contains(requested) {
 				continue;
 			}
-			let resource = tg::Referent::with_node_and_token(node.id.clone(), authorization.token);
+			let resource =
+				tg::Referent::with_node_and_local_tokens(node.id.clone(), authorization.tokens);
 			authorization_args.push((resource, requested));
 			authorization_positions.push(position);
 		}
@@ -710,7 +708,7 @@ impl Session {
 				if node.send {
 					let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 						selector: tg::Selector::Id(node.id.clone().into()),
-						token: None,
+						tokens: Vec::new(),
 					});
 					state.sender.send(Ok(message)).await.ok();
 					state
@@ -742,7 +740,7 @@ impl Session {
 					eager: node.eager,
 					id: node.id,
 					send: node.send,
-					token: authorization.token,
+					tokens: authorization.tokens,
 				};
 				store_process_sender
 					.send(node)

@@ -77,9 +77,9 @@ impl Search {
 	pub(super) fn new(
 		config: crate::authorize::SearchConfig,
 		principal: &tg::Principal,
-		state: &State,
+		state: &mut State,
 		targets: Vec<Key>,
-		token: Option<(&tg::authorization::Body, &tg::Id)>,
+		tokens: &[tg::authorization::Body],
 	) -> Self {
 		let authorization_revision = state.authorization_revision();
 		let budget = Budget::with_root_total(config, targets.len());
@@ -108,16 +108,20 @@ impl Search {
 				.push_back(DescendantTask::Subject { depth: 0, subject });
 		}
 
-		let mut sources = inherent_sources(principal);
-		if let Some((body, resource)) = token {
+		let mut sources = inherent_sources(principal)
+			.into_iter()
+			.map(|key| (key, i64::MAX))
+			.collect::<Vec<_>>();
+		for body in tokens {
 			sources.extend(
 				body.permissions
 					.iter()
-					.map(|permission| (resource.clone(), *permission)),
+					.map(|permission| ((body.resource.clone(), *permission), body.expires_at)),
 			);
 		}
 		let mut sources_seen = HashSet::new();
-		for key in sources {
+		for (key, expires_at) in sources {
+			state.authorize_with_expiration(key.clone(), expires_at);
 			if !sources_seen.insert(key.clone()) {
 				continue;
 			}
@@ -294,6 +298,41 @@ impl Search {
 
 			return Ok(());
 		}
+		let source = match &read {
+			Read::ObjectChildren { object, .. } => Some((
+				object.clone().into(),
+				tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				),
+			)),
+			Read::ProcessChildren {
+				process,
+				permission,
+				..
+			}
+			| Read::ProcessObjectChildren {
+				process,
+				permission,
+				..
+			} => Some((
+				process.clone().into(),
+				tg::authorization::Permission::Process(*permission),
+			)),
+			Read::SandboxProcesses {
+				sandbox,
+				permission,
+				..
+			} => Some((
+				sandbox.clone().into(),
+				tg::authorization::Permission::Sandbox(*permission),
+			)),
+			Read::OwnerSandboxes { owner, .. } => owner.to_id().and_then(|resource| {
+				crate::authorize::write_permission_for_resource(&resource)
+					.ok()
+					.map(|permission| (resource, permission))
+			}),
+			_ => None,
+		};
 		let retry = read.clone();
 		let (depth, next_depth, continuation, neighbors) = match read {
 			Read::DescendantChecks(checks) => {
@@ -403,7 +442,12 @@ impl Search {
 							)
 						})
 						.collect();
-					self.queue_candidates(depth, candidates, DescendantFallback::None);
+					self.queue_candidates(
+						depth,
+						candidates,
+						DescendantFallback::None,
+						source.clone().unwrap(),
+					);
 				}
 				let fallback = after.map_or(DescendantFallback::None, |after| {
 					DescendantFallback::ProcessObjects {
@@ -491,6 +535,11 @@ impl Search {
 			},
 		};
 		for key in neighbors {
+			if let Some(source) = &source {
+				state.add_authorization_dependency(source, key.clone());
+			} else {
+				state.authorize_ancestor_or_descendant(key.clone());
+			}
 			if self.visited.contains(&key) {
 				continue;
 			}
@@ -545,7 +594,7 @@ impl Search {
 						key: neighbor.clone(),
 					});
 			}
-			state.authorize_ancestor_or_descendant(neighbor);
+			state.add_authorization_dependency(&checks.source, neighbor);
 			for key in state.authorization_changes_since(&mut self.authorization_revision) {
 				self.unresolved.remove(&key);
 			}
@@ -561,6 +610,7 @@ impl Search {
 		depth: usize,
 		candidates: Vec<DescendantCandidate>,
 		fallback: DescendantFallback,
+		source: Key,
 	) {
 		if candidates.len() > self.budget.config.page_size {
 			self.queue_fallback(depth, fallback);
@@ -584,6 +634,7 @@ impl Search {
 			candidates,
 			depth,
 			fallback,
+			source,
 		};
 		self.queues
 			.entry(depth)
@@ -734,7 +785,7 @@ impl Search {
 			}
 			self.visited.insert(key.clone());
 		}
-		state.authorize_ancestor_or_descendant(key.clone());
+		debug_assert!(state.is_authorized(&key));
 		for key in state.authorization_changes_since(&mut self.authorization_revision) {
 			self.unresolved.remove(&key);
 		}
@@ -907,7 +958,8 @@ impl Search {
 				}
 			})
 			.collect();
-		self.queue_candidates(depth, candidates, fallback);
+		let source = (object.clone().into(), permission);
+		self.queue_candidates(depth, candidates, fallback, source);
 	}
 
 	fn queue_process_checks(
@@ -950,7 +1002,11 @@ impl Search {
 				});
 			}
 		}
-		self.queue_candidates(depth, candidates, fallback);
+		let source = (
+			process.clone().into(),
+			tg::authorization::Permission::Process(permission),
+		);
+		self.queue_candidates(depth, candidates, fallback, source);
 	}
 
 	fn queue_process_object_checks(
@@ -989,7 +1045,11 @@ impl Search {
 				}
 			}
 		}
-		self.queue_candidates(depth, candidates, fallback);
+		let source = (
+			process.clone().into(),
+			tg::authorization::Permission::Process(permission),
+		);
+		self.queue_candidates(depth, candidates, fallback, source);
 	}
 
 	fn process_object_candidate(

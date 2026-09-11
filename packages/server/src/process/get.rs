@@ -100,7 +100,7 @@ impl Session {
 			self.create_process_get_output(id, data, Some(runner.location.clone()), None);
 		output.tokens = arg.tokens.clone();
 		if let Some(token) = self.create_process_get_token(id)? {
-			output.tokens.set_local(token);
+			output.tokens.insert_local(token);
 		}
 
 		// Read index-only fields at the process's original location.
@@ -160,9 +160,9 @@ impl Session {
 		id: &tg::process::Id,
 		metadata: bool,
 		availability: bool,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);
@@ -176,18 +176,18 @@ impl Session {
 			return Ok(None);
 		};
 		if let Some(token) = self.create_process_get_token(id)? {
-			output.tokens.set_local(token);
+			output.tokens.insert_local(token);
 		}
 		if let Some(metadata) = output.metadata.take() {
 			output.metadata = self
-				.mask_process_metadata(id, metadata, token)
+				.mask_process_metadata(id, metadata, tokens)
 				.boxed()
 				.await?;
 		}
 		if availability && let Some(storage) = self.server.try_get_process_storage_local(id).await?
 		{
 			output.availability = self
-				.compute_process_availability(id, storage, token)
+				.compute_process_availability(id, storage, tokens)
 				.await?;
 		}
 		Ok(Some(output))

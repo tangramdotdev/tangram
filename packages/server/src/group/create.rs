@@ -203,7 +203,7 @@ impl Session {
 				let data = group.ok_or_else(|| tg::error!("failed to find the group"))?;
 				let mut tokens = tg::authorization::Tokens::default();
 				if let Some(token) = self.create_read_token(&id.clone().into())? {
-					tokens.set_local(token);
+					tokens.insert_local(token);
 				}
 				let group = tg::group::create::Output {
 					data,
@@ -240,7 +240,7 @@ impl Session {
 		};
 		let mut tokens = tg::authorization::Tokens::default();
 		if let Some(token) = self.create_read_token(&group.id.clone().into())? {
-			tokens.set_local(token);
+			tokens.insert_local(token);
 		}
 		let group = tg::group::create::Output {
 			data: group,

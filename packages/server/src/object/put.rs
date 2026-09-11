@@ -167,7 +167,7 @@ impl Session {
 			vec![tg::authorization::Permission::Object(permission)],
 			grant_expires_at,
 		)?;
-		let object = tg::Referent::with_node_and_token(id.clone(), token);
+		let object = tg::Referent::with_node_and_local_tokens(id.clone(), token);
 
 		Ok(tg::object::put::Output { object })
 	}

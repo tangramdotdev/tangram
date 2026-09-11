@@ -135,7 +135,7 @@ impl Session {
 		output.id = connected_event.process;
 		output.lease = Some(connected_event.lease);
 		if let Some(grant) = connected_event.grant {
-			output.token = Some(grant);
+			output.tokens = vec![grant];
 		}
 	}
 

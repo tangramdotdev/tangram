@@ -47,7 +47,7 @@ impl Index {
 					requested,
 					required: node.into(),
 					resource: tg::Selector::Id(object.into()),
-					token: None,
+					tokens: Vec::new(),
 				})
 				.collect::<Vec<_>>();
 			let authorizations = Self::authorize_batch_with_transaction(

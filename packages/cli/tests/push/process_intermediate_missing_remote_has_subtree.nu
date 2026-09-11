@@ -43,9 +43,10 @@ def test [...args] {
 
 	# Wait for the process to finish.
 	tg --url $source.url wait $process_a_id
-	tg --url $source.url index
 
 	# Get process A's data.
+	tg --url $source.url log $process_a_id --position end.0 --no-timeout o+e>| ignore
+	tg --url $source.url index
 	let process_a_data = tg --url $source.url get $process_a_id | from json
 	let command_a_id = $process_a_data.command
 	let output_a_id = $process_a_data.output.value
@@ -54,6 +55,8 @@ def test [...args] {
 
 	# Get process B (first child of A).
 	let process_b_id = $children_a | get 0 | get process | split row '?' | first
+	tg --url $source.url log $process_b_id --position end.0 --no-timeout o+e>| ignore
+	tg --url $source.url index
 	let process_b_data = tg --url $source.url get $process_b_id | from json
 	let command_b_id = $process_b_data.command
 	let output_b_id = $process_b_data.output.value
@@ -62,6 +65,8 @@ def test [...args] {
 
 	# Get process C (first child of B).
 	let process_c_id = $children_b | get 0 | get process | split row '?' | first
+	tg --url $source.url log $process_c_id --position end.0 --no-timeout o+e>| ignore
+	tg --url $source.url index
 	let process_c_data = tg --url $source.url get $process_c_id | from json
 	let command_c_id = $process_c_data.command
 	let output_c_id = $process_c_data.output.value
@@ -70,6 +75,8 @@ def test [...args] {
 
 	# Get process D (first child of C).
 	let process_d_id = $children_c | get 0 | get process | split row '?' | first
+	tg --url $source.url log $process_d_id --position end.0 --no-timeout o+e>| ignore
+	tg --url $source.url index
 	let process_d_data = tg --url $source.url get $process_d_id | from json
 	let command_d_id = $process_d_data.command
 	let output_d_id = $process_d_data.output.value

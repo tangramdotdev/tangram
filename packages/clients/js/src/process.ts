@@ -280,7 +280,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#stdout = arg.stdout;
 		this.#stderr = arg.stderr;
 		this.#stopper = arg.stopper ?? null;
-		this.#tokens = arg.tokens ?? {};
+		this.#tokens = tg.Authorization.Tokens.clone(arg.tokens ?? {});
 		this.#wait = arg.wait ?? null;
 		this.#owned =
 			this.#wait === null &&
@@ -331,7 +331,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			output.tokens !== null &&
 			!tg.Authorization.Tokens.isEmpty(output.tokens)
 		) {
-			this.#tokens = { ...output.tokens };
+			tg.Authorization.Tokens.inherit(this.#tokens, output.tokens);
 		}
 		this.#location =
 			output.location === undefined || output.location === null
@@ -367,11 +367,11 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	get tokens(): tg.Authorization.Tokens {
-		return { ...this.#tokens };
+		return tg.Authorization.Tokens.clone(this.#tokens);
 	}
 
 	set tokens(tokens: tg.Authorization.Tokens) {
-		this.#tokens = tokens;
+		this.#tokens = tg.Authorization.Tokens.clone(tokens);
 	}
 
 	inheritLocation(location: tg.Location.Arg | null): void {

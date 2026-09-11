@@ -132,7 +132,7 @@ async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 		requested,
 		required: requested,
 		resource: tg::Selector::Id(target.into()),
-		token: None,
+		tokens: Vec::new(),
 	};
 	let outcomes = Index::authorize_batch_with_transaction(
 		crate::authorize::facts::Cache::new(),

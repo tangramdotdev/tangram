@@ -308,21 +308,12 @@ impl Session {
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let arg_in_body = tangram_http::body::arg::get_header(request.headers())
-			.map_err(|error| tg::error!(!error, "failed to parse the x-tg-arg-in-body header"))?;
-
 		// Parse the arg.
-		let arg = if arg_in_body {
-			None
-		} else {
-			Some(
-				request
-					.query_params()
-					.transpose()
-					.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-					.unwrap_or_default(),
-			)
-		};
+		let arg = request
+			.query_params()
+			.transpose()
+			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
+			.unwrap_or_default();
 
 		// Get the accept header.
 		let accept = request
@@ -331,15 +322,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
 
 		// Create the request body.
-		let mut reader = request.reader();
+		let reader = request.reader();
 		let max_frame_size = self.server.config.sync.max_frame_size;
-		let arg = if let Some(arg) = arg {
-			arg
-		} else {
-			tangram_http::body::arg::get(&mut reader, max_frame_size)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read the sync arg"))?
-		};
 		let stream = stream::try_unfold(reader, move |mut reader| async move {
 			let Some(len) = reader
 				.try_read_uvarint()

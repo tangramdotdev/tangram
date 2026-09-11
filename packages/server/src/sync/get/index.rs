@@ -296,7 +296,7 @@ impl Session {
 					}
 
 					// Enqueue the children.
-					Self::sync_get_enqueue_object_children(state, &node.id, &data, None, None);
+					Self::sync_get_enqueue_object_children(state, &node.id, &data, None, &[]);
 				}
 			}
 		}
@@ -452,7 +452,7 @@ impl Session {
 					&node.id,
 					&data,
 					Some(&availability),
-					None,
+					&[],
 				);
 			}
 		}

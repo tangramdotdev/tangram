@@ -27,7 +27,7 @@ assert equal $log ready
 let socket = $runner.url | str replace 'http+unix://' '' | url decode
 let remote_socket = $remote.url | str replace 'http+unix://' '' | url decode
 let remote_response = http get --unix-socket $remote_socket --headers { Authorization: $'Bearer ($root_token)' } $'http://localhost/processes/($process)'
-let query = { location: remote, 'tokens[remote]': $remote_response.tokens.local } | url build-query
+let query = { location: remote, 'tokens[remote][0]': $remote_response.tokens.local.0 } | url build-query
 let response = http get --unix-socket $socket $'http://localhost/processes/($process)?($query)'
 assert equal $response.location remote
 assert equal $response.data.status started

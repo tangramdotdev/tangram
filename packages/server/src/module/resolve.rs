@@ -192,7 +192,7 @@ impl Session {
 				.ok_or_else(|| tg::error!("the dependency pointer is missing a graph"))?,
 		};
 		if let Some(token) = self.create_module_resolution_token(resource, &authorization)? {
-			dependency.0.options.tokens.set_local(token);
+			dependency.0.options.tokens.insert_local(token);
 		}
 		let object = match edge {
 			tg::graph::Edge::Object(object) => {
@@ -363,7 +363,7 @@ impl Session {
 		};
 		let token = self.create_module_resolution_token(resource, authorization)?;
 		if let Some(token) = token {
-			referent.options.tokens.set_local(token);
+			referent.options.tokens.insert_local(token);
 		}
 
 		Ok(())
@@ -374,19 +374,23 @@ impl Session {
 		resource: tg::Id,
 		authorization: &tg::Referent<tg::object::Id>,
 	) -> tg::Result<Option<tg::authorization::Token>> {
-		let Some(authorization_token) = authorization.tokens().local() else {
-			return Ok(None);
-		};
 		let authorization_resource: tg::Id = authorization.node.clone().into();
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
-		if authorization_token.body.resource != authorization_resource
-			|| !self.verify_token(authorization_token)
-			|| !authorization_token.body.grants(permission)
-		{
+		let Some(authorization_token) = authorization
+			.tokens()
+			.local()
+			.iter()
+			.filter(|token| {
+				token.body.resource == authorization_resource
+					&& token.body.grants(permission)
+					&& self.verify_token(token)
+			})
+			.max_by_key(|token| token.body.expires_at)
+		else {
 			return Ok(None);
-		}
+		};
 		let token = if authorization_token.body.resource == resource {
 			Some(authorization_token.clone())
 		} else {

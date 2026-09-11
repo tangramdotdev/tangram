@@ -14,7 +14,7 @@
                   "kind": "file",
                   "contents": "",
                   "xattrs": {
-                    "user.tangram.dependencies": "[\"../bar?tokens[local]=<token>\",\"baz?tokens[local]=<token>\"]",
+                    "user.tangram.dependencies": "[\"../bar?tokens[local][0]=<token>\",\"baz?tokens[local][0]=<token>\"]",
                     "user.tangram.token": "<token>"
                   }
                 }
@@ -27,7 +27,7 @@
                   "kind": "file",
                   "contents": "",
                   "xattrs": {
-                    "user.tangram.dependencies": "[\"../foo?tokens[local]=<token>\"]",
+                    "user.tangram.dependencies": "[\"../foo?tokens[local][0]=<token>\"]",
                     "user.tangram.token": "<token>"
                   }
                 }
@@ -51,7 +51,7 @@
           "kind": "file",
           "contents": "",
           "xattrs": {
-            "user.tangram.dependencies": "[\"../foo?tokens[local]=<token>\"]",
+            "user.tangram.dependencies": "[\"../foo?tokens[local][0]=<token>\"]",
             "user.tangram.token": "<token>"
           }
         }
@@ -64,7 +64,7 @@
           "kind": "file",
           "contents": "",
           "xattrs": {
-            "user.tangram.dependencies": "[\"../bar?tokens[local]=<token>\",\"baz?tokens[local]=<token>\"]",
+            "user.tangram.dependencies": "[\"../bar?tokens[local][0]=<token>\",\"baz?tokens[local][0]=<token>\"]",
             "user.tangram.token": "<token>"
           }
         }

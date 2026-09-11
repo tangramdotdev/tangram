@@ -695,13 +695,13 @@ impl Inner {
 		let Ok(artifact) = tg::artifact::Id::try_from(target.node.clone()) else {
 			return;
 		};
-		let Some(token) = target.options.tokens.local() else {
-			return;
-		};
+		let incoming = target.options.tokens.local();
 		let mut artifact_tag_target_tokens = self.artifact_tag_target_tokens.lock().unwrap();
 		let tokens = artifact_tag_target_tokens.entry(artifact).or_default();
-		if !tokens.contains(token) {
-			tokens.push(token.clone());
+		for token in incoming {
+			if !tokens.contains(token) {
+				tokens.push(token.clone());
+			}
 		}
 	}
 
@@ -759,26 +759,23 @@ impl Inner {
 		let id: tg::object::Id = artifact.clone().into();
 		let location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		let session = self.client.session(self.client.context());
-		for token in self.artifact_tag_target_tokens(artifact) {
-			let arg = tg::object::get::Arg {
-				location: location.clone(),
-				tokens: tg::authorization::Tokens::with_local(Some(token)),
-				..Default::default()
-			};
-			let Ok(Some(output)) = session.try_get_object(&id, arg).await else {
-				continue;
-			};
-			let authorized = output.tokens.local().is_some_and(|token| {
-				token.body.resource == tg::Id::from(id.clone())
-					&& token.body.expires_at >= now
-					&& token.body.grants(permission)
-			});
-			if authorized {
-				return true;
-			}
+		let tokens = self.artifact_tag_target_tokens(artifact);
+		if tokens.is_empty() {
+			return false;
 		}
-
-		false
+		let arg = tg::object::get::Arg {
+			location,
+			tokens: tg::authorization::Tokens::with_local(tokens),
+			..Default::default()
+		};
+		let Ok(Some(output)) = session.try_get_object(&id, arg).await else {
+			return false;
+		};
+		output.tokens.local().iter().any(|token| {
+			token.body.resource == tg::Id::from(id.clone())
+				&& token.body.expires_at >= now
+				&& token.body.grants(permission)
+		})
 	}
 
 	async fn open(&self, id: u64) -> std::io::Result<u64> {
@@ -1162,7 +1159,7 @@ impl Inner {
 		if module.is_some() {
 			names.push(tg::file::MODULE_XATTR_NAME.to_owned());
 		}
-		if file.state().tokens().local().is_some() {
+		if !file.state().tokens().local().is_empty() {
 			names.push(tg::file::TOKEN_XATTR_NAME.to_owned());
 		}
 		Ok(names)
@@ -1185,10 +1182,20 @@ impl Inner {
 		if tg::file::is_dependencies_xattr_name(name) || name == tg::file::TOKEN_XATTR_NAME {
 			let references = self.file_dependency_references(&file).await?;
 			if name == tg::file::TOKEN_XATTR_NAME {
+				// The file xattr contains a single subtree proof for this file.
+				let resource = tg::Id::from(file.id());
+				let permission = tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				);
 				let value = file
 					.state()
 					.tokens()
 					.local()
+					.iter()
+					.filter(|token| {
+						token.body.resource == resource && token.body.grants(permission)
+					})
+					.max_by_key(|token| token.body.expires_at)
 					.map(ToString::to_string)
 					.map(Bytes::from);
 				return Ok(value);

@@ -130,7 +130,7 @@ impl Session {
 							&message.id,
 							&data,
 							None,
-							None,
+							&[],
 						);
 					}
 
@@ -240,7 +240,7 @@ impl Session {
 							&message.id,
 							&data,
 							Some(&availability),
-							None,
+							&[],
 						);
 					}
 
@@ -299,9 +299,11 @@ impl Session {
 					tg::Selector::Id(id) => match id.kind() {
 						tg::id::Kind::Process => {
 							let id = id.try_into()?;
-							if let Some(token) = message.token {
-								state.graph.lock().unwrap().update_process_token(&id, token);
-							}
+							state
+								.graph
+								.lock()
+								.unwrap()
+								.update_process_tokens(&id, message.tokens);
 							let node = super::index::ProcessNode { id, missing: true };
 							index_process_sender.send(node).await.map_err(|_| {
 								tg::error!("failed to send the process to the index task")
@@ -309,9 +311,11 @@ impl Session {
 						},
 						kind if kind.is_object() => {
 							let id = id.try_into()?;
-							if let Some(token) = message.token {
-								state.graph.lock().unwrap().update_object_token(&id, token);
-							}
+							state
+								.graph
+								.lock()
+								.unwrap()
+								.update_object_tokens(&id, message.tokens);
 							let node = super::index::ObjectNode { id, missing: true };
 							index_object_sender.send(node).await.map_err(|_| {
 								tg::error!("failed to send the object to the index task")
@@ -454,7 +458,7 @@ impl Session {
 				descendants: false,
 				eager: state.arg.eager,
 				selector,
-				token: None,
+				tokens: Vec::new(),
 			});
 			state
 				.sender

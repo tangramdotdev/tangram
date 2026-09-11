@@ -102,12 +102,14 @@ impl Session {
 
 	pub(crate) async fn compact_process_log(&self, process: &tg::process::Id) -> tg::Result<()> {
 		let indexed = self.get_process_from_index(process).await?;
-		let mut data = indexed
+		let data = indexed
 			.data
 			.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
 		if !Self::process_log_needs_compaction(&data) {
 			return Ok(());
 		}
+
+		crate::checkpoint!(self.server, "process.log.compact.read", %process).await;
 
 		let entries = self
 			.server
@@ -123,6 +125,15 @@ impl Session {
 			})
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the log entries"))?;
+
+		// Another compactor may have updated the index and deleted the cached entries before this read.
+		let indexed = self.get_process_from_index(process).await?;
+		let mut data = indexed
+			.data
+			.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
+		if !Self::process_log_needs_compaction(&data) {
+			return Ok(());
+		}
 
 		let mut index = Index::default();
 		let mut entries_bytes = Vec::new();
@@ -246,7 +257,7 @@ impl Session {
 			return Err(tg::error!("invalid stdio stream"));
 		}
 		let output = self
-			.try_get_process_local(id, false, false, None)
+			.try_get_process_local(id, false, false, &[])
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 
@@ -456,7 +467,7 @@ impl Inner {
 		};
 		let Some(output) = inner
 			.session
-			.try_get_process_local(&inner.process, false, false, None)
+			.try_get_process_local(&inner.process, false, false, &[])
 			.await?
 		else {
 			return Ok(false);

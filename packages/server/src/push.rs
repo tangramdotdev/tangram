@@ -785,12 +785,12 @@ impl Session {
 						| tg::id::Kind::User
 				) {
 					let token = self.create_read_token(&id)?;
-					return Ok(tg::Referent::with_node_and_token(id, token));
+					return Ok(tg::Referent::with_node_and_local_tokens(id, token));
 				} else {
 					return Ok(tg::Referent::with_node(id));
 				};
 				let token = self.create_token(id.clone(), permissions, expires_at)?;
-				let node = tg::Referent::with_node_and_token(id, token);
+				let node = tg::Referent::with_node_and_local_tokens(id, token);
 				Ok(node)
 			})
 			.collect()

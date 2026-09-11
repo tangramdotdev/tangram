@@ -182,12 +182,7 @@ impl tg::Session {
 	)> {
 		let method = http::Method::POST;
 		let path = "/sandboxes/control";
-		let uri = Uri::builder()
-			.path(path)
-			.query_params_strict(&arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.build()
-			.unwrap();
+		let uri = Uri::builder().path(path).build().unwrap();
 		let stream =
 			stream.map(
 				|result: tg::Result<tg::sandbox::control::ClientMessage>| match result {
@@ -205,6 +200,8 @@ impl tg::Session {
 			)
 			.sse(stream)
 			.unwrap();
+		let request = tangram_http::request::with_query_params(request, &arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send(request)
 			.await

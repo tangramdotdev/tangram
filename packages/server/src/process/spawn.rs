@@ -329,7 +329,7 @@ impl Session {
 		{
 			output.process_token = None;
 			output.sandbox_token = None;
-			output.token = None;
+			output.tokens.clear();
 		}
 		let output = if cacheable && arg.cached.is_none() {
 			self.spawn_process_in_sandbox_or_get_cached(&arg, output, cache_location)

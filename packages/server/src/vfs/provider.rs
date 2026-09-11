@@ -965,13 +965,13 @@ impl Provider {
 		let Ok(artifact) = tg::artifact::Id::try_from(target.node.clone()) else {
 			return;
 		};
-		let Some(token) = target.options.tokens.local() else {
-			return;
-		};
+		let incoming = target.options.tokens.local();
 		let mut artifact_tag_target_tokens = self.artifact_tag_target_tokens.lock().unwrap();
 		let tokens = artifact_tag_target_tokens.entry(artifact).or_default();
-		if !tokens.contains(token) {
-			tokens.push(token.clone());
+		for token in incoming {
+			if !tokens.contains(token) {
+				tokens.push(token.clone());
+			}
 		}
 	}
 
@@ -1223,7 +1223,7 @@ impl Provider {
 
 		// Try the target tokens returned by tags that point to this artifact.
 		for token in self.artifact_tag_target_tokens(artifact) {
-			let resource = tg::Referent::with_node_and_token(
+			let resource = tg::Referent::with_node_and_local_tokens(
 				tg::Selector::<tg::Id>::Id(artifact.clone().into()),
 				Some(token),
 			);

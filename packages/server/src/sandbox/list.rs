@@ -160,7 +160,7 @@ impl Session {
 				continue;
 			}
 			if let Some(token) = self.create_read_token(&item.id.clone().into())? {
-				item.tokens.set_local(token);
+				item.tokens.insert_local(token);
 			}
 			authorized.push(item);
 		}

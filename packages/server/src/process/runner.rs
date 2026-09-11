@@ -50,7 +50,8 @@ impl Session {
 		tokens: &tg::authorization::Tokens,
 		permissions: tg::authorization::permission::process::Set,
 	) -> tg::Result<Option<tg::authorization::permission::Set>> {
-		let resource = tg::Referent::with_node_and_token(id.clone(), tokens.local().cloned());
+		let resource =
+			tg::Referent::with_node_and_local_tokens(id.clone(), tokens.local().to_vec());
 		let permissions = tg::authorization::permission::Set::Process(permissions);
 		// Only the caller's local authority applies here; remote capabilities remain with their issuer.
 		let permissions = self.authorize(resource, permissions).await?;

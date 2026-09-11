@@ -150,6 +150,15 @@ impl Builder {
 		Ok(self)
 	}
 
+	pub fn query_params_unbounded<T>(mut self, value: &T) -> Result<Self, QueryParamsError>
+	where
+		T: serde::Serialize,
+	{
+		let query = serde_qs::to_string(value)?;
+		self.query = (!query.is_empty()).then_some(query);
+		Ok(self)
+	}
+
 	pub fn query_params_strict<T>(mut self, value: &T) -> Result<Self, QueryParamsError>
 	where
 		T: serde::Serialize,

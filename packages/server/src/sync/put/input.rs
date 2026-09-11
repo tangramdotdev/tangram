@@ -22,7 +22,7 @@ impl Session {
 								message.descendants,
 								message.eager,
 								id,
-								message.token,
+								message.tokens,
 							)?;
 						},
 						tg::Selector::Specifier(specifier) => {
@@ -30,7 +30,7 @@ impl Session {
 								message.descendants,
 								message.eager,
 								specifier.clone(),
-								message.token,
+								message.tokens,
 							);
 							if inserted {
 								let node = super::resolve::Node { specifier };

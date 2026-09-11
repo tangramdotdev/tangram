@@ -27,7 +27,7 @@ impl Session {
 		// Create the database future.
 		let database_future = queue_database_receiver.map(Ok).try_for_each(|node| {
 			let state = state.clone();
-			async move { Self::sync_get_queue_node(&state, node.eager, node.id, node.token).await }
+			async move { Self::sync_get_queue_node(&state, node.eager, node.id, node.tokens).await }
 		});
 
 		// Create the objects future.
@@ -77,7 +77,7 @@ impl Session {
 			let state = state.clone();
 			async move {
 				let id = node.id.into();
-				Self::sync_get_queue_node(&state, node.eager, id, node.token).await
+				Self::sync_get_queue_node(&state, node.eager, id, node.tokens).await
 			}
 		});
 
@@ -103,13 +103,13 @@ impl Session {
 		state: &State,
 		eager: bool,
 		id: tg::Id,
-		token: Option<tg::authorization::Token>,
+		tokens: Vec<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		let requested = state
 			.graph
 			.lock()
 			.unwrap()
-			.update_node_local_requested(&id, token.clone());
+			.update_node_local_requested(&id, tokens.clone());
 		if !requested {
 			return Ok(());
 		}
@@ -118,7 +118,7 @@ impl Session {
 			descendants: true,
 			eager,
 			selector,
-			token,
+			tokens,
 		});
 		state
 			.sender
@@ -139,9 +139,7 @@ impl Session {
 		{
 			let mut graph = state.graph.lock().unwrap();
 			for node in &nodes {
-				if let Some(token) = &node.token {
-					graph.update_object_token(&node.id, token.clone());
-				}
+				graph.update_object_tokens(&node.id, node.tokens.clone());
 			}
 		}
 
@@ -197,7 +195,7 @@ impl Session {
 						descendants: true,
 						eager: node.eager,
 						selector: tg::Selector::Id(node.id.clone().into()),
-						token: node.token,
+						tokens: node.tokens,
 					});
 					state
 						.sender
@@ -304,7 +302,7 @@ impl Session {
 							&node.id,
 							&data,
 							node.kind,
-							node.token.as_ref(),
+							node.tokens.as_slice(),
 						);
 
 						// Increment the progress.
@@ -405,9 +403,7 @@ impl Session {
 		{
 			let mut graph = state.graph.lock().unwrap();
 			for node in &nodes {
-				if let Some(token) = &node.token {
-					graph.update_process_token(&node.id, token.clone());
-				}
+				graph.update_process_tokens(&node.id, node.tokens.clone());
 			}
 		}
 
@@ -463,7 +459,7 @@ impl Session {
 						descendants: true,
 						eager: node.eager,
 						selector: tg::Selector::Id(node.id.clone().into()),
-						token: node.token,
+						tokens: node.tokens,
 					});
 					state
 						.sender
@@ -519,7 +515,7 @@ impl Session {
 						&node.id,
 						&data,
 						Some(&availability),
-						node.token.as_ref(),
+						node.tokens.as_slice(),
 					);
 
 					// Request the process if its log is not available yet.
@@ -528,7 +524,7 @@ impl Session {
 							descendants: true,
 							eager: node.eager,
 							selector: tg::Selector::Id(node.id.clone().into()),
-							token: node.token.clone(),
+							tokens: node.tokens.clone(),
 						});
 						state
 							.sender
@@ -577,7 +573,7 @@ impl Session {
 		id: &tg::object::Id,
 		data: &tg::object::Data,
 		kind: Option<crate::sync::queue::ObjectKind>,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
@@ -589,7 +585,7 @@ impl Session {
 				id: object,
 				kind,
 				parent: Some(id.clone().into()),
-				token: token.cloned(),
+				tokens: tokens.to_vec(),
 			}));
 	}
 
@@ -598,7 +594,7 @@ impl Session {
 		id: &tg::process::Id,
 		data: &tg::process::Data,
 		availability: Option<&tg::process::Availability>,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) {
 		// Enqueue the children if necessary.
 		if state.arg.process_children
@@ -619,7 +615,7 @@ impl Session {
 					eager: state.arg.eager,
 					id: child.process.node.clone(),
 					parent: Some(id.clone()),
-					token: token.cloned(),
+					tokens: tokens.to_vec(),
 				});
 			}
 		}
@@ -634,7 +630,7 @@ impl Session {
 				id: data.command.node.clone().into(),
 				kind: Some(crate::sync::queue::ObjectKind::Command),
 				parent: Some(id.clone().into()),
-				token: token.cloned(),
+				tokens: tokens.to_vec(),
 			};
 			state.queue.enqueue_object(node);
 		}
@@ -656,7 +652,7 @@ impl Session {
 							id: object,
 							kind: Some(crate::sync::queue::ObjectKind::Error),
 							parent: Some(id.clone().into()),
-							token: token.cloned(),
+							tokens: tokens.to_vec(),
 						}));
 				},
 				tg::Either::Right(error) => {
@@ -666,7 +662,7 @@ impl Session {
 						id: error.clone().node.into(),
 						kind: Some(crate::sync::queue::ObjectKind::Error),
 						parent: Some(id.clone().into()),
-						token: token.cloned(),
+						tokens: tokens.to_vec(),
 					};
 					state.queue.enqueue_object(node);
 				},
@@ -684,7 +680,7 @@ impl Session {
 				id: log.node.into(),
 				kind: Some(crate::sync::queue::ObjectKind::Log),
 				parent: Some(id.clone().into()),
-				token: token.cloned(),
+				tokens: tokens.to_vec(),
 			};
 			state.queue.enqueue_object(node);
 		}
@@ -704,7 +700,7 @@ impl Session {
 					id: object,
 					kind: Some(crate::sync::queue::ObjectKind::Output),
 					parent: Some(id.clone().into()),
-					token: token.cloned(),
+					tokens: tokens.to_vec(),
 				}));
 		}
 	}

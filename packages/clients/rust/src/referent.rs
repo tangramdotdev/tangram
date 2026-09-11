@@ -88,8 +88,11 @@ impl<T> Referent<T> {
 	}
 
 	#[must_use]
-	pub fn with_node_and_token(node: T, token: Option<tg::authorization::Token>) -> Self {
-		Self::with_node_and_tokens(node, tg::authorization::Tokens::with_local(token))
+	pub fn with_node_and_local_tokens(
+		node: T,
+		tokens: impl IntoIterator<Item = tg::authorization::Token>,
+	) -> Self {
+		Self::with_node_and_tokens(node, tg::authorization::Tokens::with_local(tokens))
 	}
 
 	#[must_use]
@@ -134,7 +137,7 @@ impl<T> Referent<T> {
 		self.options.tag.as_ref()
 	}
 
-	pub fn token(&self) -> Option<&tg::authorization::Token> {
+	pub fn local_tokens(&self) -> &[tg::authorization::Token] {
 		self.options.tokens.local()
 	}
 
@@ -202,7 +205,7 @@ where
 		let mut builder = Uri::builder().path(&path);
 		if self.options != Options::default() {
 			builder = builder
-				.query_params(&self.options)
+				.query_params_unbounded(&self.options)
 				.map_err(|error| tg::error!(!error, "failed to serialize the query params"))
 				.unwrap();
 		}
@@ -321,8 +324,20 @@ mod tests {
 			region: None,
 		});
 		let mut tokens = tg::authorization::Tokens::default();
-		tokens.set_local(token.clone());
-		tokens.set(remote.clone(), token);
+		tokens.insert_local(token.clone());
+		tokens.insert(remote.clone(), token.clone());
+		let mut other = token;
+		other.body.permissions = vec![tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		)];
+		other.body.expires_at = 100;
+		tokens.insert_local(other.clone());
+		tokens.insert(remote.clone(), other.clone());
+		for index in 0..20 {
+			let mut token = other.clone();
+			token.metadata.key = format!("key{index}");
+			tokens.insert_local(token);
+		}
 		let options = tg::referent::Options {
 			location: Some(remote),
 			tokens,
@@ -330,8 +345,15 @@ mod tests {
 		};
 		let referent = tg::Referent::new(id, options);
 		let string = referent.to_string();
+		assert!(string.len() > tangram_uri::builder::QUERY_PARAMS_LENGTH_THRESHOLD);
 		let parsed: tg::Referent<tg::file::Id> = string.parse().unwrap();
 
+		assert_eq!(referent, parsed);
+		let json = serde_json::to_string(&referent).unwrap();
+		let parsed: tg::Referent<tg::file::Id> = serde_json::from_str(&json).unwrap();
+		assert_eq!(referent, parsed);
+		let bytes = tangram_serialize::to_vec(&referent).unwrap();
+		let parsed: tg::Referent<tg::file::Id> = tangram_serialize::from_slice(&bytes).unwrap();
 		assert_eq!(referent, parsed);
 		let referent = referent.without_location_and_tokens();
 		assert!(referent.options.location.is_none());

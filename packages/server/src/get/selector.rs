@@ -69,7 +69,7 @@ impl Session {
 	async fn try_get_with_selector_local(
 		&self,
 		selector: &tg::Selector<tg::Id>,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::get::Output>> {
 		let id = match selector {
 			tg::Selector::Id(id) => {
@@ -90,7 +90,7 @@ impl Session {
 		};
 		let permission = Self::read_permission_for_resource(&id)?;
 		let resource =
-			tg::Referent::with_node_and_token(tg::Selector::Id(id.clone()), token.cloned());
+			tg::Referent::with_node_and_local_tokens(tg::Selector::Id(id.clone()), tokens.to_vec());
 		let authorized = self
 			.authorize(resource, permission)
 			.await?
@@ -98,9 +98,9 @@ impl Session {
 		if !authorized {
 			return Ok(None);
 		}
-		let mut tokens = tg::authorization::Tokens::with_local(token.cloned());
+		let mut tokens = tg::authorization::Tokens::with_local(tokens.to_vec());
 		if let Some(token) = self.create_read_token(&id)? {
-			tokens.set_local(token);
+			tokens.insert_local(token);
 		}
 		let options = tg::referent::Options {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
@@ -226,16 +226,17 @@ impl Session {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				crate::remote::cache::token_valid(output.referent.token(), &self.server.clock)
+				crate::remote::cache::tokens_valid(
+					output.referent.local_tokens(),
+					&self.server.clock,
+				)
 			});
 			if valid || cached {
 				if let Some(output) = &mut output {
-					if !crate::remote::cache::token_valid(
-						output.referent.token(),
+					crate::remote::cache::remove_expired_tokens(
+						&mut output.referent.options.tokens,
 						&self.server.clock,
-					) {
-						output.referent.options.tokens.remove_local();
-					}
+					);
 					let region = match output.referent.options.location.as_ref() {
 						Some(tg::Location::Local(local)) => local.region.clone(),
 						_ => None,

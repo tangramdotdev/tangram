@@ -24,17 +24,14 @@ impl tg::Session {
 		arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
 		let method = http::Method::GET;
-		let uri = Uri::builder()
-			.path("/remotes")
-			.query_params_strict(&arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.build()
-			.unwrap();
+		let uri = Uri::builder().path("/remotes").build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string());
 		let request = request.empty().unwrap();
+		let request = tangram_http::request::with_query_params(request, &arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send_with_retry(request)
 			.await

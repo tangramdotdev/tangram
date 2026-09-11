@@ -115,9 +115,9 @@ impl Session {
 		id: &tg::object::Id,
 		metadata: bool,
 		availability: bool,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
@@ -175,7 +175,7 @@ impl Session {
 		if let Some(token) =
 			self.create_token(resource, permissions.iter().collect(), expires_at)?
 		{
-			output.tokens.set_local(token);
+			output.tokens.insert_local(token);
 		}
 		let subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,

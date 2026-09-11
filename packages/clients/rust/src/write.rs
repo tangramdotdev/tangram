@@ -28,12 +28,7 @@ impl tg::Session {
 		reader: impl AsyncRead + Send + 'static,
 	) -> tg::Result<tg::write::Output> {
 		let method = http::Method::POST;
-		let uri = Uri::builder()
-			.path("/write")
-			.query_params_strict(&arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.build()
-			.unwrap();
+		let uri = Uri::builder().path("/write").build().unwrap();
 		let body = tangram_http::body::Boxed::with_reader(reader);
 		let request = http::request::Builder::default()
 			.method(method)
@@ -45,6 +40,8 @@ impl tg::Session {
 			)
 			.body(body)
 			.unwrap();
+		let request = tangram_http::request::with_query_params(request, &arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send(request)
 			.await

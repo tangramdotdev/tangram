@@ -61,21 +61,21 @@ impl Session {
 	pub(crate) async fn try_get_process_availability_local(
 		&self,
 		id: &tg::process::Id,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::process::Availability>> {
 		let Some(storage) = self.server.try_get_process_storage_local(id).await? else {
 			return Ok(None);
 		};
-		self.compute_process_availability(id, storage, token).await
+		self.compute_process_availability(id, storage, tokens).await
 	}
 
 	pub(crate) async fn compute_process_availability(
 		&self,
 		id: &tg::process::Id,
 		storage: tangram_index::process::Storage,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::process::Availability>> {
-		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let requested = tg::authorization::permission::Set::Process(
 			tg::authorization::permission::process::Set::all(),
 		);

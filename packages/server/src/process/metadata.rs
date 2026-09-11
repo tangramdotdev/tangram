@@ -58,21 +58,21 @@ impl Session {
 	pub(crate) async fn try_get_process_metadata_local(
 		&self,
 		id: &tg::process::Id,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::process::Metadata>> {
 		let Some(metadata) = self.server.try_get_process_metadata_local(id).await? else {
 			return Ok(None);
 		};
-		self.mask_process_metadata(id, metadata, token).await
+		self.mask_process_metadata(id, metadata, tokens).await
 	}
 
 	pub(crate) async fn mask_process_metadata(
 		&self,
 		id: &tg::process::Id,
 		metadata: tg::process::Metadata,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let requested = tg::authorization::permission::Set::Process(
 			tg::authorization::permission::process::Set::all(),
 		);

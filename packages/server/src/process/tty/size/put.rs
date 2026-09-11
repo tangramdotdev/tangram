@@ -41,10 +41,10 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		size: tg::process::tty::Size,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<()>> {
 		let Some(output) = self
-			.try_get_process_local(id, false, false, token)
+			.try_get_process_local(id, false, false, tokens)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 		else {

@@ -46,7 +46,7 @@ impl Session {
 				let selector = tg::Selector::Specifier(node.specifier);
 				let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 					selector,
-					token: None,
+					tokens: Vec::new(),
 				});
 				state.sender.send(Ok(message)).await.ok();
 			}

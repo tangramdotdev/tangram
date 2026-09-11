@@ -1823,8 +1823,8 @@ mod tests {
 			resource: id.clone().into(),
 		};
 		let token = crate::authorization::Token::sign(body, &private_key).unwrap();
-		let tgon =
-			crate::Referent::with_node_and_token(id.clone(), Some(token.clone())).to_string();
+		let tgon = crate::Referent::with_node_and_local_tokens(id.clone(), Some(token.clone()))
+			.to_string();
 
 		let value = super::parse(&tgon).unwrap();
 		let options = crate::value::print::Options {
@@ -1835,7 +1835,10 @@ mod tests {
 		let object = value.try_unwrap_object().unwrap();
 
 		assert_eq!(object.id(), id);
-		assert_eq!(object.state().tokens().local(), Some(&token));
+		assert_eq!(
+			object.state().tokens().local(),
+			std::slice::from_ref(&token)
+		);
 	}
 
 	// The value parser preserves multiple per-location tokens in nested values.
@@ -1867,8 +1870,8 @@ mod tests {
 			region: None,
 		});
 		let mut tokens = crate::authorization::Tokens::default();
-		tokens.set(local, local_token);
-		tokens.set(remote, remote_token);
+		tokens.insert(local, local_token);
+		tokens.insert(remote, remote_token);
 		let referent = crate::Referent::with_node_and_tokens(id, tokens);
 		let object = crate::Object::with_referent(referent);
 		let value = crate::Value::Map(BTreeMap::from([

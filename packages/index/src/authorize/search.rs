@@ -45,6 +45,7 @@ pub(crate) struct DescendantChecks {
 	candidates: Vec<DescendantCandidate>,
 	depth: usize,
 	fallback: DescendantFallback,
+	source: Key,
 }
 
 #[derive(Clone, Debug)]
@@ -307,6 +308,7 @@ struct KeyEvaluation {
 	ancestor_or_descendant: ProofStatus,
 	authorized: bool,
 	derived: Option<ProofStatus>,
+	expires_at: i64,
 }
 
 #[derive(Default)]
@@ -589,7 +591,7 @@ impl AncestorOrDescendantSearch {
 		config: crate::authorize::Config,
 		principal: &tg::Principal,
 		roots: &[Key],
-		token: Option<&(tg::authorization::Body, tg::Id)>,
+		tokens: &[tg::authorization::Body],
 		state: &mut State,
 	) -> Self {
 		if let Ok(subject) = principal.try_to_subject() {
@@ -609,13 +611,12 @@ impl AncestorOrDescendantSearch {
 			(None, None)
 		} else {
 			let ancestor =
-				AncestorSearch::new(config.ancestor, principal, &roots, token.cloned(), state);
+				AncestorSearch::new(config.ancestor, principal, &roots, tokens.to_vec(), state);
 			let descendant = if let Some(mut descendant) = state.take_descendant() {
 				descendant.add_targets(config.descendant, roots.clone());
 				descendant
 			} else {
-				let token = token.map(|(body, resource)| (body, resource));
-				DescendantSearch::new(config.descendant, principal, state, roots.clone(), token)
+				DescendantSearch::new(config.descendant, principal, state, roots.clone(), tokens)
 			};
 
 			(Some(ancestor), Some(descendant))
@@ -789,6 +790,7 @@ impl KeyEvaluation {
 			ancestor_or_descendant: ProofStatus::Pending,
 			authorized: false,
 			derived,
+			expires_at: i64::MIN,
 		}
 	}
 
@@ -943,7 +945,7 @@ impl State {
 			.or_default()
 			.insert(dependent.clone());
 		if self.is_subject_authorized(subject) {
-			self.authorize(dependent);
+			self.authorize_with_expiration(dependent, i64::MAX);
 		}
 
 		inserted
@@ -960,7 +962,7 @@ impl State {
 				.get(&subject)
 				.map_or_else(Vec::new, |dependents| dependents.iter().cloned().collect());
 			for dependent in dependents {
-				self.authorize(dependent);
+				self.authorize_with_expiration(dependent, i64::MAX);
 			}
 			stack.extend(
 				self.subject_subject_dependents
@@ -1001,7 +1003,7 @@ impl State {
 				.insert(dependency.clone());
 		}
 		if self.is_authorized(dependency) {
-			self.authorize(dependent);
+			self.authorize_with_expiration(dependent, self.expires_at(dependency));
 		}
 
 		inserted
@@ -1031,11 +1033,12 @@ impl State {
 	}
 
 	pub(crate) fn authorize_derived(&mut self, key: Key) {
-		self.authorize(key);
+		let expires_at = self.derived_expires_at(&key);
+		self.authorize_with_expiration(key, expires_at);
 	}
 
 	pub(crate) fn authorize_ancestor_or_descendant(&mut self, key: Key) {
-		self.authorize(key);
+		self.authorize_with_expiration(key, i64::MAX);
 	}
 
 	pub(crate) fn complete_derived(&mut self, key: &Key) {
@@ -1170,41 +1173,61 @@ impl State {
 		self.descendant = Some(descendant);
 	}
 
-	fn authorize(&mut self, key: Key) {
-		let mut stack = vec![key];
-		let mut visited = HashSet::new();
-		while let Some(key) = stack.pop() {
-			if !visited.insert(key.clone()) {
-				continue;
-			}
+	pub(crate) fn expires_at(&self, key: &Key) -> i64 {
+		self.evaluations
+			.get(key)
+			.filter(|evaluation| evaluation.authorized)
+			.map_or(i64::MIN, |evaluation| evaluation.expires_at)
+	}
+
+	fn derived_expires_at(&self, key: &Key) -> i64 {
+		self.derived_dependencies
+			.get(key)
+			.into_iter()
+			.flatten()
+			.map(|dependency| self.expires_at(dependency))
+			.min()
+			.unwrap_or(i64::MAX)
+	}
+
+	pub(crate) fn authorize_with_expiration(&mut self, key: Key, expires_at: i64) {
+		let mut stack = vec![(key, expires_at)];
+		while let Some((key, expires_at)) = stack.pop() {
 			let evaluation = self.evaluation_mut(&key);
-			if evaluation.authorized {
+			let authorized = evaluation.authorized;
+			if authorized && evaluation.expires_at >= expires_at {
 				continue;
 			}
 			evaluation.authorized = true;
-			self.authorization_log.push(key.clone());
+			evaluation.expires_at = expires_at;
+			if !authorized {
+				self.authorization_log.push(key.clone());
+			}
 			self.newly_evaluated.insert(key.clone());
 			stack.extend(
 				crate::authorize::permissions_implied_by(key.1)
 					.into_iter()
 					.filter(|permission| *permission != key.1)
-					.map(|permission| (key.0.clone(), permission)),
+					.map(|permission| ((key.0.clone(), permission), expires_at)),
 			);
 			if let Some(dependents) = self.authorization_dependents.get(&key) {
-				stack.extend(dependents.iter().cloned());
+				stack.extend(dependents.iter().cloned().map(|key| (key, expires_at)));
 			}
 			let derived = self
 				.derived_dependents
 				.get(&key)
 				.map_or_else(Vec::new, |dependents| dependents.iter().cloned().collect());
 			for dependent in derived {
-				let unresolved = self
-					.derived_unresolved
-					.entry(dependent.clone())
-					.or_default();
-				*unresolved = unresolved.saturating_sub(1);
+				if !authorized {
+					let unresolved = self
+						.derived_unresolved
+						.entry(dependent.clone())
+						.or_default();
+					*unresolved = unresolved.saturating_sub(1);
+				}
 				if self.derived_is_authorized(&dependent) {
-					stack.push(dependent);
+					let expires_at = self.derived_expires_at(&dependent);
+					stack.push((dependent, expires_at));
 				}
 			}
 		}
@@ -1258,7 +1281,7 @@ impl State {
 
 	fn try_authorize_derived(&mut self, key: Key) {
 		if !self.is_authorized(&key) && self.derived_is_authorized(&key) {
-			self.authorize(key);
+			self.authorize_derived(key);
 		}
 	}
 }
@@ -1376,7 +1399,7 @@ mod tests {
 			crate::authorize::Config::default(),
 			&principal,
 			std::slice::from_ref(&root),
-			None,
+			&[],
 			&mut state,
 		);
 
@@ -1403,7 +1426,7 @@ mod tests {
 			crate::authorize::Config::default(),
 			&principal,
 			std::slice::from_ref(&root),
-			None,
+			&[],
 			&mut state,
 		);
 		let mut reads = search.take_reads(&mut state, 1).unwrap();
@@ -1448,7 +1471,7 @@ mod tests {
 			crate::authorize::Config::default(),
 			&tg::Principal::Anonymous,
 			std::slice::from_ref(&root),
-			None,
+			&[],
 			&mut state,
 		);
 		let mut reads = search.take_reads(&mut state, 1).unwrap();

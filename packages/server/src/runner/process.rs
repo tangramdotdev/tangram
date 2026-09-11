@@ -274,7 +274,8 @@ impl Session {
 		let local = command_options
 			.tokens
 			.local()
-			.is_some_and(|token| self.verify_local_token(token));
+			.iter()
+			.any(|token| self.verify_local_token(token));
 		if local {
 			command_options.location = Some(tg::Location::Local(tg::location::Local::default()));
 		} else {
@@ -1469,9 +1470,9 @@ impl Session {
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
-		let resource = tg::Referent::with_node_and_token(
+		let resource = tg::Referent::with_node_and_local_tokens(
 			tg::object::Id::from(id.clone()),
-			command.state().tokens().local().cloned(),
+			command.state().tokens().local().to_vec(),
 		);
 		let authorized = self.authorize(resource, permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
@@ -1977,11 +1978,18 @@ impl Session {
 				tg::authorization::permission::Set::from(tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
 				));
-			let tokens = artifacts.iter().filter_map(|artifact| {
-				let token = artifact.options.tokens.local()?.clone();
-				let resource = tg::Selector::Id(tg::object::Id::from(artifact.node.clone()).into());
-				self.authorize_token(&resource, permissions, &token)
-					.then(|| (artifact.node.clone(), token))
+			let tokens = artifacts.iter().flat_map(|artifact| {
+				artifact
+					.options
+					.tokens
+					.local()
+					.iter()
+					.filter_map(move |token| {
+						let resource =
+							tg::Selector::Id(tg::object::Id::from(artifact.node.clone()).into());
+						self.authorize_token(&resource, permissions, token)
+							.then(|| (artifact.node.clone(), token.clone()))
+					})
 			});
 			if let Some(mut state) = self.server.runner.state.sandboxes.get_mut_by_id(sandbox) {
 				state.tokens.extend(tokens);

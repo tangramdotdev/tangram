@@ -32,7 +32,7 @@ let owned = http get --unix-socket $remote_socket --headers { Authorization: $'B
 let params = { id: $process } | to json --raw
 let metadata_watch = tg --url $remote.url --token $root_token checkpoint watch process.metadata --params $params | from json | get watch
 let availability_watch = tg --url $remote.url --token $root_token checkpoint watch process.availability --params $params | from json | get watch
-let query = { availability: true, location: 'remote(a)', metadata: true, 'tokens[local]': $local.tokens.local, 'tokens[remote]': $owned.tokens.local } | url build-query
+let query = { availability: true, location: 'remote(a)', metadata: true, 'tokens[local][0]': $local.tokens.local.0, 'tokens[remote][0]': $owned.tokens.local.0 } | url build-query
 let read_job = job spawn {
 	let job_id = job id
 	let output = http get --max-time 30sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)?($query)'
@@ -49,7 +49,7 @@ assert ($output.metadata? | is-empty) "metadata remains unavailable until the ow
 assert ('availability' in ($output | columns))
 
 # A nonexistent region is ignored for the runner data, but still fails when an index-only field needs routing.
-let query = { location: 'remote(missing)', metadata: true, 'tokens[local]': $local.tokens.local, 'tokens[remote]': $owned.tokens.local } | url build-query
+let query = { location: 'remote(missing)', metadata: true, 'tokens[local][0]': $local.tokens.local.0, 'tokens[remote][0]': $owned.tokens.local.0 } | url build-query
 let output = http get --allow-errors --full --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)?($query)'
 assert equal $output.status 500
 tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch

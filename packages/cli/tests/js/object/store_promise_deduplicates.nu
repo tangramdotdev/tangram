@@ -34,7 +34,7 @@ let path = artifact {
 							node: id,
 							options: {
 								location: { name: "test" },
-								tokens: { test: "token" },
+								tokens: { test: ["token"] },
 							},
 						})),
 					};
@@ -63,10 +63,10 @@ let path = artifact {
 					return (
 						object.state.stored &&
 						JSON.stringify(object.state.location) === '{"name":"test"}' &&
-						object.state.tokens.test === "token"
+						object.state.tokens.test[0] === "token"
 					);
 				});
-				leafA.state.inheritTokens({ independent: "independent" });
+				leafA.state.inheritTokens({ independent: ["independent"] });
 				independent = leafB.state.tokens.independent === undefined;
 
 				return {

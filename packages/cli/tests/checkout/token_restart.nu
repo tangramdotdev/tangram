@@ -31,7 +31,7 @@ for preserve_keys in [true false] {
 	let path = tg --token $root_token checkout $wrapper | str trim
 	let reference = xattr_read user.tangram.dependencies $path | from json | first
 	let token = $'http://localhost/($reference)' | url parse | get params
-		| where key == 'tokens[local]' | first | get value
+		| where key == 'tokens[local][0]' | first | get value
 	let body = $token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
 	assert equal $body.resource $library
 	assert equal $body.permissions [object_subtree]
@@ -58,7 +58,7 @@ for preserve_keys in [true false] {
 	let fresh_path = (mktemp --directory) | path join library
 	tg --token $root_token checkout --dependencies=false --path $fresh_path $library | ignore
 	let fresh_token = xattr_read user.tangram.token $fresh_path
-	let query = { 'tokens[local]': $fresh_token } | url build-query
+	let query = { 'tokens[local][0]': $fresh_token } | url build-query
 	let fresh_reference = $'($library)?($query)'
 	let source = 'tg.file({"contents":"after restart","dependencies":{"library":{"node":REFERENCE}}})'
 		| str replace REFERENCE $fresh_reference

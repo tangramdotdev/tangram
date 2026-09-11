@@ -8,7 +8,7 @@
           "kind": "file",
           "contents": "",
           "xattrs": {
-            "user.tangram.dependencies": "[\"./bar.tg.ts?tokens[local]=<token>\"]",
+            "user.tangram.dependencies": "[\"./bar.tg.ts?tokens[local][0]=<token>\"]",
             "user.tangram.token": "<token>"
           }
         }
@@ -18,7 +18,7 @@
       "kind": "file",
       "contents": "",
       "xattrs": {
-        "user.tangram.dependencies": "[\"./bar.tg.ts?tokens[local]=<token>\"]",
+        "user.tangram.dependencies": "[\"./bar.tg.ts?tokens[local][0]=<token>\"]",
         "user.tangram.token": "<token>"
       }
     },
@@ -26,7 +26,7 @@
       "kind": "file",
       "contents": "",
       "xattrs": {
-        "user.tangram.dependencies": "[\"./foo.tg.ts?tokens[local]=<token>\"]",
+        "user.tangram.dependencies": "[\"./foo.tg.ts?tokens[local][0]=<token>\"]",
         "user.tangram.token": "<token>"
       }
     }

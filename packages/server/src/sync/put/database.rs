@@ -14,7 +14,7 @@ pub struct Node {
 	pub eager: bool,
 	pub id: tg::Id,
 	pub send: bool,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 struct Output {
@@ -39,7 +39,7 @@ impl Session {
 		// Authorize the node.
 		let permission = Self::sync_put_database_read_permission(&node.id)?;
 		let resource = tg::Selector::Id(node.id.clone());
-		let resource = tg::Referent::with_node_and_token(resource, node.token.clone());
+		let resource = tg::Referent::with_node_and_local_tokens(resource, node.tokens.clone());
 		let authorized = self
 			.authorize(resource, permission)
 			.await?
@@ -129,7 +129,7 @@ impl Session {
 				state.queue.enqueue(
 					node.eager,
 					child.node,
-					child.options.tokens.local().cloned(),
+					child.options.tokens.local().to_vec(),
 				)?;
 			}
 			state
@@ -257,7 +257,7 @@ impl Session {
 						parent: data.parent,
 						specifier: data.specifier,
 						target,
-						token: None,
+						tokens: Vec::new(),
 					})
 				},
 				tg::id::Kind::User => {
@@ -311,7 +311,7 @@ impl Session {
 				ControlFlow::Break(token) => token,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
-			let node = tg::Referent::with_node_and_token(id, token);
+			let node = tg::Referent::with_node_and_local_tokens(id, token);
 
 			return Ok(ControlFlow::Break(vec![node]));
 		}
@@ -350,7 +350,7 @@ impl Session {
 		for selector in selectors {
 			let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 				selector,
-				token: None,
+				tokens: Vec::new(),
 			});
 			state.sender.send(Ok(message)).await.ok();
 		}

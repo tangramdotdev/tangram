@@ -33,7 +33,7 @@ let local_response = http get --unix-socket $runner_socket --headers { Authoriza
 
 # Get issues only a node capability, even when the caller has all permissions.
 for response in [$remote_response $local_response] {
-	let body = $response.tokens.local | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+	let body = $response.tokens.local.0 | split row '.' | get 1 | decode base64 | decode utf-8 | from json
 	assert equal $body.resource $process
 	assert equal $body.permissions [process_node]
 }
@@ -41,7 +41,7 @@ for response in [$remote_response $local_response] {
 # The owning server must accept its node capability without searching the index for other permissions.
 let params = { resource: $process } | to json --raw
 let index_watch = tg --url $remote.url --token $remote_root checkpoint watch authorization.index --params $params | from json | get watch
-let query = { 'tokens[local]': $remote_response.tokens.local } | url build-query
+let query = { 'tokens[local][0]': $remote_response.tokens.local.0 } | url build-query
 let output = http get --max-time 10sec --unix-socket $remote_socket --headers { Authorization: $'Bearer ($remote_reader.token)' } $'http://localhost/processes/($process)?($query)'
 assert equal $output.data.status started
 tg --url $remote.url --token $remote_root checkpoint unwatch authorization.index $index_watch
@@ -52,13 +52,13 @@ let denied = http get --allow-errors --full --unix-socket $runner_socket --heade
 assert equal $denied.status 404 "the runner's own remote credentials must not authorize the reader"
 
 # Relabeling a foreign token does not make its signature locally valid.
-let query = { location: remote, 'tokens[local]': $remote_response.tokens.local } | url build-query
+let query = { location: remote, 'tokens[local][0]': $remote_response.tokens.local.0 } | url build-query
 let denied = http get --allow-errors --full --unix-socket $runner_socket --headers $headers $'http://localhost/processes/($process)?($query)'
 assert equal $denied.status 404
 
 # A remote-only capability must actually reach the owning server.
 let response_watch = tg --url $remote.url --token $remote_root checkpoint watch process.control.response.publish --params '{"kind":"get"}' | from json | get watch
-let query = { location: remote, 'tokens[remote]': $remote_response.tokens.local } | url build-query
+let query = { location: remote, 'tokens[remote][0]': $remote_response.tokens.local.0 } | url build-query
 let remote_job = job spawn {
 	let job_id = job id
 	let output = http get --unix-socket $runner_socket --headers $headers $'http://localhost/processes/($process)?($query)'
@@ -68,7 +68,7 @@ timeout 10s tg --url $remote.url --token $remote_root checkpoint wait process.co
 
 # A local node capability can read the same state without the remote or an index authorization search.
 let index_watch = tg --url $runner.url --token $runner_root checkpoint watch authorization.index --params $params | from json | get watch
-let query = { location: remote, 'tokens[local]': $local_response.tokens.local } | url build-query
+let query = { location: remote, 'tokens[local][0]': $local_response.tokens.local.0 } | url build-query
 let output = http get --max-time 10sec --unix-socket $runner_socket --headers $headers $'http://localhost/processes/($process)?($query)'
 assert equal $output.location remote
 assert equal $output.data.status started
@@ -89,8 +89,8 @@ assert equal $denied.status 404
 
 # A node capability must be sufficient to wait through either the runner or local path.
 let targets = [
-	{ location: remote, reader: $reader.token, root: $runner_root, server: $runner, token: $local_response.tokens.local },
-	{ location: local, reader: $remote_reader.token, root: $remote_root, server: $remote, token: $remote_response.tokens.local },
+	{ location: remote, reader: $reader.token, root: $runner_root, server: $runner, token: $local_response.tokens.local.0 },
+	{ location: local, reader: $remote_reader.token, root: $remote_root, server: $remote, token: $remote_response.tokens.local.0 },
 ]
 let waits = $targets | each { |target|
 	let params = { resource: $process, token_resource: $process } | to json --raw
@@ -99,7 +99,7 @@ let waits = $targets | each { |target|
 	let attach_watch = tg --url $target.server.url --token $target.root checkpoint watch process.wait.attach --params $params | from json | get watch
 	let socket = $target.server.url | str replace 'http+unix://' '' | url decode
 	let headers = { Accept: 'text/event-stream', Authorization: $'Bearer ($target.reader)' }
-	let query = { lease: $spawned.lease, location: $target.location, 'tokens[local]': $target.token } | url build-query
+	let query = { lease: $spawned.lease, location: $target.location, 'tokens[local][0]': $target.token } | url build-query
 	let wait_job = job spawn {
 		let job_id = job id
 		let response = http post --raw --max-time 30sec --unix-socket $socket --headers $headers $'http://localhost/processes/($process)/wait?($query)' ''

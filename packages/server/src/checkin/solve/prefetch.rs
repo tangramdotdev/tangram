@@ -253,7 +253,7 @@ impl Session {
 		id: &tg::object::Id,
 		output: &ObjectOutput,
 	) {
-		if let Some(token) = output.output.tokens.local() {
+		for token in output.output.tokens.local() {
 			self.checkin_merge_object_token(graph, next, id, token);
 		}
 		Self::checkin_record_object_data(graph, next, id, &output.data);

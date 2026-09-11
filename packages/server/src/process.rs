@@ -194,14 +194,14 @@ impl Session {
 	}
 
 	fn process_token_grants_subtree(&self, process: &tg::Referent<tg::process::Id>) -> bool {
-		let Some(token) = process.options.tokens.local() else {
-			return false;
-		};
+		let tokens = process.options.tokens.local();
 		let resource = tg::Selector::Id(process.node.clone().into());
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Subtree,
 		);
-		self.authorize_token(&resource, permission.into(), token)
+		tokens
+			.iter()
+			.any(|token| self.authorize_token(&resource, permission.into(), token))
 	}
 
 	fn process_output_grants_subtree(&self, output: Option<&tg::value::Data>) -> Option<bool> {
@@ -299,14 +299,14 @@ impl Session {
 	where
 		T: Clone + Into<tg::Id>,
 	{
-		let Some(token) = object.options.tokens.local() else {
-			return false;
-		};
+		let tokens = object.options.tokens.local();
 		let resource = tg::Selector::Id(object.node.clone().into());
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
-		self.authorize_token(&resource, permission.into(), token)
+		tokens
+			.iter()
+			.any(|token| self.authorize_token(&resource, permission.into(), token))
 	}
 }
 

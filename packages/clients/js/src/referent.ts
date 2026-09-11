@@ -16,11 +16,11 @@ export namespace Referent {
 		tokens?: tg.Authorization.Tokens | null;
 	};
 
-	export let withNodeAndToken = <T>(
+	export let withNodeAndLocalTokens = <T>(
 		node: T,
-		token: tg.Authorization.Token | null,
+		tokens: Array<tg.Authorization.Token>,
 	): tg.Referent<T> => {
-		return withNodeAndTokens(node, tg.Authorization.Tokens.withLocal(token));
+		return withNodeAndTokens(node, tg.Authorization.Tokens.withLocal(tokens));
 	};
 
 	export let withNodeAndTokens = <T>(
@@ -28,7 +28,7 @@ export namespace Referent {
 		tokens: tg.Authorization.Tokens,
 	): tg.Referent<T> => {
 		let referent: tg.Referent<T> = { node };
-		if (Object.keys(tokens).length > 0) {
+		if (!tg.Authorization.Tokens.isEmpty(tokens)) {
 			referent.options = { tokens };
 		}
 		return referent;
@@ -145,10 +145,14 @@ export namespace Referent {
 		if (value.options?.tag !== undefined && value.options.tag !== null) {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
 		}
-		for (let [location, token] of Object.entries(value.options?.tokens ?? {})) {
-			params.push(
-				`tokens[${encodeURIComponent(location)}]=${encodeURIComponent(token)}`,
-			);
+		for (let [location, tokens] of Object.entries(
+			value.options?.tokens ?? {},
+		)) {
+			for (let [index, token] of tokens.entries()) {
+				params.push(
+					`tokens[${encodeURIComponent(location)}][${index}]=${encodeURIComponent(token)}`,
+				);
+			}
 		}
 		if (params.length > 0) {
 			string += "?";
@@ -198,13 +202,17 @@ export namespace Referent {
 						break;
 					}
 					default: {
-						let match = key?.match(/^tokens\[(.*)\]$/);
+						let match = key?.match(/^tokens\[(.*)\]\[(\d+)\]$/);
 						if (match === null || match === undefined) {
 							throw new Error("invalid key");
 						}
 						options.tokens ??= {};
-						options.tokens[decodeURIComponent(match[1]!)] =
-							decodeURIComponent(value);
+						let tokens = (options.tokens[decodeURIComponent(match[1]!)] ??= []);
+						let index = Number(match[2]);
+						if (index !== tokens.length) {
+							throw new Error("invalid token index");
+						}
+						tokens.push(decodeURIComponent(value));
 					}
 				}
 			}

@@ -499,7 +499,7 @@ impl Session {
 			sandbox_arg: None,
 			sandbox_token: None,
 			scheduler: None,
-			token,
+			tokens: token.into_iter().collect(),
 		})
 	}
 
@@ -598,7 +598,7 @@ impl Session {
 			sandbox_arg: None,
 			sandbox_token: None,
 			scheduler: None,
-			token: output.tokens.local().cloned(),
+			tokens: output.tokens.local().to_vec(),
 		})
 	}
 

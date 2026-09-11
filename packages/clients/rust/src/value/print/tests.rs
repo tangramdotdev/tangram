@@ -7,7 +7,7 @@ fn empty_referent_options_are_omitted() {
 	for output in &expected {
 		assert!(!output.contains("\"options\""));
 	}
-	options.tokens.set_local(token());
+	options.tokens.insert_local(token());
 	assert_eq!(print_values(options), expected);
 }
 
@@ -30,7 +30,7 @@ fn nonempty_referent_options_are_preserved() {
 		for output in &expected {
 			assert!(output.contains(&options_field), "{output}");
 		}
-		options.tokens.set_local(token.clone());
+		options.tokens.insert_local(token.clone());
 		assert_eq!(print_values(options), expected);
 	}
 }

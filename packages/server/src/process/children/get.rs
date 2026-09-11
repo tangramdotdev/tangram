@@ -226,7 +226,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		let token = arg.tokens.local().cloned();
+		let token = arg.tokens.local().to_vec();
 		let check_future = async move {
 			self.process_children_readable_local(id, token.as_ref())
 				.await
@@ -515,9 +515,9 @@ impl Session {
 	async fn process_children_readable_local(
 		&self,
 		id: &tg::process::Id,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<bool> {
-		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);

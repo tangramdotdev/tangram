@@ -133,21 +133,48 @@ impl Session {
 					"the required permissions must be contained in the requested permissions"
 				));
 			}
-			let (resource, token) = resource.into_authorization_resource();
-			let token = if let Some(token) = token {
-				// Authorize an exact token if there is one.
-				if self.authorize_token(&resource, permissions, &token) {
+			let (resource, mut tokens) = resource.into_authorization_resource();
+
+			// Try exact proofs first, without verifying unrelated ancestor tokens.
+			tokens.sort_by_key(|token| std::cmp::Reverse(token.body.expires_at));
+			let mut verified = vec![None; tokens.len()];
+			if let tg::Selector::Id(id) = &resource {
+				let mut proven = permissions.empty_like();
+				let mut expires_at = i64::MAX;
+				for (index, token) in tokens.iter().enumerate() {
+					if &token.body.resource != id
+						|| !permissions.iter().any(|permission| {
+							!proven.contains(permission) && token.body.grants(permission)
+						}) {
+						continue;
+					}
+					let valid = self.verify_token(token);
+					verified[index] = Some(valid);
+					if !valid {
+						continue;
+					}
+					for permission in permissions
+						.iter()
+						.filter(|permission| token.body.grants(*permission))
+					{
+						proven.insert(tg::authorization::permission::Set::from_permission(
+							permission,
+						));
+					}
+					expires_at = expires_at.min(token.body.expires_at);
+					if proven.contains(permissions) {
+						break;
+					}
+				}
+				if proven.contains(permissions) {
 					let output = Output {
-						expires_at: Some(token.body.expires_at),
+						expires_at: Some(expires_at),
 						permissions,
 					};
 					outputs.push(Some(output));
 					continue;
 				}
-				self.verify_token(&token).then_some(token.body)
-			} else {
-				None
-			};
+			}
 
 			// Authorize the root principal for all resources.
 			if matches!(self.context.principal, tg::Principal::Root) {
@@ -183,14 +210,19 @@ impl Session {
 			}
 
 			outputs.push(None);
-			// Retain the expiration of the verified token supplied to the authorization search.
-			let expires_at = token.as_ref().map(|token| token.expires_at);
-			index_positions.push((position, expires_at));
+			let tokens = std::iter::zip(tokens, verified)
+				.filter_map(|(token, verified)| {
+					verified
+						.unwrap_or_else(|| self.verify_token(&token))
+						.then_some(token.body)
+				})
+				.collect();
+			index_positions.push(position);
 			index_args.push(tangram_index::authorize::Arg {
 				required,
 				requested: permissions,
 				resource,
-				token,
+				tokens,
 			});
 		}
 
@@ -199,10 +231,11 @@ impl Session {
 		}
 		for arg in &index_args {
 			let token_resource = arg
-				.token
-				.as_ref()
+				.tokens
+				.iter()
 				.map(|body| body.resource.to_string())
-				.unwrap_or_default();
+				.collect::<Vec<_>>()
+				.join(",");
 			crate::checkpoint!(
 				self.server,
 				"authorization.index",
@@ -292,7 +325,7 @@ impl Session {
 				}
 			},
 		};
-		for ((position, expires_at), outcome) in std::iter::zip(index_positions, index_outcomes) {
+		for (position, outcome) in std::iter::zip(index_positions, index_outcomes) {
 			let output = match outcome {
 				tangram_index::authorize::Outcome::Authorized(output) => Some(output),
 				tangram_index::authorize::Outcome::Denied(output) => output,
@@ -302,7 +335,7 @@ impl Session {
 			};
 			if let Some(output) = output {
 				let output = Output {
-					expires_at,
+					expires_at: output.expires_at,
 					permissions: output.permissions,
 				};
 				outputs[position] = Some(output);
@@ -381,9 +414,7 @@ pub(crate) trait IntoResource {
 }
 
 pub(crate) trait IntoAuthorizationResource {
-	fn into_authorization_resource(
-		self,
-	) -> (tg::Selector<tg::Id>, Option<tg::authorization::Token>);
+	fn into_authorization_resource(self) -> (tg::Selector<tg::Id>, Vec<tg::authorization::Token>);
 }
 
 impl IntoResource for tg::Id {
@@ -432,10 +463,8 @@ impl<T> IntoAuthorizationResource for T
 where
 	T: IntoResource,
 {
-	fn into_authorization_resource(
-		self,
-	) -> (tg::Selector<tg::Id>, Option<tg::authorization::Token>) {
-		(self.into_resource(), None)
+	fn into_authorization_resource(self) -> (tg::Selector<tg::Id>, Vec<tg::authorization::Token>) {
+		(self.into_resource(), Vec::new())
 	}
 }
 
@@ -443,12 +472,10 @@ impl<T> IntoAuthorizationResource for tg::Referent<T>
 where
 	T: IntoResource,
 {
-	fn into_authorization_resource(
-		self,
-	) -> (tg::Selector<tg::Id>, Option<tg::authorization::Token>) {
+	fn into_authorization_resource(self) -> (tg::Selector<tg::Id>, Vec<tg::authorization::Token>) {
 		(
 			self.node.into_resource(),
-			self.options.tokens.local().cloned(),
+			self.options.tokens.local().to_vec(),
 		)
 	}
 }

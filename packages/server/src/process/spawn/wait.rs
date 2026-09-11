@@ -40,53 +40,56 @@ impl Session {
 				.then(|()| spawn_future)
 				.right_future()
 		};
-		let (cache, wait, output) = match future::select(pin!(spawn_future), pin!(cache_future))
-			.await
-		{
-			future::Either::Left((result, cache_future)) => {
-				let output = result?;
-				let local_id = output.as_ref().map(|output| output.id.clone());
-				let local_token = output.as_ref().and_then(|output| output.token.clone());
-				let wait_future = self.spawn_process_wait_local(local_id, local_token, None, false);
-				match future::select(pin!(wait_future), cache_future).await {
-					future::Either::Left((result, _)) => (None, result?, output),
-					future::Either::Right((result, _)) => (result?, None, output),
-				}
-			},
-			future::Either::Right((result, mut spawn_future)) => {
-				let cache = result?;
-				if cache.is_some()
-					&& let Some(sandbox) = &scheduled_sandbox
-				{
-					let scheduler_receiver = scheduler_receiver.unwrap();
-					let scheduler_future = async {
-						scheduler_receiver
-							.await
-							.map_err(|_| tg::error!("failed to receive the scheduler"))
-					};
-					let scheduler_future = pin!(scheduler_future);
-					match future::select(spawn_future.as_mut(), scheduler_future).await {
-						future::Either::Left((result, _)) => {
-							if let Some(output) = result? {
-								self.destroy_process_candidate_sandbox(&output.data.sandbox)
-									.await?;
-							}
-						},
-						future::Either::Right((result, _)) => {
-							let scheduler = result?;
-							self.spawn_process_dequeue_sandbox_candidate(
-								sandbox.clone(),
-								scheduler,
-								sandbox_connection_future.unwrap(),
-							);
-						},
+		let (cache, wait, output) =
+			match future::select(pin!(spawn_future), pin!(cache_future)).await {
+				future::Either::Left((result, cache_future)) => {
+					let output = result?;
+					let local_id = output.as_ref().map(|output| output.id.clone());
+					let local_tokens = output
+						.as_ref()
+						.map(|output| output.tokens.clone())
+						.unwrap_or_default();
+					let wait_future =
+						self.spawn_process_wait_local(local_id, local_tokens, None, false);
+					match future::select(pin!(wait_future), cache_future).await {
+						future::Either::Left((result, _)) => (None, result?, output),
+						future::Either::Right((result, _)) => (result?, None, output),
 					}
-					return Ok(cache.map(cached::Output::into_output));
-				}
-				let output = spawn_future.await?;
-				(cache, None, output)
-			},
-		};
+				},
+				future::Either::Right((result, mut spawn_future)) => {
+					let cache = result?;
+					if cache.is_some()
+						&& let Some(sandbox) = &scheduled_sandbox
+					{
+						let scheduler_receiver = scheduler_receiver.unwrap();
+						let scheduler_future = async {
+							scheduler_receiver
+								.await
+								.map_err(|_| tg::error!("failed to receive the scheduler"))
+						};
+						let scheduler_future = pin!(scheduler_future);
+						match future::select(spawn_future.as_mut(), scheduler_future).await {
+							future::Either::Left((result, _)) => {
+								if let Some(output) = result? {
+									self.destroy_process_candidate_sandbox(&output.data.sandbox)
+										.await?;
+								}
+							},
+							future::Either::Right((result, _)) => {
+								let scheduler = result?;
+								self.spawn_process_dequeue_sandbox_candidate(
+									sandbox.clone(),
+									scheduler,
+									sandbox_connection_future.unwrap(),
+								);
+							},
+						}
+						return Ok(cache.map(cached::Output::into_output));
+					}
+					let output = spawn_future.await?;
+					(cache, None, output)
+				},
+			};
 		let cache = cache.filter(|cache| {
 			output
 				.as_ref()
@@ -118,14 +121,17 @@ impl Session {
 			.as_ref()
 			.is_some_and(|output| output.data.status.is_finished());
 		let local_id = output.as_ref().map(|output| output.id.clone());
-		let local_token = output.as_ref().and_then(|output| output.token.clone());
+		let local_tokens = output
+			.as_ref()
+			.map(|output| output.tokens.clone())
+			.unwrap_or_default();
 		let local_wait = output.as_ref().map(Output::wait).transpose()?.flatten();
 		let mut local_cache_guard = output
 			.as_ref()
 			.filter(|output| output.cached)
 			.and_then(|output| LeaseGuard::new_local(self, output));
 		let local_future =
-			self.spawn_process_wait_local(local_id, local_token, local_wait, finished);
+			self.spawn_process_wait_local(local_id, local_tokens, local_wait, finished);
 		let cached_future =
 			self.spawn_process_get_cached_process_region_or_remote(arg, cacheable, finished);
 		let output = match future::select(pin!(local_future), pin!(cached_future)).await {
@@ -173,7 +179,7 @@ impl Session {
 	async fn spawn_process_wait_local(
 		&self,
 		id: Option<tg::process::Id>,
-		token: Option<tg::authorization::Token>,
+		tokens: Vec<tg::authorization::Token>,
 		wait: Option<tg::process::wait::Output>,
 		finished: bool,
 	) -> tg::Result<Option<tg::process::wait::Output>> {
@@ -182,7 +188,7 @@ impl Session {
 		}
 		if let Some(id) = id {
 			let arg = tg::process::wait::Arg {
-				tokens: tg::authorization::Tokens::with_local(token),
+				tokens: tg::authorization::Tokens::with_local(tokens),
 				..Default::default()
 			};
 			let wait = self
@@ -354,7 +360,7 @@ impl Session {
 			lease,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			process: tg::Either::Right(output.id),
-			tokens: tg::authorization::Tokens::with_local(output.token),
+			tokens: tg::authorization::Tokens::with_local(output.tokens),
 			wait,
 		};
 

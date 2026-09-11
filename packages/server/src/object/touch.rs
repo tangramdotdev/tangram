@@ -53,12 +53,12 @@ impl Session {
 	async fn try_touch_object_local(
 		&self,
 		id: &tg::object::Id,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<()>> {
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
-		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		if !self
 			.authorize(resource, permission)
 			.await?

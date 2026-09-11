@@ -429,10 +429,10 @@ impl Session {
 					{
 						return Err(tg::error!(node = %reference.node(), "expected a graph"));
 					}
-					if let Some(id) = object_edge_root(&edge)
-						&& let Some(token) = reference.options().tokens.local()
-					{
-						self.checkin_merge_object_token(state.graph, state.next, &id, token);
+					if let Some(id) = object_edge_root(&edge) {
+						for token in reference.options().tokens.local() {
+							self.checkin_merge_object_token(state.graph, state.next, &id, token);
+						}
 					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {
@@ -537,10 +537,10 @@ impl Session {
 					{
 						return Err(tg::error!(node = %reference.node(), "expected a graph"));
 					}
-					if let Some(id) = object_edge_root(&edge)
-						&& let Some(token) = reference.options().tokens.local()
-					{
-						self.checkin_merge_object_token(state.graph, state.next, &id, token);
+					if let Some(id) = object_edge_root(&edge) {
+						for token in reference.options().tokens.local() {
+							self.checkin_merge_object_token(state.graph, state.next, &id, token);
+						}
 					}
 					let get = reference.options().get.clone();
 					let options = if get.is_some() {

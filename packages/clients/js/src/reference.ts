@@ -151,10 +151,14 @@ export namespace Reference {
 		if (value.options?.tag !== undefined && value.options.tag !== null) {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
 		}
-		for (let [location, token] of Object.entries(value.options?.tokens ?? {})) {
-			params.push(
-				`tokens[${encodeURIComponent(location)}]=${encodeURIComponent(token)}`,
-			);
+		for (let [location, tokens] of Object.entries(
+			value.options?.tokens ?? {},
+		)) {
+			for (let [index, token] of tokens.entries()) {
+				params.push(
+					`tokens[${encodeURIComponent(location)}][${index}]=${encodeURIComponent(token)}`,
+				);
+			}
 		}
 		if (params.length > 0) {
 			string += "?";
@@ -212,13 +216,17 @@ export namespace Reference {
 						break;
 					}
 					default: {
-						let match = key?.match(/^tokens\[(.*)\]$/);
+						let match = key?.match(/^tokens\[(.*)\]\[(\d+)\]$/);
 						if (match === null || match === undefined) {
 							throw new Error("invalid key");
 						}
 						options.tokens ??= {};
-						options.tokens[decodeURIComponent(match[1]!)] =
-							decodeURIComponent(value);
+						let tokens = (options.tokens[decodeURIComponent(match[1]!)] ??= []);
+						let index = Number(match[2]);
+						if (index !== tokens.length) {
+							throw new Error("invalid token index");
+						}
+						tokens.push(decodeURIComponent(value));
 					}
 				}
 			}

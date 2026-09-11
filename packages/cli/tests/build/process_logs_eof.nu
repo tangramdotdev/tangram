@@ -15,7 +15,7 @@ for compaction in [false true] {
 	let output = timeout 10 tg log --no-timeout $id | complete
 	success $output
 	if $compaction {
-		wait_until { (tg get $id | from json | get log?) != null }
+		tg index
 	}
 
 	# Forward the resolved window through another server as well.

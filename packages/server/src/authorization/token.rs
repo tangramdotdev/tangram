@@ -56,7 +56,7 @@ impl Session {
 			expires_at,
 		)?;
 		if let Some(token) = token {
-			referent.options.tokens.set_local(token);
+			referent.options.tokens.insert_local(token);
 		}
 		Ok(())
 	}
@@ -69,7 +69,7 @@ impl Session {
 		let token = self.create_permanent_object_token(resource)?;
 		if let Some(token) = token {
 			let mut options = reference.options().clone();
-			options.tokens.set_local(token);
+			options.tokens.insert_local(token);
 			reference.set_options(options);
 		}
 
@@ -105,23 +105,19 @@ impl Session {
 		if location.is_local() {
 			return Ok(());
 		}
-		let Some(token) = tokens.remove_local() else {
-			return Ok(());
-		};
-		let local_token = if trusted {
-			// Trust the remote token by signing its exact permissions locally.
-			let body = &token.body;
-			self.create_token(
-				body.resource.clone(),
-				body.permissions.clone(),
-				body.expires_at,
-			)?
-		} else {
-			None
-		};
-		tokens.set(location.clone(), token);
-		if let Some(token) = local_token {
-			tokens.set_local(token);
+		for token in tokens.remove_local() {
+			if trusted {
+				// Trust the remote token by signing its exact permissions locally.
+				let body = &token.body;
+				if let Some(local_token) = self.create_token(
+					body.resource.clone(),
+					body.permissions.clone(),
+					body.expires_at,
+				)? {
+					tokens.insert_local(local_token);
+				}
+			}
+			tokens.insert(location.clone(), token);
 		}
 		Ok(())
 	}
@@ -316,7 +312,7 @@ impl Session {
 					expires_at,
 				)?;
 				if let Some(token) = token {
-					object.options.tokens.set_local(token);
+					object.options.tokens.insert_local(token);
 				}
 			},
 			tg::value::Data::Mutation(mutation) => {
@@ -334,7 +330,7 @@ impl Session {
 						expires_at,
 					)?;
 					if let Some(token) = token {
-						module.referent.options.tokens.set_local(token);
+						module.referent.options.tokens.insert_local(token);
 					}
 				}
 			},
@@ -423,7 +419,7 @@ impl Session {
 					expires_at,
 				)?;
 				if let Some(token) = token {
-					artifact.options.tokens.set_local(token);
+					artifact.options.tokens.insert_local(token);
 				}
 			}
 		}

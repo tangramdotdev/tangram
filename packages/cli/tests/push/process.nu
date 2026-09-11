@@ -17,6 +17,8 @@ export def test [path: string, ...args] {
 
 	# Wait for the process to finish.
 	tg wait $process_id
+
+	tg log $process_id --position end.0 --no-timeout o+e>| ignore
 	tg index
 
 	let output = tg get $process_id | from json

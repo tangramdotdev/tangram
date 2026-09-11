@@ -26,7 +26,7 @@ let artifacts = tg build $module | from json
 
 let path = vfs root $server_path $artifacts.file
 let dependencies = xattr_read 'user.tangram.dependencies' $path
-assert equal ($dependencies | normalize) '["dependency?tokens[local]=<token>"]'
+assert equal ($dependencies | normalize) '["dependency?tokens[local][0]=<token>"]'
 let file_token = xattr_read 'user.tangram.token' $path
 assert (not ($file_token | is-empty)) 'missing file token xattr'
 
@@ -37,7 +37,7 @@ if $nu.os-info.name == 'linux' {
 		$"http://localhost/($reference)"
 		| url parse
 		| get params
-		| where key == 'tokens[local]'
+		| where key == 'tokens[local][0]'
 		| first
 		| get value
 	)

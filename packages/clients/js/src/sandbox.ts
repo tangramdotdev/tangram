@@ -14,7 +14,7 @@ export class Sandbox {
 		this.#location = arg.location ?? null;
 		this.#owned = arg.owned ?? false;
 		this.#state = arg.state ?? null;
-		this.#tokens = arg.tokens ?? {};
+		this.#tokens = tg.Authorization.Tokens.clone(arg.tokens ?? {});
 		if (this.#state !== null) {
 			tg.Authorization.Tokens.inherit(this.#tokens, this.#state.tokens ?? {});
 		}
@@ -57,7 +57,7 @@ export class Sandbox {
 			output.tokens !== null &&
 			!tg.Authorization.Tokens.isEmpty(output.tokens)
 		) {
-			this.#tokens = { ...output.tokens };
+			tg.Authorization.Tokens.inherit(this.#tokens, output.tokens);
 		}
 		this.#location =
 			output.location === undefined || output.location === null
@@ -117,7 +117,7 @@ export class Sandbox {
 	}
 
 	get tokens(): tg.Authorization.Tokens {
-		return { ...this.#tokens };
+		return tg.Authorization.Tokens.clone(this.#tokens);
 	}
 
 	run<A extends tg.UnresolvedArgs<Array<tg.Value>>, O extends tg.ReturnValue>(

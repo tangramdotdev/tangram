@@ -73,10 +73,10 @@ assert equal $hit.params.resource $case.graph
 tg --token $root_token checkpoint continue authorization.index $watch 0
 let b = job recv --tag $b_job --timeout 10sec
 
-assert equal (token-resource $b.module) $case.dependencyGraph
+assert ($case.dependencyGraph in (token-resources $b.module))
 
 # Resolving B must complete without another index hit because it has an exact graph token.
 let c_job = resolve-module-background $socket $bob.token $b.module './c'
 let c = job recv --tag $c_job --timeout 10sec
-assert equal (token-resource $c.module) $case.dependencyGraph
+assert ($case.dependencyGraph in (token-resources $c.module))
 tg --token $root_token checkpoint unwatch authorization.index $watch

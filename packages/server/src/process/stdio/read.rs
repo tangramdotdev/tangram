@@ -232,7 +232,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		source: &Source,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<()> {
 		let Source::Pipe(streams) = source else {
 			return Ok(());
@@ -256,7 +256,8 @@ impl Session {
 				let permission = tg::authorization::Permission::Process(
 					tg::authorization::permission::process::Permission::Parent,
 				);
-				let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+				let resource =
+					tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 				let authorized = self.authorize(resource, permission).await?;
 				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 					return Err(tg::error!("unauthorized"));

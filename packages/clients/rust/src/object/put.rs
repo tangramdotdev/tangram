@@ -38,12 +38,7 @@ impl tg::Session {
 	) -> tg::Result<tg::object::put::Output> {
 		let method = http::Method::PUT;
 		let path = format!("/objects/{id}");
-		let uri = Uri::builder()
-			.path(&path)
-			.query_params_strict(&arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.build()
-			.unwrap();
+		let uri = Uri::builder().path(&path).build().unwrap();
 		let request = http::request::Builder::default()
 			.method(method)
 			.uri(uri)
@@ -54,6 +49,8 @@ impl tg::Session {
 			)
 			.bytes(arg.bytes.clone())
 			.unwrap();
+		let request = tangram_http::request::with_query_params(request, &arg)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send_with_retry(request)
 			.await

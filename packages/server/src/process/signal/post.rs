@@ -53,10 +53,10 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		signal: tg::process::Signal,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<()>> {
 		let Some(output) = self
-			.try_get_process_local(id, false, false, token)
+			.try_get_process_local(id, false, false, tokens)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 		else {
@@ -74,7 +74,7 @@ impl Session {
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Parent,
 		);
-		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let authorized = self.authorize(resource, permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);

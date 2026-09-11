@@ -33,13 +33,13 @@ assert equal $hit.params.process $process
 # Preserve the remote capability alongside any locally issued capability.
 let remote_socket = $remote.url | str replace 'http+unix://' '' | url decode
 let remote_response = http get --unix-socket $remote_socket --headers { Authorization: $'Bearer ($root_token)' } $'http://localhost/processes/($process)'
-let remote_token = $remote_response.tokens.local
+let remote_token = $remote_response.tokens.local.0
 let socket = $runner.url | str replace 'http+unix://' '' | url decode
-let query = { location: 'remote(hint)', 'tokens[remote]': $remote_token } | url build-query
+let query = { location: 'remote(hint)', 'tokens[remote][0]': $remote_token } | url build-query
 let response = http get --unix-socket $socket $'http://localhost/processes/($process)?($query)'
 assert equal $response.location remote "the process still belongs to the remote"
 assert equal $response.data.status started
-assert equal $response.tokens.remote $remote_token "the remote capability must retain its issuer"
+assert equal $response.tokens.remote.0 $remote_token "the remote capability must retain its issuer"
 assert ($response.tokens.local? | is-not-empty) "the runner capability must remain local"
 
 # An explicit local read still means the local index, not the remote process's runner state.
@@ -89,7 +89,7 @@ tg --url $remote.url --token $root_token checkpoint continue process.control.fin
 tg --url $remote.url --token $root_token checkpoint unwatch process.control.finish $remote_finish_watch
 let output = timeout 30s tg --url $local.url wait --remote $process | complete
 success $output "the owning remote must eventually publish completion"
-let query = { location: remote, 'tokens[remote]': $remote_token } | url build-query
+let query = { location: remote, 'tokens[remote][0]': $remote_token } | url build-query
 let response = http get --max-time 10sec --unix-socket $socket $'http://localhost/processes/($process)?($query)'
 assert equal $response.location remote
 assert equal $response.data.status finished

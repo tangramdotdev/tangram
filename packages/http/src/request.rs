@@ -2,12 +2,80 @@ use {
 	crate::body::Ext as _,
 	crate::{Error, body, sse},
 	bytes::Bytes,
-	futures::{Stream, TryStreamExt as _, future},
+	futures::{Stream, StreamExt as _, TryStreamExt as _, future, stream},
 	tokio::io::AsyncBufRead,
 	tokio_util::io::StreamReader,
 };
 
 pub mod builder;
+
+#[derive(Clone)]
+struct QueryParams(serde_json::Value);
+
+pub fn with_query_params<T, B>(
+	mut request: http::Request<B>,
+	arg: &T,
+) -> Result<http::Request<body::arg::Body<B>>, Error>
+where
+	T: serde::Serialize,
+	B: http_body::Body<Data = Bytes>,
+{
+	let query = serde_qs::Config::new()
+		.use_form_encoding(true)
+		.serialize_string(arg)?;
+	if query.len() > body::arg::THRESHOLD {
+		let (mut parts, body) = request.into_parts();
+		parts
+			.headers
+			.insert(body::arg::HEADER, http::HeaderValue::from_static("true"));
+		// A cache must not identify a request with an arg in its body by its URI alone.
+		parts.headers.insert(
+			http::header::CACHE_CONTROL,
+			http::HeaderValue::from_static("no-store"),
+		);
+		parts.headers.remove(http::header::CONTENT_LENGTH);
+		let body = body::arg::Body::with_arg(body, arg)?;
+		return Ok(http::Request::from_parts(parts, body));
+	}
+	if !query.is_empty() {
+		let mut uri = request.uri().clone().into_parts();
+		uri.path_and_query = Some(format!("{}?{query}", request.uri().path()).parse()?);
+		*request.uri_mut() = http::Uri::from_parts(uri)?;
+	}
+	let request = request.map(body::arg::Body::new);
+	Ok(request)
+}
+
+pub async fn read_query_params(
+	request: http::Request<body::Boxed>,
+	max_len: u64,
+) -> Result<http::Request<body::Boxed>, Error> {
+	if !body::arg::get_header(request.headers())? {
+		return Ok(request);
+	}
+	let (mut parts, body) = request.into_parts();
+	let mut frames = body.into_stream();
+	let (arg, chunk) = {
+		let stream = frames.by_ref().map(|result| {
+			let frame = result.map_err(std::io::Error::other)?;
+			frame
+				.into_data()
+				.map_err(|_| std::io::Error::other("expected the request arg before the trailers"))
+		});
+		let mut reader = StreamReader::new(stream);
+		let arg = body::arg::get(&mut reader, max_len).await?;
+		let (_, chunk) = reader.into_inner_with_chunk();
+		(arg, chunk)
+	};
+	parts.extensions.insert(QueryParams(arg));
+	parts.headers.remove(body::arg::HEADER);
+	parts.headers.remove(http::header::CONTENT_LENGTH);
+	// Preserve the unused data and trailers after the arg.
+	let stream = stream::iter(chunk.map(|chunk| Ok(http_body::Frame::data(chunk)))).chain(frames);
+	let body = body::Boxed::with_stream(stream);
+	let request = http::Request::from_parts(parts, body);
+	Ok(request)
+}
 
 pub trait Ext {
 	fn query_params<T>(&self) -> Option<Result<T, Error>>
@@ -53,6 +121,9 @@ where
 	where
 		T: serde::de::DeserializeOwned,
 	{
+		if let Some(arg) = self.extensions().get::<QueryParams>() {
+			return Some(serde_json::from_value(arg.0.clone()).map_err(Into::into));
+		}
 		self.uri().query().map(|query| {
 			serde_qs::Config::new()
 				.use_form_encoding(true)

@@ -10,7 +10,7 @@ pub struct Node {
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
 	pub send: bool,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 impl Session {
@@ -31,7 +31,8 @@ impl Session {
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Read,
 		);
-		let resource = tg::Referent::with_node_and_token(node.id.clone(), node.token.clone());
+		let resource =
+			tg::Referent::with_node_and_local_tokens(node.id.clone(), node.tokens.clone());
 		let authorized = self
 			.authorize(resource, permission)
 			.await?
@@ -96,7 +97,7 @@ impl Session {
 		}
 		if node.descendants {
 			for child in &children {
-				state.queue.enqueue(node.eager, child.clone(), None)?;
+				state.queue.enqueue(node.eager, child.clone(), Vec::new())?;
 			}
 			state
 				.graph
@@ -114,7 +115,7 @@ impl Session {
 		if node.send {
 			let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 				selector: tg::Selector::Id(id.clone()),
-				token: None,
+				tokens: Vec::new(),
 			});
 			state.sender.send(Ok(message)).await.ok();
 			state.graph.lock().unwrap().finish_node_remote_missing(&id);

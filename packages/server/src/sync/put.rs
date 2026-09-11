@@ -66,10 +66,10 @@ impl Session {
 
 		// Enqueue the nodes.
 		for node in &state.arg.put {
-			let token = node.options.tokens.local().cloned();
+			let tokens = node.options.tokens.local().to_vec();
 			state
 				.queue
-				.enqueue(state.arg.eager, node.node.clone(), token)?;
+				.enqueue(state.arg.eager, node.node.clone(), tokens)?;
 		}
 
 		// Create the channels.

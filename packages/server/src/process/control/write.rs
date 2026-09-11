@@ -227,6 +227,8 @@ impl Session {
 			});
 		}
 
+		crate::checkpoint!(self.server, "process.control.log.end", process = %id).await;
+
 		// Persist the writer's final positions before scheduling compaction or reporting success.
 		if let Some(stored) = self.server.cache.try_get_log_end(id).await? {
 			if stored != end {

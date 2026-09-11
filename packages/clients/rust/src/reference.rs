@@ -115,8 +115,11 @@ impl Reference {
 	}
 
 	#[must_use]
-	pub fn with_node_and_token(node: Node, token: Option<tg::authorization::Token>) -> Self {
-		Self::with_node_and_tokens(node, tg::authorization::Tokens::with_local(token))
+	pub fn with_node_and_local_tokens(
+		node: Node,
+		tokens: impl IntoIterator<Item = tg::authorization::Token>,
+	) -> Self {
+		Self::with_node_and_tokens(node, tg::authorization::Tokens::with_local(tokens))
 	}
 
 	#[must_use]
@@ -210,7 +213,7 @@ impl Reference {
 		let mut builder = Uri::builder().path_raw(&path);
 		if self.options != Options::default() {
 			builder = builder
-				.query_params(&self.options)
+				.query_params_unbounded(&self.options)
 				.map_err(|error| tg::error!(!error, "failed to serialize the query params"))
 				.unwrap();
 		}

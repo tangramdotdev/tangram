@@ -1,7 +1,7 @@
 use {
 	crate::{Session, sync::put::State},
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
-	std::{collections::BTreeSet, sync::Arc},
+	std::{collections::BTreeSet, io::SeekFrom, sync::Arc},
 	tangram_client::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
@@ -12,7 +12,7 @@ pub struct ObjectNode {
 	pub id: tg::object::Id,
 	pub kind: Option<crate::sync::queue::ObjectKind>,
 	pub send: bool,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 pub struct ProcessNode {
@@ -20,7 +20,7 @@ pub struct ProcessNode {
 	pub eager: bool,
 	pub id: tg::process::Id,
 	pub send: bool,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 impl Session {
@@ -82,7 +82,9 @@ impl Session {
 		// Get the objects.
 		let objects = nodes
 			.iter()
-			.map(|node| tg::Referent::with_node_and_token(node.id.clone(), node.token.clone()))
+			.map(|node| {
+				tg::Referent::with_node_and_local_tokens(node.id.clone(), node.tokens.clone())
+			})
 			.collect::<Vec<_>>();
 		let outputs = self
 			.try_get_object_batch_local_or_regions(&objects, state.arg.metadata)
@@ -96,7 +98,7 @@ impl Session {
 				if node.send {
 					let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 						selector: tg::Selector::Id(node.id.clone().into()),
-						token: None,
+						tokens: Vec::new(),
 					});
 					state.sender.send(Ok(message)).await.ok();
 					state
@@ -185,7 +187,7 @@ impl Session {
 						id: child,
 						kind: node.kind,
 						parent: Some(node.id.clone().into()),
-						token: None,
+						tokens: Vec::new(),
 					});
 				state.queue.enqueue_objects(nodes)?;
 			}
@@ -212,7 +214,9 @@ impl Session {
 		// Get the processes.
 		let processes = nodes
 			.iter()
-			.map(|node| tg::Referent::with_node_and_token(node.id.clone(), node.token.clone()))
+			.map(|node| {
+				tg::Referent::with_node_and_local_tokens(node.id.clone(), node.tokens.clone())
+			})
 			.collect::<Vec<_>>();
 		let outputs = self
 			.try_get_process_batch_local_or_regions(&processes, state.arg.metadata)
@@ -225,7 +229,7 @@ impl Session {
 				if node.send {
 					let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
 						selector: tg::Selector::Id(node.id.clone().into()),
-						token: None,
+						tokens: Vec::new(),
 					});
 					state.sender.send(Ok(message)).await.ok();
 					state
@@ -248,10 +252,71 @@ impl Session {
 			// Validate the process before waiting for all of its children.
 			Self::validate_process_data(&output.data)?;
 
+			// Compact a local log if needed, leaving an uncompacted remote log unset.
+			if node.descendants
+				&& state.arg.process_logs
+				&& Self::process_log_needs_compaction(&output.data)
+				&& output.location.as_ref().is_none_or(tg::Location::is_local)
+			{
+				let permission = tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::NodeLog,
+				);
+				let required = tg::authorization::permission::Set::from_permission(permission);
+				let permissions = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_process_local_authorization(&node.id, required)
+					.permissions;
+				if !permissions.contains(permission) {
+					return Err(tg::error!("unauthorized"));
+				}
+
+				// Wait for the writer's EOF before compacting, discarding any remaining log bytes.
+				let streams = [
+					(tg::process::stdio::Stream::Stderr, &output.data.stderr),
+					(tg::process::stdio::Stream::Stdout, &output.data.stdout),
+				]
+				.into_iter()
+				.filter_map(|(stream, stdio)| stdio.is_log().then_some(stream))
+				.collect();
+				let arg = tg::process::stdio::read::Arg {
+					location: output.location.clone().map(Into::into),
+					position: Some(SeekFrom::End(0)),
+					streams,
+					..Default::default()
+				};
+				self.server
+					.try_read_process_stdio_all(&node.id, arg)
+					.boxed()
+					.await?
+					.ok_or_else(|| tg::error!(process = %node.id, "failed to get the process log"))?
+					.try_for_each(|_| std::future::ready(Ok(())))
+					.await
+					.map_err(
+						|error| tg::error!(!error, process = %node.id, "failed to read the log"),
+					)?;
+
+				// Compact.
+				self.compact_process_log(&node.id).boxed().await.map_err(
+					|error| tg::error!(!error, process = %node.id, "failed to compact the log"),
+				)?;
+
+				// Get the compacted process data from the index.
+				output.data = self
+					.server
+					.try_get_process_local(&node.id, false)
+					.await?
+					.ok_or_else(
+						|| tg::error!(process = %node.id, "failed to get the process after compaction"),
+					)?
+					.data;
+			}
+
 			// Load the children.
 			let arg = tg::process::children::get::Arg {
 				location: output.location.clone().map(Into::into),
-				tokens: tg::authorization::Tokens::with_local(node.token.clone()),
+				tokens: tg::authorization::Tokens::with_local(node.tokens.clone()),
 				..Default::default()
 			};
 			let children = self
@@ -335,7 +400,7 @@ impl Session {
 						eager: node.eager,
 						id: child.process.node.clone(),
 						parent: Some(node.id.clone()),
-						token: None,
+						tokens: Vec::new(),
 					});
 				state.queue.enqueue_processes(nodes)?;
 			}
@@ -348,7 +413,7 @@ impl Session {
 					id: output.data.command.node.clone().into(),
 					kind: Some(crate::sync::queue::ObjectKind::Command),
 					parent: Some(node.id.clone().into()),
-					token: None,
+					tokens: Vec::new(),
 				};
 				state.queue.enqueue_object(node)?;
 			}
@@ -372,7 +437,7 @@ impl Session {
 									id: child,
 									kind: Some(crate::sync::queue::ObjectKind::Error),
 									parent: Some(node.id.clone().into()),
-									token: None,
+									tokens: Vec::new(),
 								});
 						state.queue.enqueue_objects(nodes)?;
 					},
@@ -383,7 +448,7 @@ impl Session {
 							id: id.node.clone().into(),
 							kind: Some(crate::sync::queue::ObjectKind::Error),
 							parent: Some(node.id.clone().into()),
-							token: None,
+							tokens: Vec::new(),
 						};
 						state.queue.enqueue_object(node)?;
 					},
@@ -402,7 +467,7 @@ impl Session {
 					id: log.node.into(),
 					kind: Some(crate::sync::queue::ObjectKind::Log),
 					parent: Some(node.id.clone().into()),
-					token: None,
+					tokens: Vec::new(),
 				};
 				state.queue.enqueue_object(node)?;
 			}
@@ -423,7 +488,7 @@ impl Session {
 						id: child,
 						kind: Some(crate::sync::queue::ObjectKind::Output),
 						parent: Some(node.id.clone().into()),
-						token: None,
+						tokens: Vec::new(),
 					});
 				state.queue.enqueue_objects(nodes)?;
 			}

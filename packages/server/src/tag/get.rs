@@ -137,13 +137,14 @@ impl Session {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|tag| {
-				crate::remote::cache::token_valid(tag.tokens.local(), &self.server.clock)
+				crate::remote::cache::tokens_valid(tag.tokens.local(), &self.server.clock)
 			});
 			if valid || cached {
 				if let Some(tag) = &mut output {
-					if !crate::remote::cache::token_valid(tag.tokens.local(), &self.server.clock) {
-						tag.tokens.remove_local();
-					}
+					crate::remote::cache::remove_expired_tokens(
+						&mut tag.tokens,
+						&self.server.clock,
+					);
 					self.update_tokens_and_location(
 						&mut tag.tokens,
 						Some(&mut tag.location),

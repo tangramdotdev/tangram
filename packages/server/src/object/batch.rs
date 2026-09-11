@@ -217,7 +217,7 @@ impl Session {
 					vec![tg::authorization::Permission::Object(permission)],
 					grant_expires_at,
 				)?;
-				let object = tg::Referent::with_node_and_token(object.id, token);
+				let object = tg::Referent::with_node_and_local_tokens(object.id, token);
 				Ok(object)
 			})
 			.collect::<tg::Result<_>>()?;
@@ -257,11 +257,15 @@ impl Session {
 			let Some(child) = children_map.get(child) else {
 				return Ok(false);
 			};
-			let Some(token) = child.options.tokens.local() else {
+			let tokens = child.options.tokens.local();
+			if tokens.is_empty() {
 				return Ok(false);
-			};
+			}
 			let resource = tg::Selector::Id(child.node.clone().into());
-			if !self.authorize_token(&resource, permission.into(), token) {
+			if !tokens
+				.iter()
+				.any(|token| self.authorize_token(&resource, permission.into(), token))
+			{
 				authorization_args.push((child.clone(), permission.into()));
 			}
 		}

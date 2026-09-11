@@ -49,7 +49,7 @@ pub trait Index {
 			requested: permissions,
 			required: permissions,
 			resource,
-			token: None,
+			tokens: Vec::new(),
 		};
 		async move {
 			let mut outcomes = self.authorize_batch(&[arg], config, principal).await?;

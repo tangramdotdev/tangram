@@ -359,13 +359,63 @@ impl Request {
 	}
 }
 
-pub(crate) fn token_valid(
-	token: Option<&tg::authorization::Token>,
+pub(crate) fn tokens_valid(
+	tokens: &[tg::authorization::Token],
 	clock: &crate::clock::Clock,
 ) -> bool {
-	token.is_none_or(|token| {
-		clock
+	tokens.is_empty()
+		|| clock
 			.unix_timestamp()
-			.is_ok_and(|now| token.body.expires_at > now)
-	})
+			.is_ok_and(|now| tokens.iter().all(|token| token.body.expires_at > now))
+}
+
+pub(crate) fn remove_expired_tokens(
+	tokens: &mut tg::authorization::Tokens,
+	clock: &crate::clock::Clock,
+) {
+	let now = clock.unix_timestamp();
+	for token in tokens.remove_local() {
+		if now.as_ref().is_ok_and(|now| token.body.expires_at > *now) {
+			tokens.insert_local(token);
+		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use tangram_client::prelude::*;
+
+	#[test]
+	fn expiration_preserves_other_proofs() {
+		let clock = crate::clock::Clock::new();
+		let resource = tg::process::Id::new();
+		let token = |expires_at| tg::authorization::Token {
+			body: tg::authorization::Body {
+				expires_at,
+				permissions: vec![tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::Node,
+				)],
+				resource: resource.clone().into(),
+			},
+			metadata: tg::authorization::Metadata {
+				algorithm: tg::authorization::Algorithm::Ed25519,
+				key: "default".into(),
+			},
+			signature: Vec::new(),
+		};
+		let expired = token(i64::MIN);
+		let valid = token(i64::MAX);
+		let mut tokens = tg::authorization::Tokens::with_local([expired.clone(), valid.clone()]);
+		let remote = tg::Location::Remote(tg::location::Remote {
+			name: "default".into(),
+			region: None,
+		});
+		tokens.insert(remote.clone(), expired.clone());
+
+		assert!(!super::tokens_valid(tokens.local(), &clock));
+		super::remove_expired_tokens(&mut tokens, &clock);
+		assert_eq!(tokens.local(), &[valid]);
+		assert_eq!(tokens.get(&remote), &[expired]);
+		assert!(super::tokens_valid(tokens.local(), &clock));
+	}
 }

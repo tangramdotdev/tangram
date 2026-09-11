@@ -52,10 +52,10 @@ impl Session {
 	pub(crate) async fn authorize_sandbox_runner(
 		&self,
 		id: &tg::sandbox::Id,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 		permission: tg::authorization::permission::sandbox::Permission,
 	) -> tg::Result<bool> {
-		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let permission = tg::authorization::Permission::Sandbox(permission);
 		// Never use the sandbox's own authorization tokens to authorize a caller.
 		let permissions = self.authorize(resource, permission).await?;

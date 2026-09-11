@@ -80,7 +80,7 @@ pub struct DatabaseNode {
 	pub remote_requested: bool,
 	remote_selectors: BTreeSet<tg::Selector<tg::Id>>,
 	pub remote_sent: bool,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -103,7 +103,7 @@ pub struct ObjectNode {
 	pub remote_requested: bool,
 	pub remote_sent: bool,
 	pub requested: Option<Requested>,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -133,7 +133,7 @@ pub struct ProcessNode {
 	pub remote_requested: bool,
 	remote_sent: bool,
 	pub requested: Option<Requested>,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -153,7 +153,7 @@ pub struct RemoteAction {
 pub struct RemoteSelector {
 	pub descendants: bool,
 	pub eager: bool,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -163,7 +163,7 @@ pub struct Requested {
 
 pub struct Authorization {
 	pub permissions: tg::authorization::permission::Set,
-	pub token: Option<tg::authorization::Token>,
+	pub tokens: Vec<tg::authorization::Token>,
 }
 
 pub struct UpdateObjectLocalArg<'a> {
@@ -233,19 +233,15 @@ impl Graph {
 
 		// Add the root tokens.
 		for root in &arg.get {
-			let Some(token) = root.options.tokens.local().cloned() else {
-				continue;
-			};
+			let tokens = root.options.tokens.local().to_vec();
 			let tg::Selector::Id(id) = &root.node else {
 				continue;
 			};
-			graph.update_root_token(id, token);
+			graph.update_root_tokens(id, tokens);
 		}
 		for root in &arg.put {
-			let Some(token) = root.options.tokens.local().cloned() else {
-				continue;
-			};
-			graph.update_root_token(&root.node, token);
+			let tokens = root.options.tokens.local().to_vec();
+			graph.update_root_tokens(&root.node, tokens);
 		}
 
 		graph
@@ -268,18 +264,18 @@ impl Graph {
 		self.checkout_queued_objects.remove(id);
 	}
 
-	fn update_root_token(&mut self, id: &tg::Id, token: tg::authorization::Token) {
+	fn update_root_tokens(&mut self, id: &tg::Id, tokens: Vec<tg::authorization::Token>) {
 		match id.kind() {
 			tg::id::Kind::Process => {
-				self.update_process_token(&id.clone().try_into().unwrap(), token);
+				self.update_process_tokens(&id.clone().try_into().unwrap(), tokens);
 			},
 			tg::id::Kind::Group
 			| tg::id::Kind::Organization
 			| tg::id::Kind::Sandbox
 			| tg::id::Kind::Tag
-			| tg::id::Kind::User => self.update_node_token(id, token),
+			| tg::id::Kind::User => self.update_node_tokens(id, tokens),
 			_ if tg::object::Id::try_from(id.clone()).is_ok() => {
-				self.update_object_token(&id.clone().try_into().unwrap(), token);
+				self.update_object_tokens(&id.clone().try_into().unwrap(), tokens);
 			},
 			_ => {},
 		}
@@ -325,13 +321,13 @@ impl Graph {
 		descendants: bool,
 		eager: bool,
 		specifier: tg::Specifier,
-		token: Option<tg::authorization::Token>,
+		tokens: Vec<tg::authorization::Token>,
 	) -> bool {
 		let Some(request) = self.remote_selectors.get_mut(&specifier) else {
 			let request = RemoteSelector {
 				descendants,
 				eager,
-				token,
+				tokens,
 			};
 			self.remote_selectors.insert(specifier, request);
 
@@ -339,9 +335,7 @@ impl Graph {
 		};
 		request.descendants |= descendants;
 		request.eager |= eager;
-		if let Some(token) = token {
-			request.token.get_or_insert(token);
-		}
+		merge_tokens(&mut request.tokens, tokens);
 
 		false
 	}
@@ -423,16 +417,14 @@ impl Graph {
 	pub fn update_node_local_requested(
 		&mut self,
 		id: &tg::Id,
-		token: Option<tg::authorization::Token>,
+		tokens: Vec<tg::authorization::Token>,
 	) -> bool {
 		let node = self
 			.nodes
 			.entry(id.clone())
 			.or_insert_with(|| Node::for_id(id));
 		let node = node.unwrap_database_mut();
-		if let Some(token) = token {
-			node.token.get_or_insert(token);
-		}
+		merge_tokens(&mut node.tokens, tokens);
 		let inserted = !node.local_requested;
 		node.local_requested = true;
 
@@ -444,16 +436,14 @@ impl Graph {
 		descendants: bool,
 		id: &tg::Id,
 		selector: tg::Selector<tg::Id>,
-		token: Option<tg::authorization::Token>,
+		tokens: Vec<tg::authorization::Token>,
 	) -> RemoteAction {
 		let entry = self.nodes.entry(id.clone());
 		let index = entry.index();
 		let node = entry
 			.or_insert_with(|| Node::for_id(id))
 			.unwrap_database_mut();
-		if let Some(token) = token {
-			node.token.get_or_insert(token);
-		}
+		merge_tokens(&mut node.tokens, tokens);
 		let enqueue_descendants = node.remote_descendants.request(descendants, false);
 		let send = !node.remote_requested && (!node.remote_sent || node.remote_missing);
 		if !node.remote_sent || node.remote_missing {
@@ -480,16 +470,14 @@ impl Graph {
 		&mut self,
 		descendants: bool,
 		id: &tg::Id,
-		token: Option<tg::authorization::Token>,
+		tokens: Vec<tg::authorization::Token>,
 	) -> RemoteAction {
 		let entry = self.nodes.entry(id.clone());
 		let index = entry.index();
 		let node = entry
 			.or_insert_with(|| Node::for_id(id))
 			.unwrap_database_mut();
-		if let Some(token) = token {
-			node.token.get_or_insert(token);
-		}
+		merge_tokens(&mut node.tokens, tokens);
 		let enqueue_descendants = node.remote_descendants.request(descendants, false);
 		let send = !node.remote_requested && (!node.remote_sent || node.remote_missing);
 		if send {
@@ -595,12 +583,12 @@ impl Graph {
 		self.update_remote_end(index);
 	}
 
-	pub fn update_node_token(&mut self, id: &tg::Id, token: tg::authorization::Token) {
+	pub fn update_node_tokens(&mut self, id: &tg::Id, tokens: Vec<tg::authorization::Token>) {
 		let node = self
 			.nodes
 			.entry(id.clone())
 			.or_insert_with(|| Node::for_id(id));
-		node.unwrap_database_mut().token.get_or_insert(token);
+		merge_tokens(&mut node.unwrap_database_mut().tokens, tokens);
 	}
 
 	pub fn update_object_local(&mut self, update: UpdateObjectLocalArg) {
@@ -1508,7 +1496,7 @@ impl Graph {
 			);
 			return Authorization {
 				permissions,
-				token: None,
+				tokens: Vec::new(),
 			};
 		};
 		self.get_local_authorization(index, required)
@@ -1525,26 +1513,34 @@ impl Graph {
 			);
 			return Authorization {
 				permissions,
-				token: None,
+				tokens: Vec::new(),
 			};
 		};
 		self.get_local_authorization(index, required)
 	}
 
-	pub fn update_object_token(&mut self, id: &tg::object::Id, token: tg::authorization::Token) {
+	pub fn update_object_tokens(
+		&mut self,
+		id: &tg::object::Id,
+		tokens: Vec<tg::authorization::Token>,
+	) {
 		let node = self
 			.nodes
 			.entry(id.clone().into())
 			.or_insert_with(|| Node::Object(ObjectNode::default()));
-		node.unwrap_object_mut().token.get_or_insert(token);
+		merge_tokens(&mut node.unwrap_object_mut().tokens, tokens);
 	}
 
-	pub fn update_process_token(&mut self, id: &tg::process::Id, token: tg::authorization::Token) {
+	pub fn update_process_tokens(
+		&mut self,
+		id: &tg::process::Id,
+		tokens: Vec<tg::authorization::Token>,
+	) {
 		let node = self
 			.nodes
 			.entry(id.clone().into())
 			.or_insert_with(|| Node::Process(ProcessNode::default()));
-		node.unwrap_process_mut().token.get_or_insert(token);
+		merge_tokens(&mut node.unwrap_process_mut().tokens, tokens);
 	}
 
 	pub fn update_object_local_permissions(
@@ -1637,21 +1633,24 @@ impl Graph {
 			.and_then(|(_, node)| node.local_permissions())
 			.map_or_else(|| required.empty_like(), Self::normalize_permissions);
 		if permissions.contains(required) {
-			let token = self
+			let tokens = self
 				.nodes
 				.get_index(index)
-				.and_then(|(_, node)| node.token())
-				.cloned();
-			return Authorization { permissions, token };
+				.map(|(_, node)| node.tokens().to_vec())
+				.unwrap_or_default();
+			return Authorization {
+				permissions,
+				tokens,
+			};
 		}
 
 		let mut predecessors = HashMap::new();
 		let mut queue = VecDeque::new();
-		let mut token = self
+		let mut tokens = self
 			.nodes
 			.get_index(index)
-			.and_then(|(_, node)| node.token())
-			.cloned();
+			.map(|(_, node)| node.tokens().to_vec())
+			.unwrap_or_default();
 		let mut visited = HashSet::new();
 		for permission in required
 			.iter()
@@ -1663,13 +1662,12 @@ impl Graph {
 		}
 
 		while let Some(state) = queue.pop_front() {
-			if token.is_none() {
-				token = self
-					.nodes
-					.get_index(state.index)
-					.and_then(|(_, node)| node.token())
-					.cloned();
-			}
+			let incoming = self
+				.nodes
+				.get_index(state.index)
+				.map(|(_, node)| node.tokens().to_vec())
+				.unwrap_or_default();
+			merge_tokens(&mut tokens, incoming);
 			let permissions = self
 				.nodes
 				.get_index(state.index)
@@ -1683,7 +1681,10 @@ impl Graph {
 					.and_then(|(_, node)| node.local_permissions())
 					.map_or_else(|| required.empty_like(), Self::normalize_permissions);
 				if permissions.contains(required) {
-					return Authorization { permissions, token };
+					return Authorization {
+						permissions,
+						tokens,
+					};
 				}
 				continue;
 			}
@@ -1711,7 +1712,10 @@ impl Graph {
 			.and_then(|(_, node)| node.local_permissions())
 			.map_or_else(|| required.empty_like(), Self::normalize_permissions);
 
-		Authorization { permissions, token }
+		Authorization {
+			permissions,
+			tokens,
+		}
 	}
 
 	fn cache_local_permission_path(
@@ -2931,15 +2935,15 @@ impl Node {
 		}
 	}
 
-	fn token(&self) -> Option<&tg::authorization::Token> {
+	fn tokens(&self) -> &[tg::authorization::Token] {
 		match self {
 			Self::Group(node)
 			| Self::Organization(node)
 			| Self::Sandbox(node)
 			| Self::Tag(node)
-			| Self::User(node) => node.token.as_ref(),
-			Self::Object(node) => node.token.as_ref(),
-			Self::Process(node) => node.token.as_ref(),
+			| Self::User(node) => node.tokens.as_slice(),
+			Self::Object(node) => node.tokens.as_slice(),
+			Self::Process(node) => node.tokens.as_slice(),
 		}
 	}
 
@@ -3102,5 +3106,16 @@ impl petgraph::visit::Visitable for Graph {
 	fn reset_map(&self, map: &mut Self::Map) {
 		map.clear();
 		map.reserve(self.nodes.len());
+	}
+}
+
+fn merge_tokens(
+	existing: &mut Vec<tg::authorization::Token>,
+	tokens: Vec<tg::authorization::Token>,
+) {
+	for token in tokens {
+		if !existing.contains(&token) {
+			existing.push(token);
+		}
 	}
 }

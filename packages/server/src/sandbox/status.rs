@@ -51,7 +51,7 @@ impl Session {
 		if !self
 			.authorize_sandbox_runner(
 				id,
-				None,
+				&[],
 				tg::authorization::permission::sandbox::Permission::Read,
 			)
 			.await?

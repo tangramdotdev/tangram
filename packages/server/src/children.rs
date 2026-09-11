@@ -157,7 +157,7 @@ impl Session {
 			return Ok(output.referent.options);
 		};
 		let resource =
-			tg::Referent::with_node_and_token(id.clone(), options.tokens.local().cloned());
+			tg::Referent::with_node_and_local_tokens(id.clone(), options.tokens.local().to_vec());
 		let mut authorizations = self
 			.authorize_batch_with_required([(resource, permissions)], required.into())
 			.await?;
@@ -178,7 +178,7 @@ impl Session {
 		let token = self.create_token(id.clone(), permissions.iter().collect(), expires_at)?;
 		let mut tokens = options.tokens;
 		if let Some(token) = token {
-			tokens.set_local(token);
+			tokens.insert_local(token);
 		}
 		let options = tg::referent::Options {
 			location: Some(tg::Location::Local(tg::location::Local::default())),

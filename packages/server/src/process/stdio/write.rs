@@ -74,11 +74,11 @@ impl Session {
 		streams: &[tg::process::stdio::Stream],
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 		stopper: Option<Stopper>,
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
 	{
 		let Some(tg::process::get::Output { data, location, .. }) = self
-			.try_get_process_local(id, false, false, token)
+			.try_get_process_local(id, false, false, tokens)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?
 		else {
@@ -90,7 +90,7 @@ impl Session {
 		{
 			return Ok(None);
 		}
-		self.authorize_process_stdio_write(id, streams, token)
+		self.authorize_process_stdio_write(id, streams, tokens)
 			.await?;
 		if data.status.is_finished() {
 			let message = tg::process::stdio::write::ServerMessage::Response(
@@ -142,7 +142,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],
-		token: Option<&tg::authorization::Token>,
+		tokens: &[tg::authorization::Token],
 	) -> tg::Result<()> {
 		let stdin = streams.contains(&tg::process::stdio::Stream::Stdin);
 		let output = streams
@@ -153,7 +153,8 @@ impl Session {
 				let permission = tg::authorization::Permission::Process(
 					tg::authorization::permission::process::Permission::Parent,
 				);
-				let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
+				let resource =
+					tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 				let authorized = self.authorize(resource, permission).await?;
 				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 					return Err(tg::error!("unauthorized"));

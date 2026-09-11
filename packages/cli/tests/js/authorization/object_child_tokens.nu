@@ -8,18 +8,18 @@ let path = artifact {
 		export default async function () {
 			const directoryId = "dir_010000000000000000000000000000000000000000000000000000" as tg.Directory.Id;
 			const fileId = "fil_010000000000000000000000000000000000000000000000000000" as tg.File.Id;
-			const tokens = { local: "child" };
+			const tokens = { local: ["child"] };
 			const getObject = tg.client.getObject;
 			try {
 				tg.client.getObject = async () => ({
 					children: { [fileId]: { tokens } },
 					data: { kind: "directory", value: { entries: { a: fileId, b: fileId } } },
-					tokens: { local: "parent" },
+					tokens: { local: ["parent"] },
 				});
 				const directory = tg.Directory.withId(directoryId);
 				const entries = await directory.entries;
 				const children = await directory.state.children;
-				tokens.local = "mutated";
+				tokens.local[0] = "mutated";
 				return {
 					children: children.map((child) => child.state.tokens),
 					entries: Object.values(entries).map((child) => child.state.tokens),
@@ -33,7 +33,7 @@ let path = artifact {
 }
 let output = tg build $path | from json
 assert equal $output {
-	children: [{ local: child } { local: child }]
-	entries: [{ local: child } { local: child }]
-	parent: { local: parent }
+	children: [{ local: [child parent] } { local: [child parent] }]
+	entries: [{ local: [child parent] } { local: [child parent] }]
+	parent: { local: [parent] }
 }

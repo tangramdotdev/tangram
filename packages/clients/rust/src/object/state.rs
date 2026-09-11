@@ -206,7 +206,7 @@ impl State {
 		}
 		inner.location = object.options.location;
 		inner.stored = true;
-		inner.tokens = object.options.tokens;
+		inner.tokens.inherit(&object.options.tokens);
 
 		Ok(())
 	}
@@ -394,7 +394,7 @@ impl State {
 		// Update the state.
 		let mut inner = self.0.write().unwrap();
 		if !output.tokens.is_empty() {
-			inner.tokens = output.tokens;
+			inner.tokens.inherit(&output.tokens);
 		}
 		inner.object.replace(object.clone());
 

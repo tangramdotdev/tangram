@@ -73,9 +73,9 @@ impl Session {
 			};
 			let valid = entries.iter().all(|entry| {
 				let entry_valid =
-					crate::remote::cache::token_valid(entry.tokens().local(), &self.server.clock);
+					crate::remote::cache::tokens_valid(entry.tokens().local(), &self.server.clock);
 				let target_valid = entry.target.as_ref().is_none_or(|target| {
-					crate::remote::cache::token_valid(
+					crate::remote::cache::tokens_valid(
 						target.options.tokens.local(),
 						&self.server.clock,
 					)
@@ -84,18 +84,15 @@ impl Session {
 			});
 			if valid || cached {
 				for entry in &mut entries {
-					if !crate::remote::cache::token_valid(
-						entry.tokens().local(),
+					crate::remote::cache::remove_expired_tokens(
+						&mut entry.node.options.tokens,
 						&self.server.clock,
-					) {
-						entry.set_tokens(tg::authorization::Tokens::default());
-					}
-					if let Some(target) = &mut entry.target
-						&& !crate::remote::cache::token_valid(
-							target.options.tokens.local(),
+					);
+					if let Some(target) = &mut entry.target {
+						crate::remote::cache::remove_expired_tokens(
+							&mut target.options.tokens,
 							&self.server.clock,
-						) {
-						target.options.tokens = tg::authorization::Tokens::default();
+						);
 					}
 					self.set_remote_entry_location(entry, &remote.name, trusted)?;
 				}
@@ -252,7 +249,7 @@ fn tokens_for_remote(
 	remote: &str,
 ) -> tg::authorization::Tokens {
 	let mut output = tg::authorization::Tokens::default();
-	for (location, token) in tokens.iter() {
+	for (location, tokens) in tokens.iter() {
 		let tg::Location::Remote(location) = location else {
 			continue;
 		};
@@ -260,7 +257,9 @@ fn tokens_for_remote(
 			let location = tg::Location::Local(tg::location::Local {
 				region: location.region.clone(),
 			});
-			output.set(location, token.clone());
+			for token in tokens {
+				output.insert(location.clone(), token.clone());
+			}
 		}
 	}
 
