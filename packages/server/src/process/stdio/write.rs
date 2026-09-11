@@ -83,13 +83,20 @@ impl Session {
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
 	{
-		let Some(tg::process::get::Output { data, .. }) = self
+		let Some(tg::process::get::Output { data, location, .. }) = self
 			.try_get_process_local(id, false, false, token)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?
 		else {
 			return Ok(None);
 		};
+		if location.as_ref().is_some_and(tg::Location::is_remote) {
+			for &stream in streams {
+				if get_destination(&data, stream)? == Destination::Pipe {
+					return Ok(None);
+				}
+			}
+		}
 		self.authorize_process_stdio_write(id, streams, token)
 			.await?;
 		if data.status.is_finished() {

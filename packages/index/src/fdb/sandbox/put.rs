@@ -20,11 +20,19 @@ impl Index {
 			let existing = crate::fdb::retry!(result)
 				.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
 				.transpose()?;
-			let data = arg
+			let mut data = arg
 				.data
 				.clone()
 				.or_else(|| existing.as_ref().and_then(|sandbox| sandbox.data.clone()));
+			let location = arg.location.clone().or_else(|| {
+				existing
+					.as_ref()
+					.and_then(|sandbox| sandbox.location.clone())
+			});
 			let account = arg.account.clone();
+			if let Some(data) = &mut data {
+				data.location.clone_from(&location);
+			}
 			let runner = arg
 				.runner
 				.clone()
@@ -38,6 +46,7 @@ impl Index {
 					.as_ref()
 					.map_or(arg.created_at, |sandbox| sandbox.created_at),
 				data,
+				location,
 				reference_count: existing
 					.as_ref()
 					.map_or(0, |sandbox| sandbox.reference_count),

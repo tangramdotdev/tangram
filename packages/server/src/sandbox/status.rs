@@ -22,11 +22,123 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::status::Arg,
-	) -> tg::Result<
-		Option<
-			impl futures::Stream<Item = tg::Result<tg::sandbox::status::Event>> + Send + 'static + use<>,
-		>,
-	> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
+		if let Some(stream) = self.try_get_sandbox_status_stream_runner(id, &arg).await? {
+			return Ok(Some(stream));
+		}
+		self.try_get_sandbox_status_stream_inner(id, arg).await
+	}
+
+	async fn try_get_sandbox_status_stream_runner(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: &tg::sandbox::status::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
+		let Some(runner) = self.try_get_sandbox_runner_inner(id, arg.location.as_ref()) else {
+			return Ok(None);
+		};
+		// New streams must use normal dispatch once the sandbox is destroyed.
+		let started = self
+			.server
+			.runner
+			.state()
+			.sandboxes()
+			.get(runner.index)
+			.is_some_and(|sandbox| sandbox.status.is_started());
+		if !started {
+			return Ok(None);
+		}
+		if !self
+			.authorize_sandbox_runner(
+				id,
+				None,
+				tg::authorization::permission::sandbox::Permission::Read,
+			)
+			.await?
+		{
+			return Ok(None);
+		}
+		let (sender, receiver) = tokio::sync::mpsc::channel(1);
+		let session = self.clone();
+		let id = id.clone();
+		let arg_ = arg.clone();
+		let task = Task::spawn(|_| async move {
+			let result = session
+				.try_get_sandbox_status_stream_runner_task(&id, arg_, runner, sender.clone())
+				.await;
+			if let Err(error) = result {
+				sender.send(Err(error)).await.ok();
+			}
+		});
+		let stream = ReceiverStream::new(receiver).attach(task).boxed();
+		let stream = match arg.timeout.filter(|timeout| !timeout.is_zero()) {
+			Some(timeout) => stream.take_until(tokio::time::sleep(timeout)).boxed(),
+			None => stream,
+		};
+		let stream = stream.with_stopper(self.context.stopper.clone());
+		Ok(Some(stream))
+	}
+
+	async fn try_get_sandbox_status_stream_runner_task(
+		&self,
+		id: &tg::sandbox::Id,
+		mut arg: tg::sandbox::status::Arg,
+		mut runner: crate::sandbox::Runner,
+		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sandbox::status::Event>>,
+	) -> tg::Result<()> {
+		let mut previous = None;
+		loop {
+			let status = self
+				.server
+				.runner
+				.state()
+				.sandboxes()
+				.get(runner.index)
+				.map(|sandbox| sandbox.status);
+			let Some(status) = status else {
+				// Resume at the owning location when the runner releases its state.
+				arg.location = Some(runner.location_arg);
+				let mut stream = self
+					.try_get_sandbox_status_stream_inner(id, arg)
+					.await?
+					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+				while let Some(event) = stream.next().await {
+					let event = event?;
+					if let tg::sandbox::status::Event::Status(status) = &event {
+						if previous == Some(*status) {
+							continue;
+						}
+						previous = Some(*status);
+					}
+					if sender.send(Ok(event)).await.is_err() {
+						break;
+					}
+				}
+				return Ok(());
+			};
+			if previous != Some(status) {
+				if sender
+					.send(Ok(tg::sandbox::status::Event::Status(status)))
+					.await
+					.is_err()
+				{
+					return Ok(());
+				}
+				previous = Some(status);
+			}
+			if status.is_destroyed() || arg.timeout == Some(Duration::ZERO) {
+				sender.send(Ok(tg::sandbox::status::Event::End)).await.ok();
+				return Ok(());
+			}
+			runner.changed.changed().await.ok();
+		}
+	}
+
+	async fn try_get_sandbox_status_stream_inner(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::status::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::sandbox::status::Event>>>> {
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await

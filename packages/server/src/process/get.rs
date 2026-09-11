@@ -18,6 +18,10 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
+		if let Some(output) = self.try_get_process_runner(id, &arg).await? {
+			return Ok(Some(output));
+		}
+
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -66,6 +70,66 @@ impl Session {
 		Ok(None)
 	}
 
+	async fn try_get_process_runner(
+		&self,
+		id: &tg::process::Id,
+		arg: &tg::process::get::Arg,
+	) -> tg::Result<Option<tg::process::get::Output>> {
+		let Some(runner) = self.try_get_process_runner_inner(id, arg.location.as_ref()) else {
+			return Ok(None);
+		};
+		if self
+			.authorize_process_runner(
+				id,
+				&arg.tokens,
+				tg::authorization::permission::process::Set::NODE,
+			)
+			.await?
+			.is_none()
+		{
+			return Ok(None);
+		}
+		let Some(data) = runner
+			.processes
+			.get(runner.index)
+			.map(|process| process.data())
+		else {
+			return Ok(None);
+		};
+		let mut output =
+			self.create_process_get_output(id, data, Some(runner.location.clone()), None);
+		output.tokens = arg.tokens.clone();
+		if let Some(token) = self.create_process_get_token(id)? {
+			output.tokens.set_local(token);
+		}
+
+		// Read index-only fields at the process's original location.
+		let metadata_future = async {
+			if !arg.metadata {
+				return Ok(None);
+			}
+			let arg = tg::process::metadata::Arg {
+				location: Some(runner.location_arg.clone()),
+				tokens: arg.tokens.clone(),
+			};
+			self.try_get_process_metadata(id, arg).await
+		};
+		let availability_future = async {
+			if !arg.availability {
+				return Ok(None);
+			}
+			let arg = tg::process::availability::Arg {
+				location: Some(runner.location_arg.clone()),
+				tokens: arg.tokens.clone(),
+			};
+			self.try_get_process_availability(id, arg).await
+		};
+		(output.metadata, output.availability) =
+			future::try_join(metadata_future, availability_future).await?;
+
+		Ok(Some(output))
+	}
+
 	pub(crate) async fn try_get_process_batch_local_or_regions(
 		&self,
 		processes: &[tg::Referent<tg::process::Id>],
@@ -99,35 +163,19 @@ impl Session {
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
-		let permissions = tg::authorization::permission::Set::Process(
-			tg::authorization::permission::process::Set::all(),
-		);
-		let authorize_future = async { self.authorize(resource, permissions).await }.boxed();
-		let get_future = self.try_get_process_local_inner(id, metadata).boxed();
-		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
-		let Some(permissions) = permissions else {
-			return Ok(None);
-		};
-		let node = tg::authorization::Permission::Process(
+		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);
-		if !permissions.contains(node) {
+		let authorize_future = async { self.authorize(resource, permission).await }.boxed();
+		let get_future = self.try_get_process_local_inner(id, metadata).boxed();
+		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
+		if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
 		}
 		let Some(mut output) = output else {
 			return Ok(None);
 		};
-		let created_at = self.server.clock.unix_timestamp()?;
-		let time_to_live =
-			i64::try_from(self.server.config.process.grant_time_to_live.as_secs())
-				.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
-		let expires_at = created_at
-			.checked_add(time_to_live)
-			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
-		let resource = tg::Id::from(id.clone());
-		if let Some(token) =
-			self.create_token(resource, permissions.iter().collect(), expires_at)?
-		{
+		if let Some(token) = self.create_process_get_token(id)? {
 			output.tokens.set_local(token);
 		}
 		if let Some(metadata) = output.metadata.take() {
@@ -143,6 +191,24 @@ impl Session {
 				.await?;
 		}
 		Ok(Some(output))
+	}
+
+	fn create_process_get_token(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<tg::authorization::Token>> {
+		let created_at = self.server.clock.unix_timestamp()?;
+		let time_to_live =
+			i64::try_from(self.server.config.process.grant_time_to_live.as_secs())
+				.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let expires_at = created_at
+			.checked_add(time_to_live)
+			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+		let resource = tg::Id::from(id.clone());
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		);
+		self.create_token(resource, vec![permission], expires_at)
 	}
 
 	pub(crate) async fn get_process_local(
@@ -227,20 +293,6 @@ impl Session {
 		id: &tg::process::Id,
 		metadata: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		if let Some(data) = self.server.runner.state().try_get_process(id)
-			&& !data.status.is_finished()
-		{
-			let metadata = if metadata {
-				self.try_get_process_from_index(id)
-					.await?
-					.map(|process| process.metadata)
-			} else {
-				None
-			};
-			let output = self.create_process_get_output(id, data, metadata);
-			return Ok(Some(output));
-		}
-
 		let index_future = self.try_get_process_from_index(id).boxed();
 		let control_future = self.get_process_from_control(id).boxed();
 		let output = match future::select(index_future, control_future).await {
@@ -248,13 +300,25 @@ impl Session {
 				let Some(indexed) = indexed? else {
 					return Ok(None);
 				};
+				// A remote process has no local control connection, but its indexed data can be read here.
 				if indexed
-					.data
+					.location
 					.as_ref()
-					.is_some_and(|data| data.status.is_finished())
+					.is_some_and(tg::Location::is_remote)
+					|| indexed
+						.data
+						.as_ref()
+						.is_some_and(|data| data.status.is_finished())
 				{
-					let data = indexed.data.unwrap();
-					self.create_process_get_output(id, data, metadata.then_some(indexed.metadata))
+					let Some(data) = indexed.data else {
+						return Ok(None);
+					};
+					self.create_process_get_output(
+						id,
+						data,
+						indexed.location,
+						metadata.then_some(indexed.metadata),
+					)
 				} else {
 					let Ok(Ok(data)) =
 						tokio::time::timeout(std::time::Duration::from_secs(1), control_future)
@@ -266,6 +330,7 @@ impl Session {
 						let output = self.create_process_get_output(
 							id,
 							data,
+							indexed.location,
 							metadata.then_some(indexed.metadata),
 						);
 						return Ok(Some(output));
@@ -280,12 +345,14 @@ impl Session {
 						self.create_process_get_output(
 							id,
 							data,
+							indexed.location,
 							metadata.then_some(indexed.metadata),
 						)
 					} else {
 						self.create_process_get_output(
 							id,
 							data,
+							indexed.location,
 							metadata.then_some(indexed.metadata),
 						)
 					}
@@ -302,6 +369,7 @@ impl Session {
 					let output = self.create_process_get_output(
 						id,
 						data,
+						indexed.location,
 						metadata.then_some(indexed.metadata),
 					);
 					return Ok(Some(output));
@@ -313,11 +381,16 @@ impl Session {
 					let data = indexed
 						.data
 						.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-					self.create_process_get_output(id, data, metadata.then_some(indexed.metadata))
+					self.create_process_get_output(
+						id,
+						data,
+						indexed.location,
+						metadata.then_some(indexed.metadata),
+					)
 				} else {
 					let indexed = if metadata { index_future.await? } else { None };
 					let metadata = indexed.map(|process| process.metadata);
-					self.create_process_get_output(id, data, metadata)
+					self.create_process_get_output(id, data, None, metadata)
 				}
 			},
 		};
@@ -383,17 +456,15 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		data: tg::process::Data,
+		location: Option<tg::Location>,
 		metadata: Option<tg::process::Metadata>,
 	) -> tg::process::get::Output {
 		let data = data.without_location_and_tokens();
-		let location = self.server.config().region.clone().map_or_else(
-			|| tg::Location::Local(tg::location::Local::default()),
-			|region| {
-				tg::Location::Local(tg::location::Local {
-					region: Some(region),
-				})
-			},
-		);
+		let location = location.unwrap_or_else(|| {
+			tg::Location::Local(tg::location::Local {
+				region: self.server.config.region.clone(),
+			})
+		});
 		tg::process::get::Output {
 			availability: None,
 			data,
@@ -553,7 +624,7 @@ impl Session {
 			children
 		} else {
 			let arg = tg::process::children::get::Arg {
-				location,
+				location: location.clone(),
 				tokens,
 				..Default::default()
 			};
@@ -570,7 +641,13 @@ impl Session {
 			data,
 			location: None,
 		};
-		Box::pin(self.put_process(id, arg)).await?;
+		let options = crate::process::put::Options {
+			defer_index: false,
+			enqueue_log_compaction: false,
+			location: location.and_then(|location| location.to_location()),
+			store_data: true,
+		};
+		self.put_process_local(id, arg, options).boxed().await?;
 
 		Ok(())
 	}
@@ -646,13 +723,14 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Get the arg.
-		let arg = request
+		let arg: tg::process::get::Arg = request
 			.query_params()
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
 			.unwrap_or_default();
 
 		// Get the process.
+		let location = arg.location.clone();
 		let Some(mut output) = self.try_get_process(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
@@ -662,7 +740,7 @@ impl Session {
 		};
 		if output.data.status.is_finished() && output.data.children.is_none() {
 			let arg = tg::process::children::get::Arg {
-				location: output.location.clone().map(Into::into),
+				location,
 				tokens: output.tokens.clone(),
 				..Default::default()
 			};
@@ -753,7 +831,7 @@ impl Server {
 					availability: None,
 					data,
 					id: id.clone(),
-					location: Some(location.clone()),
+					location: process.location.or_else(|| Some(location.clone())),
 					metadata,
 					tokens: tg::authorization::Tokens::default(),
 				})

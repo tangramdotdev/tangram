@@ -23,6 +23,109 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
+		if let Some(stream) = self.try_get_process_status_stream_runner(id, &arg).await? {
+			return Ok(Some(stream));
+		}
+		self.try_get_process_status_stream_inner(id, arg).await
+	}
+
+	async fn try_get_process_status_stream_runner(
+		&self,
+		id: &tg::process::Id,
+		arg: &tg::process::status::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
+		let Some(runner) = self.try_get_process_runner_inner(id, arg.location.as_ref()) else {
+			return Ok(None);
+		};
+		if self
+			.authorize_process_runner(
+				id,
+				&arg.tokens,
+				tg::authorization::permission::process::Set::NODE,
+			)
+			.await?
+			.is_none()
+		{
+			return Ok(None);
+		}
+		let (sender, receiver) = tokio::sync::mpsc::channel(1);
+		let session = self.clone();
+		let id = id.clone();
+		let arg_ = arg.clone();
+		let task = Task::spawn(|_| async move {
+			let result = session
+				.try_get_process_status_stream_runner_task(&id, arg_, runner, sender.clone())
+				.await;
+			if let Err(error) = result {
+				sender.send(Err(error)).await.ok();
+			}
+		});
+		let stream = ReceiverStream::new(receiver).attach(task).boxed();
+		let stream = match arg.timeout.filter(|timeout| !timeout.is_zero()) {
+			Some(timeout) => stream.take_until(tokio::time::sleep(timeout)).boxed(),
+			None => stream,
+		};
+		let stream = stream.with_stopper(self.context.stopper.clone());
+		Ok(Some(stream))
+	}
+
+	async fn try_get_process_status_stream_runner_task(
+		&self,
+		id: &tg::process::Id,
+		mut arg: tg::process::status::Arg,
+		mut runner: crate::process::Runner,
+		sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::status::Event>>,
+	) -> tg::Result<()> {
+		let mut previous = None;
+		loop {
+			let status = runner
+				.processes
+				.get(runner.index)
+				.map(|process| process.data.status);
+			let Some(status) = status else {
+				// Resume at the owning location when the runner releases its state.
+				arg.location = Some(runner.location_arg);
+				let mut stream = self
+					.try_get_process_status_stream_inner(id, arg)
+					.await?
+					.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+				while let Some(event) = stream.next().await {
+					let event = event?;
+					if let tg::process::status::Event::Status(status) = &event {
+						if previous == Some(*status) {
+							continue;
+						}
+						previous = Some(*status);
+					}
+					if sender.send(Ok(event)).await.is_err() {
+						break;
+					}
+				}
+				return Ok(());
+			};
+			if previous != Some(status) {
+				if sender
+					.send(Ok(tg::process::status::Event::Status(status)))
+					.await
+					.is_err()
+				{
+					return Ok(());
+				}
+				previous = Some(status);
+			}
+			if status.is_finished() || arg.timeout == Some(Duration::ZERO) {
+				sender.send(Ok(tg::process::status::Event::End)).await.ok();
+				return Ok(());
+			}
+			runner.changed.changed().await.ok();
+		}
+	}
+
+	async fn try_get_process_status_stream_inner(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await

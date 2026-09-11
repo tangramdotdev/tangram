@@ -70,6 +70,11 @@ impl Index {
 			data.children = None;
 		}
 
+		let location = arg.location.clone().or_else(|| {
+			existing
+				.as_ref()
+				.and_then(|existing| existing.location.clone())
+		});
 		let sandbox = arg.sandbox.clone().or_else(|| {
 			existing
 				.as_ref()
@@ -82,7 +87,8 @@ impl Index {
 		let changed = parent_changed
 			|| arg.data.is_some()
 			|| existing.as_ref().is_none_or(|existing| {
-				existing.metadata != metadata
+				existing.location != location
+					|| existing.metadata != metadata
 					|| existing.sandbox != sandbox
 					|| existing.set != set
 					|| existing.storage != storage
@@ -93,6 +99,7 @@ impl Index {
 
 		let value = crate::process::Process {
 			data: data.clone(),
+			location,
 			metadata,
 			reference_count: 0,
 			sandbox: sandbox.clone(),

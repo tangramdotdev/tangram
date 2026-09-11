@@ -7,6 +7,7 @@ pub struct Sandbox {
 	pub account: Option<crate::usage::Account>,
 	pub created_at: i64,
 	pub data: Option<tg::sandbox::get::Output>,
+	pub location: Option<tg::Location>,
 	pub reference_count: u64,
 	pub runner: Option<tg::runner::Id>,
 	pub touched_at: i64,

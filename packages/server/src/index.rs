@@ -803,14 +803,34 @@ impl Server {
 						&& arg.subject.is_process()
 			)
 		});
+		let finished_process = arg.items.iter().any(|item| {
+			matches!(
+				item,
+				index::batch::Item::PutProcess(arg)
+					if arg.output.is_some()
+			)
+		});
+		let log_compaction = arg
+			.items
+			.iter()
+			.any(|item| matches!(item, index::batch::Item::EnqueueLogCompaction(_)));
 		self.index_tasks
 			.spawn({
 				let server = self.clone();
 				|_| async move {
-					crate::checkpoint!(server, "index.batch", command_object_grant).await;
+					crate::checkpoint!(
+						server,
+						"index.batch",
+						command_object_grant,
+						finished_process
+					)
+					.await;
 					let result = server.index.batch(arg).await;
 					if let Err(error) = &result {
 						tracing::error!(error = %error.trace(), "failed to index a batch");
+					}
+					if result.is_ok() && log_compaction {
+						server.spawn_publish_log_compaction_notification_task();
 					}
 					crate::checkpoint!(server, "index.batch.finished", command_object_grant).await;
 

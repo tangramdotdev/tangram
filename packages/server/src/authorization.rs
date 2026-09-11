@@ -141,11 +141,14 @@ impl Session {
 				tg::Principal::Sandbox(sandbox),
 			) = (&resource, permissions, &self.context.principal)
 				&& let Ok(process) = tg::process::Id::try_from(id.clone())
-				&& let Some(output) = self
-					.try_get_process_local_inner(&process, false)
-					.boxed()
-					.await? && output.data.sandbox == *sandbox
-			{
+				&& match self.server.runner.state().try_get_process_sandbox(&process) {
+					Some(process_sandbox) => process_sandbox == *sandbox,
+					None => self
+						.try_get_process_local_inner(&process, false)
+						.boxed()
+						.await?
+						.is_some_and(|output| output.data.sandbox == *sandbox),
+				} {
 				outputs.push(Some(permissions));
 				continue;
 			}

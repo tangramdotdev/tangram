@@ -94,8 +94,12 @@ impl Session {
 		});
 		if let Some(cache) = cache {
 			let output = output.as_ref().unwrap();
-			self.spawn_process_cancel_candidate(output.id.clone(), output.lease.clone())
-				.await?;
+			self.spawn_process_cancel_candidate(
+				output.id.clone(),
+				output.lease.clone(),
+				arg.location.clone(),
+			)
+			.await?;
 			return Ok(Some(cache.into_output()));
 		}
 		let Some(output) = output else {
@@ -147,6 +151,7 @@ impl Session {
 						self.spawn_process_cancel_candidate(
 							output.id.clone(),
 							output.lease.clone(),
+							arg.location.clone(),
 						)
 						.await?;
 					}
@@ -314,6 +319,7 @@ impl Session {
 		&self,
 		id: tg::process::Id,
 		lease: Option<String>,
+		location: Option<tg::location::Arg>,
 	) -> tg::Result<()> {
 		crate::checkpoint!(
 			self.server,
@@ -322,11 +328,9 @@ impl Session {
 		)
 		.await;
 		let lease = lease.ok_or_else(|| tg::error!("missing the process lease"))?;
-		let arg = tg::process::cancel::Arg {
-			lease,
-			location: None,
-		};
-		self.try_cancel_process_local(&id, arg)
+		let arg = tg::process::cancel::Arg { lease, location };
+		// The candidate may belong to a remote even when it ran here.
+		self.try_cancel_process(&id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, process = %id, "failed to cancel the process"))?
 			.ok_or_else(|| tg::error!(process = %id, "failed to find the process"))?;

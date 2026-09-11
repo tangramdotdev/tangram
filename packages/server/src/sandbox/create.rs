@@ -1,5 +1,6 @@
 use {
 	crate::{Server, Session},
+	futures::FutureExt as _,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
@@ -104,8 +105,13 @@ impl Session {
 		}
 
 		// Capture the initial sandbox state after its control connection is available.
+		let arg = tg::sandbox::get::Arg {
+			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+			..Default::default()
+		};
 		let get_output = self
-			.try_get_sandbox_local(&id)
+			.try_get_sandbox(&id, arg)
+			.boxed()
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to get the created sandbox"))?;
 		let output = tg::sandbox::create::Output {

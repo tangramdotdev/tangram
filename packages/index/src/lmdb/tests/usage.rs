@@ -567,6 +567,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 			None,
 		)),
 		id: sandbox.clone(),
+		location: None,
 		runner: None,
 		touched_at: 1,
 	};
@@ -589,6 +590,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 			}),
 		)),
 		id: sandbox,
+		location: None,
 		runner: None,
 		touched_at: 2,
 	};
@@ -629,6 +631,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 			None,
 		)),
 		id: sandbox.clone(),
+		location: None,
 		runner: None,
 		touched_at: 1,
 	};
@@ -651,6 +654,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 			}),
 		)),
 		id: sandbox,
+		location: None,
 		runner: None,
 		touched_at: 2,
 	};

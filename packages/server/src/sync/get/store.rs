@@ -296,6 +296,7 @@ impl Session {
 				data: Some(data.clone()),
 				error: None,
 				id: id.clone(),
+				location: None,
 				log: None,
 				metadata: metadata.clone().unwrap_or_default(),
 				options: tg::referent::Options::default(),

@@ -199,6 +199,7 @@ mod tests {
 					created_at: 1,
 					data: Some(data),
 					id: sandbox,
+					location: None,
 					runner: None,
 					touched_at: 2,
 				}),

@@ -80,6 +80,7 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 					data: None,
 					error: None,
 					id: process.clone(),
+					location: None,
 					log: None,
 					metadata: tg::process::Metadata::default(),
 					options: tg::referent::Options::default(),

@@ -305,6 +305,9 @@ impl Session {
 		crate::checkpoint!(self.server, "sandbox.control.connect", sandbox = %id).await;
 
 		if let Some(data) = data {
+			let location = tg::Location::Local(tg::location::Local {
+				region: self.server.config.region.clone(),
+			});
 			let index_arg = tangram_index::batch::Arg {
 				items: vec![tangram_index::batch::Item::PutSandbox(
 					tangram_index::sandbox::put::Arg {
@@ -312,6 +315,7 @@ impl Session {
 						created_at,
 						data: Some(data),
 						id: id.clone(),
+						location: Some(location),
 						runner,
 						touched_at: created_at,
 					},

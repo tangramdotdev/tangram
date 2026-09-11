@@ -5,6 +5,9 @@ use {
 	std::fmt::{Display, Result},
 };
 
+#[cfg(test)]
+mod tests;
+
 pub struct Printer<W> {
 	depth: u64,
 	first: bool,
@@ -422,7 +425,7 @@ where
 						if let Some(node) = dependency.0.node() {
 							s.map_entry("node", |s| s.graph_edge_object(node))?;
 						}
-						if dependency.0.options != tg::referent::Options::default() {
+						if Self::has_referent_options(&dependency.0.options) {
 							s.map_entry("options", |s| s.referent_options(&dependency.0.options))?;
 						}
 						s.finish_map()?;
@@ -780,7 +783,7 @@ where
 				tg::module::Source::Edge(edge) => s.graph_edge_object(edge),
 				tg::module::Source::Path(path) => s.string(path.to_string_lossy().as_ref()),
 			})?;
-			if value.referent.options != tg::referent::Options::default() {
+			if Self::has_referent_options(&value.referent.options) {
 				s.map_entry("options", |s| s.referent_options(&value.referent.options))?;
 			}
 			s.finish_map()?;
@@ -794,6 +797,16 @@ where
 		self.call_start("module")?;
 		self.module(value)?;
 		self.call_finish()
+	}
+
+	fn has_referent_options(options: &tg::referent::Options) -> bool {
+		// Tokens do not contribute to the printed options.
+		options.artifact.is_some()
+			|| options.id.is_some()
+			|| options.location.is_some()
+			|| options.name.is_some()
+			|| options.path.is_some()
+			|| options.tag.is_some()
 	}
 
 	pub fn referent_options(&mut self, options: &tg::referent::Options) -> Result {

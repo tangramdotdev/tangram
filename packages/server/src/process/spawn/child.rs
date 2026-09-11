@@ -20,6 +20,7 @@ impl Session {
 		let parent = arg.parent.clone();
 		let sandbox = arg.sandbox.cloned();
 		let mut options = arg.options.clone();
+		options.location = arg.location.cloned();
 		options.tokens = arg.tokens.clone();
 		let data = tg::process::data::Child {
 			cached: arg.cached,
@@ -65,7 +66,9 @@ impl Session {
 			location: arg.location.cloned().map(Into::into),
 		};
 		parent_process.children.insert(child.clone(), child_state);
+		parent_process.changed.send_replace(());
 		let parent_data = parent_process.data.clone();
+		let parent_location = parent_sandbox.location.clone();
 		let control = parent_process.control.clone();
 		drop(parent_process);
 		drop(parent_sandbox);
@@ -86,7 +89,7 @@ impl Session {
 			&data,
 			&command,
 			sandbox.as_ref(),
-			Some(parent_data),
+			Some((parent_data, parent_location)),
 			arg.wait,
 		)
 		.await?;
@@ -100,7 +103,7 @@ impl Session {
 		child: &tg::process::data::Child,
 		command: &tg::command::Id,
 		sandbox: Option<&tg::sandbox::Id>,
-		parent_data: Option<tg::process::Data>,
+		parent_data: Option<(tg::process::Data, tg::Location)>,
 		wait: Option<&tg::process::wait::Output>,
 	) -> tg::Result<()> {
 		let (error, output) = if child.cached {
@@ -116,7 +119,7 @@ impl Session {
 		};
 		let now = self.server.clock.unix_timestamp()?;
 		let child_id = &child.process.node;
-		let parent_arg = parent_data.map(|parent_data| {
+		let parent_arg = parent_data.map(|(parent_data, location)| {
 			let parent_data = parent_data.without_location_and_tokens();
 			tangram_index::process::put::Arg {
 				cached: false,
@@ -125,6 +128,7 @@ impl Session {
 				data: Some(parent_data.clone()),
 				error: None,
 				id: parent.clone(),
+				location: Some(location),
 				log: None,
 				metadata: tg::process::Metadata::default(),
 				options: tg::referent::Options::default(),
@@ -143,6 +147,7 @@ impl Session {
 			data: None,
 			error,
 			id: child_id.clone(),
+			location: child.process.options.location.clone(),
 			log: None,
 			metadata: tg::process::Metadata::default(),
 			options: child.process.options.clone(),

@@ -51,6 +51,14 @@ impl Session {
 			return Ok(None);
 		};
 
+		if output
+			.location
+			.as_ref()
+			.is_some_and(tg::Location::is_remote)
+		{
+			return Ok(None);
+		}
+
 		// Check if the process has a tty.
 		if output.data.tty.is_none() {
 			return Err(tg::error!(%id, "the process does not have a tty associated with it"));

@@ -10,6 +10,9 @@ pub struct Arg {
 	pub data: Option<tg::sandbox::get::Output>,
 	#[tangram_serialize(id = 3)]
 	pub id: tg::sandbox::Id,
+	/// The sandbox location, or `None` to preserve the indexed location.
+	#[tangram_serialize(id = 6)]
+	pub location: Option<tg::Location>,
 	#[tangram_serialize(id = 4)]
 	pub runner: Option<tg::runner::Id>,
 	#[tangram_serialize(id = 5)]

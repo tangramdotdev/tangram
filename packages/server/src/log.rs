@@ -181,6 +181,7 @@ impl Session {
 						data: Some(data.clone()),
 						error: None,
 						id: process.clone(),
+						location: None,
 						log: Some(Some(blob.clone().into())),
 						metadata: indexed.metadata,
 						options: tg::referent::Options::default(),

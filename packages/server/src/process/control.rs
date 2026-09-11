@@ -292,6 +292,9 @@ impl Session {
 				.usage_account(&tg::Principal::Sandbox(data.sandbox.clone()))
 				.await?;
 			let touched_at = self.server.clock.unix_timestamp()?;
+			let location = tg::Location::Local(tg::location::Local {
+				region: self.server.config.region.clone(),
+			});
 			let mut items = vec![tangram_index::batch::Item::PutProcess(
 				tangram_index::process::put::Arg {
 					cached: false,
@@ -300,6 +303,7 @@ impl Session {
 					data: Some(data.clone()),
 					error: None,
 					id: id.clone(),
+					location: Some(location),
 					log: None,
 					metadata: tg::process::Metadata::default(),
 					options,

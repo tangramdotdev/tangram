@@ -7,7 +7,14 @@ impl Session {
 		arg: tg::process::control::FinishClientRequestArg,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
 		crate::checkpoint!(self.server, "process.control.finish", id = %id).await;
-		self.put_finished_process_local(id, arg.data).await?;
+		let options = crate::process::put::Options {
+			defer_index: false,
+			enqueue_log_compaction: true,
+			location: None,
+			store_data: true,
+		};
+		self.put_finished_process_local(id, arg.data, options)
+			.await?;
 		self.spawn_process_finish_tasks(id);
 
 		Ok(tg::process::control::FinishServerResponseOutput {})

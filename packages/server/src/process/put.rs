@@ -21,6 +21,13 @@ pub(super) enum ObjectGrants {
 	Discover(tangram_index::process::object::grant::Arg),
 }
 
+pub(crate) struct Options {
+	pub defer_index: bool,
+	pub enqueue_log_compaction: bool,
+	pub location: Option<tg::Location>,
+	pub store_data: bool,
+}
+
 impl Session {
 	pub(crate) async fn put_process(
 		&self,
@@ -31,7 +38,13 @@ impl Session {
 
 		let (mut output, trusted) = match location.clone() {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				(self.put_process_local(id, arg, false).await?, false)
+				let options = Options {
+					defer_index: false,
+					enqueue_log_compaction: false,
+					location: None,
+					store_data: true,
+				};
+				(self.put_process_local(id, arg, options).await?, false)
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -50,17 +63,12 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::put::Arg,
-		enqueue_log_compaction: bool,
+		options: Options,
 	) -> tg::Result<tg::process::put::Output> {
 		Self::validate_process_data(&arg.data)?;
 		let authorization = self.authorize_process_data(&arg.data).await?;
 		let output = self
-			.put_process_local_inner(
-				id,
-				arg,
-				ObjectGrants::Authorized(authorization),
-				enqueue_log_compaction,
-			)
+			.put_process_local_inner(id, arg, ObjectGrants::Authorized(authorization), options)
 			.await?;
 
 		Ok(output)
@@ -70,6 +78,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		data: tg::process::Data,
+		options: Options,
 	) -> tg::Result<()> {
 		Self::validate_process_data(&data)?;
 		let mut roots = vec![data.command.clone().map(tg::object::Id::from)];
@@ -104,7 +113,7 @@ impl Session {
 			id,
 			entry,
 			ObjectGrants::Discover(process_object_grant_arg),
-			true,
+			options,
 		)
 		.await
 		.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
@@ -173,8 +182,14 @@ impl Session {
 		id: &tg::process::Id,
 		mut arg: tg::process::put::Arg,
 		object_grants: ObjectGrants,
-		enqueue_log_compaction: bool,
+		options: Options,
 	) -> tg::Result<tg::process::put::Output> {
+		let Options {
+			defer_index,
+			enqueue_log_compaction,
+			location,
+			store_data,
+		} = options;
 		let now = self.server.clock.unix_timestamp()?;
 		let token_data = arg.data.clone();
 
@@ -252,13 +267,15 @@ impl Session {
 				vec![tangram_index::batch::Item::PutProcessObjectGrants(arg)]
 			},
 		};
+		let data = store_data.then(|| arg.data.clone());
 		let put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
 			children,
 			command: arg.data.command.node.clone().into(),
-			data: Some(arg.data.clone()),
+			data,
 			error: Some(error),
 			id: id.clone(),
+			location,
 			log,
 			metadata: tg::process::Metadata::default(),
 			options: tg::referent::Options::default(),
@@ -298,30 +315,34 @@ impl Session {
 		let account = self.usage_account(&self.context.principal).await?;
 
 		// Put the process in the index.
-		self.server
-			.index
-			.batch(tangram_index::batch::Arg {
-				items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
-					.chain(put_object_grants)
-					.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
-					.chain(
-						enqueue_log_compaction
-							.then(|| tangram_index::batch::Item::EnqueueLogCompaction(id.clone())),
+		let arg = tangram_index::batch::Arg {
+			items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
+				.chain(put_object_grants)
+				.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
+				.chain(
+					enqueue_log_compaction
+						.then(|| tangram_index::batch::Item::EnqueueLogCompaction(id.clone())),
+				)
+				.chain(account.map(|account| {
+					tangram_index::batch::Item::PutAccountProcess(
+						tangram_index::usage::storage::put::ProcessArg {
+							account,
+							process: id.clone(),
+							touched_at: now,
+						},
 					)
-					.chain(account.map(|account| {
-						tangram_index::batch::Item::PutAccountProcess(
-							tangram_index::usage::storage::put::ProcessArg {
-								account,
-								process: id.clone(),
-								touched_at: now,
-							},
-						)
-					}))
-					.collect(),
-			})
-			.await
+				}))
+				.collect(),
+		};
+		let defer_index = defer_index && self.server.config.advanced.single_process;
+		let result = if defer_index {
+			self.server.index_batch(arg).await
+		} else {
+			self.server.index.batch(arg).await
+		};
+		result
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;
-		if enqueue_log_compaction {
+		if enqueue_log_compaction && !defer_index {
 			self.server.spawn_publish_log_compaction_notification_task();
 		}
 		let permission = self.process_permission_for_data(&token_data);

@@ -64,6 +64,20 @@ impl Session {
 			.map_err(|error| {
 				tg::error!(!error, "failed to query the index for cached processes")
 			})?;
+		// A running remote candidate cannot acquire a lease through local process control.
+		let candidates = candidates
+			.into_iter()
+			.filter(|(_, process)| {
+				!process
+					.location
+					.as_ref()
+					.is_some_and(tg::Location::is_remote)
+					|| process
+						.data
+						.as_ref()
+						.is_some_and(|data| data.status.is_finished())
+			})
+			.collect::<Vec<_>>();
 		let mut cycle = None;
 
 		// Try the normal candidates.
@@ -559,8 +573,17 @@ impl Session {
 			data: data.clone(),
 			location: None,
 		};
+		let location = tg::Location::Local(tg::location::Local {
+			region: self.server.config.region.clone(),
+		});
+		let options = crate::process::put::Options {
+			defer_index: false,
+			enqueue_log_compaction: false,
+			location: Some(location),
+			store_data: true,
+		};
 		let output = self
-			.put_process_local(&id, entry, false)
+			.put_process_local(&id, entry, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to store the process"))?;
 		Ok(super::local::Output {

@@ -13,6 +13,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::availability::Arg,
 	) -> tg::Result<Option<tg::process::Availability>> {
+		crate::checkpoint!(self.server, "process.availability", id = %id).await;
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
