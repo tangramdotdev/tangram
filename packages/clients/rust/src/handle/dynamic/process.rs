@@ -5,6 +5,15 @@ use {
 };
 
 impl tg::handle::Process for Handle {
+	fn connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+	> + Send {
+		self.0.connect_process(input)
+	}
+
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -59,7 +68,18 @@ impl tg::handle::Process for Handle {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> impl Future<Output = tg::Result<Option<tg::process::cancel::Output>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_cancel_process(id, arg)) }
+		async move {
+			if let Some(connection) = self.connection(id) {
+				let output = connection
+					.request(tg::process::connect::ClientRequestArg::Cancel(arg.into()))
+					.await?;
+				let tg::process::connect::ServerResponseOutput::Cancel(output) = output else {
+					return Err(tg::error!("expected a cancel response"));
+				};
+				return Ok(Some(output.0));
+			}
+			self.0.try_cancel_process(id, arg).await
+		}
 	}
 
 	fn try_get_process_control_stream(
@@ -86,7 +106,18 @@ impl tg::handle::Process for Handle {
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
-		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_signal_process(id, arg)) }
+		async move {
+			if let Some(connection) = self.connection(id) {
+				let output = connection
+					.request(tg::process::connect::ClientRequestArg::Signal(arg.into()))
+					.await?;
+				if !matches!(output, tg::process::connect::ServerResponseOutput::Signal) {
+					return Err(tg::error!("expected a signal response"));
+				}
+				return Ok(Some(()));
+			}
+			self.0.try_signal_process(id, arg).await
+		}
 	}
 
 	fn try_get_process_status_stream(
@@ -128,8 +159,17 @@ impl tg::handle::Process for Handle {
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> {
-		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_set_process_tty_size(id, arg))
+		async move {
+			if let Some(connection) = self.connection(id) {
+				let output = connection
+					.request(tg::process::connect::ClientRequestArg::Tty(arg.into()))
+					.await?;
+				if !matches!(output, tg::process::connect::ServerResponseOutput::Tty) {
+					return Err(tg::error!("expected a tty response"));
+				}
+				return Ok(Some(()));
+			}
+			self.0.try_set_process_tty_size(id, arg).await
 		}
 	}
 
@@ -145,10 +185,11 @@ impl tg::handle::Process for Handle {
 			>,
 		>,
 	> {
-		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_read_process_stdio(id, arg, input),
-			)
+		async move {
+			if let Some(connection) = self.connection(id) {
+				return connection.read(arg, input).await.map(Some);
+			}
+			self.0.try_read_process_stdio(id, arg, input).await
 		}
 	}
 
@@ -166,10 +207,11 @@ impl tg::handle::Process for Handle {
 			>,
 		>,
 	> {
-		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxStream<_>>>>>(
-				self.0.try_write_process_stdio(id, arg, input),
-			)
+		async move {
+			if let Some(connection) = self.connection(id) {
+				return connection.write(arg, input).await.map(Some);
+			}
+			self.0.try_write_process_stdio(id, arg, input).await
 		}
 	}
 
@@ -192,10 +234,14 @@ impl tg::handle::Process for Handle {
 			>,
 		>,
 	> {
-		unsafe {
-			std::mem::transmute::<_, BoxFuture<'_, tg::Result<Option<BoxFuture<_>>>>>(
-				self.0.try_wait_process_future(id, arg),
-			)
+		async move {
+			if let Some(connection) = self.connection(id) {
+				let connection = connection.clone();
+				return Ok(Some(futures::FutureExt::boxed(async move {
+					connection.wait().await.map(Some)
+				})));
+			}
+			self.0.try_wait_process_future(id, arg).await
 		}
 	}
 }

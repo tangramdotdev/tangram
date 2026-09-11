@@ -172,8 +172,15 @@ impl Writer {
 	where
 		H: tg::Handle,
 	{
+		let process = state
+			.process
+			.as_ref()
+			.and_then(Weak::upgrade)
+			.ok_or_else(|| tg::error!("the process is not available"))?;
+		let handle_process = crate::process::handle::Process::<tg::Value>(process, PhantomData);
+		let handle = handle_process.handle_with_handle(handle);
 		let (location, process, tokens) =
-			ensure_process_with_handle(state.process.clone(), handle).await?;
+			ensure_process_with_handle(state.process.clone(), &handle).await?;
 		let arg = tg::process::stdio::write::Arg {
 			location,
 			streams: vec![state.stream],
@@ -242,7 +249,13 @@ where
 		.and_then(|process| process.upgrade())
 		.ok_or_else(|| tg::error!("the process is not available"))?;
 	let handle_process = crate::process::handle::Process::<tg::Value>(process.clone(), PhantomData);
-	handle_process.ensure_location_with_handle(handle).await?;
+	if process
+		.connection
+		.as_ref()
+		.is_none_or(tg::process::connect::Connection::detached)
+	{
+		handle_process.ensure_location_with_handle(handle).await?;
+	}
 	let location = process.location.read().unwrap().clone();
 	let tokens = process.tokens.read().unwrap().clone();
 	let id = process

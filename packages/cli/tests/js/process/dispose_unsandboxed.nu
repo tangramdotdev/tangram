@@ -16,7 +16,7 @@ let path = artifact {
 					.stderr("null")
 					.stdin("null")
 					.stdout("null");
-				process.detach();
+				await process.detach();
 				detached = process;
 			}
 			tg.assert(detached !== undefined);

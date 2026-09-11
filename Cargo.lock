@@ -8503,6 +8503,8 @@ dependencies = [
  "bytes",
  "num",
  "num-derive 0.5.1",
+ "serde",
+ "serde_json",
  "tangram_serialize_macro",
 ]
 

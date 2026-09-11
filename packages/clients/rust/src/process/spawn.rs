@@ -118,16 +118,25 @@ pub(super) struct PrepareUnsandboxedCommandOutput {
 	pub temp: tangram_util::fs::Temp,
 }
 
-pub async fn spawn(arg: tg::process::Arg) -> tg::Result<tg::Process> {
-	let handle = tg::handle()?;
-	spawn_with_handle(handle, arg).await
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub mode: tg::process::connect::Mode,
 }
 
-pub async fn spawn_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Process>
+pub async fn spawn(arg: tg::process::Arg, options: Options) -> tg::Result<tg::Process> {
+	let handle = tg::handle()?;
+	spawn_with_handle(handle, arg, options).await
+}
+
+pub async fn spawn_with_handle<H>(
+	handle: &H,
+	arg: tg::process::Arg,
+	options: Options,
+) -> tg::Result<tg::Process>
 where
 	H: tg::Handle,
 {
-	tg::Process::<tg::Value>::spawn_with_handle(handle, arg).await
+	tg::Process::<tg::Value>::spawn_with_handle(handle, arg, options).await
 }
 
 pub(crate) async fn spawn_arg_with_handle<H>(
@@ -289,22 +298,23 @@ where
 }
 
 impl<O: 'static> tg::Process<O> {
-	pub async fn spawn(arg: tg::process::Arg) -> tg::Result<tg::Process<O>>
+	pub async fn spawn(arg: tg::process::Arg, options: Options) -> tg::Result<tg::Process<O>>
 	where
 		O: 'static,
 	{
 		let handle = tg::handle()?;
-		Self::spawn_with_handle(handle, arg).await
+		Self::spawn_with_handle(handle, arg, options).await
 	}
 
 	pub async fn spawn_with_handle<H>(
 		handle: &H,
 		arg: tg::process::Arg,
+		options: Options,
 	) -> tg::Result<tg::Process<O>>
 	where
 		H: tg::Handle,
 	{
-		Self::spawn_with_progress_with_handle(handle, arg, |stream| async move {
+		Self::spawn_with_progress_with_handle(handle, arg, options, |stream| async move {
 			stream
 				.try_last()
 				.await?
@@ -316,6 +326,7 @@ impl<O: 'static> tg::Process<O> {
 
 	pub async fn spawn_with_progress<F, Fut>(
 		arg: tg::process::Arg,
+		options: Options,
 		progress: F,
 	) -> tg::Result<tg::Process<O>>
 	where
@@ -325,12 +336,13 @@ impl<O: 'static> tg::Process<O> {
 		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
 	{
 		let handle = tg::handle()?;
-		Self::spawn_with_progress_with_handle(handle, arg, progress).await
+		Self::spawn_with_progress_with_handle(handle, arg, options, progress).await
 	}
 
 	pub async fn spawn_with_progress_with_handle<H, F, Fut>(
 		handle: &H,
 		arg: tg::process::Arg,
+		options: Options,
 		progress: F,
 	) -> tg::Result<tg::Process<O>>
 	where
@@ -340,13 +352,13 @@ impl<O: 'static> tg::Process<O> {
 		) -> Fut,
 		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
 	{
-		let arg = spawn_arg_with_handle(handle, arg).await?;
-		Self::spawn_inner_with_handle(handle, arg, progress).await
+		Self::connect_spawn_with_progress_with_handle(handle, arg, options.mode, progress).await
 	}
 
-	async fn spawn_inner_with_handle<H, F, Fut>(
+	pub(super) async fn spawn_inner_with_handle<H, F, Fut>(
 		handle: &H,
 		mut arg: tg::process::spawn::Arg,
+		options: Options,
 		progress: F,
 	) -> tg::Result<tg::Process<O>>
 	where
@@ -486,8 +498,49 @@ impl<O: 'static> tg::Process<O> {
 				},
 			}
 		}
-		let stream = handle.spawn_process(arg).await?.boxed();
+		let mut reads = BTreeMap::new();
+		if options.mode == tg::process::connect::Mode::Run {
+			let streams = [
+				stdout.as_ref().map(|_| tg::process::stdio::Stream::Stdout),
+				stderr.as_ref().map(|_| tg::process::stdio::Stream::Stderr),
+			]
+			.into_iter()
+			.flatten()
+			.collect::<Vec<_>>();
+			if !streams.is_empty() {
+				reads.insert(
+					1,
+					tg::process::stdio::read::Arg {
+						streams,
+						..Default::default()
+					},
+				);
+			}
+			for (provide, stream) in [
+				(provide_stdout, tg::process::stdio::Stream::Stdout),
+				(provide_stderr, tg::process::stdio::Stream::Stderr),
+			] {
+				if provide {
+					reads.insert(
+						reads.len() as u64 + 1,
+						tg::process::stdio::read::Arg {
+							streams: vec![stream],
+							..Default::default()
+						},
+					);
+				}
+			}
+		}
+		let arg = tg::process::connect::Arg {
+			reads,
+			target: tg::process::connect::Target::Spawn {
+				arg: Box::new(arg).into(),
+				mode: options.mode,
+			},
+		};
+		let (connection, stream) = tg::process::connect::Connection::open(&handle, arg).await?;
 		let output = progress(stream).await?;
+		let connection = (options.mode == tg::process::connect::Mode::Run).then_some(connection);
 		let wait = output
 			.wait
 			.map(tg::process::Wait::try_from_data)
@@ -499,8 +552,16 @@ impl<O: 'static> tg::Process<O> {
 			.cloned()
 			.ok_or_else(|| tg::error!("expected a sandboxed process id"))?;
 		let location = output.location.clone();
+		let stdio_handle = match &connection {
+			Some(connection) => tg::handle::dynamic::Handle::with_connection(
+				handle.clone(),
+				id.clone(),
+				connection.clone(),
+			),
+			None => tg::handle::dynamic::Handle::new(handle.clone()),
+		};
 		let stdio_task = if stdin.is_some() || stdout.is_some() || stderr.is_some() || local_tty {
-			let handle = handle.clone();
+			let handle = stdio_handle;
 			let id = id.clone();
 			let location = location.clone();
 			let stdin = stdin.clone();
@@ -544,6 +605,7 @@ impl<O: 'static> tg::Process<O> {
 		let owned = std::sync::atomic::AtomicBool::new(handle.is_some());
 		let inner = Arc::new(super::handle::Inner {
 			cached: Some(output.cached),
+			connection,
 			handle,
 			id: tg::Either::Right(id),
 			lease: output.lease,
@@ -729,6 +791,7 @@ impl<O: 'static> tg::Process<O> {
 
 		let inner = Arc::new(super::handle::Inner {
 			cached: Some(false),
+			connection: None,
 			handle: None,
 			id: tg::Either::Left(pid),
 			lease: None,

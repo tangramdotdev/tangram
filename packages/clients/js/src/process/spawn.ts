@@ -1,4 +1,5 @@
 import * as tg from "../index.ts";
+import { Connection } from "./connect.ts";
 import * as stdio from "./stdio.ts";
 
 export let builder = (...args: any): any => {
@@ -528,6 +529,7 @@ export let prepareUnsandboxedCommand = async (
 export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 	arg: tg.Process.Spawn.Arg,
 	options?: tg.Referent.Options | null,
+	mode: tg.Process.Connect.Mode = "spawn",
 ): Promise<tg.Process<O>> => {
 	let noTty = arg.tty === false;
 	let provideStderr = arg.stderr === "pipe" || arg.stderr === "tty";
@@ -655,11 +657,31 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 	} else {
 		delete spawnArg.tty;
 	}
-	let stream = await tg.client.spawnProcess(spawnArg);
-	let output = await tg.Progress.lastOutput(stream);
-	if (output === null) {
-		throw new Error("stream ended without output");
+	let reads: { [id: number]: tg.Process.Stdio.Read.Arg } = {};
+	if (mode === "run") {
+		let streams: Array<tg.Process.Stdio.Stream> = [];
+		if (stdout !== null) {
+			streams.push("stdout");
+		}
+		if (stderr !== null) {
+			streams.push("stderr");
+		}
+		if (streams.length > 0) {
+			reads[1] = { streams };
+		}
+		if (provideStdout) {
+			reads[Object.keys(reads).length + 1] = { streams: ["stdout"] };
+		}
+		if (provideStderr) {
+			reads[Object.keys(reads).length + 1] = { streams: ["stderr"] };
+		}
 	}
+	let opened = await Connection.open({
+		reads,
+		target: { kind: "spawn", value: { arg: spawnArg, mode } },
+	});
+	let output = opened.output;
+	let connection = mode === "run" ? opened.connection : null;
 	let wait =
 		output.wait !== undefined && output.wait !== null
 			? tg.Process.Wait.fromData(output.wait)
@@ -681,9 +703,11 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 					stdout,
 					stderr,
 					localTty,
+					connection,
 				)
 			: null;
 	let process = new tg.Process<O>({
+		connection,
 		id: output.process,
 		location,
 		options: options ?? {},

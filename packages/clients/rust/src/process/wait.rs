@@ -73,13 +73,10 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
+		let handle = self.handle_with_handle(handle);
+		let handle = &handle;
 		if let Some(task) = &self.0.task {
-			if let Some(stdio_task) = self.0.stdio_task.as_ref() {
-				stdio_task
-					.wait()
-					.await
-					.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
-			}
+			self.wait_stdio().await?;
 			let output = task
 				.wait()
 				.await
@@ -89,22 +86,17 @@ impl<O> tg::Process<O> {
 			wait.inherit_location(location.as_ref());
 			let tokens = self.tokens();
 			wait.inherit_tokens(&tokens);
-			self.detach();
+			self.disarm();
 			return Ok(wait);
 		}
 		let wait = self.0.wait.lock().unwrap().take();
 		if let Some(wait) = wait {
-			if let Some(stdio_task) = self.0.stdio_task.as_ref() {
-				stdio_task
-					.wait()
-					.await
-					.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
-			}
+			self.wait_stdio().await?;
 			let location = self.location().and_then(|location| location.to_location());
 			wait.inherit_location(location.as_ref());
 			let tokens = self.tokens();
 			wait.inherit_tokens(&tokens);
-			self.detach();
+			self.disarm();
 			return Ok(wait);
 		}
 		let Some(id) = self.id().right() else {
@@ -119,12 +111,7 @@ impl<O> tg::Process<O> {
 			tokens: self.tokens(),
 		};
 		let mut future = handle.wait_process_future(id, arg.clone()).await?;
-		if let Some(stdio_task) = self.0.stdio_task.as_ref() {
-			stdio_task
-				.wait()
-				.await
-				.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
-		}
+		self.wait_stdio().await?;
 		let output = loop {
 			if let Some(output) = future.await? {
 				break output;
@@ -136,9 +123,29 @@ impl<O> tg::Process<O> {
 		wait.inherit_location(location.as_ref());
 		let tokens = self.tokens();
 		wait.inherit_tokens(&tokens);
-		self.detach();
+		self.disarm();
 
 		Ok(wait)
+	}
+
+	pub(super) async fn wait_stdio(&self) -> tg::Result<()> {
+		let Some(task) = &self.0.stdio_task else {
+			return Ok(());
+		};
+		let result = task
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the stdio task panicked"))?;
+		// Detach deliberately closes the transport used by inherited stdio.
+		if !self
+			.0
+			.connection
+			.as_ref()
+			.is_some_and(super::connect::Connection::detached)
+		{
+			result?;
+		}
+		Ok(())
 	}
 }
 

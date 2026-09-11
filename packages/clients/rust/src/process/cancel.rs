@@ -1,5 +1,5 @@
 use {
-	crate::tg,
+	crate::prelude::*,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 };
@@ -37,15 +37,24 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
+		let handle = self.handle_with_handle(handle);
+		let handle = &handle;
 		if self.id().is_left() {
 			let options = tg::process::signal::Options::default();
 			self.signal_with_handle(handle, tg::process::Signal::SIGTERM, options)
 				.await?;
-			self.detach();
+			self.disarm();
 			return Ok(());
 		}
 		let tg::process::cancel::Options { lease, location } = options;
-		if location.is_none() && self.location().is_none() {
+		if self
+			.0
+			.connection
+			.as_ref()
+			.is_none_or(tg::process::connect::Connection::detached)
+			&& location.is_none()
+			&& self.location().is_none()
+		{
 			self.ensure_location_with_handle(handle).await?;
 		}
 		let id = self.id().unwrap_right();
@@ -54,7 +63,7 @@ impl<O> tg::Process<O> {
 			.or_else(|| self.lease().cloned())
 			.ok_or_else(|| tg::error!("missing lease"))?;
 		handle.cancel_process(id, Arg { location, lease }).await?;
-		self.detach();
+		self.disarm();
 
 		Ok(())
 	}
