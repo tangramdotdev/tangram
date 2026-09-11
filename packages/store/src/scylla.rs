@@ -255,7 +255,7 @@ impl Store {
 		put_object_cache_entry.set_consistency(scylla::statement::Consistency::LocalQuorum);
 		put_object_cache_entry.set_is_idempotent(true);
 
-		if let Some(handle) = execution_profile {
+		if let Some(handle) = &execution_profile {
 			for statement in [
 				&mut contains_object,
 				&mut delete_object,
@@ -272,7 +272,7 @@ impl Store {
 			}
 		}
 		let log = log::Statements::new(&session).await?;
-		let queue = queue::Statements::new(&session).await?;
+		let queue = queue::Statements::new(&session, execution_profile.as_ref()).await?;
 
 		let capacity = config
 			.capacity

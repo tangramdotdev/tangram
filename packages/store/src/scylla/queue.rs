@@ -18,7 +18,10 @@ pub(super) struct Statements {
 }
 
 impl Statements {
-	pub(super) async fn new(session: &scylla::client::session::Session) -> tg::Result<Self> {
+	pub(super) async fn new(
+		session: &scylla::client::session::Session,
+		execution_profile: Option<&scylla::client::execution_profile::ExecutionProfileHandle>,
+	) -> tg::Result<Self> {
 		let delete_archive = prepare(
 			session,
 			"delete from archive_queue where indexer = ? and sequence = ?;",
@@ -94,7 +97,7 @@ impl Statements {
 			),
 		)
 		.await?;
-		let statements = Self {
+		let mut statements = Self {
 			delete_archive,
 			delete_index,
 			get_archive,
@@ -104,6 +107,20 @@ impl Statements {
 			put_archive,
 			put_index,
 		};
+		if let Some(handle) = execution_profile {
+			for statement in [
+				&mut statements.delete_archive,
+				&mut statements.delete_index,
+				&mut statements.get_archive,
+				&mut statements.get_archive_batch,
+				&mut statements.get_index,
+				&mut statements.get_index_batch,
+				&mut statements.put_archive,
+				&mut statements.put_index,
+			] {
+				statement.set_execution_profile_handle(Some(handle.clone()));
+			}
+		}
 
 		Ok(statements)
 	}
