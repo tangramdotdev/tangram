@@ -385,6 +385,11 @@ impl State {
 		let data = tg::object::Data::deserialize(id.kind(), output.bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the data"))?;
 		let object = tg::object::Object::try_from_data(data)?;
+		for child in object.children() {
+			if let Some(child_output) = output.children.get(&child.id()) {
+				child.inherit_tokens(&child_output.tokens);
+			}
+		}
 
 		// Update the state.
 		let mut inner = self.0.write().unwrap();

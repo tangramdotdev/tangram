@@ -65,6 +65,7 @@ impl Cli {
 			let tg::object::get::Output {
 				availability,
 				bytes,
+				children: _,
 				metadata,
 				tokens: _,
 			} = client

@@ -29,18 +29,11 @@ tg --token $alice.token grant $bob.user.id object_subtree $graph | ignore
 let socket = $server.url | str replace 'http+unix://' '' | url decode
 let response = (
 	http get
-		--full
-		--headers { Authorization: $'Bearer ($bob.token)' }
+		--headers { Accept: 'application/json', Authorization: $'Bearer ($bob.token)' }
 		--unix-socket $socket
 		$'http://localhost/objects/($graph)?metadata=true'
 )
-let tokens = (
-	$response.headers.response
-	| where name == 'x-tg-object-tokens'
-	| first
-	| get value
-	| from json
-)
+let tokens = $response.tokens
 let token = $tokens.local | url encode --all
 let reference = $'graph=($graph)&index=0&kind=file?tokens[local]=($token)'
 let dependencies = [$reference] | to json

@@ -45,13 +45,6 @@ export async function tryGetObject(
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
-	let data = await response.json<tg.Object.Data>();
-	let tokens = response.headers.get("x-tg-object-tokens");
-	let output = {
-		data,
-		...(tokens === undefined
-			? {}
-			: { tokens: JSON.parse(tokens) as tg.Authorization.Tokens }),
-	};
+	let output = await response.json<tg.Object.Get.Output>();
 	return output;
 }

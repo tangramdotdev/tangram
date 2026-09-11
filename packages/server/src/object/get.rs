@@ -7,6 +7,7 @@ use {
 	},
 	num::ToPrimitive as _,
 	std::{
+		collections::{BTreeMap, BTreeSet},
 		io::{Read as _, Seek as _},
 		path::PathBuf,
 	},
@@ -31,6 +32,19 @@ pub(crate) struct CheckoutFile {
 	pub artifact: tg::artifact::Id,
 	pub file: std::fs::File,
 	pub path: Option<PathBuf>,
+}
+
+#[derive(serde::Serialize)]
+struct JsonOutput {
+	#[serde(skip_serializing_if = "Option::is_none")]
+	availability: Option<tg::object::Availability>,
+	#[serde(skip_serializing_if = "BTreeMap::is_empty")]
+	children: BTreeMap<tg::object::Id, tg::object::get::Child>,
+	data: tg::object::Data,
+	#[serde(skip_serializing_if = "Option::is_none")]
+	metadata: Option<tg::object::Metadata>,
+	#[serde(skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -108,13 +122,14 @@ impl Session {
 			tg::authorization::permission::object::Permission::Node,
 		);
 		let wait_for_subtree = metadata || availability;
-		let Some(permissions) = self
+		let Some(authorization) = self
 			.authorize_object_read(resource, wait_for_subtree)
 			.await?
 		else {
 			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
 			return Ok(None);
 		};
+		let permissions = authorization.permissions;
 		if !permissions.contains(node) {
 			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
 			return Ok(None);
@@ -122,18 +137,7 @@ impl Session {
 		let Some(mut output) = self.server.try_get_object_local(id, metadata).await? else {
 			return Ok(None);
 		};
-		let created_at = self.server.clock.unix_timestamp()?;
-		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
-			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
-		let expires_at = created_at
-			.checked_add(time_to_live)
-			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
-		let resource = tg::Id::from(id.clone());
-		if let Some(token) =
-			self.create_token(resource, permissions.iter().collect(), expires_at)?
-		{
-			output.tokens.set_local(token);
-		}
+		self.add_tokens_to_object_get_output(id, authorization, &mut output)?;
 		if let Some(metadata) = output.metadata {
 			output.metadata = Self::mask_object_metadata_with_permissions(metadata, permissions);
 		}
@@ -142,6 +146,58 @@ impl Session {
 				Self::compute_object_availability_with_permissions(&storage, permissions);
 		}
 		Ok(Some(output))
+	}
+
+	fn add_tokens_to_object_get_output(
+		&self,
+		id: &tg::object::Id,
+		authorization: crate::authorization::Output,
+		output: &mut tg::object::get::Output,
+	) -> tg::Result<()> {
+		if self.server.authorization_tokens.private_key.is_none() {
+			return Ok(());
+		}
+
+		// Bound the tokens by the lifetime of the proof accepted during authorization.
+		let created_at = self.server.clock.unix_timestamp()?;
+		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
+			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let mut expires_at = created_at
+			.checked_add(time_to_live)
+			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+		if let Some(expiration) = authorization.expires_at {
+			expires_at = expires_at.min(expiration);
+		}
+
+		// Create the token for the object using the existing authorization result.
+		let permissions = authorization.permissions;
+		let resource = tg::Id::from(id.clone());
+		if let Some(token) =
+			self.create_token(resource, permissions.iter().collect(), expires_at)?
+		{
+			output.tokens.set_local(token);
+		}
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		if !permissions.contains(subtree) {
+			return Ok(());
+		}
+
+		// Read the child relationships from the object bytes without consulting the index.
+		let data = tg::object::Data::deserialize(id.kind(), output.bytes.clone())
+			.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
+		let mut children = BTreeSet::new();
+		data.children(&mut children);
+		for id in children {
+			if let Some(token) = self.create_token(id.clone().into(), vec![subtree], expires_at)? {
+				let tokens = tg::authorization::Tokens::with_local(Some(token));
+				let child = tg::object::get::Child { tokens };
+				output.children.insert(id, child);
+			}
+		}
+
+		Ok(())
 	}
 
 	pub(crate) async fn try_get_object_batch_local_or_regions(
@@ -218,7 +274,7 @@ impl Session {
 			.await?;
 		let mut permissions = vec![None; objects.len()];
 		for (position, authorization) in std::iter::zip(positions, authorizations) {
-			permissions[position] = authorization;
+			permissions[position] = authorization.map(|authorization| authorization.permissions);
 		}
 
 		// Mask the outputs.
@@ -488,6 +544,9 @@ impl Session {
 		}
 		if let Some(output) = &mut output {
 			self.update_tokens_and_location(&mut output.tokens, None, &source, trusted)?;
+			for child in output.children.values_mut() {
+				self.update_tokens_and_location(&mut child.tokens, None, &source, trusted)?;
+			}
 		}
 		Ok(output)
 	}
@@ -498,13 +557,14 @@ impl Session {
 			.spawn(|_| {
 				let session = self.clone();
 				let id = id.clone();
-				let output = output.clone();
+				let bytes = output.bytes.clone();
+				let metadata = output.metadata.clone();
 				async move {
 					let arg = tg::object::put::Arg {
-						bytes: output.bytes.clone(),
+						bytes,
 						children: Vec::new(),
 						location: None,
-						metadata: output.metadata.clone(),
+						metadata,
 					};
 					let result = session.put_object(&id, arg).await;
 					if let Err(error) = result {
@@ -553,14 +613,23 @@ impl Session {
 		{
 			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::OCTET_STREAM)) => {
 				let content_type = mime::APPLICATION_OCTET_STREAM;
-				let body = BoxBody::with_bytes(output.bytes);
+				let chunks = output.serialize()?;
+				let stream = futures::stream::iter(chunks.map(Ok::<_, tg::Error>));
+				let body = BoxBody::with_data_stream(stream);
 				(Some(content_type), body)
 			},
 			Some((mime::APPLICATION, mime::JSON)) => {
 				let content_type = mime::APPLICATION_JSON;
 				let data = tg::object::Data::deserialize(id.kind(), output.bytes)
 					.map_err(|error| tg::error!(!error, "failed to deserialize the object"))?;
-				let body = serde_json::to_vec(&data)
+				let output = JsonOutput {
+					availability: output.availability,
+					children: output.children,
+					data,
+					metadata: output.metadata,
+					tokens: output.tokens,
+				};
+				let body = serde_json::to_vec(&output)
 					.map_err(|error| tg::error!(!error, "failed to serialize the object"))?;
 				(Some(content_type), BoxBody::with_bytes(body))
 			},
@@ -572,21 +641,6 @@ impl Session {
 		let mut response = http::Response::builder();
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
-		}
-		if let Some(metadata) = &output.metadata {
-			response = response
-				.header_json(tg::object::get::METADATA_HEADER, metadata)
-				.map_err(|error| tg::error!(!error, "failed to serialize the metadata"))?;
-		}
-		if let Some(availability) = &output.availability {
-			response = response
-				.header_json(tg::object::get::AVAILABILITY_HEADER, availability)
-				.map_err(|error| tg::error!(!error, "failed to serialize the availability"))?;
-		}
-		if !output.tokens.is_empty() {
-			response = response
-				.header_json(tg::object::get::TOKENS_HEADER, &output.tokens)
-				.map_err(|error| tg::error!(!error, "failed to serialize the tokens"))?;
 		}
 		let response = response.body(body).unwrap();
 
@@ -625,6 +679,7 @@ impl Server {
 		let output = tg::object::get::Output {
 			availability: None,
 			bytes,
+			children: BTreeMap::new(),
 			metadata,
 			tokens: tg::authorization::Tokens::default(),
 		};
@@ -663,6 +718,7 @@ impl Server {
 		let output = tg::object::get::Output {
 			availability: None,
 			bytes,
+			children: BTreeMap::new(),
 			metadata: None,
 			tokens: tg::authorization::Tokens::default(),
 		};
@@ -699,6 +755,7 @@ impl Server {
 				bytes.map(|bytes| tg::object::get::Output {
 					availability: None,
 					bytes,
+					children: BTreeMap::new(),
 					metadata,
 					tokens: tg::authorization::Tokens::default(),
 				})

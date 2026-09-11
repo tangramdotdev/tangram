@@ -75,9 +75,10 @@ impl Session {
 		token: Option<&tg::authorization::Token>,
 	) -> tg::Result<Option<tg::object::Availability>> {
 		let resource = tg::Referent::with_node_and_token(id.clone(), token.cloned());
-		let Some(permissions) = self.authorize_object_read(resource, true).await? else {
+		let Some(authorization) = self.authorize_object_read(resource, true).await? else {
 			return Ok(None);
 		};
+		let permissions = authorization.permissions;
 		let output = Self::compute_object_availability_with_permissions(&storage, permissions);
 
 		Ok(output)

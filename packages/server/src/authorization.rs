@@ -5,6 +5,12 @@ use {
 
 mod token;
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Output {
+	pub expires_at: Option<i64>,
+	pub permissions: tg::authorization::permission::Set,
+}
+
 impl Session {
 	pub(crate) fn create_token(
 		&self,
@@ -43,7 +49,12 @@ impl Session {
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
 	{
-		self.authorize_batch_inner(args, None, false).await
+		let outputs = self.authorize_batch_inner(args, None, false).await?;
+		let outputs = outputs
+			.into_iter()
+			.map(|output| output.map(|output| output.permissions))
+			.collect();
+		Ok(outputs)
 	}
 
 	pub(crate) async fn authorize_batch_with_required<R, I>(
@@ -55,15 +66,21 @@ impl Session {
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
 	{
-		self.authorize_batch_inner(args, Some(required), false)
-			.await
+		let outputs = self
+			.authorize_batch_inner(args, Some(required), false)
+			.await?;
+		let outputs = outputs
+			.into_iter()
+			.map(|output| output.map(|output| output.permissions))
+			.collect();
+		Ok(outputs)
 	}
 
 	pub(crate) async fn authorize_object_read(
 		&self,
 		resource: impl IntoAuthorizationResource,
 		wait_for_subtree: bool,
-	) -> tg::Result<Option<tg::authorization::permission::Set>> {
+	) -> tg::Result<Option<Output>> {
 		let mut outputs = self
 			.authorize_object_read_batch([resource], wait_for_subtree)
 			.await?;
@@ -76,7 +93,7 @@ impl Session {
 		&self,
 		resources: I,
 		wait_for_subtree: bool,
-	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>>
+	) -> tg::Result<Vec<Option<Output>>>
 	where
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = R>,
@@ -100,7 +117,7 @@ impl Session {
 		args: I,
 		required: Option<tg::authorization::permission::Set>,
 		wait_for_requested_permissions: bool,
-	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>>
+	) -> tg::Result<Vec<Option<Output>>>
 	where
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
@@ -120,7 +137,11 @@ impl Session {
 			let token = if let Some(token) = token {
 				// Authorize an exact token if there is one.
 				if self.authorize_token(&resource, permissions, &token) {
-					outputs.push(Some(permissions));
+					let output = Output {
+						expires_at: Some(token.body.expires_at),
+						permissions,
+					};
+					outputs.push(Some(output));
 					continue;
 				}
 				self.verify_token(&token).then_some(token.body)
@@ -130,7 +151,11 @@ impl Session {
 
 			// Authorize the root principal for all resources.
 			if matches!(self.context.principal, tg::Principal::Root) {
-				outputs.push(Some(permissions));
+				let output = Output {
+					expires_at: None,
+					permissions,
+				};
+				outputs.push(Some(output));
 				continue;
 			}
 
@@ -149,12 +174,18 @@ impl Session {
 						.await?
 						.is_some_and(|output| output.data.sandbox == *sandbox),
 				} {
-				outputs.push(Some(permissions));
+				let output = Output {
+					expires_at: None,
+					permissions,
+				};
+				outputs.push(Some(output));
 				continue;
 			}
 
 			outputs.push(None);
-			index_positions.push(position);
+			// Retain the expiration of the verified token supplied to the authorization search.
+			let expires_at = token.as_ref().map(|token| token.expires_at);
+			index_positions.push((position, expires_at));
 			index_args.push(tangram_index::authorize::Arg {
 				required,
 				requested: permissions,
@@ -261,7 +292,7 @@ impl Session {
 				}
 			},
 		};
-		for (position, outcome) in std::iter::zip(index_positions, index_outcomes) {
+		for ((position, expires_at), outcome) in std::iter::zip(index_positions, index_outcomes) {
 			let output = match outcome {
 				tangram_index::authorize::Outcome::Authorized(output) => Some(output),
 				tangram_index::authorize::Outcome::Denied(output) => output,
@@ -270,7 +301,11 @@ impl Session {
 				},
 			};
 			if let Some(output) = output {
-				outputs[position] = Some(output.permissions);
+				let output = Output {
+					expires_at,
+					permissions: output.permissions,
+				};
+				outputs[position] = Some(output);
 			}
 		}
 

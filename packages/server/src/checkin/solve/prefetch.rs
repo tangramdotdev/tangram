@@ -1,7 +1,7 @@
 use {
 	crate::{Session, checkin::Graph},
 	dashmap::{DashMap, DashSet},
-	std::sync::Arc,
+	std::{collections::BTreeMap, sync::Arc},
 	tangram_client::prelude::*,
 };
 
@@ -29,8 +29,9 @@ type TagTasks = tangram_futures::task::Map<
 	fnv::FnvBuildHasher,
 >;
 
-#[derive(Clone, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub(super) struct ObjectOptions {
+	children: Option<Arc<BTreeMap<tg::object::Id, tg::object::get::Child>>>,
 	location: Option<tg::location::Arg>,
 	tokens: tg::authorization::Tokens,
 }
@@ -38,7 +39,8 @@ pub(super) struct ObjectOptions {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct ObjectKey {
 	id: tg::object::Id,
-	options: ObjectOptions,
+	location: Option<tg::location::Arg>,
+	tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone)]
@@ -61,12 +63,17 @@ impl ObjectOptions {
 			.or_else(|| reference.options().location.clone());
 		let mut tokens = dependency.options.tokens.clone();
 		tokens.inherit(&reference.options().tokens);
-		Self { location, tokens }
+		Self {
+			children: None,
+			location,
+			tokens,
+		}
 	}
 
 	#[must_use]
 	pub fn from_reference(reference: &tg::Reference) -> Self {
 		Self {
+			children: None,
 			location: reference.options().location.clone(),
 			tokens: reference.options().tokens.clone(),
 		}
@@ -78,18 +85,26 @@ impl ObjectOptions {
 		tokens: tg::authorization::Tokens,
 	) -> Self {
 		let location = location.map(Into::into);
-		Self { location, tokens }
+		Self {
+			children: None,
+			location,
+			tokens,
+		}
 	}
 
 	#[must_use]
 	pub fn from_referent_options(options: &tg::referent::Options) -> Self {
 		Self {
+			children: None,
 			location: options.location.clone().map(Into::into),
 			tokens: options.tokens.clone(),
 		}
 	}
 
 	pub fn inherit(&mut self, parent: &Self) {
+		if self.children.is_none() {
+			self.children.clone_from(&parent.children);
+		}
 		self.tokens.inherit(&parent.tokens);
 		if self.location.is_none() {
 			self.location.clone_from(&parent.location);
@@ -97,9 +112,19 @@ impl ObjectOptions {
 	}
 
 	pub fn update_from_output(&mut self, output: &tg::object::get::Output) {
+		self.children = Some(Arc::new(output.children.clone()));
 		if !output.tokens.is_empty() {
 			self.tokens.clone_from(&output.tokens);
 		}
+	}
+
+	fn tokens_for_object(&self, id: &tg::object::Id) -> tg::authorization::Tokens {
+		let Some(child) = self.children.as_ref().and_then(|children| children.get(id)) else {
+			return self.tokens.clone();
+		};
+		let mut tokens = child.tokens.clone();
+		tokens.inherit(&self.tokens);
+		tokens
 	}
 }
 
@@ -195,9 +220,11 @@ impl Session {
 		id: &tg::object::Id,
 		options: &mut ObjectOptions,
 	) -> tg::Result<Option<ObjectOutput>> {
+		let tokens = options.tokens_for_object(id);
 		let key = ObjectKey {
 			id: id.clone(),
-			options: options.clone(),
+			location: options.location.clone(),
+			tokens,
 		};
 
 		// Return a cached result if one is available.
@@ -238,9 +265,11 @@ impl Session {
 		id: &tg::object::Id,
 		options: ObjectOptions,
 	) -> tangram_futures::task::Shared<tg::Result<Option<ObjectOutput>>, ()> {
+		let tokens = options.tokens_for_object(id);
 		let key = ObjectKey {
 			id: id.clone(),
-			options,
+			location: options.location,
+			tokens,
 		};
 		prefetch.object_tasks.get_or_spawn(key.clone(), {
 			let session = self.clone();
@@ -272,9 +301,9 @@ impl Session {
 	) -> tg::Result<Option<ObjectOutput>> {
 		// Get the object.
 		let arg = tg::object::get::Arg {
-			location: key.options.location.clone(),
+			location: key.location.clone(),
 			metadata: true,
-			tokens: key.options.tokens.clone(),
+			tokens: key.tokens.clone(),
 			..Default::default()
 		};
 		let output = self
@@ -298,7 +327,11 @@ impl Session {
 		let requires_solving =
 			Self::checkin_solve_metadata_requires_solving(output.metadata.as_ref());
 		if requires_solving && prefetch.prefetched_objects.insert(key.id.clone()) {
-			let mut options = key.options.clone();
+			let mut options = ObjectOptions {
+				children: None,
+				location: key.location.clone(),
+				tokens: key.tokens.clone(),
+			};
 			options.update_from_output(&output);
 			match data.as_ref() {
 				tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))

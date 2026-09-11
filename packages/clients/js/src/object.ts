@@ -18,7 +18,12 @@ export namespace Object {
 		};
 
 		export type Output = {
+			children?: Partial<Record<tg.Object.Id, Child>>;
 			data: tg.Object.Data;
+			tokens?: tg.Authorization.Tokens | null;
+		};
+
+		export type Child = {
 			tokens?: tg.Authorization.Tokens | null;
 		};
 	}
@@ -238,6 +243,12 @@ export namespace Object {
 				this.#tokens = { ...output.tokens };
 			}
 			this.#object = tg.Object.Object.fromData(output.data);
+			for (let child of tg.Object.Object.children(this.#object)) {
+				let tokens = output.children?.[child.id]?.tokens;
+				if (tokens !== undefined && tokens !== null) {
+					child.state.inheritTokens(tokens);
+				}
+			}
 
 			return this.#object;
 		}

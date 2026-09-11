@@ -72,11 +72,7 @@ let hit = tg --token $root_token checkpoint wait authorization.index $watch 0 | 
 assert equal $hit.params.resource $case.a
 tg --token $root_token checkpoint continue authorization.index $watch 0
 
-# The branch child must use the token returned for B's root directory.
-let hit = tg --token $root_token checkpoint wait authorization.index $watch 1 | from json
-assert equal $hit.params.resource $case.bChildDirectory
-assert equal $hit.params.token_resource $case.bDirectory
-tg --token $root_token checkpoint continue authorization.index $watch 1
+# The branch child must use its exact token from object get without another index lookup.
 let b = job recv --tag $b_job --timeout 10sec
 
 assert equal (token-resource $b.module) $case.b

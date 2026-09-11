@@ -1,15 +1,15 @@
 use {
 	crate::prelude::*,
-	bytes::Bytes,
+	bytes::{Buf as _, Bytes},
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
+	std::collections::BTreeMap,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::is_false,
 };
 
-pub const AVAILABILITY_HEADER: &str = "x-tg-object-availability";
-pub const METADATA_HEADER: &str = "x-tg-object-metadata";
-pub const TOKENS_HEADER: &str = "x-tg-object-tokens";
+#[cfg(test)]
+mod tests;
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -33,13 +33,86 @@ pub struct Arg {
 pub struct Output {
 	pub availability: Option<tg::object::Availability>,
 	pub bytes: Bytes,
+	pub children: BTreeMap<tg::object::Id, Child>,
 	pub metadata: Option<tg::object::Metadata>,
+	pub tokens: tg::authorization::Tokens,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Child {
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 0,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
 	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub location: Option<tg::location::Arg>,
+}
+
+#[derive(tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+struct Header {
+	#[tangram_serialize(id = 0)]
+	availability: Option<tg::object::Availability>,
+	#[tangram_serialize(id = 1)]
+	children: BTreeMap<tg::object::Id, Child>,
+	#[tangram_serialize(id = 2)]
+	metadata: Option<tg::object::Metadata>,
+	#[tangram_serialize(id = 3)]
+	size: usize,
+	#[tangram_serialize(id = 4)]
+	tokens: tg::authorization::Tokens,
+}
+
+impl Output {
+	pub fn serialize(self) -> tg::Result<[Bytes; 2]> {
+		// Frame the response with a Tangram header followed by the original object bytes.
+		let header = Header {
+			availability: self.availability,
+			children: self.children,
+			metadata: self.metadata,
+			size: self.bytes.len(),
+			tokens: self.tokens,
+		};
+		let header = tangram_serialize::to_vec(&header)
+			.map_err(|error| tg::error!(!error, "failed to serialize the object get header"))?;
+		let chunks = [header.into(), self.bytes];
+
+		Ok(chunks)
+	}
+
+	pub fn deserialize(mut bytes: Bytes) -> tg::Result<Self> {
+		// Decode the header and retain a slice of the response for the object bytes.
+		let mut deserializer = tangram_serialize::Deserializer::new(&bytes);
+		let header = deserializer
+			.deserialize::<Header>()
+			.map_err(|error| tg::error!(!error, "failed to deserialize the object get header"))?;
+		let position = deserializer.position();
+		bytes.advance(position);
+		if bytes.len() != header.size {
+			return Err(tg::error!("invalid object get body size"));
+		}
+		let output = Self {
+			availability: header.availability,
+			bytes,
+			children: header.children,
+			metadata: header.metadata,
+			tokens: header.tokens,
+		};
+
+		Ok(output)
+	}
 }
 
 impl tg::Session {
@@ -81,29 +154,11 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		let metadata = response
-			.header_json(METADATA_HEADER)
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to deserialize the metadata header"))?;
-		let availability = response
-			.header_json(AVAILABILITY_HEADER)
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to deserialize the availability header"))?;
-		let tokens = response
-			.header_json(TOKENS_HEADER)
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to deserialize the tokens header"))?
-			.unwrap_or_default();
 		let bytes = response
 			.bytes()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read the response body"))?;
-		let output = tg::object::get::Output {
-			availability,
-			bytes,
-			metadata,
-			tokens,
-		};
+		let output = Output::deserialize(bytes)?;
 		Ok(Some(output))
 	}
 }
