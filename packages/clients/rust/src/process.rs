@@ -6,6 +6,7 @@ use {
 pub use self::{
 	availability::Availability,
 	build::{build, build_with_handle},
+	connect::{connect, connect_with_handle},
 	data::Data,
 	debug::Debug,
 	env::env,
@@ -27,6 +28,7 @@ pub mod availability;
 pub mod build;
 pub mod cancel;
 pub mod children;
+pub mod connect;
 pub mod control;
 pub mod data;
 pub mod debug;

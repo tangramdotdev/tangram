@@ -4,6 +4,13 @@ use {
 };
 
 pub trait Process: Clone + Unpin + Send + Sync + 'static {
+	fn connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+	> + Send;
+
 	fn spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -267,6 +274,13 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::Process for tg::Client {
+	async fn connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>> {
+		self.session(&self.context).connect_process(input).await
+	}
+
 	async fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,

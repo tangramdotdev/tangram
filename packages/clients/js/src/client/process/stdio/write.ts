@@ -3,7 +3,11 @@ import { Body, Request, Response, Uri, percentEncode } from "../../../http.ts";
 import type { Client } from "../../../client.ts";
 
 type Connection = {
-	input: Channel<tg.Process.Stdio.Write.ClientMessage>;
+	input: {
+		push(message: tg.Process.Stdio.Write.ClientMessage): boolean;
+		close(): void;
+	};
+	reconnect?: boolean;
 	output: AsyncIterableIterator<tg.Process.Stdio.Write.ServerMessage>;
 };
 
@@ -46,7 +50,7 @@ export async function tryWriteProcessStdio(
 	return true;
 }
 
-async function writeProcessStdioAll(
+export async function writeProcessStdioAll(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Write.Arg,
@@ -220,6 +224,9 @@ async function reconnect(
 	arg: tg.Process.Stdio.Write.Arg,
 	connection: Connection,
 ): Promise<Connection> {
+	if (connection.reconnect === false) {
+		throw new Error("the process connection closed");
+	}
 	connection.input.close();
 	await connection.output.return?.();
 	let next = await connect(client, id, arg);

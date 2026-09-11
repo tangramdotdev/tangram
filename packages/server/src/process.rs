@@ -16,6 +16,7 @@ pub(crate) use runner::Runner;
 pub mod availability;
 pub mod cancel;
 pub mod children;
+pub mod connect;
 pub mod control;
 pub mod get;
 pub mod log;

@@ -1,5 +1,5 @@
 use {
-	super::{Runtime, State},
+	super::{Rejection, Runtime, State},
 	futures::FutureExt as _,
 	tangram_client::prelude::*,
 };
@@ -110,12 +110,20 @@ pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
 	let state = context.get_slot::<State>().unwrap().clone();
 
 	match message.get_event() {
-		v8::PromiseRejectEvent::PromiseRejectWithNoHandler
-		| v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject => {
+		v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject => {
+			let promise = message.get_promise();
+			state
+				.rejections
+				.borrow_mut()
+				.retain(|rejection| rejection.promise != promise);
+		},
+		v8::PromiseRejectEvent::PromiseRejectWithNoHandler => {
 			let exception = message.get_promise().result(scope);
 			let error = super::error::from_exception(&state, scope, exception)
 				.unwrap_or_else(|| tg::error!("failed to get the exception"));
-			*state.rejection.borrow_mut() = Some(error);
+			let promise = v8::Global::new(scope, message.get_promise());
+			let rejection = Rejection { error, promise };
+			state.rejections.borrow_mut().push(rejection);
 		},
 		v8::PromiseRejectEvent::PromiseRejectAfterResolved
 		| v8::PromiseRejectEvent::PromiseResolveAfterResolved => {},

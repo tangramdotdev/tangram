@@ -1,4 +1,5 @@
 import * as tg from "../index.ts";
+import * as connect from "./connect.ts";
 
 export let builder = (...args: any): any => {
 	if (typeof args[0] === "function") {
@@ -21,3 +22,11 @@ export let builder = (...args: any): any => {
 		return new tg.Process.Builder("run", ...args);
 	}
 };
+
+export async function run<O extends tg.Value>(
+	arg: tg.Process.Spawn.Arg,
+	options: tg.Referent.Options,
+): Promise<O> {
+	let process = await connect.spawn<O>(arg, options, "run");
+	return process.output();
+}

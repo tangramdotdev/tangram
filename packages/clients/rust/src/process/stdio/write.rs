@@ -157,6 +157,8 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
+		let handle = self.handle_with_handle(handle);
+		let handle = &handle;
 		if self.id().is_left() {
 			if options.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
 				return Err(tg::error!("writing stdout or stderr is invalid"));

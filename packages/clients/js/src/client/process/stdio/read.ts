@@ -3,7 +3,11 @@ import { Body, Request, Response, Uri, percentEncode } from "../../../http.ts";
 import type { Client } from "../../../client.ts";
 
 type Connection = {
-	input: Channel<tg.Process.Stdio.Read.ClientMessage>;
+	input: {
+		push(message: tg.Process.Stdio.Read.ClientMessage): boolean;
+		close(): void;
+	};
+	reconnect?: boolean;
 	output: AsyncIterableIterator<tg.Process.Stdio.Read.ServerMessage>;
 };
 
@@ -22,7 +26,7 @@ export async function tryReadProcessStdio(
 	return readProcessStdioAll(client, id, arg, connection);
 }
 
-async function* readProcessStdioAll(
+export async function* readProcessStdioAll(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
@@ -175,6 +179,9 @@ async function reconnect(
 	arg: tg.Process.Stdio.Read.Arg,
 	connection: Connection,
 ): Promise<Connection> {
+	if (connection.reconnect === false) {
+		throw new Error("the process connection closed");
+	}
 	connection.input.close();
 	await connection.output.return?.();
 	let next = await connect(client, id, arg);

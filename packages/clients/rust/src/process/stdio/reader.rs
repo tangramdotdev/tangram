@@ -103,6 +103,11 @@ impl Reader {
 			let process = process
 				.and_then(|process| process.upgrade())
 				.ok_or_else(|| tg::error!("the process is not available"))?;
+			let handle_process = crate::process::handle::Process::<tg::Value>(
+				process.clone(),
+				std::marker::PhantomData,
+			);
+			let handle = handle_process.handle_with_handle(handle);
 			let location = process.location.read().unwrap().clone();
 			let tokens = process.tokens.read().unwrap().clone();
 			let process = process

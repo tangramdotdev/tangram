@@ -41,7 +41,12 @@ struct State {
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, self::promise::Output>>>,
-	rejection: RefCell<Option<tg::Error>>,
+	rejections: RefCell<Vec<Rejection>>,
+}
+
+struct Rejection {
+	error: tg::Error,
+	promise: v8::Global<v8::Promise>,
 }
 
 #[derive(Clone, Debug)]
@@ -120,17 +125,17 @@ impl Runtime {
 		let main_runtime_handle = arg.main_runtime_handle.clone();
 		let modules = RefCell::new(Vec::new());
 		let promises = RefCell::new(FuturesUnordered::new());
-		let rejection = RefCell::new(None);
+		let rejections = RefCell::new(Vec::new());
 		let state = Rc::new(State {
+			arg,
 			global_source_map: Some(global_source_map),
 			handle,
 			host,
 			http2,
 			main_runtime_handle,
 			modules,
-			arg,
 			promises,
-			rejection,
+			rejections,
 		});
 
 		// Init.
@@ -341,7 +346,7 @@ impl Runtime {
 			match poll {
 				Poll::Ready(Ok(Some(state))) => {
 					if state.clear_rejection {
-						*self.state.rejection.borrow_mut() = None;
+						self.state.rejections.borrow_mut().clear();
 					}
 					return Poll::Ready(Ok(false));
 				},
@@ -355,13 +360,13 @@ impl Runtime {
 			}
 		}
 
-		if let Some(error) = self.state.rejection.borrow().clone()
+		if let Some(rejection) = self.state.rejections.borrow().first()
 			&& !self
 				.inspector
 				.as_ref()
 				.is_some_and(Inspector::is_handling_command)
 		{
-			return Poll::Ready(Err(error));
+			return Poll::Ready(Err(rejection.error.clone()));
 		}
 
 		let poll = self.state.promises.borrow_mut().poll_next_unpin(cx);
@@ -433,6 +438,7 @@ impl Runtime {
 impl Drop for Runtime {
 	fn drop(&mut self) {
 		unsafe { self.isolate.enter() };
+		self.state.rejections.borrow_mut().clear();
 		if let Some(inspector) = self.inspector.as_mut() {
 			v8::scope!(scope, &mut self.isolate);
 			let context = v8::Local::new(scope, self.context.clone());

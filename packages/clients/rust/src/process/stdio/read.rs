@@ -174,6 +174,8 @@ impl<O> tg::Process<O> {
 		if options.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
+		let handle = self.handle_with_handle(handle);
+		let handle = &handle;
 		if self.id().is_left() {
 			let mut streams = Vec::<
 				BoxStream<'static, tg::Result<(Bytes, tg::process::stdio::Stream, u64)>>,

@@ -4,6 +4,14 @@ use {
 };
 
 pub trait Process: Send + Sync + 'static {
+	fn connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> BoxFuture<
+		'_,
+		tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+	>;
+
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -127,6 +135,16 @@ impl<T> Process for T
 where
 	T: tg::handle::Process,
 {
+	fn connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> BoxFuture<
+		'_,
+		tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+	> {
+		self.connect_process(input).boxed()
+	}
+
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,

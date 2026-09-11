@@ -704,6 +704,9 @@ impl Server {
 				.boxed(),
 
 			// Processes.
+			(http::Method::POST, ["processes", "connect"]) => {
+				session.connect_process_request(request).boxed()
+			},
 			(http::Method::POST, ["processes", "spawn"]) => {
 				session.try_spawn_process_request(request).boxed()
 			},

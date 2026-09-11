@@ -154,15 +154,15 @@ function parseSse(block: string) {
 }
 
 function formatSse(event: Body.SseEvent) {
-	let output = "";
+	let lines: Array<string> = [];
 	if (event.event !== undefined) {
-		output += `event: ${event.event}\n`;
+		lines.push(`event: ${event.event}`);
 	}
 	for (let line of event.data.split("\n")) {
-		output += `data: ${line}\n`;
+		lines.push(`data: ${line}`);
 	}
-	output += "\n";
-	return output;
+	lines.push("", "");
+	return lines.join("\n");
 }
 
 function concat(chunks: Array<Uint8Array>) {

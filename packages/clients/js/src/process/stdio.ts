@@ -1,4 +1,5 @@
 import * as tg from "../index.ts";
+import type { Connection } from "./connect.ts";
 
 export type Stdio = "inherit" | "log" | "null" | "pipe" | "tty";
 
@@ -180,7 +181,8 @@ export namespace Stdio {
 				if (typeof this.#process.id !== "string") {
 					throw new Error("expected a sandboxed process id");
 				}
-				let input = await tg.client.tryReadProcessStdio(this.#process.id, {
+				let client = this.#process.connection?.stdioClient() ?? tg.client;
+				let input = await client.tryReadProcessStdio(this.#process.id, {
 					...(this.#process.location !== null
 						? { location: this.#process.location }
 						: {}),
@@ -347,13 +349,14 @@ export namespace Stdio {
 				throw new Error(`${this.#stream} is not available`);
 			}
 			let location = process.location;
-			if (location === null) {
+			if (location === null && process.connection === null) {
 				await process.load();
 				location = process.location;
 			}
 			let input = new WriteQueue();
 			let chunks = writeChunks(input, this.#stream);
-			let task = tg.client.writeProcessStdio(
+			let client = process.connection?.stdioClient() ?? tg.client;
+			let task = client.writeProcessStdio(
 				process.id,
 				{
 					...(location !== null ? { location } : {}),
@@ -514,35 +517,41 @@ export let task = async (
 	stdout: "pipe" | "tty" | null,
 	stderr: "pipe" | "tty" | null,
 	tty: boolean,
+	connection: Connection | null = null,
 ): Promise<void> => {
+	let client = connection?.stdioClient() ?? tg.client;
 	let stdinError: unknown = null;
 	let stdinFailed = false;
 	let stdinClosing = false;
 	let stdinStopper = stdin !== null ? await tg.host.stopperOpen() : null;
 	let stdinTask_ =
 		stdin !== null && stdinStopper !== null
-			? stdinTask(id, location, tokens, stdin, stdinStopper).catch((error) => {
-					if (!stdinClosing) {
-						stdinError = error;
-						stdinFailed = true;
-					}
-				})
+			? stdinTask(id, location, tokens, stdin, stdinStopper, client).catch(
+					(error) => {
+						if (!stdinClosing) {
+							stdinError = error;
+							stdinFailed = true;
+						}
+					},
+				)
 			: null;
 	let sigwinchError: unknown = null;
 	let sigwinchFailed = false;
 	let sigwinchListener = tty ? tg.host.listenSignal("sigwinch") : null;
 	let sigwinchTask_ =
 		sigwinchListener !== null
-			? sigwinchTask(id, location, tokens, sigwinchListener).catch((error) => {
-					sigwinchError = error;
-					sigwinchFailed = true;
-				})
+			? sigwinchTask(id, location, tokens, sigwinchListener, client).catch(
+					(error) => {
+						sigwinchError = error;
+						sigwinchFailed = true;
+					},
+				)
 			: null;
 	let stdoutStderrError: unknown = null;
 	let stdoutStderrFailed = false;
 	try {
 		try {
-			await stdoutStderrTask(id, location, tokens, stdout, stderr);
+			await stdoutStderrTask(id, location, tokens, stdout, stderr, client);
 		} catch (error) {
 			stdoutStderrError = error;
 			stdoutStderrFailed = true;
@@ -592,6 +601,10 @@ async function stdinTask(
 	tokens: tg.Authorization.Tokens,
 	stdin: "pipe" | "tty",
 	stopper: tg.Host.Stopper,
+	client: Pick<
+		typeof tg.client,
+		"tryReadProcessStdio" | "writeProcessStdio" | "setProcessTtySize"
+	>,
 ): Promise<void> {
 	let error: unknown = null;
 	let failed = false;
@@ -620,7 +633,7 @@ async function stdinTask(
 					position += bytes.length;
 				}
 			})();
-		await tg.client.writeProcessStdio(
+		await client.writeProcessStdio(
 			id,
 			{
 				...(location !== null ? { location } : {}),
@@ -655,6 +668,10 @@ async function stdoutStderrTask(
 	tokens: tg.Authorization.Tokens,
 	stdout: "pipe" | "tty" | null,
 	stderr: "pipe" | "tty" | null,
+	client: Pick<
+		typeof tg.client,
+		"tryReadProcessStdio" | "writeProcessStdio" | "setProcessTtySize"
+	>,
 ): Promise<void> {
 	let streams: Array<tg.Process.Stdio.Stream> = [];
 	if (stdout !== null) {
@@ -666,7 +683,7 @@ async function stdoutStderrTask(
 	if (streams.length === 0) {
 		return;
 	}
-	let iterator = await tg.client.tryReadProcessStdio(id, {
+	let iterator = await client.tryReadProcessStdio(id, {
 		...(location !== null ? { location } : {}),
 		streams,
 		tokens,
@@ -685,6 +702,10 @@ async function sigwinchTask(
 	location: tg.Location.Arg | null,
 	tokens: tg.Authorization.Tokens,
 	signalListener: tg.Host.SignalListener,
+	client: Pick<
+		typeof tg.client,
+		"tryReadProcessStdio" | "writeProcessStdio" | "setProcessTtySize"
+	>,
 ): Promise<void> {
 	for await (let _ of signalListener) {
 		let size = tg.host.getTtySize();
@@ -696,6 +717,6 @@ async function sigwinchTask(
 			arg.location = location;
 		}
 		arg.tokens = tokens;
-		await tg.client.setProcessTtySize(id, arg);
+		await client.setProcessTtySize(id, arg);
 	}
 }

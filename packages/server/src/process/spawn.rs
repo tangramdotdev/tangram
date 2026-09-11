@@ -11,7 +11,7 @@ use {
 mod cached;
 mod child;
 mod grant;
-mod lease;
+pub(super) mod lease;
 mod local;
 mod sandbox;
 mod wait;
