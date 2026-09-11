@@ -1350,8 +1350,10 @@ export namespace Process {
 		};
 
 		export let toData = (value: State): Data => {
+			let referent = tg.Object.toReferent(value.command);
+			let command = tg.Referent.toDataString(referent, (id) => id);
 			let output: Data = {
-				command: value.command.id,
+				command,
 				created_at: value.createdAt,
 				host: value.host,
 				sandbox: value.sandbox,
@@ -1410,6 +1412,11 @@ export namespace Process {
 		};
 
 		export let fromData = (data: tg.Process.Data): tg.Process.State => {
+			let referent = tg.Referent.fromDataString(
+				data.command,
+				(id) => id as tg.Command.Id,
+			);
+			let command = tg.Command.withReferent(referent);
 			let output: State = {
 				actualChecksum: data.actual_checksum ?? null,
 				cacheable: data.cacheable ?? false,
@@ -1417,7 +1424,7 @@ export namespace Process {
 					data.children !== undefined && data.children !== null
 						? data.children.map(tg.Process.Child.fromData)
 						: null,
-				command: tg.Command.withId(data.command),
+				command,
 				createdAt: data.created_at,
 				debug: data.debug ?? null,
 				error:
@@ -1501,7 +1508,7 @@ export namespace Process {
 		actual_checksum?: tg.Checksum | null;
 		cacheable?: boolean;
 		children?: Array<tg.Process.Data.Child> | null;
-		command: tg.Command.Id;
+		command: string;
 		created_at: number;
 		debug?: tg.Process.Debug | null;
 		error?: tg.Error.Data | string | null;
@@ -1546,6 +1553,14 @@ export namespace Process {
 					};
 				});
 			}
+			let referent = tg.Referent.fromDataString(
+				data.command,
+				(id) => id as tg.Command.Id,
+			);
+			output.command = tg.Referent.toDataString(
+				tg.Referent.withoutLocationAndTokens(referent),
+				(id) => id,
+			);
 			if (data.error !== undefined && data.error !== null) {
 				if (typeof data.error === "string") {
 					let referent = tg.Referent.fromDataString(
