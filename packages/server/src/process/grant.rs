@@ -41,7 +41,7 @@ impl Session {
 				let tokens = root
 					.options
 					.tokens
-					.local()
+					.local_authorization()
 					.iter()
 					.filter(|token| {
 						token.body.resource == resource && self.verify_local_token(token)

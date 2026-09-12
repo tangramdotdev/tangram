@@ -224,7 +224,7 @@ export namespace Blob {
 		id?: tg.Blob.Id;
 		object?: tg.Blob.Object;
 		stored: boolean;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Tokens | null;
 	};
 
 	export class Builder {

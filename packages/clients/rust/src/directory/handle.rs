@@ -283,7 +283,7 @@ impl Directory {
 		directory: &tg::graph::Directory,
 		graph: Option<tg::Graph>,
 		location: Option<tg::Location>,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 	) -> tg::Result<BTreeMap<String, tg::Artifact>>
 	where
 		H: tg::Handle,
@@ -473,7 +473,7 @@ impl Directory {
 		name: &str,
 		graph: Option<tg::Graph>,
 		location: Option<&tg::Location>,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::graph::Edge<tg::Artifact>>>
 	where
 		H: tg::Handle,

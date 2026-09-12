@@ -7,16 +7,16 @@ export class Sandbox {
 	#location: tg.Location.Arg | null;
 	#owned: boolean;
 	#state: tg.Sandbox.Get.Output | null;
-	#tokens: tg.Authorization.Tokens;
+	#tokens: tg.Tokens;
 
 	constructor(arg: tg.Sandbox.ConstructorArg) {
 		this.#id = arg.id;
 		this.#location = arg.location ?? null;
 		this.#owned = arg.owned ?? false;
 		this.#state = arg.state ?? null;
-		this.#tokens = tg.Authorization.Tokens.clone(arg.tokens ?? {});
+		this.#tokens = tg.Tokens.clone(arg.tokens);
 		if (this.#state !== null) {
-			tg.Authorization.Tokens.inherit(this.#tokens, this.#state.tokens ?? {});
+			tg.Tokens.inherit(this.#tokens, this.#state.tokens ?? {});
 		}
 	}
 
@@ -55,9 +55,11 @@ export class Sandbox {
 		if (
 			output.tokens !== undefined &&
 			output.tokens !== null &&
-			!tg.Authorization.Tokens.isEmpty(output.tokens)
+			!tg.Tokens.isEmpty(output.tokens)
 		) {
-			tg.Authorization.Tokens.inherit(this.#tokens, output.tokens);
+			let tokens = tg.Tokens.clone(output.tokens);
+			tg.Tokens.inherit(tokens, this.#tokens);
+			this.#tokens = tokens;
 		}
 		this.#location =
 			output.location === undefined || output.location === null
@@ -116,8 +118,8 @@ export class Sandbox {
 		return this.#state;
 	}
 
-	get tokens(): tg.Authorization.Tokens {
-		return tg.Authorization.Tokens.clone(this.#tokens);
+	get tokens(): tg.Tokens {
+		return tg.Tokens.clone(this.#tokens);
 	}
 
 	run<A extends tg.UnresolvedArgs<Array<tg.Value>>, O extends tg.ReturnValue>(
@@ -187,7 +189,7 @@ export namespace Sandbox {
 		export type Output = {
 			data: tg.Sandbox.Data;
 			location?: tg.Location | null;
-			tokens?: tg.Authorization.Tokens | null;
+			tokens?: tg.Tokens | null;
 		};
 	}
 
@@ -397,7 +399,7 @@ export namespace Sandbox {
 		location?: tg.Location.Arg | null;
 		owned?: boolean;
 		state?: tg.Sandbox.Get.Output | null;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Tokens | null;
 	};
 
 	export namespace Create {
@@ -406,7 +408,7 @@ export namespace Sandbox {
 		export type Output = {
 			data: tg.Sandbox.Data;
 			location?: tg.Location | null;
-			tokens?: tg.Authorization.Tokens | null;
+			tokens?: tg.Tokens | null;
 		};
 	}
 

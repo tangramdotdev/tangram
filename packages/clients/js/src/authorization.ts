@@ -2,7 +2,6 @@ import * as tg from "./index.ts";
 
 export namespace Authorization {
 	export type Token = string;
-	export type Tokens = Record<string, Array<Token>>;
 
 	export namespace Token {
 		type Data = {
@@ -129,52 +128,6 @@ export namespace Authorization {
 				}
 			}
 			return false;
-		};
-	}
-
-	export namespace Tokens {
-		export let isEmpty = (tokens: Authorization.Tokens): boolean => {
-			return Object.values(tokens).every((tokens) => tokens.length === 0);
-		};
-
-		export let clone = (tokens: Authorization.Tokens): Authorization.Tokens => {
-			return Object.fromEntries(
-				Object.entries(tokens).map(([location, tokens]) => [
-					location,
-					[...tokens],
-				]),
-			);
-		};
-
-		export let local = (
-			tokens: Authorization.Tokens,
-		): Array<Authorization.Token> => {
-			return tokens.local ?? [];
-		};
-
-		export let withLocal = (
-			tokens: Array<Authorization.Token>,
-		): Authorization.Tokens => {
-			return tokens.length === 0 ? {} : { local: [...tokens] };
-		};
-
-		export let inherit = (
-			tokens: Authorization.Tokens,
-			parent: Authorization.Tokens,
-		): void => {
-			for (let [location, incoming] of Object.entries(parent)) {
-				let output = tokens[location] ?? [];
-				for (let token of incoming) {
-					if (output.some((existing) => Token.covers(existing, token))) {
-						continue;
-					}
-					output = output.filter((existing) => !Token.covers(token, existing));
-					output.push(token);
-				}
-				if (output.length > 0) {
-					tokens[location] = output;
-				}
-			}
 		};
 	}
 }

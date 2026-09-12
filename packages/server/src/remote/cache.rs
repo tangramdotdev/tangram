@@ -369,14 +369,11 @@ pub(crate) fn tokens_valid(
 			.is_ok_and(|now| tokens.iter().all(|token| token.body.expires_at > now))
 }
 
-pub(crate) fn remove_expired_tokens(
-	tokens: &mut tg::authorization::Tokens,
-	clock: &crate::clock::Clock,
-) {
+pub(crate) fn remove_expired_tokens(tokens: &mut tg::Tokens, clock: &crate::clock::Clock) {
 	let now = clock.unix_timestamp();
-	for token in tokens.remove_local() {
+	for token in tokens.remove_local_authorization() {
 		if now.as_ref().is_ok_and(|now| token.body.expires_at > *now) {
-			tokens.insert_local(token);
+			tokens.insert_local_authorization(token);
 		}
 	}
 }
@@ -405,17 +402,24 @@ mod tests {
 		};
 		let expired = token(i64::MIN);
 		let valid = token(i64::MAX);
-		let mut tokens = tg::authorization::Tokens::with_local([expired.clone(), valid.clone()]);
+		let mut tokens = tg::Tokens::with_authorization([expired.clone(), valid.clone()]);
 		let remote = tg::Location::Remote(tg::location::Remote {
 			name: "default".into(),
 			region: None,
 		});
-		tokens.insert(remote.clone(), expired.clone());
+		tokens.insert_authorization(remote.clone(), expired.clone());
+		let key =
+			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+				.unwrap();
+		let sync = tg::sync::Token::sign(tg::sync::token::Body::new(i64::MAX), &key).unwrap();
+		let location = tg::Location::Local(tg::location::Local::default());
+		tokens.set_sync(location, sync.clone());
 
-		assert!(!super::tokens_valid(tokens.local(), &clock));
+		assert!(!super::tokens_valid(tokens.local_authorization(), &clock));
 		super::remove_expired_tokens(&mut tokens, &clock);
-		assert_eq!(tokens.local(), &[valid]);
-		assert_eq!(tokens.get(&remote), &[expired]);
-		assert!(super::tokens_valid(tokens.local(), &clock));
+		assert_eq!(tokens.local_authorization(), &[valid]);
+		assert_eq!(tokens.authorization(&remote), &[expired]);
+		assert!(super::tokens_valid(tokens.local_authorization(), &clock));
+		assert_eq!(tokens.local_sync(), Some(&sync));
 	}
 }

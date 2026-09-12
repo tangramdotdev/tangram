@@ -22,7 +22,7 @@ impl Session {
 								message.descendants,
 								message.eager,
 								id,
-								message.tokens,
+								message.tokens.local_entry(),
 							)?;
 						},
 						tg::Selector::Specifier(specifier) => {
@@ -30,7 +30,7 @@ impl Session {
 								message.descendants,
 								message.eager,
 								specifier.clone(),
-								message.tokens,
+								message.tokens.local_entry(),
 							);
 							if inserted {
 								let node = super::resolve::Node { specifier };
@@ -79,7 +79,7 @@ impl Session {
 					state.queue.close_if_end();
 				},
 
-				tg::sync::GetMessage::Progress(_) => (),
+				tg::sync::GetMessage::Progress(_) | tg::sync::GetMessage::Start(_) => (),
 
 				tg::sync::GetMessage::End => {
 					tracing::trace!("received end");

@@ -1,7 +1,7 @@
 pub use {
 	permission::Permission,
 	subject::Subject,
-	token::{Algorithm, Body, Metadata, PrivateKey, PublicKey, Token, Tokens},
+	token::{Algorithm, Body, Metadata, PrivateKey, PublicKey, Token},
 };
 
 pub mod permission;

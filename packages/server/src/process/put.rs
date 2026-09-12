@@ -346,7 +346,7 @@ impl Session {
 			self.server.spawn_publish_log_compaction_notification_task();
 		}
 		let permission = self.process_permission_for_data(&token_data);
-		let tokens = tg::authorization::Tokens::with_local(
+		let tokens = tg::Tokens::with_authorization(
 			self.create_token(
 				id.clone().into(),
 				permission

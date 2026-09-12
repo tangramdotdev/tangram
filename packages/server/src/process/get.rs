@@ -30,7 +30,21 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_get_process_local(id, arg.metadata, arg.availability, arg.tokens.local())
+					.try_get_with_sync_wait(
+						&arg.tokens,
+						tg::sync::notification::Request::process(
+							id.clone(),
+							tg::authorization::permission::process::Set::NODE,
+						),
+						|| {
+							self.try_get_process_local(
+								id,
+								arg.metadata,
+								arg.availability,
+								arg.tokens.local_authorization(),
+							)
+						},
+					)
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 			{
@@ -100,7 +114,7 @@ impl Session {
 			self.create_process_get_output(id, data, Some(runner.location.clone()), None);
 		output.tokens = arg.tokens.clone();
 		if let Some(token) = self.create_process_get_token(id)? {
-			output.tokens.insert_local(token);
+			output.tokens.insert_local_authorization(token);
 		}
 
 		// Read index-only fields at the process's original location.
@@ -133,26 +147,76 @@ impl Session {
 	pub(crate) async fn try_get_process_batch_local_or_regions(
 		&self,
 		processes: &[tg::Referent<tg::process::Id>],
+		permissions: &[tg::authorization::permission::Set],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
 		let location: tg::location::Arg =
 			tg::Location::Local(tg::location::Local::default()).into();
-		let outputs = processes
-			.iter()
-			.map(|process| {
-				let arg = tg::process::get::Arg {
-					availability: false,
-					location: Some(location.clone()),
-					metadata,
-					tokens: process.options.tokens.clone(),
-				};
-				self.try_get_process(&process.node, arg)
+		let locations = self
+			.locations(Some(&location))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		let outputs = std::iter::zip(processes, permissions)
+			.map(|(process, permissions)| {
+				let regions = regions.clone();
+				async move {
+					let tg::authorization::permission::Set::Process(requested) = *permissions
+					else {
+						return Err(tg::error!("expected process permissions"));
+					};
+					let request =
+						tg::sync::notification::Request::process(process.node.clone(), requested);
+					if let Some(output) = self
+						.try_get_with_sync_wait(&process.options.tokens, request, || {
+							self.try_get_process_local_with_permissions(
+								&process.node,
+								*permissions,
+								metadata,
+							)
+						})
+						.await?
+					{
+						return Ok(Some(output));
+					}
+
+					self.try_get_process_regions(
+						&process.node,
+						&regions,
+						metadata,
+						false,
+						&process.options.tokens,
+					)
+					.await
+				}
 			})
 			.collect::<FuturesOrdered<_>>()
 			.try_collect()
 			.await?;
 
 		Ok(outputs)
+	}
+
+	async fn try_get_process_local_with_permissions(
+		&self,
+		id: &tg::process::Id,
+		permissions: tg::authorization::permission::Set,
+		metadata: bool,
+	) -> tg::Result<Option<tg::process::get::Output>> {
+		let node = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		);
+		if !permissions.contains(node) {
+			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
+			return Ok(None);
+		}
+		let Some(mut output) = self.try_get_process_local_inner(id, metadata).await? else {
+			return Ok(None);
+		};
+		if let Some(metadata) = output.metadata.take() {
+			output.metadata = Self::mask_process_metadata_with_permissions(&metadata, permissions);
+		}
+		Ok(Some(output))
 	}
 
 	pub(crate) async fn try_get_process_local(
@@ -176,7 +240,7 @@ impl Session {
 			return Ok(None);
 		};
 		if let Some(token) = self.create_process_get_token(id)? {
-			output.tokens.insert_local(token);
+			output.tokens.insert_local_authorization(token);
 		}
 		if let Some(metadata) = output.metadata.take() {
 			output.metadata = self
@@ -471,7 +535,7 @@ impl Session {
 			id: id.clone(),
 			location: Some(location),
 			metadata,
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		}
 	}
 
@@ -481,7 +545,7 @@ impl Session {
 		regions: &[String],
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = regions
 			.iter()
@@ -512,7 +576,7 @@ impl Session {
 		region: &str,
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -548,7 +612,7 @@ impl Session {
 		remotes: &[crate::location::Remote],
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = remotes
 			.iter()
@@ -589,7 +653,7 @@ impl Session {
 		id: &tg::process::Id,
 		data: &tg::process::Data,
 		location: Option<&tg::Location>,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) {
 		let mut session = self.clone();
 		session.context.stopper = None;
@@ -618,7 +682,7 @@ impl Session {
 		id: &tg::process::Id,
 		mut data: tg::process::Data,
 		location: Option<tg::location::Arg>,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 	) -> tg::Result<()> {
 		let children = if let Some(children) = data.children.take() {
 			children
@@ -658,7 +722,7 @@ impl Session {
 		remote: &crate::location::Remote,
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)
@@ -833,7 +897,7 @@ impl Server {
 					id: id.clone(),
 					location: process.location.or_else(|| Some(location.clone())),
 					metadata,
-					tokens: tg::authorization::Tokens::default(),
+					tokens: tg::Tokens::default(),
 				})
 			})
 			.collect();

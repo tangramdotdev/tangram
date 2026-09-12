@@ -10,7 +10,7 @@ pub struct Node {
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
 	pub send: bool,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub tokens: tg::tokens::Entry,
 }
 
 impl Session {
@@ -31,8 +31,8 @@ impl Session {
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Read,
 		);
-		let resource =
-			tg::Referent::with_node_and_local_tokens(node.id.clone(), node.tokens.clone());
+		let tokens = tg::Tokens::with_local_entry(node.tokens.clone());
+		let resource = tg::Referent::with_node_and_tokens(node.id.clone(), tokens);
 		let authorized = self
 			.authorize(resource, permission)
 			.await?
@@ -97,7 +97,9 @@ impl Session {
 		}
 		if node.descendants {
 			for child in &children {
-				state.queue.enqueue(node.eager, child.clone(), Vec::new())?;
+				state
+					.queue
+					.enqueue(node.eager, child.clone(), node.tokens.clone())?;
 			}
 			state
 				.graph

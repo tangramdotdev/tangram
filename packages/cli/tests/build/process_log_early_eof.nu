@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Verify that sync does not compact a live process log on demand.
+# Verify that sync waits for the live log to end, compacts it, and transfers every line.
 
 let local = server spawn --name local --config { indexer: { log_compaction: false } }
 let remote = server spawn --name remote
@@ -22,4 +22,8 @@ tg --url $local.url remote put default $remote.url | complete
 tg --url $local.url push --process-logs $id
 
 let log = tg --url $remote.url get $id | from json | get log?
-assert ($log == null) "The uncompacted log should not be sent"
+assert ($log != null) "sync should compact and transfer the log"
+assert equal $log (tg --url $local.url get $id | from json | get log)
+let output = tg --url $remote.url log $id --no-timeout | complete
+success $output
+assert equal ($output.stdout | lines | length) 9900 "the transferred log should contain every line"

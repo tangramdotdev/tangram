@@ -61,17 +61,39 @@ struct ProcessTaskArg {
 	sandbox_stopper: Stopper,
 }
 
+struct FinishProcessRunArg<'a> {
+	exited: &'a Stopper,
+	id: Option<&'a tg::process::Id>,
+	process_index: u64,
+	processes: Arc<crate::process::Processes>,
+	run_task: Task<tg::Result<RunProcessOutput>>,
+	sandbox: &'a tangram_sandbox::Sandbox,
+	state: &'a tg::process::State,
+}
+
+struct FinishedProcess {
+	data: tg::process::Data,
+	output: Output,
+}
+
+struct RecordFinishedProcessArg<'a> {
+	data: &'a tg::process::Data,
+	id: &'a tg::process::Id,
+	location: &'a tg::Location,
+	process_index: u64,
+	processes: Arc<crate::process::Processes>,
+}
+
 struct FinishProcessTaskArg {
 	buffered_task: Task<tg::Result<()>>,
 	control_task: Task<tg::Result<()>>,
-	finish_sender: tokio::sync::oneshot::Sender<tg::process::Data>,
+	finish_sender: Option<tokio::sync::oneshot::Sender<tg::process::Data>>,
+	finished: FinishedProcess,
 	id: tg::process::Id,
 	log_task: Option<Task<tg::Result<()>>>,
-	output: tg::Result<Output>,
 	process: tg::Process,
 	process_index: u64,
 	processes: Arc<crate::process::Processes>,
-	progress_sender: tokio::sync::mpsc::UnboundedSender<Bytes>,
 }
 
 struct IndexProcessTaskArg<'a> {
@@ -273,7 +295,7 @@ impl Session {
 		let mut command_options = options.clone();
 		let local = command_options
 			.tokens
-			.local()
+			.local_authorization()
 			.iter()
 			.any(|token| self.verify_local_token(token));
 		if local {
@@ -375,6 +397,7 @@ impl Session {
 			leases: BTreeSet::from([lease.clone()]),
 			process: None,
 			stopper: process_stopper.clone(),
+			sync: None,
 		};
 		processes.insert(process_index, entry);
 		if let Some(id) = &id {
@@ -617,7 +640,6 @@ impl Session {
 			let guest_url = guest_url.clone();
 			let processes = processes.clone();
 			let process_stopper = process_stopper.clone();
-			let progress_sender = progress_sender.clone();
 			let sandbox = sandbox.clone();
 			let state = state.clone();
 			let stopper = sandbox_stopper.clone();
@@ -713,13 +735,61 @@ impl Session {
 		)
 		.await;
 
+		// Finish the process before connecting control if it has already exited.
+		let exited = Stopper::new();
+		let mut finished = None;
+		if run_task.as_ref().unwrap().is_finished() {
+			let store_session = if assigned { &session } else { &command_session };
+			let arg = FinishProcessRunArg {
+				exited: &exited,
+				id: id.as_ref(),
+				process_index,
+				processes: processes.clone(),
+				run_task: run_task.take().unwrap(),
+				sandbox: &sandbox,
+				state: &state,
+			};
+			let finished_process = store_session.finish_process_run(arg).boxed().await?;
+			match &id {
+				Some(id) => {
+					crate::checkpoint!(
+						session.server,
+						"runner.process.finish",
+						command = %state.command,
+						process = %id,
+					)
+					.await;
+					let arg = RecordFinishedProcessArg {
+						data: &finished_process.data,
+						id,
+						location: &location,
+						process_index,
+						processes: processes.clone(),
+					};
+					session.record_finished_process_local(arg).await?;
+				},
+				None => {
+					crate::checkpoint!(
+						session.server,
+						"runner.process.finish",
+						command = %state.command,
+					)
+					.await;
+				},
+			}
+			finished = Some(finished_process);
+		}
+		let data = finished
+			.as_ref()
+			.map_or_else(|| state.to_data(), |finished| finished.data.clone());
+
 		// Create the control stream.
 		let control_responses =
 			crate::control::priority_stream(control_responses_high, control_responses_low)
 				.map(Ok)
 				.boxed();
 		let arg = tg::process::control::Arg {
-			data: Some(state.to_data()),
+			data: Some(data.clone()),
 			id,
 			lease: lease.clone(),
 			location: Some(location.clone().into()),
@@ -756,6 +826,7 @@ impl Session {
 		};
 		let requests = requests.boxed();
 		let id = output.id;
+		let sync = output.sync.filter(|_| location.is_remote());
 		let Some(inner_token) = output.token.or(inner_token) else {
 			process_stopper.stop();
 			run_task.take().unwrap().wait().await.ok();
@@ -766,6 +837,10 @@ impl Session {
 			.get_mut(process_index)
 			.expect("the process state was not found")
 			.inner_token = Some(inner_token.clone());
+		processes
+			.get_mut(process_index)
+			.expect("the process state was not found")
+			.sync = sync;
 		if !assigned {
 			processes.set_id(process_index, id.clone());
 			session
@@ -788,6 +863,16 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
+		if !assigned && let Some(finished) = &finished {
+			let arg = RecordFinishedProcessArg {
+				data: &finished.data,
+				id: &id,
+				location: &location,
+				process_index,
+				processes: processes.clone(),
+			};
+			session.record_finished_process_local(arg).await?;
+		}
 		session
 			.server
 			.messenger
@@ -805,7 +890,7 @@ impl Session {
 			.spawn_index_process_task(IndexProcessTaskArg {
 				command: state.command.to_referent(),
 				command_data: command.clone(),
-				data: state.to_data(),
+				data,
 				id: &id,
 				location: &location,
 				options,
@@ -847,7 +932,12 @@ impl Session {
 			.ok();
 
 		// Spawn the process control task.
-		let (finish_sender, finish_receiver) = tokio::sync::oneshot::channel();
+		let (finish_sender, finish_receiver) = if finished.is_some() {
+			(None, None)
+		} else {
+			let (sender, receiver) = tokio::sync::oneshot::channel();
+			(Some(sender), Some(receiver))
+		};
 		let (stderr_buffered_sender, stderr_buffered_receiver) = tokio::sync::oneshot::channel();
 		let (stdout_buffered_sender, stdout_buffered_receiver) = tokio::sync::oneshot::channel();
 		let stdin_blob = command
@@ -868,7 +958,6 @@ impl Session {
 				Ok::<_, tg::Error>(arg)
 			})
 			.transpose()?;
-		let exited = Stopper::new();
 		let control_task = Task::spawn({
 			let session = session.clone();
 			let exited = exited.clone();
@@ -904,40 +993,36 @@ impl Session {
 			}
 		});
 
-		let result = run_task
-			.take()
-			.unwrap()
-			.wait()
-			.await
-			.map_err(|error| tg::error!(!error, "the process task panicked"))?;
-
-		// The sandbox's connection is closed once the process exits, so stdin can no longer be written to.
-		exited.stop();
-
-		let result = match result {
-			Ok(output) => {
-				let context = crate::Context {
-					origin: crate::Origin::Sandbox(sandbox.index()),
-					..session.context.clone()
-				};
-				let output_session = session.server.session(&context);
-				output_session
-					.collect_process_output(CollectProcessOutputArg {
-						exit: output.exit,
-						path: output.path,
-						state: &state,
-					})
-					.await
-			},
-			Err(error) => Err(error),
+		let finished = if let Some(finished) = finished {
+			finished
+		} else {
+			let arg = FinishProcessRunArg {
+				exited: &exited,
+				id: Some(&id),
+				process_index,
+				processes: processes.clone(),
+				run_task: run_task.take().unwrap(),
+				sandbox: &sandbox,
+				state: &state,
+			};
+			let finished = session.finish_process_run(arg).boxed().await?;
+			crate::checkpoint!(
+				session.server,
+				"runner.process.finish",
+				command = %state.command,
+				process = %id,
+			)
+			.await;
+			let arg = RecordFinishedProcessArg {
+				data: &finished.data,
+				id: &id,
+				location: &location,
+				process_index,
+				processes: processes.clone(),
+			};
+			session.record_finished_process_local(arg).await?;
+			finished
 		};
-		crate::checkpoint!(
-			session.server,
-			"runner.process.finish",
-			command = %state.command,
-			process = %id,
-		)
-		.await;
 		event_sender.send(Ok(Event::Exited)).ok();
 		let buffered_task = Task::spawn({
 			let event_sender = event_sender.clone();
@@ -974,16 +1059,242 @@ impl Session {
 			buffered_task,
 			control_task,
 			finish_sender,
+			finished,
 			id,
 			log_task,
-			output: result,
 			process,
 			process_index,
 			processes: processes.clone(),
-			progress_sender,
 		};
 
 		session.finish_process_task(arg).boxed().await
+	}
+
+	async fn finish_process_run(
+		&self,
+		arg: FinishProcessRunArg<'_>,
+	) -> tg::Result<FinishedProcess> {
+		let FinishProcessRunArg {
+			exited,
+			id,
+			process_index,
+			processes,
+			run_task,
+			sandbox,
+			state,
+		} = arg;
+		let result = run_task
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the process task panicked"))?;
+
+		// The sandbox's connection is closed once the process exits, so stdin can no longer be written to.
+		exited.stop();
+
+		let result = match result {
+			Ok(output) => {
+				let context = crate::Context {
+					origin: crate::Origin::Sandbox(sandbox.index()),
+					..self.context.clone()
+				};
+				let output_session = self.server.session(&context);
+				output_session
+					.collect_process_output(CollectProcessOutputArg {
+						exit: output.exit,
+						path: output.path,
+						state,
+					})
+					.await
+			},
+			Err(error) => Err(error),
+		};
+
+		let finish = processes
+			.get_mut(process_index)
+			.ok_or_else(|| tg::error!(?id, "failed to find the process"))?
+			.finish
+			.take();
+		let output = if let Some(finish) = finish {
+			let error = finish
+				.error
+				.map(tg::Error::try_from)
+				.transpose()
+				.map_err(|error| tg::error!(!error, "failed to deserialize the process error"))?;
+			Output {
+				checksum: None,
+				error,
+				exit: finish.exit,
+				value: None,
+			}
+		} else {
+			match result {
+				Ok(output) => output,
+				Err(error) => {
+					let code = match error.to_data_or_id() {
+						tg::Either::Left(data) => data.code.unwrap_or(tg::error::Code::Internal),
+						tg::Either::Right(_) => tg::error::Code::Internal,
+					};
+					let error = if let Some(id) = id {
+						tg::error!(!error, code = code, process = %id, "failed to run the process")
+					} else {
+						tg::error!(!error, code = code, "failed to run the process")
+					};
+					Output {
+						checksum: None,
+						error: Some(error),
+						exit: 1,
+						value: None,
+					}
+				},
+			}
+		};
+
+		// Store the output.
+		if let Some(value) = &output.value {
+			value
+				.store_with_handle(self)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to store the output"))?;
+		}
+
+		// Store the error.
+		let (mut error, error_code) = if let Some(error) = &output.error {
+			let error = error.to_data_or_id();
+			let error_code = match &error {
+				tg::Either::Left(data) => data.code,
+				tg::Either::Right(_) => None,
+			};
+			let error = self.store_process_error(error).await;
+			(Some(error.map_right(tg::Referent::with_node)), error_code)
+		} else {
+			(None, None)
+		};
+		let mut exit = output.exit;
+
+		let process_state = processes
+			.get(process_index)
+			.ok_or_else(|| tg::error!(?id, "failed to find the process"))?;
+		let mut data = process_state.data();
+		drop(process_state);
+		if matches!(
+			error_code,
+			Some(
+				tg::error::Code::Cancellation
+					| tg::error::Code::HeartbeatExpiration
+					| tg::error::Code::Internal
+			)
+		) {
+			data.cacheable = false;
+		}
+		if let Some(expected) = &data.expected_checksum
+			&& exit == 0
+		{
+			if let Some(actual) = &output.checksum
+				&& expected != actual
+			{
+				error = Some(tg::Either::Left(tg::error::Data {
+					code: Some(tg::error::Code::ChecksumMismatch),
+					message: Some("checksum mismatch".into()),
+					values: [
+						("expected".into(), expected.to_string()),
+						("actual".into(), actual.to_string()),
+					]
+					.into(),
+					..Default::default()
+				}));
+				exit = 1;
+			} else if output.checksum.is_none() && !expected.is_any() {
+				return Err(tg::error!(?id, "the actual checksum was not set"));
+			}
+		}
+		data.actual_checksum = output.checksum.clone();
+		data.error = error;
+		data.exit = Some(exit);
+		data.finished_at = Some(self.server.clock.unix_timestamp()?);
+		data.output = output.value.as_ref().map(tg::Value::to_data);
+		data.status = tg::process::Status::Finished;
+		let finished = FinishedProcess { data, output };
+
+		Ok(finished)
+	}
+
+	async fn record_finished_process_local(
+		&self,
+		arg: RecordFinishedProcessArg<'_>,
+	) -> tg::Result<()> {
+		let RecordFinishedProcessArg {
+			data,
+			id,
+			location,
+			process_index,
+			processes,
+		} = arg;
+		let mut process_state = processes
+			.get_mut(process_index)
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+		let child_leases = process_state
+			.children
+			.iter_mut()
+			.filter_map(|(id, child)| {
+				let lease = child.lease.take()?;
+				let location = child.location.take();
+				Some((id.clone(), lease, location))
+			})
+			.collect::<Vec<_>>();
+		drop(process_state);
+
+		// Enqueue the index batch before finishing the process so subsequent authorization can wait for indexing.
+		// Leave the local process data to the control finish handler and log compaction to EOF handling.
+		let remote = location.is_remote();
+		let options = crate::process::put::Options {
+			defer_index: true,
+			enqueue_log_compaction: false,
+			location: Some(location.clone()),
+			store_data: remote,
+		};
+		self.put_finished_process_local(id, data.clone(), options)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to index the finished process"))?;
+		let mut process_state = processes
+			.get_mut(process_index)
+			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+		process_state.data.actual_checksum = data.actual_checksum.clone();
+		process_state.data.cacheable = data.cacheable;
+		process_state.data.error = data.error.clone();
+		process_state.data.exit = data.exit;
+		process_state.data.finished_at = data.finished_at;
+		process_state.data.output = data.output.clone();
+		process_state.data.status = tg::process::Status::Finished;
+		process_state.changed.send_replace(());
+		drop(process_state);
+
+		child_leases
+			.into_iter()
+			.map(|(child, lease, location)| {
+				let parent = id.clone();
+				let session = self.clone();
+				async move {
+					crate::checkpoint!(
+						session.server,
+						"runner.process.child_lease.release",
+						child = %child,
+						parent = %parent,
+					)
+					.await;
+					let arg = tg::process::cancel::Arg {
+						lease,
+						location,
+					};
+					if let Err(error) = session.cancel_process(&child, arg).await {
+						tracing::error!(error = %error.trace(), process = %child, "failed to release a child process lease");
+					}
+				}
+			})
+			.collect::<futures::stream::FuturesUnordered<_>>()
+			.collect::<Vec<_>>()
+			.await;
+
+		Ok(())
 	}
 
 	async fn write_process_log_task(
@@ -1162,261 +1473,43 @@ impl Session {
 			buffered_task,
 			control_task,
 			finish_sender,
+			finished,
 			id,
 			log_task,
-			output: result,
 			process,
 			process_index,
 			processes,
-			progress_sender,
 		} = arg;
 		let session = self;
+		let FinishedProcess { mut data, output } = finished;
 
-		let finish = processes
+		// Put the sync token on the output objects so that readers can wait for the push.
+		let sync = processes
 			.get_mut(process_index)
-			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?
-			.finish
-			.take();
-		let output = if let Some(finish) = finish {
-			let error = finish
-				.error
-				.map(tg::Error::try_from)
-				.transpose()
-				.map_err(|error| tg::error!(!error, "failed to deserialize the process error"))?;
-			Output {
-				checksum: None,
-				error,
-				exit: finish.exit,
-				value: None,
-			}
-		} else {
-			match result {
-				Ok(output) => output,
-				Err(error) => {
-					let code = match error.to_data_or_id() {
-						tg::Either::Left(data) => data.code.unwrap_or(tg::error::Code::Internal),
-						tg::Either::Right(_) => tg::error::Code::Internal,
-					};
-					let error = tg::error!(
-						!error,
-						code = code,
-						process = %process.id(),
-						"failed to run the process"
-					);
-					Output {
-						checksum: None,
-						error: Some(error),
-						exit: 1,
-						value: None,
-					}
-				},
-			}
-		};
-
-		// Store the output.
-		let mut value = if let Some(value) = &output.value {
-			value
-				.store_with_handle(session)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to store the output"))?;
-			let data = value.to_data();
-			Some(data)
-		} else {
-			None
-		};
-
-		// Store the error.
-		let (mut error, mut error_code) = if let Some(error) = &output.error {
-			let error = error.to_data_or_id();
-			let error_code = match &error {
-				tg::Either::Left(data) => data.code,
-				tg::Either::Right(_) => None,
+			.and_then(|state| state.sync.clone());
+		if let Some(sync) = &sync {
+			let entry = tg::tokens::Entry {
+				authorization: Vec::new(),
+				sync: Some(sync.clone()),
 			};
-			let error = session.store_process_error(error).await;
-			(Some(error.map_right(tg::Referent::with_node)), error_code)
-		} else {
-			(None, None)
-		};
-		let mut exit = output.exit;
-
-		// Push the output and error.
-		let push_result = async {
-			let Some(tg::Location::Remote(remote)) = process
-				.location()
-				.and_then(|location| location.to_location())
-			else {
-				return Ok::<_, tg::Error>(());
-			};
-
-			let mut objects = Vec::new();
-			if let Some(value) = &value {
-				value.children_with_tokens(&mut objects);
-			}
-			if let Some(tg::Either::Right(id)) = &error {
-				let id = id.node.clone();
-				let object = tg::Referent::with_node(tg::object::Id::Error(id));
-				objects.push(object);
-			}
-			if objects.is_empty() {
-				return Ok(());
-			}
-			let arg = tg::push::Arg {
-				destination: Some(tg::Location::Remote(tg::location::Remote {
-					name: remote.name.clone(),
-					region: remote.region.clone(),
-				})),
-				nodes: objects
-					.into_iter()
-					.map(|object| object.map(Into::into))
-					.collect(),
-				..Default::default()
-			};
-			let stream = session
-				.push_for_process(arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to push the output"))?;
-			let state = process
-				.load_with_handle(session)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to load the process"))?;
-			session
-				.write_progress_stream(progress_sender.clone(), &state.stderr, stream)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
-
-			Ok(())
-		}
-		.await;
-		if let Err(push_error) = push_result {
-			let push_error = tg::error!(
-				!push_error,
-				code = tg::error::Code::Internal,
-				process = %process.id(),
-				"failed to push the process output"
-			);
-			error = Some(
-				push_error
-					.to_data_or_id()
-					.map_right(tg::Referent::with_node),
-			);
-			error_code = Some(tg::error::Code::Internal);
-			exit = 1;
-			value = None;
-		}
-
-		// Close the progress stream.
-		drop(progress_sender);
-		let id = process.id().unwrap_right();
-		let mut process_state = processes
-			.get_mut(process_index)
-			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		let mut data = process_state.data();
-		if matches!(
-			error_code,
-			Some(
-				tg::error::Code::Cancellation
-					| tg::error::Code::HeartbeatExpiration
-					| tg::error::Code::Internal
-			)
-		) {
-			data.cacheable = false;
-		}
-		if let Some(expected) = &data.expected_checksum
-			&& exit == 0
-		{
-			if let Some(actual) = &output.checksum
-				&& expected != actual
-			{
-				error = Some(tg::Either::Left(tg::error::Data {
-					code: Some(tg::error::Code::ChecksumMismatch),
-					message: Some("checksum mismatch".into()),
-					values: [
-						("expected".into(), expected.to_string()),
-						("actual".into(), actual.to_string()),
-					]
-					.into(),
-					..Default::default()
-				}));
-				exit = 1;
-			} else if output.checksum.is_none() && !expected.is_any() {
-				return Err(tg::error!(%id, "the actual checksum was not set"));
-			}
-		}
-		data.actual_checksum = output.checksum;
-		data.error = error;
-		data.exit = Some(exit);
-		data.finished_at = Some(self.server.clock.unix_timestamp()?);
-		data.output = value;
-		data.status = tg::process::Status::Finished;
-		let child_leases = process_state
-			.children
-			.iter_mut()
-			.filter_map(|(id, child)| {
-				let lease = child.lease.take()?;
-				let location = child.location.take();
-				Some((id.clone(), lease, location))
-			})
-			.collect::<Vec<_>>();
-		drop(process_state);
-
-		// Enqueue the index batch before finishing the process so subsequent authorization can wait for indexing.
-		// Leave the local process data to the control finish handler and log compaction to EOF handling.
-		let location = process
-			.location()
-			.and_then(|location| location.to_location());
-		let remote = location.as_ref().is_some_and(tg::Location::is_remote);
-		let options = crate::process::put::Options {
-			defer_index: true,
-			enqueue_log_compaction: false,
-			location,
-			store_data: remote,
-		};
-		session
-			.put_finished_process_local(id, data.clone(), options)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to index the finished process"))?;
-		let mut process_state = processes
-			.get_mut(process_index)
-			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		process_state.data.actual_checksum = data.actual_checksum.clone();
-		process_state.data.cacheable = data.cacheable;
-		process_state.data.error = data.error.clone();
-		process_state.data.exit = data.exit;
-		process_state.data.finished_at = data.finished_at;
-		process_state.data.output = data.output.clone();
-		process_state.data.status = tg::process::Status::Finished;
-		process_state.changed.send_replace(());
-		drop(process_state);
-
-		child_leases
-			.into_iter()
-			.map(|(child, lease, location)| {
-				let parent = id.clone();
-				let session = session.clone();
-				async move {
-					crate::checkpoint!(
-						session.server,
-						"runner.process.child_lease.release",
-						child = %child,
-						parent = %parent,
-					)
-					.await;
-					let arg = tg::process::cancel::Arg {
-						lease,
-						location,
-					};
-					if let Err(error) = session.cancel_process(&child, arg).await {
-						tracing::error!(error = %error.trace(), process = %child, "failed to release a child process lease");
-					}
+			let tokens = tg::Tokens::with_local_entry(entry);
+			if let Some(value) = &output.value {
+				for object in value.objects() {
+					object.state().inherit_tokens(&tokens);
 				}
-			})
-			.collect::<futures::stream::FuturesUnordered<_>>()
-			.collect::<Vec<_>>()
-			.await;
+			}
+			if let Some(tg::Either::Right(referent)) = &mut data.error {
+				referent.options.tokens.inherit(&tokens);
+			}
+		}
+		data.output = output.value.as_ref().map(tg::Value::to_data);
 
-		finish_sender
-			.send(data)
-			.map_err(|_| tg::error!(%id, "failed to send the finished process data"))?;
+		let push_data = data.clone();
+		if let Some(finish_sender) = finish_sender {
+			finish_sender
+				.send(data)
+				.map_err(|_| tg::error!(%id, "failed to send the finished process data"))?;
+		}
 		let log_result = if let Some(log_task) = log_task {
 			match log_task.wait().await {
 				Ok(result) => {
@@ -1431,6 +1524,14 @@ impl Session {
 			Ok(result) => result,
 			Err(error) => Err(tg::error!(!error, %id, "the process buffered task panicked")),
 		};
+
+		// Push the output and error. The process has finished, so a failure is logged.
+		if let Err(error) = session
+			.push_process_output(&process, &push_data, sync)
+			.await
+		{
+			tracing::error!(error = %error.trace(), process = %id, "failed to push the process output");
+		}
 		let control_result = match control_task.wait().await {
 			Ok(result) => result,
 			Err(error) => Err(tg::error!(!error, %id, "the process control task panicked")),
@@ -1440,6 +1541,62 @@ impl Session {
 		control_result?;
 
 		Ok::<_, tg::Error>(())
+	}
+
+	async fn push_process_output(
+		&self,
+		process: &tg::Process,
+		data: &tg::process::Data,
+		sync: Option<tg::sync::Token>,
+	) -> tg::Result<()> {
+		let Some(tg::Location::Remote(remote)) = process
+			.location()
+			.and_then(|location| location.to_location())
+		else {
+			return Ok(());
+		};
+
+		// Collect the objects.
+		let mut objects = Vec::new();
+		if let Some(value) = &data.output {
+			value.children_with_tokens(&mut objects);
+		}
+		if let Some(tg::Either::Right(id)) = &data.error {
+			let id = tg::object::Id::Error(id.node.clone());
+			objects.push(tg::Referent::with_node(id));
+		}
+		if objects.is_empty() {
+			return Ok(());
+		}
+
+		// Push the objects.
+		crate::checkpoint!(
+			self.server,
+			"runner.process.output.push.started",
+			process = %process.id(),
+		)
+		.await;
+		let destination = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: remote.region.clone(),
+		});
+		let arg = tg::push::Arg {
+			destination: Some(destination),
+			nodes: objects
+				.into_iter()
+				.map(|object| object.map(Into::into))
+				.collect(),
+			sync,
+			..Default::default()
+		};
+		let stream = self
+			.push_for_process(arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to push the output"))?;
+		let mut stream = std::pin::pin!(stream);
+		while stream.try_next().await?.is_some() {}
+
+		Ok(())
 	}
 
 	fn try_get_process_session(&self, id: &tg::process::Id) -> Option<Session> {
@@ -1472,7 +1629,7 @@ impl Session {
 		);
 		let resource = tg::Referent::with_node_and_local_tokens(
 			tg::object::Id::from(id.clone()),
-			command.state().tokens().local().to_vec(),
+			command.state().tokens().local_authorization().to_vec(),
 		);
 		let authorized = self.authorize(resource, permission).await?;
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
@@ -1784,6 +1941,12 @@ impl Session {
 				stopper,
 			};
 			let exit = self.wait_for_process(arg).boxed().await?;
+			crate::checkpoint!(
+				self.server,
+				"runner.process.exit",
+				command = %state.command,
+			)
+			.await;
 
 			let output = RunProcessOutput {
 				exit,
@@ -1982,7 +2145,7 @@ impl Session {
 				artifact
 					.options
 					.tokens
-					.local()
+					.local_authorization()
 					.iter()
 					.filter_map(move |token| {
 						let resource =

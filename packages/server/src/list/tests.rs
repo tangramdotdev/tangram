@@ -13,7 +13,7 @@ async fn request_arg_preserves_list_and_node_options() {
 		resource: tg::file::Id::new(b"contents").into(),
 	};
 	let token = tg::authorization::Token::sign(body, &key).unwrap();
-	let tokens = tg::authorization::Tokens::with_local([token]);
+	let tokens = tg::Tokens::with_authorization([token]);
 	let location = tg::Location::Remote(tg::location::Remote {
 		name: "remote".into(),
 		region: Some("region".into()),

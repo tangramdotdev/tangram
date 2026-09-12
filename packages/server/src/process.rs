@@ -59,6 +59,7 @@ pub struct State {
 	pub leases: BTreeSet<String>,
 	pub process: Option<tangram_sandbox::Process>,
 	pub stopper: tangram_futures::task::Stopper,
+	pub sync: Option<tg::sync::Token>,
 }
 
 impl Processes {
@@ -194,7 +195,7 @@ impl Session {
 	}
 
 	fn process_token_grants_subtree(&self, process: &tg::Referent<tg::process::Id>) -> bool {
-		let tokens = process.options.tokens.local();
+		let tokens = process.options.tokens.local_authorization();
 		let resource = tg::Selector::Id(process.node.clone().into());
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Subtree,
@@ -299,7 +300,7 @@ impl Session {
 	where
 		T: Clone + Into<tg::Id>,
 	{
-		let tokens = object.options.tokens.local();
+		let tokens = object.options.tokens.local_authorization();
 		let resource = tg::Selector::Id(object.node.clone().into());
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,

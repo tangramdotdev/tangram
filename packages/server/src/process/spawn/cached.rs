@@ -598,7 +598,7 @@ impl Session {
 			sandbox_arg: None,
 			sandbox_token: None,
 			scheduler: None,
-			tokens: output.tokens.local().to_vec(),
+			tokens: output.tokens.local_authorization().to_vec(),
 		})
 	}
 

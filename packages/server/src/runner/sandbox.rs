@@ -312,7 +312,7 @@ impl Session {
 		let processes = Arc::new(crate::process::Processes::default());
 		let entry = crate::sandbox::State {
 			allocation: Some(allocation),
-			authorization_tokens: tg::authorization::Tokens::default(),
+			authorization_tokens: tg::Tokens::default(),
 			changed: tokio::sync::watch::channel(()).0,
 			data: control_data,
 			id: expected_id.clone(),

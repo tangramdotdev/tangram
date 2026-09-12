@@ -5,7 +5,7 @@ import type { Client } from "../client.ts";
 export namespace Read {
 	export type Arg = {
 		blob: tg.Blob.Id;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Tokens | null;
 	} & Read.Options;
 
 	export type Options = {

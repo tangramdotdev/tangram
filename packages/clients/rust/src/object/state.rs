@@ -21,7 +21,7 @@ struct Inner {
 	#[debug(ignore)]
 	store: Option<StoreTask>,
 	stored: bool,
-	tokens: tg::authorization::Tokens,
+	tokens: tg::Tokens,
 }
 
 #[derive(Clone)]
@@ -49,7 +49,7 @@ impl State {
 			object,
 			store: None,
 			stored,
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		})))
 	}
 
@@ -62,7 +62,7 @@ impl State {
 			object: None,
 			store: None,
 			stored: true,
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		})))
 	}
 
@@ -75,7 +75,7 @@ impl State {
 			object: Some(object.into()),
 			store: None,
 			stored: false,
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		})))
 	}
 
@@ -199,14 +199,15 @@ impl State {
 		});
 	}
 
-	pub(crate) fn finish_store(&self, object: tg::Referent<tg::object::Id>) -> tg::Result<()> {
+	pub(crate) fn finish_store(&self, mut object: tg::Referent<tg::object::Id>) -> tg::Result<()> {
 		let mut inner = self.0.write().unwrap();
 		if inner.id.as_ref() != Some(&object.node) {
 			return Err(tg::error!("invalid object batch output"));
 		}
 		inner.location = object.options.location;
 		inner.stored = true;
-		inner.tokens.inherit(&object.options.tokens);
+		object.options.tokens.inherit(&inner.tokens);
+		inner.tokens = object.options.tokens;
 
 		Ok(())
 	}
@@ -230,11 +231,11 @@ impl State {
 		}
 	}
 
-	pub fn set_tokens(&self, tokens: tg::authorization::Tokens) {
+	pub fn set_tokens(&self, tokens: tg::Tokens) {
 		self.0.write().unwrap().tokens = tokens;
 	}
 
-	pub fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
+	pub fn inherit_tokens(&self, tokens: &tg::Tokens) {
 		self.0.write().unwrap().tokens.inherit(tokens);
 	}
 
@@ -243,7 +244,7 @@ impl State {
 	}
 
 	#[must_use]
-	pub fn tokens(&self) -> tg::authorization::Tokens {
+	pub fn tokens(&self) -> tg::Tokens {
 		self.0.read().unwrap().tokens.clone()
 	}
 
@@ -377,7 +378,7 @@ impl State {
 		H: tg::Handle,
 	{
 		// Load the object.
-		let Some(output) = handle.try_get_object(&id, arg).await? else {
+		let Some(mut output) = handle.try_get_object(&id, arg).await? else {
 			return Ok(None);
 		};
 
@@ -394,7 +395,8 @@ impl State {
 		// Update the state.
 		let mut inner = self.0.write().unwrap();
 		if !output.tokens.is_empty() {
-			inner.tokens.inherit(&output.tokens);
+			output.tokens.inherit(&inner.tokens);
+			inner.tokens = output.tokens;
 		}
 		inner.object.replace(object.clone());
 

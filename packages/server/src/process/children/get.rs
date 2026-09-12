@@ -226,7 +226,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		let token = arg.tokens.local().to_vec();
+		let token = arg.tokens.local_authorization().to_vec();
 		let check_future = async move {
 			self.process_children_readable_local(id, token.as_ref())
 				.await

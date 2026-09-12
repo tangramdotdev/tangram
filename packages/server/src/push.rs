@@ -208,7 +208,16 @@ impl Session {
 		let get = get
 			.into_iter()
 			.map(|mut node| {
-				node.options.tokens = node.options.tokens.for_location(&source);
+				let tokens = std::mem::take(&mut node.options.tokens);
+				node.options.tokens = if destination.is_remote() {
+					tokens.for_location(&destination)
+				} else {
+					let mut relay = tg::Tokens::default();
+					if let Some(entry) = tokens.get(&source) {
+						relay.set(source.clone(), entry.clone());
+					}
+					relay
+				};
 				node
 			})
 			.collect::<Vec<_>>();
@@ -485,6 +494,7 @@ impl Session {
 					received_specifiers.lock().unwrap().clear();
 				}
 				let output = Arc::new(Mutex::new(tg::push::Output::default()));
+				let sync_nodes = Mutex::new(None);
 
 				// Set the progress to zero.
 				for name in [
@@ -529,6 +539,7 @@ impl Session {
 					process_outputs: arg.process_outputs,
 					put,
 					sandbox_processes: arg.sandbox_processes,
+					sync: None,
 					tag_targets: arg.tag_targets,
 					user_children: arg.user_children,
 				};
@@ -543,7 +554,7 @@ impl Session {
 					force: arg.force,
 					get,
 					group_children: arg.group_children,
-					location: Some(destination.into()),
+					location: Some(destination.clone().into()),
 					metadata: arg.metadata,
 					organization_children: arg.organization_children,
 					process_children: arg.process_children,
@@ -553,11 +564,13 @@ impl Session {
 					process_outputs: arg.process_outputs,
 					put: Vec::new(),
 					sandbox_processes: arg.sandbox_processes,
+					sync: arg.sync.clone(),
 					tag_targets: arg.tag_targets,
 					user_children: arg.user_children,
 				};
 				let destination_input_stream =
 					ReceiverStream::new(source_output_receiver).map(Ok).boxed();
+				let output_arg = destination_arg.clone();
 
 				// Create the source future.
 				let source_future = async {
@@ -624,6 +637,22 @@ impl Session {
 								Self::push_or_pull_increment_progress(&progress, &message);
 								*output.lock().unwrap() += &message;
 							},
+							tg::sync::Message::Get(tg::sync::GetMessage::Start(message)) => {
+								// Log the referents so the pusher can confer the tokens before the sync ends.
+								let mut nodes = session.create_sync_output_nodes(&output_arg)?;
+								for node in &mut nodes {
+									let entry = message
+										.nodes
+										.iter()
+										.find(|start| start.node == node.node)
+										.and_then(|start| start.options.tokens.local().cloned());
+									if let Some(entry) = entry {
+										node.options.tokens.set(destination.clone(), entry);
+									}
+									progress.log(None, node.to_string());
+								}
+								sync_nodes.lock().unwrap().replace(nodes);
+							},
 							tg::sync::Message::End => {
 								return Ok::<_, tg::Error>(true);
 							},
@@ -643,7 +672,10 @@ impl Session {
 
 				if source_completed && destination_completed {
 					let mut output = output.lock().unwrap().clone();
-					output.nodes = session.create_sync_output_nodes(&arg)?;
+					output.nodes = match sync_nodes.lock().unwrap().take() {
+						Some(nodes) => nodes,
+						None => session.create_sync_output_nodes(&output_arg)?,
+					};
 					Ok(ControlFlow::Break(output))
 				} else {
 					Ok(ControlFlow::Continue(tg::error!(
@@ -654,6 +686,7 @@ impl Session {
 				}
 			}
 		})
+		.boxed()
 		.await?;
 
 		if let tg::Location::Remote(remote) = &destination {
@@ -719,15 +752,18 @@ impl Session {
 		progress.increment("users", skipped.users + transferred.users);
 	}
 
-	fn create_sync_output_nodes(
+	pub(crate) fn create_sync_output_nodes(
 		&self,
-		arg: &tg::push::Arg,
+		arg: &tg::sync::Arg,
 	) -> tg::Result<Vec<tg::Referent<tg::Id>>> {
 		let now = self.server.clock.unix_timestamp()?;
-		arg.nodes
+		arg.get
 			.iter()
-			.map(|node| {
-				let id = node.node.clone();
+			.filter_map(|node| match &node.node {
+				tg::Selector::Id(id) => Some(id.clone()),
+				tg::Selector::Specifier(_) => None,
+			})
+			.map(|id| {
 				let (permissions, expires_at) = if id.kind().is_object() {
 					(
 						vec![tg::authorization::Permission::Object(

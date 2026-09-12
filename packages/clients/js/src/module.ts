@@ -115,12 +115,17 @@ export namespace Module {
 		) {
 			params.push(`tag=${encodeURIComponent(value.referent.options.tag)}`);
 		}
-		for (let [location, tokens] of Object.entries(
+		for (let [location, entry] of Object.entries(
 			value.referent.options?.tokens ?? {},
 		)) {
-			for (let [index, token] of tokens.entries()) {
+			for (let [index, token] of (entry.authorization ?? []).entries()) {
 				params.push(
-					`tokens[${encodeURIComponent(location)}][${index}]=${encodeURIComponent(token)}`,
+					`tokens[${encodeURIComponent(location)}][authorization][${index}]=${encodeURIComponent(token)}`,
+				);
+			}
+			if (entry.sync !== null && entry.sync !== undefined) {
+				params.push(
+					`tokens[${encodeURIComponent(location)}][sync]=${encodeURIComponent(entry.sync)}`,
 				);
 			}
 		}
@@ -182,17 +187,28 @@ export namespace Module {
 						break;
 					}
 					default: {
-						let match = key?.match(/^tokens\[(.*)\]\[(\d+)\]$/);
+						let match = key?.match(
+							/^tokens\[(.*)\]\[(authorization|sync)\](?:\[(\d+)\])?$/,
+						);
 						if (match === null || match === undefined) {
 							throw new Error("invalid key");
 						}
 						options.tokens ??= {};
-						let tokens = (options.tokens[decodeURIComponent(match[1]!)] ??= []);
-						let index = Number(match[2]);
-						if (index !== tokens.length) {
-							throw new Error("invalid token index");
+						let location = decodeURIComponent(match[1]!);
+						let entry = (options.tokens[location] ??= {});
+						if (match[2] === "authorization") {
+							let tokens = (entry.authorization ??= []);
+							let index = Number(match[3]);
+							if (match[3] === undefined || index !== tokens.length) {
+								throw new Error("invalid token index");
+							}
+							tokens.push(decodeURIComponent(value));
+						} else {
+							if (match[3] !== undefined) {
+								throw new Error("invalid sync token index");
+							}
+							entry.sync = decodeURIComponent(value);
 						}
-						tokens.push(decodeURIComponent(value));
 					}
 				}
 			}

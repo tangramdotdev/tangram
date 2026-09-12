@@ -11,8 +11,9 @@ pub struct DatabaseNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::Id,
+	pub local_tokens: tg::tokens::Entry,
+	pub remote_tokens: tg::tokens::Entry,
 	pub selector: tg::Selector<tg::Id>,
-	pub tokens: Vec<tg::authorization::Token>,
 }
 
 pub struct ObjectNode {
@@ -20,23 +21,26 @@ pub struct ObjectNode {
 	pub eager: bool,
 	pub id: tg::object::Id,
 	pub kind: Option<ObjectKind>,
+	pub local_tokens: tg::tokens::Entry,
 	pub parent: Option<tg::Id>,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub remote_tokens: tg::tokens::Entry,
 }
 
 pub struct ProcessNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::process::Id,
+	pub local_tokens: tg::tokens::Entry,
 	pub parent: Option<tg::process::Id>,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub remote_tokens: tg::tokens::Entry,
 }
 
 pub struct SandboxNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub local_tokens: tg::tokens::Entry,
+	pub remote_tokens: tg::tokens::Entry,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -66,9 +70,10 @@ impl Queue {
 		&self,
 		eager: bool,
 		id: tg::Id,
-		tokens: Vec<tg::authorization::Token>,
+		local_tokens: tg::tokens::Entry,
+		remote_tokens: tg::tokens::Entry,
 	) -> tg::Result<()> {
-		self.enqueue_with_descendants(true, eager, id, tokens)
+		self.enqueue_with_descendants(true, eager, id, local_tokens, remote_tokens)
 	}
 
 	pub fn enqueue_with_descendants(
@@ -76,7 +81,8 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		tokens: Vec<tg::authorization::Token>,
+		local_tokens: tg::tokens::Entry,
+		remote_tokens: tg::tokens::Entry,
 	) -> tg::Result<()> {
 		match id.kind() {
 			tg::id::Kind::Group
@@ -88,8 +94,9 @@ impl Queue {
 					descendants,
 					eager,
 					id,
+					local_tokens,
+					remote_tokens,
 					selector,
-					tokens,
 				});
 			},
 			tg::id::Kind::Process => {
@@ -97,8 +104,9 @@ impl Queue {
 					descendants,
 					eager,
 					id: id.try_into()?,
+					local_tokens,
 					parent: None,
-					tokens,
+					remote_tokens,
 				});
 			},
 			tg::id::Kind::Sandbox => {
@@ -106,7 +114,8 @@ impl Queue {
 					descendants,
 					eager,
 					id: id.try_into()?,
-					tokens,
+					local_tokens,
+					remote_tokens,
 				});
 			},
 			_ => {
@@ -117,8 +126,9 @@ impl Queue {
 					eager,
 					id,
 					kind: None,
+					local_tokens,
 					parent: None,
-					tokens,
+					remote_tokens,
 				});
 			},
 		}

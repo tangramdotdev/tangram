@@ -13,22 +13,25 @@ export namespace Referent {
 		name?: string | null;
 		path?: string | null;
 		tag?: tg.Tag | null;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Tokens | null;
 	};
 
 	export let withNodeAndLocalTokens = <T>(
 		node: T,
 		tokens: Array<tg.Authorization.Token>,
 	): tg.Referent<T> => {
-		return withNodeAndTokens(node, tg.Authorization.Tokens.withLocal(tokens));
+		return withNodeAndTokens(
+			node,
+			tg.Tokens.withLocal({ authorization: tokens }),
+		);
 	};
 
 	export let withNodeAndTokens = <T>(
 		node: T,
-		tokens: tg.Authorization.Tokens,
+		tokens: tg.Tokens,
 	): tg.Referent<T> => {
 		let referent: tg.Referent<T> = { node };
-		if (!tg.Authorization.Tokens.isEmpty(tokens)) {
+		if (!tg.Tokens.isEmpty(tokens)) {
 			referent.options = { tokens };
 		}
 		return referent;
@@ -145,12 +148,15 @@ export namespace Referent {
 		if (value.options?.tag !== undefined && value.options.tag !== null) {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
 		}
-		for (let [location, tokens] of Object.entries(
-			value.options?.tokens ?? {},
-		)) {
-			for (let [index, token] of tokens.entries()) {
+		for (let [location, entry] of Object.entries(value.options?.tokens ?? {})) {
+			for (let [index, token] of (entry.authorization ?? []).entries()) {
 				params.push(
-					`tokens[${encodeURIComponent(location)}][${index}]=${encodeURIComponent(token)}`,
+					`tokens[${encodeURIComponent(location)}][authorization][${index}]=${encodeURIComponent(token)}`,
+				);
+			}
+			if (entry.sync !== null && entry.sync !== undefined) {
+				params.push(
+					`tokens[${encodeURIComponent(location)}][sync]=${encodeURIComponent(entry.sync)}`,
 				);
 			}
 		}
@@ -202,17 +208,28 @@ export namespace Referent {
 						break;
 					}
 					default: {
-						let match = key?.match(/^tokens\[(.*)\]\[(\d+)\]$/);
+						let match = key?.match(
+							/^tokens\[(.*)\]\[(authorization|sync)\](?:\[(\d+)\])?$/,
+						);
 						if (match === null || match === undefined) {
 							throw new Error("invalid key");
 						}
 						options.tokens ??= {};
-						let tokens = (options.tokens[decodeURIComponent(match[1]!)] ??= []);
-						let index = Number(match[2]);
-						if (index !== tokens.length) {
-							throw new Error("invalid token index");
+						let location = decodeURIComponent(match[1]!);
+						let entry = (options.tokens[location] ??= {});
+						if (match[2] === "authorization") {
+							let tokens = (entry.authorization ??= []);
+							let index = Number(match[3]);
+							if (match[3] === undefined || index !== tokens.length) {
+								throw new Error("invalid token index");
+							}
+							tokens.push(decodeURIComponent(value));
+						} else {
+							if (match[3] !== undefined) {
+								throw new Error("invalid sync token index");
+							}
+							entry.sync = decodeURIComponent(value);
 						}
-						tokens.push(decodeURIComponent(value));
 					}
 				}
 			}
@@ -230,7 +247,14 @@ export namespace Referent {
 		};
 		if (value.options !== undefined) {
 			referent.options = { ...value.options };
-			delete referent.options.tokens;
+			let tokens = tg.Tokens.withoutAuthorization(
+				referent.options.tokens ?? {},
+			);
+			if (tg.Tokens.isEmpty(tokens)) {
+				delete referent.options.tokens;
+			} else {
+				referent.options.tokens = tokens;
+			}
 		}
 		return referent;
 	};
@@ -260,7 +284,7 @@ export namespace Referent {
 			name?: string | null;
 			path?: string | null;
 			tag?: tg.Tag | null;
-			tokens?: tg.Authorization.Tokens | null;
+			tokens?: tg.Tokens | null;
 		};
 	}
 }

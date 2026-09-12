@@ -244,9 +244,74 @@ impl Session {
 			}
 
 			if node.missing {
+				// If the node carries a sync token, then check the store before the index, and retry while that sync runs.
+				let entry = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_node_local_tokens(&tg::Id::from(node.id.clone()));
+				let syncing = entry
+					.sync
+					.as_ref()
+					.is_some_and(|token| self.verify_sync_token(token));
+				let stored = if output.is_none() && syncing {
+					let tokens = tg::Tokens::with_local_entry(entry.clone());
+					let request = tg::sync::notification::Request::object(node.id.clone());
+					self.try_get_with_sync_wait(&tokens, request, || async {
+						if self
+							.server
+							.try_get_object_local(&node.id, false)
+							.await?
+							.is_some()
+						{
+							return Ok(Some(()));
+						}
+						let ids = std::slice::from_ref(&node.id);
+						let (mut outputs, _) = self
+							.sync_get_touch_authorized_objects(
+								&state.graph,
+								ids,
+								touched_at,
+								self.server.config.object.time_to_touch,
+							)
+							.await?;
+						Ok(outputs.pop().flatten().map(|_| ()))
+					})
+					.await?
+					.is_some()
+				} else {
+					false
+				};
+
 				// If the object is not stored, then error.
-				if output.is_none() {
+				if output.is_none() && !stored {
 					return Err(tg::error!(id = %node.id, "failed to find the object"));
+				}
+
+				if syncing && !availability.subtree {
+					let storage = tangram_index::object::Storage { subtree: true };
+					let mut permissions = tg::authorization::permission::object::Set::empty();
+					permissions.insert(tg::authorization::permission::object::Set::NODE);
+					permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
+					let permissions = tg::authorization::permission::Set::Object(permissions);
+					let arg = UpdateObjectLocalArg {
+						data: None,
+						id: &node.id,
+						marked: None,
+						metadata: None,
+						permissions: Some(permissions),
+						put: None,
+						requested: None,
+						storage: Some(storage),
+					};
+					{
+						let mut graph = state.graph.lock().unwrap();
+						graph.update_object_local(arg);
+						// The incoming sync checks out the subtree, so the checkout walk must not descend into it.
+						graph.queue_checkout_object(&node.id);
+					}
+					Self::sync_get_index_send_object_available(state, &node.id).await?;
+					continue;
 				}
 
 				// If the object's subtree is unavailable, then enqueue the children.
@@ -296,7 +361,19 @@ impl Session {
 					}
 
 					// Enqueue the children.
-					Self::sync_get_enqueue_object_children(state, &node.id, &data, None, &[]);
+					let remote_tokens = state
+						.graph
+						.lock()
+						.unwrap()
+						.get_node_remote_tokens(&tg::Id::from(node.id.clone()));
+					Self::sync_get_enqueue_object_children(
+						state,
+						&node.id,
+						&data,
+						None,
+						&entry,
+						&remote_tokens,
+					);
 				}
 			}
 		}
@@ -447,12 +524,21 @@ impl Session {
 				state.graph.lock().unwrap().update_process_local(arg);
 
 				// Enqueue the children.
+				let id = tg::Id::from(node.id.clone());
+				let (local_tokens, remote_tokens) = {
+					let graph = state.graph.lock().unwrap();
+					(
+						graph.get_node_local_tokens(&id),
+						graph.get_node_remote_tokens(&id),
+					)
+				};
 				Self::sync_get_enqueue_process_children(
 					state,
 					&node.id,
 					&data,
 					Some(&availability),
-					&[],
+					&local_tokens,
+					&remote_tokens,
 				);
 			}
 		}

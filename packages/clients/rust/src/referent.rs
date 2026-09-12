@@ -66,13 +66,9 @@ pub struct Options {
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Specifier>,
 
-	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-	#[tangram_serialize(
-		default,
-		id = 5,
-		skip_serializing_if = "tg::authorization::Tokens::is_empty"
-	)]
-	pub tokens: tg::authorization::Tokens,
+	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "tg::Tokens::is_empty")]
+	pub tokens: tg::Tokens,
 }
 
 impl<T> Referent<T> {
@@ -92,11 +88,11 @@ impl<T> Referent<T> {
 		node: T,
 		tokens: impl IntoIterator<Item = tg::authorization::Token>,
 	) -> Self {
-		Self::with_node_and_tokens(node, tg::authorization::Tokens::with_local(tokens))
+		Self::with_node_and_tokens(node, tg::Tokens::with_authorization(tokens))
 	}
 
 	#[must_use]
-	pub fn with_node_and_tokens(node: T, tokens: tg::authorization::Tokens) -> Self {
+	pub fn with_node_and_tokens(node: T, tokens: tg::Tokens) -> Self {
 		let options = Options {
 			tokens,
 			..Default::default()
@@ -138,10 +134,10 @@ impl<T> Referent<T> {
 	}
 
 	pub fn local_tokens(&self) -> &[tg::authorization::Token] {
-		self.options.tokens.local()
+		self.options.tokens.local_authorization()
 	}
 
-	pub fn tokens(&self) -> &tg::authorization::Tokens {
+	pub fn tokens(&self) -> &tg::Tokens {
 		&self.options.tokens
 	}
 
@@ -233,9 +229,10 @@ where
 }
 
 impl Options {
+	/// Clear the location and the authorization tokens. Sync tokens are opaque hints and stay.
 	pub fn clear_location_and_tokens(&mut self) {
 		self.location = None;
-		self.tokens.clear();
+		self.tokens.clear_authorization();
 	}
 
 	pub fn with_path(path: impl Into<PathBuf>) -> Self {
@@ -246,7 +243,7 @@ impl Options {
 			name: None,
 			path: Some(path.into()),
 			tag: None,
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		}
 	}
 
@@ -323,20 +320,20 @@ mod tests {
 			name: "default".into(),
 			region: None,
 		});
-		let mut tokens = tg::authorization::Tokens::default();
-		tokens.insert_local(token.clone());
-		tokens.insert(remote.clone(), token.clone());
+		let mut tokens = tg::Tokens::default();
+		tokens.insert_local_authorization(token.clone());
+		tokens.insert_authorization(remote.clone(), token.clone());
 		let mut other = token;
 		other.body.permissions = vec![tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		)];
 		other.body.expires_at = 100;
-		tokens.insert_local(other.clone());
-		tokens.insert(remote.clone(), other.clone());
+		tokens.insert_local_authorization(other.clone());
+		tokens.insert_authorization(remote.clone(), other.clone());
 		for index in 0..20 {
 			let mut token = other.clone();
 			token.metadata.key = format!("key{index}");
-			tokens.insert_local(token);
+			tokens.insert_local_authorization(token);
 		}
 		let options = tg::referent::Options {
 			location: Some(remote),

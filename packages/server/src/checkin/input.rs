@@ -430,7 +430,7 @@ impl Session {
 						return Err(tg::error!(node = %reference.node(), "expected a graph"));
 					}
 					if let Some(id) = object_edge_root(&edge) {
-						for token in reference.options().tokens.local() {
+						for token in reference.options().tokens.local_authorization() {
 							self.checkin_merge_object_token(state.graph, state.next, &id, token);
 						}
 					}
@@ -538,7 +538,7 @@ impl Session {
 						return Err(tg::error!(node = %reference.node(), "expected a graph"));
 					}
 					if let Some(id) = object_edge_root(&edge) {
-						for token in reference.options().tokens.local() {
+						for token in reference.options().tokens.local_authorization() {
 							self.checkin_merge_object_token(state.graph, state.next, &id, token);
 						}
 					}
@@ -655,16 +655,16 @@ impl Session {
 		Ok(Some(references))
 	}
 
-	fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::authorization::Tokens> {
+	fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::Tokens> {
 		let Ok(Some(value)) = xattr::get(path, tg::file::TOKEN_XATTR_NAME) else {
-			return Ok(tg::authorization::Tokens::default());
+			return Ok(tg::Tokens::default());
 		};
 		let value = std::str::from_utf8(&value)
 			.map_err(|error| tg::error!(!error, "the file token xattr is not valid utf-8"))?;
 		let token = value
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the file token xattr"))?;
-		let tokens = tg::authorization::Tokens::with_local(Some(token));
+		let tokens = tg::Tokens::with_authorization(Some(token));
 
 		Ok(tokens)
 	}

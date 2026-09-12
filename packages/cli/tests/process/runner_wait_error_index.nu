@@ -17,13 +17,16 @@ let path = artifact {
 let spawned = tg --token $root_token spawn --verbose $path | from json
 let process = $spawned.process | split row '?' | first
 timeout 30s tg --token $root_token process log --no-timeout --length 6 $process | ignore
-tg --token $root_token cancel $process $spawned.lease
-timeout 10s tg --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | ignore
 tg --token $root_token grant $reader.user.id process_node_error $process | ignore
 tg --token $root_token grant $node_reader.user.id process_node $process | ignore
 tg --token $root_token index
 
-# Attach the wait before storing the error object and preparing the finished-process grants.
+# Hold the error object's index batch before the runner stores the error.
+let object_watch = tg --token $root_token checkpoint watch index.batch --params '{"finished_process":false}' | from json | get watch
+tg --token $root_token cancel $process $spawned.lease
+timeout 10s tg --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | ignore
+
+# Attach the wait before preparing the finished-process grants.
 let params = { process: $process } | to json --raw
 let attach_watch = tg --token $root_token checkpoint watch process.wait.attach --params $params | from json | get watch
 let socket = $server.url | str replace 'http+unix://' '' | url decode
@@ -35,7 +38,6 @@ let wait_job = job spawn {
 }
 timeout 10s tg --token $root_token checkpoint wait process.wait.attach $attach_watch 0 | ignore
 tg --token $root_token checkpoint unwatch process.wait.attach $attach_watch
-let object_watch = tg --token $root_token checkpoint watch index.batch --params '{"finished_process":false}' | from json | get watch
 let process_watch = tg --token $root_token checkpoint watch index.batch --params '{"finished_process":true}' | from json | get watch
 tg --token $root_token checkpoint unwatch runner.process.finish $finish_watch
 timeout 10s tg --token $root_token checkpoint wait index.batch $object_watch 0 | ignore

@@ -56,7 +56,7 @@ impl Session {
 			expires_at,
 		)?;
 		if let Some(token) = token {
-			referent.options.tokens.insert_local(token);
+			referent.options.tokens.insert_local_authorization(token);
 		}
 		Ok(())
 	}
@@ -69,7 +69,7 @@ impl Session {
 		let token = self.create_permanent_object_token(resource)?;
 		if let Some(token) = token {
 			let mut options = reference.options().clone();
-			options.tokens.insert_local(token);
+			options.tokens.insert_local_authorization(token);
 			reference.set_options(options);
 		}
 
@@ -94,7 +94,7 @@ impl Session {
 
 	pub(crate) fn update_tokens_and_location(
 		&self,
-		tokens: &mut tg::authorization::Tokens,
+		tokens: &mut tg::Tokens,
 		output_location: Option<&mut Option<tg::Location>>,
 		location: &tg::Location,
 		trusted: bool,
@@ -105,19 +105,27 @@ impl Session {
 		if location.is_local() {
 			return Ok(());
 		}
-		for token in tokens.remove_local() {
-			if trusted {
-				// Trust the remote token by signing its exact permissions locally.
+		let Some(entry) = tokens.remove_local() else {
+			return Ok(());
+		};
+		if trusted {
+			// Trust the remote tokens by signing their exact permissions locally.
+			for token in &entry.authorization {
 				let body = &token.body;
-				if let Some(local_token) = self.create_token(
+				if let Some(token) = self.create_token(
 					body.resource.clone(),
 					body.permissions.clone(),
 					body.expires_at,
 				)? {
-					tokens.insert_local(local_token);
+					tokens.insert_local_authorization(token);
 				}
 			}
-			tokens.insert(location.clone(), token);
+		}
+		for token in entry.authorization {
+			tokens.insert_authorization(location.clone(), token);
+		}
+		if let Some(token) = entry.sync {
+			tokens.set_sync(location.clone(), token);
 		}
 		Ok(())
 	}
@@ -312,7 +320,7 @@ impl Session {
 					expires_at,
 				)?;
 				if let Some(token) = token {
-					object.options.tokens.insert_local(token);
+					object.options.tokens.insert_local_authorization(token);
 				}
 			},
 			tg::value::Data::Mutation(mutation) => {
@@ -330,7 +338,11 @@ impl Session {
 						expires_at,
 					)?;
 					if let Some(token) = token {
-						module.referent.options.tokens.insert_local(token);
+						module
+							.referent
+							.options
+							.tokens
+							.insert_local_authorization(token);
 					}
 				}
 			},
@@ -419,7 +431,7 @@ impl Session {
 					expires_at,
 				)?;
 				if let Some(token) = token {
-					artifact.options.tokens.insert_local(token);
+					artifact.options.tokens.insert_local_authorization(token);
 				}
 			}
 		}

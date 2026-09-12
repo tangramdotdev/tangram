@@ -43,8 +43,8 @@ struct JsonOutput {
 	data: tg::object::Data,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	metadata: Option<tg::object::Metadata>,
-	#[serde(skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-	tokens: tg::authorization::Tokens,
+	#[serde(skip_serializing_if = "tg::Tokens::is_empty")]
+	tokens: tg::Tokens,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -53,7 +53,7 @@ pub(crate) struct TaskKey {
 	pub id: tg::object::Id,
 	pub location: tg::Location,
 	pub metadata: bool,
-	pub tokens: tg::authorization::Tokens,
+	pub tokens: tg::Tokens,
 }
 
 impl Session {
@@ -70,7 +70,18 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_get_object_local(id, arg.metadata, arg.availability, arg.tokens.local())
+					.try_get_with_sync_wait(
+						&arg.tokens,
+						tg::sync::notification::Request::object(id.clone()),
+						|| {
+							self.try_get_object_local(
+								id,
+								arg.metadata,
+								arg.availability,
+								arg.tokens.local_authorization(),
+							)
+						},
+					)
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 			{
@@ -175,7 +186,7 @@ impl Session {
 		if let Some(token) =
 			self.create_token(resource, permissions.iter().collect(), expires_at)?
 		{
-			output.tokens.insert_local(token);
+			output.tokens.insert_local_authorization(token);
 		}
 		let subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
@@ -191,7 +202,7 @@ impl Session {
 		data.children(&mut children);
 		for id in children {
 			if let Some(token) = self.create_token(id.clone().into(), vec![subtree], expires_at)? {
-				let tokens = tg::authorization::Tokens::with_local(Some(token));
+				let tokens = tg::Tokens::with_authorization(Some(token));
 				let child = tg::object::get::Child { tokens };
 				output.children.insert(id, child);
 			}
@@ -203,10 +214,11 @@ impl Session {
 	pub(crate) async fn try_get_object_batch_local_or_regions(
 		&self,
 		objects: &[tg::Referent<tg::object::Id>],
+		permissions: &[tg::authorization::permission::Set],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
 		let outputs = self
-			.try_get_object_batch_local(objects, metadata)
+			.try_get_object_batch_local(objects, permissions, metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the objects locally"))?;
 		let location: tg::location::Arg =
@@ -216,11 +228,31 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-		let outputs = std::iter::zip(objects, outputs)
-			.map(|(object, output)| {
+		let outputs = std::iter::zip(std::iter::zip(objects, permissions), outputs)
+			.map(|((object, permissions), output)| {
 				let regions = regions.clone();
 				async move {
 					if let Some(output) = output {
+						return Ok(Some(output));
+					}
+
+					// Retry a miss while a sync token identifies an incoming sync.
+					if self.has_verified_sync_token(&object.options.tokens)
+						&& let Some(output) = self
+							.try_get_with_sync_wait(
+								&object.options.tokens,
+								tg::sync::notification::Request::object(object.node.clone()),
+								|| async {
+									let objects = std::slice::from_ref(object);
+									let permissions = std::slice::from_ref(permissions);
+									let mut outputs = self
+										.try_get_object_batch_local(objects, permissions, metadata)
+										.await?;
+									Ok(outputs.pop().flatten())
+								},
+							)
+							.await?
+					{
 						return Ok(Some(output));
 					}
 
@@ -244,6 +276,7 @@ impl Session {
 	pub(crate) async fn try_get_object_batch_local(
 		&self,
 		objects: &[tg::Referent<tg::object::Id>],
+		permissions: &[tg::authorization::permission::Set],
 		metadata: bool,
 	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
 		// Get the objects.
@@ -256,40 +289,13 @@ impl Session {
 			.try_get_object_batch_local(&ids, metadata)
 			.await?;
 
-		// Authorize the objects.
+		// Mask the outputs.
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
-		let mut resources = Vec::new();
-		let mut positions = Vec::new();
-		for (position, (object, output)) in std::iter::zip(objects, &outputs).enumerate() {
-			if output.is_none() {
-				continue;
-			}
-			resources.push(object.clone());
-			positions.push(position);
-		}
-		let authorizations = self
-			.authorize_object_read_batch(resources, metadata)
-			.await?;
-		let mut permissions = vec![None; objects.len()];
-		for (position, authorization) in std::iter::zip(positions, authorizations) {
-			permissions[position] = authorization.map(|authorization| authorization.permissions);
-		}
-
-		// Mask the outputs.
 		let outputs = std::iter::zip(std::iter::zip(objects, outputs), permissions)
 			.map(|((object, output), permissions)| {
 				let mut output = output?;
-				let Some(permissions) = permissions else {
-					tracing::trace!(
-						id = %object.node,
-						principal = ?self.context.principal,
-						"authorization denied"
-					);
-
-					return None;
-				};
 				if !permissions.contains(node) {
 					tracing::trace!(
 						id = %object.node,
@@ -301,7 +307,7 @@ impl Session {
 				}
 				if let Some(metadata) = output.metadata.take() {
 					output.metadata =
-						Self::mask_object_metadata_with_permissions(metadata, permissions);
+						Self::mask_object_metadata_with_permissions(metadata, *permissions);
 				}
 
 				Some(output)
@@ -317,7 +323,7 @@ impl Session {
 		regions: &[String],
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let mut futures = regions
 			.iter()
@@ -350,7 +356,7 @@ impl Session {
 		region: &str,
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -373,7 +379,7 @@ impl Session {
 		remotes: &[crate::location::Remote],
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let mut futures = remotes
 			.iter()
@@ -407,7 +413,7 @@ impl Session {
 		remote: &crate::location::Remote,
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
@@ -436,7 +442,7 @@ impl Session {
 		location: tg::Location,
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let key = TaskKey {
 			availability,
@@ -681,7 +687,7 @@ impl Server {
 			bytes,
 			children: BTreeMap::new(),
 			metadata,
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		};
 
 		Ok(Some(output))
@@ -721,7 +727,7 @@ impl Server {
 			bytes,
 			children: BTreeMap::new(),
 			metadata: None,
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		};
 		Ok(Some(output))
 	}
@@ -758,7 +764,7 @@ impl Server {
 					bytes,
 					children: BTreeMap::new(),
 					metadata,
-					tokens: tg::authorization::Tokens::default(),
+					tokens: tg::Tokens::default(),
 				})
 			})
 			.collect();

@@ -199,7 +199,7 @@ impl Session {
 		Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerNotification>>>,
 	> {
 		let output = self
-			.try_get_process_local(id, false, false, arg.tokens.local())
+			.try_get_process_local(id, false, false, arg.tokens.local_authorization())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
 		let Some(output) = output else {
@@ -214,7 +214,7 @@ impl Session {
 		{
 			return Ok(None);
 		}
-		self.authorize_process_stdio_read(id, &source, arg.tokens.local())
+		self.authorize_process_stdio_read(id, &source, arg.tokens.local_authorization())
 			.await?;
 		let stream = match source {
 			Source::Log(streams) => {

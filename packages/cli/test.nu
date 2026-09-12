@@ -1702,6 +1702,7 @@ export def --env snapshot [
 	} else {
 		$value
 	}
+	let value = $value | normalize_tokens
 
 	if $inline != null {
 		snapshot_inline --span=(metadata $inline).span $value $inline
@@ -2786,6 +2787,14 @@ export def normalize [value?: string, --normalize-ids] {
 		$output = $output | str replace --all $id $replacement
 	}
 
+	$output | normalize_tokens
+}
+
+# Normalize authorization and sync tokens in a string for snapshotting. Tokens are never stable.
+export def normalize_tokens [value?: string] {
+	let input = $in
+	mut output = ($value | default $input)
+	$output = $output | str replace --all --regex '(tokens\[[a-z]+\]\[sync\]=)0\.[A-Za-z0-9_~%+/=-]+\.[A-Za-z0-9_~%+/=-]+\.[A-Za-z0-9_~%+/=-]+' '${1}<sync>'
 	$output = $output | str replace --all --regex '([?&]token=|"token":\s*")[A-Za-z0-9._~%+/=-]+' '${1}<token>'
 	$output = $output | str replace --all --regex '0\.[A-Za-z0-9_~%+/=-]+\.[A-Za-z0-9_~%+/=-]+\.[A-Za-z0-9_~%+/=-]+' '<token>'
 

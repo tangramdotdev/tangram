@@ -56,13 +56,9 @@ pub struct Output {
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
 
-	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-	#[tangram_serialize(
-		default,
-		id = 2,
-		skip_serializing_if = "tg::authorization::Tokens::is_empty"
-	)]
-	pub tokens: tg::authorization::Tokens,
+	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "tg::Tokens::is_empty")]
+	pub tokens: tg::Tokens,
 }
 
 impl tg::Sandbox {
@@ -100,7 +96,7 @@ impl tg::Sandbox {
 				location: output.location,
 				tokens: output.tokens,
 			}),
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		};
 		let sandbox = Self::new_inner(output.data.id.clone(), options, Some(handle));
 

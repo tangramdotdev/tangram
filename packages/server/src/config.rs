@@ -1058,6 +1058,10 @@ pub struct Sync {
 
 	pub grant_time_to_touch: Duration,
 
+	pub item_get_interval: Duration,
+
+	pub item_get_timeout: Duration,
+
 	pub max_frame_size: u64,
 
 	pub put: SyncPut,
@@ -1946,6 +1950,8 @@ impl Default for Sync {
 			get: SyncGet::default(),
 			grant_time_to_live: default_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
+			item_get_interval: Duration::from_secs(1),
+			item_get_timeout: Duration::from_secs(60),
 			max_frame_size: default_sync_max_frame_size(),
 			put: SyncPut::default(),
 			retry: sync_retry_default(),
@@ -2155,17 +2161,6 @@ impl Default for Write {
 	}
 }
 
-impl From<Retry> for tangram_futures::retry::Options {
-	fn from(retry: Retry) -> Self {
-		Self {
-			backoff: retry.backoff,
-			jitter: retry.jitter,
-			max_delay: retry.max_delay,
-			max_retries: retry.max_retries,
-		}
-	}
-}
-
 mod ip_range {
 	use {super::IpRange, std::net::Ipv4Addr, tangram_client::prelude::*};
 
@@ -2323,6 +2318,17 @@ fn default_authentication_token_ttl() -> Duration {
 
 fn default_sync_max_frame_size() -> u64 {
 	tg::sync::Config::default().max_frame_size
+}
+
+impl From<Retry> for tangram_futures::retry::Options {
+	fn from(value: Retry) -> Self {
+		Self {
+			backoff: value.backoff,
+			jitter: value.jitter,
+			max_delay: value.max_delay,
+			max_retries: value.max_retries,
+		}
+	}
 }
 
 fn sync_retry_default() -> Retry {

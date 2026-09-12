@@ -14,7 +14,7 @@ pub struct Node {
 	pub eager: bool,
 	pub id: tg::Id,
 	pub send: bool,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub tokens: tg::tokens::Entry,
 }
 
 struct Output {
@@ -39,7 +39,8 @@ impl Session {
 		// Authorize the node.
 		let permission = Self::sync_put_database_read_permission(&node.id)?;
 		let resource = tg::Selector::Id(node.id.clone());
-		let resource = tg::Referent::with_node_and_local_tokens(resource, node.tokens.clone());
+		let tokens = tg::Tokens::with_local_entry(node.tokens.clone());
+		let resource = tg::Referent::with_node_and_tokens(resource, tokens);
 		let authorized = self
 			.authorize(resource, permission)
 			.await?
@@ -126,11 +127,9 @@ impl Session {
 				.map(|child| child.node.clone())
 				.collect::<Vec<_>>();
 			for child in output.children {
-				state.queue.enqueue(
-					node.eager,
-					child.node,
-					child.options.tokens.local().to_vec(),
-				)?;
+				let mut tokens = child.options.tokens.local_entry();
+				tokens.inherit(&node.tokens);
+				state.queue.enqueue(node.eager, child.node, tokens)?;
 			}
 			state
 				.graph

@@ -158,6 +158,13 @@ impl Session {
 		if assign && data.is_none() {
 			return Err(tg::error!("a process on the shortcut path must have data"));
 		}
+		let finished = data
+			.as_ref()
+			.filter(|data| data.status.is_finished())
+			.cloned();
+		if finished.as_ref().is_some_and(|data| data.exit.is_none()) {
+			return Err(tg::error!("a finished process must have an exit"));
+		}
 		if assign && parent.is_none() {
 			return Err(tg::error!(
 				"a process on the shortcut path must have a parent"
@@ -439,6 +446,20 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to index the process"))?;
 		}
 
+		if let Some(data) = finished {
+			crate::checkpoint!(
+				self.server,
+				"process.control.connect.finish",
+				process = %id,
+			)
+			.await;
+			let arg = tg::process::control::FinishClientRequestArg { data };
+			session
+				.finish_process_control_request(&id, arg)
+				.boxed()
+				.await?;
+		}
+
 		session
 			.server
 			.messenger
@@ -454,7 +475,13 @@ impl Session {
 		} else {
 			None
 		};
-		let output = tg::process::control::Output { grant, id, token };
+		let sync = session.create_sync_token()?;
+		let output = tg::process::control::Output {
+			grant,
+			id,
+			sync,
+			token,
+		};
 
 		Ok(Some((output, stream)))
 	}

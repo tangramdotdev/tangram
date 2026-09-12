@@ -53,7 +53,7 @@ impl Session {
 	pub(crate) async fn try_get_user_local(
 		&self,
 		id: &tg::user::Id,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 	) -> tg::Result<Option<tg::user::get::Output>> {
 		let permission = tg::authorization::Permission::User(
 			tg::authorization::permission::user::Permission::Read,
@@ -157,7 +157,7 @@ impl Session {
 		id: &tg::user::Id,
 		mut arg: tg::user::get::Arg,
 		remote: tg::location::Remote,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 	) -> tg::Result<Option<tg::user::get::Output>> {
 		let cached = arg.cached;
 		let cacheable = arg.tokens.is_empty();
@@ -189,7 +189,10 @@ impl Session {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				crate::remote::cache::tokens_valid(output.tokens.local(), &self.server.clock)
+				crate::remote::cache::tokens_valid(
+					output.tokens.local_authorization(),
+					&self.server.clock,
+				)
 			});
 			if valid || cached {
 				if let Some(output) = &mut output {

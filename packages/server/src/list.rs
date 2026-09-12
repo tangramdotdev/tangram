@@ -98,13 +98,13 @@ impl Session {
 	}
 
 	pub(crate) async fn list_local_entries(&self) -> tg::Result<Vec<tg::list::Entry>> {
-		self.list_local_entries_with_tokens(&tg::authorization::Tokens::default())
+		self.list_local_entries_with_tokens(&tg::Tokens::default())
 			.await
 	}
 
 	async fn list_local_entries_with_tokens(
 		&self,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		// List the entries.
 		let entries = self
@@ -376,7 +376,7 @@ impl Session {
 	pub(crate) async fn query_specifier_entries<F>(
 		&self,
 		location: Option<&tg::location::Arg>,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 		query: remote::Query,
@@ -429,7 +429,7 @@ impl Session {
 	async fn filter_visible_entries(
 		&self,
 		entries: Vec<(tg::Id, tg::list::Entry)>,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Vec<tg::list::Entry>> {
 		if entries.is_empty() {
 			return Ok(Vec::new());
@@ -455,7 +455,7 @@ impl Session {
 					.is_some_and(|permissions| permissions.contains(permission))
 			};
 			if authorized {
-				let tokens = tg::authorization::Tokens::with_local(self.create_read_token(&id)?);
+				let tokens = tg::Tokens::with_authorization(self.create_read_token(&id)?);
 				if let Some(target) = &mut entry.target {
 					target.options.tokens = tokens.clone();
 				}

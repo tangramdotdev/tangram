@@ -1614,6 +1614,14 @@ pub struct SyncOptions {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub grant_time_to_touch: Option<Duration>,
 
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub item_get_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub item_get_timeout: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_frame_size: Option<u64>,
 
@@ -3852,6 +3860,12 @@ fn resolve_sync(source: &SyncOptions) -> server::Sync {
 	}
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
+	}
+	if let Some(value) = source.item_get_interval {
+		target.item_get_interval = value;
+	}
+	if let Some(value) = source.item_get_timeout {
+		target.item_get_timeout = value;
 	}
 	if let Some(value) = source.grant_time_to_live {
 		target.grant_time_to_live = value;

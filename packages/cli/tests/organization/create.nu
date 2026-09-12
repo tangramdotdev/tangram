@@ -10,7 +10,7 @@ let organization = tg --token $alice.token organization create --verbose acme | 
 assert ($organization.data.id | str starts-with "org_") "create should return an organization id"
 assert ($organization.data.name == "acme") "the organization name should match the specifier"
 assert ($organization.data.specifier == "acme") "the organization specifier should match the input"
-assert (($organization | get --optional tokens.local) != null) "create should return a token"
+assert (($organization | get --optional tokens.local.authorization) != null) "create should return a token"
 
 # The creator can get the organization.
 let got = tg --token $alice.token organization get acme | from json

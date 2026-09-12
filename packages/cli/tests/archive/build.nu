@@ -19,9 +19,9 @@ let path = artifact {
 	'
 }
 
-let id = tg build $path | str trim
+let id = tg build $path | str trim | split row '?' | first
 
 # Archive the build output and extract it, then verify the roundtrip.
 let blob_id = tg archive --format tar --compression gz $id | str trim
-let extracted_id = tg extract $blob_id | str trim
+let extracted_id = tg extract $blob_id | str trim | split row '?' | first
 assert ($extracted_id == $id) "roundtrip failed for build output"

@@ -1490,7 +1490,7 @@ fn parse_referent_options(map: &tg::value::Map) -> tg::Result<tg::referent::Opti
 		name,
 		path,
 		tag,
-		tokens: tg::authorization::Tokens::default(),
+		tokens: tg::Tokens::default(),
 	})
 }
 
@@ -1836,7 +1836,7 @@ mod tests {
 
 		assert_eq!(object.id(), id);
 		assert_eq!(
-			object.state().tokens().local(),
+			object.state().tokens().local_authorization(),
 			std::slice::from_ref(&token)
 		);
 	}
@@ -1869,9 +1869,9 @@ mod tests {
 			name: "production".into(),
 			region: None,
 		});
-		let mut tokens = crate::authorization::Tokens::default();
-		tokens.insert(local, local_token);
-		tokens.insert(remote, remote_token);
+		let mut tokens = crate::Tokens::default();
+		tokens.insert_authorization(local, local_token);
+		tokens.insert_authorization(remote, remote_token);
 		let referent = crate::Referent::with_node_and_tokens(id, tokens);
 		let object = crate::Object::with_referent(referent);
 		let value = crate::Value::Map(BTreeMap::from([

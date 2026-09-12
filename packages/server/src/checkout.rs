@@ -377,7 +377,7 @@ impl Session {
 				)?;
 				let options = tg::referent::Options {
 					location: node.options.location.clone(),
-					tokens: tg::authorization::Tokens::with_local(token),
+					tokens: tg::Tokens::with_authorization(token),
 					..Default::default()
 				};
 				Some(tg::Referent::new(target_artifact, options))

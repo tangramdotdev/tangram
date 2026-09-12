@@ -30,7 +30,7 @@ pub(super) struct DatabaseNode {
 	pub id: tg::Id,
 	pub selector: tg::Selector<tg::Id>,
 	pub send: bool,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub tokens: tg::tokens::Entry,
 }
 
 pub(super) struct ObjectNode {
@@ -55,7 +55,7 @@ pub(super) struct SandboxNode {
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
 	pub send: bool,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub tokens: tg::tokens::Entry,
 }
 
 pub(super) struct SyncPutQueueArg {
@@ -90,12 +90,7 @@ impl Queue {
 		}
 	}
 
-	pub fn enqueue(
-		&self,
-		eager: bool,
-		id: tg::Id,
-		tokens: Vec<tg::authorization::Token>,
-	) -> tg::Result<()> {
+	pub fn enqueue(&self, eager: bool, id: tg::Id, tokens: tg::tokens::Entry) -> tg::Result<()> {
 		self.enqueue_with_descendants(true, eager, id, tokens)
 	}
 
@@ -104,7 +99,7 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		tokens: Vec<tg::authorization::Token>,
+		tokens: tg::tokens::Entry,
 	) -> tg::Result<()> {
 		let mut graph = self.graph.lock().unwrap();
 		graph.insert_remote_root(id.clone());
@@ -116,7 +111,7 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		tokens: Vec<tg::authorization::Token>,
+		tokens: tg::tokens::Entry,
 	) -> tg::Result<()> {
 		let mut graph = self.graph.lock().unwrap();
 		self.enqueue_with_descendants_with_graph(&mut graph, descendants, eager, id, tokens)
@@ -164,8 +159,9 @@ impl Queue {
 			descendants: request.descendants,
 			eager: request.eager,
 			id,
+			local_tokens: request.tokens,
+			remote_tokens: tg::tokens::Entry::default(),
 			selector,
-			tokens: request.tokens,
 		};
 		self.enqueue_database_with_graph(&mut graph, node)
 	}
@@ -204,7 +200,7 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		tokens: Vec<tg::authorization::Token>,
+		tokens: tg::tokens::Entry,
 	) -> tg::Result<()> {
 		match id.kind() {
 			tg::id::Kind::Group
@@ -216,8 +212,9 @@ impl Queue {
 					descendants,
 					eager,
 					id,
+					local_tokens: tokens,
+					remote_tokens: tg::tokens::Entry::default(),
 					selector,
-					tokens,
 				};
 				self.enqueue_database_with_graph(graph, node)?;
 			},
@@ -226,8 +223,9 @@ impl Queue {
 					descendants,
 					eager,
 					id: id.try_into()?,
+					local_tokens: tokens,
 					parent: None,
-					tokens,
+					remote_tokens: tg::tokens::Entry::default(),
 				};
 				self.enqueue_process_with_graph(graph, node)?;
 			},
@@ -236,7 +234,8 @@ impl Queue {
 					descendants,
 					eager,
 					id: id.try_into()?,
-					tokens,
+					local_tokens: tokens,
+					remote_tokens: tg::tokens::Entry::default(),
 				};
 				self.enqueue_sandbox_with_graph(graph, node)?;
 			},
@@ -248,8 +247,9 @@ impl Queue {
 					eager,
 					id,
 					kind: None,
+					local_tokens: tokens,
 					parent: None,
-					tokens,
+					remote_tokens: tg::tokens::Entry::default(),
 				};
 				self.enqueue_object_with_graph(graph, node)?;
 			},
@@ -267,7 +267,7 @@ impl Queue {
 			node.descendants,
 			&node.id,
 			node.selector.clone(),
-			node.tokens.clone(),
+			&node.local_tokens,
 		);
 		if !action.descendants && !action.send {
 			return Ok(());
@@ -278,7 +278,7 @@ impl Queue {
 			id: node.id,
 			selector: node.selector,
 			send: action.send,
-			tokens: node.tokens,
+			tokens: node.local_tokens,
 		};
 		self.pending_nodes.fetch_add(1, Ordering::Relaxed);
 		if self.database.force_send(node).is_err() {
@@ -294,7 +294,7 @@ impl Queue {
 		graph: &mut Graph,
 		node: raw::ObjectNode,
 	) -> tg::Result<()> {
-		graph.update_object_tokens(&node.id, node.tokens.clone());
+		graph.update_object_tokens(&node.id, &node.local_tokens, &node.remote_tokens);
 		let parent = node.parent.clone();
 		let (action, _) =
 			graph.update_object_remote(node.descendants, &node.id, parent, node.kind, None);
@@ -325,7 +325,7 @@ impl Queue {
 		graph: &mut Graph,
 		node: raw::ProcessNode,
 	) -> tg::Result<()> {
-		graph.update_process_tokens(&node.id, node.tokens.clone());
+		graph.update_process_tokens(&node.id, &node.local_tokens, &node.remote_tokens);
 		let parent = node.parent.clone().map(Into::into);
 		let (action, _) = graph.update_process_remote(node.descendants, &node.id, parent, None);
 		let available = graph.process_remote_available(&node.id);
@@ -355,7 +355,7 @@ impl Queue {
 		node: raw::SandboxNode,
 	) -> tg::Result<()> {
 		let id = node.id.clone().into();
-		let action = graph.update_node_remote(node.descendants, &id, node.tokens.clone());
+		let action = graph.update_node_remote(node.descendants, &id, &node.local_tokens);
 		if !action.descendants && !action.send {
 			return Ok(());
 		}
@@ -364,7 +364,7 @@ impl Queue {
 			eager: node.eager,
 			id: node.id,
 			send: action.send,
-			tokens: node.tokens,
+			tokens: node.local_tokens,
 		};
 		self.pending_nodes.fetch_add(1, Ordering::Relaxed);
 		if self.sandbox.force_send(node).is_err() {
@@ -530,39 +530,56 @@ impl Session {
 		// Collect the objects requiring authorization.
 		let required = Self::sync_put_object_permissions();
 		let mut authorization_args = Vec::new();
-		let mut authorization_positions = Vec::new();
-		for (position, node) in nodes.iter().enumerate() {
+		let mut authorization_ids = Vec::new();
+		for node in &nodes {
 			let requested = if node.descendants {
 				required
 			} else {
 				Self::sync_put_object_node_permissions()
 			};
-			let authorization = state
-				.graph
-				.lock()
-				.unwrap()
-				.get_object_local_authorization(&node.id, requested);
+			let mut graph = state.graph.lock().unwrap();
+			let authorization = graph.get_object_local_authorization(&node.id, requested);
 			if authorization.permissions.contains(requested) {
 				continue;
 			}
-			let resource =
-				tg::Referent::with_node_and_local_tokens(node.id.clone(), authorization.tokens);
+
+			let id = node.id.clone();
+			drop(graph);
+			let tokens = tg::Tokens::with_local_entry(authorization.tokens);
+			let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
 			authorization_args.push((resource, requested));
-			authorization_positions.push(position);
+			authorization_ids.push(id);
 		}
 
 		// Authorize the objects.
 		let outputs = self
-			.authorize_batch(authorization_args)
+			.authorize_batch(authorization_args.clone())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the objects"))?;
-		for (position, output) in std::iter::zip(authorization_positions, outputs) {
+		for ((id, output), (resource, requested)) in std::iter::zip(
+			std::iter::zip(authorization_ids, outputs),
+			authorization_args,
+		) {
+			// Retry an index miss while a sync token identifies an incoming sync.
+			let output = match output {
+				Some(permissions) if permissions.contains(requested) => Some(permissions),
+				_ if self.has_verified_sync_token(&resource.options.tokens) => {
+					let request = tg::sync::notification::Request::object(id.clone());
+					self.try_get_with_sync_wait(&resource.options.tokens, request, || async {
+						let args = [(resource.clone(), requested)];
+						let mut outputs = self.authorize_batch(args).await?;
+						Ok(outputs.pop().flatten())
+					})
+					.await?
+				},
+				output => output,
+			};
 			if let Some(permissions) = output {
 				state
 					.graph
 					.lock()
 					.unwrap()
-					.update_object_local_permissions(&nodes[position].id, permissions);
+					.update_object_local_permissions(&id, permissions);
 			}
 		}
 
@@ -616,6 +633,7 @@ impl Session {
 					eager: node.eager,
 					id: node.id,
 					kind: node.kind,
+					permissions: authorization.permissions,
 					send: node.send,
 					tokens: authorization.tokens,
 				};
@@ -654,39 +672,59 @@ impl Session {
 		// Collect the processes requiring authorization.
 		let required = Self::sync_put_process_permissions(&state.arg);
 		let mut authorization_args = Vec::new();
-		let mut authorization_positions = Vec::new();
-		for (position, node) in nodes.iter().enumerate() {
+		let mut authorization_ids = Vec::new();
+		for node in &nodes {
 			let requested = if node.descendants {
 				required
 			} else {
 				Self::sync_put_process_node_permissions()
 			};
-			let authorization = state
-				.graph
-				.lock()
-				.unwrap()
-				.get_process_local_authorization(&node.id, requested);
+			let mut graph = state.graph.lock().unwrap();
+			let authorization = graph.get_process_local_authorization(&node.id, requested);
 			if authorization.permissions.contains(requested) {
 				continue;
 			}
-			let resource =
-				tg::Referent::with_node_and_local_tokens(node.id.clone(), authorization.tokens);
+
+			let id = node.id.clone();
+			drop(graph);
+			let tokens = tg::Tokens::with_local_entry(authorization.tokens);
+			let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
 			authorization_args.push((resource, requested));
-			authorization_positions.push(position);
+			authorization_ids.push(id);
 		}
 
 		// Authorize the processes.
 		let outputs = self
-			.authorize_batch(authorization_args)
+			.authorize_batch(authorization_args.clone())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the processes"))?;
-		for (position, output) in std::iter::zip(authorization_positions, outputs) {
+		for ((id, output), (resource, requested)) in std::iter::zip(
+			std::iter::zip(authorization_ids, outputs),
+			authorization_args,
+		) {
+			// Retry an index miss while a sync token identifies an incoming sync.
+			let output = match output {
+				Some(permissions) if permissions.contains(requested) => Some(permissions),
+				_ if self.has_verified_sync_token(&resource.options.tokens) => {
+					let tg::authorization::permission::Set::Process(permissions) = requested else {
+						return Err(tg::error!("expected process permissions"));
+					};
+					let request = tg::sync::notification::Request::process(id.clone(), permissions);
+					self.try_get_with_sync_wait(&resource.options.tokens, request, || async {
+						let args = [(resource.clone(), requested)];
+						let mut outputs = self.authorize_batch(args).await?;
+						Ok(outputs.pop().flatten())
+					})
+					.await?
+				},
+				output => output,
+			};
 			if let Some(permissions) = output {
 				state
 					.graph
 					.lock()
 					.unwrap()
-					.update_process_local_permissions(&nodes[position].id, permissions);
+					.update_process_local_permissions(&id, permissions);
 			}
 		}
 
@@ -739,6 +777,7 @@ impl Session {
 					descendants: node.descendants,
 					eager: node.eager,
 					id: node.id,
+					permissions: authorization.permissions,
 					send: node.send,
 					tokens: authorization.tokens,
 				};

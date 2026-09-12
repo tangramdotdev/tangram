@@ -28,7 +28,7 @@ pub(super) type ProcessControlResponseReceiver = crate::control::Response<
 
 pub(super) struct RunProcessControlTaskArg {
 	pub exited: Stopper,
-	pub finish: tokio::sync::oneshot::Receiver<tg::process::Data>,
+	pub finish: Option<tokio::sync::oneshot::Receiver<tg::process::Data>>,
 	pub log: Option<super::WriteProcessLogTaskArg>,
 	pub requests:
 		BoxStream<'static, tg::Result<tg::control::Event<tg::process::control::ServerMessage>>>,
@@ -236,23 +236,28 @@ impl Session {
 				tty_sender,
 			});
 
-		let data = finish
-			.await
-			.map_err(|_| tg::error!("failed to receive the finished process data"))?;
-		let arg = tg::process::control::ClientRequestArg::Finish(
-			tg::process::control::FinishClientRequestArg { data },
-		);
-		let priority = crate::control::Priority::High;
-		let receiver = Self::send_process_control_client_request_inner(&sender, arg, priority)
-			.boxed()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the finish process request"))?;
-		let output = Self::receive_process_control_client_response(receiver)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to receive the finish process response"))?;
-		output
-			.try_unwrap_finish()
-			.map_err(|_| tg::error!("expected a finish process response"))?;
+		if let Some(finish) = finish {
+			let data = finish
+				.await
+				.map_err(|_| tg::error!("failed to receive the finished process data"))?;
+			crate::checkpoint!(self.server, "runner.process.control.finish.request").await;
+			let arg = tg::process::control::ClientRequestArg::Finish(
+				tg::process::control::FinishClientRequestArg { data },
+			);
+			let priority = crate::control::Priority::High;
+			let receiver = Self::send_process_control_client_request_inner(&sender, arg, priority)
+				.boxed()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to send the finish process request"))?;
+			let output = Self::receive_process_control_client_response(receiver)
+				.await
+				.map_err(|error| {
+					tg::error!(!error, "failed to receive the finish process response")
+				})?;
+			output
+				.try_unwrap_finish()
+				.map_err(|_| tg::error!("expected a finish process response"))?;
+		}
 		finished_sender.send(()).ok();
 		let log_result = if let Some(log_task) = log_task {
 			match log_task.wait().await {
