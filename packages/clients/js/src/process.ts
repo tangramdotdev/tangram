@@ -1,9 +1,11 @@
 import type { Cancel as ProcessCancel } from "./client/process/cancel.ts";
+import type { Connect as ProcessConnect } from "./client/process/connect.ts";
 import type { Get as ProcessGet } from "./client/process/get.ts";
 import type { Put as ProcessPut } from "./client/process/put.ts";
 import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
 import * as tg from "./index.ts";
 import * as build from "./process/build.ts";
+import * as connect from "./process/connect.ts";
 import * as exec from "./process/exec.ts";
 import * as run from "./process/run.ts";
 import * as spawn from "./process/spawn.ts";
@@ -25,6 +27,7 @@ export let setProcess = (newProcess: typeof process) => {
 };
 
 export class Process<O extends tg.Value = tg.Value> {
+	#connection: connect.Connection | null;
 	#id: number | tg.Process.Id;
 	#lease: string | null;
 	#location: tg.Location.Arg | null;
@@ -39,6 +42,17 @@ export class Process<O extends tg.Value = tg.Value> {
 	#stdout: tg.Process.Stdio.Reader;
 	#tokens: tg.Authorization.Tokens;
 	#wait: tg.Process.Wait | null;
+
+	static async connect<O extends tg.Value = tg.Value>(
+		id: tg.Process.Id,
+		options: tg.Process.Connect.Options = {},
+	): Promise<tg.Process<O>> {
+		return connect.connect<O>(id, options);
+	}
+
+	get connection(): connect.Connection | null {
+		return this.#connection;
+	}
 
 	static build<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
@@ -266,6 +280,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	constructor(arg: tg.Process.ConstructorArg) {
+		this.#connection = arg.connection ?? null;
 		this.#id = arg.id;
 		this.#lease = arg.lease ?? null;
 		this.#location = arg.location ?? null;
@@ -275,7 +290,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#promise =
 			arg.promise === undefined || arg.promise === null
 				? null
-				: arg.promise.finally(() => this.detach());
+				: arg.promise.finally(() => {
+						this.#owned = false;
+					});
 		this.#stdin = arg.stdin;
 		this.#stdout = arg.stdout;
 		this.#stderr = arg.stderr;
@@ -519,26 +536,48 @@ export class Process<O extends tg.Value = tg.Value> {
 			if (this.#lease === null) {
 				throw new Error("missing lease");
 			}
-			await tg.client.cancelProcess(this.#id, {
+			await (
+				this.#connection === null
+					? (arg: tg.Process.Cancel.Arg) =>
+							tg.client.cancelProcess(this.#id as tg.Process.Id, arg)
+					: (arg: tg.Process.Cancel.Arg) => this.#connection!.cancel(arg)
+			)({
 				lease: this.#lease,
 				...(this.#location === null ? {} : { location: this.#location }),
 			});
 		}
-		this.detach();
+		this.#owned = false;
 	}
 
 	/** Detach this process from this handle's lifetime. */
-	detach(): void {
-		if (!this.#owned) {
-			return;
+	async detach(): Promise<void> {
+		if (this.#connection !== null) {
+			await this.#connection.detach();
+			await this.#closeConnection();
 		}
 		this.#owned = false;
 	}
 
 	async [Symbol.asyncDispose](): Promise<void> {
-		if (this.#owned) {
-			await this.cancel();
+		try {
+			if (this.#owned) {
+				await this.cancel();
+			}
+		} finally {
+			await this.#closeConnection();
 		}
+	}
+
+	async #closeConnection(): Promise<void> {
+		if (this.#connection === null) {
+			return;
+		}
+		// Finish inherited stdio cleanup after deliberately closing its transport.
+		let stdio = this.#stdioPromise?.catch(() => {});
+		this.#stdioPromise = null;
+		this.#connection.close();
+		this.#connection = null;
+		await stdio;
 	}
 
 	/** Send a signal to this process. */
@@ -548,7 +587,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			return;
 		}
 		let location = this.#location;
-		if (location === null) {
+		if (location === null && this.#connection === null) {
 			await this.load();
 			location = this.#location;
 		}
@@ -557,7 +596,11 @@ export class Process<O extends tg.Value = tg.Value> {
 			arg.location = location;
 		}
 		arg.tokens = this.#tokens;
-		await tg.client.signalProcess(this.#id, arg);
+		if (this.#connection !== null) {
+			await this.#connection.signal(arg);
+		} else {
+			await tg.client.signalProcess(this.#id, arg);
+		}
 	}
 
 	/** Wait for this process to exit. */
@@ -587,7 +630,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			tg.Process.Wait.inheritLocation(wait, location);
 			tg.Process.Wait.inheritTokens(wait, this.#tokens);
 			this.#wait = wait;
-			this.detach();
+			this.#owned = false;
 			return wait;
 		}
 		let arg: tg.Process.Wait.Arg = {};
@@ -598,7 +641,10 @@ export class Process<O extends tg.Value = tg.Value> {
 			arg.location = this.#location;
 		}
 		arg.tokens = this.#tokens;
-		let promise = await tg.client.waitProcessPromise(this.#id, arg);
+		let promise =
+			this.#connection === null
+				? await tg.client.waitProcessPromise(this.#id, arg)
+				: () => this.#connection!.wait();
 		let waitPromise = promise();
 		let wait =
 			this.#stdioPromise === null
@@ -614,7 +660,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		tg.Process.Wait.inheritLocation(wait, location);
 		tg.Process.Wait.inheritTokens(wait, this.#tokens);
 		this.#wait = wait;
-		this.detach();
+		this.#owned = false;
 		return wait;
 	}
 
@@ -690,6 +736,34 @@ export class Process<O extends tg.Value = tg.Value> {
 		return output as O;
 	}
 
+	/** Read process stdio, consuming a matching initial subscription when connected. */
+	async readStdio(
+		options: Omit<tg.Process.Stdio.Read.Arg, "tokens">,
+	): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk>> {
+		let output = await this.tryReadStdio(options);
+		if (output === null) {
+			throw new Error("failed to find process stdio");
+		}
+		return output;
+	}
+
+	async tryReadStdio(
+		options: Omit<tg.Process.Stdio.Read.Arg, "tokens">,
+	): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk> | null> {
+		if (typeof this.#id !== "string") {
+			throw new Error("stdio subscriptions require a sandboxed process");
+		}
+		let arg = {
+			...options,
+			location: options.location ?? this.#location,
+			tokens: this.#tokens,
+		};
+		if (this.#connection !== null) {
+			return this.#connection.read(this.#id, arg);
+		}
+		return tg.client.tryReadProcessStdio(this.#id, arg);
+	}
+
 	/** Set this process's tty size. */
 	async setTtySize(size: tg.Process.Tty.Size): Promise<void> {
 		if (typeof this.#id === "number") {
@@ -698,7 +772,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			);
 		}
 		let location = this.#location;
-		if (location === null) {
+		if (location === null && this.#connection === null) {
 			await this.load();
 			location = this.#location;
 		}
@@ -707,11 +781,22 @@ export class Process<O extends tg.Value = tg.Value> {
 			arg.location = location;
 		}
 		arg.tokens = this.#tokens;
-		await tg.client.setProcessTtySize(this.#id, arg);
+		if (this.#connection !== null) {
+			await this.#connection.tty(arg);
+		} else {
+			await tg.client.setProcessTtySize(this.#id, arg);
+		}
 	}
 }
 
 export namespace Process {
+	export namespace Connect {
+		export type Arg = ProcessConnect.Arg;
+		export type ClientMessage = ProcessConnect.ClientMessage;
+		export type Mode = ProcessConnect.Mode;
+		export type Options = ProcessConnect.Options;
+		export type ServerMessage = ProcessConnect.ServerMessage;
+	}
 	export type Id = string;
 
 	export namespace Cancel {
@@ -766,6 +851,7 @@ export namespace Process {
 		#envMapper: tg.Process.Builder.EnvMapper<E>;
 		#js: Promise<boolean>;
 		#mode: M;
+		#connection: tg.Process.Connect.Mode = "spawn";
 		#validate?: (arg: tg.Process.ArgObject) => void;
 
 		constructor(mode: M, ...args: tg.Args<tg.Process.Arg>) {
@@ -976,15 +1062,22 @@ export namespace Process {
 				...this.#args,
 			);
 			output.envMapper<E>(this.#envMapper);
+			output.connection(this.#connection);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
 			return output;
 		}
 
+		connection(mode: tg.Process.Connect.Mode): this {
+			this.#connection = mode;
+			return this;
+		}
+
 		run(): tg.Process.Builder<"run", A, O, E> {
 			let output = new tg.Process.Builder<"run", A, O, E>("run", ...this.#args);
 			output.envMapper<E>(this.#envMapper);
+			output.connection(this.#connection);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
@@ -997,6 +1090,7 @@ export namespace Process {
 				...this.#args,
 			);
 			output.envMapper<E>(this.#envMapper);
+			output.connection(this.#connection);
 			if (this.#validate !== undefined) {
 				output.validate(this.#validate);
 			}
@@ -1026,14 +1120,10 @@ export namespace Process {
 			if (this.#mode === "exec") {
 				return await tg.Process.execUnsandboxed(output.arg);
 			}
-			let process =
-				output.arg.sandbox === undefined
-					? await tg.Process.spawnUnsandboxed<O>(output.arg, output.options)
-					: await tg.Process.spawnSandboxed<O>(output.arg, output.options);
-			if (this.#mode === "spawn") {
-				return process;
+			if (this.#mode === "run") {
+				return run.run<O>(output.arg, output.options);
 			}
-			return await process.output();
+			return connect.spawn<O>(output.arg, output.options, this.#connection);
 		}
 
 		private async builderArg(
@@ -1099,6 +1189,7 @@ export namespace Process {
 	}
 
 	export type ConstructorArg = {
+		connection?: connect.Connection | null;
 		id: number | tg.Process.Id;
 		lease?: string | null;
 		location?: tg.Location.Arg | null;

@@ -19,6 +19,8 @@ pub struct Process<O = tg::Value>(pub(super) Arc<Inner>, pub(super) PhantomData<
 pub(super) struct Inner {
 	pub(super) cached: Option<bool>,
 	#[debug(ignore)]
+	pub(super) connection: Option<tg::process::connect::Connection>,
+	#[debug(ignore)]
 	pub(super) handle: Option<tg::handle::dynamic::Handle>,
 	pub(super) id: tg::Either<u32, Id>,
 	pub(super) lease: Option<String>,
@@ -68,6 +70,16 @@ impl<O> Process<O> {
 
 	#[must_use]
 	pub fn new(id: Id, options: tg::process::Options) -> Self {
+		Self::new_inner(id, options, None, None)
+	}
+
+	#[must_use]
+	pub(super) fn new_inner(
+		id: Id,
+		options: tg::process::Options,
+		handle: Option<tg::handle::dynamic::Handle>,
+		connection: Option<tg::process::connect::Connection>,
+	) -> Self {
 		let tg::process::Options {
 			cached,
 			lease,
@@ -80,13 +92,15 @@ impl<O> Process<O> {
 		let stderr = tg::process::stdio::Reader::from_process(tg::process::stdio::Stream::Stderr);
 		let stdin = tg::process::stdio::Writer::from_process(tg::process::stdio::Stream::Stdin);
 		let stdout = tg::process::stdio::Reader::from_process(tg::process::stdio::Stream::Stdout);
+		let owned = AtomicBool::new(handle.is_some() && lease.is_some());
 		let inner = Arc::new(Inner {
 			cached,
-			handle: None,
+			connection,
+			handle,
 			id: tg::Either::Right(id),
 			lease,
 			location: location.clone(),
-			owned: AtomicBool::new(false),
+			owned,
 			state,
 			stderr,
 			stdin,
@@ -159,7 +173,33 @@ impl<O> Process<O> {
 		self.0.lease.as_ref()
 	}
 
-	pub fn detach(&self) {
+	pub async fn detach(&self) -> tg::Result<()> {
+		if let Some(connection) = &self.0.connection {
+			connection.detach().await?;
+		}
+		self.disarm();
+		if self.0.connection.is_some() {
+			self.wait_stdio().await?;
+		}
+		Ok(())
+	}
+
+	#[must_use]
+	pub(super) fn handle_with_handle<H: tg::Handle>(
+		&self,
+		handle: &H,
+	) -> tg::handle::dynamic::Handle {
+		match (&self.0.connection, self.id().right()) {
+			(Some(connection), Some(id)) => tg::handle::dynamic::Handle::with_connection(
+				handle.clone(),
+				id.clone(),
+				connection.clone(),
+			),
+			_ => tg::handle::dynamic::Handle::new(handle.clone()),
+		}
+	}
+
+	pub(super) fn disarm(&self) {
 		self.0.owned.store(false, Ordering::SeqCst);
 	}
 
@@ -307,6 +347,8 @@ impl<O> Process<O> {
 	where
 		H: tg::Handle,
 	{
+		let handle = self.handle_with_handle(handle);
+		let handle = &handle;
 		if let Some(pid) = self.id().left() {
 			let pid = i32::try_from(*pid)
 				.map_err(|error| tg::error!(!error, "failed to convert the process id"))?;
@@ -321,7 +363,14 @@ impl<O> Process<O> {
 			return Ok(());
 		}
 
-		if options.location.is_none() && self.location().is_none() {
+		if self
+			.0
+			.connection
+			.as_ref()
+			.is_none_or(tg::process::connect::Connection::detached)
+			&& options.location.is_none()
+			&& self.location().is_none()
+		{
 			self.ensure_location_with_handle(handle).await?;
 		}
 		let arg = tg::process::signal::post::Arg {
@@ -388,7 +437,7 @@ impl Drop for Inner {
 			return;
 		};
 		runtime.spawn(async move {
-			let arg = tg::process::cancel::Arg { location, lease };
+			let arg = tg::process::cancel::Arg { lease, location };
 			handle.try_cancel_process(&id, arg).await.ok();
 		});
 	}

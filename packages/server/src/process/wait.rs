@@ -22,7 +22,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		self.try_wait_process_future_with_stopper(id, arg, self.context.stopper.clone())
+		self.try_wait_process_future_with_cancel(id, arg, Arc::new(AtomicBool::new(true)))
 			.await
 	}
 
@@ -74,21 +74,24 @@ impl Session {
 		Ok(Some(stream))
 	}
 
-	async fn try_wait_process_future_with_stopper(
+	pub(super) async fn try_wait_process_future_with_cancel(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
-		stopper: Option<Stopper>,
+		cancel: Arc<AtomicBool>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		let output = match self.try_wait_process_runner(id, &arg).await? {
+		// This session owns cancellation; downstream waits only observe the process.
+		let mut observe_arg = arg.clone();
+		observe_arg.lease = None;
+		let output = match self.try_wait_process_runner(id, &observe_arg).await? {
 			Some(output) => Some(output),
-			None => self.try_wait_process_inner(id, arg.clone()).await?,
+			None => self.try_wait_process_inner(id, observe_arg).await?,
 		};
 		let Some((future, location)) = output else {
 			return Ok(None);
 		};
 		let future =
-			self.attach_wait_process_guard(id, &arg, Some(location.into()), stopper, future);
+			self.attach_wait_process_guard(id, &arg, Some(location.into()), cancel, future);
 		Ok(Some(future))
 	}
 
@@ -520,7 +523,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: &tg::process::wait::Arg,
 		location: Option<tg::location::Arg>,
-		stopper: Option<Stopper>,
+		cancel: Arc<AtomicBool>,
 		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
 	) -> BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>> {
 		// Remove the parent's child leases when the child finishes.
@@ -550,12 +553,14 @@ impl Session {
 
 		// If a lease is provided, attach a cancellation guard.
 		if let Some(lease) = arg.lease.clone() {
-			let cancel = Arc::new(AtomicBool::new(true));
+			let stopper = self.context.stopper.clone();
 			let future = {
 				let cancel = cancel.clone();
 				async move {
 					let output = future.await;
-					cancel.store(false, Ordering::SeqCst);
+					if matches!(&output, Ok(Some(_))) {
+						cancel.store(false, Ordering::SeqCst);
+					}
 					output
 				}
 			}

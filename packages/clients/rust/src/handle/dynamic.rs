@@ -20,11 +20,30 @@ mod user;
 mod watch;
 
 #[derive(Clone)]
-pub struct Handle(Arc<dyn super::erased::Handle>);
+pub struct Handle(
+	Arc<dyn super::erased::Handle>,
+	Option<(tg::process::Id, tg::process::connect::Connection)>,
+);
 
 impl Handle {
+	#[must_use]
 	pub fn new(handle: impl tg::Handle) -> Self {
-		Self(Arc::new(handle))
+		Self(Arc::new(handle), None)
+	}
+	#[must_use]
+	pub(crate) fn with_connection(
+		handle: impl tg::Handle,
+		id: tg::process::Id,
+		connection: tg::process::connect::Connection,
+	) -> Self {
+		Self(Arc::new(handle), Some((id, connection)))
+	}
+
+	fn connection(&self, id: &tg::process::Id) -> Option<&tg::process::connect::Connection> {
+		self.1
+			.as_ref()
+			.filter(|(process, connection)| process == id && !connection.detached())
+			.map(|(_, connection)| connection)
 	}
 }
 

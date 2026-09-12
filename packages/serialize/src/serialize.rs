@@ -3,7 +3,7 @@ use {
 	std::{
 		borrow::Cow,
 		collections::{BTreeMap, BTreeSet},
-		io::Result,
+		io::{Result, SeekFrom},
 		sync::Arc,
 		time::Duration,
 	},
@@ -82,6 +82,27 @@ impl Serialize for f64 {
 impl Serialize for Duration {
 	fn serialize(&self, serializer: &mut Serializer<'_>) -> Result<()> {
 		serializer.serialize(&(self.as_secs(), self.subsec_nanos()))
+	}
+}
+
+impl Serialize for SeekFrom {
+	fn serialize(&self, serializer: &mut Serializer<'_>) -> Result<()> {
+		serializer.write_kind(Kind::Enum)?;
+		match self {
+			Self::Current(value) => {
+				serializer.write_id(0)?;
+				serializer.serialize(value)?;
+			},
+			Self::End(value) => {
+				serializer.write_id(1)?;
+				serializer.serialize(value)?;
+			},
+			Self::Start(value) => {
+				serializer.write_id(2)?;
+				serializer.serialize(value)?;
+			},
+		}
+		Ok(())
 	}
 }
 

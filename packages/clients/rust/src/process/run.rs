@@ -28,10 +28,15 @@ impl<O> tg::Process<O> {
 		O: TryFrom<tg::Value> + 'static,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let process = tg::Process::<O>::spawn_with_progress_with_handle(handle, arg, |stream| {
-			let writer = std::io::stderr();
-			tg::progress::write_progress_stream(handle, stream, writer, false)
-		})
+		let process = tg::Process::<O>::connect_spawn_with_progress_with_handle(
+			handle,
+			arg,
+			tg::process::connect::Mode::Run,
+			|stream| {
+				let writer = std::io::stderr();
+				tg::progress::write_progress_stream(handle, stream, writer, false)
+			},
+		)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 

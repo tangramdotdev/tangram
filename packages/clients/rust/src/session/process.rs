@@ -4,6 +4,13 @@ use {
 };
 
 impl tg::handle::Process for tg::Session {
+	async fn connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>> {
+		self.connect_process(input).await
+	}
+
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,

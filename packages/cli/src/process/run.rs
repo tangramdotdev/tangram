@@ -139,12 +139,22 @@ impl Cli {
 		}
 
 		// Spawn the process.
-		let process =
-			Box::pin(self.spawn(options.spawn, reference, trailing, !options.detach)).await?;
+		let process = Box::pin(self.spawn(
+			options.spawn,
+			reference,
+			trailing,
+			!options.detach,
+			if options.detach {
+				tg::process::connect::Mode::Spawn
+			} else {
+				tg::process::connect::Mode::Run
+			},
+		))
+		.await?;
 
 		// If the detach flag is set, then return the process ID.
 		if options.detach {
-			process.node().detach();
+			process.node().detach().await?;
 			if options.verbose {
 				let output = tg::process::spawn::Output {
 					cached: process.node().cached().unwrap_or(false),

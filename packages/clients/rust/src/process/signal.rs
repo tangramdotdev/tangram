@@ -8,22 +8,43 @@ pub struct Options {
 }
 
 #[derive(
-	Clone, Copy, Debug, PartialEq, Eq, serde_with::DeserializeFromStr, serde_with::SerializeDisplay,
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	PartialEq,
+	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[repr(u8)]
 pub enum Signal {
+	#[tangram_serialize(id = 6)]
 	SIGABRT = 6,
+	#[tangram_serialize(id = 14)]
 	SIGALRM = 14,
+	#[tangram_serialize(id = 8)]
 	SIGFPE = 8,
+	#[tangram_serialize(id = 1)]
 	SIGHUP = 1,
+	#[tangram_serialize(id = 4)]
 	SIGILL = 4,
+	#[tangram_serialize(id = 2)]
 	SIGINT = 2,
+	#[tangram_serialize(id = 9)]
 	SIGKILL = 9,
+	#[tangram_serialize(id = 13)]
 	SIGPIPE = 13,
+	#[tangram_serialize(id = 3)]
 	SIGQUIT = 3,
+	#[tangram_serialize(id = 11)]
 	SIGSEGV = 11,
+	#[tangram_serialize(id = 15)]
 	SIGTERM = 15,
+	#[tangram_serialize(id = 10)]
 	SIGUSR1 = 10,
+	#[tangram_serialize(id = 12)]
 	SIGUSR2 = 12,
 }
 

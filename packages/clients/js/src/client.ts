@@ -1,4 +1,5 @@
 import * as tg from "./index.ts";
+import { connectProcess } from "./client/process/connect.ts";
 import { Request, Response } from "./http.ts";
 import { checkin } from "./client/checkin.ts";
 import { checkout } from "./client/checkout.ts";
@@ -45,6 +46,12 @@ class RequestError {
 }
 
 export class Client {
+	connectProcess(
+		input: AsyncIterable<tg.Process.Connect.ClientMessage>,
+	): Promise<AsyncIterableIterator<tg.Process.Connect.ServerMessage>> {
+		return connectProcess(this, input);
+	}
+
 	#connecting: Promise<tg.Host.Http2.ClientHttp2Session> | null = null;
 	#session: tg.Host.Http2.ClientHttp2Session | null = null;
 
