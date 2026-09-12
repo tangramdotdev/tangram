@@ -71,12 +71,12 @@ impl tg::handle::Process for Handle {
 		async move {
 			if let Some(connection) = self.connection(id) {
 				let output = connection
-					.request(tg::process::connect::ClientRequestArg::Cancel(arg.into()))
+					.request(tg::process::connect::ClientRequestArg::Cancel(arg))
 					.await?;
 				let tg::process::connect::ServerResponseOutput::Cancel(output) = output else {
 					return Err(tg::error!("expected a cancel response"));
 				};
-				return Ok(Some(output.0));
+				return Ok(Some(output));
 			}
 			self.0.try_cancel_process(id, arg).await
 		}
@@ -109,7 +109,7 @@ impl tg::handle::Process for Handle {
 		async move {
 			if let Some(connection) = self.connection(id) {
 				let output = connection
-					.request(tg::process::connect::ClientRequestArg::Signal(arg.into()))
+					.request(tg::process::connect::ClientRequestArg::Signal(arg))
 					.await?;
 				if !matches!(output, tg::process::connect::ServerResponseOutput::Signal) {
 					return Err(tg::error!("expected a signal response"));
@@ -162,7 +162,7 @@ impl tg::handle::Process for Handle {
 		async move {
 			if let Some(connection) = self.connection(id) {
 				let output = connection
-					.request(tg::process::connect::ClientRequestArg::Tty(arg.into()))
+					.request(tg::process::connect::ClientRequestArg::Tty(arg))
 					.await?;
 				if !matches!(output, tg::process::connect::ServerResponseOutput::Tty) {
 					return Err(tg::error!("expected a tty response"));

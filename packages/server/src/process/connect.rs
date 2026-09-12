@@ -92,7 +92,6 @@ impl Session {
 		let mut pending = VecDeque::new();
 		let (output, mode, location) = match arg.target {
 			Target::Existing { id, options } => {
-				let options = options.0;
 				let location = options.location.clone();
 				let output = tg::process::spawn::Output {
 					cached: false,
@@ -105,7 +104,7 @@ impl Session {
 				(output, Mode::Run, location)
 			},
 			Target::Spawn { arg, mode } => {
-				let mut progress = self.try_spawn_process(*arg.0).await?.boxed();
+				let mut progress = self.try_spawn_process(*arg).await?.boxed();
 				let mut input_open = true;
 				let output = loop {
 					tokio::select! {
@@ -121,7 +120,7 @@ impl Session {
 							if let tg::progress::Event::Output(output) = event {
 								break output.ok_or_else(|| tg::error!("expected a process"))?;
 							}
-							let message = ServerMessage::Notification(ServerNotification::Progress(event.map_output(|_| ()).into()));
+							let message = ServerMessage::Notification(ServerNotification::Progress(event.map_output(|_| ())));
 							high.send(Ok(message)).await.map_err(|_| tg::error!("the process connection closed"))?;
 						},
 					}
@@ -136,7 +135,7 @@ impl Session {
 			Self::send_connect_response(
 				high,
 				request_id,
-				Ok(ServerResponseOutput::Connect(output.into())),
+				Ok(ServerResponseOutput::Connect(output)),
 			)
 			.await?;
 			Self::finish_connect_response(&mut input, request_id).await?;
@@ -184,12 +183,8 @@ impl Session {
 			self.connect_process_read(&id, request_id, arg, &mut streams, low)
 				.await?;
 		}
-		Self::send_connect_response(
-			high,
-			request_id,
-			Ok(ServerResponseOutput::Connect(output.into())),
-		)
-		.await?;
+		Self::send_connect_response(high, request_id, Ok(ServerResponseOutput::Connect(output)))
+			.await?;
 
 		// Keep completion independent of subscribed output and its EOF handshakes.
 		let mut finished = false;
@@ -208,7 +203,7 @@ impl Session {
 						let output = output?.ok_or_else(|| tg::error!("the process wait ended before completion"))?;
 						cancel.store(false, Ordering::SeqCst);
 						finished = true;
-						high.send(Ok(ServerMessage::Notification(ServerNotification::Wait(output.into())))).await.map_err(|_| tg::error!("the process connection closed"))?;
+						high.send(Ok(ServerMessage::Notification(ServerNotification::Wait(output)))).await.map_err(|_| tg::error!("the process connection closed"))?;
 						continue;
 					},
 					result = streams.tasks.next(), if !streams.tasks.is_empty() => {
@@ -295,16 +290,14 @@ impl Session {
 							Self::finish_connect_response(&mut input, request.id).await?;
 							return Ok(());
 						},
-						ClientRequestArg::Read(arg) => {
-							let mut arg = arg.0;
+						ClientRequestArg::Read(mut arg) => {
 							arg.location = arg.location.or_else(|| location.clone());
 							arg.tokens.inherit(&tokens);
 							self.connect_process_read(&id, request.id, arg, &mut streams, low)
 								.await
 								.map(|()| ServerResponseOutput::Read)
 						},
-						ClientRequestArg::Write(arg) => {
-							let mut arg = arg.0;
+						ClientRequestArg::Write(mut arg) => {
 							arg.location = arg.location.or_else(|| location.clone());
 							arg.tokens.inherit(&tokens);
 							self.connect_process_write(&id, request.id, arg, &mut streams, high)
@@ -438,14 +431,12 @@ impl Session {
 		tokens: tg::authorization::Tokens,
 	) -> tg::Result<ServerResponseOutput> {
 		let output = match arg {
-			ClientRequestArg::Cancel(arg) => {
-				let mut arg = arg.0;
+			ClientRequestArg::Cancel(mut arg) => {
 				arg.location = arg.location.or(location);
 				let output = self.cancel_process(id, arg).await?;
-				ServerResponseOutput::Cancel(output.into())
+				ServerResponseOutput::Cancel(output)
 			},
-			ClientRequestArg::Signal(arg) => {
-				let mut arg = arg.0;
+			ClientRequestArg::Signal(mut arg) => {
 				arg.location = arg.location.or(location);
 				arg.tokens.inherit(&tokens);
 				self.try_signal_process(id, arg)
@@ -453,8 +444,7 @@ impl Session {
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				ServerResponseOutput::Signal
 			},
-			ClientRequestArg::Tty(arg) => {
-				let mut arg = arg.0;
+			ClientRequestArg::Tty(mut arg) => {
 				arg.location = arg.location.or(location);
 				arg.tokens.inherit(&tokens);
 				self.try_set_process_tty_size(id, arg)

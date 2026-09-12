@@ -4,16 +4,33 @@ use {
 	tangram_uri::Uri,
 };
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Arg {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Arg>,
-
+	#[tangram_serialize(id = 0)]
 	pub lease: String,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Output {
+	#[tangram_serialize(id = 0)]
 	pub released: bool,
 }
 
@@ -62,7 +79,8 @@ impl<O> tg::Process<O> {
 		let lease = lease
 			.or_else(|| self.lease().cloned())
 			.ok_or_else(|| tg::error!("missing lease"))?;
-		handle.cancel_process(id, Arg { location, lease }).await?;
+		let arg = Arg { lease, location };
+		handle.cancel_process(id, arg).await?;
 		self.disarm();
 
 		Ok(())

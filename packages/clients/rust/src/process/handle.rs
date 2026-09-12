@@ -437,7 +437,7 @@ impl Drop for Inner {
 			return;
 		};
 		runtime.spawn(async move {
-			let arg = tg::process::cancel::Arg { location, lease };
+			let arg = tg::process::cancel::Arg { lease, location };
 			handle.try_cancel_process(&id, arg).await.ok();
 		});
 	}

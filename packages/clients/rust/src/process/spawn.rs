@@ -19,93 +19,146 @@ use {
 };
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cached: Option<bool>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub cache_location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub cached: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
+	#[tangram_serialize(id = 3)]
 	pub command: tg::Referent<tg::Either<CommandArg, tg::command::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
 	pub debug: Option<tg::process::Debug>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 7, skip_serializing_if = "is_false")]
 	pub public: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 8, skip_serializing_if = "is_false")]
 	pub retry: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 9, skip_serializing_if = "Option::is_none")]
 	pub sandbox: Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
 	pub scheduler: Option<tg::scheduler::Id>,
 
 	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 11, skip_serializing_if = "is_default")]
 	pub stderr: tg::process::Stdio,
 
 	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 12, skip_serializing_if = "is_default")]
 	pub stdin: tg::process::Stdio,
 
 	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 13, skip_serializing_if = "is_default")]
 	pub stdout: tg::process::Stdio,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]
 	pub tty: Option<tg::Either<bool, tg::process::Tty>>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct CommandArg {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
 	pub args: Vec<tg::command::data::Value>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub cwd: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "BTreeMap::is_empty")]
 	pub env: BTreeMap<String, tg::command::data::Value>,
 
+	#[tangram_serialize(id = 3)]
 	pub executable: tg::Referent<tg::command::data::Executable>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
 	pub host: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub stdin: Option<tg::Referent<tg::blob::Id>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
 	pub user: Option<String>,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_false")]
 	pub cached: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub lease: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
 
+	#[tangram_serialize(id = 3)]
 	pub process: tg::Either<u32, tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 4,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
 	pub tokens: tg::authorization::Tokens,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub wait: Option<tg::process::wait::Output>,
 }
 
@@ -534,7 +587,7 @@ impl<O: 'static> tg::Process<O> {
 		let arg = tg::process::connect::Arg {
 			reads,
 			target: tg::process::connect::Target::Spawn {
-				arg: Box::new(arg).into(),
+				arg: Box::new(arg),
 				mode: options.mode,
 			},
 		};
