@@ -22,7 +22,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(availability) = self
-					.try_get_process_availability_local(id, arg.tokens.local())
+					.try_get_process_availability_local(id, arg.tokens.local_authorization())
 					.await
 					.map_err(|error| {
 						tg::error!(!error, "failed to get the process's availability")
@@ -167,7 +167,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		regions: &[String],
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::process::Availability>> {
 		let mut futures = regions
 			.iter()
@@ -193,7 +193,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		region: &str,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::process::Availability>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -214,7 +214,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		remotes: &[crate::location::Remote],
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::process::Availability>> {
 		let mut futures = remotes
 			.iter()
@@ -240,7 +240,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::process::Availability>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)

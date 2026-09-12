@@ -16,12 +16,14 @@ mod checkout;
 mod database;
 mod index;
 mod input;
+pub(crate) mod notification;
 mod queue;
 mod store;
 
 struct State {
 	arg: tg::sync::Arg,
 	graph: Arc<Mutex<Graph>>,
+	notification: Option<self::notification::Notification>,
 	progress: Progress,
 	queue: Queue,
 	root_presence: Mutex<HashMap<tg::Id, tokio::sync::watch::Sender<Option<bool>>>>,
@@ -98,31 +100,64 @@ impl Session {
 			queue_sandbox_sender,
 		);
 
+		// Verify or create the sync token.
+		let token = match &arg.sync {
+			Some(token) => {
+				if !self.verify_sync_token(token) {
+					return Err(tg::error!("invalid sync token"));
+				}
+				Some(token.clone())
+			},
+			None => self.create_sync_token()?,
+		};
+
 		// Create the state.
+		let mut nodes = self.create_sync_output_nodes(&arg)?;
+		let notification = token.as_ref().map(self::notification::Notification::new);
 		let state = Arc::new(State {
 			arg,
 			graph,
+			notification,
 			progress,
 			queue,
 			root_presence: Mutex::new(HashMap::new()),
 			sender,
 		});
 
+		// Send the root authorization tokens with the sync token before any nodes.
+		if let Some(token) = token {
+			for node in &mut nodes {
+				let location = tg::Location::Local(tg::location::Local::default());
+				node.options.tokens.set_sync(location, token.clone());
+			}
+		}
+		let message = tg::sync::GetMessage::Start(tg::sync::GetStartMessage { nodes });
+		state
+			.sender
+			.send(Ok(message))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the start message"))?;
+
 		// Enqueue the nodes.
 		for node in &state.arg.get {
 			let tokens = node.options.tokens.clone();
 			match &node.node {
 				tg::Selector::Id(id) => {
-					state
-						.queue
-						.enqueue(state.arg.eager, id.clone(), tokens.local().to_vec())?;
+					let local_tokens = tokens.local_entry();
+					let remote_tokens = tokens.remote_entry();
+					state.queue.enqueue(
+						state.arg.eager,
+						id.clone(),
+						local_tokens,
+						remote_tokens,
+					)?;
 				},
 				tg::Selector::Specifier(specifier) => {
 					let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
 						descendants: true,
 						eager: state.arg.eager,
 						selector: tg::Selector::Specifier(specifier.clone()),
-						tokens: tokens.local().to_vec(),
+						tokens,
 					});
 					state
 						.sender
@@ -209,6 +244,16 @@ impl Session {
 		};
 		drop(store_object_sender);
 
+		// Spawn the notification task.
+		let notification_task = Task::spawn({
+			let session = self.clone();
+			let state = state.clone();
+			|stop| {
+				async move { session.sync_get_notification_task(&state, stop).await }
+					.instrument(tracing::Span::current())
+			}
+		});
+
 		// Spawn the progress task.
 		let progress_task = Task::spawn({
 			let session = self.clone();
@@ -251,6 +296,14 @@ impl Session {
 		// Index the objects, processes, and sandboxes and update the graph permissions.
 		let graph = scopeguard::ScopeGuard::into_inner(index_guard);
 		self.sync_get_index_put(graph.clone()).await?;
+
+		// Stop the notification task and answer the waiting requests.
+		notification_task.stop();
+		notification_task
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the notification task panicked"))??;
+		self.sync_get_notification_finish(&state).await?;
 
 		// Stop and await the progress task.
 		progress_task.stop();
@@ -479,8 +532,8 @@ impl Session {
 					outputs[position] = Some(authorization.permissions);
 					continue;
 				}
-				let resource =
-					tg::Referent::with_node_and_local_tokens(id.clone(), authorization.tokens);
+				let tokens = tg::Tokens::with_local_entry(authorization.tokens);
+				let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
 				args.push((resource, requested));
 				positions.push(position);
 			}

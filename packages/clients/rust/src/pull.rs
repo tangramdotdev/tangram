@@ -108,6 +108,7 @@ impl From<tg::pull::Arg> for tg::push::Arg {
 			process_outputs: value.process_outputs,
 			sandbox_processes: value.sandbox_processes,
 			source: value.source,
+			sync: None,
 			tag_targets: value.tag_targets,
 			user_children: value.user_children,
 		}

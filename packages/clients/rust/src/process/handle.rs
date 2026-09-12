@@ -32,7 +32,7 @@ pub(super) struct Inner {
 	pub(super) stdout: tg::process::stdio::Reader,
 	#[debug(ignore)]
 	pub(super) task: Option<tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>>,
-	pub(super) tokens: RwLock<tg::authorization::Tokens>,
+	pub(super) tokens: RwLock<tg::Tokens>,
 	pub(super) wait: Mutex<Option<Wait>>,
 }
 
@@ -42,7 +42,7 @@ pub struct Options {
 	pub lease: Option<String>,
 	pub location: Option<tg::location::Arg>,
 	pub state: Option<State>,
-	pub tokens: tg::authorization::Tokens,
+	pub tokens: tg::Tokens,
 }
 
 impl<O> Process<O> {
@@ -124,7 +124,7 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub fn tokens(&self) -> tg::authorization::Tokens {
+	pub fn tokens(&self) -> tg::Tokens {
 		self.0.tokens.read().unwrap().clone()
 	}
 
@@ -139,7 +139,7 @@ impl<O> Process<O> {
 		}
 	}
 
-	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::Tokens) {
 		self.0.tokens.write().unwrap().inherit(tokens);
 	}
 
@@ -233,11 +233,13 @@ impl<O> Process<O> {
 			metadata: false,
 			tokens: self.tokens(),
 		};
-		let Some(output) = handle.try_get_process(id, arg).await? else {
+		let Some(mut output) = handle.try_get_process(id, arg).await? else {
 			return Ok(None);
 		};
 		if !output.tokens.is_empty() {
-			self.0.tokens.write().unwrap().inherit(&output.tokens);
+			let mut tokens = self.0.tokens.write().unwrap();
+			output.tokens.inherit(&tokens);
+			*tokens = output.tokens;
 		}
 		let location = output.location;
 		if let Some(location) = &location {

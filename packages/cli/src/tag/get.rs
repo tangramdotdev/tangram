@@ -15,7 +15,7 @@ pub struct Args {
 	pub tag: tg::tag::Selector,
 
 	#[arg(skip)]
-	pub tokens: tg::authorization::Tokens,
+	pub tokens: tg::Tokens,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,

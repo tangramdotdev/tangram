@@ -1,4 +1,4 @@
-use {crate::prelude::*, std::collections::BTreeMap};
+use crate::prelude::*;
 
 const VERSION: &str = "0";
 
@@ -20,26 +20,6 @@ pub struct Token {
 	pub body: Body,
 	pub metadata: Metadata,
 	pub signature: Vec<u8>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	Default,
-	Eq,
-	Hash,
-	Ord,
-	PartialEq,
-	PartialOrd,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(transparent)]
-#[tangram_serialize(transparent)]
-pub struct Tokens {
-	map: BTreeMap<tg::Location, Vec<Token>>,
 }
 
 #[derive(
@@ -231,79 +211,6 @@ impl Token {
 			return Err(tg::error!("invalid key"));
 		}
 		Ok(())
-	}
-}
-
-impl Tokens {
-	#[must_use]
-	pub fn with_local(tokens: impl IntoIterator<Item = Token>) -> Self {
-		let mut output = Self::default();
-		for token in tokens {
-			output.insert_local(token);
-		}
-		output
-	}
-
-	#[must_use]
-	pub fn get(&self, location: &tg::Location) -> &[Token] {
-		let location = location.clone().without_region();
-		self.map.get(&location).map_or(&[], Vec::as_slice)
-	}
-
-	pub fn iter(&self) -> impl Iterator<Item = (&tg::Location, &Vec<Token>)> {
-		self.map.iter()
-	}
-
-	#[must_use]
-	pub fn local(&self) -> &[Token] {
-		self.get(&tg::Location::Local(tg::location::Local::default()))
-	}
-
-	#[must_use]
-	pub fn is_empty(&self) -> bool {
-		self.map.values().all(Vec::is_empty)
-	}
-
-	pub fn clear(&mut self) {
-		self.map.clear();
-	}
-
-	pub fn insert(&mut self, location: tg::Location, token: Token) {
-		let tokens = self.map.entry(location.without_region()).or_default();
-		if !tokens.contains(&token) {
-			tokens.push(token);
-		}
-	}
-
-	pub fn insert_local(&mut self, token: Token) {
-		self.insert(tg::Location::Local(tg::location::Local::default()), token);
-	}
-
-	pub fn inherit(&mut self, parent: &Self) {
-		for (location, tokens) in parent.iter() {
-			if tokens.is_empty() {
-				continue;
-			}
-			let output = self.map.entry(location.clone()).or_default();
-			for token in tokens {
-				if output.iter().any(|existing| existing.covers(token)) {
-					continue;
-				}
-				output.retain(|existing| !token.covers(existing));
-				output.push(token.clone());
-			}
-		}
-	}
-
-	#[must_use]
-	pub fn for_location(&self, location: &tg::Location) -> Self {
-		Self::with_local(self.get(location).iter().cloned())
-	}
-
-	pub fn remove_local(&mut self) -> Vec<Token> {
-		self.map
-			.remove(&tg::Location::Local(tg::location::Local::default()))
-			.unwrap_or_default()
 	}
 }
 
@@ -570,16 +477,16 @@ mod tests {
 			resource: tg::Id::new_uuidv7(tg::id::Kind::File),
 		};
 		let token = tg::authorization::Token::sign(body, &private_key).unwrap();
-		let mut tokens = tg::authorization::Tokens::default();
+		let mut tokens = tg::Tokens::default();
 		let local = tg::Location::Local(tg::location::Local {
 			region: Some("east".into()),
 		});
-		tokens.insert(local, token.clone());
+		tokens.insert_authorization(local, token.clone());
 		let remote = tg::Location::Remote(tg::location::Remote {
 			name: "default".into(),
 			region: Some("east".into()),
 		});
-		tokens.insert(remote, token.clone());
+		tokens.insert_authorization(remote, token.clone());
 
 		let local = tg::Location::Local(tg::location::Local {
 			region: Some("west".into()),
@@ -588,8 +495,8 @@ mod tests {
 			name: "default".into(),
 			region: Some("west".into()),
 		});
-		assert_eq!(tokens.get(&local), std::slice::from_ref(&token));
-		assert_eq!(tokens.get(&remote), std::slice::from_ref(&token));
+		assert_eq!(tokens.authorization(&local), std::slice::from_ref(&token));
+		assert_eq!(tokens.authorization(&remote), std::slice::from_ref(&token));
 		assert!(
 			tokens
 				.iter()
@@ -619,12 +526,12 @@ mod tests {
 		let node = token(vec![Permission::Node], 30);
 		let output = token(vec![Permission::NodeOutput], 20);
 		let log = token(vec![Permission::NodeLog], 20);
-		let mut tokens = tg::authorization::Tokens::with_local([node.clone(), output.clone()]);
-		tokens.inherit(&tg::authorization::Tokens::with_local([
+		let mut tokens = tg::Tokens::with_authorization([node.clone(), output.clone()]);
+		tokens.inherit(&tg::Tokens::with_authorization([
 			log.clone(),
 			output.clone(),
 		]));
-		assert_eq!(tokens.local(), &[node.clone(), output, log]);
+		assert_eq!(tokens.local_authorization(), &[node.clone(), output, log]);
 		let broad = token(
 			vec![
 				Permission::Subtree,
@@ -633,11 +540,11 @@ mod tests {
 			],
 			20,
 		);
-		tokens.inherit(&tg::authorization::Tokens::with_local([broad.clone()]));
-		assert_eq!(tokens.local(), &[node, broad]);
+		tokens.inherit(&tg::Tokens::with_authorization([broad.clone()]));
+		assert_eq!(tokens.local_authorization(), &[node, broad]);
 		let broad = token(vec![Permission::Parent], 30);
-		tokens.inherit(&tg::authorization::Tokens::with_local([broad.clone()]));
-		assert_eq!(tokens.local(), &[broad]);
+		tokens.inherit(&tg::Tokens::with_authorization([broad.clone()]));
+		assert_eq!(tokens.local_authorization(), &[broad]);
 	}
 
 	#[test]
@@ -661,15 +568,15 @@ mod tests {
 		let a = token(first.clone(), "a");
 		let b = token(first, "b");
 		let c = token(second, "a");
-		let mut tokens = tg::authorization::Tokens::with_local([a.clone()]);
-		let mut incoming = tg::authorization::Tokens::with_local([b.clone(), c.clone()]);
+		let mut tokens = tg::Tokens::with_authorization([a.clone()]);
+		let mut incoming = tg::Tokens::with_authorization([b.clone(), c.clone()]);
 		let remote = tg::Location::Remote(tg::location::Remote {
 			name: "default".into(),
 			region: None,
 		});
-		incoming.insert(remote.clone(), a.clone());
+		incoming.insert_authorization(remote.clone(), a.clone());
 		tokens.inherit(&incoming);
-		assert_eq!(tokens.local(), &[a.clone(), b, c]);
-		assert_eq!(tokens.for_location(&remote).local(), &[a]);
+		assert_eq!(tokens.local_authorization(), &[a.clone(), b, c]);
+		assert_eq!(tokens.for_location(&remote).local_authorization(), &[a]);
 	}
 }

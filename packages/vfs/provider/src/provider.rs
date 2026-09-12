@@ -695,7 +695,7 @@ impl Inner {
 		let Ok(artifact) = tg::artifact::Id::try_from(target.node.clone()) else {
 			return;
 		};
-		let incoming = target.options.tokens.local();
+		let incoming = target.options.tokens.local_authorization();
 		let mut artifact_tag_target_tokens = self.artifact_tag_target_tokens.lock().unwrap();
 		let tokens = artifact_tag_target_tokens.entry(artifact).or_default();
 		for token in incoming {
@@ -765,13 +765,13 @@ impl Inner {
 		}
 		let arg = tg::object::get::Arg {
 			location,
-			tokens: tg::authorization::Tokens::with_local(tokens),
+			tokens: tg::Tokens::with_authorization(tokens),
 			..Default::default()
 		};
 		let Ok(Some(output)) = session.try_get_object(&id, arg).await else {
 			return false;
 		};
-		output.tokens.local().iter().any(|token| {
+		output.tokens.local_authorization().iter().any(|token| {
 			token.body.resource == tg::Id::from(id.clone())
 				&& token.body.expires_at >= now
 				&& token.body.grants(permission)
@@ -848,7 +848,7 @@ impl Inner {
 				position: Some(SeekFrom::Start(position)),
 				size: None,
 			},
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		};
 		let stream = self
 			.client
@@ -1159,7 +1159,7 @@ impl Inner {
 		if module.is_some() {
 			names.push(tg::file::MODULE_XATTR_NAME.to_owned());
 		}
-		if !file.state().tokens().local().is_empty() {
+		if !file.state().tokens().local_authorization().is_empty() {
 			names.push(tg::file::TOKEN_XATTR_NAME.to_owned());
 		}
 		Ok(names)
@@ -1190,7 +1190,7 @@ impl Inner {
 				let value = file
 					.state()
 					.tokens()
-					.local()
+					.local_authorization()
 					.iter()
 					.filter(|token| {
 						token.body.resource == resource && token.body.grants(permission)

@@ -200,7 +200,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(future) = self
-					.try_wait_process_local(id, arg.tokens.local().to_vec())
+					.try_wait_process_local(id, arg.tokens.local_authorization().to_vec())
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
 			{
@@ -326,7 +326,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 		regions: &[String],
 	) -> tg::Result<
 		Option<(
@@ -361,7 +361,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 		region: &str,
 	) -> tg::Result<
 		Option<(
@@ -396,7 +396,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 		remotes: &[crate::location::Remote],
 	) -> tg::Result<
 		Option<(
@@ -431,7 +431,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 		remote: &crate::location::Remote,
 	) -> tg::Result<
 		Option<(

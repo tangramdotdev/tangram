@@ -95,7 +95,7 @@ impl Cli {
 					pattern: pattern.clone(),
 					reverse: true,
 					tags: true,
-					tokens: tg::authorization::Tokens::default(),
+					tokens: tg::Tokens::default(),
 					ttl: tg::remote::cache::Ttl::default(),
 					users: false,
 				};
@@ -118,7 +118,7 @@ impl Cli {
 					pattern,
 					reverse: true,
 					tags: true,
-					tokens: tg::authorization::Tokens::default(),
+					tokens: tg::Tokens::default(),
 					ttl: tg::remote::cache::Ttl::default(),
 					users: false,
 				};

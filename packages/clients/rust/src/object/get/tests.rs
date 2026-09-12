@@ -56,7 +56,7 @@ fn output(bytes: Bytes) -> Output {
 		resource: id.clone().into(),
 	};
 	let token = tg::authorization::Token::sign(body, &key).unwrap();
-	let tokens = tg::authorization::Tokens::with_local(Some(token));
+	let tokens = tg::Tokens::with_authorization(Some(token));
 	let child = tg::object::get::Child {
 		tokens: tokens.clone(),
 	};

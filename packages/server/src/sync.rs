@@ -18,6 +18,8 @@ mod graph;
 mod progress;
 mod put;
 mod queue;
+mod token;
+mod wait;
 
 impl Session {
 	#[tracing::instrument(fields(get_count = arg.get.len(), put_count = arg.put.len()), level = "trace", name = "sync", skip_all)]

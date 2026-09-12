@@ -38,8 +38,8 @@ pub struct Arg {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub timeout: Option<Duration>,
 
-	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-	pub tokens: tg::authorization::Tokens,
+	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
+	pub tokens: tg::Tokens,
 }
 
 #[derive(

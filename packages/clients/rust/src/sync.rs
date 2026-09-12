@@ -13,6 +13,11 @@ use {
 	tokio_util::io::StreamReader,
 };
 
+pub use token::Token;
+
+pub mod notification;
+pub mod token;
+
 pub const CONTENT_TYPE: &str = "application/vnd.tangram.sync";
 
 #[derive(Clone, Copy, Debug)]
@@ -82,6 +87,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub sandbox_processes: bool,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sync: Option<tg::sync::Token>,
+
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub tag_targets: bool,
@@ -122,6 +130,15 @@ pub enum GetMessage {
 
 	#[tangram_serialize(id = 2)]
 	Progress(ProgressMessage),
+
+	#[tangram_serialize(id = 4)]
+	Start(GetStartMessage),
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct GetStartMessage {
+	#[tangram_serialize(id = 0)]
+	pub nodes: Vec<tg::Referent<tg::Id>>,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
@@ -135,8 +152,8 @@ pub struct GetNodeMessage {
 	#[tangram_serialize(id = 0)]
 	pub selector: tg::Selector<tg::Id>,
 
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "Vec::is_empty")]
-	pub tokens: Vec<tg::authorization::Token>,
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "tg::Tokens::is_empty")]
+	pub tokens: tg::Tokens,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

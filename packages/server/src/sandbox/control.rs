@@ -199,7 +199,7 @@ impl Session {
 				usage: None,
 			},
 			location: Some(location),
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		});
 		let account = match data.as_ref().and_then(|data| data.data.owner.as_ref()) {
 			Some(owner) => self.usage_account(owner).await?,

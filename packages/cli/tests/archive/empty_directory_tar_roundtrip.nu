@@ -7,5 +7,5 @@ let server = server spawn
 let dir = tg put 'tg.directory({})' | str trim
 
 let blob = tg archive --format tar $dir | str trim
-let extracted = tg extract $blob | str trim
+let extracted = tg extract $blob | str trim | split row '?' | first
 assert equal $extracted $dir "the extracted directory should equal the original"

@@ -144,7 +144,10 @@ impl Session {
 					.await
 					.map_err(|error| tg::error!(!error, "failed to store the command"))?;
 				arg.command.options.location = command.state().location();
-				arg.command.options.tokens = command.state().tokens();
+				arg.command
+					.options
+					.tokens
+					.inherit(&command.state().tokens());
 				id
 			},
 			tg::Either::Right(id) => id.clone(),

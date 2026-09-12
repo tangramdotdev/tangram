@@ -965,7 +965,7 @@ impl Provider {
 		let Ok(artifact) = tg::artifact::Id::try_from(target.node.clone()) else {
 			return;
 		};
-		let incoming = target.options.tokens.local();
+		let incoming = target.options.tokens.local_authorization();
 		let mut artifact_tag_target_tokens = self.artifact_tag_target_tokens.lock().unwrap();
 		let tokens = artifact_tag_target_tokens.entry(artifact).or_default();
 		for token in incoming {
@@ -1644,7 +1644,7 @@ impl Provider {
 		// Create the stream.
 		let arg = tg::read::Arg {
 			blob: file_handle.blob.clone(),
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 			options: tg::read::Options {
 				position: Some(std::io::SeekFrom::Start(position)),
 				length: Some(length),

@@ -22,7 +22,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_touch_object_local(id, arg.tokens.local())
+					.try_touch_object_local(id, arg.tokens.local_authorization())
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?
 			{
@@ -89,7 +89,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		regions: &[String],
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<()>> {
 		let mut futures = regions
 			.iter()
@@ -118,7 +118,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		region: &str,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, %id, region = %region, "failed to get the region client"),
@@ -143,7 +143,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		remotes: &[crate::location::Remote],
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<()>> {
 		let mut futures = remotes
 			.iter()
@@ -172,7 +172,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		remote: &crate::location::Remote,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<()>> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the remote client"),

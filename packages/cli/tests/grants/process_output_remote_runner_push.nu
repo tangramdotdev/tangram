@@ -39,7 +39,7 @@ success $result
 let file = $result.stdout | str trim
 let output = tg --url $local.url get $file | complete
 success $output
-snapshot $output.stdout '
+snapshot --normalize $output.stdout '
 	tg.file({"contents":blb_01t10ptmtyxpb108ztd4np15vt0jm9qnfkfny07vr8yp7tebj04dgg})
 
 '

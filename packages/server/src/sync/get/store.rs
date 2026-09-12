@@ -117,6 +117,10 @@ impl Session {
 		state: &State,
 		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
+		for node in &nodes {
+			crate::checkpoint!(self.server, "sync.get.store.object", id = %node.id).await;
+		}
+
 		// Deserialize the objects and create the cache args.
 		let mut datas = Vec::with_capacity(nodes.len());
 		let mut args = Vec::with_capacity(nodes.len());
@@ -148,54 +152,58 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to put objects"))?;
 
 		// Update the graph.
-		let mut graph = state.graph.lock().unwrap();
-		for (node, data) in nodes.iter().zip(&datas) {
-			// Get the metadata.
-			let metadata = node.metadata.clone().unwrap_or_else(|| {
-				let size = node.transferred_bytes;
-				let (node_solvable, node_solved) = match data {
-					Some(tg::object::Data::File(file)) => match file {
-						tg::file::Data::Pointer(_) => (false, true),
-						tg::file::Data::Node(node) => (node.solvable(), node.solved()),
-					},
-					Some(tg::object::Data::Graph(graph)) => {
-						graph
-							.nodes
-							.iter()
-							.fold((false, true), |(solvable, solved), node| {
-								if let tg::graph::data::Node::File(file) = node {
-									(solvable || file.solvable(), solved && file.solved())
-								} else {
-									(solvable, solved)
-								}
-							})
-					},
-					_ => (false, true),
-				};
-				tg::object::Metadata {
-					node: tg::object::metadata::Node {
-						size,
-						solvable: node_solvable,
-						solved: node_solved,
-					},
-					..Default::default()
-				}
-			});
+		{
+			let mut graph = state.graph.lock().unwrap();
+			for (node, data) in nodes.iter().zip(&datas) {
+				// Get the metadata.
+				let metadata = node.metadata.clone().unwrap_or_else(|| {
+					let size = node.transferred_bytes;
+					let (node_solvable, node_solved) =
+						match data {
+							Some(tg::object::Data::File(file)) => match file {
+								tg::file::Data::Pointer(_) => (false, true),
+								tg::file::Data::Node(node) => (node.solvable(), node.solved()),
+							},
+							Some(tg::object::Data::Graph(graph)) => graph.nodes.iter().fold(
+								(false, true),
+								|(solvable, solved), node| {
+									if let tg::graph::data::Node::File(file) = node {
+										(solvable || file.solvable(), solved && file.solved())
+									} else {
+										(solvable, solved)
+									}
+								},
+							),
+							_ => (false, true),
+						};
+					tg::object::Metadata {
+						node: tg::object::metadata::Node {
+							size,
+							solvable: node_solvable,
+							solved: node_solved,
+						},
+						..Default::default()
+					}
+				});
 
-			// Update the graph.
-			let arg = UpdateObjectLocalArg {
-				data: data.as_ref(),
-				id: &node.id,
-				marked: Some(true),
-				metadata: Some(metadata),
-				permissions: None,
-				put: Some(node.put),
-				requested: None,
-				storage: node.storage.clone(),
-			};
-			graph.update_object_local(arg);
+				// Update the graph.
+				let arg = UpdateObjectLocalArg {
+					data: data.as_ref(),
+					id: &node.id,
+					marked: Some(true),
+					metadata: Some(metadata),
+					permissions: None,
+					put: Some(node.put),
+					requested: None,
+					storage: node.storage.clone(),
+				};
+				graph.update_object_local(arg);
+			}
 		}
-		drop(graph);
+
+		// Answer the syncs waiting for the objects.
+		let ids = nodes.iter().map(|node| tg::Id::from(node.id.clone()));
+		self.sync_get_notification_notify(state, ids).await?;
 
 		// Update the progress.
 		let objects = nodes
@@ -336,6 +344,10 @@ impl Session {
 				graph.update_process_local(arg);
 			}
 		}
+
+		// Answer the syncs waiting for the processes.
+		let ids = batch.iter().map(|(id, _, _)| tg::Id::from(id.clone()));
+		self.sync_get_notification_notify(state, ids).await?;
 
 		// Update the progress.
 		let processes = count.to_u64().unwrap();

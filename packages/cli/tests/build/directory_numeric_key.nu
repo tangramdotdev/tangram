@@ -16,4 +16,4 @@ let path = artifact {
 
 # Build.
 let output = tg build $path
-snapshot $output 'dir_01yxf9ewzxy8jra954962jp96j0qrkg4hnp1h3pj6j6wvr5cjy3dc0'
+snapshot $output 'dir_01yxf9ewzxy8jra954962jp96j0qrkg4hnp1h3pj6j6wvr5cjy3dc0?tokens[local][authorization][0]=<token>'

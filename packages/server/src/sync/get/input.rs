@@ -125,12 +125,21 @@ impl Session {
 						})?;
 					} else if present != Some(true) {
 						// Enqueue the children.
+						let id = tg::Id::from(message.id.clone());
+						let (local_tokens, remote_tokens) = {
+							let graph = state.graph.lock().unwrap();
+							(
+								graph.get_node_local_tokens(&id),
+								graph.get_node_remote_tokens(&id),
+							)
+						};
 						Self::sync_get_enqueue_object_children(
 							state,
 							&message.id,
 							&data,
 							None,
-							&[],
+							&local_tokens,
+							&remote_tokens,
 						);
 					}
 
@@ -235,12 +244,21 @@ impl Session {
 							.lock()
 							.unwrap()
 							.get_process_local_availability(&message.id);
+						let id = tg::Id::from(message.id.clone());
+						let (local_tokens, remote_tokens) = {
+							let graph = state.graph.lock().unwrap();
+							(
+								graph.get_node_local_tokens(&id),
+								graph.get_node_remote_tokens(&id),
+							)
+						};
 						Self::sync_get_enqueue_process_children(
 							state,
 							&message.id,
 							&data,
 							Some(&availability),
-							&[],
+							&local_tokens,
+							&remote_tokens,
 						);
 					}
 
@@ -299,11 +317,15 @@ impl Session {
 					tg::Selector::Id(id) => match id.kind() {
 						tg::id::Kind::Process => {
 							let id = id.try_into()?;
-							state
-								.graph
-								.lock()
-								.unwrap()
-								.update_process_tokens(&id, message.tokens);
+							let tokens = tg::tokens::Entry {
+								authorization: message.tokens,
+								sync: None,
+							};
+							state.graph.lock().unwrap().update_process_tokens(
+								&id,
+								&tokens,
+								&tg::tokens::Entry::default(),
+							);
 							let node = super::index::ProcessNode { id, missing: true };
 							index_process_sender.send(node).await.map_err(|_| {
 								tg::error!("failed to send the process to the index task")
@@ -311,11 +333,15 @@ impl Session {
 						},
 						kind if kind.is_object() => {
 							let id = id.try_into()?;
-							state
-								.graph
-								.lock()
-								.unwrap()
-								.update_object_tokens(&id, message.tokens);
+							let tokens = tg::tokens::Entry {
+								authorization: message.tokens,
+								sync: None,
+							};
+							state.graph.lock().unwrap().update_object_tokens(
+								&id,
+								&tokens,
+								&tg::tokens::Entry::default(),
+							);
 							let node = super::index::ObjectNode { id, missing: true };
 							index_object_sender.send(node).await.map_err(|_| {
 								tg::error!("failed to send the object to the index task")
@@ -458,7 +484,7 @@ impl Session {
 				descendants: false,
 				eager: state.arg.eager,
 				selector,
-				tokens: Vec::new(),
+				tokens: tg::Tokens::default(),
 			});
 			state
 				.sender

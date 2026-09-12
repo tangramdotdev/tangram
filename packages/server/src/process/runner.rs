@@ -47,11 +47,13 @@ impl Session {
 	pub(crate) async fn authorize_process_runner(
 		&self,
 		id: &tg::process::Id,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 		permissions: tg::authorization::permission::process::Set,
 	) -> tg::Result<Option<tg::authorization::permission::Set>> {
-		let resource =
-			tg::Referent::with_node_and_local_tokens(id.clone(), tokens.local().to_vec());
+		let resource = tg::Referent::with_node_and_local_tokens(
+			id.clone(),
+			tokens.local_authorization().to_vec(),
+		);
 		let permissions = tg::authorization::permission::Set::Process(permissions);
 		// Only the caller's local authority applies here; remote capabilities remain with their issuer.
 		let permissions = self.authorize(resource, permissions).await?;

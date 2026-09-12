@@ -602,7 +602,7 @@ where
 		let tokens = if self.options.tokens {
 			state.tokens()
 		} else {
-			tg::authorization::Tokens::default()
+			tg::Tokens::default()
 		};
 		let referent = tg::Referent::with_node_and_tokens(state.id(), tokens);
 		self.color(referent, Color::Blue)?;

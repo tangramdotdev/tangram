@@ -1525,7 +1525,7 @@ impl Tree {
 		client: &tg::Client,
 		counter: UpdateCounter,
 		tag: &tg::Tag,
-		mut tokens: tg::authorization::Tokens,
+		mut tokens: tg::Tokens,
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		// Resolve the tag to acquire access to its target.

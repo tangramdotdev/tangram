@@ -23,8 +23,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
 
-	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-	pub tokens: tg::authorization::Tokens,
+	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
+	pub tokens: tg::Tokens,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -42,8 +42,8 @@ pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<tg::process::Metadata>,
 
-	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-	pub tokens: tg::authorization::Tokens,
+	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
+	pub tokens: tg::Tokens,
 }
 
 #[derive(Clone, Debug, Default)]

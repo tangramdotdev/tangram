@@ -475,7 +475,7 @@ where
 	fn into_authorization_resource(self) -> (tg::Selector<tg::Id>, Vec<tg::authorization::Token>) {
 		(
 			self.node.into_resource(),
-			self.options.tokens.local().to_vec(),
+			self.options.tokens.local_authorization().to_vec(),
 		)
 	}
 }
