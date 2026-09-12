@@ -3,7 +3,7 @@ use {
 	std::{
 		borrow::Cow,
 		collections::{BTreeMap, BTreeSet},
-		io::Result,
+		io::{Result, SeekFrom},
 		sync::Arc,
 		time::Duration,
 	},
@@ -98,6 +98,20 @@ impl Deserialize<'_> for Duration {
 			return Err(std::io::Error::other("invalid duration nanoseconds"));
 		}
 		Ok(Self::new(seconds, nanoseconds))
+	}
+}
+
+impl Deserialize<'_> for SeekFrom {
+	fn deserialize(deserializer: &mut Deserializer<'_>) -> Result<Self> {
+		deserializer.ensure_kind(Kind::Enum)?;
+		let id = deserializer.read_id()?;
+		let value = match id {
+			0 => Self::Current(deserializer.deserialize()?),
+			1 => Self::End(deserializer.deserialize()?),
+			2 => Self::Start(deserializer.deserialize()?),
+			_ => return Err(std::io::Error::other("unexpected variant id")),
+		};
+		Ok(value)
 	}
 }
 

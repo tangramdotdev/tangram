@@ -32,7 +32,7 @@ pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-connect"
 )]
 pub struct Arg {
 	#[serde(default)]
-	#[tangram_serialize(id = 0, with = "tangram_serialize::with::json")]
+	#[tangram_serialize(default, id = 0)]
 	pub reads: std::collections::BTreeMap<u64, tg::process::stdio::read::Arg>,
 	#[tangram_serialize(id = 1)]
 	pub target: Target,
@@ -52,11 +52,11 @@ pub enum Target {
 	Existing {
 		id: tg::process::Id,
 		#[serde(flatten)]
-		options: tangram_serialize::Json<tg::process::wait::Arg>,
+		options: tg::process::wait::Arg,
 	},
 	#[tangram_serialize(id = 1)]
 	Spawn {
-		arg: tangram_serialize::Json<Box<tg::process::spawn::Arg>>,
+		arg: Box<tg::process::spawn::Arg>,
 		#[serde(default)]
 		mode: Mode,
 	},
@@ -166,7 +166,7 @@ pub struct ClientRequest {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientRequestArg {
 	#[tangram_serialize(id = 0)]
-	Cancel(tangram_serialize::Json<tg::process::cancel::Arg>),
+	Cancel(tg::process::cancel::Arg),
 	#[tangram_serialize(id = 1)]
 	Close(u64),
 	#[tangram_serialize(id = 2)]
@@ -174,13 +174,13 @@ pub enum ClientRequestArg {
 	#[tangram_serialize(id = 3)]
 	Detach,
 	#[tangram_serialize(id = 4)]
-	Read(tangram_serialize::Json<tg::process::stdio::read::Arg>),
+	Read(tg::process::stdio::read::Arg),
 	#[tangram_serialize(id = 5)]
-	Signal(tangram_serialize::Json<tg::process::signal::post::Arg>),
+	Signal(tg::process::signal::post::Arg),
 	#[tangram_serialize(id = 6)]
-	Tty(tangram_serialize::Json<tg::process::tty::size::put::Arg>),
+	Tty(tg::process::tty::size::put::Arg),
 	#[tangram_serialize(id = 7)]
-	Write(tangram_serialize::Json<tg::process::stdio::write::Arg>),
+	Write(tg::process::stdio::write::Arg),
 }
 
 #[derive(
@@ -211,11 +211,11 @@ pub struct ServerResponse {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerResponseOutput {
 	#[tangram_serialize(id = 0)]
-	Cancel(tangram_serialize::Json<tg::process::cancel::Output>),
+	Cancel(tg::process::cancel::Output),
 	#[tangram_serialize(id = 1)]
 	Close,
 	#[tangram_serialize(id = 2)]
-	Connect(tangram_serialize::Json<tg::process::spawn::Output>),
+	Connect(tg::process::spawn::Output),
 	#[tangram_serialize(id = 3)]
 	Detach,
 	#[tangram_serialize(id = 4)]
@@ -258,11 +258,11 @@ pub enum ServerNotification {
 	Error(ErrorServerNotification),
 
 	#[tangram_serialize(id = 0)]
-	Progress(tangram_serialize::Json<tg::progress::Event<()>>),
+	Progress(tg::progress::Event<()>),
 	#[tangram_serialize(id = 1)]
 	Read(ReadServerNotification),
 	#[tangram_serialize(id = 2)]
-	Wait(tangram_serialize::Json<tg::process::wait::Output>),
+	Wait(tg::process::wait::Output),
 	#[tangram_serialize(id = 3)]
 	Write(WriteServerNotification),
 }
@@ -508,7 +508,7 @@ impl<O: 'static> tg::Process<O> {
 			reads,
 			target: Target::Existing {
 				id: id.clone(),
-				options: wait.into(),
+				options: wait,
 			},
 		};
 		let (connection, progress) = Connection::open(handle, arg).await?;

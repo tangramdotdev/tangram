@@ -11,15 +11,30 @@ use {
 	tangram_uri::Uri,
 };
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub lease: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 2,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
 	pub tokens: tg::authorization::Tokens,
 }
 
@@ -29,18 +44,33 @@ pub enum Event {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Error>")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
 
+	#[tangram_serialize(id = 1)]
 	pub exit: u8,
 
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
 		with = "serde_with::rust::unwrap_or_skip"
+	)]
+	#[tangram_serialize(
+		default,
+		id = 2,
+		skip_serializing_if = "Option::is_none",
+		with = "tangram_serialize::with::unwrap_or_skip"
 	)]
 	pub output: Option<tg::value::Data>,
 }

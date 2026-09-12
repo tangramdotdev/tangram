@@ -2,15 +2,14 @@ use std::io::Result;
 
 pub use {
 	self::{
-		deserialize::Deserialize, deserializer::Deserializer, json::Json, kind::Kind,
-		serialize::Serialize, serializer::Serializer, value::Value,
+		deserialize::Deserialize, deserializer::Deserializer, kind::Kind, serialize::Serialize,
+		serializer::Serializer, value::Value,
 	},
 	tangram_serialize_macro::{Deserialize, Serialize},
 };
 
 pub mod deserialize;
 pub mod deserializer;
-pub mod json;
 pub mod kind;
 pub mod serialize;
 pub mod serializer;

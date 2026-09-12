@@ -24,6 +24,4 @@ workspace = true
 bytes = { workspace = true, optional = true }
 num = { workspace = true }
 num-derive = { workspace = true }
-serde = { workspace = true }
-serde_json = { workspace = true }
 tangram_serialize_macro = { path = "macro" }

@@ -125,7 +125,6 @@ impl Connection {
 					}
 				},
 				ServerMessage::Notification(ServerNotification::Progress(event)) => {
-					let event = event.0;
 					let event =
 						event.try_map_output(|()| Err(tg::error!("unexpected progress output")))?;
 					if let Some(progress) = progress.as_ref() {
@@ -145,7 +144,6 @@ impl Connection {
 					}
 				},
 				ServerMessage::Notification(ServerNotification::Wait(output)) => {
-					let output = output.0;
 					state.wait.send_replace(Some(Ok(output)));
 				},
 				ServerMessage::Notification(ServerNotification::Write(notification)) => {
@@ -187,7 +185,7 @@ impl Connection {
 							.take()
 							.ok_or_else(|| tg::error!("duplicate connect response"))?;
 						progress
-							.send(Ok(tg::progress::Event::Output(output.0)))
+							.send(Ok(tg::progress::Event::Output(output)))
 							.await
 							.map_err(|_| tg::error!("the spawn receiver closed"))?;
 					} else if let Some(sender) = state.requests.lock().unwrap().remove(&response.id)
@@ -305,10 +303,7 @@ impl Connection {
 			let id = self.state.next_id.fetch_add(1, Ordering::Relaxed);
 			let (sender, receiver) = mpsc::channel(4);
 			self.state.reads.lock().unwrap().insert(id, sender);
-			if let Err(error) = self
-				.request_with_id(id, ClientRequestArg::Read(arg.into()))
-				.await
-			{
+			if let Err(error) = self.request_with_id(id, ClientRequestArg::Read(arg)).await {
 				self.state.reads.lock().unwrap().remove(&id);
 				return Err(error);
 			}
@@ -392,10 +387,7 @@ impl Connection {
 		let id = self.state.next_id.fetch_add(1, Ordering::Relaxed);
 		let (sender, receiver) = mpsc::channel(4);
 		self.state.writes.lock().unwrap().insert(id, sender);
-		if let Err(error) = self
-			.request_with_id(id, ClientRequestArg::Write(arg.into()))
-			.await
-		{
+		if let Err(error) = self.request_with_id(id, ClientRequestArg::Write(arg)).await {
 			self.state.writes.lock().unwrap().remove(&id);
 			return Err(error);
 		}
