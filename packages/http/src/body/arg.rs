@@ -11,10 +11,12 @@ use {
 	},
 	tangram_futures::read::Ext as _,
 	tangram_uri::builder::QUERY_PARAMS_LENGTH_THRESHOLD,
+	tangram_util::varint::WriteExt as _,
 	tokio::io::{AsyncRead, AsyncReadExt as _},
 };
 
 pub const HEADER: &str = "x-tg-arg-in-body";
+pub const MAX_LENGTH: u64 = 64 * 1024 * 1024;
 pub const THRESHOLD: usize = QUERY_PARAMS_LENGTH_THRESHOLD;
 
 #[pin_project]
@@ -67,12 +69,7 @@ impl<B> Body<B> {
 	{
 		let arg = serde_json::to_vec(arg)?;
 		let mut bytes = Vec::with_capacity(10 + arg.len());
-		let mut length = arg.len();
-		while length >= 0x80 {
-			bytes.push(u8::try_from(length & 0x7f).unwrap() | 0x80);
-			length >>= 7;
-		}
-		bytes.push(u8::try_from(length).unwrap());
+		bytes.write_uvarint(arg.len().to_u64().unwrap())?;
 		bytes.extend_from_slice(&arg);
 		let arg = Some(bytes.into());
 		Ok(Self { arg, body })

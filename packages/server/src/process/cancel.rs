@@ -233,11 +233,11 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Parse the arg.
-		let arg = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.ok_or_else(|| tg::error!("query parameters required"))?;
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.ok_or_else(|| tg::error!("missing the arg"))?;
 
 		let Some(output) = self
 			.try_cancel_process(&id, arg)

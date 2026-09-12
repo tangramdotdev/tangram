@@ -460,11 +460,11 @@ impl Session {
 		}
 
 		// Parse the arg.
-		let arg = request
-			.query_params::<tg::runner::control::Arg>()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.ok_or_else(|| tg::error!("missing the query params"))?;
+		let (arg, request) = request
+			.arg::<tg::runner::control::Arg>()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.ok_or_else(|| tg::error!("missing the query params"))?;
 
 		// Create the client message stream.
 		let stream = request

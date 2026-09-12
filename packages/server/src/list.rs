@@ -16,6 +16,15 @@ pub mod remote;
 
 const DATABASE_PAGE_LENGTH: u64 = 256;
 
+#[derive(Default, serde::Deserialize)]
+struct Arg {
+	#[serde(flatten)]
+	arg: tg::list::Arg,
+
+	#[serde(flatten)]
+	options: tg::referent::Options,
+}
+
 pub(crate) struct Kinds {
 	pub groups: bool,
 	pub organizations: bool,
@@ -729,21 +738,29 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let mut arg: tg::list::Arg = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (arg, _) = request
+			.arg::<Arg>()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let Arg {
+			mut arg,
+			mut options,
+		} = arg.unwrap_or_default();
 		if !path.is_empty() {
 			let id = path
 				.join("/")
 				.parse()
 				.map_err(|error| tg::error!(!error, "failed to parse the list node"))?;
-			let options = request
-				.query_params::<tg::referent::Options>()
-				.transpose()
-				.map_err(|error| tg::error!(!error, "failed to parse the referent options"))?
-				.unwrap_or_default();
+			// The location applies to both the list and its node.
+			options.location = arg
+				.location
+				.as_ref()
+				.map(|location| {
+					location
+						.to_location()
+						.ok_or_else(|| tg::error!("expected a single node location"))
+				})
+				.transpose()?;
 			arg.node = Some(tg::Referent::new(id, options));
 		}
 		let output = self.list(arg).await?;

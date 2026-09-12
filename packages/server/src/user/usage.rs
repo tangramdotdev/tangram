@@ -89,11 +89,11 @@ impl Session {
 		request: http::Request<BoxBody>,
 		user: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let arg = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 		let user = user.replace(':', "/").parse()?;
 		let Some(output) = self.try_get_user_usage(&user, arg).await? else {
 			return Ok(http::Response::builder()

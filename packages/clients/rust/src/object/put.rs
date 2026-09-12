@@ -47,10 +47,9 @@ impl tg::Session {
 				http::header::CONTENT_TYPE,
 				mime::APPLICATION_OCTET_STREAM.to_string(),
 			)
-			.bytes(arg.bytes.clone())
+			.arg(&arg, tangram_http::body::Bytes::new(arg.bytes.clone()))
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
-		let request = tangram_http::request::with_query_params(request, &arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send_with_retry(request)
 			.await

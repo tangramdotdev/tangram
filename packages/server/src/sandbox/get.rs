@@ -441,11 +441,11 @@ impl Session {
 		let id = id
 			.parse::<tg::sandbox::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
-		let arg = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 		let Some(output) = self.try_get_sandbox(&id, arg).boxed().await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)

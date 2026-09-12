@@ -323,11 +323,11 @@ impl Session {
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
-		let arg = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.ok_or_else(|| tg::error!("expected query params"))?;
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.ok_or_else(|| tg::error!("missing the arg"))?;
 		let output = self.delete_tags(arg).await?;
 		let (content_type, body) = match accept
 			.as_ref()

@@ -129,13 +129,11 @@ impl Server {
 		let index: u64 = index
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the process index"))?;
-		let arg: crate::client::stdio::Arg = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or(crate::client::stdio::Arg {
-				streams: Vec::new(),
-			});
+		let (arg, _) = request
+			.arg::<crate::client::stdio::Arg>()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 		let stream = self
 			.read_stdio(index, arg)
 			.await

@@ -482,11 +482,11 @@ impl Session {
 			},
 		}
 
-		let arg = request
-			.query_params::<tg::sandbox::control::Arg>()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (arg, request) = request
+			.arg::<tg::sandbox::control::Arg>()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 
 		let stream = request
 			.sse()

@@ -297,11 +297,11 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Get the arg.
-		let arg = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 
 		// Get the process metadata.
 		let Some(output) = self.try_get_process_metadata(&id, arg).await? else {

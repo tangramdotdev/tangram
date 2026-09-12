@@ -301,11 +301,11 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the node"))?;
 
 		// Get the reference options and arg.
-		let arg: tg::get::Arg = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (arg, _) = request
+			.arg::<tg::get::Arg>()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 		let reference = tg::Reference::with_node_and_options(node, arg.options.clone());
 
 		let stream = self

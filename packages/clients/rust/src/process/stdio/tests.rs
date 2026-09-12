@@ -49,48 +49,56 @@ async fn reconnect_preserves_the_resolved_reverse_window() {
 				let requests = requests.clone();
 				let service = hyper::service::service_fn(
 					move |request: http::Request<hyper::body::Incoming>| {
-						let arg: read::Arg = request.query_params().unwrap().unwrap();
-						sender.try_send(arg).unwrap();
-						let attempt = requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-						let messages = if attempt == 0 {
-							let chunk = Chunk {
-								bytes: Bytes::from_static(b"x"),
-								combined_position: position - 1,
-								stream: Stream::Stdout,
-								stream_position: position - 1,
-								timestamp: None,
+						let sender = sender.clone();
+						let requests = requests.clone();
+						async move {
+							let (arg, request) = request.arg::<read::Arg>().await.unwrap();
+							let arg = arg.unwrap();
+							sender.try_send(arg).unwrap();
+							let attempt =
+								requests.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+							let messages = if attempt == 0 {
+								let chunk = Chunk {
+									bytes: Bytes::from_static(b"x"),
+									combined_position: position - 1,
+									stream: Stream::Stdout,
+									stream_position: position - 1,
+									timestamp: None,
+								};
+								vec![
+									read::ServerMessage::Notification(
+										read::ServerNotification::Position {
+											length: Some(length),
+											position,
+										},
+									),
+									read::ServerMessage::Notification(
+										read::ServerNotification::Chunk(chunk),
+									),
+									read::ServerMessage::Notification(
+										read::ServerNotification::Stop,
+									),
+								]
+							} else {
+								vec![read::ServerMessage::Request(read::ServerRequest::End)]
 							};
-							vec![
-								read::ServerMessage::Notification(
-									read::ServerNotification::Position {
-										length: Some(length),
-										position,
-									},
-								),
-								read::ServerMessage::Notification(read::ServerNotification::Chunk(
-									chunk,
-								)),
-								read::ServerMessage::Notification(read::ServerNotification::Stop),
-							]
-						} else {
-							vec![read::ServerMessage::Request(read::ServerRequest::End)]
-						};
-						let input = Task::spawn(move |_| async move {
-							BodyStream::new(request.into_body())
-								.try_collect::<Vec<_>>()
-								.await
-								.ok();
-						});
-						let stream = stream::iter(messages.into_iter().map(Ok))
-							.chain(stream::pending())
-							.attach(input)
-							.boxed();
-						let body = encode(stream, 1024);
-						let response = http::Response::builder()
-							.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
-							.body(body)
-							.unwrap();
-						future::ready(Ok::<_, std::convert::Infallible>(response))
+							let input = Task::spawn(move |_| async move {
+								BodyStream::new(request.into_body())
+									.try_collect::<Vec<_>>()
+									.await
+									.ok();
+							});
+							let stream = stream::iter(messages.into_iter().map(Ok))
+								.chain(stream::pending())
+								.attach(input)
+								.boxed();
+							let body = encode(stream, 1024);
+							let response = http::Response::builder()
+								.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
+								.body(body)
+								.unwrap();
+							Ok::<_, std::convert::Infallible>(response)
+						}
 					},
 				);
 				connections.spawn(async move {

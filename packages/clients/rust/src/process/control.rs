@@ -1,6 +1,9 @@
 use {
-	crate::prelude::*, futures::stream::BoxStream, tangram_http::response::Ext as _,
-	tangram_uri::Uri, tangram_util::serde::is_default,
+	crate::prelude::*,
+	futures::stream::BoxStream,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
+	tangram_uri::Uri,
+	tangram_util::serde::is_default,
 };
 
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-control";
@@ -637,10 +640,9 @@ impl tg::Session {
 			.uri(uri)
 			.header(http::header::ACCEPT, TANGRAM_CONTENT_TYPE)
 			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
-			.body(body)
+			.arg(&arg, body)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
-		let request = tangram_http::request::with_query_params(request, &arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send(request)
 			.await

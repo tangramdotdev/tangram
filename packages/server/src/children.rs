@@ -293,11 +293,11 @@ impl Session {
 		let id = id
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the node ID"))?;
-		let options = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (options, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let options = options.unwrap_or_default();
 
 		// Get the children.
 		let arg = tg::children::Arg {

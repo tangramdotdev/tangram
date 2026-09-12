@@ -223,11 +223,11 @@ impl Session {
 		let id = id
 			.parse::<tg::object::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the object id"))?;
-		let arg = request
-			.query_params::<tg::object::put::Arg>()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (arg, request) = request
+			.arg::<tg::object::put::Arg>()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 		let content_type = request
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()

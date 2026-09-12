@@ -1,7 +1,7 @@
 use {
 	crate::prelude::*,
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
-	tangram_http::response::Ext as _,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tokio::io::AsyncRead,
 };
@@ -38,10 +38,9 @@ impl tg::Session {
 				http::header::CONTENT_TYPE,
 				mime::APPLICATION_OCTET_STREAM.to_string(),
 			)
-			.body(body)
+			.arg(&arg, body)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
-		let request = tangram_http::request::with_query_params(request, &arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send(request)
 			.await

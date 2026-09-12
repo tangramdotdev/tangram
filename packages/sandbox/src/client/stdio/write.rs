@@ -16,12 +16,7 @@ impl Client {
 	) -> tg::Result<impl Stream<Item = tg::Result<crate::stdio::write::Event>> + Send + 'static> {
 		let method = http::Method::POST;
 		let path = format!("/processes/{index}/stdio");
-		let uri = Uri::builder()
-			.path(&path)
-			.query_params_strict(&arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
-			.build()
-			.unwrap();
+		let uri = Uri::builder().path(&path).build().unwrap();
 		let stream = stream.map(
 			|result: tg::Result<crate::stdio::read::Event>| match result {
 				Ok(event) => event.try_into(),
@@ -36,7 +31,8 @@ impl Client {
 				http::header::CONTENT_TYPE,
 				mime::TEXT_EVENT_STREAM.to_string(),
 			)
-			.sse(stream)
+			.arg(&arg, tangram_http::body::Boxed::with_sse_stream(stream))
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
 			.send(request)

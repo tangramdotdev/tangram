@@ -6,6 +6,16 @@ use {
 };
 
 pub trait Ext: Sized {
+	/// Put the arg in the query, or prepend it to the body when the query is too large.
+	fn arg<T, B>(
+		self,
+		arg: &T,
+		body: B,
+	) -> Result<http::Result<http::Request<body::arg::Body<B>>>, Error>
+	where
+		T: serde::Serialize,
+		B: http_body::Body<Data = Bytes>;
+
 	fn empty(self) -> http::Result<http::Request<body::Empty>>;
 
 	fn bytes<T>(self, value: T) -> http::Result<http::Request<body::Bytes>>
@@ -39,6 +49,55 @@ pub trait Ext: Sized {
 }
 
 impl Ext for http::request::Builder {
+	fn arg<T, B>(
+		mut self,
+		arg: &T,
+		body: B,
+	) -> Result<http::Result<http::Request<body::arg::Body<B>>>, Error>
+	where
+		T: serde::Serialize,
+		B: http_body::Body<Data = Bytes>,
+	{
+		// Serialize the arg.
+		let query = serde_qs::Config::new()
+			.use_form_encoding(true)
+			.serialize_string(arg)?;
+		let arg_in_body = query.len() > body::arg::THRESHOLD;
+
+		// Set the query.
+		let uri = self.uri_ref().cloned().unwrap_or_default();
+		let path_and_query = if arg_in_body || query.is_empty() {
+			uri.path().parse()?
+		} else {
+			format!("{}?{query}", uri.path()).parse()?
+		};
+		let mut parts = uri.into_parts();
+		parts.path_and_query = Some(path_and_query);
+		self = self.uri(http::Uri::from_parts(parts)?);
+
+		// Create the body.
+		let body = if arg_in_body {
+			if let Some(headers) = self.headers_mut() {
+				headers.insert(body::arg::HEADER, http::HeaderValue::from_static("true"));
+				// A cache must not identify a request with an arg in its body by its URI alone.
+				headers.insert(
+					http::header::CACHE_CONTROL,
+					http::HeaderValue::from_static("no-store"),
+				);
+				headers.remove(http::header::CONTENT_LENGTH);
+			}
+			body::arg::Body::with_arg(body, arg)?
+		} else {
+			if let Some(headers) = self.headers_mut() {
+				headers.remove(body::arg::HEADER);
+			}
+			body::arg::Body::new(body)
+		};
+		let request = self.body(body);
+
+		Ok(request)
+	}
+
 	fn empty(self) -> http::Result<http::Request<body::Empty>> {
 		self.header(
 			http::header::CONTENT_LENGTH,

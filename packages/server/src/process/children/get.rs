@@ -749,11 +749,11 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
 
 		// Get the query.
-		let arg = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (arg, request) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 
 		// Get the accept header.
 		let accept: Option<mime::Mime> = request

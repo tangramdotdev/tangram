@@ -1,19 +1,24 @@
 use {
 	crate::prelude::*,
+	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	std::cmp::Ordering,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::{is_default, is_false, is_true, return_true},
 };
 
+#[serde_as]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub cached: bool,
 
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub groups: bool,
 
+	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub length: Option<u64>,
 
@@ -23,24 +28,30 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub node: Option<tg::Referent<tg::Id>>,
 
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub organizations: bool,
 
+	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub position: Option<u64>,
 
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub recursive: bool,
 
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub reverse: bool,
 
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub tags: bool,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub ttl: tg::remote::cache::Ttl,
 
+	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub users: bool,
 }
@@ -148,14 +159,14 @@ impl tg::Session {
 			request_arg.location = None;
 		}
 		#[derive(serde::Serialize)]
-		struct Query<'a> {
+		struct Arg<'a> {
 			#[serde(flatten)]
 			arg: &'a tg::list::Arg,
 
 			#[serde(flatten)]
 			options: Option<&'a tg::referent::Options>,
 		}
-		let query = Query {
+		let arg = Arg {
 			arg: &request_arg,
 			options: arg.node.as_ref().map(tg::Referent::options),
 		};
@@ -164,10 +175,9 @@ impl tg::Session {
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.empty()
+			.arg(&arg, tangram_http::body::Empty::new())
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
-		let request = tangram_http::request::with_query_params(request, &query)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send_with_retry(request)
 			.await

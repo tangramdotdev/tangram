@@ -92,11 +92,11 @@ impl Session {
 		request: http::Request<BoxBody>,
 		organization: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
-		let arg = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (arg, _) = request
+			.arg()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 		let organization = organization.replace(':', "/").parse()?;
 		let Some(output) = self.try_get_organization_usage(&organization, arg).await? else {
 			return Ok(http::Response::builder()

@@ -652,11 +652,11 @@ impl Session {
 		)?;
 
 		// Parse the arg.
-		let arg = request
-			.query_params::<tg::process::control::Arg>()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (arg, request) = request
+			.arg::<tg::process::control::Arg>()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 		// Create the response stream.
 		let max_frame_size = self.server.config.sync.max_frame_size;
 		let stream = super::stdio::decode(request, input_encoding, max_frame_size);

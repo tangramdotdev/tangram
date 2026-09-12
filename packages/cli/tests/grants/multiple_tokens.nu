@@ -37,3 +37,23 @@ tg --token $root_token checkpoint unwatch authorization.index $watch
 
 let output = get-object $socket $bob.token $directory [$node $other $forged]
 assert equal ($output.children? | default {}) {}
+
+# A large collection of distinct proofs uses the framed arg through the Rust client.
+let objects = 0..<16 | each { |i|
+	let value = ['tg.file("proof ' ($i | into string) '")'] | str join
+	tg --token $alice.token put $value | str trim
+}
+tg --token $alice.token index
+let tokens = $objects | each { |object|
+	(get-object $socket $alice.token $object []).tokens.local.0
+} | append $subtree
+let query = $tokens | enumerate | each { |entry|
+	$'tokens[local][($entry.index)]=($entry.item | url encode --all)'
+} | str join '&'
+assert (($query | str length) > 4096)
+let reference = $'($directory)?($query)'
+let expected = tg --token $alice.token object get --bytes $directory | into binary
+assert equal (tg --token $bob.token object get --bytes $reference | into binary) $expected
+let loaded = tg --token $bob.token get $reference --depth inf | complete
+success $loaded
+assert ($loaded.stdout | str contains '"contents"')

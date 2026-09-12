@@ -554,28 +554,6 @@ impl Server {
 		context.billing = authentication.billing;
 		context.principal = authentication.principal;
 
-		// Read an arg sent in the body before dispatching the request.
-		let request = match tangram_http::request::read_query_params(
-			request,
-			self.config.sync.max_frame_size,
-		)
-		.await
-		{
-			Ok(request) => request,
-			Err(error) => {
-				let error = tg::error!(!error, "failed to read the request arg");
-				let bytes = match error.to_data_or_id() {
-					tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
-					tg::Either::Right(id) => id.to_string(),
-				};
-				return http::Response::builder()
-					.status(http::StatusCode::BAD_REQUEST)
-					.bytes(bytes)
-					.unwrap()
-					.boxed_body();
-			},
-		};
-
 		let session = self.session(&context);
 
 		let path_components = path.split('/').skip(1).collect::<Vec<_>>();

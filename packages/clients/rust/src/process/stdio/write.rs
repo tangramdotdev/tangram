@@ -3,7 +3,7 @@ use {
 	crate::prelude::*,
 	futures::{TryStreamExt as _, stream::BoxStream},
 	serde_with::serde_as,
-	tangram_http::response::Ext as _,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::CommaSeparatedString,
 };
@@ -213,10 +213,9 @@ impl tg::Session {
 			.uri(uri)
 			.header(http::header::ACCEPT, super::TANGRAM_CONTENT_TYPE)
 			.header(http::header::CONTENT_TYPE, super::TANGRAM_CONTENT_TYPE)
-			.body(body)
+			.arg(&arg, body)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
-		let request = tangram_http::request::with_query_params(request, &arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
 		let response = self
 			.send(request)
 			.await

@@ -8319,6 +8319,7 @@ dependencies = [
  "serde_qs",
  "tangram_futures",
  "tangram_uri",
+ "tangram_util",
  "tokio",
  "tokio-util",
  "tower",

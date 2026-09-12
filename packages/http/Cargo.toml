@@ -34,6 +34,7 @@ serde_json = { workspace = true }
 serde_qs = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_uri = { workspace = true }
+tangram_util = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tower = { workspace = true }

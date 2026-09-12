@@ -389,11 +389,11 @@ impl Session {
 		let id = id
 			.parse::<tg::process::Id>()
 			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
-		let arg: tg::process::stdio::write::Arg = request
-			.query_params()
-			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the query params"))?
-			.unwrap_or_default();
+		let (arg, request) = request
+			.arg::<tg::process::stdio::write::Arg>()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
+		let arg = arg.unwrap_or_default();
 		let max_frame_size = self.server.config.sync.max_frame_size;
 		let input = super::decode(request, input_encoding, max_frame_size);
 		let Some(output) = self.try_write_process_stdio(&id, arg, input).await? else {

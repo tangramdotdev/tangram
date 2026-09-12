@@ -5,7 +5,7 @@ use {
 	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
 	tangram_http::body::BodyStream,
-	tangram_http::response::Ext as _,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::{CommaSeparatedString, is_default, is_false, is_true, return_true},
 	tokio::io::AsyncReadExt as _,
@@ -442,9 +442,10 @@ impl tg::Session {
 				http::header::CONTENT_TYPE,
 				tg::sync::CONTENT_TYPE.to_string(),
 			);
-		let request = request.body(body).unwrap();
-		let request = tangram_http::request::with_query_params(request, &arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
+		let request = request
+			.arg(&arg, body)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.unwrap();
 		let response = self
 			.send(request)
 			.await

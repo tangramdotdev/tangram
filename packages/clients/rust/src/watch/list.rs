@@ -32,9 +32,10 @@ impl tg::Session {
 			.method(method)
 			.uri(uri)
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string());
-		let request = request.empty().unwrap();
-		let request = tangram_http::request::with_query_params(request, &arg)
-			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?;
+		let request = request
+			.arg(&arg, tangram_http::body::Empty::new())
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
+			.unwrap();
 		let response = self
 			.send_with_retry(request)
 			.await
