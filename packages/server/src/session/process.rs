@@ -5,11 +5,11 @@ use {
 };
 
 impl tg::handle::Process for Session {
-	async fn connect_process(
+	async fn try_connect_process(
 		&self,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>> {
-		self.connect_process(input).await
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>> {
+		self.try_connect_process(input).await
 	}
 
 	async fn try_spawn_process(

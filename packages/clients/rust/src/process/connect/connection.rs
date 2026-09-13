@@ -13,6 +13,9 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
 pub struct Connection {
 	state: Arc<State>,
@@ -20,6 +23,7 @@ pub struct Connection {
 }
 
 struct State {
+	acks: mpsc::Sender<tg::Result<ClientMessage>>,
 	detached: AtomicBool,
 	error: Mutex<Option<tg::Error>>,
 	initial: Mutex<
@@ -53,6 +57,8 @@ impl Connection {
 		Self,
 		BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
 	)> {
+		// Create the request and subscription channels.
+		let (acks, ack_receiver) = mpsc::channel(64);
 		let (sender, receiver) = mpsc::channel(64);
 		let (progress, progress_receiver) = mpsc::channel(64);
 		let (wait, _) = watch::channel(None);
@@ -63,6 +69,8 @@ impl Connection {
 			reads.insert(id, sender);
 			initial.push((id, arg.clone(), receiver));
 		}
+
+		// Send the opening request.
 		let next_id = arg.reads.keys().last().copied().unwrap_or(0) + 1;
 		let request = ClientRequest {
 			arg: ClientRequestArg::Connect(arg),
@@ -72,10 +80,15 @@ impl Connection {
 			.send(Ok(ClientMessage::Request(request)))
 			.await
 			.unwrap();
-		let output = handle
-			.connect_process(ReceiverStream::new(receiver).boxed())
-			.await?;
-		let state = Arc::new(State {
+		let input = stream::select(
+			ReceiverStream::new(ack_receiver),
+			ReceiverStream::new(receiver),
+		);
+		let output = handle.connect_process(input.boxed()).await?;
+
+		// Receive the process responses and notifications.
+		let state = State {
+			acks,
 			detached: AtomicBool::new(false),
 			error: Mutex::new(None),
 			initial: Mutex::new(initial),
@@ -85,7 +98,8 @@ impl Connection {
 			sender,
 			wait,
 			writes: Mutex::new(BTreeMap::new()),
-		});
+		};
+		let state = Arc::new(state);
 		let state_task = state.clone();
 		let task = Task::spawn(move |_| async move {
 			let mut progress = Some(progress);
@@ -98,11 +112,14 @@ impl Connection {
 			}
 			state_task.fail(error);
 		});
+
 		let connection = Self {
 			state,
 			task: Arc::new(task),
 		};
-		Ok((connection, ReceiverStream::new(progress_receiver).boxed()))
+		let progress = ReceiverStream::new(progress_receiver).boxed();
+
+		Ok((connection, progress))
 	}
 
 	async fn task(
@@ -135,6 +152,15 @@ impl Connection {
 					}
 				},
 				ServerMessage::Notification(ServerNotification::Read(notification)) => {
+					// A shutdown ends the connection instead of reconnecting individual stdio streams.
+					if matches!(
+						notification.message,
+						tg::process::stdio::read::ServerMessage::Notification(
+							tg::process::stdio::read::ServerNotification::Stop
+						)
+					) {
+						return Err(tg::error!("the process connection stopped"));
+					}
 					let reads = state.reads.lock().unwrap();
 					if let Some(sender) = reads.get(&notification.id)
 						&& let Err(mpsc::error::TrySendError::Full(_)) =
@@ -147,6 +173,14 @@ impl Connection {
 					state.wait.send_replace(Some(Ok(output)));
 				},
 				ServerMessage::Notification(ServerNotification::Write(notification)) => {
+					if matches!(
+						notification.message,
+						tg::process::stdio::write::ServerMessage::Notification(
+							tg::process::stdio::write::ServerNotification::Stop
+						)
+					) {
+						return Err(tg::error!("the process connection stopped"));
+					}
 					let mut writes = state.writes.lock().unwrap();
 					let end = matches!(
 						&notification.message,
@@ -169,9 +203,10 @@ impl Connection {
 				},
 				ServerMessage::Response(response) => {
 					state
-						.sender
-						.try_send(Ok(ClientMessage::Ack(Ack { id: response.id })))
-						.ok();
+						.acks
+						.send(Ok(ClientMessage::Ack(Ack { id: response.id })))
+						.await
+						.map_err(|_| tg::error!("the process connection closed"))?;
 					let result = match (response.error, response.output) {
 						(None, Some(output)) => Ok(output),
 						(Some(error), None) => Err(error.try_into()?),
@@ -255,11 +290,6 @@ impl Connection {
 		}
 	}
 
-	#[must_use]
-	pub(crate) fn detached(&self) -> bool {
-		self.state.detached.load(Ordering::SeqCst)
-	}
-
 	pub(crate) async fn detach(&self) -> tg::Result<()> {
 		if self.detached() {
 			return Ok(());
@@ -279,11 +309,17 @@ impl Connection {
 		Ok(())
 	}
 
+	#[must_use]
+	pub(crate) fn detached(&self) -> bool {
+		self.state.detached.load(Ordering::SeqCst)
+	}
+
 	pub(crate) async fn read(
 		&self,
 		arg: tg::process::stdio::read::Arg,
-		mut input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>> {
+		// Open the subscription.
 		let initial = {
 			let mut initial = self.state.initial.lock().unwrap();
 			initial
@@ -309,46 +345,12 @@ impl Connection {
 			}
 			(id, receiver)
 		};
+
+		// Send the stdio messages.
 		let state = self.state.clone();
-		let task =
-			Task::spawn(move |_| async move {
-				loop {
-					let message = tokio::select! {
-						message = input.next() => message,
-						() = state.sender.closed() => return,
-					};
-					let Some(message) = message else {
-						state.close(id).await;
-						return;
-					};
-					let message = match message {
-						Ok(message) => message,
-						Err(error) => {
-							if let Some(sender) = state.reads.lock().unwrap().remove(&id) {
-								sender.try_send(Err(error)).ok();
-							}
-							state.close(id).await;
-							return;
-						},
-					};
-					let end = matches!(
-						&message,
-						tg::process::stdio::read::ClientMessage::Response(
-							tg::process::stdio::read::ClientResponse::End
-						)
-					);
-					let message = ClientMessage::Notification(ClientNotification::Read(
-						ReadClientNotification { id, message },
-					));
-					if state.sender.send(Ok(message)).await.is_err() {
-						return;
-					}
-					if end {
-						state.reads.lock().unwrap().remove(&id);
-						return;
-					}
-				}
-			});
+		let task = Task::spawn(move |_| async move {
+			Self::read_task(state, id, input).await;
+		});
 		let state = self.state.clone();
 		let errors = stream::once(async move {
 			Err(state
@@ -376,14 +378,62 @@ impl Connection {
 			state: self.state.clone(),
 			task: Some(task),
 		};
-		Ok(output.chain(errors).attach(guard).boxed())
+		let output = output.chain(errors).attach(guard).boxed();
+
+		Ok(output)
+	}
+
+	async fn read_task(
+		state: Arc<State>,
+		id: u64,
+		mut input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
+	) {
+		loop {
+			let message = tokio::select! {
+				message = input.next() => message,
+				() = state.sender.closed() => return,
+			};
+			let Some(message) = message else {
+				state.close(id).await;
+				return;
+			};
+			let message = match message {
+				Err(error) => {
+					if let Some(sender) = state.reads.lock().unwrap().remove(&id) {
+						sender.try_send(Err(error)).ok();
+					}
+					state.close(id).await;
+					return;
+				},
+				Ok(message) => message,
+			};
+			let end = matches!(
+				&message,
+				tg::process::stdio::read::ClientMessage::Response(
+					tg::process::stdio::read::ClientResponse::End
+				)
+			);
+			let message =
+				ClientMessage::Notification(ClientNotification::Read(ReadClientNotification {
+					id,
+					message,
+				}));
+			if state.sender.send(Ok(message)).await.is_err() {
+				return;
+			}
+			if end {
+				state.reads.lock().unwrap().remove(&id);
+				return;
+			}
+		}
 	}
 
 	pub(crate) async fn write(
 		&self,
 		arg: tg::process::stdio::write::Arg,
-		mut input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>> {
+		// Open the subscription.
 		let id = self.state.next_id.fetch_add(1, Ordering::Relaxed);
 		let (sender, receiver) = mpsc::channel(4);
 		self.state.writes.lock().unwrap().insert(id, sender);
@@ -391,32 +441,11 @@ impl Connection {
 			self.state.writes.lock().unwrap().remove(&id);
 			return Err(error);
 		}
+
+		// Send the stdio messages.
 		let state = self.state.clone();
 		let task = Task::spawn(move |_| async move {
-			while let Some(message) = input.next().await {
-				let message = match message {
-					Ok(message) => message,
-					Err(error) => {
-						if let Some(sender) = state.writes.lock().unwrap().remove(&id) {
-							sender.try_send(Err(error)).ok();
-						}
-						break;
-					},
-				};
-				let end = matches!(
-					&message,
-					tg::process::stdio::write::ClientMessage::Request(
-						tg::process::stdio::write::ClientRequest::End { .. }
-					)
-				);
-				let message = ClientMessage::Notification(ClientNotification::Write(
-					WriteClientNotification { id, message },
-				));
-				if state.sender.send(Ok(message)).await.is_err() || end {
-					return;
-				}
-			}
-			state.close(id).await;
+			Self::write_task(state, id, input).await;
 		});
 		let state = self.state.clone();
 		let guard = scopeguard::guard((), move |()| {
@@ -435,10 +464,45 @@ impl Connection {
 				.clone()
 				.unwrap_or_else(|| tg::error!("the process write closed before EOF")))
 		});
-		Ok(ReceiverStream::new(receiver)
+		let output = ReceiverStream::new(receiver)
 			.chain(errors)
 			.attach((task, guard))
-			.boxed())
+			.boxed();
+
+		Ok(output)
+	}
+
+	async fn write_task(
+		state: Arc<State>,
+		id: u64,
+		mut input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+	) {
+		while let Some(message) = input.next().await {
+			let message = match message {
+				Err(error) => {
+					if let Some(sender) = state.writes.lock().unwrap().remove(&id) {
+						sender.try_send(Err(error)).ok();
+					}
+					break;
+				},
+				Ok(message) => message,
+			};
+			let end = matches!(
+				&message,
+				tg::process::stdio::write::ClientMessage::Request(
+					tg::process::stdio::write::ClientRequest::End { .. }
+				)
+			);
+			let message =
+				ClientMessage::Notification(ClientNotification::Write(WriteClientNotification {
+					id,
+					message,
+				}));
+			if state.sender.send(Ok(message)).await.is_err() || end {
+				return;
+			}
+		}
+		state.close(id).await;
 	}
 }
 

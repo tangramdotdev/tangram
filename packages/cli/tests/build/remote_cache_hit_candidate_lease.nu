@@ -30,8 +30,9 @@ tg push --eager --process-outputs --process-children $shared_process
 let wrapper_ts = [
 	$'import shared from "shared" with { source: "($shared)" };'
 	'export default async function (_name: string) {'
-	'	await tg.build(shared);'
-	'	return "done";'
+	'	let process = await tg.build(shared).spawn().connection("run");'
+	'	await process.output();'
+	'	return process.id;'
 	'}'
 ] | str join "\n"
 let wrapper = artifact { tangram.ts: $wrapper_ts }
@@ -81,9 +82,6 @@ let acquire_watch = (
 	| get watch
 )
 
-# Prevent the second caller from selecting the remote result.
-tg remote delete default
-
 # Start the second wrapper and let it acquire a lease on the local candidate.
 let second = build_background $wrapper second
 tg checkpoint wait runner.process.start $start_watch 2 | ignore
@@ -108,4 +106,10 @@ for build in [$first $second] {
 		error make { msg: 'the build did not complete' }
 	}
 	success $output
+	let expected = if $build == $first {
+		$shared_process | split row '?' | first
+	} else {
+		$cancel.params.process
+	}
+	assert equal ($output.stdout | from json) $expected "each caller should finish with its selected process"
 }

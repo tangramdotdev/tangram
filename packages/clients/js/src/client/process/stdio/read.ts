@@ -4,11 +4,11 @@ import type { Client } from "../../../client.ts";
 
 type Connection = {
 	input: {
-		push(message: tg.Process.Stdio.Read.ClientMessage): boolean;
 		close(): void;
+		push(message: tg.Process.Stdio.Read.ClientMessage): boolean;
 	};
-	reconnect?: boolean;
 	output: AsyncIterableIterator<tg.Process.Stdio.Read.ServerMessage>;
+	reconnect?: boolean;
 };
 
 class ProtocolError extends Error {}

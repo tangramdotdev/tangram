@@ -1,13 +1,16 @@
-/** A bounded queue for a streaming protocol. */
+/** A streaming channel with independently bounded ordinary and priority queues. */
 export class Channel<T> implements AsyncIterableIterator<T> {
 	#closed = false;
 	#error: unknown;
+	#priority: Array<T> = [];
 	#values: Array<T> = [];
 	#waiters: Array<{
-		resolve: (result: IteratorResult<T>) => void;
 		reject: (error: unknown) => void;
+		resolve: (result: IteratorResult<T>) => void;
 	}> = [];
+
 	constructor(private capacity: number) {}
+
 	close(error?: unknown): void {
 		this.#closed = true;
 		this.#error = error;
@@ -19,8 +22,9 @@ export class Channel<T> implements AsyncIterableIterator<T> {
 			}
 		}
 	}
+
 	next(): Promise<IteratorResult<T>> {
-		let value = this.#values.shift();
+		let value = this.#priority.shift() ?? this.#values.shift();
 		if (value !== undefined) {
 			return Promise.resolve({ done: false, value });
 		}
@@ -31,28 +35,32 @@ export class Channel<T> implements AsyncIterableIterator<T> {
 			return Promise.resolve({ done: true, value: undefined });
 		}
 		return new Promise((resolve, reject) =>
-			this.#waiters.push({ resolve, reject }),
+			this.#waiters.push({ reject, resolve }),
 		);
 	}
-	push(value: T): boolean {
+
+	push(value: T, priority = false): boolean {
 		if (this.#closed) {
 			return false;
 		}
 		let waiter = this.#waiters.shift();
 		if (waiter !== undefined) {
 			waiter.resolve({ done: false, value });
-		} else {
-			if (this.#values.length >= this.capacity) {
-				throw new Error("the process message queue is full");
-			}
-			this.#values.push(value);
+			return true;
 		}
+		let values = priority ? this.#priority : this.#values;
+		if (values.length >= this.capacity) {
+			throw new Error("the process message queue is full");
+		}
+		values.push(value);
 		return true;
 	}
+
 	return(): Promise<IteratorResult<T>> {
 		this.close();
 		return Promise.resolve({ done: true, value: undefined });
 	}
+
 	[Symbol.asyncIterator](): AsyncIterableIterator<T> {
 		return this;
 	}

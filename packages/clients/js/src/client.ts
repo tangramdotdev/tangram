@@ -1,5 +1,4 @@
 import * as tg from "./index.ts";
-import { connectProcess } from "./client/process/connect.ts";
 import { Request, Response } from "./http.ts";
 import { checkin } from "./client/checkin.ts";
 import { checkout } from "./client/checkout.ts";
@@ -7,6 +6,7 @@ import { postObjectBatch } from "./client/object/batch.ts";
 import { getObject, tryGetObject } from "./client/object/get.ts";
 import { putObject } from "./client/object/put.ts";
 import { cancelProcess, tryCancelProcess } from "./client/process/cancel.ts";
+import { connectProcess } from "./client/process/connect.ts";
 import { getProcess, tryGetProcess } from "./client/process/get.ts";
 import { putProcess } from "./client/process/put.ts";
 import {
@@ -46,12 +46,6 @@ class RequestError {
 }
 
 export class Client {
-	connectProcess(
-		input: AsyncIterable<tg.Process.Connect.ClientMessage>,
-	): Promise<AsyncIterableIterator<tg.Process.Connect.ServerMessage>> {
-		return connectProcess(this, input);
-	}
-
 	#connecting: Promise<tg.Host.Http2.ClientHttp2Session> | null = null;
 	#session: tg.Host.Http2.ClientHttp2Session | null = null;
 
@@ -85,6 +79,12 @@ export class Client {
 		arg: tg.Checkout.Arg,
 	): Promise<AsyncIterableIterator<tg.Progress.Event<tg.Checkout.Output>>> {
 		return checkout(this, arg);
+	}
+
+	connectProcess(
+		input: AsyncIterable<tg.Process.Connect.ClientMessage>,
+	): Promise<AsyncIterableIterator<tg.Process.Connect.ServerMessage>> {
+		return connectProcess(this, input);
 	}
 
 	getObject(

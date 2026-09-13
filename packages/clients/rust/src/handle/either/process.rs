@@ -8,13 +8,13 @@ where
 	L: tg::handle::Process,
 	R: tg::handle::Process,
 {
-	async fn connect_process(
+	async fn try_connect_process(
 		&self,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>> {
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>> {
 		match self {
-			tg::Either::Left(handle) => handle.connect_process(input).await,
-			tg::Either::Right(handle) => handle.connect_process(input).await,
+			tg::Either::Left(handle) => handle.try_connect_process(input).await,
+			tg::Either::Right(handle) => handle.try_connect_process(input).await,
 		}
 	}
 

@@ -30,6 +30,7 @@ impl Handle {
 	pub fn new(handle: impl tg::Handle) -> Self {
 		Self(Arc::new(handle), None)
 	}
+
 	#[must_use]
 	pub(crate) fn with_connection(
 		handle: impl tg::Handle,
@@ -39,7 +40,8 @@ impl Handle {
 		Self(Arc::new(handle), Some((id, connection)))
 	}
 
-	fn connection(&self, id: &tg::process::Id) -> Option<&tg::process::connect::Connection> {
+	#[must_use]
+	fn try_connection(&self, id: &tg::process::Id) -> Option<&tg::process::connect::Connection> {
 		self.1
 			.as_ref()
 			.filter(|(process, connection)| process == id && !connection.detached())

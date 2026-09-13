@@ -8,6 +8,7 @@ pub(in crate::process) struct LeaseGuard {
 }
 
 impl LeaseGuard {
+	#[must_use]
 	pub fn new(session: &Session, output: &tg::process::spawn::Output) -> Option<Self> {
 		let lease = output.lease.clone()?;
 		let id = output.process.as_ref().right()?.clone();
@@ -19,6 +20,7 @@ impl LeaseGuard {
 		})
 	}
 
+	#[must_use]
 	pub(super) fn new_local(session: &Session, output: &local::Output) -> Option<Self> {
 		Some(Self {
 			id: output.id.clone(),

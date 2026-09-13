@@ -3,6 +3,70 @@ use {
 	std::{collections::BTreeMap, io::SeekFrom, time::Duration},
 };
 
+#[tokio::test]
+async fn handles_preserve_not_found() {
+	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+	let url = format!("http://{}", listener.local_addr().unwrap())
+		.parse()
+		.unwrap();
+	let server = tangram_futures::task::Task::spawn(move |_| async move {
+		let mut connections = tokio::task::JoinSet::new();
+		while let Ok((socket, _)) = listener.accept().await {
+			let service =
+				hyper::service::service_fn(|request: http::Request<hyper::body::Incoming>| {
+					assert_eq!(request.uri().path(), "/processes/connect");
+					let response = http::Response::builder()
+						.status(http::StatusCode::NOT_FOUND)
+						.body(tangram_http::body::Boxed::empty())
+						.unwrap();
+					futures::future::ready(Ok::<_, std::convert::Infallible>(response))
+				});
+			connections.spawn(async move {
+				let io = hyper_util::rt::TokioIo::new(socket);
+				hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
+					.serve_connection(io, service)
+					.await
+					.ok();
+			});
+		}
+	});
+	let arg = tg::Arg {
+		url: Some(url),
+		..Default::default()
+	};
+	let client = tg::Client::new(arg).unwrap();
+	let session = client.session(&client.context);
+	let handles = [tg::Either::Left(client), tg::Either::Right(session)];
+	let input = || {
+		let arg = Arg {
+			reads: BTreeMap::new(),
+			target: Target::Existing {
+				id: tg::process::Id::new(),
+				options: tg::process::wait::Arg::default(),
+			},
+		};
+		let request = ClientRequest {
+			arg: ClientRequestArg::Connect(arg),
+			id: 0,
+		};
+		futures::stream::iter([Ok(ClientMessage::Request(request))]).boxed()
+	};
+	for handle in handles {
+		let handle = tg::handle::dynamic::Handle::new(handle);
+		let output =
+			tokio::time::timeout(Duration::from_secs(5), handle.try_connect_process(input()))
+				.await
+				.unwrap()
+				.unwrap();
+		assert!(output.is_none());
+		let result = tokio::time::timeout(Duration::from_secs(5), handle.connect_process(input()))
+			.await
+			.unwrap();
+		assert!(result.is_err());
+	}
+	server.abort();
+}
+
 #[test]
 fn opening_metadata_preserves_read_options() {
 	let read = tg::process::stdio::read::Arg {

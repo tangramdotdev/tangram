@@ -68,7 +68,7 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn try_write_process_stdio_local(
+	pub(in crate::process) async fn try_write_process_stdio_local(
 		&self,
 		id: &tg::process::Id,
 		streams: &[tg::process::stdio::Stream],

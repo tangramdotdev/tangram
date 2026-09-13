@@ -37,7 +37,7 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn try_set_process_tty_size_local(
+	pub(in crate::process) async fn try_set_process_tty_size_local(
 		&self,
 		id: &tg::process::Id,
 		size: tg::process::tty::Size,

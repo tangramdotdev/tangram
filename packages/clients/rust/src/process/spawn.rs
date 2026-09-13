@@ -561,26 +561,22 @@ impl<O: 'static> tg::Process<O> {
 			.flatten()
 			.collect::<Vec<_>>();
 			if !streams.is_empty() {
-				reads.insert(
-					1,
-					tg::process::stdio::read::Arg {
-						streams,
-						..Default::default()
-					},
-				);
+				let arg = tg::process::stdio::read::Arg {
+					streams,
+					..Default::default()
+				};
+				reads.insert(1, arg);
 			}
 			for (provide, stream) in [
 				(provide_stdout, tg::process::stdio::Stream::Stdout),
 				(provide_stderr, tg::process::stdio::Stream::Stderr),
 			] {
 				if provide {
-					reads.insert(
-						reads.len() as u64 + 1,
-						tg::process::stdio::read::Arg {
-							streams: vec![stream],
-							..Default::default()
-						},
-					);
+					let arg = tg::process::stdio::read::Arg {
+						streams: vec![stream],
+						..Default::default()
+					};
+					reads.insert(reads.len() as u64 + 1, arg);
 				}
 			}
 		}

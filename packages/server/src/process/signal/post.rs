@@ -49,7 +49,7 @@ impl Session {
 		Ok(None)
 	}
 
-	async fn try_post_process_signal_local(
+	pub(in crate::process) async fn try_post_process_signal_local(
 		&self,
 		id: &tg::process::Id,
 		signal: tg::process::Signal,

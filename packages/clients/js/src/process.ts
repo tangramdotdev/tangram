@@ -50,10 +50,6 @@ export class Process<O extends tg.Value = tg.Value> {
 		return connect.connect<O>(id, options);
 	}
 
-	get connection(): connect.Connection | null {
-		return this.#connection;
-	}
-
 	static build<
 		A extends tg.UnresolvedArgs<Array<tg.Value>>,
 		O extends tg.ReturnValue,
@@ -373,6 +369,10 @@ export class Process<O extends tg.Value = tg.Value> {
 		return output.data;
 	}
 
+	get connection(): connect.Connection | null {
+		return this.#connection;
+	}
+
 	/** Get this process's ID. */
 	get id(): number | tg.Process.Id {
 		return this.#id;
@@ -536,15 +536,15 @@ export class Process<O extends tg.Value = tg.Value> {
 			if (this.#lease === null) {
 				throw new Error("missing lease");
 			}
-			await (
-				this.#connection === null
-					? (arg: tg.Process.Cancel.Arg) =>
-							tg.client.cancelProcess(this.#id as tg.Process.Id, arg)
-					: (arg: tg.Process.Cancel.Arg) => this.#connection!.cancel(arg)
-			)({
+			let arg: tg.Process.Cancel.Arg = {
 				lease: this.#lease,
 				...(this.#location === null ? {} : { location: this.#location }),
-			});
+			};
+			if (this.#connection !== null) {
+				await this.#connection.cancel(arg);
+			} else {
+				await tg.client.cancelProcess(this.#id, arg);
+			}
 		}
 		this.#owned = false;
 	}
@@ -641,11 +641,13 @@ export class Process<O extends tg.Value = tg.Value> {
 			arg.location = this.#location;
 		}
 		arg.tokens = this.#tokens;
-		let promise =
-			this.#connection === null
-				? await tg.client.waitProcessPromise(this.#id, arg)
-				: () => this.#connection!.wait();
-		let waitPromise = promise();
+		let waitPromise;
+		if (this.#connection !== null) {
+			waitPromise = this.#connection.wait();
+		} else {
+			let promise = await tg.client.waitProcessPromise(this.#id, arg);
+			waitPromise = promise();
+		}
 		let wait =
 			this.#stdioPromise === null
 				? await waitPromise
@@ -848,10 +850,10 @@ export namespace Process {
 		E = tg.Command.Arg.Env,
 	> extends Function {
 		#args: tg.Args<tg.Process.Arg>;
+		#connection: tg.Process.Connect.Mode = "spawn";
 		#envMapper: tg.Process.Builder.EnvMapper<E>;
 		#js: Promise<boolean>;
 		#mode: M;
-		#connection: tg.Process.Connect.Mode = "spawn";
 		#validate?: (arg: tg.Process.ArgObject) => void;
 
 		constructor(mode: M, ...args: tg.Args<tg.Process.Arg>) {

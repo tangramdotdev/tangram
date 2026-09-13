@@ -825,12 +825,8 @@ pub trait Ext: tg::Handle {
 						let message = tg::process::stdio::read::ClientMessage::Notification(
 							tg::process::stdio::read::ClientNotification::Read { position },
 						);
-						let result = state.sender.as_ref().unwrap().send(Ok(message)).await;
-						if result.is_err() {
-							state.output.take();
-							state.sender.take();
-							continue;
-						}
+						// Preserve terminal errors on the response stream when the input closes.
+						state.sender.as_ref().unwrap().send(Ok(message)).await.ok();
 						state.pending_notification = false;
 					}
 					let message = state.output.as_mut().unwrap().next().await;
@@ -940,8 +936,7 @@ pub trait Ext: tg::Handle {
 								.await
 								.is_err()
 							{
-								state.output.take();
-								state.sender.take();
+								// Read the response stream's terminal error or transport closure.
 								continue;
 							}
 							return Ok(None);
@@ -1038,21 +1033,14 @@ pub trait Ext: tg::Handle {
 					let message = tg::process::stdio::write::ClientMessage::Request(
 						tg::process::stdio::write::ClientRequest::Chunk(chunk.clone()),
 					);
-					if sender.as_ref().unwrap().send(Ok(message)).await.is_err() {
-						output.take();
-						sender.take();
-						continue;
-					}
+					// Preserve terminal errors on the response stream when the input closes.
+					sender.as_ref().unwrap().send(Ok(message)).await.ok();
 					pending_sent = true;
 				} else if pending.is_none() && input_ended && !end_sent {
 					let message = tg::process::stdio::write::ClientMessage::Request(
 						tg::process::stdio::write::ClientRequest::End { position },
 					);
-					if sender.as_ref().unwrap().send(Ok(message)).await.is_err() {
-						output.take();
-						sender.take();
-						continue;
-					}
+					sender.as_ref().unwrap().send(Ok(message)).await.ok();
 					end_sent = true;
 				}
 

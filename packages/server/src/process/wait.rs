@@ -246,7 +246,7 @@ impl Session {
 		Ok(Some((future, location)))
 	}
 
-	async fn try_wait_process_local(
+	pub(super) async fn try_wait_process_local(
 		&self,
 		id: &tg::process::Id,
 		tokens: Vec<tg::authorization::Token>,
@@ -518,7 +518,7 @@ impl Session {
 		Ok(())
 	}
 
-	fn attach_wait_process_guard(
+	pub(super) fn attach_wait_process_guard(
 		&self,
 		id: &tg::process::Id,
 		arg: &tg::process::wait::Arg,
@@ -527,22 +527,13 @@ impl Session {
 		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
 	) -> BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>> {
 		// Remove the parent's child leases when the child finishes.
-		let future = if let tg::Principal::Process(parent) = &self.context.principal {
+		let future = if matches!(self.context.principal, tg::Principal::Process(_)) {
+			let session = self.clone();
 			let child = id.clone();
-			let parent = parent.clone();
-			let server = self.server.clone();
 			async move {
 				let output = future.await;
 				if matches!(&output, Ok(Some(_))) {
-					server
-						.runner
-						.state()
-						.try_update_process(&parent, |process| {
-							if let Some(child) = process.children.get_mut(&child) {
-								child.lease = None;
-								child.location = None;
-							}
-						});
+					session.remove_finished_process_child_lease(&child);
 				}
 				output
 			}
@@ -593,6 +584,21 @@ impl Session {
 		} else {
 			future
 		}
+	}
+
+	pub(super) fn remove_finished_process_child_lease(&self, child: &tg::process::Id) {
+		let tg::Principal::Process(parent) = &self.context.principal else {
+			return;
+		};
+		self.server
+			.runner
+			.state()
+			.try_update_process(parent, |process| {
+				if let Some(child) = process.children.get_mut(child) {
+					child.lease = None;
+					child.location = None;
+				}
+			});
 	}
 
 	pub(crate) async fn try_wait_process_future_request(

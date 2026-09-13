@@ -85,7 +85,7 @@ impl Session {
 		Ok(None)
 	}
 
-	fn read_process_stdio_protocol(
+	pub(in crate::process) fn read_process_stdio_protocol(
 		&self,
 		arg: tg::process::stdio::read::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
@@ -191,7 +191,7 @@ impl Session {
 		Ok(())
 	}
 
-	async fn try_read_process_stdio_local(
+	pub(in crate::process) async fn try_read_process_stdio_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,

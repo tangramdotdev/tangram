@@ -4,11 +4,11 @@ import type { Client } from "../../../client.ts";
 
 type Connection = {
 	input: {
-		push(message: tg.Process.Stdio.Write.ClientMessage): boolean;
 		close(): void;
+		push(message: tg.Process.Stdio.Write.ClientMessage): boolean;
 	};
-	reconnect?: boolean;
 	output: AsyncIterableIterator<tg.Process.Stdio.Write.ServerMessage>;
+	reconnect?: boolean;
 };
 
 type WriteEvent =

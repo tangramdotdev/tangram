@@ -432,7 +432,7 @@ impl Session {
 		Ok(())
 	}
 
-	pub(super) async fn spawn_process_add_child(
+	pub(in crate::process) async fn spawn_process_add_child(
 		&self,
 		arg: &tg::process::spawn::Arg,
 		command: &tg::Referent<tg::command::Id>,

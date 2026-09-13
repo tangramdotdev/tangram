@@ -15,8 +15,8 @@ export class Connection {
 	#requests = new Map<
 		number,
 		{
-			resolve: (output: Connect.ServerResponseOutput) => void;
 			reject: (error: unknown) => void;
+			resolve: (output: Connect.ServerResponseOutput) => void;
 		}
 	>();
 	#wait = Promise.withResolvers<tg.Process.Wait | null>();
@@ -65,7 +65,8 @@ export class Connection {
 			}
 			if (message.kind === "response") {
 				let response = message.value;
-				this.#input.push({ kind: "ack", value: { id: response.id } });
+				// Reserve a separate queue for acknowledgments so requests cannot block them.
+				this.#input.push({ kind: "ack", value: { id: response.id } }, true);
 				let pending = this.#requests.get(response.id);
 				this.#requests.delete(response.id);
 				if (pending === undefined) {
@@ -199,7 +200,10 @@ export class Connection {
 	): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk>> {
 		let index = this.#initial.findIndex(
 			(initial) =>
-				JSON.stringify(initial.arg.streams) === JSON.stringify(arg.streams) &&
+				initial.arg.streams.length === arg.streams.length &&
+				initial.arg.streams.every(
+					(stream, index) => stream === arg.streams[index],
+				) &&
 				(initial.arg.position ?? null) === (arg.position ?? null) &&
 				(initial.arg.length ?? null) === (arg.length ?? null) &&
 				(initial.arg.size ?? null) === (arg.size ?? null) &&
@@ -295,9 +299,9 @@ export class Connection {
 		"tryReadProcessStdio" | "writeProcessStdio" | "setProcessTtySize"
 	> {
 		return {
+			setProcessTtySize: (_id, arg) => this.tty(arg),
 			tryReadProcessStdio: (id, arg) => this.read(id, arg),
 			writeProcessStdio: (id, arg, input) => this.write(id, arg, input),
-			setProcessTtySize: (_id, arg) => this.tty(arg),
 		};
 	}
 
@@ -349,7 +353,10 @@ export async function connect<O extends tg.Value>(
 		connection,
 		id,
 		lease: output.lease ?? null,
-		location: options.location ?? null,
+		location:
+			output.location === undefined || output.location === null
+				? null
+				: tg.Location.Arg.fromLocation(output.location),
 		stderr: new tg.Process.Stdio.Reader({ stream: "stderr" }),
 		stdin: new tg.Process.Stdio.Writer({ stream: "stdin" }),
 		stdout: new tg.Process.Stdio.Reader({ stream: "stdout" }),
