@@ -21,7 +21,6 @@ async fn responses_are_acknowledged_when_the_request_queue_is_full() {
 		requests: Mutex::new(BTreeMap::from([(1, response)])),
 		sender,
 		wait,
-		writes: Mutex::new(BTreeMap::new()),
 	};
 	let response = ServerResponse {
 		error: None,
@@ -55,7 +54,7 @@ async fn responses_are_acknowledged_when_the_request_queue_is_full() {
 async fn read_reports_disconnect_after_yielding_a_chunk() {
 	// Open an initial stdout subscription.
 	let (acks, _ack_receiver) = mpsc::channel(64);
-	let (sender, mut receiver) = mpsc::channel(64);
+	let (sender, receiver) = mpsc::channel(64);
 	let (read_sender, read_receiver) = mpsc::channel(4);
 	let (wait, _) = watch::channel(None);
 	let arg = tg::process::stdio::read::Arg {
@@ -72,7 +71,6 @@ async fn read_reports_disconnect_after_yielding_a_chunk() {
 		requests: Mutex::new(BTreeMap::new()),
 		sender,
 		wait,
-		writes: Mutex::new(BTreeMap::new()),
 	};
 	let state = Arc::new(state);
 	let connection = Connection {
@@ -88,7 +86,6 @@ async fn read_reports_disconnect_after_yielding_a_chunk() {
 		.unwrap()
 		.unwrap()
 		.boxed();
-	receiver.recv().await.unwrap().unwrap();
 	let chunk = tg::process::stdio::Chunk {
 		bytes: bytes::Bytes::from_static(b"a"),
 		combined_position: 0,
@@ -97,7 +94,7 @@ async fn read_reports_disconnect_after_yielding_a_chunk() {
 		timestamp: None,
 	};
 	let message = tg::process::stdio::read::ServerMessage::Notification(
-		tg::process::stdio::read::ServerNotification::Chunk(chunk),
+		tg::process::stdio::read::Event::Chunk(chunk),
 	);
 	read_sender.send(Ok(message)).await.unwrap();
 	assert!(output.try_next().await.unwrap().is_some());
@@ -113,4 +110,95 @@ async fn read_reports_disconnect_after_yielding_a_chunk() {
 		.expect("the read must not retry a closed connection")
 		.unwrap_err();
 	assert!(error.to_string().contains("transport failed"));
+}
+
+#[tokio::test]
+async fn writes_fill_the_window_without_waiting_for_receipt_or_completion() {
+	let (acks, mut ack_receiver) = mpsc::channel(64);
+	let (sender, mut receiver) = mpsc::channel(64);
+	let (wait, _) = watch::channel(None);
+	let state = Arc::new(State {
+		acks,
+		detached: AtomicBool::new(false),
+		error: Mutex::new(None),
+		initial: Mutex::new(Vec::new()),
+		next_id: AtomicU64::new(1),
+		reads: Mutex::new(BTreeMap::new()),
+		requests: Mutex::new(BTreeMap::new()),
+		sender,
+		wait,
+	});
+	let connection = Connection {
+		state: state.clone(),
+		task: Arc::new(Task::spawn(|_| futures::future::pending())),
+	};
+	let (input, input_receiver) = async_channel::bounded(64);
+	for id in 0..64 {
+		let chunk = tg::process::stdio::Chunk {
+			bytes: bytes::Bytes::from_static(b"x"),
+			combined_position: id,
+			stream: tg::process::stdio::Stream::Stdin,
+			stream_position: id,
+			timestamp: None,
+		};
+		let request = tg::process::stdio::write::Request {
+			arg: tg::process::stdio::write::Data::Chunk(chunk),
+			id,
+		};
+		input
+			.send(Ok(tg::process::stdio::write::ClientMessage::Request(
+				request,
+			)))
+			.await
+			.unwrap();
+	}
+	let arg = tg::process::stdio::write::stream::Arg {
+		streams: vec![tg::process::stdio::Stream::Stdin],
+		..Default::default()
+	};
+	let mut output = connection.write(arg, input_receiver.boxed()).await.unwrap();
+	let task = tokio::spawn(async move { output.try_next().await });
+	for id in 1..=64 {
+		let request = tokio::time::timeout(std::time::Duration::from_secs(1), receiver.recv())
+			.await
+			.unwrap()
+			.unwrap()
+			.unwrap();
+		assert!(
+			matches!(request, ClientMessage::Request(ClientRequest { arg: ClientRequestArg::Write(_), id: request_id }) if request_id == id)
+		);
+	}
+	let output = stream::iter([Ok(ServerMessage::Ack(Ack { id: 1 }))]).boxed();
+	Connection::task(&state, output, &mut None).await.unwrap();
+	assert!(!task.is_finished());
+	let response = ServerResponse {
+		error: None,
+		id: 1,
+		output: Some(ServerResponseOutput::Write(
+			tg::process::stdio::write::Output {
+				closed: false,
+				length: 1,
+			},
+		)),
+	};
+	Connection::task(
+		&state,
+		stream::iter([Ok(ServerMessage::Response(response))]).boxed(),
+		&mut None,
+	)
+	.await
+	.unwrap();
+	assert!(matches!(
+		ack_receiver.recv().await.unwrap().unwrap(),
+		ClientMessage::Ack(Ack { id: 1 })
+	));
+	let output = task.await.unwrap().unwrap().unwrap();
+	assert!(matches!(
+		output,
+		tg::process::stdio::write::ServerMessage::Response(tg::process::stdio::write::Response {
+			id: 0,
+			output: Some(tg::process::stdio::write::Output { length: 1, .. }),
+			..
+		})
+	));
 }

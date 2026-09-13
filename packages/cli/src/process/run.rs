@@ -138,15 +138,16 @@ impl Cli {
 			}
 		}
 
-		// Spawn the process.
+		// Determine the connection mode.
 		let mode = if options.detach {
 			tg::process::connect::Mode::Spawn
 		} else {
 			tg::process::connect::Mode::Run
 		};
-		// Box the recursive spawn/build/run call without erasing its future type.
-		let process = self.spawn(options.spawn, reference, trailing, !options.detach, mode);
-		let process = Box::pin(process).await?;
+
+		// Spawn the process.
+		let process =
+			Box::pin(self.spawn(options.spawn, reference, trailing, !options.detach, mode)).await?;
 
 		// If the detach flag is set, then return the process ID.
 		if options.detach {

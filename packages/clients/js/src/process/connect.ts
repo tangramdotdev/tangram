@@ -1,4 +1,5 @@
 import * as tg from "../index.ts";
+import { capacity, maxChunks } from "./stdio/flow.ts";
 import * as spawning from "./spawn.ts";
 import { type Connect, connectProcess } from "../client/process/connect.ts";
 import { readProcessStdioAll } from "../client/process/stdio/read.ts";
@@ -8,7 +9,8 @@ import { Channel } from "./connect/channel.ts";
 export class Connection {
 	#closed = false;
 	#error: unknown;
-	#input = new Channel<Connect.ClientMessage>(64);
+	// Reserve room for outstanding requests, response acknowledgments, and batched read progress.
+	#input = new Channel<Connect.ClientMessage>(maxChunks * 6 + 4);
 	#initial: Array<{ arg: tg.Process.Stdio.Read.Arg; id: number }> = [];
 	#nextId = 1;
 	#reads = new Map<number, Channel<tg.Process.Stdio.Read.ServerMessage>>();
@@ -21,7 +23,6 @@ export class Connection {
 	>();
 	#wait = Promise.withResolvers<tg.Process.Wait | null>();
 	#waited = false;
-	#writes = new Map<number, Channel<tg.Process.Stdio.Write.ServerMessage>>();
 
 	private constructor() {
 		this.#wait.promise.catch(() => {});
@@ -34,7 +35,7 @@ export class Connection {
 		for (let [key, read] of Object.entries(arg.reads)) {
 			let id = Number(key);
 			connection.#initial.push({ arg: read, id });
-			connection.#reads.set(id, new Channel(4));
+			connection.#reads.set(id, new Channel(capacity));
 			connection.#nextId = Math.max(connection.#nextId, id + 1);
 		}
 		let initial = connection.#request({ kind: "connect", value: arg }, 0);
@@ -65,6 +66,19 @@ export class Connection {
 			}
 			if (message.kind === "response") {
 				let response = message.value;
+				let read = this.#reads.get(response.id);
+				if (read !== undefined) {
+					if (response.error !== null) {
+						read.close(tg.Error.fromData(response.error));
+						this.#reads.delete(response.id);
+						this.#input.push({ kind: "ack", value: { id: response.id } }, true);
+					} else if (response.output?.kind === "read") {
+						read.push({ kind: "response", value: response.output.value });
+					} else {
+						throw new Error("expected a process read response");
+					}
+					continue;
+				}
 				// Reserve a separate queue for acknowledgments so requests cannot block them.
 				this.#input.push({ kind: "ack", value: { id: response.id } }, true);
 				let pending = this.#requests.get(response.id);
@@ -83,36 +97,17 @@ export class Connection {
 			}
 			let notification = message.value;
 			switch (notification.kind) {
-				case "error": {
-					let error = tg.Error.fromData(notification.value.error);
-					this.#reads.get(notification.value.id)?.close(error);
-					this.#writes.get(notification.value.id)?.close(error);
-					break;
-				}
 				case "progress":
 					break;
 				case "read":
 					this.#reads
 						.get(notification.value.id)
-						?.push(notification.value.message);
+						?.push({ kind: "notification", value: notification.value.event });
 					break;
 				case "wait":
 					this.#waited = true;
 					this.#wait.resolve(tg.Process.Wait.fromData(notification.value));
 					break;
-				case "write": {
-					this.#writes
-						.get(notification.value.id)
-						?.push(notification.value.message);
-					let message = notification.value.message;
-					if (
-						message.kind === "response" &&
-						(message.value.kind === "end" || message.value.value.closed)
-					) {
-						this.#writes.delete(notification.value.id);
-					}
-					break;
-				}
 			}
 		}
 		this.#finish();
@@ -127,7 +122,7 @@ export class Connection {
 				this.#error ?? new Error("the process connection closed"),
 			);
 		}
-		if (this.#requests.size >= 64 && arg.kind !== "detach") {
+		if (this.#requests.size >= 128 && arg.kind !== "detach") {
 			return Promise.reject(new Error("too many process requests"));
 		}
 		let pending = Promise.withResolvers<Connect.ServerResponseOutput>();
@@ -216,10 +211,13 @@ export class Connection {
 			output = this.#reads.get(requestId)!;
 		} else {
 			requestId = this.#nextId++;
-			output = new Channel(4);
+			output = new Channel(capacity);
 			this.#reads.set(requestId, output);
 			try {
-				await this.#request({ kind: "read", value: arg }, requestId);
+				this.#input.push({
+					kind: "request",
+					value: { arg: { kind: "read", value: arg }, id: requestId },
+				});
 			} catch (error) {
 				this.#reads.delete(requestId);
 				throw error;
@@ -229,13 +227,24 @@ export class Connection {
 		let connection = {
 			input: {
 				push: (message: tg.Process.Stdio.Read.ClientMessage): boolean => {
-					if (message.kind === "response") {
+					if (message.kind === "ack") {
 						ended = true;
+						this.#reads.delete(requestId);
+						return this.#input.push(
+							{ kind: "ack", value: { id: requestId } },
+							true,
+						);
 					}
-					return this.#input.push({
-						kind: "notification",
-						value: { kind: "read", value: { id: requestId, message } },
-					});
+					return this.#input.push(
+						{
+							kind: "notification",
+							value: {
+								kind: "read",
+								value: { id: requestId, progress: message.value },
+							},
+						},
+						true,
+					);
 				},
 				close: () => {
 					this.#reads.delete(requestId);
@@ -252,35 +261,50 @@ export class Connection {
 
 	async write(
 		id: tg.Process.Id,
-		arg: tg.Process.Stdio.Write.Arg,
+		arg: tg.Process.Stdio.Write.Stream.Arg,
 		input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+		complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 	): Promise<void> {
-		let requestId = this.#nextId++;
-		let output = new Channel<tg.Process.Stdio.Write.ServerMessage>(4);
-		this.#writes.set(requestId, output);
-		try {
-			await this.#request({ kind: "write", value: arg }, requestId);
-		} catch (error) {
-			this.#writes.delete(requestId);
-			throw error;
-		}
+		let output = new Channel<tg.Process.Stdio.Write.ServerMessage>(capacity);
+		let previous = Promise.resolve();
 		let connection = {
 			input: {
-				push: (message: tg.Process.Stdio.Write.ClientMessage) =>
-					this.#input.push({
-						kind: "notification",
-						value: { kind: "write", value: { id: requestId, message } },
-					}),
-				close: () => {
-					if (this.#writes.delete(requestId)) {
-						this.#close(requestId);
+				push: (message: tg.Process.Stdio.Write.ClientMessage): boolean => {
+					if (message.kind === "ack") {
+						return true;
 					}
+					let request = message.value;
+					let task = this.#request({
+						kind: "write",
+						value: {
+							data: request.arg,
+							...(arg.location !== undefined ? { location: arg.location } : {}),
+							...(arg.tokens !== undefined ? { tokens: arg.tokens } : {}),
+						},
+					}).then((response) => {
+						if (response.kind !== "write") {
+							throw new Error("expected a write response");
+						}
+						return {
+							kind: "response",
+							value: { error: null, id: request.id, output: response.value },
+						} as tg.Process.Stdio.Write.ServerMessage;
+					});
+					// Requests travel immediately; expose their outcomes in input order.
+					task.catch(() => {});
+					let ordered = previous.then(async () => {
+						output.push(await task);
+					});
+					ordered.catch((error) => output.close(error));
+					previous = ordered;
+					return true;
 				},
+				close: () => output.close(),
 			},
 			output,
 			reconnect: false,
 		};
-		await writeProcessStdioAll(tg.client, id, arg, input, connection);
+		await writeProcessStdioAll(tg.client, id, arg, input, connection, complete);
 	}
 
 	#close(id: number): void {
@@ -301,7 +325,8 @@ export class Connection {
 		return {
 			setProcessTtySize: (_id, arg) => this.tty(arg),
 			tryReadProcessStdio: (id, arg) => this.read(id, arg),
-			writeProcessStdio: (id, arg, input) => this.write(id, arg, input),
+			writeProcessStdio: (id, arg, input, complete) =>
+				this.write(id, arg, input, complete),
 		};
 	}
 
@@ -319,9 +344,7 @@ export class Connection {
 		for (let read of this.#reads.values()) {
 			read.close(error);
 		}
-		for (let write of this.#writes.values()) {
-			write.close(error);
-		}
+
 		if (error === undefined) {
 			this.#wait.resolve(null);
 		} else {

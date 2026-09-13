@@ -160,7 +160,7 @@ fn operation_payloads_are_native_structs() {
 		serde_json::json!({"kind": "read", "value": {"position": "current.5", "streams": "stdout,stderr"}}),
 		serde_json::json!({"kind": "signal", "value": {"signal": "TERM"}}),
 		serde_json::json!({"kind": "tty", "value": {"size": {"cols": 80, "rows": 24}}}),
-		serde_json::json!({"kind": "write", "value": {"streams": "stdin"}}),
+		serde_json::json!({"kind": "write", "value": {"data": {"kind": "end", "value": {"combined_position": 7, "stream_positions": {"stdin": 7}}}}}),
 	];
 	for arg in args {
 		let arg: ClientRequestArg = serde_json::from_value(arg).unwrap();
@@ -243,15 +243,23 @@ fn stdio_keeps_binary_bytes_and_eof_positions() {
 		timestamp: None,
 	};
 	let messages = [
-		tg::process::stdio::write::ClientRequest::Chunk(chunk),
-		tg::process::stdio::write::ClientRequest::End { position: 45 },
+		tg::process::stdio::write::Data::Chunk(chunk),
+		tg::process::stdio::write::Data::End(tg::process::stdio::write::End {
+			combined_position: 45,
+			stream_positions: [(tg::process::stdio::Stream::Stdin, 45)].into(),
+		}),
 	];
 	for message in messages {
-		let notification = WriteClientNotification {
-			id: 9,
-			message: tg::process::stdio::write::ClientMessage::Request(message),
+		let arg = tg::process::stdio::write::Arg {
+			data: message,
+			location: None,
+			tokens: tg::authorization::Tokens::default(),
 		};
-		let message = ClientMessage::Notification(ClientNotification::Write(notification));
+		let request = ClientRequest {
+			arg: ClientRequestArg::Write(arg),
+			id: 9,
+		};
+		let message = ClientMessage::Request(request);
 		let bytes = tangram_serialize::to_vec(&message).unwrap();
 		let decoded: ClientMessage = tangram_serialize::from_slice(&bytes).unwrap();
 		assert_eq!(

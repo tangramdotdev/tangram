@@ -13,7 +13,10 @@ use {
 			atomic::{AtomicBool, Ordering},
 		},
 	},
-	tangram_client::prelude::*,
+	tangram_client::{
+		prelude::*,
+		process::stdio::{Stream, flow, write},
+	},
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{
 		body::Boxed as BoxBody,
@@ -49,13 +52,19 @@ struct State<'a> {
 	responses: BTreeSet<u64>,
 	streams: Streams,
 	tokens: tg::authorization::Tokens,
+	writer: Option<Writer>,
+	writes: BTreeSet<u64>,
 }
 
 struct Streams {
 	aborts: BTreeMap<u64, AbortHandle>,
 	reads: BTreeMap<u64, mpsc::Sender<tg::Result<tg::process::stdio::read::ClientMessage>>>,
 	tasks: FuturesUnordered<Operation>,
-	writes: BTreeMap<u64, mpsc::Sender<tg::Result<tg::process::stdio::write::ClientMessage>>>,
+}
+
+struct Writer {
+	input: mpsc::Sender<tg::Result<tg::process::stdio::write::ClientMessage>>,
+	output: BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>,
 }
 
 impl Session {
@@ -400,8 +409,7 @@ impl Session {
 			.chain(futures::stream::iter(pending.into_iter().map(Ok)))
 			.chain(input)
 			.boxed();
-			self.connect_process_cached_task(output, input, high, low)
-				.await?;
+			self.connect_process_cached_task(output, input, low).await?;
 			return Ok(());
 		}
 
@@ -445,7 +453,6 @@ impl Session {
 			aborts: BTreeMap::new(),
 			reads: BTreeMap::new(),
 			tasks: FuturesUnordered::new(),
-			writes: BTreeMap::new(),
 		};
 		let mut state = State {
 			cancel,
@@ -457,9 +464,12 @@ impl Session {
 			responses: BTreeSet::from([request_id]),
 			streams,
 			tokens,
+			writer: None,
+			writes: BTreeSet::new(),
 		};
 		for (request_id, arg) in arg.reads {
 			state.requests.insert(request_id);
+			state.responses.insert(request_id);
 			self.connect_process_read(&mut state, request_id, arg)
 				.await?;
 		}
@@ -516,8 +526,7 @@ impl Session {
 		&self,
 		output: tg::process::spawn::Output,
 		input: Input,
-		high: &Sender,
-		low: &Sender,
+		sender: &Sender,
 	) -> tg::Result<()> {
 		// Transfer the lease to a connection at the selected cache location.
 		let mut guard = spawn::lease::LeaseGuard::new(self, &output);
@@ -526,7 +535,7 @@ impl Session {
 			guard.disarm();
 		}
 
-		// Preserve the spawn result and the message priorities.
+		// Preserve the upstream ordering so terminal responses cannot overtake their read chunks.
 		while let Some(mut message) = stream.try_next().await? {
 			if let tg::process::connect::ServerMessage::Response(response) = &mut message
 				&& let Some(tg::process::connect::ServerResponseOutput::Connect(selected)) =
@@ -535,16 +544,6 @@ impl Session {
 				selected.cached = output.cached;
 				selected.wait = output.wait.clone();
 			}
-			let sender = if matches!(
-				message,
-				tg::process::connect::ServerMessage::Notification(
-					tg::process::connect::ServerNotification::Read(_)
-				)
-			) {
-				low
-			} else {
-				high
-			};
 			sender
 				.send(Ok(message))
 				.await
@@ -568,6 +567,7 @@ impl Session {
 				&& pending.is_empty()
 				&& state.streams.tasks.is_empty()
 				&& state.operations.is_empty()
+				&& state.writes.is_empty()
 				&& state.responses.is_empty()
 			{
 				return Ok(());
@@ -592,6 +592,10 @@ impl Session {
 						let (id, result) = result.unwrap();
 						state.requests.remove(&id);
 						result?;
+						continue;
+					},
+					message = async { state.writer.as_mut().unwrap().output.next().await }, if state.writer.is_some() => {
+						Self::connect_process_handle_write(&mut state, message).await?;
 						continue;
 					},
 					message = input.try_next() => message?.ok_or_else(|| tg::error!("the process connection closed before completion"))?,
@@ -629,21 +633,10 @@ impl Session {
 	) -> tg::Result<()> {
 		// Release the completed subscription.
 		state.streams.aborts.remove(&id);
-		let read = state.streams.reads.remove(&id).is_some();
-		let active = read | state.streams.writes.remove(&id).is_some();
+		let active = state.streams.reads.remove(&id).is_some();
 		state.requests.remove(&id);
-
-		// Report errors only for subscriptions that the client has not closed.
 		if active && let Err(error) = result {
-			let error = Self::connect_process_error(&error);
-			let notification = tg::process::connect::ErrorServerNotification { error, id };
-			let notification = tg::process::connect::ServerNotification::Error(notification);
-			let message = tg::process::connect::ServerMessage::Notification(notification);
-			let sender = if read { state.low } else { state.high };
-			sender
-				.send(Ok(message))
-				.await
-				.map_err(|_| tg::error!("the process connection closed"))?;
+			Self::send_connect_response(state.low, id, Err(error)).await?;
 		}
 
 		Ok(())
@@ -657,17 +650,20 @@ impl Session {
 		match message {
 			tg::process::connect::ClientMessage::Ack(ack) => {
 				state.responses.remove(&ack.id);
+				if let Some(sender) = state.streams.reads.get(&ack.id) {
+					sender
+						.try_send(Ok(tg::process::stdio::read::ClientMessage::Ack))
+						.map_err(|error| {
+							tg::error!(!error, "failed to acknowledge the read response")
+						})?;
+				}
 			},
 			tg::process::connect::ClientMessage::Notification(
 				tg::process::connect::ClientNotification::Read(notification),
 			) => {
-				Self::connect_process_handle_read(state, notification)?;
+				Self::connect_process_handle_read(state, &notification)?;
 			},
-			tg::process::connect::ClientMessage::Notification(
-				tg::process::connect::ClientNotification::Write(notification),
-			) => {
-				Self::connect_process_handle_write(state, notification)?;
-			},
+
 			tg::process::connect::ClientMessage::Request(request) => {
 				return self.connect_process_handle_request(state, request).await;
 			},
@@ -677,31 +673,63 @@ impl Session {
 
 	fn connect_process_handle_read(
 		state: &State<'_>,
-		notification: tg::process::connect::ReadClientNotification,
+		notification: &tg::process::connect::ReadClientNotification,
 	) -> tg::Result<()> {
-		let sender = state
-			.streams
-			.reads
-			.get(&notification.id)
-			.ok_or_else(|| tg::error!("unknown process read"))?;
+		// Progress already in transit may arrive after an error or cancellation ends the read.
+		let Some(sender) = state.streams.reads.get(&notification.id) else {
+			return Ok(());
+		};
 		sender
-			.try_send(Ok(notification.message))
+			.try_send(Ok(tg::process::stdio::read::ClientMessage::Notification(
+				notification.progress,
+			)))
 			.map_err(|error| tg::error!(!error, "failed to deliver the read message"))?;
 		Ok(())
 	}
 
-	fn connect_process_handle_write(
-		state: &State<'_>,
-		notification: tg::process::connect::WriteClientNotification,
+	async fn connect_process_handle_write(
+		state: &mut State<'_>,
+		message: Option<tg::Result<tg::process::stdio::write::ServerMessage>>,
 	) -> tg::Result<()> {
-		let sender = state
-			.streams
-			.writes
-			.get(&notification.id)
-			.ok_or_else(|| tg::error!("unknown process write"))?;
-		sender
-			.try_send(Ok(notification.message))
-			.map_err(|error| tg::error!(!error, "failed to deliver the write message"))?;
+		let error = match message {
+			Some(Ok(write::ServerMessage::Ack(_))) => return Ok(()),
+			Some(Ok(write::ServerMessage::Response(response))) => {
+				let id = response.id;
+				state
+					.writer
+					.as_ref()
+					.unwrap()
+					.input
+					.try_send(Ok(write::ClientMessage::Ack(
+						tg::process::stdio::write::Ack { id },
+					)))
+					.map_err(|error| {
+						tg::error!(!error, "failed to acknowledge the stdio write response")
+					})?;
+				state.requests.remove(&id);
+				state.writes.remove(&id);
+				let response = tg::process::connect::ServerResponse {
+					error: response.error,
+					id,
+					output: response
+						.output
+						.map(tg::process::connect::ServerResponseOutput::Write),
+				};
+				state
+					.high
+					.send(Ok(tg::process::connect::ServerMessage::Response(response)))
+					.await
+					.map_err(|_| tg::error!("the process connection closed"))?;
+				return Ok(());
+			},
+			Some(Err(error)) => error,
+			None => tg::error!("the stdio write stream closed before completion"),
+		};
+		state.writer = None;
+		for id in std::mem::take(&mut state.writes) {
+			state.requests.remove(&id);
+			Self::send_connect_response(state.high, id, Err(error.clone())).await?;
+		}
 		Ok(())
 	}
 
@@ -715,7 +743,7 @@ impl Session {
 		if state.responses.contains(&request.id) || !state.requests.insert(request.id) {
 			return Err(tg::error!("duplicate process request id"));
 		}
-		if state.responses.len() >= MAX_OPERATIONS {
+		if state.responses.len() >= MAX_OPERATIONS * 3 + 4 {
 			return Err(tg::error!("too many unacknowledged process responses"));
 		}
 		state.responses.insert(request.id);
@@ -728,10 +756,12 @@ impl Session {
 			| tg::process::connect::ClientRequestArg::Tty(_) => state.operations.len() >= MAX_OPERATIONS,
 			tg::process::connect::ClientRequestArg::Close(_)
 			| tg::process::connect::ClientRequestArg::Detach => false,
-			tg::process::connect::ClientRequestArg::Read(_)
-			| tg::process::connect::ClientRequestArg::Write(_) => {
+			tg::process::connect::ClientRequestArg::Read(_) => {
 				state.streams.tasks.len() >= MAX_OPERATIONS
 					|| state.operations.len() >= MAX_OPERATIONS
+			},
+			tg::process::connect::ClientRequestArg::Write(_) => {
+				state.writes.len() >= MAX_OPERATIONS
 			},
 		};
 		if limit {
@@ -764,21 +794,22 @@ impl Session {
 				Self::connect_process_detach(state, request.id).await?;
 				return Ok(ControlFlow::Break(request.id));
 			},
-			tg::process::connect::ClientRequestArg::Read(arg) => self
-				.connect_process_read(state, request.id, arg)
-				.await
-				.map(|()| tg::process::connect::ServerResponseOutput::Read),
-			tg::process::connect::ClientRequestArg::Write(arg) => self
-				.connect_process_write(state, request.id, arg)
-				.await
-				.map(|()| tg::process::connect::ServerResponseOutput::Write),
+			tg::process::connect::ClientRequestArg::Read(arg) => {
+				match self.connect_process_read(state, request.id, arg).await {
+					Ok(()) => return Ok(ControlFlow::Continue(())),
+					Err(error) => Err(error),
+				}
+			},
+			tg::process::connect::ClientRequestArg::Write(arg) => {
+				match self.connect_process_write(state, request.id, arg).await {
+					Ok(()) => return Ok(ControlFlow::Continue(())),
+					Err(error) => Err(error),
+				}
+			},
 		};
 
-		// Retain subscription IDs until their streams finish.
 		Self::send_connect_response(state.high, request.id, result).await?;
-		if !state.streams.reads.contains_key(&request.id)
-			&& !state.streams.writes.contains_key(&request.id)
-		{
+		if !state.streams.reads.contains_key(&request.id) && !state.writes.contains(&request.id) {
 			state.requests.remove(&request.id);
 		}
 
@@ -843,7 +874,7 @@ impl Session {
 
 	fn connect_process_close(state: &mut State<'_>, id: u64) {
 		state.streams.reads.remove(&id);
-		state.streams.writes.remove(&id);
+		state.responses.remove(&id);
 		if let Some(abort) = state.streams.aborts.get(&id) {
 			abort.abort();
 		}
@@ -884,17 +915,31 @@ impl Session {
 		let sender = state.low.clone();
 		state.streams.insert(request_id, async move {
 			while let Some(message) = output.try_next().await? {
-				let notification = tg::process::connect::ReadServerNotification {
-					id: request_id,
-					message,
-				};
-				sender
-					.send(Ok(tg::process::connect::ServerMessage::Notification(
-						tg::process::connect::ServerNotification::Read(notification),
-					)))
-					.await
-					.map_err(|_| tg::error!("the process connection closed"))?;
+				match message {
+					tg::process::stdio::read::ServerMessage::Notification(event) => {
+						let notification = tg::process::connect::ReadServerNotification {
+							event,
+							id: request_id,
+						};
+						let message = tg::process::connect::ServerMessage::Notification(
+							tg::process::connect::ServerNotification::Read(notification),
+						);
+						sender
+							.send(Ok(message))
+							.await
+							.map_err(|_| tg::error!("the process connection closed"))?;
+					},
+					tg::process::stdio::read::ServerMessage::Response(output) => {
+						Self::send_connect_response(
+							&sender,
+							request_id,
+							Ok(tg::process::connect::ServerResponseOutput::Read(output)),
+						)
+						.await?;
+					},
+				}
 			}
+
 			Ok(())
 		});
 
@@ -907,42 +952,46 @@ impl Session {
 		request_id: u64,
 		mut arg: tg::process::stdio::write::Arg,
 	) -> tg::Result<()> {
-		// Open the local stdio stream.
-		if arg.streams.is_empty() {
-			return Err(tg::error!("expected at least one stdio stream"));
+		// Prepare stdin once for the connection, then reuse the standalone write implementation.
+		if state.writer.is_none() {
+			arg.tokens.inherit(&state.tokens);
+			let (input, receiver) = mpsc::channel(flow::CHANNEL_CAPACITY);
+			let output = self
+				.try_write_process_stdio_local(
+					&state.id,
+					&[Stream::Stdin],
+					ReceiverStream::new(receiver).boxed(),
+					self.context.stopper.clone(),
+					arg.tokens.local(),
+				)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find process stdio"))?;
+			state.writer = Some(Writer { input, output });
 		}
-		arg.tokens.inherit(&state.tokens);
-		let (input, receiver) = mpsc::channel(4);
-		let mut output = self
-			.try_write_process_stdio_local(
-				&state.id,
-				&arg.streams,
-				ReceiverStream::new(receiver).boxed(),
-				self.context.stopper.clone(),
-				arg.tokens.local(),
-			)
-			.await?
-			.ok_or_else(|| tg::error!("failed to find process stdio"))?;
-
-		// Register the subscription and return its messages.
-		state.streams.writes.insert(request_id, input);
-		let sender = state.high.clone();
-		state.streams.insert(request_id, async move {
-			while let Some(message) = output.try_next().await? {
-				let notification = tg::process::connect::WriteServerNotification {
-					id: request_id,
-					message,
-				};
-				sender
-					.send(Ok(tg::process::connect::ServerMessage::Notification(
-						tg::process::connect::ServerNotification::Write(notification),
-					)))
-					.await
-					.map_err(|_| tg::error!("the process connection closed"))?;
-			}
-			Ok(())
-		});
-
+		match &arg.data {
+			write::Data::Chunk(chunk) if chunk.stream != Stream::Stdin => {
+				return Err(tg::error!("cannot write process stdout or stderr"));
+			},
+			write::Data::End(end)
+				if end.stream_positions.len() != 1
+					|| !end.stream_positions.contains_key(&Stream::Stdin) =>
+			{
+				return Err(tg::error!("invalid stdin end positions"));
+			},
+			write::Data::Chunk(_) | write::Data::End(_) => {},
+		}
+		let request = write::Request {
+			arg: arg.data,
+			id: request_id,
+		};
+		state
+			.writer
+			.as_ref()
+			.unwrap()
+			.input
+			.try_send(Ok(write::ClientMessage::Request(request)))
+			.map_err(|error| tg::error!(!error, "failed to queue the stdio write"))?;
+		state.writes.insert(request_id);
 		Ok(())
 	}
 
@@ -1213,18 +1262,9 @@ impl Session {
 					| tg::progress::Event::Log(_)
 					| tg::progress::Event::Output(()),
 				)
-				| tg::process::connect::ServerNotification::Read(_)
-				| tg::process::connect::ServerNotification::Write(_),
+				| tg::process::connect::ServerNotification::Read(_),
 			) => (),
-			tg::process::connect::ServerMessage::Notification(
-				tg::process::connect::ServerNotification::Error(notification),
-			) => {
-				self.update_error_data_referents_for_location(
-					&mut notification.error,
-					location,
-					trusted,
-				)?;
-			},
+
 			tg::process::connect::ServerMessage::Notification(
 				tg::process::connect::ServerNotification::Progress(
 					tg::progress::Event::Diagnostic(diagnostic),

@@ -4,7 +4,10 @@ use {
 	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{pin::pin, sync::Arc},
-	tangram_client::prelude::*,
+	tangram_client::{
+		prelude::*,
+		process::stdio::{Chunk, Stream, write::Data},
+	},
 	tangram_futures::task::{Stopper, Task},
 	tokio_util::io::ReaderStream,
 };
@@ -91,10 +94,19 @@ impl Session {
 		let mut closed = false;
 		let mut position = 0_u64;
 		while let Some((id, request)) = receiver.recv().await {
+			let request = match Self::process_control_stdin_chunk(request) {
+				Ok(chunk) => chunk,
+				Err(error) => {
+					let response = Self::process_control_response(id, Err(error));
+					sender.send_low(response).await?;
+					continue;
+				},
+			};
+
 			crate::checkpoint!(
 				self.server,
 				"runner.process.control.stdin.write",
-				close = %request.chunk.bytes.is_empty(),
+				close = %request.bytes.is_empty(),
 			)
 			.await;
 
@@ -126,11 +138,47 @@ impl Session {
 		Ok(())
 	}
 
+	fn process_control_stdin_chunk(
+		data: tg::process::stdio::write::Data,
+	) -> tg::Result<tg::process::stdio::Chunk> {
+		let chunk = match data {
+			Data::Chunk(chunk) => {
+				if chunk.bytes.is_empty()
+					|| chunk.bytes.len() > tg::process::stdio::flow::CHUNK_SIZE
+				{
+					return Err(tg::error!("invalid process stdin chunk size"));
+				}
+				chunk
+			},
+			Data::End(end) => {
+				let position = end
+					.stream_positions
+					.get(&Stream::Stdin)
+					.copied()
+					.ok_or_else(|| tg::error!("missing the stdin end position"))?;
+				if end.stream_positions.len() != 1 || end.combined_position != position {
+					return Err(tg::error!("invalid stdin end positions"));
+				}
+				Chunk {
+					bytes: bytes::Bytes::new(),
+					combined_position: position,
+					stream: Stream::Stdin,
+					stream_position: position,
+					timestamp: None,
+				}
+			},
+		};
+		if chunk.stream != Stream::Stdin {
+			return Err(tg::error!("invalid process stdio stream"));
+		}
+		Ok(chunk)
+	}
+
 	fn handle_closed_process_stdin_write_request(
-		request: &tg::process::control::WriteServerRequestArg,
+		request: &tg::process::stdio::Chunk,
 		position: u64,
 	) -> tg::Result<tg::process::control::WriteClientResponseOutput> {
-		let chunk = &request.chunk;
+		let chunk = request;
 		if chunk.stream != tg::process::stdio::Stream::Stdin {
 			return Err(tg::error!("invalid process stdio stream"));
 		}
@@ -155,11 +203,11 @@ impl Session {
 	async fn handle_process_control_stdin_write_request(
 		sandbox: &tangram_sandbox::Sandbox,
 		sandbox_process: &tangram_sandbox::Process,
-		request: &tg::process::control::WriteServerRequestArg,
+		request: &tg::process::stdio::Chunk,
 		position: &mut u64,
 		closed: &mut bool,
 	) -> tg::Result<tg::process::control::WriteClientResponseOutput> {
-		let mut chunk = request.chunk.clone();
+		let mut chunk = request.clone();
 		if chunk.stream != tg::process::stdio::Stream::Stdin {
 			return Err(tg::error!("invalid process stdio stream"));
 		}

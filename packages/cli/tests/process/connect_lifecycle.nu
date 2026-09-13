@@ -9,7 +9,7 @@ let output = node $driver ($server.directory | path join socket) $id $spawned.le
 success $output "closing silent reads must release their subscriptions"
 tg cancel $id $spawned.lease
 
-# Process completion must preserve an open write until its end response is received.
+# Process completion must preserve pending writes until their responses are received.
 let child = artifact { tangram.ts: 'export default async () => { await tg.sleep(60); };' }
 let spawned = tg spawn --verbose $child | from json
 let id = $spawned.process | split row '?' | first

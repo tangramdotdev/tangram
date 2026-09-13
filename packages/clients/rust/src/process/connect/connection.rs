@@ -1,5 +1,6 @@
 use {
 	super::*,
+	crate::process::stdio::write,
 	futures::{TryStreamExt as _, stream},
 	std::{
 		collections::BTreeMap,
@@ -38,8 +39,6 @@ struct State {
 	requests: Mutex<BTreeMap<u64, oneshot::Sender<tg::Result<ServerResponseOutput>>>>,
 	sender: mpsc::Sender<tg::Result<ClientMessage>>,
 	wait: watch::Sender<Option<tg::Result<tg::process::wait::Output>>>,
-	writes:
-		Mutex<BTreeMap<u64, mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>>>,
 }
 
 struct ReadGuard {
@@ -65,7 +64,7 @@ impl Connection {
 		let mut initial = Vec::new();
 		let mut reads = BTreeMap::new();
 		for (&id, arg) in &arg.reads {
-			let (sender, receiver) = mpsc::channel(4);
+			let (sender, receiver) = mpsc::channel(tg::process::stdio::flow::CHANNEL_CAPACITY);
 			reads.insert(id, sender);
 			initial.push((id, arg.clone(), receiver));
 		}
@@ -97,7 +96,6 @@ impl Connection {
 			requests: Mutex::new(BTreeMap::new()),
 			sender,
 			wait,
-			writes: Mutex::new(BTreeMap::new()),
 		};
 		let state = Arc::new(state);
 		let state_task = state.clone();
@@ -132,15 +130,7 @@ impl Connection {
 		while let Some(message) = output.try_next().await? {
 			match message {
 				ServerMessage::Ack(_) => (),
-				ServerMessage::Notification(ServerNotification::Error(notification)) => {
-					let error: tg::Error = notification.error.try_into()?;
-					if let Some(sender) = state.reads.lock().unwrap().remove(&notification.id) {
-						sender.try_send(Err(error.clone())).ok();
-					}
-					if let Some(sender) = state.writes.lock().unwrap().remove(&notification.id) {
-						sender.try_send(Err(error)).ok();
-					}
-				},
+
 				ServerMessage::Notification(ServerNotification::Progress(event)) => {
 					let event =
 						event.try_map_output(|()| Err(tg::error!("unexpected progress output")))?;
@@ -152,19 +142,12 @@ impl Connection {
 					}
 				},
 				ServerMessage::Notification(ServerNotification::Read(notification)) => {
-					// A shutdown ends the connection instead of reconnecting individual stdio streams.
-					if matches!(
-						notification.message,
-						tg::process::stdio::read::ServerMessage::Notification(
-							tg::process::stdio::read::ServerNotification::Stop
-						)
-					) {
-						return Err(tg::error!("the process connection stopped"));
-					}
 					let reads = state.reads.lock().unwrap();
+					let message =
+						tg::process::stdio::read::ServerMessage::Notification(notification.event);
 					if let Some(sender) = reads.get(&notification.id)
 						&& let Err(mpsc::error::TrySendError::Full(_)) =
-							sender.try_send(Ok(notification.message))
+							sender.try_send(Ok(message))
 					{
 						return Err(tg::error!("the process read buffer is full"));
 					}
@@ -172,46 +155,43 @@ impl Connection {
 				ServerMessage::Notification(ServerNotification::Wait(output)) => {
 					state.wait.send_replace(Some(Ok(output)));
 				},
-				ServerMessage::Notification(ServerNotification::Write(notification)) => {
-					if matches!(
-						notification.message,
-						tg::process::stdio::write::ServerMessage::Notification(
-							tg::process::stdio::write::ServerNotification::Stop
-						)
-					) {
-						return Err(tg::error!("the process connection stopped"));
-					}
-					let mut writes = state.writes.lock().unwrap();
-					let end = matches!(
-						&notification.message,
-						tg::process::stdio::write::ServerMessage::Response(
-							tg::process::stdio::write::ServerResponse::End
-								| tg::process::stdio::write::ServerResponse::Write(
-									tg::process::stdio::write::Output { closed: true, .. }
-								)
-						)
-					);
-					if let Some(sender) = writes.get(&notification.id)
-						&& let Err(mpsc::error::TrySendError::Full(_)) =
-							sender.try_send(Ok(notification.message))
-					{
-						return Err(tg::error!("the process write buffer is full"));
-					}
-					if end {
-						writes.remove(&notification.id);
-					}
-				},
 				ServerMessage::Response(response) => {
-					state
-						.acks
-						.send(Ok(ClientMessage::Ack(Ack { id: response.id })))
-						.await
-						.map_err(|_| tg::error!("the process connection closed"))?;
 					let result = match (response.error, response.output) {
 						(None, Some(output)) => Ok(output),
 						(Some(error), None) => Err(error.try_into()?),
 						_ => Err(tg::error!("invalid process response")),
 					};
+					let read = state.reads.lock().unwrap().get(&response.id).cloned();
+					if let Some(sender) = read {
+						let result = match result {
+							Ok(ServerResponseOutput::Read(output)) => {
+								Ok(tg::process::stdio::read::ServerMessage::Response(output))
+							},
+							Ok(_) => Err(tg::error!("expected a read response")),
+							Err(error) => Err(error),
+						};
+						let failed = result.is_err();
+						sender.try_send(result).map_err(|error| {
+							tg::error!(!error, "failed to deliver the read response")
+						})?;
+						if !failed {
+							// A read response is acknowledged only after its buffered chunks are consumed.
+							continue;
+						}
+						state.reads.lock().unwrap().remove(&response.id);
+						state
+							.acks
+							.send(Ok(ClientMessage::Ack(Ack { id: response.id })))
+							.await
+							.map_err(|_| tg::error!("the process connection closed"))?;
+						continue;
+					}
+					state
+						.acks
+						.send(Ok(ClientMessage::Ack(Ack { id: response.id })))
+						.await
+						.map_err(|_| tg::error!("the process connection closed"))?;
+
 					if response.id == 0 {
 						let ServerResponseOutput::Connect(output) = result? else {
 							return Err(tg::error!("expected a connect response"));
@@ -243,7 +223,7 @@ impl Connection {
 		id: u64,
 		arg: ClientRequestArg,
 	) -> tg::Result<ServerResponseOutput> {
-		let subscription = matches!(arg, ClientRequestArg::Read(_) | ClientRequestArg::Write(_));
+		let subscription = matches!(arg, ClientRequestArg::Read(_));
 		let (sender, receiver) = oneshot::channel();
 		{
 			let error = self.state.error.lock().unwrap();
@@ -251,7 +231,7 @@ impl Connection {
 				return Err(error.clone());
 			}
 			let mut requests = self.state.requests.lock().unwrap();
-			if requests.len() >= 64 && !matches!(arg, ClientRequestArg::Detach) {
+			if requests.len() >= 128 && !matches!(arg, ClientRequestArg::Detach) {
 				return Err(tg::error!("too many process requests"));
 			}
 			requests.insert(id, sender);
@@ -337,12 +317,23 @@ impl Connection {
 			(id, receiver)
 		} else {
 			let id = self.state.next_id.fetch_add(1, Ordering::Relaxed);
-			let (sender, receiver) = mpsc::channel(4);
+			let (sender, receiver) = mpsc::channel(tg::process::stdio::flow::CHANNEL_CAPACITY);
 			self.state.reads.lock().unwrap().insert(id, sender);
-			if let Err(error) = self.request_with_id(id, ClientRequestArg::Read(arg)).await {
+			let request = ClientRequest {
+				arg: ClientRequestArg::Read(arg),
+				id,
+			};
+			if self
+				.state
+				.sender
+				.send(Ok(ClientMessage::Request(request)))
+				.await
+				.is_err()
+			{
 				self.state.reads.lock().unwrap().remove(&id);
-				return Err(error);
+				return Err(tg::error!("the process connection closed"));
 			}
+
 			(id, receiver)
 		};
 
@@ -365,9 +356,7 @@ impl Connection {
 		let output = ReceiverStream::new(receiver).inspect(move |result| {
 			if matches!(
 				result,
-				Ok(tg::process::stdio::read::ServerMessage::Request(
-					tg::process::stdio::read::ServerRequest::End
-				))
+				Ok(tg::process::stdio::read::ServerMessage::Response(_))
 			) {
 				ended_stream.store(true, Ordering::SeqCst);
 			}
@@ -407,109 +396,70 @@ impl Connection {
 				},
 				Ok(message) => message,
 			};
-			let end = matches!(
-				&message,
-				tg::process::stdio::read::ClientMessage::Response(
-					tg::process::stdio::read::ClientResponse::End
-				)
-			);
-			let message =
-				ClientMessage::Notification(ClientNotification::Read(ReadClientNotification {
-					id,
-					message,
-				}));
-			if state.sender.send(Ok(message)).await.is_err() {
-				return;
-			}
-			if end {
-				state.reads.lock().unwrap().remove(&id);
-				return;
+			match message {
+				tg::process::stdio::read::ClientMessage::Ack => {
+					state
+						.acks
+						.send(Ok(ClientMessage::Ack(Ack { id })))
+						.await
+						.ok();
+					state.reads.lock().unwrap().remove(&id);
+					return;
+				},
+				tg::process::stdio::read::ClientMessage::Notification(progress) => {
+					let notification = ReadClientNotification { id, progress };
+					let message =
+						ClientMessage::Notification(ClientNotification::Read(notification));
+					if state.acks.send(Ok(message)).await.is_err() {
+						return;
+					}
+				},
 			}
 		}
 	}
 
 	pub(crate) async fn write(
 		&self,
-		arg: tg::process::stdio::write::Arg,
+		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>> {
-		// Open the subscription.
-		let id = self.state.next_id.fetch_add(1, Ordering::Relaxed);
-		let (sender, receiver) = mpsc::channel(4);
-		self.state.writes.lock().unwrap().insert(id, sender);
-		if let Err(error) = self.request_with_id(id, ClientRequestArg::Write(arg)).await {
-			self.state.writes.lock().unwrap().remove(&id);
-			return Err(error);
-		}
-
-		// Send the stdio messages.
-		let state = self.state.clone();
-		let task = Task::spawn(move |_| async move {
-			Self::write_task(state, id, input).await;
-		});
-		let state = self.state.clone();
-		let guard = scopeguard::guard((), move |()| {
-			if state.writes.lock().unwrap().contains_key(&id) {
-				tokio::spawn(async move {
-					state.close(id).await;
-				});
-			}
-		});
-		let state = self.state.clone();
-		let errors = stream::once(async move {
-			Err(state
-				.error
-				.lock()
-				.unwrap()
-				.clone()
-				.unwrap_or_else(|| tg::error!("the process write closed before EOF")))
-		});
-		let output = ReceiverStream::new(receiver)
-			.chain(errors)
-			.attach((task, guard))
+		let connection = self.clone();
+		let output = input
+			.try_filter_map(|message| async move {
+				match message {
+					write::ClientMessage::Ack(_) => Ok(None),
+					write::ClientMessage::Request(request) => Ok(Some(request)),
+				}
+			})
+			.map_ok(move |request| {
+				let connection = connection.clone();
+				let arg = write::Arg {
+					data: request.arg,
+					location: arg.location.clone(),
+					tokens: arg.tokens.clone(),
+				};
+				async move {
+					let output = connection.request(ClientRequestArg::Write(arg)).await?;
+					let ServerResponseOutput::Write(output) = output else {
+						return Err(tg::error!("expected a write response"));
+					};
+					let response = write::Response {
+						error: None,
+						id: request.id,
+						output: Some(output),
+					};
+					Ok(write::ServerMessage::Response(response))
+				}
+			})
+			.try_buffered(tg::process::stdio::flow::MAX_CHUNKS)
 			.boxed();
-
 		Ok(output)
-	}
-
-	async fn write_task(
-		state: Arc<State>,
-		id: u64,
-		mut input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
-	) {
-		while let Some(message) = input.next().await {
-			let message = match message {
-				Err(error) => {
-					if let Some(sender) = state.writes.lock().unwrap().remove(&id) {
-						sender.try_send(Err(error)).ok();
-					}
-					break;
-				},
-				Ok(message) => message,
-			};
-			let end = matches!(
-				&message,
-				tg::process::stdio::write::ClientMessage::Request(
-					tg::process::stdio::write::ClientRequest::End { .. }
-				)
-			);
-			let message =
-				ClientMessage::Notification(ClientNotification::Write(WriteClientNotification {
-					id,
-					message,
-				}));
-			if state.sender.send(Ok(message)).await.is_err() || end {
-				return;
-			}
-		}
-		state.close(id).await;
 	}
 }
 
 impl State {
 	async fn close(&self, id: u64) {
 		self.reads.lock().unwrap().remove(&id);
-		self.writes.lock().unwrap().remove(&id);
 		let request = ClientRequest {
 			arg: ClientRequestArg::Close(id),
 			id: self.next_id.fetch_add(1, Ordering::Relaxed),
@@ -526,7 +476,6 @@ impl State {
 			sender.send(Err(error.clone())).ok();
 		}
 		self.reads.lock().unwrap().clear();
-		self.writes.lock().unwrap().clear();
 		if self.wait.borrow().is_none() {
 			self.wait.send_replace(Some(Err(error)));
 		}

@@ -58,56 +58,72 @@ export namespace Stdio {
 		};
 
 		export type ClientMessage =
-			| { kind: "notification"; value: ClientNotification }
-			| { kind: "response"; value: ClientResponse };
+			| { kind: "ack" }
+			| { kind: "notification"; value: Progress };
 
-		export type ClientNotification = {
-			kind: "read";
-			value: { position: number };
-		};
+		export type Event =
+			| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
+			| {
+					kind: "position";
+					value: { length: number | null; position: number };
+			  };
 
-		export type ClientResponse = { kind: "end" };
+		export type Output = { kind: "end" | "limit" | "timeout" };
+
+		export type Progress = { consumed: number };
 
 		export type ServerMessage =
-			| { kind: "notification"; value: ServerNotification }
-			| { kind: "request"; value: ServerRequest };
-
-		export type ServerNotification =
-			| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
-			| { kind: "position"; value: { length: number | null; position: number } }
-			| { kind: "stop" };
-
-		export type ServerRequest = { kind: "end" };
+			| { kind: "notification"; value: Event }
+			| { kind: "response"; value: Output };
 	}
 
 	export namespace Write {
 		export type Arg = {
+			data: Data;
 			location?: tg.Location.Arg | null;
-			streams: Array<tg.Process.Stdio.Stream>;
 			tokens?: tg.Authorization.Tokens | null;
 		};
-
 		export type ClientMessage =
-			| { kind: "notification"; value: ClientNotification }
-			| { kind: "request"; value: ClientRequest };
-
-		export type ClientNotification = never;
-
-		export type ClientRequest =
+			| { kind: "ack"; value: { id: number } }
+			| { kind: "request"; value: Request };
+		export type Data =
 			| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
-			| { kind: "end"; value: { position: number } };
-
-		export type ServerMessage =
-			| { kind: "notification"; value: ServerNotification }
-			| { kind: "response"; value: ServerResponse };
-
-		export type ServerNotification = { kind: "stop" };
-
-		export type ServerResponse =
-			| { kind: "end" }
-			| { kind: "write"; value: Output };
-
+			| { kind: "end"; value: End };
+		export namespace Data {
+			export function toData(data: Data): unknown {
+				if (data.kind === "chunk") {
+					return { kind: "chunk", value: Chunk.toData(data.value) };
+				}
+				return {
+					kind: "end",
+					value: {
+						combined_position: data.value.combinedPosition,
+						stream_positions: data.value.streamPositions,
+					},
+				};
+			}
+		}
+		export type End = {
+			combinedPosition: number;
+			streamPositions: Partial<Record<tg.Process.Stdio.Stream, number>>;
+		};
 		export type Output = { closed: boolean; length: number };
+		export type Request = { arg: Data; id: number };
+		export type Response = {
+			error: tg.Error.Data | null;
+			id: number;
+			output: Output | null;
+		};
+		export type ServerMessage =
+			| { kind: "ack"; value: { id: number } }
+			| { kind: "response"; value: Response };
+		export namespace Stream {
+			export type Arg = {
+				location?: tg.Location.Arg | null;
+				streams: Array<tg.Process.Stdio.Stream>;
+				tokens?: tg.Authorization.Tokens | null;
+			};
+		}
 	}
 
 	export class Reader {
@@ -364,6 +380,7 @@ export namespace Stdio {
 					tokens: process.tokens,
 				},
 				chunks,
+				(chunk) => input.complete(chunk),
 			);
 			this.#input = input;
 			this.#task = task;
@@ -401,11 +418,33 @@ class WriteQueue implements AsyncIterableIterator<WriteRequest> {
 	#closed = false;
 	#error: unknown = null;
 	#failed = false;
+	#pending = new Map<tg.Process.Stdio.Chunk, WriteRequest>();
 	#values: Array<WriteRequest> = [];
 	#waiters: Array<{
 		reject(error: unknown): void;
 		resolve(result: IteratorResult<WriteRequest>): void;
 	}> = [];
+
+	chunk(
+		request: WriteRequest,
+		position: number,
+		stream: "stdin",
+	): tg.Process.Stdio.Chunk {
+		let chunk = {
+			bytes: request.bytes,
+			combinedPosition: position,
+			stream,
+			streamPosition: position,
+		};
+		this.#pending.set(chunk, request);
+		return chunk;
+	}
+
+	complete(chunk: tg.Process.Stdio.Chunk): void {
+		let request = this.#pending.get(chunk);
+		this.#pending.delete(chunk);
+		request?.resolve(chunk.bytes.length);
+	}
 
 	close(): void {
 		this.#closed = true;
@@ -422,11 +461,15 @@ class WriteQueue implements AsyncIterableIterator<WriteRequest> {
 		for (let value of this.#values.splice(0)) {
 			value.reject(error);
 		}
+		for (let request of this.#pending.values()) {
+			request.reject(error);
+		}
+		this.#pending.clear();
 		this.#wake();
 	}
 
 	finish(): void {
-		if (this.#values.length > 0 || !this.#closed) {
+		if (this.#values.length > 0 || this.#pending.size > 0 || !this.#closed) {
 			this.fail(new Error("stdin closed before the write completed"));
 		}
 	}
@@ -486,26 +529,10 @@ async function* writeChunks(
 	stream: "stdin",
 ): AsyncIterableIterator<tg.Process.Stdio.Chunk> {
 	let position = 0;
-	let request: WriteRequest | null = null;
-	try {
-		while (true) {
-			let result = await input.next();
-			if (result.done) {
-				break;
-			}
-			request = result.value;
-			yield {
-				bytes: request.bytes,
-				combinedPosition: position,
-				stream,
-				streamPosition: position,
-			};
-			position += request.bytes.length;
-			request.resolve(request.bytes.length);
-			request = null;
-		}
-	} finally {
-		request?.reject(new Error("stdin closed before the write completed"));
+	for await (let request of input) {
+		let chunk = input.chunk(request, position, stream);
+		position += chunk.bytes.length;
+		yield chunk;
 	}
 }
 

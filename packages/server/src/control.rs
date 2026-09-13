@@ -1,7 +1,9 @@
 use {
 	crate::Server,
 	dashmap::DashMap,
-	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, stream::BoxStream},
+	futures::{
+		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, stream::BoxStream,
+	},
 	std::{
 		marker::PhantomData,
 		pin::Pin,
@@ -528,13 +530,33 @@ impl Server {
 			I,
 			O,
 			Response,
-			impl Fn(String) -> O + Clone,
-			impl Fn(&I) -> bool + Clone,
-			impl Fn(I) -> tg::Result<Option<(String, Response)>> + Clone,
+			impl Fn(String) -> O + Clone + Send + Sync + 'static,
+			impl Fn(&I) -> bool + Clone + Send + Sync + 'static,
+			impl Fn(I) -> tg::Result<Option<(String, Response)>> + Clone + Send + Sync + 'static,
 		>,
 	) -> tg::Result<Response>
 	where
 		I: Payload,
+		Response: Send + 'static,
+		O: Clone + Payload,
+	{
+		self.start_control_request(arg).await?.await
+	}
+
+	pub(crate) async fn start_control_request<I, O, Response>(
+		&self,
+		arg: SendControlRequestArg<
+			I,
+			O,
+			Response,
+			impl Fn(String) -> O + Clone + Send + Sync + 'static,
+			impl Fn(&I) -> bool + Clone + Send + Sync + 'static,
+			impl Fn(I) -> tg::Result<Option<(String, Response)>> + Clone + Send + Sync + 'static,
+		>,
+	) -> tg::Result<futures::future::BoxFuture<'static, tg::Result<Response>>>
+	where
+		I: Payload,
+		Response: Send + 'static,
 		O: Clone + Payload,
 	{
 		let SendControlRequestArg {
@@ -555,67 +577,79 @@ impl Server {
 			.subscribe::<I>(client_subject)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the response"))?;
-		let mut responses = std::pin::pin!(responses);
+		server
+			.messenger
+			.publish(server_subject.clone(), request.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
+		let future = async move {
+			let mut responses = std::pin::pin!(responses);
 
-		let mut acknowledged = false;
-		let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
-		loop {
-			if !acknowledged {
-				if retries.next().await.is_none() {
-					return Err(tg::error!(
-						"timed out waiting for the request acknowledgement"
-					));
-				}
-
-				server
-					.messenger
-					.publish(server_subject.clone(), request.clone())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
-			}
-
-			let receive = async {
-				loop {
-					let message = responses
-						.next()
-						.await
-						.ok_or_else(|| tg::error!("the response stream ended"))?
-						.map_err(|source| tg::error!(!source, "failed to receive the response"))?;
-					if is_ack(&message.payload) {
-						return Ok::<_, tg::Error>(ReceiveControlRequestOutput::Ack);
+			let mut acknowledged = false;
+			let mut initial = true;
+			let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
+			loop {
+				if !acknowledged && !initial {
+					if retries.next().await.is_none() {
+						return Err(tg::error!(
+							"timed out waiting for the request acknowledgement"
+						));
 					}
-					let Some((id, response)) = response(message.payload)? else {
-						continue;
-					};
-					return Ok(ReceiveControlRequestOutput::Response { id, response });
-				}
-			};
-			let result = tokio::time::timeout(timeout, receive).await;
 
-			match result {
-				Ok(Ok(ReceiveControlRequestOutput::Ack)) => acknowledged = true,
-				Ok(Ok(ReceiveControlRequestOutput::Response { id, response })) => {
-					let ack = ack(id);
 					server
 						.messenger
-						.publish(server_subject.clone(), ack)
+						.publish(server_subject.clone(), request.clone())
 						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to acknowledge the control response")
-						})?;
+						.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
+				}
 
-					return Ok(response);
-				},
-				Ok(Err(error)) => return Err(error),
-				Err(_) => {
-					crate::checkpoint!(
-						server,
-						"control.request.timeout",
-						subject = server_subject.clone(),
-					)
-					.await;
-				},
+				initial = false;
+				let receive = async {
+					loop {
+						let message = responses
+							.next()
+							.await
+							.ok_or_else(|| tg::error!("the response stream ended"))?
+							.map_err(|source| {
+								tg::error!(!source, "failed to receive the response")
+							})?;
+						if is_ack(&message.payload) {
+							return Ok::<_, tg::Error>(ReceiveControlRequestOutput::Ack);
+						}
+						let Some((id, response)) = response(message.payload)? else {
+							continue;
+						};
+						return Ok(ReceiveControlRequestOutput::Response { id, response });
+					}
+				};
+				let result = tokio::time::timeout(timeout, receive).await;
+
+				match result {
+					Ok(Ok(ReceiveControlRequestOutput::Ack)) => acknowledged = true,
+					Ok(Ok(ReceiveControlRequestOutput::Response { id, response })) => {
+						let ack = ack(id);
+						server
+							.messenger
+							.publish(server_subject.clone(), ack)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to acknowledge the control response")
+							})?;
+
+						return Ok(response);
+					},
+					Ok(Err(error)) => return Err(error),
+					Err(_) => {
+						crate::checkpoint!(
+							server,
+							"control.request.timeout",
+							subject = server_subject.clone(),
+						)
+						.await;
+					},
+				}
 			}
-		}
+		};
+		Ok(future.boxed())
 	}
 }

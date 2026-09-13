@@ -72,10 +72,9 @@ pub struct Arg {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientMessage {
 	#[tangram_serialize(id = 0)]
-	Notification(ClientNotification),
-
+	Ack,
 	#[tangram_serialize(id = 1)]
-	Response(ClientResponse),
+	Notification(Progress),
 }
 
 #[derive(
@@ -87,9 +86,11 @@ pub enum ClientMessage {
 	tangram_serialize::Serialize,
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ClientNotification {
+pub enum ServerMessage {
 	#[tangram_serialize(id = 0)]
-	Read { position: u64 },
+	Notification(Event),
+	#[tangram_serialize(id = 1)]
+	Response(Output),
 }
 
 #[derive(
@@ -101,9 +102,17 @@ pub enum ClientNotification {
 	tangram_serialize::Serialize,
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ClientResponse {
+pub enum Event {
 	#[tangram_serialize(id = 0)]
-	End,
+	Chunk(Chunk),
+	/// The resolved cursor and remaining length, including any clipping at EOF.
+	#[tangram_serialize(id = 1)]
+	Position {
+		#[tangram_serialize(id = 0)]
+		length: Option<i64>,
+		#[tangram_serialize(id = 1)]
+		position: u64,
+	},
 }
 
 #[derive(Clone, Debug, Default)]
@@ -118,59 +127,39 @@ pub struct Options {
 
 #[derive(
 	Clone,
+	Copy,
 	Debug,
+	Eq,
+	PartialEq,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerMessage {
-	#[tangram_serialize(id = 0)]
-	Notification(ServerNotification),
-
-	#[tangram_serialize(id = 1)]
-	Request(ServerRequest),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerNotification {
-	#[tangram_serialize(id = 0)]
-	Chunk(Chunk),
-
-	/// The resolved cursor and remaining length, including any clipping at EOF.
-	#[tangram_serialize(id = 2)]
-	Position {
-		#[tangram_serialize(id = 0)]
-		length: Option<i64>,
-		#[tangram_serialize(id = 1)]
-		position: u64,
-	},
-
-	#[tangram_serialize(id = 1)]
-	Stop,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerRequest {
+pub enum Output {
 	#[tangram_serialize(id = 0)]
 	End,
+	#[tangram_serialize(id = 1)]
+	Limit,
+	#[tangram_serialize(id = 2)]
+	Timeout,
+}
+
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Progress {
+	/// The cumulative number of consumed chunk bytes in this read attempt.
+	#[tangram_serialize(id = 0)]
+	pub consumed: u64,
 }
 
 impl<O> tg::Process<O> {
@@ -344,112 +333,74 @@ impl tg::Session {
 
 impl TryFrom<ClientMessage> for tangram_http::sse::Event {
 	type Error = tg::Error;
-
-	fn try_from(value: ClientMessage) -> tg::Result<Self> {
-		let event = match value {
-			ClientMessage::Notification(notification) => {
-				let data = serde_json::to_string(&notification)
-					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
-				Self {
-					data,
-					event: Some("notification".to_owned()),
-					..Default::default()
-				}
-			},
-			ClientMessage::Response(response) => {
-				let data = serde_json::to_string(&response)
-					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
-				Self {
-					data,
-					event: Some("response".to_owned()),
-					..Default::default()
-				}
+	fn try_from(message: ClientMessage) -> tg::Result<Self> {
+		let (event, data) = match message {
+			ClientMessage::Ack => ("ack", Ok("null".to_owned())),
+			ClientMessage::Notification(progress) => {
+				("notification", serde_json::to_string(&progress))
 			},
 		};
-
+		let data = data.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
+		let event = Self {
+			data,
+			event: Some(event.to_owned()),
+			..Default::default()
+		};
 		Ok(event)
 	}
 }
 
 impl TryFrom<tangram_http::sse::Event> for ClientMessage {
 	type Error = tg::Error;
-
-	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
-		match value.event.as_deref() {
+	fn try_from(event: tangram_http::sse::Event) -> tg::Result<Self> {
+		let message = match event.event.as_deref() {
+			Some("ack") => serde_json::from_str::<()>(&event.data).map(|()| Self::Ack),
+			Some("notification") => serde_json::from_str(&event.data).map(Self::Notification),
 			Some("error") => {
 				let error: tg::Either<tg::error::Data, tg::error::Id> =
-					serde_json::from_str(&value.data)
+					serde_json::from_str(&event.data)
 						.map_err(|error| tg::error!(!error, "failed to deserialize the error"))?;
-				let error = error.try_into()?;
-				Err(error)
+				return Err(error.try_into()?);
 			},
-			Some("notification") => {
-				let notification = serde_json::from_str(&value.data)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
-				Ok(Self::Notification(notification))
-			},
-			Some("response") => {
-				let response = serde_json::from_str(&value.data)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
-				Ok(Self::Response(response))
-			},
-			_ => Err(tg::error!("invalid message")),
+			_ => return Err(tg::error!("invalid stdio read message")),
 		}
+		.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
+		Ok(message)
 	}
 }
 
 impl TryFrom<ServerMessage> for tangram_http::sse::Event {
 	type Error = tg::Error;
-
-	fn try_from(value: ServerMessage) -> tg::Result<Self> {
-		let event = match value {
-			ServerMessage::Notification(notification) => {
-				let data = serde_json::to_string(&notification)
-					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
-				Self {
-					data,
-					event: Some("notification".to_owned()),
-					..Default::default()
-				}
-			},
-			ServerMessage::Request(request) => {
-				let data = serde_json::to_string(&request)
-					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
-				Self {
-					data,
-					event: Some("request".to_owned()),
-					..Default::default()
-				}
-			},
+	fn try_from(message: ServerMessage) -> tg::Result<Self> {
+		let (event, data) = match message {
+			ServerMessage::Notification(event) => ("notification", serde_json::to_string(&event)),
+			ServerMessage::Response(output) => ("response", serde_json::to_string(&output)),
 		};
-
+		let data = data.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
+		let event = Self {
+			data,
+			event: Some(event.to_owned()),
+			..Default::default()
+		};
 		Ok(event)
 	}
 }
 
 impl TryFrom<tangram_http::sse::Event> for ServerMessage {
 	type Error = tg::Error;
-
-	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
-		match value.event.as_deref() {
+	fn try_from(event: tangram_http::sse::Event) -> tg::Result<Self> {
+		let message = match event.event.as_deref() {
 			Some("error") => {
 				let error: tg::Either<tg::error::Data, tg::error::Id> =
-					serde_json::from_str(&value.data)
+					serde_json::from_str(&event.data)
 						.map_err(|error| tg::error!(!error, "failed to deserialize the error"))?;
-				let error = error.try_into()?;
-				Err(error)
+				return Err(error.try_into()?);
 			},
-			Some("notification") => {
-				let notification = serde_json::from_str(&value.data)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
-				Ok(Self::Notification(notification))
-			},
-			Some("request") => {
-				let request = serde_json::from_str(&value.data)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
-				Ok(Self::Request(request))
-			},
-			_ => Err(tg::error!("invalid message")),
+			Some("notification") => serde_json::from_str(&event.data).map(Self::Notification),
+			Some("response") => serde_json::from_str(&event.data).map(Self::Response),
+			_ => return Err(tg::error!("invalid stdio read message")),
 		}
+		.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
+		Ok(message)
 	}
 }

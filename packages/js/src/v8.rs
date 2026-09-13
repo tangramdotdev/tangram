@@ -437,6 +437,7 @@ impl Runtime {
 
 impl Drop for Runtime {
 	fn drop(&mut self) {
+		// SAFETY: This runtime exclusively owns the live isolate during its destructor.
 		unsafe { self.isolate.enter() };
 		self.state.rejections.borrow_mut().clear();
 		if let Some(inspector) = self.inspector.as_mut() {

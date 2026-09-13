@@ -104,72 +104,33 @@ let output = timeout 15 node --input-type=module -e '
 	emit("ack", { id: write.value.id });
 	await tick();
 	assert.equal(written, false);
-	response(write.value.id, "write");
-	let chunk = await next();
-	assert.equal(chunk.value.value.message.value.kind, "chunk");
-	await tick();
-	assert.equal(written, false);
-	emit("notification", {
-		kind: "write",
-		value: {
-			id: write.value.id,
-			message: {
-				kind: "response",
-				value: { kind: "write", value: { closed: false, length: 3 } },
-			},
-		},
-	});
-	assert.equal(await writing, 3);
-	let closing = process.stdin.close();
-	let end = await next();
-	assert.deepEqual(end.value.value.message, {
-		kind: "request",
-		value: { kind: "end", value: { position: 3 } },
-	});
-	emit("notification", {
-		kind: "write",
-		value: {
-			id: write.value.id,
-			message: { kind: "response", value: { kind: "end" } },
-		},
-	});
-	await closing;
+    assert.equal(write.value.arg.value.data.kind, "chunk");
+    response(write.value.id, "write", { closed: false, length: 3 });
+    assert.equal(await writing, 3);
+    let closing = process.stdin.close();
+    let end = await next();
+    assert.deepEqual(end.value.arg.value.data, {
+        kind: "end", value: { combined_position: 3, stream_positions: { stdin: 3 } },
+    });
+    response(end.value.id, "write", { closed: true, length: 0 });
+    await closing;
 	emit("notification", { kind: "wait", value: { exit: 0 } });
 	assert.equal((await process.wait()).exit, 0);
-	let reading = process.stdout.text();
-	emit("notification", {
-		kind: "read",
-		value: {
-			id: 1,
-			message: {
-				kind: "notification",
-				value: {
-					kind: "chunk",
-					value: {
-						bytes: "YWJj",
-						combined_position: 0,
-						stream: "stdout",
-						stream_position: 0,
-					},
-				},
-			},
-		},
-	});
-	let read = await next();
-	assert.deepEqual(read.value.value.message, {
-		kind: "notification",
-		value: { kind: "read", value: { position: 3 } },
-	});
-	emit("notification", {
-		kind: "read",
-		value: { id: 1, message: { kind: "request", value: { kind: "end" } } },
-	});
-	assert.equal(await reading, "abc");
-	let eof = await next();
-	assert.deepEqual(eof.value.value.message, {
-		kind: "response",
-		value: { kind: "end" },
-	});
+    let readDone = false;
+    let reading = process.stdout.text().then(value => { readDone = true; return value; });
+    emit("notification", {
+        kind: "read", value: { id: 1, event: { kind: "chunk", value: {
+            bytes: "YWJj", combined_position: 0, stream: "stdout", stream_position: 0,
+        } } },
+    });
+    await tick();
+    assert.equal(readDone, false);
+    response(1, "read", { kind: "end" });
+    assert.equal(await reading, "abc");
+    while (true) {
+        const event = (await input.next()).value;
+        if (event.event === "ack" && JSON.parse(event.data).id === 1) break;
+    }
 	assert.equal((await process.wait()).exit, 0);
 	assert.deepEqual(requests, ["/processes/connect"]);
 
@@ -221,11 +182,11 @@ let output = timeout 15 node --input-type=module -e '
 		signaling.catch(() => {});
 		pending.push(signaling);
 	}
-	emit("notification", {
-		kind: "read",
-		value: { id: 1, message: { kind: "request", value: { kind: "end" } } },
-	});
-	assert.equal(await busyReading, "");
+    response(1, "read", { kind: "end" });
+    assert.equal(await busyReading, "");
+    const readAck = (await input.next()).value;
+    assert.equal(readAck.event, "ack");
+    assert.deepEqual(JSON.parse(readAck.data), { id: 1 });
 	response(first.value.id, "signal");
 	await pending[0];
 	let acknowledgment = (await input.next()).value;
@@ -237,11 +198,6 @@ let output = timeout 15 node --input-type=module -e '
 		response(signal.value.id, "signal");
 	}
 	await Promise.all(pending);
-	let busyEof = await next();
-	assert.deepEqual(busyEof.value.value.message, {
-		kind: "response",
-		value: { kind: "end" },
-	});
 	emit("notification", { kind: "wait", value: { exit: 0 } });
 	assert.equal((await busy.wait()).exit, 0);
 	await busy.detach();

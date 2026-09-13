@@ -14,6 +14,7 @@ use {
 };
 
 pub(crate) mod finish;
+pub(crate) mod read;
 pub(crate) mod write;
 
 pub(super) type ProcessControlSender = crate::control::Sender<
@@ -237,7 +238,8 @@ impl Session {
 						&message,
 						tg::process::control::ServerMessage::Request(
 							tg::process::control::ServerRequest {
-								arg: tg::process::control::ServerRequestArg::Read(_)
+								arg: tg::process::control::ServerRequestArg::Close(_)
+									| tg::process::control::ServerRequestArg::Read(_)
 									| tg::process::control::ServerRequestArg::Write(_),
 								..
 							}
@@ -268,6 +270,24 @@ impl Session {
 							if forwarded_requests.contains(&ack.id) {
 								session.publish_process_control_ack(&id, ack).await?;
 							}
+						},
+						tg::process::control::ClientMessage::Notification(
+							tg::process::control::ClientNotification::Read(notification),
+						) => {
+							let subject =
+								format!("processes.{id}.control.client.{}", notification.id);
+							let message =
+								ClientMessage(tg::process::control::ClientMessage::Notification(
+									tg::process::control::ClientNotification::Read(notification),
+								));
+							session
+								.server
+								.messenger
+								.publish(subject, message)
+								.await
+								.map_err(|source| {
+									tg::error!(!source, "failed to publish the process read event")
+								})?;
 						},
 						tg::process::control::ClientMessage::Notification(
 							tg::process::control::ClientNotification::ChildSpawned,
@@ -487,6 +507,7 @@ impl Session {
 	) -> tg::Result<()> {
 		let kind = match response.output.as_ref() {
 			Some(tg::process::control::ClientResponseOutput::AcquireLease(_)) => "acquire_lease",
+			Some(tg::process::control::ClientResponseOutput::Close) => "close",
 			Some(tg::process::control::ClientResponseOutput::Finish(_)) => "finish",
 			Some(tg::process::control::ClientResponseOutput::Get(_)) => "get",
 			Some(tg::process::control::ClientResponseOutput::GetChildren(_)) => "get_children",
@@ -696,6 +717,22 @@ impl Session {
 		arg: tg::process::control::ServerRequestArg,
 		options: crate::control::Options,
 	) -> tg::Result<tg::Result<tg::process::control::ClientResponseOutput>> {
+		self.start_process_control_request(id, arg, options)
+			.await?
+			.await
+	}
+
+	pub(crate) async fn start_process_control_request(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::control::ServerRequestArg,
+		options: crate::control::Options,
+	) -> tg::Result<
+		futures::future::BoxFuture<
+			'static,
+			tg::Result<tg::Result<tg::process::control::ClientResponseOutput>>,
+		>,
+	> {
 		let request_id = crate::control::id();
 		let payload = ServerMessage(tg::process::control::ServerMessage::Request(
 			tg::process::control::ServerRequest {
@@ -704,7 +741,7 @@ impl Session {
 			},
 		));
 		self.server
-			.send_control_request(crate::control::SendControlRequestArg {
+			.start_control_request(crate::control::SendControlRequestArg {
 				ack: |id| {
 					ServerMessage(tg::process::control::ServerMessage::Ack(
 						tg::process::control::ServerAck { id },
@@ -879,7 +916,8 @@ impl crate::control::Input<tg::process::control::ClientMessage>
 		let low = matches!(
 			self,
 			Self::Request(tg::process::control::ServerRequest {
-				arg: tg::process::control::ServerRequestArg::Read(_)
+				arg: tg::process::control::ServerRequestArg::Close(_)
+					| tg::process::control::ServerRequestArg::Read(_)
 					| tg::process::control::ServerRequestArg::Write(_),
 				..
 			}) | Self::Response(tg::process::control::ServerResponse {

@@ -353,6 +353,7 @@ impl<O> Process<O> {
 			let pid = i32::try_from(*pid)
 				.map_err(|error| tg::error!(!error, "failed to convert the process id"))?;
 			let signal = i32::from(signal as u8);
+			// SAFETY: The call passes only integer process and signal identifiers to libc.
 			let ret = unsafe { libc::kill(pid, signal) };
 			if ret < 0 {
 				return Err(tg::error!(

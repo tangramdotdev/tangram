@@ -207,18 +207,20 @@ export class Client {
 
 	writeProcessStdio(
 		id: tg.Process.Id,
-		arg: tg.Process.Stdio.Write.Arg,
+		arg: tg.Process.Stdio.Write.Stream.Arg,
 		input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+		complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 	): Promise<void> {
-		return writeProcessStdio(this, id, arg, input);
+		return writeProcessStdio(this, id, arg, input, complete);
 	}
 
 	tryWriteProcessStdio(
 		id: tg.Process.Id,
-		arg: tg.Process.Stdio.Write.Arg,
+		arg: tg.Process.Stdio.Write.Stream.Arg,
 		input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+		complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 	): Promise<true | null> {
-		return tryWriteProcessStdio(this, id, arg, input);
+		return tryWriteProcessStdio(this, id, arg, input, complete);
 	}
 
 	createSandbox(arg: tg.Sandbox.Create.Arg): Promise<tg.Sandbox.Create.Output> {

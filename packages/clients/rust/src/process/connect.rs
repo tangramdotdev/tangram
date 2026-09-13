@@ -84,8 +84,6 @@ pub struct Ack {
 pub enum ClientNotification {
 	#[tangram_serialize(id = 0)]
 	Read(ReadClientNotification),
-	#[tangram_serialize(id = 1)]
-	Write(WriteClientNotification),
 }
 
 #[derive(
@@ -141,17 +139,12 @@ pub enum ClientRequestArg {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerNotification {
-	#[tangram_serialize(id = 4)]
-	Error(ErrorServerNotification),
-
 	#[tangram_serialize(id = 0)]
 	Progress(tg::progress::Event<()>),
 	#[tangram_serialize(id = 1)]
 	Read(ReadServerNotification),
 	#[tangram_serialize(id = 2)]
 	Wait(tg::process::wait::Output),
-	#[tangram_serialize(id = 3)]
-	Write(WriteServerNotification),
 }
 
 #[derive(
@@ -190,13 +183,13 @@ pub enum ServerResponseOutput {
 	#[tangram_serialize(id = 3)]
 	Detach,
 	#[tangram_serialize(id = 4)]
-	Read,
+	Read(tg::process::stdio::read::Output),
 	#[tangram_serialize(id = 5)]
 	Signal,
 	#[tangram_serialize(id = 6)]
 	Tty,
 	#[tangram_serialize(id = 7)]
-	Write,
+	Write(tg::process::stdio::write::Output),
 }
 
 #[derive(
@@ -276,26 +269,11 @@ pub struct Options {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct ErrorServerNotification {
-	#[tangram_serialize(id = 0)]
-	pub error: tg::error::Data,
-	#[tangram_serialize(id = 1)]
-	pub id: u64,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
 pub struct ReadClientNotification {
 	#[tangram_serialize(id = 0)]
 	pub id: u64,
 	#[tangram_serialize(id = 1)]
-	pub message: tg::process::stdio::read::ClientMessage,
+	pub progress: tg::process::stdio::read::Progress,
 }
 
 #[derive(
@@ -307,40 +285,10 @@ pub struct ReadClientNotification {
 	tangram_serialize::Serialize,
 )]
 pub struct ReadServerNotification {
+	#[tangram_serialize(id = 1)]
+	pub event: tg::process::stdio::read::Event,
 	#[tangram_serialize(id = 0)]
 	pub id: u64,
-	#[tangram_serialize(id = 1)]
-	pub message: tg::process::stdio::read::ServerMessage,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct WriteClientNotification {
-	#[tangram_serialize(id = 0)]
-	pub id: u64,
-	#[tangram_serialize(id = 1)]
-	pub message: tg::process::stdio::write::ClientMessage,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct WriteServerNotification {
-	#[tangram_serialize(id = 0)]
-	pub id: u64,
-	#[tangram_serialize(id = 1)]
-	pub message: tg::process::stdio::write::ServerMessage,
 }
 
 pub async fn connect(id: tg::process::Id, options: Options) -> tg::Result<tg::Process> {

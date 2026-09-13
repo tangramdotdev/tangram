@@ -66,21 +66,14 @@ async fn reconnect_preserves_the_resolved_reverse_window() {
 									timestamp: None,
 								};
 								vec![
-									read::ServerMessage::Notification(
-										read::ServerNotification::Position {
-											length: Some(length),
-											position,
-										},
-									),
-									read::ServerMessage::Notification(
-										read::ServerNotification::Chunk(chunk),
-									),
-									read::ServerMessage::Notification(
-										read::ServerNotification::Stop,
-									),
+									read::ServerMessage::Notification(read::Event::Position {
+										length: Some(length),
+										position,
+									}),
+									read::ServerMessage::Notification(read::Event::Chunk(chunk)),
 								]
 							} else {
-								vec![read::ServerMessage::Request(read::ServerRequest::End)]
+								vec![read::ServerMessage::Response(read::Output::End)]
 							};
 							let input = Task::spawn(move |_| async move {
 								BodyStream::new(request.into_body())
@@ -89,7 +82,13 @@ async fn reconnect_preserves_the_resolved_reverse_window() {
 									.ok();
 							});
 							let stream = stream::iter(messages.into_iter().map(Ok))
-								.chain(stream::pending())
+								.chain(stream::poll_fn(move |_| {
+									if attempt == 0 {
+										std::task::Poll::Ready(None)
+									} else {
+										std::task::Poll::Pending
+									}
+								}))
 								.attach(input)
 								.boxed();
 							let body = encode(stream, 1024);

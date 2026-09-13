@@ -26,49 +26,35 @@ export namespace Connect {
 		| { kind: "ack"; value: { id: number } }
 		| {
 				kind: "notification";
-				value:
-					| {
-							kind: "read";
-							value: {
-								id: number;
-								message: tg.Process.Stdio.Read.ClientMessage;
-							};
-					  }
-					| {
-							kind: "write";
-							value: {
-								id: number;
-								message: tg.Process.Stdio.Write.ClientMessage;
-							};
-					  };
+				value: {
+					kind: "read";
+					value: {
+						id: number;
+						progress: tg.Process.Stdio.Read.Progress;
+					};
+				};
 		  }
 		| { kind: "request"; value: { arg: ClientRequestArg; id: number } };
 	export type ServerResponseOutput =
 		| { kind: "cancel"; value: tg.Process.Cancel.Output }
 		| { kind: "connect"; value: tg.Process.Spawn.Output }
-		| { kind: "close" | "detach" | "read" | "signal" | "tty" | "write" };
+		| { kind: "read"; value: tg.Process.Stdio.Read.Output }
+		| { kind: "write"; value: tg.Process.Stdio.Write.Output }
+		| { kind: "close" | "detach" | "signal" | "tty" };
 	export type ServerMessage =
 		| { kind: "ack"; value: { id: number } }
 		| {
 				kind: "notification";
 				value:
-					| { kind: "error"; value: { error: tg.Error.Data; id: number } }
 					| { kind: "progress"; value: tg.Progress.Event<null> }
 					| {
 							kind: "read";
 							value: {
 								id: number;
-								message: tg.Process.Stdio.Read.ServerMessage;
+								event: tg.Process.Stdio.Read.Event;
 							};
 					  }
-					| { kind: "wait"; value: tg.Process.Wait.Data }
-					| {
-							kind: "write";
-							value: {
-								id: number;
-								message: tg.Process.Stdio.Write.ServerMessage;
-							};
-					  };
+					| { kind: "wait"; value: tg.Process.Wait.Data };
 		  }
 		| {
 				kind: "response";
@@ -128,10 +114,10 @@ export async function connectProcess(
 				);
 			}
 			if (message.kind === "notification" && message.value.kind === "read") {
-				let read = message.value.value.message;
-				if (read.kind === "notification" && read.value.kind === "chunk") {
-					read.value.value = tg.Process.Stdio.Chunk.fromData(
-						read.value.value as unknown as tg.Process.Stdio.Chunk.Data,
+				let read = message.value.value.event;
+				if (read.kind === "chunk") {
+					read.value = tg.Process.Stdio.Chunk.fromData(
+						read.value as unknown as tg.Process.Stdio.Chunk.Data,
 					);
 				}
 			}
@@ -171,8 +157,20 @@ async function* encode(
 								: { kind: "existing", value: locationArg(target.value) },
 					},
 				};
-			} else if (arg.kind === "read" || arg.kind === "write") {
+			} else if (arg.kind === "read") {
 				data = { kind: arg.kind, value: stdioArg(arg.value) };
+			} else if (arg.kind === "write") {
+				data = {
+					kind: "write",
+					value: {
+						...arg.value,
+						data: tg.Process.Stdio.Write.Data.toData(arg.value.data),
+						location:
+							arg.value.location === null || arg.value.location === undefined
+								? null
+								: tg.Location.Arg.toDataString(arg.value.location),
+					},
+				};
 			} else if (
 				arg.kind === "cancel" ||
 				arg.kind === "signal" ||
@@ -181,26 +179,6 @@ async function* encode(
 				data = { kind: arg.kind, value: locationArg(arg.value) };
 			}
 			value = { ...message.value, arg: data };
-		} else if (
-			message.kind === "notification" &&
-			message.value.kind === "write"
-		) {
-			let write = message.value.value.message;
-			if (write.kind === "request" && write.value.kind === "chunk") {
-				value = {
-					kind: "write",
-					value: {
-						id: message.value.value.id,
-						message: {
-							kind: "request",
-							value: {
-								kind: "chunk",
-								value: tg.Process.Stdio.Chunk.toData(write.value.value),
-							},
-						},
-					},
-				};
-			}
 		}
 		yield { event: message.kind, data: JSON.stringify(value) };
 	}
@@ -219,7 +197,7 @@ function locationArg<T extends { location?: tg.Location.Arg | null }>(
 }
 
 function stdioArg(
-	arg: tg.Process.Stdio.Read.Arg | tg.Process.Stdio.Write.Arg,
+	arg: tg.Process.Stdio.Read.Arg | tg.Process.Stdio.Write.Stream.Arg,
 ): unknown {
 	return {
 		...arg,

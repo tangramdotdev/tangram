@@ -1,4 +1,4 @@
-use {super::*, futures::FutureExt as _, tokio_stream::wrappers::ReceiverStream};
+use {super::*, tokio_stream::wrappers::ReceiverStream};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Message {

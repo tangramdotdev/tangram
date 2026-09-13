@@ -22,6 +22,8 @@ mod writer;
 
 pub use self::{reader::Reader, writer::Writer};
 
+#[doc(hidden)]
+pub mod flow;
 pub mod read;
 pub mod write;
 
@@ -444,7 +446,7 @@ where
 		};
 	#[cfg(not(unix))]
 	let _ = raw;
-	let arg = tg::process::stdio::write::Arg {
+	let arg = tg::process::stdio::write::stream::Arg {
 		location: location.map(Into::into),
 		streams: vec![tg::process::stdio::Stream::Stdin],
 		tokens,

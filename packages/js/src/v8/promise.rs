@@ -117,6 +117,8 @@ pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
 				.borrow_mut()
 				.retain(|rejection| rejection.promise != promise);
 		},
+		v8::PromiseRejectEvent::PromiseRejectAfterResolved
+		| v8::PromiseRejectEvent::PromiseResolveAfterResolved => {},
 		v8::PromiseRejectEvent::PromiseRejectWithNoHandler => {
 			let exception = message.get_promise().result(scope);
 			let error = super::error::from_exception(&state, scope, exception)
@@ -125,7 +127,5 @@ pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
 			let rejection = Rejection { error, promise };
 			state.rejections.borrow_mut().push(rejection);
 		},
-		v8::PromiseRejectEvent::PromiseRejectAfterResolved
-		| v8::PromiseRejectEvent::PromiseResolveAfterResolved => {},
 	}
 }

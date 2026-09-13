@@ -9,6 +9,7 @@ const timer = setTimeout(() => {
 const requests = new Map();
 const notifications = [];
 const chunks = [];
+const consumed = new Map();
 let nextId = 0;
 let closed = false;
 let notify;
@@ -87,44 +88,15 @@ request.on("response", (response) => {
 				else pending?.resolve(value.output);
 			} else if (event === "notification") {
 				notifications.push(value);
-				if (mode === "cached" && value.kind === "read") {
-					const { id, message } = value.value;
-					if (
-						message.kind === "notification" &&
-						message.value.kind === "chunk"
-					) {
-						const chunk = message.value.value;
-						const bytes = Buffer.from(chunk.bytes, "base64");
-						chunks.push(bytes);
-						sendEvent("notification", {
-							kind: "read",
-							value: {
-								id,
-								message: {
-									kind: "notification",
-									value: {
-										kind: "read",
-										value: { position: chunk.stream_position + bytes.length },
-									},
-								},
-							},
-						});
-					} else if (
-						message.kind === "request" &&
-						message.value.kind === "end"
-					) {
-						sendEvent("notification", {
-							kind: "read",
-							value: {
-								id,
-								message: {
-									kind: "response",
-									value: { kind: "end" },
-								},
-							},
-						});
-					}
-				}
+                if (mode === "cached" && value.kind === "read") {
+                    const { id, event } = value.value;
+                    if (event.kind === "chunk") {
+                        const bytes = Buffer.from(event.value.bytes, "base64");
+                        chunks.push(bytes);
+                        consumed.set(id, (consumed.get(id) ?? 0) + bytes.length);
+                        sendEvent("notification", { kind: "read", value: { id, progress: { consumed: consumed.get(id) } } });
+                    }
+                }
 				notify?.();
 			}
 		}
@@ -170,71 +142,24 @@ try {
 	} else if (mode === "disconnect") {
 		request.destroy();
 	} else if (mode === "write") {
-		const writeId = nextId;
-		assert.equal(
-			(await send({ kind: "write", value: { streams: "stdin" } })).kind,
-			"write",
-		);
-		sendEvent("notification", {
-			kind: "write",
-			value: {
-				id: writeId,
-				message: {
-					kind: "request",
-					value: {
-						kind: "chunk",
-						value: {
-							bytes: "eA==",
-							combined_position: 0,
-							stream: "stdin",
-							stream_position: 0,
-						},
-					},
-				},
-			},
-		});
-		await until(() =>
-			notifications.some(
-				(value) =>
-					value.kind === "write" && value.value.message.value.kind === "write",
-			),
-		);
-		assert.equal(
-			(await send({ kind: "cancel", value: { lease } })).kind,
-			"cancel",
-		);
-		await until(() => notifications.some((value) => value.kind === "wait"));
-		sendEvent("notification", {
-			kind: "write",
-			value: {
-				id: writeId,
-				message: {
-					kind: "request",
-					value: { kind: "end", value: { position: 1 } },
-				},
-			},
-		});
-		await until(() =>
-			notifications.some(
-				(value) =>
-					value.kind === "write" && value.value.message.value.kind === "end",
-			),
-		);
-		assert(
-			notifications.some(
-				(value) =>
-					value.kind === "write" && value.value.message.value.kind === "write",
-			),
-		);
-		await until(() => closed);
+        const write = await send({ kind: "write", value: { data: { kind: "chunk", value: {
+            bytes: "eA==", combined_position: 0, stream: "stdin", stream_position: 0,
+        } } } });
+        assert.equal(write.kind, "write");
+        assert.equal(write.value.length, 1);
+        const end = send({ kind: "write", value: { data: { kind: "end", value: {
+            combined_position: 1, stream_positions: { stdin: 1 },
+        } } } });
+        assert.equal((await send({ kind: "cancel", value: { lease } })).kind, "cancel");
+        assert.equal((await end).kind, "write");
+        await until(() => closed);
 	} else {
 		if (mode === "idle") {
 			for (let index = 0; index < 70; index++) {
 				const readId = nextId;
-				assert.equal(
-					(await send({ kind: "read", value: { streams: "stdout" } })).kind,
-					"read",
-				);
+                const read = send({ kind: "read", value: { streams: "stdout" } });
+                read.catch(() => {});
+                requests.delete(readId);
 				assert.equal(
 					(await send({ kind: "close", value: readId })).kind,
 					"close",

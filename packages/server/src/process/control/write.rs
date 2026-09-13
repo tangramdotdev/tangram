@@ -199,8 +199,27 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
-		end: tg::process::log::End,
+		end: tg::process::stdio::write::End,
 	) -> tg::Result<tg::process::control::WriteServerResponseOutput> {
+		if end
+			.stream_positions
+			.contains_key(&tg::process::stdio::Stream::Stdin)
+		{
+			return Err(tg::error!("invalid log end streams"));
+		}
+		let end = tg::process::log::End {
+			position: end.combined_position,
+			stderr_position: end
+				.stream_positions
+				.get(&tg::process::stdio::Stream::Stderr)
+				.copied()
+				.unwrap_or_default(),
+			stdout_position: end
+				.stream_positions
+				.get(&tg::process::stdio::Stream::Stdout)
+				.copied()
+				.unwrap_or_default(),
+		};
 		if streams.is_empty() {
 			return Err(tg::error!("the process does not have a log"));
 		}
@@ -271,6 +290,9 @@ impl Session {
 		}
 		if chunk.bytes.is_empty() {
 			return Err(tg::error!("the process log chunk is empty"));
+		}
+		if chunk.bytes.len() > tg::process::stdio::flow::CHUNK_SIZE {
+			return Err(tg::error!("the process log chunk is too large"));
 		}
 		let length = chunk.bytes.len().to_u64().unwrap();
 		chunk

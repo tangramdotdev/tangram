@@ -6,7 +6,7 @@ let tangram = which tg | where type == external | get path | first
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			let child = await tg.spawn`read line; echo "$line"`.stdin("pipe").stdout("pipe").stderr("null").sandbox();
+			let child = await tg.spawn`read line; echo "$line"`.stdin("pipe").stdout("log").stderr("null").sandbox();
 			console.log(child.id);
 			await child.output();
 		}
