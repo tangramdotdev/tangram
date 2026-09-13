@@ -44,7 +44,7 @@ export namespace Connect {
 		  }
 		| { kind: "request"; value: { arg: ClientRequestArg; id: number } };
 	export type ServerResponseOutput =
-		| { kind: "cancel"; value: { released: boolean } }
+		| { kind: "cancel"; value: tg.Process.Cancel.Output }
 		| { kind: "connect"; value: tg.Process.Spawn.Output }
 		| { kind: "close" | "detach" | "read" | "signal" | "tty" | "write" };
 	export type ServerMessage =

@@ -58,14 +58,17 @@ export class Client {
 		};
 	}
 
-	cancelProcess(id: tg.Process.Id, arg: tg.Process.Cancel.Arg): Promise<void> {
+	cancelProcess(
+		id: tg.Process.Id,
+		arg: tg.Process.Cancel.Arg,
+	): Promise<tg.Process.Cancel.Output> {
 		return cancelProcess(this, id, arg);
 	}
 
 	tryCancelProcess(
 		id: tg.Process.Id,
 		arg: tg.Process.Cancel.Arg,
-	): Promise<true | null> {
+	): Promise<tg.Process.Cancel.Output | null> {
 		return tryCancelProcess(this, id, arg);
 	}
 

@@ -803,6 +803,8 @@ export namespace Process {
 
 	export namespace Cancel {
 		export type Arg = ProcessCancel.Arg;
+
+		export type Output = ProcessCancel.Output;
 	}
 
 	export namespace Get {
