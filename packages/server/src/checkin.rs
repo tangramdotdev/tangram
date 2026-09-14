@@ -96,23 +96,19 @@ impl Session {
 			));
 		}
 
-		arg.path = self.host_path_for_guest_path(&arg.path)?;
-
-		// Validate and canonicalize the path.
+		// Canonicalize against the mounted store, whose parents exist even without a physical checkout.
+		arg.path =
+			self.host_path_for_guest_path_with_store_path(&arg.path, &self.server.store_path())?;
 		if !arg.path.is_absolute() {
 			return Err(tg::error!(path = ?arg.path, "the path must be absolute"));
 		}
 		arg.path = tangram_util::fs::canonicalize_parent(&arg.path)
 			.await
-			.map_err(|error| tg::error!(!error, path = %&arg.path.display(), "failed to canonicalize the path's parent"))?;
+			.map_err(|error| tg::error!(!error, path = %arg.path.display(), "failed to canonicalize the path's parent"))?;
 
-		// Handle paths in the checkouts directory.
-		if let Ok(path) = arg.path.strip_prefix(self.server.checkout_path()) {
+		// Recognize the store path after resolving parent symlinks and traversal components.
+		if let Some(output) = self.try_checkin_store_path(&arg.path).await? {
 			let progress = crate::progress::Handle::new();
-			let output = self
-				.checkin_checkout_path(path)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to check in the store path"))?;
 			progress.output(output);
 			return Ok(progress.stream().left_stream());
 		}
@@ -295,85 +291,6 @@ impl Session {
 			.right_stream();
 
 		Ok(stream)
-	}
-
-	async fn checkin_checkout_path(&self, path: &Path) -> tg::Result<tg::checkin::Output> {
-		let id = path
-			.components()
-			.next()
-			.map(|component| {
-				let std::path::Component::Normal(name) = component else {
-					return Err(tg::error!("invalid path"));
-				};
-				name.to_str().ok_or_else(|| tg::error!("non-utf8 path"))
-			})
-			.ok_or_else(|| tg::error!("cannot check in the checkouts directory"))??
-			.parse::<tg::artifact::Id>()
-			.map_err(|error| tg::error!(!error, "failed to parse the artifact id"))?;
-
-		let resource = tg::Selector::<tg::Id>::Id(id.clone().into());
-		let permission = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		);
-		if !self
-			.authorize(resource, permission)
-			.await?
-			.is_some_and(|permissions| permissions.contains(permission))
-		{
-			return Err(tg::error!("unauthorized"));
-		}
-
-		if path.components().count() == 1 {
-			let mut artifact = tg::Referent::with_node(id);
-			if let Some(token) = self.create_artifact_token(&artifact.node)? {
-				artifact.options.tokens.insert_local(token);
-			}
-			let output = tg::checkin::Output { artifact };
-			return Ok(output);
-		}
-
-		let subpath = path.components().skip(1).collect::<PathBuf>();
-		let artifact = tg::Artifact::with_id(id);
-		let directory = artifact
-			.try_unwrap_directory()
-			.ok()
-			.ok_or_else(|| tg::error!("invalid path"))?;
-		let artifact = directory
-			.get_with_handle(self, subpath)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the artifact from the cache"))?;
-
-		let id = artifact.id();
-		let mut referent = tg::Referent::with_node(id);
-		if let Some(token) = self.create_artifact_token(&referent.node)? {
-			referent.options.tokens.insert_local(token);
-		}
-		let output = tg::checkin::Output { artifact: referent };
-
-		Ok(output)
-	}
-
-	fn create_artifact_token(
-		&self,
-		id: &tg::artifact::Id,
-	) -> tg::Result<Option<tg::authorization::Token>> {
-		let now = self.server.clock.unix_timestamp()?;
-		let expires_at = now
-			+ self
-				.server
-				.config
-				.object
-				.grant_time_to_live
-				.as_secs()
-				.to_i64()
-				.unwrap();
-		self.create_token(
-			id.clone().into(),
-			vec![tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			)],
-			expires_at,
-		)
 	}
 
 	pub(super) fn checkin_merge_object_token(

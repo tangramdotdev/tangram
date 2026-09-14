@@ -655,7 +655,7 @@ impl Session {
 		Ok(Some(references))
 	}
 
-	fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::authorization::Tokens> {
+	pub(super) fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::authorization::Tokens> {
 		let Ok(Some(value)) = xattr::get(path, tg::file::TOKEN_XATTR_NAME) else {
 			return Ok(tg::authorization::Tokens::default());
 		};

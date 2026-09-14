@@ -46,11 +46,11 @@ pub struct Node {
 
 #[derive(Default)]
 struct State {
-	file_tree: radix_trie::Trie<PathBuf, tg::Artifact>,
 	all_packages: Vec<tg::Referent<tg::Object>>,
+	file_trees: BTreeMap<Option<tg::object::Id>, radix_trie::Trie<PathBuf, tg::Artifact>>,
+	graph: Graph,
 	source_packages: Vec<tg::Referent<tg::Object>>,
 	tags: Vec<(tg::Specifier, tg::Referent<tg::object::Id>)>,
-	graph: Graph,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
@@ -80,11 +80,14 @@ impl Cli {
 			path: absolute_path.clone(),
 			updates: Vec::new(),
 		};
-		let artifact = tg::checkin::checkin_with_handle(&client, arg).await.map_err(
+		let output = tg::checkin::checkin_with_handle(&client, arg).await.map_err(
 			|error| tg::error!(!error, path = %absolute_path.display(), "failed to check in the root package"),
 		)?;
-		let mut options = artifact.to_referent().options;
-		options.path = Some(args.path.clone());
+		let artifact = tg::Artifact::with_referent(output.artifact.clone());
+		let mut options = output.artifact.options;
+		if options.id.is_none() {
+			options.path = Some(args.path.clone());
+		}
 		let referent = tg::Referent::new(artifact.into(), options);
 
 		// Create the state.
@@ -455,16 +458,17 @@ impl State {
 	async fn create_graph(&mut self, client: &impl tg::Handle) -> tg::Result<()> {
 		for package in self.all_packages.clone() {
 			let Self {
-				file_tree,
-				graph,
 				all_packages,
+				file_trees,
+				graph,
 				..
 			} = self;
 			let index = Self::get_package_index(graph, package.clone());
 
 			// Update the entry for this package.
-			let mut stack = file_tree
-				.subtrie(package.path().unwrap())
+			let mut stack = file_trees
+				.get(&package.options.id)
+				.and_then(|tree| tree.subtrie(package.path().unwrap()))
 				.into_iter()
 				.collect::<Vec<_>>();
 
@@ -552,20 +556,7 @@ impl State {
 				let path = if node.outgoing.is_empty() {
 					None
 				} else {
-					let path = node
-						.package
-						.path()
-						.ok_or_else(|| tg::error!("missing path"))?;
-					let path =
-						tangram_util::fs::canonicalize_parent(&path)
-							.await
-							.map_err(|error| {
-								tg::error!(
-									!error,
-									path = %path.display(),
-									"failed to canonicalize the path"
-								)
-							})?;
+					let path = publish_path(client, &node.package.options).await?;
 					Some(path)
 				};
 
@@ -581,19 +572,7 @@ impl State {
 				// Cycles must have paths for all items.
 				for item in &mut items {
 					if item.path.is_none() {
-						let path = item
-							.referent
-							.path()
-							.ok_or_else(|| tg::error!("missing path"))?;
-						let path = tangram_util::fs::canonicalize_parent(&path).await.map_err(
-							|error| {
-								tg::error!(
-									!error,
-									path = %path.display(),
-									"failed to canonicalize the path"
-								)
-							},
-						)?;
+						let path = publish_path(client, &item.referent.options).await?;
 						item.path = Some(path);
 					}
 				}
@@ -671,7 +650,9 @@ where
 		let Some(path) = directory.path() else {
 			return Ok(true);
 		};
-		self.file_tree
+		self.file_trees
+			.entry(directory.options.id.clone())
+			.or_default()
 			.insert(path.to_owned(), directory.node.clone().into());
 
 		// Keep track of files.
@@ -706,7 +687,9 @@ where
 		let Some(path) = file.path() else {
 			return Ok(true);
 		};
-		self.file_tree
+		self.file_trees
+			.entry(file.options.id.clone())
+			.or_default()
 			.insert(path.to_owned(), file.node.clone().into());
 
 		// Mark the packages that come from source overrides.
@@ -812,6 +795,45 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
 	}
 }
 
+async fn publish_path(
+	client: &impl tg::Handle,
+	options: &tg::referent::Options,
+) -> tg::Result<PathBuf> {
+	// Resolve the artifact-relative path through its root, retaining the authorization tokens.
+	let path = if let Some(id) = &options.id {
+		let root_options = tg::referent::Options {
+			location: options.location.clone(),
+			tokens: options.tokens.clone(),
+			..Default::default()
+		};
+		let node = tg::Referent::new(id.clone().into(), root_options);
+		let arg = tg::checkout::Arg {
+			dependencies: true,
+			extension: None,
+			force: false,
+			lock: None,
+			nodes: vec![node],
+			path: None,
+		};
+		let root = tg::checkout::checkout_one_with_handle(client, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to check out the package root"))?;
+		root.join(options.path.as_deref().unwrap_or(Path::new("")))
+	} else {
+		options
+			.path
+			.clone()
+			.ok_or_else(|| tg::error!("missing path"))?
+	};
+
+	// Canonicalize the filesystem path used to check in the package again.
+	let path = tangram_util::fs::canonicalize_parent(&path).await.map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to canonicalize the path"),
+	)?;
+
+	Ok(path)
+}
+
 async fn publish_checkin(
 	client: &impl tg::Handle,
 	path: PathBuf,
@@ -829,9 +851,9 @@ async fn publish_checkin(
 		options,
 		updates: Vec::new(),
 	};
-	let artifact = tg::checkin::checkin_with_handle(client, args)
+	let output = tg::checkin::checkin_with_handle(client, args)
 		.await
 		.map_err(|error| tg::error!(!error, path = %path_display, "failed to checkin"))?;
-	let node = artifact.to_referent().map(Into::into);
+	let node = output.artifact.map(Into::into);
 	Ok(node)
 }

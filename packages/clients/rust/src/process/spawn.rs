@@ -938,9 +938,10 @@ impl<O: 'static> tg::Process<O> {
 				path: output_path.clone(),
 				updates: Vec::new(),
 			};
-			let artifact = tg::checkin::checkin_with_handle(&handle, entry)
+			let checkin = tg::checkin::checkin_with_handle(&handle, entry)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check in the output"))?;
+			let artifact = tg::Artifact::with_referent(checkin.artifact);
 			output.output = Some(tg::Value::from(artifact).to_data());
 		}
 

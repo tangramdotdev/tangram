@@ -97,16 +97,18 @@ pub enum Lock {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	/// The checked-in artifact, with exact authorization tokens when signing is enabled.
+	/// For a store subpath, `options.id` names the containing root and `options.path` is relative to it; `options.tokens` authorizes both artifacts.
 	#[serde_as(as = "DisplayFromStr")]
 	pub artifact: tg::Referent<tg::artifact::Id>,
 }
 
-pub async fn checkin(arg: tg::checkin::Arg) -> tg::Result<tg::Artifact> {
+pub async fn checkin(arg: tg::checkin::Arg) -> tg::Result<Output> {
 	let handle = tg::handle()?;
 	checkin_with_handle(handle, arg).await
 }
 
-pub async fn checkin_with_handle<H>(handle: &H, arg: tg::checkin::Arg) -> tg::Result<tg::Artifact>
+pub async fn checkin_with_handle<H>(handle: &H, arg: tg::checkin::Arg) -> tg::Result<Output>
 where
 	H: tg::Handle,
 {
@@ -116,8 +118,7 @@ where
 		.await?
 		.and_then(|event| event.try_unwrap_output().ok())
 		.ok_or_else(|| tg::error!("stream ended without output"))?;
-	let artifact = tg::Artifact::with_referent(output.artifact);
-	Ok(artifact)
+	Ok(output)
 }
 
 impl tg::Session {

@@ -295,7 +295,7 @@ impl Cli {
 		// Get the updates.
 		let updates = args.updates.unwrap_or_default();
 
-		// Canonicalize the path's parent.
+		// Canonicalize the path's parent in the caller's filesystem.
 		let path = tangram_util::fs::canonicalize_parent(&args.path)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to canonicalize the path"))?;

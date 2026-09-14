@@ -72,6 +72,14 @@ impl Session {
 	}
 
 	pub(crate) fn host_path_for_guest_path(&self, path: &Path) -> tg::Result<PathBuf> {
+		self.host_path_for_guest_path_with_store_path(path, &self.server.checkout_path())
+	}
+
+	pub(crate) fn host_path_for_guest_path_with_store_path(
+		&self,
+		path: &Path,
+		store_path: &Path,
+	) -> tg::Result<PathBuf> {
 		let Some(sandbox) = self
 			.server
 			.try_get_request_origin_sandbox(self.context.origin)?
@@ -87,11 +95,11 @@ impl Session {
 			.clone()
 			.ok_or_else(|| tg::error!(%id, "failed to get the origin sandbox"))?;
 
-		// Resolve a guest store path to the shared checkouts directory.
+		// Map the guest store to the filesystem needed by the operation.
 		if self.server.vfs.lock().unwrap().is_some()
 			&& let Ok(rest) = path.strip_prefix(sandbox.guest_store_path())
 		{
-			return Ok(self.server.checkout_path().join(rest));
+			return Ok(store_path.join(rest));
 		}
 
 		sandbox
