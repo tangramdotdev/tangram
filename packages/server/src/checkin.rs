@@ -25,7 +25,6 @@ mod index;
 mod input;
 mod lock;
 mod path;
-mod referent;
 mod solve;
 mod store;
 
@@ -108,7 +107,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, path = %arg.path.display(), "failed to canonicalize the path's parent"))?;
 
 		// Recognize the store path after resolving parent symlinks and traversal components.
-		if let Some(output) = self.try_checkin_artifact_path(&arg.path).await? {
+		if let Some(output) = self.try_checkin_store_path(&arg.path).await? {
 			let progress = crate::progress::Handle::new();
 			progress.output(output);
 			return Ok(progress.stream().left_stream());
