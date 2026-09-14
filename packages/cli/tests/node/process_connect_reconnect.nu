@@ -107,55 +107,71 @@ let output = timeout 15 node --input-type=module -e '
 	await tick();
 
 	reading = out.next();
-	let third = await accept();
-	assert.equal(third.reads[1].position, 1);
-	chunk(third, 1, 1, "b");
-	end(third, 1, 2);
+	let current = await accept();
+	assert.equal(current.reads[1].position, 1);
+	chunk(current, 1, 1, "b");
+	end(current, 1, 2);
 	assert.equal(Buffer.from((await reading).value.bytes).toString(), "b");
 	assert.equal((await out.next()).done, true);
 
 	// An idle in-progress read is also canceled immediately.
 	let idle = await process.readStdio({ streams: ["stderr"] });
-	let idleRequest = await third.next();
+	let idleRequest = await current.next();
 	let pendingRead = idle.next();
 	await idle.return();
 	assert.equal((await pendingRead).done, true);
-	assert.deepEqual((await third.next()).arg, { kind: "close", value: idleRequest.id });
+	assert.deepEqual((await current.next()).arg, { kind: "close", value: idleRequest.id });
+
+	// Canceling while the replacement connection is opening also releases its read.
+	let interrupted = await process.readStdio({ streams: ["stderr"] });
+	assert.equal((await current.next()).arg.kind, "read");
+	let interruptedRead = interrupted.next();
+	current.end();
+	let replacement = await connections.next();
+	let reconnect = await replacement.next();
+	assert.equal(reconnect.arg.kind, "connect");
+	assert.equal(reconnect.arg.value.reads[1].streams, "stderr");
+	let returning = interrupted.return();
+	replacement.response(0, "connect", selected);
+	assert.equal((await returning).done, true);
+	assert.equal((await interruptedRead).done, true);
+	assert.deepEqual((await replacement.next()).arg, { kind: "close", value: 1 });
+	current = replacement;
 
 	// A retried EOF or finite completion cannot hide a missing final chunk.
 	for (let kind of ["end", "limit", "timeout"]) {
 		let read = await process.readStdio({ streams: ["stdout"] });
-		let request = await third.next();
+		let request = await current.next();
 		let pending = read.next();
 		let rejected = assert.rejects(pending, /gap at the end/);
-		if (kind === "end") end(third, request.id, 4);
-		else third.response(request.id, "read", { kind, value: { position: 4 } });
+		if (kind === "end") end(current, request.id, 4);
+		else current.response(request.id, "read", { kind, value: { position: 4 } });
 		await rejected;
-		assert.deepEqual((await third.next()).arg, { kind: "close", value: request.id });
+		assert.deepEqual((await current.next()).arg, { kind: "close", value: request.id });
 	}
 
 	// A receipt ACK does not complete a write; reconnect replays its unconfirmed bytes.
 	let writing = process.stdin.write(new TextEncoder().encode("abc"));
-	let write = await third.next();
+	let write = await current.next();
 	assert.equal(write.arg.kind, "write");
-	third.emit("ack", { id: write.id });
-	third.end();
-	let fourth = await accept();
-	let retry = await fourth.next();
+	current.emit("ack", { id: write.id });
+	current.end();
+	let last = await accept();
+	let retry = await last.next();
 	assert.deepEqual(retry.arg.value.data, write.arg.value.data);
-	fourth.response(retry.id, "write", { closed: false, length: 3 });
+	last.response(retry.id, "write", { closed: false, length: 3 });
 	assert.equal(await writing, 3);
 	let closing = process.stdin.close();
-	let eof = await fourth.next();
+	let eof = await last.next();
 	assert.deepEqual(eof.arg.value.data, { kind: "end", value: { combined_position: 3, stream_positions: { stdin: 3 } } });
-	fourth.response(eof.id, "write", { closed: true, length: 0 });
+	last.response(eof.id, "write", { closed: true, length: 0 });
 	await closing;
-	fourth.emit("notification", { kind: "wait", value: { exit: 0 } });
+	last.emit("notification", { kind: "wait", value: { exit: 0 } });
 	assert.equal((await process.wait()).exit, 0);
 	let connection = process.connection;
 	await process.detach();
 	await assert.rejects(connection.read(id, { streams: ["stdout"] }), /closed/);
 	assert.equal(process.connection, null);
-	assert.equal(requests.length, 4);
+	assert.equal(requests.length, 5);
 ' | complete
 success $output

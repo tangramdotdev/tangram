@@ -271,3 +271,114 @@ fn completion_detects_chunks_lost_before_the_terminal_response() {
 		);
 	}
 }
+
+#[tokio::test]
+async fn reconnecting_ends_reads_with_lost_progress() {
+	let mut reader = reader();
+	reader.push(
+		Bytes::from(vec![0; flow::CHUNK_SIZE * (flow::MAX_CHUNKS + 1)]),
+		tg::process::stdio::Stream::Stdout,
+	);
+	reader.eof.insert(tg::process::stdio::Stream::Stdout);
+	let (sender, mut output) = tokio::sync::mpsc::channel(flow::CHANNEL_CAPACITY);
+	let control = crate::control::Stream::new(
+		stream::pending().boxed(),
+		sender,
+		crate::control::stream_options(),
+	);
+	let (sender, receiver) = tokio::sync::mpsc::channel(16);
+	let task = tokio::spawn(Session::run_process_control_output_reader_task(
+		reader,
+		receiver,
+		control.sender(),
+	));
+
+	// Fill stdout's window without delivering progress, and leave stderr idle.
+	for stream in [
+		tg::process::stdio::Stream::Stderr,
+		tg::process::stdio::Stream::Stdout,
+	] {
+		let arg = tg::process::stdio::read::Arg {
+			streams: vec![stream],
+			..Default::default()
+		};
+		sender
+			.send(Message::Read {
+				arg,
+				id: stream.to_string(),
+			})
+			.await
+			.unwrap();
+	}
+	for _ in 0..flow::MAX_CHUNKS {
+		let message = tokio::time::timeout(std::time::Duration::from_secs(1), output.recv())
+			.await
+			.unwrap()
+			.unwrap();
+		assert!(matches!(
+			message,
+			tg::process::control::ClientMessage::Notification(_)
+		));
+	}
+	assert!(output.try_recv().is_err());
+
+	// Reconnection must terminate both reads even when no further progress can arrive.
+	sender.send(Message::Reconnect).await.unwrap();
+	for id in ["stderr", "stdout"] {
+		let message = tokio::time::timeout(std::time::Duration::from_secs(1), output.recv())
+			.await
+			.unwrap()
+			.unwrap();
+		let tg::process::control::ClientMessage::Response(response) = message else {
+			panic!("expected a read response");
+		};
+		assert_eq!(response.id, id);
+		assert!(response.error.is_some());
+		assert!(response.output.is_none());
+	}
+
+	// A fresh read can consume the remaining bytes from the caller's position.
+	let arg = tg::process::stdio::read::Arg {
+		position: Some(std::io::SeekFrom::Start(flow::WINDOW)),
+		streams: vec![tg::process::stdio::Stream::Stdout],
+		..Default::default()
+	};
+	sender
+		.send(Message::Read {
+			arg,
+			id: "resumed".into(),
+		})
+		.await
+		.unwrap();
+	let message = tokio::time::timeout(std::time::Duration::from_secs(1), output.recv())
+		.await
+		.unwrap()
+		.unwrap();
+	let tg::process::control::ClientMessage::Notification(
+		tg::process::control::ClientNotification::Read(notification),
+	) = message
+	else {
+		panic!("expected the remaining stdout chunk");
+	};
+	let Event::Chunk(chunk) = notification.event else {
+		panic!("expected the remaining stdout chunk");
+	};
+	assert_eq!(chunk.stream_position, flow::WINDOW);
+	assert_eq!(chunk.bytes.len(), flow::CHUNK_SIZE);
+	let message = tokio::time::timeout(std::time::Duration::from_secs(1), output.recv())
+		.await
+		.unwrap()
+		.unwrap();
+	let tg::process::control::ClientMessage::Response(response) = message else {
+		panic!("expected a read response");
+	};
+	assert_eq!(response.id, "resumed");
+	assert!(matches!(
+		response.output,
+		Some(tg::process::control::ClientResponseOutput::Read(
+			Output::End(_)
+		))
+	));
+	task.abort();
+	task.await.ok();
+}

@@ -46,6 +46,7 @@ pub(super) enum Message {
 		arg: tg::process::stdio::read::Arg,
 		id: String,
 	},
+	Reconnect,
 }
 
 struct Read {
@@ -321,6 +322,14 @@ impl Session {
 						let response = Self::process_control_response(id, Err(error));
 						sender.send_low(response).await?;
 					},
+				}
+			},
+			Message::Reconnect => {
+				// The previous transport may have lost chunks or consumption progress, so its reads cannot safely continue.
+				for (id, _) in std::mem::take(reads) {
+					let error = tg::error!("the process control connection was interrupted");
+					let response = Self::process_control_response(id, Err(error));
+					sender.send_low(response).await?;
 				}
 			},
 		}

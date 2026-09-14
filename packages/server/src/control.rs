@@ -190,8 +190,24 @@ where
 
 	pub(crate) async fn recv_with_ack(&mut self) -> tg::Result<Option<I>> {
 		loop {
-			let Some(message) = self.recv_without_ack().await? else {
+			match self.recv_event_with_ack().await? {
+				Some(tg::control::Event::Message(message)) => return Ok(Some(message)),
+				Some(tg::control::Event::Reconnect) => {},
+				None => return Ok(None),
+			}
+		}
+	}
+
+	pub(crate) async fn recv_event_with_ack(
+		&mut self,
+	) -> tg::Result<Option<tg::control::Event<I>>> {
+		loop {
+			let Some(event) = self.recv_event_without_ack().await? else {
 				return Ok(None);
+			};
+			let message = match event {
+				tg::control::Event::Message(message) => message,
+				tg::control::Event::Reconnect => return Ok(Some(event)),
 			};
 			match message.kind() {
 				InputKind::Ack { .. } => {},
@@ -201,7 +217,7 @@ where
 						self.acknowledge_with_priority(id.to_owned(), priority)
 							.await?;
 					}
-					return Ok(Some(message));
+					return Ok(Some(tg::control::Event::Message(message)));
 				},
 				InputKind::Response { id } => {
 					let id = id.to_owned();
@@ -213,7 +229,7 @@ where
 					if let Some((_, sender)) = self.sender.responses.remove(&id) {
 						sender.send(message).ok();
 					} else {
-						return Ok(Some(message));
+						return Ok(Some(tg::control::Event::Message(message)));
 					}
 				},
 			}
@@ -221,6 +237,16 @@ where
 	}
 
 	pub(crate) async fn recv_without_ack(&mut self) -> tg::Result<Option<I>> {
+		loop {
+			match self.recv_event_without_ack().await? {
+				Some(tg::control::Event::Message(message)) => return Ok(Some(message)),
+				Some(tg::control::Event::Reconnect) => {},
+				None => return Ok(None),
+			}
+		}
+	}
+
+	async fn recv_event_without_ack(&mut self) -> tg::Result<Option<tg::control::Event<I>>> {
 		loop {
 			let Some(event) = self.inner.try_next().await? else {
 				return Ok(None);
@@ -232,7 +258,7 @@ where
 					for mut entry in self.sender.outbox.iter_mut() {
 						entry.acknowledged = false;
 					}
-					continue;
+					return Ok(Some(tg::control::Event::Reconnect));
 				},
 			};
 			match message.kind() {
@@ -246,14 +272,14 @@ where
 							inbox.remove(&id);
 						});
 					}
-					return Ok(Some(message));
+					return Ok(Some(tg::control::Event::Message(message)));
 				},
 				InputKind::Message { id } => {
 					let Some(id) = id else {
-						return Ok(Some(message));
+						return Ok(Some(tg::control::Event::Message(message)));
 					};
 					if !self.inbox.contains_key(id) {
-						return Ok(Some(message));
+						return Ok(Some(tg::control::Event::Message(message)));
 					}
 					let priority = self.input_priority(&message);
 					self.sender.try_send_untracked_with_priority(
@@ -265,7 +291,7 @@ where
 					if !self.sender.responses.contains_key(id) {
 						self.sender.remove(id);
 					}
-					return Ok(Some(message));
+					return Ok(Some(tg::control::Event::Message(message)));
 				},
 			}
 		}

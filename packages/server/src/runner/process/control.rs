@@ -363,11 +363,18 @@ impl Session {
 			tty_sender,
 		} = arg;
 
-		while let Some(message) = control
-			.recv_with_ack()
+		while let Some(event) = control
+			.recv_event_with_ack()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the next control request"))?
 		{
+			let message = match event {
+				tg::control::Event::Message(message) => message,
+				tg::control::Event::Reconnect => {
+					output_sender.send(output::Message::Reconnect).await.ok();
+					continue;
+				},
+			};
 			match message {
 				tg::process::control::ServerMessage::Request(message) => {
 					let request_id = message.id;

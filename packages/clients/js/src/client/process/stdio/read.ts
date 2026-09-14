@@ -64,7 +64,7 @@ async function* readProcessStdioAllInner(
 	let pending = 0;
 	let position = typeof arg.position === "string" ? null : (arg.position ?? 0);
 	try {
-		while (true) {
+		while (!state.canceled) {
 			let progress = window.consume(pending);
 			pending = 0;
 			if (progress !== null) {
