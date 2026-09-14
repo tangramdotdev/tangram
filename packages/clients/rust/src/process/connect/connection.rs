@@ -147,16 +147,16 @@ impl Connection {
 		arg: write::stream::Arg,
 		input: BoxStream<'static, tg::Result<write::ClientMessage>>,
 	) -> tg::Result<BoxStream<'static, tg::Result<write::ServerMessage>>> {
+		let mut input = input
+			.try_filter_map(|message| async move {
+				match message {
+					write::ClientMessage::Ack(_) => Ok(None),
+					write::ClientMessage::Request(request) => Ok(Some(request)),
+				}
+			})
+			.boxed();
 		let connection = self.clone();
 		let output = stream::once(async move {
-			let mut input = input
-				.try_filter_map(|message| async move {
-					match message {
-						write::ClientMessage::Ack(_) => Ok(None),
-						write::ClientMessage::Request(request) => Ok(Some(request)),
-					}
-				})
-				.boxed();
 			let Some(request) = input.try_next().await? else {
 				return Ok::<_, tg::Error>(stream::empty().boxed());
 			};
@@ -164,13 +164,13 @@ impl Connection {
 			let (session, first) = {
 				let mut session = connection.inner.session.lock().await;
 				connection.ensure_session(&mut session, None).await?;
-				let first = Self::start_write(&session, &arg, request).await?;
+				let first = Self::start_write(&session, &arg, request).await;
 				(session.clone(), first)
 			};
-			let remaining = input.map_ok(move |request| {
+			let remaining = input.and_then(move |request| {
 				let session = session.clone();
 				let arg = arg.clone();
-				async move { Self::start_write(&session, &arg, request).await?.await }.boxed()
+				async move { Ok(Self::start_write(&session, &arg, request).await) }
 			});
 			let output = stream::once(futures::future::ok(first))
 				.chain(remaining)
@@ -189,15 +189,16 @@ impl Connection {
 		session: &Session,
 		arg: &write::stream::Arg,
 		request: write::Request,
-	) -> tg::Result<BoxFuture<'static, tg::Result<Option<write::ServerMessage>>>> {
+	) -> BoxFuture<'static, tg::Result<Option<write::ServerMessage>>> {
 		let arg = write::Arg {
 			data: request.arg,
 			location: arg.location.clone(),
 			tokens: arg.tokens.clone(),
 		};
-		let response = session.start_request(ClientRequestArg::Write(arg)).await?;
+		let response = session.start_request(ClientRequestArg::Write(arg)).await;
+		// Deliver request errors in write order alongside the pending responses.
 		let future = async move {
-			let Some(output) = response.await? else {
+			let Some(output) = response?.await? else {
 				return Ok(None);
 			};
 			let ServerResponseOutput::Write(output) = output else {
@@ -210,6 +211,6 @@ impl Connection {
 			};
 			Ok(Some(write::ServerMessage::Response(response)))
 		};
-		Ok(future.boxed())
+		future.boxed()
 	}
 }

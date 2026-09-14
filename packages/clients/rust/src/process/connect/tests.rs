@@ -14,6 +14,28 @@ struct MockConnection {
 }
 
 impl MockConnection {
+	async fn connect(&mut self, id: &tg::process::Id) -> Arg {
+		let request = self.request().await;
+		assert_eq!(request.id, 0);
+		let ClientRequestArg::Connect(arg) = request.arg else {
+			panic!("expected the opening request");
+		};
+		let Target::Existing { id: process_id, .. } = &arg.target else {
+			panic!("expected to connect to the existing process");
+		};
+		assert_eq!(process_id, id);
+		let output = tg::process::spawn::Output {
+			cached: false,
+			lease: None,
+			location: None,
+			process: tg::Either::Right(id.clone()),
+			tokens: tg::authorization::Tokens::default(),
+			wait: None,
+		};
+		self.respond(0, ServerResponseOutput::Connect(output)).await;
+		arg
+	}
+
 	async fn request(&mut self) -> ClientRequest {
 		loop {
 			if let ClientMessage::Request(request) = self.input.try_next().await.unwrap().unwrap() {
@@ -37,36 +59,7 @@ impl MockConnection {
 
 #[tokio::test]
 async fn handles_preserve_not_found() {
-	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-	let url = format!("http://{}", listener.local_addr().unwrap())
-		.parse()
-		.unwrap();
-	let server = tangram_futures::task::Task::spawn(move |_| async move {
-		let mut connections = tokio::task::JoinSet::new();
-		while let Ok((socket, _)) = listener.accept().await {
-			let service =
-				hyper::service::service_fn(|request: http::Request<hyper::body::Incoming>| {
-					assert_eq!(request.uri().path(), "/processes/connect");
-					let response = http::Response::builder()
-						.status(http::StatusCode::NOT_FOUND)
-						.body(tangram_http::body::Boxed::empty())
-						.unwrap();
-					futures::future::ready(Ok::<_, std::convert::Infallible>(response))
-				});
-			connections.spawn(async move {
-				let io = hyper_util::rt::TokioIo::new(socket);
-				hyper::server::conn::http2::Builder::new(hyper_util::rt::TokioExecutor::new())
-					.serve_connection(io, service)
-					.await
-					.ok();
-			});
-		}
-	});
-	let arg = tg::Arg {
-		url: Some(url),
-		..Default::default()
-	};
-	let client = tg::Client::new(arg).unwrap();
+	let (client, _, _server) = mock_server(http::StatusCode::NOT_FOUND).await;
 	let session = client.session(&client.context);
 	let handles = [tg::Either::Left(client), tg::Either::Right(session)];
 	let input = || {
@@ -96,37 +89,18 @@ async fn handles_preserve_not_found() {
 			.unwrap();
 		assert!(result.is_err());
 	}
-	server.abort();
 }
 
 #[tokio::test]
 async fn reconnect_preserves_the_process_and_read_cursor() {
 	tokio::time::timeout(Duration::from_secs(10), async {
-		let (client, connections, _server) = mock_server().await;
+		let (client, connections, _server) = mock_server(http::StatusCode::OK).await;
 		let id = tg::process::Id::new();
 		let server_id = id.clone();
 		let driver = tokio::spawn(async move {
 			for attempt in 0..3 {
 				let mut connection = connections.recv().await.unwrap();
-				let request = connection.request().await;
-				let ClientRequestArg::Connect(arg) = request.arg else {
-					panic!("expected the opening request");
-				};
-				let Target::Existing { id, .. } = arg.target else {
-					panic!("reconnecting must not spawn a process");
-				};
-				assert_eq!(id, server_id);
-				let output = tg::process::spawn::Output {
-					cached: false,
-					lease: None,
-					location: None,
-					process: tg::Either::Right(id),
-					tokens: tg::authorization::Tokens::default(),
-					wait: None,
-				};
-				connection
-					.respond(0, ServerResponseOutput::Connect(output))
-					.await;
+				let arg = connection.connect(&server_id).await;
 				if attempt == 0 {
 					assert_eq!(arg.reads[&1].streams, [stdio::Stream::Stderr]);
 					let request = connection.request().await;
@@ -230,32 +204,13 @@ async fn reconnect_preserves_the_process_and_read_cursor() {
 #[tokio::test]
 async fn reconnect_resends_only_unconfirmed_writes() {
 	tokio::time::timeout(Duration::from_secs(10), async {
-		let (client, connections, _server) = mock_server().await;
+		let (client, connections, _server) = mock_server(http::StatusCode::OK).await;
 		let id = tg::process::Id::new();
 		let server_id = id.clone();
 		let driver = tokio::spawn(async move {
 			for attempt in 0..2 {
 				let mut connection = connections.recv().await.unwrap();
-				let request = connection.request().await;
-				let ClientRequestArg::Connect(Arg {
-					target: Target::Existing { id, .. },
-					..
-				}) = request.arg
-				else {
-					panic!("expected to connect to the existing process");
-				};
-				assert_eq!(id, server_id);
-				let output = tg::process::spawn::Output {
-					cached: false,
-					lease: None,
-					location: None,
-					process: tg::Either::Right(id),
-					tokens: tg::authorization::Tokens::default(),
-					wait: None,
-				};
-				connection
-					.respond(0, ServerResponseOutput::Connect(output))
-					.await;
+				connection.connect(&server_id).await;
 				let request = connection.request().await;
 				let ClientRequestArg::Write(stdio::write::Arg {
 					data: stdio::write::Data::Chunk(chunk),
@@ -340,12 +295,7 @@ fn opening_metadata_preserves_read_options() {
 		id: 0,
 	};
 	let message = ClientMessage::Request(request);
-	let bytes = tangram_serialize::to_vec(&message).unwrap();
-	let decoded: ClientMessage = tangram_serialize::from_slice(&bytes).unwrap();
-	assert_eq!(
-		serde_json::to_value(message).unwrap(),
-		serde_json::to_value(decoded).unwrap()
-	);
+	assert_roundtrip(&message);
 }
 
 #[test]
@@ -507,12 +457,7 @@ fn stdio_keeps_binary_bytes_and_eof_positions() {
 			id: 9,
 		};
 		let message = ClientMessage::Request(request);
-		let bytes = tangram_serialize::to_vec(&message).unwrap();
-		let decoded: ClientMessage = tangram_serialize::from_slice(&bytes).unwrap();
-		assert_eq!(
-			serde_json::to_value(message).unwrap(),
-			serde_json::to_value(decoded).unwrap()
-		);
+		assert_roundtrip(&message);
 	}
 }
 
@@ -566,7 +511,9 @@ where
 	decoded
 }
 
-async fn mock_server() -> (
+async fn mock_server(
+	status: http::StatusCode,
+) -> (
 	tg::Client,
 	async_channel::Receiver<MockConnection>,
 	tangram_futures::task::Task<()>,
@@ -585,6 +532,13 @@ async fn mock_server() -> (
 					let sender = sender.clone();
 					async move {
 						assert_eq!(request.uri().path(), "/processes/connect");
+						if !status.is_success() {
+							let response = http::Response::builder()
+								.status(status)
+								.body(tangram_http::body::Boxed::empty())
+								.unwrap();
+							return Ok(response);
+						}
 						let body = tangram_http::body::Boxed::new(request.into_body());
 						let input = stdio::decode(body, 1024 * 1024).boxed();
 						let (output, receiver) = async_channel::unbounded();

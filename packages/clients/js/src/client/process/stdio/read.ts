@@ -62,12 +62,7 @@ async function* readProcessStdioAllInner(
 	let nextArg = { ...arg, streams: [...arg.streams] };
 	let window = new Receiver();
 	let pending = 0;
-	let position =
-		typeof arg.position === "number"
-			? arg.position
-			: arg.position === undefined || arg.position === null
-				? 0
-				: null;
+	let position = typeof arg.position === "string" ? null : (arg.position ?? 0);
 	try {
 		while (true) {
 			let progress = window.consume(pending);
@@ -75,7 +70,8 @@ async function* readProcessStdioAllInner(
 			if (progress !== null) {
 				connection.input.push({ kind: "notification", value: progress });
 			}
-			let result: IteratorResult<tg.Process.Stdio.Read.ServerMessage>;
+			let result: IteratorResult<tg.Process.Stdio.Read.ServerMessage> | null =
+				null;
 			try {
 				result = await connection.output.next();
 			} catch (error) {
@@ -83,18 +79,9 @@ async function* readProcessStdioAllInner(
 				if (isTerminalError(error)) {
 					throw error;
 				}
-				connection = state.connection = await reconnect(
-					client,
-					id,
-					nextArg,
-					connection,
-				);
-				window = new Receiver();
-				pending = 0;
-				continue;
 			}
 			if (state.canceled) return;
-			if (result.done) {
+			if (result === null || result.done) {
 				connection = state.connection = await reconnect(
 					client,
 					id,
@@ -102,7 +89,6 @@ async function* readProcessStdioAllInner(
 					connection,
 				);
 				window = new Receiver();
-				pending = 0;
 				continue;
 			}
 			let message = result.value;

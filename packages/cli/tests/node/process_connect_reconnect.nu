@@ -47,12 +47,13 @@ let output = timeout 15 node --input-type=module -e '
 		};
 		let emit = (event, value) => events.push({ event, data: JSON.stringify(value) });
 		let response = (id, kind, value) => emit("response", { id, error: null, output: { kind, value } });
-		connections.push({ input, next, emit, response, end: () => events.push(null) });
+		connections.push({ input, next, emit, response, end: (error = null) => events.push(error) });
 		return new tg.Response(200, { "content-type": "text/event-stream" }, {
 			sse: async function* () {
 				while (true) {
 					let event = await events.next();
 					if (event === null) return;
+					if (event instanceof Error) throw event;
 					yield event;
 				}
 			},
@@ -102,7 +103,7 @@ let output = timeout 15 node --input-type=module -e '
 	// Returning an iterator before its first next still releases its read request.
 	await err.return();
 	assert.deepEqual((await second.next()).arg, { kind: "close", value: extra.id });
-	second.end();
+	second.end(new Error("transport failed"));
 	await tick();
 
 	reading = out.next();
