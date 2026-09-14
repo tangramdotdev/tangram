@@ -669,7 +669,9 @@ impl Session {
 
 		progress.finish_all();
 
-		Err(tg::error!("failed to find the artifact"))
+		Err(
+			tg::error!(requested_ids = %ids.iter().format(", "), "failed to ensure artifact availability"),
+		)
 	}
 
 	async fn checkout_internal_task(
