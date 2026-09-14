@@ -1,6 +1,6 @@
 use {super::local, crate::Session, tangram_client::prelude::*};
 
-pub(super) struct LeaseGuard {
+pub(in crate::process) struct LeaseGuard {
 	id: tg::process::Id,
 	lease: Option<String>,
 	location: Option<tg::location::Arg>,
@@ -8,6 +8,7 @@ pub(super) struct LeaseGuard {
 }
 
 impl LeaseGuard {
+	#[must_use]
 	pub fn new(session: &Session, output: &tg::process::spawn::Output) -> Option<Self> {
 		let lease = output.lease.clone()?;
 		let id = output.process.as_ref().right()?.clone();
@@ -19,7 +20,8 @@ impl LeaseGuard {
 		})
 	}
 
-	pub fn new_local(session: &Session, output: &local::Output) -> Option<Self> {
+	#[must_use]
+	pub(super) fn new_local(session: &Session, output: &local::Output) -> Option<Self> {
 		Some(Self {
 			id: output.id.clone(),
 			lease: Some(output.lease.clone()?),

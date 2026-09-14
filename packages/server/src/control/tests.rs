@@ -1,4 +1,4 @@
-use {super::*, futures::FutureExt as _, tokio_stream::wrappers::ReceiverStream};
+use {super::*, tokio_stream::wrappers::ReceiverStream};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum Message {
@@ -43,6 +43,10 @@ async fn receipt_does_not_complete_and_reconnect_replays() {
 	assert!((&mut response).now_or_never().is_none());
 
 	input.send(Ok(tg::control::Event::Reconnect)).await.unwrap();
+	assert!(matches!(
+		control.recv_event_with_ack().await.unwrap(),
+		Some(tg::control::Event::Reconnect)
+	));
 	input
 		.send(Ok(tg::control::Event::Message(Message::Notification)))
 		.await

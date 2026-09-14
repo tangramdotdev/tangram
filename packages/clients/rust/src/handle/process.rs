@@ -4,6 +4,28 @@ use {
 };
 
 pub trait Process: Clone + Unpin + Send + Sync + 'static {
+	fn connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+	> + Send {
+		async move {
+			self.try_connect_process(input)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))
+		}
+	}
+
+	fn try_connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+		>,
+	> + Send;
+
 	fn spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -190,7 +212,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	fn write_process_stdio(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::stdio::write::Arg,
+		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -207,7 +229,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	fn try_write_process_stdio(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::stdio::write::Arg,
+		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
@@ -267,6 +289,13 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 }
 
 impl tg::handle::Process for tg::Client {
+	async fn try_connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>> {
+		self.session(&self.context).try_connect_process(input).await
+	}
+
 	async fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -401,7 +430,7 @@ impl tg::handle::Process for tg::Client {
 	async fn try_write_process_stdio(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::stdio::write::Arg,
+		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> tg::Result<
 		Option<

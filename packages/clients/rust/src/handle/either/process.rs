@@ -8,6 +8,16 @@ where
 	L: tg::handle::Process,
 	R: tg::handle::Process,
 {
+	async fn try_connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>> {
+		match self {
+			tg::Either::Left(handle) => handle.try_connect_process(input).await,
+			tg::Either::Right(handle) => handle.try_connect_process(input).await,
+		}
+	}
+
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -202,7 +212,7 @@ where
 	fn try_write_process_stdio(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::stdio::write::Arg,
+		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<

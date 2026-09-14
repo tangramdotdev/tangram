@@ -6,6 +6,7 @@ import { postObjectBatch } from "./client/object/batch.ts";
 import { getObject, tryGetObject } from "./client/object/get.ts";
 import { putObject } from "./client/object/put.ts";
 import { cancelProcess, tryCancelProcess } from "./client/process/cancel.ts";
+import { connectProcess } from "./client/process/connect.ts";
 import { getProcess, tryGetProcess } from "./client/process/get.ts";
 import { putProcess } from "./client/process/put.ts";
 import {
@@ -57,14 +58,17 @@ export class Client {
 		};
 	}
 
-	cancelProcess(id: tg.Process.Id, arg: tg.Process.Cancel.Arg): Promise<void> {
+	cancelProcess(
+		id: tg.Process.Id,
+		arg: tg.Process.Cancel.Arg,
+	): Promise<tg.Process.Cancel.Output> {
 		return cancelProcess(this, id, arg);
 	}
 
 	tryCancelProcess(
 		id: tg.Process.Id,
 		arg: tg.Process.Cancel.Arg,
-	): Promise<true | null> {
+	): Promise<tg.Process.Cancel.Output | null> {
 		return tryCancelProcess(this, id, arg);
 	}
 
@@ -78,6 +82,12 @@ export class Client {
 		arg: tg.Checkout.Arg,
 	): Promise<AsyncIterableIterator<tg.Progress.Event<tg.Checkout.Output>>> {
 		return checkout(this, arg);
+	}
+
+	connectProcess(
+		input: AsyncIterable<tg.Process.Connect.ClientMessage>,
+	): Promise<AsyncIterableIterator<tg.Process.Connect.ServerMessage>> {
+		return connectProcess(this, input);
 	}
 
 	getObject(
@@ -197,18 +207,20 @@ export class Client {
 
 	writeProcessStdio(
 		id: tg.Process.Id,
-		arg: tg.Process.Stdio.Write.Arg,
+		arg: tg.Process.Stdio.Write.Stream.Arg,
 		input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+		complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 	): Promise<void> {
-		return writeProcessStdio(this, id, arg, input);
+		return writeProcessStdio(this, id, arg, input, complete);
 	}
 
 	tryWriteProcessStdio(
 		id: tg.Process.Id,
-		arg: tg.Process.Stdio.Write.Arg,
+		arg: tg.Process.Stdio.Write.Stream.Arg,
 		input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+		complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 	): Promise<true | null> {
-		return tryWriteProcessStdio(this, id, arg, input);
+		return tryWriteProcessStdio(this, id, arg, input, complete);
 	}
 
 	createSandbox(arg: tg.Sandbox.Create.Arg): Promise<tg.Sandbox.Create.Output> {

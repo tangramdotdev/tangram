@@ -1,4 +1,5 @@
 import * as tg from "../index.ts";
+import type { Connection } from "./connect.ts";
 
 export type Stdio = "inherit" | "log" | "null" | "pipe" | "tty";
 
@@ -45,6 +46,30 @@ export namespace Stdio {
 
 	export type Stream = "stdin" | "stdout" | "stderr";
 
+	export type End = {
+		combinedPosition: number;
+		streamPositions: Partial<Record<tg.Process.Stdio.Stream, number>>;
+	};
+
+	export namespace End {
+		export type Data = {
+			combined_position: number;
+			stream_positions: Partial<Record<tg.Process.Stdio.Stream, number>>;
+		};
+		export function fromData(data: Data): End {
+			return {
+				combinedPosition: data.combined_position,
+				streamPositions: data.stream_positions,
+			};
+		}
+		export function toData(end: End): Data {
+			return {
+				combined_position: end.combinedPosition,
+				stream_positions: end.streamPositions,
+			};
+		}
+	}
+
 	export namespace Read {
 		export type Arg = {
 			length?: number | null;
@@ -57,56 +82,97 @@ export namespace Stdio {
 		};
 
 		export type ClientMessage =
-			| { kind: "notification"; value: ClientNotification }
-			| { kind: "response"; value: ClientResponse };
+			| { kind: "ack" }
+			| { kind: "notification"; value: Progress };
 
-		export type ClientNotification = {
-			kind: "read";
-			value: { position: number };
-		};
+		export type Event =
+			| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
+			| {
+					kind: "position";
+					value: { length: number | null; position: number };
+			  };
 
-		export type ClientResponse = { kind: "end" };
+		export type Output =
+			| { kind: "end"; value: End }
+			| { kind: "limit" | "timeout"; value: { position: number } };
+		export namespace Output {
+			export type Data =
+				| { kind: "end"; value: End.Data }
+				| { kind: "limit" | "timeout"; value: { position: number } };
+			export function fromData(data: Data): Output {
+				return data.kind === "end"
+					? { kind: "end", value: End.fromData(data.value) }
+					: data;
+			}
+			export function validate(
+				output: Output,
+				streams: Array<tg.Process.Stdio.Stream>,
+				position: number,
+			): void {
+				let expected =
+					output.kind === "end"
+						? streams.length > 1
+							? output.value.combinedPosition
+							: output.value.streamPositions[streams[0]!]
+						: output.value.position;
+				if (
+					expected === undefined ||
+					!Number.isSafeInteger(expected) ||
+					expected < 0
+				)
+					throw new Error("invalid stdio read completion position");
+				if (output.kind === "end" ? position < expected : position !== expected)
+					throw new Error("encountered a gap at the end of the stdio read");
+			}
+		}
+
+		export type Progress = { consumed: number };
 
 		export type ServerMessage =
-			| { kind: "notification"; value: ServerNotification }
-			| { kind: "request"; value: ServerRequest };
-
-		export type ServerNotification =
-			| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
-			| { kind: "position"; value: { length: number | null; position: number } }
-			| { kind: "stop" };
-
-		export type ServerRequest = { kind: "end" };
+			| { kind: "notification"; value: Event }
+			| { kind: "response"; value: Output };
 	}
 
 	export namespace Write {
 		export type Arg = {
+			data: Data;
 			location?: tg.Location.Arg | null;
-			streams: Array<tg.Process.Stdio.Stream>;
 			tokens?: tg.Authorization.Tokens | null;
 		};
-
 		export type ClientMessage =
-			| { kind: "notification"; value: ClientNotification }
-			| { kind: "request"; value: ClientRequest };
-
-		export type ClientNotification = never;
-
-		export type ClientRequest =
+			| { kind: "ack"; value: { id: number } }
+			| { kind: "request"; value: Request };
+		export type Data =
 			| { kind: "chunk"; value: tg.Process.Stdio.Chunk }
-			| { kind: "end"; value: { position: number } };
-
-		export type ServerMessage =
-			| { kind: "notification"; value: ServerNotification }
-			| { kind: "response"; value: ServerResponse };
-
-		export type ServerNotification = { kind: "stop" };
-
-		export type ServerResponse =
-			| { kind: "end" }
-			| { kind: "write"; value: Output };
-
+			| { kind: "end"; value: End };
+		export namespace Data {
+			export function toData(data: Data): unknown {
+				if (data.kind === "chunk") {
+					return { kind: "chunk", value: Chunk.toData(data.value) };
+				}
+				return {
+					kind: "end",
+					value: End.toData(data.value),
+				};
+			}
+		}
 		export type Output = { closed: boolean; length: number };
+		export type Request = { arg: Data; id: number };
+		export type Response = {
+			error: tg.Error.Data | null;
+			id: number;
+			output: Output | null;
+		};
+		export type ServerMessage =
+			| { kind: "ack"; value: { id: number } }
+			| { kind: "response"; value: Response };
+		export namespace Stream {
+			export type Arg = {
+				location?: tg.Location.Arg | null;
+				streams: Array<tg.Process.Stdio.Stream>;
+				tokens?: tg.Authorization.Tokens | null;
+			};
+		}
 	}
 
 	export class Reader {
@@ -136,6 +202,7 @@ export namespace Stdio {
 		async close(): Promise<void> {
 			let fd = this.#fd;
 			let input = this.#input;
+			if (input === null) this.#process?.connection?.closeInitial(this.#stream);
 			this.#fd = null;
 			this.#input = null;
 			this.#process = null;
@@ -180,7 +247,8 @@ export namespace Stdio {
 				if (typeof this.#process.id !== "string") {
 					throw new Error("expected a sandboxed process id");
 				}
-				let input = await tg.client.tryReadProcessStdio(this.#process.id, {
+				let client = this.#process.connection?.stdioClient() ?? tg.client;
+				let input = await client.tryReadProcessStdio(this.#process.id, {
 					...(this.#process.location !== null
 						? { location: this.#process.location }
 						: {}),
@@ -347,13 +415,14 @@ export namespace Stdio {
 				throw new Error(`${this.#stream} is not available`);
 			}
 			let location = process.location;
-			if (location === null) {
+			if (location === null && process.connection === null) {
 				await process.load();
 				location = process.location;
 			}
 			let input = new WriteQueue();
 			let chunks = writeChunks(input, this.#stream);
-			let task = tg.client.writeProcessStdio(
+			let client = process.connection?.stdioClient() ?? tg.client;
+			let task = client.writeProcessStdio(
 				process.id,
 				{
 					...(location !== null ? { location } : {}),
@@ -361,6 +430,7 @@ export namespace Stdio {
 					tokens: process.tokens,
 				},
 				chunks,
+				(chunk) => input.complete(chunk),
 			);
 			this.#input = input;
 			this.#task = task;
@@ -398,11 +468,33 @@ class WriteQueue implements AsyncIterableIterator<WriteRequest> {
 	#closed = false;
 	#error: unknown = null;
 	#failed = false;
+	#pending = new Map<tg.Process.Stdio.Chunk, WriteRequest>();
 	#values: Array<WriteRequest> = [];
 	#waiters: Array<{
 		reject(error: unknown): void;
 		resolve(result: IteratorResult<WriteRequest>): void;
 	}> = [];
+
+	chunk(
+		request: WriteRequest,
+		position: number,
+		stream: "stdin",
+	): tg.Process.Stdio.Chunk {
+		let chunk = {
+			bytes: request.bytes,
+			combinedPosition: position,
+			stream,
+			streamPosition: position,
+		};
+		this.#pending.set(chunk, request);
+		return chunk;
+	}
+
+	complete(chunk: tg.Process.Stdio.Chunk): void {
+		let request = this.#pending.get(chunk);
+		this.#pending.delete(chunk);
+		request?.resolve(chunk.bytes.length);
+	}
 
 	close(): void {
 		this.#closed = true;
@@ -419,11 +511,15 @@ class WriteQueue implements AsyncIterableIterator<WriteRequest> {
 		for (let value of this.#values.splice(0)) {
 			value.reject(error);
 		}
+		for (let request of this.#pending.values()) {
+			request.reject(error);
+		}
+		this.#pending.clear();
 		this.#wake();
 	}
 
 	finish(): void {
-		if (this.#values.length > 0 || !this.#closed) {
+		if (this.#values.length > 0 || this.#pending.size > 0 || !this.#closed) {
 			this.fail(new Error("stdin closed before the write completed"));
 		}
 	}
@@ -483,26 +579,10 @@ async function* writeChunks(
 	stream: "stdin",
 ): AsyncIterableIterator<tg.Process.Stdio.Chunk> {
 	let position = 0;
-	let request: WriteRequest | null = null;
-	try {
-		while (true) {
-			let result = await input.next();
-			if (result.done) {
-				break;
-			}
-			request = result.value;
-			yield {
-				bytes: request.bytes,
-				combinedPosition: position,
-				stream,
-				streamPosition: position,
-			};
-			position += request.bytes.length;
-			request.resolve(request.bytes.length);
-			request = null;
-		}
-	} finally {
-		request?.reject(new Error("stdin closed before the write completed"));
+	for await (let request of input) {
+		let chunk = input.chunk(request, position, stream);
+		position += chunk.bytes.length;
+		yield chunk;
 	}
 }
 
@@ -514,35 +594,41 @@ export let task = async (
 	stdout: "pipe" | "tty" | null,
 	stderr: "pipe" | "tty" | null,
 	tty: boolean,
+	connection: Connection | null = null,
 ): Promise<void> => {
+	let client = connection?.stdioClient() ?? tg.client;
 	let stdinError: unknown = null;
 	let stdinFailed = false;
 	let stdinClosing = false;
 	let stdinStopper = stdin !== null ? await tg.host.stopperOpen() : null;
 	let stdinTask_ =
 		stdin !== null && stdinStopper !== null
-			? stdinTask(id, location, tokens, stdin, stdinStopper).catch((error) => {
-					if (!stdinClosing) {
-						stdinError = error;
-						stdinFailed = true;
-					}
-				})
+			? stdinTask(id, location, tokens, stdin, stdinStopper, client).catch(
+					(error) => {
+						if (!stdinClosing) {
+							stdinError = error;
+							stdinFailed = true;
+						}
+					},
+				)
 			: null;
 	let sigwinchError: unknown = null;
 	let sigwinchFailed = false;
 	let sigwinchListener = tty ? tg.host.listenSignal("sigwinch") : null;
 	let sigwinchTask_ =
 		sigwinchListener !== null
-			? sigwinchTask(id, location, tokens, sigwinchListener).catch((error) => {
-					sigwinchError = error;
-					sigwinchFailed = true;
-				})
+			? sigwinchTask(id, location, tokens, sigwinchListener, client).catch(
+					(error) => {
+						sigwinchError = error;
+						sigwinchFailed = true;
+					},
+				)
 			: null;
 	let stdoutStderrError: unknown = null;
 	let stdoutStderrFailed = false;
 	try {
 		try {
-			await stdoutStderrTask(id, location, tokens, stdout, stderr);
+			await stdoutStderrTask(id, location, tokens, stdout, stderr, client);
 		} catch (error) {
 			stdoutStderrError = error;
 			stdoutStderrFailed = true;
@@ -592,6 +678,10 @@ async function stdinTask(
 	tokens: tg.Authorization.Tokens,
 	stdin: "pipe" | "tty",
 	stopper: tg.Host.Stopper,
+	client: Pick<
+		typeof tg.client,
+		"tryReadProcessStdio" | "writeProcessStdio" | "setProcessTtySize"
+	>,
 ): Promise<void> {
 	let error: unknown = null;
 	let failed = false;
@@ -620,7 +710,7 @@ async function stdinTask(
 					position += bytes.length;
 				}
 			})();
-		await tg.client.writeProcessStdio(
+		await client.writeProcessStdio(
 			id,
 			{
 				...(location !== null ? { location } : {}),
@@ -655,6 +745,10 @@ async function stdoutStderrTask(
 	tokens: tg.Authorization.Tokens,
 	stdout: "pipe" | "tty" | null,
 	stderr: "pipe" | "tty" | null,
+	client: Pick<
+		typeof tg.client,
+		"tryReadProcessStdio" | "writeProcessStdio" | "setProcessTtySize"
+	>,
 ): Promise<void> {
 	let streams: Array<tg.Process.Stdio.Stream> = [];
 	if (stdout !== null) {
@@ -666,7 +760,7 @@ async function stdoutStderrTask(
 	if (streams.length === 0) {
 		return;
 	}
-	let iterator = await tg.client.tryReadProcessStdio(id, {
+	let iterator = await client.tryReadProcessStdio(id, {
 		...(location !== null ? { location } : {}),
 		streams,
 		tokens,
@@ -685,6 +779,10 @@ async function sigwinchTask(
 	location: tg.Location.Arg | null,
 	tokens: tg.Authorization.Tokens,
 	signalListener: tg.Host.SignalListener,
+	client: Pick<
+		typeof tg.client,
+		"tryReadProcessStdio" | "writeProcessStdio" | "setProcessTtySize"
+	>,
 ): Promise<void> {
 	for await (let _ of signalListener) {
 		let size = tg.host.getTtySize();
@@ -696,6 +794,6 @@ async function sigwinchTask(
 			arg.location = location;
 		}
 		arg.tokens = tokens;
-		await tg.client.setProcessTtySize(id, arg);
+		await client.setProcessTtySize(id, arg);
 	}
 }

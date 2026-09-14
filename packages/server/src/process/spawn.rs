@@ -1,6 +1,8 @@
 use {
 	crate::Session,
-	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
+	futures::{
+		FutureExt as _, StreamExt as _, TryStreamExt as _, future::BoxFuture, stream::BoxStream,
+	},
 	num::ToPrimitive as _,
 	std::pin::pin,
 	tangram_client::prelude::*,
@@ -11,10 +13,16 @@ use {
 mod cached;
 mod child;
 mod grant;
-mod lease;
 mod local;
 mod sandbox;
 mod wait;
+
+pub(super) mod lease;
+
+pub(super) struct Prepared {
+	pub command: tg::Referent<tg::command::Id>,
+	pub parent_sandbox: Option<tg::sandbox::Id>,
+}
 
 impl Session {
 	pub async fn try_spawn_process(
@@ -23,6 +31,14 @@ impl Session {
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
+		let prepared = self.prepare_spawn_process(&mut arg).await?;
+		self.try_spawn_process_inner(arg, prepared).await
+	}
+
+	pub(super) async fn prepare_spawn_process(
+		&self,
+		arg: &mut tg::process::spawn::Arg,
+	) -> tg::Result<Prepared> {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
@@ -61,7 +77,7 @@ impl Session {
 			None
 		};
 		let command = self
-			.spawn_process_resolve_command(&mut arg, sandbox_host)
+			.spawn_process_resolve_command(arg, sandbox_host)
 			.await?;
 
 		// If the authentication is from a process, then update the parent, location, and retry.
@@ -93,31 +109,12 @@ impl Session {
 				.map(|process| process.sandbox.clone())
 		});
 
-		// Create the progress.
-		let progress = crate::progress::Handle::new();
+		let prepared = Prepared {
+			command,
+			parent_sandbox,
+		};
 
-		// Spawn the task.
-		let task = Task::spawn({
-			let session = self.clone();
-			let progress = progress.clone();
-			async move |_| match session
-				.try_spawn_process_task(arg, command, parent_sandbox, &progress)
-				.boxed()
-				.await
-			{
-				Ok(output) => {
-					progress.output(output);
-				},
-				Err(error) => {
-					progress.error(error);
-					progress.output(None);
-				},
-			}
-		});
-
-		let stream = progress.stream().attach(task).boxed();
-
-		Ok(stream)
+		Ok(prepared)
 	}
 
 	async fn spawn_process_resolve_command(
@@ -155,6 +152,45 @@ impl Session {
 		Ok(command)
 	}
 
+	pub(super) async fn try_spawn_process_inner(
+		&self,
+		arg: tg::process::spawn::Arg,
+		prepared: Prepared,
+	) -> tg::Result<
+		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
+	> {
+		let Prepared {
+			command,
+			parent_sandbox,
+		} = prepared;
+
+		// Create the progress.
+		let progress = crate::progress::Handle::new();
+
+		// Spawn the task.
+		let task = Task::spawn({
+			let session = self.clone();
+			let progress = progress.clone();
+			async move |_| match session
+				.try_spawn_process_task(arg, command, parent_sandbox, &progress)
+				.boxed()
+				.await
+			{
+				Ok(output) => {
+					progress.output(output);
+				},
+				Err(error) => {
+					progress.error(error);
+					progress.output(None);
+				},
+			}
+		});
+
+		let stream = progress.stream().attach(task).boxed();
+
+		Ok(stream)
+	}
+
 	async fn try_spawn_process_task(
 		&self,
 		mut arg: tg::process::spawn::Arg,
@@ -163,24 +199,7 @@ impl Session {
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let location = self.server.location(arg.location.as_ref())?;
-		let runner_matches_location = self
-			.server
-			.config
-			.roles
-			.contains(&crate::config::Role::Runner)
-			&& {
-				let config = &self.server.config.runner;
-				let runner_location = config.remote.as_ref().map_or_else(
-					|| tg::Location::Local(tg::location::Local::default()),
-					|name| {
-						tg::Location::Remote(tg::location::Remote {
-							name: name.clone(),
-							region: None,
-						})
-					},
-				);
-				runner_location == location
-			};
+		let runner_matches_location = self.spawn_process_runner_matches_location(&location);
 		let new_sandbox = matches!(arg.sandbox, Some(tg::Either::Left(_)));
 		let requested =
 			if runner_matches_location && let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
@@ -207,9 +226,16 @@ impl Session {
 			&& runner_matches_location
 			&& arg.cached != Some(true)
 			&& (!new_sandbox || allocation.is_some());
-		if runner_matches_location && new_sandbox && !shortcut && parent_sandbox.is_some() {
-			arg.scheduler = Some(self.server.runner.state().wait_for_scheduler().await);
-		}
+		let notify = if shortcut {
+			None
+		} else {
+			self.try_prepare_spawn_process_for_location(
+				&mut arg,
+				&location,
+				parent_sandbox.as_ref(),
+			)
+			.await
+		};
 
 		let mut output = if shortcut {
 			self.try_spawn_process_local(
@@ -244,29 +270,10 @@ impl Session {
 					.try_spawn_process_remote(arg.clone(), &command, progress, remote, region)
 					.boxed(),
 			};
-			if runner_matches_location
-				&& new_sandbox
-				&& arg.cached != Some(true)
-				&& let Some(parent) = &arg.parent
-				&& let Some(parent_sandbox) = &parent_sandbox
-			{
-				let notify_future = self.spawn_process_notify_borrowable_capacity(
-					parent,
-					parent_sandbox,
-					requested.unwrap(),
-				);
-				match futures::future::select(spawn_future, pin!(notify_future)).await {
+			if let Some(notify) = notify {
+				match futures::future::select(spawn_future, notify).await {
 					futures::future::Either::Left((result, _)) => result?,
-					futures::future::Either::Right((result, spawn_future)) => {
-						if let Err(error) = result {
-							tracing::debug!(
-								error = %error.trace(),
-								%parent,
-								"failed to notify the scheduler of borrowable capacity"
-							);
-						}
-						spawn_future.await?
-					},
+					futures::future::Either::Right(((), spawn_future)) => spawn_future.await?,
 				}
 			} else {
 				spawn_future.await?
@@ -289,6 +296,63 @@ impl Session {
 		}
 
 		Ok(output)
+	}
+
+	pub(super) async fn try_prepare_spawn_process_for_location(
+		&self,
+		arg: &mut tg::process::spawn::Arg,
+		location: &tg::Location,
+		parent_sandbox: Option<&tg::sandbox::Id>,
+	) -> Option<BoxFuture<'static, ()>> {
+		let Some(tg::Either::Left(sandbox)) = &arg.sandbox else {
+			return None;
+		};
+		let parent_sandbox = parent_sandbox?;
+		if !self.spawn_process_runner_matches_location(location) {
+			return None;
+		}
+		arg.scheduler = Some(self.server.runner.state().wait_for_scheduler().await);
+		let parent = arg.parent.as_ref()?;
+		if arg.cached == Some(true) {
+			return None;
+		}
+		let scheduler = &self.server.config.scheduler;
+		let requested = tg::runner::Capacity {
+			cpus: sandbox.cpu.unwrap_or(scheduler.default_cpu),
+			memory: sandbox.memory.unwrap_or(scheduler.default_memory),
+		};
+		let session = self.clone();
+		let parent = parent.clone();
+		let parent_sandbox = parent_sandbox.clone();
+		let notify = async move {
+			if let Err(error) = session.spawn_process_notify_borrowable_capacity(&parent, &parent_sandbox, requested).await {
+				tracing::debug!(error = %error.trace(), %parent, "failed to notify the scheduler of borrowable capacity");
+			}
+		}.boxed();
+		Some(notify)
+	}
+
+	#[must_use]
+	fn spawn_process_runner_matches_location(&self, location: &tg::Location) -> bool {
+		if !self
+			.server
+			.config
+			.roles
+			.contains(&crate::config::Role::Runner)
+		{
+			return false;
+		}
+		let config = &self.server.config.runner;
+		let runner_location = config.remote.as_ref().map_or_else(
+			|| tg::Location::Local(tg::location::Local::default()),
+			|name| {
+				tg::Location::Remote(tg::location::Remote {
+					name: name.clone(),
+					region: None,
+				})
+			},
+		);
+		runner_location == *location
 	}
 
 	async fn try_spawn_process_local(
@@ -502,7 +566,7 @@ impl Session {
 		Err(tg::error!("expected an output"))
 	}
 
-	async fn spawn_process_push_command(
+	pub(super) async fn spawn_process_push_command(
 		&self,
 		command: &tg::Referent<tg::command::Id>,
 		location: Option<tg::Location>,
@@ -531,7 +595,7 @@ impl Session {
 		Err(tg::error!("expected an output"))
 	}
 
-	fn update_spawn_process_output_referents_for_location(
+	pub(super) fn update_spawn_process_output_referents_for_location(
 		&self,
 		output: &mut tg::process::spawn::Output,
 		location: &tg::Location,

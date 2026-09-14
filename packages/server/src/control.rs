@@ -1,7 +1,9 @@
 use {
 	crate::Server,
 	dashmap::DashMap,
-	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, stream::BoxStream},
+	futures::{
+		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, stream::BoxStream,
+	},
 	std::{
 		marker::PhantomData,
 		pin::Pin,
@@ -188,8 +190,24 @@ where
 
 	pub(crate) async fn recv_with_ack(&mut self) -> tg::Result<Option<I>> {
 		loop {
-			let Some(message) = self.recv_without_ack().await? else {
+			match self.recv_event_with_ack().await? {
+				Some(tg::control::Event::Message(message)) => return Ok(Some(message)),
+				Some(tg::control::Event::Reconnect) => {},
+				None => return Ok(None),
+			}
+		}
+	}
+
+	pub(crate) async fn recv_event_with_ack(
+		&mut self,
+	) -> tg::Result<Option<tg::control::Event<I>>> {
+		loop {
+			let Some(event) = self.recv_event_without_ack().await? else {
 				return Ok(None);
+			};
+			let message = match event {
+				tg::control::Event::Message(message) => message,
+				tg::control::Event::Reconnect => return Ok(Some(event)),
 			};
 			match message.kind() {
 				InputKind::Ack { .. } => {},
@@ -199,7 +217,7 @@ where
 						self.acknowledge_with_priority(id.to_owned(), priority)
 							.await?;
 					}
-					return Ok(Some(message));
+					return Ok(Some(tg::control::Event::Message(message)));
 				},
 				InputKind::Response { id } => {
 					let id = id.to_owned();
@@ -211,7 +229,7 @@ where
 					if let Some((_, sender)) = self.sender.responses.remove(&id) {
 						sender.send(message).ok();
 					} else {
-						return Ok(Some(message));
+						return Ok(Some(tg::control::Event::Message(message)));
 					}
 				},
 			}
@@ -219,6 +237,16 @@ where
 	}
 
 	pub(crate) async fn recv_without_ack(&mut self) -> tg::Result<Option<I>> {
+		loop {
+			match self.recv_event_without_ack().await? {
+				Some(tg::control::Event::Message(message)) => return Ok(Some(message)),
+				Some(tg::control::Event::Reconnect) => {},
+				None => return Ok(None),
+			}
+		}
+	}
+
+	async fn recv_event_without_ack(&mut self) -> tg::Result<Option<tg::control::Event<I>>> {
 		loop {
 			let Some(event) = self.inner.try_next().await? else {
 				return Ok(None);
@@ -230,7 +258,7 @@ where
 					for mut entry in self.sender.outbox.iter_mut() {
 						entry.acknowledged = false;
 					}
-					continue;
+					return Ok(Some(tg::control::Event::Reconnect));
 				},
 			};
 			match message.kind() {
@@ -244,14 +272,14 @@ where
 							inbox.remove(&id);
 						});
 					}
-					return Ok(Some(message));
+					return Ok(Some(tg::control::Event::Message(message)));
 				},
 				InputKind::Message { id } => {
 					let Some(id) = id else {
-						return Ok(Some(message));
+						return Ok(Some(tg::control::Event::Message(message)));
 					};
 					if !self.inbox.contains_key(id) {
-						return Ok(Some(message));
+						return Ok(Some(tg::control::Event::Message(message)));
 					}
 					let priority = self.input_priority(&message);
 					self.sender.try_send_untracked_with_priority(
@@ -263,7 +291,7 @@ where
 					if !self.sender.responses.contains_key(id) {
 						self.sender.remove(id);
 					}
-					return Ok(Some(message));
+					return Ok(Some(tg::control::Event::Message(message)));
 				},
 			}
 		}
@@ -528,13 +556,33 @@ impl Server {
 			I,
 			O,
 			Response,
-			impl Fn(String) -> O + Clone,
-			impl Fn(&I) -> bool + Clone,
-			impl Fn(I) -> tg::Result<Option<(String, Response)>> + Clone,
+			impl Fn(String) -> O + Clone + Send + Sync + 'static,
+			impl Fn(&I) -> bool + Clone + Send + Sync + 'static,
+			impl Fn(I) -> tg::Result<Option<(String, Response)>> + Clone + Send + Sync + 'static,
 		>,
 	) -> tg::Result<Response>
 	where
 		I: Payload,
+		Response: Send + 'static,
+		O: Clone + Payload,
+	{
+		self.start_control_request(arg).await?.await
+	}
+
+	pub(crate) async fn start_control_request<I, O, Response>(
+		&self,
+		arg: SendControlRequestArg<
+			I,
+			O,
+			Response,
+			impl Fn(String) -> O + Clone + Send + Sync + 'static,
+			impl Fn(&I) -> bool + Clone + Send + Sync + 'static,
+			impl Fn(I) -> tg::Result<Option<(String, Response)>> + Clone + Send + Sync + 'static,
+		>,
+	) -> tg::Result<futures::future::BoxFuture<'static, tg::Result<Response>>>
+	where
+		I: Payload,
+		Response: Send + 'static,
 		O: Clone + Payload,
 	{
 		let SendControlRequestArg {
@@ -555,67 +603,79 @@ impl Server {
 			.subscribe::<I>(client_subject)
 			.await
 			.map_err(|source| tg::error!(!source, "failed to subscribe to the response"))?;
-		let mut responses = std::pin::pin!(responses);
+		server
+			.messenger
+			.publish(server_subject.clone(), request.clone())
+			.await
+			.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
+		let future = async move {
+			let mut responses = std::pin::pin!(responses);
 
-		let mut acknowledged = false;
-		let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
-		loop {
-			if !acknowledged {
-				if retries.next().await.is_none() {
-					return Err(tg::error!(
-						"timed out waiting for the request acknowledgement"
-					));
-				}
-
-				server
-					.messenger
-					.publish(server_subject.clone(), request.clone())
-					.await
-					.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
-			}
-
-			let receive = async {
-				loop {
-					let message = responses
-						.next()
-						.await
-						.ok_or_else(|| tg::error!("the response stream ended"))?
-						.map_err(|source| tg::error!(!source, "failed to receive the response"))?;
-					if is_ack(&message.payload) {
-						return Ok::<_, tg::Error>(ReceiveControlRequestOutput::Ack);
+			let mut acknowledged = false;
+			let mut initial = true;
+			let mut retries = std::pin::pin!(tangram_futures::retry::stream(retry));
+			loop {
+				if !acknowledged && !initial {
+					if retries.next().await.is_none() {
+						return Err(tg::error!(
+							"timed out waiting for the request acknowledgement"
+						));
 					}
-					let Some((id, response)) = response(message.payload)? else {
-						continue;
-					};
-					return Ok(ReceiveControlRequestOutput::Response { id, response });
-				}
-			};
-			let result = tokio::time::timeout(timeout, receive).await;
 
-			match result {
-				Ok(Ok(ReceiveControlRequestOutput::Ack)) => acknowledged = true,
-				Ok(Ok(ReceiveControlRequestOutput::Response { id, response })) => {
-					let ack = ack(id);
 					server
 						.messenger
-						.publish(server_subject.clone(), ack)
+						.publish(server_subject.clone(), request.clone())
 						.await
-						.map_err(|source| {
-							tg::error!(!source, "failed to acknowledge the control response")
-						})?;
+						.map_err(|source| tg::error!(!source, "failed to publish the request"))?;
+				}
 
-					return Ok(response);
-				},
-				Ok(Err(error)) => return Err(error),
-				Err(_) => {
-					crate::checkpoint!(
-						server,
-						"control.request.timeout",
-						subject = server_subject.clone(),
-					)
-					.await;
-				},
+				initial = false;
+				let receive = async {
+					loop {
+						let message = responses
+							.next()
+							.await
+							.ok_or_else(|| tg::error!("the response stream ended"))?
+							.map_err(|source| {
+								tg::error!(!source, "failed to receive the response")
+							})?;
+						if is_ack(&message.payload) {
+							return Ok::<_, tg::Error>(ReceiveControlRequestOutput::Ack);
+						}
+						let Some((id, response)) = response(message.payload)? else {
+							continue;
+						};
+						return Ok(ReceiveControlRequestOutput::Response { id, response });
+					}
+				};
+				let result = tokio::time::timeout(timeout, receive).await;
+
+				match result {
+					Ok(Ok(ReceiveControlRequestOutput::Ack)) => acknowledged = true,
+					Ok(Ok(ReceiveControlRequestOutput::Response { id, response })) => {
+						let ack = ack(id);
+						server
+							.messenger
+							.publish(server_subject.clone(), ack)
+							.await
+							.map_err(|source| {
+								tg::error!(!source, "failed to acknowledge the control response")
+							})?;
+
+						return Ok(response);
+					},
+					Ok(Err(error)) => return Err(error),
+					Err(_) => {
+						crate::checkpoint!(
+							server,
+							"control.request.timeout",
+							subject = server_subject.clone(),
+						)
+						.await;
+					},
+				}
 			}
-		}
+		};
+		Ok(future.boxed())
 	}
 }

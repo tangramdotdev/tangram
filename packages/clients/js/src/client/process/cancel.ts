@@ -7,24 +7,29 @@ export namespace Cancel {
 		lease: string;
 		location?: tg.Location.Arg | null;
 	};
+
+	export type Output = {
+		released: boolean;
+	};
 }
 
 export async function cancelProcess(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Cancel.Arg,
-): Promise<void> {
-	let found = await tryCancelProcess(client, id, arg);
-	if (!found) {
+): Promise<tg.Process.Cancel.Output> {
+	let output = await tryCancelProcess(client, id, arg);
+	if (output === null) {
 		throw new Error("failed to find the process");
 	}
+	return output;
 }
 
 export async function tryCancelProcess(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Cancel.Arg,
-): Promise<true | null> {
+): Promise<tg.Process.Cancel.Output | null> {
 	let method = "POST";
 	let uri = new Uri({
 		path: `/processes/${percentEncode(id)}/cancel`,
@@ -43,5 +48,5 @@ export async function tryCancelProcess(
 	} else if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
 	}
-	return true;
+	return await response.json<tg.Process.Cancel.Output>();
 }

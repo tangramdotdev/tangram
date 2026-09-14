@@ -24,8 +24,33 @@ let local = server spawn --name local --config {
 
 let path = artifact {
 	"example.tg.ts": '
-		export default () => {
-			return tg.run(child).sandbox(true);
+		export default async () => {
+			// Exercise the standalone spawn endpoint, whose runner shortcut pushes the command.
+			let command = await tg.Command.js(child, []);
+			await command.node.store();
+			let object = await command.node.object();
+			let arg = {
+				args: object.args.map(tg.Command.Value.toData),
+				executable: { node: tg.Command.Executable.toData(object.executable) },
+				host: object.host,
+			};
+			let stream = await tg.client.spawnProcess({
+				command: { node: arg, options: command.options },
+				sandbox: {}, stderr: "log", stdin: "null", stdout: "log",
+			});
+			for await (let event of stream) {
+				if (event.kind !== "output") continue;
+				let output = event.value;
+				tg.assert(typeof output.process === "string");
+				let wait = await tg.client.waitProcess(output.process, {
+					lease: output.lease ?? null,
+					location: output.location == null ? null : tg.Location.Arg.fromLocation(output.location),
+					tokens: output.tokens ?? {},
+				});
+				tg.assert(wait.exit === 0);
+				return;
+			}
+			throw new Error("expected a spawn output");
 		};
 
 		export const child = () => undefined;

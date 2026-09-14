@@ -135,7 +135,7 @@ def reconnect():
 
     # The writer supplies the final positions on a fresh connection.
     end = {"kind": "write", "value": {"kind": "end", "value": {
-        "position": 12, "stderr_position": 6, "stdout_position": 6,
+        "combined_position": 12, "stream_positions": {"stderr": 6, "stdout": 6},
     }}}
     sock, response, _ = connect(arg, token)
     assert request(sock, response, "end", end, False)["value"] == {"closed": True, "length": 0}
@@ -190,21 +190,20 @@ def reordered():
             event, message = read(reader_response)
             assert event == "notification" and message["kind"] == "chunk", (event, message)
             assert base64.b64decode(message["value"]["bytes"]) == b"A", message
-            send(reader_sock, "notification", {"kind": "read", "value": {"position": 1}})
+            send(reader_sock, "notification", {"consumed": 1})
             close(sock, response)
             sock, response, _ = connect({"id": id, "lease": "test"}, token)
             request(sock, response, "b", chunk("stdout", 1, b"B", 1))
             request(sock, response, "finish", {"kind": "finish", "value": {"data": finished}})
             request(sock, response, "end", {"kind": "write", "value": {"kind": "end", "value": {
-                "position": 3, "stderr_position": 0 if last_stream == "stdout" else 1,
-                "stdout_position": 3 if last_stream == "stdout" else 2,
+                "combined_position": 3, "stream_positions": {"stderr": 0 if last_stream == "stdout" else 1, "stdout": 3 if last_stream == "stdout" else 2},
             }}})
             output = {"stdout": b"A", "stderr": b""}
             position = 1
             while True:
                 event, message = read(reader_response)
-                if event == "request" and message["kind"] == "end":
-                    send(reader_sock, "response", {"kind": "end"})
+                if event == "response" and message["kind"] in ("end", "limit", "timeout"):
+                    send(reader_sock, "ack", None)
                     break
                 assert event == "notification" and message["kind"] == "chunk", (event, message)
                 value = message["value"]
@@ -213,7 +212,7 @@ def reordered():
                 value_bytes = base64.b64decode(value["bytes"])
                 output[value["stream"]] += value_bytes
                 position += len(value_bytes)
-                send(reader_sock, "notification", {"kind": "read", "value": {"position": position}})
+                send(reader_sock, "notification", {"consumed": position})
             expected_stdout = b"ABC" if last_stream == "stdout" else b"AB"
             expected_stderr = b"" if last_stream == "stdout" else b"C"
             assert output == {"stdout": expected_stdout, "stderr": expected_stderr}, output
@@ -242,7 +241,7 @@ def growing():
             request(sock, response, "suffix", chunk("stdout", 4, b"x" * added, 4))
             request(sock, response, "finish", {"kind": "finish", "value": {"data": finished}})
             request(sock, response, "end", {"kind": "write", "value": {"kind": "end", "value": {
-                "position": 4 + added, "stderr_position": 0, "stdout_position": 4 + added,
+                "combined_position": 4 + added, "stream_positions": {"stderr": 0, "stdout": 4 + added},
             }}})
             if added < 96:
                 event, message = read(reader_response, positions=True)
@@ -250,12 +249,12 @@ def growing():
             chunks = []
             while True:
                 event, message = read(reader_response)
-                if event == "request" and message["kind"] == "end":
-                    send(reader_sock, "response", {"kind": "end"})
+                if event == "response" and message["kind"] in ("end", "limit", "timeout"):
+                    send(reader_sock, "ack", None)
                     break
                 assert event == "notification" and message["kind"] == "chunk", (event, message)
                 chunks.append(base64.b64decode(message["value"]["bytes"]))
-                send(reader_sock, "notification", {"kind": "read", "value": {"position": message["value"]["stream_position"]}})
+                send(reader_sock, "notification", {"consumed": sum(map(len, chunks))})
             assert b"".join(chunks) == b"x" * added + b"dcb", chunks
         finally:
             close(reader_sock, reader_response)

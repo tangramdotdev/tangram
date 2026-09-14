@@ -58,6 +58,12 @@ impl Reader {
 
 	pub async fn close(&mut self) -> tg::Result<()> {
 		let mut state = self.0.lock().await;
+		if state.input.is_none()
+			&& let Some(process) = state.process.as_ref().and_then(Weak::upgrade)
+			&& let Some(connection) = &process.connection
+		{
+			connection.close_initial(state.stream).await;
+		}
 		state.fd = None;
 		state.input = None;
 		state.process = None;
@@ -103,6 +109,11 @@ impl Reader {
 			let process = process
 				.and_then(|process| process.upgrade())
 				.ok_or_else(|| tg::error!("the process is not available"))?;
+			let handle_process = crate::process::handle::Process::<tg::Value>(
+				process.clone(),
+				std::marker::PhantomData,
+			);
+			let handle = handle_process.handle_with_handle(handle);
 			let location = process.location.read().unwrap().clone();
 			let tokens = process.tokens.read().unwrap().clone();
 			let process = process

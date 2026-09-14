@@ -1,10 +1,15 @@
 import * as tg from "../../../index.ts";
 import { Body, Request, Response, Uri, percentEncode } from "../../../http.ts";
+import { chunkSize, maxChunks } from "../../../process/stdio/flow.ts";
 import type { Client } from "../../../client.ts";
 
-type Connection = {
-	input: Channel<tg.Process.Stdio.Write.ClientMessage>;
+export type Connection = {
+	input: {
+		close(): void;
+		push(message: tg.Process.Stdio.Write.ClientMessage): boolean;
+	};
 	output: AsyncIterableIterator<tg.Process.Stdio.Write.ServerMessage>;
+	reconnect?: () => Promise<Connection>;
 };
 
 type WriteEvent =
@@ -21,10 +26,11 @@ class ProtocolError extends Error {}
 export async function writeProcessStdio(
 	client: Client,
 	id: tg.Process.Id,
-	arg: tg.Process.Stdio.Write.Arg,
+	arg: tg.Process.Stdio.Write.Stream.Arg,
 	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+	complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 ): Promise<void> {
-	let output = await tryWriteProcessStdio(client, id, arg, input);
+	let output = await tryWriteProcessStdio(client, id, arg, input, complete);
 	if (output === null) {
 		throw new Error("failed to find the process");
 	}
@@ -33,67 +39,109 @@ export async function writeProcessStdio(
 export async function tryWriteProcessStdio(
 	client: Client,
 	id: tg.Process.Id,
-	arg: tg.Process.Stdio.Write.Arg,
+	arg: tg.Process.Stdio.Write.Stream.Arg,
 	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
+	complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 ): Promise<true | null> {
 	let connection = await connect(client, id, arg);
 	if (connection === null) {
 		await input.return?.();
 		return null;
 	}
-	await writeProcessStdioAll(client, id, arg, input, connection);
+	await writeProcessStdioAll(client, id, arg, input, connection, complete);
 
 	return true;
 }
 
-async function writeProcessStdioAll(
+export async function writeProcessStdioAll(
 	client: Client,
 	id: tg.Process.Id,
-	arg: tg.Process.Stdio.Write.Arg,
+	arg: tg.Process.Stdio.Write.Stream.Arg,
 	input: AsyncIterableIterator<tg.Process.Stdio.Chunk>,
 	connection: Connection,
+	complete?: (chunk: tg.Process.Stdio.Chunk) => void,
 ): Promise<void> {
-	let position = 0;
-	let endSent = false;
+	type Pending = {
+		original?: tg.Process.Stdio.Chunk;
+		request: tg.Process.Stdio.Write.Request;
+		sent: boolean;
+	};
+	let pending: Array<Pending> = [];
+	let remaining: { chunk: tg.Process.Stdio.Chunk; offset: number } | null =
+		null;
 	let inputEvent: Promise<WriteEvent> | null = null;
-	let inputEnded = false;
 	let outputEvent: Promise<WriteEvent> | null = null;
-	let pending: tg.Process.Stdio.Chunk | null = null;
-	let pendingSent = false;
+	let inputEnded = false;
+	let nextId = 0;
+	let combinedPosition = 0;
+	let streamPositions: Partial<Record<tg.Process.Stdio.Stream, number>> =
+		Object.fromEntries(arg.streams.map((stream) => [stream, 0]));
 	try {
 		while (true) {
-			if (pending === null && !inputEnded && inputEvent === null) {
+			while (remaining !== null && pending.length < maxChunks) {
+				let { chunk, offset } = remaining;
+				if (!arg.streams.includes(chunk.stream)) {
+					throw new ProtocolError("invalid process stdio stream");
+				}
+				let length = Math.min(chunkSize, chunk.bytes.length - offset);
+				if (length === 0) {
+					complete?.(chunk);
+					remaining = null;
+					break;
+				}
+				let value = {
+					...chunk,
+					bytes: chunk.bytes.subarray(offset, offset + length),
+					combinedPosition: chunk.combinedPosition + offset,
+					streamPosition: chunk.streamPosition + offset,
+				};
+				combinedPosition = value.combinedPosition + length;
+				streamPositions[value.stream] = value.streamPosition + length;
+				if (
+					!Number.isSafeInteger(combinedPosition) ||
+					!Number.isSafeInteger(streamPositions[value.stream])
+				) {
+					throw new ProtocolError("invalid stdio position");
+				}
+				remaining.offset += length;
+				let last = remaining.offset === chunk.bytes.length;
+				pending.push({
+					...(last ? { original: chunk } : {}),
+					request: { arg: { kind: "chunk", value }, id: nextId++ },
+					sent: false,
+				});
+				if (last) {
+					remaining = null;
+				}
+			}
+			if (inputEnded && pending.length === 0) {
+				pending.push({
+					request: {
+						arg: { kind: "end", value: { combinedPosition, streamPositions } },
+						id: nextId++,
+					},
+					sent: false,
+				});
+			}
+			for (let value of pending) {
+				if (!value.sent) {
+					connection.input.push({ kind: "request", value: value.request });
+					value.sent = true;
+				}
+			}
+			if (
+				pending.length < maxChunks &&
+				remaining === null &&
+				!inputEnded &&
+				inputEvent === null
+			) {
 				inputEvent = nextInput(input);
 			}
 			outputEvent ??= nextOutput(connection.output);
-			if (pending !== null && !pendingSent) {
-				let message: tg.Process.Stdio.Write.ClientMessage = {
-					kind: "request",
-					value: { kind: "chunk", value: pending },
-				};
-				if (!connection.input.push(message)) {
-					outputEvent = null;
-					connection = await reconnect(client, id, arg, connection);
-					endSent = false;
-					continue;
-				}
-				pendingSent = true;
-			} else if (pending === null && inputEnded && !endSent) {
-				let message: tg.Process.Stdio.Write.ClientMessage = {
-					kind: "request",
-					value: { kind: "end", value: { position } },
-				};
-				if (!connection.input.push(message)) {
-					outputEvent = null;
-					connection = await reconnect(client, id, arg, connection);
-					continue;
-				}
-				endSent = true;
-			}
 			let event =
 				inputEvent === null
 					? await outputEvent
-					: await Promise.race([inputEvent, outputEvent]);
+					: await Promise.race([outputEvent, inputEvent]);
 			if (event.kind === "input_error") {
 				throw event.error;
 			}
@@ -102,73 +150,61 @@ async function writeProcessStdioAll(
 				if (event.result.done) {
 					inputEnded = true;
 				} else {
-					pending = event.result.value;
-					if (!arg.streams.includes(pending.stream)) {
-						throw new ProtocolError("invalid process stdio stream");
-					}
+					remaining = { chunk: event.result.value, offset: 0 };
 				}
 				continue;
 			}
 			outputEvent = null;
-			if (event.kind === "output_error") {
-				let error = event.error;
-				if (isTerminalError(error)) {
-					throw error;
+			if (event.kind === "output_error" && isTerminalError(event.error)) {
+				throw event.error;
+			}
+			if (event.kind === "output_error" || event.result.done) {
+				connection = await reconnect(client, id, arg, connection);
+				for (let value of pending) {
+					value.sent = false;
 				}
-				connection = await reconnect(client, id, arg, connection);
-				endSent = false;
-				pendingSent = false;
 				continue;
 			}
-			let result = event.result;
-			if (result.done) {
-				connection = await reconnect(client, id, arg, connection);
-				endSent = false;
-				pendingSent = false;
+			let message = event.result.value;
+			if (message.kind === "ack") {
 				continue;
 			}
-			let message = result.value;
-			if (message.kind === "notification") {
-				connection = await reconnect(client, id, arg, connection);
-				endSent = false;
-				pendingSent = false;
-				continue;
-			}
-			if (message.value.kind === "end") {
-				return;
-			}
-			if (pending === null) {
+			let response = message.value;
+			connection.input.push({ kind: "ack", value: { id: response.id } });
+			let value = pending.shift();
+			if (value === undefined || value.request.id !== response.id) {
 				throw new ProtocolError(
-					"received a write response without a pending request",
+					"received an out-of-order stdio write response",
 				);
 			}
-			let { closed, length } = message.value.value;
+			if (response.error !== null) {
+				throw tg.Error.fromData(response.error);
+			}
+			if (response.output === null) {
+				throw new ProtocolError("missing the stdio write output");
+			}
+			let { closed, length } = response.output;
+			let expected =
+				value.request.arg.kind === "chunk"
+					? value.request.arg.value.bytes.length
+					: 0;
 			if (
 				!Number.isSafeInteger(length) ||
 				length < 0 ||
-				length > pending.bytes.length
+				length > expected ||
+				(!closed && length !== expected)
 			) {
 				throw new ProtocolError("invalid process stdio write length");
 			}
-			position = pending.streamPosition + length;
-			if (!Number.isSafeInteger(position)) {
-				throw new ProtocolError("invalid process stdio position");
+			if (length === expected && value.original !== undefined) {
+				complete?.(value.original);
 			}
-			if (closed) {
+			if (value.request.arg.kind === "end" && !closed) {
+				throw new ProtocolError("the stdio end was not confirmed");
+			}
+			if (closed || value.request.arg.kind === "end") {
 				return;
 			}
-			if (length < pending.bytes.length) {
-				pending = {
-					...pending,
-					bytes: pending.bytes.subarray(length),
-					combinedPosition: pending.combinedPosition + length,
-					streamPosition: position,
-				};
-			} else {
-				pending = null;
-			}
-
-			pendingSent = false;
 		}
 	} finally {
 		connection.input.close();
@@ -198,7 +234,7 @@ function nextOutput(
 async function connect(
 	client: Client,
 	id: tg.Process.Id,
-	arg: tg.Process.Stdio.Write.Arg,
+	arg: tg.Process.Stdio.Write.Stream.Arg,
 ): Promise<Connection | null> {
 	let attempt = 0;
 	while (true) {
@@ -217,12 +253,15 @@ async function connect(
 async function reconnect(
 	client: Client,
 	id: tg.Process.Id,
-	arg: tg.Process.Stdio.Write.Arg,
+	arg: tg.Process.Stdio.Write.Stream.Arg,
 	connection: Connection,
 ): Promise<Connection> {
 	connection.input.close();
 	await connection.output.return?.();
-	let next = await connect(client, id, arg);
+	let next =
+		connection.reconnect === undefined
+			? await connect(client, id, arg)
+			: await connection.reconnect();
 	if (next === null) {
 		throw new Error("failed to find the process");
 	}
@@ -233,7 +272,7 @@ async function reconnect(
 async function writeProcessStdioOnce(
 	client: Client,
 	id: tg.Process.Id,
-	arg: tg.Process.Stdio.Write.Arg,
+	arg: tg.Process.Stdio.Write.Stream.Arg,
 ): Promise<Connection | null> {
 	let input = new Channel<tg.Process.Stdio.Write.ClientMessage>();
 	let uri = new Uri({
@@ -280,10 +319,10 @@ async function* encodeClientMessages(
 ): AsyncIterableIterator<Body.SseEvent> {
 	for await (let message of input) {
 		let value =
-			message.kind === "request" && message.value.kind === "chunk"
+			message.kind === "request"
 				? {
 						...message.value,
-						value: tg.Process.Stdio.Chunk.toData(message.value.value),
+						arg: tg.Process.Stdio.Write.Data.toData(message.value.arg),
 					}
 				: message.value;
 		yield {
@@ -303,25 +342,13 @@ async function* decodeServerMessages(
 					JSON.parse(event.data) as tg.Error.Data | tg.Error.Id,
 				);
 			}
-			if (event.event === "notification") {
-				let value = JSON.parse(
-					event.data,
-				) as tg.Process.Stdio.Write.ServerNotification;
-				if (value.kind !== "stop") {
-					throw new ProtocolError("invalid process stdio write notification");
-				}
-				yield { kind: "notification", value };
-			} else if (event.event === "response") {
-				let value = JSON.parse(
-					event.data,
-				) as tg.Process.Stdio.Write.ServerResponse;
-				if (value.kind !== "end" && value.kind !== "write") {
-					throw new ProtocolError("invalid process stdio write response");
-				}
-				yield { kind: "response", value };
-			} else {
+			if (event.event !== "ack" && event.event !== "response") {
 				throw new ProtocolError("invalid process stdio write message");
 			}
+			yield {
+				kind: event.event,
+				value: JSON.parse(event.data),
+			} as tg.Process.Stdio.Write.ServerMessage;
 		} catch (error) {
 			if (error instanceof tg.Error || error instanceof ProtocolError) {
 				throw error;

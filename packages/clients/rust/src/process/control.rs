@@ -8,6 +8,14 @@ use {
 
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-control";
 
+pub type ReadClientResponseOutput = tg::process::stdio::read::Output;
+
+pub type ReadServerRequestArg = tg::process::stdio::read::Arg;
+
+pub type WriteClientRequestArg = tg::process::stdio::write::Data;
+
+pub type WriteServerRequestArg = tg::process::stdio::write::Data;
+
 pub type WriteClientResponseOutput = tg::process::stdio::write::Output;
 
 pub type WriteServerResponseOutput = tg::process::stdio::write::Output;
@@ -117,6 +125,9 @@ pub enum ClientNotification {
 
 	#[tangram_serialize(id = 1)]
 	ChildSpawned,
+
+	#[tangram_serialize(id = 2)]
+	Read(ReadClientNotification),
 }
 
 #[derive(
@@ -207,6 +218,9 @@ pub enum ClientResponseOutput {
 	#[tangram_serialize(id = 6)]
 	AcquireLease(AcquireLeaseClientResponseOutput),
 
+	#[tangram_serialize(id = 9)]
+	Close,
+
 	#[tangram_serialize(id = 5)]
 	Finish(FinishClientResponseOutput),
 
@@ -254,7 +268,10 @@ pub struct ServerAck {
 	tangram_serialize::Serialize,
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerNotification {}
+pub enum ServerNotification {
+	#[tangram_serialize(id = 0)]
+	Read(ReadServerNotification),
+}
 
 #[derive(
 	Clone,
@@ -268,6 +285,9 @@ pub enum ServerNotification {}
 pub enum ServerRequestArg {
 	#[tangram_serialize(id = 6)]
 	AcquireLease(AcquireLeaseServerRequestArg),
+
+	#[tangram_serialize(id = 9)]
+	Close(String),
 
 	#[tangram_serialize(id = 5)]
 	Finish(FinishServerRequestArg),
@@ -516,55 +536,6 @@ pub struct GetChildrenClientResponseOutput {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct ReadServerRequestArg {
-	#[tangram_serialize(id = 0)]
-	pub length: usize,
-
-	#[tangram_serialize(id = 1)]
-	pub position: u64,
-
-	#[tangram_serialize(id = 2)]
-	pub streams: Vec<tg::process::stdio::Stream>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct WriteServerRequestArg {
-	#[tangram_serialize(id = 0)]
-	pub chunk: tg::process::stdio::Chunk,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum WriteClientRequestArg {
-	#[tangram_serialize(id = 0)]
-	Chunk(tg::process::stdio::Chunk),
-
-	#[tangram_serialize(id = 1)]
-	End(tg::process::log::End),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
 pub struct SignalServerRequestArg {
 	#[tangram_serialize(id = 1, display, from_str)]
 	pub signal: tg::process::signal::Signal,
@@ -591,19 +562,6 @@ pub struct TtyServerRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct ReadClientResponseOutput {
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub chunk: Option<tg::process::stdio::Chunk>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
 pub struct SignalClientResponseOutput {}
 
 #[derive(
@@ -615,6 +573,36 @@ pub struct SignalClientResponseOutput {}
 	tangram_serialize::Serialize,
 )]
 pub struct TtyClientResponseOutput {}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ReadClientNotification {
+	#[tangram_serialize(id = 0)]
+	pub event: tg::process::stdio::read::Event,
+	#[tangram_serialize(id = 1)]
+	pub id: String,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ReadServerNotification {
+	#[tangram_serialize(id = 0)]
+	pub id: String,
+	#[tangram_serialize(id = 1)]
+	pub progress: tg::process::stdio::read::Progress,
+}
 
 impl tg::Session {
 	pub async fn try_get_process_control_stream(

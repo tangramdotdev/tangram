@@ -37,7 +37,13 @@ struct State {
 	http2: crate::http2::Http2,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
-	rejection: tokio::sync::watch::Sender<Option<tg::Error>>,
+	rejections: tokio::sync::watch::Sender<Vec<Rejection>>,
+}
+
+#[derive(Clone)]
+struct Rejection {
+	error: tg::Error,
+	promise: qjs::Persistent<qjs::Value<'static>>,
 }
 
 #[derive(Clone)]
@@ -82,18 +88,31 @@ impl Runtime {
 		runtime.set_loader(Resolver, Loader).await;
 
 		// Create the rejection channel.
-		let (rejection, _) = tokio::sync::watch::channel(None);
+		let (rejections, _) = tokio::sync::watch::channel(Vec::new());
 
 		// Set the promise rejection tracker.
 		runtime
-			.set_host_promise_rejection_tracker(Some(Box::new(move |ctx, _promise, reason, _| {
-				let Some(state) = ctx.userdata::<StateHandle>().map(|state| state.clone()) else {
-					return;
-				};
-				let error = self::error::from_exception(&state, &ctx, &reason)
-					.unwrap_or_else(|| tg::error!("failed to get the exception"));
-				state.rejection.send_replace(Some(error));
-			})))
+			.set_host_promise_rejection_tracker(Some(Box::new(
+				move |ctx, promise, reason, handled| {
+					let Some(state) = ctx.userdata::<StateHandle>().map(|state| state.clone())
+					else {
+						return;
+					};
+					let promise = qjs::Persistent::save(&ctx, promise);
+					if handled {
+						state.rejections.send_modify(|rejections| {
+							rejections.retain(|rejection| rejection.promise != promise);
+						});
+						return;
+					}
+					let error = self::error::from_exception(&state, &ctx, &reason)
+						.unwrap_or_else(|| tg::error!("failed to get the exception"));
+					let rejection = Rejection { error, promise };
+					state
+						.rejections
+						.send_modify(|rejections| rejections.push(rejection));
+				},
+			)))
 			.await;
 
 		// Create the context.
@@ -108,7 +127,6 @@ impl Runtime {
 		let http2 = crate::http2::Http2::new(arg.http.coalescing_target_size);
 		let main_runtime_handle = arg.main_runtime_handle.clone();
 		let modules = RefCell::new(Vec::new());
-		let rejection = rejection.clone();
 		let state = Rc::new(State {
 			arg,
 			global_source_map,
@@ -117,7 +135,7 @@ impl Runtime {
 			http2,
 			main_runtime_handle,
 			modules,
-			rejection,
+			rejections,
 		});
 
 		// Init.
@@ -273,18 +291,36 @@ impl Runtime {
 				Err(error)
 			}
 		});
-		let mut rejection = self.state.rejection.subscribe();
-		let rejection = async move {
-			let error = rejection
-				.wait_for(Option::is_some)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to receive the promise rejection"))?;
-			Ok::<_, tg::Error>(error.as_ref().unwrap().clone())
+		let mut rejections = self.state.rejections.subscribe();
+		let rejection = async {
+			loop {
+				drop(
+					rejections
+						.wait_for(|rejections| !rejections.is_empty())
+						.await
+						.map_err(|error| {
+							tg::error!(!error, "failed to receive the promise rejection")
+						})?,
+				);
+				// Allow the current microtask checkpoint to attach rejection handlers.
+				self.context
+					.with(|ctx| while ctx.execute_pending_job() {})
+					.await;
+				if let Some(rejection) = rejections.borrow().first() {
+					return Ok::<_, tg::Error>(rejection.error.clone());
+				}
+			}
 		};
 		let result = match future::select(pin!(future), pin!(rejection)).await {
 			future::Either::Left((result, _)) => result,
 			future::Either::Right((Ok(error) | Err(error), _)) => Err(error),
 		};
+		self.context
+			.with(|ctx| while ctx.execute_pending_job() {})
+			.await;
+		if let Some(rejection) = self.state.rejections.borrow().first() {
+			return Err(rejection.error.clone());
+		}
 
 		let Serde(data) = result?;
 		tg::Value::try_from(data)
@@ -358,6 +394,13 @@ impl Runtime {
 				Ok(())
 			})
 			.await
+	}
+}
+
+impl Drop for Runtime {
+	fn drop(&mut self) {
+		// Release promise handles before the runtime and its context are destroyed.
+		self.state.rejections.send_replace(Vec::new());
 	}
 }
 

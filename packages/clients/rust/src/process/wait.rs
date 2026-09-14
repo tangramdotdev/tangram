@@ -11,15 +11,30 @@ use {
 	tangram_uri::Uri,
 };
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub lease: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 2,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
 	pub tokens: tg::authorization::Tokens,
 }
 
@@ -29,18 +44,33 @@ pub enum Event {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<Error>")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
 
+	#[tangram_serialize(id = 1)]
 	pub exit: u8,
 
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
 		with = "serde_with::rust::unwrap_or_skip"
+	)]
+	#[tangram_serialize(
+		default,
+		id = 2,
+		skip_serializing_if = "Option::is_none",
+		with = "tangram_serialize::with::unwrap_or_skip"
 	)]
 	pub output: Option<tg::value::Data>,
 }
@@ -73,13 +103,10 @@ impl<O> tg::Process<O> {
 	where
 		H: tg::Handle,
 	{
+		let handle = self.handle_with_handle(handle);
+		let handle = &handle;
 		if let Some(task) = &self.0.task {
-			if let Some(stdio_task) = self.0.stdio_task.as_ref() {
-				stdio_task
-					.wait()
-					.await
-					.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
-			}
+			self.wait_stdio().await?;
 			let output = task
 				.wait()
 				.await
@@ -89,22 +116,17 @@ impl<O> tg::Process<O> {
 			wait.inherit_location(location.as_ref());
 			let tokens = self.tokens();
 			wait.inherit_tokens(&tokens);
-			self.detach();
+			self.disarm();
 			return Ok(wait);
 		}
 		let wait = self.0.wait.lock().unwrap().take();
 		if let Some(wait) = wait {
-			if let Some(stdio_task) = self.0.stdio_task.as_ref() {
-				stdio_task
-					.wait()
-					.await
-					.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
-			}
+			self.wait_stdio().await?;
 			let location = self.location().and_then(|location| location.to_location());
 			wait.inherit_location(location.as_ref());
 			let tokens = self.tokens();
 			wait.inherit_tokens(&tokens);
-			self.detach();
+			self.disarm();
 			return Ok(wait);
 		}
 		let Some(id) = self.id().right() else {
@@ -119,12 +141,7 @@ impl<O> tg::Process<O> {
 			tokens: self.tokens(),
 		};
 		let mut future = handle.wait_process_future(id, arg.clone()).await?;
-		if let Some(stdio_task) = self.0.stdio_task.as_ref() {
-			stdio_task
-				.wait()
-				.await
-				.map_err(|error| tg::error!(!error, "the stdio task panicked"))??;
-		}
+		self.wait_stdio().await?;
 		let output = loop {
 			if let Some(output) = future.await? {
 				break output;
@@ -136,9 +153,29 @@ impl<O> tg::Process<O> {
 		wait.inherit_location(location.as_ref());
 		let tokens = self.tokens();
 		wait.inherit_tokens(&tokens);
-		self.detach();
+		self.disarm();
 
 		Ok(wait)
+	}
+
+	pub(super) async fn wait_stdio(&self) -> tg::Result<()> {
+		let Some(task) = &self.0.stdio_task else {
+			return Ok(());
+		};
+		let result = task
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the stdio task panicked"))?;
+		// Detach deliberately closes the transport used by inherited stdio.
+		if !self
+			.0
+			.connection
+			.as_ref()
+			.is_some_and(super::connect::Connection::detached)
+		{
+			result?;
+		}
+		Ok(())
 	}
 }
 

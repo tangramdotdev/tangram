@@ -4,6 +4,14 @@ use {
 };
 
 pub trait Process: Send + Sync + 'static {
+	fn try_connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> BoxFuture<
+		'_,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>>,
+	>;
+
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -98,7 +106,7 @@ pub trait Process: Send + Sync + 'static {
 	fn try_write_process_stdio<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
-		arg: tg::process::stdio::write::Arg,
+		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> BoxFuture<
 		'a,
@@ -127,6 +135,16 @@ impl<T> Process for T
 where
 	T: tg::handle::Process,
 {
+	fn try_connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> BoxFuture<
+		'_,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>>,
+	> {
+		self.try_connect_process(input).boxed()
+	}
+
 	fn try_spawn_process(
 		&self,
 		arg: tg::process::spawn::Arg,
@@ -256,7 +274,7 @@ where
 	fn try_write_process_stdio<'a>(
 		&'a self,
 		id: &'a tg::process::Id,
-		arg: tg::process::stdio::write::Arg,
+		arg: tg::process::stdio::write::stream::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> BoxFuture<
 		'a,

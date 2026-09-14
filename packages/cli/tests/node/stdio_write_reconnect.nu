@@ -3,7 +3,7 @@ use ../../test.nu *
 const js_path = path self '../../../js'
 cd $js_path
 
-# The JavaScript writer advances by the completed byte count and retains its position across lost write and end responses.
+# The JavaScript writer retains unconfirmed chunks and final positions across lost write and EOF responses.
 let output = timeout 10 node --input-type=module -e '
 	import assert from "node:assert/strict";
 	import * as tg from "@tangramdotdev/client";
@@ -29,34 +29,34 @@ let output = timeout 10 node --input-type=module -e '
 		let connection = connections++;
 		let input = request.body.sse();
 		let read = async () => {
-			let event = await input.next();
-			assert.equal(event.value.event, "request");
-			return JSON.parse(event.value.data);
+			while (true) {
+				let event = await input.next();
+				if (event.value.event === "ack") continue;
+				assert.equal(event.value.event, "request");
+				return JSON.parse(event.value.data);
+			}
 		};
-		let write = (length) => ({
-			event: "response",
-			data: JSON.stringify({ kind: "write", value: { closed: false, length } }),
+		let response = (id, length, closed = false) => ({
+			event: "response", data: JSON.stringify({ id, error: null, output: { closed, length } }),
 		});
 		let output = async function* () {
 			if (connection === 0) {
 				let first = await read();
-				assert.equal(first.kind, "chunk");
-				assert.equal(first.value.stream_position, 0);
-				assert.equal(first.value.bytes, "YWJjZGVm");
-				yield write(2);
-				let remaining = await read();
-				assert.equal(remaining.value.stream_position, 2);
-				assert.equal(remaining.value.bytes, "Y2RlZg==");
+				assert.equal(first.arg.kind, "chunk");
+				assert.equal(first.arg.value.stream_position, 0);
+				assert.equal(first.arg.value.bytes, "YWJjZGVm");
+				yield { event: "ack", data: JSON.stringify({ id: first.id }) };
 			} else if (connection === 1) {
 				let replay = await read();
-				assert.equal(replay.value.stream_position, 2);
-				assert.equal(replay.value.bytes, "Y2RlZg==");
-				yield write(4);
-				assert.deepEqual(await read(), { kind: "end", value: { position: 6 } });
+				assert.equal(replay.arg.value.stream_position, 0);
+				assert.equal(replay.arg.value.bytes, "YWJjZGVm");
+				yield response(replay.id, 6);
+				assert.deepEqual((await read()).arg, { kind: "end", value: { combined_position: 6, stream_positions: { stdin: 6 } } });
 			} else {
 				assert.equal(connection, 2);
-				assert.deepEqual(await read(), { kind: "end", value: { position: 6 } });
-				yield { event: "response", data: JSON.stringify({ kind: "end" }) };
+				const end = await read();
+				assert.deepEqual(end.arg, { kind: "end", value: { combined_position: 6, stream_positions: { stdin: 6 } } });
+				yield response(end.id, 0, true);
 			}
 		};
 		return new tg.Response(200, { "content-type": "text/event-stream" }, { sse: output });

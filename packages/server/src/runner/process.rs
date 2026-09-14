@@ -29,8 +29,8 @@ type CommandFuture = Shared<BoxFuture<'static, tg::Result<(tg::command::Data, Se
 
 const LOG_BUFFER_SIZE: usize = 16 * 1024 * 1024;
 const LOG_CHANNEL_CAPACITY: usize = 256;
-const LOG_CHUNK_SIZE: usize = 32 * 1024;
-const LOG_REQUEST_CONCURRENCY: usize = 64;
+const LOG_CHUNK_SIZE: usize = tg::process::stdio::flow::CHUNK_SIZE;
+const LOG_REQUEST_CONCURRENCY: usize = tg::process::stdio::flow::MAX_CHUNKS;
 
 pub(super) struct SpawnProcessTaskArg<'a> {
 	pub guest_url: &'a tangram_uri::Uri,
@@ -1113,10 +1113,13 @@ impl Session {
 		finished
 			.await
 			.map_err(|_| tg::error!("failed to receive the process finish notification"))?;
-		let end = tg::process::log::End {
-			position,
-			stderr_position,
-			stdout_position,
+		let end = tg::process::stdio::End {
+			combined_position: position,
+			stream_positions: [
+				(tg::process::stdio::Stream::Stderr, stderr_position),
+				(tg::process::stdio::Stream::Stdout, stdout_position),
+			]
+			.into(),
 		};
 		Self::send_process_log_end(&sender, end).await?;
 
@@ -1125,16 +1128,20 @@ impl Session {
 
 	async fn send_process_log_end(
 		sender: &control::ProcessControlSender,
-		end: tg::process::log::End,
+		end: tg::process::stdio::End,
 	) -> tg::Result<()> {
 		let arg = tg::process::control::ClientRequestArg::Write(
 			tg::process::control::WriteClientRequestArg::End(end),
 		);
-		Self::send_process_control_client_request(sender, arg, crate::control::Priority::Low)
-			.boxed()
-			.await?
-			.try_unwrap_write()
-			.map_err(|_| tg::error!("expected a write process response"))?;
+		let output =
+			Self::send_process_control_client_request(sender, arg, crate::control::Priority::Low)
+				.boxed()
+				.await?
+				.try_unwrap_write()
+				.map_err(|_| tg::error!("expected a write process response"))?;
+		if !output.closed || output.length != 0 {
+			return Err(tg::error!("the log end was not confirmed"));
+		}
 		Ok(())
 	}
 

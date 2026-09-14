@@ -51,7 +51,7 @@ struct RunProcessControlHandlerTaskArg {
 		tg::process::control::ServerMessage,
 		tg::process::control::ClientMessage,
 	>,
-	output_sender: tokio::sync::mpsc::Sender<(String, tg::process::control::ReadServerRequestArg)>,
+	output_sender: tokio::sync::mpsc::Sender<output::Message>,
 	sender: ProcessControlSender,
 	signal_sender:
 		tokio::sync::mpsc::Sender<(String, tg::process::control::SignalServerRequestArg)>,
@@ -178,8 +178,7 @@ impl Session {
 			})
 		});
 
-		let (output_sender, output_receiver) =
-			tokio::sync::mpsc::channel::<(String, tg::process::control::ReadServerRequestArg)>(256);
+		let (output_sender, output_receiver) = tokio::sync::mpsc::channel::<output::Message>(256);
 		let output_task = self.spawn_process_control_output_task(RunProcessControlOutputTaskArg {
 			receiver: output_receiver,
 			sandbox: sandbox.clone(),
@@ -364,11 +363,18 @@ impl Session {
 			tty_sender,
 		} = arg;
 
-		while let Some(message) = control
-			.recv_with_ack()
+		while let Some(event) = control
+			.recv_event_with_ack()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to get the next control request"))?
 		{
+			let message = match event {
+				tg::control::Event::Message(message) => message,
+				tg::control::Event::Reconnect => {
+					output_sender.send(output::Message::Reconnect).await.ok();
+					continue;
+				},
+			};
 			match message {
 				tg::process::control::ServerMessage::Request(message) => {
 					let request_id = message.id;
@@ -380,6 +386,14 @@ impl Session {
 								.map(tg::process::control::ClientResponseOutput::AcquireLease);
 							let response = Self::process_control_response(request_id, result);
 							sender.send(response).await?;
+						},
+						tg::process::control::ServerRequestArg::Close(id) => {
+							output_sender.send(output::Message::Close(id)).await.ok();
+							let response = Self::process_control_response(
+								request_id,
+								Ok(tg::process::control::ClientResponseOutput::Close),
+							);
+							sender.send_low(response).await?;
 						},
 						tg::process::control::ServerRequestArg::Finish(finish) => {
 							let result = (|| match &self.context.principal {
@@ -464,9 +478,17 @@ impl Session {
 									))
 									.await?;
 							} else {
-								output_sender.send((request_id, read)).await.map_err(|_| {
-									tg::error!("failed to queue the process output request")
-								})?;
+								let message = output::Message::Read {
+									arg: read,
+									id: request_id.clone(),
+								};
+								if output_sender.send(message).await.is_err() {
+									let error =
+										tg::error!("the process output reader has finished");
+									let response =
+										Self::process_control_response(request_id, Err(error));
+									sender.send_low(response).await?;
+								}
 							}
 						},
 						tg::process::control::ServerRequestArg::ReleaseLease(arg) => {
@@ -475,27 +497,6 @@ impl Session {
 								.map(tg::process::control::ClientResponseOutput::ReleaseLease);
 							let response = Self::process_control_response(request_id, result);
 							sender.send(response).await?;
-						},
-						tg::process::control::ServerRequestArg::Write(write) => {
-							match write.chunk.stream {
-								tg::process::stdio::Stream::Stdin => {
-									stdin_sender.send((request_id, write)).await.map_err(|_| {
-										tg::error!("failed to queue the process stdin request")
-									})?;
-								},
-								tg::process::stdio::Stream::Stdout
-								| tg::process::stdio::Stream::Stderr => {
-									let error = tg::error!(
-										"cannot write to the stdout or stderr of a process"
-									);
-									sender
-										.send_low(Self::process_control_response(
-											request_id,
-											Err(error),
-										))
-										.await?;
-								},
-							}
 						},
 						tg::process::control::ServerRequestArg::Signal(signal) => {
 							signal_sender
@@ -510,12 +511,25 @@ impl Session {
 								tg::error!("failed to queue the process tty request")
 							})?;
 						},
+						tg::process::control::ServerRequestArg::Write(write) => {
+							stdin_sender.send((request_id, write)).await.map_err(|_| {
+								tg::error!("failed to queue the process stdin request")
+							})?;
+						},
 					}
 				},
 				tg::process::control::ServerMessage::Response(_) => {},
 				tg::process::control::ServerMessage::Ack(_) => unreachable!(),
 				tg::process::control::ServerMessage::Notification(notification) => {
-					match notification {}
+					match notification {
+						tg::process::control::ServerNotification::Read(notification) => {
+							// Consumption progress may arrive after the reader has sent its terminal response.
+							output_sender
+								.send(output::Message::Progress(notification))
+								.await
+								.ok();
+						},
+					}
 				},
 			}
 		}

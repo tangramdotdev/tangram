@@ -17,36 +17,74 @@ use {
 	derive_more::Unwrap,
 	serde::Deserialize,
 	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Event<T> {
+	#[tangram_serialize(id = 0)]
 	Diagnostic(tg::diagnostic::Data),
+	#[tangram_serialize(id = 1)]
 	Indicators(Vec<Indicator>),
+	#[tangram_serialize(id = 2)]
 	Log(Log),
+	#[tangram_serialize(id = 3)]
 	Output(T),
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Indicator {
+	#[tangram_serialize(id = 0)]
 	pub current: Option<u64>,
+	#[tangram_serialize(id = 1)]
 	pub format: IndicatorFormat,
+	#[tangram_serialize(id = 2)]
 	pub name: String,
+	#[tangram_serialize(id = 3)]
 	pub title: String,
+	#[tangram_serialize(id = 4)]
 	pub total: Option<u64>,
 }
 
-#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum IndicatorFormat {
-	Normal,
+	#[tangram_serialize(id = 0)]
 	Bytes,
+	#[tangram_serialize(id = 1)]
+	Normal,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Log {
+	#[tangram_serialize(id = 0)]
 	pub level: Option<Level>,
+	#[tangram_serialize(id = 1)]
 	pub message: String,
 }
 
@@ -55,16 +93,22 @@ pub struct Log {
 	Debug,
 	derive_more::Display,
 	derive_more::FromStr,
-	serde_with::SerializeDisplay,
 	serde_with::DeserializeFromStr,
+	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
 pub enum Level {
-	Success,
-	Info,
-	Warning,
+	#[tangram_serialize(id = 0)]
 	Error,
+	#[tangram_serialize(id = 1)]
+	Info,
+	#[tangram_serialize(id = 2)]
+	Success,
+	#[tangram_serialize(id = 3)]
+	Warning,
 }
 
 impl<T> Event<T> {

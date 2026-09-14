@@ -1,7 +1,7 @@
 use {
 	super::Stream,
 	crate::prelude::*,
-	futures::{StreamExt as _, stream},
+	futures::StreamExt as _,
 	num::ToPrimitive as _,
 	std::{
 		marker::PhantomData,
@@ -16,16 +16,11 @@ pub struct Writer(Arc<Mutex<State>>);
 
 struct State {
 	fd: Option<Fd>,
-	input: Option<async_channel::Sender<Input>>,
+	input: Option<async_channel::Sender<tg::process::stdio::write::Input>>,
 	position: u64,
 	process: Option<Weak<tg::process::handle::Inner>>,
 	stream: Stream,
 	task: Option<Task<tg::Result<()>>>,
-}
-
-struct Input {
-	acknowledgment: tokio::sync::oneshot::Sender<()>,
-	chunk: tg::process::stdio::Chunk,
 }
 
 enum Fd {
@@ -129,10 +124,10 @@ impl Writer {
 			stream_position: state.position,
 			timestamp: None,
 		};
-		let (acknowledgment, receiver) = tokio::sync::oneshot::channel();
-		let input = Input {
-			acknowledgment,
+		let (completion, receiver) = tokio::sync::oneshot::channel();
+		let input = tg::process::stdio::write::Input {
 			chunk,
+			completion: Some(completion),
 		};
 		if state.input.as_ref().unwrap().send(input).await.is_err() {
 			return Self::wait_for_task_error(&mut state).await;
@@ -172,31 +167,25 @@ impl Writer {
 	where
 		H: tg::Handle,
 	{
+		let process = state
+			.process
+			.as_ref()
+			.and_then(Weak::upgrade)
+			.ok_or_else(|| tg::error!("the process is not available"))?;
+		let handle_process = crate::process::handle::Process::<tg::Value>(process, PhantomData);
+		let handle = handle_process.handle_with_handle(handle);
 		let (location, process, tokens) =
-			ensure_process_with_handle(state.process.clone(), handle).await?;
-		let arg = tg::process::stdio::write::Arg {
+			ensure_process_with_handle(state.process.clone(), &handle).await?;
+		let arg = tg::process::stdio::write::stream::Arg {
 			location,
 			streams: vec![state.stream],
 			tokens,
 		};
-		let (sender, receiver) = async_channel::bounded::<Input>(1);
-		let input = stream::unfold(
-			(receiver, None),
-			|(receiver, acknowledgment): (_, Option<tokio::sync::oneshot::Sender<()>>)| async move {
-				if let Some(acknowledgment) = acknowledgment {
-					acknowledgment.send(()).ok();
-				}
-				let input = receiver.recv().await.ok()?;
-				let chunk = input.chunk;
-				let acknowledgment = Some(input.acknowledgment);
-
-				Some((Ok(chunk), (receiver, acknowledgment)))
-			},
-		)
-		.boxed();
+		let (sender, receiver) = async_channel::bounded::<tg::process::stdio::write::Input>(1);
+		let input = receiver.map(Ok).boxed();
 		let handle = handle.clone();
 		let task = Task::spawn(move |_| async move {
-			handle.write_process_stdio_all(&process, arg, input).await
+			tg::process::stdio::write::all(&handle, &process, arg, input).await
 		});
 		state.input = Some(sender);
 		state.task = Some(task);
@@ -242,7 +231,13 @@ where
 		.and_then(|process| process.upgrade())
 		.ok_or_else(|| tg::error!("the process is not available"))?;
 	let handle_process = crate::process::handle::Process::<tg::Value>(process.clone(), PhantomData);
-	handle_process.ensure_location_with_handle(handle).await?;
+	if process
+		.connection
+		.as_ref()
+		.is_none_or(tg::process::connect::Connection::detached)
+	{
+		handle_process.ensure_location_with_handle(handle).await?;
+	}
 	let location = process.location.read().unwrap().clone();
 	let tokens = process.tokens.read().unwrap().clone();
 	let id = process

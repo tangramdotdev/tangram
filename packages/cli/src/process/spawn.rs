@@ -394,9 +394,17 @@ impl Cli {
 		}
 
 		let output = self
-			.spawn(args.options, args.reference, args.trailing, false)
+			.spawn(
+				args.options,
+				args.reference,
+				args.trailing,
+				false,
+				tg::process::connect::Mode::Spawn,
+			)
 			.boxed()
 			.await?;
+
+		output.node().detach().await?;
 
 		if args.verbose {
 			let output = tg::process::spawn::Output {
@@ -424,6 +432,7 @@ impl Cli {
 		reference: Option<tg::Reference>,
 		trailing: Vec<String>,
 		print: bool,
+		mode: tg::process::connect::Mode,
 	) -> tg::Result<tg::Referent<tg::Process>> {
 		let InnerOutput {
 			arg,
@@ -434,19 +443,21 @@ impl Cli {
 			tag,
 		} = self.spawn_inner(options, reference, trailing).await?;
 
-		let process = tg::Process::spawn_with_progress_with_handle(&client, arg, |stream| {
-			self.render_progress_stream_with_output(stream, |cli, output| {
-				if print && sandboxed {
-					let mut message = output.process.to_string();
-					if let Some(lease) = &output.lease {
-						write!(message, " {lease}").unwrap();
+		let options = tg::process::spawn::Options { mode };
+		let process =
+			tg::Process::spawn_with_progress_with_handle(&client, arg, options, |stream| {
+				self.render_progress_stream_with_output(stream, |cli, output| {
+					if print && sandboxed {
+						let mut message = output.process.to_string();
+						if let Some(lease) = &output.lease {
+							write!(message, " {lease}").unwrap();
+						}
+						cli.print_info_message(&message);
 					}
-					cli.print_info_message(&message);
-				}
+				})
 			})
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
+			.await
+			.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 
 		// Tag the process if requested.
 		let ancestors = tag.ancestors();
