@@ -10,6 +10,10 @@ let server = server spawn --config {
 			subtree: { max_objects: 0 }
 		}
 	}
+	tracing: {
+		filter: 'tangram=info,tangram_index::authorize=debug'
+		stderr_format: 'json'
+	}
 }
 
 let alice = tg login --verbose --name alice | from json
@@ -33,3 +37,14 @@ let availability = tg --token $bob.token availability $directory | complete
 success $availability "Bob should read the directory availability even when its optional subtree authorization is indeterminate."
 let availability = $availability.stdout | from json
 assert equal ($availability | columns) [] "Bob should not see the directory subtree availability."
+
+server stop $server
+let event = open --raw $server.log
+	| lines
+	| where ($it | str starts-with '{')
+	| each { from json }
+	| where $it.fields.message? == 'authorize permission indeterminate'
+	| where $it.fields.resource? == $directory
+	| last
+assert equal $event.fields.authorized 'object_node'
+assert equal $event.fields.indeterminate 'object_subtree'
