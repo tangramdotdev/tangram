@@ -699,6 +699,8 @@ impl index::Index for Index {
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<Vec<index::log::Entry>> {
+		#[cfg(not(feature = "foundationdb"))]
+		let _ = (partition_start, partition_end);
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {
@@ -739,6 +741,8 @@ impl index::Index for Index {
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<index::update::Output> {
+		#[cfg(not(feature = "foundationdb"))]
+		let _ = (partition_start, partition_end);
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => {

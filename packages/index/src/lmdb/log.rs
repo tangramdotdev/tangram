@@ -126,11 +126,12 @@ impl Index {
 				.try_into()
 				.map_err(|_| tg::error!("invalid log compaction identity"))?,
 		);
-		let crate::log::Position::Lmdb {
-			version: entry_version,
-		} = entry.position
-		else {
-			return Err(tg::error!("unexpected log compaction position"));
+		let entry_version = match &entry.position {
+			#[cfg(feature = "foundationdb")]
+			crate::log::Position::Fdb { .. } => {
+				return Err(tg::error!("unexpected log compaction position"));
+			},
+			crate::log::Position::Lmdb { version } => *version,
 		};
 		if Self::log_compaction_version(version) != entry_version {
 			return Ok(());

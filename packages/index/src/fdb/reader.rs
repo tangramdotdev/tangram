@@ -263,6 +263,7 @@ impl Index {
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetProcessNodeChildren(output)
 			},
+			#[cfg(feature = "lmdb")]
 			crate::read::Request::LmdbLogCompactionBatch { .. } => {
 				return Err(tg::error!("unexpected LMDB read request"));
 			},

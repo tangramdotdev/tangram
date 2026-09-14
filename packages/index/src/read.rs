@@ -15,6 +15,7 @@ pub(crate) enum Request {
 	ContainsIds {
 		ids: Vec<tg::Id>,
 	},
+	#[cfg(feature = "foundationdb")]
 	FdbLogCompactionBatch {
 		batch_size: usize,
 		partition_end: u64,
@@ -38,6 +39,7 @@ pub(crate) enum Request {
 	ListSandboxesForOwner {
 		owner: tg::Principal,
 	},
+	#[cfg(feature = "lmdb")]
 	LmdbLogCompactionBatch {
 		batch_size: usize,
 	},
