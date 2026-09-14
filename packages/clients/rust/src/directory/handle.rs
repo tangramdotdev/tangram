@@ -4,6 +4,8 @@ use {
 	std::{collections::BTreeMap, path::Path, sync::Arc},
 };
 
+const MAX_SYMLINKS: usize = 40;
+
 #[derive(Clone, Debug)]
 pub struct Directory {
 	state: tg::object::State,
@@ -666,7 +668,7 @@ impl Directory {
 			// Follow symlinks without dropping the remaining path or allowing cycles to loop indefinitely.
 			while let tg::Artifact::Symlink(symlink) = &artifact {
 				symlinks += 1;
-				if symlinks > 40 {
+				if symlinks > MAX_SYMLINKS {
 					return Err(tg::error!("too many symlinks"));
 				}
 				let target = symlink.artifact_with_handle(handle).await?.clone();
