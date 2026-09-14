@@ -601,6 +601,7 @@ impl Directory {
 		H: tg::Handle,
 	{
 		let mut path = path.as_ref().to_owned();
+		let mut symlinks = 0;
 
 		// Track the current artifact and its edge.
 		let mut artifact: tg::Artifact = self.clone().into();
@@ -662,27 +663,30 @@ impl Directory {
 			artifact.inherit_location(directory.state().location().as_ref());
 			artifact.inherit_tokens(&directory.state().tokens());
 
-			// Handle a symlink.
-			if let tg::Artifact::Symlink(symlink) = &artifact {
-				let mut artifact_ = symlink.artifact_with_handle(handle).await?.clone();
-				if let Some(tg::Artifact::Symlink(symlink)) = artifact_ {
-					artifact_ = Box::pin(symlink.try_resolve_with_handle(handle)).await?;
+			// Follow symlinks without dropping the remaining path or allowing cycles to loop indefinitely.
+			while let tg::Artifact::Symlink(symlink) = &artifact {
+				symlinks += 1;
+				if symlinks > 40 {
+					return Err(tg::error!("too many symlinks"));
 				}
-				let path_ = symlink.path_with_handle(handle).await?.clone();
-				match (artifact_, path_) {
-					(None, Some(path_)) => {
+				let target = symlink.artifact_with_handle(handle).await?.clone();
+				let target_path = symlink.path_with_handle(handle).await?.clone();
+				match (target, target_path) {
+					(None, Some(target_path)) => {
 						let parent = parents
 							.pop()
 							.ok_or_else(|| tg::error!("the path is external"))?;
-						artifact = parent.clone().into();
+						artifact = parent.into();
 						edge = tg::graph::Edge::Object(artifact.clone());
-						path = path_.join(path);
+						path = target_path.join(path);
 					},
-					(Some(artifact), None) => {
-						return Ok(Some(tg::graph::Edge::Object(artifact)));
-					},
-					(Some(tg::Artifact::Directory(directory)), Some(path)) => {
-						return Box::pin(directory.try_get_edge_with_handle(handle, path)).await;
+					(Some(target), target_path) => {
+						artifact = target;
+						edge = tg::graph::Edge::Object(artifact.clone());
+						parents.clear();
+						if let Some(target_path) = target_path {
+							path = target_path.join(path);
+						}
 					},
 					_ => {
 						return Err(tg::error!("invalid symlink"));

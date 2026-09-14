@@ -102,21 +102,6 @@ impl Template {
 			.await?
 			.join(""))
 	}
-
-	pub fn unrender(prefix: &str, string: &str) -> tg::Result<Self> {
-		let data = Data::unrender(prefix, string)?;
-		let components = data.components.into_iter().map(|data| match data {
-			tg::template::data::Component::Artifact(referent) => {
-				let artifact = tg::Artifact::with_referent(referent);
-				Component::Artifact(artifact)
-			},
-			tg::template::data::Component::String(string) => Component::String(string),
-			tg::template::data::Component::Placeholder(data) => {
-				Component::Placeholder(tg::Placeholder { name: data.name })
-			},
-		});
-		Ok(Self::with_components(components))
-	}
 }
 
 impl Component {
@@ -205,42 +190,5 @@ impl From<tg::File> for Component {
 impl From<tg::Symlink> for Component {
 	fn from(value: tg::Symlink) -> Self {
 		Self::Artifact(value.into())
-	}
-}
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-
-	// Unrendering a store path back into a template splits it into the surrounding string and artifact components.
-	#[test]
-	fn unrender() {
-		let id = "dir_010000000000000000000000000000000000000000000000000000"
-			.parse()
-			.unwrap();
-		let string = format!("foo /path/to/.tangram/store/{id} bar");
-		let template = tg::Template::unrender("/path/to/.tangram/store", &string).unwrap();
-
-		let left = template.components().first().unwrap().unwrap_string_ref();
-		let right = "foo ";
-		assert_eq!(left, right);
-
-		let left = template
-			.components()
-			.get(1)
-			.unwrap()
-			.unwrap_artifact_ref()
-			.unwrap_directory_ref()
-			.state()
-			.try_get_id()
-			.unwrap()
-			.try_unwrap_directory()
-			.unwrap();
-		let right = id;
-		assert_eq!(left, right);
-
-		let left = template.components().get(2).unwrap().unwrap_string_ref();
-		let right = " bar";
-		assert_eq!(left, right);
 	}
 }

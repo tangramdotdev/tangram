@@ -86,21 +86,24 @@ where
 				.await?
 				.into_iter()
 				.map(|(name, object)| {
-					let mut child = tg::Referent {
-						node: object.into(),
-						options: tg::referent::Options {
-							path: Some(
-								referent
-									.path()
-									.map_or_else(|| name.clone().into(), |p| p.join(&name)),
-							),
-							..tg::referent::Options::default()
-						},
+					// Preserve the root and its tokens whenever the child inherits an artifact-relative path.
+					let path = referent
+						.path()
+						.map_or_else(|| name.clone().into(), |path| path.join(&name));
+					let tag = if inherit {
+						referent.options.tag.clone()
+					} else {
+						None
 					};
-					if inherit {
-						child.inherit(&referent);
-					}
-					child
+					let options = tg::referent::Options {
+						id: referent.options.id.clone(),
+						location: referent.options.location.clone(),
+						path: Some(path),
+						tag,
+						tokens: referent.options.tokens.clone(),
+						..Default::default()
+					};
+					tg::Referent::new(object.into(), options)
 				})
 				.collect::<Vec<_>>(),
 			tg::Object::File(file) => file

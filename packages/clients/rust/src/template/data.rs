@@ -106,42 +106,6 @@ impl Template {
 		}
 		string
 	}
-
-	pub fn unrender(prefix: &str, string: &str) -> tg::Result<Self> {
-		// Create the regex.
-		let prefix = regex::escape(prefix);
-		let regex =
-			format!(r"{prefix}/((?:dir_|fil_|sym_)01[0123456789abcdefghjkmnpqrstvwxyz]{{52}})");
-		let regex = regex::Regex::new(&regex).unwrap();
-
-		let mut i = 0;
-		let mut components = Vec::new();
-		for captures in regex.captures_iter(string) {
-			// Add the text leading up to the capture as a string component.
-			let match_ = captures.get(0).unwrap();
-			if match_.start() > i {
-				components.push(Component::String(string[i..match_.start()].to_owned()));
-			}
-
-			// Get and parse the ID.
-			let id = captures.get(1).unwrap();
-			let id: tg::artifact::Id = id.as_str().parse().unwrap();
-
-			// Add an artifact component.
-			components.push(Component::Artifact(tg::Referent::with_node(id)));
-
-			// Advance the cursor to the end of the match.
-			i = match_.end();
-		}
-
-		// Add the remaining text as a string component.
-		if i < string.len() {
-			components.push(Component::String(string[i..].to_owned()));
-		}
-
-		// Create the template.
-		Ok(Self { components })
-	}
 }
 
 impl From<tg::artifact::Id> for Component {

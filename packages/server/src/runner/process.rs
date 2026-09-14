@@ -1985,28 +1985,28 @@ impl Session {
 			})
 			.collect::<Vec<tg::Referent<tg::artifact::Id>>>();
 
-		// Track each artifact's verified subtree token for the per-sandbox VFS.
+		// Track each artifact's verified subtree token for store path checkin and the VFS.
+		let permissions =
+			tg::authorization::permission::Set::from(tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			));
+		let tokens = artifacts.iter().flat_map(|artifact| {
+			artifact
+				.options
+				.tokens
+				.local()
+				.iter()
+				.filter_map(move |token| {
+					let resource =
+						tg::Selector::Id(tg::object::Id::from(artifact.node.clone()).into());
+					self.authorize_token(&resource, permissions, token)
+						.then(|| (artifact.node.clone(), token.clone()))
+				})
+		});
+		if let Some(mut state) = self.server.runner.state.sandboxes.get_mut_by_id(sandbox) {
+			state.tokens.extend(tokens);
+		}
 		if self.server.vfs.lock().unwrap().is_some() {
-			let permissions =
-				tg::authorization::permission::Set::from(tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Subtree,
-				));
-			let tokens = artifacts.iter().flat_map(|artifact| {
-				artifact
-					.options
-					.tokens
-					.local()
-					.iter()
-					.filter_map(move |token| {
-						let resource =
-							tg::Selector::Id(tg::object::Id::from(artifact.node.clone()).into());
-						self.authorize_token(&resource, permissions, token)
-							.then(|| (artifact.node.clone(), token.clone()))
-					})
-			});
-			if let Some(mut state) = self.server.runner.state.sandboxes.get_mut_by_id(sandbox) {
-				state.tokens.extend(tokens);
-			}
 			return Ok(());
 		}
 
