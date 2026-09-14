@@ -1,12 +1,3 @@
-//! Read and write Tangram's public dependency and authorization xattr schema.
-//!
-//! `user.tangram.dependencies` contains a JSON array of reference strings.
-//! Larger values use `user.tangram.dependencies.0`, `.1`, and so on, whose bytes are concatenated in numeric order.
-//! The shard indices must be contiguous and canonical, and the unsharded and sharded forms cannot coexist.
-//! `user.tangram.token` contains a UTF-8 authorization token; parsing does not verify its signature or expiration.
-//!
-//! The writer accepts required attributes as encoded bytes so they share the filesystem's space budget with dependencies and tokens.
-
 use {crate::prelude::*, std::path::Path};
 
 mod dependencies;
@@ -18,16 +9,14 @@ pub use self::dependencies::{
 	is_dependencies_xattr_name, try_read_dependencies_xattrs,
 };
 
-/// The metadata to write to a checkout.
 #[derive(Clone, Copy, Debug)]
 pub struct Arg<'a> {
-	/// The dependency references and their tokens; `None` removes the attributes, and `Some(&[])` writes an empty list.
+	/// `None` removes the attributes; `Some(&[])` writes an empty list.
 	pub dependencies: Option<&'a [tg::Reference]>,
-	/// The required attributes, such as the module kind and serialized lock.
-	/// A `None` value removes the attribute, and the unlisted attributes are preserved.
-	/// The dependency and token attributes must use their dedicated fields.
+
+	/// Only the listed attributes are modified; `None` removes an attribute.
 	pub required: &'a [(&'a str, Option<&'a [u8]>)],
-	/// The file's authorization token.
+
 	pub token: Option<&'a tg::authorization::Token>,
 }
 
@@ -37,17 +26,12 @@ pub struct Options {
 	pub max_value_size: usize,
 }
 
-/// The dependency and authorization metadata recovered from a checkout.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Output {
-	/// The retained dependency references, or `None` if the attributes are absent.
 	pub dependencies: Option<Vec<tg::Reference>>,
-	/// The file's authorization token, without signature or expiration validation.
 	pub token: Option<tg::authorization::Token>,
 }
 
-/// Read the dependency and authorization xattrs, following symlinks.
-/// `None` represents an absent attribute; malformed or unreadable metadata returns an error.
 pub fn read(path: impl AsRef<Path>) -> tg::Result<Output> {
 	// List the attributes.
 	let path = path.as_ref();
@@ -56,11 +40,13 @@ pub fn read(path: impl AsRef<Path>) -> tg::Result<Output> {
 			|error| tg::error!(!error, path = %path.display(), "failed to list the checkout xattrs"),
 		)?
 		.collect::<Vec<_>>();
-	let token = names.iter().any(|name| name == tg::file::TOKEN_XATTR_NAME);
+	let has_token = names.iter().any(|name| name == tg::file::TOKEN_XATTR_NAME);
 
-	// Read the dependencies and the file token.
+	// Read the dependencies.
 	let dependencies = try_read_dependencies_xattrs(names, |name| xattr::get_deref(path, name))?;
-	let token = if token {
+
+	// Read the token.
+	let token = if has_token {
 		let value = xattr::get_deref(path, tg::file::TOKEN_XATTR_NAME)
 			.map_err(|error| tg::error!(!error, "failed to read the file token xattr"))?
 			.ok_or_else(|| tg::error!("the file token xattr disappeared"))?;
@@ -78,22 +64,9 @@ pub fn read(path: impl AsRef<Path>) -> tg::Result<Output> {
 	Ok(output)
 }
 
-/// Parse a token xattr without verifying its signature or expiration.
-pub fn deserialize_token_xattr(value: &[u8]) -> tg::Result<tg::authorization::Token> {
-	let value = std::str::from_utf8(value)
-		.map_err(|error| tg::error!(!error, "the file token xattr is not valid utf-8"))?;
-	let token = value
-		.parse()
-		.map_err(|error| tg::error!(!error, "failed to parse the file token xattr"))?;
-	Ok(token)
-}
-
-/// Write the checkout xattrs, following symlinks and replacing the previous dependency shards.
-/// The required attributes take priority, followed by the dependency references and then the tokens.
-/// The tokens may be omitted when the filesystem lacks space, but the dependency references are retained.
-/// An error may leave partially written metadata.
+/// The write may omit tokens to fit the xattr limits and may leave partial metadata on error.
 pub fn write(path: impl AsRef<Path>, arg: Arg<'_>, options: Options) -> tg::Result<()> {
-	// Validate the arg and options before modifying the file.
+	// Validate the arg.
 	let path = path.as_ref();
 	if options.max_value_size == 0 {
 		return Err(tg::error!(
@@ -116,11 +89,11 @@ pub fn write(path: impl AsRef<Path>, arg: Arg<'_>, options: Options) -> tg::Resu
 		}
 	}
 
-	// Remove the optional xattrs that may have been copied with the file.
+	// Remove the optional xattrs.
 	remove_dependencies_xattrs(path)?;
 	remove_xattr(path, tg::file::TOKEN_XATTR_NAME)?;
 
-	// Reserve space for the required attributes before writing the optional metadata.
+	// Write the required xattrs first to reserve space for them.
 	for (name, _) in required {
 		remove_xattr(path, name)?;
 	}
@@ -146,39 +119,46 @@ pub fn write(path: impl AsRef<Path>, arg: Arg<'_>, options: Options) -> tg::Resu
 		false
 	};
 
-	let Some(references) = dependencies else {
+	// Write the dependencies.
+	let Some(dependencies) = dependencies else {
 		return Ok(());
 	};
-
-	// Try the representations that retain the file token.
-	if token.is_none() || token_written {
-		if write_dependencies_xattrs(path, references, options.max_value_size)? {
-			return Ok(());
-		}
-		let references = references
-			.iter()
-			.cloned()
-			.map(tg::Reference::without_tokens)
-			.collect::<Vec<_>>();
-		if write_dependencies_xattrs(path, &references, options.max_value_size)? {
-			return Ok(());
-		}
+	if (token.is_none() || token_written)
+		&& write_dependencies_xattrs(path, dependencies, options.max_value_size)?
+	{
+		return Ok(());
 	}
 
-	// Make one final attempt without any authorization tokens.
-	remove_xattr(path, tg::file::TOKEN_XATTR_NAME)?;
-	let references = references
+	// Omit the dependency tokens.
+	let dependencies = dependencies
 		.iter()
 		.cloned()
 		.map(tg::Reference::without_tokens)
 		.collect::<Vec<_>>();
-	if write_dependencies_xattrs(path, &references, options.max_value_size)? {
+	if (token.is_none() || token_written)
+		&& write_dependencies_xattrs(path, &dependencies, options.max_value_size)?
+	{
 		return Ok(());
 	}
 
-	Err(tg::error!(
-		"the dependencies do not fit in the available xattr space"
-	))
+	// Omit the file token.
+	remove_xattr(path, tg::file::TOKEN_XATTR_NAME)?;
+	if !write_dependencies_xattrs(path, &dependencies, options.max_value_size)? {
+		return Err(tg::error!(
+			"the dependencies do not fit in the available xattr space"
+		));
+	}
+
+	Ok(())
+}
+
+pub fn deserialize_token_xattr(value: &[u8]) -> tg::Result<tg::authorization::Token> {
+	let value = std::str::from_utf8(value)
+		.map_err(|error| tg::error!(!error, "the file token xattr is not valid utf-8"))?;
+	let token = value
+		.parse()
+		.map_err(|error| tg::error!(!error, "failed to parse the file token xattr"))?;
+	Ok(token)
 }
 
 impl Default for Options {
@@ -208,7 +188,7 @@ fn write_dependencies_xattrs(
 			return Ok(true);
 		};
 
-		// Remove the partial metadata before retrying with smaller shards or fewer tokens.
+		// Remove the partial xattrs before retrying.
 		remove_dependencies_xattrs(path)?;
 		if is_value_size_error(&error) && max_value_size > 1 {
 			max_value_size /= 2;
