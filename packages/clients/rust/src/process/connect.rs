@@ -204,35 +204,32 @@ pub enum ServerResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
-	#[serde(default)]
-	#[tangram_serialize(default, id = 0)]
-	pub reads: std::collections::BTreeMap<u64, tg::process::stdio::read::Arg>,
-	#[tangram_serialize(id = 1)]
-	pub target: Target,
-}
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub lease: Option<String>,
 
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum Target {
-	#[tangram_serialize(id = 0)]
-	Existing {
-		id: tg::process::Id,
-		#[serde(flatten)]
-		options: tg::process::wait::Arg,
-	},
-	#[tangram_serialize(id = 1)]
-	Spawn {
-		arg: Box<tg::process::spawn::Arg>,
-		#[serde(default)]
-		mode: Mode,
-	},
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+
+	#[serde(default)]
+	#[tangram_serialize(default, id = 2)]
+	pub mode: Mode,
+
+	#[tangram_serialize(id = 3)]
+	pub process: tg::Either<Box<tg::process::spawn::Arg>, tg::process::Id>,
+
+	#[serde(default)]
+	#[tangram_serialize(default, id = 4)]
+	pub reads: std::collections::BTreeMap<u64, tg::process::stdio::read::Arg>,
+
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 5,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(
@@ -352,17 +349,13 @@ impl<O: 'static> tg::Process<O> {
 				(index as u64 + 1, arg)
 			})
 			.collect();
-		let wait = tg::process::wait::Arg {
-			lease: options.lease.clone(),
-			location: options.location.clone(),
-			tokens: options.tokens.clone(),
-		};
 		let arg = Arg {
+			lease: options.lease,
+			location: options.location,
+			mode: Mode::Run,
+			process: tg::Either::Right(id.clone()),
 			reads,
-			target: Target::Existing {
-				id: id.clone(),
-				options: wait,
-			},
+			tokens: options.tokens,
 		};
 		let (connection, progress) = Connection::open(handle, arg).await?;
 		let output = progress

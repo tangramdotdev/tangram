@@ -676,9 +676,13 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 			reads[Object.keys(reads).length + 1] = { streams: ["stderr"] };
 		}
 	}
+	let spawnLocation = spawnArg.location ?? null;
+	delete spawnArg.location;
 	let opened = await Connection.open({
+		location: spawnLocation,
+		mode,
+		process: spawnArg,
 		reads,
-		target: { kind: "spawn", value: { arg: spawnArg, mode } },
 	});
 	let output = opened.output;
 	let connection = mode === "run" ? opened.connection : null;

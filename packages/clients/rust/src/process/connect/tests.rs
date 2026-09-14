@@ -20,10 +20,11 @@ impl MockConnection {
 		let ClientRequestArg::Connect(arg) = request.arg else {
 			panic!("expected the opening request");
 		};
-		let Target::Existing { id: process_id, .. } = &arg.target else {
+		let tg::Either::Right(process_id) = &arg.process else {
 			panic!("expected to connect to the existing process");
 		};
 		assert_eq!(process_id, id);
+		assert_eq!(arg.mode, Mode::Run);
 		let output = tg::process::spawn::Output {
 			cached: false,
 			lease: None,
@@ -64,11 +65,12 @@ async fn handles_preserve_not_found() {
 	let handles = [tg::Either::Left(client), tg::Either::Right(session)];
 	let input = || {
 		let arg = Arg {
+			lease: None,
+			location: None,
+			mode: Mode::Run,
+			process: tg::Either::Right(tg::process::Id::new()),
 			reads: BTreeMap::new(),
-			target: Target::Existing {
-				id: tg::process::Id::new(),
-				options: tg::process::wait::Arg::default(),
-			},
+			tokens: tg::authorization::Tokens::default(),
 		};
 		let request = ClientRequest {
 			arg: ClientRequestArg::Connect(arg),
@@ -279,17 +281,21 @@ fn opening_metadata_preserves_read_options() {
 		timeout: Some(Duration::new(2, 1)),
 		..Default::default()
 	};
+	let id = tg::process::Id::new();
 	let arg = Arg {
+		lease: Some("lease".to_owned()),
+		location: Some("remote:test".parse().unwrap()),
+		mode: Mode::Run,
+		process: tg::Either::Right(id.clone()),
 		reads: BTreeMap::from([(1, read)]),
-		target: Target::Existing {
-			id: tg::process::Id::new(),
-			options: tg::process::wait::Arg {
-				lease: Some("lease".to_owned()),
-				location: Some("remote:test".parse().unwrap()),
-				..Default::default()
-			},
-		},
+		tokens: tg::authorization::Tokens::default(),
 	};
+	let json = serde_json::to_value(&arg).unwrap();
+	assert_eq!(json["process"], id.to_string());
+	assert_eq!(json["mode"], "run");
+	assert_eq!(json["lease"], "lease");
+	assert_eq!(json["location"], "remote:test");
+	assert!(json.get("target").is_none());
 	let request = ClientRequest {
 		arg: ClientRequestArg::Connect(arg),
 		id: 0,
@@ -337,12 +343,17 @@ fn spawn_metadata_uses_native_types() {
 	let mut arg: tg::process::spawn::Arg = serde_json::from_value(arg).unwrap();
 	for mode in [Mode::Run, Mode::Spawn] {
 		let request = Arg {
+			lease: None,
+			location: Some("remote:test".parse().unwrap()),
+			mode,
+			process: tg::Either::Left(Box::new(arg.clone())),
 			reads: BTreeMap::new(),
-			target: Target::Spawn {
-				arg: Box::new(arg.clone()),
-				mode,
-			},
+			tokens: tg::authorization::Tokens::default(),
 		};
+		let json = serde_json::to_value(&request).unwrap();
+		assert_eq!(json["process"], serde_json::to_value(&arg).unwrap());
+		assert_eq!(json["mode"], serde_json::to_value(mode).unwrap());
+		assert!(json.get("target").is_none());
 		assert_roundtrip(&ClientRequestArg::Connect(request));
 		arg.command.node = tg::Either::Right(tg::command::Id::new(b"command"));
 		arg.sandbox = Some(tg::Either::Right(tg::sandbox::Id::new()));

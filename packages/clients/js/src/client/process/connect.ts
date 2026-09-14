@@ -7,11 +7,10 @@ export namespace Connect {
 	export type Options = tg.Process.Wait.Arg & {
 		reads?: Array<tg.Process.Stdio.Read.Arg>;
 	};
-	export type Arg = {
+	export type Arg = tg.Process.Wait.Arg & {
+		mode: Mode;
+		process: tg.Process.Spawn.Arg | tg.Process.Id;
 		reads: { [id: number]: tg.Process.Stdio.Read.Arg };
-		target:
-			| { kind: "existing"; value: tg.Process.Wait.Arg & { id: tg.Process.Id } }
-			| { kind: "spawn"; value: { arg: tg.Process.Spawn.Arg; mode: Mode } };
 	};
 	export type ClientRequestArg =
 		| { kind: "cancel"; value: tg.Process.Cancel.Arg }
@@ -144,27 +143,22 @@ async function* encode(
 			let arg = message.value.arg;
 			let data: unknown = arg;
 			if (arg.kind === "connect") {
-				let target = arg.value.target;
+				let process = arg.value.process;
 				data = {
 					kind: arg.kind,
-					value: {
+					value: locationArg({
+						...arg.value,
+						process:
+							typeof process === "string"
+								? process
+								: tg.Process.Spawn.Arg.toJson(process),
 						reads: Object.fromEntries(
 							Object.entries(arg.value.reads).map(([id, arg]) => [
 								id,
 								stdioArg(arg),
 							]),
 						),
-						target:
-							target.kind === "spawn"
-								? {
-										kind: "spawn",
-										value: {
-											arg: tg.Process.Spawn.Arg.toJson(target.value.arg),
-											mode: target.value.mode,
-										},
-									}
-								: { kind: "existing", value: locationArg(target.value) },
-					},
+					}),
 				};
 			} else if (arg.kind === "read") {
 				data = { kind: arg.kind, value: stdioArg(arg.value) };

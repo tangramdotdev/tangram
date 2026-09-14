@@ -82,9 +82,8 @@ impl Connection {
 			return Ok(());
 		}
 		// Reopen the selected process, and include the read that requires this connection.
-		let target = session.target()?;
-		let reads = read.into_iter().map(|arg| (1, arg)).collect();
-		let arg = Arg { reads, target };
+		let mut arg = session.arg()?;
+		arg.reads = read.into_iter().map(|arg| (1, arg)).collect();
 		let (next, progress) = Session::open(&self.inner.handle, arg).await?;
 		progress
 			.try_last()

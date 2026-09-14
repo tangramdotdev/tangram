@@ -107,28 +107,22 @@ request.on("response", (response) => {
 	response.on("end", () => finish());
 });
 try {
-	const target =
-		mode === "cached"
-			? {
-					kind: "spawn",
-					value: {
-						arg: {
-							cached: true,
-							command: { node: id },
-							sandbox: {},
-							stdin: "null",
-							stdout: "log",
-							stderr: "log",
-						},
-						mode: "run",
-					},
-				}
-			: {
-					kind: "existing",
-					value: { id, ...(lease === "none" ? {} : { lease }), location },
-				};
+	const selected = mode === "cached" ? {
+		cached: true,
+		command: { node: id },
+		sandbox: {},
+		stderr: "log",
+		stdin: "null",
+		stdout: "log",
+	} : id;
 	const reads = mode === "cached" ? { 1: { streams: "stderr" } } : {};
-	const output = await send({ kind: "connect", value: { reads, target } });
+	const arg = {
+		...(mode === "cached" ? {} : { lease: lease === "none" ? null : lease, location }),
+		mode: "run",
+		process: selected,
+		reads,
+	};
+	const output = await send({ kind: "connect", value: arg });
 	if (mode === "cached") nextId = 2;
 	assert.equal(output.kind, "connect");
 	connected = true;

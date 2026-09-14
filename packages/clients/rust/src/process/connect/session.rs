@@ -282,7 +282,7 @@ impl Session {
 		self.state.error.lock().unwrap().clone()
 	}
 
-	pub(super) fn target(&self) -> tg::Result<Target> {
+	pub(super) fn arg(&self) -> tg::Result<Arg> {
 		let output = self.state.output.lock().unwrap();
 		let output = output
 			.as_ref()
@@ -293,12 +293,15 @@ impl Session {
 			.right()
 			.cloned()
 			.ok_or_else(|| tg::error!("expected a sandboxed process"))?;
-		let options = tg::process::wait::Arg {
+		let arg = Arg {
 			lease: output.lease.clone(),
 			location: output.location.clone().map(Into::into),
+			mode: Mode::Run,
+			process: tg::Either::Right(id),
+			reads: BTreeMap::new(),
 			tokens: output.tokens.clone(),
 		};
-		Ok(Target::Existing { id, options })
+		Ok(arg)
 	}
 
 	#[must_use]

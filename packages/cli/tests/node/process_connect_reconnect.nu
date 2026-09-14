@@ -64,8 +64,8 @@ let output = timeout 15 node --input-type=module -e '
 		let connection = await connections.next();
 		let opening = await connection.next();
 		assert.equal(opening.arg.kind, "connect");
-		assert.equal(opening.arg.value.target.kind, "existing");
-		assert.equal(opening.arg.value.target.value.id, id);
+		assert.equal(opening.arg.value.mode, "run");
+		assert.equal(opening.arg.value.process, id);
 		connection.response(0, "connect", selected);
 		return { ...connection, reads: opening.arg.value.reads };
 	};

@@ -24,8 +24,7 @@ export class Connection {
 		let { connection: session, output } = await Session.open(arg);
 		session.confirm();
 		let connection = new Connection(session);
-		if (arg.target.kind === "spawn" && arg.target.value.mode === "spawn")
-			connection.close();
+		if (arg.mode === "spawn") connection.close();
 		return { connection, output };
 	}
 
@@ -37,19 +36,15 @@ export class Connection {
 			if (typeof output.process !== "string")
 				throw new Error("expected a sandboxed process");
 			let arg: Connect.Arg = {
+				lease: output.lease ?? null,
+				location:
+					output.location === undefined || output.location === null
+						? null
+						: tg.Location.Arg.fromLocation(output.location),
+				mode: "run",
+				process: output.process,
 				reads: read === undefined ? {} : { 1: read },
-				target: {
-					kind: "existing",
-					value: {
-						id: output.process,
-						lease: output.lease ?? null,
-						location:
-							output.location === undefined || output.location === null
-								? null
-								: tg.Location.Arg.fromLocation(output.location),
-						tokens: output.tokens ?? {},
-					},
-				},
+				tokens: output.tokens ?? {},
 			};
 			this.#opening = Session.open(arg).then(({ connection: session }) => {
 				if (this.#closed) {
@@ -163,16 +158,12 @@ export async function connect<O extends tg.Value>(
 		(options.reads ?? []).map((arg, index) => [index + 1, arg]),
 	);
 	let { connection, output } = await Connection.open({
+		lease: options.lease ?? null,
+		location: options.location ?? null,
+		mode: "run",
+		process: id,
 		reads,
-		target: {
-			kind: "existing",
-			value: {
-				id,
-				lease: options.lease ?? null,
-				location: options.location ?? null,
-				tokens: options.tokens ?? {},
-			},
-		},
+		tokens: options.tokens ?? {},
 	});
 	return new tg.Process<O>({
 		connection,

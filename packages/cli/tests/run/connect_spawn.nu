@@ -15,7 +15,7 @@ let path = artifact {
 							let first = await input.next();
 							tg.assert(!first.done);
 							let opening = JSON.parse(first.value.data);
-							tg.assert(opening.arg.value.target.value.mode === "spawn");
+							tg.assert(opening.arg.value.mode === "spawn");
 							yield [
 								`event: ${first.value.event}`,
 								`data: ${first.value.data}`,

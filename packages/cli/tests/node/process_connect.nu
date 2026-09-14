@@ -158,8 +158,8 @@ let output = timeout 15 node --input-type=module -e '
 	await signalError;
 	await tick();
 	let reconnect = await next();
-	assert.equal(reconnect.value.arg.value.target.kind, "existing");
-	assert.equal(reconnect.value.arg.value.target.value.id, id);
+	assert.equal(reconnect.value.arg.value.mode, "run");
+	assert.equal(reconnect.value.arg.value.process, id);
 	response(0, "connect", {
 		cached: false, lease: null, location: null, process: id, tokens: {}, wait: null,
 	});

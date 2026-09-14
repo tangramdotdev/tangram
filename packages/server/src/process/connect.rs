@@ -88,31 +88,26 @@ impl Session {
 			if arg.reads.len() > MAX_OPERATIONS || arg.reads.contains_key(&request_id) {
 				return Err(tg::error!("invalid initial process reads"));
 			}
-			if matches!(
-				&arg.target,
-				tg::process::connect::Target::Spawn {
-					mode: tg::process::connect::Mode::Spawn,
-					..
-				}
-			) && !arg.reads.is_empty()
-			{
+			if arg.mode == tg::process::connect::Mode::Spawn && !arg.reads.is_empty() {
 				return Err(tg::error!("spawn mode does not support initial reads"));
 			}
 
 			// Resolve the destination.
 			let mut input = Some(input);
-			if matches!(&arg.target, tg::process::connect::Target::Existing { .. }) {
+			if arg.process.is_right() {
 				return self
 					.try_connect_process_inner(arg, request_id, &mut input)
 					.await;
 			}
 
 			// A spawn selects one destination, using the same preparation and routing as spawn.
-			let tg::process::connect::Target::Spawn { arg: spawn, .. } = &mut arg.target else {
+			let tg::Either::Left(spawn) = &mut arg.process else {
 				unreachable!()
 			};
+			spawn.location = arg.location.take().or_else(|| spawn.location.take());
 			let prepared = self.prepare_spawn_process(spawn).await?;
-			let location = self.server.location(spawn.location.as_ref())?;
+			arg.location = spawn.location.clone();
+			let location = self.server.location(arg.location.as_ref())?;
 			if matches!(
 				location,
 				tg::Location::Local(tg::location::Local { region: None })
@@ -148,14 +143,14 @@ impl Session {
 		prepared: spawn::Prepared,
 		sender: &Sender,
 	) -> tg::Result<()> {
-		let tg::process::connect::Target::Spawn { arg: spawn_arg, .. } = &mut arg.target else {
+		let tg::Either::Left(spawn_arg) = &mut arg.process else {
 			unreachable!()
 		};
 		let spawn::Prepared {
 			command,
 			parent_sandbox,
 		} = prepared;
-		let location = self.server.location(spawn_arg.location.as_ref())?;
+		let location = self.server.location(arg.location.as_ref())?;
 		let mut notify = self
 			.try_prepare_spawn_process_for_location(spawn_arg, &location, parent_sandbox.as_ref())
 			.await;
@@ -240,11 +235,8 @@ impl Session {
 		id: u64,
 		input: &mut Option<Input>,
 	) -> tg::Result<Option<Output>> {
-		let tg::process::connect::Target::Existing { options, .. } = &arg.target else {
-			unreachable!()
-		};
 		let locations = self
-			.locations(options.location.as_ref())
+			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 		if let Some(local) = &locations.local {
@@ -283,9 +275,9 @@ impl Session {
 		input: &mut Option<Input>,
 		prepared: Option<spawn::Prepared>,
 	) -> tg::Result<Option<Output>> {
-		let wait = if let tg::process::connect::Target::Existing { id, options } = &arg.target {
+		let wait = if let tg::Either::Right(id) = &arg.process {
 			let Some(wait) = self
-				.try_wait_process_local(id, options.tokens.local().to_vec())
+				.try_wait_process_local(id, arg.tokens.local().to_vec())
 				.await?
 			else {
 				return Ok(None);
@@ -335,29 +327,12 @@ impl Session {
 		} = options;
 		Self::send_connect_ack(high, request_id).await?;
 		let mut pending = VecDeque::new();
-		let (output, mode, location) = match arg.target {
-			tg::process::connect::Target::Existing { id, options } => {
-				let location = tg::Location::Local(tg::location::Local {
-					region: self.server.config.region.clone(),
-				});
-				let output = tg::process::spawn::Output {
-					cached: false,
-					lease: options.lease,
-					location: Some(location.clone()),
-					process: tg::Either::Right(id),
-					tokens: options.tokens,
-					wait: None,
-				};
-				(
-					output,
-					tg::process::connect::Mode::Run,
-					Some(location.into()),
-				)
-			},
-			tg::process::connect::Target::Spawn { arg, mode } => {
+		let mode = arg.mode;
+		let (output, location) = match arg.process {
+			tg::Either::Left(spawn) => {
 				let output = self
 					.connect_process_spawn_local(
-						*arg,
+						*spawn,
 						mode,
 						prepared.unwrap(),
 						&mut input,
@@ -366,7 +341,21 @@ impl Session {
 					)
 					.await?;
 				let location = output.location.clone().map(Into::into);
-				(output, mode, location)
+				(output, location)
+			},
+			tg::Either::Right(id) => {
+				let location = tg::Location::Local(tg::location::Local {
+					region: self.server.config.region.clone(),
+				});
+				let output = tg::process::spawn::Output {
+					cached: false,
+					lease: arg.lease,
+					location: Some(location.clone()),
+					process: tg::Either::Right(id),
+					tokens: arg.tokens,
+					wait: None,
+				};
+				(output, Some(location.into()))
 			},
 		};
 
@@ -387,17 +376,13 @@ impl Session {
 			self.server.location(location.as_ref())?,
 			tg::Location::Local(tg::location::Local { region: None })
 		) {
-			let options = tg::process::wait::Arg {
+			let arg = tg::process::connect::Arg {
 				lease: output.lease.clone(),
 				location,
-				tokens: output.tokens.clone(),
-			};
-			let arg = tg::process::connect::Arg {
+				mode,
+				process: tg::Either::Right(output.process.as_ref().unwrap_right().clone()),
 				reads: arg.reads,
-				target: tg::process::connect::Target::Existing {
-					id: output.process.as_ref().unwrap_right().clone(),
-					options,
-				},
+				tokens: output.tokens.clone(),
 			};
 			let request = tg::process::connect::ClientRequest {
 				arg: tg::process::connect::ClientRequestArg::Connect(arg),
@@ -1324,20 +1309,16 @@ impl Session {
 			tg::process::connect::ClientRequestArg::Close(_)
 			| tg::process::connect::ClientRequestArg::Detach => (),
 			tg::process::connect::ClientRequestArg::Connect(arg) => {
+				arg.location = location.clone();
+				arg.tokens = arg.tokens.for_location(destination);
 				for read in arg.reads.values_mut() {
 					read.location = location.clone();
 					read.tokens = read.tokens.for_location(destination);
 				}
-				match &mut arg.target {
-					tg::process::connect::Target::Existing { options, .. } => {
-						options.location = location;
-						options.tokens = options.tokens.for_location(destination);
-					},
-					tg::process::connect::Target::Spawn { arg, .. } => {
-						arg.location = location;
-						arg.command.options.tokens =
-							arg.command.options.tokens.for_location(destination);
-					},
+				if let tg::Either::Left(spawn) = &mut arg.process {
+					spawn.location = location;
+					spawn.command.options.tokens =
+						spawn.command.options.tokens.for_location(destination);
 				}
 			},
 			tg::process::connect::ClientRequestArg::Read(arg) => {

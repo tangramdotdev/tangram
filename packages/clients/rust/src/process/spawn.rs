@@ -581,11 +581,12 @@ impl<O: 'static> tg::Process<O> {
 			}
 		}
 		let arg = tg::process::connect::Arg {
+			lease: None,
+			location: arg.location.take(),
+			mode: options.mode,
+			process: tg::Either::Left(Box::new(arg)),
 			reads,
-			target: tg::process::connect::Target::Spawn {
-				arg: Box::new(arg),
-				mode: options.mode,
-			},
+			tokens: tg::authorization::Tokens::default(),
 		};
 		let (connection, stream) = tg::process::connect::Connection::open(&handle, arg).await?;
 		let output = progress(stream).await?;
