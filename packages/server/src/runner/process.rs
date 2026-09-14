@@ -2027,7 +2027,7 @@ impl Session {
 
 fn render_args(
 	args: &[tg::command::data::Value],
-	tokens: &tg::Tokens,
+	tokens: &tg::authorization::Tokens,
 	store_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<Vec<String>> {
@@ -2044,7 +2044,7 @@ fn render_args(
 		.collect::<tg::Result<Vec<_>>>()
 }
 
-fn render_value(value: &tg::Value, tokens: &tg::Tokens) -> String {
+fn render_value(value: &tg::Value, tokens: &tg::authorization::Tokens) -> String {
 	for object in value.objects() {
 		object.state().inherit_tokens(tokens);
 	}
@@ -2057,7 +2057,7 @@ fn render_value(value: &tg::Value, tokens: &tg::Tokens) -> String {
 
 fn render_env(
 	env: &BTreeMap<String, tg::command::data::Value>,
-	tokens: &tg::Tokens,
+	tokens: &tg::authorization::Tokens,
 	store_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<BTreeMap<String, String>> {
