@@ -17,7 +17,9 @@ pub fn internal_capabilities(server: &crate::Server) -> tg::Result<tg::file::xat
 		max_value_size
 	};
 
-	Ok(tg::file::xattrs::Options { max_value_size })
+	let options = tg::file::xattrs::Options { max_value_size };
+
+	Ok(options)
 }
 
 pub fn probe(directory: &Path) -> tg::Result<tg::file::xattrs::Options> {
@@ -54,7 +56,9 @@ pub fn probe(directory: &Path) -> tg::Result<tg::file::xattrs::Options> {
 		}
 	}
 
-	Ok(tg::file::xattrs::Options { max_value_size })
+	let options = tg::file::xattrs::Options { max_value_size };
+
+	Ok(options)
 }
 
 fn is_capacity_error(error: &std::io::Error) -> bool {

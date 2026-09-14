@@ -1,4 +1,8 @@
-use {super::*, std::os::unix::fs::symlink, tangram_util::fs::Temp};
+use {
+	super::*,
+	std::{ffi::OsString, os::unix::fs::symlink, path::PathBuf},
+	tangram_util::fs::Temp,
+};
 
 #[test]
 fn absence() {
@@ -58,6 +62,7 @@ fn invalid_path() {
 
 #[test]
 fn references_and_tokens() {
+	// Create the references with dependency tokens and query options.
 	let temp = Temp::new().unwrap();
 	std::fs::write(&temp, "file").unwrap();
 	let dependency_token = token("dependency");
@@ -73,6 +78,8 @@ fn references_and_tokens() {
 		reference,
 		"./unresolved".parse().unwrap(),
 	];
+
+	// Write the shards in reverse order to verify that their numeric indices determine the order.
 	let xattrs = dependencies_xattrs(&references, 64).unwrap();
 	assert!(xattrs.len() > 10);
 	for xattr in xattrs.into_iter().rev() {
@@ -84,6 +91,8 @@ fn references_and_tokens() {
 		token.to_string().as_bytes(),
 	)
 	.unwrap();
+
+	// Read the metadata through a symlink.
 	let link = Temp::new().unwrap();
 	symlink(&temp, &link).unwrap();
 	let output = read(&link).unwrap();
@@ -93,6 +102,7 @@ fn references_and_tokens() {
 
 #[test]
 fn write_and_replace() {
+	// Write the sharded dependencies and required attributes through a symlink.
 	let temp = Temp::new().unwrap();
 	std::fs::write(&temp, "file").unwrap();
 	xattr::set(&temp, "user.example", b"preserved").unwrap();
@@ -126,6 +136,7 @@ fn write_and_replace() {
 		assert_eq!(xattr::get(&temp, name).unwrap().as_deref(), value);
 	}
 
+	// Replace the shards with an unsharded value and remove the module and token attributes.
 	let required = [(tg::file::MODULE_XATTR_NAME, None)];
 	let arg = Arg {
 		dependencies: Some(&references[..1]),
@@ -152,6 +163,7 @@ fn write_and_replace() {
 			.starts_with("user.tangram.dependencies.")
 	}));
 
+	// Remove the dependency metadata while preserving the unrelated attributes.
 	let arg = Arg {
 		dependencies: None,
 		required: &[],
@@ -185,6 +197,60 @@ fn zero_shard_size() {
 	);
 }
 
+#[test]
+fn json_round_trip() {
+	let references = vec![tg::Reference::with_path(PathBuf::from("dependency"))];
+	let xattrs = dependencies_xattrs(&references, 4).unwrap();
+	assert!(xattrs.len() > 1);
+	assert_eq!(xattrs[0].name, "user.tangram.dependencies.0");
+	let value = xattrs
+		.into_iter()
+		.flat_map(|xattr| xattr.value)
+		.collect::<Vec<_>>();
+	assert_eq!(deserialize_dependencies_xattr(&value).unwrap(), references);
+}
+
+#[test]
+fn unsharded_round_trip() {
+	let references = vec![tg::Reference::with_path(PathBuf::from("dependency"))];
+	let xattrs = dependencies_xattrs(&references, usize::MAX).unwrap();
+	assert_eq!(xattrs.len(), 1);
+	assert_eq!(xattrs[0].name, "user.tangram.dependencies");
+	assert_eq!(
+		deserialize_dependencies_xattr(&xattrs[0].value).unwrap(),
+		references
+	);
+}
+
+#[test]
+fn invalid_shards() {
+	for suffixes in [
+		vec!["", ".0"],
+		vec![".1"],
+		vec![".0", ".2"],
+		vec![".00"],
+		vec![".+0"],
+		vec![".invalid"],
+		vec!["."],
+		vec![".18446744073709551616"],
+	] {
+		let names = suffixes
+			.into_iter()
+			.map(|suffix| OsString::from(format!("{}{suffix}", tg::file::DEPENDENCIES_XATTR_NAME)));
+		assert!(try_read_dependencies_xattrs(names, |_| Ok(Some(b"[]".to_vec()))).is_err());
+	}
+}
+
+#[test]
+fn unreadable_shards() {
+	let names = [OsString::from(tg::file::DEPENDENCIES_XATTR_NAME)];
+	assert!(try_read_dependencies_xattrs(names.clone(), |_| Ok(None)).is_err());
+	let result = try_read_dependencies_xattrs(names, |_| {
+		Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
+	});
+	assert!(result.is_err());
+}
+
 fn token(contents: &str) -> tg::authorization::Token {
 	let file = tg::File::with_contents(contents);
 	let body = tg::authorization::token::Body {
@@ -200,6 +266,8 @@ fn token(contents: &str) -> tg::authorization::Token {
 	)
 	.unwrap();
 	let mut token = tg::authorization::Token::sign(body, &key).unwrap();
+	// Invalidate the signature to verify that reading the metadata does not verify the token.
 	token.signature.fill(0);
+
 	token
 }

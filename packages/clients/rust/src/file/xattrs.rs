@@ -1,12 +1,11 @@
 //! Read and write Tangram's public dependency and authorization xattr schema.
 //!
-//! `user.tangram.dependencies` contains a JSON array of reference strings. Larger values use
-//! `user.tangram.dependencies.0`, `.1`, and so on, whose bytes are concatenated in numeric order.
-//! Shard indices must be contiguous and canonical, and the unsharded and sharded forms cannot coexist.
+//! `user.tangram.dependencies` contains a JSON array of reference strings.
+//! Larger values use `user.tangram.dependencies.0`, `.1`, and so on, whose bytes are concatenated in numeric order.
+//! The shard indices must be contiguous and canonical, and the unsharded and sharded forms cannot coexist.
 //! `user.tangram.token` contains a UTF-8 authorization token; parsing does not verify its signature or expiration.
 //!
-//! The writer also accepts required attributes, such as `user.tangram.module` and `user.tangram.lock`,
-//! as encoded bytes so they share the filesystem's space budget with dependencies and tokens.
+//! The writer accepts required attributes as encoded bytes so they share the filesystem's space budget with dependencies and tokens.
 
 use {crate::prelude::*, std::path::Path};
 
@@ -22,12 +21,11 @@ pub use self::dependencies::{
 /// The metadata to write to a checkout.
 #[derive(Clone, Copy, Debug)]
 pub struct Arg<'a> {
-	/// The dependency references, including any authorization tokens.
-	/// `None` removes the attributes; `Some(&[])` writes an explicit empty list.
+	/// The dependency references and their tokens; `None` removes the attributes, and `Some(&[])` writes an empty list.
 	pub dependencies: Option<&'a [tg::Reference]>,
 	/// The required attributes, such as the module kind and serialized lock.
-	/// A `None` value removes the attribute. Unlisted attributes are preserved.
-	/// Dependency and token attribute names must use their dedicated fields.
+	/// A `None` value removes the attribute, and the unlisted attributes are preserved.
+	/// The dependency and token attributes must use their dedicated fields.
 	pub required: &'a [(&'a str, Option<&'a [u8]>)],
 	/// The file's authorization token.
 	pub token: Option<&'a tg::authorization::Token>,
@@ -49,8 +47,9 @@ pub struct Output {
 }
 
 /// Read the dependency and authorization xattrs, following symlinks.
-/// Missing attributes are `None`; malformed or unreadable metadata is an error.
+/// `None` represents an absent attribute; malformed or unreadable metadata returns an error.
 pub fn read(path: impl AsRef<Path>) -> tg::Result<Output> {
+	// List the attributes.
 	let path = path.as_ref();
 	let names = xattr::list_deref(path)
 		.map_err(
@@ -58,6 +57,8 @@ pub fn read(path: impl AsRef<Path>) -> tg::Result<Output> {
 		)?
 		.collect::<Vec<_>>();
 	let token = names.iter().any(|name| name == tg::file::TOKEN_XATTR_NAME);
+
+	// Read the dependencies and the file token.
 	let dependencies = try_read_dependencies_xattrs(names, |name| xattr::get_deref(path, name))?;
 	let token = if token {
 		let value = xattr::get_deref(path, tg::file::TOKEN_XATTR_NAME)
@@ -67,6 +68,8 @@ pub fn read(path: impl AsRef<Path>) -> tg::Result<Output> {
 	} else {
 		None
 	};
+
+	// Create the output.
 	let output = Output {
 		dependencies,
 		token,
@@ -85,11 +88,12 @@ pub fn deserialize_token_xattr(value: &[u8]) -> tg::Result<tg::authorization::To
 	Ok(token)
 }
 
-/// Write checkout xattrs, following symlinks and replacing prior dependency shards.
-/// Required attributes take priority, followed by dependency references and then tokens.
-/// Tokens may be omitted when the filesystem lacks space, but dependency references are retained.
+/// Write the checkout xattrs, following symlinks and replacing the previous dependency shards.
+/// The required attributes take priority, followed by the dependency references and then the tokens.
+/// The tokens may be omitted when the filesystem lacks space, but the dependency references are retained.
 /// An error may leave partially written metadata.
 pub fn write(path: impl AsRef<Path>, arg: Arg<'_>, options: Options) -> tg::Result<()> {
+	// Validate the arg and options before modifying the file.
 	let path = path.as_ref();
 	if options.max_value_size == 0 {
 		return Err(tg::error!(
@@ -101,7 +105,6 @@ pub fn write(path: impl AsRef<Path>, arg: Arg<'_>, options: Options) -> tg::Resu
 		required,
 		token,
 	} = arg;
-
 	for (name, _) in required {
 		if *name == tg::file::TOKEN_XATTR_NAME
 			|| *name == tg::file::DEPENDENCIES_XATTR_NAME
@@ -113,11 +116,11 @@ pub fn write(path: impl AsRef<Path>, arg: Arg<'_>, options: Options) -> tg::Resu
 		}
 	}
 
-	// Remove optional xattrs that may have been copied with the file.
+	// Remove the optional xattrs that may have been copied with the file.
 	remove_dependencies_xattrs(path)?;
 	remove_xattr(path, tg::file::TOKEN_XATTR_NAME)?;
 
-	// Remove replaced attributes before reserving space for the required xattrs.
+	// Reserve space for the required attributes before writing the optional metadata.
 	for (name, _) in required {
 		remove_xattr(path, name)?;
 	}
@@ -192,6 +195,7 @@ fn write_dependencies_xattrs(
 	mut max_value_size: usize,
 ) -> tg::Result<bool> {
 	loop {
+		// Write the dependency shards.
 		let xattrs = tg::file::dependencies_xattrs(references, max_value_size)?;
 		let mut error = None;
 		for xattr in xattrs {
@@ -203,6 +207,8 @@ fn write_dependencies_xattrs(
 		let Some(error) = error else {
 			return Ok(true);
 		};
+
+		// Remove the partial metadata before retrying with smaller shards or fewer tokens.
 		remove_dependencies_xattrs(path)?;
 		if is_value_size_error(&error) && max_value_size > 1 {
 			max_value_size /= 2;
@@ -211,6 +217,7 @@ fn write_dependencies_xattrs(
 		if is_capacity_error(&error) {
 			return Ok(false);
 		}
+
 		return Err(tg::error!(!error, "failed to write a dependencies xattr"));
 	}
 }
@@ -237,7 +244,6 @@ fn remove_xattr(path: &Path, name: &str) -> tg::Result<()> {
 		Err(error) if is_missing_xattr_error(&error) => {},
 		Err(error) => return Err(tg::error!(!error, %name, "failed to remove a file xattr")),
 	}
-
 	Ok(())
 }
 

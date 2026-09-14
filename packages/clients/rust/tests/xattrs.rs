@@ -11,6 +11,7 @@ struct Fixture {
 #[tokio::test]
 #[ignore = "requires the checkout/client_xattrs.nu fixture"]
 async fn checkout_metadata() {
+	// Read the metadata from the checkout fixture.
 	let fixture = std::env::var("TANGRAM_TEST_XATTRS").unwrap();
 	let fixture: Fixture = serde_json::from_str(&fixture).unwrap();
 	let metadata = tg::file::xattrs::read(&fixture.path).unwrap();
@@ -23,7 +24,7 @@ async fn checkout_metadata() {
 		&tg::reference::Node::Id(fixture.dependency.clone().into())
 	);
 
-	// The recovered token authorizes an otherwise private object.
+	// Verify that the recovered token authorizes the private object.
 	let client = tg::Client::with_env(tg::Arg::default()).unwrap();
 	let artifact = tg::Artifact::with_id(fixture.id.clone());
 	assert!(artifact.load_with_handle(&client).await.is_err());
@@ -45,7 +46,7 @@ async fn checkout_metadata() {
 	tg::file::xattrs::write(&fixture.copy, arg, tg::file::xattrs::Options::default()).unwrap();
 	assert_eq!(tg::file::xattrs::read(&fixture.copy).unwrap(), metadata);
 
-	// A wrapper token remains sufficient when dependency tokens are omitted for space.
+	// Omit the dependency tokens to simulate the fallback for limited xattr space.
 	let dependencies = dependencies
 		.iter()
 		.cloned()
@@ -65,6 +66,8 @@ async fn checkout_metadata() {
 			.iter()
 			.all(|reference| reference.options().tokens.is_empty())
 	);
+
+	// Verify that the wrapper token alone authorizes checkin of the dependencies.
 	let client = tg::Client::with_env(tg::Arg::default()).unwrap();
 	assert!(
 		tg::Artifact::with_id(fixture.dependency)
@@ -72,11 +75,12 @@ async fn checkout_metadata() {
 			.await
 			.is_err()
 	);
+	let options = tg::checkin::Options {
+		root: true,
+		..Default::default()
+	};
 	let arg = tg::checkin::Arg {
-		options: tg::checkin::Options {
-			root: true,
-			..Default::default()
-		},
+		options,
 		path: fixture.copy,
 		updates: Vec::new(),
 	};
