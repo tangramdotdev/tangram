@@ -289,12 +289,12 @@ impl Session {
 			let artifact = tg::artifact::Id::try_from(id.clone())
 				.map_err(|_| tg::error!(%id, "expected an artifact id"))?;
 			let token = self.create_permanent_object_token(&artifact)?;
-			let xattrs = xattrs::Xattrs {
-				dependencies: &references,
+			let xattrs = tg::file::xattrs::Arg {
+				dependencies: (!references.is_empty()).then_some(references.as_slice()),
 				required: &[],
 				token: token.as_ref(),
 			};
-			xattrs::write_file_xattrs(dst, xattrs, xattr_capabilities)?;
+			tg::file::xattrs::write(dst, xattrs, xattr_capabilities)?;
 
 			// Set its permissions.
 			if !metadata.is_symlink() {

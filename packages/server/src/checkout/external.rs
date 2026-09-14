@@ -29,7 +29,7 @@ struct State {
 	visited: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
 	visited_graphs: HashSet<tg::graph::Id, tg::id::BuildHasher>,
 	visiting: HashSet<tg::artifact::Id, tg::id::BuildHasher>,
-	xattr_capabilities: super::xattrs::Capabilities,
+	xattr_capabilities: tg::file::xattrs::Options,
 }
 
 #[derive(Clone)]
@@ -713,12 +713,12 @@ impl Session {
 			),
 		];
 		let token = self.create_permanent_object_token(id)?;
-		let xattrs = super::xattrs::Xattrs {
-			dependencies: &references,
+		let xattrs = tg::file::xattrs::Arg {
+			dependencies: (!references.is_empty()).then_some(references.as_slice()),
 			required: &required,
 			token: token.as_ref(),
 		};
-		super::xattrs::write_file_xattrs(path, xattrs, state.xattr_capabilities)?;
+		tg::file::xattrs::write(path, xattrs, state.xattr_capabilities)?;
 
 		// Increment the progress.
 		state.progress.increment("artifacts", 1);
