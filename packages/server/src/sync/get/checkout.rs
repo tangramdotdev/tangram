@@ -770,12 +770,12 @@ impl Session {
 			move || {
 				let capabilities = crate::checkout::xattrs::internal_capabilities(&session.server)?;
 				let token = session.create_permanent_object_token(&artifact)?;
-				let xattrs = crate::checkout::xattrs::Xattrs {
-					dependencies: &[],
+				let xattrs = tg::file::xattrs::Arg {
+					dependencies: None,
 					required: &[],
 					token: token.as_ref(),
 				};
-				crate::checkout::xattrs::write_file_xattrs(&temp_path, xattrs, capabilities)?;
+				tg::file::xattrs::write(&temp_path, xattrs, capabilities)?;
 				Ok::<_, tg::Error>(())
 			}
 		})

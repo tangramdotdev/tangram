@@ -1,15 +1,13 @@
-mod dependencies;
-
 pub use self::{
 	builder::Builder,
 	data::File as Data,
-	dependencies::{
-		DependenciesXattr, dependencies_xattrs, deserialize_dependencies_xattr,
-		is_dependencies_xattr_name,
-	},
 	handle::File as Handle,
 	id::Id,
 	object::{Dependency, File as Object},
+	xattrs::{
+		DependenciesXattr, dependencies_xattrs, deserialize_dependencies_xattr,
+		is_dependencies_xattr_name,
+	},
 };
 
 pub mod builder;
@@ -17,6 +15,7 @@ pub mod data;
 pub mod handle;
 pub mod id;
 pub mod object;
+pub mod xattrs;
 
 /// The extended attribute name for the file's dependencies.
 pub const DEPENDENCIES_XATTR_NAME: &str = "user.tangram.dependencies";
