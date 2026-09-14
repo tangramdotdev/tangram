@@ -145,6 +145,7 @@ impl Index {
 				let output = Self::contains_ids_with_transaction(db, subspace, transaction, &ids)?;
 				crate::read::Response::ContainsIds(output)
 			},
+			#[cfg(feature = "foundationdb")]
 			crate::read::Request::FdbLogCompactionBatch { .. } => {
 				return Err(tg::error!("unexpected FDB read request"));
 			},
