@@ -2,17 +2,9 @@ use tangram_client::prelude::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Entry {
+	pub(crate) partition: Option<u64>,
 	pub process: tg::process::Id,
-	pub(crate) position: Position,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum Position {
-	#[cfg(feature = "foundationdb")]
-	Fdb { partition: u64, version: Version },
-
-	#[cfg(feature = "lmdb")]
-	Lmdb { version: Version },
+	pub(crate) version: Version,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -145,10 +145,6 @@ impl Index {
 				let output = Self::contains_ids_with_transaction(db, subspace, transaction, &ids)?;
 				crate::read::Response::ContainsIds(output)
 			},
-			#[cfg(feature = "foundationdb")]
-			crate::read::Request::FdbLogCompactionBatch { .. } => {
-				return Err(tg::error!("unexpected FDB read request"));
-			},
 			crate::read::Request::GetIndexers => {
 				let output = Self::get_indexers_with_transaction(db, subspace, transaction)?;
 				crate::read::Response::GetIndexers(output)
@@ -177,7 +173,16 @@ impl Index {
 				)?;
 				crate::read::Response::TryGetProcessNodeChildren(output)
 			},
-			crate::read::Request::LmdbLogCompactionBatch { batch_size } => {
+			crate::read::Request::LogCompactionBatch {
+				batch_size,
+				partition_end,
+				partition_start,
+			} => {
+				if partition_start.is_some() || partition_end.is_some() {
+					return Err(tg::error!(
+						"the log compaction request has an unexpected partition range"
+					));
+				}
 				let output = Self::log_compaction_batch_with_transaction(
 					db,
 					subspace,

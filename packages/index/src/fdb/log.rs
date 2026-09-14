@@ -38,10 +38,10 @@ impl Index {
 		partition_start: u64,
 		partition_end: u64,
 	) -> tg::Result<Vec<crate::log::Entry>> {
-		let request = crate::read::Request::FdbLogCompactionBatch {
+		let request = crate::read::Request::LogCompactionBatch {
 			batch_size,
-			partition_end,
-			partition_start,
+			partition_end: Some(partition_end),
+			partition_start: Some(partition_start),
 		};
 		let response = self.send_read_request(request).await?;
 		let crate::read::Response::LogCompactionBatch(output) = response else {
@@ -88,8 +88,9 @@ impl Index {
 				};
 				let version = crate::log::Version::new(*version.as_bytes());
 				output.push(crate::log::Entry {
-					position: crate::log::Position::Fdb { partition, version },
+					partition: Some(partition),
 					process,
+					version,
 				});
 			}
 		}
@@ -172,14 +173,12 @@ impl Index {
 		};
 		let (partition, version) = fdbt::unpack::<(u64, fdbt::Versionstamp)>(&value)
 			.map_err(|error| tg::error!(!error, "failed to unpack the log compaction identity"))?;
-		let (entry_partition, entry_version) = match &entry.position {
-			crate::log::Position::Fdb { partition, version } => (*partition, *version),
-			#[cfg(feature = "lmdb")]
-			crate::log::Position::Lmdb { .. } => {
-				return Err(tg::error!("unexpected log compaction position"));
-			},
+		let Some(entry_partition) = entry.partition else {
+			return Err(tg::error!(
+				"the log compaction entry is missing a partition"
+			));
 		};
-		let entry_version = fdbt::Versionstamp::from(*entry_version.bytes());
+		let entry_version = fdbt::Versionstamp::from(*entry.version.bytes());
 		if partition != entry_partition || version != entry_version {
 			return Ok(ControlFlow::Break(()));
 		}

@@ -219,11 +219,21 @@ impl Index {
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::ContainsIds(output)
 			},
-			crate::read::Request::FdbLogCompactionBatch {
+			crate::read::Request::LogCompactionBatch {
 				batch_size,
 				partition_end,
 				partition_start,
 			} => {
+				let Some(partition_end) = partition_end else {
+					return Err(tg::error!(
+						"the log compaction request is missing a partition end"
+					));
+				};
+				let Some(partition_start) = partition_start else {
+					return Err(tg::error!(
+						"the log compaction request is missing a partition start"
+					));
+				};
 				let result = Self::log_compaction_batch_with_transaction(
 					transaction,
 					subspace,
@@ -262,10 +272,6 @@ impl Index {
 						.await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetProcessNodeChildren(output)
-			},
-			#[cfg(feature = "lmdb")]
-			crate::read::Request::LmdbLogCompactionBatch { .. } => {
-				return Err(tg::error!("unexpected LMDB read request"));
 			},
 			crate::read::Request::GetRequesterSubjects { principal } => {
 				let result =

@@ -33,7 +33,11 @@ impl Index {
 		&self,
 		batch_size: usize,
 	) -> tg::Result<Vec<crate::log::Entry>> {
-		let request = crate::read::Request::LmdbLogCompactionBatch { batch_size };
+		let request = crate::read::Request::LogCompactionBatch {
+			batch_size,
+			partition_end: None,
+			partition_start: None,
+		};
 		let response = self.send_read_request(request).await?;
 		let crate::read::Response::LogCompactionBatch(output) = response else {
 			return Err(tg::error!("unexpected read response"));
@@ -64,8 +68,9 @@ impl Index {
 				};
 				let version = Self::log_compaction_version(version);
 				Ok(crate::log::Entry {
-					position: crate::log::Position::Lmdb { version },
+					partition: None,
 					process,
+					version,
 				})
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
@@ -126,14 +131,12 @@ impl Index {
 				.try_into()
 				.map_err(|_| tg::error!("invalid log compaction identity"))?,
 		);
-		let entry_version = match &entry.position {
-			#[cfg(feature = "foundationdb")]
-			crate::log::Position::Fdb { .. } => {
-				return Err(tg::error!("unexpected log compaction position"));
-			},
-			crate::log::Position::Lmdb { version } => *version,
-		};
-		if Self::log_compaction_version(version) != entry_version {
+		if entry.partition.is_some() {
+			return Err(tg::error!(
+				"the log compaction entry has an unexpected partition"
+			));
+		}
+		if Self::log_compaction_version(version) != entry.version {
 			return Ok(());
 		}
 

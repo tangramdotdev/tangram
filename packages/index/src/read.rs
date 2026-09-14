@@ -15,11 +15,10 @@ pub(crate) enum Request {
 	ContainsIds {
 		ids: Vec<tg::Id>,
 	},
-	#[cfg(feature = "foundationdb")]
-	FdbLogCompactionBatch {
+	LogCompactionBatch {
 		batch_size: usize,
-		partition_end: u64,
-		partition_start: u64,
+		partition_end: Option<u64>,
+		partition_start: Option<u64>,
 	},
 	GetIndexers,
 	GetRequesterSubjects {
@@ -38,10 +37,6 @@ pub(crate) enum Request {
 	},
 	ListSandboxesForOwner {
 		owner: tg::Principal,
-	},
-	#[cfg(feature = "lmdb")]
-	LmdbLogCompactionBatch {
-		batch_size: usize,
 	},
 	ProcessHasAncestor {
 		ancestor: tg::process::Id,
