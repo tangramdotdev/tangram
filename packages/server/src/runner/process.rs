@@ -1670,7 +1670,13 @@ impl Session {
 			let host_output_path = sandbox.host_output_path_for_process(&sandbox_process);
 
 			// Render the args.
-			let args = render_args(&command.args, &guest_store_path, &guest_output_path)?;
+			let tokens = state.command.state().tokens();
+			let args = render_args(
+				&command.args,
+				&tokens,
+				&guest_store_path,
+				&guest_output_path,
+			)?;
 
 			// Get the working directory. On macOS there is no chroot, so "/" is the host root and not writable. Default to the scratch directory instead.
 			let cwd = if let Some(cwd) = &command.cwd {
@@ -1682,7 +1688,7 @@ impl Session {
 			};
 
 			// Render the env.
-			let mut env = render_env(&command.env, &guest_store_path, &guest_output_path)?;
+			let mut env = render_env(&command.env, &tokens, &guest_store_path, &guest_output_path)?;
 			let engine = match self.server.config.runner.js.engine {
 				crate::config::JsEngine::Auto => "auto",
 				crate::config::JsEngine::QuickJs => "quickjs",
@@ -2021,6 +2027,7 @@ impl Session {
 
 fn render_args(
 	args: &[tg::command::data::Value],
+	tokens: &tg::Tokens,
 	store_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<Vec<String>> {
@@ -2031,14 +2038,26 @@ fn render_args(
 			},
 			tg::command::data::Value::Value(value) => {
 				let value = tg::Value::try_from_data(value.clone())?;
-				Ok(value.to_string())
+				Ok(render_value(&value, tokens))
 			},
 		})
 		.collect::<tg::Result<Vec<_>>>()
 }
 
+fn render_value(value: &tg::Value, tokens: &tg::Tokens) -> String {
+	for object in value.objects() {
+		object.state().inherit_tokens(tokens);
+	}
+	let options = tg::value::print::Options {
+		tokens: true,
+		..Default::default()
+	};
+	value.print(options)
+}
+
 fn render_env(
 	env: &BTreeMap<String, tg::command::data::Value>,
+	tokens: &tg::Tokens,
 	store_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<BTreeMap<String, String>> {
@@ -2059,7 +2078,8 @@ fn render_env(
 					render_value_string(value, store_path, output_path)?
 				},
 				tg::command::data::Value::Value(value) => {
-					tg::Value::try_from_data(value.clone())?.to_string()
+					let value = tg::Value::try_from_data(value.clone())?;
+					render_value(&value, tokens)
 				},
 			};
 			Ok::<_, tg::Error>((key, value))
@@ -2072,7 +2092,8 @@ fn render_env(
 				value
 			},
 		};
-		let value = tg::Value::try_from_data(value.clone())?.to_string();
+		let value = tg::Value::try_from_data(value.clone())?;
+		let value = render_value(&value, tokens);
 		output.insert(format!("{}{key}", tg::process::env::PREFIX), value);
 	}
 	Ok(output)
