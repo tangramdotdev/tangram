@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Existing processes support a combined initial log subscription without a separate read request.
+# Existing processes support a combined initial log read without a separate read request.
 let server = server spawn
 let path = artifact {
 	tangram.ts: '
@@ -27,6 +27,15 @@ let path = artifact {
 			tg.assert(output.stdout === "stdout\n");
 			tg.assert(output.stderr === "stderr\n");
 			tg.assert((await connected.wait()).exit === 0);
+			for (let streams of [["stdout"], ["stdout", "stderr"]] as tg.Process.Stdio.Stream[][]) {
+				let output = { stdout: "", stderr: "" };
+				for await (let chunk of await connected.readStdio({ streams })) {
+					tg.assert(chunk.stream === "stdout" || chunk.stream === "stderr");
+					output[chunk.stream] += tg.encoding.utf8.decode(chunk.bytes);
+				}
+				tg.assert(output.stdout === "stdout\n");
+				tg.assert(output.stderr === (streams.length === 2 ? "stderr\n" : ""));
+			}
 			return "ok";
 		}
 	'

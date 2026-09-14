@@ -113,6 +113,15 @@ export async function connectProcess(
 					message.value.output.value,
 				);
 			}
+			if (
+				message.kind === "response" &&
+				message.value.output?.kind === "read"
+			) {
+				message.value.output.value = tg.Process.Stdio.Read.Output.fromData(
+					message.value.output
+						.value as unknown as tg.Process.Stdio.Read.Output.Data,
+				);
+			}
 			if (message.kind === "notification" && message.value.kind === "read") {
 				let read = message.value.value.event;
 				if (read.kind === "chunk") {

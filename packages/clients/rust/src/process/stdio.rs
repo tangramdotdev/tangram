@@ -7,6 +7,7 @@ use {
 	},
 	num::ToPrimitive as _,
 	serde_with::serde_as,
+	std::collections::BTreeMap,
 	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
 	tangram_http::body::{BodyStream, Boxed},
 	tangram_util::{io, serde::BytesBase64},
@@ -107,6 +108,24 @@ pub struct Chunk {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
 	pub timestamp: Option<i64>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct End {
+	#[tangram_serialize(id = 0)]
+	pub combined_position: u64,
+	#[tangram_serialize(id = 1)]
+	pub stream_positions: BTreeMap<Stream, u64>,
 }
 
 impl std::fmt::Display for Stdio {

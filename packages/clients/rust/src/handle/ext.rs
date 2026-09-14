@@ -908,6 +908,8 @@ pub trait Ext: tg::Handle {
 							return Ok(Some((message, state)));
 						},
 						Some(Ok(tg::process::stdio::read::ServerMessage::Response(output))) => {
+							output
+								.validate(&state.arg.streams, state.position.unwrap_or_default())?;
 							state
 								.sender
 								.send(Ok(tg::process::stdio::read::ClientMessage::Ack))

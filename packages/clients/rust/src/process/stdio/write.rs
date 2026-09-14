@@ -2,7 +2,6 @@ use {
 	super::Stream,
 	crate::prelude::*,
 	futures::{TryStreamExt as _, stream::BoxStream},
-	std::collections::BTreeMap,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 };
@@ -78,22 +77,7 @@ pub enum Data {
 	#[tangram_serialize(id = 0)]
 	Chunk(super::Chunk),
 	#[tangram_serialize(id = 1)]
-	End(End),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct End {
-	#[tangram_serialize(id = 0)]
-	pub combined_position: u64,
-	#[tangram_serialize(id = 1)]
-	pub stream_positions: BTreeMap<Stream, u64>,
+	End(super::End),
 }
 
 #[derive(Clone, Debug, Default)]

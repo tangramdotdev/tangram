@@ -41,7 +41,7 @@ let output = timeout 10 node --input-type=module -e '
 					if (test.clipped) yield notification("position", test.clipped);
 					yield notification("chunk", {bytes: "eA==", combined_position: test.end - 1, stream: "stdout", stream_position: test.end - 1});
 				} else {
-					yield {event: "response", data: JSON.stringify({kind: "end"})};
+					yield {event: "response", data: JSON.stringify({kind: "limit", value: {position: test.end - 1}})};
 				}
 			};
 			return new tg.Response(200, { "content-type": "text/event-stream" }, { sse: output });

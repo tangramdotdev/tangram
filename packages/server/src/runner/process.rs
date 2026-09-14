@@ -1113,7 +1113,7 @@ impl Session {
 		finished
 			.await
 			.map_err(|_| tg::error!("failed to receive the process finish notification"))?;
-		let end = tg::process::stdio::write::End {
+		let end = tg::process::stdio::End {
 			combined_position: position,
 			stream_positions: [
 				(tg::process::stdio::Stream::Stderr, stderr_position),
@@ -1128,7 +1128,7 @@ impl Session {
 
 	async fn send_process_log_end(
 		sender: &control::ProcessControlSender,
-		end: tg::process::stdio::write::End,
+		end: tg::process::stdio::End,
 	) -> tg::Result<()> {
 		let arg = tg::process::control::ClientRequestArg::Write(
 			tg::process::control::WriteClientRequestArg::End(end),

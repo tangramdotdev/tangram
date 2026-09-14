@@ -46,6 +46,30 @@ export namespace Stdio {
 
 	export type Stream = "stdin" | "stdout" | "stderr";
 
+	export type End = {
+		combinedPosition: number;
+		streamPositions: Partial<Record<tg.Process.Stdio.Stream, number>>;
+	};
+
+	export namespace End {
+		export type Data = {
+			combined_position: number;
+			stream_positions: Partial<Record<tg.Process.Stdio.Stream, number>>;
+		};
+		export function fromData(data: Data): End {
+			return {
+				combinedPosition: data.combined_position,
+				streamPositions: data.stream_positions,
+			};
+		}
+		export function toData(end: End): Data {
+			return {
+				combined_position: end.combinedPosition,
+				stream_positions: end.streamPositions,
+			};
+		}
+	}
+
 	export namespace Read {
 		export type Arg = {
 			length?: number | null;
@@ -68,7 +92,39 @@ export namespace Stdio {
 					value: { length: number | null; position: number };
 			  };
 
-		export type Output = { kind: "end" | "limit" | "timeout" };
+		export type Output =
+			| { kind: "end"; value: End }
+			| { kind: "limit" | "timeout"; value: { position: number } };
+		export namespace Output {
+			export type Data =
+				| { kind: "end"; value: End.Data }
+				| { kind: "limit" | "timeout"; value: { position: number } };
+			export function fromData(data: Data): Output {
+				return data.kind === "end"
+					? { kind: "end", value: End.fromData(data.value) }
+					: data;
+			}
+			export function validate(
+				output: Output,
+				streams: Array<tg.Process.Stdio.Stream>,
+				position: number,
+			): void {
+				let expected =
+					output.kind === "end"
+						? streams.length > 1
+							? output.value.combinedPosition
+							: output.value.streamPositions[streams[0]!]
+						: output.value.position;
+				if (
+					expected === undefined ||
+					!Number.isSafeInteger(expected) ||
+					expected < 0
+				)
+					throw new Error("invalid stdio read completion position");
+				if (output.kind === "end" ? position < expected : position !== expected)
+					throw new Error("encountered a gap at the end of the stdio read");
+			}
+		}
 
 		export type Progress = { consumed: number };
 
@@ -96,17 +152,10 @@ export namespace Stdio {
 				}
 				return {
 					kind: "end",
-					value: {
-						combined_position: data.value.combinedPosition,
-						stream_positions: data.value.streamPositions,
-					},
+					value: End.toData(data.value),
 				};
 			}
 		}
-		export type End = {
-			combinedPosition: number;
-			streamPositions: Partial<Record<tg.Process.Stdio.Stream, number>>;
-		};
 		export type Output = { closed: boolean; length: number };
 		export type Request = { arg: Data; id: number };
 		export type Response = {
@@ -153,6 +202,7 @@ export namespace Stdio {
 		async close(): Promise<void> {
 			let fd = this.#fd;
 			let input = this.#input;
+			if (input === null) this.#process?.connection?.closeInitial(this.#stream);
 			this.#fd = null;
 			this.#input = null;
 			this.#process = null;

@@ -92,7 +92,7 @@ fn pipes_stream_a_range_until_the_window_or_limit() {
 	assert!(matches!(
 		reader.read(&mut read).unwrap(),
 		Some(tg::process::stdio::read::ServerMessage::Response(
-			tg::process::stdio::read::Output::Limit
+			tg::process::stdio::read::Output::Limit { .. }
 		))
 	));
 }
@@ -113,7 +113,7 @@ fn eof_does_not_hide_a_gap_in_a_pipe() {
 	assert!(matches!(
 		reader.read(&mut read).unwrap(),
 		Some(tg::process::stdio::read::ServerMessage::Response(
-			tg::process::stdio::read::Output::End
+			tg::process::stdio::read::Output::End(_)
 		))
 	));
 }
@@ -139,7 +139,7 @@ fn a_read_times_out_while_its_window_is_full() {
 	}
 	assert!(matches!(
 		reader.read(&mut read).unwrap(),
-		Some(ServerMessage::Response(Output::Timeout))
+		Some(ServerMessage::Response(Output::Timeout { .. }))
 	));
 }
 
@@ -226,7 +226,7 @@ async fn draining_stdout_keeps_stderr_eof_available() {
 		assert!(matches!(
 			response.output,
 			Some(tg::process::control::ClientResponseOutput::Read(
-				Output::End
+				Output::End(_)
 			))
 		));
 	}
@@ -235,4 +235,39 @@ async fn draining_stdout_keeps_stderr_eof_available() {
 		.unwrap()
 		.unwrap()
 		.unwrap();
+}
+
+#[test]
+fn completion_detects_chunks_lost_before_the_terminal_response() {
+	for length in [None, Some(4)] {
+		let mut reader = reader();
+		reader.push(
+			Bytes::from_static(b"lost"),
+			tg::process::stdio::Stream::Stdout,
+		);
+		reader.eof = reader.streams.clone();
+		let arg = tg::process::stdio::read::Arg {
+			length,
+			streams: vec![tg::process::stdio::Stream::Stdout],
+			..Default::default()
+		};
+		let mut read = Read::new(arg).unwrap();
+		assert!(matches!(
+			reader.read(&mut read).unwrap(),
+			Some(ServerMessage::Notification(Event::Chunk(_)))
+		));
+		let Some(ServerMessage::Response(output)) = reader.read(&mut read).unwrap() else {
+			panic!("expected the terminal response");
+		};
+		assert!(
+			output
+				.validate(&[tg::process::stdio::Stream::Stdout], 0)
+				.is_err()
+		);
+		assert!(
+			output
+				.validate(&[tg::process::stdio::Stream::Stdout], 4)
+				.is_ok()
+		);
+	}
 }

@@ -2,11 +2,13 @@
 //!
 //! The first request is `Connect`. Spawn mode returns the selected process and closes;
 //! Run mode also starts waiting and the reads declared in the opening argument.
-//! Each stdio subscription retains the existing read/write protocol, scoped by its ID.
+//! Each stdio read request retains the shared read protocol, scoped by its request ID.
 //! An acknowledgment confirms receipt; only a response confirms an operation outcome.
-//! Completion does not imply stdio EOF. The server drains subscribed reads before closing.
+//! Completion does not imply stdio EOF. The server drains open reads before closing.
 //! Normal closure also waits for receipt acknowledgments of outstanding responses.
 //! A disconnected leased wait cancels the process. Detach must receive its response first.
+//! Subsequent operations reopen the selected process ID through one shared connection.
+//! Reads resume at their cursor; writes resend only requests without a completed outcome.
 
 use {
 	crate::prelude::*,
@@ -16,6 +18,7 @@ use {
 };
 
 mod connection;
+mod session;
 #[cfg(test)]
 mod tests;
 

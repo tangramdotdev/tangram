@@ -1,51 +1,24 @@
 use {
-	super::*,
-	crate::process::stdio::write,
-	futures::{TryStreamExt as _, stream},
-	std::{
-		collections::BTreeMap,
-		sync::{
-			Arc, Mutex,
-			atomic::{AtomicBool, AtomicU64, Ordering},
-		},
+	super::{session::Session, *},
+	crate::process::stdio::{read, write},
+	futures::{FutureExt as _, TryStreamExt as _, future::BoxFuture, stream},
+	std::sync::{
+		Arc,
+		atomic::{AtomicBool, Ordering},
 	},
-	tangram_futures::{stream::Ext as _, task::Task},
-	tokio::sync::{mpsc, oneshot, watch},
-	tokio_stream::wrappers::ReceiverStream,
+	tokio::sync::Mutex,
 };
-
-#[cfg(test)]
-mod tests;
 
 #[derive(Clone)]
 pub struct Connection {
-	state: Arc<State>,
-	task: Arc<Task<()>>,
+	inner: Arc<Inner>,
 }
 
-struct State {
-	acks: mpsc::Sender<tg::Result<ClientMessage>>,
+struct Inner {
 	detached: AtomicBool,
-	error: Mutex<Option<tg::Error>>,
-	initial: Mutex<
-		Vec<(
-			u64,
-			tg::process::stdio::read::Arg,
-			mpsc::Receiver<tg::Result<tg::process::stdio::read::ServerMessage>>,
-		)>,
-	>,
-	next_id: AtomicU64,
-	reads: Mutex<BTreeMap<u64, mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>>>,
-	requests: Mutex<BTreeMap<u64, oneshot::Sender<tg::Result<ServerResponseOutput>>>>,
-	sender: mpsc::Sender<tg::Result<ClientMessage>>,
-	wait: watch::Sender<Option<tg::Result<tg::process::wait::Output>>>,
-}
-
-struct ReadGuard {
-	ended: Arc<AtomicBool>,
-	id: u64,
-	state: Arc<State>,
-	task: Option<Task<()>>,
+	handle: tg::handle::dynamic::Handle,
+	initial: Session,
+	session: Mutex<Session>,
 }
 
 impl Connection {
@@ -56,217 +29,82 @@ impl Connection {
 		Self,
 		BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
 	)> {
-		// Create the request and subscription channels.
-		let (acks, ack_receiver) = mpsc::channel(64);
-		let (sender, receiver) = mpsc::channel(64);
-		let (progress, progress_receiver) = mpsc::channel(64);
-		let (wait, _) = watch::channel(None);
-		let mut initial = Vec::new();
-		let mut reads = BTreeMap::new();
-		for (&id, arg) in &arg.reads {
-			let (sender, receiver) = mpsc::channel(tg::process::stdio::flow::CHANNEL_CAPACITY);
-			reads.insert(id, sender);
-			initial.push((id, arg.clone(), receiver));
-		}
-
-		// Send the opening request.
-		let next_id = arg.reads.keys().last().copied().unwrap_or(0) + 1;
-		let request = ClientRequest {
-			arg: ClientRequestArg::Connect(arg),
-			id: 0,
-		};
-		sender
-			.send(Ok(ClientMessage::Request(request)))
-			.await
-			.unwrap();
-		let input = stream::select(
-			ReceiverStream::new(ack_receiver),
-			ReceiverStream::new(receiver),
-		);
-		let output = handle.connect_process(input.boxed()).await?;
-
-		// Receive the process responses and notifications.
-		let state = State {
-			acks,
-			detached: AtomicBool::new(false),
-			error: Mutex::new(None),
-			initial: Mutex::new(initial),
-			next_id: AtomicU64::new(next_id),
-			reads: Mutex::new(reads),
-			requests: Mutex::new(BTreeMap::new()),
-			sender,
-			wait,
-		};
-		let state = Arc::new(state);
-		let state_task = state.clone();
-		let task = Task::spawn(move |_| async move {
-			let mut progress = Some(progress);
-			let result = Self::task(&state_task, output, &mut progress).await;
-			let error = result
-				.err()
-				.unwrap_or_else(|| tg::error!("the process connection closed"));
-			if let Some(progress) = progress {
-				progress.send(Err(error.clone())).await.ok();
-			}
-			state_task.fail(error);
-		});
-
-		let connection = Self {
-			state,
-			task: Arc::new(task),
-		};
-		let progress = ReceiverStream::new(progress_receiver).boxed();
-
+		let (session, progress) = Session::open(handle, arg).await?;
+		let connection = Self::with_session(handle, session.clone());
+		let progress = progress
+			.then(move |event| {
+				let session = session.clone();
+				async move {
+					if matches!(event, Ok(tg::progress::Event::Output(_))) {
+						session.confirm().await;
+					}
+					event
+				}
+			})
+			.boxed();
 		Ok((connection, progress))
 	}
 
-	async fn task(
-		state: &State,
-		mut output: BoxStream<'static, tg::Result<ServerMessage>>,
-		progress: &mut Option<
-			mpsc::Sender<tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
-		>,
-	) -> tg::Result<()> {
-		while let Some(message) = output.try_next().await? {
-			match message {
-				ServerMessage::Ack(_) => (),
-
-				ServerMessage::Notification(ServerNotification::Progress(event)) => {
-					let event =
-						event.try_map_output(|()| Err(tg::error!("unexpected progress output")))?;
-					if let Some(progress) = progress.as_ref() {
-						progress
-							.send(Ok(event))
-							.await
-							.map_err(|_| tg::error!("the spawn receiver closed"))?;
-					}
-				},
-				ServerMessage::Notification(ServerNotification::Read(notification)) => {
-					let reads = state.reads.lock().unwrap();
-					let message =
-						tg::process::stdio::read::ServerMessage::Notification(notification.event);
-					if let Some(sender) = reads.get(&notification.id)
-						&& let Err(mpsc::error::TrySendError::Full(_)) =
-							sender.try_send(Ok(message))
-					{
-						return Err(tg::error!("the process read buffer is full"));
-					}
-				},
-				ServerMessage::Notification(ServerNotification::Wait(output)) => {
-					state.wait.send_replace(Some(Ok(output)));
-				},
-				ServerMessage::Response(response) => {
-					let result = match (response.error, response.output) {
-						(None, Some(output)) => Ok(output),
-						(Some(error), None) => Err(error.try_into()?),
-						_ => Err(tg::error!("invalid process response")),
-					};
-					let read = state.reads.lock().unwrap().get(&response.id).cloned();
-					if let Some(sender) = read {
-						let result = match result {
-							Ok(ServerResponseOutput::Read(output)) => {
-								Ok(tg::process::stdio::read::ServerMessage::Response(output))
-							},
-							Ok(_) => Err(tg::error!("expected a read response")),
-							Err(error) => Err(error),
-						};
-						let failed = result.is_err();
-						sender.try_send(result).map_err(|error| {
-							tg::error!(!error, "failed to deliver the read response")
-						})?;
-						if !failed {
-							// A read response is acknowledged only after its buffered chunks are consumed.
-							continue;
-						}
-						state.reads.lock().unwrap().remove(&response.id);
-						state
-							.acks
-							.send(Ok(ClientMessage::Ack(Ack { id: response.id })))
-							.await
-							.map_err(|_| tg::error!("the process connection closed"))?;
-						continue;
-					}
-					state
-						.acks
-						.send(Ok(ClientMessage::Ack(Ack { id: response.id })))
-						.await
-						.map_err(|_| tg::error!("the process connection closed"))?;
-
-					if response.id == 0 {
-						let ServerResponseOutput::Connect(output) = result? else {
-							return Err(tg::error!("expected a connect response"));
-						};
-						let progress = progress
-							.take()
-							.ok_or_else(|| tg::error!("duplicate connect response"))?;
-						progress
-							.send(Ok(tg::progress::Event::Output(output)))
-							.await
-							.map_err(|_| tg::error!("the spawn receiver closed"))?;
-					} else if let Some(sender) = state.requests.lock().unwrap().remove(&response.id)
-					{
-						sender.send(result).ok();
-					}
-				},
-			}
+	#[must_use]
+	pub(super) fn with_session<H: tg::Handle>(handle: &H, session: Session) -> Self {
+		let inner = Inner {
+			detached: AtomicBool::new(false),
+			handle: tg::handle::dynamic::Handle::new(handle.clone()),
+			initial: session.clone(),
+			session: Mutex::new(session),
+		};
+		Self {
+			inner: Arc::new(inner),
 		}
-		Ok(())
 	}
 
 	pub(crate) async fn request(&self, arg: ClientRequestArg) -> tg::Result<ServerResponseOutput> {
-		let id = self.state.next_id.fetch_add(1, Ordering::Relaxed);
-		self.request_with_id(id, arg).await
-	}
-
-	async fn request_with_id(
-		&self,
-		id: u64,
-		arg: ClientRequestArg,
-	) -> tg::Result<ServerResponseOutput> {
-		let subscription = matches!(arg, ClientRequestArg::Read(_));
-		let (sender, receiver) = oneshot::channel();
-		{
-			let error = self.state.error.lock().unwrap();
-			if let Some(error) = &*error {
-				return Err(error.clone());
-			}
-			let mut requests = self.state.requests.lock().unwrap();
-			if requests.len() >= 128 && !matches!(arg, ClientRequestArg::Detach) {
-				return Err(tg::error!("too many process requests"));
-			}
-			requests.insert(id, sender);
-		}
-		let guard = scopeguard::guard(self.state.clone(), move |state| {
-			state.requests.lock().unwrap().remove(&id);
-			if subscription {
-				tokio::spawn(async move {
-					state.close(id).await;
-				});
-			}
-		});
-		let request = ClientRequest { arg, id };
-		self.state
-			.sender
-			.send(Ok(ClientMessage::Request(request)))
-			.await
-			.map_err(|_| tg::error!("the process connection closed"))?;
-		let output = receiver
-			.await
-			.map_err(|_| tg::error!("the process connection closed before the response"))??;
-		scopeguard::ScopeGuard::into_inner(guard);
+		let response = {
+			let mut session = self.inner.session.lock().await;
+			self.ensure_session(&mut session, None).await?;
+			session.start_request(arg).await?
+		};
+		let output = response
+			.await?
+			.ok_or_else(|| tg::error!("the process connection closed before the response"))?;
 		Ok(output)
 	}
 
+	async fn ensure_session(
+		&self,
+		session: &mut Session,
+		read: Option<read::Arg>,
+	) -> tg::Result<()> {
+		if self.detached() {
+			return Err(tg::error!("the process connection was detached"));
+		}
+		if !session.closed() {
+			return Ok(());
+		}
+		// Reopen the selected process, and include the read that requires this connection.
+		let target = session.target()?;
+		let reads = read.into_iter().map(|arg| (1, arg)).collect();
+		let arg = Arg { reads, target };
+		let (next, progress) = Session::open(&self.inner.handle, arg).await?;
+		progress
+			.try_last()
+			.await?
+			.ok_or_else(|| tg::error!("missing the connect output"))?;
+		*session = next;
+		Ok(())
+	}
+
 	pub(crate) async fn wait(&self) -> tg::Result<tg::process::wait::Output> {
-		let mut receiver = self.state.wait.subscribe();
 		loop {
-			if let Some(result) = receiver.borrow_and_update().clone() {
-				return result;
+			let session = self.inner.session.lock().await.clone();
+			session.confirm().await;
+			match session.wait().await {
+				Ok(output) => return Ok(output),
+				Err(error) if session.error().is_some() || self.detached() => return Err(error),
+				Err(_) => {},
 			}
-			receiver
-				.changed()
-				.await
-				.map_err(|_| tg::error!("the process connection closed before completion"))?;
+			let mut session = self.inner.session.lock().await;
+			self.ensure_session(&mut session, None).await?;
 		}
 	}
 
@@ -274,225 +112,104 @@ impl Connection {
 		if self.detached() {
 			return Ok(());
 		}
-		if !self.state.wait.borrow().as_ref().is_some_and(Result::is_ok) {
-			match self.request(ClientRequestArg::Detach).await {
-				Ok(ServerResponseOutput::Detach) => (),
-				Ok(_) => return Err(tg::error!("expected a detach response")),
-				Err(_) if self.state.wait.borrow().as_ref().is_some_and(Result::is_ok) => (),
-				Err(error) => return Err(error),
-			}
+		let session = self.inner.session.lock().await;
+		if !session.closed() {
+			session.detach().await?;
 		}
-		self.state.detached.store(true, Ordering::SeqCst);
-		self.state
-			.fail(tg::error!("the process connection was detached"));
-		self.task.abort();
+		self.inner.detached.store(true, Ordering::SeqCst);
 		Ok(())
 	}
 
 	#[must_use]
 	pub(crate) fn detached(&self) -> bool {
-		self.state.detached.load(Ordering::SeqCst)
+		self.inner.detached.load(Ordering::SeqCst)
 	}
 
 	pub(crate) async fn read(
 		&self,
-		arg: tg::process::stdio::read::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>> {
-		// Open the subscription.
-		let initial = {
-			let mut initial = self.state.initial.lock().unwrap();
-			initial
-				.iter()
-				.position(|(_, initial, _)| {
-					initial.streams == arg.streams
-						&& initial.position == arg.position
-						&& initial.length == arg.length
-						&& initial.size == arg.size
-						&& initial.timeout == arg.timeout
-				})
-				.map(|index| initial.remove(index))
-		};
-		let (id, receiver) = if let Some((id, _, receiver)) = initial {
-			(id, receiver)
-		} else {
-			let id = self.state.next_id.fetch_add(1, Ordering::Relaxed);
-			let (sender, receiver) = mpsc::channel(tg::process::stdio::flow::CHANNEL_CAPACITY);
-			self.state.reads.lock().unwrap().insert(id, sender);
-			let request = ClientRequest {
-				arg: ClientRequestArg::Read(arg),
-				id,
-			};
-			if self
-				.state
-				.sender
-				.send(Ok(ClientMessage::Request(request)))
-				.await
-				.is_err()
-			{
-				self.state.reads.lock().unwrap().remove(&id);
-				return Err(tg::error!("the process connection closed"));
-			}
-
-			(id, receiver)
-		};
-
-		// Send the stdio messages.
-		let state = self.state.clone();
-		let task = Task::spawn(move |_| async move {
-			Self::read_task(state, id, input).await;
-		});
-		let state = self.state.clone();
-		let errors = stream::once(async move {
-			Err(state
-				.error
-				.lock()
-				.unwrap()
-				.clone()
-				.unwrap_or_else(|| tg::error!("the process read closed before EOF")))
-		});
-		let ended = Arc::new(AtomicBool::new(false));
-		let ended_stream = ended.clone();
-		let output = ReceiverStream::new(receiver).inspect(move |result| {
-			if matches!(
-				result,
-				Ok(tg::process::stdio::read::ServerMessage::Response(_))
-			) {
-				ended_stream.store(true, Ordering::SeqCst);
-			}
-		});
-		let guard = ReadGuard {
-			ended,
-			id,
-			state: self.state.clone(),
-			task: Some(task),
-		};
-		let output = output.chain(errors).attach(guard).boxed();
-
-		Ok(output)
+		arg: read::Arg,
+		input: BoxStream<'static, tg::Result<read::ClientMessage>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<read::ServerMessage>>> {
+		if self.inner.initial.has_initial(&arg) {
+			return self.inner.initial.read(arg, input).await;
+		}
+		let mut session = self.inner.session.lock().await;
+		self.ensure_session(&mut session, Some(arg.clone())).await?;
+		session.read(arg, input).await
 	}
 
-	async fn read_task(
-		state: Arc<State>,
-		id: u64,
-		mut input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
-	) {
-		loop {
-			let message = tokio::select! {
-				message = input.next() => message,
-				() = state.sender.closed() => return,
-			};
-			let Some(message) = message else {
-				state.close(id).await;
-				return;
-			};
-			let message = match message {
-				Err(error) => {
-					if let Some(sender) = state.reads.lock().unwrap().remove(&id) {
-						sender.try_send(Err(error)).ok();
-					}
-					state.close(id).await;
-					return;
-				},
-				Ok(message) => message,
-			};
-			match message {
-				tg::process::stdio::read::ClientMessage::Ack => {
-					state
-						.acks
-						.send(Ok(ClientMessage::Ack(Ack { id })))
-						.await
-						.ok();
-					state.reads.lock().unwrap().remove(&id);
-					return;
-				},
-				tg::process::stdio::read::ClientMessage::Notification(progress) => {
-					let notification = ReadClientNotification { id, progress };
-					let message =
-						ClientMessage::Notification(ClientNotification::Read(notification));
-					if state.acks.send(Ok(message)).await.is_err() {
-						return;
-					}
-				},
-			}
-		}
+	pub(crate) async fn close_initial(&self, stream: tg::process::stdio::Stream) {
+		self.inner.initial.close_initial(stream).await;
 	}
 
 	pub(crate) async fn write(
 		&self,
-		arg: tg::process::stdio::write::stream::Arg,
-		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>> {
+		arg: write::stream::Arg,
+		input: BoxStream<'static, tg::Result<write::ClientMessage>>,
+	) -> tg::Result<BoxStream<'static, tg::Result<write::ServerMessage>>> {
 		let connection = self.clone();
-		let output = input
-			.try_filter_map(|message| async move {
-				match message {
-					write::ClientMessage::Ack(_) => Ok(None),
-					write::ClientMessage::Request(request) => Ok(Some(request)),
-				}
-			})
-			.map_ok(move |request| {
-				let connection = connection.clone();
-				let arg = write::Arg {
-					data: request.arg,
-					location: arg.location.clone(),
-					tokens: arg.tokens.clone(),
-				};
-				async move {
-					let output = connection.request(ClientRequestArg::Write(arg)).await?;
-					let ServerResponseOutput::Write(output) = output else {
-						return Err(tg::error!("expected a write response"));
-					};
-					let response = write::Response {
-						error: None,
-						id: request.id,
-						output: Some(output),
-					};
-					Ok(write::ServerMessage::Response(response))
-				}
-			})
-			.try_buffered(tg::process::stdio::flow::MAX_CHUNKS)
-			.boxed();
+		let output = stream::once(async move {
+			let mut input = input
+				.try_filter_map(|message| async move {
+					match message {
+						write::ClientMessage::Ack(_) => Ok(None),
+						write::ClientMessage::Request(request) => Ok(Some(request)),
+					}
+				})
+				.boxed();
+			let Some(request) = input.try_next().await? else {
+				return Ok::<_, tg::Error>(stream::empty().boxed());
+			};
+			// Bind this write attempt to one session so its retry preserves request order.
+			let (session, first) = {
+				let mut session = connection.inner.session.lock().await;
+				connection.ensure_session(&mut session, None).await?;
+				let first = Self::start_write(&session, &arg, request).await?;
+				(session.clone(), first)
+			};
+			let remaining = input.map_ok(move |request| {
+				let session = session.clone();
+				let arg = arg.clone();
+				async move { Self::start_write(&session, &arg, request).await?.await }.boxed()
+			});
+			let output = stream::once(futures::future::ok(first))
+				.chain(remaining)
+				.try_buffered(tg::process::stdio::flow::MAX_CHUNKS)
+				.take_while(|result| futures::future::ready(!matches!(result, Ok(None))))
+				.try_filter_map(|message| futures::future::ready(Ok(message)))
+				.boxed();
+			Ok(output)
+		})
+		.try_flatten()
+		.boxed();
 		Ok(output)
 	}
-}
 
-impl State {
-	async fn close(&self, id: u64) {
-		self.reads.lock().unwrap().remove(&id);
-		let request = ClientRequest {
-			arg: ClientRequestArg::Close(id),
-			id: self.next_id.fetch_add(1, Ordering::Relaxed),
+	async fn start_write(
+		session: &Session,
+		arg: &write::stream::Arg,
+		request: write::Request,
+	) -> tg::Result<BoxFuture<'static, tg::Result<Option<write::ServerMessage>>>> {
+		let arg = write::Arg {
+			data: request.arg,
+			location: arg.location.clone(),
+			tokens: arg.tokens.clone(),
 		};
-		self.sender
-			.send(Ok(ClientMessage::Request(request)))
-			.await
-			.ok();
-	}
-
-	fn fail(&self, error: tg::Error) {
-		*self.error.lock().unwrap() = Some(error.clone());
-		for (_, sender) in std::mem::take(&mut *self.requests.lock().unwrap()) {
-			sender.send(Err(error.clone())).ok();
-		}
-		self.reads.lock().unwrap().clear();
-		if self.wait.borrow().is_none() {
-			self.wait.send_replace(Some(Err(error)));
-		}
-	}
-}
-
-impl Drop for ReadGuard {
-	fn drop(&mut self) {
-		if self.ended.load(Ordering::SeqCst) {
-			// Finish forwarding the caller's EOF response before dropping the input task.
-			self.task.take().unwrap().detach();
-		} else {
-			let state = self.state.clone();
-			let id = self.id;
-			tokio::spawn(async move {
-				state.close(id).await;
-			});
-		}
+		let response = session.start_request(ClientRequestArg::Write(arg)).await?;
+		let future = async move {
+			let Some(output) = response.await? else {
+				return Ok(None);
+			};
+			let ServerResponseOutput::Write(output) = output else {
+				return Err(tg::error!("expected a write response"));
+			};
+			let response = write::Response {
+				error: None,
+				id: request.id,
+				output: Some(output),
+			};
+			Ok(Some(write::ServerMessage::Response(response)))
+		};
+		Ok(future.boxed())
 	}
 }

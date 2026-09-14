@@ -13,10 +13,12 @@ async fn responses_are_acknowledged_when_the_request_queue_is_full() {
 	let (wait, _) = watch::channel(None);
 	let state = State {
 		acks,
-		detached: AtomicBool::new(false),
+		closed: AtomicBool::new(false),
+		confirmed: AtomicBool::new(true),
 		error: Mutex::new(None),
 		initial: Mutex::new(Vec::new()),
 		next_id: AtomicU64::new(3),
+		output: Mutex::new(None),
 		reads: Mutex::new(BTreeMap::new()),
 		requests: Mutex::new(BTreeMap::from([(1, response)])),
 		sender,
@@ -31,7 +33,7 @@ async fn responses_are_acknowledged_when_the_request_queue_is_full() {
 	let mut progress = None;
 	tokio::time::timeout(
 		std::time::Duration::from_secs(1),
-		Connection::task(&state, output, &mut progress),
+		Session::task(&state, output, &mut progress),
 	)
 	.await
 	.unwrap()
@@ -52,7 +54,7 @@ async fn responses_are_acknowledged_when_the_request_queue_is_full() {
 
 #[tokio::test]
 async fn read_reports_disconnect_after_yielding_a_chunk() {
-	// Open an initial stdout subscription.
+	// Open an initial stdout read.
 	let (acks, _ack_receiver) = mpsc::channel(64);
 	let (sender, receiver) = mpsc::channel(64);
 	let (read_sender, read_receiver) = mpsc::channel(4);
@@ -63,22 +65,25 @@ async fn read_reports_disconnect_after_yielding_a_chunk() {
 	};
 	let state = State {
 		acks,
-		detached: AtomicBool::new(false),
+		closed: AtomicBool::new(false),
+		confirmed: AtomicBool::new(true),
 		error: Mutex::new(None),
 		initial: Mutex::new(vec![(1, arg.clone(), read_receiver)]),
 		next_id: AtomicU64::new(2),
+		output: Mutex::new(None),
 		reads: Mutex::new(BTreeMap::from([(1, read_sender.clone())])),
 		requests: Mutex::new(BTreeMap::new()),
 		sender,
 		wait,
 	};
 	let state = Arc::new(state);
-	let connection = Connection {
+	let connection = Session {
 		state: state.clone(),
 		task: Arc::new(Task::spawn(|_| futures::future::pending())),
 	};
 	let id = tg::process::Id::new();
 	let client = tg::Client::new(tg::Arg::default()).unwrap();
+	let connection = super::super::Connection::with_session(&client, connection);
 	let handle = tg::handle::dynamic::Handle::with_connection(client, id.clone(), connection);
 	let mut output = handle
 		.try_read_process_stdio_all(&id, arg)
@@ -101,7 +106,7 @@ async fn read_reports_disconnect_after_yielding_a_chunk() {
 
 	// A failed HTTP connection closes its request body and response task.
 	drop(receiver);
-	state.fail(tg::error!("the transport failed"));
+	state.fail(Some(tg::error!("the transport failed")));
 	drop(read_sender);
 	tokio::time::sleep(std::time::Duration::from_millis(20)).await;
 	let result =
@@ -119,16 +124,18 @@ async fn writes_fill_the_window_without_waiting_for_receipt_or_completion() {
 	let (wait, _) = watch::channel(None);
 	let state = Arc::new(State {
 		acks,
-		detached: AtomicBool::new(false),
+		closed: AtomicBool::new(false),
+		confirmed: AtomicBool::new(true),
 		error: Mutex::new(None),
 		initial: Mutex::new(Vec::new()),
 		next_id: AtomicU64::new(1),
+		output: Mutex::new(None),
 		reads: Mutex::new(BTreeMap::new()),
 		requests: Mutex::new(BTreeMap::new()),
 		sender,
 		wait,
 	});
-	let connection = Connection {
+	let connection = Session {
 		state: state.clone(),
 		task: Arc::new(Task::spawn(|_| futures::future::pending())),
 	};
@@ -156,6 +163,8 @@ async fn writes_fill_the_window_without_waiting_for_receipt_or_completion() {
 		streams: vec![tg::process::stdio::Stream::Stdin],
 		..Default::default()
 	};
+	let client = tg::Client::new(tg::Arg::default()).unwrap();
+	let connection = super::super::Connection::with_session(&client, connection);
 	let mut output = connection.write(arg, input_receiver.boxed()).await.unwrap();
 	let task = tokio::spawn(async move { output.try_next().await });
 	for id in 1..=64 {
@@ -169,7 +178,7 @@ async fn writes_fill_the_window_without_waiting_for_receipt_or_completion() {
 		);
 	}
 	let output = stream::iter([Ok(ServerMessage::Ack(Ack { id: 1 }))]).boxed();
-	Connection::task(&state, output, &mut None).await.unwrap();
+	Session::task(&state, output, &mut None).await.unwrap();
 	assert!(!task.is_finished());
 	let response = ServerResponse {
 		error: None,
@@ -181,7 +190,7 @@ async fn writes_fill_the_window_without_waiting_for_receipt_or_completion() {
 			},
 		)),
 	};
-	Connection::task(
+	Session::task(
 		&state,
 		stream::iter([Ok(ServerMessage::Response(response))]).boxed(),
 		&mut None,

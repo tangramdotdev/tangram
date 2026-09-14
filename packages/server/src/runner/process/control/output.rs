@@ -250,7 +250,7 @@ impl Session {
 				if matches!(
 					&response,
 					Ok(tg::process::control::ClientResponseOutput::Read(
-						tg::process::stdio::read::Output::End
+						tg::process::stdio::read::Output::End(_)
 					))
 				) {
 					drained.extend(read.arg.streams.iter().copied());
@@ -365,7 +365,9 @@ impl Reader {
 		read: &mut Read,
 	) -> tg::Result<Option<tg::process::stdio::read::ServerMessage>> {
 		if read.arg.length == Some(0) {
-			return Ok(Some(ServerMessage::Response(Output::Limit)));
+			return Ok(Some(ServerMessage::Response(Output::Limit {
+				position: read.position,
+			})));
 		}
 
 		while let Some(index) = self
@@ -418,7 +420,9 @@ impl Reader {
 					.deadline
 					.is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
 				{
-					return Ok(Some(ServerMessage::Response(Output::Timeout)));
+					return Ok(Some(ServerMessage::Response(Output::Timeout {
+						position: read.position,
+					})));
 				}
 				return Ok(None);
 			}
@@ -457,13 +461,26 @@ impl Reader {
 				);
 			}
 
-			return Ok(Some(ServerMessage::Response(Output::End)));
+			let stream_positions = [
+				(tg::process::stdio::Stream::Stderr, self.stderr_position),
+				(tg::process::stdio::Stream::Stdout, self.stdout_position),
+			]
+			.into_iter()
+			.filter(|(stream, _)| read.arg.streams.contains(stream))
+			.collect();
+			let end = tg::process::stdio::End {
+				combined_position: self.combined_position,
+				stream_positions,
+			};
+			return Ok(Some(ServerMessage::Response(Output::End(end))));
 		}
 		if read
 			.deadline
 			.is_some_and(|deadline| tokio::time::Instant::now() >= deadline)
 		{
-			return Ok(Some(ServerMessage::Response(Output::Timeout)));
+			return Ok(Some(ServerMessage::Response(Output::Timeout {
+				position: read.position,
+			})));
 		}
 		Ok(None)
 	}

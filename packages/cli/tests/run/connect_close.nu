@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Closing a subscription and failing an input iterator leave the connection usable.
+# Closing a read and failing an input iterator leave the connection usable.
 let server = server spawn
 let path = artifact {
 	tangram.ts: '
@@ -12,6 +12,11 @@ let path = artifact {
 				.sandbox()
 				.connection("run");
 			tg.assert(typeof process.id === "string");
+			await process.stderr.close();
+			for (let i = 0; i < 70; i++) {
+				let read = await process.readStdio({ streams: ["stdout"], position: 100 });
+				await read.return?.();
+			}
 			for (let i = 0; i < 70; i++) {
 				let read = await process.readStdio({ streams: ["stdout"], position: 0 });
 				let chunk = await read.next();

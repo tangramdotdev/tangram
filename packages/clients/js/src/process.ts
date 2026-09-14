@@ -738,7 +738,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		return output as O;
 	}
 
-	/** Read process stdio, consuming a matching initial subscription when connected. */
+	/** Read process stdio, consuming a matching initial read request when connected. */
 	async readStdio(
 		options: Omit<tg.Process.Stdio.Read.Arg, "tokens">,
 	): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk>> {
@@ -753,7 +753,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		options: Omit<tg.Process.Stdio.Read.Arg, "tokens">,
 	): Promise<AsyncIterableIterator<tg.Process.Stdio.Chunk> | null> {
 		if (typeof this.#id !== "string") {
-			throw new Error("stdio subscriptions require a sandboxed process");
+			throw new Error("stdio reads require a sandboxed process");
 		}
 		let arg = {
 			...options,

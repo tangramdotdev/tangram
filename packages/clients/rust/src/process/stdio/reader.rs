@@ -58,6 +58,12 @@ impl Reader {
 
 	pub async fn close(&mut self) -> tg::Result<()> {
 		let mut state = self.0.lock().await;
+		if state.input.is_none()
+			&& let Some(process) = state.process.as_ref().and_then(Weak::upgrade)
+			&& let Some(connection) = &process.connection
+		{
+			connection.close_initial(state.stream).await;
+		}
 		state.fd = None;
 		state.input = None;
 		state.process = None;

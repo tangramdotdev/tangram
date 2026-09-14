@@ -73,7 +73,9 @@ async fn reconnect_preserves_the_resolved_reverse_window() {
 									read::ServerMessage::Notification(read::Event::Chunk(chunk)),
 								]
 							} else {
-								vec![read::ServerMessage::Response(read::Output::End)]
+								vec![read::ServerMessage::Response(read::Output::Limit {
+									position: position - 1,
+								})]
 							};
 							let input = Task::spawn(move |_| async move {
 								BodyStream::new(request.into_body())

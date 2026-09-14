@@ -52,7 +52,9 @@ async fn a_read_streams_a_window_before_progress_and_completes_after_its_chunks(
 		read::ServerMessage::Notification(read::Event::Chunk(chunk)),
 		MAX_CHUNKS + 1,
 	)
-	.chain([read::ServerMessage::Response(read::Output::End)]);
+	.chain([read::ServerMessage::Response(read::Output::End(
+		tg::process::stdio::End::default(),
+	))]);
 	let (sender, receiver) = async_channel::bounded(4);
 	let mut output = read(receiver.boxed(), stream::iter(messages.map(Ok)).boxed());
 	for _ in 0..MAX_CHUNKS {
@@ -75,7 +77,7 @@ async fn a_read_streams_a_window_before_progress_and_completes_after_its_chunks(
 	));
 	assert!(matches!(
 		output.try_next().await.unwrap(),
-		Some(read::ServerMessage::Response(read::Output::End))
+		Some(read::ServerMessage::Response(read::Output::End(_)))
 	));
 	assert!(output.try_next().now_or_never().is_none());
 	sender.send(Ok(read::ClientMessage::Ack)).await.unwrap();

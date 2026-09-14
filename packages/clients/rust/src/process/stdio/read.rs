@@ -127,7 +127,6 @@ pub struct Options {
 
 #[derive(
 	Clone,
-	Copy,
 	Debug,
 	Eq,
 	PartialEq,
@@ -139,11 +138,17 @@ pub struct Options {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum Output {
 	#[tangram_serialize(id = 0)]
-	End,
+	End(super::End),
 	#[tangram_serialize(id = 1)]
-	Limit,
+	Limit {
+		#[tangram_serialize(id = 0)]
+		position: u64,
+	},
 	#[tangram_serialize(id = 2)]
-	Timeout,
+	Timeout {
+		#[tangram_serialize(id = 0)]
+		position: u64,
+	},
 }
 
 #[derive(
@@ -160,6 +165,35 @@ pub struct Progress {
 	/// The cumulative number of consumed chunk bytes in this read attempt.
 	#[tangram_serialize(id = 0)]
 	pub consumed: u64,
+}
+
+impl Output {
+	pub fn validate(&self, streams: &[Stream], position: u64) -> tg::Result<()> {
+		let expected = self.position(streams)?;
+		let valid = match self {
+			// A forward read may begin beyond EOF, but it must not finish short of EOF.
+			Self::End(_) => position >= expected,
+			Self::Limit { .. } | Self::Timeout { .. } => position == expected,
+		};
+		if !valid {
+			return Err(
+				tg::error!(expected = %expected, actual = %position, "encountered a gap at the end of the stdio read"),
+			);
+		}
+		Ok(())
+	}
+
+	pub fn position(&self, streams: &[Stream]) -> tg::Result<u64> {
+		let position = match self {
+			Self::End(end) if streams.len() > 1 => end.combined_position,
+			Self::End(end) => *streams
+				.first()
+				.and_then(|stream| end.stream_positions.get(stream))
+				.ok_or_else(|| tg::error!("missing the stdio end position"))?,
+			Self::Limit { position } | Self::Timeout { position } => *position,
+		};
+		Ok(position)
+	}
 }
 
 impl<O> tg::Process<O> {

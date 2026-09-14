@@ -3,13 +3,13 @@ import { Body, Request, Response, Uri, percentEncode } from "../../../http.ts";
 import { Receiver } from "../../../process/stdio/flow.ts";
 import type { Client } from "../../../client.ts";
 
-type Connection = {
+export type Connection = {
 	input: {
 		close(): void;
 		push(message: tg.Process.Stdio.Read.ClientMessage): boolean;
 	};
 	output: AsyncIterableIterator<tg.Process.Stdio.Read.ServerMessage>;
-	reconnect?: boolean;
+	reconnect?: (arg: tg.Process.Stdio.Read.Arg) => Promise<Connection>;
 };
 
 class ProtocolError extends Error {}
@@ -27,19 +27,47 @@ export async function tryReadProcessStdio(
 	return readProcessStdioAll(client, id, arg, connection);
 }
 
-export async function* readProcessStdioAll(
+export function readProcessStdioAll(
 	client: Client,
 	id: tg.Process.Id,
 	arg: tg.Process.Stdio.Read.Arg,
 	connection: Connection,
 ): AsyncIterableIterator<tg.Process.Stdio.Chunk> {
+	let state = { canceled: false, connection };
+	let output = readProcessStdioAllInner(client, id, arg, state);
+	return {
+		next: () => output.next(),
+		return: async () => {
+			state.canceled = true;
+			state.connection.input.close();
+			state.connection.output.return?.().catch(() => {});
+			return await output.return!();
+		},
+		[Symbol.asyncIterator]() {
+			return this;
+		},
+	};
+}
+
+async function* readProcessStdioAllInner(
+	client: Client,
+	id: tg.Process.Id,
+	arg: tg.Process.Stdio.Read.Arg,
+	state: { canceled: boolean; connection: Connection },
+): AsyncIterableIterator<tg.Process.Stdio.Chunk> {
+	let connection = state.connection;
 	let combined = arg.streams.length > 1;
 	let forward =
 		arg.length === undefined || arg.length === null || arg.length >= 0;
 	let nextArg = { ...arg, streams: [...arg.streams] };
 	let window = new Receiver();
 	let pending = 0;
-	let position = typeof arg.position === "number" ? arg.position : null;
+	let position =
+		typeof arg.position === "number"
+			? arg.position
+			: arg.position === undefined || arg.position === null
+				? 0
+				: null;
 	try {
 		while (true) {
 			let progress = window.consume(pending);
@@ -51,22 +79,39 @@ export async function* readProcessStdioAll(
 			try {
 				result = await connection.output.next();
 			} catch (error) {
+				if (state.canceled) return;
 				if (isTerminalError(error)) {
 					throw error;
 				}
-				connection = await reconnect(client, id, nextArg, connection);
+				connection = state.connection = await reconnect(
+					client,
+					id,
+					nextArg,
+					connection,
+				);
 				window = new Receiver();
 				pending = 0;
 				continue;
 			}
+			if (state.canceled) return;
 			if (result.done) {
-				connection = await reconnect(client, id, nextArg, connection);
+				connection = state.connection = await reconnect(
+					client,
+					id,
+					nextArg,
+					connection,
+				);
 				window = new Receiver();
 				pending = 0;
 				continue;
 			}
 			let message = result.value;
 			if (message.kind === "response") {
+				tg.Process.Stdio.Read.Output.validate(
+					message.value,
+					arg.streams,
+					position ?? 0,
+				);
 				connection.input.push({ kind: "ack" });
 				connection.input.close();
 				return;
@@ -168,12 +213,12 @@ async function reconnect(
 	arg: tg.Process.Stdio.Read.Arg,
 	connection: Connection,
 ): Promise<Connection> {
-	if (connection.reconnect === false) {
-		throw new Error("the process connection closed");
-	}
 	connection.input.close();
 	await connection.output.return?.();
-	let next = await connect(client, id, arg);
+	let next =
+		connection.reconnect === undefined
+			? await connect(client, id, arg)
+			: await connection.reconnect(arg);
 	if (next === null) {
 		throw new Error("failed to find the process");
 	}
@@ -268,7 +313,9 @@ async function* decodeServerMessages(
 					throw new ProtocolError("invalid process stdio read notification");
 				}
 			} else if (event.event === "response") {
-				let value = JSON.parse(event.data) as tg.Process.Stdio.Read.Output;
+				let value = tg.Process.Stdio.Read.Output.fromData(
+					JSON.parse(event.data),
+				);
 				if (!["end", "limit", "timeout"].includes(value.kind)) {
 					throw new ProtocolError("invalid process stdio read request");
 				}

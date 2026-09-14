@@ -3,13 +3,13 @@ import { Body, Request, Response, Uri, percentEncode } from "../../../http.ts";
 import { chunkSize, maxChunks } from "../../../process/stdio/flow.ts";
 import type { Client } from "../../../client.ts";
 
-type Connection = {
+export type Connection = {
 	input: {
 		close(): void;
 		push(message: tg.Process.Stdio.Write.ClientMessage): boolean;
 	};
 	output: AsyncIterableIterator<tg.Process.Stdio.Write.ServerMessage>;
-	reconnect?: boolean;
+	reconnect?: () => Promise<Connection>;
 };
 
 type WriteEvent =
@@ -256,12 +256,12 @@ async function reconnect(
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 	connection: Connection,
 ): Promise<Connection> {
-	if (connection.reconnect === false) {
-		throw new Error("the process connection closed");
-	}
 	connection.input.close();
 	await connection.output.return?.();
-	let next = await connect(client, id, arg);
+	let next =
+		connection.reconnect === undefined
+			? await connect(client, id, arg)
+			: await connection.reconnect();
 	if (next === null) {
 		throw new Error("failed to find the process");
 	}

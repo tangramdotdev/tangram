@@ -631,7 +631,7 @@ impl Session {
 		id: u64,
 		result: tg::Result<()>,
 	) -> tg::Result<()> {
-		// Release the completed subscription.
+		// Release the completed read.
 		state.streams.aborts.remove(&id);
 		let active = state.streams.reads.remove(&id).is_some();
 		state.requests.remove(&id);
@@ -910,7 +910,7 @@ impl Session {
 		let mut output =
 			self.read_process_stdio_protocol(arg, ReceiverStream::new(receiver).boxed(), output);
 
-		// Register the subscription and return its messages.
+		// Register the read request and return its messages.
 		state.streams.reads.insert(request_id, input);
 		let sender = state.low.clone();
 		state.streams.insert(request_id, async move {

@@ -1,5 +1,5 @@
 use {
-	super::{Ack, ClientMessage, Data, End, Input, Request, Response, ServerMessage, stream::Arg},
+	super::{Ack, ClientMessage, Data, Input, Request, Response, ServerMessage, stream::Arg},
 	crate::{prelude::*, process::stdio::flow},
 	futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	std::collections::{BTreeMap, VecDeque},
@@ -103,7 +103,7 @@ pub(crate) async fn all<H: tg::Handle>(
 					sent: false,
 				});
 			} else if input_ended && pending.is_empty() {
-				let end = End {
+				let end = tg::process::stdio::End {
 					combined_position,
 					stream_positions: stream_positions.clone(),
 				};

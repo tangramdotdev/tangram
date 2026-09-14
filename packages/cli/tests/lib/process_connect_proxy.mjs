@@ -7,11 +7,16 @@ const server = http2.createServer();
 server.on("stream", (stream, headers) => {
 	const path = headers[":path"];
 	if (path.startsWith("/processes/")) appendFileSync(log, `${path}\n`);
+	// Give each bidirectional stream its own HTTP/1 connection.
 	const request = http.request(
 		{
-			headers: Object.fromEntries(
-				Object.entries(headers).filter(([name]) => !name.startsWith(":")),
-			),
+			agent: false,
+			headers: {
+				...Object.fromEntries(
+					Object.entries(headers).filter(([name]) => !name.startsWith(":")),
+				),
+				te: "trailers",
+			},
 			method: headers[":method"],
 			path,
 			socketPath,
@@ -27,7 +32,12 @@ server.on("stream", (stream, headers) => {
 						!["connection", "keep-alive", "transfer-encoding"].includes(name),
 				),
 			);
-			stream.respond({ ...headers, ":status": response.statusCode });
+			// Preserve native protocol error trailers.
+			stream.respond(
+				{ ...headers, ":status": response.statusCode },
+				{ waitForTrailers: true },
+			);
+			stream.on("wantTrailers", () => stream.sendTrailers(response.trailers));
 			response.on("error", () => stream.close());
 			response.pipe(stream);
 		},

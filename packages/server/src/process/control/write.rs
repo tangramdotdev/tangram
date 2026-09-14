@@ -199,7 +199,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
-		end: tg::process::stdio::write::End,
+		end: tg::process::stdio::End,
 	) -> tg::Result<tg::process::control::WriteServerResponseOutput> {
 		if end
 			.stream_positions

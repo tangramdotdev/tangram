@@ -244,9 +244,12 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: &mut tg::process::stdio::read::Arg,
-		finished: bool,
+		mut end: Option<tg::process::stdio::End>,
 		streams: BTreeSet<tg::process::stdio::Stream>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>> {
+	) -> tg::Result<(
+		Option<tg::process::stdio::End>,
+		BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>,
+	)> {
 		if streams.is_empty() {
 			return Err(tg::error!("expected at least one log stream"));
 		}
@@ -297,6 +300,26 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get the log length"))?;
 		}
+		// Recover the final positions from the compacted log when no cached marker remains.
+		if end.is_none()
+			&& let Inner::Blob(inner) = &mut inner
+		{
+			let stderr = tg::process::stdio::Stream::Stderr;
+			let stdout = tg::process::stdio::Stream::Stdout;
+			let stderr_position = inner
+				.try_get_length(&BTreeSet::from([stderr]))
+				.await?
+				.unwrap();
+			let stdout_position = inner
+				.try_get_length(&BTreeSet::from([stdout]))
+				.await?
+				.unwrap();
+			end = Some(tg::process::stdio::End {
+				combined_position: stderr_position + stdout_position,
+				stream_positions: [(stderr, stderr_position), (stdout, stdout_position)].into(),
+			});
+		}
+
 		let mut position = match arg.position.unwrap_or(SeekFrom::Start(0)) {
 			SeekFrom::Start(position) => position,
 			SeekFrom::Current(_) => {
@@ -313,7 +336,7 @@ impl Session {
 		};
 
 		// Clip at EOF only when completion rules out further writes.
-		if finished
+		if end.is_some()
 			&& let Some(length) = &mut arg.length
 			&& *length < 0
 		{
@@ -434,7 +457,7 @@ impl Session {
 		})
 		.boxed();
 
-		Ok(stream)
+		Ok((end, stream))
 	}
 }
 

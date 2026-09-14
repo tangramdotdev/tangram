@@ -137,7 +137,10 @@ impl Session {
 			},
 			Source::Null => stream::once(futures::future::ok(
 				tg::process::stdio::read::ServerMessage::Response(
-					tg::process::stdio::read::Output::End,
+					tg::process::stdio::read::Output::End(tg::process::stdio::End {
+						combined_position: 0,
+						stream_positions: arg.streams.iter().map(|stream| (*stream, 0)).collect(),
+					}),
 				),
 			))
 			.boxed(),
@@ -271,7 +274,7 @@ impl Session {
 			Some(wakeups)
 		};
 		let mut positioned = false;
-		let mut outcome = tg::process::stdio::read::Output::Timeout;
+		let mut outcome = None;
 		'outer: loop {
 			let indexed = self
 				.get_process_from_index(id)
@@ -281,12 +284,33 @@ impl Session {
 				.data
 				.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
 			// Read the completion marker before draining so every committed chunk is visible.
-			let output_finished = data.log.is_some()
-				|| data.status.is_finished() && data.started_at.is_none()
-				|| self.server.cache.try_get_log_end(id).await?.is_some();
+			let end =
+				if data.log.is_some() {
+					None
+				} else if data.status.is_finished() && data.started_at.is_none() {
+					Some(tg::process::stdio::End {
+						combined_position: 0,
+						stream_positions: [
+							(tg::process::stdio::Stream::Stderr, 0),
+							(tg::process::stdio::Stream::Stdout, 0),
+						]
+						.into(),
+					})
+				} else {
+					self.server.cache.try_get_log_end(id).await?.map(|end| {
+						tg::process::stdio::End {
+							combined_position: end.position,
+							stream_positions: [
+								(tg::process::stdio::Stream::Stderr, end.stderr_position),
+								(tg::process::stdio::Stream::Stdout, end.stdout_position),
+							]
+							.into(),
+						}
+					})
+				};
 			let previous = (arg.position, arg.length);
-			let mut stream = self
-				.process_log_stream(id, &mut arg, output_finished, streams.clone())
+			let (end, mut stream) = self
+				.process_log_stream(id, &mut arg, end, streams.clone())
 				.await
 				.map_err(|error| tg::error!(!error, "failed to create the log stream"))?;
 			// Report the resolved window before its chunks so reconnecting readers do not infer it from a changing EOF.
@@ -347,11 +371,20 @@ impl Session {
 			let reached_start = arg.length.is_some_and(|length| length < 0)
 				&& matches!(arg.position, Some(SeekFrom::Start(0)));
 			if arg.length == Some(0) || reached_start {
-				outcome = tg::process::stdio::read::Output::Limit;
+				outcome = Some(tg::process::stdio::read::Output::Limit {
+					position: match arg.position {
+						Some(SeekFrom::Start(position)) => position,
+						_ => unreachable!(),
+					},
+				});
 				break;
 			}
-			if output_finished {
-				outcome = tg::process::stdio::read::Output::End;
+			if let Some(end) = end {
+				// A reverse read must reach its limit or the start before completing.
+				if arg.length.is_some_and(|length| length < 0) {
+					return Err(tg::error!("encountered a gap in the process log"));
+				}
+				outcome = Some(tg::process::stdio::read::Output::End(end));
 				break;
 			}
 			let Some(wakeups) = &mut wakeups else {
@@ -362,6 +395,12 @@ impl Session {
 			};
 		}
 
+		let outcome = outcome.unwrap_or(tg::process::stdio::read::Output::Timeout {
+			position: match arg.position {
+				Some(SeekFrom::Start(position)) => position,
+				_ => 0,
+			},
+		});
 		let message = tg::process::stdio::read::ServerMessage::Response(outcome);
 		sender.send(Ok(message)).await.ok();
 

@@ -125,7 +125,7 @@ let output = timeout 15 node --input-type=module -e '
     });
     await tick();
     assert.equal(readDone, false);
-    response(1, "read", { kind: "end" });
+    response(1, "read", { kind: "end", value: { combined_position: 3, stream_positions: { stdout: 3 } } });
     assert.equal(await reading, "abc");
     while (true) {
         const event = (await input.next()).value;
@@ -150,13 +150,23 @@ let output = timeout 15 node --input-type=module -e '
 	let signaling = failed.signal(tg.Process.Signal.TERM);
 	let waiting = failed.wait();
 	let signalError = assert.rejects(signaling, /transport failed/);
-	let waitError = assert.rejects(waiting, /transport failed/);
+
 	let signal = await next();
 	assert.equal(signal.value.arg.kind, "signal");
 	emit("ack", { id: signal.value.id });
 	events.push(new Error("transport failed"));
-	await Promise.all([signalError, waitError]);
-	assert.deepEqual(requests, ["/processes/connect", "/processes/connect"]);
+	await signalError;
+	await tick();
+	let reconnect = await next();
+	assert.equal(reconnect.value.arg.value.target.kind, "existing");
+	assert.equal(reconnect.value.arg.value.target.value.id, id);
+	response(0, "connect", {
+		cached: false, lease: null, location: null, process: id, tokens: {}, wait: null,
+	});
+	emit("notification", { kind: "wait", value: { exit: 0 } });
+	assert.equal((await waiting).exit, 0);
+	assert.deepEqual(requests, Array(3).fill("/processes/connect"));
+	await failed.detach();
 
 	// Backpressure on requests and stdio must leave room for response acknowledgments.
 	events = new Queue();
@@ -182,7 +192,7 @@ let output = timeout 15 node --input-type=module -e '
 		signaling.catch(() => {});
 		pending.push(signaling);
 	}
-    response(1, "read", { kind: "end" });
+    response(1, "read", { kind: "end", value: { combined_position: 0, stream_positions: { stdout: 0 } } });
     assert.equal(await busyReading, "");
     const readAck = (await input.next()).value;
     assert.equal(readAck.event, "ack");
