@@ -89,7 +89,7 @@ impl Session {
 				.min(arg.length.map_or(u64::MAX, |length| length - read));
 			let output = runner
 				.processes
-				.get(runner.index)
+				.get(id)
 				.map(|process| -> tg::Result<_> {
 					let length = u64::try_from(process.children.len()).unwrap();
 					let position = match position {

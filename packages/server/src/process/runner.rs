@@ -2,7 +2,6 @@ use {crate::Session, std::sync::Arc, tangram_client::prelude::*};
 
 pub(crate) struct Runner {
 	pub changed: tokio::sync::watch::Receiver<()>,
-	pub index: u64,
 	pub location: tg::Location,
 	pub location_arg: tg::location::Arg,
 	pub processes: Arc<super::Processes>,
@@ -20,7 +19,7 @@ impl Session {
 		let sandbox = state.try_get_process_sandbox(id)?;
 		let runner = self.try_get_sandbox_runner_inner(&sandbox, location)?;
 		let sandbox = state.sandboxes().get(runner.index)?;
-		let process = sandbox.processes.get_by_id(id)?;
+		let process = sandbox.processes.get(id)?;
 
 		// Fall back to normal dispatch for finished processes.
 		if process.data.status.is_finished() {
@@ -29,13 +28,11 @@ impl Session {
 
 		// Create the runner handle.
 		let changed = process.changed.subscribe();
-		let index = *process.key();
 		let location = runner.location;
 		let location_arg = runner.location_arg;
 		let processes = sandbox.processes.clone();
 		let runner = Runner {
 			changed,
-			index,
 			location,
 			location_arg,
 			processes,

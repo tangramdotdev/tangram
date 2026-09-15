@@ -405,7 +405,7 @@ impl Session {
 											|| tg::error!(%process_id, "failed to find the sandbox"),
 										)?;
 									let mut process =
-										sandbox.processes.get_mut_by_id(process_id).ok_or_else(
+										sandbox.processes.get_mut(process_id).ok_or_else(
 											|| tg::error!(%process_id, "failed to find the process"),
 										)?;
 									if !process.data.status.is_finished() {

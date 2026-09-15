@@ -121,11 +121,7 @@ impl Session {
 		{
 			return Ok(None);
 		}
-		let Some(data) = runner
-			.processes
-			.get(runner.index)
-			.map(|process| process.data())
-		else {
+		let Some(data) = runner.processes.get(id).map(|process| process.data()) else {
 			return Ok(None);
 		};
 		let mut output =

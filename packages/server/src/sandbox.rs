@@ -33,12 +33,12 @@ pub struct State {
 	pub authorization_tokens: tg::Tokens,
 	pub changed: tokio::sync::watch::Sender<()>,
 	pub data: tg::sandbox::control::Data,
-	pub id: Option<tg::sandbox::Id>,
+	pub id: tg::sandbox::Id,
 	pub location: tg::Location,
 	pub processes: Arc<crate::process::Processes>,
 	pub sandbox: Option<tangram_sandbox::Sandbox>,
 	pub status: tg::sandbox::Status,
-	pub token: Option<String>,
+	pub token: String,
 	pub tokens: BTreeMap<tg::artifact::Id, tg::authorization::Token>,
 	pub usage: Option<tg::sandbox::Usage>,
 }
@@ -71,11 +71,6 @@ impl Sandboxes {
 		self.sandboxes.get_mut(&index)
 	}
 
-	#[must_use]
-	pub fn get_mut(&self, index: u64) -> Option<dashmap::mapref::one::RefMut<'_, u64, State>> {
-		self.sandboxes.get_mut(&index)
-	}
-
 	pub fn insert(&self, index: u64, state: State) {
 		let id = state.id.clone();
 		match self.sandboxes.entry(index) {
@@ -84,13 +79,11 @@ impl Sandboxes {
 				entry.insert(state);
 			},
 		}
-		if let Some(id) = id {
-			match self.indexes.entry(id) {
-				dashmap::Entry::Occupied(_) => panic!("the sandbox ID is already in use"),
-				dashmap::Entry::Vacant(entry) => {
-					entry.insert(index);
-				},
-			}
+		match self.indexes.entry(id) {
+			dashmap::Entry::Occupied(_) => panic!("the sandbox ID is already in use"),
+			dashmap::Entry::Vacant(entry) => {
+				entry.insert(index);
+			},
 		}
 	}
 
@@ -100,33 +93,16 @@ impl Sandboxes {
 
 	pub fn remove(&self, index: u64) -> Option<State> {
 		let (_, state) = self.sandboxes.remove(&index)?;
-		if let Some(id) = &state.id {
-			self.indexes.remove(id);
-		}
+		self.indexes.remove(&state.id);
 
 		Some(state)
-	}
-
-	pub fn set_id(&self, index: u64, id: tg::sandbox::Id) {
-		let mut sandbox = self
-			.sandboxes
-			.get_mut(&index)
-			.expect("the sandbox index was not found");
-		assert!(sandbox.id.is_none(), "the sandbox ID is already set");
-		match self.indexes.entry(id.clone()) {
-			dashmap::Entry::Occupied(_) => panic!("the sandbox ID is already in use"),
-			dashmap::Entry::Vacant(entry) => {
-				sandbox.id = Some(id);
-				entry.insert(index);
-			},
-		}
 	}
 }
 
 impl State {
 	#[must_use]
-	pub fn data(&self) -> Option<tg::sandbox::get::Output> {
-		let id = self.id.clone()?;
+	pub fn data(&self) -> tg::sandbox::get::Output {
+		let id = self.id.clone();
 		let arg = &self.data.arg;
 		let data = tg::sandbox::Data {
 			cpu: arg.cpu,
@@ -142,13 +118,11 @@ impl State {
 			ttl: arg.ttl,
 			usage: self.usage.clone(),
 		};
-		let output = tg::sandbox::get::Output {
+		tg::sandbox::get::Output {
 			data,
 			location: Some(self.location.clone()),
 			tokens: self.authorization_tokens.clone(),
-		};
-
-		Some(output)
+		}
 	}
 }
 

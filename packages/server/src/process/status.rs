@@ -78,10 +78,7 @@ impl Session {
 	) -> tg::Result<()> {
 		let mut previous = None;
 		loop {
-			let status = runner
-				.processes
-				.get(runner.index)
-				.map(|process| process.data.status);
+			let status = runner.processes.get(id).map(|process| process.data.status);
 			let Some(status) = status else {
 				// Resume at the owning location when the runner releases its state.
 				arg.location = Some(runner.location_arg);

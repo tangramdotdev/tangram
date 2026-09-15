@@ -91,10 +91,7 @@ impl Session {
 		else {
 			return Ok(path.to_owned());
 		};
-		let id = sandbox
-			.id
-			.clone()
-			.ok_or_else(|| tg::error!("the origin sandbox ID is not set"))?;
+		let id = sandbox.id.clone();
 		let sandbox = sandbox
 			.sandbox
 			.clone()
@@ -119,10 +116,7 @@ impl Session {
 		else {
 			return Ok(path.to_owned());
 		};
-		let id = sandbox
-			.id
-			.clone()
-			.ok_or_else(|| tg::error!("the origin sandbox ID is not set"))?;
+		let id = sandbox.id.clone();
 		let sandbox = sandbox
 			.sandbox
 			.clone()

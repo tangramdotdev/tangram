@@ -152,11 +152,11 @@ impl Session {
 			return Ok(None);
 		};
 		let authorized = match &self.context.principal {
-			tg::Principal::Process(id) => sandbox.processes.get_by_id(id).is_some(),
-			tg::Principal::Sandbox(id) => sandbox.id.as_ref() == Some(id),
+			tg::Principal::Process(id) => sandbox.processes.get(id).is_some(),
+			tg::Principal::Sandbox(id) => sandbox.id == *id,
 			_ => false,
 		};
-		let id = authorized.then(|| sandbox.id.clone()).flatten();
+		let id = authorized.then(|| sandbox.id.clone());
 
 		Ok(id)
 	}
