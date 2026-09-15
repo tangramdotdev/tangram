@@ -9,6 +9,6 @@ let path = artifact {
 }
 
 let id = tg checkin ($path | path join "foo.ts")
-let obj = tg object get $id
+let obj = tg object get --no-tokens $id
 
 snapshot --normalize-ids --redact $path $obj 'tg.file({"contents":blb_010000000000000000000000000000000000000000000000000000})'

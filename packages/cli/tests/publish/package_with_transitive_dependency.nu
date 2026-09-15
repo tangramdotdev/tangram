@@ -67,12 +67,12 @@ assert equal $remote_dep_tag $dep_id "Remote dependency tag does not match expec
 assert equal $remote_transitive_tag $transitive_id "Remote transitive tag does not match expected ID."
 
 # Verify objects synced.
-let local_main_obj = tg object get $main_id
-let remote_main_obj = tg --url $remote.url object get $main_id
-let local_dep_obj = tg object get $dep_id
-let remote_dep_obj = tg --url $remote.url object get $dep_id
-let local_transitive_obj = tg object get $transitive_id
-let remote_transitive_obj = tg --url $remote.url object get $transitive_id
+let local_main_obj = tg object get --no-tokens $main_id
+let remote_main_obj = tg --url $remote.url object get --no-tokens $main_id
+let local_dep_obj = tg object get --no-tokens $dep_id
+let remote_dep_obj = tg --url $remote.url object get --no-tokens $dep_id
+let local_transitive_obj = tg object get --no-tokens $transitive_id
+let remote_transitive_obj = tg --url $remote.url object get --no-tokens $transitive_id
 assert equal $local_main_obj $remote_main_obj "Main object not synced between local and remote."
 assert equal $local_dep_obj $remote_dep_obj "Dependency object not synced between local and remote."
 assert equal $local_transitive_obj $remote_transitive_obj "Transitive object not synced between local and remote."

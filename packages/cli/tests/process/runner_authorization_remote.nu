@@ -22,8 +22,8 @@ let remote_reader = tg --url $remote.url login --verbose --name reader | from js
 tg --url $runner.url --token $reader.token remote put default $remote.url
 let finish_watch = tg --url $runner.url --token $runner_root checkpoint watch runner.process.finish | from json | get watch
 let path = artifact { tangram.ts: 'export default () => tg.file("private output");' }
-let spawned = tg --url $remote.url --token $remote_root build --detach --verbose $path | from json
-let process = $spawned.process | split row '?' | first
+let spawned = tg --url $remote.url --token $remote_root build --detach --no-tokens --verbose $path | from json
+let process = $spawned.process
 timeout 30s tg --url $runner.url --token $runner_root checkpoint wait runner.process.finish $finish_watch 0 | ignore
 
 let remote_socket = $remote.url | str replace 'http+unix://' '' | url decode

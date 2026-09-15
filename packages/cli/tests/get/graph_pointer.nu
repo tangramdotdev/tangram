@@ -16,7 +16,7 @@ let artifact = '
 	})
 '
 let graph = tg put $artifact | str trim
-let output = tg get $"graph=($graph)&index=0&kind=directory" --pretty | complete
+let output = tg get $"graph=($graph)&index=0&kind=directory" --no-tokens --pretty | complete
 success $output
 assert equal ($output.stdout | lines) [
 	"{"

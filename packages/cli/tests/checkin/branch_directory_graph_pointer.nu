@@ -44,5 +44,5 @@ let directory = artifact {
 let path = $directory | path join input
 let output = checkin-output $server $path
 assert equal $output.permissions [object_subtree] "the branch permissions should propagate"
-let object = tg get --blobs --depth=inf --pretty $output.reference
+let object = tg get --blobs --depth=inf --no-tokens --pretty $output.reference
 assert ($object | str contains "replacement") "the internal graph pointer should be solved"

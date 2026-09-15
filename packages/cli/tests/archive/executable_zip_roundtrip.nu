@@ -4,8 +4,8 @@ use ../../test.nu *
 
 let server = server spawn
 
-let dir = tg put 'tg.directory({ "tool": tg.file({ "contents": tg.blob("#!/bin/sh"), "executable": true }) })' | str trim
+let dir = tg put --no-tokens 'tg.directory({ "tool": tg.file({ "contents": tg.blob("#!/bin/sh"), "executable": true }) })' | str trim
 
 let blob = tg archive --format zip $dir | str trim
-let extracted = tg extract $blob | str trim | split row '?' | first
+let extracted = tg extract --no-tokens $blob | str trim
 assert equal $extracted $dir "the extracted directory should equal the original"

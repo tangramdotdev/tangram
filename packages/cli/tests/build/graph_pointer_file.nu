@@ -16,7 +16,7 @@ let artifact = '
 '
 let graph_id = tg put $artifact | str trim
 tg index
-let output = tg get --blobs --depth=inf --pretty $graph_id | complete
+let output = tg get --blobs --depth=inf --no-tokens --pretty $graph_id | complete
 success $output
 snapshot ($output.stdout | str trim) '
 	tg.graph({

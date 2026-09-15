@@ -30,8 +30,8 @@ let remote_tag = tg --url $remote.url tag get $override_tag | from json | get ta
 assert equal $remote_tag $id "Remote override tag does not match expected ID."
 
 # Verify object synced.
-let local_object = tg object get $id
-let remote_object = tg --url $remote.url object get $id
+let local_object = tg object get --no-tokens $id
+let remote_object = tg --url $remote.url object get --no-tokens $id
 assert equal $local_object $remote_object "Object not synced between local and remote."
 
 # Index servers.

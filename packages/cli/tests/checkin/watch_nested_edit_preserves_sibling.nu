@@ -23,7 +23,7 @@ assert ($first != $watched) "editing a nested file should change the id"
 let cold = tg checkin $path
 assert ($watched == $cold) "the incremental checkin should equal a cold checkin"
 
-let object = tg get $watched --blobs --depth=inf --pretty
+let object = tg get $watched --blobs --depth=inf --no-tokens --pretty
 snapshot $object '
 	tg.directory({
 	  "a.txt": tg.file({

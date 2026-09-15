@@ -8,8 +8,5 @@ let path = artifact {
 	tangram.ts: 'export default function () { return import.meta.module; }'
 }
 
-let output = tg build $path
-
-# The live capabilities can vary without changing the module's identity.
-let output = $output | str replace --regex '\?tokens[^}]*' ''
+let output = tg build --no-tokens $path
 snapshot --normalize-ids $output 'tg.module({"kind":"ts","referent":{"node":fil_010000000000000000000000000000000000000000000000000000}})'

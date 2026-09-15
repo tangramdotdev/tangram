@@ -6,8 +6,8 @@ let local = server spawn --name local --config { remotes: { default: { url: $rem
 let path = artifact { tangram.ts: 'export default async () => { await tg.sleep(60); };' }
 
 # A confirmed detach disarms the owner of a forwarded wait before the connection closes.
-let spawned = tg --url $remote.url build --detach --verbose $path | from json
-let id = $spawned.process | split row '?' | first
+let spawned = tg --url $remote.url build --detach --no-tokens --verbose $path | from json
+let id = $spawned.process
 let output = node $driver ($local.directory | path join socket) $id $spawned.lease detach | complete
 success $output
 sleep 200ms
@@ -15,8 +15,8 @@ assert ((tg --url $remote.url process get $id | from json | get status) != finis
 tg --url $remote.url cancel $id $spawned.lease
 
 # Losing an observing connection does not release another handle's lease.
-let spawned = tg --url $remote.url build --detach --verbose --retry $path | from json
-let id = $spawned.process | split row '?' | first
+let spawned = tg --url $remote.url build --detach --no-tokens --verbose --retry $path | from json
+let id = $spawned.process
 let output = node $driver ($local.directory | path join socket) $id none disconnect | complete
 success $output
 sleep 200ms

@@ -23,7 +23,7 @@ let plain = tg checkin $path
 assert ($watched == $plain) "the plain checkin should agree with the watched checkin"
 assert ($first != $plain) "the plain checkin should not regress to the original contents"
 
-let object = tg get $plain --blobs --depth=inf --pretty
+let object = tg get $plain --blobs --depth=inf --no-tokens --pretty
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({

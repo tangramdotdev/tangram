@@ -15,5 +15,5 @@ let path = artifact {
 }
 
 let id = tg run $path
-let object = tg object get --blobs --depth=inf --pretty $id
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object

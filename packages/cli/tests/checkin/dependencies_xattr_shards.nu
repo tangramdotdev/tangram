@@ -11,5 +11,5 @@ let directory = artifact {
 	} input)
 }
 let id = tg checkin $directory
-let object = tg get --depth 2 --pretty $id
+let object = tg get --depth 2 --no-tokens --pretty $id
 assert ($object | str contains './dependency') 'the sharded dependency was not preserved'

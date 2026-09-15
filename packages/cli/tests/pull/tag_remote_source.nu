@@ -18,5 +18,5 @@ tg --url $local.url remote put source $source.url
 let output = tg --url $local.url pull --remote=source --group-children conflict | complete
 success $output
 
-let output = tg --url $local.url object get --local $source_id --pretty | complete
+let output = tg --url $local.url object get --local $source_id --no-tokens --pretty | complete
 success $output

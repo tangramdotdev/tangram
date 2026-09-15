@@ -29,25 +29,25 @@ export def test [path: string, ...args] {
 	tg push ...$args $process_id
 
 	# Confirm the process is on the remote and the same.
-	let local_process = tg get $process_id --pretty
-	let remote_process = tg --url $remote.url get $process_id --pretty
+	let local_process = tg get $process_id --no-tokens --pretty
+	let remote_process = tg --url $remote.url get $process_id --no-tokens --pretty
 	assert equal $local_process $remote_process
 
 	# Confirm the error is present.
 	if $output.error? != null and (($output.error | describe) == "string") {
-		tg --url $remote.url get $output.error --pretty
+		tg --url $remote.url get $output.error --no-tokens --pretty
 	}
 
 	# Confirm output is present.
 	if $output.output? != null and (($output.output | describe) | str starts-with 'record') {
 		if $output.output.kind == "object" {
-			tg --url $remote.url get $output.output.value --pretty
+			tg --url $remote.url get $output.output.value --no-tokens --pretty
 		}
 	}
 
 	# Confirm commands are present if --commmands.
 	if "--process-commands" in $args {
-		tg --url $remote.url get $output.command --pretty
+		tg --url $remote.url get $output.command --no-tokens --pretty
 	}
 
 	# Confirm children are present if --process-children.
@@ -61,7 +61,7 @@ export def test [path: string, ...args] {
 	if "--process-commands" in $args and "--process-children" in $args {
 		for child in $children {
 			let output = tg --url $remote.url get $child.process | from json
-			tg --url $remote.url get $output.command --pretty
+			tg --url $remote.url get $output.command --no-tokens --pretty
 		}
 	}
 
@@ -71,7 +71,7 @@ export def test [path: string, ...args] {
 			let output = tg get $child.process | from json
 			if (($output.output | describe) | str starts-with 'record') {
 				if $output.output.kind == "object" {
-					tg --url $remote.url get $output.output.value --pretty
+					tg --url $remote.url get $output.output.value --no-tokens --pretty
 				}
 			}
 		}

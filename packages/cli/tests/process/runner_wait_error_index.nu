@@ -14,8 +14,8 @@ let control_watch = tg --token $root_token checkpoint watch process.control.fini
 let path = artifact {
 	tangram.ts: 'export default async () => { console.log("ready"); await tg.sleep(120); };',
 }
-let spawned = tg --token $root_token spawn --verbose $path | from json
-let process = $spawned.process | split row '?' | first
+let spawned = tg --token $root_token spawn --no-tokens --verbose $path | from json
+let process = $spawned.process
 timeout 30s tg --token $root_token process log --no-timeout --length 6 $process | ignore
 tg --token $root_token grant $reader.user.id process_node_error $process | ignore
 tg --token $root_token grant $node_reader.user.id process_node $process | ignore

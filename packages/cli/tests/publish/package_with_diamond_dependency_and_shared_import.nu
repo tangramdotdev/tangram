@@ -99,14 +99,14 @@ assert equal $remote_right_tag $right_id "Remote right tag does not match expect
 assert equal $remote_bottom_tag $bottom_id "Remote bottom tag does not match expected ID."
 
 # Verify objects synced.
-let local_main_obj = tg object get $main_id
-let remote_main_obj = tg --url $remote.url object get $main_id
-let local_left_obj = tg object get $left_id
-let remote_left_obj = tg --url $remote.url object get $left_id
-let local_right_obj = tg object get $right_id
-let remote_right_obj = tg --url $remote.url object get $right_id
-let local_bottom_obj = tg object get $bottom_id
-let remote_bottom_obj = tg --url $remote.url object get $bottom_id
+let local_main_obj = tg object get --no-tokens $main_id
+let remote_main_obj = tg --url $remote.url object get --no-tokens $main_id
+let local_left_obj = tg object get --no-tokens $left_id
+let remote_left_obj = tg --url $remote.url object get --no-tokens $left_id
+let local_right_obj = tg object get --no-tokens $right_id
+let remote_right_obj = tg --url $remote.url object get --no-tokens $right_id
+let local_bottom_obj = tg object get --no-tokens $bottom_id
+let remote_bottom_obj = tg --url $remote.url object get --no-tokens $bottom_id
 assert equal $local_main_obj $remote_main_obj "Main object not synced between local and remote."
 assert equal $local_left_obj $remote_left_obj "Left object not synced between local and remote."
 assert equal $local_right_obj $remote_right_obj "Right object not synced between local and remote."

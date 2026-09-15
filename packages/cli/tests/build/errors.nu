@@ -31,7 +31,7 @@ let child_id = $process.children | first | get process
 let child = tg get $child_id | from json
 let child_error = $child.error
 
-let output = tg get $parent_error --pretty
+let output = tg get --no-tokens $parent_error --pretty
 snapshot --normalize-ids $output '
 	tg.error({
 	  "message": "the child process failed",
@@ -66,7 +66,7 @@ snapshot --normalize-ids $output '
 	})
 '
 
-snapshot --normalize-ids (tg get $child_error --pretty) '
+snapshot --normalize-ids (tg get --no-tokens $child_error --pretty) '
 	tg.error({
 	  "message": "oops",
 	  "stack": [

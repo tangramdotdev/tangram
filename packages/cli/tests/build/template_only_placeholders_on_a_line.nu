@@ -14,8 +14,5 @@ let path = artifact {
 	hello.txt: 'Hello, World!'
 }
 
-let output = tg build $path
-
-# Ignore additional authorization proofs when comparing the template layout.
-let output = $output | normalize_tokens | str replace --all --regex '&tokens\[local\]\[authorization\]\[\d+\]=<token>' ''
+let output = tg build --no-tokens $path
 snapshot $output

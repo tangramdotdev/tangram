@@ -4,10 +4,10 @@ use ../../test.nu *
 
 let server = server spawn
 
-let blob = "" | tg write
+let blob = "" | tg write --no-tokens
 
-let compressed = tg compress --format gz $blob | str trim | split row '?' | first
+let compressed = tg compress --no-tokens --format gz $blob | str trim
 assert ($compressed != $blob) "the compressed blob should differ from the empty blob"
 
-let decompressed = tg decompress $compressed | str trim | split row '?' | first
+let decompressed = tg decompress --no-tokens $compressed | str trim
 assert equal $decompressed $blob "the decompressed blob should equal the empty blob"

@@ -24,7 +24,7 @@ let path = artifact {
 
 # Build.
 let id = tg --url $local1.url checkin $path
-let output_id = tg --url $local1.url build $id
+let output_id = tg --url $local1.url build --no-tokens $id
 print 'first build succeeded'
 
 # Push the tag.
@@ -32,9 +32,9 @@ tg --url $local1.url tag -p test-pkg/1.0.0 $id
 tg --url $local1.url push --group-children test-pkg
 
 # Build from the tag. This should pull the artifact from the remote.
-let output_two_id = tg --url $local2.url build test-pkg/1.0.0
+let output_two_id = tg --url $local2.url build --no-tokens test-pkg/1.0.0
 
 # Verify the objects are the same.
-let output_id = $output_id | str trim | split row '?' | first
-let output_two_id = $output_two_id | str trim | split row '?' | first
+let output_id = $output_id | str trim
+let output_two_id = $output_two_id | str trim
 assert equal $output_id $output_two_id "objects should be the same"

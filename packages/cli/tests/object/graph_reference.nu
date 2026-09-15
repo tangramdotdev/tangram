@@ -31,7 +31,7 @@ success $output
 
 let graph = $output.stdout | str trim
 
-let output = tg get --pretty --depth=inf $graph | complete
+let output = tg get --no-tokens --pretty --depth=inf $graph | complete
 success $output
 # Verify the output is a file ID.
 snapshot $output.stdout '

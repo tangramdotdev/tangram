@@ -53,7 +53,7 @@ let path = artifact {
 let id = tg checkin $path --deterministic
 tg index
 
-let object = tg get --depth=inf --pretty $id
+let object = tg get --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({

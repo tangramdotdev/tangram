@@ -13,7 +13,7 @@ let source = server spawn --name source --config {
 let path = artifact 'Hello, World!'
 let id = tg --url $source.url checkin $path
 tg --url $source.url push $id
-let old = tg --url $remote.url get $id | str trim
+let old = tg --url $remote.url get --no-tokens $id | str trim
 tg --url $remote.url tag put -p "a/b" $id
 tg --url $remote.url tag put -p "a/c/d" $id
 
@@ -35,5 +35,5 @@ let after_d = tg --url $local.url get --remote --cached --no-ttl "a/c/d?follow=t
 assert ($after_d.exit_code != 0) "leaf tag a/c/d should be cleaned"
 
 # The tags are still available from the remote.
-let refetched = tg --url $local.url get "a/b?follow=true" | str trim
+let refetched = tg --url $local.url get --no-tokens "a/b?follow=true" | str trim
 assert equal $refetched $old "the tag should be re-fetched from the remote after clean"

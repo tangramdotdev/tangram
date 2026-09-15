@@ -65,8 +65,8 @@ def test [...args] {
 	failure $output
 
 	# Confirm the object is on the remote and the same.
-	let source_object = tg --url $source.url get $dir_id --blobs --depth=inf --pretty
-	let remote_object = tg --url $remote.url get $dir_id --blobs --depth=inf --pretty
+	let source_object = tg --url $source.url get $dir_id --blobs --depth=inf --no-tokens --pretty
+	let remote_object = tg --url $remote.url get $dir_id --blobs --depth=inf --no-tokens --pretty
 	assert equal $source_object $remote_object
 
 	# Index.

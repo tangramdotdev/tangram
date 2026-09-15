@@ -63,10 +63,10 @@ assert equal $remote_a_tag $a_published_id "Remote tag for test-a does not match
 assert equal $remote_b_tag $b_published_id "Remote tag for test-b does not match published ID."
 
 # Verify objects are synced to remote.
-let local_a_obj = tg object get $a_published_id
-let remote_a_obj = tg --url $remote.url object get $a_published_id
-let local_b_obj = tg object get $b_published_id
-let remote_b_obj = tg --url $remote.url object get $b_published_id
+let local_a_obj = tg object get --no-tokens $a_published_id
+let remote_a_obj = tg --url $remote.url object get --no-tokens $a_published_id
+let local_b_obj = tg object get --no-tokens $b_published_id
+let remote_b_obj = tg --url $remote.url object get --no-tokens $b_published_id
 assert equal $local_a_obj $remote_a_obj "Package A object not synced between local and remote."
 assert equal $local_b_obj $remote_b_obj "Package B object not synced between local and remote."
 

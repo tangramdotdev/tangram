@@ -31,7 +31,7 @@ let artifact = artifact {
 		export default function () { return tg.directory({ foo: foo(), bar: bar() }); }
 	'
 }
-let id = tg build $artifact
+let id = tg build --no-tokens $artifact
 
 let tmp = mktemp --directory
 let path = $tmp | path join "checkout"
@@ -45,4 +45,4 @@ tg clean
 
 let left = tg checkin $path
 
-assert equal $left ($id | split row '?' | first)
+assert equal $left $id

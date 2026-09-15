@@ -70,7 +70,7 @@ success $output
 let id = tg checkin $path --watch --update 'a'
 tg index
 
-let object = tg get --blobs --depth=inf --pretty $id
+let object = tg get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({

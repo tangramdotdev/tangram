@@ -17,7 +17,7 @@ let path = artifact {
 let id = tg checkin $path
 
 # Get the nested file using the path option.
-let output = tg --no-quiet get --pretty $"($id)?get=foo/bar/file.txt" | complete
+let output = tg --no-quiet get --no-tokens --pretty $"($id)?get=foo/bar/file.txt" | complete
 
 snapshot $output.stdout '
 	tg.file({

@@ -30,7 +30,7 @@ let path = artifact {
 # Checkin outer package and verify the snapshot.
 let id = tg checkin ($path | path join 'outer')
 tg index
-let object = tg object get --blobs --depth=inf --pretty $id
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({

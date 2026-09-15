@@ -13,8 +13,8 @@ let outsider = tg login --verbose --name outsider | from json
 let runner_finish_watch = tg --token $root_token checkpoint watch runner.process.finish | from json | get watch
 let finish_watch = tg --token $root_token checkpoint watch process.control.finish | from json | get watch
 let path = artifact { tangram.ts: 'export default () => tg.file("output");' }
-let spawned = tg --token $owner.token build --detach --verbose $path | from json
-let process = $spawned.process | split row '?' | first
+let spawned = tg --token $owner.token build --detach --no-tokens --verbose $path | from json
+let process = $spawned.process
 timeout 30s tg --token $root_token checkpoint wait runner.process.finish $runner_finish_watch 0 | ignore
 tg --token $owner.token grant $reader.user.id process_node $process | ignore
 

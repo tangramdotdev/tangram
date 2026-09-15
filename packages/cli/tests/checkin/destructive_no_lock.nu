@@ -15,7 +15,7 @@ tg tag foo ($path | path join 'foo.tg.ts')
 let id = tg checkin --destructive --ignore=false --lock=file ($path | path join 'bar.tg.ts')
 tg index
 
-let object = tg object get --blobs --depth=inf --pretty $id
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.file({
 	  "contents": tg.blob("import \"foo\""),

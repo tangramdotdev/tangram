@@ -37,14 +37,14 @@ def test [path: string, ...args] {
 	tg push "--process-children" ...$args $process_id
 
 	# Confirm the process is on the remote and the same.
-	let local_process = tg get $process_id --pretty
-	let remote_process = tg --url $remote.url get $process_id --pretty
+	let local_process = tg get $process_id --no-tokens --pretty
+	let remote_process = tg --url $remote.url get $process_id --no-tokens --pretty
 	assert equal $local_process $remote_process
 
 	# Confirm output is present.
 	if (($output.output | describe) | str starts-with 'record') {
 		if $output.output.kind == "object" {
-			tg --url $remote.url get $output.output.value --pretty
+			tg --url $remote.url get $output.output.value --no-tokens --pretty
 		}
 	}
 
@@ -73,7 +73,7 @@ def test [path: string, ...args] {
 
 	# For each of the commands, confirm that they are present.
 	for command in $commands {
-		tg --url $remote.url get $command --pretty
+		tg --url $remote.url get $command --no-tokens --pretty
 	}
 }
 

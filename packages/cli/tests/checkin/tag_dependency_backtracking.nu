@@ -21,6 +21,6 @@ let path = artifact {
 
 # The first pattern initially selects c/2.0.0, then the second pattern requires backtracking to c/1.0.0.
 let id = tg checkin $path
-let object = tg get $id --blobs --depth=inf --pretty
+let object = tg get $id --blobs --depth=inf --no-tokens --pretty
 assert ($object | str contains '"tag": "c/1.0.0"') "the solver should select the jointly compatible version"
 assert not ($object | str contains '"tag": "c/2.0.0"') "the solver should reject the incompatible newest version"

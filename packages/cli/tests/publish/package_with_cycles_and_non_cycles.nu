@@ -135,8 +135,8 @@ for package in $packages {
 	assert equal $remote_tag $id $"Remote tag for ($tag) does not match expected ID."
 
 	# Verify object synced.
-	let local_obj = tg object get $id
-	let remote_obj = tg --url $remote.url object get $id
+	let local_obj = tg object get --no-tokens $id
+	let remote_obj = tg --url $remote.url object get --no-tokens $id
 	assert equal $local_obj $remote_obj $"Object for ($tag) not synced between local and remote."
 }
 

@@ -14,9 +14,9 @@ let path = artifact {
 	'
 }
 
-let id = tg build $path
-let object = tg object get --blobs --depth=inf --pretty $id
+let id = tg build --no-tokens $path
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot --name object $object
 
 tg checkout $id
-snapshot --name checkout --path ($server.directory | path join "store" | path join ($id | str trim | split row '?' | first))
+snapshot --name checkout --path ($server.directory | path join "store" | path join ($id | str trim))

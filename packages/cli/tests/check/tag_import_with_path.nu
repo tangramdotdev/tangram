@@ -24,7 +24,7 @@ let test_path = artifact {
 # Checkin and verify the snapshot.
 let id = tg checkin $test_path
 tg index
-let object = tg object get --blobs --depth=inf --pretty $id
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
