@@ -36,3 +36,7 @@ pub struct Output {
 	pub exit: u8,
 	pub output: Option<tg::Value>,
 }
+
+fn unresolved_promise_error() -> tg::Error {
+	tg::error!("the JavaScript runtime became idle while the result promise was pending")
+}

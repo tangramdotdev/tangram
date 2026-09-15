@@ -30,12 +30,12 @@ let local = server spawn --name alice-local --config {
 
 # Watch the command push so it can be held.
 let push_watch = (
-	tg --url $runner.url checkpoint watch runner.process.command.push.started
+	tg --url $runner.url checkpoint watch process.connect.command.push.started
 	| from json
 	| get watch
 )
 
-# The child spawn takes the runner shortcut, so the runner must push its command.
+# The child spawn uses the remote process connection, which must push its command before connecting to the destination.
 let path = artifact {
 	tangram.ts: '
 		export default () => {
@@ -53,9 +53,9 @@ let build = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-# Hold the command push.
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 0 | complete
-success $output "the runner must push the child command on the shortcut path"
+# Hold the connection's command push.
+let output = timeout 30s tg --url $runner.url checkpoint wait process.connect.command.push.started $push_watch 0 | complete
+success $output "the runner must push the child command before connecting to the destination"
 
 # The build must not complete while the command push is held, because the output push must wait for it.
 let held = try { job recv --tag $build --timeout 5sec } catch { null }
@@ -64,8 +64,8 @@ if $held != null {
 }
 
 # Release the command push.
-tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 0
-tg --url $runner.url checkpoint unwatch runner.process.command.push.started $push_watch
+tg --url $runner.url checkpoint continue process.connect.command.push.started $push_watch 0
+tg --url $runner.url checkpoint unwatch process.connect.command.push.started $push_watch
 
 # The build must complete and the user must read the output.
 let output = try { job recv --tag $build --timeout 30sec } catch { null }

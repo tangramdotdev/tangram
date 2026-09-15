@@ -159,14 +159,19 @@ impl Session {
 		// Push the command and report progress.
 		let progress = crate::progress::Handle::new();
 		let mut events = progress.stream().boxed();
+		crate::checkpoint!(
+			self.server,
+			"process.connect.command.push.started",
+			command = %command.node,
+		)
+		.await;
 		let mut push = self
 			.spawn_process_push_command(&command, Some(location.clone()), &progress)
 			.boxed();
-		loop {
+		let result = loop {
 			tokio::select! {
 				result = &mut push => {
-					result?;
-					break;
+					break result;
 				},
 				event = events.try_next() => {
 					let event = event?.ok_or_else(|| tg::error!("the command transfer ended"))?;
@@ -175,8 +180,15 @@ impl Session {
 					sender.send(Ok(message)).await.map_err(|_| tg::error!("the process connection closed"))?;
 				},
 			}
-		}
+		};
 		drop(push);
+		crate::checkpoint!(
+			self.server,
+			"process.connect.command.push.finished",
+			command = %command.node,
+		)
+		.await;
+		result?;
 
 		// Connect to the destination.
 		let mut input = Some(input);

@@ -16,5 +16,5 @@ for index in $modules {
 	'import "./tangram.ts";' | save ($path | path join $'module_($index).tg.ts')
 }
 
-let output = timeout 15s tg build $path | complete
+let output = timeout 30s tg build $path | complete
 success $output

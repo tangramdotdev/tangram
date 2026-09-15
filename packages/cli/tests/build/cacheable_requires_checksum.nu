@@ -71,8 +71,8 @@ snapshot --normalize-ids --redact $checksum_path $checksum_output.stderr '
 	error an error occurred
 	-> the process failed
 	   id = pcs_0000000000000000000000000000
-	-> failed to deserialize the request body
-	-> invalid algorithm at line 1 column 18
+	-> failed to deserialize the message
+	-> invalid algorithm at line 1 column 91
 
 '
 

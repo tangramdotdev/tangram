@@ -311,7 +311,7 @@ impl Runtime {
 					return Poll::Ready(result);
 				}
 				if done {
-					return Poll::Pending;
+					return Poll::Ready(Err(crate::unresolved_promise_error()));
 				}
 			}
 		})

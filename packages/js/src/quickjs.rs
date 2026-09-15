@@ -4,7 +4,7 @@ use {
 		syscall::syscall,
 	},
 	crate::Output,
-	futures::future,
+	futures::{FutureExt as _, future},
 	rquickjs::{self as qjs, CatchResultExt as _},
 	sourcemap::SourceMap,
 	std::{cell::RefCell, pin::pin, rc::Rc},
@@ -24,7 +24,7 @@ const SOURCE_MAP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/main.js.map"
 pub struct Runtime {
 	context: qjs::AsyncContext,
 	repl: Option<crate::repl::Receiver>,
-	#[expect(clippy::struct_field_names, dead_code)]
+	#[expect(clippy::struct_field_names)]
 	runtime: qjs::AsyncRuntime,
 	state: Rc<State>,
 }
@@ -311,9 +311,18 @@ impl Runtime {
 				}
 			}
 		};
-		let result = match future::select(pin!(future), pin!(rejection)).await {
+		let execution = async {
+			match future::select(pin!(future), pin!(rejection)).await {
+				future::Either::Left((result, _)) => result,
+				future::Either::Right((Ok(error) | Err(error), _)) => Err(error),
+			}
+		};
+		let idle = self.runtime.idle();
+		let result = match future::select(pin!(execution), pin!(idle)).await {
 			future::Either::Left((result, _)) => result,
-			future::Either::Right((Ok(error) | Err(error), _)) => Err(error),
+			future::Either::Right(((), execution)) => execution
+				.now_or_never()
+				.unwrap_or_else(|| Err(crate::unresolved_promise_error())),
 		};
 		self.context
 			.with(|ctx| while ctx.execute_pending_job() {})

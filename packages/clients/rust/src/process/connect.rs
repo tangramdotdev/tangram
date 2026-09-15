@@ -216,6 +216,7 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 2)]
 	pub mode: Mode,
 
+	#[serde(deserialize_with = "deserialize_process")]
 	#[tangram_serialize(id = 3)]
 	pub process: tg::Either<Box<tg::process::spawn::Arg>, tg::process::Id>,
 
@@ -494,4 +495,48 @@ impl TryFrom<tangram_http::sse::Event> for ServerMessage {
 		.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
 		Ok(message)
 	}
+}
+
+fn deserialize_process<'de, D>(
+	deserializer: D,
+) -> Result<tg::Either<Box<tg::process::spawn::Arg>, tg::process::Id>, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	struct Visitor;
+
+	impl<'de> serde::de::Visitor<'de> for Visitor {
+		type Value = tg::Either<Box<tg::process::spawn::Arg>, tg::process::Id>;
+
+		fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+			formatter.write_str("a process spawn argument or process ID")
+		}
+
+		fn visit_map<A>(self, map: A) -> Result<Self::Value, A::Error>
+		where
+			A: serde::de::MapAccess<'de>,
+		{
+			let deserializer = serde::de::value::MapAccessDeserializer::new(map);
+			let arg = serde::Deserialize::deserialize(deserializer)?;
+			let arg = Box::new(arg);
+			Ok(tg::Either::Left(arg))
+		}
+
+		fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+		where
+			E: serde::de::Error,
+		{
+			let id = value.parse().map_err(E::custom)?;
+			Ok(tg::Either::Right(id))
+		}
+
+		fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
+		where
+			E: serde::de::Error,
+		{
+			self.visit_str(&value)
+		}
+	}
+
+	deserializer.deserialize_any(Visitor)
 }
