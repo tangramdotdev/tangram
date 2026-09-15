@@ -274,15 +274,14 @@ impl Session {
 			arg: arg.clone(),
 			creator: creator.clone(),
 		};
-		let (input, input_stream) = match &pooled {
-			Some(entry) => (entry.sender.clone(), None),
-			None => {
-				let (input, input_receiver) = tokio::sync::mpsc::channel(256);
-				let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
-					.map(Ok)
-					.boxed();
-				(input, Some(input_stream))
-			},
+		let (input, input_stream) = if let Some(entry) = &pooled {
+			(entry.sender.clone(), None)
+		} else {
+			let (input, input_receiver) = tokio::sync::mpsc::channel(256);
+			let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
+				.map(Ok)
+				.boxed();
+			(input, Some(input_stream))
 		};
 		let (control_sender_sender, control_sender_receiver) = tokio::sync::oneshot::channel();
 		let connect_future = {
@@ -291,10 +290,17 @@ impl Session {
 			let location = location.clone();
 			async move {
 				if let Some(entry) = pooled {
-					let sender = control_sender_receiver.await
+					let sender = control_sender_receiver
+						.await
 						.map_err(|_| tg::error!("the sandbox control sender was dropped"))?;
 					connection_session
-						.start_pooled_sandbox_control(entry, sender, &location, created_at, control_data)
+						.start_pooled_sandbox_control(
+							entry,
+							sender,
+							&location,
+							created_at,
+							control_data,
+						)
 						.await
 				} else {
 					connection_session
@@ -1382,7 +1388,11 @@ impl Session {
 		crate::checkpoint!(self.server, "runner.sandbox.control.start.sent", sandbox = %id).await;
 		self.index_remote_sandbox(&id, location, created_at, None)
 			.await?;
-		let connection = SandboxControlConnection { id, requests, token };
+		let connection = SandboxControlConnection {
+			id,
+			requests,
+			token,
+		};
 
 		Ok(connection)
 	}

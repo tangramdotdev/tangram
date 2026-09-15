@@ -365,29 +365,20 @@ impl Session {
 		};
 		let is_pooled = pooled.is_some();
 		let (control_sender_high, control_sender_low, mut control_responses) =
-			match &pooled {
-				Some(entry) => (
-					entry.sender_high.clone(),
-					entry.sender_low.clone(),
-					None,
-				),
-				None => {
-					let (control_sender_high, control_responses_high) =
-						tokio::sync::mpsc::channel(512);
-					let (control_sender_low, control_responses_low) =
-						tokio::sync::mpsc::channel(512);
-					let control_responses = crate::control::priority_stream(
-						control_responses_high,
-						control_responses_low,
-					)
-					.map(Ok)
-					.boxed();
-					(
-						control_sender_high,
-						control_sender_low,
-						Some(control_responses),
-					)
-				},
+			if let Some(entry) = &pooled {
+				(entry.sender_high.clone(), entry.sender_low.clone(), None)
+			} else {
+				let (control_sender_high, control_responses_high) = tokio::sync::mpsc::channel(512);
+				let (control_sender_low, control_responses_low) = tokio::sync::mpsc::channel(512);
+				let control_responses =
+					crate::control::priority_stream(control_responses_high, control_responses_low)
+						.map(Ok)
+						.boxed();
+				(
+					control_sender_high,
+					control_sender_low,
+					Some(control_responses),
+				)
 			};
 
 		// Obtain the shortcut process identity before starting execution.
