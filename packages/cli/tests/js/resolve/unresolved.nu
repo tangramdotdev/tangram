@@ -26,6 +26,21 @@ let path = artifact {
 let output = tg run --sandbox $path | from json
 assert equal $output "ok"
 
+# A resolved child build must complete even while the client has background connection reads.
+let path = artifact {
+	tangram.ts: '
+		export default async function () {
+			return await tg.build(child);
+		}
+		export function child() {
+			return "ok";
+		}
+	',
+}
+let output = timeout 15s tg build $path | complete
+success $output "a resolved build must not wait for background connection reads"
+assert equal ($output.stdout | from json) "ok"
+
 # An unresolved result promise fails when the runtime has no work capable of settling it.
 assert_idle_error '
 	export default async function () {

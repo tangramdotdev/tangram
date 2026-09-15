@@ -288,8 +288,8 @@ impl Index {
 					subspace,
 					&(Kind::ObjectProcess.to_i32().unwrap(), object.as_ref()),
 				);
-				let (keys, after) = crate::fdb::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+				let (entries, after) = crate::fdb::propagate!(
+					Self::get_authorization_entry_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -298,9 +298,9 @@ impl Index {
 					)
 					.await
 				);
-				let processes = keys
+				let processes = entries
 					.into_iter()
-					.map(|key| {
+					.map(|(key, value)| {
 						let Key::Object(crate::fdb::object::Key::ObjectProcess {
 							kind,
 							process,
@@ -310,7 +310,8 @@ impl Index {
 							return Err(tg::error!("unexpected key type"));
 						};
 
-						Ok((process, kind))
+						let data = crate::process::object::Data::deserialize(&value)?;
+						Ok((process, kind, data.subtree))
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
@@ -467,6 +468,55 @@ impl Index {
 
 				Output::ProcessObjectKinds(kinds)
 			},
+			Request::ProcessObjectGrant {
+				object,
+				permission,
+				process,
+			} => {
+				let mut subtree = false;
+				for kind in [
+					crate::process::object::Kind::Command,
+					crate::process::object::Kind::Error,
+					crate::process::object::Kind::Log,
+					crate::process::object::Kind::Output,
+				] {
+					let key = crate::fdb::Key::Process(crate::fdb::process::Key::ProcessObject {
+						kind,
+						object: object.clone(),
+						process: process.clone(),
+					});
+					let key = Self::pack(subspace, &key);
+					let result = txn.get(&key, false).await;
+					let value = crate::fdb::retry!(result);
+					if let Some(value) = value {
+						subtree |= crate::process::object::Data::deserialize(&value)?.subtree;
+					}
+					if subtree {
+						break;
+					}
+				}
+				let value = if subtree {
+					true
+				} else {
+					let creator = Some(tg::Principal::Process(process.clone()));
+					let permission = tg::authorization::Permission::Object(*permission);
+					let resource = object.clone().into();
+					let subject = tg::authorization::Subject::Process(process.clone());
+					let grant = crate::fdb::propagate!(
+						Self::get_authorization_grant_with_transaction(
+							txn,
+							subspace,
+							creator.as_ref(),
+							permission,
+							&resource,
+							&subject
+						)
+						.await
+					);
+					grant.is_some_and(|grant| grant.is_process_implicit())
+				};
+				Output::Bool(value)
+			},
 			Request::ProcessObjects {
 				after,
 				limit,
@@ -539,39 +589,6 @@ impl Index {
 					.collect::<tg::Result<Vec<_>>>()?;
 
 				Output::Ids { after, ids }
-			},
-			Request::ResourceGrant {
-				creator,
-				permission,
-				resource,
-				subject,
-			} => {
-				let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
-					creator: creator.clone(),
-					permission: *permission,
-					resource: resource.clone(),
-					subject: subject.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				let result = txn.get(&key, false).await;
-				let value = crate::fdb::retry!(result);
-				let grant = match value {
-					Some(value) => {
-						let value = crate::fdb::grant::GrantValue::deserialize(&value)?;
-						let grant = crate::grant::Fact {
-							creator: creator.clone(),
-							implicit: value.implicit.is_some(),
-							permission: *permission,
-							resource: resource.clone(),
-							subject: subject.clone(),
-						};
-
-						Some(grant)
-					},
-					None => None,
-				};
-
-				Output::Grant(grant)
 			},
 			Request::ResourceGrants {
 				after,
@@ -736,6 +753,42 @@ impl Index {
 		};
 
 		Ok(ControlFlow::Break(output))
+	}
+
+	async fn get_authorization_grant_with_transaction(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		creator: Option<&tg::Principal>,
+		permission: tg::authorization::Permission,
+		resource: &tg::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<ControlFlow<Option<crate::grant::Fact>, fdb::FdbError>> {
+		let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+			creator: creator.cloned(),
+			permission,
+			resource: resource.clone(),
+			subject: subject.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		let result = txn.get(&key, false).await;
+		let value = crate::fdb::retry!(result);
+		let grant = match value {
+			Some(value) => {
+				let value = crate::fdb::grant::GrantValue::deserialize(&value)?;
+				let grant = crate::grant::Fact {
+					creator: creator.cloned(),
+					implicit: value.implicit.is_some(),
+					permission,
+					resource: resource.clone(),
+					subject: subject.clone(),
+				};
+
+				Some(grant)
+			},
+			None => None,
+		};
+
+		Ok(ControlFlow::Break(grant))
 	}
 
 	async fn get_authorization_key_page_with_transaction(

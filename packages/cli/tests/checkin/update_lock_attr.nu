@@ -50,7 +50,7 @@ tg checkin ($path | path join 'foo.tg.ts')
 let id = tg checkin ($path | path join 'foo.tg.ts') --update a --lock=attr
 tg index
 
-let object = tg object get --blobs --depth=inf --pretty $id
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.file({
 	  "contents": tg.blob("\n\t\t\timport a from \"a/^1\";\n\t\t"),

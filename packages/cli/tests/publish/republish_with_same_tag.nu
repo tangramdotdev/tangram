@@ -64,8 +64,8 @@ let remote_tag3 = tg --url $remote.url tag get test-pkg/1.0.0 | from json | get 
 assert equal $remote_tag3 $id2 "Remote tag should now point to second package after republish."
 
 # Verify the second object is synced.
-let local_object = tg object get $id2
-let remote_object = tg --url $remote.url object get $id2
+let local_object = tg object get --no-tokens $id2
+let remote_object = tg --url $remote.url object get --no-tokens $id2
 assert equal $local_object $remote_object "Second object not synced between local and remote."
 
 # Index servers.

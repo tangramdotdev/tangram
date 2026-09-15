@@ -628,7 +628,8 @@ pub trait Ext: tg::Handle {
 			let handle = reconnect(&output);
 			let arg = tg::process::control::Arg {
 				data: None,
-				id: Some(output.id.clone()),
+				id: Some(output.process.node.clone()),
+				sync: output.sync.clone(),
 				..arg
 			};
 

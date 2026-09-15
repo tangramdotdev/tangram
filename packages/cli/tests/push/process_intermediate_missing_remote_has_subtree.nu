@@ -190,34 +190,34 @@ def test [...args] {
 	tg --url $remote.url index
 
 	# Confirm process A is on the remote and the same.
-	let source_process_a = tg --url $source.url get $process_a_id --pretty
-	let remote_process_a = tg --url $remote.url get $process_a_id --pretty
+	let source_process_a = tg --url $source.url get $process_a_id --no-tokens --pretty
+	let remote_process_a = tg --url $remote.url get $process_a_id --no-tokens --pretty
 	assert equal $source_process_a $remote_process_a
 
 	# Confirm process B is on the remote and the same.
-	let source_process_b = tg --url $source.url get $process_b_id --pretty
-	let remote_process_b = tg --url $remote.url get $process_b_id --pretty
+	let source_process_b = tg --url $source.url get $process_b_id --no-tokens --pretty
+	let remote_process_b = tg --url $remote.url get $process_b_id --no-tokens --pretty
 	assert equal $source_process_b $remote_process_b
 
 	# Confirm process C is on the remote and the same.
-	let source_process_c = tg --url $source.url get $process_c_id --pretty
-	let remote_process_c = tg --url $remote.url get $process_c_id --pretty
+	let source_process_c = tg --url $source.url get $process_c_id --no-tokens --pretty
+	let remote_process_c = tg --url $remote.url get $process_c_id --no-tokens --pretty
 	assert equal $source_process_c $remote_process_c
 
 	# Confirm process D is on the remote and the same.
-	let source_process_d = tg --url $source.url get $process_d_id --pretty
-	let remote_process_d = tg --url $remote.url get $process_d_id --pretty
+	let source_process_d = tg --url $source.url get $process_d_id --no-tokens --pretty
+	let remote_process_d = tg --url $remote.url get $process_d_id --no-tokens --pretty
 	assert equal $source_process_d $remote_process_d
 
 	# Confirm all commands are on the remote.
-	tg --url $remote.url get $command_a_id --pretty
-	tg --url $remote.url get $command_b_id --pretty
-	tg --url $remote.url get $command_c_id --pretty
-	tg --url $remote.url get $command_d_id --pretty
+	tg --url $remote.url get $command_a_id --no-tokens --pretty
+	tg --url $remote.url get $command_b_id --no-tokens --pretty
+	tg --url $remote.url get $command_c_id --no-tokens --pretty
+	tg --url $remote.url get $command_d_id --no-tokens --pretty
 
 	# Confirm all outputs are on the remote.
-	tg --url $remote.url get $output_a_id --pretty
-	tg --url $remote.url get $output_d_id --pretty
+	tg --url $remote.url get $output_a_id --no-tokens --pretty
+	tg --url $remote.url get $output_d_id --no-tokens --pretty
 }
 
 test "--eager"

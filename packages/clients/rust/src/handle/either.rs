@@ -1,6 +1,6 @@
 use {
 	crate::prelude::*,
-	futures::{FutureExt as _, Stream, stream::BoxStream},
+	futures::{FutureExt as _, Stream, StreamExt as _, stream::BoxStream},
 	tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite},
 };
 
@@ -219,16 +219,19 @@ where
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
+		Output = tg::Result<(
+			tg::sync::Output,
+			impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
+		)>,
 	> {
 		match self {
 			tg::Either::Left(s) => s
 				.sync(arg, stream)
-				.map(|result| result.map(futures::StreamExt::left_stream))
+				.map(|result| result.map(|(output, stream)| (output, stream.left_stream())))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.sync(arg, stream)
-				.map(|result| result.map(futures::StreamExt::right_stream))
+				.map(|result| result.map(|(output, stream)| (output, stream.right_stream())))
 				.right_future(),
 		}
 	}

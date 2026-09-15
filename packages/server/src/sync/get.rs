@@ -1,7 +1,7 @@
 use {
-	super::{graph::Graph, progress::Progress, queue::Queue},
+	super::{control::Control, graph::Graph, progress::Progress, queue::Queue},
 	crate::Session,
-	futures::stream::BoxStream,
+	futures::{FutureExt as _, stream::BoxStream},
 	std::{
 		collections::HashMap,
 		sync::{Arc, Mutex},
@@ -19,9 +19,10 @@ mod input;
 mod queue;
 mod store;
 
-struct State {
-	arg: tg::sync::Arg,
-	graph: Arc<Mutex<Graph>>,
+pub(super) struct State {
+	pub(super) arg: tg::sync::Arg,
+	pub(super) control: Option<Control>,
+	pub(super) graph: Arc<Mutex<Graph>>,
 	progress: Progress,
 	queue: Queue,
 	root_presence: Mutex<HashMap<tg::Id, tokio::sync::watch::Sender<Option<bool>>>>,
@@ -99,8 +100,13 @@ impl Session {
 		);
 
 		// Create the state.
+		let control = arg
+			.token
+			.as_ref()
+			.map(|token| self.spawn_sync_control_task(arg.clone(), graph.clone(), token));
 		let state = Arc::new(State {
 			arg,
+			control,
 			graph,
 			progress,
 			queue,
@@ -108,161 +114,185 @@ impl Session {
 			sender,
 		});
 
-		// Enqueue the nodes.
-		for node in &state.arg.get {
-			let tokens = node.options.tokens.clone();
-			match &node.node {
-				tg::Selector::Id(id) => {
-					state
-						.queue
-						.enqueue(state.arg.eager, id.clone(), tokens.local().to_vec())?;
-				},
-				tg::Selector::Specifier(specifier) => {
-					let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
-						descendants: true,
-						eager: state.arg.eager,
-						selector: tg::Selector::Specifier(specifier.clone()),
-						tokens: tokens.local().to_vec(),
-					});
-					state
-						.sender
-						.send(Ok(message))
-						.await
-						.map_err(|error| tg::error!(!error, "failed to send the message"))?;
-				},
+		// Preserve a completion path when the transfer future is cancelled or panics.
+		let control_guard = scopeguard::guard(state.control.clone(), |control| {
+			if let Some(control) = control {
+				control.finish(Err(tg::error!(
+					code = tg::error::Code::Cancellation,
+					"the sync was cancelled"
+				)));
 			}
-		}
+		});
+		let result = async {
+			// Enqueue the nodes.
+			for node in &state.arg.get {
+				let tokens = node.options.tokens.clone();
+				match &node.node {
+					tg::Selector::Id(id) => {
+						let local_tokens = tokens.local_entry();
+						let remote_tokens = tokens.remote_entry();
+						state.queue.enqueue(
+							state.arg.eager,
+							id.clone(),
+							local_tokens,
+							remote_tokens,
+						)?;
+					},
+					tg::Selector::Specifier(specifier) => {
+						let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
+							descendants: true,
+							eager: state.arg.eager,
+							selector: tg::Selector::Specifier(specifier.clone()),
+							tokens,
+						});
+						state
+							.sender
+							.send(Ok(message))
+							.await
+							.map_err(|error| tg::error!(!error, "failed to send the message"))?;
+					},
+				}
+			}
 
-		// Close the queue if there are no nodes.
-		if state.arg.get.is_empty() {
-			state.queue.close();
-		}
+			// Close the queue if there are no nodes.
+			if state.arg.get.is_empty() {
+				state.queue.close();
+			}
 
-		// Create the channels.
-		let (store_object_sender, store_object_receiver) =
-			tokio::sync::mpsc::channel::<self::store::ObjectNode>(256);
-		let (store_process_sender, store_process_receiver) =
-			tokio::sync::mpsc::channel::<self::store::ProcessNode>(256);
-		let (checkout_sender, checkout_receiver) =
-			tokio::sync::mpsc::channel::<self::checkout::ObjectNode>(64);
-		let (index_object_sender, index_object_receiver) =
-			tokio::sync::mpsc::channel::<self::index::ObjectNode>(256);
-		let (index_process_sender, index_process_receiver) =
-			tokio::sync::mpsc::channel::<self::index::ProcessNode>(256);
-		// Create the input future.
-		let input_future = {
-			let session = self.clone();
-			let arg = self::input::SyncGetInputArg {
-				checkout_sender: checkout_sender.clone(),
-				index_object_sender,
-				index_process_sender,
-				state: state.clone(),
-				store_object_sender: store_object_sender.clone(),
-				store_process_sender,
-				stream,
-				verify_object_ids,
+			// Create the channels.
+			let (store_object_sender, store_object_receiver) =
+				tokio::sync::mpsc::channel::<self::store::ObjectNode>(256);
+			let (store_process_sender, store_process_receiver) =
+				tokio::sync::mpsc::channel::<self::store::ProcessNode>(256);
+			let (checkout_sender, checkout_receiver) =
+				tokio::sync::mpsc::channel::<self::checkout::ObjectNode>(64);
+			let (index_object_sender, index_object_receiver) =
+				tokio::sync::mpsc::channel::<self::index::ObjectNode>(256);
+			let (index_process_sender, index_process_receiver) =
+				tokio::sync::mpsc::channel::<self::index::ProcessNode>(256);
+
+			// Create the input future.
+			let input_future = {
+				let session = self.clone();
+				let arg = self::input::SyncGetInputArg {
+					checkout_sender: checkout_sender.clone(),
+					index_object_sender,
+					index_process_sender,
+					state: state.clone(),
+					store_object_sender: store_object_sender.clone(),
+					store_process_sender,
+					stream,
+					verify_object_ids,
+				};
+				async move { session.sync_get_input(arg).await }
+					.instrument(tracing::Span::current())
 			};
-			async move { session.sync_get_input(arg).await }.instrument(tracing::Span::current())
-		};
 
-		// Create the queue future.
-		let queue_future = self
-			.sync_get_queue(
-				state.clone(),
-				checkout_sender.clone(),
-				queue_database_receiver,
-				queue_object_receiver,
-				queue_process_receiver,
-				queue_sandbox_receiver,
-			)
-			.instrument(tracing::Span::current());
+			// Create the queue future.
+			let queue_future = self
+				.sync_get_queue(
+					state.clone(),
+					checkout_sender.clone(),
+					queue_database_receiver,
+					queue_object_receiver,
+					queue_process_receiver,
+					queue_sandbox_receiver,
+				)
+				.instrument(tracing::Span::current());
 
-		// Create the checkout future.
-		let checkout_future = self
-			.sync_get_checkout(
-				state.clone(),
-				checkout_receiver,
-				store_object_sender.clone(),
-			)
-			.instrument(tracing::Span::current());
+			// Create the checkout future.
+			let checkout_future = self
+				.sync_get_checkout(
+					state.clone(),
+					checkout_receiver,
+					store_object_sender.clone(),
+				)
+				.instrument(tracing::Span::current());
 
-		// Create the index future.
-		let index_future = self
-			.sync_get_index(
-				state.clone(),
-				checkout_sender,
-				index_object_receiver,
-				index_process_receiver,
-			)
-			.instrument(tracing::Span::current());
+			// Create the index future.
+			let index_future = self
+				.sync_get_index(
+					state.clone(),
+					checkout_sender,
+					index_object_receiver,
+					index_process_receiver,
+				)
+				.instrument(tracing::Span::current());
 
-		// Create the store future.
-		let store_future = {
-			let session = self.clone();
-			let state = state.clone();
-			async move {
-				session
-					.sync_get_store(&state, store_object_receiver, store_process_receiver)
-					.await
-			}
-			.instrument(tracing::Span::current())
-		};
-		drop(store_object_sender);
-
-		// Spawn the progress task.
-		let progress_task = Task::spawn({
-			let session = self.clone();
-			let state = state.clone();
-			|stop| {
+			// Create the store future.
+			let store_future = {
+				let session = self.clone();
+				let state = state.clone();
 				async move {
 					session
-						.sync_get_progress_task(&state.progress, stop, &state.sender)
-						.await;
+						.sync_get_store(&state, store_object_receiver, store_process_receiver)
+						.await
 				}
 				.instrument(tracing::Span::current())
-			}
-		});
+			};
+			drop(store_object_sender);
 
-		// Index the partial graph on a best-effort basis if the sync is interrupted.
-		let index_guard = scopeguard::guard(state.graph.clone(), {
-			let session = self.clone();
-			let span = tracing::Span::current();
-			move |graph| {
-				tokio::spawn(
+			// Spawn the progress task.
+			let progress_task = Task::spawn({
+				let session = self.clone();
+				let state = state.clone();
+				|stop| {
 					async move {
-						if let Err(error) = session.sync_get_index_put_partial(graph).await {
-							tracing::error!(error = %error.trace(), "failed to index the partial sync");
-						}
+						session
+							.sync_get_progress_task(&state.progress, stop, &state.sender)
+							.await;
 					}
-					.instrument(span),
-				);
-			}
-		});
+					.instrument(tracing::Span::current())
+				}
+			});
 
-		// Await the futures.
-		futures::try_join!(
-			checkout_future,
-			index_future,
-			input_future,
-			queue_future,
-			store_future
-		)?;
+			// Index the partial graph on a best-effort basis if the sync is interrupted.
+			let index_guard = scopeguard::guard(state.graph.clone(), {
+				let session = self.clone();
+				let span = tracing::Span::current();
+				move |graph| {
+					tokio::spawn(
+						async move {
+							if let Err(error) = session.sync_get_index_put_partial(graph).await {
+								tracing::error!(error = %error.trace(), "failed to index the partial sync");
+							}
+						}
+						.instrument(span),
+					);
+				}
+			});
 
-		// Index the objects, processes, and sandboxes and update the graph permissions.
-		let graph = scopeguard::ScopeGuard::into_inner(index_guard);
-		self.sync_get_index_put(graph.clone()).await?;
+			// Await the futures.
+			futures::try_join!(
+				checkout_future,
+				index_future,
+				input_future,
+				queue_future,
+				store_future
+			)?;
 
-		// Stop and await the progress task.
-		progress_task.stop();
-		progress_task
-			.wait()
-			.await
-			.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
+			// Index the objects, processes, and sandboxes and update the graph permissions.
+			let graph = scopeguard::ScopeGuard::into_inner(index_guard);
+			self.sync_get_index_put(graph.clone()).await?;
 
-		// Commit the database nodes.
-		self.sync_get_database(&graph, state.arg.force).await?;
+			// Stop and await the progress task.
+			progress_task.stop();
+			progress_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
-		Ok(())
+			// Commit the database nodes.
+			self.sync_get_database(&graph, state.arg.force).await?;
+
+			Ok(())
+		}
+		.boxed()
+		.await;
+		if let Some(control) = scopeguard::ScopeGuard::into_inner(control_guard) {
+			control.finish(result.clone());
+		}
+		result
 	}
 
 	fn sync_get_create_implicit_grant(
@@ -398,9 +428,7 @@ impl Session {
 		ids: &[tg::process::Id],
 		arg: &tg::sync::Arg,
 	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>> {
-		let Some(required) = Self::sync_get_process_permissions(arg) else {
-			return Ok(vec![None; ids.len()]);
-		};
+		let required = Self::sync_get_process_permissions(arg);
 
 		self.sync_get_authorize(
 			graph,
@@ -411,9 +439,7 @@ impl Session {
 		.await
 	}
 
-	fn sync_get_process_permissions(
-		arg: &tg::sync::Arg,
-	) -> Option<tg::authorization::permission::Set> {
+	fn sync_get_process_permissions(arg: &tg::sync::Arg) -> tg::authorization::permission::Set {
 		let mut permissions = tg::authorization::permission::Set::Process(
 			tg::authorization::permission::process::Set::empty(),
 		);
@@ -422,6 +448,7 @@ impl Session {
 				tg::authorization::Permission::Process(permission),
 			));
 		};
+		insert(tg::authorization::permission::process::Permission::Node);
 		if arg.process_children {
 			insert(tg::authorization::permission::process::Permission::Subtree);
 			if arg.process_commands {
@@ -450,7 +477,7 @@ impl Session {
 				insert(tg::authorization::permission::process::Permission::NodeOutput);
 			}
 		}
-		(!permissions.is_empty()).then_some(permissions)
+		permissions
 	}
 
 	async fn sync_get_authorize(
@@ -479,8 +506,8 @@ impl Session {
 					outputs[position] = Some(authorization.permissions);
 					continue;
 				}
-				let resource =
-					tg::Referent::with_node_and_local_tokens(id.clone(), authorization.tokens);
+				let tokens = tg::Tokens::with_local_entry(authorization.tokens);
+				let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
 				args.push((resource, requested));
 				positions.push(position);
 			}

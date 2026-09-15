@@ -1,5 +1,5 @@
 use {
-	crate::{Session, sync::graph::Graph},
+	crate::Session,
 	futures::{prelude::*, stream::BoxStream},
 	std::{
 		panic::AssertUnwindSafe,
@@ -18,6 +18,12 @@ mod graph;
 mod progress;
 mod put;
 mod queue;
+mod token;
+mod wait;
+
+pub(crate) use self::graph::Graph;
+
+pub(crate) mod control;
 
 impl Session {
 	#[tracing::instrument(fields(get_count = arg.get.len(), put_count = arg.put.len()), level = "trace", name = "sync", skip_all)]
@@ -25,7 +31,10 @@ impl Session {
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
+	) -> tg::Result<(
+		tg::sync::Output,
+		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
+	)> {
 		self.sync_inner(arg, false, stream, true).await
 	}
 
@@ -33,7 +42,10 @@ impl Session {
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
+	) -> tg::Result<(
+		tg::sync::Output,
+		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
+	)> {
 		self.sync_inner(arg, true, stream, true).await
 	}
 
@@ -43,7 +55,10 @@ impl Session {
 		process: bool,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		source_trusted: bool,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>> {
+	) -> tg::Result<(
+		tg::sync::Output,
+		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
+	)> {
 		self.sync_inner(arg, process, stream, !source_trusted).await
 	}
 
@@ -53,14 +68,18 @@ impl Session {
 		process: bool,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		verify_object_ids: bool,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
+	) -> tg::Result<(
+		tg::sync::Output,
+		BoxStream<'static, tg::Result<tg::sync::Message>>,
+	)> {
 		let location = self.server.location(arg.location.as_ref())?;
 
-		let stream = match location {
-			tg::Location::Local(tg::location::Local { region: None }) => self
-				.sync_local(arg, stream, verify_object_ids)
-				.await?
-				.with_stopper(self.context.stopper.clone()),
+		let (output, stream) = match location {
+			tg::Location::Local(tg::location::Local { region: None }) => {
+				let (output, stream) = self.sync_local(arg, stream, verify_object_ids).await?;
+				let stream = stream.with_stopper(self.context.stopper.clone());
+				(output, stream)
+			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => self.sync_region(arg, process, stream, region).await?,
@@ -73,15 +92,33 @@ impl Session {
 			},
 		};
 
-		Ok(stream)
+		Ok((output, stream))
 	}
 
 	async fn sync_local(
 		&self,
-		arg: tg::sync::Arg,
+		mut arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		verify_object_ids: bool,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
+	) -> tg::Result<(
+		tg::sync::Output,
+		BoxStream<'static, tg::Result<tg::sync::Message>>,
+	)> {
+		// Verify or create the sync token before starting the transfer.
+		arg.token = match &arg.token {
+			Some(token) => {
+				if !self.verify_sync_token(token) {
+					return Err(tg::error!("invalid sync token"));
+				}
+				Some(token.clone())
+			},
+			None => self.create_sync_token()?,
+		};
+		let output = tg::sync::Output {
+			token: arg.token.clone(),
+		};
+
+		// Start the transfer.
 		let (sender, receiver) = tokio::sync::mpsc::channel(4096);
 		let task = Task::spawn({
 			let session = self.clone();
@@ -133,7 +170,7 @@ impl Session {
 			})
 			.attach(task);
 
-		Ok(stream.boxed())
+		Ok((output, stream.boxed()))
 	}
 
 	async fn sync_region(
@@ -142,7 +179,10 @@ impl Session {
 		process: bool,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		region: String,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
+	) -> tg::Result<(
+		tg::sync::Output,
+		BoxStream<'static, tg::Result<tg::sync::Message>>,
+	)> {
 		let client = if process {
 			self.get_region_session_for_process(&region).await
 		} else {
@@ -156,11 +196,11 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		let stream = client
+		let (output, stream) = client
 			.sync(arg, stream)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to sync"))?;
-		Ok(stream.boxed())
+		Ok((output, stream.boxed()))
 	}
 
 	async fn sync_remote(
@@ -170,7 +210,10 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		remote: String,
 		region: Option<String>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>> {
+	) -> tg::Result<(
+		tg::sync::Output,
+		BoxStream<'static, tg::Result<tg::sync::Message>>,
+	)> {
 		let client = if process {
 			self.get_remote_session_for_process(&remote).await
 		} else {
@@ -181,14 +224,29 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		let stream = client
+		let (output, stream) = client
 			.sync(arg, stream)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to sync"))?;
-		Ok(stream.boxed())
+		Ok((output, stream.boxed()))
 	}
 
 	async fn sync_task(
+		&self,
+		arg: tg::sync::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
+		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
+		verify_object_ids: bool,
+	) -> tg::Result<()> {
+		let mut session = self.clone();
+		session.sync_control = Some(Arc::new(control::Client::default()));
+		session
+			.sync_task_inner(arg, stream, sender, verify_object_ids)
+			.await?;
+		Ok(())
+	}
+
+	async fn sync_task_inner(
 		&self,
 		arg: tg::sync::Arg,
 		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
@@ -353,7 +411,7 @@ impl Session {
 		})
 		.boxed();
 
-		let stream = self
+		let (output, stream) = self
 			.sync(arg, stream)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the sync"))?;
@@ -406,9 +464,12 @@ impl Session {
 			Ok::<_, tg::Error>(frame)
 		});
 		let body = BoxBody::with_stream(stream);
+		let body = tangram_http::body::output::set(body, &output)
+			.map_err(|error| tg::error!(!error, "failed to serialize the output"))?;
 
 		// Create the response.
-		let mut response = http::Response::builder();
+		let mut response =
+			http::Response::builder().header(tangram_http::body::output::HEADER, "true");
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}

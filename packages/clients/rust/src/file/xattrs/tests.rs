@@ -71,7 +71,7 @@ fn references_and_tokens() {
 		.parse::<tg::Reference>()
 		.unwrap();
 	let mut options = reference.options().clone();
-	options.tokens.insert_local(dependency_token);
+	options.tokens.insert_local_authorization(dependency_token);
 	reference.set_options(options);
 	let references = vec![
 		reference.clone(),

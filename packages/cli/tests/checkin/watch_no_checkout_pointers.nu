@@ -13,7 +13,7 @@ let path = artifact {
 let id1 = tg checkin --watch --unsolved-dependencies --no-checkout-pointers $path
 tg index
 
-let object1 = tg object get --blobs --depth=inf --pretty $id1
+let object1 = tg object get --blobs --depth=inf --no-tokens --pretty $id1
 snapshot $object1 '
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -34,7 +34,7 @@ tg tag -p a/1.0.0 $a
 let id2 = tg checkin --watch --no-checkout-pointers $path
 tg index
 
-let object2 = tg object get --blobs --depth=inf --pretty $id2
+let object2 = tg object get --blobs --depth=inf --no-tokens --pretty $id2
 snapshot $object2 '
 	tg.directory({
 	  "tangram.ts": tg.file({

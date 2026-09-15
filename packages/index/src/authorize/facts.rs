@@ -85,6 +85,11 @@ pub(crate) enum Request {
 		object: tg::object::Id,
 		process: tg::process::Id,
 	},
+	ProcessObjectGrant {
+		object: tg::object::Id,
+		permission: tg::authorization::permission::object::Permission,
+		process: tg::process::Id,
+	},
 	ProcessObjects {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -94,12 +99,6 @@ pub(crate) enum Request {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		process: tg::process::Id,
-	},
-	ResourceGrant {
-		creator: Option<tg::Principal>,
-		permission: tg::authorization::Permission,
-		resource: tg::Id,
-		subject: tg::authorization::Subject,
 	},
 	ResourceGrants {
 		after: Option<Vec<u8>>,
@@ -135,7 +134,6 @@ pub(crate) enum Request {
 #[derive(Clone, Debug)]
 pub(crate) enum Output {
 	Bool(bool),
-	Grant(Option<crate::grant::Fact>),
 	Grants {
 		after: Option<Vec<u8>>,
 		grants: Vec<crate::grant::Fact>,
@@ -156,7 +154,7 @@ pub(crate) enum Output {
 	},
 	ObjectProcesses {
 		after: Option<Vec<u8>>,
-		processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
+		processes: Vec<(tg::process::Id, crate::process::object::Kind, bool)>,
 	},
 	Process(Option<crate::process::Process>),
 	ProcessObjectKinds(Vec<crate::process::object::Kind>),
@@ -214,6 +212,11 @@ enum CacheKey {
 		object: tg::object::Id,
 		process: tg::process::Id,
 	},
+	ProcessObjectGrant {
+		object: tg::object::Id,
+		permission: tg::authorization::permission::object::Permission,
+		process: tg::process::Id,
+	},
 	ProcessObjects {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -223,12 +226,6 @@ enum CacheKey {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		process: tg::process::Id,
-	},
-	ResourceGrant {
-		creator: Option<tg::Principal>,
-		permission: tg::authorization::Permission,
-		resource: tg::Id,
-		subject: tg::authorization::Subject,
 	},
 	ResourceGrants {
 		after: Option<Vec<u8>>,
@@ -361,6 +358,15 @@ impl Request {
 				object: object.clone(),
 				process: process.clone(),
 			},
+			Self::ProcessObjectGrant {
+				object,
+				permission,
+				process,
+			} => CacheKey::ProcessObjectGrant {
+				object: object.clone(),
+				permission: *permission,
+				process: process.clone(),
+			},
 			Self::ProcessObjects {
 				after,
 				limit,
@@ -378,17 +384,6 @@ impl Request {
 				after: after.clone(),
 				limit: *limit,
 				process: process.clone(),
-			},
-			Self::ResourceGrant {
-				creator,
-				permission,
-				resource,
-				subject,
-			} => CacheKey::ResourceGrant {
-				creator: creator.clone(),
-				permission: *permission,
-				resource: resource.clone(),
-				subject: subject.clone(),
 			},
 			Self::ResourceGrants {
 				after,
@@ -431,14 +426,6 @@ impl Output {
 		};
 
 		Ok(value)
-	}
-
-	pub(crate) fn into_grant(self) -> tg::Result<Option<crate::grant::Fact>> {
-		let Self::Grant(grant) = self else {
-			return Err(tg::error!("received a non-grant authorization fact"));
-		};
-
-		Ok(grant)
 	}
 
 	pub(crate) fn into_grants(self) -> tg::Result<(Option<Vec<u8>>, Vec<crate::grant::Fact>)> {
@@ -501,7 +488,7 @@ impl Output {
 		self,
 	) -> tg::Result<(
 		Option<Vec<u8>>,
-		Vec<(tg::process::Id, crate::process::object::Kind)>,
+		Vec<(tg::process::Id, crate::process::object::Kind, bool)>,
 	)> {
 		let Self::ObjectProcesses { after, processes } = self else {
 			return Err(tg::error!(

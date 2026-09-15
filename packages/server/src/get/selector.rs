@@ -9,7 +9,24 @@ impl Session {
 		&self,
 		selector: &tg::Selector<tg::Id>,
 		location: Option<&tg::location::Arg>,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
+		cached: bool,
+		ttl: tg::remote::cache::Ttl,
+	) -> tg::Result<Option<tg::get::Output>> {
+		let mut output = self
+			.try_get_with_selector_inner(selector, location, tokens, cached, ttl)
+			.await?;
+		if let Some(output) = &mut output {
+			output.referent.options.tokens.inherit(tokens);
+		}
+		Ok(output)
+	}
+
+	pub(crate) async fn try_get_with_selector_inner(
+		&self,
+		selector: &tg::Selector<tg::Id>,
+		location: Option<&tg::location::Arg>,
+		tokens: &tg::Tokens,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<tg::get::Output>> {
@@ -21,7 +38,7 @@ impl Session {
 		if let Some(local) = locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_get_with_selector_local(selector, tokens.local())
+					.try_get_with_selector_local(selector, tokens.local_authorization())
 					.await?
 			{
 				return Ok(Some(output));
@@ -98,9 +115,9 @@ impl Session {
 		if !authorized {
 			return Ok(None);
 		}
-		let mut tokens = tg::authorization::Tokens::with_local(tokens.to_vec());
+		let mut tokens = tg::Tokens::with_authorization(tokens.to_vec());
 		if let Some(token) = self.create_read_token(&id)? {
-			tokens.insert_local(token);
+			tokens.insert_local_authorization(token);
 		}
 		let options = tg::referent::Options {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
@@ -117,7 +134,7 @@ impl Session {
 		&self,
 		selector: &tg::Selector<tg::Id>,
 		region: &str,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<Option<tg::get::Output>> {
 		// Create the region request.
 		let source = tg::Location::Local(tg::location::Local {
@@ -177,7 +194,7 @@ impl Session {
 		&self,
 		selector: &tg::Selector<tg::Id>,
 		remote: Remote,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<tg::get::Output>> {

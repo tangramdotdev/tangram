@@ -9,7 +9,7 @@ let path = artifact {
 	file.tg.ts: 'import * as root from "./tangram.ts";',
 }
 let id = tg checkin $path
-let output = tg get $"($id)?get=./file.tg.ts" --depth=inf --pretty | complete
+let output = tg get $"($id)?get=./file.tg.ts" --depth=inf --no-tokens --pretty | complete
 success $output
 snapshot $output.stdout '
 	tg.file({

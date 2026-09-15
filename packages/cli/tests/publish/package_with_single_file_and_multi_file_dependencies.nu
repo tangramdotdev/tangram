@@ -100,12 +100,12 @@ assert equal $remote_single_tag $single_file_id "Remote single-file tag does not
 assert equal $remote_multi_tag $multi_file_id "Remote multi-file tag does not match expected ID."
 
 # Verify objects synced.
-let local_main_obj = tg object get $main_id
-let remote_main_obj = tg --url $remote.url object get $main_id
-let local_single_obj = tg object get $single_file_id
-let remote_single_obj = tg --url $remote.url object get $single_file_id
-let local_multi_obj = tg object get $multi_file_id
-let remote_multi_obj = tg --url $remote.url object get $multi_file_id
+let local_main_obj = tg object get --no-tokens $main_id
+let remote_main_obj = tg --url $remote.url object get --no-tokens $main_id
+let local_single_obj = tg object get --no-tokens $single_file_id
+let remote_single_obj = tg --url $remote.url object get --no-tokens $single_file_id
+let local_multi_obj = tg object get --no-tokens $multi_file_id
+let remote_multi_obj = tg --url $remote.url object get --no-tokens $multi_file_id
 assert equal $local_main_obj $remote_main_obj "Main object not synced between local and remote."
 assert equal $local_single_obj $remote_single_obj "Single-file object not synced between local and remote."
 assert equal $local_multi_obj $remote_multi_obj "Multi-file object not synced between local and remote."

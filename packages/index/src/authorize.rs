@@ -99,10 +99,9 @@ impl Check {
 	fn matches(&self, output: facts::Output) -> tg::Result<bool> {
 		let value = match self {
 			Self::ProcessObject { kind, .. } => output.into_process_object_kinds()?.contains(kind),
-			Self::ProcessObjectGrant { .. } => output
-				.into_grant()?
-				.is_some_and(|grant| grant.is_process_implicit()),
-			Self::ObjectChild { .. } | Self::ProcessChild { .. } => output.into_bool()?,
+			Self::ObjectChild { .. }
+			| Self::ProcessChild { .. }
+			| Self::ProcessObjectGrant { .. } => output.into_bool()?,
 		};
 
 		Ok(value)
@@ -128,11 +127,10 @@ impl Check {
 				object,
 				permission,
 				process,
-			} => facts::Request::ResourceGrant {
-				creator: Some(tg::Principal::Process(process.clone())),
-				permission: tg::authorization::Permission::Object(*permission),
-				resource: tg::Id::from(object.clone()),
-				subject: tg::authorization::Subject::Process(process.clone()),
+			} => facts::Request::ProcessObjectGrant {
+				object: object.clone(),
+				permission: *permission,
+				process: process.clone(),
 			},
 		}
 	}

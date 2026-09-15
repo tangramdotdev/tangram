@@ -37,5 +37,5 @@ let path = artifact {
 let command = tg build $path | str trim
 let output = tg build $command | complete
 success $output "the process should check in its authorized materialized dependency"
-let object = tg get --pretty ($output.stdout | str trim)
+let object = tg get --no-tokens --pretty ($output.stdout | str trim)
 assert ($object | str contains 'dependencies') "the output should preserve the dependency xattr"

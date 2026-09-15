@@ -22,7 +22,7 @@ let shared = artifact {
 }
 
 # Build the shared module on the primary and push only that process.
-let shared_process = tg build --detach $shared | str trim
+let shared_process = tg build --detach --no-tokens $shared | str trim
 tg wait $shared_process
 tg index
 tg push --eager --process-outputs --process-children $shared_process
@@ -107,7 +107,7 @@ for build in [$first $second] {
 	}
 	success $output
 	let expected = if $build == $first {
-		$shared_process | split row '?' | first
+		$shared_process
 	} else {
 		$cancel.params.process
 	}

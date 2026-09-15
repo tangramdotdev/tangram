@@ -276,7 +276,7 @@ impl Session {
 					},
 				};
 				if let Some(token) = token {
-					options.tokens.insert_local(token);
+					options.tokens.insert_local_authorization(token);
 				}
 				let referent = tg::Referent { node: id, options };
 				let output = tg::checkin::Output { artifact: referent };

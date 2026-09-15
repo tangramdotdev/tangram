@@ -15,7 +15,7 @@ let artifact = '
 	tg.file("Hello, World!")
 '
 let id = tg put $artifact
-let output = tg object get --blobs --depth=inf --pretty $id
+let output = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot --name local $output
 
 # Push.
@@ -26,11 +26,11 @@ tg remote delete default
 
 # Clean and confirm the object no longer exists.
 tg clean
-let output = tg get --blobs --depth=inf --pretty $id | complete
+let output = tg get --blobs --depth=inf --no-tokens --pretty $id | complete
 failure $output "should fail to get the object after clean"
 
 # Confirm the object exists on the remote.
-let output = tg --url $remote.url object get --blobs --depth=inf --pretty $id
+let output = tg --url $remote.url object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot --name remote $output
 
 # Add the remote back.

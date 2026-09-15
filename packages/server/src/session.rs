@@ -22,14 +22,19 @@ mod watch;
 
 #[derive(Clone)]
 pub(crate) struct Session {
-	pub server: Server,
 	pub context: Context,
+	pub server: Server,
+	pub sync_control: Option<std::sync::Arc<crate::sync::control::Client>>,
 }
 
 impl Session {
 	#[must_use]
 	pub(crate) fn new(server: Server, context: Context) -> Self {
-		Self { server, context }
+		Self {
+			context,
+			server,
+			sync_control: None,
+		}
 	}
 
 	pub(crate) fn verify_request_from_host(&self) -> tg::Result<()> {
@@ -231,7 +236,10 @@ impl tg::Handle for Session {
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static> {
+	) -> tg::Result<(
+		tg::sync::Output,
+		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
+	)> {
 		self.sync(arg, stream).await
 	}
 

@@ -46,7 +46,7 @@ let path = artifact {
 
 # Ensure we can checkin with file watching.
 let id = tg checkin $path --watch --locked
-let object = tg get --blobs --depth=inf --pretty $id
+let object = tg get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
@@ -78,7 +78,7 @@ tg watch touch $path ($path | path join 'tangram.ts')
 
 let id = tg checkin $path --watch --no-solve
 
-let object = tg get --blobs --depth=inf --pretty $id
+let object = tg get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({

@@ -279,17 +279,14 @@ impl Index {
 			})?;
 		}
 
-		let objects = existing
-			.is_none()
-			.then(|| (arg.command.clone(), crate::process::object::Kind::Command))
-			.into_iter()
+		let command_changed = existing.is_none();
+		let objects = std::iter::once((arg.command.clone(), crate::process::object::Kind::Command))
 			.chain(
 				arg.error
 					.as_ref()
 					.into_iter()
 					.flatten()
 					.flatten()
-					.filter(|_| error_changed)
 					.cloned()
 					.map(|object| (object, crate::process::object::Kind::Error)),
 			)
@@ -298,7 +295,6 @@ impl Index {
 					.as_ref()
 					.into_iter()
 					.flatten()
-					.filter(|_| log_changed)
 					.cloned()
 					.map(|object| (object, crate::process::object::Kind::Log)),
 			)
@@ -308,7 +304,6 @@ impl Index {
 					.into_iter()
 					.flatten()
 					.flatten()
-					.filter(|_| output_changed)
 					.cloned()
 					.map(|object| (object, crate::process::object::Kind::Output)),
 			);
@@ -319,7 +314,34 @@ impl Index {
 				object: object.clone(),
 			});
 			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[])
+			let previous = db
+				.get(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to get the process object"))?;
+			let previous = previous
+				.as_ref()
+				.map(|bytes| crate::process::object::Data::deserialize(bytes))
+				.transpose()?;
+			let added = match kind {
+				crate::process::object::Kind::Command => command_changed,
+				crate::process::object::Kind::Error => error_changed,
+				crate::process::object::Kind::Log => log_changed,
+				crate::process::object::Kind::Output => output_changed,
+			};
+			if previous.is_none() && !added {
+				continue;
+			}
+
+			let subtree = arg.subtree_objects.contains(&object)
+				|| previous.as_ref().is_some_and(|data| data.subtree);
+			if previous
+				.as_ref()
+				.is_some_and(|data| data.subtree == subtree)
+			{
+				continue;
+			}
+			let data = crate::process::object::Data { subtree };
+			let value = data.serialize()?;
+			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, "failed to put the process object"))?;
 
 			let key = Key::Object(crate::lmdb::object::Key::ObjectProcess {
@@ -328,7 +350,7 @@ impl Index {
 				process: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[])
+			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, "failed to put the object process"))?;
 
 			Self::enqueue_update_with_kind(

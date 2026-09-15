@@ -165,7 +165,10 @@ impl tg::Handle for Handle {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
+		Output = tg::Result<(
+			tg::sync::Output,
+			impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
+		)>,
 	> {
 		self.0.sync(arg, stream)
 	}

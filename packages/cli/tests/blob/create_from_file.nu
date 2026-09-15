@@ -11,5 +11,5 @@ let temp_file = mktemp --tmpdir
 let id = cat $temp_file | tg write
 
 # Get the blob.
-let output = tg get $id --blobs --depth=inf --pretty
+let output = tg get $id --blobs --depth=inf --no-tokens --pretty
 snapshot $output

@@ -95,8 +95,8 @@ def test [...args] {
 	tg --url $local.url push $process_id --process-commands --process-logs ...$args
 
 	# Confirm the process is on the source and remote.
-	let source_process = tg --url $source.url get $process_id --pretty
-	let remote_process = tg --url $remote.url get $process_id --pretty
+	let source_process = tg --url $source.url get $process_id --no-tokens --pretty
+	let remote_process = tg --url $remote.url get $process_id --no-tokens --pretty
 	assert equal $source_process $remote_process
 
 	# Index.

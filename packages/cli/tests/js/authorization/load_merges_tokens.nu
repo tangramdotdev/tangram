@@ -7,8 +7,8 @@ let server = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			const inherited = { local: ["inherited"], remote: ["remote"] };
-			const returned = { local: ["returned"] };
+			const inherited = { local: { authorization: ["inherited"] }, remote: { authorization: ["remote"] } };
+			const returned = { local: { authorization: ["returned"] } };
 			const commandId = "cmd_010000000000000000000000000000000000000000000000000000" as tg.Command.Id;
 			const objectId = "blb_010000000000000000000000000000000000000000000000000000" as tg.Blob.Id;
 			const processId = "pcs_010000000000000000000000000000000000000000000000000000" as tg.Process.Id;
@@ -58,9 +58,9 @@ let path = artifact {
 					tokens: { ...inherited },
 				});
 				await sandbox.load();
-				returned.local[0] = "mutated";
-				inherited.local[0] = "mutated";
-				inherited.remote[0] = "mutated";
+				returned.local.authorization[0] = "mutated";
+				inherited.local.authorization[0] = "mutated";
+				inherited.remote.authorization[0] = "mutated";
 
 				return {
 					object: object.state.tokens,
@@ -78,8 +78,8 @@ let path = artifact {
 
 let output = tg build $path | from json
 let expected = {
-	object: { local: [inherited returned], remote: [remote] }
-	process: { local: [inherited returned], remote: [remote] }
-	sandbox: { local: [inherited returned], remote: [remote] }
+	object: { local: { authorization: [returned inherited] }, remote: { authorization: [remote] } }
+	process: { local: { authorization: [returned inherited] }, remote: { authorization: [remote] } }
+	sandbox: { local: { authorization: [returned inherited] }, remote: { authorization: [remote] } }
 }
 assert equal $output $expected

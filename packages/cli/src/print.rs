@@ -24,6 +24,37 @@ pub struct Options {
 	/// Whether to pretty print the value.
 	#[arg(id = "print.pretty", long = "pretty")]
 	pub pretty: bool,
+
+	/// Whether to print the tokens of the value's referents.
+	#[command(flatten)]
+	pub tokens: Tokens,
+}
+
+#[derive(Clone, Debug, Default, clap::Args)]
+pub struct Tokens {
+	/// Do not print the tokens of the value's referents.
+	#[arg(
+		default_missing_value = "true",
+		id = "print.tokens.no_tokens",
+		long = "no-tokens",
+		num_args = 0..=1,
+		overrides_with = "print.tokens.tokens",
+		require_equals = true,
+		value_name = "BOOL",
+	)]
+	no_tokens: Option<bool>,
+
+	/// Print the tokens of the value's referents.
+	#[arg(
+		default_missing_value = "true",
+		id = "print.tokens.tokens",
+		long = "tokens",
+		num_args = 0..=1,
+		overrides_with = "print.tokens.no_tokens",
+		require_equals = true,
+		value_name = "BOOL",
+	)]
+	tokens: Option<bool>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -37,6 +68,15 @@ pub struct OutputOptions {
 pub enum Depth {
 	Finite(u64),
 	Infinite,
+}
+
+impl Tokens {
+	#[must_use]
+	pub fn get(&self) -> bool {
+		self.tokens
+			.or(self.no_tokens.map(|value| !value))
+			.unwrap_or(true)
+	}
 }
 
 impl Cli {
@@ -181,6 +221,7 @@ impl Cli {
 			Depth::Infinite => None,
 		};
 		let blobs = options.blobs;
+		let tokens = options.tokens.get();
 		let tty = tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
 		let indentation = (options.pretty || tty).then_some(INDENTATION);
 		let options = tg::value::print::Options {
@@ -189,7 +230,7 @@ impl Cli {
 			depth,
 			indent,
 			indentation,
-			tokens: false,
+			tokens,
 		};
 		let output = value.print(options);
 		stdout
@@ -202,7 +243,7 @@ impl Cli {
 	pub(crate) fn print_location_and_tokens(
 		&self,
 		location: Option<&tg::Location>,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<()> {
 		if let Some(location) = location {
 			let location = serde_json::to_string(location)

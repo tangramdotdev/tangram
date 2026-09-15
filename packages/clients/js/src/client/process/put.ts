@@ -9,7 +9,7 @@ export namespace Put {
 	};
 
 	export type Output = {
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Tokens | null;
 	};
 }
 

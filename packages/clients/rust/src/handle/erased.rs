@@ -111,7 +111,13 @@ pub trait Handle:
 		&'a self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>>>;
+	) -> BoxFuture<
+		'a,
+		tg::Result<(
+			tg::sync::Output,
+			BoxStream<'static, tg::Result<tg::sync::Message>>,
+		)>,
+	>;
 
 	fn try_get<'a>(
 		&'a self,
@@ -237,9 +243,15 @@ where
 		&'a self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> BoxFuture<'a, tg::Result<BoxStream<'static, tg::Result<tg::sync::Message>>>> {
+	) -> BoxFuture<
+		'a,
+		tg::Result<(
+			tg::sync::Output,
+			BoxStream<'static, tg::Result<tg::sync::Message>>,
+		)>,
+	> {
 		self.sync(arg, stream)
-			.map_ok(futures::StreamExt::boxed)
+			.map_ok(|(output, stream)| (output, stream.boxed()))
 			.boxed()
 	}
 

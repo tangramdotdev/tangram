@@ -66,7 +66,7 @@ impl Session {
 
 		// Enqueue the nodes.
 		for node in &state.arg.put {
-			let tokens = node.options.tokens.local().to_vec();
+			let tokens = node.options.tokens.local_entry();
 			state
 				.queue
 				.enqueue(state.arg.eager, node.node.clone(), tokens)?;

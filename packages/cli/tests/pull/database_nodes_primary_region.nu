@@ -8,8 +8,8 @@ let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("regional output"); }'
 }
 let process = tg --url $source.url build --detach $path | str trim
-let result = tg --url $source.url wait $process | from json
-let output = $result.output.value | split row '?' | first
+let result = tg --url $source.url wait --no-tokens $process | from json
+let output = $result.output.value
 let sandbox = tg --url $source.url process get $process | from json | get sandbox
 tg --url $source.url wait $sandbox | ignore
 tg --url $source.url index

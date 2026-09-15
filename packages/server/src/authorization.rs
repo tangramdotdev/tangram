@@ -49,6 +49,9 @@ impl Session {
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
 	{
+		let args = args
+			.into_iter()
+			.map(|(resource, permissions)| (resource, permissions, None));
 		let outputs = self.authorize_batch_inner(args, None, false).await?;
 		let outputs = outputs
 			.into_iter()
@@ -66,6 +69,9 @@ impl Session {
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
 	{
+		let args = args
+			.into_iter()
+			.map(|(resource, permissions)| (resource, permissions, None));
 		let outputs = self
 			.authorize_batch_inner(args, Some(required), false)
 			.await?;
@@ -106,10 +112,26 @@ impl Session {
 		let required = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
-		let args = resources.into_iter().map(|resource| (resource, requested));
+		let args = resources
+			.into_iter()
+			.map(|resource| (resource, requested, None));
 
 		self.authorize_batch_inner(args, Some(required.into()), wait_for_subtree)
 			.await
+	}
+
+	pub(crate) async fn authorize_with_permissions(
+		&self,
+		resource: impl IntoAuthorizationResource,
+		requested: tg::authorization::permission::Set,
+		required: tg::authorization::permission::Set,
+		proven: tg::authorization::permission::Set,
+	) -> tg::Result<Option<Output>> {
+		let args = [(resource, requested, Some(proven))];
+		let mut outputs = self
+			.authorize_batch_inner(args, Some(required), false)
+			.await?;
+		Ok(outputs.pop().unwrap())
 	}
 
 	async fn authorize_batch_inner<R, I>(
@@ -120,13 +142,19 @@ impl Session {
 	) -> tg::Result<Vec<Option<Output>>>
 	where
 		R: IntoAuthorizationResource,
-		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
+		I: IntoIterator<
+			Item = (
+				R,
+				tg::authorization::permission::Set,
+				Option<tg::authorization::permission::Set>,
+			),
+		>,
 	{
 		let mut outputs = Vec::new();
 		let mut index_args = Vec::new();
 		let mut index_positions = Vec::new();
 
-		for (position, (resource, permissions)) in args.into_iter().enumerate() {
+		for (position, (resource, permissions, trusted)) in args.into_iter().enumerate() {
 			let required = required.unwrap_or(permissions);
 			if !permissions.contains(required) {
 				return Err(tg::error!(
@@ -140,6 +168,16 @@ impl Session {
 			let mut verified = vec![None; tokens.len()];
 			if let tg::Selector::Id(id) = &resource {
 				let mut proven = permissions.empty_like();
+				if let Some(trusted) = trusted {
+					for permission in permissions
+						.iter()
+						.filter(|permission| trusted.iter().any(|proof| proof.implies(*permission)))
+					{
+						proven.insert(tg::authorization::permission::Set::from_permission(
+							permission,
+						));
+					}
+				}
 				let mut expires_at = i64::MAX;
 				for (index, token) in tokens.iter().enumerate() {
 					if &token.body.resource != id
@@ -166,10 +204,16 @@ impl Session {
 						break;
 					}
 				}
-				if proven.contains(permissions) {
+				if proven.contains(permissions)
+					|| (proven.contains(required)
+						&& (trusted.is_some()
+							|| matches!(required, tg::authorization::permission::Set::Process(_)))
+						&& !wait_for_requested_permissions
+						&& !matches!(self.context.principal, tg::Principal::Root))
+				{
 					let output = Output {
-						expires_at: Some(expires_at),
-						permissions,
+						expires_at: (expires_at != i64::MAX).then_some(expires_at),
+						permissions: proven,
 					};
 					outputs.push(Some(output));
 					continue;
@@ -210,13 +254,25 @@ impl Session {
 			}
 
 			outputs.push(None);
-			let tokens = std::iter::zip(tokens, verified)
+			let mut tokens: Vec<_> = std::iter::zip(tokens, verified)
 				.filter_map(|(token, verified)| {
 					verified
 						.unwrap_or_else(|| self.verify_token(&token))
 						.then_some(token.body)
 				})
 				.collect();
+			if let Some(permissions) = trusted {
+				let tg::Selector::Id(resource) = &resource else {
+					return Err(tg::error!("expected an ID for the authorization proof"));
+				};
+				let proof = tg::authorization::Body {
+					expires_at: i64::MAX,
+					permissions: permissions.iter().collect(),
+					resource: resource.clone(),
+				};
+				tokens.push(proof);
+			}
+
 			index_positions.push(position);
 			index_args.push(tangram_index::authorize::Arg {
 				required,
@@ -475,7 +531,7 @@ where
 	fn into_authorization_resource(self) -> (tg::Selector<tg::Id>, Vec<tg::authorization::Token>) {
 		(
 			self.node.into_resource(),
-			self.options.tokens.local().to_vec(),
+			self.options.tokens.local_authorization().to_vec(),
 		)
 	}
 }

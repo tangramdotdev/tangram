@@ -10,7 +10,7 @@ let group = tg --token $alice.token group create --verbose project | from json
 assert ($group.data.id | str starts-with "grp_") "create should return a group id"
 assert ($group.data.name == "project") "the group name should match the specifier"
 assert ($group.data.specifier == "project") "the group specifier should match the input"
-assert (($group | get --optional tokens.local) != null) "create should return a token"
+assert (($group | get --optional tokens.local.authorization) != null) "create should return a token"
 
 # The creator can get the group.
 let got = tg --token $alice.token group get project | from json

@@ -114,7 +114,10 @@ impl tg::Handle for Server {
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static> {
+	) -> tg::Result<(
+		tg::sync::Output,
+		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
+	)> {
 		self.session(&self.context).sync(arg, stream).await
 	}
 

@@ -7,6 +7,9 @@ use {
 	tangram_util::iter::Ext as _,
 };
 
+#[cfg(test)]
+mod tests;
+
 pub struct Graph {
 	checkout_contained_blobs: HashSet<tg::blob::Id, tg::id::BuildHasher>,
 	pub checkout_files: BTreeMap<tg::blob::Id, Vec<CheckoutFile>>,
@@ -72,6 +75,7 @@ pub struct DatabaseNode {
 	local_end: bool,
 	pub local_message: Option<tg::sync::PutNodeMessage>,
 	pub local_requested: bool,
+	pub local_tokens: tg::tokens::Entry,
 	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
 	remote_descendants: Descendants,
 	remote_end: bool,
@@ -80,7 +84,7 @@ pub struct DatabaseNode {
 	pub remote_requested: bool,
 	remote_selectors: BTreeSet<tg::Selector<tg::Id>>,
 	pub remote_sent: bool,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub remote_tokens: tg::tokens::Entry,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -90,6 +94,7 @@ pub struct ObjectNode {
 	local_end: bool,
 	pub local_permissions: Option<tg::authorization::permission::Set>,
 	pub local_storage: Option<tangram_index::object::Storage>,
+	pub local_tokens: tg::tokens::Entry,
 	pub marked: bool,
 	pub metadata: Option<tg::object::Metadata>,
 	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
@@ -102,8 +107,8 @@ pub struct ObjectNode {
 	remote_pending_children: Option<usize>,
 	pub remote_requested: bool,
 	pub remote_sent: bool,
+	pub remote_tokens: tg::tokens::Entry,
 	pub requested: Option<Requested>,
-	pub tokens: Vec<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -114,6 +119,7 @@ pub struct ProcessNode {
 	local_end: bool,
 	pub local_permissions: Option<tg::authorization::permission::Set>,
 	pub local_storage: Option<tangram_index::process::Storage>,
+	pub local_tokens: tg::tokens::Entry,
 	pub marked: bool,
 	pub metadata: Option<tg::process::Metadata>,
 	pub objects: Option<Vec<(usize, tangram_index::process::object::Kind)>>,
@@ -132,8 +138,8 @@ pub struct ProcessNode {
 	remote_propagated_availability: tg::process::Availability,
 	pub remote_requested: bool,
 	remote_sent: bool,
+	pub remote_tokens: tg::tokens::Entry,
 	pub requested: Option<Requested>,
-	pub tokens: Vec<tg::authorization::Token>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -153,7 +159,7 @@ pub struct RemoteAction {
 pub struct RemoteSelector {
 	pub descendants: bool,
 	pub eager: bool,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub tokens: tg::tokens::Entry,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -163,7 +169,7 @@ pub struct Requested {
 
 pub struct Authorization {
 	pub permissions: tg::authorization::permission::Set,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub tokens: tg::tokens::Entry,
 }
 
 pub struct UpdateObjectLocalArg<'a> {
@@ -233,15 +239,16 @@ impl Graph {
 
 		// Add the root tokens.
 		for root in &arg.get {
-			let tokens = root.options.tokens.local().to_vec();
 			let tg::Selector::Id(id) = &root.node else {
 				continue;
 			};
-			graph.update_root_tokens(id, tokens);
+			let local = root.options.tokens.local_entry();
+			let remote = root.options.tokens.remote_entry();
+			graph.update_root_tokens(id, &local, &remote);
 		}
 		for root in &arg.put {
-			let tokens = root.options.tokens.local().to_vec();
-			graph.update_root_tokens(&root.node, tokens);
+			let local = root.options.tokens.local_entry();
+			graph.update_root_tokens(&root.node, &local, &tg::tokens::Entry::default());
 		}
 
 		graph
@@ -264,18 +271,23 @@ impl Graph {
 		self.checkout_queued_objects.remove(id);
 	}
 
-	fn update_root_tokens(&mut self, id: &tg::Id, tokens: Vec<tg::authorization::Token>) {
+	fn update_root_tokens(
+		&mut self,
+		id: &tg::Id,
+		local: &tg::tokens::Entry,
+		remote: &tg::tokens::Entry,
+	) {
 		match id.kind() {
 			tg::id::Kind::Process => {
-				self.update_process_tokens(&id.clone().try_into().unwrap(), tokens);
+				self.update_process_tokens(&id.clone().try_into().unwrap(), local, remote);
 			},
 			tg::id::Kind::Group
 			| tg::id::Kind::Organization
 			| tg::id::Kind::Sandbox
 			| tg::id::Kind::Tag
-			| tg::id::Kind::User => self.update_node_tokens(id, tokens),
+			| tg::id::Kind::User => self.update_node_tokens(id, local, remote),
 			_ if tg::object::Id::try_from(id.clone()).is_ok() => {
-				self.update_object_tokens(&id.clone().try_into().unwrap(), tokens);
+				self.update_object_tokens(&id.clone().try_into().unwrap(), local, remote);
 			},
 			_ => {},
 		}
@@ -321,7 +333,7 @@ impl Graph {
 		descendants: bool,
 		eager: bool,
 		specifier: tg::Specifier,
-		tokens: Vec<tg::authorization::Token>,
+		tokens: tg::tokens::Entry,
 	) -> bool {
 		let Some(request) = self.remote_selectors.get_mut(&specifier) else {
 			let request = RemoteSelector {
@@ -335,7 +347,7 @@ impl Graph {
 		};
 		request.descendants |= descendants;
 		request.eager |= eager;
-		merge_tokens(&mut request.tokens, tokens);
+		request.tokens.inherit(&tokens);
 
 		false
 	}
@@ -417,14 +429,16 @@ impl Graph {
 	pub fn update_node_local_requested(
 		&mut self,
 		id: &tg::Id,
-		tokens: Vec<tg::authorization::Token>,
+		local: &tg::tokens::Entry,
+		remote: &tg::tokens::Entry,
 	) -> bool {
 		let node = self
 			.nodes
 			.entry(id.clone())
 			.or_insert_with(|| Node::for_id(id));
 		let node = node.unwrap_database_mut();
-		merge_tokens(&mut node.tokens, tokens);
+		node.local_tokens.inherit(local);
+		node.remote_tokens.inherit(remote);
 		let inserted = !node.local_requested;
 		node.local_requested = true;
 
@@ -436,14 +450,14 @@ impl Graph {
 		descendants: bool,
 		id: &tg::Id,
 		selector: tg::Selector<tg::Id>,
-		tokens: Vec<tg::authorization::Token>,
+		tokens: &tg::tokens::Entry,
 	) -> RemoteAction {
 		let entry = self.nodes.entry(id.clone());
 		let index = entry.index();
 		let node = entry
 			.or_insert_with(|| Node::for_id(id))
 			.unwrap_database_mut();
-		merge_tokens(&mut node.tokens, tokens);
+		node.local_tokens.inherit(tokens);
 		let enqueue_descendants = node.remote_descendants.request(descendants, false);
 		let send = !node.remote_requested && (!node.remote_sent || node.remote_missing);
 		if !node.remote_sent || node.remote_missing {
@@ -470,14 +484,14 @@ impl Graph {
 		&mut self,
 		descendants: bool,
 		id: &tg::Id,
-		tokens: Vec<tg::authorization::Token>,
+		tokens: &tg::tokens::Entry,
 	) -> RemoteAction {
 		let entry = self.nodes.entry(id.clone());
 		let index = entry.index();
 		let node = entry
 			.or_insert_with(|| Node::for_id(id))
 			.unwrap_database_mut();
-		merge_tokens(&mut node.tokens, tokens);
+		node.local_tokens.inherit(tokens);
 		let enqueue_descendants = node.remote_descendants.request(descendants, false);
 		let send = !node.remote_requested && (!node.remote_sent || node.remote_missing);
 		if send {
@@ -583,12 +597,19 @@ impl Graph {
 		self.update_remote_end(index);
 	}
 
-	pub fn update_node_tokens(&mut self, id: &tg::Id, tokens: Vec<tg::authorization::Token>) {
+	pub fn update_node_tokens(
+		&mut self,
+		id: &tg::Id,
+		local: &tg::tokens::Entry,
+		remote: &tg::tokens::Entry,
+	) {
 		let node = self
 			.nodes
 			.entry(id.clone())
 			.or_insert_with(|| Node::for_id(id));
-		merge_tokens(&mut node.unwrap_database_mut().tokens, tokens);
+		let node = node.unwrap_database_mut();
+		node.local_tokens.inherit(local);
+		node.remote_tokens.inherit(remote);
 	}
 
 	pub fn update_object_local(&mut self, update: UpdateObjectLocalArg) {
@@ -663,9 +684,10 @@ impl Graph {
 		if let Some(children) = children {
 			node.remote_children.extend(children.iter().copied());
 			node.children = Some(children);
-			node.local_storage = Some(tangram_index::object::Storage {
+			let storage = tangram_index::object::Storage {
 				subtree: computed_storage.unwrap(),
-			});
+			};
+			node.local_storage.get_or_insert_default().merge(&storage);
 			node.remote_pending_children = remote_pending_children;
 		}
 
@@ -1496,7 +1518,7 @@ impl Graph {
 			);
 			return Authorization {
 				permissions,
-				tokens: Vec::new(),
+				tokens: tg::tokens::Entry::default(),
 			};
 		};
 		self.get_local_authorization(index, required)
@@ -1513,34 +1535,223 @@ impl Graph {
 			);
 			return Authorization {
 				permissions,
-				tokens: Vec::new(),
+				tokens: tg::tokens::Entry::default(),
 			};
 		};
 		self.get_local_authorization(index, required)
 	}
 
+	#[must_use]
+	pub fn is_node_stored(&self, id: &tg::Id) -> bool {
+		match self.nodes.get(id) {
+			Some(Node::Object(node)) => node.marked,
+			Some(Node::Process(node)) => node.marked,
+			_ => false,
+		}
+	}
+
+	pub fn get_node_local_control_output(
+		&mut self,
+		id: &tg::Id,
+		stored: bool,
+	) -> tg::Result<tg::sync::control::GetServerResponseOutput> {
+		use tg::sync::control::{
+			GetObjectServerResponseOutput, GetProcessServerResponseOutput, GetServerResponseOutput,
+		};
+		let permissions = if stored {
+			// Resolve inherited permissions before collecting the response facts.
+			let (index, _, node) = self
+				.nodes
+				.get_full(id)
+				.ok_or_else(|| tg::error!(%id, "expected the stored sync node"))?;
+			let requested = match node {
+				Node::Object(_) => {
+					Self::normalize_permissions(tg::authorization::permission::Set::Object(
+						tg::authorization::permission::object::Set::SUBTREE,
+					))
+				},
+				Node::Process(_) => tg::authorization::permission::Set::Process(
+					tg::authorization::permission::process::Set::all(),
+				),
+				_ => return Err(tg::error!(%id, "expected an object or process")),
+			};
+			self.get_local_authorization(index, requested);
+			self.try_get_node_local_grant_permissions(id)
+				.map(Self::normalize_permissions)
+				.ok_or_else(|| tg::error!(%id, "expected permissions for the stored sync node"))?
+		} else if id.kind() == tg::id::Kind::Process {
+			tg::authorization::permission::Set::Process(
+				tg::authorization::permission::process::Set::empty(),
+			)
+		} else {
+			tg::authorization::permission::Set::Object(
+				tg::authorization::permission::object::Set::empty(),
+			)
+		};
+		let output = match permissions {
+			tg::authorization::permission::Set::Object(permissions) => {
+				let storage = stored.then(|| {
+					self.nodes[id]
+						.unwrap_object_ref()
+						.local_storage
+						.clone()
+						.unwrap_or_default()
+				});
+				GetServerResponseOutput::Object(GetObjectServerResponseOutput {
+					permissions,
+					storage,
+				})
+			},
+			tg::authorization::permission::Set::Process(permissions) => {
+				let storage = stored.then(|| {
+					self.nodes[id]
+						.unwrap_process_ref()
+						.local_storage
+						.clone()
+						.unwrap_or_default()
+				});
+				GetServerResponseOutput::Process(GetProcessServerResponseOutput {
+					permissions,
+					storage,
+				})
+			},
+			_ => return Err(tg::error!(%id, "expected an object or process")),
+		};
+		Ok(output)
+	}
+
+	pub fn update_node_local_control_output(
+		&mut self,
+		id: &tg::Id,
+		output: &tg::sync::control::GetServerResponseOutput,
+	) -> tg::Result<()> {
+		match output {
+			tg::sync::control::GetServerResponseOutput::Object(output) => {
+				let id = id.clone().try_into()?;
+				let arg = UpdateObjectLocalArg {
+					data: None,
+					id: &id,
+					marked: None,
+					metadata: None,
+					permissions: Some(tg::authorization::permission::Set::Object(
+						output.permissions,
+					)),
+					put: None,
+					requested: None,
+					storage: output.storage.clone(),
+				};
+				self.update_object_local(arg);
+			},
+			tg::sync::control::GetServerResponseOutput::Process(output) => {
+				let id = id.clone().try_into()?;
+				let arg = UpdateProcessLocalArg {
+					data: None,
+					id: &id,
+					marked: None,
+					metadata: None,
+					permissions: Some(tg::authorization::permission::Set::Process(
+						output.permissions,
+					)),
+					requested: None,
+					storage: output.storage.clone(),
+				};
+				self.update_process_local(arg);
+			},
+		}
+		Ok(())
+	}
+
+	#[must_use]
+	pub fn try_get_node_local_grant_permissions(
+		&self,
+		id: &tg::Id,
+	) -> Option<tg::authorization::permission::Set> {
+		let index = self.nodes.get_index_of(id)?;
+		let (_, node) = self.nodes.get_index(index)?;
+		let mut permissions = match node {
+			Node::Object(node) if node.marked => {
+				let availability = self.object_local_available(index);
+				let permissions = Self::object_grant_permissions(availability);
+				tg::authorization::permission::Set::Object(permissions)
+			},
+			Node::Process(node) if node.marked => {
+				let availability = self.process_local_availability(index);
+				let permissions = Self::process_grant_permissions(&availability);
+				tg::authorization::permission::Set::Process(permissions)
+			},
+			_ => return None,
+		};
+
+		// Existing proofs can cover descendants that have not reached storage yet.
+		if let Some(proven) = node.local_permissions() {
+			permissions.insert(proven);
+		}
+		Some(permissions)
+	}
+
+	#[must_use]
+	pub fn get_node_local_tokens(&self, id: &tg::Id) -> tg::tokens::Entry {
+		self.get_node_tokens(id, Node::local_tokens)
+	}
+
+	#[must_use]
+	pub fn get_node_remote_tokens(&self, id: &tg::Id) -> tg::tokens::Entry {
+		self.get_node_tokens(id, Node::remote_tokens)
+	}
+
+	/// Collect authorization proofs from ancestors and inherit the nearest sync token.
+	fn get_node_tokens(
+		&self,
+		id: &tg::Id,
+		tokens: fn(&Node) -> &tg::tokens::Entry,
+	) -> tg::tokens::Entry {
+		let mut entry = tg::tokens::Entry::default();
+		let Some(index) = self.nodes.get_index_of(id) else {
+			return entry;
+		};
+		let mut queue = VecDeque::from([index]);
+		let mut visited = HashSet::new();
+		while let Some(index) = queue.pop_front() {
+			if !visited.insert(index) {
+				continue;
+			}
+			let (_, node) = self.nodes.get_index(index).unwrap();
+			entry.inherit(tokens(node));
+			for parent in node.parents() {
+				queue.push_back(parent.index());
+			}
+		}
+		entry
+	}
+
 	pub fn update_object_tokens(
 		&mut self,
 		id: &tg::object::Id,
-		tokens: Vec<tg::authorization::Token>,
+		local: &tg::tokens::Entry,
+		remote: &tg::tokens::Entry,
 	) {
 		let node = self
 			.nodes
 			.entry(id.clone().into())
 			.or_insert_with(|| Node::Object(ObjectNode::default()));
-		merge_tokens(&mut node.unwrap_object_mut().tokens, tokens);
+		let node = node.unwrap_object_mut();
+		node.local_tokens.inherit(local);
+		node.remote_tokens.inherit(remote);
 	}
 
 	pub fn update_process_tokens(
 		&mut self,
 		id: &tg::process::Id,
-		tokens: Vec<tg::authorization::Token>,
+		local: &tg::tokens::Entry,
+		remote: &tg::tokens::Entry,
 	) {
 		let node = self
 			.nodes
 			.entry(id.clone().into())
 			.or_insert_with(|| Node::Process(ProcessNode::default()));
-		merge_tokens(&mut node.unwrap_process_mut().tokens, tokens);
+		let node = node.unwrap_process_mut();
+		node.local_tokens.inherit(local);
+		node.remote_tokens.inherit(remote);
 	}
 
 	pub fn update_object_local_permissions(
@@ -1636,7 +1847,7 @@ impl Graph {
 			let tokens = self
 				.nodes
 				.get_index(index)
-				.map(|(_, node)| node.tokens().to_vec())
+				.map(|(_, node)| node.local_tokens().clone())
 				.unwrap_or_default();
 			return Authorization {
 				permissions,
@@ -1649,7 +1860,7 @@ impl Graph {
 		let mut tokens = self
 			.nodes
 			.get_index(index)
-			.map(|(_, node)| node.tokens().to_vec())
+			.map(|(_, node)| node.local_tokens().clone())
 			.unwrap_or_default();
 		let mut visited = HashSet::new();
 		for permission in required
@@ -1662,12 +1873,9 @@ impl Graph {
 		}
 
 		while let Some(state) = queue.pop_front() {
-			let incoming = self
-				.nodes
-				.get_index(state.index)
-				.map(|(_, node)| node.tokens().to_vec())
-				.unwrap_or_default();
-			merge_tokens(&mut tokens, incoming);
+			if let Some((_, node)) = self.nodes.get_index(state.index) {
+				tokens.inherit(node.local_tokens());
+			}
 			let permissions = self
 				.nodes
 				.get_index(state.index)
@@ -2109,6 +2317,49 @@ impl Graph {
 				),
 			)
 		})
+	}
+
+	#[must_use]
+	pub fn object_grant_permissions(subtree: bool) -> tg::authorization::permission::object::Set {
+		let permission = if subtree {
+			tg::authorization::permission::object::Permission::Subtree
+		} else {
+			tg::authorization::permission::object::Permission::Node
+		};
+		tg::authorization::permission::object::Set::from_permission(permission)
+	}
+
+	#[must_use]
+	pub fn process_grant_permissions(
+		availability: &tg::process::Availability,
+	) -> tg::authorization::permission::process::Set {
+		let mut permissions = tg::authorization::permission::process::Set::empty();
+		if availability.subtree {
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE);
+		} else {
+			permissions.insert(tg::authorization::permission::process::Set::NODE);
+		}
+		if availability.subtree_command {
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND);
+		} else if availability.node_command {
+			permissions.insert(tg::authorization::permission::process::Set::NODE_COMMAND);
+		}
+		if availability.subtree_error {
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR);
+		} else if availability.node_error {
+			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
+		}
+		if availability.subtree_log {
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG);
+		} else if availability.node_log {
+			permissions.insert(tg::authorization::permission::process::Set::NODE_LOG);
+		}
+		if availability.subtree_output {
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
+		} else if availability.node_output {
+			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
+		}
+		permissions
 	}
 
 	pub fn process_permissions_for_storage(
@@ -2935,15 +3186,27 @@ impl Node {
 		}
 	}
 
-	fn tokens(&self) -> &[tg::authorization::Token] {
+	pub fn local_tokens(&self) -> &tg::tokens::Entry {
 		match self {
 			Self::Group(node)
 			| Self::Organization(node)
 			| Self::Sandbox(node)
 			| Self::Tag(node)
-			| Self::User(node) => node.tokens.as_slice(),
-			Self::Object(node) => node.tokens.as_slice(),
-			Self::Process(node) => node.tokens.as_slice(),
+			| Self::User(node) => &node.local_tokens,
+			Self::Object(node) => &node.local_tokens,
+			Self::Process(node) => &node.local_tokens,
+		}
+	}
+
+	pub fn remote_tokens(&self) -> &tg::tokens::Entry {
+		match self {
+			Self::Group(node)
+			| Self::Organization(node)
+			| Self::Sandbox(node)
+			| Self::Tag(node)
+			| Self::User(node) => &node.remote_tokens,
+			Self::Object(node) => &node.remote_tokens,
+			Self::Process(node) => &node.remote_tokens,
 		}
 	}
 
@@ -3106,16 +3369,5 @@ impl petgraph::visit::Visitable for Graph {
 	fn reset_map(&self, map: &mut Self::Map) {
 		map.clear();
 		map.reserve(self.nodes.len());
-	}
-}
-
-fn merge_tokens(
-	existing: &mut Vec<tg::authorization::Token>,
-	tokens: Vec<tg::authorization::Token>,
-) {
-	for token in tokens {
-		if !existing.contains(&token) {
-			existing.push(token);
-		}
 	}
 }

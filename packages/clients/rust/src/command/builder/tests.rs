@@ -39,7 +39,7 @@ fn spawn_arg_preserves_executable_and_stdin_referents() {
 	assert_eq!(stdin.state().tokens(), blob_tokens);
 }
 
-fn tokens(resource: tg::Id, location: &tg::Location) -> tg::authorization::Tokens {
+fn tokens(resource: tg::Id, location: &tg::Location) -> tg::Tokens {
 	let token = tg::authorization::Token {
 		body: tg::authorization::Body {
 			expires_at: i64::MAX,
@@ -54,8 +54,8 @@ fn tokens(resource: tg::Id, location: &tg::Location) -> tg::authorization::Token
 		},
 		signature: Vec::new(),
 	};
-	let mut tokens = tg::authorization::Tokens::default();
-	tokens.insert(location.clone(), token);
+	let mut tokens = tg::Tokens::default();
+	tokens.insert_authorization(location.clone(), token);
 
 	tokens
 }

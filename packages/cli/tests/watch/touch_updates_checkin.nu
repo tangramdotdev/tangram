@@ -15,7 +15,7 @@ success $output
 
 let after = tg checkin $path --watch
 assert ($before != $after) "the checkin should produce a new id"
-let object = tg get $after --blobs --depth=inf --pretty
+let object = tg get $after --blobs --depth=inf --no-tokens --pretty
 snapshot --normalize-ids --redact $path $object '
 	tg.directory({
 	  "tangram.ts": tg.file({

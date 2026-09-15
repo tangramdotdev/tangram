@@ -29,21 +29,21 @@ let path = artifact {
 }
 
 # Build all exports and get their object IDs.
-let a_id = tg build ($path + '#a')
+let a_id = tg build --no-tokens ($path + '#a') | str trim
 
-let b_id = tg build ($path + '#b')
+let b_id = tg build --no-tokens ($path + '#b') | str trim
 
-let c_id = tg build ($path + '#c')
+let c_id = tg build --no-tokens ($path + '#c') | str trim
 
-let d_id = tg build ($path + '#d')
+let d_id = tg build --no-tokens ($path + '#d') | str trim
 
-let e_id = tg build ($path + '#e')
+let e_id = tg build --no-tokens ($path + '#e') | str trim
 
-let f_id = tg build ($path + '#f')
+let f_id = tg build --no-tokens ($path + '#f') | str trim
 
-let g_id = tg build ($path + '#g')
+let g_id = tg build --no-tokens ($path + '#g') | str trim
 
-let h_id = tg build ($path + '#h')
+let h_id = tg build --no-tokens ($path + '#h') | str trim
 
 # Tag c and h.
 tg tag c $c_id

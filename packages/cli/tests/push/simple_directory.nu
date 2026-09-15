@@ -34,8 +34,8 @@ let output = (tg push $id --eager) | complete
 success $output
 
 # Confirm object is identical locally and remotely.
-let local_object = tg get $id --blobs --depth=inf --pretty
-let remote_object = tg --url $remote.url get $id --blobs --depth=inf --pretty
+let local_object = tg get $id --blobs --depth=inf --no-tokens --pretty
+let remote_object = tg --url $remote.url get $id --blobs --depth=inf --no-tokens --pretty
 
 assert equal $local_object $remote_object
 

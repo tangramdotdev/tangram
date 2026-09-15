@@ -14,5 +14,5 @@ let id = tg checkin $temp_file
 let bundle_id = tg bundle $id
 
 # Get the bundled object.
-let output = tg object get $bundle_id --blobs --depth=inf --pretty
+let output = tg object get $bundle_id --blobs --depth=inf --no-tokens --pretty
 snapshot $output

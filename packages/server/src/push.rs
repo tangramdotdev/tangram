@@ -208,7 +208,16 @@ impl Session {
 		let get = get
 			.into_iter()
 			.map(|mut node| {
-				node.options.tokens = node.options.tokens.for_location(&source);
+				let tokens = std::mem::take(&mut node.options.tokens);
+				node.options.tokens = if destination.is_remote() {
+					tokens.for_location(&destination)
+				} else {
+					let mut relay = tg::Tokens::default();
+					if let Some(entry) = tokens.get(&source) {
+						relay.set(source.clone(), entry.clone());
+					}
+					relay
+				};
 				node
 			})
 			.collect::<Vec<_>>();
@@ -530,6 +539,7 @@ impl Session {
 					put,
 					sandbox_processes: arg.sandbox_processes,
 					tag_targets: arg.tag_targets,
+					token: None,
 					user_children: arg.user_children,
 				};
 				let source_input_stream = ReceiverStream::new(destination_output_receiver)
@@ -543,7 +553,7 @@ impl Session {
 					force: arg.force,
 					get,
 					group_children: arg.group_children,
-					location: Some(destination.into()),
+					location: Some(destination.clone().into()),
 					metadata: arg.metadata,
 					organization_children: arg.organization_children,
 					process_children: arg.process_children,
@@ -554,6 +564,7 @@ impl Session {
 					put: Vec::new(),
 					sandbox_processes: arg.sandbox_processes,
 					tag_targets: arg.tag_targets,
+					token: arg.sync.clone(),
 					user_children: arg.user_children,
 				};
 				let destination_input_stream =
@@ -565,17 +576,17 @@ impl Session {
 						source_session
 							.sync(source_arg, source_input_stream)
 							.await
-							.map(futures::StreamExt::boxed)
+							.map(|(_, stream)| stream.boxed())
 					} else if process {
 						session
 							.sync_for_process(source_arg, source_input_stream)
 							.await
-							.map(futures::StreamExt::boxed)
+							.map(|(_, stream)| stream.boxed())
 					} else {
 						session
 							.sync(source_arg, source_input_stream)
 							.await
-							.map(futures::StreamExt::boxed)
+							.map(|(_, stream)| stream.boxed())
 					}
 					.map_err(|error| tg::error!(!error, "failed to create the source stream"))?;
 					let mut source_output_stream = pin!(source_output_stream);
@@ -605,7 +616,7 @@ impl Session {
 
 				// Create the destination future.
 				let destination_future = async {
-					let destination_output_stream = session
+					let (sync_output, destination_output_stream) = session
 						.sync_with_source_trust(
 							destination_arg,
 							process,
@@ -613,10 +624,21 @@ impl Session {
 							source_trusted,
 						)
 						.await
-						.map(futures::StreamExt::boxed)
 						.map_err(|error| {
 							tg::error!(!error, "failed to create the destination stream")
 						})?;
+
+					// Log the sync token so callers can request nodes before the transfer ends.
+					if let Some(token) = &sync_output.token {
+						for node in &arg.nodes {
+							let mut node = node.clone();
+							node.options
+								.tokens
+								.set_sync(destination.clone(), token.clone());
+							progress.log(None, node.to_string());
+						}
+					}
+
 					let mut destination_output_stream = pin!(destination_output_stream);
 					while let Some(message) = destination_output_stream.try_next().await? {
 						match message {
@@ -625,7 +647,7 @@ impl Session {
 								*output.lock().unwrap() += &message;
 							},
 							tg::sync::Message::End => {
-								return Ok::<_, tg::Error>(true);
+								return Ok::<_, tg::Error>((true, sync_output));
 							},
 							_ => {
 								destination_output_sender
@@ -635,15 +657,22 @@ impl Session {
 							},
 						}
 					}
-					Ok(false)
+					Ok((false, sync_output))
 				};
 
-				let (source_completed, destination_completed) =
+				let (source_completed, (destination_completed, sync_output)) =
 					future::try_join(source_future, destination_future).await?;
 
 				if source_completed && destination_completed {
 					let mut output = output.lock().unwrap().clone();
 					output.nodes = session.create_sync_output_nodes(&arg)?;
+					if let Some(token) = sync_output.token {
+						for node in &mut output.nodes {
+							node.options
+								.tokens
+								.set_sync(destination.clone(), token.clone());
+						}
+					}
 					Ok(ControlFlow::Break(output))
 				} else {
 					Ok(ControlFlow::Continue(tg::error!(
@@ -654,6 +683,7 @@ impl Session {
 				}
 			}
 		})
+		.boxed()
 		.await?;
 
 		if let tg::Location::Remote(remote) = &destination {

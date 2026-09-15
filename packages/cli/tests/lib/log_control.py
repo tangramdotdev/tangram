@@ -1,4 +1,5 @@
 import base64
+import concurrent.futures
 import http.client
 import json
 import socket
@@ -27,7 +28,7 @@ def flatten(value, prefix=""):
     return [(prefix, str(value).lower() if isinstance(value, bool) else str(value))]
 
 
-def open_stream(path, arg, token=None):
+def open_stream(path, arg, token=None, messages=()):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(10)
     sock.connect(socket_path)
@@ -36,14 +37,16 @@ def open_stream(path, arg, token=None):
     if token:
         headers += f"Authorization: Bearer {token}\r\n"
     sock.sendall((headers + "\r\n").encode())
+    for event, value in messages:
+        send(sock, event, value)
     response = http.client.HTTPResponse(sock)
     response.begin()
     assert response.status == 200, (response.status, response.read())
     return sock, response
 
 
-def connect(arg, token=None):
-    sock, response = open_stream("/processes/control", arg, token)
+def connect(arg, token=None, messages=()):
+    sock, response = open_stream("/processes/control", arg, token, messages)
     length, shift = 0, 0
     while True:
         byte = response.read(1)[0]
@@ -106,9 +109,52 @@ def close(sock, response):
     sock.close()
 
 
+def early_finish():
+    command = [tangram, "--url", url]
+
+    def checkpoint(operation, name, *args):
+        result = subprocess.run(command + ["checkpoint", operation, name, *map(str, args)], capture_output=True, timeout=10)
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout) if result.stdout else None
+
+    watches = {name: checkpoint("watch", name)["watch"] for name in (
+        "process.control.output", "process.control.finish",
+    )}
+    finish = {"kind": "finish", "value": {"data": finished}}
+    request_id = "early-finish"
+    message = ("request", {"id": request_id, "arg": finish})
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        pending = executor.submit(connect, {"parent": parent, "lease": "test", "data": data}, None, [message])
+        try:
+            # The request body reaches the server before Output is returned.
+            for name in watches:
+                checkpoint("wait", name, watches[name], 0)
+            checkpoint("unwatch", "process.control.output", watches.pop("process.control.output"))
+            sock, response, output = pending.result(timeout=10)
+            token = output["sync"]
+            assert token, output
+            receive(response, "ack", request_id)
+            close(sock, response)
+        finally:
+            for name, watch in watches.items():
+                checkpoint("unwatch", name, watch)
+
+    # Reconnect after losing an acknowledged request, preserving the sync token for the eventual push.
+    arg = {"id": output["process"]["node"], "lease": "test", "sync": token}
+    sock, response, reconnected = connect(arg, output["token"])
+    assert reconnected["sync"] == token, reconnected
+    request(sock, response, request_id, finish)
+    close(sock, response)
+    process = json.loads(subprocess.check_output(command + ["get", arg["id"]], timeout=10))
+    value = process.get("output") or process["error"]
+    referent = value["value"] if isinstance(value, dict) else value
+    assert "?" not in referent, value
+    assert process["status"] == "finished", process
+
+
 def reconnect():
     sock, response, output = connect({"parent": parent, "lease": "test", "data": data})
-    id, token = output["id"], output["token"]
+    id, token = output["process"]["node"], output["token"]
     arg = {"id": id, "lease": "test"}
     write = chunk("stdout", 0, b"hello\n")
     send(sock, "request", {"id": "first", "arg": write})
@@ -165,7 +211,7 @@ def reordered():
     command = [tangram, "--url", url]
     for last_stream in ("stdout", "stderr"):
         sock, response, output = connect({"parent": parent, "lease": "test", "data": data})
-        id, token = output["id"], output["token"]
+        id, token = output["process"]["node"], output["token"]
         reader = None
         try:
             # Replay the last chunk before the missing initial and middle chunks.
@@ -231,7 +277,7 @@ def reordered():
 def growing():
     for added in (46, 96):
         sock, response, output = connect({"parent": parent, "lease": "test", "data": data})
-        id = output["id"]
+        id = output["process"]["node"]
         request(sock, response, "prefix", chunk("stdout", 0, b"abcd"))
         reader_sock, reader_response = open_stream(f"/processes/{id}/stdio/read", {"streams": "stdout", "position": "end.96", "length": -99, "size": 1})
         try:
@@ -261,7 +307,9 @@ def growing():
             close(sock, response)
 
 
-if case == "growing":
+if case == "early_finish":
+    early_finish()
+elif case == "growing":
     growing()
 elif case == "reconnect":
     reconnect()

@@ -15,7 +15,7 @@ let path = artifact {
 let id = tg checkin --destructive $path --ignore=false
 tg index
 
-let object = tg object get --blobs --depth=inf --pretty $id
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.directory({
 	  "bar": tg.directory({

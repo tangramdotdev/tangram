@@ -52,7 +52,7 @@ impl Session {
 	pub(crate) async fn try_get_organization_local(
 		&self,
 		id: &tg::organization::Id,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 	) -> tg::Result<Option<tg::organization::get::Output>> {
 		let permission = tg::authorization::Permission::Organization(
 			tg::authorization::permission::organization::Permission::Read,
@@ -96,7 +96,7 @@ impl Session {
 		id: &tg::organization::Id,
 		mut arg: tg::organization::get::Arg,
 		remote: tg::location::Remote,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 	) -> tg::Result<Option<tg::organization::get::Output>> {
 		let cached = arg.cached;
 		let cacheable = arg.tokens.is_empty();
@@ -129,7 +129,10 @@ impl Session {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				crate::remote::cache::tokens_valid(output.tokens.local(), &self.server.clock)
+				crate::remote::cache::tokens_valid(
+					output.tokens.local_authorization(),
+					&self.server.clock,
+				)
 			});
 			if valid || cached {
 				if let Some(output) = &mut output {

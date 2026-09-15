@@ -23,11 +23,7 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Vec::is_empty")]
 	pub streams: Vec<Stream>,
 
-	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-	#[tangram_serialize(
-		default,
-		id = 2,
-		skip_serializing_if = "tg::authorization::Tokens::is_empty"
-	)]
-	pub tokens: tg::authorization::Tokens,
+	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "tg::Tokens::is_empty")]
+	pub tokens: tg::Tokens,
 }

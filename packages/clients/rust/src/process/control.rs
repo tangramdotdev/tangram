@@ -38,14 +38,17 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sync: Option<tg::sync::Token>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub grant: Option<tg::authorization::Token>,
+	pub process: tg::Referent<tg::process::Id>,
 
-	pub id: tg::process::Id,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sync: Option<tg::sync::Token>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
@@ -491,6 +494,10 @@ pub struct GetServerRequestArg {}
 pub struct GetClientResponseOutput {
 	#[tangram_serialize(id = 1)]
 	pub data: tg::process::Data,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
+	pub sync: Option<tg::sync::Token>,
 }
 
 #[derive(

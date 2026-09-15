@@ -51,7 +51,7 @@ struct State<'a> {
 	requests: BTreeSet<u64>,
 	responses: BTreeSet<u64>,
 	streams: Streams,
-	tokens: tg::authorization::Tokens,
+	tokens: tg::Tokens,
 	writer: Option<Writer>,
 	writes: BTreeSet<u64>,
 }
@@ -111,7 +111,8 @@ impl Session {
 			if matches!(
 				location,
 				tg::Location::Local(tg::location::Local { region: None })
-			) {
+			) || self.spawn_process_runner_matches_location(&location)
+			{
 				return self
 					.try_connect_process_local(arg, request_id, &mut input, Some(prepared))
 					.await;
@@ -289,7 +290,7 @@ impl Session {
 	) -> tg::Result<Option<Output>> {
 		let wait = if let tg::Either::Right(id) = &arg.process {
 			let Some(wait) = self
-				.try_wait_process_local(id, arg.tokens.local().to_vec())
+				.try_wait_process_local(id, arg.tokens.local_authorization().to_vec())
 				.await?
 			else {
 				return Ok(None);
@@ -435,7 +436,7 @@ impl Session {
 			let future = match wait {
 				Some(wait) => wait,
 				None => self
-					.try_wait_process_local(&id, wait_arg.tokens.local().to_vec())
+					.try_wait_process_local(&id, wait_arg.tokens.local_authorization().to_vec())
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?,
 			};
@@ -836,7 +837,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::connect::ClientRequestArg,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 	) -> tg::Result<tg::process::connect::ServerResponseOutput> {
 		let output = match arg {
 			tg::process::connect::ClientRequestArg::Cancel(arg) => {
@@ -853,14 +854,18 @@ impl Session {
 			| tg::process::connect::ClientRequestArg::Write(_) => unreachable!(),
 			tg::process::connect::ClientRequestArg::Signal(mut arg) => {
 				arg.tokens.inherit(&tokens);
-				self.try_post_process_signal_local(id, arg.signal, arg.tokens.local())
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the process"))?;
+				self.try_post_process_signal_local(
+					id,
+					arg.signal,
+					arg.tokens.local_authorization(),
+				)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))?;
 				tg::process::connect::ServerResponseOutput::Signal
 			},
 			tg::process::connect::ClientRequestArg::Tty(mut arg) => {
 				arg.tokens.inherit(&tokens);
-				self.try_set_process_tty_size_local(id, arg.size, arg.tokens.local())
+				self.try_set_process_tty_size_local(id, arg.size, arg.tokens.local_authorization())
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				tg::process::connect::ServerResponseOutput::Tty
@@ -959,7 +964,7 @@ impl Session {
 					&[Stream::Stdin],
 					ReceiverStream::new(receiver).boxed(),
 					self.context.stopper.clone(),
-					arg.tokens.local(),
+					arg.tokens.local_authorization(),
 				)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find process stdio"))?;

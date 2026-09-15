@@ -3,6 +3,7 @@ use {
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeSet, io::SeekFrom, sync::Arc},
 	tangram_client::prelude::*,
+	tangram_index::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -11,16 +12,18 @@ pub struct ObjectNode {
 	pub eager: bool,
 	pub id: tg::object::Id,
 	pub kind: Option<crate::sync::queue::ObjectKind>,
+	pub permissions: tg::authorization::permission::Set,
 	pub send: bool,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub tokens: tg::tokens::Entry,
 }
 
 pub struct ProcessNode {
 	pub descendants: bool,
 	pub eager: bool,
 	pub id: tg::process::Id,
+	pub permissions: tg::authorization::permission::Set,
 	pub send: bool,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub tokens: tg::tokens::Entry,
 }
 
 impl Session {
@@ -80,14 +83,27 @@ impl Session {
 		nodes: Vec<ObjectNode>,
 	) -> tg::Result<()> {
 		// Get the objects.
+		for node in &nodes {
+			crate::checkpoint!(self.server, "sync.put.store.object", id = %node.id).await;
+		}
 		let objects = nodes
 			.iter()
 			.map(|node| {
-				tg::Referent::with_node_and_local_tokens(node.id.clone(), node.tokens.clone())
+				let tokens = tg::Tokens::with_local_entry(node.tokens.clone());
+				tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
 			})
 			.collect::<Vec<_>>();
+		let permissions = nodes
+			.iter()
+			.map(|node| node.permissions)
+			.collect::<Vec<_>>();
 		let outputs = self
-			.try_get_object_batch_local_or_regions(&objects, state.arg.metadata)
+			.try_get_object_batch_local_or_regions(
+				&state.graph,
+				&objects,
+				&permissions,
+				state.arg.metadata,
+			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the objects"))?;
 
@@ -186,8 +202,9 @@ impl Session {
 						eager: node.eager,
 						id: child,
 						kind: node.kind,
+						local_tokens: node.tokens.clone(),
 						parent: Some(node.id.clone().into()),
-						tokens: Vec::new(),
+						remote_tokens: tg::tokens::Entry::default(),
 					});
 				state.queue.enqueue_objects(nodes)?;
 			}
@@ -212,14 +229,27 @@ impl Session {
 		nodes: Vec<ProcessNode>,
 	) -> tg::Result<()> {
 		// Get the processes.
+		for node in &nodes {
+			crate::checkpoint!(self.server, "sync.put.store.process", id = %node.id).await;
+		}
 		let processes = nodes
 			.iter()
 			.map(|node| {
-				tg::Referent::with_node_and_local_tokens(node.id.clone(), node.tokens.clone())
+				let tokens = tg::Tokens::with_local_entry(node.tokens.clone());
+				tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
 			})
 			.collect::<Vec<_>>();
+		let permissions = nodes
+			.iter()
+			.map(|node| node.permissions)
+			.collect::<Vec<_>>();
 		let outputs = self
-			.try_get_process_batch_local_or_regions(&processes, state.arg.metadata)
+			.try_get_process_batch_local_or_regions(
+				&state.graph,
+				&processes,
+				&permissions,
+				state.arg.metadata,
+			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the processes"))?;
 
@@ -313,23 +343,40 @@ impl Session {
 					.data;
 			}
 
-			// Load the children.
-			let arg = tg::process::children::get::Arg {
-				location: output.location.clone().map(Into::into),
-				tokens: tg::authorization::Tokens::with_local(node.tokens.clone()),
-				..Default::default()
-			};
-			let children = self
-				.try_get_process_children(&node.id, arg)
-				.await?
-				.ok_or_else(
-					|| tg::error!(process = %node.id, "failed to get the process children"),
-				)?
-				.map_ok(|chunk| futures::stream::iter(chunk.data).map(Ok::<_, tg::Error>))
-				.try_flatten()
-				.try_collect()
+			// Read the local children using the node permission already proven by the graph.
+			let permission = tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Node,
+			);
+			if node.permissions.contains(permission)
+				&& let Some(process) = self.server.index.try_get_process(&node.id).await?
+			{
+				self.set_process_children_from_index(
+					&node.id,
+					process.set.children,
+					&mut output.data,
+				)
 				.await?;
-			output.data.children = Some(children);
+			}
+
+			// Load any children that are not stored locally.
+			if output.data.children.is_none() {
+				let arg = tg::process::children::get::Arg {
+					location: output.location.clone().map(Into::into),
+					tokens: tg::Tokens::with_local_entry(node.tokens.clone()),
+					..Default::default()
+				};
+				let children = self
+					.try_get_process_children(&node.id, arg)
+					.await?
+					.ok_or_else(
+						|| tg::error!(process = %node.id, "failed to get the process children"),
+					)?
+					.map_ok(|chunk| futures::stream::iter(chunk.data).map(Ok::<_, tg::Error>))
+					.try_flatten()
+					.try_collect()
+					.await?;
+				output.data.children = Some(children);
+			}
 			Self::validate_process_data(&output.data)?;
 
 			// Update the graph.
@@ -399,8 +446,9 @@ impl Session {
 						descendants: true,
 						eager: node.eager,
 						id: child.process.node.clone(),
+						local_tokens: node.tokens.clone(),
 						parent: Some(node.id.clone()),
-						tokens: Vec::new(),
+						remote_tokens: tg::tokens::Entry::default(),
 					});
 				state.queue.enqueue_processes(nodes)?;
 			}
@@ -412,8 +460,9 @@ impl Session {
 					eager: node.eager,
 					id: output.data.command.node.clone().into(),
 					kind: Some(crate::sync::queue::ObjectKind::Command),
+					local_tokens: node.tokens.clone(),
 					parent: Some(node.id.clone().into()),
-					tokens: Vec::new(),
+					remote_tokens: tg::tokens::Entry::default(),
 				};
 				state.queue.enqueue_object(node)?;
 			}
@@ -436,8 +485,9 @@ impl Session {
 									eager: node.eager,
 									id: child,
 									kind: Some(crate::sync::queue::ObjectKind::Error),
+									local_tokens: node.tokens.clone(),
 									parent: Some(node.id.clone().into()),
-									tokens: Vec::new(),
+									remote_tokens: tg::tokens::Entry::default(),
 								});
 						state.queue.enqueue_objects(nodes)?;
 					},
@@ -447,8 +497,9 @@ impl Session {
 							eager: node.eager,
 							id: id.node.clone().into(),
 							kind: Some(crate::sync::queue::ObjectKind::Error),
+							local_tokens: node.tokens.clone(),
 							parent: Some(node.id.clone().into()),
-							tokens: Vec::new(),
+							remote_tokens: tg::tokens::Entry::default(),
 						};
 						state.queue.enqueue_object(node)?;
 					},
@@ -466,8 +517,9 @@ impl Session {
 					eager: node.eager,
 					id: log.node.into(),
 					kind: Some(crate::sync::queue::ObjectKind::Log),
+					local_tokens: node.tokens.clone(),
 					parent: Some(node.id.clone().into()),
-					tokens: Vec::new(),
+					remote_tokens: tg::tokens::Entry::default(),
 				};
 				state.queue.enqueue_object(node)?;
 			}
@@ -487,8 +539,9 @@ impl Session {
 						eager: node.eager,
 						id: child,
 						kind: Some(crate::sync::queue::ObjectKind::Output),
+						local_tokens: node.tokens.clone(),
 						parent: Some(node.id.clone().into()),
-						tokens: Vec::new(),
+						remote_tokens: tg::tokens::Entry::default(),
 					});
 				state.queue.enqueue_objects(nodes)?;
 			}

@@ -51,7 +51,7 @@ impl Session {
 	pub(crate) async fn try_get_tag_local(
 		&self,
 		id: &tg::tag::Id,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		// Get the tag.
 		let id = id.clone();
@@ -106,7 +106,7 @@ impl Session {
 		id: &tg::tag::Id,
 		mut arg: tg::tag::get::Arg,
 		remote: tg::location::Remote,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 	) -> tg::Result<Option<tg::tag::get::Output>> {
 		let cached = arg.cached;
 		let cacheable = arg.tokens.is_empty();
@@ -137,7 +137,10 @@ impl Session {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|tag| {
-				crate::remote::cache::tokens_valid(tag.tokens.local(), &self.server.clock)
+				crate::remote::cache::tokens_valid(
+					tag.tokens.local_authorization(),
+					&self.server.clock,
+				)
 			});
 			if valid || cached {
 				if let Some(tag) = &mut output {

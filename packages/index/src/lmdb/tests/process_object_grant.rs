@@ -88,6 +88,7 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 					parent: None,
 					sandbox: None,
 					storage: crate::process::Storage::default(),
+					subtree_objects: std::collections::BTreeSet::new(),
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
 				}),
@@ -189,6 +190,160 @@ async fn process_object_grants_abort_when_authorization_exhausts() {
 		tg::authorization::permission::object::Permission::Node,
 	);
 	assert!(process_grant(&index, &process, &object, node).is_none());
+}
+
+#[tokio::test]
+async fn process_object_subtree_edges_authorize_without_grants() {
+	let (_dir, index) = new_index();
+	let process = tg::process::Id::new();
+	let reader = tg::user::Id::new();
+	let node_reader = tg::user::Id::new();
+	let root = object_id(10);
+	let child = object_id(11);
+	let subtree = tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	let node = tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Node,
+	);
+	let mut items = Vec::new();
+	for (id, children) in [
+		(root.clone(), BTreeSet::from([child.clone()])),
+		(child.clone(), BTreeSet::new()),
+	] {
+		let arg = crate::object::put::Arg {
+			checkout: None,
+			children,
+			id,
+			metadata: tg::object::Metadata::default(),
+			put: [1; 16],
+			storage: crate::object::Storage::default(),
+			time_to_touch: std::time::Duration::ZERO,
+			touched_at: 0,
+		};
+		items.push(crate::batch::Item::PutObject(arg));
+	}
+	for (reader, permission) in [
+		(
+			&reader,
+			tg::authorization::permission::process::Permission::NodeOutput,
+		),
+		(
+			&node_reader,
+			tg::authorization::permission::process::Permission::Node,
+		),
+	] {
+		let arg = crate::grant::put::Arg {
+			created_at: 0,
+			creator: None,
+			implicit: None,
+			permissions: tg::authorization::Permission::Process(permission).into(),
+			resource: process.clone().into(),
+			subject: tg::authorization::Subject::User(reader.clone()),
+			time_to_touch: None,
+		};
+		items.push(crate::batch::Item::PutGrant(arg));
+	}
+	let arg = crate::batch::Arg { items };
+	index.batch(arg).await.unwrap();
+	let mut process_arg = crate::process::put::Arg {
+		cached: false,
+		children: None,
+		command: tg::command::Id::new(b"command").into(),
+		data: None,
+		error: None,
+		id: process.clone(),
+		location: None,
+		log: None,
+		metadata: tg::process::Metadata::default(),
+		options: tg::referent::Options::default(),
+		output: Some(Some(vec![root.clone()])),
+		parent: None,
+		sandbox: None,
+		storage: crate::process::Storage::default(),
+		subtree_objects: BTreeSet::new(),
+		time_to_touch: std::time::Duration::ZERO,
+		touched_at: 0,
+	};
+	let disabled = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		page_size: 1,
+	};
+	let configs = [
+		crate::authorize::Config {
+			descendant: disabled,
+			..Default::default()
+		},
+		crate::authorize::Config {
+			ancestor: disabled,
+			..Default::default()
+		},
+	];
+	let args = [root.clone(), child.clone()]
+		.into_iter()
+		.map(|object| crate::authorize::Arg {
+			requested: subtree.into(),
+			required: subtree.into(),
+			resource: tg::Selector::Id(object.into()),
+			tokens: Vec::new(),
+		})
+		.collect::<Vec<_>>();
+
+	// Upgrade an existing relationship, then replay it without the proof.
+	for (proven, expected) in [(false, false), (true, true), (false, true)] {
+		process_arg.subtree_objects = if proven {
+			BTreeSet::from([root.clone()])
+		} else {
+			BTreeSet::new()
+		};
+		let arg = crate::batch::Arg {
+			items: vec![crate::batch::Item::PutProcess(process_arg.clone())],
+		};
+		index.batch(arg).await.unwrap();
+		let transaction = index.env.read_txn().unwrap();
+		let key = Key::Process(super::super::process::Key::ProcessObject {
+			kind: crate::process::object::Kind::Output,
+			object: root.clone(),
+			process: process.clone(),
+		});
+		let key = Index::pack(&index.subspace, &key);
+		let data = crate::process::object::Data::deserialize(
+			index.db.get(&transaction, &key).unwrap().unwrap(),
+		)
+		.unwrap();
+		drop(transaction);
+		assert_eq!(data.subtree, expected);
+		for config in configs {
+			for principal in [
+				tg::Principal::User(reader.clone()),
+				tg::Principal::Process(process.clone()),
+			] {
+				let outcomes = index
+					.authorize_batch(&args, config, &principal)
+					.await
+					.unwrap();
+				assert_eq!(
+					outcomes
+						.iter()
+						.all(|outcome| matches!(outcome, crate::authorize::Outcome::Authorized(_))),
+					data.subtree
+				);
+			}
+			let outcomes = index
+				.authorize_batch(&args, config, &tg::Principal::User(node_reader.clone()))
+				.await
+				.unwrap();
+			assert!(
+				outcomes
+					.iter()
+					.all(|outcome| !matches!(outcome, crate::authorize::Outcome::Authorized(_)))
+			);
+		}
+		assert!(process_grant(&index, &process, &root, subtree).is_none());
+		assert!(process_grant(&index, &process, &root, node).is_none());
+	}
 }
 
 fn object_id(value: u64) -> tg::object::Id {

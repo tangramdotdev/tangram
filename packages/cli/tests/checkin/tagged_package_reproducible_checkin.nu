@@ -28,11 +28,11 @@ let path = artifact {
 # Check in on the first local server.
 let id1 = tg --url $local1.url checkin $path
 tg --url $local1.url index
-let output1 = tg --url $local1.url object get --blobs --depth=inf --pretty $id1
+let output1 = tg --url $local1.url object get --blobs --depth=inf --no-tokens --pretty $id1
 
 # Check in on the second local server.
 let id2 = tg --url $local2.url checkin $path
 tg --url $local2.url index
-let output2 = tg --url $local2.url object get --blobs --depth=inf --pretty $id2
+let output2 = tg --url $local2.url object get --blobs --depth=inf --no-tokens --pretty $id2
 
 assert ($output1 == $output2) "the checkout should be reproducible across different servers."

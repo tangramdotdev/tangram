@@ -15,7 +15,8 @@ let alice_error = (tg --token $alice.token get $alice_process | from json).error
 assert (($alice_error | to json) | str starts-with '"err_') ("Alice's failed process should store its error as an object: " + ($alice_error | to json))
 
 # Eve cannot read Alice's private error object before the exploit.
-let denied = tg --token $eve.token get $alice_error | complete
+let denied = timeout 10s tg --token $eve.token get $alice_error | complete
+assert ($denied.exit_code != 124) "an unauthorized read must not wait for the sync timeout."
 failure $denied "Eve should not read Alice's error object before the exploit."
 
 # Eve puts a process whose error names Alice's private error object.
@@ -34,6 +35,7 @@ tg --token $eve.token process put $eve_process ($process_data | to json)
 tg --token $eve.token index
 
 # Eve must not gain read access to Alice's error object by naming it as her process's error.
-let leaked = tg --token $eve.token get $alice_error | complete
+let leaked = timeout 10s tg --token $eve.token get $alice_error | complete
+assert ($leaked.exit_code != 124) "an unauthorized read must not wait for the sync timeout."
 failure $leaked "Eve must not read Alice's error object after naming it as her process's error."
 snapshot --normalize-ids $leaked.stdout ''

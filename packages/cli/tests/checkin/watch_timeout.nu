@@ -13,7 +13,7 @@ let path = artifact {
 }
 
 let id = tg checkin $path --watch
-let object = tg get $id --blobs --depth=inf --pretty
+let object = tg get $id --blobs --depth=inf --no-tokens --pretty
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({

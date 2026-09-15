@@ -16,7 +16,7 @@ failure $output
 # Verify we can check this in with --deterministic and --unsolved-dependencies
 let id = tg checkin $path --deterministic --unsolved-dependencies
 tg index
-let object = tg get --depth=inf --pretty $id
+let object = tg get --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({

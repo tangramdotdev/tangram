@@ -83,7 +83,7 @@ impl Object {
 		}
 	}
 
-	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::Tokens) {
 		self.state().inherit_tokens(tokens);
 	}
 

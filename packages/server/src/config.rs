@@ -1052,6 +1052,8 @@ pub struct IpRange {
 
 #[derive(Clone, Debug)]
 pub struct Sync {
+	pub control: SyncControl,
+
 	pub get: SyncGet,
 
 	pub grant_time_to_live: Duration,
@@ -1063,6 +1065,21 @@ pub struct Sync {
 	pub put: SyncPut,
 
 	pub retry: Retry,
+}
+
+#[derive(Clone, Debug)]
+pub struct SyncControl {
+	pub heartbeat_interval: Duration,
+
+	pub index_timeout: Duration,
+
+	pub lease_ttl: Duration,
+
+	pub recovery_timeout: Duration,
+
+	pub request_timeout: Duration,
+
+	pub retry_interval: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -1943,12 +1960,43 @@ impl Default for SandboxNetwork {
 impl Default for Sync {
 	fn default() -> Self {
 		Self {
+			control: SyncControl::default(),
 			get: SyncGet::default(),
 			grant_time_to_live: default_time_to_live(),
 			grant_time_to_touch: default_time_to_touch(),
 			max_frame_size: default_sync_max_frame_size(),
 			put: SyncPut::default(),
 			retry: sync_retry_default(),
+		}
+	}
+}
+
+impl SyncControl {
+	pub fn validate(&self) -> tg::Result<()> {
+		for (name, interval) in [
+			("heartbeat_interval", self.heartbeat_interval),
+			("lease_ttl", self.lease_ttl),
+			("retry_interval", self.retry_interval),
+		] {
+			if interval.is_zero() {
+				return Err(tg::error!(
+					"the sync control {name} must be greater than zero"
+				));
+			}
+		}
+		Ok(())
+	}
+}
+
+impl Default for SyncControl {
+	fn default() -> Self {
+		Self {
+			heartbeat_interval: Duration::from_secs(1),
+			index_timeout: Duration::from_secs(60),
+			lease_ttl: Duration::from_secs(10),
+			recovery_timeout: Duration::from_secs(60),
+			request_timeout: Duration::from_secs(60),
+			retry_interval: Duration::from_secs(1),
 		}
 	}
 }
@@ -2155,17 +2203,6 @@ impl Default for Write {
 	}
 }
 
-impl From<Retry> for tangram_futures::retry::Options {
-	fn from(retry: Retry) -> Self {
-		Self {
-			backoff: retry.backoff,
-			jitter: retry.jitter,
-			max_delay: retry.max_delay,
-			max_retries: retry.max_retries,
-		}
-	}
-}
-
 mod ip_range {
 	use {super::IpRange, std::net::Ipv4Addr, tangram_client::prelude::*};
 
@@ -2323,6 +2360,17 @@ fn default_authentication_token_ttl() -> Duration {
 
 fn default_sync_max_frame_size() -> u64 {
 	tg::sync::Config::default().max_frame_size
+}
+
+impl From<Retry> for tangram_futures::retry::Options {
+	fn from(value: Retry) -> Self {
+		Self {
+			backoff: value.backoff,
+			jitter: value.jitter,
+			max_delay: value.max_delay,
+			max_retries: value.max_retries,
+		}
+	}
 }
 
 fn sync_retry_default() -> Retry {

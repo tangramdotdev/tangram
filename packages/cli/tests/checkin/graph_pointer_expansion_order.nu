@@ -29,7 +29,7 @@ let graph_module = r#'
 let graph_path = artifact {
 	tangram.ts: $graph_module
 }
-let graph = tg build $graph_path | str trim
+let graph = tg build --no-tokens $graph_path | str trim
 let pointer_module = r#'
 	export default function () {
 		const graph = tg.Graph.withId("<graph>");
@@ -58,7 +58,7 @@ let permission_only_first = artifact {
 	b.tg.ts: 'import "pointer/^1";'
 }
 let output = checkin-output $server $permission_only_first
-let object = tg get --blobs --depth=inf --pretty $output.reference
+let object = tg get --blobs --depth=inf --no-tokens --pretty $output.reference
 assert ($object | str contains "new dependency") "the later normal reference should expand and solve the graph node"
 
 let normal_first = artifact {
@@ -66,5 +66,5 @@ let normal_first = artifact {
 	b: (file --xattrs { "user.tangram.dependencies": $dependencies } explicit)
 }
 let output = checkin-output $server $normal_first
-let object = tg get --blobs --depth=inf --pretty $output.reference
+let object = tg get --blobs --depth=inf --no-tokens --pretty $output.reference
 assert ($object | str contains "new dependency") "the earlier normal reference should expand and solve the graph node"

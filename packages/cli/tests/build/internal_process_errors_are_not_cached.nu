@@ -23,7 +23,7 @@ failure $first_output
 
 let first_child = tg process children $first.process | from json | get 0.process
 let first_error = tg get $first_child | from json | get error
-let first_error_pretty = tg get $first_error --pretty
+let first_error_pretty = tg get $first_error --no-tokens --pretty
 snapshot --normalize-ids --redact $path $first_error_pretty '
 	tg.error({
 	  "code": "internal",

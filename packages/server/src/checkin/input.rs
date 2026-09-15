@@ -430,7 +430,7 @@ impl Session {
 						return Err(tg::error!(node = %reference.node(), "expected a graph"));
 					}
 					if let Some(id) = object_edge_root(&edge) {
-						for token in reference.options().tokens.local() {
+						for token in reference.options().tokens.local_authorization() {
 							self.checkin_merge_object_token(state.graph, state.next, &id, token);
 						}
 					}
@@ -538,7 +538,7 @@ impl Session {
 						return Err(tg::error!(node = %reference.node(), "expected a graph"));
 					}
 					if let Some(id) = object_edge_root(&edge) {
-						for token in reference.options().tokens.local() {
+						for token in reference.options().tokens.local_authorization() {
 							self.checkin_merge_object_token(state.graph, state.next, &id, token);
 						}
 					}
@@ -601,12 +601,12 @@ impl Session {
 		tg::file::xattrs::try_read_dependencies_xattrs(names, |name| xattr::get(path, name))
 	}
 
-	pub(super) fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::authorization::Tokens> {
+	pub(super) fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::Tokens> {
 		let Ok(Some(value)) = xattr::get(path, tg::file::TOKEN_XATTR_NAME) else {
-			return Ok(tg::authorization::Tokens::default());
+			return Ok(tg::Tokens::default());
 		};
 		let token = tg::file::xattrs::deserialize_token_xattr(&value)?;
-		let tokens = tg::authorization::Tokens::with_local(Some(token));
+		let tokens = tg::Tokens::with_authorization(Some(token));
 
 		Ok(tokens)
 	}

@@ -48,8 +48,8 @@ pub struct Item {
 
 	pub status: tg::sandbox::Status,
 
-	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-	pub tokens: tg::authorization::Tokens,
+	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
+	pub tokens: tg::Tokens,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]

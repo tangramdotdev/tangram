@@ -21,12 +21,13 @@ let module = artifact {
 	'
 }
 let directory = tg --token $alice.token build $module | str trim
+let directory_id = $directory | split row "?" | first
 tg --token $alice.token index
 let root = tg --token $alice.token checkout $directory | str trim
 let path = $root | path join program
 let output = checkin-output $server $path --token $alice.token
 let params = $'http://localhost/($output.reference)' | url parse | get params
-assert equal ($params | where key == id | first | get value) $directory
+assert equal ($params | where key == id | first | get value) $directory_id
 assert equal ($params | where key == path | first | get value) program
 assert equal ($params | where key starts-with 'tokens[local]' | length) 2
 let contents = tg --token $bob.token read $output.reference

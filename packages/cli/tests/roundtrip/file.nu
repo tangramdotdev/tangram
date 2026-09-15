@@ -9,7 +9,7 @@ let artifact = artifact {
 		export default function () { return tg.file("hello, world!"); }
 	'
 }
-let id = tg build $artifact
+let id = tg build --no-tokens $artifact
 
 let tmp = mktemp --directory
 let path = $tmp | path join "checkout"

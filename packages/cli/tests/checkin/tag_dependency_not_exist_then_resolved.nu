@@ -15,7 +15,7 @@ let path = artifact {
 let id1 = tg checkin --watch --unsolved-dependencies $path
 tg index
 
-let object1 = tg object get --blobs --depth=inf --pretty $id1
+let object1 = tg object get --blobs --depth=inf --no-tokens --pretty $id1
 snapshot --name object_before $object1
 
 # Now create the tag.
@@ -28,7 +28,7 @@ tg tag -p a/1.0.0 $a
 let id2 = tg checkin --watch $path
 tg index
 
-let object2 = tg object get --blobs --depth=inf --pretty $id2
+let object2 = tg object get --blobs --depth=inf --no-tokens --pretty $id2
 snapshot --name object_after $object2
 
 let lockfile_path = $path | path join 'tangram.lock'

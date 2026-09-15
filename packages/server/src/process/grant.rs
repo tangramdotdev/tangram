@@ -29,6 +29,33 @@ impl Session {
 		expires_at: Option<i64>,
 		root_permissions: tg::authorization::permission::object::Set,
 	) -> tg::Result<tangram_index::process::object::grant::Arg> {
+		let roots = self
+			.prepare_process_object_grant_roots(roots, root_permissions)
+			.await?;
+
+		let authorize =
+			crate::authorization_search_config(&self.server.config.authorization.final_);
+		let principal = self.context.principal.clone();
+		let process = process.clone();
+		let time_to_touch = expires_at.map(|_| self.server.config.object.grant_time_to_touch);
+		let arg = tangram_index::process::object::grant::Arg {
+			authorize,
+			created_at,
+			expires_at,
+			principal,
+			process,
+			roots,
+			time_to_touch,
+		};
+
+		Ok(arg)
+	}
+
+	pub(crate) async fn prepare_process_object_grant_roots(
+		&self,
+		roots: impl IntoIterator<Item = tg::Referent<tg::object::Id>>,
+		root_permissions: tg::authorization::permission::object::Set,
+	) -> tg::Result<Vec<tangram_index::process::object::grant::Root>> {
 		let node = tg::authorization::permission::object::Permission::Node;
 		let subtree = tg::authorization::permission::object::Permission::Subtree;
 		let subtree_permission = tg::authorization::Permission::Object(subtree);
@@ -41,7 +68,7 @@ impl Session {
 				let tokens = root
 					.options
 					.tokens
-					.local()
+					.local_authorization()
 					.iter()
 					.filter(|token| {
 						token.body.resource == resource && self.verify_local_token(token)
@@ -87,22 +114,7 @@ impl Session {
 				.await?;
 		}
 
-		let authorize =
-			crate::authorization_search_config(&self.server.config.authorization.final_);
-		let principal = self.context.principal.clone();
-		let process = process.clone();
-		let time_to_touch = expires_at.map(|_| self.server.config.object.grant_time_to_touch);
-		let arg = tangram_index::process::object::grant::Arg {
-			authorize,
-			created_at,
-			expires_at,
-			principal,
-			process,
-			roots,
-			time_to_touch,
-		};
-
-		Ok(arg)
+		Ok(roots)
 	}
 
 	async fn prepare_process_object_grant_authorization(

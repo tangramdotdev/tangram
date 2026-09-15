@@ -12,6 +12,8 @@ Run `bun run format` to format all code when you complete changes.
 
 ## Testing
 
+Do not write Rust tests that create or start Tangram servers. Cover behavior that requires a running server with CLI tests in `packages/cli/tests`. Use Rust unit tests for logic that does not require a running server.
+
 To run all tests, run `bun run test`. The most important tests are the CLI tests in `packages/cli/tests`. You can run the CLI tests with `nu packages/cli/test.nu`; pass `--no-cloud` when the cloud databases are not running. Provide a regex pattern as an arg for the tests in the tests directory. For example, `nu packages/cli/test.nu build` will run all the build tests. To accept new and updated snapshots, run the tests with `--accept`.
 
 ## macOS

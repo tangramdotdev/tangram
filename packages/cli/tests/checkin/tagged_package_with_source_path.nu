@@ -29,7 +29,7 @@ let path = artifact {
 let id = tg checkin --no-source-dependencies $path
 tg index
 
-let object = tg object get --blobs --depth=inf --pretty $id
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot --name object $object
 
 let metadata = tg object metadata --pretty $id

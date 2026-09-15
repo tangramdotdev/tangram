@@ -44,7 +44,7 @@ let path = artifact {
 let id = tg checkin ($path | path join 'foo.tg.ts') --update a --lock=file
 tg index
 
-let object = tg object get --blobs --depth=inf --pretty $id
+let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.file({
 	  "contents": tg.blob("import a from \"a/^1\";"),

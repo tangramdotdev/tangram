@@ -3,7 +3,7 @@ use {
 	crate::session::Session,
 	bytes::Bytes,
 	futures::{
-		StreamExt as _, TryFutureExt as _, future,
+		FutureExt as _, StreamExt as _, TryFutureExt as _, future,
 		stream::{self, BoxStream},
 	},
 	num::ToPrimitive as _,
@@ -95,7 +95,7 @@ impl Session {
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
 		Task::spawn(move |_| {
-			async move { session.run_process_control_output_task(arg).await }.inspect_err(
+			async move { session.run_process_control_output_task(arg).boxed().await }.inspect_err(
 				|error| tracing::error!(error = %error.trace(), "the process control output task failed"),
 			)
 		})

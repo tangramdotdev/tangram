@@ -60,6 +60,10 @@ pub struct Arg {
 	#[tangram_serialize(id = 10)]
 	pub storage: Storage,
 
+	/// The referenced objects for which the process has proven subtree permission.
+	#[tangram_serialize(id = 16)]
+	pub subtree_objects: BTreeSet<tg::object::Id>,
+
 	#[tangram_serialize(id = 11)]
 	pub time_to_touch: std::time::Duration,
 

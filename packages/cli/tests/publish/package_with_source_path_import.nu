@@ -77,10 +77,10 @@ assert equal $remote_dep_tag $published_dep_id "Remote dependency tag does not m
 assert equal $remote_main_tag $published_main_id "Remote main tag does not match published ID."
 
 # Verify both packages are synced using the published IDs.
-let local_dep_obj = tg object get $published_dep_id
-let remote_dep_obj = tg --url $remote.url object get $published_dep_id
-let local_main_obj = tg object get $published_main_id
-let remote_main_obj = tg --url $remote.url object get $published_main_id
+let local_dep_obj = tg object get --no-tokens $published_dep_id
+let remote_dep_obj = tg --url $remote.url object get --no-tokens $published_dep_id
+let local_main_obj = tg object get --no-tokens $published_main_id
+let remote_main_obj = tg --url $remote.url object get --no-tokens $published_main_id
 assert equal $local_dep_obj $remote_dep_obj "Dependency object not synced between local and remote."
 assert equal $local_main_obj $remote_main_obj "Main object not synced between local and remote."
 

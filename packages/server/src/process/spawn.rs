@@ -141,7 +141,10 @@ impl Session {
 					.await
 					.map_err(|error| tg::error!(!error, "failed to store the command"))?;
 				arg.command.options.location = command.state().location();
-				arg.command.options.tokens = command.state().tokens();
+				arg.command
+					.options
+					.tokens
+					.inherit(&command.state().tokens());
 				id
 			},
 			tg::Either::Right(id) => id.clone(),
@@ -333,7 +336,7 @@ impl Session {
 	}
 
 	#[must_use]
-	fn spawn_process_runner_matches_location(&self, location: &tg::Location) -> bool {
+	pub(super) fn spawn_process_runner_matches_location(&self, location: &tg::Location) -> bool {
 		if !self
 			.server
 			.config

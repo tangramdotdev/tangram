@@ -82,6 +82,11 @@ where
 	}
 
 	#[must_use]
+	pub fn is_finished(&self) -> bool {
+		self.handle.as_ref().unwrap().is_finished()
+	}
+
+	#[must_use]
 	pub fn attached(&self) -> bool {
 		self.attached
 	}

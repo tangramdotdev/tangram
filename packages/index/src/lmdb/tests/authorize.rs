@@ -14,8 +14,14 @@ fn object_id(n: usize) -> tg::object::Id {
 }
 
 fn put(index: &Index, txn: &mut lmdb::RwTxn<'_>, key: &Key) {
-	let key = Index::pack(&index.subspace, key);
-	index.db.put(txn, &key, &[]).unwrap();
+	let value = match key {
+		Key::Process(ProcessKey::ProcessObject { .. })
+		| Key::Object(ObjectKey::ObjectProcess { .. }) => {
+			crate::process::object::Data::default().serialize().unwrap()
+		},
+		_ => Vec::new(),
+	};
+	put_value(index, txn, key, &value);
 }
 
 fn put_value(index: &Index, txn: &mut lmdb::RwTxn<'_>, key: &Key, value: &[u8]) {

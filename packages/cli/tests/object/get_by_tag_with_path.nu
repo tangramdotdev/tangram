@@ -18,7 +18,7 @@ let dir_id = tg checkin $path
 tg tag test $dir_id
 
 # Get the nested file using the path option with a resolved tag reference.
-let output = tg --no-quiet get --pretty "test?follow=true&get=foo/bar/file.txt" | complete
+let output = tg --no-quiet get --no-tokens --pretty "test?follow=true&get=foo/bar/file.txt" | complete
 
 # Verify the output is a file ID.
 snapshot $output.stdout '
@@ -32,4 +32,4 @@ assert ($output.stderr | str contains "id=dir_01dsqh18mkjvps1bsynv883g6h70xtem9p
 assert ($output.stderr | str contains "location=local") "the referent should include its location"
 assert ($output.stderr | str contains "path=foo/bar/file.txt") "the referent should include its path"
 assert ($output.stderr | str contains "tag=test") "the referent should include its tag"
-assert ($output.stderr | str contains "tokens[local][0]") "the referent should include its token"
+assert ($output.stderr | str contains "tokens[local][authorization][0]") "the referent should include its token"

@@ -4,9 +4,28 @@ impl Session {
 	pub(super) async fn finish_process_control_request(
 		&self,
 		id: &tg::process::Id,
-		arg: tg::process::control::FinishClientRequestArg,
+		mut arg: tg::process::control::FinishClientRequestArg,
+		sync: Option<&tg::sync::Token>,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
 		crate::checkpoint!(self.server, "process.control.finish", id = %id).await;
+
+		// Associate the output with the incoming sync before publishing the finished process.
+		if let Some(sync) = sync {
+			let location = tg::Location::Local(tg::location::Local::default());
+			if let Some(data) = arg.data.output.take() {
+				let value = tg::Value::try_from_data(data)?;
+				for object in value.objects() {
+					let mut tokens = object.state().tokens();
+					tokens.set_sync(location.clone(), sync.clone());
+					object.state().set_tokens(tokens);
+				}
+				arg.data.output = Some(value.to_data());
+			}
+			if let Some(tg::Either::Right(error)) = &mut arg.data.error {
+				error.options.tokens.set_sync(location, sync.clone());
+			}
+		}
+
 		let options = crate::process::put::Options {
 			defer_index: false,
 			enqueue_log_compaction: false,

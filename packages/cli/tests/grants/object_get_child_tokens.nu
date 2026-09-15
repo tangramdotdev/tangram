@@ -3,7 +3,7 @@ use ../../test.nu *
 # Object get returns exact child tokens using the authorization it already performed.
 
 def get-object [socket: string, bearer: string, id: string, --token: string] {
-	let query = if $token == null { '' } else { $'?tokens[local][0]=($token | url encode --all)' }
+	let query = if $token == null { '' } else { $'?tokens[local][authorization][0]=($token | url encode --all)' }
 	http get --max-time 10sec --headers { Accept: 'application/json', Authorization: $'Bearer ($bearer)' } --unix-socket $socket $'http://localhost/objects/($id)($query)'
 }
 
@@ -25,18 +25,18 @@ tg --token $alice.token index
 # Authorization through the existing grants also produces child tokens.
 let first = get-object $socket $alice.token $directory
 let child = $first.children | columns | first
-let source = token-body $first.tokens.local.0
-assert equal (token-body ($first.children | get $child | get tokens.local.0)).permissions [object_subtree]
+let source = token-body $first.tokens.local.authorization.0
+assert equal (token-body ($first.children | get $child | get tokens.local.authorization.0)).permissions [object_subtree]
 let bytes = tg --token $alice.token object get --bytes $directory | into binary
 sleep 1sec
 
 # An exact subtree token must avoid every authorization index lookup, including for children.
 let watch = tg --token $root_token checkpoint watch authorization.index | from json | get watch
-let output = get-object $socket $bob.token $directory --token $first.tokens.local.0
+let output = get-object $socket $bob.token $directory --token $first.tokens.local.authorization.0
 assert equal $output.data $first.data
-assert equal (token-body $output.tokens.local.0).expires_at $source.expires_at
+assert equal (token-body $output.tokens.local.authorization.0).expires_at $source.expires_at
 assert equal ($output.children | columns) [$child]
-let token = $output.children | get $child | get tokens.local.0
+let token = $output.children | get $child | get tokens.local.authorization.0
 let body = token-body $token
 assert equal $body.resource $child
 assert equal $body.permissions [object_subtree]
@@ -46,13 +46,13 @@ assert equal $body.expires_at $source.expires_at
 let child_output = get-object $socket $bob.token $child --token $token
 assert equal ($child_output.children | columns | length) 1 "repeated children should share one token."
 let file = $child_output.children | columns | first
-let file_token = $child_output.children | get $file | get tokens.local.0
+let file_token = $child_output.children | get $file | get tokens.local.authorization.0
 assert equal (token-body $file_token).resource $file
 assert equal (token-body $file_token).expires_at $source.expires_at
 get-object $socket $bob.token $file --token $file_token | ignore
 
 # The Rust client consumes the child tokens when loading the whole directory.
-let reference = $'($directory)?tokens[local][0]=($first.tokens.local.0 | url encode --all)'
+let reference = $'($directory)?tokens[local][authorization][0]=($first.tokens.local.authorization.0 | url encode --all)'
 let job = job spawn {
 	let job_id = job id
 	let output = tg --token $bob.token get $reference --depth inf | complete
@@ -68,11 +68,11 @@ tg --token $root_token checkpoint unwatch authorization.index $watch
 tg --token $alice.token grant $bob.user.id object_node $directory
 let output = get-object $socket $bob.token $directory
 assert equal ($output.children? | default {}) {}
-assert equal (token-body $output.tokens.local.0).permissions [object_node]
+assert equal (token-body $output.tokens.local.authorization.0).permissions [object_node]
 failure (tg --token $bob.token get $child | complete) "a node-only read must not grant access to the child."
 
 # An invalid subtree token must not add permissions to the node grant.
-let parts = $first.tokens.local.0 | split row '.'
+let parts = $first.tokens.local.authorization.0 | split row '.'
 let signature = $parts.3 | decode base64 | bytes reverse | encode base64
 let forged = [$parts.0 $parts.1 $parts.2 $signature] | str join '.'
 let output = get-object $socket $bob.token $directory --token $forged

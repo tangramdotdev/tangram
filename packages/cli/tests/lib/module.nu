@@ -22,7 +22,7 @@ export def resolve-module-background [socket: string, token: string, referrer: r
 }
 
 export def token-resources [module: record] {
-	$module.referent.options.tokens.local | each { |token|
+	$module.referent.options.tokens.local.authorization | each { |token|
 		$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json | get resource
 	}
 }

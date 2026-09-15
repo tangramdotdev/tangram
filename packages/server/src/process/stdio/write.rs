@@ -50,7 +50,7 @@ impl Session {
 					&arg.streams,
 					input,
 					self.context.stopper.clone(),
-					arg.tokens.local(),
+					arg.tokens.local_authorization(),
 				)
 				.await?
 			},

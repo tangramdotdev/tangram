@@ -25,5 +25,5 @@ let directory = artifact {
 let path = $directory | path join input
 let output = checkin-output $server $path
 assert equal $output.permissions [object_subtree] "the solved artifact should have subtree permission"
-let object = tg get --depth=inf --pretty $output.reference
+let object = tg get --depth=inf --no-tokens --pretty $output.reference
 assert ($object | str contains '"tag": "dependency/1.0.0"') "the explicit dependency should be solved"

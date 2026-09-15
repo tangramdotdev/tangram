@@ -19,13 +19,13 @@ assert (($tag | get --optional location) == null) "the location should not be pr
 assert (($tag | get --optional tokens) == null) "the tokens should not be printed to stdout"
 assert ($output.stderr | str contains $tag.id) "the referent should be printed as an info message"
 
-let output = tg get "foo?follow=true" | str trim
+let output = tg get --no-tokens "foo?follow=true" | str trim
 assert equal $output 'tg.directory({"file":fil_01zxnj3x8es5hd13s3z91f9jy8e9ytqrgqvyt1h78v5fp8sc93ks60})'
 
-let output = tg get $"($tag.id)?follow=true" | str trim
+let output = tg get --no-tokens $"($tag.id)?follow=true" | str trim
 assert equal $output 'tg.directory({"file":fil_01zxnj3x8es5hd13s3z91f9jy8e9ytqrgqvyt1h78v5fp8sc93ks60})'
 
-let file = tg get --pretty "foo?follow=true&get=file"
+let file = tg get --no-tokens --pretty "foo?follow=true&get=file"
 assert equal ($file | lines) [
 	"tg.file({"
 	'  "contents": blb_01t10ptmtyxpb108ztd4np15vt0jm9qnfkfny07vr8yp7tebj04dgg,'
@@ -45,11 +45,11 @@ let version = tg get "package/^1" | from json
 assert equal $version.specifier package/1.0.0
 assert equal $version.id (tg get package/1.0.0 | from json | get id)
 
-let output = tg get "package?follow=true" | str trim
+let output = tg get --no-tokens "package?follow=true" | str trim
 assert equal $output 'tg.directory({"file":fil_01zxnj3x8es5hd13s3z91f9jy8e9ytqrgqvyt1h78v5fp8sc93ks60})'
 
-let output = tg get $"($group.id)?follow=true" | str trim
+let output = tg get --no-tokens $"($group.id)?follow=true" | str trim
 assert equal $output 'tg.directory({"file":fil_01zxnj3x8es5hd13s3z91f9jy8e9ytqrgqvyt1h78v5fp8sc93ks60})'
 
-let output = tg get "package/^1?follow=true" | str trim
+let output = tg get --no-tokens "package/^1?follow=true" | str trim
 assert equal $output 'tg.directory({"file":fil_01zxnj3x8es5hd13s3z91f9jy8e9ytqrgqvyt1h78v5fp8sc93ks60})'
