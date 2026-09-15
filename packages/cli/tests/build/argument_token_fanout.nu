@@ -1,24 +1,46 @@
 use ../../test.nu *
 
-# A small array of stored files should fit in a child process argument.
+# An environment with directory handles shared across path mutations fits in a child process argument.
 
 let server = server spawn
 let path = artifact {
 	tangram.ts: '
-		export function child(files: tg.File[]) {
-			return files.length;
+		export async function child(arg: tg.Value) {
+			for (const object of tg.Value.objects(arg)) {
+				tg.Directory.assert(object);
+				await object.entries;
+			}
+			return true;
 		}
 		export default async function () {
-			const files = await Promise.all(Array.from({ length: 19 }, async (_, i) => {
-				const file = await tg.file(`${i}`);
-				await file.store();
-				return file;
-			}));
-			return tg.build(child, files);
+			const directories = await Promise.all(
+				Array.from({ length: 13 }, async (_, i) => {
+					const directory = await tg.directory({ file: `${i}` });
+					await directory.store();
+					return directory;
+				}),
+			);
+			const path = (suffix: string) =>
+				tg.Mutation.prefix(
+					tg.Template.join(
+						":",
+						...directories.map((directory) => tg`${directory}/${suffix}`),
+					),
+					":",
+				);
+			return tg.build(child, {
+				env: {
+					LIBRARY_PATH: path("lib"),
+					PATH: path("bin"),
+				},
+			});
 		}
 	'
 }
 
 let output = tg build $path | complete
 success $output
-assert equal ($output.stdout | str trim) '19'
+snapshot $output.stdout '
+	true
+
+'
