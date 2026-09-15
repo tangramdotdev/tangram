@@ -2157,6 +2157,7 @@ export def --env "server spawn" [
 		instance: $instance,
 		job: null,
 		log: $log_path,
+		macos_app_group_socket: null,
 		name: $name,
 		url: $url,
 	}
@@ -2234,7 +2235,7 @@ export def --env "server start" [server: record] {
 	if $server.clock? != null {
 		$environment = $environment | upsert TANGRAM_TEST_CLOCK $server.clock
 	}
-	let macos_app_group_socket = create_macos_app_group_socket_path
+	let macos_app_group_socket = create_macos_app_group_socket_path $server
 	if $macos_app_group_socket != null {
 		$environment = $environment | upsert TANGRAM_MACOS_APP_GROUP_SOCKET $macos_app_group_socket
 	}
@@ -2258,6 +2259,7 @@ export def --env "server start" [server: record] {
 				}
 			}
 		}
+		remove_macos_app_group_socket $macos_app_group_socket
 		'' | save -f $exit_path
 	}
 	let exit_path = $server_exit_directory_path | path join $'($server_job).exit'
@@ -2272,6 +2274,7 @@ export def --env "server start" [server: record] {
 	if $ready_output.exit_code != 0 {
 		stop_server_job $server_job
 		wait_for_server_exit $exit_path | ignore
+		remove_macos_app_group_socket $macos_app_group_socket
 		let message = if $ready_output.exit_code == 124 {
 			$"the server did not signal readiness within ($ready_timeout)"
 		} else {
@@ -2287,6 +2290,7 @@ export def --env "server start" [server: record] {
 	if $ready_byte != '0' {
 		stop_server_job $server_job
 		wait_for_server_exit $exit_path | ignore
+		remove_macos_app_group_socket $macos_app_group_socket
 		let message = if ($ready_byte | is-empty) {
 			'the server exited before signaling readiness; check the server output above'
 		} else {
@@ -2295,14 +2299,16 @@ export def --env "server start" [server: record] {
 		error make { msg: $message }
 	}
 	$env.TANGRAM_URL = $url
-	let server = $server | upsert exit $exit_path | upsert job $server_job
+	let server = $server | upsert exit $exit_path | upsert job $server_job | upsert macos_app_group_socket $macos_app_group_socket
 
 	$server
 }
 
 export def "server stop" [server: record] {
+	let macos_app_group_socket = $server.macos_app_group_socket?
 	let job_id = $server.job?
 	if $job_id == null or (job list | where id == $job_id | is-empty) {
+		remove_macos_app_group_socket $macos_app_group_socket
 		return
 	}
 	stop_test_server_processes $server.directory
@@ -2310,9 +2316,11 @@ export def "server stop" [server: record] {
 		stop_server_job $job_id
 		if not (wait_for_server_exit $server.exit) {
 			try { job kill $job_id }
+			remove_macos_app_group_socket $macos_app_group_socket
 			error make { msg: 'the server did not stop' }
 		}
 	}
+	remove_macos_app_group_socket $macos_app_group_socket
 }
 
 export def --env "server restart" [server: record] {
@@ -2335,8 +2343,8 @@ def server_is_running [server: record] {
 	not (ps | where pid == $pid | is-empty)
 }
 
-def create_macos_app_group_socket_path [] {
-	if $nu.os-info.name != 'macos' {
+def create_macos_app_group_socket_path [server: record] {
+	if $nu.os-info.name != 'macos' or $server.config.vfs?.kind? != 'fskit' {
 		return null
 	}
 	let group_id = (identifiers).app_group_identifier
@@ -2345,6 +2353,12 @@ def create_macos_app_group_socket_path [] {
 	let socket_name = $'socket-((random chars) | str lowercase)'
 
 	$group_container | path join $socket_name
+}
+
+def remove_macos_app_group_socket [path] {
+	if $path != null {
+		try { rm -f $path }
+	}
 }
 
 # Set a server's simulated wall clock.
