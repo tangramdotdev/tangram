@@ -453,6 +453,7 @@ impl Session {
 						self.server,
 						"runner.sandbox.pool.take",
 						index = output.sandbox.index(),
+						path = %output.temp.path().display(),
 					)
 					.await;
 					tracing::debug!(
@@ -821,186 +822,206 @@ impl Session {
 		let reusable = process_task_output.is_none();
 		let ttl = state.data.ttl;
 
-		let connected_event = if let Some(process_task_output) = process_task_output {
-			let mut events = process_task_output.events;
-			let event = events
-				.recv()
-				.await
-				.ok_or_else(|| tg::error!(%id, "the process event sender was dropped"))??;
-			let ProcessEvent::Connected(connected_event) = event else {
-				return Err(tg::error!(%id, "expected the process connected event"));
+		let ready = async {
+			let connected_event = if let Some(process_task_output) = process_task_output {
+				let mut events = process_task_output.events;
+				let event = events
+					.recv()
+					.await
+					.ok_or_else(|| tg::error!(%id, "the process event sender was dropped"))??;
+				let ProcessEvent::Connected(connected_event) = event else {
+					return Err(tg::error!(%id, "expected the process connected event"));
+				};
+				process_events.insert(
+					connected_event.process.node.clone(),
+					UnboundedReceiverStream::new(events),
+				);
+				Some(connected_event)
+			} else if let Some(ttl) = ttl {
+				timer_future.replace(tokio::time::sleep(ttl).boxed());
+				None
+			} else {
+				None
 			};
-			process_events.insert(
-				connected_event.process.node.clone(),
-				UnboundedReceiverStream::new(events),
-			);
-			Some(connected_event)
-		} else if let Some(ttl) = ttl {
-			timer_future.replace(tokio::time::sleep(ttl).boxed());
-			None
-		} else {
-			None
+			Ok::<_, tg::Error>(connected_event)
+		}
+		.await;
+		let ready = match ready {
+			Ok(connected_event) => {
+				event_sender
+					.send(Ok(Event::Ready(ReadyEvent {
+						connected_event,
+						sandbox: id.clone(),
+					})))
+					.ok();
+				true
+			},
+			Err(error) => {
+				// Keep the sandbox control stream alive so normal teardown can release the capacity and report destruction.
+				tracing::error!(error = %error.trace(), sandbox = %id, "failed to start the sandbox process");
+				event_sender.send(Err(error)).ok();
+				false
+			},
 		};
-		event_sender
-			.send(Ok(Event::Ready(ReadyEvent {
-				connected_event,
-				sandbox: id.clone(),
-			})))
-			.ok();
 
-		loop {
-			let current_timer_future = timer_future.as_mut().map_or_else(
-				|| future::pending().left_future(),
-				|timer_future| timer_future.as_mut().right_future(),
-			);
-			tokio::select! {
-				message = control.recv_with_ack() => {
-					// Get the message.
-					let message = message
-						.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
-					let Some(message) = message else {
-						break;
-					};
-					let request = match message {
-						tg::sandbox::control::ServerMessage::Request(request) => request,
-						tg::sandbox::control::ServerMessage::Ack(_)
-						| tg::sandbox::control::ServerMessage::Response(_) => unreachable!(),
-						tg::sandbox::control::ServerMessage::Notification(notification) => match notification {},
-					};
-					let request_id = request.id;
-					let mut destroy = false;
-					let result = match request.arg {
-						tg::sandbox::control::ServerRequestArg::Destroy(request) => {
-							let error = request.error.unwrap_or_else(|| tg::error::Data {
-								code: Some(tg::error::Code::Cancellation),
-								message: Some("the process was canceled".into()),
-								..Default::default()
-							});
-							let sandbox = self
-								.server
-								.runner
-								.state
-								.sandboxes
-								.get_by_id(&id)
-								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-							for mut process in sandbox.processes.iter_mut() {
-								if !process.value().data.status.is_finished() {
-									process.value_mut().finish.get_or_insert(
-										tg::process::control::FinishServerRequestArg {
-											error: Some(error.clone()),
-											exit: 1,
-										},
-									);
-									process.stopper.stop();
+		if ready {
+			loop {
+				let current_timer_future = timer_future.as_mut().map_or_else(
+					|| future::pending().left_future(),
+					|timer_future| timer_future.as_mut().right_future(),
+				);
+				tokio::select! {
+					message = control.recv_with_ack() => {
+						// Get the message.
+						let message = message
+							.map_err(|error| tg::error!(!error, %id, "failed to receive a sandbox control message"))?;
+						let Some(message) = message else {
+							break;
+						};
+						let request = match message {
+							tg::sandbox::control::ServerMessage::Request(request) => request,
+							tg::sandbox::control::ServerMessage::Ack(_)
+							| tg::sandbox::control::ServerMessage::Response(_) => unreachable!(),
+							tg::sandbox::control::ServerMessage::Notification(notification) => match notification {},
+						};
+						let request_id = request.id;
+						let mut destroy = false;
+						let result = match request.arg {
+							tg::sandbox::control::ServerRequestArg::Destroy(request) => {
+								let error = request.error.unwrap_or_else(|| tg::error::Data {
+									code: Some(tg::error::Code::Cancellation),
+									message: Some("the process was canceled".into()),
+									..Default::default()
+								});
+								let sandbox = self
+									.server
+									.runner
+									.state
+									.sandboxes
+									.get_by_id(&id)
+									.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+								for mut process in sandbox.processes.iter_mut() {
+									if !process.value().data.status.is_finished() {
+										process.value_mut().finish.get_or_insert(
+											tg::process::control::FinishServerRequestArg {
+												error: Some(error.clone()),
+												exit: 1,
+											},
+										);
+										process.stopper.stop();
+									}
 								}
-							}
-							destroy = true;
-							Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
-								tg::sandbox::control::DestroyClientResponseOutput {
-									destroyed: true,
-								},
-							))
-						},
-						tg::sandbox::control::ServerRequestArg::Get(_) => {
-							let data = self
-								.server
-								.runner
-								.state
-								.try_get_sandbox(&id)
-								.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-							let output = tg::sandbox::control::GetClientResponseOutput { data };
-							Ok(tg::sandbox::control::ClientResponseOutput::Get(output))
-						},
-						tg::sandbox::control::ServerRequestArg::SpawnProcess(request) => {
-							timer_future.take();
+								destroy = true;
+								Ok(tg::sandbox::control::ClientResponseOutput::Destroy(
+									tg::sandbox::control::DestroyClientResponseOutput {
+										destroyed: true,
+									},
+								))
+							},
+							tg::sandbox::control::ServerRequestArg::Get(_) => {
+								let data = self
+									.server
+									.runner
+									.state
+									.try_get_sandbox(&id)
+									.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+								let output = tg::sandbox::control::GetClientResponseOutput { data };
+								Ok(tg::sandbox::control::ClientResponseOutput::Get(output))
+							},
+							tg::sandbox::control::ServerRequestArg::SpawnProcess(request) => {
+								timer_future.take();
 
-							// Spawn the process task.
-							let process = Self::prepare_process(request.process, &id)?;
-							let task = self.spawn_process_task(SpawnProcessTaskArg {
-								guest_url: &guest_url,
-								location: location.clone(),
-								process,
-								process_stopper: &process_stopper,
-								process_tasks: &mut process_tasks,
-								processes: processes.clone(),
-								retention_stopper: stopper.clone(),
-								sandbox: &sandbox,
-								sandbox_ready_receiver: None,
-							});
-							let mut events = task.events;
-							let event = events
-								.recv()
-								.await
-								.ok_or_else(|| {
-									tg::error!(%id, "the process event sender was dropped")
-								})??;
-							let ProcessEvent::Connected(connected_event) = event else {
-								return Err(tg::error!(%id, "expected the process connected event"));
-							};
-							process_events.insert(
-								connected_event.process.node.clone(),
-								UnboundedReceiverStream::new(events),
-							);
-							let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
-								lease: connected_event.lease,
-								process: connected_event.process,
-							};
-							Ok(tg::sandbox::control::ClientResponseOutput::SpawnProcess(output))
-						},
-					};
-					let message = Self::sandbox_control_response(request_id, result);
-					sender
-						.send(message)
-						.await
-						.map_err(|error| {
-							tg::error!(!error, "failed to send the sandbox control response")
-						})?;
-					if destroy {
-						break;
-					}
-				},
+								// Spawn the process task.
+								let process = Self::prepare_process(request.process, &id)?;
+								let task = self.spawn_process_task(SpawnProcessTaskArg {
+									guest_url: &guest_url,
+									location: location.clone(),
+									process,
+									process_stopper: &process_stopper,
+									process_tasks: &mut process_tasks,
+									processes: processes.clone(),
+									retention_stopper: stopper.clone(),
+									sandbox: &sandbox,
+									sandbox_ready_receiver: None,
+								});
+								let mut events = task.events;
+								let event = events
+									.recv()
+									.await
+									.ok_or_else(|| {
+										tg::error!(%id, "the process event sender was dropped")
+									})??;
+								let ProcessEvent::Connected(connected_event) = event else {
+									return Err(tg::error!(%id, "expected the process connected event"));
+								};
+								process_events.insert(
+									connected_event.process.node.clone(),
+									UnboundedReceiverStream::new(events),
+								);
+								let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
+									lease: connected_event.lease,
+									process: connected_event.process,
+								};
+								Ok(tg::sandbox::control::ClientResponseOutput::SpawnProcess(output))
+							},
+						};
+						let message = Self::sandbox_control_response(request_id, result);
+						sender
+							.send(message)
+							.await
+							.map_err(|error| {
+								tg::error!(!error, "failed to send the sandbox control response")
+							})?;
+						if destroy {
+							break;
+						}
+					},
 
-				// Handle an underlying process event.
-				event = process_events.next(), if !process_events.is_empty() => {
-					let Some((process, event)) = event else {
-						break;
-					};
-					match event? {
-						ProcessEvent::Buffered | ProcessEvent::Released => {
-							process_events.remove(&process);
-							if process_events.is_empty() {
-								if !reusable {
-									break;
+					// Handle an underlying process event.
+					event = process_events.next(), if !process_events.is_empty() => {
+						let Some((process, event)) = event else {
+							break;
+						};
+						match event? {
+							ProcessEvent::Buffered | ProcessEvent::Released => {
+								process_events.remove(&process);
+								if process_events.is_empty() {
+									if !reusable {
+										break;
+									}
+									if let Some(ttl) = ttl {
+										timer_future.replace(tokio::time::sleep(ttl).boxed());
+									}
 								}
-								if let Some(ttl) = ttl {
-									timer_future.replace(tokio::time::sleep(ttl).boxed());
-								}
-							}
-						},
-						ProcessEvent::Connected(_) => {
-							return Err(tg::error!(%process, "received a duplicate process connected event"));
-						},
-						ProcessEvent::Exited => {},
-					}
-				},
+							},
+							ProcessEvent::Connected(_) => {
+								return Err(tg::error!(%process, "received a duplicate process connected event"));
+							},
+							ProcessEvent::Exited => {},
+						}
+					},
 
-				// Reap a process task after its retained state expires.
-				output = process_tasks.join_next(), if !process_tasks.is_empty() => {
-					output
-						.unwrap()
-						.map_err(|error| tg::error!(!error, "a process task panicked"))?
-						.map_err(|error| tg::error!(!error, "a process task failed"))?;
-				},
+					// Reap a process task after its retained state expires.
+					output = process_tasks.join_next(), if !process_tasks.is_empty() => {
+						output
+							.unwrap()
+							.map_err(|error| tg::error!(!error, "a process task panicked"))?
+							.map_err(|error| tg::error!(!error, "a process task failed"))?;
+					},
 
-				// If the timer fires, then break and destroy the sandbox.
-				() = current_timer_future => {
-					break;
-				},
+					// If the timer fires, then break and destroy the sandbox.
+					() = current_timer_future => {
+						break;
+					},
+				}
 			}
 		}
 
 		// Stop and await the underlying processes.
 		process_stopper.stop();
+		if !ready {
+			while process_tasks.join_next().await.is_some() {}
+		}
 		while let Some((process, event)) = process_events.next().await {
 			match event? {
 				ProcessEvent::Buffered | ProcessEvent::Released => {
