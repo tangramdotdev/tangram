@@ -9,14 +9,14 @@ use {
 	tangram_index::prelude::*,
 };
 
-pub(super) struct Authorization {
+pub(crate) struct Authorization {
 	pub(super) command_grants_subtree: bool,
 	pub(super) error_grants_subtree: bool,
 	pub(super) log_grants_subtree: bool,
 	pub(super) output_grants_subtree: bool,
 }
 
-pub(super) enum ObjectGrants {
+pub(crate) enum ObjectGrants {
 	Authorized(Authorization),
 	Discover(tangram_index::process::object::grant::Arg),
 }
@@ -81,6 +81,64 @@ impl Session {
 		options: Options,
 	) -> tg::Result<()> {
 		Self::validate_process_data(&data)?;
+		let object_grants = if let Some(authorization) = self
+			.try_prepare_finished_process_authorization(&data)
+			.filter(|authorization| authorization.command_grants_subtree)
+		{
+			ObjectGrants::Authorized(authorization)
+		} else {
+			let roots = Self::finished_process_objects(&data);
+
+			let created_at = self.server.clock.unix_timestamp()?;
+			let process_object_grant_arg = self
+				.create_process_object_grant_arg(id, roots, created_at, None)
+				.await?;
+			ObjectGrants::Discover(process_object_grant_arg)
+		};
+
+		let entry = tg::process::put::Arg {
+			data,
+			location: None,
+		};
+		self.put_process_local_inner(id, entry, object_grants, options)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
+
+		Ok(())
+	}
+
+	pub(crate) fn try_prepare_finished_process_authorization(
+		&self,
+		data: &tg::process::Data,
+	) -> Option<Authorization> {
+		let permission = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		let grants_subtree = |object: &tg::Referent<tg::object::Id>| {
+			let resource = tg::Id::from(object.node.clone());
+			object
+				.options
+				.tokens
+				.local_authorization()
+				.iter()
+				.any(|token| {
+					token.body.resource == resource
+						&& self.verify_local_token(token)
+						&& token.body.grants(permission)
+				})
+		};
+		let objects = Self::finished_process_objects(data);
+		let command_grants_subtree = grants_subtree(&objects[0]);
+		let authorized = objects[1..].iter().all(grants_subtree);
+		authorized.then_some(Authorization {
+			command_grants_subtree,
+			error_grants_subtree: true,
+			log_grants_subtree: true,
+			output_grants_subtree: true,
+		})
+	}
+
+	fn finished_process_objects(data: &tg::process::Data) -> Vec<tg::Referent<tg::object::Id>> {
 		let mut roots = vec![data.command.clone().map(tg::object::Id::from)];
 		if let Some(error) = &data.error {
 			match error {
@@ -100,25 +158,7 @@ impl Session {
 		if let Some(output) = &data.output {
 			output.children_with_tokens(&mut roots);
 		}
-		let created_at = self.server.clock.unix_timestamp()?;
-		let process_object_grant_arg = self
-			.create_process_object_grant_arg(id, roots, created_at, None)
-			.await?;
-
-		let entry = tg::process::put::Arg {
-			data,
-			location: None,
-		};
-		self.put_process_local_inner(
-			id,
-			entry,
-			ObjectGrants::Discover(process_object_grant_arg),
-			options,
-		)
-		.await
-		.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
-
-		Ok(())
+		roots
 	}
 
 	pub(super) async fn authorize_process_data(
@@ -177,7 +217,7 @@ impl Session {
 		Ok(authorization)
 	}
 
-	pub(super) async fn put_process_local_inner(
+	pub(crate) async fn put_process_local_inner(
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::put::Arg,
@@ -221,7 +261,7 @@ impl Session {
 		let log: Option<Option<tg::object::Id>> =
 			(!log_needs_compaction).then(|| arg.data.log.clone().map(|log| log.node.into()));
 		let enqueue_log_compaction = enqueue_log_compaction && log_needs_compaction;
-		let put_object_grants = match object_grants {
+		let (subtree_objects, put_object_grants) = match object_grants {
 			ObjectGrants::Authorized(authorization) => {
 				let Authorization {
 					command_grants_subtree,
@@ -242,29 +282,30 @@ impl Session {
 				if output_grants_subtree && let Some(output) = &output {
 					objects.extend(output.iter().cloned());
 				}
-				let creator = tg::Principal::Process(id.clone());
-				let permissions = tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Subtree,
-				)
-				.into();
-				let subject = tg::authorization::Subject::Process(id.clone());
-				objects
-					.into_iter()
-					.map(|resource| {
-						tangram_index::batch::Item::PutGrant(tangram_index::grant::put::Arg {
-							created_at: now,
-							creator: Some(creator.clone()),
-							implicit: Some(None),
-							permissions,
-							resource: resource.into(),
-							subject: subject.clone(),
-							time_to_touch: None,
-						})
-					})
-					.collect::<Vec<_>>()
+				(objects, Vec::new())
 			},
-			ObjectGrants::Discover(arg) => {
-				vec![tangram_index::batch::Item::PutProcessObjectGrants(arg)]
+			ObjectGrants::Discover(mut arg) => {
+				let subtree = tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				);
+				let mut objects = BTreeSet::new();
+				arg.roots.retain(|root| {
+					if root
+						.permissions
+						.is_some_and(|permissions| permissions.contains(subtree))
+					{
+						objects.insert(root.object.clone());
+						false
+					} else {
+						true
+					}
+				});
+				let grants = if arg.roots.is_empty() {
+					Vec::new()
+				} else {
+					vec![tangram_index::batch::Item::PutProcessObjectGrants(arg)]
+				};
+				(objects, grants)
 			},
 		};
 		let data = store_data.then(|| arg.data.clone());
@@ -283,6 +324,7 @@ impl Session {
 			parent: None,
 			sandbox: Some(arg.data.sandbox.clone()),
 			storage: tangram_index::process::Storage::default(),
+			subtree_objects,
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};
@@ -346,7 +388,7 @@ impl Session {
 			self.server.spawn_publish_log_compaction_notification_task();
 		}
 		let permission = self.process_permission_for_data(&token_data);
-		let tokens = tg::authorization::Tokens::with_local(
+		let tokens = tg::Tokens::with_authorization(
 			self.create_token(
 				id.clone().into(),
 				permission

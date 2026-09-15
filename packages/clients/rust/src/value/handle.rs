@@ -78,7 +78,7 @@ impl Value {
 		}
 	}
 
-	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::Tokens) {
 		for object in self.objects() {
 			object.inherit_tokens(tokens);
 		}

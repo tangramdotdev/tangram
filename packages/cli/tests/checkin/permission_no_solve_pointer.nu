@@ -34,8 +34,8 @@ let response = (
 		$'http://localhost/objects/($graph)?metadata=true'
 )
 let tokens = $response.tokens
-let token = $tokens.local.0 | url encode --all
-let reference = $'graph=($graph)&index=0&kind=file?tokens[local][0]=($token)'
+let token = $tokens.local.authorization.0 | url encode --all
+let reference = $'graph=($graph)&index=0&kind=file?tokens[local][authorization][0]=($token)'
 let dependencies = [$reference] | to json
 let directory = artifact {
 	input: (file --xattrs { "user.tangram.dependencies": $dependencies } pointer)

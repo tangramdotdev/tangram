@@ -1,8 +1,6 @@
 use {tangram_client::prelude::*, tangram_util::serde::is_default};
 
-mod storage;
-
-pub use storage::Storage;
+pub use tg::object::Storage;
 
 pub mod put;
 

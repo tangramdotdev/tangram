@@ -24,4 +24,4 @@ tg clean
 
 let left = tg checkin $path
 
-assert equal $left $id
+assert equal $left ($id | split row '?' | first)

@@ -22,7 +22,7 @@ def roundtrip [format: string, compression?: string] {
 		$args = ($args | append [--compression $compression])
 	}
 	let blob_id = tg archive ...$args $id | str trim
-	let extracted_id = tg extract $blob_id | str trim
+	let extracted_id = tg extract $blob_id | str trim | split row '?' | first
 	let original_id = $id | split row '?' | first
 	assert ($extracted_id == $original_id) $"roundtrip failed for format=($format) compression=($compression)"
 }

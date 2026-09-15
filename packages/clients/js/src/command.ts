@@ -193,6 +193,14 @@ export class Command<
 			executable: "tg",
 			host: tg.host.current,
 		});
+
+		for (let arg of args_) {
+			let value = arg instanceof tg.Command.Value ? arg.value : arg;
+			for (let object of tg.Value.objects(value)) {
+				command.state.inheritTokens(object.state.tokens);
+			}
+		}
+
 		return { node: command, options };
 	}
 
@@ -355,7 +363,7 @@ export namespace Command {
 		id?: tg.Command.Id;
 		object?: tg.Command.Object;
 		stored: boolean;
-		tokens?: tg.Authorization.Tokens | null;
+		tokens?: tg.Tokens | null;
 	};
 
 	export class Value {

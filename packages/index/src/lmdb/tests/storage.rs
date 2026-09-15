@@ -59,6 +59,7 @@ fn process_arg(
 		parent: None,
 		sandbox: None,
 		storage: crate::process::Storage::default(),
+		subtree_objects: std::collections::BTreeSet::new(),
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,
 	}
@@ -234,6 +235,7 @@ async fn account_storage_traverses_new_process_relationships() {
 		parent: None,
 		sandbox: None,
 		storage: crate::process::Storage::default(),
+		subtree_objects: std::collections::BTreeSet::new(),
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,
 	};

@@ -60,7 +60,7 @@ impl Session {
 			&& let Some(state) = self.server.runner.state().sandboxes().get_by_id(sandbox)
 			&& let Some(token) = state.tokens.get(&id)
 		{
-			tokens.insert_local(token.clone());
+			tokens.insert_local_authorization(token.clone());
 		}
 
 		// Authorize the root and bound both returned tokens by the accepted proof.
@@ -84,7 +84,10 @@ impl Session {
 			.map_or(expires_at, |expiration| expiration.min(expires_at));
 		let root_token = self.create_token(id.clone().into(), vec![subtree], expires_at)?;
 		if let Some(token) = &root_token {
-			referent.options.tokens.insert_local(token.clone());
+			referent
+				.options
+				.tokens
+				.insert_local_authorization(token.clone());
 		}
 
 		// Resolve through artifact handles carrying the proof and the derived child tokens.
@@ -112,10 +115,10 @@ impl Session {
 			&& let Some(token) =
 				self.create_token(referent.node.clone().into(), vec![subtree], expires_at)?
 		{
-			referent.options.tokens.insert_local(token);
+			referent.options.tokens.insert_local_authorization(token);
 		}
 		if let Some(token) = root_token {
-			referent.options.tokens.insert_local(token);
+			referent.options.tokens.insert_local_authorization(token);
 		}
 		if let Some(sandbox) = &sandbox
 			&& let Some(mut state) = self
@@ -125,7 +128,7 @@ impl Session {
 				.sandboxes()
 				.get_mut_by_id(sandbox)
 		{
-			for token in referent.options.tokens.local() {
+			for token in referent.options.tokens.local_authorization() {
 				let id = token.body.resource.clone().try_into().unwrap();
 				if state
 					.tokens

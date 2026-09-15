@@ -133,7 +133,7 @@ impl Session {
 					network: data.data.network,
 					owner: Some(data.data.owner.unwrap_or(tg::Principal::Root)),
 					status: data.data.status,
-					tokens: tg::authorization::Tokens::default(),
+					tokens: tg::Tokens::default(),
 					ttl: data.data.ttl,
 				})
 			})
@@ -160,7 +160,7 @@ impl Session {
 				continue;
 			}
 			if let Some(token) = self.create_read_token(&item.id.clone().into())? {
-				item.tokens.insert_local(token);
+				item.tokens.insert_local_authorization(token);
 			}
 			authorized.push(item);
 		}

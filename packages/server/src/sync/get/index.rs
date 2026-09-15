@@ -228,7 +228,7 @@ impl Session {
 				storage: output.as_ref().map(|object| object.storage.clone()),
 			};
 			state.graph.lock().unwrap().update_object_local(arg);
-			let availability = state
+			let mut availability = state
 				.graph
 				.lock()
 				.unwrap()
@@ -244,9 +244,68 @@ impl Session {
 			}
 
 			if node.missing {
+				// If the node carries a sync token, then check the store before the index, and retry while that sync runs.
+				let entry = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_node_local_tokens(&tg::Id::from(node.id.clone()));
+				let syncing = entry
+					.sync
+					.as_ref()
+					.is_some_and(|token| self.verify_sync_token(token));
+				let stored = if output.is_none() && syncing {
+					let tokens = tg::Tokens::with_local_entry(entry.clone());
+					let request = tg::sync::control::ClientRequestArg::object(node.id.clone());
+					self.try_get_with_sync_wait(&tokens, request, |output| {
+						let id = node.id.clone();
+						async move {
+							if let Some(output) = output {
+								let mut graph = state.graph.lock().unwrap();
+								graph.update_node_local_control_output(
+									&id.clone().into(),
+									&output,
+								)?;
+								let required = tg::authorization::permission::Set::Object(
+									tg::authorization::permission::object::Set::NODE,
+								);
+								if !graph
+									.get_object_local_authorization(&id, required)
+									.permissions
+									.contains(required)
+								{
+									return Ok(None);
+								}
+							} else {
+								let ids = std::slice::from_ref(&id);
+								let mut permissions =
+									self.sync_get_authorize_objects(&state.graph, ids).await?;
+								if permissions.pop().flatten().is_none() {
+									return Ok(None);
+								}
+							}
+							let output = self.server.try_get_object_local(&id, false).await?;
+							Ok(output.map(|_| ()))
+						}
+					})
+					.await?
+					.is_some()
+				} else {
+					false
+				};
+
 				// If the object is not stored, then error.
-				if output.is_none() {
+				if output.is_none() && !stored {
 					return Err(tg::error!(id = %node.id, "failed to find the object"));
+				}
+				availability = state
+					.graph
+					.lock()
+					.unwrap()
+					.get_object_local_availability(&node.id);
+
+				if availability.subtree {
+					Self::sync_get_index_send_object_available(state, &node.id).await?;
 				}
 
 				// If the object's subtree is unavailable, then enqueue the children.
@@ -296,7 +355,19 @@ impl Session {
 					}
 
 					// Enqueue the children.
-					Self::sync_get_enqueue_object_children(state, &node.id, &data, None, &[]);
+					let remote_tokens = state
+						.graph
+						.lock()
+						.unwrap()
+						.get_node_remote_tokens(&tg::Id::from(node.id.clone()));
+					Self::sync_get_enqueue_object_children(
+						state,
+						&node.id,
+						&data,
+						None,
+						&entry,
+						&remote_tokens,
+					);
 				}
 			}
 		}
@@ -447,12 +518,21 @@ impl Session {
 				state.graph.lock().unwrap().update_process_local(arg);
 
 				// Enqueue the children.
+				let id = tg::Id::from(node.id.clone());
+				let (local_tokens, remote_tokens) = {
+					let graph = state.graph.lock().unwrap();
+					(
+						graph.get_node_local_tokens(&id),
+						graph.get_node_remote_tokens(&id),
+					)
+				};
 				Self::sync_get_enqueue_process_children(
 					state,
 					&node.id,
 					&data,
 					Some(&availability),
-					&[],
+					&local_tokens,
+					&remote_tokens,
 				);
 			}
 		}
@@ -1364,20 +1444,14 @@ impl Session {
 							.is_some_and(|availability| availability.subtree);
 						let mut subtree = false;
 						if node.marked && !object_covered[index] {
-							let permission = if availability {
-								tg::authorization::permission::object::Permission::Subtree
-							} else {
-								tg::authorization::permission::object::Permission::Node
-							};
+							let permissions = Graph::object_grant_permissions(availability);
 							subtree = availability;
 							put_grant_args.push(tangram_index::grant::put::Arg {
 								created_at: touched_at,
 								creator: Some(self.context.principal.clone()),
 								implicit: Some(Some(object_expires_at)),
 								permissions: tg::authorization::permission::Set::Object(
-									tg::authorization::permission::object::Set::from_permission(
-										permission,
-									),
+									permissions,
 								),
 								subject: grant_subject.clone(),
 								resource: tg::object::Id::try_from(id.clone())?.into(),
@@ -1394,7 +1468,7 @@ impl Session {
 					Node::Process(node) => {
 						let availability = node.local_availability.clone().unwrap_or_default();
 						let mut permissions = if node.marked {
-							Self::sync_get_index_process_grant_permissions(&availability)
+							Graph::process_grant_permissions(&availability)
 						} else {
 							tg::authorization::permission::process::Set::empty()
 						};
@@ -1587,6 +1661,7 @@ impl Session {
 							parent: None,
 							sandbox: None,
 							storage,
+							subtree_objects: std::collections::BTreeSet::new(),
 							time_to_touch: self.server.config.process.time_to_touch,
 							touched_at,
 						};
@@ -1603,38 +1678,6 @@ impl Session {
 		}
 
 		Ok((put_grant_args, put_object_args, put_process_args))
-	}
-
-	fn sync_get_index_process_grant_permissions(
-		availability: &tg::process::Availability,
-	) -> tg::authorization::permission::process::Set {
-		let mut permissions = tg::authorization::permission::process::Set::empty();
-		if availability.subtree {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE);
-		} else {
-			permissions.insert(tg::authorization::permission::process::Set::NODE);
-		}
-		if availability.subtree_command {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND);
-		} else if availability.node_command {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_COMMAND);
-		}
-		if availability.subtree_error {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR);
-		} else if availability.node_error {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
-		}
-		if availability.subtree_log {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG);
-		} else if availability.node_log {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_LOG);
-		}
-		if availability.subtree_output {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
-		} else if availability.node_output {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
-		}
-		permissions
 	}
 
 	fn sync_get_index_remove_process_permissions_covered_by_ancestors(

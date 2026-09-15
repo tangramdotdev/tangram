@@ -10,6 +10,7 @@ use {
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
+	tangram_index::Index as _,
 	tangram_messenger::Messenger,
 };
 
@@ -32,6 +33,14 @@ pub(crate) struct ServerMessage(pub(crate) tg::process::control::ServerMessage);
 pub(crate) struct Connected {
 	#[tangram_serialize(id = 0)]
 	pub lease: String,
+}
+
+struct IndexProcessControlArg {
+	assign: bool,
+	data: Option<tg::process::Data>,
+	id: tg::process::Id,
+	options: tg::referent::Options,
+	parent: Option<tg::process::Id>,
 }
 
 pub(crate) fn connected_subject(id: &tg::process::Id) -> String {
@@ -159,6 +168,15 @@ impl Session {
 		if assign && data.is_none() {
 			return Err(tg::error!("a process on the shortcut path must have data"));
 		}
+		let sync = match arg.sync {
+			Some(sync) => {
+				if !session.verify_sync_token(&sync) {
+					return Err(tg::error!("invalid sync token"));
+				}
+				Some(sync)
+			},
+			None => session.create_sync_token()?,
+		};
 		if assign && parent.is_none() {
 			return Err(tg::error!(
 				"a process on the shortcut path must have a parent"
@@ -190,6 +208,14 @@ impl Session {
 		.collect();
 		let compacted = write_data.log.is_some();
 		drop(write_data);
+		let index_arg = IndexProcessControlArg {
+			assign,
+			data,
+			id: id.clone(),
+			options,
+			parent,
+		};
+		session.index_process_control(index_arg).boxed().await?;
 		let forwarded_requests = Arc::new(DashSet::new());
 		let (sender_high, receiver_high) = tokio::sync::mpsc::channel(512);
 		let (sender_low, receiver_low) = tokio::sync::mpsc::channel(512);
@@ -262,6 +288,7 @@ impl Session {
 			let session = session.clone();
 			let id = id.clone();
 			let forwarded_requests = forwarded_requests.clone();
+			let sync = sync.clone();
 			let write_sender = write_sender.clone();
 			move |_| async move {
 				while let Some(message) = control.recv_without_ack().await? {
@@ -351,7 +378,7 @@ impl Session {
 							match request.arg {
 								tg::process::control::ClientRequestArg::Finish(arg) => {
 									let result = session
-										.finish_process_control_request(&id, arg)
+										.finish_process_control_request(&id, arg, sync.as_ref())
 										.boxed()
 										.await
 										.map(tg::process::control::ServerResponseOutput::Finish);
@@ -370,7 +397,12 @@ impl Session {
 								},
 							}
 						},
-						tg::process::control::ClientMessage::Response(response) => {
+						tg::process::control::ClientMessage::Response(mut response) => {
+							if let Some(tg::process::control::ClientResponseOutput::Get(output)) =
+								&mut response.output
+							{
+								output.sync.clone_from(&sync);
+							}
 							session
 								.publish_process_control_response(&id, response)
 								.await?;
@@ -390,6 +422,44 @@ impl Session {
 			.with_stopper(session.context.stopper.clone())
 			.boxed();
 
+		session
+			.server
+			.messenger
+			.publish(connected_subject(&id), Connected { lease })
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to publish the process control connection")
+			})?;
+
+		let grant = if assign {
+			let now = session.server.clock.unix_timestamp()?;
+			session.create_process_wait_token(&id, now)?
+		} else {
+			None
+		};
+		let process = tg::Referent::with_node_and_local_tokens(id, grant);
+		let output = tg::process::control::Output {
+			process,
+			sync,
+			token,
+		};
+
+		crate::checkpoint!(self.server, "process.control.output", process = %output.process.node)
+			.await;
+
+		Ok(Some((output, stream)))
+	}
+
+	async fn index_process_control(&self, arg: IndexProcessControlArg) -> tg::Result<()> {
+		let IndexProcessControlArg {
+			assign,
+			data,
+			id,
+			options,
+			parent,
+		} = arg;
+		let session = self;
+		crate::checkpoint!(self.server, "process.control.index.started", process = %id).await;
 		if let Some(data) = data {
 			let command = data.command.clone().map(tg::object::Id::from);
 			let data = data.without_location_and_tokens();
@@ -416,6 +486,7 @@ impl Session {
 					parent: parent.clone(),
 					sandbox: Some(data.sandbox.clone()),
 					storage: tangram_index::process::Storage::default(),
+					subtree_objects: std::collections::BTreeSet::new(),
 					time_to_touch: session.server.config.process.time_to_touch,
 					touched_at,
 				},
@@ -451,32 +522,17 @@ impl Session {
 					grant_arg,
 				));
 			}
+			// Apply the initial data before accepting finish requests.
 			let index_arg = tangram_index::batch::Arg { items };
 			session
 				.server
-				.index_batch(index_arg)
+				.index
+				.batch(index_arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index the process"))?;
 		}
 
-		session
-			.server
-			.messenger
-			.publish(connected_subject(&id), Connected { lease })
-			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to publish the process control connection")
-			})?;
-
-		let grant = if assign {
-			let now = session.server.clock.unix_timestamp()?;
-			session.create_process_wait_token(&id, now)?
-		} else {
-			None
-		};
-		let output = tg::process::control::Output { grant, id, token };
-
-		Ok(Some((output, stream)))
+		Ok(())
 	}
 
 	async fn publish_process_control_ack(

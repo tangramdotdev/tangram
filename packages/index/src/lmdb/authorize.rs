@@ -295,7 +295,7 @@ impl Index {
 						object.as_ref(),
 					),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (entries, after) = Self::get_authorization_entry_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -303,9 +303,9 @@ impl Index {
 					after.as_deref(),
 					*limit,
 				)?;
-				let processes = keys
+				let processes = entries
 					.into_iter()
-					.map(|key| {
+					.map(|(key, value)| {
 						let crate::lmdb::Key::Object(crate::lmdb::object::Key::ObjectProcess {
 							kind,
 							process,
@@ -315,7 +315,8 @@ impl Index {
 							return Err(tg::error!("unexpected key type"));
 						};
 
-						Ok((process, kind))
+						let data = crate::process::object::Data::deserialize(&value)?;
+						Ok((process, kind, data.subtree))
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
@@ -473,6 +474,54 @@ impl Index {
 
 				Output::ProcessObjectKinds(kinds)
 			},
+			Request::ProcessObjectGrant {
+				object,
+				permission,
+				process,
+			} => {
+				let mut subtree = false;
+				for kind in [
+					crate::process::object::Kind::Command,
+					crate::process::object::Kind::Error,
+					crate::process::object::Kind::Log,
+					crate::process::object::Kind::Output,
+				] {
+					let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessObject {
+						kind,
+						object: object.clone(),
+						process: process.clone(),
+					});
+					let key = Self::pack(subspace, &key);
+					let value = db.get(transaction, &key).map_err(|error| {
+						tg::error!(!error, "failed to get an authorization fact")
+					})?;
+					if let Some(value) = value {
+						subtree |= crate::process::object::Data::deserialize(value)?.subtree;
+					}
+					if subtree {
+						break;
+					}
+				}
+				let value = if subtree {
+					true
+				} else {
+					let creator = Some(tg::Principal::Process(process.clone()));
+					let permission = tg::authorization::Permission::Object(*permission);
+					let resource = object.clone().into();
+					let subject = tg::authorization::Subject::Process(process.clone());
+					let grant = Self::get_authorization_grant_with_transaction(
+						db,
+						subspace,
+						transaction,
+						creator.as_ref(),
+						permission,
+						&resource,
+						&subject,
+					)?;
+					grant.is_some_and(|grant| grant.is_process_implicit())
+				};
+				Output::Bool(value)
+			},
 			Request::ProcessObjects {
 				after,
 				limit,
@@ -546,40 +595,6 @@ impl Index {
 						.collect::<tg::Result<Vec<_>>>()?;
 
 				Output::Ids { after, ids }
-			},
-			Request::ResourceGrant {
-				creator,
-				permission,
-				resource,
-				subject,
-			} => {
-				let key = crate::lmdb::Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
-					creator: creator.clone(),
-					permission: *permission,
-					resource: resource.clone(),
-					subject: subject.clone(),
-				});
-				let key = Self::pack(subspace, &key);
-				let value = db
-					.get(transaction, &key)
-					.map_err(|error| tg::error!(!error, "failed to get an authorization fact"))?;
-				let grant = match value {
-					Some(value) => {
-						let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
-						let grant = crate::grant::Fact {
-							creator: creator.clone(),
-							implicit: value.implicit.is_some(),
-							permission: *permission,
-							resource: resource.clone(),
-							subject: subject.clone(),
-						};
-
-						Some(grant)
-					},
-					None => None,
-				};
-
-				Output::Grant(grant)
 			},
 			Request::ResourceGrants {
 				after,
@@ -739,6 +754,44 @@ impl Index {
 		};
 
 		Ok(output)
+	}
+
+	fn get_authorization_grant_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		creator: Option<&tg::Principal>,
+		permission: tg::authorization::Permission,
+		resource: &tg::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<Option<crate::grant::Fact>> {
+		let key = crate::lmdb::Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
+			creator: creator.cloned(),
+			permission,
+			resource: resource.clone(),
+			subject: subject.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		let value = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to get an authorization fact"))?;
+		let grant = match value {
+			Some(value) => {
+				let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
+				let grant = crate::grant::Fact {
+					creator: creator.cloned(),
+					implicit: value.implicit.is_some(),
+					permission,
+					resource: resource.clone(),
+					subject: subject.clone(),
+				};
+
+				Some(grant)
+			},
+			None => None,
+		};
+
+		Ok(grant)
 	}
 
 	fn get_authorization_key_page_with_transaction(

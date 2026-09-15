@@ -3,9 +3,7 @@ use {
 	tangram_util::serde::{is_default, is_false},
 };
 
-mod storage;
-
-pub use storage::Storage;
+pub use tg::process::Storage;
 
 pub mod object;
 pub mod put;

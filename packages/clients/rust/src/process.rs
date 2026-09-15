@@ -20,6 +20,7 @@ pub use self::{
 	state::State,
 	status::Status,
 	stdio::Stdio,
+	storage::Storage,
 	tty::Tty,
 	wait::Wait,
 };
@@ -46,6 +47,7 @@ pub mod spawn;
 pub mod state;
 pub mod status;
 pub mod stdio;
+pub mod storage;
 pub mod touch;
 pub mod tty;
 pub mod wait;

@@ -11,9 +11,8 @@ def assert_cacheable_error [source: string] {
 
 	let output = tg build $path | complete
 	failure $output
-	let relevant = $output.stderr | lines | where {|l| $l =~ 'a build must be cacheable'} | sort
+	let relevant = $output.stderr | lines | where {|line| $line == '-> a build must be cacheable' }
 	snapshot --normalize-ids --redact $path $relevant '
-		   ·            ╰── a build must be cacheable
 		-> a build must be cacheable
 
 	'

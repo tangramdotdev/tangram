@@ -23,6 +23,7 @@ tg --url $local.url push --process-logs $id
 
 let log = tg --url $remote.url get $id | from json | get log?
 assert ($log != null) "The completed log should be compacted and sent"
+assert equal $log (tg --url $local.url get $id | from json | get log)
 
 let output = tg --url $remote.url log --no-timeout $id | complete
 success $output "The transferred log should be readable"

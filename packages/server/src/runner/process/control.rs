@@ -27,16 +27,17 @@ pub(super) type ProcessControlResponseReceiver = crate::control::Response<
 >;
 
 pub(super) struct RunProcessControlTaskArg {
+	pub control: crate::control::Stream<
+		tg::process::control::ServerMessage,
+		tg::process::control::ClientMessage,
+	>,
 	pub exited: Stopper,
-	pub finish: tokio::sync::oneshot::Receiver<tg::process::Data>,
+	pub finish: tokio::sync::oneshot::Receiver<ProcessControlResponseReceiver>,
 	pub log: Option<super::WriteProcessLogTaskArg>,
-	pub requests:
-		BoxStream<'static, tg::Result<tg::control::Event<tg::process::control::ServerMessage>>>,
+	pub push: tokio::sync::oneshot::Receiver<()>,
 	pub retention_stopper: Stopper,
 	pub sandbox: tangram_sandbox::Sandbox,
 	pub sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
-	pub sender_high: tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
-	pub sender_low: tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
 	pub stderr: tg::process::Stdio,
 	pub stderr_buffered: tokio::sync::oneshot::Sender<tg::Result<()>>,
 	pub stderr_progress: Option<BoxStream<'static, tg::Result<Bytes>>>,
@@ -142,15 +143,14 @@ impl Session {
 		arg: RunProcessControlTaskArg,
 	) -> tg::Result<()> {
 		let RunProcessControlTaskArg {
+			control,
 			exited,
 			finish,
 			log,
-			requests,
+			push,
 			retention_stopper,
 			sandbox,
 			sandbox_process,
-			sender_high,
-			sender_low,
 			stderr,
 			stderr_buffered,
 			stderr_progress,
@@ -159,12 +159,6 @@ impl Session {
 			stdout,
 			stdout_buffered,
 		} = arg;
-		let control = crate::control::Stream::new_reconnecting_with_priorities(
-			requests,
-			sender_high,
-			sender_low,
-			crate::control::stream_options(),
-		);
 		let sender = control.sender();
 		let (finished_sender, finished_receiver) = tokio::sync::oneshot::channel();
 		let log_task = log.map(|arg| {
@@ -235,17 +229,9 @@ impl Session {
 				tty_sender,
 			});
 
-		let data = finish
+		let receiver = finish
 			.await
-			.map_err(|_| tg::error!("failed to receive the finished process data"))?;
-		let arg = tg::process::control::ClientRequestArg::Finish(
-			tg::process::control::FinishClientRequestArg { data },
-		);
-		let priority = crate::control::Priority::High;
-		let receiver = Self::send_process_control_client_request_inner(&sender, arg, priority)
-			.boxed()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to send the finish process request"))?;
+			.map_err(|_| tg::error!("failed to receive the process finish response receiver"))?;
 		let output = Self::receive_process_control_client_response(receiver)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to receive the finish process response"))?;
@@ -261,6 +247,9 @@ impl Session {
 		} else {
 			Ok(())
 		};
+
+		// Retain control so waits can obtain the result sync token while its objects are in transit.
+		push.await.ok();
 
 		let stdio_task = async {
 			output_task.wait().await.map_err(|error| {
@@ -441,7 +430,10 @@ impl Session {
 									.try_get_process(process)
 									.map(|data| {
 										tg::process::control::ClientResponseOutput::Get(
-											tg::process::control::GetClientResponseOutput { data },
+											tg::process::control::GetClientResponseOutput {
+												data,
+												sync: None,
+											},
 										)
 									})
 									.ok_or_else(

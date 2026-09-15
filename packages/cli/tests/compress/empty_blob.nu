@@ -6,8 +6,8 @@ let server = server spawn
 
 let blob = "" | tg write
 
-let compressed = tg compress --format gz $blob | str trim
+let compressed = tg compress --format gz $blob | str trim | split row '?' | first
 assert ($compressed != $blob) "the compressed blob should differ from the empty blob"
 
-let decompressed = tg decompress $compressed | str trim
+let decompressed = tg decompress $compressed | str trim | split row '?' | first
 assert equal $decompressed $blob "the decompressed blob should equal the empty blob"

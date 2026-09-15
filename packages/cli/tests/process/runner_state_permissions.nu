@@ -50,7 +50,7 @@ timeout 30s tg --token $root_token checkpoint wait process.control.finish $finis
 let result = job recv --tag $wait_job --timeout 10sec
 let result = $result | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
 assert equal $result.exit 0
-assert (not ($result.output.value | str contains 'tokens')) "a node reader must not receive an output capability"
+assert (not ($result.output.value | str contains 'authorization')) "a node reader must not receive an output capability"
 failure (tg --token $reader.token cat $result.output.value | complete) "a node reader must not read the output"
 
 # New waits use the normal path once completion is published.
@@ -58,4 +58,4 @@ tg --token $root_token checkpoint continue process.control.finish $finish_watch 
 tg --token $root_token checkpoint unwatch process.control.finish $finish_watch
 tg --token $owner.token grant $reader.user.id process_node_output $process | ignore
 let result = timeout 10s tg --token $reader.token wait $process | from json
-assert (not ($result.output.value | str contains 'tokens')) "waiting must not mint an output capability even for an output reader"
+assert (not ($result.output.value | str contains 'authorization')) "waiting must not mint an output capability even for an output reader"

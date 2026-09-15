@@ -24,6 +24,10 @@ pub struct Options {
 	/// Whether to pretty print the value.
 	#[arg(id = "print.pretty", long = "pretty")]
 	pub pretty: bool,
+
+	/// Whether to print the tokens of the value's referents.
+	#[arg(skip)]
+	pub tokens: bool,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -181,6 +185,7 @@ impl Cli {
 			Depth::Infinite => None,
 		};
 		let blobs = options.blobs;
+		let tokens = options.tokens;
 		let tty = tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
 		let indentation = (options.pretty || tty).then_some(INDENTATION);
 		let options = tg::value::print::Options {
@@ -189,7 +194,7 @@ impl Cli {
 			depth,
 			indent,
 			indentation,
-			tokens: false,
+			tokens,
 		};
 		let output = value.print(options);
 		stdout
@@ -202,7 +207,7 @@ impl Cli {
 	pub(crate) fn print_location_and_tokens(
 		&self,
 		location: Option<&tg::Location>,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 	) -> tg::Result<()> {
 		if let Some(location) = location {
 			let location = serde_json::to_string(location)

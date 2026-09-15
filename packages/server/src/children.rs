@@ -77,7 +77,7 @@ impl Session {
 					.create_tag_target_token_with_permissions(&target, output.data.permissions)?;
 				let options = tg::referent::Options {
 					location: Some(location),
-					tokens: tg::authorization::Tokens::with_local(token),
+					tokens: tg::Tokens::with_authorization(token),
 					..Default::default()
 				};
 				vec![tg::Referent::new(target, options)]
@@ -156,8 +156,10 @@ impl Session {
 
 			return Ok(output.referent.options);
 		};
-		let resource =
-			tg::Referent::with_node_and_local_tokens(id.clone(), options.tokens.local().to_vec());
+		let resource = tg::Referent::with_node_and_local_tokens(
+			id.clone(),
+			options.tokens.local_authorization().to_vec(),
+		);
 		let mut authorizations = self
 			.authorize_batch_with_required([(resource, permissions)], required.into())
 			.await?;
@@ -178,7 +180,7 @@ impl Session {
 		let token = self.create_token(id.clone(), permissions.iter().collect(), expires_at)?;
 		let mut tokens = options.tokens;
 		if let Some(token) = token {
-			tokens.insert_local(token);
+			tokens.insert_local_authorization(token);
 		}
 		let options = tg::referent::Options {
 			location: Some(tg::Location::Local(tg::location::Local::default())),

@@ -9,7 +9,7 @@ pub(super) struct AddProcessChildArg<'a> {
 	pub options: &'a tg::referent::Options,
 	pub parent: &'a tg::process::Id,
 	pub sandbox: Option<&'a tg::sandbox::Id>,
-	pub tokens: &'a tg::authorization::Tokens,
+	pub tokens: &'a tg::Tokens,
 	pub wait: Option<&'a tg::process::wait::Output>,
 }
 
@@ -136,6 +136,7 @@ impl Session {
 				parent: None,
 				sandbox: Some(parent_data.sandbox),
 				storage: tangram_index::process::Storage::default(),
+				subtree_objects: std::collections::BTreeSet::new(),
 				time_to_touch: self.server.config.process.time_to_touch,
 				touched_at: now,
 			}
@@ -155,6 +156,7 @@ impl Session {
 			parent: Some(parent.clone()),
 			sandbox: sandbox.cloned(),
 			storage: tangram_index::process::Storage::default(),
+			subtree_objects: std::collections::BTreeSet::new(),
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};

@@ -24,6 +24,7 @@ export def assert_mounted [server_path: string] {
 }
 
 export def root [server_path: string, id: string] {
+	let id = $id | split row '?' | first
 	store_path $server_path | path join $id
 }
 

@@ -11,15 +11,34 @@
 	derive_more::FromStr,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
 pub enum Permission {
+	#[tangram_serialize(id = 0)]
 	Node,
+
+	#[tangram_serialize(id = 1)]
 	Subtree,
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	Eq,
+	Hash,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(from = "Vec<Permission>", into = "Vec<Permission>")]
+#[tangram_serialize(into = "Vec<Permission>", try_from = "Vec<Permission>")]
 pub struct Set(u8);
 
 impl Set {
@@ -79,5 +98,21 @@ impl Set {
 
 	pub fn remove(&mut self, other: Self) {
 		self.0 &= !other.0;
+	}
+}
+
+impl From<Vec<Permission>> for Set {
+	fn from(permissions: Vec<Permission>) -> Self {
+		let mut output = Self::empty();
+		for permission in permissions {
+			output.insert(Self::from_permission(permission));
+		}
+		output
+	}
+}
+
+impl From<Set> for Vec<Permission> {
+	fn from(permissions: Set) -> Self {
+		permissions.iter().collect()
 	}
 }

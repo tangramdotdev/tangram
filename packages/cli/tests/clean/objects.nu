@@ -29,21 +29,21 @@ let path = artifact {
 }
 
 # Build all exports and get their object IDs.
-let a_id = tg build ($path + '#a')
+let a_id = tg build ($path + '#a') | str trim | split row '?' | first
 
-let b_id = tg build ($path + '#b')
+let b_id = tg build ($path + '#b') | str trim | split row '?' | first
 
-let c_id = tg build ($path + '#c')
+let c_id = tg build ($path + '#c') | str trim | split row '?' | first
 
-let d_id = tg build ($path + '#d')
+let d_id = tg build ($path + '#d') | str trim | split row '?' | first
 
-let e_id = tg build ($path + '#e')
+let e_id = tg build ($path + '#e') | str trim | split row '?' | first
 
-let f_id = tg build ($path + '#f')
+let f_id = tg build ($path + '#f') | str trim | split row '?' | first
 
-let g_id = tg build ($path + '#g')
+let g_id = tg build ($path + '#g') | str trim | split row '?' | first
 
-let h_id = tg build ($path + '#h')
+let h_id = tg build ($path + '#h') | str trim | split row '?' | first
 
 # Tag c and h.
 tg tag c $c_id

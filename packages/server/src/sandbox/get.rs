@@ -100,7 +100,7 @@ impl Session {
 		// The runner's capabilities belong to the runner, not to the caller.
 		output.tokens.clear();
 		if let Some(token) = self.create_read_token(&id.clone().into())? {
-			output.tokens.insert_local(token);
+			output.tokens.insert_local_authorization(token);
 		}
 		Ok(Some(output))
 	}
@@ -127,7 +127,7 @@ impl Session {
 		if let Some(output) = &mut output
 			&& let Some(token) = self.create_read_token(&id.clone().into())?
 		{
-			output.tokens.insert_local(token);
+			output.tokens.insert_local_authorization(token);
 		}
 		Ok(output)
 	}
@@ -370,7 +370,10 @@ impl Session {
 		{
 			let mut output = response.output;
 			let valid = output.as_ref().is_none_or(|output| {
-				crate::remote::cache::tokens_valid(output.tokens.local(), &self.server.clock)
+				crate::remote::cache::tokens_valid(
+					output.tokens.local_authorization(),
+					&self.server.clock,
+				)
 			});
 			if valid || cached {
 				if let Some(output) = &mut output {

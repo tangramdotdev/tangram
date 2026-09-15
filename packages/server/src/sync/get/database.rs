@@ -185,7 +185,7 @@ impl Session {
 				Ok(tg::sync::Message::End),
 			]);
 		let input = futures::stream::iter(messages).boxed();
-		let output = client
+		let (_, output) = client
 			.sync(primary_region_arg, input)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the primary region sync"))?;

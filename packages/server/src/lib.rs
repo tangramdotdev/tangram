@@ -155,6 +155,7 @@ pub struct State {
 	#[cfg(target_os = "linux")]
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
 	shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
+	sync_control_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -187,6 +188,7 @@ impl Owned {
 impl Server {
 	pub async fn start(config: Config) -> tg::Result<Owned> {
 		// Validate the configuration.
+		config.sync.control.validate()?;
 		config.usage.validate()?;
 		authorization_search_config(&config.authorization.initial)
 			.validate()
@@ -1178,6 +1180,7 @@ impl Server {
 			#[cfg(target_os = "linux")]
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
 			shutdown,
+			sync_control_tasks: tangram_futures::task::Set::default(),
 			tangram_path,
 			temps,
 			version,
@@ -1631,6 +1634,10 @@ impl Server {
 				}
 				tracing::trace!("remote list tasks");
 
+				// Drain the sync control tasks after the transfers have stopped.
+				server.sync_control_tasks.stop_all();
+				server.sync_control_tasks.wait().await;
+
 				// Finish the archive tasks after their producers have stopped.
 				server.archive_tasks.wait().await;
 
@@ -1901,6 +1908,7 @@ impl Deref for Server {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
+		self.sync_control_tasks.abort_all();
 		self.archive_tasks.abort_all();
 		self.checkout_graph_tasks.abort_all();
 		self.checkout_tasks.abort_all();

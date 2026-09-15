@@ -133,7 +133,7 @@ mod tests {
 				}),
 			},
 			location: None,
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		};
 		let arg = Arg {
 			items: vec![

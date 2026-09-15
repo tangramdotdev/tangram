@@ -188,7 +188,7 @@ impl Session {
 		}
 		if let Some(id) = id {
 			let arg = tg::process::wait::Arg {
-				tokens: tg::authorization::Tokens::with_local(tokens),
+				tokens: tg::Tokens::with_authorization(tokens),
 				..Default::default()
 			};
 			let wait = self
@@ -360,7 +360,7 @@ impl Session {
 			lease,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			process: tg::Either::Right(output.id),
-			tokens: tg::authorization::Tokens::with_local(output.tokens),
+			tokens: tg::Tokens::with_authorization(output.tokens),
 			wait,
 		};
 

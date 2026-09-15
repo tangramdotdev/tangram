@@ -35,4 +35,6 @@ tg --url $local1.url push --group-children test-pkg
 let output_two_id = tg --url $local2.url build test-pkg/1.0.0
 
 # Verify the objects are the same.
+let output_id = $output_id | str trim | split row '?' | first
+let output_two_id = $output_two_id | str trim | split row '?' | first
 assert equal $output_id $output_two_id "objects should be the same"

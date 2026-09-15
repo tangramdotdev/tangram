@@ -18,7 +18,7 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(skip)]
-	pub tokens: tg::authorization::Tokens,
+	pub tokens: tg::Tokens,
 
 	#[command(flatten)]
 	pub ttl: crate::get::Ttl,

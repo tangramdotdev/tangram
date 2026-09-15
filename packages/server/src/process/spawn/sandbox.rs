@@ -132,10 +132,11 @@ impl Session {
 		output: &mut Output,
 		connected_event: crate::runner::process::ConnectedEvent,
 	) {
-		output.id = connected_event.process;
+		let tokens = connected_event.process.local_tokens().to_vec();
+		output.id = connected_event.process.node;
 		output.lease = Some(connected_event.lease);
-		if let Some(grant) = connected_event.grant {
-			output.tokens = vec![grant];
+		if !tokens.is_empty() {
+			output.tokens = tokens;
 		}
 	}
 
@@ -183,15 +184,14 @@ impl Session {
 		let output = response
 			.try_unwrap_spawn_process()
 			.map_err(|_| tg::error!("expected a spawn process response"))?;
-		if assigned && output.process != id {
+		if assigned && output.process.node != id {
 			return Err(tg::error!(
-				actual = %output.process,
+				actual = %output.process.node,
 				expected = %id,
 				"the runner returned an invalid process"
 			));
 		}
 		let connected_event = crate::runner::process::ConnectedEvent {
-			grant: output.grant,
 			lease: output.lease,
 			process: output.process,
 		};

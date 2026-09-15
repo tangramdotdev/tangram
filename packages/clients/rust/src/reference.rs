@@ -91,8 +91,8 @@ pub struct Options {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Specifier>,
 
-	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-	pub tokens: tg::authorization::Tokens,
+	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
+	pub tokens: tg::Tokens,
 }
 
 impl Reference {
@@ -119,11 +119,11 @@ impl Reference {
 		node: Node,
 		tokens: impl IntoIterator<Item = tg::authorization::Token>,
 	) -> Self {
-		Self::with_node_and_tokens(node, tg::authorization::Tokens::with_local(tokens))
+		Self::with_node_and_tokens(node, tg::Tokens::with_authorization(tokens))
 	}
 
 	#[must_use]
-	pub fn with_node_and_tokens(node: Node, tokens: tg::authorization::Tokens) -> Self {
+	pub fn with_node_and_tokens(node: Node, tokens: tg::Tokens) -> Self {
 		let options = Options {
 			tokens,
 			..Default::default()

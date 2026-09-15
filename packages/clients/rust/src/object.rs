@@ -7,6 +7,7 @@ pub use self::{
 	metadata::Metadata,
 	object::Object,
 	state::State,
+	storage::Storage,
 	visit::{Visitor, visit},
 };
 
@@ -22,5 +23,6 @@ pub mod metadata;
 pub mod object;
 pub mod put;
 pub mod state;
+pub mod storage;
 pub mod touch;
 pub mod visit;

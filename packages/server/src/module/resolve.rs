@@ -192,7 +192,11 @@ impl Session {
 				.ok_or_else(|| tg::error!("the dependency pointer is missing a graph"))?,
 		};
 		if let Some(token) = self.create_module_resolution_token(resource, &authorization)? {
-			dependency.0.options.tokens.insert_local(token);
+			dependency
+				.0
+				.options
+				.tokens
+				.insert_local_authorization(token);
 		}
 		let object = match edge {
 			tg::graph::Edge::Object(object) => {
@@ -363,7 +367,7 @@ impl Session {
 		};
 		let token = self.create_module_resolution_token(resource, authorization)?;
 		if let Some(token) = token {
-			referent.options.tokens.insert_local(token);
+			referent.options.tokens.insert_local_authorization(token);
 		}
 
 		Ok(())
@@ -380,7 +384,7 @@ impl Session {
 		);
 		let Some(authorization_token) = authorization
 			.tokens()
-			.local()
+			.local_authorization()
 			.iter()
 			.filter(|token| {
 				token.body.resource == authorization_resource

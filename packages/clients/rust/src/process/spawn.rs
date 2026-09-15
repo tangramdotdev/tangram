@@ -149,13 +149,9 @@ pub struct Output {
 	#[tangram_serialize(id = 3)]
 	pub process: tg::Either<u32, tg::process::Id>,
 
-	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-	#[tangram_serialize(
-		default,
-		id = 4,
-		skip_serializing_if = "tg::authorization::Tokens::is_empty"
-	)]
-	pub tokens: tg::authorization::Tokens,
+	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "tg::Tokens::is_empty")]
+	pub tokens: tg::Tokens,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
@@ -432,7 +428,7 @@ impl<O: 'static> tg::Process<O> {
 					.location()
 					.and_then(|location| location.to_location()),
 				process: process.id().cloned(),
-				tokens: tg::authorization::Tokens::default(),
+				tokens: tg::Tokens::default(),
 				wait: None,
 			};
 			let stream = stream::once(future::ok(tg::progress::Event::Output(output))).boxed();
@@ -586,7 +582,7 @@ impl<O: 'static> tg::Process<O> {
 			mode: options.mode,
 			process: tg::Either::Left(Box::new(arg)),
 			reads,
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		};
 		let (connection, stream) = tg::process::connect::Connection::open(&handle, arg).await?;
 		let output = progress(stream).await?;
@@ -853,7 +849,7 @@ impl<O: 'static> tg::Process<O> {
 			stdio_task: None,
 			stdout,
 			task: Some(task),
-			tokens: RwLock::new(tg::authorization::Tokens::default()),
+			tokens: RwLock::new(tg::Tokens::default()),
 			wait: Mutex::new(None),
 		});
 		let process = Self(inner, std::marker::PhantomData);

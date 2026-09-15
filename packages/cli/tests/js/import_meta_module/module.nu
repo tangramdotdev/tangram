@@ -9,4 +9,6 @@ let path = artifact {
 }
 
 let output = tg build $path
+# The live capabilities can vary without changing the module's identity.
+let output = $output | str replace --regex '\?tokens[^}]*' ''
 snapshot --normalize-ids $output 'tg.module({"kind":"ts","referent":{"node":fil_010000000000000000000000000000000000000000000000000000}})'

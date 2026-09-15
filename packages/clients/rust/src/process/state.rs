@@ -52,7 +52,7 @@ impl State {
 		}
 	}
 
-	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::Tokens) {
 		self.command.state().inherit_tokens(tokens);
 		if let Some(children) = &self.children {
 			for child in children {

@@ -12,7 +12,7 @@ struct NamedNode {
 	location: Option<tg::Location>,
 	specifier: tg::Specifier,
 	target: Option<tg::Either<tg::object::Id, tg::process::Id>>,
-	tokens: tg::authorization::Tokens,
+	tokens: tg::Tokens,
 }
 
 impl Session {
@@ -131,7 +131,7 @@ impl Session {
 		&self,
 		id: &tg::Id,
 		options: &tg::reference::Options,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 		region: &str,
 		arg: &tg::get::Arg,
 	) -> tg::Result<Option<tg::get::Output>> {
@@ -183,7 +183,7 @@ impl Session {
 		&self,
 		id: &tg::Id,
 		options: &tg::reference::Options,
-		tokens: &tg::authorization::Tokens,
+		tokens: &tg::Tokens,
 		remote: tg::location::Remote,
 		arg: &tg::get::Arg,
 	) -> tg::Result<Option<tg::get::Output>> {
@@ -504,8 +504,10 @@ impl Session {
 		}
 
 		let node = list_target_to_id(target);
-		let tokens =
-			tg::authorization::Tokens::with_local(self.create_tag_target_token(&id, &node).await?);
+		let mut target_tokens =
+			tg::Tokens::with_authorization(self.create_tag_target_token(&id, &node).await?);
+		target_tokens.inherit(&tokens);
+		let tokens = target_tokens;
 		let entry = tg::referent::Options {
 			location,
 			tag: Some(specifier),
@@ -522,7 +524,7 @@ impl Session {
 		&self,
 		region: &str,
 		specifier: tg::Specifier,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<tg::get::Output>> {
@@ -577,7 +579,7 @@ impl Session {
 		target: tg::Either<tg::object::Id, tg::process::Id>,
 		remote: tg::location::Remote,
 		specifier: tg::Specifier,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<tg::get::Output>> {
@@ -770,7 +772,7 @@ impl Session {
 				.try_get_with_selector(
 					&tg::Selector::Specifier(specifier.clone()),
 					location,
-					&tg::authorization::Tokens::default(),
+					&tg::Tokens::default(),
 					cached,
 					ttl,
 				)
@@ -851,7 +853,7 @@ impl Session {
 			pattern,
 			reverse: true,
 			tags: true,
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 			ttl,
 			users: false,
 		};

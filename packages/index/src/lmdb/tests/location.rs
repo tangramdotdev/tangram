@@ -22,6 +22,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 			parent: None,
 			sandbox: None,
 			storage: crate::process::Storage::default(),
+			subtree_objects: std::collections::BTreeSet::new(),
 			time_to_touch: std::time::Duration::from_secs(60),
 			touched_at: 1,
 		};

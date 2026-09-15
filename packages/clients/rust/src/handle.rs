@@ -167,7 +167,10 @@ pub trait Handle:
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
-		Output = tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static>,
+		Output = tg::Result<(
+			tg::sync::Output,
+			impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
+		)>,
 	> + Send;
 
 	fn get(
@@ -325,7 +328,10 @@ impl tg::Handle for tg::Client {
 		&self,
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static> {
+	) -> tg::Result<(
+		tg::sync::Output,
+		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
+	)> {
 		self.session(&self.context).sync(arg, stream).await
 	}
 

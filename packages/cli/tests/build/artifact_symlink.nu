@@ -19,4 +19,4 @@ let object = tg object get --blobs --depth=inf --pretty $id
 snapshot --name object $object
 
 tg checkout $id
-snapshot --name checkout --path ($server.directory | path join "store" | path join ($id | str trim))
+snapshot --name checkout --path ($server.directory | path join "store" | path join ($id | str trim | split row '?' | first))

@@ -30,7 +30,7 @@ impl MockConnection {
 			lease: None,
 			location: None,
 			process: tg::Either::Right(id.clone()),
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 			wait: None,
 		};
 		self.respond(0, ServerResponseOutput::Connect(output)).await;
@@ -70,7 +70,7 @@ async fn handles_preserve_not_found() {
 			mode: Mode::Run,
 			process: tg::Either::Right(tg::process::Id::new()),
 			reads: BTreeMap::new(),
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		};
 		let request = ClientRequest {
 			arg: ClientRequestArg::Connect(arg),
@@ -288,7 +288,7 @@ fn opening_metadata_preserves_read_options() {
 		mode: Mode::Run,
 		process: tg::Either::Right(id.clone()),
 		reads: BTreeMap::from([(1, read)]),
-		tokens: tg::authorization::Tokens::default(),
+		tokens: tg::Tokens::default(),
 	};
 	let json = serde_json::to_value(&arg).unwrap();
 	assert_eq!(json["process"], id.to_string());
@@ -348,7 +348,7 @@ fn spawn_metadata_uses_native_types() {
 			mode,
 			process: tg::Either::Left(Box::new(arg.clone())),
 			reads: BTreeMap::new(),
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		};
 		let json = serde_json::to_value(&request).unwrap();
 		assert_eq!(json["process"], serde_json::to_value(&arg).unwrap());
@@ -431,7 +431,7 @@ fn responses_preserve_errors_and_optional_null_outputs() {
 				lease: Some("lease".to_owned()),
 				location: Some("remote:test".parse().unwrap()),
 				process: tg::Either::Right(tg::process::Id::new()),
-				tokens: tg::authorization::Tokens::default(),
+				tokens: tg::Tokens::default(),
 				wait: Some(wait),
 			};
 			assert_roundtrip(&ServerResponseOutput::Connect(output));
@@ -461,7 +461,7 @@ fn stdio_keeps_binary_bytes_and_eof_positions() {
 		let arg = tg::process::stdio::write::Arg {
 			data: message,
 			location: None,
-			tokens: tg::authorization::Tokens::default(),
+			tokens: tg::Tokens::default(),
 		};
 		let request = ClientRequest {
 			arg: ClientRequestArg::Write(arg),

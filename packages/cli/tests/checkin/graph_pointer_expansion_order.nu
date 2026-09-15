@@ -29,7 +29,7 @@ let graph_module = r#'
 let graph_path = artifact {
 	tangram.ts: $graph_module
 }
-let graph = tg build $graph_path | str trim
+let graph = tg build $graph_path | str trim | split row '?' | first
 let pointer_module = r#'
 	export default function () {
 		const graph = tg.Graph.withId("<graph>");

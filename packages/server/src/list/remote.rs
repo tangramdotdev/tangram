@@ -72,11 +72,13 @@ impl Session {
 				_ => unreachable!(),
 			};
 			let valid = entries.iter().all(|entry| {
-				let entry_valid =
-					crate::remote::cache::tokens_valid(entry.tokens().local(), &self.server.clock);
+				let entry_valid = crate::remote::cache::tokens_valid(
+					entry.tokens().local_authorization(),
+					&self.server.clock,
+				);
 				let target_valid = entry.target.as_ref().is_none_or(|target| {
 					crate::remote::cache::tokens_valid(
-						target.options.tokens.local(),
+						target.options.tokens.local_authorization(),
 						&self.server.clock,
 					)
 				});
@@ -244,11 +246,8 @@ impl Query {
 	}
 }
 
-fn tokens_for_remote(
-	tokens: &tg::authorization::Tokens,
-	remote: &str,
-) -> tg::authorization::Tokens {
-	let mut output = tg::authorization::Tokens::default();
+fn tokens_for_remote(tokens: &tg::Tokens, remote: &str) -> tg::Tokens {
+	let mut output = tg::Tokens::default();
 	for (location, tokens) in tokens.iter() {
 		let tg::Location::Remote(location) = location else {
 			continue;
@@ -257,9 +256,7 @@ fn tokens_for_remote(
 			let location = tg::Location::Local(tg::location::Local {
 				region: location.region.clone(),
 			});
-			for token in tokens {
-				output.insert(location.clone(), token.clone());
-			}
+			output.set(location, tokens.clone());
 		}
 	}
 

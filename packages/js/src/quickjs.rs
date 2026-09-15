@@ -4,10 +4,10 @@ use {
 		syscall::syscall,
 	},
 	crate::Output,
-	futures::{FutureExt as _, future},
+	futures::future,
 	rquickjs::{self as qjs, CatchResultExt as _},
 	sourcemap::SourceMap,
-	std::{cell::RefCell, pin::pin, rc::Rc},
+	std::{cell::RefCell, pin::pin, rc::Rc, task::Poll},
 	tangram_client::prelude::*,
 	tangram_quickjs::Serde,
 };
@@ -317,13 +317,22 @@ impl Runtime {
 				future::Either::Right((Ok(error) | Err(error), _)) => Err(error),
 			}
 		};
-		let idle = self.runtime.idle();
-		let result = match future::select(pin!(execution), pin!(idle)).await {
-			future::Either::Left((result, _)) => result,
-			future::Either::Right(((), execution)) => execution
-				.now_or_never()
-				.unwrap_or_else(|| Err(crate::unresolved_promise_error())),
-		};
+		let mut execution = pin!(execution);
+		let mut pending = pin!(self.runtime.is_job_pending());
+		let result = future::poll_fn(|cx| {
+			if let Poll::Ready(result) = execution.as_mut().poll(cx) {
+				return Poll::Ready(result);
+			}
+			match pending.as_mut().poll(cx) {
+				Poll::Pending => Poll::Pending,
+				Poll::Ready(false) => Poll::Ready(Err(crate::unresolved_promise_error())),
+				Poll::Ready(true) => {
+					pending.set(self.runtime.is_job_pending());
+					Poll::Pending
+				},
+			}
+		})
+		.await;
 		self.context
 			.with(|ctx| while ctx.execute_pending_job() {})
 			.await;

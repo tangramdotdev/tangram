@@ -312,7 +312,7 @@ impl Session {
 		let processes = Arc::new(crate::process::Processes::default());
 		let entry = crate::sandbox::State {
 			allocation: Some(allocation),
-			authorization_tokens: tg::authorization::Tokens::default(),
+			authorization_tokens: tg::Tokens::default(),
 			changed: tokio::sync::watch::channel(()).0,
 			data: control_data,
 			id: expected_id.clone(),
@@ -843,7 +843,7 @@ impl Session {
 				return Err(tg::error!(%id, "expected the process connected event"));
 			};
 			process_events.insert(
-				connected_event.process.clone(),
+				connected_event.process.node.clone(),
 				UnboundedReceiverStream::new(events),
 			);
 			Some(connected_event)
@@ -950,11 +950,10 @@ impl Session {
 								return Err(tg::error!(%id, "expected the process connected event"));
 							};
 							process_events.insert(
-								connected_event.process.clone(),
+								connected_event.process.node.clone(),
 								UnboundedReceiverStream::new(events),
 							);
 							let output = tg::sandbox::control::SpawnProcessClientResponseOutput {
-								grant: connected_event.grant,
 								lease: connected_event.lease,
 								process: connected_event.process,
 							};

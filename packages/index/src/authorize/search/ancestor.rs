@@ -902,8 +902,8 @@ impl Search {
 		}
 		match permission {
 			tg::authorization::Permission::Object(_) => {
-				for (process, kind) in &facts.object_processes {
-					if implicit_processes.contains(process) {
+				for (process, kind, subtree) in &facts.object_processes {
+					if *subtree || implicit_processes.contains(process) {
 						let permission = tg::authorization::Permission::Process(
 							crate::authorize::process_object_permission(*kind),
 						);

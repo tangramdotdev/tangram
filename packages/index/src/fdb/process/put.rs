@@ -276,17 +276,14 @@ impl Index {
 			txn.clear(&key);
 		}
 
-		let objects = existing
-			.is_none()
-			.then(|| (arg.command.clone(), crate::process::object::Kind::Command))
-			.into_iter()
+		let command_changed = existing.is_none();
+		let objects = std::iter::once((arg.command.clone(), crate::process::object::Kind::Command))
 			.chain(
 				arg.error
 					.as_ref()
 					.into_iter()
 					.flatten()
 					.flatten()
-					.filter(|_| error_changed)
 					.cloned()
 					.map(|object| (object, crate::process::object::Kind::Error)),
 			)
@@ -295,7 +292,6 @@ impl Index {
 					.as_ref()
 					.into_iter()
 					.flatten()
-					.filter(|_| log_changed)
 					.cloned()
 					.map(|object| (object, crate::process::object::Kind::Log)),
 			)
@@ -305,7 +301,6 @@ impl Index {
 					.into_iter()
 					.flatten()
 					.flatten()
-					.filter(|_| output_changed)
 					.cloned()
 					.map(|object| (object, crate::process::object::Kind::Output)),
 			);
@@ -316,7 +311,33 @@ impl Index {
 				object: object.clone(),
 			});
 			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
+			let result = txn.get(&key, false).await;
+			let previous = crate::fdb::retry!(result);
+			let previous = previous
+				.as_ref()
+				.map(|bytes| crate::process::object::Data::deserialize(bytes))
+				.transpose()?;
+			let added = match kind {
+				crate::process::object::Kind::Command => command_changed,
+				crate::process::object::Kind::Error => error_changed,
+				crate::process::object::Kind::Log => log_changed,
+				crate::process::object::Kind::Output => output_changed,
+			};
+			if previous.is_none() && !added {
+				continue;
+			}
+
+			let subtree = arg.subtree_objects.contains(&object)
+				|| previous.as_ref().is_some_and(|data| data.subtree);
+			if previous
+				.as_ref()
+				.is_some_and(|data| data.subtree == subtree)
+			{
+				continue;
+			}
+			let data = crate::process::object::Data { subtree };
+			let value = data.serialize()?;
+			txn.set(&key, &value);
 
 			let key = Key::Object(crate::fdb::object::Key::ObjectProcess {
 				object: object.clone(),
@@ -324,7 +345,7 @@ impl Index {
 				process: id.clone(),
 			});
 			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
+			txn.set(&key, &value);
 
 			Self::enqueue_update_with_kind(
 				txn,

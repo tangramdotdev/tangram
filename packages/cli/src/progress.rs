@@ -1,7 +1,7 @@
 use {
 	crate::{Cli, viewer::clip},
 	crossterm::{self as ct, style::Stylize as _},
-	futures::{FutureExt as _, Stream, StreamExt as _, future},
+	futures::{FutureExt as _, Stream, StreamExt as _, TryStreamExt as _, future},
 	indexmap::IndexMap,
 	num::ToPrimitive as _,
 	std::{fmt::Write as _, io::Write as _, pin::pin, time::Duration},
@@ -47,13 +47,25 @@ impl Cli {
 
 		let tty = std::io::stderr();
 
+		// Without a tty, print the logs as they arrive and keep the output.
 		if !tangram_util::tty::is_foreground_controlling_tty(libc::STDERR_FILENO) {
-			let stream = pin!(stream);
-			let output = stream
-				.try_last()
-				.await?
-				.and_then(|event| event.try_unwrap_output().ok())
-				.ok_or_else(|| tg::error!("stream ended without output"))?;
+			let mut stream = pin!(stream);
+			let mut output = None;
+			while let Some(event) = stream.try_next().await? {
+				match event {
+					tg::progress::Event::Log(log) => {
+						if let Some(level) = log.level {
+							eprint!("{} ", Self::progress_level_prefix(&level));
+						}
+						eprintln!("{}", log.message);
+					},
+					tg::progress::Event::Output(value) => {
+						output.replace(value);
+					},
+					tg::progress::Event::Diagnostic(_) | tg::progress::Event::Indicators(_) => (),
+				}
+			}
+			let output = output.ok_or_else(|| tg::error!("stream ended without output"))?;
 			f(self, &output);
 			return Ok(output);
 		}
@@ -102,6 +114,17 @@ impl Cli {
 		Ok(output)
 	}
 
+	fn progress_level_prefix(
+		level: &tg::progress::Level,
+	) -> ct::style::StyledContent<&'static str> {
+		match level {
+			tg::progress::Level::Error => "error".red().bold(),
+			tg::progress::Level::Info => "info".blue().bold(),
+			tg::progress::Level::Success => "success".green().bold(),
+			tg::progress::Level::Warning => "warning".yellow().bold(),
+		}
+	}
+
 	async fn render_progress_stream_update<T, F>(
 		&mut self,
 		state: &mut State<T>,
@@ -133,20 +156,7 @@ impl Cli {
 
 			tg::progress::Event::Log(log) => {
 				if let Some(level) = log.level {
-					match level {
-						tg::progress::Level::Success => {
-							write!(state.tty, "{} ", "success".green().bold()).unwrap();
-						},
-						tg::progress::Level::Info => {
-							write!(state.tty, "{} ", "info".blue().bold()).unwrap();
-						},
-						tg::progress::Level::Warning => {
-							write!(state.tty, "{} ", "warning".yellow().bold()).unwrap();
-						},
-						tg::progress::Level::Error => {
-							write!(state.tty, "{} ", "error".red().bold()).unwrap();
-						},
-					}
+					write!(state.tty, "{} ", Self::progress_level_prefix(&level)).unwrap();
 				}
 				writeln!(state.tty, "{}", log.message).unwrap();
 				true

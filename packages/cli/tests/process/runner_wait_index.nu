@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Runner waits finish before indexing, but subsequent output and error authorization waits for the queued batch.
+# Runner waits retain output and error capabilities before the finished process reaches the index.
 
 for location in [local remote] {
 	let root_token = random chars
@@ -24,22 +24,35 @@ for location in [local remote] {
 	let reader = tg --url $runner.url login --verbose --name reader | from json
 	let node_reader = tg --url $runner.url login --verbose --name node-reader | from json
 	let socket = $runner.url | str replace 'http+unix://' '' | url decode
-	for case in [{ field: output, control_first: false }, { field: error, control_first: false }, { field: output, control_first: true }] {
+	for case in [{ field: output, both: false, control_first: false, inherited: false }, { field: error, both: false, control_first: false, inherited: false }, { field: error, both: true, control_first: false, inherited: false }, { field: output, both: false, control_first: true, inherited: false }, { field: output, both: false, control_first: false, inherited: true }] {
 		let field = $case.field
 		let finish_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.finish | from json | get watch
 		let control_watch = tg --url $owner.url --token $root_token checkpoint watch process.control.finish | from json | get watch
-		let source = if $field == output {
+		let source = if $case.inherited {
+			'export default async () => {
+				const directory = await tg.directory({ shared: tg.file("output inherited"), private: tg.file("private") });
+				await directory.store();
+				const file = await directory.get("shared");
+				const token = directory.state.tokens.local?.authorization?.[0];
+				tg.assert(token && file.state.tokens.local?.authorization?.includes(token));
+				console.log("runner log");
+				return file;
+			};'
+		} else if $field == output {
 			'export default () => { console.log("runner log"); return tg.file("output"); };'
 		} else {
 			'export default () => { throw new Error("runner error"); };'
 		}
-		let source = $source + $"\n// ($location) ($case.control_first)"
+		let source = $source + $"\n// ($location) ($case.control_first) ($case.both)"
 		let path = artifact { tangram.ts: $source }
 		let spawned = tg --url $owner.url --token $root_token build --detach --verbose $path | from json
 		let process = $spawned.process | split row '?' | first
 		timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | ignore
 		tg --url $runner.url --token $root_token grant $reader.user.id process_node $process | ignore
 		tg --url $runner.url --token $root_token grant $reader.user.id $'process_node_($field)' $process | ignore
+		if $case.both {
+			tg --url $runner.url --token $root_token grant $reader.user.id process_node_output $process | ignore
+		}
 		tg --url $runner.url --token $root_token grant $node_reader.user.id process_node $process | ignore
 
 		# Attach the reader before completion, then hold the finished-process batch and the control finish handler.
@@ -52,6 +65,12 @@ for location in [local remote] {
 			$output | job send --tag $job_id 0
 		}
 		timeout 10s tg --url $runner.url --token $root_token checkpoint wait process.wait.attach $attach_watch 0 | ignore
+		let node_wait_job = job spawn {
+			let job_id = job id
+			let output = http post --raw --max-time 30sec --unix-socket $socket --headers { Accept: 'text/event-stream', Authorization: $'Bearer ($node_reader.token)' } $'http://localhost/processes/($process)/wait?($query)' ''
+			$output | job send --tag $job_id 0
+		}
+		timeout 10s tg --url $runner.url --token $root_token checkpoint wait process.wait.attach $attach_watch 1 | ignore
 		tg --url $runner.url --token $root_token checkpoint unwatch process.wait.attach $attach_watch
 		let batch_watch = tg --url $runner.url --token $root_token checkpoint watch index.batch --params '{"finished_process":true}' | from json | get watch
 		tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch
@@ -62,7 +81,26 @@ for location in [local remote] {
 		}
 		let output = $output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
 		let object = if $field == output { $output.output.value } else { $output.error }
-		assert (not ($object | str contains 'tokens')) "waiting must not mint object capabilities"
+		let object_id = $object | split row '?' | first
+		let node_output = job recv --tag $node_wait_job --timeout 10sec
+		let node_output = $node_output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
+		let node_object = if $field == output { $node_output.output.value } else { $node_output.error }
+		assert equal ($node_object | split row '?' | first) $object_id
+		let node_params = $'http://localhost/($node_object)' | url parse | get params
+		assert ($node_params | all {|param| $param.key !~ '^tokens' }) "a live node reader must not receive output or error capabilities"
+		let params = $'http://localhost/($object)' | url parse | get params
+		if $field == output and not $case.inherited {
+			assert ($params | any {|param| $param.key == 'tokens[local][authorization][0]' }) "a live output reader must retain the output's authorization token"
+		}
+		for param in ($params | where {|param| $param.key =~ '\[authorization\]' }) {
+			let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+			assert equal $body.resource $object_id "the live response must not expose an ancestor's authorization token"
+		}
+		if $location == remote and ($field == output or $case.both) {
+			assert ($params | any {|param| $param.key == 'tokens[remote][sync]' }) $"the result sync token must be associated with its issuer: ($field) ($params | get key | to json --raw)"
+		} else if $location == remote {
+			assert ($params | all {|param| $param.key !~ '\[sync\]' }) "error permission alone must not expose the shared sync for both error and output objects"
+		}
 		if $case.control_first {
 			tg --url $owner.url --token $root_token checkpoint unwatch process.control.finish $control_watch
 			wait_until {
@@ -76,9 +114,9 @@ for location in [local remote] {
 		let read_job = job spawn {
 			let job_id = job id
 			let output = if $field == output {
-				tg --url $runner.url --token $reader.token cat $object | complete
+				tg --url $runner.url --token $reader.token cat $object_id | complete
 			} else {
-				tg --url $runner.url --token $reader.token get $object | complete
+				tg --url $runner.url --token $reader.token get $object_id | complete
 			}
 			$output | job send --tag $job_id 0
 		}
@@ -92,7 +130,7 @@ for location in [local remote] {
 		}
 		success $read "the field grant must authorize the object before the control finish handler runs"
 		assert ($read.stdout | str contains (if $field == output { 'output' } else { 'runner error' }))
-		failure (tg --url $runner.url --token $node_reader.token get $object | complete) "node permission must not grant access to the object"
+		failure (tg --url $runner.url --token $node_reader.token get $object_id | complete) "node permission must not grant access to the object"
 		if not $case.control_first {
 			tg --url $owner.url --token $root_token checkpoint unwatch process.control.finish $control_watch
 		}

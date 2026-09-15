@@ -257,7 +257,7 @@ impl Session {
 			let Some(child) = children_map.get(child) else {
 				return Ok(false);
 			};
-			let tokens = child.options.tokens.local();
+			let tokens = child.options.tokens.local_authorization();
 			if tokens.is_empty() {
 				return Ok(false);
 			}

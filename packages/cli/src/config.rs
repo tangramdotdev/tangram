@@ -1604,6 +1604,9 @@ pub enum SandboxNetworkFirewall {
 #[serde(deny_unknown_fields)]
 pub struct SyncOptions {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub control: Option<SyncControl>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub get: Option<SyncGet>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -1622,6 +1625,35 @@ pub struct SyncOptions {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub retry: Option<Retry>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SyncControl {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub heartbeat_interval: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lease_ttl: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub recovery_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub request_timeout: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub retry_interval: Option<Duration>,
 }
 
 #[serde_as]
@@ -3844,6 +3876,9 @@ fn resolve_sandbox_network_firewall(
 
 fn resolve_sync(source: &SyncOptions) -> server::Sync {
 	let mut target = server::Sync::default();
+	if let Some(source) = source.control {
+		target.control = resolve_sync_control(source);
+	}
 	if let Some(source) = source.get {
 		target.get = resolve_sync_get(&source);
 	}
@@ -3861,6 +3896,29 @@ fn resolve_sync(source: &SyncOptions) -> server::Sync {
 	}
 	if let Some(value) = source.max_frame_size {
 		target.max_frame_size = value;
+	}
+	target
+}
+
+fn resolve_sync_control(source: SyncControl) -> server::SyncControl {
+	let mut target = server::SyncControl::default();
+	if let Some(value) = source.heartbeat_interval {
+		target.heartbeat_interval = value;
+	}
+	if let Some(value) = source.index_timeout {
+		target.index_timeout = value;
+	}
+	if let Some(value) = source.lease_ttl {
+		target.lease_ttl = value;
+	}
+	if let Some(value) = source.recovery_timeout {
+		target.recovery_timeout = value;
+	}
+	if let Some(value) = source.request_timeout {
+		target.request_timeout = value;
+	}
+	if let Some(value) = source.retry_interval {
+		target.retry_interval = value;
 	}
 	target
 }

@@ -14,6 +14,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tangram_index::Index as _,
 };
 
 impl Session {
@@ -108,23 +109,25 @@ impl Session {
 		let Some(runner) = self.try_get_process_runner_inner(id, arg.location.as_ref()) else {
 			return Ok(None);
 		};
-		if self
-			.authorize_process_runner(
-				id,
-				&arg.tokens,
-				tg::authorization::permission::process::Set::NODE,
-			)
+		let mut requested = tg::authorization::permission::process::Set::NODE;
+		requested.insert(tg::authorization::permission::process::Set::NODE_ERROR);
+		requested.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
+		let Some(tg::authorization::permission::Set::Process(permissions)) = self
+			.authorize_process_runner(id, &arg.tokens, requested)
 			.await?
-			.is_none()
-		{
+		else {
 			return Ok(None);
-		}
+		};
 		let location = runner.location.clone();
 		let session = self.clone();
 		let id = id.clone();
 		let arg = arg.clone();
-		let future =
-			async move { session.try_wait_process_runner_task(&id, arg, runner).await }.boxed();
+		let future = async move {
+			session
+				.try_wait_process_runner_task(&id, arg, runner, permissions)
+				.await
+		}
+		.boxed();
 		Ok(Some((future, location)))
 	}
 
@@ -133,6 +136,7 @@ impl Session {
 		id: &tg::process::Id,
 		mut arg: tg::process::wait::Arg,
 		mut runner: crate::process::Runner,
+		permissions: tg::authorization::permission::process::Set,
 	) -> tg::Result<Option<tg::process::wait::Output>> {
 		loop {
 			let output = runner
@@ -142,29 +146,13 @@ impl Session {
 					if !process.data.status.is_finished() {
 						return Ok(None);
 					}
-					let exit = process
-						.data
-						.exit
-						.ok_or_else(|| tg::error!("expected the exit to be set"))?;
-					let error = process.data.error.clone().map(|error| match error {
-						tg::Either::Left(error) => {
-							tg::Either::Left(error.without_location_and_tokens())
-						},
-						tg::Either::Right(mut error) => {
-							error.options.clear_location_and_tokens();
-							tg::Either::Right(error)
-						},
-					});
-					let output = process
-						.data
-						.output
-						.clone()
-						.map(tg::value::Data::without_location_and_tokens);
-					Ok(Some(tg::process::wait::Output {
-						error,
-						exit,
-						output,
-					}))
+					let output = Self::create_process_wait_output_runner(
+						&process.data,
+						permissions,
+						process.sync.as_ref(),
+						&runner.location,
+					)?;
+					Ok(Some(output))
 				})
 				.transpose()?;
 			let Some(output) = output else {
@@ -186,6 +174,168 @@ impl Session {
 		}
 	}
 
+	fn create_process_wait_output_runner(
+		data: &tg::process::Data,
+		permissions: tg::authorization::permission::process::Set,
+		sync: Option<&tg::sync::Token>,
+		location: &tg::Location,
+	) -> tg::Result<tg::process::wait::Output> {
+		let exit = data
+			.exit
+			.ok_or_else(|| tg::error!("expected the exit to be set"))?;
+		let error = data.error.clone().map(|error| match error {
+			tg::Either::Left(error) => tg::Either::Left(error.without_location_and_tokens()),
+			tg::Either::Right(mut error) => {
+				if permissions.contains(tg::authorization::permission::process::Set::NODE_ERROR) {
+					Self::retain_wait_object_tokens(
+						&mut error.options.tokens,
+						&error.node.clone().into(),
+					);
+				} else {
+					error.options.clear_location_and_tokens();
+				}
+				tg::Either::Right(error)
+			},
+		});
+		let output = data.output.clone().map(|mut output| {
+			if permissions.contains(tg::authorization::permission::process::Set::NODE_OUTPUT) {
+				Self::update_wait_value_tokens(&mut output, &mut Self::retain_wait_object_tokens);
+				output
+			} else {
+				output.without_location_and_tokens()
+			}
+		});
+		let mut output = tg::process::wait::Output {
+			error,
+			exit,
+			output,
+		};
+		// The result sync covers every object in both fields.
+		let required = Self::wait_output_sync_permissions(&output);
+		if permissions.contains(required)
+			&& let Some(sync) = sync
+		{
+			Self::update_wait_output_sync_token(&mut output, sync, location);
+		}
+
+		Ok(output)
+	}
+
+	fn update_wait_value_tokens(
+		data: &mut tg::value::Data,
+		update: &mut impl FnMut(&mut tg::Tokens, &tg::object::Id),
+	) {
+		match data {
+			tg::value::Data::Array(array) => {
+				for value in array {
+					Self::update_wait_value_tokens(value, update);
+				}
+			},
+			tg::value::Data::Bool(_)
+			| tg::value::Data::Bytes(_)
+			| tg::value::Data::Null
+			| tg::value::Data::Number(_)
+			| tg::value::Data::Placeholder(_)
+			| tg::value::Data::String(_) => {},
+			tg::value::Data::Map(map) => {
+				for value in map.values_mut() {
+					Self::update_wait_value_tokens(value, update);
+				}
+			},
+			tg::value::Data::Module(module) => {
+				let mut objects = std::collections::BTreeSet::new();
+				module.children(&mut objects);
+				if let Some(id) = objects.first() {
+					update(&mut module.referent.options.tokens, id);
+				} else {
+					module.referent.options.clear_location_and_tokens();
+				}
+			},
+			tg::value::Data::Mutation(mutation) => match mutation {
+				tg::mutation::Data::Append { values } | tg::mutation::Data::Prepend { values } => {
+					for value in values {
+						Self::update_wait_value_tokens(value, update);
+					}
+				},
+				tg::mutation::Data::Merge { value } => {
+					for value in value.values_mut() {
+						Self::update_wait_value_tokens(value, update);
+					}
+				},
+				tg::mutation::Data::Prefix { template, .. }
+				| tg::mutation::Data::Suffix { template, .. } => {
+					Self::update_wait_template_tokens(template, update);
+				},
+				tg::mutation::Data::Set { value } | tg::mutation::Data::SetIfUnset { value } => {
+					Self::update_wait_value_tokens(value, update);
+				},
+				tg::mutation::Data::Unset => {},
+			},
+			tg::value::Data::Object(object) => update(&mut object.options.tokens, &object.node),
+			tg::value::Data::Template(template) => {
+				Self::update_wait_template_tokens(template, update);
+			},
+		}
+	}
+
+	fn update_wait_template_tokens(
+		template: &mut tg::template::Data,
+		update: &mut impl FnMut(&mut tg::Tokens, &tg::object::Id),
+	) {
+		for component in &mut template.components {
+			if let tg::template::data::Component::Artifact(artifact) = component {
+				update(&mut artifact.options.tokens, &artifact.node.clone().into());
+			}
+		}
+	}
+
+	fn retain_wait_object_tokens(tokens: &mut tg::Tokens, id: &tg::object::Id) {
+		// An inherited capability can cover objects outside this result.
+		let original = std::mem::take(tokens);
+		for (location, entry) in original.iter() {
+			for token in &entry.authorization {
+				if token.body.resource == tg::Id::from(id.clone()) {
+					tokens.insert_authorization(location.clone(), token.clone());
+				}
+			}
+		}
+	}
+
+	fn wait_output_sync_permissions(
+		output: &tg::process::wait::Output,
+	) -> tg::authorization::permission::process::Set {
+		let mut permissions = tg::authorization::permission::process::Set::empty();
+		if matches!(output.error, Some(tg::Either::Right(_))) {
+			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
+		}
+		let mut objects = std::collections::BTreeSet::new();
+		if let Some(output) = &output.output {
+			output.children(&mut objects);
+		}
+		if !objects.is_empty() {
+			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
+		}
+		permissions
+	}
+
+	fn update_wait_output_sync_token(
+		output: &mut tg::process::wait::Output,
+		sync: &tg::sync::Token,
+		location: &tg::Location,
+	) {
+		if let Some(tg::Either::Right(error)) = &mut output.error {
+			error
+				.options
+				.tokens
+				.set_sync(location.clone(), sync.clone());
+		}
+		if let Some(data) = &mut output.output {
+			Self::update_wait_value_tokens(data, &mut |tokens, _| {
+				tokens.set_sync(location.clone(), sync.clone());
+			});
+		}
+	}
+
 	async fn try_wait_process_inner(
 		&self,
 		id: &tg::process::Id,
@@ -203,7 +353,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(future) = self
-					.try_wait_process_local(id, arg.tokens.local().to_vec())
+					.try_wait_process_local(id, arg.tokens.local_authorization().to_vec())
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
 			{
@@ -251,7 +401,7 @@ impl Session {
 		id: &tg::process::Id,
 		tokens: Vec<tg::authorization::Token>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens);
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.clone());
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);
@@ -311,7 +461,7 @@ impl Session {
 				.data
 				.exit
 				.ok_or_else(|| tg::error!("expected the exit to be set"))?;
-			let output = tg::process::wait::Output {
+			let mut output = tg::process::wait::Output {
 				error: process
 					.data
 					.error
@@ -319,17 +469,69 @@ impl Session {
 				exit,
 				output: process.data.output,
 			};
+			session
+				.add_wait_output_sync_token(&id, tokens, &mut output)
+				.await?;
 			Ok(Some(output))
 		};
 
 		Ok(Some(future.boxed()))
 	}
 
+	async fn add_wait_output_sync_token(
+		&self,
+		id: &tg::process::Id,
+		tokens: Vec<tg::authorization::Token>,
+		output: &mut tg::process::wait::Output,
+	) -> tg::Result<()> {
+		let Some(process) = self.server.index.try_get_process(id).await? else {
+			return Ok(());
+		};
+		let mut requested = Self::wait_output_sync_permissions(output);
+		let missing = (requested.contains(tg::authorization::permission::process::Set::NODE_ERROR)
+			&& !process.storage.node_error)
+			|| (requested.contains(tg::authorization::permission::process::Set::NODE_OUTPUT)
+				&& !process.storage.node_output);
+		if !missing {
+			return Ok(());
+		}
+
+		// The shared result sync can confer both fields before their grants reach the index.
+		requested.insert(tg::authorization::permission::process::Set::NODE);
+		let requested = tg::authorization::permission::Set::Process(requested);
+		let required = tg::authorization::permission::Set::Process(
+			tg::authorization::permission::process::Set::NODE,
+		);
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens);
+		let mut permissions = self
+			.authorize_batch_with_required([(resource, requested)], required)
+			.await?;
+		if !permissions
+			.pop()
+			.flatten()
+			.is_some_and(|permissions| permissions.contains(requested))
+		{
+			return Ok(());
+		}
+
+		// A completed transfer no longer needs its live control connection.
+		let timeout = std::time::Duration::from_secs(1);
+		if let Ok(Ok(control)) =
+			tokio::time::timeout(timeout, self.get_process_control_output(id)).await
+			&& let Some(sync) = control.sync
+		{
+			let location = tg::Location::Local(tg::location::Local::default());
+			Self::update_wait_output_sync_token(output, &sync, &location);
+		}
+
+		Ok(())
+	}
+
 	async fn try_wait_process_regions(
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 		regions: &[String],
 	) -> tg::Result<
 		Option<(
@@ -364,7 +566,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 		region: &str,
 	) -> tg::Result<
 		Option<(
@@ -399,7 +601,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 		remotes: &[crate::location::Remote],
 	) -> tg::Result<
 		Option<(
@@ -434,7 +636,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::authorization::Tokens,
+		tokens: tg::Tokens,
 		remote: &crate::location::Remote,
 	) -> tg::Result<
 		Option<(
