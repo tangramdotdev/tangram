@@ -4,8 +4,10 @@ These are the end-to-end tests for tangram. Each `.nu`
 file is one self-contained test, run by the harness in `packages/cli/test.nu`.
 Run them with `nu packages/cli/test.nu [pattern]`, where `pattern` is an
 optional regex matched against each test's path. Pass `--accept` to accept new
-or changed snapshots. Pass `--no-progress-details` to show only the aggregate
-progress bar during highly concurrent runs.
+or changed snapshots. Pass `--preserve-failing-temps` to keep the temporary
+directories for failed tests, or `--preserve-temps` to keep them for every
+test. Pass `--no-progress-details` to show only the aggregate progress bar
+during highly concurrent runs.
 
 ## Cloud databases
 

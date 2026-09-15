@@ -25,6 +25,7 @@ def main [
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
 	--no-cloud # Use local backends for test instances.
+	--preserve-failing-temps # Keep the temporary directories for failed tests.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
 	--no-progress-details # Show only the aggregate progress bar, without listing running tests.
@@ -254,6 +255,7 @@ def main [
 		kernel_path: ($kernel_path | default "" | into string),
 		no_capture: $no_capture,
 		offline: $offline,
+		preserve_failing_temps: $preserve_failing_temps,
 		preserve_temps: $preserve_temps,
 		quickjs: $quickjs,
 		stress: $stress,
@@ -587,10 +589,13 @@ def main [
 		print -e $'(ansi red)✗(ansi reset) ($result.name) ($result.duration), exit ($exit_code) (($description))'
 	}
 
-	if $preserve_temps {
+	let preserved_results = $results | where { |result|
+		$preserve_temps or ($preserve_failing_temps and (is_failed $result))
+	} | where { |result| not ($result.temp_path | is-empty) }
+	if not ($preserved_results | is-empty) {
 		print -e ''
 		print -e 'preserved temp directories:'
-		for result in $results {
+		for result in $preserved_results {
 			print -e $'  ($result.name): ($result.temp_path)'
 		}
 	}
@@ -1307,7 +1312,7 @@ def run_test [test: record, options: record] {
 	let start = date now
 	let timeout = $options.timeout | into int | $in / 1_000_000_000
 	mut config = {}
-	if $options.preserve_temps {
+	if $options.preserve_failing_temps or $options.preserve_temps {
 		$config = $config | merge deep {
 			advanced: {
 				preserve_temp_directories: true,
@@ -1467,7 +1472,7 @@ def run_test [test: record, options: record] {
 	}
 
 	# Clean up the temp directory.
-	let preserve_temp = $options.preserve_temps or $output.exit_code not-in [0 77]
+	let preserve_temp = $options.preserve_temps or ($options.preserve_failing_temps and $output.exit_code not-in [0 77])
 	let temp_cleanup_error = if $preserve_temp {
 		null
 	} else {
