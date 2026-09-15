@@ -741,7 +741,11 @@ impl Session {
 							}
 							let args = [(resource, requested)];
 							let mut outputs = self.authorize_batch(args).await?;
-							Ok(outputs.pop().flatten())
+							let output = outputs
+								.pop()
+								.flatten()
+								.filter(|permissions| permissions.contains(requested));
+							Ok(output)
 						}
 					})
 					.await?

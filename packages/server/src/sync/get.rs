@@ -428,9 +428,7 @@ impl Session {
 		ids: &[tg::process::Id],
 		arg: &tg::sync::Arg,
 	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>> {
-		let Some(required) = Self::sync_get_process_permissions(arg) else {
-			return Ok(vec![None; ids.len()]);
-		};
+		let required = Self::sync_get_process_permissions(arg);
 
 		self.sync_get_authorize(
 			graph,
@@ -441,9 +439,7 @@ impl Session {
 		.await
 	}
 
-	fn sync_get_process_permissions(
-		arg: &tg::sync::Arg,
-	) -> Option<tg::authorization::permission::Set> {
+	fn sync_get_process_permissions(arg: &tg::sync::Arg) -> tg::authorization::permission::Set {
 		let mut permissions = tg::authorization::permission::Set::Process(
 			tg::authorization::permission::process::Set::empty(),
 		);
@@ -452,6 +448,7 @@ impl Session {
 				tg::authorization::Permission::Process(permission),
 			));
 		};
+		insert(tg::authorization::permission::process::Permission::Node);
 		if arg.process_children {
 			insert(tg::authorization::permission::process::Permission::Subtree);
 			if arg.process_commands {
@@ -480,7 +477,7 @@ impl Session {
 				insert(tg::authorization::permission::process::Permission::NodeOutput);
 			}
 		}
-		(!permissions.is_empty()).then_some(permissions)
+		permissions
 	}
 
 	async fn sync_get_authorize(
