@@ -93,7 +93,7 @@ impl Session {
 			.sandboxes()
 			.get(runner.index)
 			.filter(|sandbox| !sandbox.status.is_destroyed())
-			.and_then(|sandbox| sandbox.data());
+			.map(|sandbox| sandbox.data());
 		let Some(mut output) = output else {
 			return Ok(None);
 		};

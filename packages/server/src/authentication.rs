@@ -59,12 +59,12 @@ impl Session {
 			.get(id)
 			.map(|sandbox| sandbox.value().clone())
 			&& let Some(sandbox) = self.server.runner.state().sandboxes().get_by_id(&sandbox)
-			&& let Some(process) = sandbox.processes.get_by_id(id)
+			&& let Some(process) = sandbox.processes.get(id)
 		{
 			return Ok(Some(Process {
 				debug: process.data.debug.clone(),
 				host: process.data.host.clone(),
-				inner_token: process.inner_token.clone(),
+				inner_token: Some(process.inner_token.clone()),
 				location: Some(sandbox.location.clone()),
 				retry: process.data.retry,
 				sandbox: process.data.sandbox.clone(),
@@ -103,7 +103,7 @@ impl Session {
 			let location = sandbox.location.clone();
 			return Ok(Some(Sandbox {
 				location,
-				token: sandbox.token.clone(),
+				token: Some(sandbox.token.clone()),
 			}));
 		}
 
@@ -270,12 +270,12 @@ impl Server {
 			});
 		}
 
-		if let Some((sandbox_index, process_index)) = token.and_then(|token| {
+		if let Some((sandbox_index, id)) = token.and_then(|token| {
 			self.runner
 				.state()
 				.process_for_token()
 				.get(token)
-				.map(|process| *process.value())
+				.map(|process| process.value().clone())
 		}) {
 			let state = self.runner.state();
 			let Some(sandbox) = state.sandboxes().get(sandbox_index) else {
@@ -284,27 +284,15 @@ impl Server {
 					principal: tg::Principal::Anonymous,
 				});
 			};
-			let Some(process) = sandbox.processes.get(process_index) else {
+			let Some(process) = sandbox.processes.get(&id) else {
 				return Ok(Authentication {
 					billing: false,
 					principal: tg::Principal::Anonymous,
 				});
 			};
-			let mut process_id_receiver = process.id_receiver.clone();
 			let index_task = process.index_task.clone();
 			drop(process);
 			drop(sandbox);
-			let id = loop {
-				if let Some(id) = process_id_receiver.borrow().clone() {
-					break id;
-				}
-				if process_id_receiver.changed().await.is_err() {
-					return Ok(Authentication {
-						billing: false,
-						principal: tg::Principal::Anonymous,
-					});
-				}
-			};
 			index_task
 				.wait()
 				.await
@@ -368,8 +356,8 @@ impl Server {
 			| tg::Principal::Root
 			| tg::Principal::Runner(_)
 			| tg::Principal::User(_) => false,
-			tg::Principal::Process(id) => sandbox.processes.get_by_id(id).is_some(),
-			tg::Principal::Sandbox(id) => sandbox.id.as_ref() == Some(id),
+			tg::Principal::Process(id) => sandbox.processes.get(id).is_some(),
+			tg::Principal::Sandbox(id) => sandbox.id == *id,
 		};
 
 		Ok(can_authenticate)
@@ -420,8 +408,8 @@ impl Server {
 				.and_then(|sandbox| {
 					sandbox
 						.processes
-						.get_by_id(id)
-						.map(|process| process.inner_token.as_deref() == Some(value))
+						.get(id)
+						.map(|process| process.inner_token == value)
 				})
 				.unwrap_or(false),
 			tg::Principal::Sandbox(id) => self
@@ -429,7 +417,7 @@ impl Server {
 				.state()
 				.sandboxes()
 				.get_by_id(id)
-				.is_some_and(|sandbox| sandbox.token.as_deref() == Some(value)),
+				.is_some_and(|sandbox| sandbox.token == value),
 			_ => false,
 		};
 		if matches {

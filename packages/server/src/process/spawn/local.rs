@@ -124,7 +124,7 @@ impl Session {
 			.ok_or_else(|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"))?;
 		let control = sandbox
 			.processes
-			.get_by_id(parent)
+			.get(parent)
 			.map(|process| process.control.clone())
 			.ok_or_else(|| tg::error!(%parent, "failed to find the parent process"))?;
 		drop(sandbox);
@@ -252,7 +252,7 @@ impl Session {
 				let origin_owner = self
 					.server
 					.try_get_request_origin_sandbox(self.context.origin)?
-					.filter(|origin| origin.id.as_ref() == Some(sandbox))
+					.filter(|origin| origin.id == *sandbox)
 					.map(|origin| origin.data.arg.owner.clone());
 				if let Some(owner) = origin_owner {
 					owner

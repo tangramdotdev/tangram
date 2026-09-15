@@ -141,7 +141,7 @@ impl Session {
 		loop {
 			let output = runner
 				.processes
-				.get(runner.index)
+				.get(id)
 				.map(|process| -> tg::Result<_> {
 					if !process.data.status.is_finished() {
 						return Ok(None);

@@ -43,9 +43,8 @@ pub struct Runner {
 pub struct State {
 	capacity: self::capacity::Pool,
 	id: Mutex<Option<tg::runner::Id>>,
-	next_process_index: AtomicU64,
 	next_sandbox_index: AtomicU64,
-	process_for_token: dashmap::DashMap<String, (u64, u64)>,
+	process_for_token: dashmap::DashMap<String, (u64, tg::process::Id)>,
 	processes: crate::process::Map,
 	reservations: self::capacity::Reservations,
 	sandboxes: crate::sandbox::Sandboxes,
@@ -59,7 +58,6 @@ impl Runner {
 		let state = State {
 			capacity: self::capacity::Pool::new(config.capacity),
 			id: Mutex::new(None),
-			next_process_index: AtomicU64::new(1),
 			next_sandbox_index: AtomicU64::new(1),
 			process_for_token: dashmap::DashMap::new(),
 			processes: crate::process::Map::default(),
@@ -556,7 +554,7 @@ impl State {
 	}
 
 	#[must_use]
-	pub(crate) fn process_for_token(&self) -> &dashmap::DashMap<String, (u64, u64)> {
+	pub(crate) fn process_for_token(&self) -> &dashmap::DashMap<String, (u64, tg::process::Id)> {
 		&self.process_for_token
 	}
 
@@ -600,14 +598,6 @@ impl State {
 	}
 
 	#[must_use]
-	pub(crate) fn create_process_index(&self) -> u64 {
-		let index = self.next_process_index.fetch_add(1, Ordering::Relaxed);
-		assert_ne!(index, u64::MAX, "exhausted the process indexes");
-
-		index
-	}
-
-	#[must_use]
 	fn create_sandbox_index(&self) -> u64 {
 		let index = self.next_sandbox_index.fetch_add(1, Ordering::Relaxed);
 		assert_ne!(index, u64::MAX, "exhausted the sandbox indexes");
@@ -638,14 +628,14 @@ impl State {
 
 	#[must_use]
 	pub fn try_get_sandbox(&self, id: &tg::sandbox::Id) -> Option<tg::sandbox::get::Output> {
-		self.sandboxes.get_by_id(id)?.data()
+		Some(self.sandboxes.get_by_id(id)?.data())
 	}
 
 	#[must_use]
 	pub fn try_get_process(&self, id: &tg::process::Id) -> Option<tg::process::Data> {
 		let sandbox = self.try_get_process_sandbox(id)?;
 		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
-		let process = sandbox.processes.get_by_id(id)?;
+		let process = sandbox.processes.get(id)?;
 		Some(process.data())
 	}
 
@@ -658,7 +648,7 @@ impl State {
 	) -> Option<tg::process::control::GetChildrenClientResponseOutput> {
 		let sandbox = self.try_get_process_sandbox(id)?;
 		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
-		let process = sandbox.processes.get_by_id(id)?;
+		let process = sandbox.processes.get(id)?;
 		let children_length = u64::try_from(process.children.len()).unwrap();
 		let start = usize::try_from(position.min(children_length)).unwrap();
 		let end = usize::try_from(position.saturating_add(length).min(children_length)).unwrap();
@@ -683,7 +673,7 @@ impl State {
 	) -> Option<T> {
 		let sandbox = self.try_get_process_sandbox(id)?;
 		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
-		let mut process = sandbox.processes.get_mut_by_id(id)?;
+		let mut process = sandbox.processes.get_mut(id)?;
 		Some(update(&mut process))
 	}
 

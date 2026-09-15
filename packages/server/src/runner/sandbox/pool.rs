@@ -1,5 +1,5 @@
 use {
-	super::{CreateSandboxArg, CreateSandboxOutput},
+	super::CreateSandboxOutput,
 	crate::{Session, Shutdown},
 	futures::{StreamExt as _, stream::FuturesUnordered},
 	std::{collections::VecDeque, sync::Mutex},
@@ -97,10 +97,7 @@ impl Pool {
 			let session = session.clone();
 			move |_| async move {
 				session
-					.create_sandbox_inner(CreateSandboxArg {
-						arg: tg::sandbox::create::Arg::default(),
-						expected_id: None,
-					})
+					.create_sandbox_inner(tg::sandbox::create::Arg::default())
 					.await
 					.map_err(|error| tg::error!(!error, "failed to warm a sandbox"))
 			}

@@ -41,7 +41,7 @@ impl Session {
 			.ok_or_else(|| tg::error!("the parent sandbox was not found"))?;
 		let mut parent_process = parent_sandbox
 			.processes
-			.get_mut_by_id(&parent)
+			.get_mut(&parent)
 			.ok_or_else(|| tg::error!("the parent process was not found"))?;
 		if parent_process.data.status.is_finished() {
 			return Err(tg::error!("the parent process was finished"));

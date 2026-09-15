@@ -50,7 +50,7 @@ impl Session {
 		let request_origin_sandbox = self
 			.server
 			.try_get_request_origin_sandbox(self.context.origin)?
-			.and_then(|sandbox| sandbox.id.clone());
+			.map(|sandbox| sandbox.id.clone());
 		if let Some(origin) = &request_origin_sandbox
 			&& let Some(tg::Either::Right(target)) = &arg.sandbox
 			&& target != origin
