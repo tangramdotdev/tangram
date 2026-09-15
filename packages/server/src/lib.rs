@@ -770,13 +770,20 @@ impl Server {
 		} else {
 			tg::runner::Capacity::default()
 		};
-		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner) {
-			config.runner.sandbox_pool_size
-		} else {
-			0
-		};
+		let (process_control_pool_size, sandbox_control_pool_size, sandbox_pool_size) =
+			if config.roles.contains(&self::config::Role::Runner) {
+				(
+					config.runner.process_control_pool_size,
+					config.runner.sandbox_control_pool_size,
+					config.runner.sandbox_pool_size,
+				)
+			} else {
+				(0, 0, 0)
+			};
 		let runner_config = self::runner::Config {
 			capacity,
+			process_control_pool_size,
+			sandbox_control_pool_size,
 			sandbox_pool_size,
 		};
 		let runner = self::runner::Runner::new(runner_config);

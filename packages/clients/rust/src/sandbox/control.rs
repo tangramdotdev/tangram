@@ -42,6 +42,7 @@ pub struct ClientRequest {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientRequestArg {
 	Destroy(DestroyClientRequestArg),
+	Start(StartClientRequestArg),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -93,6 +94,7 @@ pub struct ServerResponse {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerResponseOutput {
 	Destroy(DestroyServerResponseOutput),
+	Start(StartServerResponseOutput),
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -112,6 +114,15 @@ pub struct DestroyClientResponseOutput {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct DestroyServerResponseOutput {}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct StartClientRequestArg {
+	pub created_at: i64,
+	pub data: Data,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct StartServerResponseOutput {}
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct GetServerRequestArg {}

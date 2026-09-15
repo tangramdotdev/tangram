@@ -31,10 +31,14 @@ type RunnerSender =
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Config {
 	pub capacity: tg::runner::Capacity,
+	pub process_control_pool_size: usize,
+	pub sandbox_control_pool_size: usize,
 	pub sandbox_pool_size: usize,
 }
 
 pub struct Runner {
+	process_control_pool: self::process::pool::Pool,
+	sandbox_control_pool: self::sandbox::connection::Pool,
 	sandbox_pool: self::sandbox::Pool,
 	state: State,
 	task: Mutex<Option<Task<()>>>,
@@ -66,12 +70,27 @@ impl Runner {
 			scheduler,
 		};
 		let task = Mutex::new(None);
+		let process_control_pool = self::process::pool::Pool::new(config.process_control_pool_size);
+		let sandbox_control_pool =
+			self::sandbox::connection::Pool::new(config.sandbox_control_pool_size);
 		let sandbox_pool = self::sandbox::Pool::new(config.sandbox_pool_size);
 		Self {
+			process_control_pool,
+			sandbox_control_pool,
 			sandbox_pool,
 			state,
 			task,
 		}
+	}
+
+	#[must_use]
+	pub(in crate::runner) fn process_control_pool(&self) -> &self::process::pool::Pool {
+		&self.process_control_pool
+	}
+
+	#[must_use]
+	pub(in crate::runner) fn sandbox_control_pool(&self) -> &self::sandbox::connection::Pool {
+		&self.sandbox_control_pool
 	}
 
 	#[must_use]
@@ -215,6 +234,8 @@ impl Session {
 			.unwrap()
 			.replace(id.clone());
 		self.start_sandbox_pool();
+		self.server.runner.process_control_pool.start(self);
+		self.server.runner.sandbox_control_pool.start(self);
 		loop {
 			let stop_future = stopper.wait();
 			let stop_future = pin!(stop_future);
@@ -246,7 +267,9 @@ impl Session {
 			.borrow()
 			.expect("the shutdown mode was not set");
 
-		// Stop the sandbox pool.
+		// Stop the pools.
+		self.server.runner.process_control_pool.shutdown().await;
+		self.server.runner.sandbox_control_pool.shutdown().await;
 		self.shutdown_sandbox_pool(shutdown).await;
 
 		// Shut down the sandbox tasks.
@@ -687,6 +710,14 @@ impl State {
 		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
 		let mut process = sandbox.processes.get_mut(id)?;
 		Some(update(&mut process))
+	}
+
+	#[must_use]
+	pub fn try_get_process_grant(&self, id: &tg::process::Id) -> Option<tg::authorization::Token> {
+		let sandbox = self.try_get_process_sandbox(id)?;
+		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+		let process = sandbox.processes.get(id)?;
+		process.grant.clone()
 	}
 
 	#[must_use]

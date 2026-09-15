@@ -22,6 +22,17 @@ impl Session {
 		let mut options = arg.options.clone();
 		options.location = arg.location.cloned();
 		options.tokens = arg.tokens.clone();
+
+		// Use the child's grant when the runner already holds it.
+		if options.tokens.local_entry().authorization.is_empty()
+			&& let Some(grant) = self.server.runner.state().try_get_process_grant(&child)
+		{
+			let entry = tg::tokens::Entry {
+				authorization: vec![grant],
+				sync: None,
+			};
+			options.tokens = tg::Tokens::with_local_entry(entry);
+		}
 		let data = tg::process::data::Child {
 			cached: arg.cached,
 			process: tg::Referent::new(child.clone(), options),

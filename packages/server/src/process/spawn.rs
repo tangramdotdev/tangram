@@ -448,7 +448,7 @@ impl Session {
 		Ok(Some(output))
 	}
 
-	pub(super) fn create_process_wait_token(
+	pub(crate) fn create_process_wait_token(
 		&self,
 		id: &tg::process::Id,
 		now: i64,

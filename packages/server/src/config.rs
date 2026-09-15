@@ -895,11 +895,15 @@ pub struct Runner {
 
 	pub memory: Option<u64>,
 
+	pub process_control_pool_size: usize,
+
 	pub process_state_ttl: Duration,
 
 	pub progress_log_delay: Duration,
 
 	pub remote: Option<String>,
+
+	pub sandbox_control_pool_size: usize,
 
 	pub sandbox_pool_size: usize,
 
@@ -1865,9 +1869,11 @@ impl Default for Runner {
 			id: None,
 			js: Js::default(),
 			memory: None,
+			process_control_pool_size: 0,
 			process_state_ttl: Duration::from_mins(1),
 			progress_log_delay: Duration::from_secs(2),
 			remote: None,
+			sandbox_control_pool_size: 0,
 			sandbox_pool_size: 1,
 			sandbox_state_ttl: Duration::from_mins(1),
 			scheduler_ttl: Duration::from_secs(10),

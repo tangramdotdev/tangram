@@ -1368,6 +1368,9 @@ pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory: Option<u64>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_control_pool_size: Option<usize>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process_state_ttl: Option<Duration>,
@@ -1378,6 +1381,9 @@ pub struct Runner {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub remote: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sandbox_control_pool_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sandbox_pool_size: Option<usize>,
@@ -3667,11 +3673,17 @@ fn resolve_runner(source: Runner) -> server::Runner {
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;
 	}
+	if let Some(value) = source.process_control_pool_size {
+		target.process_control_pool_size = value;
+	}
 	if let Some(value) = source.process_state_ttl {
 		target.process_state_ttl = value;
 	}
 	if let Some(value) = source.progress_log_delay {
 		target.progress_log_delay = value;
+	}
+	if let Some(value) = source.sandbox_control_pool_size {
+		target.sandbox_control_pool_size = value;
 	}
 	if let Some(value) = source.sandbox_pool_size {
 		target.sandbox_pool_size = value;

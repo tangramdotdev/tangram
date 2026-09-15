@@ -166,9 +166,6 @@ impl Session {
 		let mut options = arg.options;
 		options.tokens.clear();
 		let parent = arg.parent;
-		if assign && data.is_none() {
-			return Err(tg::error!("a process on the shortcut path must have data"));
-		}
 		let sync = match arg.sync {
 			Some(sync) => {
 				if !session.verify_sync_token(&sync) {
@@ -178,45 +175,50 @@ impl Session {
 			},
 			None => session.create_sync_token()?,
 		};
-		if assign && parent.is_none() {
+		// Reserve a new connection that carries no data.
+		let reserved = assign && data.is_none();
+		if reserved {
+			if !matches!(self.context.principal, tg::Principal::Runner(_)) {
+				return Err(tg::error!(
+					"a reserved process connection requires a runner"
+				));
+			}
+			if parent.is_some() || lease.is_some() {
+				return Err(tg::error!(
+					"a reserved process connection must not have a parent or a lease"
+				));
+			}
+		}
+		let write_data = match &data {
+			Some(data) => Some(Cow::Borrowed(data)),
+			None if reserved => None,
+			None => {
+				let data = session
+					.get_process_from_index(&id)
+					.await?
+					.data
+					.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+				Some(Cow::Owned(data))
+			},
+		};
+		if assign && !reserved && parent.is_none() {
 			return Err(tg::error!(
 				"a process on the shortcut path must have a parent"
 			));
 		}
-		// Load the stream configuration once for this connection.
-		let write_data = if let Some(data) = &data {
-			Cow::Borrowed(data)
-		} else {
-			let data = session
-				.get_process_from_index(&id)
-				.await?
-				.data
-				.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-			Cow::Owned(data)
-		};
-		let streams = [
-			write_data
-				.stderr
-				.is_log()
-				.then_some(tg::process::stdio::Stream::Stderr),
-			write_data
-				.stdout
-				.is_log()
-				.then_some(tg::process::stdio::Stream::Stdout),
-		]
-		.into_iter()
-		.flatten()
-		.collect();
-		let compacted = write_data.log.is_some();
-		drop(write_data);
-		let index_arg = IndexProcessControlArg {
-			assign,
-			data,
-			id: id.clone(),
-			options,
-			parent,
-		};
-		session.index_process_control(index_arg).boxed().await?;
+		let write_config = write_data.map(|data| self::write::Config::with_data(&data));
+		let (write_config_sender, write_config_receiver) =
+			tokio::sync::watch::channel(write_config);
+		if !reserved {
+			let index_arg = IndexProcessControlArg {
+				assign,
+				data,
+				id: id.clone(),
+				options,
+				parent,
+			};
+			session.index_process_control(index_arg).boxed().await?;
+		}
 		let forwarded_requests = Arc::new(DashSet::new());
 		let (sender_high, receiver_high) = tokio::sync::mpsc::channel(512);
 		let (sender_low, receiver_low) = tokio::sync::mpsc::channel(512);
@@ -230,11 +232,10 @@ impl Session {
 		let (write_sender, write_receiver) = tokio::sync::mpsc::channel(512);
 		let write_task =
 			session.spawn_process_control_write_task(self::write::RunProcessControlWriteTaskArg {
-				compacted,
+				config: write_config_receiver,
 				id: id.clone(),
 				receiver: write_receiver,
 				sender: control_sender.clone(),
-				streams,
 			});
 
 		let subject = format!("processes.{id}.control.server");
@@ -366,9 +367,8 @@ impl Session {
 						tg::process::control::ClientMessage::Request(request) => {
 							let request_id = request.id;
 							let priority = match &request.arg {
-								tg::process::control::ClientRequestArg::Finish(_) => {
-									crate::control::Priority::High
-								},
+								tg::process::control::ClientRequestArg::Finish(_)
+								| tg::process::control::ClientRequestArg::Start(_) => crate::control::Priority::High,
 								tg::process::control::ClientRequestArg::Write(_) => {
 									crate::control::Priority::Low
 								},
@@ -383,6 +383,16 @@ impl Session {
 										.boxed()
 										.await
 										.map(tg::process::control::ServerResponseOutput::Finish);
+									let response =
+										Self::process_control_server_response(request_id, result);
+									control_sender.send(response).await?;
+								},
+								tg::process::control::ClientRequestArg::Start(arg) => {
+									let result = session
+										.start_process_control(&id, arg, &write_config_sender)
+										.boxed()
+										.await
+										.map(tg::process::control::ServerResponseOutput::Start);
 									let response =
 										Self::process_control_server_response(request_id, result);
 									control_sender.send(response).await?;
@@ -423,20 +433,19 @@ impl Session {
 			.with_stopper(session.context.stopper.clone())
 			.boxed();
 
-		session
-			.server
-			.messenger
-			.publish(connected_subject(&id), Connected { lease })
-			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to publish the process control connection")
-			})?;
-
-		let grant = if assign {
-			let now = session.server.clock.unix_timestamp()?;
-			session.create_process_wait_token(&id, now)?
-		} else {
+		let grant = if reserved {
 			None
+		} else {
+			let lease = lease.ok_or_else(|| tg::error!("expected a lease"))?;
+			session
+				.publish_process_control_connected(&id, lease)
+				.await?;
+			if assign {
+				let now = session.server.clock.unix_timestamp()?;
+				session.create_process_wait_token(&id, now)?
+			} else {
+				None
+			}
 		};
 		let process = tg::Referent::with_node_and_local_tokens(id, grant);
 		let output = tg::process::control::Output {
@@ -449,6 +458,60 @@ impl Session {
 			.await;
 
 		Ok(Some((output, stream)))
+	}
+
+	async fn start_process_control(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::control::StartClientRequestArg,
+		write_config: &tokio::sync::watch::Sender<Option<self::write::Config>>,
+	) -> tg::Result<tg::process::control::StartServerResponseOutput> {
+		let tg::process::control::StartClientRequestArg {
+			data,
+			lease,
+			mut options,
+			parent,
+		} = arg;
+
+		crate::checkpoint!(self.server, "process.control.start.started", process = %id).await;
+
+		// Index the process once and issue a grant for every start.
+		let started = write_config.borrow().is_some();
+		if !started {
+			options.tokens.clear();
+			let config = self::write::Config::with_data(&data);
+			let index_arg = IndexProcessControlArg {
+				assign: true,
+				data: Some(data),
+				id: id.clone(),
+				options,
+				parent,
+			};
+			self.index_process_control(index_arg).boxed().await?;
+			write_config.send_replace(Some(config));
+			self.publish_process_control_connected(id, lease).await?;
+		}
+		let now = self.server.clock.unix_timestamp()?;
+		let grant = self.create_process_wait_token(id, now)?;
+		let output = tg::process::control::StartServerResponseOutput { grant };
+
+		Ok(output)
+	}
+
+	async fn publish_process_control_connected(
+		&self,
+		id: &tg::process::Id,
+		lease: String,
+	) -> tg::Result<()> {
+		self.server
+			.messenger
+			.publish(connected_subject(id), Connected { lease })
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to publish the process control connection")
+			})?;
+
+		Ok(())
 	}
 
 	async fn index_process_control(&self, arg: IndexProcessControlArg) -> tg::Result<()> {

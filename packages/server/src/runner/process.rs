@@ -24,6 +24,7 @@ use {
 };
 
 mod control;
+pub(in crate::runner) mod pool;
 mod progress;
 
 type CommandFuture = Shared<BoxFuture<'static, tg::Result<tg::command::Data>>>;
@@ -109,6 +110,13 @@ struct FinishProcessTaskArg {
 	process: tg::Process,
 	processes: Arc<crate::process::Processes>,
 	push: tokio::sync::oneshot::Sender<()>,
+}
+
+struct ProcessGrantTaskArg {
+	id: tg::process::Id,
+	parent: Option<tg::process::Id>,
+	processes: Arc<crate::process::Processes>,
+	response: control::ProcessControlResponseReceiver,
 }
 
 struct IndexProcessTaskArg<'a> {
@@ -350,13 +358,37 @@ impl Session {
 			.inherit_tokens(&command_options.tokens);
 		let process_stopper = Stopper::new();
 		let lease = Self::create_process_lease();
-		let (control_sender_high, control_responses_high) = tokio::sync::mpsc::channel(512);
-		let (control_sender_low, control_responses_low) = tokio::sync::mpsc::channel(512);
-		let mut control_responses = Some(
-			crate::control::priority_stream(control_responses_high, control_responses_low)
-				.map(Ok)
-				.boxed(),
-		);
+		let mut pooled = if inner_token.is_none() && location.is_remote() {
+			self.server.runner.process_control_pool().take(self).await
+		} else {
+			None
+		};
+		let is_pooled = pooled.is_some();
+		let (control_sender_high, control_sender_low, mut control_responses) =
+			match &pooled {
+				Some(entry) => (
+					entry.sender_high.clone(),
+					entry.sender_low.clone(),
+					None,
+				),
+				None => {
+					let (control_sender_high, control_responses_high) =
+						tokio::sync::mpsc::channel(512);
+					let (control_sender_low, control_responses_low) =
+						tokio::sync::mpsc::channel(512);
+					let control_responses = crate::control::priority_stream(
+						control_responses_high,
+						control_responses_low,
+					)
+					.map(Ok)
+					.boxed();
+					(
+						control_sender_high,
+						control_sender_low,
+						Some(control_responses),
+					)
+				},
+			};
 
 		// Obtain the shortcut process identity before starting execution.
 		let (id, inner_token, command_session, connection) = match (id, inner_token) {
@@ -382,33 +414,40 @@ impl Session {
 					|| tg::error!(%parent, "failed to find the parent process session"),
 				)?;
 				command_session.context.stopper = None;
-				if let Some(receiver) = sandbox_ready_receiver.take() {
-					receiver.await.map_err(|error| {
-						tg::error!(!error, "the sandbox failed before becoming ready")
-					})?;
-				}
-				let command = state.command.to_referent();
-				Self::push_process_command(&command_session, &command, &command_objects, &location)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to push the process command"))?;
-				let arg = tg::process::control::Arg {
-					data: Some(state.to_data()),
-					id: None,
-					lease: lease.clone(),
-					location: Some(location.clone().into()),
-					options: options.clone(),
-					parent: Some(parent.clone()),
-					sync: None,
-				};
-				let connection = session
-					.connect_process_control(arg, control_responses.take().unwrap())
-					.await?;
-				let id = connection.0.process.node.clone();
-				let token =
-					connection.0.token.clone().ok_or_else(
+				if let Some(entry) = &pooled {
+					let id = entry.id.clone();
+					let token = entry.token.clone();
+					(id, token, Some(command_session), None)
+				} else {
+					if let Some(receiver) = sandbox_ready_receiver.take() {
+						receiver.await.map_err(|error| {
+							tg::error!(!error, "the sandbox failed before becoming ready")
+						})?;
+					}
+					let command = state.command.to_referent();
+					Self::push_process_command(&command_session, &command, &command_objects, &location)
+						.await
+						.map_err(|error| {
+							tg::error!(!error, "failed to push the process command")
+						})?;
+					let arg = tg::process::control::Arg {
+						data: Some(state.to_data()),
+						id: None,
+						lease: Some(lease.clone()),
+						location: Some(location.clone().into()),
+						options: options.clone(),
+						parent: Some(parent.clone()),
+						sync: None,
+					};
+					let connection = session
+						.connect_process_control(arg, control_responses.take().unwrap())
+						.await?;
+					let id = connection.0.process.node.clone();
+					let token = connection.0.token.clone().ok_or_else(
 						|| tg::error!(%id, "missing the process authentication token"),
 					)?;
-				(id, token, Some(command_session), Some(connection))
+					(id, token, Some(command_session), Some(connection))
+				}
 			},
 			_ => {
 				return Err(tg::error!(
@@ -448,7 +487,9 @@ impl Session {
 		let sandbox_id = state.sandbox.clone();
 		let sync = connection
 			.as_ref()
-			.and_then(|(output, _)| output.sync.clone().filter(|_| location.is_remote()));
+			.and_then(|(output, _)| output.sync.clone())
+			.or_else(|| pooled.as_ref().and_then(|entry| entry.sync.clone()))
+			.filter(|_| location.is_remote());
 		let (control_sender, control_receiver) = crate::process::control::local::Local::new();
 		let entry = crate::process::State {
 			changed: tokio::sync::watch::channel(()).0,
@@ -461,6 +502,7 @@ impl Session {
 			control_sender,
 			data,
 			finish: None,
+			grant: None,
 			index_task: index_task.clone(),
 			inner_token: inner_token.clone(),
 			leases: BTreeSet::from([lease.clone()]),
@@ -530,8 +572,8 @@ impl Session {
 		// Load the command concurrently with the control stream.
 		let command: CommandFuture = {
 			let command_objects = command_objects
-				.into_iter()
-				.map(|object| (object.node, object.options))
+				.iter()
+				.map(|object| (object.node.clone(), object.options.clone()))
 				.collect::<BTreeMap<_, _>>();
 			// Ignore the source-relative location when loading the command on the runner.
 			state.command.state().set_location(None);
@@ -748,6 +790,7 @@ impl Session {
 		let (finish_sender, finish_receiver) = tokio::sync::oneshot::channel();
 		let (index_sender, index_receiver) = tokio::sync::oneshot::channel();
 		let (ready_sender, ready_receiver) = tokio::sync::oneshot::channel();
+		let mut ready_sender = Some(ready_sender);
 
 		// Collect and store the output concurrently with the control connection.
 		let exited = Stopper::new();
@@ -791,6 +834,7 @@ impl Session {
 			})
 			.transpose()?;
 		let (push_sender, push_receiver) = tokio::sync::oneshot::channel();
+		let pooled_control_sender = control.sender();
 		let control_task = Task::spawn({
 			let session = session.clone();
 			let exited = exited.clone();
@@ -854,43 +898,56 @@ impl Session {
 			Err(error) => {
 				process_stopper.stop();
 				drop(index_sender);
-				drop(ready_sender);
+				drop(ready_sender.take());
 				finish_task.wait().await.ok();
 				return Err(error);
 			},
 		};
 
 		// Complete command grant preparation before a tracked finish write can wait for indexing.
-		ready_sender.send(()).ok();
+		if !is_pooled {
+			ready_sender.take().unwrap().send(()).ok();
+		}
 
 		let data = state.to_data();
 
-		// Reuse the shortcut connection or connect the assigned process while it runs.
-		let connection = if let Some(connection) = connection {
-			Ok(connection)
+		// Reuse the shortcut connection, start the pooled connection, or connect the assigned process while it runs.
+		let (output, requests) = if let Some(entry) = pooled.take() {
+			// Sign a local wait token for the spawner.
+			let now = self.server.clock.unix_timestamp()?;
+			let token = self.create_process_wait_token(&id, now)?;
+			let process = tg::Referent::with_node_and_local_tokens(id.clone(), token);
+			let output = tg::process::control::Output {
+				process,
+				sync: entry.sync,
+				token: Some(entry.token),
+			};
+			(output, entry.requests)
+		} else if let Some(connection) = connection {
+			connection
 		} else {
 			let arg = tg::process::control::Arg {
 				data: Some(data.clone()),
 				id: Some(id.clone()),
-				lease: lease.clone(),
+				lease: Some(lease.clone()),
 				location: Some(location.clone().into()),
 				options: options.clone(),
 				parent: parent.clone(),
 				sync: None,
 			};
-			session
+			let connection = session
 				.connect_process_control(arg, control_responses.take().unwrap())
-				.await
-		};
-		let (output, requests) = match connection {
-			Ok(connection) => connection,
-			Err(error) => {
-				process_stopper.stop();
-				drop(index_sender);
-				finish_task.wait().await.ok();
+				.await;
+			match connection {
+				Ok(connection) => connection,
+				Err(error) => {
+					process_stopper.stop();
+					drop(index_sender);
+					finish_task.wait().await.ok();
 
-				return Err(error);
-			},
+					return Err(error);
+				},
+			}
 		};
 		requests_sender
 			.send(requests)
@@ -926,7 +983,7 @@ impl Session {
 			data,
 			id: &id,
 			location: &location,
-			options,
+			options: options.clone(),
 			parent: parent.as_ref(),
 		};
 		let index_result = session.spawn_index_process_task(arg).await;
@@ -965,6 +1022,65 @@ impl Session {
 				process: output.process,
 			})))
 			.ok();
+
+		// Push the command and start the pooled process.
+		if is_pooled {
+			let parent = parent
+				.as_ref()
+				.ok_or_else(|| tg::error!("a process on the shortcut path must have a parent"))?;
+			let mut parent_session = session
+				.try_get_process_session(parent)
+				.ok_or_else(|| tg::error!(%parent, "failed to find the parent process session"))?;
+			parent_session.context.stopper = None;
+			let command = state.command.to_referent();
+			let result = Self::push_process_command(
+				&parent_session,
+				&command,
+				&command_objects,
+				&location,
+			)
+			.await;
+			if let Err(error) = result {
+				process_stopper.stop();
+				drop(ready_sender.take());
+				finish_task.wait().await.ok();
+
+				return Err(tg::error!(!error, "failed to push the process command"));
+			}
+			let arg = tg::process::control::ClientRequestArg::Start(
+				tg::process::control::StartClientRequestArg {
+					data: state.to_data(),
+					lease: lease.clone(),
+					options: options.clone(),
+					parent: Some(parent.clone()),
+				},
+			);
+			let response = Self::send_process_control_client_request_inner(
+				&pooled_control_sender,
+				arg,
+				crate::control::Priority::High,
+			)
+			.await;
+			let response = match response {
+				Ok(response) => response,
+				Err(error) => {
+					process_stopper.stop();
+					drop(ready_sender.take());
+					finish_task.wait().await.ok();
+
+					return Err(tg::error!(!error, %id, "failed to start the pooled process"));
+				},
+			};
+			crate::checkpoint!(session.server, "runner.process.control.start.sent", process = %id)
+				.await;
+			self.spawn_process_grant_task(ProcessGrantTaskArg {
+				id: id.clone(),
+				parent: Some(parent.clone()),
+				processes: processes.clone(),
+				response,
+			});
+			ready_sender.take().unwrap().send(()).ok();
+		}
 
 		let output = finish_task
 			.wait()
@@ -1204,10 +1320,6 @@ impl Session {
 		crate::checkpoint!(self.server, "runner.process.output.stored", process = %id).await;
 		crate::checkpoint!(self.server, "runner.process.finish", command = %state.command, process = %id).await;
 
-		ready_receiver
-			.await
-			.map_err(|_| tg::error!("the process connection failed before initialization"))?;
-
 		// The initial write establishes command grants; the finished write only needs proofs for the result objects.
 		let index_task =
 			if let Some(authorization) = self.try_prepare_finished_process_authorization(&data) {
@@ -1239,6 +1351,10 @@ impl Session {
 				self.record_finished_process_local(arg).await?;
 				None
 			};
+
+		ready_receiver
+			.await
+			.map_err(|_| tg::error!("the process connection failed before initialization"))?;
 
 		// Retain the finish request across retries and reconnects without waiting for its response.
 		crate::checkpoint!(self.server, "runner.process.control.finish.request").await;
@@ -1801,6 +1917,58 @@ impl Session {
 			)
 			.await?;
 		Ok(roots)
+	}
+
+	fn spawn_process_grant_task(&self, arg: ProcessGrantTaskArg) {
+		let session = self.clone();
+		let mut task = Task::spawn(move |_| async move {
+			let result = session.process_grant_task(arg).await;
+			if let Err(error) = &result {
+				tracing::debug!(error = %error.trace(), "failed to receive the process grant");
+			}
+			result
+		});
+		task.detach();
+	}
+
+	async fn process_grant_task(&self, arg: ProcessGrantTaskArg) -> tg::Result<()> {
+		let ProcessGrantTaskArg {
+			id,
+			parent,
+			processes,
+			response,
+		} = arg;
+		let output = Self::receive_process_control_client_response(response).await?;
+		let tg::process::control::ServerResponseOutput::Start(output) = output else {
+			return Err(tg::error!("expected a start response"));
+		};
+		let Some(grant) = output.grant else {
+			return Ok(());
+		};
+		crate::checkpoint!(self.server, "runner.process.grant.received", process = %id).await;
+		if let Some(mut process) = processes.get_mut(&id) {
+			process.grant = Some(grant.clone());
+		}
+
+		let Some(parent) = parent else {
+			return Ok(());
+		};
+		let entry = tg::tokens::Entry {
+			authorization: vec![grant],
+			sync: None,
+		};
+		let tokens = tg::Tokens::with_local_entry(entry);
+		self.server
+			.runner
+			.state()
+			.try_update_process(&parent, |parent| {
+				if let Some(child) = parent.children.get_mut(&id) {
+					child.data.process.options.tokens = tokens;
+					parent.changed.send_replace(());
+				}
+			});
+
+		Ok(())
 	}
 
 	async fn spawn_index_process_task(&self, arg: IndexProcessTaskArg<'_>) -> tg::Result<()> {

@@ -19,6 +19,7 @@ use {
 	tokio_stream::{StreamMap, wrappers::UnboundedReceiverStream},
 };
 
+pub(in crate::runner) mod connection;
 mod control;
 #[cfg(target_os = "linux")]
 mod linux;
@@ -235,6 +236,15 @@ impl Session {
 				));
 			},
 		};
+		let pooled = if identity.is_none() && location.is_remote() {
+			self.server.runner.sandbox_control_pool().take(self).await
+		} else {
+			None
+		};
+		let identity = match &pooled {
+			Some(entry) => Some((entry.id.clone(), entry.token.clone())),
+			None => identity,
+		};
 		let context = if let Some((id, token)) = &identity {
 			Context {
 				principal: tg::Principal::Sandbox(id.clone()),
@@ -264,24 +274,39 @@ impl Session {
 			arg: arg.clone(),
 			creator: creator.clone(),
 		};
-		let (input, input_receiver) = tokio::sync::mpsc::channel(256);
-		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
-			.map(Ok)
-			.boxed();
+		let (input, input_stream) = match &pooled {
+			Some(entry) => (entry.sender.clone(), None),
+			None => {
+				let (input, input_receiver) = tokio::sync::mpsc::channel(256);
+				let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
+					.map(Ok)
+					.boxed();
+				(input, Some(input_stream))
+			},
+		};
+		let (control_sender_sender, control_sender_receiver) = tokio::sync::oneshot::channel();
 		let connect_future = {
 			let control_data = control_data.clone();
 			let id = identity.as_ref().map(|(id, _)| id.clone());
 			let location = location.clone();
 			async move {
-				connection_session
-					.get_sandbox_control_stream(
-						id.as_ref(),
-						&location,
-						created_at,
-						control_data,
-						input_stream,
-					)
-					.await
+				if let Some(entry) = pooled {
+					let sender = control_sender_receiver.await
+						.map_err(|_| tg::error!("the sandbox control sender was dropped"))?;
+					connection_session
+						.start_pooled_sandbox_control(entry, sender, &location, created_at, control_data)
+						.await
+				} else {
+					connection_session
+						.get_sandbox_control_stream(
+							id.as_ref(),
+							&location,
+							created_at,
+							control_data,
+							input_stream.unwrap(),
+						)
+						.await
+				}
 			}
 		};
 		let mut create_future = pin!(create_future);
@@ -393,6 +418,7 @@ impl Session {
 			input,
 			crate::control::stream_options(),
 		);
+		control_sender_sender.send(control.sender()).ok();
 		let control = control::Control::new(control, control_receiver);
 		let connected = async move {
 			connected_receiver
@@ -1302,6 +1328,62 @@ impl Session {
 			requests: control.boxed(),
 			token,
 		};
+		Ok(connection)
+	}
+
+	async fn start_pooled_sandbox_control(
+		&self,
+		entry: self::connection::Entry,
+		sender: SandboxControlSender,
+		location: &tg::Location,
+		created_at: i64,
+		data: tg::sandbox::control::Data,
+	) -> tg::Result<SandboxControlConnection> {
+		let self::connection::Entry {
+			id,
+			requests,
+			sender: _,
+			token,
+		} = entry;
+
+		// Start the sandbox without waiting for the response.
+		let arg = tg::sandbox::control::ClientRequestArg::Start(
+			tg::sandbox::control::StartClientRequestArg { created_at, data },
+		);
+		let request =
+			tg::sandbox::control::ClientMessage::Request(tg::sandbox::control::ClientRequest {
+				arg,
+				id: crate::control::id(),
+			});
+		let response = sender
+			.request(request, crate::control::Priority::High)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to start the pooled sandbox"))?;
+		let mut task = Task::spawn({
+			let id = id.clone();
+			move |_| async move {
+				let response = response
+					.await
+					.map_err(|_| tg::error!(%id, "the sandbox control response stream ended"));
+				match response {
+					Ok(tg::sandbox::control::ServerMessage::Response(response))
+						if response.error.is_some() =>
+					{
+						tracing::error!(?response.error, %id, "failed to start the sandbox");
+					},
+					Ok(_) => (),
+					Err(error) => {
+						tracing::error!(error = %error.trace(), "failed to start the sandbox");
+					},
+				}
+			}
+		});
+		task.detach();
+		crate::checkpoint!(self.server, "runner.sandbox.control.start.sent", sandbox = %id).await;
+		self.index_remote_sandbox(&id, location, created_at, None)
+			.await?;
+		let connection = SandboxControlConnection { id, requests, token };
+
 		Ok(connection)
 	}
 

@@ -20,16 +20,40 @@ pub(super) struct Request {
 }
 
 pub(super) struct RunProcessControlWriteTaskArg {
-	pub(super) compacted: bool,
+	pub(super) config: tokio::sync::watch::Receiver<Option<Config>>,
 	pub(super) id: tg::process::Id,
 	pub(super) receiver: tokio::sync::mpsc::Receiver<Request>,
 	pub(super) sender: super::ProcessControlSender,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct Config {
+	pub(super) compacted: bool,
 	pub(super) streams: BTreeSet<tg::process::stdio::Stream>,
 }
 
 struct Pending {
 	entry: log::put::Arg,
 	id: String,
+}
+
+impl Config {
+	#[must_use]
+	pub(super) fn with_data(data: &tg::process::Data) -> Self {
+		let streams = [
+			data.stderr
+				.is_log()
+				.then_some(tg::process::stdio::Stream::Stderr),
+			data.stdout
+				.is_log()
+				.then_some(tg::process::stdio::Stream::Stdout),
+		]
+		.into_iter()
+		.flatten()
+		.collect();
+		let compacted = data.log.is_some();
+		Self { compacted, streams }
+	}
 }
 
 impl Session {
@@ -53,12 +77,19 @@ impl Session {
 		arg: RunProcessControlWriteTaskArg,
 	) -> tg::Result<()> {
 		let RunProcessControlWriteTaskArg {
-			compacted,
+			mut config,
 			id,
 			receiver,
 			sender,
-			streams,
 		} = arg;
+
+		let config = {
+			let Ok(config) = config.wait_for(Option::is_some).await else {
+				return Ok(());
+			};
+			config.clone().unwrap()
+		};
+		let Config { compacted, streams } = config;
 		let requests = tokio_stream::StreamExt::chunks_timeout(
 			ReceiverStream::new(receiver),
 			LOG_BATCH_MAX_CHUNKS,

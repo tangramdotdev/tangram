@@ -50,6 +50,7 @@ pub struct State {
 	pub(crate) control_sender: control::local::Local,
 	pub data: tg::process::Data,
 	pub finish: Option<tg::process::control::FinishServerRequestArg>,
+	pub grant: Option<tg::authorization::Token>,
 	pub index_task: IndexTask,
 	pub inner_token: String,
 	pub leases: BTreeSet<String>,
