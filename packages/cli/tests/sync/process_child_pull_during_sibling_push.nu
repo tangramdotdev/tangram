@@ -114,6 +114,7 @@ let read_watch = (
 	| from json
 	| get watch
 )
+
 # Release the read immediately because proven permissions can let it precede the storage request.
 let read = job spawn {
 	let job_id = job id

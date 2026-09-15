@@ -522,6 +522,7 @@ impl Session {
 					grant_arg,
 				));
 			}
+
 			// Apply the initial data before accepting finish requests.
 			let index_arg = tangram_index::batch::Arg { items };
 			session

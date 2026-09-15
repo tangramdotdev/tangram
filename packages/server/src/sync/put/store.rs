@@ -3,6 +3,7 @@ use {
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
 	std::{collections::BTreeSet, io::SeekFrom, sync::Arc},
 	tangram_client::prelude::*,
+	tangram_index::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -342,23 +343,40 @@ impl Session {
 					.data;
 			}
 
-			// Load the children.
-			let arg = tg::process::children::get::Arg {
-				location: output.location.clone().map(Into::into),
-				tokens: tg::Tokens::with_local_entry(node.tokens.clone()),
-				..Default::default()
-			};
-			let children = self
-				.try_get_process_children(&node.id, arg)
-				.await?
-				.ok_or_else(
-					|| tg::error!(process = %node.id, "failed to get the process children"),
-				)?
-				.map_ok(|chunk| futures::stream::iter(chunk.data).map(Ok::<_, tg::Error>))
-				.try_flatten()
-				.try_collect()
+			// Read the local children using the node permission already proven by the graph.
+			let permission = tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Node,
+			);
+			if node.permissions.contains(permission)
+				&& let Some(process) = self.server.index.try_get_process(&node.id).await?
+			{
+				self.set_process_children_from_index(
+					&node.id,
+					process.set.children,
+					&mut output.data,
+				)
 				.await?;
-			output.data.children = Some(children);
+			}
+
+			// Load any children that are not stored locally.
+			if output.data.children.is_none() {
+				let arg = tg::process::children::get::Arg {
+					location: output.location.clone().map(Into::into),
+					tokens: tg::Tokens::with_local_entry(node.tokens.clone()),
+					..Default::default()
+				};
+				let children = self
+					.try_get_process_children(&node.id, arg)
+					.await?
+					.ok_or_else(
+						|| tg::error!(process = %node.id, "failed to get the process children"),
+					)?
+					.map_ok(|chunk| futures::stream::iter(chunk.data).map(Ok::<_, tg::Error>))
+					.try_flatten()
+					.try_collect()
+					.await?;
+				output.data.children = Some(children);
+			}
 			Self::validate_process_data(&output.data)?;
 
 			// Update the graph.

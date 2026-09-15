@@ -1681,6 +1681,7 @@ impl Graph {
 			},
 			_ => return None,
 		};
+
 		// Existing proofs can cover descendants that have not reached storage yet.
 		if let Some(proven) = node.local_permissions() {
 			permissions.insert(proven);

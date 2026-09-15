@@ -54,12 +54,16 @@ impl Token {
 	}
 
 	pub fn verify_at(&self, public_key: &tg::authorization::PublicKey, now: i64) -> tg::Result<()> {
+		// Validate the token metadata.
 		if self.metadata.algorithm != public_key.algorithm {
 			return Err(tg::error!("invalid algorithm"));
 		}
+
 		if self.metadata.key != public_key.name {
 			return Err(tg::error!("invalid key"));
 		}
+
+		// Verify the signature.
 		let input = Self::input(&self.body, &self.metadata)?;
 		match self.metadata.algorithm {
 			tg::authorization::Algorithm::Ed25519 => {
@@ -71,6 +75,8 @@ impl Token {
 					.map_err(|_| tg::error!("invalid signature"))?;
 			},
 		}
+
+		// Check expiration.
 		if now > self.body.expires_at {
 			return Err(tg::error!("expired sync token"));
 		}

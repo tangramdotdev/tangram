@@ -15,6 +15,7 @@ let path = artifact {
 }
 
 let output = tg build $path
+
 # Ignore additional authorization proofs when comparing the template layout.
 let output = $output | normalize_tokens | str replace --all --regex '&tokens\[local\]\[authorization\]\[\d+\]=<token>' ''
 snapshot $output

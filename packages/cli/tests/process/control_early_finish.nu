@@ -12,6 +12,7 @@ for source in ['export default () => tg.file("control output");' 'export default
 	let id = tg build --detach $path | str trim
 	tg wait $id | complete | ignore
 	let data = mktemp
+
 	# The runner wait can return before control records the finished process data.
 	for attempt in 0..100 {
 		let process = tg get $id

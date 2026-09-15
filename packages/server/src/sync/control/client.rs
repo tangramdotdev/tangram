@@ -363,6 +363,7 @@ impl Server {
 						return Ok(());
 					}
 				}
+
 				// Acknowledge duplicates and cancelled requests even after their local state is gone.
 				let ack = protocol::ClientAck {
 					id: response.id,

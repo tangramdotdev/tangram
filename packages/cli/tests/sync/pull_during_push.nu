@@ -5,6 +5,7 @@ use ../../test.nu *
 # token from the push identifies the incoming sync.
 
 let root_token = random chars
+
 # The remote stores one object per batch so that every object before the held blob is stored.
 let store = { object_max_batch: 1 }
 let remote = server spawn --cloud --name remote --config {
@@ -55,6 +56,7 @@ tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $
 wait_until { open --raw $push_log | str contains 'tokens[remote][sync]' } 'the push should log the referent with the sync token'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ "sync" }
 let referent = $push_lines | first | str trim
+
 # Obtain authorization separately from the sync and put the unrelated proof first.
 let root_proof = (
 	http get --headers { Accept: 'application/json', Authorization: $'Bearer ($root_token)' } --unix-socket $socket $'http://localhost/objects/($directory)'

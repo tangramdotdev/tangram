@@ -210,6 +210,7 @@ impl Session {
 			exit,
 			output,
 		};
+
 		// The result sync covers every object in both fields.
 		let required = Self::wait_output_sync_permissions(&output);
 		if permissions.contains(required)

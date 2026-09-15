@@ -186,6 +186,7 @@ impl Server {
 				},
 			}
 			let now = Instant::now();
+
 			// A stopping server only needs to retain responses that have not been acknowledged.
 			let drained = stopping_at.is_some()
 				&& state.leases.values().all(|lease| {

@@ -789,6 +789,7 @@ impl Session {
 				return Err(tg::error!(!error, "failed to push the process command"));
 			}
 		}
+
 		// Prepare command authorization before tracked finish writes can wait for initialization.
 		let command_roots = session
 			.prepare_process_command_grants(
@@ -807,6 +808,7 @@ impl Session {
 				return Err(error);
 			},
 		};
+
 		// Complete command transfer before a tracked task can wait for this connection.
 		ready_sender.take().unwrap().send(()).ok();
 

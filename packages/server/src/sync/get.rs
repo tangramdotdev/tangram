@@ -170,6 +170,7 @@ impl Session {
 				tokio::sync::mpsc::channel::<self::index::ObjectNode>(256);
 			let (index_process_sender, index_process_receiver) =
 				tokio::sync::mpsc::channel::<self::index::ProcessNode>(256);
+
 			// Create the input future.
 			let input_future = {
 				let session = self.clone();

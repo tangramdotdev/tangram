@@ -57,6 +57,7 @@ success $output "alice's push should reach the blob"
 wait_until { open --raw $push_log | str contains 'tokens[remote][sync]' } 'the push should log the referent with the sync token'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ "sync" }
 let referent = $push_lines | first | str trim
+
 # Obtain authorization separately from the sync and put the unrelated proof first.
 let root_proof = (
 	http get --headers { Accept: 'application/json', Authorization: $'Bearer ($root_token)' } --unix-socket $socket $'http://localhost/objects/($directory)'
