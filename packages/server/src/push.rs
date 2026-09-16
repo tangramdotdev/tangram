@@ -21,7 +21,6 @@ struct PushOrPullInnerArg<'a> {
 	destination: tg::Location,
 	get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
 	process: bool,
-	put: Vec<tg::Referent<tg::Id>>,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
 	source: tg::Location,
 }
@@ -32,7 +31,6 @@ struct PushOrPullTaskArg {
 	get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
 	process: bool,
 	progress: crate::progress::Handle<tg::push::Output>,
-	put: Vec<tg::Referent<tg::Id>>,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
 	source: tg::Location,
 	source_session: Option<tg::Session>,
@@ -55,12 +53,7 @@ impl Session {
 				region: None,
 			})
 		});
-		let put = if arg.eager {
-			arg.nodes.clone()
-		} else {
-			Vec::new()
-		};
-		let stream = self.push_or_pull(&arg, put, source, destination).await?;
+		let stream = self.push_or_pull(&arg, source, destination).await?;
 		Ok(stream)
 	}
 
@@ -89,7 +82,6 @@ impl Session {
 	pub(crate) async fn push_or_pull(
 		&self,
 		arg: &tg::push::Arg,
-		put: Vec<tg::Referent<tg::Id>>,
 		source: tg::Location,
 		destination: tg::Location,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
@@ -104,7 +96,6 @@ impl Session {
 			destination,
 			get,
 			process: false,
-			put,
 			received_specifiers: None,
 			source,
 		};
@@ -127,7 +118,6 @@ impl Session {
 			destination,
 			get,
 			process: false,
-			put: Vec::new(),
 			received_specifiers: Some(received_specifiers.clone()),
 			source,
 		};
@@ -149,17 +139,11 @@ impl Session {
 			.cloned()
 			.map(|node| node.map(tg::Selector::Id))
 			.collect();
-		let put = if arg.eager {
-			arg.nodes.clone()
-		} else {
-			Vec::new()
-		};
 		let inner_arg = PushOrPullInnerArg {
 			arg,
 			destination,
 			get,
 			process: true,
-			put,
 			received_specifiers: None,
 			source,
 		};
@@ -175,7 +159,6 @@ impl Session {
 			destination,
 			get,
 			process,
-			put,
 			received_specifiers,
 			source,
 		} = inner_arg;
@@ -221,14 +204,6 @@ impl Session {
 				node
 			})
 			.collect::<Vec<_>>();
-		let put = put
-			.into_iter()
-			.map(|mut node| {
-				node.options.tokens = node.options.tokens.for_location(&source);
-				node
-			})
-			.collect::<Vec<_>>();
-
 		// Create the progress handle and add the indicators.
 		let progress = crate::progress::Handle::new();
 		for name in [
@@ -288,7 +263,6 @@ impl Session {
 					get,
 					process,
 					progress: progress.clone(),
-					put,
 					received_specifiers,
 					source,
 					source_session,
@@ -465,7 +439,6 @@ impl Session {
 			get,
 			process,
 			progress,
-			put,
 			received_specifiers,
 			source,
 			source_session,
@@ -484,7 +457,6 @@ impl Session {
 			let destination = destination.clone();
 			let get = get.clone();
 			let progress = progress.clone();
-			let put = put.clone();
 			let received_specifiers = received_specifiers.clone();
 			let session = session.clone();
 			let source = source.clone();
@@ -536,7 +508,7 @@ impl Session {
 					process_errors: arg.process_errors,
 					process_logs: arg.process_logs,
 					process_outputs: arg.process_outputs,
-					put,
+					put: Vec::new(),
 					sandbox_processes: arg.sandbox_processes,
 					tag_targets: arg.tag_targets,
 					token: None,

@@ -46,8 +46,7 @@ impl Session {
 			self.push_or_pull_for_process(&arg, source, destination)
 				.await?
 		} else {
-			self.push_or_pull(&arg, Vec::new(), source, destination)
-				.await?
+			self.push_or_pull(&arg, source, destination).await?
 		};
 		Ok(stream.boxed())
 	}
