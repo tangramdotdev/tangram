@@ -2185,11 +2185,11 @@ export def --env "server spawn" [
 				},
 				"aarch64-linux": {
 					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2026.09.16/utils_aarch64_linux.tar.zst",
-					checksum: "sha256:452a996d74030a74f1b7de3a022cc7710a5ad216bb8fb1ac967544b0db632260",
+					checksum: "sha256:316b1b5d96bbf7b6e411f507a41c87e2dc8b43cd6c98960c20d64d3a5390b3a4",
 				},
 				"x86_64-linux": {
 					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2026.09.16/utils_x86_64_linux.tar.zst",
-					checksum: "sha256:1c555946f1a69253c6e6b5ae9152ee2c45629ebd047ba2e471c64ee79d8dbbff",
+					checksum: "sha256:c60c8c54913fd8be2b8614c8abe0b2bb9752fc4ebf5d3a0a13e81701020078cf",
 				},
 			};
 

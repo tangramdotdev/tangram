@@ -447,11 +447,11 @@ const sandboxRootfs = async (hostArg?: string) => {
 	if (arch === "aarch64") {
 		archiveName = "sandbox_aarch64_linux.tar.zst";
 		checksum =
-			"sha256:74ba372737114cc616be470e961973e31f58f7d7f8a5d9d7173ab4d9ded5877a";
+			"sha256:fa149313fbef0bb0287ceb9c3282ee2c31edd060e09a5c0cddf3d84361780710";
 	} else if (arch === "x86_64") {
 		archiveName = "sandbox_x86_64_linux.tar.zst";
 		checksum =
-			"sha256:5a33bbc287dde9e19befe69c502afe6efafff6235f0fbfae712206c5070cba41";
+			"sha256:cce4a90d4cc1893fc7a3f6b06f75661b865b8270b25b20555fea193069a98506";
 	} else {
 		throw new Error(`unsupported linux sandbox arch ${arch}`);
 	}
