@@ -194,13 +194,6 @@ export class Command<
 			host: tg.host.current,
 		});
 
-		for (let arg of args_) {
-			let value = arg instanceof tg.Command.Value ? arg.value : arg;
-			for (let object of tg.Value.objects(value)) {
-				command.state.inheritTokens(object.state.tokens);
-			}
-		}
-
 		return { node: command, options };
 	}
 

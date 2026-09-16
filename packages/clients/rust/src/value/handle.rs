@@ -90,6 +90,31 @@ impl Value {
 		}
 	}
 
+	/// Collect the referents of the objects and their loaded descendants without moving tokens between objects.
+	#[must_use]
+	pub fn referents(&self) -> Vec<tg::Referent<tg::object::Id>> {
+		let mut output = BTreeMap::<tg::object::Id, tg::Referent<tg::object::Id>>::new();
+		let mut expanded = BTreeSet::new();
+		let mut stack = self.objects();
+		while let Some(object) = stack.pop() {
+			let referent = object.to_referent();
+			if let Some(existing) = output.get_mut(&referent.node) {
+				existing.options.tokens.inherit(&referent.options.tokens);
+				if existing.options.location.is_none() {
+					existing.options.location = referent.options.location.clone();
+				}
+			} else {
+				output.insert(referent.node.clone(), referent.clone());
+			}
+			if let Some(object) = object.state().object()
+				&& expanded.insert(referent.node)
+			{
+				stack.extend(object.children());
+			}
+		}
+		output.into_values().collect()
+	}
+
 	pub async fn store(&self) -> tg::Result<()> {
 		let handle = tg::handle()?;
 		self.store_with_handle(handle).await

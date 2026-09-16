@@ -8,6 +8,7 @@ export namespace Spawn {
 		cacheLocation?: tg.Location.Arg | null;
 		checksum?: tg.Checksum | null;
 		command: tg.Referent<tg.Process.Spawn.CommandArg | tg.Command.Id>;
+		commandObjects?: Array<tg.Referent<tg.Object.Id>>;
 		debug?: tg.Process.Debug | null;
 		location?: tg.Location.Arg | null;
 		parent?: tg.Process.Id | null;
@@ -40,6 +41,11 @@ export namespace Spawn {
 					? command
 					: tg.Process.Spawn.CommandArg.toJson(command),
 			);
+			if (arg.commandObjects !== undefined) {
+				output.command_objects = arg.commandObjects.map((object) =>
+					tg.Referent.toData(object, (id) => id),
+				);
+			}
 			if (arg.debug !== undefined) {
 				output.debug = arg.debug;
 			}

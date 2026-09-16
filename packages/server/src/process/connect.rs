@@ -173,7 +173,11 @@ impl Session {
 			)
 			.await;
 			let source = self
-				.connect_process_command_sync_source(&command, input.take().unwrap())
+				.connect_process_command_sync_source(
+					&command,
+					&spawn_arg.command_objects,
+					input.take().unwrap(),
+				)
 				.await?;
 			arg.command_sync = true;
 			input = Some(source.input);
@@ -400,8 +404,16 @@ impl Session {
 			let prepared = prepared
 				.as_mut()
 				.ok_or_else(|| tg::error!("command sync requires a spawn"))?;
+			let tg::Either::Left(spawn) = &arg.process else {
+				return Err(tg::error!("command sync requires a spawn"));
+			};
 			let destination = self
-				.connect_process_command_sync_destination(&prepared.command, input, high)
+				.connect_process_command_sync_destination(
+					&prepared.command,
+					&spawn.command_objects,
+					input,
+					high,
+				)
 				.await?;
 			input = destination.input;
 			// Attach the destination-minted token to the ephemeral command; process storage strips it.
@@ -1436,6 +1448,10 @@ impl Session {
 					spawn.location = location;
 					spawn.command.options.tokens =
 						spawn.command.options.tokens.for_location(destination);
+					for object in &mut spawn.command_objects {
+						object.options.tokens = object.options.tokens.for_location(destination);
+						object.options.location = None;
+					}
 				}
 			},
 			tg::process::connect::ClientRequestArg::Read(arg) => {

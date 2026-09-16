@@ -61,8 +61,22 @@ impl Session {
 	pub async fn try_get_object(
 		&self,
 		id: &tg::object::Id,
-		arg: tg::object::get::Arg,
+		mut arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::get::Output>> {
+		// Recover the exact input context when a process loads a nested object from stored content.
+		if let tg::Principal::Process(process) = &self.context.principal
+			&& let Some(options) = self
+				.server
+				.runner
+				.state()
+				.try_get_process_object(process, id)
+		{
+			arg.tokens.inherit(&options.tokens);
+			if arg.location.is_none() {
+				arg.location = options.location.map(Into::into);
+			}
+		}
+
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await

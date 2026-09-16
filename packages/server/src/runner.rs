@@ -640,6 +640,18 @@ impl State {
 	}
 
 	#[must_use]
+	pub fn try_get_process_object(
+		&self,
+		id: &tg::process::Id,
+		object: &tg::object::Id,
+	) -> Option<tg::referent::Options> {
+		let sandbox = self.try_get_process_sandbox(id)?;
+		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+		let process = sandbox.processes.get(id)?;
+		process.command_objects.get(object).cloned()
+	}
+
+	#[must_use]
 	pub fn try_get_process_children(
 		&self,
 		id: &tg::process::Id,

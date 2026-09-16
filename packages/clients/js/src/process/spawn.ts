@@ -226,6 +226,7 @@ let spawnArgFromResolvedWithSandbox = async (
 				: arg.debug;
 	let spawnArg: tg.Process.Spawn.Arg = {
 		command: commandReferent,
+		commandObjects: tg.Value.referents(objects),
 		public: false,
 		retry: false,
 		stderr: stderr ?? "inherit",
@@ -496,7 +497,11 @@ export let prepareUnsandboxedCommand = async (
 
 	let tempPath = await tg.host.mkdtemp();
 	outputPath ??= tg.path.join(tempPath, "output");
-	let artifacts = await checkoutArtifacts(command, arg.command.options ?? {});
+	let artifacts = await checkoutArtifacts(
+		command,
+		arg.command.options ?? {},
+		arg.commandObjects ?? [],
+	);
 	let env = await renderEnv(command.env, artifacts, outputPath);
 	env.TANGRAM_JS_ENGINE =
 		typeof tg.process.env.TANGRAM_JS_ENGINE === "string"
@@ -742,9 +747,13 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 async function checkoutArtifacts(
 	command: tg.Command.Object,
 	options: tg.Referent.Options,
+	objects: Array<tg.Referent<tg.Object.Id>>,
 ): Promise<Map<tg.Artifact.Id, string>> {
 	let artifacts = new Map<tg.Artifact.Id, tg.Referent<tg.Artifact.Id>>();
-	for (let object of tg.Command.Object.children(command)) {
+	for (let object of [
+		...tg.Command.Object.children(command),
+		...objects.map(tg.Object.withReferent),
+	]) {
 		if (!tg.Artifact.is(object)) {
 			continue;
 		}
@@ -776,21 +785,24 @@ async function checkoutArtifacts(
 		}
 	}
 	let output = new Map<tg.Artifact.Id, string>();
-	for (let [artifact, referent] of artifacts) {
+	if (artifacts.size > 0) {
+		let nodes = [...artifacts.values()];
 		let stream = await tg.client.checkout({
 			dependencies: true,
 			force: false,
-			nodes: [referent],
+			nodes,
 		});
 		let event = await tg.Progress.lastOutput(stream);
 		if (event === null) {
 			throw new Error("stream ended without output");
 		}
-		let path = event.paths[0];
-		if (path === undefined) {
-			throw new Error("checkout returned no paths");
+		for (let [index, referent] of nodes.entries()) {
+			let path = event.paths[index];
+			if (path === undefined) {
+				throw new Error("checkout returned no paths");
+			}
+			output.set(referent.node, path);
 		}
-		output.set(artifact, path);
 	}
 	return output;
 }

@@ -4,7 +4,7 @@ use {
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future::BoxFuture, stream::BoxStream,
 	},
 	num::ToPrimitive as _,
-	std::pin::pin,
+	std::{collections::BTreeMap, pin::pin},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
@@ -140,6 +140,10 @@ impl Session {
 					.store_with_handle(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to store the command"))?;
+				// Preserve the input referents separately from the command's stored content.
+				let object = command.object_with_handle(self).await?;
+				arg.command_objects
+					.extend(object.children().iter().map(tg::Object::to_referent));
 				arg.command.options.location = command.state().location();
 				arg.command
 					.options
@@ -149,6 +153,18 @@ impl Session {
 			},
 			tg::Either::Right(id) => id.clone(),
 		};
+		let mut objects = BTreeMap::<tg::object::Id, tg::referent::Options>::new();
+		for object in std::mem::take(&mut arg.command_objects) {
+			let options = objects.entry(object.node).or_default();
+			options.tokens.inherit(&object.options.tokens);
+			if options.location.is_none() {
+				options.location = object.options.location;
+			}
+		}
+		arg.command_objects = objects
+			.into_iter()
+			.map(|(id, options)| tg::Referent::new(id, options))
+			.collect();
 		arg.command.node = tg::Either::Right(id.clone());
 		let command = tg::Referent::new(id, arg.command.options.clone());
 
@@ -468,14 +484,23 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
-		self.spawn_process_push_command(command, Some(location.clone()), progress)
-			.await
-			.map_err(|error| tg::error!(!error, region = %region, "failed to push the command"))?;
+		self.spawn_process_push_command(
+			command,
+			&arg.command_objects,
+			Some(location.clone()),
+			progress,
+		)
+		.await
+		.map_err(|error| tg::error!(!error, region = %region, "failed to push the command"))?;
 		let mut arg = tg::process::spawn::Arg {
 			location: Some(location.clone().into()),
 			..arg
 		};
 		arg.command.options.tokens = arg.command.options.tokens.for_location(&location);
+		for object in &mut arg.command_objects {
+			object.options.tokens = object.options.tokens.for_location(&location);
+			object.options.location = None;
+		}
 		let stream = client
 			.try_spawn_process(arg)
 			.await
@@ -519,9 +544,14 @@ impl Session {
 			name: remote.clone(),
 			region: region.clone(),
 		});
-		self.spawn_process_push_command(command, Some(destination.clone()), progress)
-			.await
-			.map_err(|error| tg::error!(!error, remote = %remote, "failed to push the command"))?;
+		self.spawn_process_push_command(
+			command,
+			&arg.command_objects,
+			Some(destination.clone()),
+			progress,
+		)
+		.await
+		.map_err(|error| tg::error!(!error, remote = %remote, "failed to push the command"))?;
 		let mut arg = tg::process::spawn::Arg {
 			location: Some(
 				tg::Location::Local(tg::location::Local {
@@ -532,6 +562,10 @@ impl Session {
 			..arg
 		};
 		arg.command.options.tokens = arg.command.options.tokens.for_location(&destination);
+		for object in &mut arg.command_objects {
+			object.options.tokens = object.options.tokens.for_location(&destination);
+			object.options.location = None;
+		}
 		let stream = client
 			.try_spawn_process(arg)
 			.await
@@ -572,15 +606,16 @@ impl Session {
 	pub(super) async fn spawn_process_push_command(
 		&self,
 		command: &tg::Referent<tg::command::Id>,
+		objects: &[tg::Referent<tg::object::Id>],
 		location: Option<tg::Location>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<()> {
+		let nodes = std::iter::once(command.clone().map(Into::into))
+			.chain(objects.iter().cloned().map(|object| object.map(Into::into)))
+			.collect();
 		let push_arg = tg::push::Arg {
 			destination: location,
-			nodes: vec![tg::Referent::with_node_and_tokens(
-				command.node.clone().into(),
-				command.options.tokens.clone(),
-			)],
+			nodes,
 			process_commands: true,
 			..Default::default()
 		};

@@ -12,6 +12,7 @@ pub(super) struct Output {
 	#[debug(ignore)]
 	pub allocation: Option<crate::runner::capacity::Allocation>,
 	pub cached: bool,
+	pub command_objects: Vec<tg::Referent<tg::object::Id>>,
 	pub data: tg::process::Data,
 	pub id: tg::process::Id,
 	pub lease: Option<String>,
@@ -375,6 +376,7 @@ impl Session {
 		let output = Output {
 			allocation: None,
 			cached: false,
+			command_objects: arg.command_objects.clone(),
 			data,
 			id: id.clone(),
 			lease: None,

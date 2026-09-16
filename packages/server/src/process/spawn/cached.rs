@@ -496,6 +496,7 @@ impl Session {
 		Ok(super::local::Output {
 			allocation: None,
 			cached: true,
+			command_objects: Vec::new(),
 			data,
 			id,
 			lease: None,
@@ -595,6 +596,7 @@ impl Session {
 		Ok(super::local::Output {
 			allocation: None,
 			cached: true,
+			command_objects: Vec::new(),
 			data,
 			id,
 			lease: None,

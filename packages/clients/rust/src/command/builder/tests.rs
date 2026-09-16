@@ -39,6 +39,56 @@ fn spawn_arg_preserves_executable_and_stdin_referents() {
 	assert_eq!(stdin.state().tokens(), blob_tokens);
 }
 
+#[test]
+fn input_referents_preserve_tokens_without_pooling() {
+	let location = tg::Location::Local(tg::location::Local::default());
+	let first = tg::Blob::with_id(tg::blob::Id::new(b"first"));
+	let second = tg::Blob::with_id(tg::blob::Id::new(b"second"));
+	let first_tokens = tokens(first.id().into(), &location);
+	let second_tokens = tokens(second.id().into(), &location);
+	first.state().set_tokens(first_tokens.clone());
+	second.state().set_tokens(second_tokens.clone());
+	let value = tg::Value::Array(vec![
+		first.clone().into(),
+		second.clone().into(),
+		first.clone().into(),
+	]);
+	let executable = tg::command::Executable {
+		artifact: None,
+		path: Some("tg".into()),
+	};
+	let command = Builder::new()
+		.executable(executable)
+		.arg(tg::command::Value::Value(value))
+		.build()
+		.unwrap();
+	let referents = tg::Value::from(command.clone()).referents();
+	assert!(command.state().tokens().is_empty());
+	assert_eq!(referents.len(), 3);
+	assert_eq!(
+		referents
+			.iter()
+			.find(|referent| referent.node == first.id().into())
+			.unwrap()
+			.options
+			.tokens,
+		first_tokens
+	);
+	assert_eq!(
+		referents
+			.iter()
+			.find(|referent| referent.node == second.id().into())
+			.unwrap()
+			.options
+			.tokens,
+		second_tokens
+	);
+	let object = command.state().object().unwrap();
+	let _data = object.to_data().without_location_and_tokens();
+	assert_eq!(first.state().tokens(), first_tokens);
+	assert_eq!(second.state().tokens(), second_tokens);
+}
+
 fn tokens(resource: tg::Id, location: &tg::Location) -> tg::Tokens {
 	let token = tg::authorization::Token {
 		body: tg::authorization::Body {
