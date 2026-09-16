@@ -655,18 +655,10 @@ impl Session {
 			state.progress.increment("bytes", len);
 
 			// Set the permissions.
-			let permissions = std::fs::Permissions::from_mode(0o644);
+			let mode = if node.executable { 0o755 } else { 0o644 };
+			let permissions = std::fs::Permissions::from_mode(mode);
 			std::fs::set_permissions(dst, permissions)
 				.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
-
-			if cfg!(target_os = "linux") {
-				// Set the permissions.
-				if node.executable {
-					let permissions = std::fs::Permissions::from_mode(0o755);
-					std::fs::set_permissions(dst, permissions)
-						.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
-				}
-			}
 
 			done = true;
 		}
