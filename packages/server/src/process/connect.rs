@@ -27,6 +27,8 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
+mod sync;
+
 const MAX_OPERATIONS: usize = 64;
 
 type Input = BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>;
@@ -125,6 +127,7 @@ impl Session {
 			let task = Task::spawn(move |_| async move {
 				if let Err(error) = session
 					.connect_process_spawn_task(arg, request_id, input, prepared, &sender)
+					.boxed()
 					.await
 				{
 					sender.send(Err(error)).await.ok();
@@ -158,42 +161,26 @@ impl Session {
 			.await;
 		let spawn_arg = spawn_arg.clone();
 
-		// Push the command and report progress.
-		let progress = crate::progress::Handle::new();
-		let mut events = progress.stream().boxed();
-		crate::checkpoint!(
-			self.server,
-			"process.connect.command.push.started",
-			command = %command.node,
-		)
-		.await;
-		let mut push = self
-			.spawn_process_push_command(&command, Some(location.clone()), &progress)
-			.boxed();
-		let result = loop {
-			tokio::select! {
-				result = &mut push => {
-					break result;
-				},
-				event = events.try_next() => {
-					let event = event?.ok_or_else(|| tg::error!("the command transfer ended"))?;
-					let notification = tg::process::connect::ServerNotification::Progress(event.map_output(|_| ()));
-					let message = tg::process::connect::ServerMessage::Notification(notification);
-					sender.send(Ok(message)).await.map_err(|_| tg::error!("the process connection closed"))?;
-				},
-			}
-		};
-		drop(push);
-		crate::checkpoint!(
-			self.server,
-			"process.connect.command.push.finished",
-			command = %command.node,
-		)
-		.await;
-		result?;
+		// Start a command sync when this is the first routing hop.
+		let mut input = Some(input);
+		let mut sync_sender = None;
+		let start_command_sync = !arg.command_sync;
+		if start_command_sync {
+			crate::checkpoint!(
+				self.server,
+				"process.connect.command.push.started",
+				command = %command.node,
+			)
+			.await;
+			let source = self
+				.connect_process_command_sync_source(&command, input.take().unwrap())
+				.await?;
+			arg.command_sync = true;
+			input = Some(source.input);
+			sync_sender = Some(source.sender);
+		}
 
 		// Connect to the destination.
-		let mut input = Some(input);
 		let output = match location {
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -215,6 +202,7 @@ impl Session {
 
 		// Register the child and return the connection messages.
 		let mut output = output;
+		let mut pending_wait = None;
 		loop {
 			let message = tokio::select! {
 				message = output.try_next() => message?,
@@ -226,6 +214,45 @@ impl Session {
 			let Some(message) = message else {
 				break;
 			};
+			if let tg::process::connect::ServerMessage::Sync(message) = &message
+				&& sync_sender.is_some()
+			{
+				let sync_message = Self::connect_process_decode_sync_message(message)?;
+				if matches!(sync_message, tg::sync::Message::End) {
+					sync_sender = None;
+					crate::checkpoint!(
+						self.server,
+						"process.connect.command.push.finished",
+						command = %command.node,
+					)
+					.await;
+					if let Some(message) = pending_wait.take() {
+						sender
+							.send(Ok(message))
+							.await
+							.map_err(|_| tg::error!("the process connection closed"))?;
+					}
+				} else {
+					sync_sender
+						.as_ref()
+						.unwrap()
+						.send(Ok(sync_message))
+						.await
+						.map_err(|_| tg::error!("the command sync closed"))?;
+				}
+				continue;
+			}
+			if start_command_sync
+				&& sync_sender.is_some()
+				&& matches!(
+					message,
+					tg::process::connect::ServerMessage::Notification(
+						tg::process::connect::ServerNotification::Wait(_)
+					)
+				) {
+				pending_wait = Some(message);
+				continue;
+			}
 			if let tg::process::connect::ServerMessage::Response(response) = &message
 				&& let Some(tg::process::connect::ServerResponseOutput::Connect(output)) =
 					&response.output
@@ -238,6 +265,12 @@ impl Session {
 				.send(Ok(message))
 				.await
 				.map_err(|_| tg::error!("the process connection closed"))?;
+		}
+		if sync_sender.is_some() {
+			return Err(tg::error!("the command sync ended unexpectedly"));
+		}
+		if pending_wait.is_some() {
+			return Err(tg::error!("the process wait was not forwarded"));
 		}
 
 		Ok(())
@@ -357,11 +390,37 @@ impl Session {
 	) -> tg::Result<()> {
 		// Select the process.
 		let Options {
-			arg,
+			mut arg,
 			id: request_id,
-			prepared,
+			mut prepared,
 			wait,
 		} = options;
+		let mut sync_task = None;
+		if arg.command_sync {
+			let prepared = prepared
+				.as_mut()
+				.ok_or_else(|| tg::error!("command sync requires a spawn"))?;
+			let destination = self
+				.connect_process_command_sync_destination(&prepared.command, input, high)
+				.await?;
+			input = destination.input;
+			// Attach the destination-minted token to the ephemeral command; process storage strips it.
+			let location = tg::Location::Local(tg::location::Local::default());
+			prepared
+				.command
+				.options
+				.tokens
+				.set_sync(location.clone(), destination.token.clone());
+			let tg::Either::Left(spawn) = &mut arg.process else {
+				return Err(tg::error!("command sync requires a spawn"));
+			};
+			spawn
+				.command
+				.options
+				.tokens
+				.set_sync(location, destination.token);
+			sync_task = Some(destination.task);
+		}
 		Self::send_connect_ack(high, request_id).await?;
 		let mut pending = VecDeque::new();
 		let mode = arg.mode;
@@ -396,6 +455,7 @@ impl Session {
 
 		// Complete a spawn-only connection.
 		if mode == tg::process::connect::Mode::Spawn {
+			Self::connect_process_finish_command_sync(&mut sync_task).await?;
 			Self::send_connect_response(
 				high,
 				request_id,
@@ -413,6 +473,7 @@ impl Session {
 				tg::Location::Local(tg::location::Local { region: None })
 			) {
 			let arg = tg::process::connect::Arg {
+				command_sync: false,
 				lease: output.lease.clone(),
 				location,
 				mode,
@@ -431,6 +492,7 @@ impl Session {
 			.chain(input)
 			.boxed();
 			self.connect_process_cached_task(output, input, low).await?;
+			Self::connect_process_finish_command_sync(&mut sync_task).await?;
 			return Ok(());
 		}
 
@@ -506,6 +568,7 @@ impl Session {
 		self.connect_process_run_task(state, wait, pending, input)
 			.boxed()
 			.await?;
+		Self::connect_process_finish_command_sync(&mut sync_task).await?;
 
 		Ok(())
 	}
@@ -689,6 +752,9 @@ impl Session {
 
 			tg::process::connect::ClientMessage::Request(request) => {
 				return self.connect_process_handle_request(state, request).await;
+			},
+			tg::process::connect::ClientMessage::Sync(_) => {
+				return Err(tg::error!("unexpected process sync message"));
 			},
 		}
 		Ok(ControlFlow::Continue(()))
@@ -1291,6 +1357,7 @@ impl Session {
 	) -> tg::Result<()> {
 		match message {
 			tg::process::connect::ServerMessage::Ack(_)
+			| tg::process::connect::ServerMessage::Sync(_)
 			| tg::process::connect::ServerMessage::Notification(
 				tg::process::connect::ServerNotification::Progress(
 					tg::progress::Event::Indicators(_)

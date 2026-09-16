@@ -15,6 +15,7 @@ use {
 	futures::{StreamExt as _, stream::BoxStream},
 	tangram_futures::stream::TryExt as _,
 	tangram_http::response::Ext as _,
+	tangram_util::serde::is_false,
 };
 
 mod connection;
@@ -42,6 +43,8 @@ pub enum ClientMessage {
 	Notification(ClientNotification),
 	#[tangram_serialize(id = 2)]
 	Request(ClientRequest),
+	#[tangram_serialize(id = 3)]
+	Sync(Vec<u8>),
 }
 
 #[derive(
@@ -60,6 +63,8 @@ pub enum ServerMessage {
 	Notification(ServerNotification),
 	#[tangram_serialize(id = 2)]
 	Response(ServerResponse),
+	#[tangram_serialize(id = 3)]
+	Sync(Vec<u8>),
 }
 
 #[derive(
@@ -204,6 +209,10 @@ pub enum ServerResponseOutput {
 	tangram_serialize::Serialize,
 )]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
+	pub command_sync: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
 	pub lease: Option<String>,
@@ -347,6 +356,7 @@ impl<O: 'static> tg::Process<O> {
 			})
 			.collect();
 		let arg = Arg {
+			command_sync: false,
 			lease: options.lease,
 			location: options.location,
 			mode: Mode::Run,
@@ -419,6 +429,7 @@ impl TryFrom<ClientMessage> for tangram_http::sse::Event {
 			ClientMessage::Ack(value) => ("ack", serde_json::to_string(&value)),
 			ClientMessage::Notification(value) => ("notification", serde_json::to_string(&value)),
 			ClientMessage::Request(value) => ("request", serde_json::to_string(&value)),
+			ClientMessage::Sync(value) => ("sync", serde_json::to_string(&value)),
 		};
 		let data = data.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
 		let event = Some(event.to_owned());
@@ -439,6 +450,7 @@ impl TryFrom<tangram_http::sse::Event> for ClientMessage {
 			Some("ack") => serde_json::from_str(&event.data).map(Self::Ack),
 			Some("notification") => serde_json::from_str(&event.data).map(Self::Notification),
 			Some("request") => serde_json::from_str(&event.data).map(Self::Request),
+			Some("sync") => serde_json::from_str(&event.data).map(Self::Sync),
 			Some("error") => {
 				let error: tg::Either<tg::error::Data, tg::error::Id> =
 					serde_json::from_str(&event.data)
@@ -460,6 +472,7 @@ impl TryFrom<ServerMessage> for tangram_http::sse::Event {
 			ServerMessage::Ack(value) => ("ack", serde_json::to_string(&value)),
 			ServerMessage::Notification(value) => ("notification", serde_json::to_string(&value)),
 			ServerMessage::Response(value) => ("response", serde_json::to_string(&value)),
+			ServerMessage::Sync(value) => ("sync", serde_json::to_string(&value)),
 		};
 		let data = data.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
 		let event = Some(event.to_owned());
@@ -480,6 +493,7 @@ impl TryFrom<tangram_http::sse::Event> for ServerMessage {
 			Some("ack") => serde_json::from_str(&event.data).map(Self::Ack),
 			Some("notification") => serde_json::from_str(&event.data).map(Self::Notification),
 			Some("response") => serde_json::from_str(&event.data).map(Self::Response),
+			Some("sync") => serde_json::from_str(&event.data).map(Self::Sync),
 			Some("error") => {
 				let error: tg::Either<tg::error::Data, tg::error::Id> =
 					serde_json::from_str(&event.data)

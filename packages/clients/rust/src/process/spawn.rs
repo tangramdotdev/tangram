@@ -577,6 +577,7 @@ impl<O: 'static> tg::Process<O> {
 			}
 		}
 		let arg = tg::process::connect::Arg {
+			command_sync: false,
 			lease: None,
 			location: arg.location.take(),
 			mode: options.mode,

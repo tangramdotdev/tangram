@@ -136,6 +136,9 @@ impl Session {
 		while let Some(message) = output.try_next().await? {
 			match message {
 				ServerMessage::Ack(_) => (),
+				ServerMessage::Sync(_) => {
+					return Err(tg::error!("unexpected process sync message"));
+				},
 
 				ServerMessage::Notification(ServerNotification::Progress(event)) => {
 					let event =
@@ -294,6 +297,7 @@ impl Session {
 			.cloned()
 			.ok_or_else(|| tg::error!("expected a sandboxed process"))?;
 		let arg = Arg {
+			command_sync: false,
 			lease: output.lease.clone(),
 			location: output.location.clone().map(Into::into),
 			mode: Mode::Run,

@@ -65,6 +65,7 @@ async fn handles_preserve_not_found() {
 	let handles = [tg::Either::Left(client), tg::Either::Right(session)];
 	let input = || {
 		let arg = Arg {
+			command_sync: false,
 			lease: None,
 			location: None,
 			mode: Mode::Run,
@@ -283,6 +284,7 @@ fn opening_metadata_preserves_read_options() {
 	};
 	let id = tg::process::Id::new();
 	let arg = Arg {
+		command_sync: false,
 		lease: Some("lease".to_owned()),
 		location: Some("remote:test".parse().unwrap()),
 		mode: Mode::Run,
@@ -343,6 +345,7 @@ fn spawn_metadata_uses_native_types() {
 	let mut arg: tg::process::spawn::Arg = serde_json::from_value(arg).unwrap();
 	for mode in [Mode::Run, Mode::Spawn] {
 		let request = Arg {
+			command_sync: false,
 			lease: None,
 			location: Some("remote:test".parse().unwrap()),
 			mode,
@@ -470,6 +473,13 @@ fn stdio_keeps_binary_bytes_and_eof_positions() {
 		let message = ClientMessage::Request(request);
 		assert_roundtrip(&message);
 	}
+}
+
+#[test]
+fn sync_frames_preserve_binary_bytes() {
+	let bytes = vec![0, 1, 127, 128, 255];
+	assert_roundtrip(&ClientMessage::Sync(bytes.clone()));
+	assert_roundtrip(&ServerMessage::Sync(bytes));
 }
 
 #[test]
