@@ -359,7 +359,7 @@ impl Session {
 		let process_stopper = Stopper::new();
 		let lease = Self::create_process_lease();
 		let mut pooled = if inner_token.is_none() && location.is_remote() {
-			self.server.runner.process_control_pool().take(self).await
+			self.server.runner.process_control_pool().take().await
 		} else {
 			None
 		};
@@ -428,6 +428,7 @@ impl Session {
 						location: Some(location.clone().into()),
 						options: options.clone(),
 						parent: Some(parent.clone()),
+						reserved: false,
 						sync: None,
 					};
 					let connection = session
@@ -924,6 +925,7 @@ impl Session {
 				location: Some(location.clone().into()),
 				options: options.clone(),
 				parent: parent.clone(),
+				reserved: false,
 				sync: None,
 			};
 			let connection = session

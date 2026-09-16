@@ -40,6 +40,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
 
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub reserved: bool,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sync: Option<tg::sync::Token>,
 }

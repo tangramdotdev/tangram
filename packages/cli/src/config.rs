@@ -1352,6 +1352,10 @@ pub struct RemoteCache {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Runner {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub connection_pool_refill_interval: Option<Duration>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpus: Option<u64>,
 
@@ -3669,6 +3673,9 @@ fn resolve_runner(source: Runner) -> server::Runner {
 	let mut target = server::Runner::default();
 	if let Some(source) = source.js {
 		target.js = resolve_js(source);
+	}
+	if let Some(value) = source.connection_pool_refill_interval {
+		target.connection_pool_refill_interval = value;
 	}
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;

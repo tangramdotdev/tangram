@@ -885,6 +885,8 @@ pub struct RemoteCache {
 
 #[derive(Clone, Debug)]
 pub struct Runner {
+	pub connection_pool_refill_interval: Duration,
+
 	pub cpus: Option<u64>,
 
 	pub heartbeat_interval: Duration,
@@ -1864,6 +1866,7 @@ impl Default for RemoteCache {
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
+			connection_pool_refill_interval: Duration::from_secs(1),
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,

@@ -237,7 +237,7 @@ impl Session {
 			},
 		};
 		let pooled = if identity.is_none() && location.is_remote() {
-			self.server.runner.sandbox_control_pool().take(self).await
+			self.server.runner.sandbox_control_pool().take().await
 		} else {
 			None
 		};
@@ -1289,6 +1289,7 @@ impl Session {
 			data: Some(data),
 			id: id.cloned(),
 			location: Some(location.clone().into()),
+			reserved: false,
 			runner: Some(runner),
 		};
 		let reconnect_context = self.context.clone();

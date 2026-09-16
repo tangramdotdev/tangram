@@ -185,23 +185,34 @@ impl Session {
 		};
 		let session = self.server.session(&context);
 
-		// Reserve a new connection that carries no data.
-		let reserved = assign && arg.data.is_none();
-		if reserved && !matches!(self.context.principal, tg::Principal::Runner(_)) {
-			return Err(tg::error!(
-				"a reserved sandbox connection requires a runner"
-			));
+		// Validate a reserved connection, which reports nothing until it is started.
+		let reserved = arg.reserved;
+		if reserved {
+			if assign && !matches!(self.context.principal, tg::Principal::Runner(_)) {
+				return Err(tg::error!(
+					"a reserved sandbox connection requires a runner"
+				));
+			}
+			if arg.data.is_some() || arg.created_at.is_some() {
+				return Err(tg::error!(
+					"a reserved sandbox connection must not have data or a creation time"
+				));
+			}
 		}
+		if assign && !reserved && arg.data.is_none() {
+			return Err(tg::error!("a sandbox on the shortcut path must have data"));
+		}
+
+		// A reserved connection that reconnects after its start finds its sandbox indexed.
 		let created_at = match arg.created_at {
 			Some(created_at) => created_at,
-			None if reserved => self.server.clock.unix_timestamp()?,
 			None => {
-				self.server
-					.index
-					.try_get_sandbox(&id)
-					.await?
-					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?
-					.created_at
+				let sandbox = self.server.index.try_get_sandbox(&id).await?;
+				match sandbox {
+					Some(sandbox) => sandbox.created_at,
+					None if reserved => self.server.clock.unix_timestamp()?,
+					None => return Err(tg::error!(%id, "failed to find the sandbox")),
+				}
 			},
 		};
 		let created_at = Arc::new(AtomicI64::new(created_at));

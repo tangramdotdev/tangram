@@ -175,23 +175,39 @@ impl Session {
 			},
 			None => session.create_sync_token()?,
 		};
-		// Reserve a new connection that carries no data.
-		let reserved = assign && data.is_none();
+		// Validate a reserved connection, which reports nothing until it is started.
+		let reserved = arg.reserved;
 		if reserved {
-			if !matches!(self.context.principal, tg::Principal::Runner(_)) {
+			if assign && !matches!(self.context.principal, tg::Principal::Runner(_)) {
 				return Err(tg::error!(
 					"a reserved process connection requires a runner"
 				));
 			}
-			if parent.is_some() || lease.is_some() {
+			if data.is_some() || parent.is_some() || lease.is_some() {
 				return Err(tg::error!(
-					"a reserved process connection must not have a parent or a lease"
+					"a reserved process connection must not have data, a parent, or a lease"
 				));
 			}
 		}
+		if assign && !reserved && data.is_none() {
+			return Err(tg::error!("a process on the shortcut path must have data"));
+		}
+		if assign && !reserved && parent.is_none() {
+			return Err(tg::error!(
+				"a process on the shortcut path must have a parent"
+			));
+		}
+
+		// A reserved connection that reconnects after its start finds its process indexed.
 		let write_data = match &data {
 			Some(data) => Some(Cow::Borrowed(data)),
-			None if reserved => None,
+			None if reserved => session
+				.server
+				.index
+				.try_get_process(&id)
+				.await?
+				.and_then(|process| process.data)
+				.map(Cow::Owned),
 			None => {
 				let data = session
 					.get_process_from_index(&id)
@@ -201,11 +217,6 @@ impl Session {
 				Some(Cow::Owned(data))
 			},
 		};
-		if assign && !reserved && parent.is_none() {
-			return Err(tg::error!(
-				"a process on the shortcut path must have a parent"
-			));
-		}
 		let write_config = write_data.map(|data| self::write::Config::with_data(&data));
 		let (write_config_sender, write_config_receiver) =
 			tokio::sync::watch::channel(write_config);

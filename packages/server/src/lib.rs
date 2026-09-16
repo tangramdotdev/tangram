@@ -782,6 +782,7 @@ impl Server {
 			};
 		let runner_config = self::runner::Config {
 			capacity,
+			connection_pool_refill_interval: config.runner.connection_pool_refill_interval,
 			process_control_pool_size,
 			sandbox_control_pool_size,
 			sandbox_pool_size,

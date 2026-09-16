@@ -5,7 +5,7 @@ use {
 		ops::ControlFlow,
 		pin::pin,
 		sync::{
-			Mutex,
+			Arc, Mutex,
 			atomic::{AtomicU64, Ordering},
 		},
 		time::Duration,
@@ -31,14 +31,15 @@ type RunnerSender =
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Config {
 	pub capacity: tg::runner::Capacity,
+	pub connection_pool_refill_interval: std::time::Duration,
 	pub process_control_pool_size: usize,
 	pub sandbox_control_pool_size: usize,
 	pub sandbox_pool_size: usize,
 }
 
 pub struct Runner {
-	process_control_pool: self::process::pool::Pool,
-	sandbox_control_pool: self::sandbox::connection::Pool,
+	process_control_pool: Arc<self::process::pool::Pool>,
+	sandbox_control_pool: Arc<self::sandbox::connection::Pool>,
 	sandbox_pool: self::sandbox::Pool,
 	state: State,
 	task: Mutex<Option<Task<()>>>,
@@ -70,9 +71,14 @@ impl Runner {
 			scheduler,
 		};
 		let task = Mutex::new(None);
-		let process_control_pool = self::process::pool::Pool::new(config.process_control_pool_size);
-		let sandbox_control_pool =
-			self::sandbox::connection::Pool::new(config.sandbox_control_pool_size);
+		let process_control_pool = Arc::new(self::process::pool::Pool::new(
+			config.process_control_pool_size,
+			config.connection_pool_refill_interval,
+		));
+		let sandbox_control_pool = Arc::new(self::sandbox::connection::Pool::new(
+			config.sandbox_control_pool_size,
+			config.connection_pool_refill_interval,
+		));
 		let sandbox_pool = self::sandbox::Pool::new(config.sandbox_pool_size);
 		Self {
 			process_control_pool,

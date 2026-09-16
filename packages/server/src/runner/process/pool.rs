@@ -1,7 +1,11 @@
 use {
 	crate::{Context, Session},
 	futures::{StreamExt as _, stream::BoxStream},
-	std::{collections::VecDeque, sync::Mutex},
+	std::{
+		collections::VecDeque,
+		sync::{Arc, Mutex},
+		time::Duration,
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 };
@@ -9,6 +13,8 @@ use {
 /// A pool of process control connections whose IDs the control server has assigned but not indexed.
 pub(in crate::runner) struct Pool {
 	inner: Mutex<VecDeque<Task<tg::Result<Entry>>>>,
+	refill_interval: Duration,
+	refill_task: Mutex<Option<Task<()>>>,
 	size: usize,
 }
 
@@ -24,53 +30,66 @@ pub(in crate::runner) struct Entry {
 
 impl Pool {
 	#[must_use]
-	pub(in crate::runner) fn new(size: usize) -> Self {
+	pub(in crate::runner) fn new(size: usize, refill_interval: Duration) -> Self {
 		Self {
 			inner: Mutex::new(VecDeque::with_capacity(size)),
+			refill_interval,
+			refill_task: Mutex::new(None),
 			size,
 		}
 	}
 
-	pub(in crate::runner) fn start(&self, session: &Session) {
-		if session.server.config.runner.remote.is_none() {
+	pub(in crate::runner) fn start(self: &Arc<Self>, session: &Session) {
+		if session.server.config.runner.remote.is_none() || self.size == 0 {
 			return;
 		}
-		let mut tasks = self.inner.lock().unwrap();
+		let mut refill_task = self.refill_task.lock().unwrap();
 		assert!(
-			tasks.is_empty(),
+			refill_task.is_none(),
 			"the process control pool was already started"
 		);
-		tasks.extend((0..self.size).map(|_| Self::spawn(session)));
-		if self.size > 0 {
-			tracing::debug!(size = self.size, "started the process control pool");
+		self.refill(session);
+		let task = Task::spawn({
+			let pool = self.clone();
+			let session = session.clone();
+			move |_| async move {
+				let mut interval = tokio::time::interval(pool.refill_interval);
+				loop {
+					interval.tick().await;
+					pool.refill(&session);
+				}
+			}
+		});
+		refill_task.replace(task);
+		tracing::debug!(size = self.size, "started the process control pool");
+	}
+
+	fn refill(&self, session: &Session) {
+		let mut tasks = self.inner.lock().unwrap();
+		while tasks.len() < self.size {
+			tasks.push_back(Self::spawn(session));
 		}
 	}
 
-	pub(in crate::runner) async fn take(&self, session: &Session) -> Option<Entry> {
-		for _ in 0..self.size {
-			let task = {
-				let mut tasks = self.inner.lock().unwrap();
-				let task = tasks.pop_front()?;
-				tasks.push_back(Self::spawn(session));
-				task
-			};
-			let entry = match task.wait().await {
-				Ok(Ok(entry)) => entry,
+	pub(in crate::runner) async fn take(&self) -> Option<Entry> {
+		loop {
+			let task = self.inner.lock().unwrap().pop_front()?;
+			match task.wait().await {
+				Ok(Ok(entry)) => return Some(entry),
 				Ok(Err(error)) => {
 					tracing::error!(error = %error.trace(), "failed to reserve a process control connection");
-					continue;
 				},
 				Err(error) => {
 					tracing::error!(?error, "a process control pool task panicked");
-					continue;
 				},
-			};
-			return Some(entry);
+			}
 		}
-		None
 	}
 
 	pub(in crate::runner) async fn shutdown(&self) {
+		if let Some(task) = self.refill_task.lock().unwrap().take() {
+			task.abort();
+		}
 		let tasks = self.inner.lock().unwrap().drain(..).collect::<Vec<_>>();
 		for task in &tasks {
 			task.abort();
@@ -129,6 +148,7 @@ impl Session {
 			location: Some(location.into()),
 			options: tg::referent::Options::default(),
 			parent: None,
+			reserved: true,
 			sync: None,
 		};
 		let reconnect_context = session.context.clone();

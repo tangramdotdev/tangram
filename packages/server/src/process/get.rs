@@ -426,106 +426,67 @@ impl Session {
 		id: &tg::process::Id,
 		metadata: bool,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		let index_future = self.try_get_process_from_index(id).boxed();
-		let control_future = self.get_process_from_control(id).boxed();
-		let output = match future::select(index_future, control_future).await {
-			future::Either::Left((indexed, control_future)) => {
-				let Some(indexed) = indexed? else {
-					return Ok(None);
-				};
-				// A remote process has no local control connection, but its indexed data can be read here.
-				if indexed
-					.location
-					.as_ref()
-					.is_some_and(tg::Location::is_remote)
-					|| indexed
-						.data
-						.as_ref()
-						.is_some_and(|data| data.status.is_finished())
-				{
-					let Some(data) = indexed.data else {
-						return Ok(None);
-					};
-					self.create_process_get_output(
-						id,
-						data,
-						indexed.location,
-						metadata.then_some(indexed.metadata),
-					)
-				} else {
-					let Ok(Ok(data)) =
-						tokio::time::timeout(std::time::Duration::from_secs(1), control_future)
-							.await
-					else {
-						let data = indexed
-							.data
-							.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-						let output = self.create_process_get_output(
-							id,
-							data,
-							indexed.location,
-							metadata.then_some(indexed.metadata),
-						);
-						return Ok(Some(output));
-					};
-					if data.status.is_finished() {
-						let Some(indexed) = self.try_get_process_from_index(id).await? else {
-							return Ok(None);
-						};
-						let data = indexed
-							.data
-							.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-						self.create_process_get_output(
-							id,
-							data,
-							indexed.location,
-							metadata.then_some(indexed.metadata),
-						)
-					} else {
-						self.create_process_get_output(
-							id,
-							data,
-							indexed.location,
-							metadata.then_some(indexed.metadata),
-						)
-					}
-				}
-			},
-			future::Either::Right((data, index_future)) => {
-				let Ok(data) = data else {
-					let Some(indexed) = index_future.await? else {
-						return Ok(None);
-					};
-					let data = indexed
-						.data
-						.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-					let output = self.create_process_get_output(
-						id,
-						data,
-						indexed.location,
-						metadata.then_some(indexed.metadata),
-					);
-					return Ok(Some(output));
-				};
-				if data.status.is_finished() {
-					let Some(indexed) = self.try_get_process_from_index(id).await? else {
-						return Ok(None);
-					};
-					let data = indexed
-						.data
-						.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-					self.create_process_get_output(
-						id,
-						data,
-						indexed.location,
-						metadata.then_some(indexed.metadata),
-					)
-				} else {
-					let indexed = if metadata { index_future.await? } else { None };
-					let metadata = indexed.map(|process| process.metadata);
-					self.create_process_get_output(id, data, None, metadata)
-				}
-			},
+		// Read the index row and serve a remote or finished process from it.
+		let Some(indexed) = self.try_get_process_from_index(id).await? else {
+			return Ok(None);
+		};
+		if indexed
+			.location
+			.as_ref()
+			.is_some_and(tg::Location::is_remote)
+			|| indexed
+				.data
+				.as_ref()
+				.is_some_and(|data| data.status.is_finished())
+		{
+			let Some(data) = indexed.data else {
+				return Ok(None);
+			};
+			let output = self.create_process_get_output(
+				id,
+				data,
+				indexed.location,
+				metadata.then_some(indexed.metadata),
+			);
+			return Ok(Some(output));
+		}
+
+		// Read the live data from the control connection, falling back to the row.
+		let control_future = self.get_process_from_control(id);
+		let Ok(Ok(data)) =
+			tokio::time::timeout(std::time::Duration::from_secs(1), control_future).await
+		else {
+			let data = indexed
+				.data
+				.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+			let output = self.create_process_get_output(
+				id,
+				data,
+				indexed.location,
+				metadata.then_some(indexed.metadata),
+			);
+			return Ok(Some(output));
+		};
+		let output = if data.status.is_finished() {
+			let Some(indexed) = self.try_get_process_from_index(id).await? else {
+				return Ok(None);
+			};
+			let data = indexed
+				.data
+				.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+			self.create_process_get_output(
+				id,
+				data,
+				indexed.location,
+				metadata.then_some(indexed.metadata),
+			)
+		} else {
+			self.create_process_get_output(
+				id,
+				data,
+				indexed.location,
+				metadata.then_some(indexed.metadata),
+			)
 		};
 
 		Ok(Some(output))
