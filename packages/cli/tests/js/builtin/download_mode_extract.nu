@@ -8,11 +8,11 @@ let server = server spawn
 
 let arch = $nu.os-info.arch
 let archive = if $nu.os-info.name == "macos" {
-	"dash_universal_darwin.tar.zst"
+	$"dash_($arch)_darwin.tar.zst"
 } else {
 	$"dash_($arch)_linux.tar.zst"
 }
-let url = $"https://github.com/tangramdotdev/bootstrap/releases/download/v2026.01.26/($archive)"
+let url = $"https://github.com/tangramdotdev/bootstrap/releases/download/v2026.09.16/($archive)"
 
 let module = '
 	export default async function () {

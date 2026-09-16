@@ -447,15 +447,15 @@ const sandboxRootfs = async (hostArg?: string) => {
 	if (arch === "aarch64") {
 		archiveName = "sandbox_aarch64_linux.tar.zst";
 		checksum =
-			"sha256:7c7274baf07486c8314aa06e7bc7b0d69f2f39461ccbfa071f3b1a8b4cd26312";
+			"sha256:74ba372737114cc616be470e961973e31f58f7d7f8a5d9d7173ab4d9ded5877a";
 	} else if (arch === "x86_64") {
 		archiveName = "sandbox_x86_64_linux.tar.zst";
 		checksum =
-			"sha256:1a2ab509a1a2ab7e1f04bfd07cf5596ee27c8197b7f0e0ebe1ac037c07eb61bf";
+			"sha256:5a33bbc287dde9e19befe69c502afe6efafff6235f0fbfae712206c5070cba41";
 	} else {
 		throw new Error(`unsupported linux sandbox arch ${arch}`);
 	}
-	const url = `https://github.com/tangramdotdev/bootstrap/releases/download/v2026.07.29/${archiveName}`;
+	const url = `https://github.com/tangramdotdev/bootstrap/releases/download/v2026.09.16/${archiveName}`;
 	const rootfs = await std.download
 		.extractArchive({ checksum, url })
 		.then(tg.Directory.expect);

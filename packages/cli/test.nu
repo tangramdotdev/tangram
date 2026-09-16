@@ -2176,20 +2176,20 @@ export def --env "server spawn" [
 		let source = '
 			const SOURCES: Record<string, { url: string, checksum: tg.Checksum }> = {
 				"aarch64-darwin": {
-					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2026.01.26/utils_universal_darwin.tar.zst",
-					checksum: "sha256:8e0031b8c5a183e173fe4b7c2d6b038c46b46f390f6ff5e1d23eb0ec403e2abe",
+					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2026.09.16/utils_aarch64_darwin.tar.zst",
+					checksum: "sha256:164b27c527541c1695d0ad9ca5ccb65b495315770ca2916c9c2b7f691d002dc4",
 				},
 				"x86_64-darwin": {
-					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2026.01.26/utils_universal_darwin.tar.zst",
-					checksum: "sha256:8e0031b8c5a183e173fe4b7c2d6b038c46b46f390f6ff5e1d23eb0ec403e2abe",
+					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2026.09.16/utils_x86_64_darwin.tar.zst",
+					checksum: "sha256:10b0cf8ca64429f4362f8aaded78326d418db8a1d4d7f2fa91a5f8019dbb49de",
 				},
 				"aarch64-linux": {
-					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2026.01.26/utils_aarch64_linux.tar.zst",
-					checksum: "sha256:b4724cfba44ea545fb041c61cdd86c0c8fdda1f221bfbe284c23853014faec6d",
+					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2026.09.16/utils_aarch64_linux.tar.zst",
+					checksum: "sha256:452a996d74030a74f1b7de3a022cc7710a5ad216bb8fb1ac967544b0db632260",
 				},
 				"x86_64-linux": {
-					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2026.01.26/utils_x86_64_linux.tar.zst",
-					checksum: "sha256:552e634483b6d118463bff342febc2b72665c48912e0bf90e80c897cf20b16a9",
+					url: "https://github.com/tangramdotdev/bootstrap/releases/download/v2026.09.16/utils_x86_64_linux.tar.zst",
+					checksum: "sha256:1c555946f1a69253c6e6b5ae9152ee2c45629ebd047ba2e471c64ee79d8dbbff",
 				},
 			};
 
