@@ -1,10 +1,11 @@
 use ../../test.nu *
 
-# Checking out an executable file materializes the file on disk with its executable bit preserved.
+# Checking out an executable file preserves writable and executable permissions with and without a prior internal checkout.
 
 let tmp = mktemp --directory
 
-let server = server spawn
+# Keep the server and destinations on the same filesystem so internal checkouts can be reflinked.
+let server = server spawn --directory ($tmp | path join 'server')
 
 let artifact = artifact {
 	tangram.ts: '
@@ -18,6 +19,12 @@ let artifact = artifact {
 }
 let id = tg build $artifact
 
-let path = $tmp | path join "checkout"
-tg checkout $id --path $path
-snapshot --path $path
+for internal_checkout in [false true] {
+	if $internal_checkout {
+		tg checkout $id
+	}
+	let path = $tmp | path join $'checkout_($internal_checkout)'
+	tg checkout $id --path $path
+	assert equal (ls -l $path | first | get mode) 'rwxr-xr-x' $'incorrect permissions with internal_checkout=($internal_checkout)'
+	snapshot --path $path
+}
