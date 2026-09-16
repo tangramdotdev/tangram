@@ -269,11 +269,7 @@ impl Session {
 								let required = tg::authorization::permission::Set::Object(
 									tg::authorization::permission::object::Set::NODE,
 								);
-								if !graph
-									.get_object_local_authorization(&id, required)
-									.permissions
-									.contains(required)
-								{
+								if !graph.object_local_permissions(&id).contains(required) {
 									return Ok(None);
 								}
 							} else {
@@ -615,19 +611,18 @@ impl Session {
 		let process_objects = {
 			let graph = graph.lock().unwrap();
 			let mut process_objects = BTreeSet::new();
-			for (_, node) in &graph.nodes {
+			for (_, node) in graph.nodes() {
 				let Node::Process(process) = node else {
 					continue;
 				};
-				if !process.marked {
+				if !process.marked() {
 					continue;
 				}
-				for (object_index, _) in process.objects.as_deref().unwrap_or_default() {
-					let (id, object) = graph.nodes.get_index(*object_index).unwrap();
+				for (object_index, _) in process.objects().map(Vec::as_slice).unwrap_or_default() {
+					let (id, object) = graph.nodes().get_index(*object_index).unwrap();
 					let stored = object
 						.unwrap_object_ref()
-						.local_storage
-						.as_ref()
+						.local_storage()
 						.is_some_and(|storage| storage.subtree);
 					if stored {
 						process_objects.insert(tg::object::Id::try_from(id.clone())?);
@@ -645,7 +640,7 @@ impl Session {
 		let (put_checkout_args, put_grant_args, put_object_args, put_process_args, storage_roots) = {
 			let mut graph = graph.lock().unwrap();
 			let args = self
-				.sync_get_index_create_args(&mut graph)
+				.sync_get_index_create_args(&graph)
 				.map_err(|error| tg::error!(!error, "failed to create the index args"))?;
 			for arg in &args.0 {
 				match arg.resource.kind() {
@@ -660,7 +655,7 @@ impl Session {
 				}
 			}
 			let put_checkout_args = graph
-				.checkouts
+				.checkouts()
 				.iter()
 				.map(|(id, dependencies)| tangram_index::checkout::put::Arg {
 					dependencies: dependencies.clone(),
@@ -668,7 +663,7 @@ impl Session {
 					touched_at,
 				})
 				.collect::<Vec<_>>();
-			let storage_roots = graph.remote_roots.iter().cloned().collect::<Vec<_>>();
+			let storage_roots = graph.remote_roots().iter().cloned().collect::<Vec<_>>();
 			(put_checkout_args, args.0, args.1, args.2, storage_roots)
 		};
 		// Index the objects, processes, and sandboxes.
@@ -796,607 +791,20 @@ impl Session {
 
 	fn sync_get_index_create_args(
 		&self,
-		graph: &mut Graph,
+		graph: &Graph,
 	) -> tg::Result<(
 		Vec<tangram_index::grant::put::Arg>,
 		Vec<tangram_index::object::put::Arg>,
 		Vec<tangram_index::process::put::Arg>,
 	)> {
 		// Get a reverse topological ordering using Tarjan's algorithm.
-		let sccs = petgraph::algo::tarjan_scc(&*graph);
+		let sccs = petgraph::algo::tarjan_scc(graph);
 		for scc in &sccs {
 			if scc.len() > 1 {
 				return Err(tg::error!("the graph had a cycle"));
 			}
 		}
 		let indices = sccs.into_iter().flatten().collect::<Vec<_>>();
-
-		// Set the storage and metadata.
-		for index in indices.iter().copied() {
-			let (_, node) = graph.nodes.get_index(index).unwrap();
-			match node {
-				Node::Group(_)
-				| Node::Organization(_)
-				| Node::Sandbox(_)
-				| Node::Tag(_)
-				| Node::User(_) => {},
-				Node::Object(node) => {
-					let Some(children) = &node.children else {
-						continue;
-					};
-					let Some(metadata) = &node.metadata else {
-						continue;
-					};
-					let existing_metadata = metadata.clone();
-
-					// Initialize the metadata.
-					let mut metadata = tg::object::Metadata {
-						node: metadata.node.clone(),
-						subtree: tg::object::metadata::Subtree {
-							count: Some(1),
-							depth: Some(1),
-							size: Some(metadata.node.size),
-							solvable: Some(metadata.node.solvable),
-							solved: Some(metadata.node.solved),
-						},
-					};
-
-					// Handle each child.
-					for child_index in children {
-						let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
-						let child_node = child_node
-							.try_unwrap_object_ref()
-							.ok()
-							.ok_or_else(|| tg::error!("expected an object"))?;
-						metadata.subtree.count = metadata
-							.subtree
-							.count
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|metadata| metadata.subtree.count),
-							)
-							.map(|(a, b)| a + b);
-						metadata.subtree.depth = metadata
-							.subtree
-							.depth
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|metadata| metadata.subtree.depth),
-							)
-							.map(|(a, b)| a.max(1 + b));
-						metadata.subtree.size = metadata
-							.subtree
-							.size
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|metadata| metadata.subtree.size),
-							)
-							.map(|(a, b)| a + b);
-						metadata.subtree.solvable = metadata
-							.subtree
-							.solvable
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|metadata| metadata.subtree.solvable),
-							)
-							.map(|(a, b)| a || b);
-						metadata.subtree.solved = metadata
-							.subtree
-							.solved
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|metadata| metadata.subtree.solved),
-							)
-							.map(|(a, b)| a && b);
-					}
-
-					// Merge the existing metadata.
-					metadata.merge(&existing_metadata);
-
-					// Update the node.
-					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
-					let node = node.unwrap_object_mut();
-					node.metadata = Some(metadata);
-				},
-
-				Node::Process(node) => {
-					let Some(children) = &node.children else {
-						continue;
-					};
-					let Some(objects) = &node.objects else {
-						continue;
-					};
-
-					// Initialize the metadata.
-					let mut metadata = tg::process::Metadata {
-						node: tg::process::metadata::Node {
-							command: tg::object::metadata::Subtree {
-								count: None,
-								depth: None,
-								size: None,
-								solvable: None,
-								solved: None,
-							},
-							error: tg::object::metadata::Subtree {
-								count: Some(0),
-								depth: Some(0),
-								size: Some(0),
-								solvable: None,
-								solved: None,
-							},
-							log: tg::object::metadata::Subtree {
-								count: Some(0),
-								depth: Some(0),
-								size: Some(0),
-								solvable: None,
-								solved: None,
-							},
-							output: tg::object::metadata::Subtree {
-								count: Some(0),
-								depth: Some(0),
-								size: Some(0),
-								solvable: None,
-								solved: None,
-							},
-						},
-						subtree: tg::process::metadata::Subtree {
-							count: Some(1),
-							depth: Some(1),
-							command: tg::object::metadata::Subtree {
-								count: Some(0),
-								depth: Some(0),
-								size: Some(0),
-								solvable: None,
-								solved: None,
-							},
-							error: tg::object::metadata::Subtree {
-								count: Some(0),
-								depth: Some(0),
-								size: Some(0),
-								solvable: None,
-								solved: None,
-							},
-							log: tg::object::metadata::Subtree {
-								count: Some(0),
-								depth: Some(0),
-								size: Some(0),
-								solvable: None,
-								solved: None,
-							},
-							output: tg::object::metadata::Subtree {
-								count: Some(0),
-								depth: Some(0),
-								size: Some(0),
-								solvable: None,
-								solved: None,
-							},
-						},
-					};
-
-					// Handle the children.
-					for child_index in children {
-						let (_, child_node) = graph.nodes.get_index(*child_index).unwrap();
-						let child_node =
-							child_node.try_unwrap_process_ref().ok().ok_or_else(|| {
-								tg::error!("all children of processes must be processes")
-							})?;
-						metadata.subtree.count = metadata
-							.subtree
-							.count
-							.zip(child_node.metadata.as_ref().and_then(|m| m.subtree.count))
-							.map(|(a, b)| a + b);
-
-						// Aggregate child process's subtree command metadata.
-						metadata.subtree.command.count = metadata
-							.subtree
-							.command
-							.count
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.command.count),
-							)
-							.map(|(a, b)| a + b);
-						metadata.subtree.command.depth = metadata
-							.subtree
-							.command
-							.depth
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.command.depth),
-							)
-							.map(|(a, b)| a.max(b));
-						metadata.subtree.command.size = metadata
-							.subtree
-							.command
-							.size
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.command.size),
-							)
-							.map(|(a, b)| a + b);
-
-						// Aggregate the child process's subtree error metadata.
-						metadata.subtree.error.count = metadata
-							.subtree
-							.error
-							.count
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.error.count),
-							)
-							.map(|(a, b)| a + b);
-						metadata.subtree.error.depth = metadata
-							.subtree
-							.error
-							.depth
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.error.depth),
-							)
-							.map(|(a, b)| a.max(b));
-						metadata.subtree.error.size = metadata
-							.subtree
-							.error
-							.size
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.error.size),
-							)
-							.map(|(a, b)| a + b);
-
-						// Aggregate the child process's subtree log metadata.
-						metadata.subtree.log.count = metadata
-							.subtree
-							.log
-							.count
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.log.count),
-							)
-							.map(|(a, b)| a + b);
-						metadata.subtree.log.depth = metadata
-							.subtree
-							.log
-							.depth
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.log.depth),
-							)
-							.map(|(a, b)| a.max(b));
-						metadata.subtree.log.size = metadata
-							.subtree
-							.log
-							.size
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.log.size),
-							)
-							.map(|(a, b)| a + b);
-
-						// Aggregate the child process's subtree output metadata.
-						metadata.subtree.output.count = metadata
-							.subtree
-							.output
-							.count
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.output.count),
-							)
-							.map(|(a, b)| a + b);
-						metadata.subtree.output.depth = metadata
-							.subtree
-							.output
-							.depth
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.output.depth),
-							)
-							.map(|(a, b)| a.max(b));
-						metadata.subtree.output.size = metadata
-							.subtree
-							.output
-							.size
-							.zip(
-								child_node
-									.metadata
-									.as_ref()
-									.and_then(|m| m.subtree.output.size),
-							)
-							.map(|(a, b)| a + b);
-					}
-
-					// Handle the objects.
-					for (object_index, object_kind) in objects {
-						let (_, object_node) = graph.nodes.get_index(*object_index).unwrap();
-						let object_node = object_node
-							.try_unwrap_object_ref()
-							.ok()
-							.ok_or_else(|| tg::error!("expected an object"))?;
-						match object_kind {
-							tangram_index::process::object::Kind::Command => {
-								metadata.node.command.count = object_node
-									.metadata
-									.as_ref()
-									.and_then(|metadata| metadata.subtree.count);
-								metadata.node.command.depth = object_node
-									.metadata
-									.as_ref()
-									.and_then(|metadata| metadata.subtree.depth);
-								metadata.node.command.size = object_node
-									.metadata
-									.as_ref()
-									.and_then(|metadata| metadata.subtree.size);
-
-								metadata.subtree.command.count = metadata
-									.subtree
-									.command
-									.count
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.count),
-									)
-									.map(|(a, b)| a + b);
-								metadata.subtree.command.depth = metadata
-									.subtree
-									.command
-									.depth
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.depth),
-									)
-									.map(|(a, b)| a.max(b));
-								metadata.subtree.command.size = metadata
-									.subtree
-									.command
-									.size
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.size),
-									)
-									.map(|(a, b)| a + b);
-							},
-
-							tangram_index::process::object::Kind::Error => {
-								metadata.node.error.count = metadata
-									.node
-									.error
-									.count
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.count),
-									)
-									.map(|(a, b)| a + b);
-								metadata.node.error.depth = metadata
-									.node
-									.error
-									.depth
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.depth),
-									)
-									.map(|(a, b)| a.max(b));
-								metadata.node.error.size = metadata
-									.node
-									.error
-									.size
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.size),
-									)
-									.map(|(a, b)| a + b);
-
-								metadata.subtree.error.count = metadata
-									.subtree
-									.error
-									.count
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.count),
-									)
-									.map(|(a, b)| a + b);
-								metadata.subtree.error.depth = metadata
-									.subtree
-									.error
-									.depth
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.depth),
-									)
-									.map(|(a, b)| a.max(b));
-								metadata.subtree.error.size = metadata
-									.subtree
-									.error
-									.size
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.size),
-									)
-									.map(|(a, b)| a + b);
-							},
-
-							tangram_index::process::object::Kind::Log => {
-								metadata.node.log.count = object_node
-									.metadata
-									.as_ref()
-									.and_then(|metadata| metadata.subtree.count);
-								metadata.node.log.depth = object_node
-									.metadata
-									.as_ref()
-									.and_then(|metadata| metadata.subtree.depth);
-								metadata.node.log.size = object_node
-									.metadata
-									.as_ref()
-									.and_then(|metadata| metadata.subtree.size);
-
-								metadata.subtree.log.count = metadata
-									.subtree
-									.log
-									.count
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.count),
-									)
-									.map(|(a, b)| a + b);
-								metadata.subtree.log.depth = metadata
-									.subtree
-									.log
-									.depth
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.depth),
-									)
-									.map(|(a, b)| a.max(b));
-								metadata.subtree.log.size = metadata
-									.subtree
-									.log
-									.size
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.size),
-									)
-									.map(|(a, b)| a + b);
-							},
-
-							tangram_index::process::object::Kind::Output => {
-								metadata.node.output.count = metadata
-									.node
-									.output
-									.count
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.count),
-									)
-									.map(|(a, b)| a + b);
-								metadata.node.output.depth = metadata
-									.node
-									.output
-									.depth
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.depth),
-									)
-									.map(|(a, b)| a.max(b));
-								metadata.node.output.size = metadata
-									.node
-									.output
-									.size
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.size),
-									)
-									.map(|(a, b)| a + b);
-
-								metadata.subtree.output.count = metadata
-									.subtree
-									.output
-									.count
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.count),
-									)
-									.map(|(a, b)| a + b);
-								metadata.subtree.output.depth = metadata
-									.subtree
-									.output
-									.depth
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.depth),
-									)
-									.map(|(a, b)| a.max(b));
-								metadata.subtree.output.size = metadata
-									.subtree
-									.output
-									.size
-									.zip(
-										object_node
-											.metadata
-											.as_ref()
-											.and_then(|metadata| metadata.subtree.size),
-									)
-									.map(|(a, b)| a + b);
-							},
-						}
-					}
-
-					// Merge the existing metadata.
-					if let Some(existing) = &node.metadata {
-						metadata.merge(existing);
-					}
-
-					// Update the node.
-					let (_, node) = graph.nodes.get_index_mut(index).unwrap();
-					let node_inner = node.unwrap_process_mut();
-					node_inner.metadata = Some(metadata);
-				},
-			}
-		}
 
 		let touched_at = self.server.clock.unix_timestamp()?;
 
@@ -1426,11 +834,11 @@ impl Session {
 					.as_secs()
 					.to_i64()
 					.unwrap();
-			let mut object_covered = vec![false; graph.nodes.len()];
+			let mut object_covered = vec![false; graph.nodes().len()];
 			let mut process_covered =
-				vec![tg::authorization::permission::process::Set::empty(); graph.nodes.len()];
+				vec![tg::authorization::permission::process::Set::empty(); graph.nodes().len()];
 			for index in indices.iter().rev().copied() {
-				let (id, node) = graph.nodes.get_index(index).unwrap();
+				let (id, node) = graph.nodes().get_index(index).unwrap();
 				match node {
 					Node::Group(_)
 					| Node::Organization(_)
@@ -1439,11 +847,10 @@ impl Session {
 					| Node::User(_) => {},
 					Node::Object(node) => {
 						let availability = node
-							.local_availability
-							.as_ref()
+							.local_availability()
 							.is_some_and(|availability| availability.subtree);
 						let mut subtree = false;
-						if node.marked && !object_covered[index] {
+						if node.marked() && !object_covered[index] {
 							let permissions = Graph::object_grant_permissions(availability);
 							subtree = availability;
 							put_grant_args.push(tangram_index::grant::put::Arg {
@@ -1459,15 +866,15 @@ impl Session {
 							});
 						}
 						let covered = object_covered[index] || subtree;
-						if covered && let Some(children) = node.children.as_ref() {
+						if covered && let Some(children) = node.children() {
 							for child in children {
 								object_covered[*child] = true;
 							}
 						}
 					},
 					Node::Process(node) => {
-						let availability = node.local_availability.clone().unwrap_or_default();
-						let mut permissions = if node.marked {
+						let availability = node.local_availability().cloned().unwrap_or_default();
+						let mut permissions = if node.marked() {
 							Graph::process_grant_permissions(&availability)
 						} else {
 							tg::authorization::permission::process::Set::empty()
@@ -1493,7 +900,7 @@ impl Session {
 							Self::sync_get_index_process_subtree_permissions(permissions);
 						let mut covered = process_covered[index];
 						covered.insert(subtree_permissions);
-						if let Some(children) = node.children.as_ref() {
+						if let Some(children) = node.children() {
 							for child in children {
 								process_covered[*child].insert(covered);
 							}
@@ -1505,22 +912,21 @@ impl Session {
 
 		// Create non-expiring implicit grants for the process objects proven locally.
 		for index in indices.iter().copied() {
-			let (id, node) = graph.nodes.get_index(index).unwrap();
+			let (id, node) = graph.nodes().get_index(index).unwrap();
 			let Node::Process(node) = node else {
 				continue;
 			};
-			if !node.marked {
+			if !node.marked() {
 				continue;
 			}
 			let process = tg::process::Id::try_from(id.clone())?;
 			let creator = tg::Principal::Process(process.clone());
 			let subject = tg::authorization::Subject::Process(process);
-			for (object_index, _) in node.objects.as_deref().unwrap_or_default() {
-				let (object, node) = graph.nodes.get_index(*object_index).unwrap();
+			for (object_index, _) in node.objects().map(Vec::as_slice).unwrap_or_default() {
+				let (object, node) = graph.nodes().get_index(*object_index).unwrap();
 				let availability = node
 					.unwrap_object_ref()
-					.local_availability
-					.as_ref()
+					.local_availability()
 					.is_some_and(|availability| availability.subtree);
 				if !availability {
 					continue;
@@ -1545,7 +951,7 @@ impl Session {
 		let mut put_process_args = Vec::new();
 		let mut visited = std::collections::HashSet::new();
 		let mut stack = graph
-			.nodes
+			.nodes()
 			.iter()
 			.enumerate()
 			.filter_map(|(index, (_, node))| node.parents().is_empty().then_some(index))
@@ -1554,35 +960,40 @@ impl Session {
 			if !visited.insert(index) {
 				continue;
 			}
-			let (id, node) = graph.nodes.get_index(index).unwrap();
+			let (id, node) = graph.nodes().get_index(index).unwrap();
 			match node {
 				Node::Group(node)
 				| Node::Organization(node)
 				| Node::Sandbox(node)
 				| Node::Tag(node)
 				| Node::User(node) => {
-					if let Some(children) = node.children.as_ref() {
+					if let Some(children) = node.children() {
 						stack.extend(children.iter().copied());
 					}
 				},
 				Node::Object(node) => {
 					let id = tg::object::Id::try_from(id.clone())?;
-					if node.marked {
-						let put = node.put.ok_or_else(
+					if node.marked() {
+						let put = node.put().ok_or_else(
 							|| tg::error!(%id, "the stored object was missing its put"),
 						)?;
 						let children = node
-							.children
-							.as_ref()
+							.children()
 							.unwrap()
 							.iter()
 							.map(|index| {
-								graph.nodes.get_index(*index).unwrap().0.clone().try_into()
+								graph
+									.nodes()
+									.get_index(*index)
+									.unwrap()
+									.0
+									.clone()
+									.try_into()
 							})
 							.collect::<tg::Result<std::collections::BTreeSet<_>>>()?;
-						let metadata = node.metadata.clone().unwrap();
-						let storage = node.local_storage.clone().unwrap();
-						let checkout = graph.checkout_objects.get(&id).cloned();
+						let metadata = node.metadata().cloned().unwrap();
+						let storage = node.local_storage().cloned().unwrap();
+						let checkout = graph.checkout_objects().get(&id).cloned();
 						let arg = tangram_index::object::put::Arg {
 							checkout,
 							children,
@@ -1595,29 +1006,32 @@ impl Session {
 						};
 						put_object_args.push(arg);
 					}
-					if let Some(children) = node.children.as_ref() {
+					if let Some(children) = node.children() {
 						stack.extend(children.iter().copied());
 					}
 				},
 				Node::Process(node) => {
 					let id = tg::process::Id::try_from(id.clone())?;
-					if node.marked {
+					if node.marked() {
 						let children = node
-							.data
-							.as_ref()
+							.data()
 							.and_then(|data| data.children.clone())
 							.ok_or_else(|| tg::error!("expected the process children to be set"))?;
-						let storage = node.local_storage.clone().unwrap();
-						let metadata = node.metadata.clone().unwrap();
+						let storage = node.local_storage().cloned().unwrap();
+						let metadata = node.metadata().cloned().unwrap();
 						let objects = node
-							.objects
-							.as_ref()
+							.objects()
 							.unwrap()
 							.iter()
 							.copied()
 							.map(|(index, kind)| {
-								let id =
-									graph.nodes.get_index(index).unwrap().0.clone().try_into()?;
+								let id = graph
+									.nodes()
+									.get_index(index)
+									.unwrap()
+									.0
+									.clone()
+									.try_into()?;
 								Ok((id, kind))
 							})
 							.collect::<tg::Result<Vec<_>>>()?;
@@ -1648,8 +1062,8 @@ impl Session {
 							children: Some(children),
 							command,
 							data: node
-								.data
-								.clone()
+								.data()
+								.cloned()
 								.map(tg::process::Data::without_location_and_tokens),
 							error: Some((!error.is_empty()).then_some(error)),
 							id,
@@ -1667,10 +1081,10 @@ impl Session {
 						};
 						put_process_args.push(arg);
 					}
-					if let Some(children) = node.children.as_ref() {
+					if let Some(children) = node.children() {
 						stack.extend(children.iter().copied());
 					}
-					if let Some(objects) = node.objects.as_ref() {
+					if let Some(objects) = node.objects() {
 						stack.extend(objects.iter().map(|(index, _)| *index));
 					}
 				},

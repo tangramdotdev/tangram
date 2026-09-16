@@ -537,7 +537,7 @@ impl Session {
 			} else {
 				Self::sync_put_object_node_permissions()
 			};
-			let mut graph = state.graph.lock().unwrap();
+			let graph = state.graph.lock().unwrap();
 			let authorization = graph.get_object_local_authorization(&node.id, requested);
 			if authorization.permissions.contains(requested) {
 				continue;
@@ -693,7 +693,7 @@ impl Session {
 			} else {
 				Self::sync_put_process_node_permissions()
 			};
-			let mut graph = state.graph.lock().unwrap();
+			let graph = state.graph.lock().unwrap();
 			let authorization = graph.get_process_local_authorization(&node.id, requested);
 			if authorization.permissions.contains(requested) {
 				continue;

@@ -453,7 +453,7 @@ impl Session {
 		let mut positions = Vec::new();
 		let mut outputs = vec![None; ids.len()];
 		{
-			let mut graph = graph.lock().unwrap();
+			let graph = graph.lock().unwrap();
 			for (position, id) in ids.iter().enumerate() {
 				let authorization = match id.kind() {
 					tg::id::Kind::Process => {

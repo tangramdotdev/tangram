@@ -657,7 +657,7 @@ impl Session {
 		nodes: &[tg::sync::PutNodeMessage],
 	) -> tg::Result<BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>> {
 		let mut outputs = BTreeMap::new();
-		let mut graph = graph.lock().unwrap();
+		let graph = graph.lock().unwrap();
 		for node in nodes {
 			let tg::sync::PutNodeMessage::Tag(message) = node else {
 				continue;
@@ -668,37 +668,29 @@ impl Session {
 				outputs.insert(message.id.clone(), permissions);
 				continue;
 			}
-			let (aspects, permissions) = if let Ok(id) =
-				tg::object::Id::try_from(message.target.clone())
-			{
-				let aspects = vec![tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Node,
-				)];
-				let required = tg::authorization::permission::Set::from_permission(aspects[0]);
-				let authorization = graph.get_object_local_authorization(&id, required);
-				(aspects, authorization.permissions)
-			} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
-				let aspects = [
-					tg::authorization::permission::process::Permission::Node,
-					tg::authorization::permission::process::Permission::NodeCommand,
-					tg::authorization::permission::process::Permission::NodeError,
-					tg::authorization::permission::process::Permission::NodeLog,
-					tg::authorization::permission::process::Permission::NodeOutput,
-				]
-				.into_iter()
-				.map(tg::authorization::Permission::Process)
-				.collect::<Vec<_>>();
-				let mut required = tg::authorization::permission::Set::Process(
-					tg::authorization::permission::process::Set::empty(),
-				);
-				for aspect in &aspects {
-					required.insert(tg::authorization::permission::Set::from_permission(*aspect));
-				}
-				let authorization = graph.get_process_local_authorization(&id, required);
-				(aspects, authorization.permissions)
-			} else {
-				return Err(tg::error!("invalid tag target"));
-			};
+			let (aspects, permissions) =
+				if let Ok(id) = tg::object::Id::try_from(message.target.clone()) {
+					let aspects = vec![tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Node,
+					)];
+					let permissions = graph.object_local_permissions(&id);
+					(aspects, permissions)
+				} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
+					let aspects = [
+						tg::authorization::permission::process::Permission::Node,
+						tg::authorization::permission::process::Permission::NodeCommand,
+						tg::authorization::permission::process::Permission::NodeError,
+						tg::authorization::permission::process::Permission::NodeLog,
+						tg::authorization::permission::process::Permission::NodeOutput,
+					]
+					.into_iter()
+					.map(tg::authorization::Permission::Process)
+					.collect::<Vec<_>>();
+					let permissions = graph.process_local_permissions(&id);
+					(aspects, permissions)
+				} else {
+					return Err(tg::error!("invalid tag target"));
+				};
 			let permissions = if matches!(self.context.principal, tg::Principal::Root) {
 				aspects
 					.into_iter()

@@ -196,7 +196,7 @@ impl Session {
 			let graph = state.graph.lock().unwrap();
 			let contained = graph.checkout_blob_contained(&node.id);
 			let files = graph
-				.checkout_files
+				.checkout_files()
 				.get(&node.id)
 				.cloned()
 				.unwrap_or_default();
@@ -261,7 +261,7 @@ impl Session {
 			.graph
 			.lock()
 			.unwrap()
-			.checkouts
+			.checkouts()
 			.contains_key(&artifact);
 		if complete || state.files.contains_key(&file.id) {
 			return Ok(());
@@ -819,9 +819,7 @@ impl Session {
 			.graph
 			.lock()
 			.unwrap()
-			.checkouts
-			.entry(artifact.clone())
-			.or_insert(dependencies);
+			.insert_checkout(artifact.clone(), dependencies);
 		Self::sync_get_checkout_publish(state, &root, artifact).await?;
 
 		Ok(())
@@ -892,8 +890,7 @@ impl Session {
 				.graph
 				.lock()
 				.unwrap()
-				.checkout_objects
-				.insert(id.into(), artifact.clone());
+				.insert_checkout_object(id.into(), artifact.clone());
 		}
 
 		Ok(())

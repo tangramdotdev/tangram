@@ -7,28 +7,33 @@ use {
 	tangram_util::iter::Ext as _,
 };
 
+mod local;
+mod state;
 #[cfg(test)]
 mod tests;
 
+/// The graph settles local proofs and derived metadata before each update returns; it publishes derived metadata only after the complete dependency set and the required facts are known.
 pub struct Graph {
 	checkout_contained_blobs: HashSet<tg::blob::Id, tg::id::BuildHasher>,
-	pub checkout_files: BTreeMap<tg::blob::Id, Vec<CheckoutFile>>,
-	pub checkout_objects: BTreeMap<tg::object::Id, tg::artifact::Id>,
+	checkout_files: BTreeMap<tg::blob::Id, Vec<CheckoutFile>>,
+	checkout_objects: BTreeMap<tg::object::Id, tg::artifact::Id>,
 	checkout_pointers: bool,
 	checkout_queued_objects: HashSet<tg::object::Id, tg::id::BuildHasher>,
-	pub checkouts: BTreeMap<tg::artifact::Id, Vec<tg::Id>>,
-	pub get_end_received: bool,
+	checkouts: BTreeMap<tg::artifact::Id, Vec<tg::Id>>,
+	get_end_received: bool,
 	local_pending_roots: usize,
-	pub local_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
+	local_queue: VecDeque<usize>,
+	local_queued: HashSet<usize, fnv::FnvBuildHasher>,
+	local_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	local_selectors: HashSet<tg::Specifier, fnv::FnvBuildHasher>,
-	pub nodes: IndexMap<tg::Id, Node, fnv::FnvBuildHasher>,
+	nodes: IndexMap<tg::Id, Node, fnv::FnvBuildHasher>,
 	process_children: bool,
 	process_commands: bool,
 	process_errors: bool,
 	process_logs: bool,
 	process_outputs: bool,
 	remote_pending_roots: usize,
-	pub remote_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
+	remote_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	remote_selectors: HashMap<tg::Specifier, RemoteSelector, fnv::FnvBuildHasher>,
 }
 
@@ -50,12 +55,6 @@ pub enum Parent {
 	},
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-struct PermissionState {
-	index: usize,
-	permission: tg::authorization::Permission,
-}
-
 #[derive(Debug, derive_more::TryUnwrap, derive_more::Unwrap)]
 #[try_unwrap(ref, ref_mut)]
 #[unwrap(ref, ref_mut)]
@@ -71,60 +70,61 @@ pub enum Node {
 
 #[derive(Clone, Debug, Default)]
 pub struct DatabaseNode {
-	pub children: Option<Vec<usize>>,
+	children: Option<Vec<usize>>,
 	local_end: bool,
-	pub local_message: Option<tg::sync::PutNodeMessage>,
-	pub local_requested: bool,
-	pub local_tokens: tg::tokens::Entry,
-	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
+	local_message: Option<tg::sync::PutNodeMessage>,
+	local_requested: bool,
+	local_tokens: tg::tokens::Entry,
+	parents: IndexSet<Parent, fnv::FnvBuildHasher>,
 	remote_descendants: Descendants,
 	remote_end: bool,
 	remote_missing: bool,
 	remote_pending_children: Option<usize>,
-	pub remote_requested: bool,
+	remote_requested: bool,
 	remote_selectors: BTreeSet<tg::Selector<tg::Id>>,
-	pub remote_sent: bool,
-	pub remote_tokens: tg::tokens::Entry,
+	remote_sent: bool,
+	remote_tokens: tg::tokens::Entry,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct ObjectNode {
-	pub children: Option<Vec<usize>>,
-	pub local_availability: Option<tg::object::Availability>,
+	children: Option<Vec<usize>>,
+	local_availability: Option<tg::object::Availability>,
 	local_end: bool,
-	pub local_permissions: Option<tg::authorization::permission::Set>,
-	pub local_storage: Option<tangram_index::object::Storage>,
-	pub local_tokens: tg::tokens::Entry,
-	pub marked: bool,
-	pub metadata: Option<tg::object::Metadata>,
-	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
-	pub put: Option<[u8; 16]>,
-	pub remote_availability: Option<tg::object::Availability>,
+	local_permissions: Option<tg::authorization::permission::Set>,
+	local_storage: Option<tangram_index::object::Storage>,
+	local_tokens: tg::tokens::Entry,
+	marked: bool,
+	metadata: Option<tg::object::Metadata>,
+	parents: IndexSet<Parent, fnv::FnvBuildHasher>,
+	put: Option<[u8; 16]>,
+	remote_availability: Option<tg::object::Availability>,
 	remote_children: HashSet<usize, fnv::FnvBuildHasher>,
 	remote_descendants: Descendants,
 	remote_end: bool,
-	pub remote_missing: bool,
+	remote_missing: bool,
 	remote_pending_children: Option<usize>,
-	pub remote_requested: bool,
-	pub remote_sent: bool,
-	pub remote_tokens: tg::tokens::Entry,
-	pub requested: Option<Requested>,
+	remote_requested: bool,
+	remote_sent: bool,
+	remote_tokens: tg::tokens::Entry,
+	requested: Option<Requested>,
+	state: state::Object,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct ProcessNode {
-	pub children: Option<Vec<usize>>,
-	pub data: Option<tg::process::Data>,
-	pub local_availability: Option<tg::process::Availability>,
+	children: Option<Vec<usize>>,
+	data: Option<tg::process::Data>,
+	local_availability: Option<tg::process::Availability>,
 	local_end: bool,
-	pub local_permissions: Option<tg::authorization::permission::Set>,
-	pub local_storage: Option<tangram_index::process::Storage>,
-	pub local_tokens: tg::tokens::Entry,
-	pub marked: bool,
-	pub metadata: Option<tg::process::Metadata>,
-	pub objects: Option<Vec<(usize, tangram_index::process::object::Kind)>>,
-	pub parents: IndexSet<Parent, fnv::FnvBuildHasher>,
-	pub remote_availability: Option<tg::process::Availability>,
+	local_permissions: Option<tg::authorization::permission::Set>,
+	local_storage: Option<tangram_index::process::Storage>,
+	local_tokens: tg::tokens::Entry,
+	marked: bool,
+	metadata: Option<tg::process::Metadata>,
+	objects: Option<Vec<(usize, tangram_index::process::object::Kind)>>,
+	parents: IndexSet<Parent, fnv::FnvBuildHasher>,
+	remote_availability: Option<tg::process::Availability>,
 	remote_children: HashSet<usize, fnv::FnvBuildHasher>,
 	remote_descendants: Descendants,
 	remote_end: bool,
@@ -136,10 +136,11 @@ pub struct ProcessNode {
 	remote_pending_logs: usize,
 	remote_pending_outputs: usize,
 	remote_propagated_availability: tg::process::Availability,
-	pub remote_requested: bool,
+	remote_requested: bool,
 	remote_sent: bool,
-	pub remote_tokens: tg::tokens::Entry,
-	pub requested: Option<Requested>,
+	remote_tokens: tg::tokens::Entry,
+	requested: Option<Requested>,
+	state: Box<state::Process>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -206,6 +207,8 @@ impl Graph {
 			checkouts: BTreeMap::new(),
 			get_end_received: false,
 			local_pending_roots: 0,
+			local_queue: VecDeque::new(),
+			local_queued: HashSet::default(),
 			local_roots: HashSet::default(),
 			local_selectors: arg
 				.get
@@ -252,6 +255,39 @@ impl Graph {
 		}
 
 		graph
+	}
+
+	#[must_use]
+	pub fn checkout_files(&self) -> &BTreeMap<tg::blob::Id, Vec<CheckoutFile>> {
+		&self.checkout_files
+	}
+
+	#[must_use]
+	pub fn checkout_objects(&self) -> &BTreeMap<tg::object::Id, tg::artifact::Id> {
+		&self.checkout_objects
+	}
+
+	#[must_use]
+	pub fn checkouts(&self) -> &BTreeMap<tg::artifact::Id, Vec<tg::Id>> {
+		&self.checkouts
+	}
+
+	#[must_use]
+	pub fn nodes(&self) -> &IndexMap<tg::Id, Node, fnv::FnvBuildHasher> {
+		&self.nodes
+	}
+
+	#[must_use]
+	pub fn remote_roots(&self) -> &HashSet<tg::Id, fnv::FnvBuildHasher> {
+		&self.remote_roots
+	}
+
+	pub fn insert_checkout(&mut self, artifact: tg::artifact::Id, dependencies: Vec<tg::Id>) {
+		self.checkouts.entry(artifact).or_insert(dependencies);
+	}
+
+	pub fn insert_checkout_object(&mut self, object: tg::object::Id, artifact: tg::artifact::Id) {
+		self.checkout_objects.insert(object, artifact);
 	}
 
 	pub fn finish_checkout(&mut self) {
@@ -636,10 +672,9 @@ impl Graph {
 				.map(|child| {
 					let child_entry = self.nodes.entry(child.into());
 					let child_index = child_entry.index();
-					let child_node =
-						child_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+					child_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 					let parent = Parent::Object(index);
-					child_node.unwrap_object_mut().parents.insert(parent);
+					self.insert_local_edge(parent, child_index);
 					child_index
 				})
 				.collect();
@@ -648,27 +683,6 @@ impl Graph {
 			None
 		};
 
-		// Compute the derived state.
-		let computed_storage = children.as_ref().map(|children| {
-			children.iter().all(|child| {
-				self.nodes
-					.get_index(*child)
-					.unwrap()
-					.1
-					.unwrap_object_ref()
-					.local_storage
-					.as_ref()
-					.is_some_and(|storage| storage.subtree)
-			})
-		});
-
-		let old_stored = self.object_local_stored(index);
-		let old_availability = self.object_local_available(index);
-		let computed_availability = children.as_ref().is_some_and(|children| {
-			children
-				.iter()
-				.all(|index| self.object_local_available(*index))
-		});
 		let remote_pending_children = children
 			.as_ref()
 			.map(|children| self.count_remote_pending(children));
@@ -684,10 +698,6 @@ impl Graph {
 		if let Some(children) = children {
 			node.remote_children.extend(children.iter().copied());
 			node.children = Some(children);
-			let storage = tangram_index::object::Storage {
-				subtree: computed_storage.unwrap(),
-			};
-			node.local_storage.get_or_insert_default().merge(&storage);
 			node.remote_pending_children = remote_pending_children;
 		}
 
@@ -706,11 +716,11 @@ impl Graph {
 			node.put = Some(node.put.map_or(put, |existing| existing.max(put)));
 		}
 
-		if let Some(mut metadata) = metadata {
-			if let Some(existing) = &node.metadata {
-				metadata.merge(existing);
+		if let Some(metadata) = metadata {
+			match &mut node.metadata {
+				Some(existing) => existing.merge(&metadata),
+				None => node.metadata = Some(metadata),
 			}
-			node.metadata = Some(metadata);
 		}
 
 		if let Some(marked) = marked {
@@ -721,43 +731,9 @@ impl Graph {
 			node.requested = Some(requested);
 		}
 
-		let availability =
-			Self::compute_object_availability(node.local_storage.as_ref(), node.local_permissions)
-				|| (node
-					.local_storage
-					.as_ref()
-					.is_some_and(|storage| storage.subtree)
-					&& computed_availability);
-		let availability = node
-			.local_availability
-			.as_ref()
-			.is_some_and(|availability| availability.subtree)
-			|| availability;
-		node.local_availability = Some(tg::object::Availability {
-			subtree: availability,
-		});
-
-		// Update the local End state and propagate the local storage and availability.
-		self.update_local_end(index);
-		let new_stored = self.object_local_stored(index);
-		let new_availability = self.object_local_available(index);
-		if (!old_stored && new_stored) || (!old_availability && new_availability) {
-			let mut stack: Vec<usize> = self
-				.nodes
-				.get_index(index)
-				.unwrap()
-				.1
-				.parents()
-				.iter()
-				.map(Parent::index)
-				.collect();
-			while let Some(parent_index) = stack.pop() {
-				if let Some(parents) = self.try_propagate_local_state(parent_index) {
-					self.update_local_end(parent_index);
-					stack.extend(parents);
-				}
-			}
-		}
+		// Settle the consequences of the new facts and edges.
+		self.queue_local(index);
+		self.propagate_local();
 
 		// Update the remote End state.
 		self.update_remote_end(index);
@@ -894,10 +870,9 @@ impl Graph {
 						let child = child.process.node.clone();
 						let child_entry = self.nodes.entry(child.into());
 						let child_index = child_entry.index();
-						let child_node =
-							child_entry.or_insert_with(|| Node::Process(ProcessNode::default()));
+						child_entry.or_insert_with(|| Node::Process(ProcessNode::default()));
 						let parent = Parent::Process(index);
-						child_node.unwrap_process_mut().parents.insert(parent);
+						self.insert_local_edge(parent, child_index);
 						child_indices.insert(child_index).then_some(child_index)
 					})
 					.collect::<Vec<_>>()
@@ -913,12 +888,12 @@ impl Graph {
 			let command: tg::object::Id = data.command.node.clone().into();
 			let command_entry = self.nodes.entry(command.into());
 			let command_index = command_entry.index();
-			let command_node = command_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+			command_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 			let parent = Parent::ProcessObject {
 				index,
 				kind: crate::sync::queue::ObjectKind::Command,
 			};
-			command_node.unwrap_object_mut().parents.insert(parent);
+			self.insert_local_edge(parent, command_index);
 			objects.push((command_index, tangram_index::process::object::Kind::Command));
 
 			if let Some(error) = &data.error {
@@ -929,13 +904,12 @@ impl Graph {
 						for object_id in error_children {
 							let object_entry = self.nodes.entry(object_id.into());
 							let object_index = object_entry.index();
-							let object_node =
-								object_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+							object_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 							let parent = Parent::ProcessObject {
 								index,
 								kind: crate::sync::queue::ObjectKind::Error,
 							};
-							object_node.unwrap_object_mut().parents.insert(parent);
+							self.insert_local_edge(parent, object_index);
 							objects
 								.push((object_index, tangram_index::process::object::Kind::Error));
 						}
@@ -944,13 +918,12 @@ impl Graph {
 						let error_id = error_id.node.clone();
 						let error_entry = self.nodes.entry(tg::object::Id::from(error_id).into());
 						let error_index = error_entry.index();
-						let error_node =
-							error_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+						error_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 						let parent = Parent::ProcessObject {
 							index,
 							kind: crate::sync::queue::ObjectKind::Error,
 						};
-						error_node.unwrap_object_mut().parents.insert(parent);
+						self.insert_local_edge(parent, error_index);
 						objects.push((error_index, tangram_index::process::object::Kind::Error));
 					},
 				}
@@ -959,12 +932,12 @@ impl Graph {
 			if let Some(log) = data.log.clone().map(|log| log.node) {
 				let log_entry = self.nodes.entry(tg::object::Id::from(log).into());
 				let log_index = log_entry.index();
-				let log_node = log_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+				log_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 				let parent = Parent::ProcessObject {
 					index,
 					kind: crate::sync::queue::ObjectKind::Log,
 				};
-				log_node.unwrap_object_mut().parents.insert(parent);
+				self.insert_local_edge(parent, log_index);
 				objects.push((log_index, tangram_index::process::object::Kind::Log));
 			}
 
@@ -974,13 +947,12 @@ impl Graph {
 				for object_id in output_children {
 					let object_entry = self.nodes.entry(object_id.into());
 					let object_index = object_entry.index();
-					let object_node =
-						object_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+					object_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 					let parent = Parent::ProcessObject {
 						index,
 						kind: crate::sync::queue::ObjectKind::Output,
 					};
-					object_node.unwrap_object_mut().parents.insert(parent);
+					self.insert_local_edge(parent, object_index);
 					objects.push((object_index, tangram_index::process::object::Kind::Output));
 				}
 			}
@@ -990,28 +962,6 @@ impl Graph {
 			None
 		};
 
-		// Get the current local state.
-		let node_old_storage = self
-			.nodes
-			.get_index(index)
-			.unwrap()
-			.1
-			.unwrap_process_ref()
-			.local_storage
-			.clone();
-		let node_old_availability = self.process_local_availability(index);
-
-		// Compute the derived state.
-		let computed_storage = if let (Some(children), Some(objects)) = (&children, &objects) {
-			Some(self.compute_process_local_storage(children, objects))
-		} else {
-			None
-		};
-		let computed_availability = if let (Some(children), Some(objects)) = (&children, &objects) {
-			Some(self.compute_process_local_availability(children, objects))
-		} else {
-			None
-		};
 		let remote_pending_children = children
 			.as_ref()
 			.map(|children| self.count_remote_pending(children));
@@ -1058,11 +1008,11 @@ impl Graph {
 				Self::merge_local_permissions(&mut node.local_permissions, permissions);
 			}
 
-			if let Some(mut metadata) = metadata {
-				if let Some(existing) = &node.metadata {
-					metadata.merge(existing);
+			if let Some(metadata) = metadata {
+				match &mut node.metadata {
+					Some(existing) => existing.merge(&metadata),
+					None => node.metadata = Some(metadata),
 				}
-				node.metadata = Some(metadata);
 			}
 
 			if let Some(objects) = objects {
@@ -1086,67 +1036,11 @@ impl Graph {
 			if let Some(requested) = requested {
 				node.requested = Some(requested);
 			}
-
-			if let Some(computed_storage) = computed_storage {
-				let merged_storage =
-					Self::merge_process_storage(node.local_storage.as_ref(), computed_storage);
-				node.local_storage = Some(merged_storage);
-			}
-
-			let availability_from_permissions = Self::compute_process_availability_from_permissions(
-				node.local_storage.as_ref(),
-				node.local_permissions,
-			);
-			let computed_availability = computed_availability.map_or(
-				availability_from_permissions.clone(),
-				|availability| {
-					Self::merge_process_availability(
-						Some(&availability_from_permissions),
-						availability,
-					)
-				},
-			);
-			let merged_availability = Self::merge_process_availability(
-				node.local_availability.as_ref(),
-				computed_availability,
-			);
-			node.local_availability = Some(merged_availability);
 		}
 
-		// Update the local End state and propagate the local storage and availability.
-		self.update_local_end(index);
-		let node_new_storage = self
-			.nodes
-			.get_index(index)
-			.unwrap()
-			.1
-			.unwrap_process_ref()
-			.local_storage
-			.clone();
-		let node_new_availability = self.process_local_availability(index);
-		if Self::should_propagate_process_storage(
-			node_old_storage.as_ref(),
-			node_new_storage.as_ref(),
-		) || Self::should_propagate_process_availability(
-			Some(&node_old_availability),
-			Some(&node_new_availability),
-		) {
-			let mut stack: Vec<usize> = self
-				.nodes
-				.get_index(index)
-				.unwrap()
-				.1
-				.parents()
-				.iter()
-				.map(Parent::index)
-				.collect();
-			while let Some(parent_index) = stack.pop() {
-				if let Some(parents) = self.try_propagate_local_state(parent_index) {
-					self.update_local_end(parent_index);
-					stack.extend(parents);
-				}
-			}
-		}
+		// Settle the consequences of the new facts and edges.
+		self.queue_local(index);
+		self.propagate_local();
 
 		// Propagate the remote availability and update the End state.
 		let mut end_indices =
@@ -1282,13 +1176,14 @@ impl Graph {
 				},
 			};
 
-			let (_, node) = self.nodes.get_index_mut(index).unwrap();
-			node.parents_mut().insert(parent);
+			self.insert_local_edge(parent, index);
 
 			dependency_inserted.then_some(parent_index)
 		} else {
 			None
 		};
+
+		self.propagate_local();
 
 		// Update the End state.
 		let mut end_indices = vec![index];
@@ -1406,13 +1301,14 @@ impl Graph {
 			let (dependency_inserted, remote_child_inserted) =
 				self.insert_process_remote_child(parent_index, index);
 			let parent = Parent::Process(parent_index);
-			let (_, node) = self.nodes.get_index_mut(index).unwrap();
-			node.parents_mut().insert(parent);
+			self.insert_local_edge(parent, index);
 
 			Some((dependency_inserted, parent_index, remote_child_inserted))
 		} else {
 			None
 		};
+
+		self.propagate_local();
 
 		// Propagate the remote availability and update the End state.
 		let mut end_indices = Vec::new();
@@ -1508,7 +1404,7 @@ impl Graph {
 	}
 
 	pub fn get_object_local_authorization(
-		&mut self,
+		&self,
 		id: &tg::object::Id,
 		required: tg::authorization::permission::Set,
 	) -> Authorization {
@@ -1525,7 +1421,7 @@ impl Graph {
 	}
 
 	pub fn get_process_local_authorization(
-		&mut self,
+		&self,
 		id: &tg::process::Id,
 		required: tg::authorization::permission::Set,
 	) -> Authorization {
@@ -1551,7 +1447,7 @@ impl Graph {
 	}
 
 	pub fn get_node_local_control_output(
-		&mut self,
+		&self,
 		id: &tg::Id,
 		stored: bool,
 	) -> tg::Result<tg::sync::control::GetServerResponseOutput> {
@@ -1559,23 +1455,6 @@ impl Graph {
 			GetObjectServerResponseOutput, GetProcessServerResponseOutput, GetServerResponseOutput,
 		};
 		let permissions = if stored {
-			// Resolve inherited permissions before collecting the response facts.
-			let (index, _, node) = self
-				.nodes
-				.get_full(id)
-				.ok_or_else(|| tg::error!(%id, "expected the stored sync node"))?;
-			let requested = match node {
-				Node::Object(_) => {
-					Self::normalize_permissions(tg::authorization::permission::Set::Object(
-						tg::authorization::permission::object::Set::SUBTREE,
-					))
-				},
-				Node::Process(_) => tg::authorization::permission::Set::Process(
-					tg::authorization::permission::process::Set::all(),
-				),
-				_ => return Err(tg::error!(%id, "expected an object or process")),
-			};
-			self.get_local_authorization(index, requested);
 			self.try_get_node_local_grant_permissions(id)
 				.map(Self::normalize_permissions)
 				.ok_or_else(|| tg::error!(%id, "expected permissions for the stored sync node"))?
@@ -1834,122 +1713,95 @@ impl Graph {
 	}
 
 	fn get_local_authorization(
-		&mut self,
+		&self,
 		index: usize,
 		required: tg::authorization::permission::Set,
 	) -> Authorization {
-		let permissions = self
-			.nodes
-			.get_index(index)
-			.and_then(|(_, node)| node.local_permissions())
+		let (_, node) = self.nodes.get_index(index).unwrap();
+		let permissions = node
+			.local_permissions()
 			.map_or_else(|| required.empty_like(), Self::normalize_permissions);
-		if permissions.contains(required) {
-			let tokens = self
-				.nodes
-				.get_index(index)
-				.map(|(_, node)| node.local_tokens().clone())
-				.unwrap_or_default();
-			return Authorization {
-				permissions,
-				tokens,
-			};
-		}
-
-		let mut predecessors = HashMap::new();
-		let mut queue = VecDeque::new();
-		let mut tokens = self
-			.nodes
-			.get_index(index)
-			.map(|(_, node)| node.local_tokens().clone())
-			.unwrap_or_default();
-		let mut visited = HashSet::new();
-		for permission in required
-			.iter()
-			.filter(|permission| !permissions.contains(*permission))
-		{
-			let state = PermissionState { index, permission };
-			queue.push_back(state);
-			visited.insert(state);
-		}
-
-		while let Some(state) = queue.pop_front() {
-			if let Some((_, node)) = self.nodes.get_index(state.index) {
-				tokens.inherit(node.local_tokens());
-			}
-			let permissions = self
-				.nodes
-				.get_index(state.index)
-				.and_then(|(_, node)| node.local_permissions())
-				.map(Self::normalize_permissions);
-			if permissions.is_some_and(|permissions| permissions.contains(state.permission)) {
-				self.cache_local_permission_path(state, &predecessors);
-				let permissions = self
-					.nodes
-					.get_index(index)
-					.and_then(|(_, node)| node.local_permissions())
-					.map_or_else(|| required.empty_like(), Self::normalize_permissions);
-				if permissions.contains(required) {
-					return Authorization {
-						permissions,
-						tokens,
-					};
-				}
-				continue;
-			}
-
-			let parents = self.nodes.get_index(state.index).unwrap().1.parents();
-			for &parent in parents {
-				let Some(permission) = Self::parent_required_permission(parent, state.permission)
-				else {
-					continue;
-				};
-				let parent_state = PermissionState {
-					index: parent.index(),
-					permission,
-				};
-				if visited.insert(parent_state) {
-					predecessors.insert(parent_state, (state, parent));
-					queue.push_back(parent_state);
-				}
-			}
-		}
-
-		let permissions = self
-			.nodes
-			.get_index(index)
-			.and_then(|(_, node)| node.local_permissions())
-			.map_or_else(|| required.empty_like(), Self::normalize_permissions);
-
+		let tokens = if permissions.contains(required) {
+			node.local_tokens().clone()
+		} else {
+			self.local_authorization_tokens(index, required)
+		};
 		Authorization {
 			permissions,
 			tokens,
 		}
 	}
 
-	fn cache_local_permission_path(
-		&mut self,
-		mut state: PermissionState,
-		predecessors: &HashMap<PermissionState, (PermissionState, Parent)>,
-	) {
-		while let Some(&(child, parent)) = predecessors.get(&state) {
-			let permission = Self::derive_child_permission(parent, state.permission);
-			self.update_local_permission(child.index, permission);
-			state = child;
+	#[must_use]
+	fn local_authorization_tokens(
+		&self,
+		index: usize,
+		required: tg::authorization::permission::Set,
+	) -> tg::tokens::Entry {
+		// Seed the walk with the missing permissions.
+		let node = self.nodes.get_index(index).unwrap().1;
+		let mut tokens = node.local_tokens().clone();
+		let permissions = node
+			.local_permissions()
+			.unwrap_or_else(|| required.empty_like());
+		let mut queue = VecDeque::new();
+		let mut visited = HashSet::new();
+		for permission in required
+			.iter()
+			.filter(|permission| !permissions.contains(*permission))
+		{
+			queue.push_back((index, permission));
+			visited.insert((index, permission));
 		}
+
+		// Collect the tokens along the applicable parent edges.
+		while let Some((index, permission)) = queue.pop_front() {
+			let node = self.nodes.get_index(index).unwrap().1;
+			tokens.inherit(node.local_tokens());
+			if node
+				.local_permissions()
+				.is_some_and(|permissions| permissions.contains(permission))
+			{
+				continue;
+			}
+			for &parent in node.parents() {
+				let Some(permission) = Self::parent_required_permission(parent, permission) else {
+					continue;
+				};
+				let state = (parent.index(), permission);
+				if visited.insert(state) {
+					queue.push_back(state);
+				}
+			}
+		}
+
+		tokens
 	}
 
-	fn update_local_permission(&mut self, index: usize, permission: tg::authorization::Permission) {
-		let id = self.nodes.get_index(index).unwrap().0.clone();
-		let permissions = tg::authorization::permission::Set::from_permission(permission);
-		match id.kind() {
-			tg::id::Kind::Process => {
-				self.update_process_local_permissions(&id.try_into().unwrap(), permissions);
-			},
-			_ if tg::object::Id::try_from(id.clone()).is_ok() => {
-				self.update_object_local_permissions(&id.try_into().unwrap(), permissions);
-			},
-			_ => (),
-		}
+	#[must_use]
+	pub fn object_local_permissions(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::authorization::permission::Set {
+		self.nodes
+			.get(&tg::Id::from(id.clone()))
+			.and_then(Node::local_permissions)
+			.unwrap_or(tg::authorization::permission::Set::Object(
+				tg::authorization::permission::object::Set::empty(),
+			))
+	}
+
+	#[must_use]
+	pub fn process_local_permissions(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::authorization::permission::Set {
+		self.nodes
+			.get(&tg::Id::from(id.clone()))
+			.and_then(Node::local_permissions)
+			.unwrap_or(tg::authorization::permission::Set::Process(
+				tg::authorization::permission::process::Set::empty(),
+			))
 	}
 
 	fn parent_required_permission(
@@ -1971,32 +1823,6 @@ impl Graph {
 					tg::authorization::Permission::Process(permission.to_subtree()),
 				),
 				_ => None,
-			},
-		}
-	}
-
-	fn derive_child_permission(
-		parent: Parent,
-		permission: tg::authorization::Permission,
-	) -> tg::authorization::Permission {
-		match parent {
-			Parent::Node(_) | Parent::ProcessObject { .. } => unreachable!(),
-			Parent::Object(_) => match permission {
-				tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Subtree,
-				) => permission,
-				_ => unreachable!(),
-			},
-			Parent::Process(_) => match permission {
-				tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::Parent
-					| tg::authorization::permission::process::Permission::Subtree
-					| tg::authorization::permission::process::Permission::SubtreeCommand
-					| tg::authorization::permission::process::Permission::SubtreeError
-					| tg::authorization::permission::process::Permission::SubtreeLog
-					| tg::authorization::permission::process::Permission::SubtreeOutput,
-				) => permission,
-				_ => unreachable!(),
 			},
 		}
 	}
@@ -2083,127 +1909,6 @@ impl Graph {
 			tangram_index::process::object::Kind::Log => crate::sync::queue::ObjectKind::Log,
 			tangram_index::process::object::Kind::Output => crate::sync::queue::ObjectKind::Output,
 		}
-	}
-
-	fn compute_process_local_storage(
-		&self,
-		children: &[usize],
-		objects: &[(usize, tangram_index::process::object::Kind)],
-	) -> tangram_index::process::Storage {
-		let mut storage = tangram_index::process::Storage {
-			node_command: true,
-			node_error: true,
-			node_log: true,
-			node_output: true,
-			subtree: true,
-			subtree_command: true,
-			subtree_error: true,
-			subtree_log: true,
-			subtree_output: true,
-		};
-		for child_index in children {
-			let child_storage = self
-				.nodes
-				.get_index(*child_index)
-				.and_then(|(_, node)| node.try_unwrap_process_ref().ok()?.local_storage.as_ref());
-			if let Some(child_storage) = child_storage {
-				storage.subtree = storage.subtree && child_storage.subtree;
-				storage.subtree_command = storage.subtree_command && child_storage.subtree_command;
-				storage.subtree_error = storage.subtree_error && child_storage.subtree_error;
-				storage.subtree_log = storage.subtree_log && child_storage.subtree_log;
-				storage.subtree_output = storage.subtree_output && child_storage.subtree_output;
-			} else {
-				storage.subtree = false;
-				storage.subtree_command = false;
-				storage.subtree_error = false;
-				storage.subtree_log = false;
-				storage.subtree_output = false;
-			}
-		}
-		for (object_index, object_kind) in objects {
-			let object_stored = self
-				.nodes
-				.get_index(*object_index)
-				.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.local_storage.as_ref())
-				.is_some_and(|s| s.subtree);
-			match object_kind {
-				tangram_index::process::object::Kind::Command => {
-					storage.node_command = storage.node_command && object_stored;
-					storage.subtree_command = storage.subtree_command && object_stored;
-				},
-				tangram_index::process::object::Kind::Error => {
-					storage.node_error = storage.node_error && object_stored;
-					storage.subtree_error = storage.subtree_error && object_stored;
-				},
-				tangram_index::process::object::Kind::Log => {
-					storage.node_log = storage.node_log && object_stored;
-					storage.subtree_log = storage.subtree_log && object_stored;
-				},
-				tangram_index::process::object::Kind::Output => {
-					storage.node_output = storage.node_output && object_stored;
-					storage.subtree_output = storage.subtree_output && object_stored;
-				},
-			}
-		}
-		storage
-	}
-
-	fn compute_process_local_availability(
-		&self,
-		children: &[usize],
-		objects: &[(usize, tangram_index::process::object::Kind)],
-	) -> tg::process::Availability {
-		let mut availability = tg::process::Availability {
-			node_command: true,
-			node_error: true,
-			node_log: true,
-			node_output: true,
-			subtree: true,
-			subtree_command: true,
-			subtree_error: true,
-			subtree_log: true,
-			subtree_output: true,
-		};
-		for child_index in children {
-			let child_availability = self.process_local_availability(*child_index);
-			availability.subtree = availability.subtree && child_availability.subtree;
-			availability.subtree_command =
-				availability.subtree_command && child_availability.subtree_command;
-			availability.subtree_error =
-				availability.subtree_error && child_availability.subtree_error;
-			availability.subtree_log = availability.subtree_log && child_availability.subtree_log;
-			availability.subtree_output =
-				availability.subtree_output && child_availability.subtree_output;
-		}
-		for (object_index, object_kind) in objects {
-			let object_available = self.object_local_available(*object_index);
-			match object_kind {
-				tangram_index::process::object::Kind::Command => {
-					availability.node_command = availability.node_command && object_available;
-					availability.subtree_command = availability.subtree_command && object_available;
-				},
-				tangram_index::process::object::Kind::Error => {
-					availability.node_error = availability.node_error && object_available;
-					availability.subtree_error = availability.subtree_error && object_available;
-				},
-				tangram_index::process::object::Kind::Log => {
-					availability.node_log = availability.node_log && object_available;
-					availability.subtree_log = availability.subtree_log && object_available;
-				},
-				tangram_index::process::object::Kind::Output => {
-					availability.node_output = availability.node_output && object_available;
-					availability.subtree_output = availability.subtree_output && object_available;
-				},
-			}
-		}
-		availability
-	}
-
-	fn object_local_stored(&self, index: usize) -> bool {
-		self.nodes
-			.get_index(index)
-			.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.local_storage.as_ref())
-			.is_some_and(|storage| storage.subtree)
 	}
 
 	fn object_local_available(&self, index: usize) -> bool {
@@ -2733,6 +2438,7 @@ impl Graph {
 		existing: &mut Option<tg::authorization::permission::Set>,
 		permissions: tg::authorization::permission::Set,
 	) {
+		let permissions = Self::normalize_permissions(permissions);
 		if permissions.is_empty() {
 			return;
 		}
@@ -2740,129 +2446,6 @@ impl Graph {
 			Some(existing) if existing.same_kind(permissions) => existing.insert(permissions),
 			Some(_) | None => *existing = Some(permissions),
 		}
-	}
-
-	fn try_propagate_local_state(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
-		let (_, node) = self.nodes.get_index(index)?;
-		match node {
-			Node::Group(_)
-			| Node::Organization(_)
-			| Node::Sandbox(_)
-			| Node::Tag(_)
-			| Node::User(_) => None,
-			Node::Object(_) => self.try_propagate_object_local_state(index),
-			Node::Process(_) => self.try_propagate_process_local_state(index),
-		}
-	}
-
-	fn try_propagate_object_local_state(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
-		let (old_stored, old_availability, children, parents) =
-			self.nodes.get_index(index).and_then(|(_, node)| {
-				let node = node.try_unwrap_object_ref().ok()?;
-				if node
-					.local_storage
-					.as_ref()
-					.is_some_and(|storage| storage.subtree)
-					&& node
-						.local_availability
-						.as_ref()
-						.is_some_and(|availability| availability.subtree)
-				{
-					return None;
-				}
-				let children = node.children.as_ref()?.clone();
-				Some((
-					self.object_local_stored(index),
-					self.object_local_available(index),
-					children,
-					node.parents.iter().map(Parent::index).collect(),
-				))
-			})?;
-
-		let all_children_stored = children.iter().all(|child_index| {
-			self.nodes
-				.get_index(*child_index)
-				.and_then(|(_, node)| node.try_unwrap_object_ref().ok()?.local_storage.as_ref())
-				.is_some_and(|s| s.subtree)
-		});
-		if all_children_stored
-			&& let Some((_, node)) = self.nodes.get_index_mut(index)
-			&& let Ok(node) = node.try_unwrap_object_mut()
-		{
-			node.local_storage = Some(tangram_index::object::Storage { subtree: true });
-		}
-
-		let all_children_available = children
-			.iter()
-			.all(|child_index| self.object_local_available(*child_index));
-		if self.object_local_stored(index)
-			&& all_children_available
-			&& let Some((_, node)) = self.nodes.get_index_mut(index)
-			&& let Ok(node) = node.try_unwrap_object_mut()
-		{
-			node.local_availability = Some(tg::object::Availability { subtree: true });
-		}
-
-		let new_stored = self.object_local_stored(index);
-		let new_availability = self.object_local_available(index);
-		((!old_stored && new_stored) || (!old_availability && new_availability)).then_some(parents)
-	}
-
-	fn try_propagate_process_local_state(&mut self, index: usize) -> Option<SmallVec<[usize; 1]>> {
-		let (old_storage, old_availability, children, objects, parents) =
-			self.nodes.get_index(index).and_then(|(_, node)| {
-				let node = node.try_unwrap_process_ref().ok()?;
-				let children = node.children.clone().unwrap_or_default();
-				let objects = node.objects.as_ref()?.clone();
-				Some((
-					node.local_storage.clone(),
-					self.process_local_availability(index),
-					children,
-					objects,
-					node.parents.iter().map(Parent::index).collect(),
-				))
-			})?;
-		let new_storage = self.compute_process_local_storage(&children, &objects);
-		let merged_storage = Self::merge_process_storage(old_storage.as_ref(), new_storage);
-		let storage_improved =
-			Self::should_propagate_process_storage(old_storage.as_ref(), Some(&merged_storage));
-
-		let new_availability = self.compute_process_local_availability(&children, &objects);
-		let merged_availability = self
-			.nodes
-			.get_index(index)
-			.and_then(|(_, node)| {
-				node.try_unwrap_process_ref()
-					.ok()?
-					.local_availability
-					.as_ref()
-			})
-			.map_or(new_availability.clone(), |old| {
-				Self::merge_process_availability(Some(old), new_availability)
-			});
-		let availability_improved = Self::should_propagate_process_availability(
-			Some(&old_availability),
-			Some(&merged_availability),
-		);
-
-		if storage_improved
-			&& let Some((_, node)) = self.nodes.get_index_mut(index)
-			&& let Ok(process) = node.try_unwrap_process_mut()
-		{
-			process.local_storage = Some(merged_storage);
-		}
-
-		if availability_improved
-			&& let Some((_, node)) = self.nodes.get_index_mut(index)
-			&& let Ok(process) = node.try_unwrap_process_mut()
-		{
-			process.local_availability = Some(merged_availability);
-		}
-
-		if storage_improved || availability_improved {
-			return Some(parents);
-		}
-		None
 	}
 
 	fn inherit_process_remote_availability(
@@ -3014,27 +2597,6 @@ impl Graph {
 		availability.node_output |= availability.subtree_output;
 	}
 
-	fn should_propagate_process_storage(
-		old: Option<&tangram_index::process::Storage>,
-		new: Option<&tangram_index::process::Storage>,
-	) -> bool {
-		let Some(old) = old else {
-			return new.is_some();
-		};
-		let Some(new) = new else {
-			return false;
-		};
-		(!old.node_command && new.node_command)
-			|| (!old.node_error && new.node_error)
-			|| (!old.node_log && new.node_log)
-			|| (!old.node_output && new.node_output)
-			|| (!old.subtree && new.subtree)
-			|| (!old.subtree_command && new.subtree_command)
-			|| (!old.subtree_error && new.subtree_error)
-			|| (!old.subtree_log && new.subtree_log)
-			|| (!old.subtree_output && new.subtree_output)
-	}
-
 	fn should_propagate_process_availability(
 		old: Option<&tg::process::Availability>,
 		new: Option<&tg::process::Availability>,
@@ -3056,17 +2618,6 @@ impl Graph {
 			|| (!old.subtree_output && new.subtree_output)
 	}
 
-	fn merge_process_storage(
-		old: Option<&tangram_index::process::Storage>,
-		mut storage: tangram_index::process::Storage,
-	) -> tangram_index::process::Storage {
-		if let Some(old) = old {
-			storage.merge(old);
-		}
-
-		storage
-	}
-
 	fn merge_process_availability(
 		old: Option<&tg::process::Availability>,
 		mut availability: tg::process::Availability,
@@ -3076,23 +2627,6 @@ impl Graph {
 		}
 
 		availability
-	}
-}
-
-impl Descendants {
-	fn request(&mut self, enabled: bool, complete: bool) -> bool {
-		let enqueue = enabled && !self.requested && !complete;
-		self.requested |= enabled;
-		if enqueue {
-			self.sent = false;
-		}
-
-		enqueue
-	}
-
-	fn finish(&mut self, eager: bool) {
-		self.eager |= eager;
-		self.sent = true;
 	}
 }
 
@@ -3235,7 +2769,7 @@ impl Node {
 	}
 
 	#[must_use]
-	pub fn parents_mut(&mut self) -> &mut IndexSet<Parent, fnv::FnvBuildHasher> {
+	fn parents_mut(&mut self) -> &mut IndexSet<Parent, fnv::FnvBuildHasher> {
 		match self {
 			Node::Group(node)
 			| Node::Organization(node)
@@ -3259,18 +2793,6 @@ impl Node {
 		}
 	}
 
-	pub fn children_mut(&mut self) -> &mut Option<Vec<usize>> {
-		match self {
-			Node::Group(node)
-			| Node::Organization(node)
-			| Node::Sandbox(node)
-			| Node::Tag(node)
-			| Node::User(node) => &mut node.children,
-			Node::Object(node) => &mut node.children,
-			Node::Process(node) => &mut node.children,
-		}
-	}
-
 	pub fn marked(&self) -> bool {
 		match self {
 			Node::Group(_)
@@ -3281,6 +2803,99 @@ impl Node {
 			Node::Object(node) => node.marked,
 			Node::Process(node) => node.marked,
 		}
+	}
+}
+
+impl DatabaseNode {
+	#[must_use]
+	pub fn children(&self) -> Option<&Vec<usize>> {
+		self.children.as_ref()
+	}
+}
+
+impl ObjectNode {
+	#[must_use]
+	pub fn children(&self) -> Option<&Vec<usize>> {
+		self.children.as_ref()
+	}
+
+	#[must_use]
+	pub fn local_availability(&self) -> Option<&tg::object::Availability> {
+		self.local_availability.as_ref()
+	}
+
+	#[must_use]
+	pub fn local_storage(&self) -> Option<&tangram_index::object::Storage> {
+		self.local_storage.as_ref()
+	}
+
+	#[must_use]
+	pub fn marked(&self) -> bool {
+		self.marked
+	}
+
+	#[must_use]
+	pub fn metadata(&self) -> Option<&tg::object::Metadata> {
+		self.metadata.as_ref()
+	}
+
+	#[must_use]
+	pub fn put(&self) -> Option<[u8; 16]> {
+		self.put
+	}
+}
+
+impl ProcessNode {
+	#[must_use]
+	pub fn children(&self) -> Option<&Vec<usize>> {
+		self.children.as_ref()
+	}
+
+	#[must_use]
+	pub fn data(&self) -> Option<&tg::process::Data> {
+		self.data.as_ref()
+	}
+
+	#[must_use]
+	pub fn local_availability(&self) -> Option<&tg::process::Availability> {
+		self.local_availability.as_ref()
+	}
+
+	#[must_use]
+	pub fn local_storage(&self) -> Option<&tangram_index::process::Storage> {
+		self.local_storage.as_ref()
+	}
+
+	#[must_use]
+	pub fn marked(&self) -> bool {
+		self.marked
+	}
+
+	#[must_use]
+	pub fn metadata(&self) -> Option<&tg::process::Metadata> {
+		self.metadata.as_ref()
+	}
+
+	#[must_use]
+	pub fn objects(&self) -> Option<&Vec<(usize, tangram_index::process::object::Kind)>> {
+		self.objects.as_ref()
+	}
+}
+
+impl Descendants {
+	fn request(&mut self, enabled: bool, complete: bool) -> bool {
+		let enqueue = enabled && !self.requested && !complete;
+		self.requested |= enabled;
+		if enqueue {
+			self.sent = false;
+		}
+
+		enqueue
+	}
+
+	fn finish(&mut self, eager: bool) {
+		self.eager |= eager;
+		self.sent = true;
 	}
 }
 

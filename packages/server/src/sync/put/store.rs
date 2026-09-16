@@ -155,17 +155,11 @@ impl Session {
 			if node.send
 				&& let Some(metadata) = output.metadata.take()
 			{
-				let required = tg::authorization::permission::Set::from_permission(
-					tg::authorization::Permission::Object(
-						tg::authorization::permission::object::Permission::Subtree,
-					),
-				);
 				let permissions = state
 					.graph
 					.lock()
 					.unwrap()
-					.get_object_local_authorization(&node.id, required)
-					.permissions;
+					.object_local_permissions(&node.id);
 				output.metadata =
 					Self::mask_object_metadata_with_permissions(metadata, permissions);
 			}
@@ -291,13 +285,11 @@ impl Session {
 				let permission = tg::authorization::Permission::Process(
 					tg::authorization::permission::process::Permission::NodeLog,
 				);
-				let required = tg::authorization::permission::Set::from_permission(permission);
 				let permissions = state
 					.graph
 					.lock()
 					.unwrap()
-					.get_process_local_authorization(&node.id, required)
-					.permissions;
+					.process_local_permissions(&node.id);
 				if !permissions.contains(permission) {
 					return Err(tg::error!("unauthorized"));
 				}
@@ -397,15 +389,11 @@ impl Session {
 			if node.send
 				&& let Some(metadata) = output.metadata.take()
 			{
-				let required = tg::authorization::permission::Set::Process(
-					tg::authorization::permission::process::Set::all(),
-				);
 				let permissions = state
 					.graph
 					.lock()
 					.unwrap()
-					.get_process_local_authorization(&node.id, required)
-					.permissions;
+					.process_local_permissions(&node.id);
 				output.metadata =
 					Self::mask_process_metadata_with_permissions(&metadata, permissions);
 			}
