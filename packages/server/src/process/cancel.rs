@@ -1,6 +1,7 @@
 use {
 	crate::Session,
-	futures::{StreamExt as _, stream::FuturesUnordered},
+	futures::{FutureExt as _, StreamExt as _, future, stream::FuturesUnordered},
+	std::pin::pin,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -74,31 +75,6 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
-		// Read the index row and refuse a remote process or a finished one.
-		let Some(process) = self
-			.try_get_process_from_index(id)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-		else {
-			return Ok(None);
-		};
-		if process
-			.location
-			.as_ref()
-			.is_some_and(tg::Location::is_remote)
-		{
-			return Ok(None);
-		}
-		if process
-			.data
-			.as_ref()
-			.is_some_and(|data| data.status.is_finished())
-		{
-			let output = tg::process::cancel::Output { released: false };
-			return Ok(Some(output));
-		}
-
-		// Release the lease through the control connection.
 		let request = tg::process::control::ServerRequestArg::ReleaseLease(
 			tg::process::control::ReleaseLeaseServerRequestArg { lease: arg.lease },
 		);
@@ -106,9 +82,36 @@ impl Session {
 			retry: tangram_futures::retry::Options::default(),
 			timeout: std::time::Duration::from_secs(10),
 		};
-		let response = self
+		let release_future = self
 			.send_process_control_request(id, request, options)
-			.await;
+			.boxed();
+		let get_future = self.try_get_process_from_index(id).boxed();
+		let response = match future::select(pin!(release_future), pin!(get_future)).await {
+			future::Either::Left((response, _)) => response,
+			future::Either::Right((process, release_future)) => {
+				let Some(process) = process
+					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
+				else {
+					return Ok(None);
+				};
+				if process
+					.location
+					.as_ref()
+					.is_some_and(tg::Location::is_remote)
+				{
+					return Ok(None);
+				}
+				if process
+					.data
+					.as_ref()
+					.is_some_and(|data| data.status.is_finished())
+				{
+					let output = tg::process::cancel::Output { released: false };
+					return Ok(Some(output));
+				}
+				release_future.await
+			},
+		};
 		let response = response
 			.map_err(|error| tg::error!(!error, %id, "failed to release the process lease"))?
 			.map_err(|error| tg::error!(!error, %id, "the release process lease request failed"))?;
