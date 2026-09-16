@@ -13,6 +13,25 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::signal::post::Arg,
 	) -> tg::Result<Option<()>> {
+		if let Some(control) = self
+			.try_get_process_control_runner(
+				id,
+				arg.location.as_ref(),
+				&arg.tokens,
+				tg::authorization::permission::process::Set::PARENT,
+			)
+			.await?
+		{
+			return self
+				.post_process_signal_with_control(
+					id,
+					control.data,
+					arg.signal,
+					Some(control.control_sender),
+				)
+				.await
+				.map_err(|error| tg::error!(!error, %id, "failed to signal the process"));
+		}
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -69,8 +88,6 @@ impl Session {
 		{
 			return Ok(None);
 		}
-		let cacheable = output.data.cacheable;
-
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Parent,
 		);
@@ -79,12 +96,22 @@ impl Session {
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
 		}
+		self.post_process_signal_with_control(id, output.data, signal, None)
+			.await
+	}
 
+	async fn post_process_signal_with_control(
+		&self,
+		id: &tg::process::Id,
+		data: tg::process::Data,
+		signal: tg::process::Signal,
+		control_sender: Option<crate::process::control::local::Local>,
+	) -> tg::Result<Option<()>> {
 		// Check if the process is cacheable.
-		if cacheable {
+		if data.cacheable {
 			return Err(tg::error!(%id, "cannot signal cacheable processes"));
 		}
-		if output.data.status.is_finished() {
+		if data.status.is_finished() {
 			return Ok(Some(()));
 		}
 
@@ -104,9 +131,12 @@ impl Session {
 			std::time::Duration::from_secs(10)
 		};
 		let options = crate::control::Options { retry, timeout };
-		let response = self
-			.send_process_control_request(id, request, options)
-			.await??;
+		let response = if let Some(control_sender) = control_sender {
+			control_sender.request(request).await?
+		} else {
+			self.send_process_control_request(id, request, options)
+				.await??
+		};
 		response
 			.try_unwrap_signal()
 			.map_err(|_| tg::error!("expected a signal response"))?;

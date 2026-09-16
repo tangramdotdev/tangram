@@ -69,7 +69,9 @@ impl Session {
 				process.lease = Some(connected.lease);
 			},
 			Some(tg::Either::Right(_)) => {
-				let connected_event = self.spawn_process_in_existing_sandbox(process).await?;
+				let connected_event = self
+					.spawn_process_in_existing_sandbox(process, arg.location.as_ref())
+					.await?;
 				Self::spawn_process_apply_connected(process, connected_event);
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
@@ -159,6 +161,7 @@ impl Session {
 	async fn spawn_process_in_existing_sandbox(
 		&self,
 		output: &Output,
+		location: Option<&tg::location::Arg>,
 	) -> tg::Result<crate::runner::process::ConnectedEvent> {
 		let process = Self::spawn_process_runner_arg(output);
 		let id = output.id.clone();
@@ -171,16 +174,22 @@ impl Session {
 			retry: tangram_futures::retry::Options::default(),
 			timeout: std::time::Duration::from_secs(10),
 		};
-		let response = self
-			.send_sandbox_control_request(&sandbox, request, options)
-			.boxed()
-			.await
-			.map_err(
-				|error| tg::error!(!error, %sandbox, process = %id, "failed to send the spawn process request"),
-			)?
-			.map_err(
-				|error| tg::error!(!error, %sandbox, process = %id, "the spawn process request failed"),
-			)?;
+		// Spawn preparation has already checked sandbox access and the request origin.
+		let response = if let Some(control_sender) =
+			self.try_get_sandbox_control_runner_inner(&sandbox, location)
+		{
+			control_sender.request(request).await
+		} else {
+			self.send_sandbox_control_request(&sandbox, request, options)
+				.boxed()
+				.await
+		}
+		.map_err(
+			|error| tg::error!(!error, %sandbox, process = %id, "failed to send the spawn process request"),
+		)?
+		.map_err(
+			|error| tg::error!(!error, %sandbox, process = %id, "the spawn process request failed"),
+		)?;
 		let output = response
 			.try_unwrap_spawn_process()
 			.map_err(|_| tg::error!("expected a spawn process response"))?;

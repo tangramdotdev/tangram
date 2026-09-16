@@ -16,6 +16,21 @@ impl Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
+		if let Some(control_sender) =
+			self.try_get_sandbox_control_runner_inner(id, arg.location.as_ref())
+			&& self
+				.authorize_sandbox_runner(
+					id,
+					&[],
+					tg::authorization::permission::sandbox::Permission::Write,
+				)
+				.await?
+		{
+			return self
+				.destroy_sandbox_with_control(id, arg.error, Some(control_sender))
+				.boxed()
+				.await;
+		}
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -114,6 +129,17 @@ impl Session {
 			return Ok(None);
 		}
 
+		self.destroy_sandbox_with_control(id, error, None)
+			.boxed()
+			.await
+	}
+
+	async fn destroy_sandbox_with_control(
+		&self,
+		id: &tg::sandbox::Id,
+		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+		control_sender: Option<super::control::local::Local>,
+	) -> tg::Result<Option<bool>> {
 		let error = match error {
 			Some(tg::Either::Left(data)) => data,
 			Some(tg::Either::Right(id)) => tg::Error::with_id(id)
@@ -133,15 +159,19 @@ impl Session {
 			retry: tangram_futures::retry::Options::default(),
 			timeout: std::time::Duration::from_secs(10),
 		};
-		let destroy_future = self.send_sandbox_control_request(id, request, options);
-		let status_future = self.try_get_sandbox_status_local(id);
-		let response = match future::select(pin!(destroy_future), pin!(status_future)).await {
-			future::Either::Left((response, _)) => response,
-			future::Either::Right((status, destroy_future)) => match status? {
-				Some(status) if status.is_destroyed() => return Ok(Some(false)),
-				Some(_) => destroy_future.await,
-				None => return Ok(None),
-			},
+		let response = if let Some(control_sender) = control_sender {
+			control_sender.request(request).await
+		} else {
+			let destroy_future = self.send_sandbox_control_request(id, request, options);
+			let status_future = self.try_get_sandbox_status_local(id);
+			match future::select(pin!(destroy_future), pin!(status_future)).await {
+				future::Either::Left((response, _)) => response,
+				future::Either::Right((status, destroy_future)) => match status? {
+					Some(status) if status.is_destroyed() => return Ok(Some(false)),
+					Some(_) => destroy_future.await,
+					None => return Ok(None),
+				},
+			}
 		};
 		let response = response
 			.map_err(

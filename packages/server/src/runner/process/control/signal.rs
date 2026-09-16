@@ -1,14 +1,16 @@
 use {
-	super::ProcessControlSender, crate::session::Session, futures::TryFutureExt as _,
-	std::sync::Arc, tangram_client::prelude::*, tangram_futures::task::Task,
+	crate::{process::control::local::Reply, session::Session},
+	futures::TryFutureExt as _,
+	std::sync::Arc,
+	tangram_client::prelude::*,
+	tangram_futures::task::Task,
 };
 
 pub(super) struct RunProcessControlSignalTaskArg {
 	pub(super) receiver:
-		tokio::sync::mpsc::Receiver<(String, tg::process::control::SignalServerRequestArg)>,
+		tokio::sync::mpsc::Receiver<(String, tg::process::control::SignalServerRequestArg, Reply)>,
 	pub(super) sandbox: tangram_sandbox::Sandbox,
 	pub(super) sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
-	pub(super) sender: ProcessControlSender,
 }
 
 impl Session {
@@ -32,7 +34,6 @@ impl Session {
 			mut receiver,
 			sandbox,
 			mut sandbox_process,
-			sender,
 		} = arg;
 
 		let sandbox_process = sandbox_process
@@ -41,7 +42,7 @@ impl Session {
 			.ok()
 			.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
 
-		while let Some((id, request)) = receiver.recv().await {
+		while let Some((id, request, sender)) = receiver.recv().await {
 			let result = if let Some(sandbox_process) = &sandbox_process {
 				Self::handle_process_control_signal_request(&sandbox, sandbox_process, request)
 					.await

@@ -31,6 +31,26 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<BoxFuture<'static, tg::Result<()>>> {
+		if let Some(mut runner) = self.try_get_process_runner_inner(id, None) {
+			let id = id.clone();
+			let future = async move {
+				loop {
+					if runner
+						.processes
+						.get(&id)
+						.is_none_or(|process| process.data.status.is_finished())
+					{
+						break;
+					}
+					if runner.changed.changed().await.is_err() {
+						break;
+					}
+				}
+				Ok(())
+			}
+			.boxed();
+			return Ok(future);
+		}
 		let mut stream = self
 			.create_process_status_stream_local(id, None, None)
 			.await?;
@@ -96,7 +116,7 @@ impl Session {
 		Ok(Some(future))
 	}
 
-	async fn try_wait_process_runner(
+	pub(super) async fn try_wait_process_runner(
 		&self,
 		id: &tg::process::Id,
 		arg: &tg::process::wait::Arg,

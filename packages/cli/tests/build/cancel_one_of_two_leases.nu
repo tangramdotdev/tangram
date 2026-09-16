@@ -2,7 +2,7 @@ use ../../test.nu *
 
 # Cancelling one of two leases on a deduplicated process leaves it running, and cancelling the last lease cancels it.
 
-let server = server spawn
+let server = server spawn --config { advanced: { checkpoints: true } }
 
 let path = artifact {
 	tangram.ts: '
@@ -16,7 +16,11 @@ let path = artifact {
 
 # Two detached builds of the same module deduplicate to one process with distinct leases.
 let first = tg build --detach --verbose $path | from json
-let second = tg build --detach --verbose $path | from json
+let watch = tg checkpoint watch process.control.response.publish --params '{"kind":"acquire_lease"}' | from json | get watch
+let second = timeout 10s tg build --detach --verbose $path | from json
+let response = timeout 1s tg checkpoint wait process.control.response.publish $watch 0 | complete
+tg checkpoint unwatch process.control.response.publish $watch
+assert equal $response.exit_code 124 "the runner should acquire the cached process lease directly"
 assert equal $second.process $first.process "the builds should deduplicate to one process"
 assert ($second.lease != $first.lease) "each build should hold its own lease"
 

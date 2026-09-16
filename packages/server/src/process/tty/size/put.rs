@@ -12,6 +12,24 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::tty::size::put::Arg,
 	) -> tg::Result<Option<()>> {
+		if let Some(control) = self
+			.try_get_process_control_runner(
+				id,
+				arg.location.as_ref(),
+				&arg.tokens,
+				tg::authorization::permission::process::Set::NODE,
+			)
+			.await?
+		{
+			return self
+				.set_process_tty_size_with_control(
+					id,
+					control.data,
+					arg.size,
+					Some(control.control_sender),
+				)
+				.await;
+		}
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {
@@ -59,11 +77,22 @@ impl Session {
 			return Ok(None);
 		}
 
+		self.set_process_tty_size_with_control(id, output.data, size, None)
+			.await
+	}
+
+	async fn set_process_tty_size_with_control(
+		&self,
+		id: &tg::process::Id,
+		data: tg::process::Data,
+		size: tg::process::tty::Size,
+		control_sender: Option<crate::process::control::local::Local>,
+	) -> tg::Result<Option<()>> {
 		// Check if the process has a tty.
-		if output.data.tty.is_none() {
+		if data.tty.is_none() {
 			return Err(tg::error!(%id, "the process does not have a tty associated with it"));
 		}
-		if output.data.status.is_finished() {
+		if data.status.is_finished() {
 			return Ok(Some(()));
 		}
 
@@ -83,9 +112,12 @@ impl Session {
 			std::time::Duration::from_secs(10)
 		};
 		let options = crate::control::Options { retry, timeout };
-		let response = self
-			.send_process_control_request(id, request, options)
-			.await??;
+		let response = if let Some(control_sender) = control_sender {
+			control_sender.request(request).await?
+		} else {
+			self.send_process_control_request(id, request, options)
+				.await??
+		};
 		response
 			.try_unwrap_tty()
 			.map_err(|_| tg::error!("expected a tty response"))?;

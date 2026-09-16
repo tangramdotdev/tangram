@@ -9,6 +9,18 @@ pub(crate) struct Runner {
 
 impl Session {
 	#[must_use]
+	pub(crate) fn try_get_sandbox_control_runner_inner(
+		&self,
+		id: &tg::sandbox::Id,
+		location: Option<&tg::location::Arg>,
+	) -> Option<super::control::local::Local> {
+		let runner = self.try_get_sandbox_runner_inner(id, location)?;
+		let sandbox = self.server.runner.state().sandboxes().get(runner.index)?;
+		let sender = &sandbox.control_sender;
+		(!sender.is_closed()).then(|| sender.clone())
+	}
+
+	#[must_use]
 	pub(crate) fn try_get_sandbox_runner_inner(
 		&self,
 		id: &tg::sandbox::Id,

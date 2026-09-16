@@ -196,9 +196,7 @@ async fn draining_stdout_keeps_stderr_eof_available() {
 	);
 	let (sender, receiver) = tokio::sync::mpsc::channel(16);
 	let task = tokio::spawn(Session::run_process_control_output_reader_task(
-		reader,
-		receiver,
-		control.sender(),
+		reader, receiver,
 	));
 	for stream in [
 		tg::process::stdio::Stream::Stdout,
@@ -212,6 +210,7 @@ async fn draining_stdout_keeps_stderr_eof_available() {
 			.send(Message::Read {
 				arg,
 				id: stream.to_string(),
+				sender: Reply::Remote(control.sender()),
 			})
 			.await
 			.unwrap();
@@ -235,6 +234,56 @@ async fn draining_stdout_keeps_stderr_eof_available() {
 		.unwrap()
 		.unwrap()
 		.unwrap();
+}
+
+#[tokio::test]
+async fn reconnect_preserves_local_reads() {
+	let (sender, mut remote) = tokio::sync::mpsc::channel(4);
+	let control = crate::control::Stream::new(
+		stream::pending().boxed(),
+		sender,
+		crate::control::stream_options(),
+	);
+	let (sender, mut local) = tokio::sync::mpsc::channel(4);
+	let mut reads = BTreeMap::new();
+	for (id, sender) in [
+		("local", Reply::Local(sender)),
+		("remote", Reply::Remote(control.sender())),
+	] {
+		let arg = tg::process::stdio::read::Arg {
+			streams: vec![tg::process::stdio::Stream::Stdout],
+			..Default::default()
+		};
+		let message = Message::Read {
+			arg,
+			id: id.into(),
+			sender,
+		};
+		Session::handle_process_control_output_message(&mut reads, message)
+			.await
+			.unwrap();
+	}
+	Session::handle_process_control_output_message(&mut reads, Message::Reconnect)
+		.await
+		.unwrap();
+	assert_eq!(
+		reads.keys().map(String::as_str).collect::<Vec<_>>(),
+		["local"]
+	);
+	assert!(local.try_recv().is_err());
+	let tg::process::control::ClientMessage::Response(response) = remote.recv().await.unwrap()
+	else {
+		panic!("expected the interrupted remote read response");
+	};
+	assert_eq!(response.id, "remote");
+	assert!(response.error.is_some());
+
+	// An abandoned local reader must not fail the shared output task.
+	drop(local);
+	Session::handle_process_control_output_message(&mut reads, Message::Close("local".into()))
+		.await
+		.unwrap();
+	assert!(reads.is_empty());
 }
 
 #[test]
@@ -288,9 +337,7 @@ async fn reconnecting_ends_reads_with_lost_progress() {
 	);
 	let (sender, receiver) = tokio::sync::mpsc::channel(16);
 	let task = tokio::spawn(Session::run_process_control_output_reader_task(
-		reader,
-		receiver,
-		control.sender(),
+		reader, receiver,
 	));
 
 	// Fill stdout's window without delivering progress, and leave stderr idle.
@@ -306,6 +353,7 @@ async fn reconnecting_ends_reads_with_lost_progress() {
 			.send(Message::Read {
 				arg,
 				id: stream.to_string(),
+				sender: Reply::Remote(control.sender()),
 			})
 			.await
 			.unwrap();
@@ -347,6 +395,7 @@ async fn reconnecting_ends_reads_with_lost_progress() {
 		.send(Message::Read {
 			arg,
 			id: "resumed".into(),
+			sender: Reply::Remote(control.sender()),
 		})
 		.await
 		.unwrap();

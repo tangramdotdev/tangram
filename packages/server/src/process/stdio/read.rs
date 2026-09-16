@@ -43,12 +43,42 @@ impl Session {
 		Ok(Some(stream))
 	}
 
-	async fn try_read_process_stdio_source(
+	pub(in crate::process) async fn try_read_process_stdio_source(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::stdio::read::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
+		if let Some(control) = self
+			.try_get_process_control_runner(
+				id,
+				arg.location.as_ref(),
+				&arg.tokens,
+				tg::authorization::permission::process::Set::NODE,
+			)
+			.await?
+		{
+			let source = Self::get_process_stdio_source(&control.data, &arg)?;
+			if let Source::Pipe(streams) = &source
+				&& self
+					.authorize_process_stdio_read(id, &source, arg.tokens.local_authorization())
+					.await?
+			{
+				let mut arg = arg;
+				arg.streams = streams.iter().copied().collect();
+				let server = self.server.clone();
+				let id = id.clone();
+				let stream = stream::once(async move {
+					for stream in &arg.streams {
+						crate::checkpoint!(server, "process.stdio.read.request", process = %id, stream = %stream).await;
+					}
+					Ok::<_, tg::Error>(control.control_sender.read(arg))
+				})
+				.try_flatten()
+				.boxed();
+				return Ok(Some(stream));
+			}
+		}
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -119,8 +149,12 @@ impl Session {
 		{
 			return Ok(None);
 		}
-		self.authorize_process_stdio_read(id, &source, arg.tokens.local_authorization())
-			.await?;
+		if !self
+			.authorize_process_stdio_read(id, &source, arg.tokens.local_authorization())
+			.await?
+		{
+			return Err(tg::error!("unauthorized"));
+		}
 		let mut arg = arg;
 		if arg.size == Some(0) {
 			return Err(tg::error!("expected a nonzero stdio chunk size"));
@@ -155,25 +189,19 @@ impl Session {
 		id: &tg::process::Id,
 		source: &Source,
 		tokens: &[tg::authorization::Token],
-	) -> tg::Result<()> {
+	) -> tg::Result<bool> {
 		let Source::Pipe(streams) = source else {
-			return Ok(());
+			return Ok(true);
 		};
 		let stdin = streams.contains(&tg::process::stdio::Stream::Stdin);
 		let output = streams
 			.iter()
 			.any(|stream| !matches!(stream, tg::process::stdio::Stream::Stdin));
 		match (stdin, output) {
-			(true, false) => {
-				if !matches!(
+			(true, false) => Ok(matches!(
 					&self.context.principal,
 					tg::Principal::Process(process) if process == id
-				) {
-					return Err(tg::error!("unauthorized"));
-				}
-
-				Ok(())
-			},
+			)),
 			(false, _) => {
 				let permission = tg::authorization::Permission::Process(
 					tg::authorization::permission::process::Permission::Parent,
@@ -181,11 +209,7 @@ impl Session {
 				let resource =
 					tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 				let authorized = self.authorize(resource, permission).await?;
-				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
-					return Err(tg::error!("unauthorized"));
-				}
-
-				Ok(())
+				Ok(authorized.is_some_and(|permissions| permissions.contains(permission)))
 			},
 			(true, true) => Err(tg::error!(
 				"cannot read stdin and stdout or stderr in a single request"

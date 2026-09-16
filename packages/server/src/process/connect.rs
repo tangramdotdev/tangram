@@ -39,13 +39,14 @@ struct Options {
 	arg: tg::process::connect::Arg,
 	id: u64,
 	prepared: Option<spawn::Prepared>,
-	wait: Option<Wait>,
+	wait: Option<(Wait, tg::Location)>,
 }
 
 struct State<'a> {
 	cancel: Arc<AtomicBool>,
 	high: &'a Sender,
 	id: tg::process::Id,
+	location: Option<tg::location::Arg>,
 	low: &'a Sender,
 	operations: FuturesUnordered<Operation>,
 	requests: BTreeSet<u64>,
@@ -248,6 +249,23 @@ impl Session {
 		id: u64,
 		input: &mut Option<Input>,
 	) -> tg::Result<Option<Output>> {
+		if let tg::Either::Right(process) = &arg.process {
+			let wait_arg = tg::process::wait::Arg {
+				lease: None,
+				location: arg.location.clone(),
+				tokens: arg.tokens.clone(),
+			};
+			if let Some(wait) = self.try_wait_process_runner(process, &wait_arg).await? {
+				let options = Options {
+					arg,
+					id,
+					prepared: None,
+					wait: Some(wait),
+				};
+				let output = self.connect_process_local(options, input.take().unwrap());
+				return Ok(Some(output));
+			}
+		}
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
@@ -295,7 +313,10 @@ impl Session {
 			else {
 				return Ok(None);
 			};
-			Some(wait)
+			let location = tg::Location::Local(tg::location::Local {
+				region: self.server.config.region.clone(),
+			});
+			Some((wait, location))
 		} else {
 			None
 		};
@@ -305,7 +326,11 @@ impl Session {
 			prepared,
 			wait,
 		};
-		let input = input.take().unwrap();
+		let output = self.connect_process_local(options, input.take().unwrap());
+		Ok(Some(output))
+	}
+
+	fn connect_process_local(&self, options: Options, input: Input) -> Output {
 		let (high, receiver_high) = mpsc::channel(64);
 		let (low, receiver_low) = mpsc::channel(16);
 		let session = self.clone();
@@ -318,10 +343,9 @@ impl Session {
 				high.send(Err(error)).await.ok();
 			}
 		});
-		let output = crate::control::priority_stream(receiver_high, receiver_low)
+		crate::control::priority_stream(receiver_high, receiver_low)
 			.attach(task)
-			.boxed();
-		Ok(Some(output))
+			.boxed()
 	}
 
 	async fn connect_process_local_task(
@@ -357,9 +381,7 @@ impl Session {
 				(output, location)
 			},
 			tg::Either::Right(id) => {
-				let location = tg::Location::Local(tg::location::Local {
-					region: self.server.config.region.clone(),
-				});
+				let location = wait.as_ref().unwrap().1.clone();
 				let output = tg::process::spawn::Output {
 					cached: false,
 					lease: arg.lease,
@@ -385,10 +407,11 @@ impl Session {
 		}
 
 		// Follow a cached process to its selected location using the same connection routing.
-		if !matches!(
-			self.server.location(location.as_ref())?,
-			tg::Location::Local(tg::location::Local { region: None })
-		) {
+		if wait.is_none()
+			&& !matches!(
+				self.server.location(location.as_ref())?,
+				tg::Location::Local(tg::location::Local { region: None })
+			) {
 			let arg = tg::process::connect::Arg {
 				lease: output.lease.clone(),
 				location,
@@ -434,7 +457,7 @@ impl Session {
 			futures::future::ready(Ok(Some(output))).boxed()
 		} else {
 			let future = match wait {
-				Some(wait) => wait,
+				Some((wait, _)) => wait,
 				None => self
 					.try_wait_process_local(&id, wait_arg.tokens.local_authorization().to_vec())
 					.await?
@@ -456,6 +479,7 @@ impl Session {
 			cancel,
 			high,
 			id,
+			location,
 			low,
 			operations: FuturesUnordered::new(),
 			requests: BTreeSet::from([request_id]),
@@ -480,6 +504,7 @@ impl Session {
 
 		// Run the connection until completion or detachment.
 		self.connect_process_run_task(state, wait, pending, input)
+			.boxed()
 			.await?;
 
 		Ok(())
@@ -822,10 +847,14 @@ impl Session {
 	) {
 		let session = self.clone();
 		let id = state.id.clone();
+		let location = state.location.clone();
 		let sender = state.high.clone();
 		let tokens = state.tokens.clone();
 		let future = async move {
-			let result = session.connect_process_operation(&id, arg, tokens).await;
+			let result = session
+				.connect_process_operation(&id, arg, location, tokens)
+				.boxed()
+				.await;
 			let result = Self::send_connect_response(&sender, request_id, result).await;
 			(request_id, result)
 		}
@@ -837,12 +866,14 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::connect::ClientRequestArg,
+		location: Option<tg::location::Arg>,
 		tokens: tg::Tokens,
 	) -> tg::Result<tg::process::connect::ServerResponseOutput> {
 		let output = match arg {
-			tg::process::connect::ClientRequestArg::Cancel(arg) => {
+			tg::process::connect::ClientRequestArg::Cancel(mut arg) => {
+				arg.location = location;
 				let output = self
-					.try_cancel_process_local(id, arg)
+					.try_cancel_process(id, arg)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				tg::process::connect::ServerResponseOutput::Cancel(output)
@@ -853,19 +884,17 @@ impl Session {
 			| tg::process::connect::ClientRequestArg::Read(_)
 			| tg::process::connect::ClientRequestArg::Write(_) => unreachable!(),
 			tg::process::connect::ClientRequestArg::Signal(mut arg) => {
+				arg.location = location;
 				arg.tokens.inherit(&tokens);
-				self.try_post_process_signal_local(
-					id,
-					arg.signal,
-					arg.tokens.local_authorization(),
-				)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the process"))?;
+				self.try_post_process_signal(id, arg)
+					.await?
+					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				tg::process::connect::ServerResponseOutput::Signal
 			},
 			tg::process::connect::ClientRequestArg::Tty(mut arg) => {
+				arg.location = location;
 				arg.tokens.inherit(&tokens);
-				self.try_set_process_tty_size_local(id, arg.size, arg.tokens.local_authorization())
+				self.try_set_process_tty_size(id, arg)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				tg::process::connect::ServerResponseOutput::Tty
@@ -904,9 +933,10 @@ impl Session {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
 		arg.tokens.inherit(&state.tokens);
+		arg.location = state.location.clone();
 		let (input, receiver) = mpsc::channel(4);
 		let output = self
-			.try_read_process_stdio_local(&state.id, arg.clone())
+			.try_read_process_stdio_source(&state.id, arg.clone())
 			.await?
 			.ok_or_else(|| tg::error!("failed to find process stdio"))?;
 		let mut output =
@@ -958,13 +988,16 @@ impl Session {
 		if state.writer.is_none() {
 			arg.tokens.inherit(&state.tokens);
 			let (input, receiver) = mpsc::channel(flow::CHANNEL_CAPACITY);
+			let write_arg = tg::process::stdio::write::stream::Arg {
+				location: state.location.clone(),
+				streams: vec![Stream::Stdin],
+				tokens: arg.tokens.clone(),
+			};
 			let output = self
-				.try_write_process_stdio_local(
+				.try_write_process_stdio(
 					&state.id,
-					&[Stream::Stdin],
+					write_arg,
 					ReceiverStream::new(receiver).boxed(),
-					self.context.stopper.clone(),
-					arg.tokens.local_authorization(),
 				)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find process stdio"))?;

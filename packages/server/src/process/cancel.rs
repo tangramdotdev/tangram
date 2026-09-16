@@ -14,6 +14,26 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
+		if let Some(control) = self.try_get_process_control_runner_inner(id, arg.location.as_ref())
+		{
+			if control.data.status.is_finished() {
+				let output = tg::process::cancel::Output { released: false };
+				return Ok(Some(output));
+			}
+			let request = tg::process::control::ServerRequestArg::ReleaseLease(
+				tg::process::control::ReleaseLeaseServerRequestArg { lease: arg.lease },
+			);
+			let response = control
+				.control_sender
+				.request(request)
+				.await?
+				.try_unwrap_release_lease()
+				.map_err(|_| tg::error!("expected a release process lease response"))?;
+			let output = tg::process::cancel::Output {
+				released: response.released,
+			};
+			return Ok(Some(output));
+		}
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await

@@ -1,6 +1,6 @@
 use ../../test.nu *
 
-# Cancellation must reach the owning remote even when this server holds the runner state.
+# Cancellation can use runner state without changing the process owner or accepting an explicit local location.
 
 let root_token = random chars
 let remote = server spawn --name remote --config {
@@ -52,11 +52,11 @@ let cancel_job = job spawn {
 	let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket $'http://localhost/processes/($process)/cancel?($query)' ''
 	$output | job send --tag $job_id 0
 }
-timeout 10s tg --url $remote.url --token $root_token checkpoint wait process.control.response.publish $response_watch 0 | ignore
-tg --url $remote.url --token $root_token checkpoint continue process.control.response.publish $response_watch 0
-tg --url $remote.url --token $root_token checkpoint unwatch process.control.response.publish $response_watch
 let output = job recv --tag $cancel_job --timeout 10sec
-assert equal $output.status 200 "cancellation without a location must reach the remote control connection"
+let remote_response = timeout 1s tg --url $remote.url --token $root_token checkpoint wait process.control.response.publish $response_watch 0 | complete
+tg --url $remote.url --token $root_token checkpoint unwatch process.control.response.publish $response_watch
+assert equal $remote_response.exit_code 124 "cancellation should not require the remote control connection"
+assert equal $output.status 200 "cancellation without a location should use runner state"
 assert ($output.body | from json | get released)
 success (tg --url $runner.url cancel --remote $process $spawned.lease | complete) "explicit remote cancellation must still succeed"
 timeout 30s tg --url $remote.url --token $root_token wait $process | ignore

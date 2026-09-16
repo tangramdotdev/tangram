@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 
-const [socketPath, id, lease, mode, location = "remote"] =
+const [socketPath, id, lease, mode, location = "remote", optionsJson = "{}"] =
 	process.argv.slice(2);
+const options = JSON.parse(optionsJson);
 const timer = setTimeout(() => {
 	throw new Error("the connect test timed out");
 }, 10000);
@@ -19,7 +20,11 @@ const request = http.request({
 	socketPath,
 	path: "/processes/connect",
 	method: "POST",
-	headers: { accept: "text/event-stream", "content-type": "text/event-stream" },
+	headers: {
+		accept: "text/event-stream",
+		"content-type": "text/event-stream",
+		...(options.authorization ? { authorization: `Bearer ${options.authorization}` } : {}),
+	},
 });
 function finish(cause) {
 	closed = true;
@@ -88,7 +93,7 @@ request.on("response", (response) => {
 				else pending?.resolve(value.output);
 			} else if (event === "notification") {
 				notifications.push(value);
-                if (mode === "cached" && value.kind === "read") {
+                if ((mode === "cached" || mode === "control") && value.kind === "read") {
                     const { id, event } = value.value;
                     if (event.kind === "chunk") {
                         const bytes = Buffer.from(event.value.bytes, "base64");
@@ -121,6 +126,7 @@ try {
 		mode: "run",
 		process: selected,
 		reads,
+		tokens: options.tokens,
 	};
 	const output = await send({ kind: "connect", value: arg });
 	if (mode === "cached") nextId = 2;
@@ -147,6 +153,27 @@ try {
         assert.equal((await send({ kind: "cancel", value: { lease } })).kind, "cancel");
         assert.equal((await end).kind, "write");
         await until(() => closed);
+	} else if (mode === "control" || mode === "control_denied") {
+		const operations = [
+			{ kind: "read", value: { length: 6, streams: "stdout" } },
+			{ kind: "signal", value: { signal: "TERM" } },
+			{ kind: "write", value: { data: { kind: "chunk", value: {
+				bytes: Buffer.from("hello\n").toString("base64"), combined_position: 0, stream: "stdin", stream_position: 0,
+			} } } },
+			...["stdout", "stderr"].map(stream => ({ kind: "read", value: {
+				length: 6, position: stream === "stdout" ? 6 : 0, streams: stream,
+			} })),
+		];
+		for (const operation of operations) {
+			if (mode === "control_denied") {
+				await assert.rejects(send(operation), /unauthorized|not found|failed to find/i);
+			} else {
+				assert.equal((await send(operation)).kind, operation.kind);
+			}
+		}
+		if (mode === "control") assert.equal(Buffer.concat(chunks).toString(), "ready\nhello\nhello\n");
+		assert.equal((await send({ kind: "detach" })).kind, "detach");
+		await until(() => closed);
 	} else {
 		if (mode === "idle") {
 			for (let index = 0; index < 70; index++) {

@@ -374,15 +374,21 @@ impl Session {
 			retry: tangram_futures::retry::Options::default(),
 			timeout: std::time::Duration::from_secs(10),
 		};
-		let response = self
-			.send_process_control_request(&output.id, request, options)
-			.await
-			.map_err(
-				|error| tg::error!(!error, process = %output.id, "failed to acquire a process lease"),
-			)?
-			.map_err(
-				|error| tg::error!(!error, process = %output.id, "the acquire process lease request failed"),
-			)?;
+		let location = tg::Location::Local(tg::location::Local::default()).into();
+		let response = if let Some(control) =
+			self.try_get_process_control_runner_inner(&output.id, Some(&location))
+		{
+			control.control_sender.start(request).await?.await
+		} else {
+			self.send_process_control_request(&output.id, request, options)
+				.await
+		}
+		.map_err(
+			|error| tg::error!(!error, process = %output.id, "failed to acquire a process lease"),
+		)?
+		.map_err(
+			|error| tg::error!(!error, process = %output.id, "the acquire process lease request failed"),
+		)?;
 		let response = response
 			.try_unwrap_acquire_lease()
 			.map_err(|_| tg::error!("expected an acquire process lease response"))?;

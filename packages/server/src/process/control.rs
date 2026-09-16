@@ -15,6 +15,7 @@ use {
 };
 
 pub(crate) mod finish;
+pub(crate) mod local;
 pub(crate) mod read;
 pub(crate) mod write;
 

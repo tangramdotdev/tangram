@@ -1,6 +1,5 @@
 use {
-	super::ProcessControlSender,
-	crate::session::Session,
+	crate::{process::control::local::Reply, session::Session},
 	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{pin::pin, sync::Arc},
@@ -15,10 +14,9 @@ use {
 pub(super) struct RunProcessControlStdinTaskArg {
 	pub(super) exited: Stopper,
 	pub(super) receiver:
-		tokio::sync::mpsc::Receiver<(String, tg::process::control::WriteServerRequestArg)>,
+		tokio::sync::mpsc::Receiver<(String, tg::process::control::WriteServerRequestArg, Reply)>,
 	pub(super) sandbox: tangram_sandbox::Sandbox,
 	pub(super) sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
-	pub(super) sender: ProcessControlSender,
 	pub(super) stdin: tg::process::Stdio,
 	pub(super) stdin_blob: Option<tg::Blob>,
 }
@@ -45,7 +43,6 @@ impl Session {
 			mut receiver,
 			sandbox,
 			mut sandbox_process,
-			sender,
 			stdin,
 			stdin_blob,
 		} = arg;
@@ -93,7 +90,7 @@ impl Session {
 		}
 		let mut closed = false;
 		let mut position = 0_u64;
-		while let Some((id, request)) = receiver.recv().await {
+		while let Some((id, request, sender)) = receiver.recv().await {
 			let request = match Self::process_control_stdin_chunk(request) {
 				Ok(chunk) => chunk,
 				Err(error) => {

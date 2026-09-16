@@ -11,6 +11,8 @@ use {
 
 mod destroy;
 
+pub(crate) mod local;
+
 #[derive(Clone)]
 pub(crate) struct ClientMessage(pub(crate) tg::sandbox::control::ClientMessage);
 
@@ -531,6 +533,12 @@ impl Session {
 		arg: tg::sandbox::control::ServerRequestArg,
 		options: crate::control::Options,
 	) -> tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>> {
+		let kind = match &arg {
+			tg::sandbox::control::ServerRequestArg::Destroy(_) => "destroy",
+			tg::sandbox::control::ServerRequestArg::Get(_) => "get",
+			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => "spawn_process",
+		};
+		crate::checkpoint!(self.server, "sandbox.control.request", sandbox = %sandbox, kind).await;
 		let id = crate::control::id();
 		let request =
 			tg::sandbox::control::ServerMessage::Request(tg::sandbox::control::ServerRequest {

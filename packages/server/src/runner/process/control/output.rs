@@ -1,6 +1,5 @@
 use {
-	super::ProcessControlSender,
-	crate::session::Session,
+	crate::{process::control::local::Reply, session::Session},
 	bytes::Bytes,
 	futures::{
 		FutureExt as _, StreamExt as _, TryFutureExt as _, future,
@@ -31,7 +30,6 @@ pub(super) struct RunProcessControlOutputTaskArg {
 	pub(super) receiver: tokio::sync::mpsc::Receiver<Message>,
 	pub(super) sandbox: tangram_sandbox::Sandbox,
 	pub(super) sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
-	pub(super) sender: ProcessControlSender,
 	pub(super) stderr: tg::process::Stdio,
 	pub(super) stderr_buffered: tokio::sync::oneshot::Sender<tg::Result<()>>,
 	pub(super) stderr_progress: Option<BoxStream<'static, tg::Result<Bytes>>>,
@@ -45,6 +43,7 @@ pub(super) enum Message {
 	Read {
 		arg: tg::process::stdio::read::Arg,
 		id: String,
+		sender: Reply,
 	},
 	Reconnect,
 }
@@ -109,7 +108,6 @@ impl Session {
 			receiver,
 			sandbox,
 			mut sandbox_process,
-			sender,
 			stderr,
 			stderr_buffered,
 			stderr_progress,
@@ -211,7 +209,7 @@ impl Session {
 			stdout_position: 0,
 			streams,
 		};
-		Self::run_process_control_output_reader_task(reader, receiver, sender).await?;
+		Self::run_process_control_output_reader_task(reader, receiver).await?;
 
 		Ok(())
 	}
@@ -219,15 +217,14 @@ impl Session {
 	async fn run_process_control_output_reader_task(
 		mut reader: Reader,
 		mut receiver: tokio::sync::mpsc::Receiver<Message>,
-		sender: ProcessControlSender,
 	) -> tg::Result<()> {
-		let mut reads = BTreeMap::<String, Read>::new();
+		let mut reads = BTreeMap::<String, (Read, Reply)>::new();
 		let mut drained = BTreeSet::new();
 		loop {
 			// Give each read a turn without waiting for another read to consume its output.
 			let mut ready = false;
 			let mut finished = Vec::new();
-			for (id, read) in &mut reads {
+			for (id, (read, sender)) in &mut reads {
 				let message = reader.read(read);
 				let response = match message {
 					Ok(Some(tg::process::stdio::read::ServerMessage::Notification(event))) => {
@@ -272,12 +269,12 @@ impl Session {
 			{
 				break;
 			}
-			let deadline = reads.values().filter_map(|read| read.deadline).min();
+			let deadline = reads.values().filter_map(|(read, _)| read.deadline).min();
 			tokio::select! {
 				() = reader.fill(), if !reader.input_ended && reader.error.is_none() => {},
 				message = receiver.recv() => {
 					let Some(message) = message else { break; };
-					Self::handle_process_control_output_message(&mut reads, message, &sender).await?;
+					Self::handle_process_control_output_message(&mut reads, message).await?;
 				},
 				() = async { tokio::time::sleep_until(deadline.unwrap()).await }, if deadline.is_some() => {},
 				() = tokio::task::yield_now(), if ready => {},
@@ -287,28 +284,27 @@ impl Session {
 	}
 
 	async fn handle_process_control_output_message(
-		reads: &mut BTreeMap<String, Read>,
+		reads: &mut BTreeMap<String, (Read, Reply)>,
 		message: Message,
-		sender: &ProcessControlSender,
 	) -> tg::Result<()> {
 		match message {
 			Message::Close(id) => {
-				if reads.remove(&id).is_some() {
+				if let Some((_, sender)) = reads.remove(&id) {
 					let error = tg::error!("the process read was canceled");
 					let response = Self::process_control_response(id, Err(error));
 					sender.send_low(response).await?;
 				}
 			},
 			Message::Progress(notification) => {
-				if let Some(read) = reads.get_mut(&notification.id)
+				if let Some((read, _)) = reads.get_mut(&notification.id)
 					&& let Err(error) = read.window.update(notification.progress)
 				{
-					reads.remove(&notification.id);
+					let (_, sender) = reads.remove(&notification.id).unwrap();
 					let response = Self::process_control_response(notification.id, Err(error));
 					sender.send_low(response).await?;
 				}
 			},
-			Message::Read { arg, id } => {
+			Message::Read { arg, id, sender } => {
 				let result = if reads.len() >= 64 {
 					Err(tg::error!("too many process reads"))
 				} else {
@@ -316,7 +312,7 @@ impl Session {
 				};
 				match result {
 					Ok(read) => {
-						reads.insert(id, read);
+						reads.insert(id, (read, sender));
 					},
 					Err(error) => {
 						let response = Self::process_control_response(id, Err(error));
@@ -326,7 +322,13 @@ impl Session {
 			},
 			Message::Reconnect => {
 				// The previous transport may have lost chunks or consumption progress, so its reads cannot safely continue.
-				for (id, _) in std::mem::take(reads) {
+				let interrupted = reads
+					.iter()
+					.filter(|(_, (_, sender))| matches!(sender, Reply::Remote(_)))
+					.map(|(id, _)| id.clone())
+					.collect::<Vec<_>>();
+				for id in interrupted {
+					let (_, sender) = reads.remove(&id).unwrap();
 					let error = tg::error!("the process control connection was interrupted");
 					let response = Self::process_control_response(id, Err(error));
 					sender.send_low(response).await?;

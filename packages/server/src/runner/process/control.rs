@@ -3,9 +3,14 @@ use {
 		output::RunProcessControlOutputTaskArg, signal::RunProcessControlSignalTaskArg,
 		stdin::RunProcessControlStdinTaskArg, tty::RunProcessControlTtyTaskArg,
 	},
-	crate::session::Session,
+	crate::{
+		process::control::local::{self, Reply},
+		session::Session,
+	},
 	bytes::Bytes,
-	futures::{FutureExt as _, TryFutureExt as _, stream::BoxStream},
+	futures::{
+		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _, stream::BoxStream,
+	},
 	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
@@ -33,6 +38,7 @@ pub(super) struct RunProcessControlTaskArg {
 	>,
 	pub exited: Stopper,
 	pub finish: tokio::sync::oneshot::Receiver<ProcessControlResponseReceiver>,
+	pub local: tokio::sync::mpsc::Receiver<local::Message>,
 	pub log: Option<super::WriteProcessLogTaskArg>,
 	pub push: tokio::sync::oneshot::Receiver<()>,
 	pub retention_stopper: Stopper,
@@ -52,12 +58,15 @@ struct RunProcessControlHandlerTaskArg {
 		tg::process::control::ServerMessage,
 		tg::process::control::ClientMessage,
 	>,
+	local: tokio::sync::mpsc::Receiver<local::Message>,
 	output_sender: tokio::sync::mpsc::Sender<output::Message>,
 	sender: ProcessControlSender,
 	signal_sender:
-		tokio::sync::mpsc::Sender<(String, tg::process::control::SignalServerRequestArg)>,
-	stdin_sender: tokio::sync::mpsc::Sender<(String, tg::process::control::WriteServerRequestArg)>,
-	tty_sender: tokio::sync::mpsc::Sender<(String, tg::process::control::TtyServerRequestArg)>,
+		tokio::sync::mpsc::Sender<(String, tg::process::control::SignalServerRequestArg, Reply)>,
+	stdin_sender:
+		tokio::sync::mpsc::Sender<(String, tg::process::control::WriteServerRequestArg, Reply)>,
+	tty_sender:
+		tokio::sync::mpsc::Sender<(String, tg::process::control::TtyServerRequestArg, Reply)>,
 }
 
 impl Session {
@@ -146,6 +155,7 @@ impl Session {
 			control,
 			exited,
 			finish,
+			local,
 			log,
 			push,
 			retention_stopper,
@@ -177,7 +187,6 @@ impl Session {
 			receiver: output_receiver,
 			sandbox: sandbox.clone(),
 			sandbox_process: sandbox_process.clone(),
-			sender: sender.clone(),
 			stderr,
 			stderr_buffered,
 			stderr_progress,
@@ -188,13 +197,13 @@ impl Session {
 		let (stdin_sender, stdin_receiver) = tokio::sync::mpsc::channel::<(
 			String,
 			tg::process::control::WriteServerRequestArg,
+			Reply,
 		)>(256);
 		let stdin_task = self.spawn_process_control_stdin_task(RunProcessControlStdinTaskArg {
 			exited,
 			receiver: stdin_receiver,
 			sandbox: sandbox.clone(),
 			sandbox_process: sandbox_process.clone(),
-			sender: sender.clone(),
 			stdin,
 			stdin_blob,
 		});
@@ -202,26 +211,29 @@ impl Session {
 		let (signal_sender, signal_receiver) = tokio::sync::mpsc::channel::<(
 			String,
 			tg::process::control::SignalServerRequestArg,
+			Reply,
 		)>(256);
 		let signal_task = self.spawn_process_control_signal_task(RunProcessControlSignalTaskArg {
 			receiver: signal_receiver,
 			sandbox: sandbox.clone(),
 			sandbox_process: sandbox_process.clone(),
-			sender: sender.clone(),
 		});
 
-		let (tty_sender, tty_receiver) =
-			tokio::sync::mpsc::channel::<(String, tg::process::control::TtyServerRequestArg)>(256);
+		let (tty_sender, tty_receiver) = tokio::sync::mpsc::channel::<(
+			String,
+			tg::process::control::TtyServerRequestArg,
+			Reply,
+		)>(256);
 		let tty_task = self.spawn_process_control_tty_task(RunProcessControlTtyTaskArg {
 			receiver: tty_receiver,
 			sandbox,
 			sandbox_process,
-			sender: sender.clone(),
 		});
 
 		let handler_task =
 			self.spawn_process_control_handler_task(RunProcessControlHandlerTaskArg {
 				control,
+				local,
 				output_sender,
 				sender: sender.clone(),
 				signal_sender,
@@ -344,7 +356,8 @@ impl Session {
 		arg: RunProcessControlHandlerTaskArg,
 	) -> tg::Result<()> {
 		let RunProcessControlHandlerTaskArg {
-			mut control,
+			control,
+			mut local,
 			output_sender,
 			sender,
 			signal_sender,
@@ -352,16 +365,32 @@ impl Session {
 			tty_sender,
 		} = arg;
 
-		while let Some(event) = control
-			.recv_event_with_ack()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to get the next control request"))?
-		{
-			let message = match event {
-				tg::control::Event::Message(message) => message,
-				tg::control::Event::Reconnect => {
-					output_sender.send(output::Message::Reconnect).await.ok();
-					continue;
+		// Retain an in-flight receive across local requests because acknowledging a remote message can yield.
+		let mut control = futures::stream::try_unfold(control, |mut control| async move {
+			let event = control.recv_event_with_ack().await?;
+			Ok::<_, tg::Error>(event.map(|event| (event, control)))
+		})
+		.boxed();
+		let mut local_open = true;
+		loop {
+			let (message, sender) = tokio::select! {
+				event = control.try_next() => {
+					let Some(event) = event.map_err(|source| tg::error!(!source, "failed to get the next control request"))? else { break; };
+					match event {
+						tg::control::Event::Message(message) => (message, Reply::Remote(sender.clone())),
+						tg::control::Event::Reconnect => {
+							output_sender.send(output::Message::Reconnect).await.ok();
+							continue;
+						},
+					}
+				},
+				message = local.recv(), if local_open => {
+					match message {
+						Some(local::Message::Close(id)) => { output_sender.send(output::Message::Close(id)).await.ok(); continue; },
+						Some(local::Message::Progress(progress)) => { output_sender.send(output::Message::Progress(progress)).await.ok(); continue; },
+						Some(local::Message::Request { request, sender }) => (tg::process::control::ServerMessage::Request(request), sender),
+						None => { local_open = false; continue; },
+					}
 				},
 			};
 			match message {
@@ -473,6 +502,7 @@ impl Session {
 								let message = output::Message::Read {
 									arg: read,
 									id: request_id.clone(),
+									sender: sender.clone(),
 								};
 								if output_sender.send(message).await.is_err() {
 									let error =
@@ -492,21 +522,27 @@ impl Session {
 						},
 						tg::process::control::ServerRequestArg::Signal(signal) => {
 							signal_sender
-								.send((request_id, signal))
+								.send((request_id, signal, sender))
 								.await
 								.map_err(|_| {
 									tg::error!("failed to queue the process signal request")
 								})?;
 						},
 						tg::process::control::ServerRequestArg::Tty(tty) => {
-							tty_sender.send((request_id, tty)).await.map_err(|_| {
-								tg::error!("failed to queue the process tty request")
-							})?;
+							tty_sender
+								.send((request_id, tty, sender))
+								.await
+								.map_err(|_| {
+									tg::error!("failed to queue the process tty request")
+								})?;
 						},
 						tg::process::control::ServerRequestArg::Write(write) => {
-							stdin_sender.send((request_id, write)).await.map_err(|_| {
-								tg::error!("failed to queue the process stdin request")
-							})?;
+							stdin_sender
+								.send((request_id, write, sender))
+								.await
+								.map_err(|_| {
+									tg::error!("failed to queue the process stdin request")
+								})?;
 						},
 					}
 				},

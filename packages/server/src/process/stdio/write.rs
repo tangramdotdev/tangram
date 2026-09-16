@@ -39,8 +39,25 @@ impl Session {
 		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
 	{
-		if arg.streams.is_empty() {
-			return Err(tg::error!("expected at least one stdio stream"));
+		Self::validate_process_stdio_write_streams(&arg.streams)?;
+		if let Some(control) = self
+			.try_get_process_control_runner(
+				id,
+				arg.location.as_ref(),
+				&arg.tokens,
+				tg::authorization::permission::process::Set::PARENT,
+			)
+			.await?
+		{
+			let stream = self.write_process_stdio_with_control(
+				id,
+				control.data,
+				&arg.streams,
+				input,
+				self.context.stopper.clone(),
+				Some(control.control_sender),
+			);
+			return Ok(Some(stream));
 		}
 		let location = self.server.location(arg.location.as_ref())?;
 		let output = match location {
@@ -94,9 +111,28 @@ impl Session {
 		{
 			return Ok(None);
 		}
-		self.authorize_process_stdio_write(id, streams, tokens)
-			.await?;
+		Self::validate_process_stdio_write_streams(streams)?;
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		);
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
+		let authorized = self.authorize(resource, permission).await?;
+		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			return Err(tg::error!("unauthorized"));
+		}
+		let stream = self.write_process_stdio_with_control(id, data, streams, input, stopper, None);
+		Ok(Some(stream))
+	}
 
+	fn write_process_stdio_with_control(
+		&self,
+		id: &tg::process::Id,
+		data: tg::process::Data,
+		streams: &[tg::process::stdio::Stream],
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+		stopper: Option<Stopper>,
+		control_sender: Option<crate::process::control::local::Local>,
+	) -> BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>> {
 		let (sender, receiver) =
 			tokio::sync::mpsc::channel(tg::process::stdio::flow::CHANNEL_CAPACITY);
 		let task = Task::spawn({
@@ -105,7 +141,14 @@ impl Session {
 			let streams = streams.to_owned();
 			move |_| async move {
 				let mut future = session
-					.write_process_stdio_local_task(&id, &data, &streams, input, &sender)
+					.write_process_stdio_local_task(
+						&id,
+						&data,
+						&streams,
+						input,
+						&sender,
+						control_sender.as_ref(),
+					)
 					.boxed();
 				let result = match stopper {
 					Some(stopper) => {
@@ -123,35 +166,18 @@ impl Session {
 				Ok::<_, tg::Error>(())
 			}
 		});
-		let stream = ReceiverStream::new(receiver).attach(task).boxed();
-
-		Ok(Some(stream))
+		ReceiverStream::new(receiver).attach(task).boxed()
 	}
 
-	async fn authorize_process_stdio_write(
-		&self,
-		id: &tg::process::Id,
+	fn validate_process_stdio_write_streams(
 		streams: &[tg::process::stdio::Stream],
-		tokens: &[tg::authorization::Token],
 	) -> tg::Result<()> {
 		let stdin = streams.contains(&tg::process::stdio::Stream::Stdin);
 		let output = streams
 			.iter()
 			.any(|stream| !matches!(stream, tg::process::stdio::Stream::Stdin));
 		match (stdin, output) {
-			(true, false) => {
-				let permission = tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::Parent,
-				);
-				let resource =
-					tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
-				let authorized = self.authorize(resource, permission).await?;
-				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
-					return Err(tg::error!("unauthorized"));
-				}
-
-				Ok(())
-			},
+			(true, false) => Ok(()),
 			(false, false) => Err(tg::error!("expected at least one stdio stream")),
 			(_, true) => Err(tg::error!("cannot write process stdout or stderr")),
 		}
@@ -164,6 +190,7 @@ impl Session {
 		streams: &[tg::process::stdio::Stream],
 		mut input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
 		sender: &tokio::sync::mpsc::Sender<tg::Result<tg::process::stdio::write::ServerMessage>>,
+		control_sender: Option<&crate::process::control::local::Local>,
 	) -> tg::Result<()> {
 		let destination = get_stdin_destination(data)?;
 		let wait = if data.status.is_finished() {
@@ -182,7 +209,13 @@ impl Session {
 			{
 				let request: tg::process::stdio::write::Request = request;
 				let response = self
-					.start_write_process_stdio_local(id, request.arg, destination, wait.clone())
+					.start_write_process_stdio_local(
+						id,
+						request.arg,
+						destination,
+						wait.clone(),
+						control_sender,
+					)
 					.await?;
 				pending.push_back(async move { (request.id, response.await) }.boxed());
 				ended = true;
@@ -208,7 +241,7 @@ impl Session {
 							sender.send(Ok(ServerMessage::Ack(Ack { id: request.id }))).await.map_err(|_| tg::error!("the stdio write output closed"))?;
 							if matches!(request.arg, Data::End(_)) { end = Some(request); continue; }
 							// Publish writes in order while their completed outcomes remain pending.
-							let response = self.start_write_process_stdio_local(id, request.arg, destination, wait.clone()).await?;
+							let response = self.start_write_process_stdio_local(id, request.arg, destination, wait.clone(), control_sender).await?;
 							pending.push_back(async move { (request.id, response.await) }.boxed());
 						},
 					}
@@ -229,6 +262,7 @@ impl Session {
 		data: tg::process::stdio::write::Data,
 		destination: Destination,
 		wait: futures::future::Shared<BoxFuture<'static, tg::Result<()>>>,
+		control_sender: Option<&crate::process::control::local::Local>,
 	) -> tg::Result<BoxFuture<'static, tg::Result<tg::process::stdio::write::Output>>> {
 		crate::checkpoint!(self.server, "process.stdio.write.request", close = %matches!(&data, Data::End(_)), stream = %tg::process::stdio::Stream::Stdin).await;
 		let length = match &data {
@@ -242,7 +276,8 @@ impl Session {
 			};
 			return Ok(future::ok(output).boxed());
 		}
-		if wait.peek().is_some() {
+		if let Some(result) = wait.clone().now_or_never() {
+			result?;
 			return Ok(future::ok(Output {
 				closed: true,
 				length: 0,
@@ -257,15 +292,38 @@ impl Session {
 			},
 			timeout: Duration::from_secs(10),
 		};
-		let response = self
-			.start_process_control_request(id, request, options)
-			.await?;
-		let future = async move {
-			tokio::select! {
-				biased;
-				response = response => response??.try_unwrap_write().map_err(|_| tg::error!("expected a write response")),
-				result = wait => { result?; Ok(Output { closed: true, length: 0 }) },
+		let response = if let Some(control_sender) = control_sender {
+			match control_sender.start(request).await {
+				Ok(response) => response,
+				Err(error) => future::err(error).boxed(),
 			}
+		} else {
+			self.start_process_control_request(id, request, options)
+				.await?
+		};
+		let future = async move {
+			let response = tokio::select! {
+				biased;
+				response = response => response,
+				result = wait.clone() => { result?; return Ok(Output { closed: true, length: 0 }); },
+			};
+			let response = match response {
+				Ok(response) => response?,
+				Err(error) => {
+					// The local handler can retire between enqueueing a write and delivering its response.
+					if let Some(result) = wait.now_or_never() {
+						result?;
+						return Ok(Output {
+							closed: true,
+							length: 0,
+						});
+					}
+					return Err(error);
+				},
+			};
+			response
+				.try_unwrap_write()
+				.map_err(|_| tg::error!("expected a write response"))
 		};
 		Ok(future.boxed())
 	}

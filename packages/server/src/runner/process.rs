@@ -431,10 +431,12 @@ impl Session {
 		let sync = connection
 			.as_ref()
 			.and_then(|(output, _)| output.sync.clone().filter(|_| location.is_remote()));
+		let (control_sender, control_receiver) = crate::process::control::local::Local::new();
 		let entry = crate::process::State {
 			changed: tokio::sync::watch::channel(()).0,
 			children,
 			control: control_sender_high.clone(),
+			control_sender,
 			data,
 			finish: None,
 			index_task: index_task.clone(),
@@ -687,17 +689,6 @@ impl Session {
 				session.run_process(arg).await
 			}
 		});
-		// Wait for sandbox control to be ready before connecting process control.
-		if let Some(receiver) = sandbox_ready_receiver
-			&& let Err(error) = receiver.await
-		{
-			process_stopper.stop();
-			run_task.wait().await.ok();
-			return Err(tg::error!(
-				!error,
-				"the sandbox failed before becoming ready"
-			));
-		}
 
 		// Create the control sender so an assigned process can send its finish before the connection returns.
 		let (requests_sender, requests_receiver) = tokio::sync::oneshot::channel::<
@@ -742,6 +733,78 @@ impl Session {
 			let session = session.clone();
 			move |_| async move { session.finish_process_run(finish_arg).boxed().await }
 		});
+
+		// Spawn the process control task.
+		let (stderr_buffered_sender, stderr_buffered_receiver) = tokio::sync::oneshot::channel();
+		let (stdout_buffered_sender, stdout_buffered_receiver) = tokio::sync::oneshot::channel();
+		let stdin_blob = command
+			.clone()
+			.await
+			.ok()
+			.and_then(|command| command.stdin.map(tg::Blob::with_id));
+		let log = log_receiver
+			.map(|receiver| {
+				let started_at = state
+					.started_at
+					.ok_or_else(|| tg::error!("expected the process to be started"))?;
+				let arg = WriteProcessLogTaskArg {
+					receiver,
+					started_at,
+				};
+
+				Ok::<_, tg::Error>(arg)
+			})
+			.transpose()?;
+		let (push_sender, push_receiver) = tokio::sync::oneshot::channel();
+		let control_task = Task::spawn({
+			let session = session.clone();
+			let exited = exited.clone();
+			let sandbox = sandbox.clone();
+			let stdin = state.stdin.clone();
+			let stdout = state.stdout.clone();
+			let stderr = state.stderr.clone();
+			|_| async move {
+				let arg = RunProcessControlTaskArg {
+					control,
+					exited,
+					finish: finish_receiver,
+					local: control_receiver,
+					log,
+					push: push_receiver,
+					retention_stopper,
+					sandbox,
+					sandbox_process: sandbox_process_receiver,
+					stderr,
+					stderr_buffered: stderr_buffered_sender,
+					stderr_progress,
+					stdin,
+					stdin_blob,
+					stdout,
+					stdout_buffered: stdout_buffered_sender,
+				};
+				session
+					.run_process_control_task(arg)
+					.boxed()
+					.await
+					.inspect_err(|error| {
+						tracing::error!(error = %error.trace(), "the control task failed");
+					})
+			}
+		});
+
+		// Wait for sandbox control to be ready before connecting process control.
+		if let Some(receiver) = sandbox_ready_receiver
+			&& let Err(error) = receiver.await
+		{
+			process_stopper.stop();
+			drop(index_sender);
+			drop(ready_sender);
+			finish_task.wait().await.ok();
+			return Err(tg::error!(
+				!error,
+				"the sandbox failed before becoming ready"
+			));
+		}
 
 		// Prepare command authorization before tracked finish writes can wait for initialization.
 		let command_roots = session
@@ -867,62 +930,6 @@ impl Session {
 				process: output.process,
 			})))
 			.ok();
-
-		// Spawn the process control task.
-		let (stderr_buffered_sender, stderr_buffered_receiver) = tokio::sync::oneshot::channel();
-		let (stdout_buffered_sender, stdout_buffered_receiver) = tokio::sync::oneshot::channel();
-		let stdin_blob = command
-			.clone()
-			.await
-			.ok()
-			.and_then(|command| command.stdin.map(tg::Blob::with_id));
-		let log = log_receiver
-			.map(|receiver| {
-				let started_at = state
-					.started_at
-					.ok_or_else(|| tg::error!("expected the process to be started"))?;
-				let arg = WriteProcessLogTaskArg {
-					receiver,
-					started_at,
-				};
-
-				Ok::<_, tg::Error>(arg)
-			})
-			.transpose()?;
-		let (push_sender, push_receiver) = tokio::sync::oneshot::channel();
-		let control_task = Task::spawn({
-			let session = session.clone();
-			let exited = exited.clone();
-			let sandbox = sandbox.clone();
-			let stdin = state.stdin.clone();
-			let stdout = state.stdout.clone();
-			let stderr = state.stderr.clone();
-			|_| async move {
-				session
-					.run_process_control_task(RunProcessControlTaskArg {
-						control,
-						exited,
-						finish: finish_receiver,
-						log,
-						push: push_receiver,
-						retention_stopper,
-						sandbox,
-						sandbox_process: sandbox_process_receiver,
-						stderr,
-						stderr_buffered: stderr_buffered_sender,
-						stderr_progress,
-						stdin,
-						stdin_blob,
-						stdout,
-						stdout_buffered: stdout_buffered_sender,
-					})
-					.boxed()
-					.await
-					.inspect_err(|error| {
-						tracing::error!(error = %error.trace(), "the control task failed");
-					})
-			}
-		});
 
 		let output = finish_task
 			.wait()
