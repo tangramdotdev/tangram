@@ -198,23 +198,24 @@ impl Session {
 			));
 		}
 
-		// A reserved connection that reconnects after its start finds its process indexed.
+		// A reconnect reads the indexed data, which a reserved connection has only after its start.
 		let write_data = match &data {
 			Some(data) => Some(Cow::Borrowed(data)),
-			None if reserved => session
-				.server
-				.index
-				.try_get_process(&id)
-				.await?
-				.and_then(|process| process.data)
-				.map(Cow::Owned),
+			None if assign => None,
 			None => {
-				let data = session
-					.get_process_from_index(&id)
-					.await?
-					.data
-					.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-				Some(Cow::Owned(data))
+				let process = session.server.index.try_get_process(&id).await?;
+				match process {
+					Some(process) => {
+						let data = process
+							.data
+							.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+						Some(Cow::Owned(data))
+					},
+					None if reserved => None,
+					None => {
+						return Err(tg::error!(%id, "failed to find the process in the index"));
+					},
+				}
 			},
 		};
 		let write_config = write_data.map(|data| self::write::Config::with_data(&data));

@@ -203,9 +203,10 @@ impl Session {
 			return Err(tg::error!("a sandbox on the shortcut path must have data"));
 		}
 
-		// A reserved connection that reconnects after its start finds its sandbox indexed.
+		// A reconnect reads the indexed creation time, which a reserved connection has only after its start.
 		let created_at = match arg.created_at {
 			Some(created_at) => created_at,
+			None if assign => self.server.clock.unix_timestamp()?,
 			None => {
 				let sandbox = self.server.index.try_get_sandbox(&id).await?;
 				match sandbox {

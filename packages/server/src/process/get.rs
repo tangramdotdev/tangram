@@ -467,27 +467,24 @@ impl Session {
 			);
 			return Ok(Some(output));
 		};
-		let output = if data.status.is_finished() {
+		let (data, indexed) = if data.status.is_finished() {
 			let Some(indexed) = self.try_get_process_from_index(id).await? else {
 				return Ok(None);
 			};
 			let data = indexed
 				.data
+				.clone()
 				.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-			self.create_process_get_output(
-				id,
-				data,
-				indexed.location,
-				metadata.then_some(indexed.metadata),
-			)
+			(data, indexed)
 		} else {
-			self.create_process_get_output(
-				id,
-				data,
-				indexed.location,
-				metadata.then_some(indexed.metadata),
-			)
+			(data, indexed)
 		};
+		let output = self.create_process_get_output(
+			id,
+			data,
+			indexed.location,
+			metadata.then_some(indexed.metadata),
+		);
 
 		Ok(Some(output))
 	}
