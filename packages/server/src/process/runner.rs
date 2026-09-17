@@ -67,11 +67,6 @@ impl Session {
 		let sandbox = state.sandboxes().get(runner.index)?;
 		let process = sandbox.processes.get(id)?;
 
-		// Fall back to normal dispatch for finished processes.
-		if process.data.status.is_finished() {
-			return None;
-		}
-
 		// Create the runner handle.
 		let changed = process.changed.subscribe();
 		let location = runner.location;
