@@ -203,40 +203,6 @@ export namespace Value {
 		}
 	};
 
-	/** Collect the referents of the objects and their loaded descendants without moving tokens between objects. */
-	export let referents = (
-		value: tg.Value,
-	): Array<tg.Referent<tg.Object.Id>> => {
-		let output = new Map<tg.Object.Id, tg.Referent<tg.Object.Id>>();
-		let expanded = new Set<tg.Object.Id>();
-		let stack = objects(value);
-		while (stack.length > 0) {
-			let object = stack.pop()!;
-			let referent = tg.Object.toReferent(object);
-			referent.options = {
-				...referent.options,
-				tokens: tg.Tokens.clone(referent.options?.tokens ?? {}),
-			};
-			let existing = output.get(referent.node);
-			if (existing !== undefined) {
-				existing.options ??= {};
-				existing.options.location ??= referent.options?.location ?? null;
-				existing.options.tokens ??= {};
-				tg.Tokens.inherit(
-					existing.options.tokens,
-					referent.options?.tokens ?? {},
-				);
-			} else {
-				output.set(referent.node, referent);
-			}
-			if (object.state.object !== null && !expanded.has(referent.node)) {
-				expanded.add(referent.node);
-				stack.push(...tg.Object.Object.children(object.state.object));
-			}
-		}
-		return [...output.values()];
-	};
-
 	export let store = async (value: tg.Value): Promise<void> => {
 		while (true) {
 			// Collect all unstored states with children before parents.

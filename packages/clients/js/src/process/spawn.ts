@@ -226,7 +226,6 @@ let spawnArgFromResolvedWithSandbox = async (
 				: arg.debug;
 	let spawnArg: tg.Process.Spawn.Arg = {
 		command: commandReferent,
-		commandObjects: tg.Value.referents(objects),
 		public: false,
 		retry: false,
 		stderr: stderr ?? "inherit",
@@ -497,11 +496,7 @@ export let prepareUnsandboxedCommand = async (
 
 	let tempPath = await tg.host.mkdtemp();
 	outputPath ??= tg.path.join(tempPath, "output");
-	let artifacts = await checkoutArtifacts(
-		command,
-		arg.command.options ?? {},
-		arg.commandObjects ?? [],
-	);
+	let artifacts = await checkoutArtifacts(command, arg.command.options ?? {});
 	let env = await renderEnv(command.env, artifacts, outputPath);
 	env.TANGRAM_JS_ENGINE =
 		typeof tg.process.env.TANGRAM_JS_ENGINE === "string"
@@ -747,13 +742,9 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 async function checkoutArtifacts(
 	command: tg.Command.Object,
 	options: tg.Referent.Options,
-	objects: Array<tg.Referent<tg.Object.Id>>,
 ): Promise<Map<tg.Artifact.Id, string>> {
 	let artifacts = new Map<tg.Artifact.Id, tg.Referent<tg.Artifact.Id>>();
-	for (let object of [
-		...tg.Command.Object.children(command),
-		...objects.map(tg.Object.withReferent),
-	]) {
+	for (let object of tg.Command.Object.children(command)) {
 		if (!tg.Artifact.is(object)) {
 			continue;
 		}

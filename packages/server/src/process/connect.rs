@@ -173,11 +173,7 @@ impl Session {
 			)
 			.await;
 			let source = self
-				.connect_process_command_sync_source(
-					&command,
-					&spawn_arg.command_objects,
-					input.take().unwrap(),
-				)
+				.connect_process_command_sync_source(&spawn_arg.command, input.take().unwrap())
 				.await?;
 			arg.command_sync = true;
 			input = Some(source.input);
@@ -408,12 +404,7 @@ impl Session {
 				return Err(tg::error!("command sync requires a spawn"));
 			};
 			let destination = self
-				.connect_process_command_sync_destination(
-					&prepared.command,
-					&spawn.command_objects,
-					input,
-					high,
-				)
+				.connect_process_command_sync_destination(&spawn.command, input, high)
 				.await?;
 			input = destination.input;
 			// Attach the destination-minted token to the ephemeral command; process storage strips it.
@@ -1349,13 +1340,14 @@ impl Session {
 			tg::process::connect::ClientMessage::Request(request),
 		))
 		.chain(input)
-		.map_ok(move |mut message| {
-			Self::update_connect_process_request_for_location(
+		.and_then(move |mut message| {
+			let result = Self::update_connect_process_request_for_location(
 				&mut message,
 				&destination,
 				&location,
-			);
-			message
+			)
+			.map(|()| message);
+			futures::future::ready(result)
 		})
 		.boxed();
 		(input, sender)
@@ -1428,9 +1420,9 @@ impl Session {
 		message: &mut tg::process::connect::ClientMessage,
 		destination: &tg::Location,
 		location: &tg::location::Arg,
-	) {
+	) -> tg::Result<()> {
 		let tg::process::connect::ClientMessage::Request(request) = message else {
-			return;
+			return Ok(());
 		};
 		let location = Some(location.clone());
 		match &mut request.arg {
@@ -1446,12 +1438,10 @@ impl Session {
 				}
 				if let tg::Either::Left(spawn) = &mut arg.process {
 					spawn.location = location;
-					spawn.command.options.tokens =
-						spawn.command.options.tokens.for_location(destination);
-					for object in &mut spawn.command_objects {
-						object.options.tokens = object.options.tokens.for_location(destination);
-						object.options.location = None;
-					}
+					Self::update_spawn_process_command_for_location(
+						&mut spawn.command,
+						destination,
+					)?;
 				}
 			},
 			tg::process::connect::ClientRequestArg::Read(arg) => {
@@ -1471,6 +1461,8 @@ impl Session {
 				arg.tokens = arg.tokens.for_location(destination);
 			},
 		}
+
+		Ok(())
 	}
 
 	pub(crate) async fn try_connect_process_request(

@@ -299,7 +299,6 @@ impl Session {
 			sandbox_stopper,
 		} = arg;
 		let tg::runner::control::Process {
-			mut command_objects,
 			data,
 			id,
 			options,
@@ -307,23 +306,6 @@ impl Session {
 			token: inner_token,
 		} = process;
 		let state = tg::process::State::try_from_data(data)?;
-		for object in &mut command_objects {
-			if !object
-				.options
-				.tokens
-				.local_authorization()
-				.iter()
-				.any(|token| self.verify_local_token(token))
-				&& !self.has_verified_sync_token(&object.options.tokens)
-			{
-				self.update_tokens_and_location(
-					&mut object.options.tokens,
-					Some(&mut object.options.location),
-					&location,
-					false,
-				)?;
-			}
-		}
 		let mut command_options = options.clone();
 		let local = command_options
 			.tokens
@@ -388,7 +370,7 @@ impl Session {
 					})?;
 				}
 				let command = state.command.to_referent();
-				Self::push_process_command(&command_session, &command, &command_objects, &location)
+				Self::push_process_command(&command_session, &command, &location)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to push the process command"))?;
 				let arg = tg::process::control::Arg {
@@ -453,10 +435,6 @@ impl Session {
 		let entry = crate::process::State {
 			changed: tokio::sync::watch::channel(()).0,
 			children,
-			command_objects: command_objects
-				.iter()
-				.map(|object| (object.node.clone(), object.options.clone()))
-				.collect(),
 			control: control_sender_high.clone(),
 			control_sender,
 			data,
@@ -529,13 +507,10 @@ impl Session {
 
 		// Load the command concurrently with the control stream.
 		let command: CommandFuture = {
-			let command_objects = command_objects
-				.into_iter()
-				.map(|object| (object.node, object.options))
-				.collect::<BTreeMap<_, _>>();
 			// Ignore the source-relative location when loading the command on the runner.
-			state.command.state().set_location(None);
-			let command = state.command.clone();
+			let mut command = state.command.to_referent();
+			command.options.location = None;
+			let command = tg::Command::with_referent(command);
 			let command_session = command_session.clone();
 			let session = session.clone();
 			let server = self.server.clone();
@@ -565,16 +540,6 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "failed to get the command data"))?,
 				};
 
-				// Restore the input metadata without attaching it to the command.
-				let object = tg::command::Object::try_from_data(data)?;
-				for child in object.children() {
-					if let Some(options) = command_objects.get(&child.id()) {
-						child.state().inherit_location(options.location.as_ref());
-						child.state().inherit_tokens(&options.tokens);
-					}
-				}
-				let data = object.to_data();
-				command.state().set_object(Arc::new(object));
 				Ok(data)
 			}
 			.boxed()
@@ -1734,11 +1699,10 @@ impl Session {
 	async fn push_process_command(
 		session: &Session,
 		command: &tg::Referent<tg::command::Id>,
-		objects: &[tg::Referent<tg::object::Id>],
 		location: &tg::Location,
 	) -> tg::Result<()> {
 		crate::checkpoint!(session.server, "runner.process.command.push.started", command = %command.node).await;
-		let result = Self::push_process_command_inner(session, command, objects, location).await;
+		let result = Self::push_process_command_inner(session, command, location).await;
 		if let Err(error) = &result {
 			tracing::error!(error = %error.trace(), "failed to push the command");
 		}
@@ -1750,15 +1714,14 @@ impl Session {
 	async fn push_process_command_inner(
 		session: &Session,
 		command: &tg::Referent<tg::command::Id>,
-		objects: &[tg::Referent<tg::object::Id>],
 		location: &tg::Location,
 	) -> tg::Result<()> {
-		let nodes = std::iter::once(command.clone().map(Into::into))
-			.chain(objects.iter().cloned().map(|object| object.map(Into::into)))
-			.collect();
 		let arg = tg::push::Arg {
 			destination: Some(location.clone()),
-			nodes,
+			nodes: vec![tg::Referent::with_node_and_tokens(
+				command.node.clone().into(),
+				command.options.tokens.clone(),
+			)],
 			process_commands: true,
 			..Default::default()
 		};
@@ -1936,13 +1899,8 @@ impl Session {
 			}
 
 			// Check out the process's children.
-			let objects = processes
-				.get(&id)
-				.map(|process| process.command_objects.clone())
-				.unwrap_or_default();
 			self.checkout_process_artifacts(
 				&state.command,
-				&objects,
 				&state.sandbox,
 				progress_sender.clone(),
 				&state.stderr,
@@ -2261,7 +2219,6 @@ impl Session {
 	async fn checkout_process_artifacts(
 		&self,
 		command: &tg::Command,
-		objects: &BTreeMap<tg::object::Id, tg::referent::Options>,
 		sandbox: &tg::sandbox::Id,
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stderr: &tg::process::Stdio,
@@ -2272,9 +2229,6 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the command's children"))?
 			.into_iter()
-			.chain(objects.iter().map(|(id, options)| {
-				tg::Object::with_referent(tg::Referent::new(id.clone(), options.clone()))
-			}))
 			.filter_map(|object| {
 				let id = object.id().try_into().ok()?;
 				let artifact = tg::Referent::with_node_and_tokens(id, object.state().tokens());

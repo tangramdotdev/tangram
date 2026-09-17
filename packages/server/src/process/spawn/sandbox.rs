@@ -150,7 +150,6 @@ impl Session {
 		let parent = output.parent.clone();
 		let token = output.process_token.clone();
 		tg::runner::control::Process {
-			command_objects: output.command_objects.clone(),
 			data,
 			id,
 			options,

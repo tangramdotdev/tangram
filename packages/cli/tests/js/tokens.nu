@@ -38,9 +38,6 @@ let path = artifact {
 			const command = await tg.command(identity, argument);
 			tg.assert(tg.Tokens.isEmpty(command.state.tokens));
 			tg.assert(JSON.stringify(argument.state.tokens) === JSON.stringify(inherited));
-			const referents = tg.Value.referents(command);
-			const input = referents.find((referent) => referent.node === argument.id);
-			tg.assert(JSON.stringify(input?.options?.tokens) === JSON.stringify(inherited));
 			const data = tg.Object.Object.toData(command.state.object!);
 			tg.Object.Data.withoutLocationAndTokens(data);
 			tg.assert(JSON.stringify(argument.state.tokens) === JSON.stringify(inherited));

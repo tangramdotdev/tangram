@@ -44,6 +44,7 @@ impl Session {
 	pub(super) async fn try_get_cached_process_local(
 		&self,
 		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 	) -> tg::Result<Option<super::local::Output>> {
 		let public = arg.public && arg.cached == Some(true);
 
@@ -51,15 +52,7 @@ impl Session {
 		let candidates = self
 			.server
 			.index
-			.try_get_cached_processes(
-				&arg.command
-					.node
-					.as_ref()
-					.right()
-					.cloned()
-					.ok_or_else(|| tg::error!("expected a stored command"))?
-					.into(),
-			)
+			.try_get_cached_processes(&command.node.clone().into())
 			.await
 			.map_err(|error| {
 				tg::error!(!error, "failed to query the index for cached processes")
@@ -101,6 +94,7 @@ impl Session {
 			Self::cached_process_mismatched_checksum_candidate_indices(arg, &candidates);
 		let output = Box::pin(self.try_get_cached_process_with_mismatched_checksum_local(
 			arg,
+			command,
 			&candidates,
 			&mismatched_checksum_candidate_indices,
 			&mut cycle,
@@ -221,6 +215,7 @@ impl Session {
 	async fn try_get_cached_process_with_mismatched_checksum_local(
 		&self,
 		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 		candidates: &[Candidate],
 		candidate_indices: &[usize],
 		cycle: &mut Option<tg::process::Id>,
@@ -250,7 +245,8 @@ impl Session {
 					.await?;
 				let host = data.host.clone();
 				let output =
-					Box::pin(self.create_mismatched_checksum_process(arg, &host, data)).await?;
+					Box::pin(self.create_mismatched_checksum_process(arg, command, &host, data))
+						.await?;
 
 				return Ok(Some(output));
 			}
@@ -496,7 +492,6 @@ impl Session {
 		Ok(super::local::Output {
 			allocation: None,
 			cached: true,
-			command_objects: Vec::new(),
 			data,
 			id,
 			lease: None,
@@ -513,6 +508,7 @@ impl Session {
 	async fn create_mismatched_checksum_process(
 		&self,
 		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 		host: &str,
 		source: tg::process::Data,
 	) -> tg::Result<super::local::Output> {
@@ -549,15 +545,7 @@ impl Session {
 			actual_checksum: Some(actual_checksum),
 			cacheable: true,
 			children: source.children,
-			command: tg::Referent::new(
-				arg.command
-					.node
-					.as_ref()
-					.right()
-					.cloned()
-					.ok_or_else(|| tg::error!("expected a stored command"))?,
-				arg.command.options.clone(),
-			),
+			command: command.clone(),
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: error.clone().map(tg::Either::Left),
@@ -596,7 +584,6 @@ impl Session {
 		Ok(super::local::Output {
 			allocation: None,
 			cached: true,
-			command_objects: Vec::new(),
 			data,
 			id,
 			lease: None,

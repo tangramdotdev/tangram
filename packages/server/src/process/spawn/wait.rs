@@ -10,6 +10,7 @@ impl Session {
 	pub(super) async fn spawn_process_in_sandbox_or_get_cached(
 		&self,
 		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 		output: Option<Output>,
 		location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
@@ -29,7 +30,8 @@ impl Session {
 		} else {
 			(None, None)
 		};
-		let cache_future = self.spawn_process_get_cached_process(arg, location, candidate.as_ref());
+		let cache_future =
+			self.spawn_process_get_cached_process(arg, command, location, candidate.as_ref());
 		let create_delay = self.server.config.process.spawn.create_delay;
 		let spawn_future =
 			self.spawn_process_in_new_or_existing_sandbox(arg, output, scheduler_sender);
@@ -204,6 +206,7 @@ impl Session {
 	async fn spawn_process_get_cached_process(
 		&self,
 		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
 		location: Option<&tg::Location>,
 		exclude: Option<&tg::process::Id>,
 	) -> tg::Result<Option<cached::Output>> {
@@ -223,7 +226,7 @@ impl Session {
 				},
 			}
 		} else {
-			self.try_get_cached_process_local(arg)
+			self.try_get_cached_process_local(arg, command)
 				.boxed()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get a cached process"))?

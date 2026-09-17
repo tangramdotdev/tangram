@@ -122,7 +122,7 @@ impl Session {
 		arg: &mut tg::process::spawn::Arg,
 		sandbox_host: Option<&str>,
 	) -> tg::Result<tg::Referent<tg::command::Id>> {
-		let id = match &arg.command.node {
+		let id = match &mut arg.command.node {
 			tg::Either::Left(command_arg) => {
 				let host = command_arg
 					.host
@@ -130,6 +130,7 @@ impl Session {
 					.or_else(|| sandbox_host.map(str::to_owned))
 					.or_else(|| self.server.config.process.spawn.host.clone())
 					.unwrap_or_else(|| tg::host::current().to_owned());
+				command_arg.host = Some(host.clone());
 				let builder = tg::command::Builder::try_with_spawn_arg(command_arg.clone())
 					.map_err(|error| tg::error!(!error, "failed to create the command"))?;
 				let command = builder
@@ -140,10 +141,6 @@ impl Session {
 					.store_with_handle(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to store the command"))?;
-				// Preserve the input referents separately from the command's stored content.
-				let object = command.object_with_handle(self).await?;
-				arg.command_objects
-					.extend(object.children().iter().map(tg::Object::to_referent));
 				arg.command.options.location = command.state().location();
 				arg.command
 					.options
@@ -153,19 +150,6 @@ impl Session {
 			},
 			tg::Either::Right(id) => id.clone(),
 		};
-		let mut objects = BTreeMap::<tg::object::Id, tg::referent::Options>::new();
-		for object in std::mem::take(&mut arg.command_objects) {
-			let options = objects.entry(object.node).or_default();
-			options.tokens.inherit(&object.options.tokens);
-			if options.location.is_none() {
-				options.location = object.options.location;
-			}
-		}
-		arg.command_objects = objects
-			.into_iter()
-			.map(|(id, options)| tg::Referent::new(id, options))
-			.collect();
-		arg.command.node = tg::Either::Right(id.clone());
 		let command = tg::Referent::new(id, arg.command.options.clone());
 
 		Ok(command)
@@ -280,13 +264,13 @@ impl Session {
 				tg::Location::Local(tg::location::Local {
 					region: Some(region),
 				}) => self
-					.try_spawn_process_region(arg.clone(), &command, progress, region)
+					.try_spawn_process_region(arg.clone(), progress, region)
 					.boxed(),
 				tg::Location::Remote(tg::location::Remote {
 					name: remote,
 					region,
 				}) => self
-					.try_spawn_process_remote(arg.clone(), &command, progress, remote, region)
+					.try_spawn_process_remote(arg.clone(), progress, remote, region)
 					.boxed(),
 			};
 			if let Some(notify) = notify {
@@ -415,7 +399,7 @@ impl Session {
 			output.tokens.clear();
 		}
 		let output = if cacheable && arg.cached.is_none() {
-			self.spawn_process_in_sandbox_or_get_cached(&arg, output, cache_location)
+			self.spawn_process_in_sandbox_or_get_cached(&arg, &command, output, cache_location)
 				.boxed()
 				.await?
 		} else {
@@ -474,7 +458,6 @@ impl Session {
 	async fn try_spawn_process_region(
 		&self,
 		arg: tg::process::spawn::Arg,
-		command: &tg::Referent<tg::command::Id>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 		region: String,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
@@ -484,23 +467,14 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
-		self.spawn_process_push_command(
-			command,
-			&arg.command_objects,
-			Some(location.clone()),
-			progress,
-		)
-		.await
-		.map_err(|error| tg::error!(!error, region = %region, "failed to push the command"))?;
+		self.spawn_process_push_command(&arg.command, Some(location.clone()), progress)
+			.await
+			.map_err(|error| tg::error!(!error, region = %region, "failed to push the command"))?;
 		let mut arg = tg::process::spawn::Arg {
 			location: Some(location.clone().into()),
 			..arg
 		};
-		arg.command.options.tokens = arg.command.options.tokens.for_location(&location);
-		for object in &mut arg.command_objects {
-			object.options.tokens = object.options.tokens.for_location(&location);
-			object.options.location = None;
-		}
+		Self::update_spawn_process_command_for_location(&mut arg.command, &location)?;
 		let stream = client
 			.try_spawn_process(arg)
 			.await
@@ -531,7 +505,6 @@ impl Session {
 	async fn try_spawn_process_remote(
 		&self,
 		arg: tg::process::spawn::Arg,
-		command: &tg::Referent<tg::command::Id>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 		remote: String,
 		region: Option<String>,
@@ -544,14 +517,9 @@ impl Session {
 			name: remote.clone(),
 			region: region.clone(),
 		});
-		self.spawn_process_push_command(
-			command,
-			&arg.command_objects,
-			Some(destination.clone()),
-			progress,
-		)
-		.await
-		.map_err(|error| tg::error!(!error, remote = %remote, "failed to push the command"))?;
+		self.spawn_process_push_command(&arg.command, Some(destination.clone()), progress)
+			.await
+			.map_err(|error| tg::error!(!error, remote = %remote, "failed to push the command"))?;
 		let mut arg = tg::process::spawn::Arg {
 			location: Some(
 				tg::Location::Local(tg::location::Local {
@@ -561,11 +529,7 @@ impl Session {
 			),
 			..arg
 		};
-		arg.command.options.tokens = arg.command.options.tokens.for_location(&destination);
-		for object in &mut arg.command_objects {
-			object.options.tokens = object.options.tokens.for_location(&destination);
-			object.options.location = None;
-		}
+		Self::update_spawn_process_command_for_location(&mut arg.command, &destination)?;
 		let stream = client
 			.try_spawn_process(arg)
 			.await
@@ -605,14 +569,14 @@ impl Session {
 
 	pub(super) async fn spawn_process_push_command(
 		&self,
-		command: &tg::Referent<tg::command::Id>,
-		objects: &[tg::Referent<tg::object::Id>],
+		command: &tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
 		location: Option<tg::Location>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<()> {
-		let nodes = std::iter::once(command.clone().map(Into::into))
-			.chain(objects.iter().cloned().map(|object| object.map(Into::into)))
-			.collect();
+		let nodes = Self::spawn_process_command_nodes(command)?;
+		if nodes.is_empty() {
+			return Ok(());
+		}
 		let push_arg = tg::push::Arg {
 			destination: location,
 			nodes,
@@ -631,6 +595,62 @@ impl Session {
 			progress.forward(Ok(event));
 		}
 		Err(tg::error!("expected an output"))
+	}
+
+	pub(super) fn spawn_process_command_nodes(
+		command: &tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
+	) -> tg::Result<Vec<tg::Referent<tg::Id>>> {
+		let nodes = match &command.node {
+			tg::Either::Left(command) => Self::spawn_process_command_referents(command)?
+				.into_iter()
+				.map(|referent| referent.map(Into::into))
+				.collect(),
+			tg::Either::Right(id) => vec![tg::Referent::new(
+				id.clone().into(),
+				command.options.clone(),
+			)],
+		};
+		Ok(nodes)
+	}
+
+	fn spawn_process_command_referents(
+		command: &tg::process::spawn::CommandArg,
+	) -> tg::Result<Vec<tg::Referent<tg::object::Id>>> {
+		let builder = tg::command::Builder::try_with_spawn_arg(command.clone())?;
+		let mut referents = BTreeMap::<tg::object::Id, tg::referent::Options>::new();
+		for object in builder.objects() {
+			let referent = object.to_referent();
+			let options = referents.entry(referent.node).or_default();
+			if options.location.is_none() {
+				options.location = referent.options.location;
+			}
+			options.tokens.inherit(&referent.options.tokens);
+		}
+		let referents = referents
+			.into_iter()
+			.map(|(id, options)| tg::Referent::new(id, options))
+			.collect();
+
+		Ok(referents)
+	}
+
+	pub(super) fn update_spawn_process_command_for_location(
+		command: &mut tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
+		location: &tg::Location,
+	) -> tg::Result<()> {
+		command.options.tokens = command.options.tokens.for_location(location);
+		let tg::Either::Left(command) = &mut command.node else {
+			return Ok(());
+		};
+		let builder = tg::command::Builder::try_with_spawn_arg(command.clone())?;
+		for object in builder.objects() {
+			let tokens = object.state().tokens().for_location(location);
+			object.state().set_location(None);
+			object.state().set_tokens(tokens);
+		}
+		*command = builder.build_spawn_arg()?;
+
+		Ok(())
 	}
 
 	pub(super) fn update_spawn_process_output_referents_for_location(

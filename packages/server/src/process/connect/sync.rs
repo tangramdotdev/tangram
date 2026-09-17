@@ -35,8 +35,7 @@ impl Session {
 
 	pub(super) async fn connect_process_command_sync_destination(
 		&self,
-		command: &tg::Referent<tg::command::Id>,
-		objects: &[tg::Referent<tg::object::Id>],
+		command: &tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
 		input: Input,
 		sender: &Sender,
 	) -> tg::Result<Destination> {
@@ -52,13 +51,9 @@ impl Session {
 		let sync_input = ReceiverStream::new(sync_receiver).boxed();
 
 		// Start the destination sync and obtain its token.
-		let get = std::iter::once(command.clone().map(|id| tg::Selector::Id(id.into())))
-			.chain(
-				objects
-					.iter()
-					.cloned()
-					.map(|object| object.map(|id| tg::Selector::Id(id.into()))),
-			)
+		let get = Self::spawn_process_command_nodes(command)?
+			.into_iter()
+			.map(|node| node.map(tg::Selector::Id))
 			.collect();
 		let arg = tg::sync::Arg {
 			eager: true,
@@ -100,19 +95,17 @@ impl Session {
 
 	pub(super) async fn connect_process_command_sync_source(
 		&self,
-		command: &tg::Referent<tg::command::Id>,
-		objects: &[tg::Referent<tg::object::Id>],
+		command: &tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
 		input: Input,
 	) -> tg::Result<Source> {
 		// Start the source sync.
 		let location = tg::Location::Local(tg::location::Local::default());
-		let mut command = command.clone().map(Into::into);
-		command.options.tokens = command.options.tokens.for_location(&location);
-		let put = std::iter::once(command)
-			.chain(objects.iter().cloned().map(|mut object| {
-				object.options.tokens = object.options.tokens.for_location(&location);
-				object.map(Into::into)
-			}))
+		let put = Self::spawn_process_command_nodes(command)?
+			.into_iter()
+			.map(|mut node| {
+				node.options.tokens = node.options.tokens.for_location(&location);
+				node
+			})
 			.collect();
 		let arg = tg::sync::Arg {
 			eager: true,

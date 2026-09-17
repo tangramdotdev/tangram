@@ -43,11 +43,6 @@ pub struct Arg {
 	#[tangram_serialize(id = 3)]
 	pub command: tg::Referent<tg::Either<CommandArg, tg::command::Id>>,
 
-	/// The ephemeral referents for the command's input objects.
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 15, skip_serializing_if = "Vec::is_empty")]
-	pub command_objects: Vec<tg::Referent<tg::object::Id>>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
 	pub debug: Option<tg::process::Debug>,
@@ -328,7 +323,6 @@ where
 		.collect();
 	let objects = tg::Value::Array(objects);
 	objects.store_with_handle(handle).await?;
-	let command_objects = objects.referents();
 	let command_arg = builder.build_spawn_arg()?;
 	let command = tg::Referent::new(tg::Either::Left(command_arg), options);
 
@@ -337,7 +331,6 @@ where
 		cache_location: arg.cache_location,
 		checksum,
 		command,
-		command_objects,
 		debug: normalize_debug(arg.debug),
 		location: arg.location,
 		parent: None,

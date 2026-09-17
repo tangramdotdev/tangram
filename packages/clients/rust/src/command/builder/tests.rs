@@ -40,7 +40,7 @@ fn spawn_arg_preserves_executable_and_stdin_referents() {
 }
 
 #[test]
-fn input_referents_preserve_tokens_without_pooling() {
+fn input_tokens_are_not_pooled() {
 	let location = tg::Location::Local(tg::location::Local::default());
 	let first = tg::Blob::with_id(tg::blob::Id::new(b"first"));
 	let second = tg::Blob::with_id(tg::blob::Id::new(b"second"));
@@ -62,27 +62,7 @@ fn input_referents_preserve_tokens_without_pooling() {
 		.arg(tg::command::Value::Value(value))
 		.build()
 		.unwrap();
-	let referents = tg::Value::from(command.clone()).referents();
 	assert!(command.state().tokens().is_empty());
-	assert_eq!(referents.len(), 3);
-	assert_eq!(
-		referents
-			.iter()
-			.find(|referent| referent.node == first.id().into())
-			.unwrap()
-			.options
-			.tokens,
-		first_tokens
-	);
-	assert_eq!(
-		referents
-			.iter()
-			.find(|referent| referent.node == second.id().into())
-			.unwrap()
-			.options
-			.tokens,
-		second_tokens
-	);
 	let object = command.state().object().unwrap();
 	let _data = object.to_data().without_location_and_tokens();
 	assert_eq!(first.state().tokens(), first_tokens);

@@ -45,7 +45,6 @@ pub struct Child {
 pub struct State {
 	pub changed: tokio::sync::watch::Sender<()>,
 	pub children: IndexMap<tg::process::Id, Child, tg::id::BuildHasher>,
-	pub command_objects: std::collections::BTreeMap<tg::object::Id, tg::referent::Options>,
 	pub control: tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
 	pub(crate) control_sender: control::local::Local,
 	pub data: tg::process::Data,
