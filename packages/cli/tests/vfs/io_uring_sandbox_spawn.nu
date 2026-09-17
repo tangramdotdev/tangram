@@ -18,7 +18,7 @@ let server = server spawn --config {
 		memory: (128e9 | into int),
 	}
 	vfs: {
-		io: 'io_uring'
+		io: 'auto'
 		kind: 'fuse'
 		passthrough: 'disabled'
 	}
@@ -40,3 +40,8 @@ let path = artifact {
 
 let output = tg run $path | complete
 success $output 'every concurrent sandboxed process should spawn'
+assert (
+	open --raw $server.log
+	| lines
+	| any { $in =~ 'starting the FUSE io_uring transport.*sqpoll=false' }
+) 'an automatic per-sandbox VFS should use the io_uring transport without SQPOLL'

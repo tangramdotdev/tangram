@@ -2,7 +2,7 @@ use super::{
 	Arc, AtomicBool, DEFAULT_MAX_WRITE, Error, Features, HashMap, Io, IoUring, Mutex, Options,
 	OwnedFd, Passthrough, PassthroughBackings, Path, Provider, RequestLimits, Result, Server,
 	State, WorkerEvent,
-	connection::Connection,
+	connection::{Connection, MountControl},
 	fusermount3,
 	read_write::ReadWriteStartupContext,
 	ring::{RingConfig, RingStartupContext},
@@ -13,10 +13,10 @@ const SQPOLL_IDLE_MS: u32 = 2_000;
 
 type SqpollRing = IoUring<io_uring::squeue::Entry128>;
 
-struct Mount {
-	connection_id: Option<u64>,
+pub(super) struct Mount {
+	pub(super) connection_id: Option<u64>,
 	fd: Arc<OwnedFd>,
-	ready: Option<Arc<OwnedFd>>,
+	pub(super) ready: Option<Arc<MountControl>>,
 }
 
 struct StartupConfig {
@@ -60,7 +60,9 @@ where
 			.map_err(Error::other)?;
 		let (fd, connection_id) =
 			result.inspect_err(|error| tracing::error!(%error, "failed to mount"))?;
-		let ready = connection_id.is_some().then(|| Arc::new(recvfd));
+		let ready = connection_id
+			.is_some()
+			.then(|| Arc::new(MountControl::new(recvfd)));
 		let mount = Mount {
 			connection_id,
 			fd,
@@ -69,18 +71,10 @@ where
 		Ok(mount)
 	}
 
-	async fn start_inner(
-		provider: P,
-		path: &Path,
-		mut options: Options,
-		mount: Mount,
-	) -> Result<Self> {
-		// Select ReadWrite before initializing an external connection because it cannot be remounted for a fallback.
+	async fn start_inner(provider: P, path: &Path, options: Options, mount: Mount) -> Result<Self> {
+		// Identify an external connection, which requires an in-namespace remount for a fallback.
 		let external_mount = mount.connection_id.is_some();
 		let auto_unmount = !external_mount;
-		if external_mount && options.io == Io::Auto {
-			options.io = Io::ReadWrite;
-		}
 
 		// Prepare the FUSE connection.
 		let supports_no_opendir = provider.supports_no_opendir();
@@ -134,11 +128,15 @@ where
 						"failed to start the FUSE io_uring transport; falling back to ReadWrite",
 					);
 					drop(sqpoll_ring.take());
+					let ready = connection.ready.clone();
 					drop(connection);
 					config.options.io = Io::ReadWrite;
 					config.limits =
 						Self::request_limits(rustix::param::page_size(), DEFAULT_MAX_WRITE)?;
-					let mount = Self::remount(path).await?;
+					let mount = match ready {
+						None => Self::remount(path).await?,
+						Some(ready) => Self::remount_external(ready).await?,
+					};
 					connection = Self::connect(
 						path,
 						config.options,
@@ -295,7 +293,10 @@ where
 					config.ring_config = None;
 					config.limits =
 						Self::request_limits(rustix::param::page_size(), DEFAULT_MAX_WRITE)?;
-					mount = Self::remount(path).await?;
+					mount = match mount.ready.clone() {
+						None => Self::remount(path).await?,
+						Some(ready) => Self::remount_external(ready).await?,
+					};
 				},
 				Err(error) => return Err(error),
 				Ok(ring) => return Ok((connection, Some(ring))),
@@ -315,6 +316,30 @@ where
 		Self::unmount(path).await.ok();
 		let recvfd = fusermount3(path)?;
 		let mount = Self::receive_mount(recvfd).await?;
+		Ok(mount)
+	}
+
+	pub(super) async fn remount_external(ready: Arc<MountControl>) -> Result<Mount> {
+		let receiver = ready.lock_receiver().await;
+		ready
+			.send(super::EXTERNAL_MOUNT_REMOUNT)
+			.map_err(|error| Error::other(format!("failed to request a FUSE remount: {error}")))?;
+
+		let ready_for_mount = ready.clone();
+		let result = tokio::task::spawn_blocking(move || {
+			let _receiver = receiver;
+			Self::mount(ready_for_mount.fd())
+		})
+		.await
+		.map_err(Error::other)?;
+		let (fd, connection_id) =
+			result.inspect_err(|error| tracing::error!(%error, "failed to remount"))?;
+		let mount = Mount {
+			connection_id,
+			fd,
+			ready: Some(ready),
+		};
+
 		Ok(mount)
 	}
 

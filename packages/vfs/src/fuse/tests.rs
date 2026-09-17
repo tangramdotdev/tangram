@@ -227,17 +227,136 @@ async fn waits_for_external_mount_readiness_signals() {
 	)
 	.unwrap();
 	let client = tokio::task::spawn_blocking(move || {
-		let mut ready = [0u8; 1];
-		assert_eq!(rustix::io::read(&sender, &mut ready).unwrap(), 1);
+		let mut command = [0u8; 1];
+		assert_eq!(rustix::io::read(&sender, &mut command).unwrap(), 1);
+		assert_eq!(command[0], EXTERNAL_MOUNT_PROBE);
 		assert_eq!(
-			rustix::net::send(&sender, &[0], SendFlags::NOSIGNAL).unwrap(),
+			rustix::net::send(&sender, &[EXTERNAL_MOUNT_PROBE_READY], SendFlags::NOSIGNAL,)
+				.unwrap(),
 			1,
 		);
 	});
 
-	Server::<TestProvider>::wait_for_mount_ready(Arc::new(receiver))
+	let control = Arc::new(connection::MountControl::new(receiver));
+	Server::<TestProvider>::wait_for_mount_ready(control)
 		.await
 		.unwrap();
+	client.await.unwrap();
+}
+
+#[tokio::test]
+async fn reports_external_mount_readiness_failures() {
+	let (receiver, sender) = rustix::net::socketpair(
+		AddressFamily::UNIX,
+		SocketType::STREAM,
+		SocketFlags::CLOEXEC,
+		None,
+	)
+	.unwrap();
+	let client = tokio::task::spawn_blocking(move || {
+		let mut command = [0u8; 1];
+		assert_eq!(rustix::io::read(&sender, &mut command).unwrap(), 1);
+		assert_eq!(command[0], EXTERNAL_MOUNT_PROBE);
+		assert_eq!(
+			rustix::net::send(&sender, &[EXTERNAL_MOUNT_PROBE_ERROR], SendFlags::NOSIGNAL,)
+				.unwrap(),
+			1,
+		);
+	});
+
+	let control = Arc::new(connection::MountControl::new(receiver));
+	let error = Server::<TestProvider>::wait_for_mount_ready(control)
+		.await
+		.unwrap_err();
+	assert!(error.to_string().contains("readiness probe failed"));
+	client.await.unwrap();
+}
+
+#[tokio::test]
+async fn requests_external_mount_fallbacks() {
+	let (receiver, sender) = rustix::net::socketpair(
+		AddressFamily::UNIX,
+		SocketType::STREAM,
+		SocketFlags::CLOEXEC,
+		None,
+	)
+	.unwrap();
+	let client = tokio::task::spawn_blocking(move || {
+		let mut command = [0u8; 1];
+		assert_eq!(rustix::io::read(&sender, &mut command).unwrap(), 1);
+		assert_eq!(command[0], EXTERNAL_MOUNT_REMOUNT);
+
+		let fd: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
+		let connection_id = 42u64;
+		let payload = connection_id.to_le_bytes();
+		let iovecs = [IoSlice::new(&payload)];
+		let fds = [fd.as_fd()];
+		let mut cmsg_space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
+		let mut cmsg_buffer = SendAncillaryBuffer::new(&mut cmsg_space);
+		cmsg_buffer.push(SendAncillaryMessage::ScmRights(&fds));
+		rustix::net::sendmsg(&sender, &iovecs, &mut cmsg_buffer, SendFlags::NOSIGNAL).unwrap();
+	});
+
+	let control = Arc::new(connection::MountControl::new(receiver));
+	let mount = Server::<TestProvider>::remount_external(control)
+		.await
+		.unwrap();
+	assert_eq!(mount.connection_id, Some(42));
+	assert!(mount.ready.is_some());
+	client.await.unwrap();
+}
+
+#[tokio::test]
+async fn serializes_external_mount_receives_during_fallback() {
+	let (receiver, sender) = rustix::net::socketpair(
+		AddressFamily::UNIX,
+		SocketType::STREAM,
+		SocketFlags::CLOEXEC,
+		None,
+	)
+	.unwrap();
+	let control = Arc::new(connection::MountControl::new(receiver));
+	let (started_sender, started_receiver) = tokio::sync::oneshot::channel();
+	let receiver = control.lock_receiver().await;
+	let stale_control = control.clone();
+	let stale_receiver = tokio::task::spawn_blocking(move || {
+		let _receiver = receiver;
+		started_sender.send(()).unwrap();
+		let mut response = [0u8; 1];
+		assert_eq!(
+			rustix::io::read(stale_control.fd(), &mut response).unwrap(),
+			1,
+		);
+		assert_eq!(response[0], EXTERNAL_MOUNT_PROBE_ERROR);
+	});
+	started_receiver.await.unwrap();
+
+	let client = tokio::task::spawn_blocking(move || {
+		assert_eq!(
+			rustix::net::send(&sender, &[EXTERNAL_MOUNT_PROBE_ERROR], SendFlags::NOSIGNAL,)
+				.unwrap(),
+			1,
+		);
+		let mut command = [0u8; 1];
+		assert_eq!(rustix::io::read(&sender, &mut command).unwrap(), 1);
+		assert_eq!(command[0], EXTERNAL_MOUNT_REMOUNT);
+
+		let fd: OwnedFd = std::fs::File::open("/dev/null").unwrap().into();
+		let connection_id = 42u64;
+		let payload = connection_id.to_le_bytes();
+		let iovecs = [IoSlice::new(&payload)];
+		let fds = [fd.as_fd()];
+		let mut cmsg_space = [MaybeUninit::<u8>::uninit(); rustix::cmsg_space!(ScmRights(1))];
+		let mut cmsg_buffer = SendAncillaryBuffer::new(&mut cmsg_space);
+		cmsg_buffer.push(SendAncillaryMessage::ScmRights(&fds));
+		rustix::net::sendmsg(&sender, &iovecs, &mut cmsg_buffer, SendFlags::NOSIGNAL).unwrap();
+	});
+
+	let mount = Server::<TestProvider>::remount_external(control)
+		.await
+		.unwrap();
+	assert_eq!(mount.connection_id, Some(42));
+	stale_receiver.await.unwrap();
 	client.await.unwrap();
 }
 

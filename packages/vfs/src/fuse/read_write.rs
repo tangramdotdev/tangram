@@ -15,7 +15,7 @@ pub(super) struct ReadWriteStartupContext<'a> {
 	pub(super) event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
 	pub(super) limits: RequestLimits,
 	pub(super) path: &'a Path,
-	pub(super) ready: Option<Arc<OwnedFd>>,
+	pub(super) ready: Option<Arc<connection::MountControl>>,
 }
 
 impl<P> Server<P>
@@ -118,8 +118,14 @@ where
 			}
 		}
 		if startup_error.is_none()
+			&& let Some(ready) = &ready
+			&& let Err(error) = Self::wait_for_mount_ready(ready.clone()).await
+		{
+			startup_error = Some(error);
+		}
+		if startup_error.is_none()
 			&& let Some(ready) = ready
-			&& let Err(error) = Self::wait_for_mount_ready(ready).await
+			&& let Err(error) = Self::commit_mount(&ready)
 		{
 			startup_error = Some(error);
 		}

@@ -25,7 +25,7 @@ pub(super) struct RingStartupContext<'a> {
 	pub(super) event_sender: tokio::sync::mpsc::UnboundedSender<WorkerEvent>,
 	pub(super) fd: Arc<OwnedFd>,
 	pub(super) path: &'a Path,
-	pub(super) ready: Option<Arc<OwnedFd>>,
+	pub(super) ready: Option<Arc<connection::MountControl>>,
 	pub(super) ring_config: RingConfig,
 	pub(super) runtime: tokio::runtime::Handle,
 	pub(super) sqpoll_wq_fd: Option<RawFd>,
@@ -272,9 +272,9 @@ where
 			}
 
 			// Confirm that the kernel can dispatch through io_uring.
-			match ready {
+			match &ready {
 				None => Self::probe_io_uring(path).await?,
-				Some(ready) => Self::wait_for_mount_ready(ready).await?,
+				Some(ready) => Self::wait_for_mount_ready(ready.clone()).await?,
 			}
 			while let Ok(event) = event_receiver.try_recv() {
 				if let WorkerEvent::Failed { error, worker } = event {
@@ -312,6 +312,9 @@ where
 					))
 				})?;
 			thread_handles.push(thread);
+			if let Some(ready) = ready {
+				Self::commit_mount(&ready)?;
+			}
 
 			Ok(())
 		};

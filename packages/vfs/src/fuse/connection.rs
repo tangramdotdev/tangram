@@ -2,11 +2,44 @@ use super::*;
 
 const READ_WRITE_MAX_READER_COUNT: usize = 8;
 
+pub(super) struct MountControl {
+	fd: OwnedFd,
+	receiver: Arc<tokio::sync::Mutex<()>>,
+}
+
 pub(super) struct Connection {
 	pub(super) abort: OwnedFd,
 	pub(super) fd: Arc<OwnedFd>,
 	pub(super) features: Features,
-	pub(super) ready: Option<Arc<OwnedFd>>,
+	pub(super) ready: Option<Arc<MountControl>>,
+}
+
+impl MountControl {
+	#[must_use]
+	pub(super) fn new(fd: OwnedFd) -> Self {
+		Self {
+			fd,
+			receiver: Arc::new(tokio::sync::Mutex::new(())),
+		}
+	}
+
+	#[must_use]
+	pub(super) fn fd(&self) -> &OwnedFd {
+		&self.fd
+	}
+
+	pub(super) async fn lock_receiver(&self) -> tokio::sync::OwnedMutexGuard<()> {
+		self.receiver.clone().lock_owned().await
+	}
+
+	pub(super) fn send(&self, command: u8) -> Result<()> {
+		let size = rustix::net::send(&self.fd, &[command], SendFlags::NOSIGNAL)?;
+		if size != 1 {
+			return Err(Error::other("failed to send an external mount command"));
+		}
+
+		Ok(())
+	}
 }
 
 impl<P> Server<P>
@@ -20,7 +53,7 @@ where
 		supports_no_opendir: bool,
 		fd: Arc<OwnedFd>,
 		connection_id: Option<u64>,
-		ready: Option<Arc<OwnedFd>>,
+		ready: Option<Arc<MountControl>>,
 	) -> Result<Connection> {
 		let id = match connection_id {
 			None => self::connection_id(path)?,
@@ -271,17 +304,18 @@ where
 		Ok(())
 	}
 
-	pub(super) async fn wait_for_mount_ready(ready: Arc<OwnedFd>) -> Result<()> {
-		let size = rustix::net::send(ready.as_ref(), &[0], SendFlags::NOSIGNAL)?;
-		if size != 1 {
-			return Err(Error::other(
-				"failed to signal that the FUSE transport is ready",
-			));
-		}
+	pub(super) async fn wait_for_mount_ready(ready: Arc<MountControl>) -> Result<()> {
+		let receiver = ready.lock_receiver().await;
+		ready.send(EXTERNAL_MOUNT_PROBE).map_err(|error| {
+			Error::other(format!(
+				"failed to request a FUSE mount readiness probe: {error}"
+			))
+		})?;
 		let wait = tokio::task::spawn_blocking(move || {
+			let _receiver = receiver;
 			let mut buffer = [0u8; 1];
 			let size = loop {
-				match rustix::io::read(ready.as_ref(), &mut buffer) {
+				match rustix::io::read(ready.fd(), &mut buffer) {
 					Err(Errno::INTR) => {},
 					Err(error) => return Err(Error::from(error)),
 					Ok(size) => break size,
@@ -290,8 +324,15 @@ where
 			if size != 1 {
 				return Err(Error::other("the FUSE mount readiness channel closed"));
 			}
-
-			Ok(())
+			match buffer[0] {
+				EXTERNAL_MOUNT_PROBE_ERROR => {
+					Err(Error::other("the FUSE mount readiness probe failed"))
+				},
+				EXTERNAL_MOUNT_PROBE_READY => Ok(()),
+				_ => Err(Error::other(
+					"received an invalid FUSE mount readiness probe result",
+				)),
+			}
 		});
 		let result = tokio::time::timeout(FUSE_MOUNT_READY_TIMEOUT, wait)
 			.await
@@ -302,6 +343,12 @@ where
 		result.map_err(|error| {
 			Error::other(format!("the FUSE mount readiness probe failed: {error}"))
 		})
+	}
+
+	pub(super) fn commit_mount(ready: &MountControl) -> Result<()> {
+		ready
+			.send(EXTERNAL_MOUNT_COMMIT)
+			.map_err(|error| Error::other(format!("failed to commit the FUSE mount: {error}")))
 	}
 
 	pub(super) fn join_transport_threads(

@@ -52,6 +52,11 @@ mod tests;
 pub mod sys;
 
 const DEFAULT_MAX_WRITE: usize = 1024 * 1024;
+const EXTERNAL_MOUNT_COMMIT: u8 = 2;
+const EXTERNAL_MOUNT_PROBE: u8 = 0;
+const EXTERNAL_MOUNT_PROBE_ERROR: u8 = 1;
+const EXTERNAL_MOUNT_PROBE_READY: u8 = 0;
+const EXTERNAL_MOUNT_REMOUNT: u8 = 1;
 const FUSE_DEV_IOC_MAGIC: u8 = 229;
 const FUSE_DEV_IOC_CLONE: rustix::ioctl::Opcode =
 	rustix::ioctl::opcode::read::<u32>(FUSE_DEV_IOC_MAGIC, 0);
@@ -275,6 +280,43 @@ struct IoctlPointerInt<'a, const OPCODE: rustix::ioctl::Opcode, T> {
 }
 
 pub fn mount_dev_fuse(sendfd: &OwnedFd, path: &Path) -> std::io::Result<()> {
+	loop {
+		mount_dev_fuse_once(sendfd, path)?;
+		loop {
+			match receive_mount_command(sendfd)? {
+				EXTERNAL_MOUNT_COMMIT => return Ok(()),
+				EXTERNAL_MOUNT_PROBE => {
+					// Confirm that the server can service a request through the mounted filesystem.
+					let result = std::fs::read_dir(path)
+						.and_then(|mut entries| entries.next().transpose().map(|_| ()));
+					let response = match result {
+						Err(error) => {
+							tracing::debug!(%error, "the FUSE mount readiness probe failed");
+							EXTERNAL_MOUNT_PROBE_ERROR
+						},
+						Ok(()) => EXTERNAL_MOUNT_PROBE_READY,
+					};
+
+					// Report the result while retaining the control channel for a possible remount.
+					let size = rustix::net::send(sendfd, &[response], SendFlags::NOSIGNAL)
+						.map_err(Error::from)?;
+					if size != 1 {
+						return Err(Error::other(
+							"failed to report the FUSE mount readiness probe result",
+						));
+					}
+				},
+				EXTERNAL_MOUNT_REMOUNT => {
+					rustix::mount::unmount(path, rustix::mount::UnmountFlags::DETACH)?;
+					break;
+				},
+				_ => return Err(Error::other("received an invalid FUSE mount command")),
+			}
+		}
+	}
+}
+
+fn mount_dev_fuse_once(sendfd: &OwnedFd, path: &Path) -> std::io::Result<()> {
 	// Open the FUSE device.
 	let fd: OwnedFd = std::fs::File::options()
 		.read(true)
@@ -314,11 +356,14 @@ pub fn mount_dev_fuse(sendfd: &OwnedFd, path: &Path) -> std::io::Result<()> {
 	cmsg_buffer.push(SendAncillaryMessage::ScmRights(&fds));
 	rustix::net::sendmsg(sendfd, &iovecs, &mut cmsg_buffer, SendFlags::NOSIGNAL)
 		.map_err(Error::from)?;
+	Ok(())
+}
 
-	// Wait for the server to start the transport workers.
-	let mut ready = [0u8; 1];
+fn receive_mount_command(sendfd: &OwnedFd) -> std::io::Result<u8> {
+	// Wait for a command from the server.
+	let mut command = [0u8; 1];
 	let size = loop {
-		match rustix::io::read(sendfd, &mut ready) {
+		match rustix::io::read(sendfd, &mut command) {
 			Err(Errno::INTR) => {},
 			Err(error) => return Err(Error::from(error)),
 			Ok(size) => break size,
@@ -326,23 +371,11 @@ pub fn mount_dev_fuse(sendfd: &OwnedFd, path: &Path) -> std::io::Result<()> {
 	};
 	if size != 1 {
 		return Err(Error::other(
-			"the FUSE server stopped before starting the transport",
+			"the FUSE server stopped before committing the mount",
 		));
 	}
 
-	// Confirm that the server can service a request through the mounted filesystem.
-	let mut entries = std::fs::read_dir(path)?;
-	entries.next().transpose()?;
-
-	// Signal that the mount is ready.
-	let size = rustix::net::send(sendfd, &[0], SendFlags::NOSIGNAL).map_err(Error::from)?;
-	if size != 1 {
-		return Err(Error::other(
-			"failed to signal that the FUSE mount is ready",
-		));
-	}
-
-	Ok(())
+	Ok(command[0])
 }
 
 pub fn fusermount3(path: &Path) -> std::io::Result<OwnedFd> {
