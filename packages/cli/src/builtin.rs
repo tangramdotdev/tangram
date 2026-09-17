@@ -75,7 +75,7 @@ impl Cli {
 			// Write the error xattr.
 			let json = serde_json::to_vec(&data)
 				.map_err(|error| tg::error!(!error, "failed to serialize the error"))?;
-			xattr::set(&tangram_output_path, "user.tangram.error", &json)
+			tangram_util::xattr::set(&tangram_output_path, "user.tangram.error", &json)
 				.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
 		}
 

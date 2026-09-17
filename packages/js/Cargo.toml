@@ -66,4 +66,3 @@ tokio-stream = { workspace = true }
 toml = { workspace = true }
 uuid = { workspace = true }
 v8 = { workspace = true, optional = true }
-xattr = { workspace = true }

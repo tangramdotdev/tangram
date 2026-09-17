@@ -880,7 +880,7 @@ impl<O: 'static> tg::Process<O> {
 			.map_err(|error| tg::error!(!error, "failed to determine if the output path exists"))?;
 
 		if exists {
-			let output_bytes = xattr::get(&output_path, "user.tangram.output")
+			let output_bytes = tangram_util::xattr::get(&output_path, "user.tangram.output")
 				.map_err(|error| tg::error!(!error, "failed to read the output xattr"))?;
 			if let Some(bytes) = output_bytes {
 				let tgon = String::from_utf8(bytes)
@@ -892,7 +892,7 @@ impl<O: 'static> tg::Process<O> {
 				);
 			}
 
-			let error_bytes = xattr::get(&output_path, "user.tangram.error")
+			let error_bytes = tangram_util::xattr::get(&output_path, "user.tangram.error")
 				.map_err(|error| tg::error!(!error, "failed to read the error xattr"))?;
 			if let Some(bytes) = error_bytes {
 				let error = if let Ok(error) =
