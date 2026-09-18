@@ -772,7 +772,7 @@ impl Indexer {
 			return Ok(());
 		}
 		crate::checkpoint!(self.server, "index.batch").await;
-		self.server.index.batch(arg).await?;
+		self.server.index_batch_inner(arg).await?;
 
 		Ok(())
 	}

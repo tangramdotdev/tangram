@@ -40,7 +40,7 @@ type Wait = BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>;
 struct Options {
 	arg: tg::process::connect::Arg,
 	id: u64,
-	prepared: Option<spawn::Prepared>,
+	prepare_output: Option<spawn::PrepareOutput>,
 	wait: Option<(Wait, tg::Location)>,
 }
 
@@ -108,7 +108,7 @@ impl Session {
 				unreachable!()
 			};
 			spawn.location = arg.location.take().or_else(|| spawn.location.take());
-			let prepared = self.prepare_spawn_process(spawn).await?;
+			let prepare_output = self.spawn_process_prepare(spawn).await?;
 			arg.location = spawn.location.clone();
 			let location = self.server.location(arg.location.as_ref())?;
 			if matches!(
@@ -117,7 +117,7 @@ impl Session {
 			) || self.spawn_process_runner_matches_location(&location)
 			{
 				return self
-					.try_connect_process_local(arg, request_id, &mut input, Some(prepared))
+					.try_connect_process_local(arg, request_id, &mut input, Some(prepare_output))
 					.await;
 			}
 
@@ -126,7 +126,7 @@ impl Session {
 			let session = self.clone();
 			let task = Task::spawn(move |_| async move {
 				if let Err(error) = session
-					.connect_process_spawn_task(arg, request_id, input, prepared, &sender)
+					.connect_process_spawn_task(arg, request_id, input, prepare_output, &sender)
 					.boxed()
 					.await
 				{
@@ -145,16 +145,16 @@ impl Session {
 		mut arg: tg::process::connect::Arg,
 		id: u64,
 		input: Input,
-		prepared: spawn::Prepared,
+		prepare_output: spawn::PrepareOutput,
 		sender: &Sender,
 	) -> tg::Result<()> {
 		let tg::Either::Left(spawn_arg) = &mut arg.process else {
 			unreachable!()
 		};
-		let spawn::Prepared {
+		let spawn::PrepareOutput {
 			command,
 			parent_sandbox,
-		} = prepared;
+		} = prepare_output;
 		let location = self.server.location(arg.location.as_ref())?;
 		let mut notify = self
 			.try_prepare_spawn_process_for_location(spawn_arg, &location, parent_sandbox.as_ref())
@@ -292,7 +292,7 @@ impl Session {
 				let options = Options {
 					arg,
 					id,
-					prepared: None,
+					prepare_output: None,
 					wait: Some(wait),
 				};
 				let output = self.connect_process_local(options, input.take().unwrap());
@@ -337,7 +337,7 @@ impl Session {
 		arg: tg::process::connect::Arg,
 		id: u64,
 		input: &mut Option<Input>,
-		prepared: Option<spawn::Prepared>,
+		prepare_output: Option<spawn::PrepareOutput>,
 	) -> tg::Result<Option<Output>> {
 		let wait = if let tg::Either::Right(id) = &arg.process {
 			let Some(wait) = self
@@ -356,7 +356,7 @@ impl Session {
 		let options = Options {
 			arg,
 			id,
-			prepared,
+			prepare_output,
 			wait,
 		};
 		let output = self.connect_process_local(options, input.take().unwrap());
@@ -392,12 +392,12 @@ impl Session {
 		let Options {
 			mut arg,
 			id: request_id,
-			mut prepared,
+			mut prepare_output,
 			wait,
 		} = options;
 		let mut sync_task = None;
 		if arg.command_sync {
-			let prepared = prepared
+			let prepare_output = prepare_output
 				.as_mut()
 				.ok_or_else(|| tg::error!("command sync requires a spawn"))?;
 			let tg::Either::Left(spawn) = &arg.process else {
@@ -409,7 +409,7 @@ impl Session {
 			input = destination.input;
 			// Attach the destination-minted token to the ephemeral command; process storage strips it.
 			let location = tg::Location::Local(tg::location::Local::default());
-			prepared
+			prepare_output
 				.command
 				.options
 				.tokens
@@ -433,7 +433,7 @@ impl Session {
 					.connect_process_spawn_local(
 						*spawn,
 						mode,
-						prepared.unwrap(),
+						prepare_output.unwrap(),
 						&mut input,
 						&mut pending,
 						high,
@@ -580,13 +580,16 @@ impl Session {
 		&self,
 		arg: tg::process::spawn::Arg,
 		mode: tg::process::connect::Mode,
-		prepared: spawn::Prepared,
+		prepare_output: spawn::PrepareOutput,
 		input: &mut Input,
 		pending: &mut VecDeque<tg::process::connect::ClientMessage>,
 		sender: &Sender,
 	) -> tg::Result<tg::process::spawn::Output> {
 		// Buffer requests while spawning so the client can send stdio immediately.
-		let mut progress = self.try_spawn_process_inner(arg, prepared).await?.boxed();
+		let mut progress = self
+			.try_spawn_process_inner(arg, prepare_output)
+			.await?
+			.boxed();
 		let mut input_open = true;
 		let output = loop {
 			tokio::select! {

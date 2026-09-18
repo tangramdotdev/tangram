@@ -1,4 +1,4 @@
-use {crate::Session, tangram_client::prelude::*, tangram_index::prelude::*};
+use {crate::Session, tangram_client::prelude::*};
 
 impl Session {
 	pub(super) async fn destroy_sandbox_control_request(
@@ -16,6 +16,7 @@ impl Session {
 		if !arg.data.data.status.is_destroyed() {
 			return Err(tg::error!(%id, "expected a destroyed sandbox"));
 		}
+		self.server.spawn_publish_sandbox_status_task(id);
 		crate::checkpoint!(self.server, "sandbox.control.destroy", sandbox = %id).await;
 
 		let account = match arg.data.data.owner.as_ref() {
@@ -23,25 +24,25 @@ impl Session {
 			None => None,
 		};
 		let now = self.server.clock.unix_timestamp()?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: self.server.config.region.clone(),
+		});
 		let put_sandbox = tangram_index::sandbox::put::Arg {
 			account,
 			created_at,
 			data: Some(arg.data),
 			id: id.clone(),
-			location: None,
+			location: Some(location),
 			runner,
 			touched_at: now,
 		};
-		self.server
-			.index
-			.batch(tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutSandbox(put_sandbox)],
-			})
-			.await
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to put the destroyed sandbox in the index"),
-			)?;
-		self.server.spawn_publish_sandbox_status_task(id);
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutSandbox(put_sandbox)],
+		};
+		self.server.index_batch(arg).await.map_err(
+			|error| tg::error!(!error, %id, "failed to put the destroyed sandbox in the index"),
+		)?;
+		crate::checkpoint!(self.server, "sandbox.control.destroy.submitted", sandbox = %id).await;
 
 		Ok(tg::sandbox::control::DestroyServerResponseOutput {})
 	}
