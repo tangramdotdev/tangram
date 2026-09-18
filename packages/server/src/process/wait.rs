@@ -31,7 +31,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<BoxFuture<'static, tg::Result<()>>> {
-		if let Some(mut runner) = self.try_get_process_runner_inner(id, None) {
+		if let Some(mut runner) = self.try_get_process_runner_including_finished(id, None) {
 			let id = id.clone();
 			let future = async move {
 				loop {
@@ -126,7 +126,9 @@ impl Session {
 			tg::Location,
 		)>,
 	> {
-		let Some(runner) = self.try_get_process_runner_inner(id, arg.location.as_ref()) else {
+		let Some(runner) =
+			self.try_get_process_runner_including_finished(id, arg.location.as_ref())
+		else {
 			return Ok(None);
 		};
 		let mut requested = tg::authorization::permission::process::Set::NODE;

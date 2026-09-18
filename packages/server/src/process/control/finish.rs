@@ -7,6 +7,7 @@ impl Session {
 		mut arg: tg::process::control::FinishClientRequestArg,
 		sync: Option<&tg::sync::Token>,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
+		self.server.spawn_publish_process_status_task(id);
 		crate::checkpoint!(self.server, "process.control.finish", id = %id).await;
 
 		// Associate the output with the incoming sync before publishing the finished process.
@@ -27,14 +28,16 @@ impl Session {
 		}
 
 		let options = crate::process::put::Options {
-			defer_index: false,
+			defer_index: true,
 			enqueue_log_compaction: false,
 			location: None,
 			store_data: true,
 		};
 		self.put_finished_process_local(id, arg.data, options)
 			.await?;
-		self.spawn_process_finish_tasks(id);
+		self.server
+			.spawn_publish_process_stdio_close_message_task(id, tg::process::stdio::Stream::Stdin);
+		crate::checkpoint!(self.server, "process.control.finish.submitted", process = %id).await;
 
 		Ok(tg::process::control::FinishServerResponseOutput {})
 	}

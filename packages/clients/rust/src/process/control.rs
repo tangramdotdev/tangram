@@ -28,7 +28,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::process::Id>,
 
-	pub lease: String,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub lease: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
@@ -38,6 +39,9 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::process::Id>,
+
+	#[serde(default, skip_serializing_if = "is_default")]
+	pub start: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sync: Option<tg::sync::Token>,
@@ -167,6 +171,9 @@ pub struct BorrowableCapacityClientNotification {
 pub enum ClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	Finish(FinishClientRequestArg),
+
+	#[tangram_serialize(id = 2)]
+	Start(StartClientRequestArg),
 
 	#[tangram_serialize(id = 1)]
 	Write(WriteClientRequestArg),
@@ -366,6 +373,9 @@ pub enum ServerResponseOutput {
 	#[tangram_serialize(id = 0)]
 	Finish(FinishServerResponseOutput),
 
+	#[tangram_serialize(id = 2)]
+	Start(StartServerResponseOutput),
+
 	#[tangram_serialize(id = 1)]
 	Write(WriteServerResponseOutput),
 }
@@ -471,6 +481,64 @@ pub struct FinishClientResponseOutput {}
 	tangram_serialize::Serialize,
 )]
 pub struct FinishServerResponseOutput {}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StartClientRequestArg {
+	#[tangram_serialize(id = 0)]
+	pub data: tg::process::Data,
+
+	#[tangram_serialize(id = 1)]
+	pub lease: String,
+
+	#[tangram_serialize(id = 2)]
+	pub options: tg::referent::Options,
+
+	#[tangram_serialize(id = 3)]
+	pub parent: tg::process::Id,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<Sandbox>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Sandbox {
+	#[tangram_serialize(id = 0)]
+	pub created_at: i64,
+
+	#[tangram_serialize(id = 1)]
+	pub data: tg::sandbox::control::Data,
+
+	#[tangram_serialize(id = 2)]
+	pub runner: Option<tg::runner::Id>,
+
+	#[tangram_serialize(id = 3)]
+	pub token: String,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StartServerResponseOutput {}
 
 #[derive(
 	Clone,

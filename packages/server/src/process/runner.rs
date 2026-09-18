@@ -60,17 +60,23 @@ impl Session {
 		id: &tg::process::Id,
 		location: Option<&tg::location::Arg>,
 	) -> Option<Runner> {
+		let runner = self.try_get_process_runner_including_finished(id, location)?;
+		let finished = runner.processes.get(id)?.data.status.is_finished();
+		(!finished).then_some(runner)
+	}
+
+	#[must_use]
+	pub(crate) fn try_get_process_runner_including_finished(
+		&self,
+		id: &tg::process::Id,
+		location: Option<&tg::location::Arg>,
+	) -> Option<Runner> {
 		// Get the process.
 		let state = self.server.runner.state();
 		let sandbox = state.try_get_process_sandbox(id)?;
 		let runner = self.try_get_sandbox_runner_inner(&sandbox, location)?;
 		let sandbox = state.sandboxes().get(runner.index)?;
 		let process = sandbox.processes.get(id)?;
-
-		// Fall back to normal dispatch for finished processes.
-		if process.data.status.is_finished() {
-			return None;
-		}
 
 		// Create the runner handle.
 		let changed = process.changed.subscribe();

@@ -615,6 +615,43 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 }
 
 #[tokio::test]
+async fn records_compute_once_when_destroy_precedes_start() {
+	let (_dir, index) = new_index();
+	let user = tg::user::Id::new();
+	let account = crate::usage::Account::User(user.clone());
+	let owner = tg::Principal::User(user);
+	let sandbox = tg::sandbox::Id::new();
+	for status in [
+		tg::sandbox::Status::Destroyed,
+		tg::sandbox::Status::Started,
+		tg::sandbox::Status::Destroyed,
+	] {
+		let usage = status.is_destroyed().then_some(tg::sandbox::Usage {
+			cpu: 123,
+			memory: 456,
+		});
+		let arg = crate::sandbox::put::Arg {
+			account: Some(account.clone()),
+			created_at: 1,
+			data: Some(sandbox_data(sandbox.clone(), owner.clone(), status, usage)),
+			id: sandbox.clone(),
+			location: None,
+			runner: None,
+			touched_at: 2,
+		};
+		let arg = crate::batch::Arg {
+			items: vec![crate::batch::Item::PutSandbox(arg)],
+		};
+		index.batch(arg).await.unwrap();
+	}
+	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();
+	let usage = index.get_usage(&account, hour(0), now).await.unwrap();
+	assert_eq!(usage.sandbox_cpu, 123);
+	assert_eq!(usage.sandbox_memory, 456);
+	assert_eq!(usage.sandbox_count, 1);
+}
+
+#[tokio::test]
 async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();

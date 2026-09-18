@@ -20,6 +20,19 @@ impl Index {
 			let existing = crate::fdb::retry!(result)
 				.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
 				.transpose()?;
+
+			// A delayed or replayed start must not overwrite a destroyed sandbox.
+			if arg
+				.data
+				.as_ref()
+				.is_some_and(|data| data.data.status.is_started())
+				&& existing
+					.as_ref()
+					.and_then(|sandbox| sandbox.data.as_ref())
+					.is_some_and(|data| data.data.status.is_destroyed())
+			{
+				continue;
+			}
 			let mut data = arg
 				.data
 				.clone()
@@ -56,11 +69,11 @@ impl Index {
 			let value = sandbox.serialize()?;
 			txn.set(&key, &value);
 
-			let started = existing
+			let destroyed = existing
 				.as_ref()
 				.and_then(|sandbox| sandbox.data.as_ref())
-				.is_some_and(|data| data.data.status.is_started());
-			if started
+				.is_some_and(|data| data.data.status.is_destroyed());
+			if !destroyed
 				&& let (Some(account), Some(data)) = (&sandbox.account, &sandbox.data)
 				&& data.data.status.is_destroyed()
 			{
