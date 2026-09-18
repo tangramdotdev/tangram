@@ -34,7 +34,9 @@ impl Session {
 		id: &tg::process::Id,
 		arg: &tg::process::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
-		let Some(runner) = self.try_get_process_runner_inner(id, arg.location.as_ref()) else {
+		let Some(runner) =
+			self.try_get_process_runner_including_finished(id, arg.location.as_ref())
+		else {
 			return Ok(None);
 		};
 		if self

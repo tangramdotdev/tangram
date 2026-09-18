@@ -46,6 +46,7 @@ def open_stream(path, arg, token=None, messages=()):
 
 
 def connect(arg, token=None, messages=()):
+    arg = {**arg, "start": True}
     sock, response = open_stream("/processes/control", arg, token, messages)
     length, shift = 0, 0
     while True:

@@ -25,6 +25,21 @@ impl Index {
 			.and_then(|bytes| crate::process::Process::deserialize(&bytes).ok());
 		let merge = !arg.complete();
 
+		// Preserve terminal data while still applying the initialization relationships.
+		let mut arg = std::borrow::Cow::Borrowed(arg);
+		if arg
+			.data
+			.as_ref()
+			.is_some_and(|data| data.status.is_started())
+			&& existing
+				.as_ref()
+				.and_then(|process| process.data.as_ref())
+				.is_some_and(|data| data.status.is_finished())
+		{
+			arg.to_mut().data = None;
+		}
+		let arg = arg.as_ref();
+
 		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
 		let touch = existing.as_ref().is_none_or(|existing| {
 			arg.touched_at.saturating_sub(existing.touched_at) >= time_to_touch

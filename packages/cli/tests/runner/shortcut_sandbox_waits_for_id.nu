@@ -13,7 +13,7 @@ let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
-	runner: { id: $created.data.id, remote: default, sandbox_pool_size: 1, token: $created.token.token },
+	runner: { id: $created.data.id, remote: default, sandbox_control_connection_pool_size: 0, sandbox_pool_size: 1, token: $created.token.token },
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let local = server spawn --name alice-local --config {
@@ -51,9 +51,9 @@ tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
 success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.control.connect $connect_watch 0 | complete) "the shortcut sandbox should reach control without an ID"
 let claimed = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 1 | from json
 tg --url $runner.url checkpoint unwatch runner.sandbox.pool.take $pool_watch
-let response_watch = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.connect | from json | get watch
+let response_watch = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.output | from json | get watch
 tg --url $runner.url checkpoint unwatch runner.sandbox.control.connect $connect_watch
-let response = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.connect $response_watch 0 | from json
+let response = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.output $response_watch 0 | from json
 let sandbox = $response.params.sandbox
 assert ($sandbox | str starts-with 'sbx_') "control should assign a sandbox ID"
 let state = timeout 1s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 1 | complete
@@ -62,7 +62,7 @@ let started = timeout 1s tg --url $runner.url checkpoint wait runner.process.sta
 assert equal $started.exit_code 124 "the child should not start before its sandbox receives its identity"
 
 # Receiving the identity activates the same physical sandbox and allows the child to run.
-tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.connect $response_watch
+tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.output $response_watch
 let state = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 1 | from json
 assert equal $state.params.sandbox $sandbox "the shortcut sandbox should become active with its assigned ID"
 assert equal $state.params.index $claimed.params.index "the shortcut should use the physical sandbox claimed before control connected"

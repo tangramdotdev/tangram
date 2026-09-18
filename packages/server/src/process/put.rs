@@ -376,7 +376,6 @@ impl Session {
 				}))
 				.collect(),
 		};
-		let defer_index = defer_index && self.server.config.advanced.single_process;
 		let result = if defer_index {
 			self.server.index_batch(arg).await
 		} else {
