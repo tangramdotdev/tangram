@@ -7,6 +7,7 @@ use {
 	},
 	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
+	tracing::Instrument as _,
 };
 
 pub(super) struct Arg {
@@ -200,6 +201,7 @@ impl Index {
 				args,
 				config,
 				principal,
+				span,
 			} => {
 				let result = Self::authorize_batch_with_transaction(
 					authorization_fact_cache,
@@ -210,6 +212,7 @@ impl Index {
 					args,
 					principal,
 				)
+				.instrument(span.clone())
 				.await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::AuthorizeBatch(output)

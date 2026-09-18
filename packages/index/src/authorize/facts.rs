@@ -259,8 +259,10 @@ struct CacheMissGuard<E> {
 pub(crate) struct Client<E> {
 	cache: Cache<E>,
 	concurrency: usize,
+	hits: Arc<AtomicUsize>,
 	reads: Arc<AtomicUsize>,
 	sender: mpsc::Sender<Message<E>>,
+	waits: Arc<AtomicUsize>,
 }
 
 #[cfg(test)]
@@ -279,8 +281,10 @@ pub(crate) fn channel_with_cache<E>(
 	let client = Client {
 		cache,
 		concurrency,
+		hits: Arc::new(AtomicUsize::new(0)),
 		reads: Arc::new(AtomicUsize::new(0)),
 		sender,
+		waits: Arc::new(AtomicUsize::new(0)),
 	};
 
 	(client, receiver)
@@ -420,6 +424,25 @@ impl Request {
 }
 
 impl Output {
+	fn rows(&self) -> usize {
+		match self {
+			Self::Bool(value) => usize::from(*value),
+			Self::Grants { grants, .. } => grants.len(),
+			Self::Group(value) => usize::from(value.is_some()),
+			Self::Id(value) => usize::from(value.is_some()),
+			Self::Ids { ids, .. } => ids.len(),
+			Self::MemberGroups { groups, .. } => groups.len(),
+			Self::MemberOrganizations { organizations, .. } => organizations.len(),
+			Self::ObjectProcesses { processes, .. } => processes.len(),
+			Self::Process(value) => usize::from(value.is_some()),
+			Self::ProcessObjectKinds(kinds) => kinds.len(),
+			Self::ProcessObjects { objects, .. } => objects.len(),
+			Self::SandboxOwner(value) => usize::from(value.is_some()),
+			Self::Tag(value) => usize::from(value.is_some()),
+			Self::Tags { tags, .. } => tags.len(),
+		}
+	}
+
 	pub(crate) fn into_bool(self) -> tg::Result<bool> {
 		let Self::Bool(value) = self else {
 			return Err(tg::error!("received a non-boolean authorization fact"));
@@ -630,8 +653,37 @@ where
 		self.reads.load(Ordering::Relaxed)
 	}
 
+	#[must_use]
+	pub(crate) fn hits(&self) -> usize {
+		self.hits.load(Ordering::Relaxed)
+	}
+
+	#[must_use]
+	pub(crate) fn waits(&self) -> usize {
+		self.waits.load(Ordering::Relaxed)
+	}
+
 	pub(crate) async fn read(&self, request: Request) -> Response<E> {
+		if !tracing::enabled!(target: "tangram_authz::facts", tracing::Level::TRACE) {
+			return self.read_inner(request, &mut "unknown").await;
+		}
+		let started = std::time::Instant::now();
+		let description = format!("{request:?}");
+		let mut cache = "unknown";
+		let response = self.read_inner(request, &mut cache).await;
+		let (status, rows) = match &response {
+			Err(_) => ("error", 0),
+			Ok(ControlFlow::Break(output)) => ("ok", output.rows()),
+			Ok(ControlFlow::Continue(_)) => ("retry", 0),
+		};
+		tracing::trace!(target: "tangram_authz::facts", request = description, cache, status, rows,
+			elapsed_us = u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX), "authz.fact");
+		response
+	}
+
+	async fn read_inner(&self, request: Request, cache: &mut &'static str) -> Response<E> {
 		let Some(key) = request.cache_key() else {
+			*cache = "uncached";
 			self.record_read(&request);
 
 			return Self::request(self.sender.clone(), request).await;
@@ -643,14 +695,21 @@ where
 					std::collections::hash_map::Entry::Occupied(mut entry) => match entry.get_mut()
 					{
 						CacheEntry::Pending(waiters) => {
+							*cache = "wait";
+							self.waits.fetch_add(1, Ordering::Relaxed);
 							let (sender, receiver) = oneshot::channel();
 							waiters.push(sender);
 
 							receiver
 						},
-						CacheEntry::Ready(response) => return response.clone(),
+						CacheEntry::Ready(response) => {
+							*cache = "hit";
+							self.hits.fetch_add(1, Ordering::Relaxed);
+							return response.clone();
+						},
 					},
 					std::collections::hash_map::Entry::Vacant(entry) => {
+						*cache = "miss";
 						entry.insert(CacheEntry::Pending(Vec::new()));
 
 						break CacheMissGuard {
@@ -708,8 +767,10 @@ impl<E> Clone for Client<E> {
 		Self {
 			cache: self.cache.clone(),
 			concurrency: self.concurrency,
+			hits: self.hits.clone(),
 			reads: self.reads.clone(),
 			sender: self.sender.clone(),
+			waits: self.waits.clone(),
 		}
 	}
 }

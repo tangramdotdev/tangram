@@ -2070,6 +2070,9 @@ pub struct Tracing {
 
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub stderr_format: Option<TracingFormat>,
+
+	/// Emit JSON span lifecycle events in addition to log events.
+	pub stderr_span_events: bool,
 }
 
 #[derive(
@@ -2234,6 +2237,7 @@ impl Default for Tracing {
 			.join(","),
 			output: TracingOutput::Stderr,
 			stderr_format: Some(TracingFormat::Pretty),
+			stderr_span_events: true,
 		}
 	}
 }

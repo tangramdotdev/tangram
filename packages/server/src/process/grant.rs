@@ -1,6 +1,9 @@
 use {
-	crate::Session, futures::FutureExt as _, tangram_client::prelude::*,
-	tangram_futures::stream::TryExt as _, tangram_index::Index as _,
+	crate::{Session, authorization::trace},
+	futures::FutureExt as _,
+	tangram_client::prelude::*,
+	tangram_futures::stream::TryExt as _,
+	tangram_index::Index as _,
 };
 
 impl Session {
@@ -38,6 +41,10 @@ impl Session {
 		let principal = self.context.principal.clone();
 		let process = process.clone();
 		let time_to_touch = expires_at.map(|_| self.server.config.object.grant_time_to_touch);
+		for root in &roots {
+			tracing::debug!(target: "tangram_authz", %process, resource = %root.object,
+				permissions = ?root.permissions, "authz.grant_prepared");
+		}
 		let arg = tangram_index::process::object::grant::Arg {
 			authorize,
 			created_at,
@@ -51,70 +58,101 @@ impl Session {
 		Ok(arg)
 	}
 
-	pub(crate) async fn prepare_process_object_grant_roots(
+	#[track_caller]
+	pub(crate) fn prepare_process_object_grant_roots(
 		&self,
 		roots: impl IntoIterator<Item = tg::Referent<tg::object::Id>>,
 		root_permissions: tg::authorization::permission::object::Set,
-	) -> tg::Result<Vec<tangram_index::process::object::grant::Root>> {
-		let node = tg::authorization::permission::object::Permission::Node;
-		let subtree = tg::authorization::permission::object::Permission::Subtree;
-		let subtree_permission = tg::authorization::Permission::Object(subtree);
-		let mut index_args = Vec::new();
-		let roots = roots
-			.into_iter()
-			.map(|root| {
-				let mut permissions = root_permissions;
-				let resource = tg::Id::from(root.node.clone());
-				let tokens = root
-					.options
-					.tokens
-					.local_authorization()
-					.iter()
-					.filter(|token| {
-						token.body.resource == resource && self.verify_local_token(token)
-					})
-					.cloned()
-					.collect::<Vec<_>>();
-				for token in &tokens {
-					if token.body.grants(subtree_permission) {
-						permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
-					} else if token
-						.body
-						.grants(tg::authorization::Permission::Object(node))
-					{
-						permissions.insert(tg::authorization::permission::object::Set::NODE);
+	) -> impl Future<Output = tg::Result<Vec<tangram_index::process::object::grant::Root>>> {
+		let span = trace::span(
+			self,
+			std::panic::Location::caller(),
+			"prepare_process_object_grant_roots",
+		);
+		trace::run(span, async move {
+			let node = tg::authorization::permission::object::Permission::Node;
+			let subtree = tg::authorization::permission::object::Permission::Subtree;
+			let subtree_permission = tg::authorization::Permission::Object(subtree);
+			let mut index_args = Vec::new();
+			let roots = roots
+				.into_iter()
+				.enumerate()
+				.map(|(position, root)| {
+					let mut permissions = root_permissions;
+					let resource = tg::Id::from(root.node.clone());
+					let offered = root.options.tokens.local_authorization();
+					tracing::debug!(target: "tangram_authz", position, %resource,
+					requested = %subtree_permission, required = %subtree_permission,
+					trusted = ?root_permissions, tokens = offered.len(), "authz.resource");
+					for (token_index, token) in offered.iter().enumerate() {
+						tracing::debug!(target: "tangram_authz", position, token_index,
+						token_resource = %token.body.resource, permissions = ?token.body.permissions,
+						expires_at = token.body.expires_at, key = %token.metadata.key, "authz.token_input");
 					}
-				}
-				let permissions = (!permissions.is_empty())
-					.then_some(tg::authorization::permission::Set::Object(permissions));
-				if !permissions.is_some_and(|permissions| permissions.contains(subtree_permission))
-				{
-					let permissions = subtree_permission.into();
-					let resource = tg::Selector::Id(resource);
-					let tokens = tokens.into_iter().map(|token| token.body).collect();
-					index_args.push(tangram_index::authorize::Arg {
-						required: permissions,
-						requested: permissions,
-						resource,
-						tokens,
-					});
-				}
-				tangram_index::process::object::grant::Root {
-					object: root.node,
-					permissions,
-				}
-			})
-			.collect::<Vec<_>>();
+					let tokens = root
+						.options
+						.tokens
+						.local_authorization()
+						.iter()
+						.filter(|token| {
+							token.body.resource == resource && self.verify_local_token(token)
+						})
+						.cloned()
+						.collect::<Vec<_>>();
+					for token in &tokens {
+						if token.body.grants(subtree_permission) {
+							permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
+						} else if token
+							.body
+							.grants(tg::authorization::Permission::Object(node))
+						{
+							permissions.insert(tg::authorization::permission::object::Set::NODE);
+						}
+					}
+					let permissions = (!permissions.is_empty())
+						.then_some(tg::authorization::permission::Set::Object(permissions));
+					if permissions
+						.is_some_and(|permissions| permissions.contains(subtree_permission))
+					{
+						tracing::debug!(target: "tangram_authz", position, %resource,
+						path = "proof", ?permissions, "authz.resource_result");
+					} else {
+						let reason = if offered.is_empty() {
+							"missing_tokens"
+						} else if tokens.is_empty() {
+							"no_local_exact_token"
+						} else {
+							"insufficient_proof"
+						};
+						tracing::debug!(target: "tangram_authz", position, index_position = index_args.len(),
+						%resource, reason, valid_tokens = tokens.len(), "authz.index_required");
+						let permissions = subtree_permission.into();
+						let resource = tg::Selector::Id(resource);
+						let tokens = tokens.into_iter().map(|token| token.body).collect();
+						index_args.push(tangram_index::authorize::Arg {
+							required: permissions,
+							requested: permissions,
+							resource,
+							tokens,
+						});
+					}
+					tangram_index::process::object::grant::Root {
+						object: root.node,
+						permissions,
+					}
+				})
+				.collect::<Vec<_>>();
 
-		// Resolve authorization from the current index or wait for indexing.
-		if !index_args.is_empty() {
-			let required = vec![subtree_permission.into(); index_args.len()];
-			self.prepare_process_object_grant_authorization(index_args, required)
-				.boxed()
-				.await?;
-		}
+			// Resolve authorization from the current index or wait for indexing.
+			if !index_args.is_empty() {
+				let required = vec![subtree_permission.into(); index_args.len()];
+				self.prepare_process_object_grant_authorization(index_args, required)
+					.boxed()
+					.await?;
+			}
 
-		Ok(roots)
+			Ok(roots)
+		})
 	}
 
 	async fn prepare_process_object_grant_authorization(
@@ -133,10 +171,13 @@ impl Session {
 						.is_some_and(|output| output.permissions.contains(*required))
 				})
 		};
-		let initial =
+		let initial = trace::stage(
+			"initial",
 			self.server
 				.index
-				.authorize_batch(&args, initial_config, &self.context.principal);
+				.authorize_batch(&args, initial_config, &self.context.principal),
+		)
+		.boxed();
 		tokio::pin!(initial);
 		let initial_result = match delay {
 			Some(delay) => tokio::select! {
@@ -145,16 +186,20 @@ impl Session {
 			},
 			None => Some((&mut initial).await),
 		};
-		let index_wait = async {
-			self.index()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index process objects"))?
-				.try_last()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index process objects"))?;
+		let index_wait = trace::stage(
+			"index_wait",
+			async {
+				self.index()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index process objects"))?
+					.try_last()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index process objects"))?;
 
-			Ok(())
-		};
+				Ok(())
+			}
+			.boxed(),
+		);
 		match initial_result {
 			Some(Ok(outcomes)) if grants_required(&outcomes) => {},
 			Some(Ok(_)) => index_wait.await?,

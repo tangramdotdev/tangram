@@ -26,6 +26,7 @@ impl Index {
 			args: args.to_owned(),
 			config,
 			principal: principal.clone(),
+			span: tracing::Span::current(),
 		};
 		let response = self.send_read_request(request).await?;
 		let crate::read::Response::AuthorizeBatch(output) = response else {

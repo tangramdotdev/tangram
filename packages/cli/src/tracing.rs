@@ -32,7 +32,13 @@ impl Cli {
 					.unwrap_or(crate::config::TracingFormat::Pretty);
 				let output_layer = match format {
 					crate::config::TracingFormat::Json => tracing_subscriber::fmt::layer()
-						.with_span_events(tracing_subscriber::fmt::format::FmtSpan::FULL)
+						.with_span_events(
+							if config_tracing.is_none_or(|tracing| tracing.stderr_span_events) {
+								tracing_subscriber::fmt::format::FmtSpan::FULL
+							} else {
+								tracing_subscriber::fmt::format::FmtSpan::NONE
+							},
+						)
 						.with_writer(std::io::stderr)
 						.json()
 						.boxed(),

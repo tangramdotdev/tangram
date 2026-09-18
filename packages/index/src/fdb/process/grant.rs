@@ -9,6 +9,8 @@ use {
 };
 
 impl Index {
+	#[tracing::instrument(target = "tangram_authz", level = "debug", skip_all,
+		name = "authz_process_grants", fields(backend = "fdb", caller = file!(), process = %arg.process, principal = %arg.principal))]
 	pub(crate) async fn put_process_object_grants_with_transaction(
 		authorize_concurrency: usize,
 		txn: &crate::fdb::Transaction,
@@ -17,6 +19,10 @@ impl Index {
 		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		arg.validate()?;
+		for root in &arg.roots {
+			tracing::debug!(target: "tangram_authz", resource = %root.object,
+				permissions = ?root.permissions, "authz.grant_root");
+		}
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);

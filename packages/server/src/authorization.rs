@@ -4,6 +4,7 @@ use {
 };
 
 mod token;
+pub(crate) mod trace;
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Output {
@@ -30,108 +31,138 @@ impl Session {
 		Ok(Some(token))
 	}
 
-	pub(crate) async fn authorize(
+	#[track_caller]
+	pub(crate) fn authorize(
 		&self,
 		resource: impl IntoAuthorizationResource,
 		permissions: impl Into<tg::authorization::permission::Set>,
-	) -> tg::Result<Option<tg::authorization::permission::Set>> {
-		let mut outputs = self
-			.authorize_batch([(resource, permissions.into())])
-			.await?;
-		Ok(outputs.pop().unwrap())
+	) -> impl Future<Output = tg::Result<Option<tg::authorization::permission::Set>>> {
+		let future = self.authorize_batch([(resource, permissions.into())]);
+		async move {
+			let mut outputs = future.await?;
+			Ok(outputs.pop().unwrap())
+		}
 	}
 
-	pub(crate) async fn authorize_batch<R, I>(
+	#[track_caller]
+	pub(crate) fn authorize_batch<R, I>(
 		&self,
 		args: I,
-	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>>
+	) -> impl Future<Output = tg::Result<Vec<Option<tg::authorization::permission::Set>>>>
 	where
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
 	{
-		let args = args
-			.into_iter()
-			.map(|(resource, permissions)| (resource, permissions, None));
-		let outputs = self.authorize_batch_inner(args, None, false).await?;
-		let outputs = outputs
-			.into_iter()
-			.map(|output| output.map(|output| output.permissions))
-			.collect();
-		Ok(outputs)
+		let span = trace::span(self, std::panic::Location::caller(), "authorize_batch");
+		trace::run(span, async move {
+			let args = args
+				.into_iter()
+				.map(|(resource, permissions)| (resource, permissions, None));
+			let outputs = self.authorize_batch_inner(args, None, false).await?;
+			let outputs = outputs
+				.into_iter()
+				.map(|output| output.map(|output| output.permissions))
+				.collect();
+			Ok(outputs)
+		})
 	}
 
-	pub(crate) async fn authorize_batch_with_required<R, I>(
+	#[track_caller]
+	pub(crate) fn authorize_batch_with_required<R, I>(
 		&self,
 		args: I,
 		required: tg::authorization::permission::Set,
-	) -> tg::Result<Vec<Option<tg::authorization::permission::Set>>>
+	) -> impl Future<Output = tg::Result<Vec<Option<tg::authorization::permission::Set>>>>
 	where
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = (R, tg::authorization::permission::Set)>,
 	{
-		let args = args
-			.into_iter()
-			.map(|(resource, permissions)| (resource, permissions, None));
-		let outputs = self
-			.authorize_batch_inner(args, Some(required), false)
-			.await?;
-		let outputs = outputs
-			.into_iter()
-			.map(|output| output.map(|output| output.permissions))
-			.collect();
-		Ok(outputs)
+		let span = trace::span(
+			self,
+			std::panic::Location::caller(),
+			"authorize_batch_with_required",
+		);
+		trace::run(span, async move {
+			let args = args
+				.into_iter()
+				.map(|(resource, permissions)| (resource, permissions, None));
+			let outputs = self
+				.authorize_batch_inner(args, Some(required), false)
+				.await?;
+			let outputs = outputs
+				.into_iter()
+				.map(|output| output.map(|output| output.permissions))
+				.collect();
+			Ok(outputs)
+		})
 	}
 
-	pub(crate) async fn authorize_object_read(
+	#[track_caller]
+	pub(crate) fn authorize_object_read(
 		&self,
 		resource: impl IntoAuthorizationResource,
 		wait_for_subtree: bool,
-	) -> tg::Result<Option<Output>> {
-		let mut outputs = self
-			.authorize_object_read_batch([resource], wait_for_subtree)
-			.await?;
-		let output = outputs.pop().unwrap();
-
-		Ok(output)
+	) -> impl Future<Output = tg::Result<Option<Output>>> {
+		let future = self.authorize_object_read_batch([resource], wait_for_subtree);
+		async move {
+			let mut outputs = future.await?;
+			Ok(outputs.pop().unwrap())
+		}
 	}
 
-	pub(crate) async fn authorize_object_read_batch<R, I>(
+	#[track_caller]
+	pub(crate) fn authorize_object_read_batch<R, I>(
 		&self,
 		resources: I,
 		wait_for_subtree: bool,
-	) -> tg::Result<Vec<Option<Output>>>
+	) -> impl Future<Output = tg::Result<Vec<Option<Output>>>>
 	where
 		R: IntoAuthorizationResource,
 		I: IntoIterator<Item = R>,
 	{
-		// Request the optional subtree permission while requiring the node permission.
-		let mut requested = tg::authorization::permission::object::Set::empty();
-		requested.insert(tg::authorization::permission::object::Set::NODE);
-		requested.insert(tg::authorization::permission::object::Set::SUBTREE);
-		let requested = tg::authorization::permission::Set::Object(requested);
-		let required = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Node,
+		let span = trace::span(
+			self,
+			std::panic::Location::caller(),
+			"authorize_object_read_batch",
 		);
-		let args = resources
-			.into_iter()
-			.map(|resource| (resource, requested, None));
+		trace::run(span, async move {
+			// Request the optional subtree permission while requiring the node permission.
+			let mut requested = tg::authorization::permission::object::Set::empty();
+			requested.insert(tg::authorization::permission::object::Set::NODE);
+			requested.insert(tg::authorization::permission::object::Set::SUBTREE);
+			let requested = tg::authorization::permission::Set::Object(requested);
+			let required = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Node,
+			);
+			let args = resources
+				.into_iter()
+				.map(|resource| (resource, requested, None));
 
-		self.authorize_batch_inner(args, Some(required.into()), wait_for_subtree)
-			.await
+			self.authorize_batch_inner(args, Some(required.into()), wait_for_subtree)
+				.await
+		})
 	}
 
-	pub(crate) async fn authorize_with_permissions(
+	#[track_caller]
+	pub(crate) fn authorize_with_permissions(
 		&self,
 		resource: impl IntoAuthorizationResource,
 		requested: tg::authorization::permission::Set,
 		required: tg::authorization::permission::Set,
 		proven: tg::authorization::permission::Set,
-	) -> tg::Result<Option<Output>> {
-		let args = [(resource, requested, Some(proven))];
-		let mut outputs = self
-			.authorize_batch_inner(args, Some(required), false)
-			.await?;
-		Ok(outputs.pop().unwrap())
+	) -> impl Future<Output = tg::Result<Option<Output>>> {
+		let span = trace::span(
+			self,
+			std::panic::Location::caller(),
+			"authorize_with_permissions",
+		);
+		trace::run(span, async move {
+			let args = [(resource, requested, Some(proven))];
+			let mut outputs = self
+				.authorize_batch_inner(args, Some(required), false)
+				.await?;
+			Ok(outputs.pop().unwrap())
+		})
 	}
 
 	async fn authorize_batch_inner<R, I>(
@@ -150,6 +181,7 @@ impl Session {
 			),
 		>,
 	{
+		tracing::debug!(target: "tangram_authz", wait_for_requested_permissions, "authz.batch");
 		let mut outputs = Vec::new();
 		let mut index_args = Vec::new();
 		let mut index_positions = Vec::new();
@@ -162,6 +194,15 @@ impl Session {
 				));
 			}
 			let (resource, mut tokens) = resource.into_authorization_resource();
+			let started = trace::start();
+			let token_count = tokens.len();
+			tracing::debug!(target: "tangram_authz", position, resource = %resource,
+				requested = %permissions, %required, ?trusted, tokens = tokens.len(), "authz.resource");
+			for (token_index, token) in tokens.iter().enumerate() {
+				tracing::debug!(target: "tangram_authz", position, token_index,
+					token_resource = %token.body.resource, permissions = ?token.body.permissions,
+					expires_at = token.body.expires_at, key = %token.metadata.key, "authz.token_input");
+			}
 
 			// Try exact proofs first, without verifying unrelated ancestor tokens.
 			tokens.sort_by_key(|token| std::cmp::Reverse(token.body.expires_at));
@@ -215,6 +256,8 @@ impl Session {
 						expires_at: (expires_at != i64::MAX).then_some(expires_at),
 						permissions: proven,
 					};
+					tracing::debug!(target: "tangram_authz", position, resource = %resource,
+						path = "proof", permissions = %proven, elapsed_us = trace::elapsed(started), "authz.resource_result");
 					outputs.push(Some(output));
 					continue;
 				}
@@ -226,6 +269,8 @@ impl Session {
 					expires_at: None,
 					permissions,
 				};
+				tracing::debug!(target: "tangram_authz", position, resource = %resource,
+					path = "root", %permissions, elapsed_us = trace::elapsed(started), "authz.resource_result");
 				outputs.push(Some(output));
 				continue;
 			}
@@ -249,6 +294,8 @@ impl Session {
 					expires_at: None,
 					permissions,
 				};
+				tracing::debug!(target: "tangram_authz", position, resource = %resource,
+					path = "sandbox_process", %permissions, elapsed_us = trace::elapsed(started), "authz.resource_result");
 				outputs.push(Some(output));
 				continue;
 			}
@@ -261,6 +308,7 @@ impl Session {
 						.then_some(token.body)
 				})
 				.collect();
+			let valid_tokens = tokens.len();
 			if let Some(permissions) = trusted {
 				let tg::Selector::Id(resource) = &resource else {
 					return Err(tg::error!("expected an ID for the authorization proof"));
@@ -273,6 +321,16 @@ impl Session {
 				tokens.push(proof);
 			}
 
+			let reason = if token_count == 0 && trusted.is_none() {
+				"missing_tokens"
+			} else if tokens.is_empty() {
+				"no_valid_tokens"
+			} else {
+				"insufficient_proof"
+			};
+			tracing::debug!(target: "tangram_authz", position, index_position = index_args.len(),
+				resource = %resource, reason, valid_tokens, valid_proofs = tokens.len(),
+				preparation_us = trace::elapsed(started), "authz.index_required");
 			index_positions.push(position);
 			index_args.push(tangram_index::authorize::Arg {
 				required,
@@ -285,7 +343,37 @@ impl Session {
 		if index_args.is_empty() {
 			return Ok(outputs);
 		}
-		for arg in &index_args {
+		let index_outcomes = self
+			.authorize_batch_index(&index_args, wait_for_requested_permissions)
+			.boxed()
+			.await?;
+		for (position, outcome) in std::iter::zip(index_positions, index_outcomes) {
+			tracing::debug!(target: "tangram_authz", position, path = "index", ?outcome, "authz.resource_result");
+			let output = match outcome {
+				tangram_index::authorize::Outcome::Authorized(output) => Some(output),
+				tangram_index::authorize::Outcome::Denied(output) => output,
+				outcome @ tangram_index::authorize::Outcome::Exhausted => {
+					Some(outcome.into_result()?)
+				},
+			};
+			if let Some(output) = output {
+				let output = Output {
+					expires_at: output.expires_at,
+					permissions: output.permissions,
+				};
+				outputs[position] = Some(output);
+			}
+		}
+
+		Ok(outputs)
+	}
+
+	async fn authorize_batch_index(
+		&self,
+		index_args: &[tangram_index::authorize::Arg],
+		wait_for_requested_permissions: bool,
+	) -> tg::Result<Vec<tangram_index::authorize::Outcome>> {
+		for arg in index_args {
 			let token_resource = arg
 				.tokens
 				.iter()
@@ -307,7 +395,7 @@ impl Session {
 		let initial_config = crate::authorization_search_config(&authorization.initial);
 		let initial_is_sufficient = |outcomes: &[tangram_index::authorize::Outcome]| {
 			outcomes.len() == index_args.len()
-				&& std::iter::zip(outcomes, &index_args).all(|(outcome, arg)| {
+				&& std::iter::zip(outcomes, index_args).all(|(outcome, arg)| {
 					let permissions = if wait_for_requested_permissions {
 						arg.requested
 					} else {
@@ -318,10 +406,13 @@ impl Session {
 						.is_some_and(|output| output.permissions.contains(permissions))
 				})
 		};
-		let initial =
+		let initial = trace::stage(
+			"initial",
 			self.server
 				.index
-				.authorize_batch(&index_args, initial_config, &self.context.principal);
+				.authorize_batch(index_args, initial_config, &self.context.principal),
+		)
+		.boxed();
 		tokio::pin!(initial);
 		let initial_result = match delay {
 			Some(delay) => tokio::select! {
@@ -330,23 +421,32 @@ impl Session {
 			},
 			None => Some((&mut initial).await),
 		};
-		let index_wait = async {
-			self.index()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index"))?
-				.try_last()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index"))?;
+		let index_wait = trace::stage(
+			"index_wait",
+			async {
+				self.index()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?
+					.try_last()
+					.await
+					.map_err(|error| tg::error!(!error, "failed to index"))?;
 
-			Ok::<_, tg::Error>(())
-		};
+				Ok::<_, tg::Error>(())
+			}
+			.boxed(),
+		);
 		let final_config = crate::authorization_search_config(&authorization.final_);
 		let final_authorization = || async {
-			let outcomes = self
-				.server
-				.index
-				.authorize_batch(&index_args, final_config, &self.context.principal)
-				.await?;
+			let outcomes = trace::stage(
+				"final",
+				self.server.index.authorize_batch(
+					index_args,
+					final_config,
+					&self.context.principal,
+				),
+			)
+			.boxed()
+			.await?;
 
 			ensure_authorization_search_complete(outcomes)
 		};
@@ -381,60 +481,61 @@ impl Session {
 				}
 			},
 		};
-		for (position, outcome) in std::iter::zip(index_positions, index_outcomes) {
-			let output = match outcome {
-				tangram_index::authorize::Outcome::Authorized(output) => Some(output),
-				tangram_index::authorize::Outcome::Denied(output) => output,
-				outcome @ tangram_index::authorize::Outcome::Exhausted => {
-					Some(outcome.into_result()?)
-				},
+
+		Ok(index_outcomes)
+	}
+
+	#[track_caller]
+	pub(crate) fn authorize_owner(
+		&self,
+		owner: Option<&tg::Principal>,
+	) -> impl Future<Output = tg::Result<()>> {
+		let span = trace::span(self, std::panic::Location::caller(), "authorize_owner");
+		trace::run(span, async move {
+			let Some(owner) = owner else {
+				return Ok(());
 			};
-			if let Some(output) = output {
-				let output = Output {
-					expires_at: output.expires_at,
-					permissions: output.permissions,
-				};
-				outputs[position] = Some(output);
+			let authorized = match owner.to_id() {
+				Some(id) => {
+					let permission = Self::write_permission_for_resource(&id)?;
+					self.authorize(tg::Selector::Id(id), permission)
+						.await?
+						.is_some_and(|permissions| permissions.contains(permission))
+				},
+				None => matches!(self.context.principal, tg::Principal::Root),
+			};
+			if !authorized {
+				return Err(tg::error!("unauthorized"));
 			}
-		}
-
-		Ok(outputs)
+			Ok(())
+		})
 	}
 
-	pub(crate) async fn authorize_owner(&self, owner: Option<&tg::Principal>) -> tg::Result<()> {
-		let Some(owner) = owner else {
-			return Ok(());
-		};
-		let authorized = match owner.to_id() {
-			Some(id) => {
-				let permission = Self::write_permission_for_resource(&id)?;
-				self.authorize(tg::Selector::Id(id), permission)
-					.await?
-					.is_some_and(|permissions| permissions.contains(permission))
-			},
-			None => matches!(self.context.principal, tg::Principal::Root),
-		};
-		if !authorized {
-			return Err(tg::error!("unauthorized"));
-		}
-		Ok(())
-	}
-
+	#[track_caller]
 	pub(crate) fn authorize_token(
 		&self,
 		resource: &tg::Selector<tg::Id>,
 		permissions: tg::authorization::permission::Set,
 		token: &tg::authorization::Token,
 	) -> bool {
-		if !matches!(resource, tg::Selector::Id(id) if token.body.resource == *id) {
-			return false;
-		}
-		if !self.verify_token(token) {
-			return false;
-		}
-		permissions
-			.iter()
-			.all(|permission| token.body.grants(permission))
+		let span = trace::span(self, std::panic::Location::caller(), "authorize_token");
+		let _entered = span.enter();
+		let started = trace::start();
+		let authorized = (|| {
+			if !matches!(resource, tg::Selector::Id(id) if token.body.resource == *id) {
+				return false;
+			}
+			if !self.verify_token(token) {
+				return false;
+			}
+			permissions
+				.iter()
+				.all(|permission| token.body.grants(permission))
+		})();
+		tracing::debug!(target: "tangram_authz", resource = %resource, %permissions,
+			token_resource = %token.body.resource, token_permissions = ?token.body.permissions,
+			expires_at = token.body.expires_at, authorized, elapsed_us = trace::elapsed(started), "authz.token_result");
+		authorized
 	}
 
 	pub(crate) fn verify_local_token(&self, token: &tg::authorization::Token) -> bool {
@@ -447,21 +548,31 @@ impl Session {
 	}
 
 	pub(crate) fn verify_token(&self, token: &tg::authorization::Token) -> bool {
-		let Ok(now) = self.server.clock.unix_timestamp() else {
-			return false;
-		};
-		let Some(public_key) = self
-			.server
-			.authorization_tokens
-			.public_keys
-			.get(&token.metadata.key)
-		else {
-			return false;
-		};
-		if token.verify_at(public_key, now).is_err() {
-			return false;
-		}
-		true
+		let started = trace::start();
+		let reason = (|| {
+			let Ok(now) = self.server.clock.unix_timestamp() else {
+				return "clock_error";
+			};
+			let Some(public_key) = self
+				.server
+				.authorization_tokens
+				.public_keys
+				.get(&token.metadata.key)
+			else {
+				return "unknown_key";
+			};
+			if token.verify_at(public_key, now).is_err() {
+				return if token.body.expires_at <= now {
+					"expired_or_invalid"
+				} else {
+					"invalid"
+				};
+			}
+			"valid"
+		})();
+		tracing::debug!(target: "tangram_authz", token_resource = %token.body.resource,
+			key = %token.metadata.key, reason, elapsed_us = trace::elapsed(started), "authz.token_verify");
+		reason == "valid"
 	}
 }
 

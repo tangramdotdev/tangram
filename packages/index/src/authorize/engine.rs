@@ -9,9 +9,13 @@ use {
 	std::{
 		collections::{BTreeMap, VecDeque},
 		ops::ControlFlow,
+		sync::atomic::{AtomicU64, Ordering},
 	},
 	tangram_client::prelude::*,
+	tracing::Instrument as _,
 };
+
+static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) struct Batch {
 	args: Vec<super::Arg>,
@@ -130,19 +134,43 @@ impl Batch {
 	where
 		E: Clone + Send + Sync + 'static,
 	{
-		let client_for_reads = client.clone();
-		let result = Self::authorize_inner(args, client, config, principal).await;
-		let reads = client_for_reads.reads();
-		for arg in args {
-			tracing::debug!(
-				args = args.len(),
-				reads,
-				resource = %arg.resource,
-				"authorize batch"
-			);
-		}
+		let span = tracing::debug_span!(target: "tangram_authz", "authz_index",
+			args = args.len(), ?config, index_id = NEXT_ID.fetch_add(1, Ordering::Relaxed), pid = std::process::id(), %principal);
+		async move {
+			let started = tracing::enabled!(target: "tangram_authz", tracing::Level::DEBUG).then(std::time::Instant::now);
+			tracing::debug!(target: "tangram_authz", "authz.index_start");
+			for (index_position, arg) in args.iter().enumerate() {
+				tracing::debug!(target: "tangram_authz", index_position, resource = %arg.resource,
+					requested = %arg.requested, required = %arg.required, tokens = arg.tokens.len(), "authz.index_resource");
+			}
+			let client_for_reads = client.clone();
+			let result = Self::authorize_inner(args, client, config, principal).await;
+			let reads = client_for_reads.reads();
+			for arg in args {
+				tracing::debug!(
+					args = args.len(),
+					reads,
+					resource = %arg.resource,
+					"authorize batch"
+				);
+			}
 
-		result
+			let status = match &result {
+				Err(_) => "error",
+				Ok(ControlFlow::Break(_)) => "ok",
+				Ok(ControlFlow::Continue(_)) => "retry",
+			};
+			tracing::debug!(target: "tangram_authz", reads,
+				cache_hits = client_for_reads.hits(), cache_waits = client_for_reads.waits(), status,
+				elapsed_us = started.map_or(0, |started| u64::try_from(started.elapsed().as_micros()).unwrap_or(u64::MAX)), "authz.index_finish");
+			if let Ok(ControlFlow::Break(outcomes)) = &result {
+				for (index_position, (arg, outcome)) in std::iter::zip(args, outcomes).enumerate() {
+					tracing::debug!(target: "tangram_authz", index_position, resource = %arg.resource,
+						requested = %arg.requested, required = %arg.required, ?outcome, "authz.index_result");
+				}
+			}
+			result
+		}.instrument(span).await
 	}
 
 	async fn authorize_inner<E>(
@@ -175,10 +203,19 @@ impl Batch {
 
 		// Search independent token collections concurrently while sharing their datastore facts.
 		let searches = std::mem::take(&mut batch.searches);
-		let searches = futures::future::try_join_all(searches.into_iter().map(|search| {
-			let client = client.clone();
-			async move { execute_token_search(&client, search).await }
-		}))
+		let searches = futures::future::try_join_all(searches.into_iter().enumerate().map(
+			|(search_id, search)| {
+				let client = client.clone();
+				let span = tracing::debug_span!(target: "tangram_authz", "authz_search", search_id);
+				async move {
+					for (resource, permission) in &search.roots {
+						tracing::debug!(target: "tangram_authz", %resource, %permission, "authz.search_root");
+					}
+					execute_token_search(&client, search).await
+				}
+				.instrument(span)
+			},
+		))
 		.await?;
 		for search in searches {
 			let search = match search {
@@ -1101,6 +1138,12 @@ where
 	Ok(ControlFlow::Break(search))
 }
 
+#[tracing::instrument(
+	target = "tangram_authz::reads",
+	level = "trace",
+	skip(client),
+	name = "authz_read"
+)]
 async fn execute_read<E>(
 	client: &facts::Client<E>,
 	read: &Read,

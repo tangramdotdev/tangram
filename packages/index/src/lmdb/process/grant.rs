@@ -6,6 +6,8 @@ use {
 };
 
 impl Index {
+	#[tracing::instrument(target = "tangram_authz", level = "debug", skip_all,
+		name = "authz_process_grants", fields(backend = "lmdb", caller = file!(), process = %arg.process, principal = %arg.principal))]
 	pub(crate) fn put_process_object_grants_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
@@ -13,6 +15,10 @@ impl Index {
 		arg: &crate::process::object::grant::Arg,
 	) -> tg::Result<()> {
 		arg.validate()?;
+		for root in &arg.roots {
+			tracing::debug!(target: "tangram_authz", resource = %root.object,
+				permissions = ?root.permissions, "authz.grant_root");
+		}
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);

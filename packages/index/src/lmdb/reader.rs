@@ -129,7 +129,9 @@ impl Index {
 				args,
 				config,
 				principal,
+				span,
 			} => {
+				let _entered = span.enter();
 				let output = Self::authorize_batch_with_transaction(
 					authorization_fact_cache,
 					config,

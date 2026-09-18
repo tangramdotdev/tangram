@@ -11,6 +11,7 @@ pub(crate) enum Request {
 		args: Vec<crate::authorize::Arg>,
 		config: crate::authorize::Config,
 		principal: tg::Principal,
+		span: tracing::Span,
 	},
 	ContainsIds {
 		ids: Vec<tg::Id>,
