@@ -61,6 +61,7 @@ export class ClientHttp2Session extends EventEmitter {
 	#connect: Promise<void>;
 	#destroyed = false;
 	#emittedClose = false;
+	#streams = 0;
 	#token: number | null = null;
 
 	constructor(
@@ -94,7 +95,17 @@ export class ClientHttp2Session extends EventEmitter {
 	}
 
 	request(headers: Headers, options: RequestOptions = {}) {
+		if (this.#closed) {
+			throw new Error("the HTTP/2 session is closed");
+		}
 		let stream = new ClientHttp2Stream(this, headers, options);
+		this.#streams++;
+		stream.once("close", () => {
+			this.#streams--;
+			if (this.#closed && this.#streams === 0) {
+				this.destroy();
+			}
+		});
 		return stream;
 	}
 
@@ -106,11 +117,9 @@ export class ClientHttp2Session extends EventEmitter {
 			return;
 		}
 		this.#closed = true;
-		try {
-			let token = await this.#ready();
-			await syscall("http2_session_close", token);
-		} finally {
-			this.#emitClose();
+		// Keep the native session alive until every stream has drained its events.
+		if (this.#streams === 0) {
+			this.destroy();
 		}
 	}
 
