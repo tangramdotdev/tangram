@@ -117,7 +117,6 @@ export class ClientHttp2Session extends EventEmitter {
 			return;
 		}
 		this.#closed = true;
-		// Keep the native session alive until every stream has drained its events.
 		if (this.#streams === 0) {
 			this.destroy();
 		}
