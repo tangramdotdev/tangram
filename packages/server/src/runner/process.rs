@@ -2131,7 +2131,7 @@ impl Session {
 		}
 
 		// Try to read the user.tangram.output xattr.
-		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.output") {
+		if let Ok(Some(bytes)) = tangram_util::xattr::get(&path, "user.tangram.output") {
 			let tgon = String::from_utf8(bytes)
 				.map_err(|error| tg::error!(!error, "failed to decode the output xattr"))?;
 			output.value = Some(
@@ -2141,7 +2141,7 @@ impl Session {
 		}
 
 		// Try to read the user.tangram.error xattr.
-		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.error") {
+		if let Ok(Some(bytes)) = tangram_util::xattr::get(&path, "user.tangram.error") {
 			let error = if let Ok(data) = serde_json::from_slice::<tg::error::Data>(&bytes) {
 				tg::Error::try_from(data)
 					.map_err(|error| tg::error!(!error, "failed to convert the error data"))?

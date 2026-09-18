@@ -171,12 +171,14 @@ impl Host {
 		let path_display = path_.display().to_string();
 		let path_for_task = path_.clone();
 		let name_for_task = name.clone();
-		let bytes = tokio::task::spawn_blocking(move || xattr::get(&path_for_task, &name_for_task))
-			.await
-			.map_err(|error| tg::error!(!error, "the xattr task panicked"))?
-			.map_err(
-				|error| tg::error!(!error, path = %path_display, %name, "failed to read the xattr"),
-			)?;
+		let bytes = tokio::task::spawn_blocking(move || {
+			tangram_util::xattr::get(&path_for_task, &name_for_task)
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "the xattr task panicked"))?
+		.map_err(
+			|error| tg::error!(!error, path = %path_display, %name, "failed to read the xattr"),
+		)?;
 		Ok(bytes.map(Bytes::from))
 	}
 

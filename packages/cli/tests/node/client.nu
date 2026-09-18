@@ -5,6 +5,11 @@ const js_path = path self '../../../js'
 # The compiled Node.js client uses the default host and connects to the server using the inherited Tangram URL.
 
 let server = server spawn
+let xattrs = artifact (file --xattrs {
+	"user.example": ''
+	"user.tangram.output.0": '{"PATH":'
+	"user.tangram.output.1": '"bin"}'
+} '')
 
 cd $js_path
 
@@ -51,6 +56,14 @@ let output = node --input-type=module -e '
 	await tg.host.close(child.stdout);
 	assert.deepEqual(await tg.host.wait(child.pid), { exit: 0 });
 
+	const xattrs = process.argv[1];
+	assert.equal(await tg.host.getxattr(xattrs, "user.missing"), null);
+	assert.equal((await tg.host.getxattr(xattrs, "user.example"))?.length, 0);
+	assert.deepEqual(
+		JSON.parse(new TextDecoder().decode(await tg.host.getxattr(xattrs, "user.tangram.output"))),
+		{ PATH: "bin" },
+	);
+
 	const response = await tg.client.send(
 		new tg.Request({ method: "GET", uri: "/health" }),
 	);
@@ -60,7 +73,7 @@ let output = node --input-type=module -e '
 	assert.ok(body.version.length > 0);
 	process.stdout.write("hello from the Node.js client");
 	process.exit(0);
-' | complete
+' $xattrs | complete
 
 success $output
 assert equal ($output.stdout | str trim) 'hello from the Node.js client' 'the Node.js client should receive the server health'

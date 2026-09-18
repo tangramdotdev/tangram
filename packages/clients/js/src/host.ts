@@ -33,6 +33,7 @@ export type Host = {
 
 	getTtySize(): tg.Process.Tty.Size | null;
 
+	/** Read an attribute stored as a single value or numbered shards. */
 	getxattr(path: string, name: string): Promise<Uint8Array | null>;
 
 	isForegroundControllingTty(fd: number): boolean;
