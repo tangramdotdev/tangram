@@ -62,6 +62,9 @@ impl Client {
 					.accept()
 					.await
 					.map_err(|error| tg::error!(!error, "failed to accept the connection"))?;
+				stream
+					.set_nodelay(true)
+					.map_err(|error| tg::error!(!error, "failed to set nodelay on the socket"))?;
 				Self::with_stream(stream).await
 			},
 			crate::server::Listener::Unix { listener, .. } => {

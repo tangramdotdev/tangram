@@ -293,6 +293,10 @@ where
 					break;
 				},
 			};
+			if let Err(error) = stream.set_nodelay(true) {
+				tracing::error!(?error, "failed to set nodelay on the socket");
+				continue;
+			}
 
 			// Spawn a task to handle the connection.
 			task_tracker.spawn({

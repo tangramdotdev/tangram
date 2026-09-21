@@ -192,10 +192,10 @@ impl Server {
 		loop {
 			let accept_future = async {
 				match &listener {
-					Listener::Tcp(listener) => listener
-						.accept()
-						.await
-						.map(|(stream, _)| Stream::Tcp(stream)),
+					Listener::Tcp(listener) => listener.accept().await.and_then(|(stream, _)| {
+						stream.set_nodelay(true)?;
+						Ok(Stream::Tcp(stream))
+					}),
 					Listener::Unix { listener, .. } => listener
 						.accept()
 						.await
