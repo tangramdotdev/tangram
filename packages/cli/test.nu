@@ -2232,7 +2232,7 @@ export def --env "server start" [server: record] {
 	# Create the readiness and exit paths.
 	let ready_path = $server.config_path | path dirname | path join 'ready'
 	rm -f $ready_path
-	touch $ready_path
+	^mkfifo $ready_path
 	let server_exit_directory_path = (($env.TMPDIR? | default ($server.config_path | path dirname)) | path join $server_exit_directory_name)
 	try { mkdir $server_exit_directory_path }
 
@@ -2273,13 +2273,19 @@ export def --env "server start" [server: record] {
 	# Wait for the server to be ready.
 	let ready_timeout = 30sec
 	let ready_timeout_secs = $ready_timeout | into int | $in / 1_000_000_000
-	let ready_command = 'while [ ! -s "$1" ] && [ ! -e "$2" ]; do sleep 0.05; done; if [ -s "$1" ]; then od -An -t u1 -N1 "$1"; else exit 125; fi'
-	let ready_output = (open /dev/null | timeout $ready_timeout_secs bash -c $ready_command _ $ready_path $exit_path | complete)
+	let ready_output = (^timeout $ready_timeout_secs od -An -t u1 -N1 $ready_path | complete)
 	rm -f $ready_path
 	let ready_byte = $ready_output.stdout | str trim
-	if $ready_output.exit_code != 0 {
-		stop_server_job $server_job
-		wait_for_server_exit $exit_path | ignore
+	if $ready_output.exit_code != 0 or ($ready_byte | is-empty) {
+		if $ready_output.exit_code == 0 and ($ready_byte | is-empty) {
+			if not (wait_for_server_exit $exit_path) {
+				stop_server_job $server_job
+				wait_for_server_exit $exit_path | ignore
+			}
+		} else {
+			stop_server_job $server_job
+			wait_for_server_exit $exit_path | ignore
+		}
 		remove_macos_app_group_socket $macos_app_group_socket
 		let message = if $ready_output.exit_code == 124 {
 			$"the server did not signal readiness within ($ready_timeout)"
@@ -2297,11 +2303,7 @@ export def --env "server start" [server: record] {
 		stop_server_job $server_job
 		wait_for_server_exit $exit_path | ignore
 		remove_macos_app_group_socket $macos_app_group_socket
-		let message = if ($ready_byte | is-empty) {
-			'the server exited before signaling readiness; check the server output above'
-		} else {
-			$"the server signaled an invalid readiness byte: ($ready_byte)"
-		}
+		let message = $"the server signaled an invalid readiness byte: ($ready_byte)"
 		error make { msg: $message }
 	}
 	$env.TANGRAM_URL = $url
