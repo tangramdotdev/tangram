@@ -322,13 +322,17 @@ impl Stream {
 
 async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {
 	let addr = format!("{host}:{port}");
-	tokio::time::timeout(
+	let stream = tokio::time::timeout(
 		Duration::from_secs(10),
 		tokio::net::TcpStream::connect(addr),
 	)
 	.await
 	.map_err(|_| tg::error!("connection timeout"))?
-	.map_err(|error| tg::error!(!error, "failed to create the TCP connection"))
+	.map_err(|error| tg::error!(!error, "failed to create the TCP connection"))?;
+	stream
+		.set_nodelay(true)
+		.map_err(|error| tg::error!(!error, "failed to set nodelay on the TCP connection"))?;
+	Ok(stream)
 }
 
 async fn connect_unix(path: &Path) -> tg::Result<tokio::net::UnixStream> {

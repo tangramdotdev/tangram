@@ -63,12 +63,17 @@ impl Client {
 
 	async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {
 		let addr = format!("{host}:{port}");
-		tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(addr))
-			.await
-			.map_err(|_| tg::error!(%host, %port, "the S3 connection timed out"))?
-			.map_err(
-				|error| tg::error!(!error, %host, %port, "failed to create the S3 TCP connection"),
-			)
+		let stream =
+			tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(addr))
+				.await
+				.map_err(|_| tg::error!(%host, %port, "the S3 connection timed out"))?
+				.map_err(
+					|error| tg::error!(!error, %host, %port, "failed to create the S3 TCP connection"),
+				)?;
+		stream
+			.set_nodelay(true)
+			.map_err(|error| tg::error!(!error, "failed to set nodelay on the S3 TCP connection"))?;
+		Ok(stream)
 	}
 
 	async fn connect_tcp_tls(

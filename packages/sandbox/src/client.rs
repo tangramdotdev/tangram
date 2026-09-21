@@ -62,6 +62,9 @@ impl Client {
 					.accept()
 					.await
 					.map_err(|error| tg::error!(!error, "failed to accept the connection"))?;
+				stream
+					.set_nodelay(true)
+					.map_err(|error| tg::error!(!error, "failed to set nodelay on the socket"))?;
 				Self::with_stream(stream).await
 			},
 			crate::server::Listener::Unix { listener, .. } => {
@@ -207,9 +210,13 @@ impl Client {
 	}
 
 	async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {
-		tokio::net::TcpStream::connect((host, port))
+		let stream = tokio::net::TcpStream::connect((host, port))
 			.await
-			.map_err(|error| tg::error!(!error, "failed to connect to the socket"))
+			.map_err(|error| tg::error!(!error, "failed to connect to the socket"))?;
+		stream
+			.set_nodelay(true)
+			.map_err(|error| tg::error!(!error, "failed to set nodelay on the socket"))?;
+		Ok(stream)
 	}
 
 	#[cfg(feature = "vsock")]

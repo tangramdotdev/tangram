@@ -389,10 +389,15 @@ impl tg::Client {
 
 	pub(crate) async fn connect_tcp(host: &str, port: u16) -> tg::Result<tokio::net::TcpStream> {
 		let addr = format!("{host}:{port}");
-		tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(addr))
-			.await
-			.map_err(|_| tg::error!("connection timeout"))?
-			.map_err(|error| tg::error!(!error, "failed to create the TCP connection"))
+		let stream =
+			tokio::time::timeout(Duration::from_secs(1), tokio::net::TcpStream::connect(addr))
+				.await
+				.map_err(|_| tg::error!("connection timeout"))?
+				.map_err(|error| tg::error!(!error, "failed to create the TCP connection"))?;
+		stream
+			.set_nodelay(true)
+			.map_err(|error| tg::error!(!error, "failed to set nodelay on the TCP connection"))?;
+		Ok(stream)
 	}
 
 	#[cfg(feature = "tls")]
