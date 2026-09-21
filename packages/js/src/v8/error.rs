@@ -321,7 +321,7 @@ fn get_location(
 		let line = line?;
 		let start_column = start_column?;
 		let end_column = end_column?;
-		let global_source_map = state.global_source_map.as_ref()?;
+		let global_source_map = state.global_source_map();
 		let start_token = global_source_map.lookup_token(line, start_column)?;
 		let start_line = start_token.get_src_line();
 		let start_column = start_token.get_src_col();

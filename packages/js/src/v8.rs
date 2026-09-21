@@ -10,7 +10,12 @@ use {
 	crate::Output,
 	futures::{StreamExt as _, future::LocalBoxFuture, stream::FuturesUnordered},
 	sourcemap::SourceMap,
-	std::{cell::RefCell, future::poll_fn, rc::Rc, task::Poll},
+	std::{
+		cell::{OnceCell, RefCell},
+		future::poll_fn,
+		rc::Rc,
+		task::Poll,
+	},
 	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
@@ -34,7 +39,7 @@ pub struct Runtime {
 
 struct State {
 	arg: crate::Arg,
-	global_source_map: Option<SourceMap>,
+	global_source_map: OnceCell<SourceMap>,
 	handle: tg::handle::dynamic::Handle,
 	host: crate::host::Host,
 	http2: crate::http2::Http2,
@@ -118,7 +123,7 @@ impl Runtime {
 		};
 
 		// Create the state.
-		let global_source_map = SourceMap::from_slice(SOURCE_MAP).unwrap();
+		let global_source_map = OnceCell::new();
 		let handle = arg.handle.clone();
 		let host = crate::host::Host::default();
 		let http2 = crate::http2::Http2::new(arg.http.coalescing_target_size);
@@ -128,7 +133,7 @@ impl Runtime {
 		let rejections = RefCell::new(Vec::new());
 		let state = Rc::new(State {
 			arg,
-			global_source_map: Some(global_source_map),
+			global_source_map,
 			handle,
 			host,
 			http2,
@@ -432,6 +437,14 @@ impl Runtime {
 				v8::PromiseState::Pending => None,
 			},
 		}
+	}
+}
+
+impl State {
+	#[must_use]
+	fn global_source_map(&self) -> &SourceMap {
+		self.global_source_map
+			.get_or_init(|| SourceMap::from_slice(SOURCE_MAP).unwrap())
 	}
 }
 
