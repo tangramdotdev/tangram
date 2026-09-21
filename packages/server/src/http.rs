@@ -69,13 +69,13 @@ impl Server {
 						.ok_or_else(|| tg::error!(%url, "invalid url"))?
 						.try_into()
 						.map_err(|_| tg::error!("invalid port"))?;
-					Stream::Tcp(
-						tokio::net::TcpStream::connect((host, port))
-							.await
-							.map_err(|error| {
-								tg::error!(!error, "failed to connect to the socket")
-							})?,
-					)
+					let stream = tokio::net::TcpStream::connect((host, port))
+						.await
+						.map_err(|error| tg::error!(!error, "failed to connect to the socket"))?;
+					stream
+						.set_nodelay(true)
+						.map_err(|error| tg::error!(!error, "failed to set nodelay on the socket"))?;
+					Stream::Tcp(stream)
 				},
 				Some("http+unix") => {
 					let path = url.host().ok_or_else(|| tg::error!(%url, "invalid url"))?;
@@ -216,7 +216,11 @@ impl Server {
 			// Accept a new connection.
 			let accept = async {
 				let stream = match &listener {
-					Listener::Tcp(listener) => Stream::Tcp(listener.accept().await?.0),
+					Listener::Tcp(listener) => {
+						let (stream, _) = listener.accept().await?;
+						stream.set_nodelay(true)?;
+						Stream::Tcp(stream)
+					},
 					Listener::Unix { listener, .. } => Stream::Unix(listener.accept().await?.0),
 					#[cfg(feature = "vsock")]
 					Listener::Vsock(listener) => Stream::Vsock(listener.accept().await?.0),
