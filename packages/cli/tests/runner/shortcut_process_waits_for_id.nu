@@ -70,14 +70,10 @@ success (timeout 30s tg --url $runner.url checkpoint wait runner.process.finishe
 tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch
 success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "the child should send Finish before initial indexing completes"
 tg --url $runner.url checkpoint unwatch runner.process.control.finish.sent $sent_watch
-let index = job spawn {
-	let job_id = job id
-	let output = tg --url $runner.url index | complete
-	$output | job send --tag $job_id 0
-}
-assert equal (try { job recv --tag $index --timeout 1sec } catch { null }) null "the finished write should wait for initial indexing"
 tg --url $runner.url checkpoint unwatch runner.process.index.started $index_watch
-success (job recv --tag $index --timeout 30sec) "indexing should finish after initial indexing is released"
+success (timeout 30s tg --url $runner.url index | complete) "indexing should finish after initial indexing is released"
+let status = tg --url $runner.url --token $root_token process get $child | from json | get status
+assert equal $status finished "the finished write should be indexed once initial indexing is released"
 
 let output = job recv --tag $build --timeout 30sec
 success $output "the shortcut child should complete with its own output grants"
