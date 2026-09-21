@@ -89,7 +89,6 @@ struct IndexFinishedProcessTaskArg {
 	authorization: crate::process::put::Authorization,
 	data: tg::process::Data,
 	id: tg::process::Id,
-	index_receiver: tokio::sync::oneshot::Receiver<()>,
 	location: tg::Location,
 }
 
@@ -903,6 +902,7 @@ impl Session {
 
 			return Err(error);
 		}
+		crate::checkpoint!(self.server, "runner.process.index.signal", process = %id).await;
 		index_sender.send(()).ok();
 
 		if location.is_remote() {
@@ -1180,14 +1180,22 @@ impl Session {
 					authorization,
 					data: data.clone(),
 					id: id.clone(),
-					index_receiver,
 					location,
 				};
 				let session = self.clone();
-				let index_task = self
-					.server
-					.index_tasks
-					.spawn(move |_| async move { session.index_finished_process_task(arg).await });
+				let index_task = crate::process::IndexTask::spawn(move |_| async move {
+					index_receiver
+						.await
+						.map_err(|_| tg::error!("the process connection failed before indexing"))?;
+					let inner = session.clone();
+					session
+						.server
+						.index_tasks
+						.spawn(move |_| async move { inner.index_finished_process_task(arg).await })
+						.wait()
+						.await
+						.map_err(|_| tg::error!("the finished process index task panicked"))?
+				});
 				self.publish_finished_process(&id, &processes, &data)
 					.await?;
 				Some(index_task)
@@ -1233,12 +1241,8 @@ impl Session {
 			authorization,
 			data,
 			id,
-			index_receiver,
 			location,
 		} = arg;
-		index_receiver
-			.await
-			.map_err(|_| tg::error!("the process connection failed before indexing"))?;
 		let options = crate::process::put::Options {
 			defer_index: false,
 			enqueue_log_compaction: false,
