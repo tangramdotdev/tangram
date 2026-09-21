@@ -62,6 +62,7 @@ impl Indexer {
 	pub(super) async fn wait_task(
 		&self,
 		queues: &Mutex<super::State>,
+		changed: &tokio::sync::Notify,
 		mut receiver: Receiver,
 		stopper: Stopper,
 	) -> tg::Result<()> {
@@ -69,6 +70,10 @@ impl Indexer {
 		let mut interval = tokio::time::interval(self.server.config.indexer.request.poll_interval);
 		interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
+			// Wake on new requests, task wait completion, queue changes, or the fallback tick.
+			let notified = changed.notified();
+			tokio::pin!(notified);
+			notified.as_mut().enable();
 			tokio::select! {
 				() = stopper.wait() => return Ok(()),
 				request = receiver.recv(), if state.waits.len() < self.server.config.indexer.request.wait_concurrency => {
@@ -77,25 +82,29 @@ impl Indexer {
 				},
 				Some(ids) = state.task_waits.next(), if !state.task_waits.is_empty() => {
 					state.handle_task_wait(ids);
-					state.start_task_wait(&self.server);
 				},
-				_ = interval.tick(), if !state.waits.is_empty() => {
-					state.waits.retain(|_, request| !request.sender.is_closed());
-					if !state.waits.values().any(|request| matches!(request.state, RequestState::TasksPending)) {
-						state.task_waits.clear();
-					}
-					state.start_task_wait(&self.server);
-					let (read, target) = {
-						let state = queues.lock().unwrap();
-						(state.queues.read_sequences(), state.queues.target_sequences())
-					};
-					state.poll_queues(
-						self.server.config.advanced.single_process,
-						read,
-						target,
-					);
-				},
+				() = &mut notified, if !state.waits.is_empty() => {},
+				_ = interval.tick(), if !state.waits.is_empty() => {},
 			}
+			if state.waits.is_empty() {
+				continue;
+			}
+
+			// Advance every request as far as the current queue state allows.
+			state.waits.retain(|_, request| !request.sender.is_closed());
+			if !state
+				.waits
+				.values()
+				.any(|request| matches!(request.state, RequestState::TasksPending))
+			{
+				state.task_waits.clear();
+			}
+			state.start_task_wait(&self.server);
+			let (read, target) = {
+				let state = queues.lock().unwrap();
+				(state.queues.read_sequences(), state.queues.target_sequences())
+			};
+			state.poll_queues(self.server.config.advanced.single_process, read, target);
 		}
 	}
 }

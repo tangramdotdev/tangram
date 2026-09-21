@@ -905,6 +905,9 @@ impl Server {
 					if let Err(error) = &result {
 						tracing::error!(error = %error.trace(), "failed to index a batch");
 					}
+					if result.is_ok() {
+						server.index_changed.notify_waiters();
+					}
 					if result.is_ok() && log_compaction {
 						server.spawn_publish_log_compaction_notification_task();
 					}

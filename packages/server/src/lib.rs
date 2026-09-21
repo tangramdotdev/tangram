@@ -128,6 +128,7 @@ pub struct State {
 	database: Database,
 	diagnostics: Mutex<Vec<tg::Diagnostic>>,
 	index: Index,
+	index_changed: Arc<tokio::sync::Notify>,
 	index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	index_wait_sender: self::index::WaitSender,
 	indexers: self::indexer::Cache,
@@ -960,6 +961,9 @@ impl Server {
 		// Create the index tasks.
 		let index_tasks = tangram_futures::task::Set::default();
 
+		// Create the index change notification.
+		let index_changed = Arc::new(tokio::sync::Notify::new());
+
 		// Create the index wait channel.
 		let (index_wait_sender, index_wait_receiver) =
 			tokio::sync::mpsc::channel(config.indexer.request.wait_concurrency);
@@ -1161,6 +1165,7 @@ impl Server {
 			database,
 			diagnostics,
 			index,
+			index_changed,
 			index_tasks,
 			index_wait_sender,
 			indexers,

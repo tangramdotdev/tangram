@@ -67,6 +67,7 @@ impl Indexer {
 					() = tokio::time::sleep(Duration::from_millis(100)) => {},
 				}
 			} else {
+				self.server.index_changed.notify_waiters();
 				for process in output.processes_with_depth_exceeded {
 					let indexer = self.clone();
 					finish_tasks.get_or_spawn(process.clone(), |_| async move {
