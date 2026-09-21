@@ -29,6 +29,8 @@ let pid = open ($server.directory | path join 'lock') | into int
 print -e $'killing the server ($pid)'
 kill --signal 9 $pid
 wait_until { ps | where pid == $pid | is-empty } "the server must stop"
+wait_until { open --raw $server.exit | str trim | is-not-empty } "the server supervisor must report completion"
+assert equal (open --raw $server.exit | str trim | into int) 137 "the supervisor must report the killed server's status"
 print -e 'the server stopped'
 
 # The server must start again and be usable.
@@ -40,3 +42,8 @@ success $output "the server must be usable after being killed"
 print -e 'the server is healthy'
 let output = tg index | complete
 success $output "awaiting indexing must work after restarting without an indexer ID"
+
+# Repeated stops must observe the persisted completion without waiting for another notification.
+server stop $server
+assert equal (open --raw $server.exit | str trim | into int) 0 "the supervisor must report a clean shutdown"
+server stop $server

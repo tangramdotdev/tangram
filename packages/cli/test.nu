@@ -1374,14 +1374,14 @@ def run_test [test: record, options: record] {
 			'}'
 		] | str join "\n"
 		if $options.no_capture {
-			open /dev/null | timeout --kill-after 5s $timeout bash -c (process_supervisor) _ $nu.pid nu -c $command o+e> /dev/stderr
+			open /dev/null | timeout --kill-after 5s $timeout bash -c (process_supervisor) _ $nu.pid /dev/null nu -c $command o+e> /dev/stderr
 			let exit_code = $env.LAST_EXIT_CODE
 			{ exit_code: $exit_code, stdout: '', stderr: '' }
 		} else {
 			# Capture output in a file so a surviving process cannot hold a pipe open.
 			let output_path = $temp_path | path join 'output'
 			let exit_code = try {
-				open /dev/null | timeout --kill-after 5s $timeout bash -c (process_supervisor) _ $nu.pid nu -c $command o+e> $output_path
+				open /dev/null | timeout --kill-after 5s $timeout bash -c (process_supervisor) _ $nu.pid /dev/null nu -c $command o+e> $output_path
 				0
 			} catch { |error|
 				$error.exit_code? | default 1
@@ -2257,16 +2257,22 @@ export def --env "server start" [server: record] {
 	let server_job = job spawn -d server {
 		let server_job_id = job id
 		let exit_path = $server_exit_directory_path | path join $'($server_job_id).exit'
+		let status_path = $server_exit_directory_path | path join $'($server_job_id).status'
+		# Precreate both files so readiness and completion waits can follow stable inodes.
+		'' | save -f $exit_path
+		'' | save -f $status_path
 		do -i {
 			with-env $environment {
-				bash -c (process_supervisor) _ $nu.pid tangram -c $config_path -d $directory -u $url serve --ready-fd 3 e>| lines | each { |line|
+				bash -c (process_supervisor) _ $nu.pid $status_path tangram -c $config_path -d $directory -u $url serve --ready-fd 3 e>| lines | each { |line|
 					$"($line)\n" | save --append $log_path
 					print -e $"($name): ($line)\r"
 				}
 			}
 		}
 		remove_macos_app_group_socket $macos_app_group_socket
-		'' | save -f $exit_path
+		# Publish completion only after the output is drained and wrapper cleanup is complete.
+		let status = open --raw $status_path | str trim
+		$"($status)\n" | save -f $exit_path
 	}
 	let exit_path = $server_exit_directory_path | path join $'($server_job).exit'
 
@@ -2278,7 +2284,7 @@ export def --env "server start" [server: record] {
 	let ready_byte = $ready_output.stdout | str trim
 	if $ready_output.exit_code != 0 or ($ready_byte | is-empty) {
 		if $ready_output.exit_code == 0 and ($ready_byte | is-empty) {
-			if not (wait_for_server_exit $exit_path) {
+			if (wait_for_server_exit $exit_path) == null {
 				stop_server_job $server_job
 				wait_for_server_exit $exit_path | ignore
 			}
@@ -2320,9 +2326,9 @@ export def "server stop" [server: record] {
 		return
 	}
 	stop_test_server_processes $server.directory
-	if not (wait_for_server_exit $server.exit) {
+	if (wait_for_server_exit $server.exit) == null {
 		stop_server_job $job_id
-		if not (wait_for_server_exit $server.exit) {
+		if (wait_for_server_exit $server.exit) == null {
 			try { job kill $job_id }
 			remove_macos_app_group_socket $macos_app_group_socket
 			error make { msg: 'the server did not stop' }
@@ -2877,7 +2883,8 @@ def process_supervisor [] {
 	r#'
 	set -u
 	parent_pid=$1
-	shift
+	status_path=$2
+	shift 2
 	if [ -n "${TANGRAM_TEST_READY_PATH:-}" ]; then
 		exec 3>"$TANGRAM_TEST_READY_PATH"
 		unset TANGRAM_TEST_READY_PATH
@@ -2954,6 +2961,7 @@ def process_supervisor [] {
 	trap - TERM INT HUP
 	kill "$watcher" 2>/dev/null || true
 	wait "$watcher" 2>/dev/null || true
+	printf '%s\n' "$status" > "$status_path"
 	exit "$status"
 	'#
 }
@@ -3136,9 +3144,9 @@ export def cleanup_background_jobs [temp_path: string] {
 	stop_test_server_processes $temp_path
 	for job in (job list | where { ($in.description? | default '') == 'server' } | sort-by id | reverse) {
 		let exit_path = server_exit_path $temp_path $job.id
-		if not (wait_for_server_exit $exit_path) {
+		if (wait_for_server_exit $exit_path) == null {
 			stop_server_job $job.id
-			if not (wait_for_server_exit $exit_path) {
+			if (wait_for_server_exit $exit_path) == null {
 				try { job kill $job.id }
 			}
 		}
@@ -3176,11 +3184,38 @@ def stop_server_job [job_id: int] {
 }
 
 def wait_for_server_exit [path: string] {
-	if ($path | path exists) {
-		return true
+	let status = try { open --raw $path | str trim } catch { '' }
+	if not ($status | is-empty) {
+		return ($status | into int)
 	}
-	let output = (open /dev/null | timeout 10 bash -c 'while [ ! -e "$1" ]; do sleep 0.05; done' _ $path | complete)
-	$output.exit_code == 0 or ($path | path exists)
+	# Follow the precreated file so completion is event-driven and late readers retain the status.
+	let command = r#'
+		exec 3< <(tail -n +1 -f "$1")
+		tail_pid=$!
+		cleanup() {
+			kill "$tail_pid" 2>/dev/null || true
+			wait "$tail_pid" 2>/dev/null || true
+		}
+		trap cleanup EXIT TERM INT HUP
+
+		IFS= read -r status <&3
+		result=$?
+		if [ "$result" -eq 0 ]; then
+			printf '%s\n' "$status"
+		else
+			exit "$result"
+		fi
+	'#
+	let output = (open /dev/null | timeout 10 bash -c $command _ $path | complete)
+	if $output.exit_code != 0 {
+		return null
+	}
+	let status = $output.stdout | str trim
+	if ($status | is-empty) {
+		return null
+	}
+
+	$status | into int
 }
 
 def remove_temp_directory [path: string] {
