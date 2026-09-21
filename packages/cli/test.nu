@@ -15,6 +15,7 @@ const foundationdb_image = 'foundationdb/foundationdb:7.3.68'
 const scylla_container_name = 'tangram_test_scylla'
 const scylla_image = 'scylladb/scylla:2026.3.0'
 const server_exit_directory_name = 'server_jobs'
+const vfs_cleanup_marker_name = '.tangram_test_vfs_cleanup'
 const worker_cleanup_grace = 75sec
 const worker_exit_grace = 2sec
 
@@ -108,7 +109,7 @@ def main [
 		let lmdb_sysv_keys = lmdb_sysv_keys_for_test_dirs $test_temp_paths
 
 		for path in $test_temp_paths {
-			remove_temp_directory $path
+			remove_temp_directory --force-vfs-cleanup $path
 			print -e $"removed ($path)"
 		}
 
@@ -2229,6 +2230,9 @@ export def --env "server start" [server: record] {
 		try { job kill $job_id }
 	}
 
+	# Record VFS intent before launch so cleanup still finds it after a crash.
+	mark_vfs_cleanup $server
+
 	# Create the readiness and exit paths.
 	let ready_path = $server.config_path | path dirname | path join 'ready'
 	rm -f $ready_path
@@ -3218,11 +3222,14 @@ def wait_for_server_exit [path: string] {
 	$status | into int
 }
 
-def remove_temp_directory [path: string] {
+def remove_temp_directory [--force-vfs-cleanup, path: string] {
 	if not ($path | path exists) {
 		return
 	}
-	force_unmount_vfs $path
+	let marker_path = $path | path join $vfs_cleanup_marker_name
+	if $force_vfs_cleanup or ($marker_path | path exists) {
+		force_unmount_vfs $path
+	}
 	let chmod_output = (^timeout --kill-after 2s 10 chmod -R u+rwx $path | complete)
 	let remove_output = (^timeout --kill-after 2s 10 rm -rf -- $path | complete)
 	if $remove_output.exit_code != 0 {
@@ -3235,6 +3242,23 @@ def remove_temp_directory [path: string] {
 			help: $details
 		}
 	}
+}
+
+def mark_vfs_cleanup [server: record] {
+	let config = $server.config? | default {}
+	let file_config = try { open $server.config_path } catch { {} }
+	let enabled = (config_uses_vfs $config) or (config_uses_vfs $file_config)
+	if not $enabled {
+		return
+	}
+	let root = $env.TMPDIR? | default ($server.config_path | path dirname)
+	'' | save --force ($root | path join $vfs_cleanup_marker_name)
+}
+
+def config_uses_vfs [config: record] {
+	let vfs = $config | get --optional vfs
+
+	$vfs == true or (($vfs | describe) | str starts-with 'record')
 }
 
 def force_unmount_vfs [path: string] {
