@@ -31,7 +31,10 @@ failure $denied "Bob should not rely on Alice's private file without a grant."
 # Alice grants Bob the file subtree.
 tg --url $remote.url --token $alice.token grant $bob.user.id object_subtree $file | ignore
 
-# Now Bob skips the granted file and blob and transfers only the directory.
+# Use a new directory because the failed push may have already transferred the original directory node.
+let directory = tg --url $bob_local.url put ('tg.directory({ "world.txt": ' + $file + ' })') | str trim
+
+# Now Bob skips the granted file and blob and transfers only the new directory.
 let output = tg --url $bob_local.url --no-quiet push --lazy $directory | complete
 success $output "Bob should rely on the granted file subtree."
 snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped)'} | sort | str join "\n") '

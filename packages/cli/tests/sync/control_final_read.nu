@@ -1,4 +1,4 @@
 use ../lib/sync_control.nu
 
-# A terminal control failure still permits a final read of a locally stored object.
+# Local polling continues while a control request is acknowledged but unanswered.
 sync_control test final_read

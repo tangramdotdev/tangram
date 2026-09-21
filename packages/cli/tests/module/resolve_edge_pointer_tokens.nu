@@ -44,6 +44,7 @@ let path = artifact {
 				host: tg.host.current,
 			});
 			await command.store();
+			graph.state.tokens = {};
 			module.referent.options ??= {};
 			module.referent.options.tokens = command.state.tokens;
 			return {

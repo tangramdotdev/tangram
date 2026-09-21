@@ -4,6 +4,159 @@ use {
 };
 
 #[test]
+fn inline_command_objects_are_distinct_process_children() {
+	for count in [0, 2] {
+		let id = tg::process::Id::new();
+		let command_id = tg::command::Id::new(b"unused");
+		let mut data = process_data(&command_id, Some(&[]));
+		let objects = (0..count)
+			.map(|index| tg::object::Id::from(tg::blob::Id::new(&[index])))
+			.collect::<Vec<_>>();
+		let args = objects
+			.iter()
+			.cycle()
+			.take(usize::from(count) * 2)
+			.map(|id| {
+				tg::command::data::Value::Value(tg::value::Data::Object(tg::Referent::with_node(
+					id.clone(),
+				)))
+			})
+			.collect();
+		let executable = tg::command::data::Executable {
+			artifact: None,
+			path: Some("true".into()),
+		};
+		let command = tg::process::data::Command {
+			args,
+			cwd: None,
+			env: std::collections::BTreeMap::default(),
+			executable: tg::Referent::with_node(executable),
+			host: "test".to_owned(),
+			stdin: None,
+			user: None,
+		};
+		let command_id = command.id().unwrap();
+		data.command = tg::Referent::with_node(tg::Either::Left(Box::new(command)));
+		let arg = tg::sync::Arg::default();
+		let mut graph = Graph::new(&arg, false);
+		update_process(&mut graph, &id, &data);
+		let process = graph
+			.nodes()
+			.get(&tg::Id::from(id))
+			.unwrap()
+			.unwrap_process_ref();
+		assert_eq!(process.objects().unwrap().len(), usize::from(count));
+		assert!(!graph.nodes().contains_key(&tg::Id::from(command_id)));
+		for object in objects {
+			assert!(graph.nodes().contains_key(&tg::Id::from(object)));
+		}
+	}
+}
+
+#[test]
+fn received_object_is_not_stored_until_marked() {
+	let id = tg::object::Id::from(tg::blob::Id::new(b"pending"));
+	let data = tg::object::Data::Blob(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+		bytes: b"pending".as_slice().into(),
+	}));
+	let arg = tg::sync::Arg::default();
+	let mut graph = Graph::new(&arg, false);
+	graph.insert_local_root(id.clone().into());
+	let update = UpdateObjectLocalArg {
+		data: Some(&data),
+		id: &id,
+		marked: None,
+		metadata: None,
+		permissions: Some(tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::SUBTREE,
+		)),
+		put: None,
+		requested: None,
+		storage: None,
+	};
+	graph.update_object_local(update);
+	assert!(!graph.get_object_local_availability(&id).subtree);
+	assert!(!graph.end_local());
+	let update = UpdateObjectLocalArg {
+		data: None,
+		id: &id,
+		marked: Some(true),
+		metadata: None,
+		permissions: None,
+		put: None,
+		requested: None,
+		storage: None,
+	};
+	graph.update_object_local(update);
+	assert!(graph.get_object_local_availability(&id).subtree);
+	assert!(graph.end_local());
+}
+
+#[test]
+fn lifted_sync_tokens_follow_attachment_ancestors() {
+	let ids = [
+		b"directory".as_slice(),
+		b"first",
+		b"second",
+		b"first contents",
+		b"second contents",
+	]
+	.map(|seed| tg::object::Id::from(tg::blob::Id::new(seed)));
+	let key =
+		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+			.unwrap();
+	let tokens = (0..3)
+		.map(|_| {
+			let body = tg::sync::token::Body::new(i64::MAX);
+			tg::sync::Token::sign(body, &key).unwrap()
+		})
+		.collect::<Vec<_>>();
+	let arg = tg::sync::Arg::default();
+	let mut graph = Graph::new(&arg, false);
+	update_object(&mut graph, &ids[0], &ids[1..3]);
+	update_object(&mut graph, &ids[1], &ids[3..4]);
+	update_object(&mut graph, &ids[2], &ids[4..5]);
+	let entry = tg::tokens::Entry {
+		sync: tokens.clone(),
+		..Default::default()
+	};
+	graph.update_object_tokens(&ids[0], &entry, &entry);
+	for id in &ids {
+		assert_eq!(graph.get_node_local_tokens(&id.clone().into()).sync, tokens);
+		assert_eq!(
+			graph.get_node_remote_tokens(&id.clone().into()).sync,
+			tokens
+		);
+	}
+	let mut graph = Graph::new(&arg, false);
+	update_object(&mut graph, &ids[1], &ids[3..4]);
+	update_object(&mut graph, &ids[2], &ids[4..5]);
+	graph.update_object_tokens(&ids[1], &entry, &entry);
+	graph.update_object_tokens(&ids[3], &entry, &entry);
+	for id in [&ids[1], &ids[3]] {
+		assert_eq!(graph.get_node_local_tokens(&id.clone().into()).sync, tokens);
+		assert_eq!(
+			graph.get_node_remote_tokens(&id.clone().into()).sync,
+			tokens
+		);
+	}
+	for id in [&ids[2], &ids[4]] {
+		assert!(
+			graph
+				.get_node_local_tokens(&id.clone().into())
+				.sync
+				.is_empty()
+		);
+		assert!(
+			graph
+				.get_node_remote_tokens(&id.clone().into())
+				.sync
+				.is_empty()
+		);
+	}
+}
+
+#[test]
 fn object_facts_settle_in_every_arrival_order() {
 	// Create a diamond with a shared dependency.
 	let ids = [b"root".as_slice(), b"left", b"right", b"shared"]
@@ -788,7 +941,7 @@ fn process_data(
 	});
 	serde_json::from_value(serde_json::json!({
 		"children": children,
-		"command": command.to_string(),
+		"command": {"node": command.to_string()},
 		"created_at": 0,
 		"host": "test",
 		"sandbox": tg::sandbox::Id::new().to_string(),

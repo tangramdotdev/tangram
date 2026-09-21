@@ -27,10 +27,4 @@ impl Session {
 		};
 		token.verify_at(public_key, now).is_ok()
 	}
-
-	pub(crate) fn has_verified_sync_token(&self, tokens: &tg::Tokens) -> bool {
-		tokens
-			.local_sync()
-			.is_some_and(|token| self.verify_sync_token(token))
-	}
 }

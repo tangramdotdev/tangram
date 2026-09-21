@@ -7,11 +7,9 @@ let server = server spawn --config { authentication: { users: { providers: { ins
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 
-# Alice builds a private process and keeps its command private.
-let alice_path = artifact { tangram.ts: 'export default function () { return "alicesecret"; }' }
-let alice_process = tg --token $alice.token build --detach $alice_path | str trim
-tg --token $alice.token wait $alice_process
-let command = (tg --token $alice.token get $alice_process | from json).command
+# Alice creates a private command object.
+let alice_path = artifact { tangram.ts: 'export const secret = () => "alicesecret"; export default () => tg.command(secret);' }
+let command = tg --token $alice.token build --no-tokens $alice_path | from json
 
 # Eve cannot read Alice's command.
 let denied = tg --token $eve.token get $command | complete

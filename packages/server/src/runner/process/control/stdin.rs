@@ -1,6 +1,6 @@
 use {
 	crate::{process::control::local::Reply, session::Session},
-	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future, stream},
+	futures::{TryFutureExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{pin::pin, sync::Arc},
 	tangram_client::{
@@ -8,7 +8,6 @@ use {
 		process::stdio::{Chunk, Stream, write::Data},
 	},
 	tangram_futures::task::{Stopper, Task},
-	tokio_util::io::ReaderStream,
 };
 
 pub(super) struct RunProcessControlStdinTaskArg {
@@ -18,7 +17,6 @@ pub(super) struct RunProcessControlStdinTaskArg {
 	pub(super) sandbox: tangram_sandbox::Sandbox,
 	pub(super) sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
 	pub(super) stdin: tg::process::Stdio,
-	pub(super) stdin_blob: Option<tg::Blob>,
 }
 
 impl Session {
@@ -44,47 +42,12 @@ impl Session {
 			sandbox,
 			mut sandbox_process,
 			stdin,
-			stdin_blob,
 		} = arg;
 		let sandbox_process = sandbox_process
 			.wait_for(Option::is_some)
 			.await
 			.ok()
 			.and_then(|sandbox_process| sandbox_process.as_ref().cloned());
-		if let Some(blob) = stdin_blob
-			&& let Some(sandbox_process) = &sandbox_process
-		{
-			let reader = blob
-				.read_with_handle(self, tg::read::Options::default())
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read process stdin blob"))?;
-			let stream = ReaderStream::new(reader)
-				.map_ok(|bytes| {
-					tangram_sandbox::stdio::read::Event::Chunk(tangram_sandbox::stdio::Chunk {
-						bytes,
-						stream: tg::process::stdio::Stream::Stdin,
-					})
-				})
-				.map_err(|error| tg::error!(!error, "failed to read from the blob"))
-				.chain(stream::once(future::ok(
-					tangram_sandbox::stdio::read::Event::End,
-				)))
-				.boxed();
-			let output = sandbox
-				.write_stdio(
-					sandbox_process,
-					vec![tg::process::stdio::Stream::Stdin],
-					stream,
-				)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to write stdin"))?;
-			let mut output = pin!(output);
-			while let Some(event) = output.try_next().await? {
-				if matches!(event, tangram_sandbox::stdio::write::Event::End) {
-					break;
-				}
-			}
-		}
 		if !matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Tty) {
 			return Ok(());
 		}

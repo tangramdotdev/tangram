@@ -5,7 +5,7 @@ pub struct State {
 	pub actual_checksum: Option<tg::Checksum>,
 	pub cacheable: bool,
 	pub children: Option<Vec<Child>>,
-	pub command: tg::Command,
+	pub command: tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 	pub created_at: i64,
 	pub debug: Option<tg::process::Debug>,
 	pub error: Option<tg::Error>,
@@ -32,8 +32,10 @@ pub struct Child {
 }
 
 impl State {
-	pub(crate) fn inherit_location(&self, location: Option<&tg::Location>) {
-		self.command.state().inherit_location(location);
+	pub(crate) fn inherit_location(&mut self, location: Option<&tg::Location>) {
+		if self.command.options.location.is_none() {
+			self.command.options.location = location.cloned();
+		}
 		if let Some(children) = &self.children {
 			for child in children {
 				child
@@ -52,8 +54,8 @@ impl State {
 		}
 	}
 
-	pub(crate) fn inherit_tokens(&self, tokens: &tg::Tokens) {
-		self.command.state().inherit_tokens(tokens);
+	pub(crate) fn inherit_tokens(&mut self, tokens: &tg::Tokens) {
+		self.command.options.tokens.inherit(tokens);
 		if let Some(children) = &self.children {
 			for child in children {
 				child.process.inherit_tokens(tokens);
@@ -78,7 +80,7 @@ impl State {
 			.children
 			.as_ref()
 			.map(|children| children.iter().map(Child::to_data).collect());
-		let command = self.command.to_referent();
+		let command = self.command.clone();
 		let created_at = self.created_at;
 		let debug = self.debug.clone();
 		let error = self
@@ -136,7 +138,7 @@ impl State {
 					.collect::<tg::Result<Vec<_>>>()
 			})
 			.transpose()?;
-		let command = tg::Command::with_referent(value.command);
+		let command = value.command;
 		let created_at = value.created_at;
 		let debug = value.debug;
 		let error = value

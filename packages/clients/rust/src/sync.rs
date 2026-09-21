@@ -212,6 +212,9 @@ pub enum PutMessage {
 	#[tangram_serialize(id = 0)]
 	Node(PutNodeMessage),
 
+	#[tangram_serialize(id = 4)]
+	Pending(tg::Id),
+
 	#[tangram_serialize(id = 2)]
 	Progress(ProgressMessage),
 }

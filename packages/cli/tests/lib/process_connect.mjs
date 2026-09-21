@@ -114,7 +114,7 @@ request.on("response", (response) => {
 try {
 	const selected = mode === "cached" ? {
 		cached: true,
-		command: { node: id },
+		command: JSON.parse(id),
 		sandbox: {},
 		stderr: "log",
 		stdin: "null",

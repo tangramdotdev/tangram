@@ -35,11 +35,17 @@ export namespace Spawn {
 			if (arg.checksum !== undefined) {
 				output.checksum = arg.checksum;
 			}
-			output.command = tg.Referent.toData(arg.command, (command) =>
-				typeof command === "string"
-					? command
-					: tg.Process.Spawn.CommandArg.toJson(command),
-			);
+			output.command =
+				typeof arg.command.node === "string"
+					? tg.Referent.toDataString(
+							{ ...arg.command, node: arg.command.node },
+							(id) => id,
+						)
+					: tg.Referent.toData(arg.command, (command) =>
+							typeof command === "string"
+								? command
+								: tg.Process.Spawn.CommandArg.toJson(command),
+						);
 			if (arg.debug !== undefined) {
 				output.debug = arg.debug;
 			}

@@ -209,7 +209,9 @@ impl Graph {
 			Node::Object(node) => {
 				let children = node.state.dependencies.facts();
 				if node.children.is_some() {
-					node.local_storage.get_or_insert_default().subtree |= children.storage;
+					if node.marked || node.local_storage.is_some() {
+						node.local_storage.get_or_insert_default().subtree |= children.storage;
+					}
 					if let Some(metadata) = &mut node.metadata {
 						let subtree = tg::object::metadata::Subtree {
 							count: children.metadata.count.map(|count| count + 1),

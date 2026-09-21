@@ -31,6 +31,7 @@ struct State {
 }
 
 struct Lease {
+	cancelled: BTreeSet<String>,
 	client: String,
 	expires_at: Instant,
 	requests: BTreeMap<String, Request>,
@@ -126,7 +127,7 @@ impl Server {
 		let heartbeat_messages = tokio::time::timeout(
 			self.config.sync.control.request_timeout,
 			self.messenger
-				.subscribe::<ClientMessage>(format!("{subject}.server")),
+				.subscribe::<ClientMessage>(heartbeat_subject(&subject)),
 		)
 		.await
 		.map_err(|error| tg::error!(!error, "timed out subscribing to the sync heartbeats"))?
@@ -134,7 +135,7 @@ impl Server {
 		let lease_messages = tokio::time::timeout(
 			self.config.sync.control.request_timeout,
 			self.messenger
-				.subscribe::<ClientMessage>(format!("{subject}.leases.*.server")),
+				.subscribe::<ClientMessage>(lease_subject(&subject, "*")),
 		)
 		.await
 		.map_err(|error| tg::error!(!error, "timed out subscribing to the sync lease messages"))?
@@ -214,7 +215,10 @@ impl Server {
 	) -> tg::Result<()> {
 		match message.payload.0 {
 			protocol::ClientMessage::Ack(ack) => {
-				if message.subject != lease_subject(subject, &ack.lease) {
+				if !self
+					.messenger
+					.matches_subject(&message.subject, lease_subject(subject, &ack.lease))
+				{
 					return Ok(());
 				}
 				if let Some(lease) = state.leases.get_mut(&ack.lease)
@@ -231,13 +235,37 @@ impl Server {
 					.await;
 				}
 			},
+			protocol::ClientMessage::Cancel(cancel) => {
+				if !self
+					.messenger
+					.matches_subject(&message.subject, lease_subject(subject, &cancel.lease))
+				{
+					return Ok(());
+				}
+				let Some(lease) = state.leases.get_mut(&cancel.lease) else {
+					return Ok(());
+				};
+				lease.cancelled.insert(cancel.id.clone());
+				if let Some(request) = lease.requests.remove(&cancel.id)
+					&& let Some(node) = request.arg.node()
+					&& let Some(requests) = state.nodes.get_mut(&node)
+				{
+					requests.remove(&(cancel.lease.clone(), cancel.id.clone()));
+					if requests.is_empty() {
+						state.nodes.remove(&node);
+					}
+				}
+				crate::checkpoint!(self, "sync.control.cancel", id = %cancel.id, lease = %cancel.lease).await;
+			},
 			protocol::ClientMessage::Request(request) => {
 				match &request.arg {
 					protocol::ClientRequestArg::Get(_) => {
 						let Some(lease) = request.lease.as_ref() else {
 							return Ok(());
 						};
-						if message.subject != lease_subject(subject, lease)
+						if !self
+							.messenger
+							.matches_subject(&message.subject, lease_subject(subject, lease))
 							|| state.leases.get(lease).is_none_or(|lease| {
 								lease.client != request.client || Instant::now() >= lease.expires_at
 							}) {
@@ -247,7 +275,10 @@ impl Server {
 						self.sync_control_get(subject, state, request).await;
 					},
 					protocol::ClientRequestArg::Heartbeat(_) => {
-						if message.subject != format!("{subject}.server") || request.lease.is_some()
+						if !self
+							.messenger
+							.matches_subject(&message.subject, heartbeat_subject(subject))
+							|| request.lease.is_some()
 						{
 							return Ok(());
 						}
@@ -290,6 +321,7 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "failed to generate a sync lease"))?;
 			let id = tg::id::ENCODING.encode(&bytes);
 			let lease = Lease {
+				cancelled: BTreeSet::new(),
 				client: request.client.clone(),
 				expires_at: Instant::now() + ttl,
 				requests: BTreeMap::new(),
@@ -359,6 +391,9 @@ impl Server {
 		let lease = request.lease.clone().unwrap();
 		let id = request.id.clone();
 		let client = request.client.clone();
+		if state.leases[&lease].cancelled.contains(&id) {
+			return;
+		}
 		if let Some(previous) = state.leases[&lease].requests.get(&id) {
 			let message = match &previous.response {
 				Some(response) => protocol::ServerMessage::Response(response.clone()),
@@ -630,4 +665,8 @@ fn client_subject(subject: &str, client: &str) -> String {
 
 fn lease_subject(subject: &str, lease: &str) -> String {
 	format!("{subject}.leases.{lease}.server")
+}
+
+fn heartbeat_subject(subject: &str) -> String {
+	format!("{subject}.server")
 }

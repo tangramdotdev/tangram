@@ -29,7 +29,7 @@ let output = tg view $id --mode inline --expand-processes --depth 1
 snapshot --normalize-ids $output '
 	✓ fil_010000000000000000000000000000000000000000000000000000#default
 	├╴output: 42
-	├╴command: cmd_010000000000000000000000000000000000000000000000000000
+	├╴command: map
 	├╴✓ ../b.tg.ts#default
 	└╴✓ fil_011111111111111111111111111111111111111111111111111111#default
 '

@@ -9,4 +9,4 @@ let path = artifact {
 }
 
 let output = tg build --no-tokens $path
-snapshot --normalize-ids $output 'tg.module({"kind":"ts","referent":{"node":fil_010000000000000000000000000000000000000000000000000000}})'
+snapshot --normalize-ids $output 'tg.module({"kind":"ts","referent":{"node":fil_010000000000000000000000000000000000000000000000000000,"options":{"location":"local"}}})'

@@ -1,6 +1,7 @@
 use ../../test.nu *
+use ../lib/command.nu
 
-# Recursively pushing a process with many child processes whose commands, outputs, blobs, and child processes are split between the local and remote servers completes and yields matching metadata, under both eager and lazy push.
+# Recursively pushing a process with many child processes whose command inputs, outputs, blobs, and child processes are split between the local and remote servers completes and yields matching metadata, under both eager and lazy push.
 
 def test [...args] {
 	# Create a remote server.
@@ -39,19 +40,19 @@ def test [...args] {
 
 	# Get the process data.
 	let process_data = tg --url $source.url get $process_id | from json
-	let main_command_id = $process_data.command
+	let main_module_id = (command module-input $process_data.command)
 	let main_output_id = $process_data.output.value
 	let children = $process_data.children
 
 	# Put the main process to the local server.
 	tg --url $source.url get $process_id | tg --url $local.url put --id $process_id
 
-	# Put the main command to the local server.
-	tg --url $source.url get --bytes $main_command_id | tg --url $local.url put --bytes --kind cmd
+	# Put the main module to the local server.
+	tg --url $source.url get --bytes $main_module_id | tg --url $local.url put --bytes --kind fil
 
-	# Get all the main command's descendants recursively and put to local.
+	# Get all the main module's descendants recursively and put to local.
 	mut main_cmd_descendants = []
-	mut to_visit = [$main_command_id]
+	mut to_visit = [$main_module_id]
 	while ($to_visit | length) > 0 {
 		let current = $to_visit | first
 		$to_visit = ($to_visit | skip 1)
@@ -100,13 +101,13 @@ def test [...args] {
 		}
 	}
 
-	# Process child processes - put some commands on remote (intermediate missing), some outputs on remote (leaf missing).
+	# Process child processes - put some command inputs on remote (intermediate missing), some outputs on remote (leaf missing).
 	let child_count = $children | length
 	for i in 0..<$child_count {
 		let child = $children | get $i
 		let child_id = $child.process | split row '?' | first
 		let child_data = tg --url $source.url get $child_id | from json
-		let child_command_id = $child_data.command
+		let child_module_id = (command module-input $child_data.command)
 		let child_output_id = $child_data.output.value
 		let child_log_id = $child_data.log
 
@@ -122,9 +123,9 @@ def test [...args] {
 			tg --url $source.url get $child_id | tg --url $local.url put --id $child_id
 		}
 
-		# Get all the child command's descendants recursively.
+		# Get all the child module's descendants recursively.
 		mut child_cmd_descendants = []
-		mut child_to_visit = [$child_command_id]
+		mut child_to_visit = [$child_module_id]
 		while ($child_to_visit | length) > 0 {
 			let current = $child_to_visit | first
 			$child_to_visit = ($child_to_visit | skip 1)
@@ -137,10 +138,10 @@ def test [...args] {
 			}
 		}
 
-		# Alternate between missing commands and missing outputs.
+		# Alternate between missing command inputs and missing outputs.
 		if ($i mod 3) == 0 {
-			# Put command to remote (intermediate missing), output to local.
-			tg --url $source.url get --bytes $child_command_id | tg --url $remote.url put --bytes --kind cmd
+			# Put module to remote (intermediate missing), output to local.
+			tg --url $source.url get --bytes $child_module_id | tg --url $remote.url put --bytes --kind fil
 			for desc_id in $child_cmd_descendants {
 				let kind = $desc_id | str substring 0..<3
 				tg --url $source.url get --bytes $desc_id | tg --url $remote.url put --bytes --kind $kind
@@ -153,8 +154,8 @@ def test [...args] {
 				tg --url $source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
 			}
 		} else if ($i mod 3) == 1 {
-			# Put command to local, output to remote (leaf missing).
-			tg --url $source.url get --bytes $child_command_id | tg --url $local.url put --bytes --kind cmd
+			# Put module to local, output to remote (leaf missing).
+			tg --url $source.url get --bytes $child_module_id | tg --url $local.url put --bytes --kind fil
 			for desc_id in $child_cmd_descendants {
 				let kind = $desc_id | str substring 0..<3
 				tg --url $source.url get --bytes $desc_id | tg --url $local.url put --bytes --kind $kind
@@ -168,7 +169,7 @@ def test [...args] {
 			}
 		} else {
 			# Put both command and output to local.
-			tg --url $source.url get --bytes $child_command_id | tg --url $local.url put --bytes --kind cmd
+			tg --url $source.url get --bytes $child_module_id | tg --url $local.url put --bytes --kind fil
 			for desc_id in $child_cmd_descendants {
 				let kind = $desc_id | str substring 0..<3
 				tg --url $source.url get --bytes $desc_id | tg --url $local.url put --bytes --kind $kind
@@ -190,7 +191,7 @@ def test [...args] {
 	# Add the remote to the local server.
 	tg --url $local.url remote put default $remote.url
 
-	# Push the process with recursive and commands flags.
+	# Push the process with recursive and command inputs flags.
 	tg --url $local.url push $process_id ...$args --process-children --process-commands --process-logs
 
 	# Index on both servers.

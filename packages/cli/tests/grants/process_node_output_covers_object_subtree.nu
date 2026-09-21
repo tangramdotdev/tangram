@@ -1,4 +1,5 @@
 use ../../test.nu *
+use ../lib/command.nu
 
 # Node output permissions cover this process's object subtrees, not child processes' outputs.
 
@@ -34,7 +35,7 @@ assert equal (open --raw ($parent_path | path join nested file)) "parent output"
 
 # The process node, command, and child output remain unreadable.
 failure (tg --token $eve.token get $parent | complete) "a node output grant must not authorize the process node."
-failure (tg --token $eve.token get $data.command | complete) "a node output grant must not authorize the command."
+failure (tg --token $eve.token get (command module-input $data.command) | complete) "a node output grant must not authorize the command."
 failure (tg --token $eve.token get $child_output | complete) "a node output grant must not authorize a child process's output."
 
 # A subtree output grant also allows checking out the child's whole output subtree.

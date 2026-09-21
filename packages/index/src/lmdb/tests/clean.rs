@@ -95,7 +95,8 @@ async fn deleting_a_process_deletes_all_grants_it_holds() {
 				crate::batch::Item::PutProcess(crate::process::put::Arg {
 					cached: false,
 					children: None,
-					command: command.clone(),
+					command: Some(vec![command.clone()]),
+					command_id: command.clone(),
 					data: None,
 					error: None,
 					id: process.clone(),

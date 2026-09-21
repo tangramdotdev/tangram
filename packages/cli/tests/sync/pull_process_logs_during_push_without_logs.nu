@@ -1,14 +1,14 @@
 use ../../test.nu *
 
-# A push of a process without its logs is held before the process reaches the remote. A pull that asks for the logs does not wait for the push, because the held sync answers that it does not carry the logs. A pull that asks only for what the push carries waits for the process to arrive.
+# A pull for logs that the held push does not carry ends after bounded polling. A pull for what the push carries succeeds when the process arrives.
 
 let root_token = random chars
 
-# The remote waits a long time for a held sync so that a prompt answer cannot come from the timeout.
+# Polling expires before the control request timeout.
 let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	sync: { control: { index_timeout: 120, request_timeout: 120 } },
+	sync: { control: { index_timeout: 10, request_timeout: 120 } },
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let alice_local = server spawn --name alice-local --config {
@@ -18,6 +18,7 @@ let alice_local = server spawn --name alice-local --config {
 let bob = tg --url $remote.url login --verbose --name bob | from json
 let bob_local = server spawn --name bob-local --config {
 	remotes: { default: { token: $bob.token, url: $remote.url } },
+	sync: { control: { index_timeout: 10 } },
 }
 
 # Alice builds a process that writes a log.
@@ -51,14 +52,14 @@ let push = job spawn {
 }
 let output = timeout 30s tg --url $alice_local.url checkpoint wait sync.put.store.process $watch 0 | complete
 success $output "alice's push should reach the process"
-wait_until { open --raw $push_log | str contains 'tokens[remote][sync]' } 'the push should log the referent with the sync token'
+wait_until { open --raw $push_log | str contains 'tokens[remote][sync][0]' } 'the push should log the referent with the sync token'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ "sync" }
 let referent = $push_lines | first | str trim
 
 # Bob's pull asks for the logs, which the push does not carry, so it completes while the push is held.
 let output = timeout 15s tg --url $bob_local.url pull --process-logs $referent | complete
 if $output.exit_code == 124 {
-	error make { msg: "the pull should not wait for a push that does not carry the logs" }
+	error make { msg: "the pull should stop after bounded polling rather than wait for the unrelated push" }
 }
 failure $output "the pull should not find the process with its logs"
 

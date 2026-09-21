@@ -40,6 +40,10 @@ impl Index {
 			&& existing
 				.as_ref()
 				.is_none_or(|existing| !existing.set.children);
+		let command_changed = arg.command.is_some()
+			&& existing
+				.as_ref()
+				.is_none_or(|existing| !existing.set.command);
 		let error_changed =
 			arg.error.is_some() && existing.as_ref().is_none_or(|existing| !existing.set.error);
 		let log_changed =
@@ -100,6 +104,7 @@ impl Index {
 		}
 
 		let value = crate::process::Process {
+			command_id: arg.command_id.clone(),
 			data: data.clone(),
 			location,
 			metadata,
@@ -266,7 +271,7 @@ impl Index {
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
 			.unwrap();
 		let key = Key::Process(crate::fdb::process::Key::CommandCacheableProcess {
-			command: arg.command.clone(),
+			command: arg.command_id.clone(),
 			process: id.clone(),
 		});
 		let key = Self::pack(subspace, &key);
@@ -276,8 +281,12 @@ impl Index {
 			txn.clear(&key);
 		}
 
-		let command_changed = existing.is_none();
-		let objects = std::iter::once((arg.command.clone(), crate::process::object::Kind::Command))
+		let objects = arg
+			.command
+			.iter()
+			.flatten()
+			.cloned()
+			.map(|object| (object, crate::process::object::Kind::Command))
 			.chain(
 				arg.error
 					.as_ref()

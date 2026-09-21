@@ -6,7 +6,6 @@ import socket
 import subprocess
 import sys
 import time
-import urllib.parse
 
 case, socket_path, tangram, url, parent, data_path, compaction = sys.argv[1:]
 with open(data_path) as file:
@@ -18,25 +17,23 @@ for key in ("children", "error", "exit", "finished_at", "output"):
 data["status"] = "started"
 
 
-def flatten(value, prefix=""):
-    if isinstance(value, dict):
-        return [pair for name, item in value.items() for pair in flatten(item, f"{prefix}[{name}]" if prefix else name)]
-    if isinstance(value, list):
-        return [pair for index, item in enumerate(value) for pair in flatten(item, f"{prefix}[{index}]")]
-    if value is None:
-        return []
-    return [(prefix, str(value).lower() if isinstance(value, bool) else str(value))]
-
-
 def open_stream(path, arg, token=None, messages=()):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(10)
     sock.connect(socket_path)
-    path += "?" + urllib.parse.urlencode(flatten(arg))
-    headers = f"POST {path} HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n"
+    headers = f"POST {path} HTTP/1.1\r\nHost: localhost\r\nAccept: text/event-stream\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nX-Tg-Arg-In-Body: true\r\n"
     if token:
         headers += f"Authorization: Bearer {token}\r\n"
     sock.sendall((headers + "\r\n").encode())
+    payload = json.dumps(arg).encode()
+    length = len(payload)
+    prefix = bytearray()
+    while length >= 128:
+        prefix.append((length & 127) | 128)
+        length >>= 7
+    prefix.append(length)
+    content = bytes(prefix) + payload
+    sock.sendall(f"{len(content):x}\r\n".encode() + content + b"\r\n")
     for event, value in messages:
         send(sock, event, value)
     response = http.client.HTTPResponse(sock)

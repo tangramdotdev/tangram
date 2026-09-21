@@ -20,7 +20,8 @@ let alice = tg --url $remote.url login --verbose --name alice | from json
 let bob = tg --url $remote.url login --verbose --name bob | from json
 
 let artifact = 'tg.file({ "contents": tg.blob("#!/bin/sh\nprintf \"%s\" \"$1\" > \"$TANGRAM_OUTPUT\""), "executable": true })'
-let artifact_a = tg --url $remote.url --token $alice.token put $artifact | str trim
+let artifact_a = tg --url $remote.url --token $alice.token put --no-tokens $artifact | str trim
+let contents = tg --url $remote.url --token $alice.token children $artifact_a | from json | get 0
 
 let output = tg --url $remote.url --token $alice.token build $artifact_a --arg-string alice | complete
 success $output "Alice's process should store artifact A on the runner"
@@ -30,7 +31,7 @@ tg --url $runner.url index
 assert equal (tg --url $runner.url availability --local $artifact_a | from json) { subtree: true } "artifact A should be stored on the runner"
 
 let watch = (
-	tg --url $runner.url checkpoint watch sync.get.input.object --params ({ id: $artifact_a } | to json)
+	tg --url $runner.url checkpoint watch sync.get.input.object --params ({ id: $contents } | to json)
 	| from json
 	| get watch
 )

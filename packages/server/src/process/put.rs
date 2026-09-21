@@ -128,8 +128,9 @@ impl Session {
 				})
 		};
 		let objects = Self::finished_process_objects(data);
-		let command_grants_subtree = grants_subtree(&objects[0]);
-		let authorized = objects[1..].iter().all(grants_subtree);
+		let command_object_count = data.command.objects().len();
+		let command_grants_subtree = objects[..command_object_count].iter().all(grants_subtree);
+		let authorized = objects[command_object_count..].iter().all(grants_subtree);
 		authorized.then_some(Authorization {
 			command_grants_subtree,
 			error_grants_subtree: true,
@@ -139,7 +140,7 @@ impl Session {
 	}
 
 	fn finished_process_objects(data: &tg::process::Data) -> Vec<tg::Referent<tg::object::Id>> {
-		let mut roots = vec![data.command.clone().map(tg::object::Id::from)];
+		let mut roots = data.command.objects();
 		if let Some(error) = &data.error {
 			match error {
 				tg::Either::Left(data) => {
@@ -165,7 +166,7 @@ impl Session {
 		&self,
 		data: &tg::process::Data,
 	) -> tg::Result<Authorization> {
-		let mut objects = vec![data.command.clone().map(tg::object::Id::from)];
+		let mut objects = data.command.objects();
 		let command_object_count = objects.len();
 		if let Some(error) = &data.error {
 			match error {
@@ -271,7 +272,13 @@ impl Session {
 				} = authorization;
 				let mut objects = BTreeSet::new();
 				if command_grants_subtree {
-					objects.insert(tg::object::Id::from(arg.data.command.node.clone()));
+					objects.extend(
+						arg.data
+							.command
+							.objects()
+							.into_iter()
+							.map(|object| object.node),
+					);
 				}
 				if error_grants_subtree && let Some(error) = &error {
 					objects.extend(error.iter().cloned());
@@ -312,7 +319,15 @@ impl Session {
 		let put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
 			children,
-			command: arg.data.command.node.clone().into(),
+			command: Some(
+				arg.data
+					.command
+					.objects()
+					.into_iter()
+					.map(|object| object.node)
+					.collect(),
+			),
+			command_id: arg.data.command.command_id()?.into(),
 			data,
 			error: Some(error),
 			id: id.clone(),

@@ -47,7 +47,8 @@ fn process_arg(
 	crate::process::put::Arg {
 		cached: false,
 		children: Some(children),
-		command,
+		command: Some(vec![command.clone()]),
+		command_id: command,
 		data: None,
 		error: Some(None),
 		id,
@@ -86,6 +87,119 @@ fn new_index(usage_partition_total: u64) -> (tempfile::TempDir, Index) {
 	index.db.put(&mut transaction, &key, &value).unwrap();
 	transaction.commit().unwrap();
 	(dir, index)
+}
+
+#[tokio::test]
+async fn command_objects_can_be_empty_or_multiple_without_a_stored_command() {
+	for count in [0, 2] {
+		let (_dir, index) = new_index(1);
+		let id = tg::process::Id::new();
+		let command_id: tg::object::Id = tg::command::Id::new(b"unstored command").into();
+		let objects = (0..count).map(object_id).collect::<Vec<_>>();
+		let mut process = process_arg(id.clone(), Vec::new(), command_id.clone());
+		process.command = Some(objects.clone());
+		let mut items = objects
+			.iter()
+			.map(|id| {
+				let mut object = object_arg(id.clone(), [], 1);
+				object.storage.subtree = true;
+				crate::batch::Item::PutObject(object)
+			})
+			.collect::<Vec<_>>();
+		items.push(crate::batch::Item::PutProcess(process));
+		let arg = crate::batch::Arg { items };
+		index.batch(arg).await.unwrap();
+		loop {
+			let output = index
+				.update_batch(crate::update::Kind::Node, 100)
+				.await
+				.unwrap();
+			if output.count == 0 {
+				break;
+			}
+		}
+		let process = index
+			.try_get_processes(std::slice::from_ref(&id))
+			.await
+			.unwrap()
+			.pop()
+			.flatten()
+			.unwrap();
+		assert_eq!(process.command_id, command_id);
+		assert!(process.set.command);
+		assert!(process.storage.node_command);
+		assert_eq!(process.metadata.node.command.count, Some(count));
+		assert_eq!(process.metadata.node.command.size, Some(count));
+		assert!(index.try_get_object(&command_id).await.unwrap().is_none());
+		let transaction = index.env.read_txn().unwrap();
+		let relationships = Index::get_process_objects_with_transaction(
+			&index.db,
+			&index.subspace,
+			&transaction,
+			&id,
+		)
+		.unwrap();
+		assert_eq!(relationships.len(), objects.len());
+		assert!(
+			relationships
+				.iter()
+				.all(|(object, kind)| objects.contains(object) && kind.is_command())
+		);
+	}
+}
+
+#[tokio::test]
+async fn cleans_command_cache_key_without_command_objects() {
+	let (_dir, index) = new_index(1);
+	let id = tg::process::Id::new();
+	let command: tg::object::Id = tg::command::Id::new(b"unstored command").into();
+	let mut process = process_arg(id.clone(), Vec::new(), command.clone());
+	process.command = Some(Vec::new());
+	process.data = Some(
+		serde_json::from_value(serde_json::json!({
+			"cacheable": true,
+			"command": {"node": command.to_string()},
+			"created_at": 0,
+			"host": "x86_64-linux",
+			"sandbox": tg::sandbox::Id::new(),
+			"status": "finished"
+		}))
+		.unwrap(),
+	);
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutProcess(process)],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.try_get_cached_processes(&command)
+			.await
+			.unwrap()
+			.len(),
+		1
+	);
+	let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::CommandCacheableProcess {
+		command: command.clone(),
+		process: id.clone(),
+	});
+	let key = Index::pack(&index.subspace, &key);
+	for _ in 0..100 {
+		let arg = crate::clean::Arg {
+			batch_size: 100,
+			max_object_touched_at: i64::MIN,
+			max_process_touched_at: 1,
+			max_sandbox_touched_at: i64::MIN,
+			now: 1,
+			partition_end: 1,
+			partition_start: 0,
+		};
+		if index.clean(arg).await.unwrap().done {
+			break;
+		}
+	}
+	assert!(index.try_get_processes(&[id]).await.unwrap()[0].is_none());
+	let transaction = index.env.read_txn().unwrap();
+	assert!(index.db.get(&transaction, &key).unwrap().is_none());
 }
 
 #[tokio::test]
@@ -223,7 +337,8 @@ async fn account_storage_traverses_new_process_relationships() {
 	let partial_root = crate::process::put::Arg {
 		cached: false,
 		children: None,
-		command: command.clone(),
+		command: Some(vec![command.clone()]),
+		command_id: command.clone(),
 		data: None,
 		error: None,
 		id: root.clone(),

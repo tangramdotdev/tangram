@@ -545,7 +545,7 @@ impl Session {
 			actual_checksum: Some(actual_checksum),
 			cacheable: true,
 			children: source.children,
-			command: command.clone(),
+			command: tg::Referent::new(source.command.node, command.options.clone()),
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: error.clone().map(tg::Either::Left),

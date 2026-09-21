@@ -1,4 +1,5 @@
 use ../../test.nu *
+use ../lib/command.nu
 
 # A field-scoped process grant must not let a reader pull a different field through sync. Alice grants Eve the process subtree and its output, but not the command; pulling the process with its command must not ship the command object.
 
@@ -27,7 +28,7 @@ tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree_out
 # Sanity: Eve can get the output she was granted but not the command.
 let output = tg --url $remote.url --token $eve.token get $data.output.value | complete
 success $output "Eve should get the granted output object."
-let command = tg --url $remote.url --token $eve.token get $data.command | complete
+let command = tg --url $remote.url --token $eve.token get (command module-input $data.command) | complete
 failure $command "Eve should not get the command she was not granted."
 
 # Eve has her own server that talks to the remote as Eve.

@@ -1,5 +1,8 @@
 use tangram_messenger::{self as messenger, Messenger as _};
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone)]
 enum Inner {
 	Memory(messenger::memory::Messenger),
@@ -55,6 +58,11 @@ impl Messenger {
 			#[cfg(feature = "nats")]
 			Inner::Nats(messenger) => messenger.publish(subject, payload).await,
 		}
+	}
+
+	#[must_use]
+	pub(crate) fn matches_subject(&self, actual: &str, subject: String) -> bool {
+		actual == self.subject_name(self.region.as_deref(), subject)
 	}
 
 	fn subject_name(&self, region: Option<&str>, subject: String) -> String {

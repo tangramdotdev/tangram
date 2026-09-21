@@ -775,16 +775,17 @@ where
 	}
 
 	pub fn module(&mut self, value: &tg::Module) -> Result {
+		let referent = value.to_referent();
 		self.start_map()?;
 		self.map_entry("kind", |s| s.string(&value.kind.to_string()))?;
 		self.map_entry("referent", |s| {
 			s.start_map()?;
-			s.map_entry("node", |s| match &value.referent.node {
+			s.map_entry("node", |s| match &referent.node {
 				tg::module::Source::Edge(edge) => s.graph_edge_object(edge),
 				tg::module::Source::Path(path) => s.string(path.to_string_lossy().as_ref()),
 			})?;
-			if Self::has_referent_options(&value.referent.options) {
-				s.map_entry("options", |s| s.referent_options(&value.referent.options))?;
+			if Self::has_referent_options(&referent.options) {
+				s.map_entry("options", |s| s.referent_options(&referent.options))?;
 			}
 			s.finish_map()?;
 			Ok(())

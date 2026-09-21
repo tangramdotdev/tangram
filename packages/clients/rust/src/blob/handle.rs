@@ -66,7 +66,7 @@ impl Blob {
 	pub fn to_referent(&self) -> tg::Referent<Id> {
 		let options = tg::referent::Options {
 			location: self.state.location(),
-			tokens: self.state.tokens(),
+			tokens: self.state.referent_tokens(),
 			..tg::referent::Options::default()
 		};
 

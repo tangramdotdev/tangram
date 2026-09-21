@@ -1,6 +1,6 @@
 use ../../../test.nu *
 
-# A spawned process exposes its underlying command through the command getter.
+# A spawned process exposes its inline command data through the command getter.
 
 let server = server spawn
 
@@ -11,7 +11,9 @@ let path = artifact {
 				host: tg.host.current,
 				executable: "echo",
 			}).sandbox();
-			return (await process.command) instanceof tg.Command;
+			const command = await process.command;
+			tg.assert(!(command instanceof tg.Command));
+			return command.host === tg.host.current && typeof command.executable === "object";
 		}
 	'
 }

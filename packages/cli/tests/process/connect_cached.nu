@@ -14,6 +14,6 @@ let path = artifact {
 let process = tg --url $remote.url build --detach $path | str trim
 tg --url $remote.url wait $process | ignore
 let local = server spawn --name local --config { remotes: { default: { url: $remote.url } } }
-let command = tg --url $remote.url process get --no-tokens $process | from json | get command
+let command = tg --url $remote.url process get --no-tokens $process | from json | get command | to json --raw
 let output = node $driver ($local.directory | path join socket) $command none cached local | complete
 success $output "a connection should follow the selected cached process and read its logs"

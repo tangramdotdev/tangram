@@ -1,6 +1,7 @@
 use ../../test.nu *
+use ../lib/command.nu
 
-# Pushing a process whose command is missing locally but present on the remote completes and yields matching processes and metadata, under both eager and lazy push.
+# Pushing a process whose module is missing locally but present on the remote completes and yields matching processes and metadata, under both eager and lazy push.
 
 def test [...args] {
 	# Create a remote server.
@@ -32,16 +33,16 @@ def test [...args] {
 
 	# Get the process data.
 	let process_data = tg --url $source.url get $process_id | from json
-	let command_id = $process_data.command
+	let module_id = (command module-input $process_data.command)
 	let output_id = $process_data.output.value
 
 	# Get the output's children (the blob).
 	let output_children = tg --url $source.url children $output_id | from json
 	let blb_id = $output_children | get 0
 
-	# Get all the command's descendants recursively by manually traversing the tree.
+	# Get all the module's descendants recursively by manually traversing the tree.
 	mut all_descendants = []
-	mut to_visit = [$command_id]
+	mut to_visit = [$module_id]
 	while ($to_visit | length) > 0 {
 		let current = $to_visit | first
 		$to_visit = ($to_visit | skip 1)
@@ -57,10 +58,10 @@ def test [...args] {
 	# Put the process to the local server.
 	tg --url $source.url get $process_id | tg --url $local.url put --id $process_id
 
-	# Put the command to the remote server (intermediate missing locally).
-	tg --url $source.url get --bytes $command_id | tg --url $remote.url put --bytes --kind cmd
+	# Put the module to the remote server (intermediate missing locally).
+	tg --url $source.url get --bytes $module_id | tg --url $remote.url put --bytes --kind fil
 
-	# Put the command's descendants to the remote server.
+	# Put the module's descendants to the remote server.
 	for child_id in $all_descendants {
 		let kind = $child_id | str substring 0..<3
 		tg --url $source.url get --bytes $child_id | tg --url $remote.url put --bytes --kind $kind
@@ -76,8 +77,8 @@ def test [...args] {
 	let log_id = tg --url $source.url get $process_id | from json | get log
 	tg --url $source.url get --bytes $log_id | tg --url $local.url put --bytes --kind blob
 
-	# Confirm the command is not on the local server.
-	let output = tg --url $local.url get $command_id | complete
+	# Confirm the module is not on the local server.
+	let output = tg --url $local.url get $module_id | complete
 	failure $output
 
 	# Confirm the output is not on the remote server.

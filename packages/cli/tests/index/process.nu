@@ -24,8 +24,8 @@ snapshot --name local_metadata $metadata '
 	{
 	  "node": {
 	    "command": {
-	      "count": 3,
-	      "depth": 3,
+	      "count": 2,
+	      "depth": 2,
 	      "solvable": false,
 	      "solved": true
 	    },
@@ -53,8 +53,8 @@ snapshot --name local_metadata $metadata '
 	  },
 	  "subtree": {
 	    "command": {
-	      "count": 3,
-	      "depth": 3,
+	      "count": 2,
+	      "depth": 2,
 	      "solvable": false,
 	      "solved": true
 	    },

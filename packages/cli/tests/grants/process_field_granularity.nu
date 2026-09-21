@@ -1,4 +1,5 @@
 use ../../test.nu *
+use ../lib/command.nu
 
 # A grant on one process field confers only that field, leaving the process node and other fields masked.
 
@@ -38,5 +39,5 @@ let node = tg --url $remote.url --token $eve.token get $parent | complete
 failure $node "the output grant should not confer the process node."
 
 # The command object is a different field, so it stays masked.
-let command = tg --url $remote.url --token $eve.token get $data.command | complete
+let command = tg --url $remote.url --token $eve.token get (command module-input $data.command) | complete
 failure $command "the output grant should not confer the command object."

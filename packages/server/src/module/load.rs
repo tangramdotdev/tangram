@@ -60,6 +60,10 @@ impl Session {
 							.try_unwrap_pointer_ref()
 							.map_err(|_| tg::error!("expected a file"))?;
 						let pointer = tg::graph::Pointer::try_from_data(pointer.clone())?;
+						if let Some(graph) = &pointer.graph {
+							graph.state().set_tokens(options.tokens.clone());
+							graph.state().inherit_location(options.location.as_ref());
+						}
 						Ok::<_, tg::Error>(tg::Artifact::with_pointer(pointer).into())
 					},
 					|object| Ok(tg::Object::with_id(object.clone())),

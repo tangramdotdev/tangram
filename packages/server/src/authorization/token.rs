@@ -124,8 +124,8 @@ impl Session {
 		for token in entry.authorization {
 			tokens.insert_authorization(location.clone(), token);
 		}
-		if let Some(token) = entry.sync {
-			tokens.set_sync(location.clone(), token);
+		for token in entry.sync {
+			tokens.insert_sync(location.clone(), token);
 		}
 		Ok(())
 	}
@@ -191,6 +191,9 @@ impl Session {
 			location,
 			trusted,
 		)?;
+		if let tg::Either::Left(command) = &mut data.command.node {
+			self.update_process_command_referents_for_location(command, location, trusted)?;
+		}
 		if let Some(children) = &mut data.children {
 			for child in children {
 				self.update_tokens_and_location(
@@ -226,6 +229,34 @@ impl Session {
 		}
 		if let Some(output) = &mut data.output {
 			self.update_value_data_referents_for_location(output, location, trusted)?;
+		}
+		Ok(())
+	}
+
+	pub(crate) fn update_process_command_referents_for_location(
+		&self,
+		command: &mut tg::process::data::Command,
+		location: &tg::Location,
+		trusted: bool,
+	) -> tg::Result<()> {
+		self.update_tokens_and_location(
+			&mut command.executable.options.tokens,
+			Some(&mut command.executable.options.location),
+			location,
+			trusted,
+		)?;
+		if let Some(stdin) = &mut command.stdin {
+			self.update_tokens_and_location(
+				&mut stdin.options.tokens,
+				Some(&mut stdin.options.location),
+				location,
+				trusted,
+			)?;
+		}
+		for value in command.args.iter_mut().chain(command.env.values_mut()) {
+			let (tg::command::data::Value::String(value) | tg::command::data::Value::Value(value)) =
+				value;
+			self.update_value_data_referents_for_location(value, location, trusted)?;
 		}
 		Ok(())
 	}

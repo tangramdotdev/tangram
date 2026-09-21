@@ -10,6 +10,10 @@ pub mod put;
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Process {
+	/// The command identity, which need not identify a stored object.
+	#[tangram_serialize(id = 8)]
+	pub command_id: tg::object::Id,
+
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
 	pub data: Option<tg::process::Data>,
 
@@ -59,6 +63,11 @@ pub struct Set {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_false")]
 	pub children: bool,
 
+	/// Whether the complete command object list is set, including an empty list.
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_false")]
+	pub command: bool,
+
 	/// Whether this node's error is set.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
@@ -90,11 +99,12 @@ impl Process {
 impl Set {
 	#[must_use]
 	pub fn complete(&self) -> bool {
-		self.children && self.error && self.log && self.output
+		self.children && self.command && self.error && self.log && self.output
 	}
 
 	pub fn merge(&mut self, other: &Self) {
 		self.children = self.children || other.children;
+		self.command = self.command || other.command;
 		self.error = self.error || other.error;
 		self.log = self.log || other.log;
 		self.output = self.output || other.output;

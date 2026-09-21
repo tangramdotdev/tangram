@@ -564,7 +564,7 @@ export class Printer {
 		return this.map({
 			kind: () => this.value(module.kind),
 			referent: () =>
-				this.referent(module.referent, (node) =>
+				this.referent(tg.Module.toReferent(module), (node) =>
 					typeof node === "string"
 						? this.value(node)
 						: this.graphEdgeObject(node),

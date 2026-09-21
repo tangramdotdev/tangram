@@ -17,6 +17,6 @@ tg tag put test $id
 
 let process = tg spawn test --executable bin/hello | str trim
 let process = tg get $process | from json
-let command = tg get $process.command | str trim
-assert ($command | str contains $'"artifact":($id)') $"expected the tagged directory, got ($command)"
-assert ($command | str contains '"path":"bin/hello"') $"expected the path to be set, got ($command)"
+let executable = $process.command.node.executable.node
+assert equal $executable.artifact $id
+assert equal $executable.path "bin/hello"

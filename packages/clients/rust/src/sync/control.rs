@@ -13,6 +13,9 @@ pub enum ClientMessage {
 	#[tangram_serialize(id = 0)]
 	Ack(ClientAck),
 
+	#[tangram_serialize(id = 2)]
+	Cancel(ClientCancel),
+
 	#[tangram_serialize(id = 1)]
 	Request(ClientRequest),
 }
@@ -43,6 +46,22 @@ pub enum ServerMessage {
 	tangram_serialize::Serialize,
 )]
 pub struct ClientAck {
+	#[tangram_serialize(id = 0)]
+	pub id: String,
+
+	#[tangram_serialize(id = 1)]
+	pub lease: String,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ClientCancel {
 	#[tangram_serialize(id = 0)]
 	pub id: String,
 

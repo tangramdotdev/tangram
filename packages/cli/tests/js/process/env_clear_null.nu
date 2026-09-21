@@ -13,7 +13,7 @@ let path = artifact {
 				env: { FOO: "bar" },
 			});
 			let cleared = await tg.spawn(base, { env: null }).sandbox();
-			let env = (await (await cleared.command).object()).env;
+			let env = await cleared.env();
 			return Object.keys(env).length === 0;
 		}
 	'

@@ -54,9 +54,22 @@ impl Module {
 	}
 
 	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<Source> {
+		let mut referent = self.referent.clone();
+		for child in self.children() {
+			let options = child.to_referent().options;
+			referent.options.tokens.inherit(&options.tokens);
+			if referent.options.location.is_none() {
+				referent.options.location = options.location;
+			}
+		}
+		referent
+	}
+
+	#[must_use]
 	pub fn to_data(&self) -> Data {
 		let kind = self.kind;
-		let referent = self.referent.clone().map(|source| match source {
+		let referent = self.to_referent().map(|source| match source {
 			Source::Edge(edge) => tg::module::data::Source::Edge(edge.to_data()),
 			Source::Path(path) => tg::module::data::Source::Path(path),
 		});

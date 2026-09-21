@@ -14,8 +14,8 @@ let path = artifact {
 			});
 			let viaObject = await tg.spawn(base, { cwd: null }).sandbox();
 			let viaFluent = await tg.spawn(base).cwd(null).sandbox();
-			let objectCwd = await (await viaObject.command).cwd;
-			let fluentCwd = await (await viaFluent.command).cwd;
+			let objectCwd = await viaObject.cwd;
+			let fluentCwd = await viaFluent.cwd;
 			return objectCwd === null && fluentCwd === null;
 		}
 	'

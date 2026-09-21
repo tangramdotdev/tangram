@@ -1625,7 +1625,13 @@ impl Tree {
 		}
 
 		let command = process.command_with_handle(client).await?;
-		let value = tg::Value::Object(command.clone().into());
+		let value = match &command {
+			tg::Either::Left(command) => tg::Value::from(
+				serde_json::to_value(command)
+					.map_err(|error| tg::error!(!error, "failed to serialize the command"))?,
+			),
+			tg::Either::Right(command) => tg::Value::Object(command.clone().into()),
+		};
 		let metadata = get_process_metadata_as_value(client, &process).await?;
 		update_sender
 			.send({
@@ -1688,13 +1694,16 @@ impl Tree {
 		// Create the children stream.
 		let options = tg::process::children::get::Options::default();
 		let mut children = process.children_with_handle(client, options).await?;
+		let command = process.load_with_handle(client).await?.command.clone();
 		let referent_module = command
-			.object_with_handle(client)
+			.resolve_with_handle(client)
 			.await
 			.ok()
 			.and_then(|object| {
 				object.args.iter().find_map(|arg| match arg {
-					tg::command::Value::Value(tg::Value::Module(module)) => Some(module.to_data()),
+					tg::command::data::Value::Value(tg::value::Data::Module(module)) => {
+						Some(module.clone())
+					},
 					_ => None,
 				})
 			});
@@ -1702,15 +1711,16 @@ impl Tree {
 		while let Some(child) = children.try_next().await? {
 			let mut child = tg::Referent::new(child.process, child.options);
 
-			let child_module = match child.node.command_with_handle(client).await {
-				Ok(command) => command
-					.object_with_handle(client)
+			let child_module = match child.node.load_with_handle(client).await {
+				Ok(state) => state
+					.command
+					.resolve_with_handle(client)
 					.await
 					.ok()
 					.and_then(|object| {
 						object.args.iter().find_map(|arg| match arg {
-							tg::command::Value::Value(tg::Value::Module(module)) => {
-								Some(module.to_data())
+							tg::command::data::Value::Value(tg::value::Data::Module(module)) => {
+								Some(module.clone())
 							},
 							_ => None,
 						})
@@ -2384,14 +2394,16 @@ impl Tree {
 		}
 
 		// Get the original commands' executable.
-		let command = process.node.command_with_handle(client).await.ok()?.clone();
-		let object = command.object_with_handle(client).await.ok()?;
-		let executable = &object.executable;
+		let state = process.node.load_with_handle(client).await.ok()?;
+		let object = state.command.resolve_with_handle(client).await.ok()?;
+		let executable = &object.executable.node;
 
 		// Get the module.
 		let module = object.args.iter().find_map(|arg| match arg {
-			tg::command::Value::String(tg::Value::Module(module))
-			| tg::command::Value::Value(tg::Value::Module(module)) => Some(module),
+			tg::command::data::Value::String(tg::value::Data::Module(module))
+			| tg::command::data::Value::Value(tg::value::Data::Module(module)) => {
+				tg::Module::try_from_data(module.clone()).ok()
+			},
 			_ => None,
 		});
 
@@ -2410,10 +2422,12 @@ impl Tree {
 			(None, Some(tag)) => tag.to_string(),
 			_ => {
 				if let Some(object) = module
+					.as_ref()
 					.and_then(|module| module.children().into_iter().next())
-					.or_else(|| executable.objects().into_iter().next())
+					.map(|object| object.id())
+					.or_else(|| executable.artifact.clone().map(Into::into))
 				{
-					object.id().to_string()
+					object.to_string()
 				} else {
 					String::new()
 				}
@@ -2429,8 +2443,8 @@ impl Tree {
 		if module.is_some()
 			&& let Some(export) = object.args.windows(2).find_map(|args| match args {
 				[
-					tg::command::Value::String(tg::Value::String(option)),
-					tg::command::Value::String(tg::Value::String(export)),
+					tg::command::data::Value::String(tg::value::Data::String(option)),
+					tg::command::data::Value::String(tg::value::Data::String(export)),
 				] if option == "--export" => Some(export),
 				_ => None,
 			}) {

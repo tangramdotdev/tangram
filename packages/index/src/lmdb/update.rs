@@ -53,7 +53,7 @@ struct ProcessGrantInputs<'a> {
 	resource: &'a tg::Id,
 	entries: &'a [crate::lmdb::grant::GrantEntry],
 	child_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
-	command_object_entries: Option<&'a [crate::lmdb::grant::GrantEntry]>,
+	command_object_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
 	error_object_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
 	log_object_entries: Option<&'a [crate::lmdb::grant::GrantEntry]>,
 	output_object_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
@@ -62,6 +62,7 @@ struct ProcessGrantInputs<'a> {
 
 #[derive(Clone, Copy)]
 struct ProcessGrantSet {
+	command: bool,
 	error: bool,
 	output: bool,
 }
@@ -772,12 +773,17 @@ impl Index {
 
 		let mut expected = BTreeSet::new();
 
-		if let Some(command_object_entries) = input.command_object_entries {
+		if input.set.command {
+			let command_object_entries = input
+				.command_object_entries
+				.iter()
+				.map(Vec::as_slice)
+				.collect::<Vec<_>>();
 			Self::insert_object_aspect_grants(
 				&mut expected,
 				input.entries,
-				command_object_entries,
-				&[command_object_entries],
+				command_object_entries.iter().flat_map(|entries| *entries),
+				&command_object_entries,
 				object_subtree,
 				node_command,
 			);
@@ -1005,7 +1011,7 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 		let objects = Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
-		let mut command_object_entries: Option<Vec<crate::lmdb::grant::GrantEntry>> = None;
+		let mut command_object_entries: Vec<Vec<crate::lmdb::grant::GrantEntry>> = Vec::new();
 		let mut error_object_entries: Vec<Vec<crate::lmdb::grant::GrantEntry>> = Vec::new();
 		let mut log_object_entries: Option<Vec<crate::lmdb::grant::GrantEntry>> = None;
 		let mut output_object_entries: Vec<Vec<crate::lmdb::grant::GrantEntry>> = Vec::new();
@@ -1020,7 +1026,7 @@ impl Index {
 			)?;
 			match kind {
 				crate::process::object::Kind::Command => {
-					command_object_entries = Some(entries);
+					command_object_entries.push(entries);
 				},
 				crate::process::object::Kind::Error => {
 					error_object_entries.push(entries);
@@ -1037,11 +1043,12 @@ impl Index {
 			resource: &resource,
 			entries: &entries,
 			child_entries: &child_entries,
-			command_object_entries: command_object_entries.as_deref(),
+			command_object_entries: &command_object_entries,
 			error_object_entries: &error_object_entries,
 			log_object_entries: log_object_entries.as_deref(),
 			output_object_entries: &output_object_entries,
 			set: ProcessGrantSet {
+				command: process.set.command,
 				error: process.set.error,
 				output: process.set.output,
 			},
@@ -1077,7 +1084,7 @@ impl Index {
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		let objects = Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
-		let mut command_object: Option<crate::object::Object> = None;
+		let mut command_objects: Vec<Option<crate::object::Object>> = Vec::new();
 		let mut error_objects: Vec<Option<crate::object::Object>> = Vec::new();
 		let mut log_object: Option<Option<crate::object::Object>> = None;
 		let mut output_objects: Vec<Option<crate::object::Object>> = Vec::new();
@@ -1085,7 +1092,7 @@ impl Index {
 			let object = Self::try_get_object_with_transaction(db, subspace, transaction, id)?;
 			match kind {
 				crate::process::object::Kind::Command => {
-					command_object = object;
+					command_objects.push(object);
 				},
 				crate::process::object::Kind::Error => {
 					error_objects.push(object);
@@ -1133,36 +1140,80 @@ impl Index {
 					.is_some_and(|data| !data.status.is_finished())
 		});
 
-		if let Some(object) = &command_object {
-			if process.metadata.node.command.count.is_none()
-				&& let Some(value) = object.metadata.subtree.count
-			{
-				process.metadata.node.command.count = Some(value);
-				changed = true;
+		if process.set.command {
+			if process.metadata.node.command.count.is_none() {
+				let value = command_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.count)
+					})
+					.sum::<Option<u64>>();
+				if let Some(value) = value {
+					process.metadata.node.command.count = Some(value);
+					changed = true;
+				}
 			}
-			if process.metadata.node.command.depth.is_none()
-				&& let Some(value) = object.metadata.subtree.depth
-			{
-				process.metadata.node.command.depth = Some(value);
-				changed = true;
+
+			if process.metadata.node.command.depth.is_none() {
+				let value = command_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.depth)
+					})
+					.try_fold(0u64, |command, value| value.map(|value| command.max(value)));
+				if let Some(value) = value {
+					process.metadata.node.command.depth = Some(value);
+					changed = true;
+				}
 			}
-			if process.metadata.node.command.size.is_none()
-				&& let Some(value) = object.metadata.subtree.size
-			{
-				process.metadata.node.command.size = Some(value);
-				changed = true;
+
+			if process.metadata.node.command.size.is_none() {
+				let value = command_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.size)
+					})
+					.sum::<Option<u64>>();
+				if let Some(value) = value {
+					process.metadata.node.command.size = Some(value);
+					changed = true;
+				}
 			}
-			if process.metadata.node.command.solvable.is_none()
-				&& let Some(value) = object.metadata.subtree.solvable
-			{
-				process.metadata.node.command.solvable = Some(value);
-				changed = true;
+
+			if process.metadata.node.command.solvable.is_none() {
+				let value = command_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.solvable)
+					})
+					.try_fold(false, |command, value| value.map(|value| command || value));
+				if let Some(value) = value {
+					process.metadata.node.command.solvable = Some(value);
+					changed = true;
+				}
 			}
-			if process.metadata.node.command.solved.is_none()
-				&& let Some(value) = object.metadata.subtree.solved
-			{
-				process.metadata.node.command.solved = Some(value);
-				changed = true;
+
+			if process.metadata.node.command.solved.is_none() {
+				let value = command_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.solved)
+					})
+					.try_fold(true, |command, value| value.map(|value| command && value));
+				if let Some(value) = value {
+					process.metadata.node.command.solved = Some(value);
+					changed = true;
+				}
 			}
 		}
 
@@ -1734,12 +1785,14 @@ impl Index {
 			}
 		}
 
-		if let Some(object) = &command_object
-			&& !process.storage.node_command
-			&& object.storage.subtree
-		{
-			process.storage.node_command = true;
-			changed = true;
+		if process.set.command && !process.storage.node_command {
+			let value = command_objects
+				.iter()
+				.all(|option| option.as_ref().is_some_and(|object| object.storage.subtree));
+			if value {
+				process.storage.node_command = true;
+				changed = true;
+			}
 		}
 
 		if process.set.error && !process.storage.node_error {

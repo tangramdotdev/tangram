@@ -24,7 +24,7 @@ let path = artifact {
 				});
 				tg.client.getProcess = async () => ({
 					data: {
-						command: commandId,
+						command: { node: commandId },
 						created_at: 0,
 						host: "test",
 						sandbox: sandboxId,

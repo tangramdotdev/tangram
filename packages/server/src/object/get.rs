@@ -1,8 +1,8 @@
 use {
-	crate::{Server, Session, sync::Graph},
+	crate::{Server, Session},
 	bytes::Bytes,
 	futures::{
-		StreamExt as _, future,
+		FutureExt as _, StreamExt as _, future,
 		stream::{FuturesOrdered, FuturesUnordered, TryStreamExt as _},
 	},
 	num::ToPrimitive as _,
@@ -10,7 +10,6 @@ use {
 		collections::{BTreeMap, BTreeSet},
 		io::{Read as _, Seek as _},
 		path::PathBuf,
-		sync::{Arc, Mutex},
 	},
 	tangram_archive::Archive as _,
 	tangram_cache::prelude::*,
@@ -68,8 +67,21 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			if local.current {
+		if locations.local.as_ref().is_some_and(|local| local.current)
+			&& let Some(output) = self
+				.try_get_object_local(
+					id,
+					arg.metadata,
+					arg.availability,
+					arg.tokens.local_authorization(),
+				)
+				.await?
+		{
+			return Ok(Some(output));
+		}
+
+		let local_future = async {
+			if locations.local.as_ref().is_some_and(|local| local.current) {
 				// Wait for the object and the authorization proven by its incoming sync.
 				let tokens = &arg.tokens;
 				if let Some(output) = self
@@ -112,38 +124,60 @@ impl Session {
 					return Ok(Some(output));
 				}
 			}
-
+			Ok::<_, tg::Error>(None)
+		};
+		let region_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(output) = self
+					.try_get_object_regions(
+						id,
+						&local.regions,
+						arg.metadata,
+						arg.availability,
+						&arg.tokens,
+					)
+					.await
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to get the object from another region"),
+					)? {
+				return Ok(Some(output));
+			}
+			Ok(None)
+		};
+		let remote_future = async {
 			if let Some(output) = self
-				.try_get_object_regions(
+				.try_get_object_remotes(
 					id,
-					&local.regions,
+					&locations.remotes,
 					arg.metadata,
 					arg.availability,
 					&arg.tokens,
 				)
 				.await
 				.map_err(
-					|error| tg::error!(!error, %id, "failed to get the object from another region"),
+					|error| tg::error!(!error, %id, "failed to get the object from a remote"),
 				)? {
 				return Ok(Some(output));
 			}
-		}
 
-		if let Some(output) = self
-			.try_get_object_remotes(
-				id,
-				&locations.remotes,
-				arg.metadata,
-				arg.availability,
-				&arg.tokens,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the object from a remote"))?
-		{
-			return Ok(Some(output));
+			Ok(None)
+		};
+		let mut futures = [
+			local_future.boxed(),
+			region_future.boxed(),
+			remote_future.boxed(),
+		]
+		.into_iter()
+		.collect::<FuturesUnordered<_>>();
+		let mut error = None;
+		while let Some(result) = futures.next().await {
+			match result {
+				Ok(Some(output)) => return Ok(Some(output)),
+				Ok(None) => {},
+				Err(source) => error = Some(source),
+			}
 		}
-
-		Ok(None)
+		error.map_or(Ok(None), Err)
 	}
 
 	async fn try_get_object_local_with_control(
@@ -309,90 +343,6 @@ impl Session {
 		Ok(())
 	}
 
-	pub(crate) async fn try_get_object_batch_local_or_regions(
-		&self,
-		graph: &Arc<Mutex<Graph>>,
-		objects: &[tg::Referent<tg::object::Id>],
-		permissions: &[tg::authorization::permission::Set],
-		metadata: bool,
-	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
-		let outputs = self
-			.try_get_object_batch_local(objects, permissions, metadata)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the objects locally"))?;
-		let location: tg::location::Arg =
-			tg::Location::Local(tg::location::Local::default()).into();
-		let locations = self
-			.locations(Some(&location))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-		let outputs = std::iter::zip(std::iter::zip(objects, permissions), outputs)
-			.map(|((object, permissions), output)| {
-				let regions = regions.clone();
-				async move {
-					if let Some(output) = output {
-						return Ok(Some(output));
-					}
-
-					// Retry a miss while a sync token identifies an incoming sync.
-					let tokens = &object.options.tokens;
-					if self.has_verified_sync_token(tokens)
-						&& let Some(output) = self
-							.try_get_with_sync_wait(
-								tokens,
-								tg::sync::control::ClientRequestArg::object(object.node.clone()),
-								|control| {
-									let object = object.clone();
-									let mut permissions = *permissions;
-									if let Some(control) = &control {
-										permissions.insert(control.permissions());
-									}
-									async move {
-										if let Some(control) = control {
-											graph
-												.lock()
-												.unwrap()
-												.update_node_local_control_output(
-													&object.node.clone().into(),
-													&control,
-												)?;
-										}
-										let objects = std::slice::from_ref(&object);
-										let permissions = std::slice::from_ref(&permissions);
-										let mut outputs = self
-											.try_get_object_batch_local(
-												objects,
-												permissions,
-												metadata,
-											)
-											.await?;
-										Ok(outputs.pop().flatten())
-									}
-								},
-							)
-							.await?
-					{
-						return Ok(Some(output));
-					}
-
-					self.try_get_object_regions(
-						&object.node,
-						&regions,
-						metadata,
-						false,
-						&object.options.tokens,
-					)
-					.await
-				}
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
-
-		Ok(outputs)
-	}
-
 	pub(crate) async fn try_get_object_batch_local(
 		&self,
 		objects: &[tg::Referent<tg::object::Id>],
@@ -437,7 +387,7 @@ impl Session {
 		Ok(outputs)
 	}
 
-	async fn try_get_object_regions(
+	pub(crate) async fn try_get_object_regions(
 		&self,
 		id: &tg::object::Id,
 		regions: &[String],

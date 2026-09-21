@@ -4,13 +4,11 @@ use ../../../test.nu *
 
 let server = server spawn
 
-# Build a process so we can reference its command, which is a non-artifact object.
+# Build a command object, which is not an artifact.
 let path = artifact {
-	tangram.ts: 'export default function () { return "hello"; }'
+	tangram.ts: 'export const hello = () => "hello"; export default () => tg.command(hello);'
 }
-let process = tg build --detach $path | str trim
-tg wait $process
-let command = tg get $process | from json | get command
+let command = tg build $path | from json
 
 let output = tg checkout $command | complete
 failure $output

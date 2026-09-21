@@ -37,7 +37,15 @@ snapshot ($json | to json --indent 2) '
 	              "referent": {
 	                "node": "fil_01c3d141vk7v44j4krd8800sc11z2ddfyr4x7xp8z8r778r4rb4qr0",
 	                "options": {
-	                  "path": "tangram.ts"
+	                  "path": "tangram.ts",
+	                  "tokens": {
+	                    "local": {
+	                      "authorization": [
+	                        "<token>",
+	                        "<token>"
+	                      ]
+	                    }
+	                  }
 	                }
 	              }
 	            },
@@ -63,7 +71,15 @@ snapshot ($json | to json --indent 2) '
 	                      "referent": {
 	                        "node": "fil_01c3d141vk7v44j4krd8800sc11z2ddfyr4x7xp8z8r778r4rb4qr0",
 	                        "options": {
-	                          "path": "tangram.ts"
+	                          "path": "tangram.ts",
+	                          "tokens": {
+	                            "local": {
+	                              "authorization": [
+	                                "<token>",
+	                                "<token>"
+	                              ]
+	                            }
+	                          }
 	                        }
 	                      }
 	                    },

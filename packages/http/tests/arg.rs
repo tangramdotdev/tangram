@@ -6,6 +6,24 @@ use {
 };
 
 #[tokio::test]
+async fn deeply_nested_args_use_the_body() {
+	let mut arg = serde_json::json!("input");
+	for _ in 0..8 {
+		arg = serde_json::json!({"node": arg});
+	}
+	let request = http::Request::builder()
+		.uri("/processes/control")
+		.arg(&arg, body::Bytes::new("payload"))
+		.unwrap()
+		.unwrap();
+	assert!(request.headers().contains_key(body::arg::HEADER));
+	assert!(request.uri().query().is_none());
+	let (output, request) = request.arg::<serde_json::Value>().await.unwrap();
+	assert_eq!(output, Some(arg));
+	assert_eq!(request.bytes().await.unwrap(), "payload");
+}
+
+#[tokio::test]
 async fn small_args_use_the_query_string() {
 	let arg = BTreeMap::from([("tokens".to_owned(), vec!["proof".to_owned()])]);
 	let request = http::Request::builder()

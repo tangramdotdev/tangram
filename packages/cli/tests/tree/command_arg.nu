@@ -25,11 +25,127 @@ let tree = tg view --mode inline --expand-processes $process | ansi strip
 snapshot --normalize-ids $tree '
 	✓ fil_010000000000000000000000000000000000000000000000000000#default
 	├╴output: "hello"
-	├╴command: cmd_010000000000000000000000000000000000000000000000000000
+	├╴command: map
+	│ ├╴args: array
+	│ │ ├╴map
+	│ │ │ ├╴kind: "string"
+	│ │ │ └╴value: "js"
+	│ │ ├╴map
+	│ │ │ ├╴kind: "string"
+	│ │ │ └╴value: "--export"
+	│ │ ├╴map
+	│ │ │ ├╴kind: "string"
+	│ │ │ └╴value: "default"
+	│ │ └╴map
+	│ │   ├╴kind: "value"
+	│ │   └╴value: map
+	│ │     ├╴kind: "module"
+	│ │     └╴value: map
+	│ │       ├╴kind: "ts"
+	│ │       └╴referent: map
+	│ │         ├╴node: "fil_010000000000000000000000000000000000000000000000000000"
+	│ │         └╴options: map
+	│ │           ├╴location: "local"
+	│ │           └╴tokens: map
+	│ │             └╴local: map
+	│ │               └╴authorization: array
+	│ │                 └╴"<token>"
+	│ ├╴executable: map
+	│ │ ├╴node: map
+	│ │ │ └╴path: "tg"
+	│ │ └╴options: map
+	│ │   ├╴location: "local"
+	│ │   └╴tokens: map
+	│ │     └╴local: map
+	│ │       └╴authorization: array
+	│ │         └╴"<token>"
+	│ └╴host: "x86_64-linux"
 	└╴✓ a.tg.ts#run
 	  ├╴output: "hello"
-	  ├╴command: cmd_011111111111111111111111111111111111111111111111111111
+	  ├╴command: map
+	  │ ├╴args: array
+	  │ │ ├╴map
+	  │ │ │ ├╴kind: "string"
+	  │ │ │ └╴value: "js"
+	  │ │ ├╴map
+	  │ │ │ ├╴kind: "string"
+	  │ │ │ └╴value: "--export"
+	  │ │ ├╴map
+	  │ │ │ ├╴kind: "string"
+	  │ │ │ └╴value: "run"
+	  │ │ ├╴map
+	  │ │ │ ├╴kind: "value"
+	  │ │ │ └╴value: map
+	  │ │ │   ├╴kind: "module"
+	  │ │ │   └╴value: map
+	  │ │ │     ├╴kind: "ts"
+	  │ │ │     └╴referent: map
+	  │ │ │       ├╴node: "fil_011111111111111111111111111111111111111111111111111111"
+	  │ │ │       └╴options: map
+	  │ │ │         ├╴location: "local"
+	  │ │ │         └╴tokens: map
+	  │ │ │           └╴local: map
+	  │ │ │             └╴authorization: array
+	  │ │ │               ├╴"<token>"
+	  │ │ │               └╴"<token>"
+	  │ │ ├╴map
+	  │ │ │ ├╴kind: "string"
+	  │ │ │ └╴value: "-A"
+	  │ │ └╴map
+	  │ │   ├╴kind: "value"
+	  │ │   └╴value: map
+	  │ │     ├╴kind: "object"
+	  │ │     └╴value: "cmd_010000000000000000000000000000000000000000000000000000?location=local&tokens[local][authorization][0]=<token>&tokens[local][authorization][1]=<token>"
+	  │ ├╴executable: map
+	  │ │ ├╴node: map
+	  │ │ │ └╴path: "tg"
+	  │ │ └╴options: map
+	  │ │   ├╴location: "local"
+	  │ │   └╴tokens: map
+	  │ │     └╴local: map
+	  │ │       └╴authorization: array
+	  │ │         ├╴"<token>"
+	  │ │         └╴"<token>"
+	  │ └╴host: "x86_64-linux"
 	  └╴✓ fil_010000000000000000000000000000000000000000000000000000#target
 	    ├╴output: "hello"
-	    └╴command: cmd_012222222222222222222222222222222222222222222222222222
+	    └╴command: map
+	      ├╴args: array
+	      │ ├╴map
+	      │ │ ├╴kind: "string"
+	      │ │ └╴value: "js"
+	      │ ├╴map
+	      │ │ ├╴kind: "string"
+	      │ │ └╴value: "--export"
+	      │ ├╴map
+	      │ │ ├╴kind: "string"
+	      │ │ └╴value: "target"
+	      │ └╴map
+	      │   ├╴kind: "value"
+	      │   └╴value: map
+	      │     ├╴kind: "module"
+	      │     └╴value: map
+	      │       ├╴kind: "ts"
+	      │       └╴referent: map
+	      │         ├╴node: "fil_010000000000000000000000000000000000000000000000000000"
+	      │         └╴options: map
+	      │           ├╴location: "local"
+	      │           └╴tokens: map
+	      │             └╴local: map
+	      │               └╴authorization: array
+	      │                 ├╴"<token>"
+	      │                 ├╴"<token>"
+	      │                 └╴"<token>"
+	      ├╴executable: map
+	      │ ├╴node: map
+	      │ │ └╴path: "tg"
+	      │ └╴options: map
+	      │   ├╴location: "local"
+	      │   └╴tokens: map
+	      │     └╴local: map
+	      │       └╴authorization: array
+	      │         ├╴"<token>"
+	      │         ├╴"<token>"
+	      │         └╴"<token>"
+	      └╴host: "x86_64-linux"
 '

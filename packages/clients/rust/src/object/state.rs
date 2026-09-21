@@ -249,6 +249,24 @@ impl State {
 	}
 
 	#[must_use]
+	pub fn referent_tokens(&self) -> tg::Tokens {
+		// Collect only loaded handles, without retaining descendant tokens on their ancestors.
+		let mut tokens = self.tokens();
+		let mut visited = BTreeSet::new();
+		let mut stack = vec![self.clone()];
+		while let Some(state) = stack.pop() {
+			if !visited.insert(state.identity()) {
+				continue;
+			}
+			tokens.inherit(&state.tokens());
+			if let Some(object) = state.object() {
+				stack.extend(object.children().into_iter().map(|child| child.state()));
+			}
+		}
+		tokens
+	}
+
+	#[must_use]
 	pub fn location(&self) -> Option<tg::Location> {
 		self.0.read().unwrap().location.clone()
 	}

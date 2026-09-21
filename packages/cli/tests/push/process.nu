@@ -1,4 +1,5 @@
 use ../../test.nu *
+use ../lib/command.nu
 
 # Provides the shared helper that builds a module, pushes the resulting process to a remote, and verifies that the process and any selected commands, children, and outputs are present and identical on the remote. The behavior is exercised by the importing tests under various flag combinations.
 
@@ -22,7 +23,7 @@ export def test [path: string, ...args] {
 	tg index
 
 	let output = tg get $process_id | from json
-	let command = $output.command
+	let command = (command module-input $output.command)
 	let children = $output.children
 
 	# Push the process.
@@ -47,7 +48,7 @@ export def test [path: string, ...args] {
 
 	# Confirm commands are present if --commmands.
 	if "--process-commands" in $args {
-		tg --url $remote.url get $output.command --no-tokens --pretty
+		tg --url $remote.url get (command module-input $output.command) --no-tokens --pretty
 	}
 
 	# Confirm children are present if --process-children.
@@ -61,7 +62,7 @@ export def test [path: string, ...args] {
 	if "--process-commands" in $args and "--process-children" in $args {
 		for child in $children {
 			let output = tg --url $remote.url get $child.process | from json
-			tg --url $remote.url get $output.command --no-tokens --pretty
+			tg --url $remote.url get (command module-input $output.command) --no-tokens --pretty
 		}
 	}
 

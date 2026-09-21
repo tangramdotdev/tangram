@@ -10,7 +10,8 @@ async fn process_location_survives_partial_and_finished_updates() {
 		let mut process = crate::process::put::Arg {
 			cached: false,
 			children: None,
-			command: command.clone().into(),
+			command: Some(vec![command.clone().into()]),
+			command_id: command.clone().into(),
 			data: None,
 			error: None,
 			id: id.clone(),
@@ -44,7 +45,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 		process.location = None;
 		process.data = Some(
 			serde_json::from_value(serde_json::json!({
-				"command": command,
+				"command": {"node": command},
 				"created_at": 1,
 				"finished_at": 2,
 				"host": "builtin",

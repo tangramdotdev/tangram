@@ -41,6 +41,7 @@ let path = artifact {
 				host: tg.host.current,
 			});
 			await command.store();
+			a.state.tokens = {};
 			module.referent.options ??= {};
 			module.referent.options.tokens = command.state.tokens;
 			return {

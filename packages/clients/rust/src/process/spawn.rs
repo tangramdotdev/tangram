@@ -40,6 +40,7 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub checksum: Option<tg::Checksum>,
 
+	#[serde_as(as = "tg::referent::Either")]
 	#[tangram_serialize(id = 3)]
 	pub command: tg::Referent<tg::Either<CommandArg, tg::command::Id>>,
 
@@ -698,24 +699,18 @@ impl<O: 'static> tg::Process<O> {
 					.host
 					.clone()
 					.unwrap_or_else(|| tg::host::current().to_owned());
-				let builder = tg::command::Builder::try_with_spawn_arg(command.clone())
-					.map_err(|error| tg::error!(!error, "failed to create the command"))?;
-				let command = builder
-					.host(host)
-					.build()
-					.map_err(|error| tg::error!(!error, "failed to create the command"))?;
+				let mut command = tg::process::data::Command::new(command.clone(), host);
+				command.inherit_location_and_tokens(&arg.command.options);
 				command
-					.object_with_handle(handle)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to load the command"))?
 			},
 			tg::Either::Right(id) => {
 				let referent = tg::Referent::new(id.clone(), arg.command.options.clone());
 				let command = tg::Command::with_referent(referent);
-				command
-					.object_with_handle(handle)
+				let data = command
+					.data_with_handle(handle)
 					.await
-					.map_err(|error| tg::error!(!error, "failed to load the command"))?
+					.map_err(|error| tg::error!(!error, "failed to load the command"))?;
+				tg::process::data::Command::with_command_data(data, &command.to_referent().options)
 			},
 		};
 		if command.stdin.is_some() {
@@ -735,8 +730,7 @@ impl<O: 'static> tg::Process<O> {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create a temp directory"))?;
 		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
-		let artifacts = checkout_artifacts(handle, &command, &arg.command.options).await?;
-		let command = command.to_data();
+		let artifacts = checkout_artifacts(handle, &command).await?;
 		let mut env = render_env(handle, &command.env, &artifacts, &output_path)?;
 		let engine = std::env::var("TANGRAM_JS_ENGINE").unwrap_or_else(|_| "auto".to_owned());
 		env.insert("TANGRAM_JS_ENGINE".to_owned(), engine);
@@ -1003,23 +997,17 @@ impl tg::Session {
 
 async fn checkout_artifacts<H>(
 	handle: &H,
-	command: &tg::command::Object,
-	options: &tg::referent::Options,
+	command: &tg::process::data::Command,
 ) -> tg::Result<BTreeMap<tg::artifact::Id, PathBuf>>
 where
 	H: tg::Handle,
 {
 	let mut artifacts: BTreeMap<tg::artifact::Id, tg::Referent<tg::Id>> = BTreeMap::new();
-	for object in command.children() {
-		let id = object.id();
-		let Ok(artifact) = id.clone().try_into() else {
+	for object in command.objects() {
+		let Ok(artifact) = object.node.clone().try_into() else {
 			continue;
 		};
-		let mut referent = object.to_referent().map(Into::into);
-		referent.options.tokens.inherit(&options.tokens);
-		if referent.options.location.is_none() {
-			referent.options.location.clone_from(&options.location);
-		}
+		let referent = object.map(Into::into);
 		artifacts
 			.entry(artifact)
 			.and_modify(|existing| {
@@ -1058,7 +1046,7 @@ where
 }
 
 fn render_command(
-	command: &tg::command::Data,
+	command: &tg::process::data::Command,
 	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
 	output_path: &Path,
 ) -> tg::Result<(PathBuf, Vec<String>)> {
@@ -1068,19 +1056,19 @@ fn render_command(
 }
 
 fn render_executable(
-	command: &tg::command::Data,
+	command: &tg::process::data::Command,
 	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
 ) -> tg::Result<PathBuf> {
-	if let Some(artifact) = &command.executable.artifact {
+	if let Some(artifact) = &command.executable.node.artifact {
 		let mut path = artifacts
 			.get(artifact)
 			.cloned()
 			.ok_or_else(|| tg::error!("failed to find the executable artifact path"))?;
-		if let Some(executable_path) = &command.executable.path {
+		if let Some(executable_path) = &command.executable.node.path {
 			path.push(executable_path);
 		}
 		Ok(path)
-	} else if let Some(path) = &command.executable.path {
+	} else if let Some(path) = &command.executable.node.path {
 		Ok(path.clone())
 	} else {
 		Err(tg::error!("invalid executable"))

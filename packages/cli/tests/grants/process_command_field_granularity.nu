@@ -1,4 +1,5 @@
 use ../../test.nu *
+use ../lib/command.nu
 
 # A grant on the process command field confers only the command object, leaving the process node and other fields masked.
 
@@ -18,7 +19,7 @@ let data = tg --token $alice.token get $parent | from json
 tg --token $alice.token grant $eve.user.id process_subtree_command $parent | ignore
 
 # Eve can read the command object the grant covers.
-let command = tg --token $eve.token get $data.command | complete
+let command = tg --token $eve.token get (command module-input $data.command) | complete
 success $command "Eve should read the granted command object."
 
 # The process node is not covered by the command grant, so it stays masked.

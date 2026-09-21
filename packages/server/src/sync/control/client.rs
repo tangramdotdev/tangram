@@ -1,9 +1,11 @@
 use {
-	super::{ClientMessage, ServerMessage, client_subject, lease_subject, subject},
+	super::{
+		ClientMessage, ServerMessage, client_subject, heartbeat_subject, lease_subject, subject,
+	},
 	crate::{Server, Session},
 	futures::TryStreamExt as _,
 	std::{
-		collections::BTreeMap,
+		collections::{BTreeMap, BTreeSet},
 		sync::{Arc, Mutex},
 	},
 	tangram_client::{prelude::*, sync::control as protocol},
@@ -29,7 +31,7 @@ pub(crate) struct Request {
 
 #[derive(Clone)]
 pub(crate) enum Output {
-	Pending { acknowledged: bool },
+	Pending,
 	Ready(tg::Result<protocol::GetServerResponseOutput>),
 }
 
@@ -58,9 +60,17 @@ struct Lease {
 struct Pending {
 	acknowledged: bool,
 	arg: protocol::ClientRequestArg,
+	cancellation: Cancellation,
 	deadline: Option<Instant>,
 	retry_at: Instant,
 	sender: tokio::sync::watch::Sender<Output>,
+}
+
+struct Cancellation {
+	id: String,
+	leases: BTreeSet<String>,
+	server: Server,
+	subject: String,
 }
 
 enum Command {
@@ -121,9 +131,7 @@ impl Client {
 			}
 		};
 		let id = crate::control::id();
-		let (sender, receiver) = tokio::sync::watch::channel(Output::Pending {
-			acknowledged: false,
-		});
+		let (sender, receiver) = tokio::sync::watch::channel(Output::Pending);
 		let command = Command::Request {
 			arg,
 			id: id.clone(),
@@ -151,6 +159,33 @@ impl Request {
 impl Drop for Request {
 	fn drop(&mut self) {
 		self.peer.sender.send(Command::Cancel(self.id.clone())).ok();
+	}
+}
+
+impl Drop for Cancellation {
+	fn drop(&mut self) {
+		if self.leases.is_empty() {
+			return;
+		}
+		let id = self.id.clone();
+		let leases = std::mem::take(&mut self.leases);
+		let server = self.server.clone();
+		let subject = self.subject.clone();
+		tokio::spawn(async move {
+			for lease in leases {
+				let destination = lease_subject(&subject, &lease);
+				let cancel = protocol::ClientCancel {
+					id: id.clone(),
+					lease,
+				};
+				server
+					.sync_control_client_publish(
+						destination,
+						protocol::ClientMessage::Cancel(cancel),
+					)
+					.await;
+			}
+		});
 	}
 }
 
@@ -204,14 +239,24 @@ impl Server {
 							state.requests.remove(&id);
 						},
 						Some(Command::Request { arg, id, sender }) => {
+							let cancellation = Cancellation {
+								id: id.clone(),
+								leases: BTreeSet::new(),
+								server: self.clone(),
+								subject: state.subject.clone(),
+							};
 							let request = Pending {
 								acknowledged: false,
 								arg,
+								cancellation,
 								deadline: Some(Instant::now() + config.request_timeout),
 								retry_at: Instant::now(),
 								sender,
 							};
 							state.requests.insert(id.clone(), request);
+							if state.lease.is_none() {
+								tick.reset_immediately();
+							}
 							self.sync_control_send_request(&mut state, &id).await;
 						},
 						None => {
@@ -256,7 +301,7 @@ impl Server {
 						let future = async {
 							for heartbeat in state.heartbeats.values_mut().filter(|heartbeat| !heartbeat.acknowledged && now >= heartbeat.retry_at) {
 								heartbeat.retry_at = now + config.retry_interval;
-								self.sync_control_client_publish(format!("{}.server", state.subject), protocol::ClientMessage::Request(heartbeat.request.clone())).await;
+								self.sync_control_client_publish(heartbeat_subject(&state.subject), protocol::ClientMessage::Request(heartbeat.request.clone())).await;
 								crate::checkpoint!(self, "sync.control.heartbeat.request", client = %state.client, id = %heartbeat.request.id).await;
 							}
 						};
@@ -290,9 +335,7 @@ impl Server {
 				{
 					request.acknowledged = true;
 					request.deadline = None;
-					request
-						.sender
-						.send_replace(Output::Pending { acknowledged: true });
+					request.sender.send_replace(Output::Pending);
 					crate::checkpoint!(self, "sync.control.ack", id = %ack.id, lease = %ack.lease, node = %request.arg.node().unwrap()).await;
 				}
 			},
@@ -357,7 +400,8 @@ impl Server {
 						_ => None,
 					};
 					if let Some(result) = result {
-						let request = state.requests.remove(&response.id).unwrap();
+						let mut request = state.requests.remove(&response.id).unwrap();
+						request.cancellation.leases.remove(&response.lease);
 						request.sender.send_replace(Output::Ready(result));
 					} else {
 						return Ok(());
@@ -394,9 +438,7 @@ impl Server {
 			request
 				.deadline
 				.get_or_insert_with(|| Instant::now() + self.config.sync.control.recovery_timeout);
-			request.sender.send_replace(Output::Pending {
-				acknowledged: false,
-			});
+			request.sender.send_replace(Output::Pending);
 		}
 	}
 
@@ -428,6 +470,7 @@ impl Server {
 			return;
 		};
 		let pending = state.requests.get_mut(id).unwrap();
+		pending.cancellation.leases.insert(lease.id.clone());
 		pending.retry_at = Instant::now() + self.config.sync.control.retry_interval;
 		let request = protocol::ClientRequest {
 			arg: pending.arg.clone(),

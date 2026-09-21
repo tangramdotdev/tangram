@@ -348,11 +348,11 @@ impl Session {
 			error
 				.options
 				.tokens
-				.set_sync(location.clone(), sync.clone());
+				.insert_sync(location.clone(), sync.clone());
 		}
 		if let Some(data) = &mut output.output {
 			Self::update_wait_value_tokens(data, &mut |tokens, _| {
-				tokens.set_sync(location.clone(), sync.clone());
+				tokens.insert_sync(location.clone(), sync.clone());
 			});
 		}
 	}

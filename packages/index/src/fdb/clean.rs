@@ -872,10 +872,18 @@ impl Index {
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 		let result = txn.get(&key, false).await;
-		let sandbox = crate::fdb::retry!(result)
+		let process = crate::fdb::retry!(result)
 			.map(|bytes| crate::process::Process::deserialize(&bytes))
-			.transpose()?
-			.and_then(|process| process.sandbox);
+			.transpose()?;
+		if let Some(process) = &process {
+			let key = crate::fdb::Key::Process(crate::fdb::process::Key::CommandCacheableProcess {
+				command: process.command_id.clone(),
+				process: id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+		}
+		let sandbox = process.and_then(|process| process.sandbox);
 		txn.clear(&key);
 		let id_bytes = id.to_bytes();
 		Self::clear_update_propagated_versions(txn, subspace, id_bytes.as_ref());
@@ -953,15 +961,6 @@ impl Index {
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
-			if kind.is_command() {
-				let key =
-					crate::fdb::Key::Process(crate::fdb::process::Key::CommandCacheableProcess {
-						command: object.clone(),
-						process: id.clone(),
-					});
-				let key = Self::pack(subspace, &key);
-				txn.clear(&key);
-			}
 		}
 		for (object, _) in object_processes {
 			crate::fdb::propagate!(

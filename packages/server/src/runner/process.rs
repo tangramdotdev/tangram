@@ -26,7 +26,10 @@ use {
 mod control;
 mod progress;
 
-type CommandFuture = Shared<BoxFuture<'static, tg::Result<tg::command::Data>>>;
+#[cfg(test)]
+mod tests;
+
+type CommandFuture = Shared<BoxFuture<'static, tg::Result<tg::process::data::Command>>>;
 type ControlConnection = (
 	tg::process::control::Output,
 	BoxStream<'static, tg::Result<tg::control::Event<tg::process::control::ServerMessage>>>,
@@ -111,7 +114,7 @@ struct FinishProcessTaskArg {
 }
 
 struct IndexProcessTaskArg<'a> {
-	command: tg::Referent<tg::command::Id>,
+	command: tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 	command_data: CommandFuture,
 	command_roots: Vec<tangram_index::process::object::grant::Root>,
 	data: tg::process::Data,
@@ -164,7 +167,7 @@ struct Output {
 }
 
 struct RunProcessArg {
-	command: tg::command::Data,
+	command: tg::process::data::Command,
 	guest_url: tangram_uri::Uri,
 	id: tg::process::Id,
 	process_stopper: Stopper,
@@ -304,8 +307,11 @@ impl Session {
 			parent,
 			token: inner_token,
 		} = process;
-		let state = tg::process::State::try_from_data(data)?;
+		let mut state = tg::process::State::try_from_data(data)?;
 		let mut command_options = options.clone();
+		command_options
+			.tokens
+			.inherit(&state.command.options.tokens);
 		let local = command_options
 			.tokens
 			.local_authorization()
@@ -321,14 +327,7 @@ impl Session {
 				false,
 			)?;
 		}
-		state
-			.command
-			.state()
-			.inherit_location(command_options.location.as_ref());
-		state
-			.command
-			.state()
-			.inherit_tokens(&command_options.tokens);
+		state.command.options = command_options;
 		let process_stopper = Stopper::new();
 		let lease = Self::create_process_lease();
 		let (control_sender_high, control_responses_high) = tokio::sync::mpsc::channel(512);
@@ -368,7 +367,7 @@ impl Session {
 						tg::error!(!error, "the sandbox failed before becoming ready")
 					})?;
 				}
-				let command = state.command.to_referent();
+				let command = state.command.clone();
 				Self::push_process_command(&command_session, &command, &location)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to push the process command"))?;
@@ -507,13 +506,21 @@ impl Session {
 		// Load the command concurrently with the control stream.
 		let command: CommandFuture = {
 			// Ignore the source-relative location when loading the command on the runner.
-			let mut command = state.command.to_referent();
+			let mut command = state.command.clone();
 			command.options.location = None;
-			let command = tg::Command::with_referent(command);
 			let command_session = command_session.clone();
 			let session = session.clone();
 			let server = self.server.clone();
 			async move {
+				let command = match command.node {
+					tg::Either::Left(mut data) => {
+						data.inherit_location_and_tokens(&command.options);
+						return Ok(*data);
+					},
+					tg::Either::Right(id) => {
+						tg::Command::with_referent(tg::Referent::new(id, command.options))
+					},
+				};
 				// Check whether the command is available locally.
 				let command_id: tg::object::Id = command.id().into();
 				let local = server
@@ -539,7 +546,9 @@ impl Session {
 						.map_err(|error| tg::error!(!error, "failed to get the command data"))?,
 				};
 
-				Ok(data)
+				let options = command.to_referent().options;
+				let command = tg::process::data::Command::with_command_data(data, &options);
+				Ok(command)
 			}
 			.boxed()
 			.shared()
@@ -736,11 +745,6 @@ impl Session {
 		// Spawn the process control task.
 		let (stderr_buffered_sender, stderr_buffered_receiver) = tokio::sync::oneshot::channel();
 		let (stdout_buffered_sender, stdout_buffered_receiver) = tokio::sync::oneshot::channel();
-		let stdin_blob = command
-			.clone()
-			.await
-			.ok()
-			.and_then(|command| command.stdin.map(tg::Blob::with_id));
 		let log = log_receiver
 			.map(|receiver| {
 				let started_at = state
@@ -777,7 +781,6 @@ impl Session {
 					stderr_buffered: stderr_buffered_sender,
 					stderr_progress,
 					stdin,
-					stdin_blob,
 					stdout,
 					stdout_buffered: stdout_buffered_sender,
 				};
@@ -807,11 +810,7 @@ impl Session {
 
 		// Prepare command authorization before tracked finish writes can wait for initialization.
 		let command_roots = session
-			.prepare_process_command_grants(
-				&state.command.to_referent(),
-				&location,
-				parent.as_ref(),
-			)
+			.prepare_process_command_grants(&state.command, &location, parent.as_ref())
 			.await;
 		let command_roots = match command_roots {
 			Ok(roots) => roots,
@@ -884,7 +883,7 @@ impl Session {
 
 		// Index the remote process before reporting the connection.
 		let arg = IndexProcessTaskArg {
-			command: state.command.to_referent(),
+			command: state.command.clone(),
 			command_data: command.clone(),
 			command_roots,
 			data,
@@ -1045,6 +1044,15 @@ impl Session {
 		// The sandbox's connection is closed once the process exits, so stdin can no longer be written to.
 		exited.stop();
 
+		let finish = processes
+			.get_mut(&id)
+			.ok_or_else(|| tg::error!(?id, "failed to find the process"))?
+			.finish
+			.take()
+			.filter(|_| match &result {
+				Ok(_) => true,
+				Err(error) => matches!(error.to_data_or_id(), tg::Either::Left(data) if matches!(data.code, Some(tg::error::Code::Cancellation))),
+			});
 		let result = match result {
 			Ok(output) => {
 				let context = crate::Context {
@@ -1063,11 +1071,6 @@ impl Session {
 			Err(error) => Err(error),
 		};
 
-		let finish = processes
-			.get_mut(&id)
-			.ok_or_else(|| tg::error!(?id, "failed to find the process"))?
-			.finish
-			.take();
 		let output = if let Some(finish) = finish {
 			let error = finish
 				.error
@@ -1167,7 +1170,8 @@ impl Session {
 		Self::validate_process_data(&data)?;
 
 		crate::checkpoint!(self.server, "runner.process.output.stored", process = %id).await;
-		crate::checkpoint!(self.server, "runner.process.finish", command = %state.command, process = %id).await;
+		let command_id = state.command.command_id()?;
+		crate::checkpoint!(self.server, "runner.process.finish", command = %command_id, process = %id).await;
 
 		ready_receiver
 			.await
@@ -1696,36 +1700,46 @@ impl Session {
 		};
 		let data = tg::command::Data::deserialize(output.bytes)
 			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the command"))?;
+		let object = tg::command::Object::try_from_data(data.clone())?;
+		command.state().set_object(Arc::new(object));
 
 		Ok(Some(data))
 	}
 
 	async fn push_process_command(
 		session: &Session,
-		command: &tg::Referent<tg::command::Id>,
+		command: &tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 		location: &tg::Location,
 	) -> tg::Result<()> {
-		crate::checkpoint!(session.server, "runner.process.command.push.started", command = %command.node).await;
+		let id = command.command_id()?;
+		crate::checkpoint!(session.server, "runner.process.command.push.started", command = %id)
+			.await;
 		let result = Self::push_process_command_inner(session, command, location).await;
 		if let Err(error) = &result {
 			tracing::error!(error = %error.trace(), "failed to push the command");
 		}
-		crate::checkpoint!(session.server, "runner.process.command.push.finished", command = %command.node).await;
+		crate::checkpoint!(session.server, "runner.process.command.push.finished", command = %id)
+			.await;
 		result?;
 		Ok(())
 	}
 
 	async fn push_process_command_inner(
 		session: &Session,
-		command: &tg::Referent<tg::command::Id>,
+		command: &tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 		location: &tg::Location,
 	) -> tg::Result<()> {
+		let nodes = command
+			.objects()
+			.into_iter()
+			.map(|object| object.map(Into::into))
+			.collect::<Vec<_>>();
+		if nodes.is_empty() {
+			return Ok(());
+		}
 		let arg = tg::push::Arg {
 			destination: Some(location.clone()),
-			nodes: vec![tg::Referent::with_node_and_tokens(
-				command.node.clone().into(),
-				command.options.tokens.clone(),
-			)],
+			nodes,
 			process_commands: true,
 			..Default::default()
 		};
@@ -1738,14 +1752,14 @@ impl Session {
 		}
 
 		Err(tg::error!(
-			command = %command.node,
+			command = %command.command_id()?,
 			"failed to push the command: expected an output"
 		))
 	}
 
 	async fn prepare_process_command_grants(
 		&self,
-		command: &tg::Referent<tg::command::Id>,
+		command: &tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 		location: &tg::Location,
 		parent: Option<&tg::process::Id>,
 	) -> tg::Result<Vec<tangram_index::process::object::grant::Root>> {
@@ -1763,7 +1777,7 @@ impl Session {
 		let session = self.server.session(&context);
 		let roots = session
 			.prepare_process_object_grant_roots(
-				[command.clone().map(tg::object::Id::from)],
+				command.objects(),
 				tg::authorization::permission::object::Set::NODE,
 			)
 			.await?;
@@ -1791,12 +1805,12 @@ impl Session {
 		)
 		.await;
 
-		// A successful read proves node permission and must complete before a finish can register its tracked write.
+		// Resolve the command before a finish can register its tracked write.
 		command_data.await?;
 
 		let data = data.without_location_and_tokens();
 		options.clear_location_and_tokens();
-		let command_id = data.command.node.clone();
+		let command_id = data.command.command_id()?;
 		let sandbox = data.sandbox.clone();
 		let now = self.server.clock.unix_timestamp()?;
 		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
@@ -1805,7 +1819,14 @@ impl Session {
 		let put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
 			children: None,
-			command: command_id.into(),
+			command: Some(
+				data.command
+					.objects()
+					.into_iter()
+					.map(|object| object.node)
+					.collect(),
+			),
+			command_id: command_id.into(),
 			data: Some(data.clone()),
 			error: None,
 			id: id.clone(),
@@ -1822,7 +1843,7 @@ impl Session {
 			touched_at: now,
 		};
 		let mut items = vec![tangram_index::batch::Item::PutProcess(put_process_arg)];
-		let grant_item = if let Some(parent) = parent {
+		if let Some(parent) = parent {
 			let grant_arg = tangram_index::process::object::grant::Arg {
 				authorize: crate::authorization_search_config(
 					&self.server.config.authorization.final_,
@@ -1834,23 +1855,26 @@ impl Session {
 				roots: command_roots,
 				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 			};
-			tangram_index::batch::Item::PutProcessObjectGrants(grant_arg)
+			items.push(tangram_index::batch::Item::PutProcessObjectGrants(
+				grant_arg,
+			));
 		} else {
-			let permission = tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Node,
-			);
-			let grant_arg = tangram_index::grant::put::Arg {
-				created_at: now,
-				creator: Some(self.context.principal.clone()),
-				implicit: Some(Some(expires_at)),
-				permissions: permission.into(),
-				resource: command.node.into(),
-				subject: tg::authorization::Subject::Process(id.clone()),
-				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
-			};
-			tangram_index::batch::Item::PutGrant(grant_arg)
-		};
-		items.push(grant_item);
+			for command in command.objects() {
+				let permission = tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Node,
+				);
+				let grant_arg = tangram_index::grant::put::Arg {
+					created_at: now,
+					creator: Some(self.context.principal.clone()),
+					implicit: Some(Some(expires_at)),
+					permissions: permission.into(),
+					resource: command.node.into(),
+					subject: tg::authorization::Subject::Process(id.clone()),
+					time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+				};
+				items.push(tangram_index::batch::Item::PutGrant(grant_arg));
+			}
+		}
 
 		// Apply the initial data before the finished data can be written.
 		let arg = tangram_index::batch::Arg { items };
@@ -1879,6 +1903,7 @@ impl Session {
 		} = arg;
 		let command = &command;
 		let state = &state;
+		let command_id = state.command.command_id()?;
 
 		// Run the process.
 		let result = async {
@@ -1904,7 +1929,7 @@ impl Session {
 
 			// Check out the process's children.
 			self.checkout_process_artifacts(
-				&state.command,
+				command,
 				&state.sandbox,
 				progress_sender.clone(),
 				&state.stderr,
@@ -1918,13 +1943,7 @@ impl Session {
 			let host_output_path = sandbox.host_output_path_for_process(&sandbox_process);
 
 			// Render the args.
-			let tokens = state.command.state().tokens();
-			let args = render_args(
-				&command.args,
-				&tokens,
-				&guest_store_path,
-				&guest_output_path,
-			)?;
+			let args = render_args(&command.args, &guest_store_path, &guest_output_path)?;
 
 			// Get the working directory. On macOS there is no chroot, so "/" is the host root and not writable. Default to the scratch directory instead.
 			let cwd = if let Some(cwd) = &command.cwd {
@@ -1936,7 +1955,7 @@ impl Session {
 			};
 
 			// Render the env.
-			let mut env = render_env(&command.env, &tokens, &guest_store_path, &guest_output_path)?;
+			let mut env = render_env(&command.env, &guest_store_path, &guest_output_path)?;
 			let engine = match self.server.config.runner.js.engine {
 				crate::config::JsEngine::Auto => "auto",
 				crate::config::JsEngine::QuickJs => "quickjs",
@@ -1965,13 +1984,13 @@ impl Session {
 				.or_insert_with(|| sandbox.host_scratch_path().to_string_lossy().into_owned());
 
 			// Render the executable.
-			let executable = if let Some(artifact) = &command.executable.artifact {
+			let executable = if let Some(artifact) = &command.executable.node.artifact {
 				let mut path = guest_store_path.join(artifact.to_string());
-				if let Some(executable_path) = &command.executable.path {
+				if let Some(executable_path) = &command.executable.node.path {
 					path.push(executable_path);
 				}
 				path
-			} else if let Some(path) = &command.executable.path {
+			} else if let Some(path) = &command.executable.node.path {
 				path.clone()
 			} else {
 				return Err(tg::error!("invalid executable"));
@@ -2014,7 +2033,7 @@ impl Session {
 			crate::checkpoint!(
 				self.server,
 				"runner.process.start",
-				command = %state.command,
+				command = %command_id,
 				process = %id,
 			)
 			.await;
@@ -2040,16 +2059,27 @@ impl Session {
 				.process = Some(sandbox_process.as_ref().clone());
 
 			let arg = WaitForProcessArg {
-				process_stopper,
+				process_stopper: process_stopper.clone(),
 				sandbox: &sandbox,
 				sandbox_process: sandbox_process.as_ref(),
 				stopper,
 			};
-			let exit = self.wait_for_process(arg).boxed().await?;
+			let stdin = async {
+				let result = self
+					.write_process_stdin_blob(command.stdin.as_ref(), &sandbox, &sandbox_process)
+					.await;
+				if result.is_err() {
+					process_stopper.stop();
+				}
+				result
+			};
+			let (exit, stdin) = future::join(self.wait_for_process(arg).boxed(), stdin).await;
+			stdin?;
+			let exit = exit?;
 			crate::checkpoint!(
 				self.server,
 				"runner.process.exit",
-				command = %state.command,
+				command = %command_id,
 			)
 			.await;
 
@@ -2067,6 +2097,50 @@ impl Session {
 		drop(sandbox_process_sender);
 
 		result
+	}
+
+	async fn write_process_stdin_blob(
+		&self,
+		blob: Option<&tg::Referent<tg::blob::Id>>,
+		sandbox: &tangram_sandbox::Sandbox,
+		sandbox_process: &tangram_sandbox::Process,
+	) -> tg::Result<()> {
+		let Some(blob) = blob else {
+			return Ok(());
+		};
+		let blob = tg::Blob::with_referent(blob.clone());
+		let reader = blob
+			.read_with_handle(self, tg::read::Options::default())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to read process stdin blob"))?;
+		let stream = tokio_util::io::ReaderStream::new(reader)
+			.map_ok(|bytes| {
+				tangram_sandbox::stdio::read::Event::Chunk(tangram_sandbox::stdio::Chunk {
+					bytes,
+					stream: tg::process::stdio::Stream::Stdin,
+				})
+			})
+			.map_err(|error| tg::error!(!error, "failed to read from the blob"))
+			.chain(futures::stream::once(future::ok(
+				tangram_sandbox::stdio::read::Event::End,
+			)))
+			.boxed();
+		let output = sandbox
+			.write_stdio(
+				sandbox_process,
+				vec![tg::process::stdio::Stream::Stdin],
+				stream,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to write stdin"))?;
+		let mut output = std::pin::pin!(output);
+		while let Some(event) = output.try_next().await? {
+			if matches!(event, tangram_sandbox::stdio::write::Event::End) {
+				break;
+			}
+		}
+
+		Ok(())
 	}
 
 	async fn wait_for_process(&self, arg: WaitForProcessArg<'_>) -> tg::Result<u8> {
@@ -2222,20 +2296,18 @@ impl Session {
 
 	async fn checkout_process_artifacts(
 		&self,
-		command: &tg::Command,
+		command: &tg::process::data::Command,
 		sandbox: &tg::sandbox::Id,
 		progress: tokio::sync::mpsc::UnboundedSender<Bytes>,
 		stderr: &tg::process::Stdio,
 	) -> tg::Result<()> {
 		// Get the process's command's children that are artifacts.
 		let artifacts = command
-			.children_with_handle(self)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the command's children"))?
+			.objects()
 			.into_iter()
 			.filter_map(|object| {
-				let id = object.id().try_into().ok()?;
-				let artifact = tg::Referent::with_node_and_tokens(id, object.state().tokens());
+				let id = object.node.try_into().ok()?;
+				let artifact = tg::Referent::new(id, object.options);
 				Some(artifact)
 			})
 			.collect::<Vec<tg::Referent<tg::artifact::Id>>>();
@@ -2282,7 +2354,6 @@ impl Session {
 
 fn render_args(
 	args: &[tg::command::data::Value],
-	tokens: &tg::Tokens,
 	store_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<Vec<String>> {
@@ -2293,16 +2364,13 @@ fn render_args(
 			},
 			tg::command::data::Value::Value(value) => {
 				let value = tg::Value::try_from_data(value.clone())?;
-				Ok(render_value(&value, tokens))
+				Ok(render_value(&value))
 			},
 		})
 		.collect::<tg::Result<Vec<_>>>()
 }
 
-fn render_value(value: &tg::Value, tokens: &tg::Tokens) -> String {
-	for object in value.objects() {
-		object.state().inherit_tokens(tokens);
-	}
+fn render_value(value: &tg::Value) -> String {
 	let options = tg::value::print::Options {
 		tokens: true,
 		..Default::default()
@@ -2312,7 +2380,6 @@ fn render_value(value: &tg::Value, tokens: &tg::Tokens) -> String {
 
 fn render_env(
 	env: &BTreeMap<String, tg::command::data::Value>,
-	tokens: &tg::Tokens,
 	store_path: &Path,
 	output_path: &Path,
 ) -> tg::Result<BTreeMap<String, String>> {
@@ -2334,7 +2401,7 @@ fn render_env(
 				},
 				tg::command::data::Value::Value(value) => {
 					let value = tg::Value::try_from_data(value.clone())?;
-					render_value(&value, tokens)
+					render_value(&value)
 				},
 			};
 			Ok::<_, tg::Error>((key, value))
@@ -2348,7 +2415,7 @@ fn render_env(
 			},
 		};
 		let value = tg::Value::try_from_data(value.clone())?;
-		let value = render_value(&value, tokens);
+		let value = render_value(&value);
 		output.insert(format!("{}{key}", tg::process::env::PREFIX), value);
 	}
 	Ok(output)

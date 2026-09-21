@@ -1,4 +1,5 @@
 use ../../test.nu *
+use ../lib/command.nu
 
 # Recursively pushing a chain of child processes where an intermediate process is missing locally but the remote already holds that process subtree completes and makes every process, command, and output present on the remote, under both eager and lazy push.
 
@@ -48,7 +49,7 @@ def test [...args] {
 	tg --url $source.url log $process_a_id --position end.0 --no-timeout o+e>| ignore
 	tg --url $source.url index
 	let process_a_data = tg --url $source.url get $process_a_id | from json
-	let command_a_id = $process_a_data.command
+	let module_a_id = (command module-input $process_a_data.command)
 	let output_a_id = $process_a_data.output.value
 	let log_a_id = $process_a_data.log
 	let children_a = $process_a_data.children
@@ -58,7 +59,7 @@ def test [...args] {
 	tg --url $source.url log $process_b_id --position end.0 --no-timeout o+e>| ignore
 	tg --url $source.url index
 	let process_b_data = tg --url $source.url get $process_b_id | from json
-	let command_b_id = $process_b_data.command
+	let module_b_id = (command module-input $process_b_data.command)
 	let output_b_id = $process_b_data.output.value
 	let log_b_id = $process_b_data.log
 	let children_b = $process_b_data.children
@@ -68,7 +69,7 @@ def test [...args] {
 	tg --url $source.url log $process_c_id --position end.0 --no-timeout o+e>| ignore
 	tg --url $source.url index
 	let process_c_data = tg --url $source.url get $process_c_id | from json
-	let command_c_id = $process_c_data.command
+	let module_c_id = (command module-input $process_c_data.command)
 	let output_c_id = $process_c_data.output.value
 	let log_c_id = $process_c_data.log
 	let children_c = $process_c_data.children
@@ -78,14 +79,14 @@ def test [...args] {
 	tg --url $source.url log $process_d_id --position end.0 --no-timeout o+e>| ignore
 	tg --url $source.url index
 	let process_d_data = tg --url $source.url get $process_d_id | from json
-	let command_d_id = $process_d_data.command
+	let module_d_id = (command module-input $process_d_data.command)
 	let output_d_id = $process_d_data.output.value
 	let log_d_id = $process_d_data.log
 
-	# Helper function to get all command descendants recursively.
-	def get_command_descendants [server_url: string, cmd_id: string] {
+	# Helper function to get all module descendants recursively.
+	def get_module_descendants [server_url: string, module_id: string] {
 		mut descendants = []
-		mut to_visit = [$cmd_id]
+		mut to_visit = [$module_id]
 		while ($to_visit | length) > 0 {
 			let current = $to_visit | first
 			$to_visit = ($to_visit | skip 1)
@@ -107,10 +108,10 @@ def test [...args] {
 	# Put process A to the local server (local has A).
 	tg --url $source.url get $process_a_id | tg --url $local.url put --id $process_a_id
 
-	# Put command A and its descendants to the local server.
-	tg --url $source.url get --bytes $command_a_id | tg --url $local.url put --bytes --kind cmd
-	let command_a_descendants = get_command_descendants $source.url $command_a_id
-	for desc_id in $command_a_descendants {
+	# Put module A and its descendants to the local server.
+	tg --url $source.url get --bytes $module_a_id | tg --url $local.url put --bytes --kind fil
+	let module_a_descendants = get_module_descendants $source.url $module_a_id
+	for desc_id in $module_a_descendants {
 		let kind = $desc_id | str substring 0..<3
 		tg --url $source.url get --bytes $desc_id | tg --url $local.url put --bytes --kind $kind
 	}
@@ -127,10 +128,10 @@ def test [...args] {
 	# Put process B, C, and D to the remote server (remote has everything from B downward).
 	tg --url $source.url get $process_b_id | tg --url $remote.url put --id $process_b_id
 
-	# Put command B and its descendants to the remote server.
-	tg --url $source.url get --bytes $command_b_id | tg --url $remote.url put --bytes --kind cmd
-	let command_b_descendants = get_command_descendants $source.url $command_b_id
-	for desc_id in $command_b_descendants {
+	# Put module B and its descendants to the remote server.
+	tg --url $source.url get --bytes $module_b_id | tg --url $remote.url put --bytes --kind fil
+	let module_b_descendants = get_module_descendants $source.url $module_b_id
+	for desc_id in $module_b_descendants {
 		let kind = $desc_id | str substring 0..<3
 		tg --url $source.url get --bytes $desc_id | tg --url $remote.url put --bytes --kind $kind
 	}
@@ -142,17 +143,17 @@ def test [...args] {
 	tg --url $source.url get $process_c_id | tg --url $remote.url put --id $process_c_id
 	tg --url $source.url get $process_d_id | tg --url $remote.url put --id $process_d_id
 
-	# Put command C, D and their descendants to the remote server.
-	tg --url $source.url get --bytes $command_c_id | tg --url $remote.url put --bytes --kind cmd
-	let command_c_descendants = get_command_descendants $source.url $command_c_id
-	for desc_id in $command_c_descendants {
+	# Put module C, D and their descendants to the remote server.
+	tg --url $source.url get --bytes $module_c_id | tg --url $remote.url put --bytes --kind fil
+	let module_c_descendants = get_module_descendants $source.url $module_c_id
+	for desc_id in $module_c_descendants {
 		let kind = $desc_id | str substring 0..<3
 		tg --url $source.url get --bytes $desc_id | tg --url $remote.url put --bytes --kind $kind
 	}
 
-	tg --url $source.url get --bytes $command_d_id | tg --url $remote.url put --bytes --kind cmd
-	let command_d_descendants = get_command_descendants $source.url $command_d_id
-	for desc_id in $command_d_descendants {
+	tg --url $source.url get --bytes $module_d_id | tg --url $remote.url put --bytes --kind fil
+	let module_d_descendants = get_module_descendants $source.url $module_d_id
+	for desc_id in $module_d_descendants {
 		let kind = $desc_id | str substring 0..<3
 		tg --url $source.url get --bytes $desc_id | tg --url $remote.url put --bytes --kind $kind
 	}
@@ -209,11 +210,11 @@ def test [...args] {
 	let remote_process_d = tg --url $remote.url get $process_d_id --no-tokens --pretty
 	assert equal $source_process_d $remote_process_d
 
-	# Confirm all commands are on the remote.
-	tg --url $remote.url get $command_a_id --no-tokens --pretty
-	tg --url $remote.url get $command_b_id --no-tokens --pretty
-	tg --url $remote.url get $command_c_id --no-tokens --pretty
-	tg --url $remote.url get $command_d_id --no-tokens --pretty
+	# Confirm all command inputs are on the remote.
+	tg --url $remote.url get $module_a_id --no-tokens --pretty
+	tg --url $remote.url get $module_b_id --no-tokens --pretty
+	tg --url $remote.url get $module_c_id --no-tokens --pretty
+	tg --url $remote.url get $module_d_id --no-tokens --pretty
 
 	# Confirm all outputs are on the remote.
 	tg --url $remote.url get $output_a_id --no-tokens --pretty

@@ -45,7 +45,8 @@ async fn implicit_grants_become_non_expiring_when_a_process_relationship_is_adde
 			items: vec![crate::batch::Item::PutProcess(crate::process::put::Arg {
 				cached: false,
 				children: None,
-				command: command.clone(),
+				command: Some(vec![command.clone()]),
+				command_id: command.clone(),
 				data: None,
 				error: None,
 				id: process.clone(),
@@ -150,7 +151,8 @@ async fn process_permissions_promote_to_non_expiring_implicit_grants() {
 				crate::batch::Item::PutProcess(crate::process::put::Arg {
 					cached: false,
 					children: None,
-					command: wrapper.clone(),
+					command: Some(vec![wrapper.clone()]),
+					command_id: wrapper.clone(),
 					data: None,
 					error: None,
 					id: process.clone(),

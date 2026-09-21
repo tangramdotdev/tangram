@@ -46,10 +46,26 @@ export namespace Module {
 		};
 	}
 
+	export let toReferent = (value: tg.Module): tg.Referent<tg.Module.Source> => {
+		let referent = {
+			node: value.referent.node,
+			options: {
+				...value.referent.options,
+				tokens: tg.Tokens.clone(value.referent.options?.tokens),
+			},
+		};
+		for (let child of children(value)) {
+			let options = tg.Object.toReferent(child).options;
+			tg.Tokens.inherit(referent.options.tokens, options?.tokens ?? {});
+			referent.options.location ??= options?.location ?? null;
+		}
+		return referent;
+	};
+
 	export let toData = (value: tg.Module): tg.Module.Data => {
 		return {
 			kind: value.kind,
-			referent: tg.Referent.toData(value.referent, (source) =>
+			referent: tg.Referent.toData(toReferent(value), (source) =>
 				typeof source === "string"
 					? source
 					: tg.Graph.Edge.toDataString(source, (object) => object.id),
@@ -74,6 +90,7 @@ export namespace Module {
 	};
 
 	export let toDataString = (value: tg.Module): string => {
+		value = new tg.Module({ kind: value.kind, referent: toReferent(value) });
 		let string = tg.Module.Source.toDataString(value.referent.node);
 		let params = [];
 		if (
@@ -123,9 +140,9 @@ export namespace Module {
 					`tokens[${encodeURIComponent(location)}][authorization][${index}]=${encodeURIComponent(token)}`,
 				);
 			}
-			if (entry.sync !== null && entry.sync !== undefined) {
+			for (let [index, token] of (entry.sync ?? []).entries()) {
 				params.push(
-					`tokens[${encodeURIComponent(location)}][sync]=${encodeURIComponent(entry.sync)}`,
+					`tokens[${encodeURIComponent(location)}][sync][${index}]=${encodeURIComponent(token)}`,
 				);
 			}
 		}
@@ -204,10 +221,12 @@ export namespace Module {
 							}
 							tokens.push(decodeURIComponent(value));
 						} else {
-							if (match[3] !== undefined) {
+							let tokens = (entry.sync ??= []);
+							let index = Number(match[3]);
+							if (match[3] === undefined || index !== tokens.length) {
 								throw new Error("invalid sync token index");
 							}
-							entry.sync = decodeURIComponent(value);
+							tokens.push(decodeURIComponent(value));
 						}
 					}
 				}

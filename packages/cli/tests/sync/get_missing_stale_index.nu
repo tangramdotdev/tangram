@@ -3,9 +3,13 @@ use ../../test.nu *
 # Ensure eager and lazy pushes succeed when the source is missing a child which is in the destination's store but not yet in its index.
 
 def test [...args] {
-	let remote = server spawn --cloud --name remote --config { advanced: { checkpoints: true } }
+	let remote = server spawn --cloud --name remote --config {
+		advanced: { checkpoints: true },
+		sync: { control: { index_timeout: 60 } },
+	}
 	let local = server spawn --name local --config {
 		remotes: { default: { url: $remote.url } },
+		sync: { control: { index_timeout: 1 } },
 	}
 
 	# Hold the remote's index writes.
@@ -25,7 +29,7 @@ def test [...args] {
 
 	# Hold the slow path after the initial index lookup misses the child.
 	let retry_watch = (
-		tg --url $remote.url checkpoint watch sync.get.index.object.retry --params ({ id: $file } | to json)
+		tg --url $remote.url checkpoint watch sync.get.index.object.wait --params ({ id: $file } | to json)
 		| from json
 		| get watch
 	)
@@ -37,9 +41,9 @@ def test [...args] {
 		$output | job send --tag $job_id 0
 	}
 
-	# Wait for the initial miss, then release the retry and the pending index writes.
-	tg --url $remote.url checkpoint wait sync.get.index.object.retry $retry_watch 0 | ignore
-	tg --url $remote.url checkpoint unwatch sync.get.index.object.retry $retry_watch
+	# Release the retry and the pending index writes once the destination starts waiting.
+	tg --url $remote.url checkpoint wait sync.get.index.object.wait $retry_watch 0 | ignore
+	tg --url $remote.url checkpoint unwatch sync.get.index.object.wait $retry_watch
 	tg --url $remote.url checkpoint unwatch index.batch $batch_watch
 
 	let output = job recv --tag $push --timeout 30sec

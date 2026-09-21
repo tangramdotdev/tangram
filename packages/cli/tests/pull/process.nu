@@ -1,4 +1,5 @@
 use ../../test.nu *
+use ../lib/command.nu
 
 # Pulling a process without flags makes the process record present locally but leaves its command absent.
 
@@ -16,7 +17,7 @@ let process = tg --url $source.url build --detach $path | str trim
 tg --url $source.url wait $process
 tg --url $source.url push $process
 tg --url $remote.url wait $process
-let command = tg --url $remote.url get $process | from json | get command
+let command = tg --url $remote.url get $process | from json | get command | command module-input $in
 
 tg pull $process
 

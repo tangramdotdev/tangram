@@ -209,7 +209,9 @@ impl Session {
 					tg::sync::GetMessage::Node(_) | tg::sync::GetMessage::Available(_),
 				)
 				| tg::sync::Message::Put(
-					tg::sync::PutMessage::Missing(_) | tg::sync::PutMessage::Node(_),
+					tg::sync::PutMessage::Missing(_)
+					| tg::sync::PutMessage::Node(_)
+					| tg::sync::PutMessage::Pending(_),
 				) => {
 					return Err(tg::error!("unexpected primary region sync message"));
 				},

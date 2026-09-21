@@ -76,7 +76,8 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 				crate::batch::Item::PutProcess(crate::process::put::Arg {
 					cached: false,
 					children: None,
-					command: command.into(),
+					command: Some(vec![command.clone().into()]),
+					command_id: command.into(),
 					data: None,
 					error: None,
 					id: process.clone(),
@@ -249,7 +250,8 @@ async fn process_object_subtree_edges_authorize_without_grants() {
 	let mut process_arg = crate::process::put::Arg {
 		cached: false,
 		children: None,
-		command: tg::command::Id::new(b"command").into(),
+		command: Some(vec![tg::command::Id::new(b"command").into()]),
+		command_id: tg::command::Id::new(b"command").into(),
 		data: None,
 		error: None,
 		id: process.clone(),

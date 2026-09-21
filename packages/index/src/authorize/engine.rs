@@ -1018,12 +1018,12 @@ impl ProcessSearch {
 			.process
 			.as_ref()
 			.is_some_and(|process| match self.kind {
-				crate::process::object::Kind::Command => true,
+				crate::process::object::Kind::Command => process.set.command,
 				crate::process::object::Kind::Error => process.set.error,
 				crate::process::object::Kind::Log => process.set.log,
 				crate::process::object::Kind::Output => process.set.output,
 			});
-		if !aspect_is_set || (self.kind.is_command() && self.objects.is_empty()) {
+		if !aspect_is_set {
 			let outcome = finish_process(state, &self.root, false);
 			self.phase = ProcessPhase::Complete(outcome);
 

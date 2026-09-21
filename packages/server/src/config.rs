@@ -1071,6 +1071,8 @@ pub struct Sync {
 pub struct SyncControl {
 	pub heartbeat_interval: Duration,
 
+	pub index_retry: Retry,
+
 	pub index_timeout: Duration,
 
 	pub lease_ttl: Duration,
@@ -1992,7 +1994,13 @@ impl Default for SyncControl {
 	fn default() -> Self {
 		Self {
 			heartbeat_interval: Duration::from_secs(1),
-			index_timeout: Duration::from_secs(60),
+			index_retry: Retry {
+				backoff: Duration::from_millis(10),
+				jitter: Duration::from_millis(10),
+				max_delay: Duration::from_millis(100),
+				max_retries: u64::MAX,
+			},
+			index_timeout: Duration::from_secs(1),
 			lease_ttl: Duration::from_secs(10),
 			recovery_timeout: Duration::from_secs(60),
 			request_timeout: Duration::from_secs(60),

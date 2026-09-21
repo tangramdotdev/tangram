@@ -38,9 +38,9 @@ pub struct Entry {
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
 	pub authorization: Vec<tg::authorization::Token>,
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub sync: Option<tg::sync::Token>,
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Vec::is_empty")]
+	pub sync: Vec<tg::sync::Token>,
 }
 
 impl Tokens {
@@ -154,8 +154,8 @@ impl Tokens {
 	}
 
 	#[must_use]
-	pub fn local_sync(&self) -> Option<&tg::sync::Token> {
-		self.local().and_then(|entry| entry.sync.as_ref())
+	pub fn local_sync(&self) -> &[tg::sync::Token] {
+		self.local().map_or(&[], |entry| entry.sync.as_slice())
 	}
 
 	pub fn insert_authorization(
@@ -173,8 +173,11 @@ impl Tokens {
 		}
 	}
 
-	pub fn set_sync(&mut self, location: tg::Location, token: tg::sync::Token) {
-		self.map.entry(location.without_region()).or_default().sync = Some(token);
+	pub fn insert_sync(&mut self, location: tg::Location, token: tg::sync::Token) {
+		let tokens = &mut self.map.entry(location.without_region()).or_default().sync;
+		if !tokens.contains(&token) {
+			tokens.push(token);
+		}
 	}
 
 	pub fn insert_local_authorization(&mut self, token: tg::authorization::Token) {
@@ -197,7 +200,7 @@ impl Tokens {
 impl Entry {
 	#[must_use]
 	pub fn is_empty(&self) -> bool {
-		self.authorization.is_empty() && self.sync.is_none()
+		self.authorization.is_empty() && self.sync.is_empty()
 	}
 
 	pub fn inherit(&mut self, parent: &Self) {
@@ -213,8 +216,10 @@ impl Entry {
 				.retain(|existing| !token.covers(existing));
 			self.authorization.push(token.clone());
 		}
-		if self.sync.is_none() {
-			self.sync.clone_from(&parent.sync);
+		for token in &parent.sync {
+			if !self.sync.contains(token) {
+				self.sync.push(token.clone());
+			}
 		}
 	}
 }
@@ -222,6 +227,59 @@ impl Entry {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn collects_loaded_descendant_tokens_without_mutating_handles() {
+		let key =
+			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+				.unwrap();
+		let first = tg::Directory::with_id(tg::directory::Id::new(b"first"));
+		let second = tg::Directory::with_id(tg::directory::Id::new(b"second"));
+		let mut expected = Tokens::default();
+		for child in [&first, &second] {
+			let id: tg::Id = child.id().into();
+			let body = tg::sync::token::Body::new(i64::MAX);
+			let sync = tg::sync::Token::sign(body, &key).unwrap();
+			let body = tg::authorization::Body {
+				expires_at: i64::MAX,
+				permissions: vec![tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				)],
+				resource: id,
+			};
+			let authorization = tg::authorization::Token::sign(body, &key).unwrap();
+			let entry = Entry {
+				authorization: vec![authorization],
+				sync: vec![sync],
+			};
+			let tokens = Tokens::with_local_entry(entry);
+			expected.inherit(&tokens);
+			child.state().set_tokens(tokens);
+		}
+		let inputs = tg::Directory::with_entries(std::collections::BTreeMap::from([
+			("first".into(), first.clone().into()),
+			("second".into(), second.clone().into()),
+			("shared".into(), first.clone().into()),
+		]));
+		let wrapper = tg::Directory::with_entries(std::collections::BTreeMap::from([(
+			"inputs".into(),
+			inputs.clone().into(),
+		)]));
+		let tokens = wrapper.to_referent().options.tokens;
+		let entry = tokens.local().unwrap();
+		assert_eq!(entry.sync.len(), 2);
+		assert_eq!(entry.authorization.len(), 2);
+		for token in expected.local_sync() {
+			assert!(entry.sync.contains(token));
+		}
+		for token in expected.local_authorization() {
+			assert!(entry.authorization.contains(token));
+		}
+		assert!(wrapper.state().tokens().is_empty());
+		assert!(inputs.state().tokens().is_empty());
+		assert_eq!(first.state().tokens().local_sync().len(), 1);
+		assert_eq!(second.state().tokens().local_sync().len(), 1);
+	}
 
 	#[test]
 	fn inherits_each_kind_and_rebases_locations() {
@@ -240,7 +298,7 @@ mod tests {
 		let authorization = tg::authorization::Token::sign(body, &key).unwrap();
 		let entry = Entry {
 			authorization: Vec::new(),
-			sync: Some(sync.clone()),
+			sync: vec![sync.clone()],
 		};
 		let parent = Tokens::with_local(Some(entry));
 		let mut child = Tokens::with_authorization(Some(authorization.clone()));
@@ -249,7 +307,10 @@ mod tests {
 			child.local_authorization(),
 			std::slice::from_ref(&authorization)
 		);
-		assert_eq!(child.local().unwrap().sync.as_ref(), Some(&sync));
+		assert_eq!(
+			child.local().unwrap().sync.as_slice(),
+			std::slice::from_ref(&sync)
+		);
 		let remote = tg::Location::Remote(tg::location::Remote {
 			name: "cloud".into(),
 			region: Some("west".into()),
@@ -276,19 +337,19 @@ mod tests {
 		let mut tokens = child.clone();
 		let removed = tokens.remove_local_authorization();
 		assert_eq!(removed, vec![authorization.clone()]);
-		assert_eq!(tokens.local_sync(), Some(&sync));
+		assert_eq!(tokens.local_sync(), std::slice::from_ref(&sync));
 		assert!(!tokens.is_empty());
 		tokens.inherit(&child);
 		tokens.clear_authorization();
 		assert!(tokens.local_authorization().is_empty());
-		assert_eq!(tokens.local_sync(), Some(&sync));
+		assert_eq!(tokens.local_sync(), std::slice::from_ref(&sync));
 
 		let other_sync = tg::sync::Token::sign(tg::sync::token::Body::new(i64::MAX), &key).unwrap();
 		let mut other_authorization = authorization.clone();
 		other_authorization.body.resource = tg::Id::new_blake3(tg::id::Kind::File, b"other");
 		let entry = Entry {
 			authorization: vec![other_authorization.clone()],
-			sync: Some(other_sync),
+			sync: vec![other_sync.clone()],
 		};
 		let mut tokens = child;
 		tokens.inherit(&Tokens::with_local_entry(entry));
@@ -296,7 +357,7 @@ mod tests {
 			tokens.local_authorization(),
 			&[authorization, other_authorization]
 		);
-		assert_eq!(tokens.local_sync(), Some(&sync));
+		assert_eq!(tokens.local_sync(), &[sync, other_sync]);
 		let json = serde_json::to_value(&tokens).unwrap();
 		assert_eq!(json["local"]["authorization"].as_array().unwrap().len(), 2);
 		assert_eq!(serde_json::from_value::<Tokens>(json).unwrap(), tokens);

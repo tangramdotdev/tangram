@@ -473,9 +473,24 @@ export namespace Object {
 	export let toReferent = <T extends tg.Object>(
 		object: T,
 	): tg.Referent<T["id"]> => {
+		// Collect only loaded handles, without retaining descendant tokens on their ancestors.
+		let tokens = tg.Tokens.clone(object.state.tokens);
+		let visited = new Set<tg.Object.State>();
+		let stack = [object as tg.Object];
+		while (stack.length > 0) {
+			let state = stack.pop()!.state;
+			if (visited.has(state)) {
+				continue;
+			}
+			visited.add(state);
+			tg.Tokens.inherit(tokens, state.tokens);
+			if (state.object !== null) {
+				stack.push(...tg.Object.Object.children(state.object));
+			}
+		}
 		let options = {
 			location: object.state.location,
-			tokens: object.state.tokens,
+			tokens,
 		};
 		return { node: object.id, options };
 	};

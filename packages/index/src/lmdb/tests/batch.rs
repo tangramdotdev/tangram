@@ -103,7 +103,7 @@ async fn process_children_are_stored_separately_from_data() {
 		actual_checksum: None,
 		cacheable: false,
 		children: Some(expected.clone()),
-		command: tg::Referent::with_node(command.clone()),
+		command: tg::Referent::with_node(tg::Either::Right(command.clone())),
 		created_at: 0,
 		debug: None,
 		error: None,
@@ -126,7 +126,8 @@ async fn process_children_are_stored_separately_from_data() {
 		items: vec![crate::batch::Item::PutProcess(crate::process::put::Arg {
 			cached: false,
 			children: Some(expected.clone()),
-			command: command.into(),
+			command: Some(vec![command.clone().into()]),
+			command_id: command.into(),
 			data: Some(data),
 			error: Some(None),
 			id: process.clone(),
@@ -228,7 +229,8 @@ async fn incomplete_process_children_have_values() {
 			crate::batch::Item::PutProcess(crate::process::put::Arg {
 				cached: false,
 				children: None,
-				command: command.clone().into(),
+				command: Some(vec![command.clone().into()]),
+				command_id: command.clone().into(),
 				data: None,
 				error: None,
 				id: parent.clone(),
@@ -247,7 +249,8 @@ async fn incomplete_process_children_have_values() {
 			crate::batch::Item::PutProcess(crate::process::put::Arg {
 				cached: child_data.cached,
 				children: None,
-				command: command.into(),
+				command: Some(vec![command.clone().into()]),
+				command_id: command.into(),
 				data: None,
 				error: None,
 				id: child.clone(),
@@ -297,7 +300,8 @@ async fn process_children_must_be_unique() {
 		items: vec![crate::batch::Item::PutProcess(crate::process::put::Arg {
 			cached: false,
 			children: Some(vec![child.clone(), child]),
-			command: tg::command::Id::new(b"command").into(),
+			command: Some(vec![tg::command::Id::new(b"command").into()]),
+			command_id: tg::command::Id::new(b"command").into(),
 			data: None,
 			error: None,
 			id: tg::process::Id::new(),
@@ -332,7 +336,8 @@ async fn process_and_log_compaction_share_transaction() {
 			crate::batch::Item::PutProcess(crate::process::put::Arg {
 				cached: false,
 				children: Some(Vec::new()),
-				command: tg::command::Id::new(b"command").into(),
+				command: Some(vec![tg::command::Id::new(b"command").into()]),
+				command_id: tg::command::Id::new(b"command").into(),
 				data: None,
 				error: Some(None),
 				id: process.clone(),

@@ -413,13 +413,13 @@ mod tests {
 				.unwrap();
 		let sync = tg::sync::Token::sign(tg::sync::token::Body::new(i64::MAX), &key).unwrap();
 		let location = tg::Location::Local(tg::location::Local::default());
-		tokens.set_sync(location, sync.clone());
+		tokens.insert_sync(location, sync.clone());
 
 		assert!(!super::tokens_valid(tokens.local_authorization(), &clock));
 		super::remove_expired_tokens(&mut tokens, &clock);
 		assert_eq!(tokens.local_authorization(), &[valid]);
 		assert_eq!(tokens.authorization(&remote), &[expired]);
 		assert!(super::tokens_valid(tokens.local_authorization(), &clock));
-		assert_eq!(tokens.local_sync(), Some(&sync));
+		assert_eq!(tokens.local_sync(), std::slice::from_ref(&sync));
 	}
 }

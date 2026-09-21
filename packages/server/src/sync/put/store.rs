@@ -1,6 +1,9 @@
 use {
 	crate::{Session, sync::put::State},
-	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
+	futures::{
+		FutureExt as _, StreamExt as _, TryStreamExt as _,
+		stream::{FuturesOrdered, FuturesUnordered},
+	},
 	std::{collections::BTreeSet, io::SeekFrom, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
@@ -98,17 +101,21 @@ impl Session {
 			.map(|node| node.permissions)
 			.collect::<Vec<_>>();
 		let outputs = self
-			.try_get_object_batch_local_or_regions(
-				&state.graph,
-				&objects,
-				&permissions,
-				state.arg.metadata,
-			)
+			.sync_put_store_get_object_batch(state, &objects, &permissions, state.arg.metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the objects"))?;
 
 		// Handle the objects.
 		for (node, output) in std::iter::zip(nodes, outputs) {
+			if state
+				.graph
+				.lock()
+				.unwrap()
+				.object_remote_available(&node.id)
+			{
+				state.queue.finish_node();
+				continue;
+			}
 			// If the object is missing, then send a missing message.
 			let Some(mut output) = output else {
 				if node.send {
@@ -217,6 +224,116 @@ impl Session {
 		Ok(())
 	}
 
+	async fn sync_put_store_get_object_batch(
+		&self,
+		state: &State,
+		objects: &[tg::Referent<tg::object::Id>],
+		permissions: &[tg::authorization::permission::Set],
+		metadata: bool,
+	) -> tg::Result<Vec<Option<tg::object::get::Output>>> {
+		let outputs = self
+			.try_get_object_batch_local(objects, permissions, metadata)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get the objects locally"))?;
+		let location: tg::location::Arg =
+			tg::Location::Local(tg::location::Local::default()).into();
+		let locations = self
+			.locations(Some(&location))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		let outputs = std::iter::zip(std::iter::zip(objects, permissions), outputs)
+			.map(|((object, permissions), output)| {
+				let regions = regions.clone();
+				async move {
+					if let Some(output) = output {
+						return Ok(Some(output));
+					}
+
+					// Retry a miss while also listening for incoming sync notifications.
+					let deadline = self
+						.sync_put_pending(state, object.node.clone().into())
+						.await?;
+					let tokens = &object.options.tokens;
+					let local_future = async {
+						if let Some(output) = self
+							.try_get_with_sync_wait_until(
+								tokens,
+								tg::sync::control::ClientRequestArg::object(object.node.clone()),
+								deadline,
+								|control| {
+									let object = object.clone();
+									let mut permissions = *permissions;
+									if let Some(control) = &control {
+										permissions.insert(control.permissions());
+									}
+									async move {
+										if state
+											.graph
+											.lock()
+											.unwrap()
+											.object_remote_available(&object.node)
+										{
+											return Ok(Some(None));
+										}
+										if let Some(control) = control {
+											state
+												.graph
+												.lock()
+												.unwrap()
+												.update_node_local_control_output(
+													&object.node.clone().into(),
+													&control,
+												)?;
+										}
+										let objects = std::slice::from_ref(&object);
+										let permissions = std::slice::from_ref(&permissions);
+										let mut outputs = self
+											.try_get_object_batch_local(
+												objects,
+												permissions,
+												metadata,
+											)
+											.await?;
+										Ok(outputs.pop().flatten().map(Some))
+									}
+								},
+							)
+							.await?
+						{
+							return Ok(output);
+						}
+
+						Ok(None)
+					};
+					let remote_future = self.try_get_object_regions(
+						&object.node,
+						&regions,
+						metadata,
+						false,
+						&object.options.tokens,
+					);
+					let mut futures = [local_future.boxed(), remote_future.boxed()]
+						.into_iter()
+						.collect::<FuturesUnordered<_>>();
+					let mut error = None;
+					while let Some(result) = futures.next().await {
+						match result {
+							Ok(Some(output)) => return Ok(Some(output)),
+							Ok(None) => {},
+							Err(source) => error = Some(source),
+						}
+					}
+					error.map_or(Ok(None), Err)
+				}
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect::<Vec<_>>()
+			.await?;
+
+		Ok(outputs)
+	}
+
 	pub(super) async fn sync_put_store_process_batch(
 		&self,
 		state: &State,
@@ -238,17 +355,21 @@ impl Session {
 			.map(|node| node.permissions)
 			.collect::<Vec<_>>();
 		let outputs = self
-			.try_get_process_batch_local_or_regions(
-				&state.graph,
-				&processes,
-				&permissions,
-				state.arg.metadata,
-			)
+			.sync_put_store_get_process_batch(state, &processes, &permissions, state.arg.metadata)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the processes"))?;
 
 		// Handle the processes.
 		for (node, output) in std::iter::zip(nodes, outputs) {
+			if state
+				.graph
+				.lock()
+				.unwrap()
+				.process_remote_available(&node.id)
+			{
+				state.queue.finish_node();
+				continue;
+			}
 			let Some(mut output) = output else {
 				if node.send {
 					let message = tg::sync::PutMessage::Missing(tg::sync::PutMissingMessage {
@@ -443,16 +564,18 @@ impl Session {
 
 			// Enqueue the command.
 			if node.descendants && node.eager && state.arg.process_commands {
-				let node = crate::sync::queue::ObjectNode {
-					descendants: true,
-					eager: node.eager,
-					id: output.data.command.node.clone().into(),
-					kind: Some(crate::sync::queue::ObjectKind::Command),
-					local_tokens: node.tokens.clone(),
-					parent: Some(node.id.clone().into()),
-					remote_tokens: tg::tokens::Entry::default(),
-				};
-				state.queue.enqueue_object(node)?;
+				for command in output.data.command.objects() {
+					let node = crate::sync::queue::ObjectNode {
+						descendants: true,
+						eager: node.eager,
+						id: command.node,
+						kind: Some(crate::sync::queue::ObjectKind::Command),
+						local_tokens: node.tokens.clone(),
+						parent: Some(node.id.clone().into()),
+						remote_tokens: tg::tokens::Entry::default(),
+					};
+					state.queue.enqueue_object(node)?;
+				}
 			}
 
 			// Enqueue the error.
@@ -546,5 +669,113 @@ impl Session {
 		state.queue.close_if_end();
 
 		Ok(())
+	}
+
+	async fn sync_put_store_get_process_batch(
+		&self,
+		state: &State,
+		processes: &[tg::Referent<tg::process::Id>],
+		permissions: &[tg::authorization::permission::Set],
+		metadata: bool,
+	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
+		let location: tg::location::Arg =
+			tg::Location::Local(tg::location::Local::default()).into();
+		let locations = self
+			.locations(Some(&location))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
+		let outputs = std::iter::zip(processes, permissions)
+			.map(|(process, permissions)| {
+				let regions = regions.clone();
+				async move {
+					if let Some(output) = self
+						.try_get_process_local_with_permissions(
+							&process.node,
+							*permissions,
+							metadata,
+						)
+						.await?
+					{
+						return Ok(Some(output));
+					}
+					let tg::authorization::permission::Set::Process(requested) = *permissions
+					else {
+						return Err(tg::error!("expected process permissions"));
+					};
+					let request = tg::sync::control::ClientRequestArg::process(
+						process.node.clone(),
+						requested,
+					);
+					let tokens = &process.options.tokens;
+					let deadline = self
+						.sync_put_pending(state, process.node.clone().into())
+						.await?;
+					let local_future = async {
+						if let Some(output) = self
+							.try_get_with_sync_wait_until(tokens, request, deadline, |control| {
+								let mut permissions = *permissions;
+								async move {
+									if state
+										.graph
+										.lock()
+										.unwrap()
+										.process_remote_available(&process.node)
+									{
+										return Ok(Some(None));
+									}
+									if let Some(control) = control {
+										state
+											.graph
+											.lock()
+											.unwrap()
+											.update_node_local_control_output(
+												&process.node.clone().into(),
+												&control,
+											)?;
+										permissions.insert(control.permissions());
+									}
+									self.try_get_process_local_with_permissions(
+										&process.node,
+										permissions,
+										metadata,
+									)
+									.await
+									.map(|output| output.map(Some))
+								}
+							})
+							.await?
+						{
+							return Ok(output);
+						}
+
+						Ok(None)
+					};
+					let remote_future = self.try_get_process_regions(
+						&process.node,
+						&regions,
+						metadata,
+						false,
+						&process.options.tokens,
+					);
+					let mut futures = [local_future.boxed(), remote_future.boxed()]
+						.into_iter()
+						.collect::<FuturesUnordered<_>>();
+					let mut error = None;
+					while let Some(result) = futures.next().await {
+						match result {
+							Ok(Some(output)) => return Ok(Some(output)),
+							Ok(None) => {},
+							Err(source) => error = Some(source),
+						}
+					}
+					error.map_or(Ok(None), Err)
+				}
+			})
+			.collect::<FuturesOrdered<_>>()
+			.try_collect()
+			.await?;
+
+		Ok(outputs)
 	}
 }

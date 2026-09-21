@@ -1,11 +1,12 @@
 use ../../test.nu *
+use ../lib/command.nu
 
 # Recursively pushing a process without commands leaves the tree's commands absent on the remote, and a subsequent recursive push with commands makes every command present and records the expected metadata fields, under both eager and lazy push.
 
 # Recursively find all children commands and collect them into a list.
 def collect_commands [process_id: string] {
 	let process = tg get $process_id | from json
-	mut commands = [$process.command]
+	mut commands = [(command module-input $process.command)]
 	for child in $process.children {
 		$commands = $commands | append (collect_commands $child.process)
 	}
@@ -30,7 +31,7 @@ def test [path: string, ...args] {
 	tg index
 
 	let output = tg get $process_id | from json
-	let command = $output.command
+	let command = (command module-input $output.command)
 	let children = $output.children
 
 	# Push the process without commands.

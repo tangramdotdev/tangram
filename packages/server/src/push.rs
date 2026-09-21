@@ -606,7 +606,7 @@ impl Session {
 							let mut node = node.clone();
 							node.options
 								.tokens
-								.set_sync(destination.clone(), token.clone());
+								.insert_sync(destination.clone(), token.clone());
 							progress.log(None, node.to_string());
 						}
 					}
@@ -642,7 +642,7 @@ impl Session {
 						for node in &mut output.nodes {
 							node.options
 								.tokens
-								.set_sync(destination.clone(), token.clone());
+								.insert_sync(destination.clone(), token.clone());
 						}
 					}
 					Ok(ControlFlow::Break(output))

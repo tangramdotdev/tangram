@@ -76,9 +76,7 @@ impl Session {
 		} else {
 			None
 		};
-		let command = self
-			.spawn_process_resolve_command(arg, sandbox_host)
-			.await?;
+		let command = self.spawn_process_resolve_command(arg, sandbox_host)?;
 
 		// If the authentication is from a process, then update the parent, location, and retry.
 		if let Some(process) = &authenticated_process
@@ -117,7 +115,7 @@ impl Session {
 		Ok(prepared)
 	}
 
-	async fn spawn_process_resolve_command(
+	fn spawn_process_resolve_command(
 		&self,
 		arg: &mut tg::process::spawn::Arg,
 		sandbox_host: Option<&str>,
@@ -131,26 +129,13 @@ impl Session {
 					.or_else(|| self.server.config.process.spawn.host.clone())
 					.unwrap_or_else(|| tg::host::current().to_owned());
 				command_arg.host = Some(host.clone());
-				let builder = tg::command::Builder::try_with_spawn_arg(command_arg.clone())
-					.map_err(|error| tg::error!(!error, "failed to create the command"))?;
-				let command = builder
-					.host(host)
-					.build()
-					.map_err(|error| tg::error!(!error, "failed to create the command"))?;
-				let id = command
-					.store_with_handle(self)
-					.await
-					.map_err(|error| tg::error!(!error, "failed to store the command"))?;
-				arg.command.options.location = command.state().location();
-				arg.command
-					.options
-					.tokens
-					.inherit(&command.state().tokens());
-				id
+				let command = tg::process::data::Command::new(command_arg.clone(), host);
+				command.id()?
 			},
 			tg::Either::Right(id) => id.clone(),
 		};
-		let command = tg::Referent::new(id, arg.command.options.clone());
+		let options = arg.command.options.clone();
+		let command = tg::Referent::new(id, options);
 
 		Ok(command)
 	}
@@ -642,13 +627,12 @@ impl Session {
 		let tg::Either::Left(command) = &mut command.node else {
 			return Ok(());
 		};
-		let builder = tg::command::Builder::try_with_spawn_arg(command.clone())?;
-		for object in builder.objects() {
-			let tokens = object.state().tokens().for_location(location);
-			object.state().set_location(None);
-			object.state().set_tokens(tokens);
-		}
-		*command = builder.build_spawn_arg()?;
+		let host = command
+			.host
+			.clone()
+			.ok_or_else(|| tg::error!("expected a resolved host"))?;
+		let data = tg::process::data::Command::new(command.clone(), host);
+		*command = data.for_location(location).to_spawn_arg();
 
 		Ok(())
 	}

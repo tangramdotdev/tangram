@@ -9,7 +9,7 @@ let store = { object_max_batch: 1 }
 let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	sync: { get: { store: { lmdb: $store, memory: $store, scylla: $store } } },
+	sync: { control: { index_timeout: 60 }, get: { store: { lmdb: $store, memory: $store, scylla: $store } } },
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let alice_local = server spawn --name alice-local --config {
@@ -54,7 +54,7 @@ let push = job spawn {
 }
 let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $watch 0 | complete
 success $output "alice's push should reach the blob"
-wait_until { open --raw $push_log | str contains 'tokens[remote][sync]' } 'the push should log the referent with the sync token'
+wait_until { open --raw $push_log | str contains 'tokens[remote][sync][0]' } 'the push should log the referent with the sync token'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ "sync" }
 let referent = $push_lines | first | str trim
 

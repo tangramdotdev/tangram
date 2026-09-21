@@ -5,7 +5,7 @@ let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token } },
-	sync: { control: { retry_interval: 0.1 } },
+	sync: { control: { index_timeout: 60, retry_interval: 0.1 } },
 }
 let local = server spawn --name local --config {
 	remotes: { default: { token: $root_token, url: $remote.url } },
@@ -28,10 +28,10 @@ let push = job spawn {
 }
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | ignore
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.subscribe $subscribe_watch 0 | ignore
-wait_until { open --raw $push_log | str contains 'tokens[remote][sync]' } 'the push should log the referent with the sync token'
+wait_until { open --raw $push_log | str contains 'tokens[remote][sync][0]' } 'the push should log the referent with the sync token'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]\[sync\]' } | first | str trim
-let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][sync]' | first | get value
-let query = { 'tokens[local][sync]': $sync } | url build-query
+let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][sync][0]' | first | get value
+let query = { 'tokens[local][sync][0]': $sync } | url build-query
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let read = job spawn {
 	let job_id = job id

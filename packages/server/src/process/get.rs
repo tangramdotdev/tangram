@@ -1,10 +1,9 @@
 use {
-	crate::{Server, Session, sync::Graph},
+	crate::{Server, Session},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
-		stream::{self, BoxStream, FuturesOrdered, FuturesUnordered},
+		stream::{self, BoxStream, FuturesUnordered},
 	},
-	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{
@@ -28,78 +27,115 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			let tokens = &arg.tokens;
-			if local.current
-				&& let Some(output) = self
-					.try_get_with_sync_wait(
-						tokens,
-						tg::sync::control::ClientRequestArg::process(
-							id.clone(),
-							tg::authorization::permission::process::Set::NODE,
-						),
-						|control| async move {
-							if let Some(tg::sync::control::GetServerResponseOutput::Process(
-								control,
-							)) = control
-							{
-								return self
-									.try_get_process_local_with_control(
-										id,
-										arg.metadata,
-										arg.availability,
-										tokens,
-										control,
-									)
-									.await;
-							}
+		if locations.local.as_ref().is_some_and(|local| local.current)
+			&& let Some(output) = self
+				.try_get_process_local(
+					id,
+					arg.metadata,
+					arg.availability,
+					arg.tokens.local_authorization(),
+				)
+				.await?
+		{
+			return Ok(Some(output));
+		}
 
-							self.try_get_process_local(
-								id,
-								arg.metadata,
-								arg.availability,
-								tokens.local_authorization(),
-							)
-							.await
-						},
+		let local_future = async {
+			if let Some(local) = &locations.local {
+				let tokens = &arg.tokens;
+				if local.current
+					&& let Some(output) = self
+						.try_get_with_sync_wait(
+							tokens,
+							tg::sync::control::ClientRequestArg::process(
+								id.clone(),
+								tg::authorization::permission::process::Set::NODE,
+							),
+							|control| async move {
+								if let Some(tg::sync::control::GetServerResponseOutput::Process(
+									control,
+								)) = control
+								{
+									return self
+										.try_get_process_local_with_control(
+											id,
+											arg.metadata,
+											arg.availability,
+											tokens,
+											control,
+										)
+										.await;
+								}
+
+								self.try_get_process_local(
+									id,
+									arg.metadata,
+									arg.availability,
+									tokens.local_authorization(),
+								)
+								.await
+							},
+						)
+						.await
+						.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
+				{
+					return Ok(Some(output));
+				}
+			}
+			Ok::<_, tg::Error>(None)
+		};
+		let region_future = async {
+			if let Some(local) = &locations.local
+				&& let Some(output) = self
+					.try_get_process_regions(
+						id,
+						&local.regions,
+						arg.metadata,
+						arg.availability,
+						&arg.tokens,
 					)
 					.await
-					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-			{
+					.map_err(
+						|error| tg::error!(!error, %id, "failed to get the process from another region"),
+					)? {
 				return Ok(Some(output));
 			}
-
+			Ok(None)
+		};
+		let remote_future = async {
 			if let Some(output) = self
-				.try_get_process_regions(
+				.try_get_process_remotes(
 					id,
-					&local.regions,
+					&locations.remotes,
 					arg.metadata,
 					arg.availability,
 					&arg.tokens,
 				)
 				.await
 				.map_err(
-					|error| tg::error!(!error, %id, "failed to get the process from another region"),
+					|error| tg::error!(!error, %id, "failed to get the process from a remote"),
 				)? {
 				return Ok(Some(output));
 			}
-		}
 
-		if let Some(output) = self
-			.try_get_process_remotes(
-				id,
-				&locations.remotes,
-				arg.metadata,
-				arg.availability,
-				&arg.tokens,
-			)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process from a remote"))?
-		{
-			return Ok(Some(output));
+			Ok(None)
+		};
+		let mut futures = [
+			local_future.boxed(),
+			region_future.boxed(),
+			remote_future.boxed(),
+		]
+		.into_iter()
+		.collect::<FuturesUnordered<_>>();
+		let mut error = None;
+		while let Some(result) = futures.next().await {
+			match result {
+				Ok(Some(output)) => return Ok(Some(output)),
+				Ok(None) => {},
+				Err(source) => error = Some(source),
+			}
 		}
-
-		Ok(None)
+		error.map_or(Ok(None), Err)
 	}
 
 	async fn try_get_process_runner(
@@ -158,75 +194,7 @@ impl Session {
 		Ok(Some(output))
 	}
 
-	pub(crate) async fn try_get_process_batch_local_or_regions(
-		&self,
-		graph: &Arc<Mutex<Graph>>,
-		processes: &[tg::Referent<tg::process::Id>],
-		permissions: &[tg::authorization::permission::Set],
-		metadata: bool,
-	) -> tg::Result<Vec<Option<tg::process::get::Output>>> {
-		let location: tg::location::Arg =
-			tg::Location::Local(tg::location::Local::default()).into();
-		let locations = self
-			.locations(Some(&location))
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-		let outputs = std::iter::zip(processes, permissions)
-			.map(|(process, permissions)| {
-				let regions = regions.clone();
-				async move {
-					let tg::authorization::permission::Set::Process(requested) = *permissions
-					else {
-						return Err(tg::error!("expected process permissions"));
-					};
-					let request = tg::sync::control::ClientRequestArg::process(
-						process.node.clone(),
-						requested,
-					);
-					let tokens = &process.options.tokens;
-					if let Some(output) = self
-						.try_get_with_sync_wait(tokens, request, |control| {
-							let mut permissions = *permissions;
-							async move {
-								if let Some(control) = control {
-									graph.lock().unwrap().update_node_local_control_output(
-										&process.node.clone().into(),
-										&control,
-									)?;
-									permissions.insert(control.permissions());
-								}
-								self.try_get_process_local_with_permissions(
-									&process.node,
-									permissions,
-									metadata,
-								)
-								.await
-							}
-						})
-						.await?
-					{
-						return Ok(Some(output));
-					}
-
-					self.try_get_process_regions(
-						&process.node,
-						&regions,
-						metadata,
-						false,
-						&process.options.tokens,
-					)
-					.await
-				}
-			})
-			.collect::<FuturesOrdered<_>>()
-			.try_collect()
-			.await?;
-
-		Ok(outputs)
-	}
-
-	async fn try_get_process_local_with_permissions(
+	pub(crate) async fn try_get_process_local_with_permissions(
 		&self,
 		id: &tg::process::Id,
 		permissions: tg::authorization::permission::Set,
@@ -615,7 +583,7 @@ impl Session {
 		}
 	}
 
-	async fn try_get_process_regions(
+	pub(crate) async fn try_get_process_regions(
 		&self,
 		id: &tg::process::Id,
 		regions: &[String],

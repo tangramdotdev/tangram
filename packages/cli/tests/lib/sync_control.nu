@@ -19,10 +19,17 @@ export def test [case: string] {
 		sync: {
 			control: {
 				heartbeat_interval: 0.1,
+				index_retry: {
+					backoff: (if $case == 'notification' { 2 } else { 0.05 }),
+					jitter: 0,
+					max_delay: (if $case == 'notification' { 2 } else { 0.05 }),
+					max_retries: (if $case == 'retry_limit' { 2 } else { 10000 }),
+				},
+				index_timeout: (if $case == 'pending_late_source' { 0.2 } else if $case == 'pending_timeout' { 1 } else { 5 }),
 				lease_ttl: 2,
 				recovery_timeout: 0.5,
 				request_timeout: 5,
-				retry_interval: 0.05,
+				retry_interval: (if $case == 'notification' { 2 } else { 0.05 }),
 			},
 			get: {
 				checkout_pointers: false,

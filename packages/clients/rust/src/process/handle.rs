@@ -255,11 +255,11 @@ impl<O> Process<O> {
 	where
 		H: tg::Handle,
 	{
-		if let Some(state) = self.0.state.read().unwrap().clone() {
+		if let Some(mut state) = self.0.state.read().unwrap().clone() {
 			let location = self.location().and_then(|location| location.to_location());
-			state.inherit_location(location.as_ref());
+			Arc::make_mut(&mut state).inherit_location(location.as_ref());
 			let tokens = self.tokens();
-			state.inherit_tokens(&tokens);
+			Arc::make_mut(&mut state).inherit_tokens(&tokens);
 			return Ok(Some(state));
 		}
 		let Some(id) = self.id().right() else {
@@ -289,7 +289,7 @@ impl<O> Process<O> {
 				.unwrap()
 				.replace(location.clone().into());
 		}
-		let state = tg::process::State::try_from(output.data)?;
+		let mut state = tg::process::State::try_from(output.data)?;
 		state.inherit_location(location.as_ref());
 		let tokens = self.tokens();
 		state.inherit_tokens(&tokens);
@@ -298,7 +298,7 @@ impl<O> Process<O> {
 		Ok(Some(state))
 	}
 
-	pub async fn command(&self) -> tg::Result<impl Deref<Target = tg::Command>> {
+	pub async fn command(&self) -> tg::Result<tg::Either<tg::process::data::Command, tg::Command>> {
 		let handle = tg::handle()?;
 		self.command_with_handle(handle).await
 	}
@@ -306,14 +306,23 @@ impl<O> Process<O> {
 	pub async fn command_with_handle<H>(
 		&self,
 		handle: &H,
-	) -> tg::Result<impl Deref<Target = tg::Command> + use<H, O>>
+	) -> tg::Result<tg::Either<tg::process::data::Command, tg::Command>>
 	where
 		H: tg::Handle,
 	{
-		Ok(self
-			.load_with_handle(handle)
-			.await?
-			.map(|state| &state.command))
+		let state = self.load_with_handle(handle).await?;
+		let command = match &state.command.node {
+			tg::Either::Left(command) => {
+				let mut command = command.as_ref().clone();
+				command.inherit_location_and_tokens(&state.command.options);
+				tg::Either::Left(command)
+			},
+			tg::Either::Right(id) => {
+				let referent = tg::Referent::new(id.clone(), state.command.options.clone());
+				tg::Either::Right(tg::Command::with_referent(referent))
+			},
+		};
+		Ok(command)
 	}
 
 	pub async fn retry(&self) -> tg::Result<impl Deref<Target = bool>> {

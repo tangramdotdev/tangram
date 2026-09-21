@@ -31,8 +31,28 @@ impl Session {
 			mut stream,
 			verify_object_ids,
 		} = arg;
+		let mut pending = super::pending::Pending::default();
 		let state = &state;
-		while let Some(message) = stream.next().await {
+		loop {
+			let message = tokio::select! {
+				output = pending.next(), if !pending.is_empty() => {
+					output?;
+					continue;
+				},
+				message = stream.next() => {
+					let Some(message) = message else { break; };
+					message
+				},
+			};
+			match &message {
+				tg::sync::PutMessage::Node(tg::sync::PutNodeMessage::Object(message)) => {
+					pending.remove(&message.id.clone().into());
+				},
+				tg::sync::PutMessage::Node(tg::sync::PutNodeMessage::Process(message)) => {
+					pending.remove(&message.id.clone().into());
+				},
+				_ => {},
+			}
 			match message {
 				tg::sync::PutMessage::Node(tg::sync::PutNodeMessage::Group(message)) => {
 					let message = tg::sync::PutNodeMessage::Group(message);
@@ -287,13 +307,16 @@ impl Session {
 							let id = id.try_into()?;
 							let tokens = tg::tokens::Entry {
 								authorization: message.tokens,
-								sync: None,
+								sync: Vec::new(),
 							};
 							state.graph.lock().unwrap().update_process_tokens(
 								&id,
 								&tokens,
 								&tg::tokens::Entry::default(),
 							);
+							if pending.missing(&id.clone().into())? {
+								continue;
+							}
 							let node = super::index::ProcessNode { id, missing: true };
 							index_process_sender.send(node).await.map_err(|_| {
 								tg::error!("failed to send the process to the index task")
@@ -303,13 +326,16 @@ impl Session {
 							let id = id.try_into()?;
 							let tokens = tg::tokens::Entry {
 								authorization: message.tokens,
-								sync: None,
+								sync: Vec::new(),
 							};
 							state.graph.lock().unwrap().update_object_tokens(
 								&id,
 								&tokens,
 								&tg::tokens::Entry::default(),
 							);
+							if pending.missing(&id.clone().into())? {
+								continue;
+							}
 							let node = super::index::ObjectNode { id, missing: true };
 							index_object_sender.send(node).await.map_err(|_| {
 								tg::error!("failed to send the object to the index task")
@@ -321,9 +347,14 @@ impl Session {
 					},
 				},
 
+				tg::sync::PutMessage::Pending(id) => {
+					pending.insert(self, state, &checkout_sender, id);
+				},
+
 				tg::sync::PutMessage::Progress(_) => (),
 
 				tg::sync::PutMessage::End => {
+					pending.finish().await?;
 					tracing::trace!("received end");
 					return Ok(());
 				},

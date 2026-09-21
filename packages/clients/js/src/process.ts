@@ -5,6 +5,7 @@ import type { Put as ProcessPut } from "./client/process/put.ts";
 import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
 import * as tg from "./index.ts";
 import * as build from "./process/build.ts";
+import * as commandData from "./process/command.ts";
 import * as connect from "./process/connect.ts";
 import * as exec from "./process/exec.ts";
 import * as run from "./process/run.ts";
@@ -404,32 +405,39 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's command. */
-	get command(): Promise<tg.Command> {
+	get command(): Promise<tg.Process.Data.Command | tg.Command> {
 		return (async () => {
 			await this.load();
-			let command = this.#state!.command;
-
-			tg.Object.inheritTokens(command, this.#tokens);
-
-			return command;
+			let referent = this.#state!.command;
+			let options = {
+				...referent.options,
+				tokens: { ...referent.options?.tokens },
+			};
+			tg.Tokens.inherit(options.tokens, this.#tokens);
+			if (typeof referent.node === "string") {
+				return tg.Command.withReferent({ node: referent.node, options });
+			}
+			return commandData.inheritOptions(referent.node, options);
 		})();
 	}
 
 	/** Get this process's command's args. */
 	get args(): Promise<Array<tg.Command.Value>> {
 		return (async () => {
-			return await (
-				await this.command
-			).args;
+			let command = await this.command;
+			return command instanceof tg.Command
+				? await command.args
+				: (command.args ?? []).map(tg.Command.Value.fromData);
 		})();
 	}
 
 	/** Get this process's command's cwd. */
 	get cwd(): Promise<string | null> {
 		return (async () => {
-			return await (
-				await this.command
-			).cwd;
+			let command = await this.command;
+			return command instanceof tg.Command
+				? await command.cwd
+				: (command.cwd ?? null);
 		})();
 	}
 
@@ -441,7 +449,16 @@ export class Process<O extends tg.Value = tg.Value> {
 	): Promise<
 		{ [name: string]: tg.Command.Value } | tg.Command.Value | undefined
 	> {
-		let env = await (await this.command).env;
+		let command = await this.command;
+		let env =
+			command instanceof tg.Command
+				? await command.env
+				: globalThis.Object.fromEntries(
+						globalThis.Object.entries(command.env ?? {}).map(([key, value]) => [
+							key,
+							tg.Command.Value.fromData(value),
+						]),
+					);
 		if (name === undefined) {
 			return { ...env };
 		} else {
@@ -452,9 +469,23 @@ export class Process<O extends tg.Value = tg.Value> {
 	/** Get this process's command's executable. */
 	get executable(): Promise<tg.Command.Executable> {
 		return (async () => {
-			return await (
-				await this.command
-			).executable;
+			let command = await this.command;
+			if (command instanceof tg.Command) {
+				return await command.executable;
+			}
+			let referent = tg.Referent.fromData(command.executable, (node) => node);
+			let executable = tg.Command.Executable.fromData(referent.node);
+			if (executable.artifact !== null) {
+				tg.Object.inheritTokens(
+					executable.artifact,
+					referent.options?.tokens ?? {},
+				);
+				tg.Object.inheritLocation(
+					executable.artifact,
+					referent.options?.location ?? null,
+				);
+			}
+			return executable;
 		})();
 	}
 
@@ -497,9 +528,10 @@ export class Process<O extends tg.Value = tg.Value> {
 	/** Get this process's command's user. */
 	get user(): Promise<string | null> {
 		return (async () => {
-			return await (
-				await this.command
-			).user;
+			let command = await this.command;
+			return command instanceof tg.Command
+				? await command.user
+				: (command.user ?? null);
 		})();
 	}
 
@@ -1310,7 +1342,7 @@ export namespace Process {
 		actualChecksum: tg.Checksum | null;
 		cacheable: boolean;
 		children: Array<tg.Process.Child> | null;
-		command: tg.Command;
+		command: tg.Referent<tg.Process.Data.Command | tg.Command.Id>;
 		createdAt: number;
 		debug: tg.Process.Debug | null;
 		error: tg.Error | null;
@@ -1411,6 +1443,8 @@ export namespace Process {
 			state: State,
 			location: tg.Location | null,
 		): void => {
+			state.command.options ??= {};
+			state.command.options.location ??= location;
 			for (let child of state.children ?? []) {
 				child.process.inheritLocation(
 					location === null ? null : tg.Location.Arg.fromLocation(location),
@@ -1428,7 +1462,9 @@ export namespace Process {
 		};
 
 		export let inheritTokens = (state: State, tokens: tg.Tokens): void => {
-			tg.Object.inheritTokens(state.command, tokens);
+			state.command.options ??= {};
+			state.command.options.tokens ??= {};
+			tg.Tokens.inherit(state.command.options.tokens, tokens);
 			for (let child of state.children ?? []) {
 				child.process.inheritTokens(tokens);
 			}
@@ -1444,8 +1480,7 @@ export namespace Process {
 		};
 
 		export let toData = (value: State): Data => {
-			let referent = tg.Object.toReferent(value.command);
-			let command = tg.Referent.toDataString(referent, (id) => id);
+			let command = commandReferentToData(value.command);
 			let output: Data = {
 				command,
 				created_at: value.createdAt,
@@ -1506,11 +1541,7 @@ export namespace Process {
 		};
 
 		export let fromData = (data: tg.Process.Data): tg.Process.State => {
-			let referent = tg.Referent.fromDataString(
-				data.command,
-				(id) => id as tg.Command.Id,
-			);
-			let command = tg.Command.withReferent(referent);
+			let command = commandReferentFromData(data.command);
 			let output: State = {
 				actualChecksum: data.actual_checksum ?? null,
 				cacheable: data.cacheable ?? false,
@@ -1602,7 +1633,7 @@ export namespace Process {
 		actual_checksum?: tg.Checksum | null;
 		cacheable?: boolean;
 		children?: Array<tg.Process.Data.Child> | null;
-		command: string;
+		command: tg.Process.Data.CommandReferent;
 		created_at: number;
 		debug?: tg.Process.Debug | null;
 		error?: tg.Error.Data | string | null;
@@ -1623,6 +1654,19 @@ export namespace Process {
 	};
 
 	export namespace Data {
+		export type CommandReferent = tg.Referent.Data<
+			tg.Process.Data.Command | tg.Command.Id
+		>;
+
+		export type Command = Omit<
+			tg.Process.Spawn.CommandArg,
+			"executable" | "host" | "stdin"
+		> & {
+			executable: tg.Referent.Data<tg.Command.Data.Executable>;
+			host: string;
+			stdin?: tg.Referent.Data<tg.Blob.Id> | null;
+		};
+
 		export type Child = {
 			cached?: boolean;
 			process: string;
@@ -1647,14 +1691,13 @@ export namespace Process {
 					};
 				});
 			}
-			let referent = tg.Referent.fromDataString(
-				data.command,
-				(id) => id as tg.Command.Id,
+			let referent = tg.Referent.withoutLocationAndTokens(
+				commandReferentFromData(data.command),
 			);
-			output.command = tg.Referent.toDataString(
-				tg.Referent.withoutLocationAndTokens(referent),
-				(id) => id,
-			);
+			if (typeof referent.node !== "string") {
+				referent.node = commandData.withoutLocationAndTokens(referent.node);
+			}
+			output.command = commandReferentToData(referent);
 			if (data.error !== undefined && data.error !== null) {
 				if (typeof data.error === "string") {
 					let referent = tg.Referent.fromDataString(
@@ -1798,6 +1841,22 @@ async function isJsProcessBuilderArg(
 	}
 
 	return false;
+}
+
+function commandReferentFromData(
+	data: tg.Process.Data.CommandReferent,
+): tg.Referent<tg.Process.Data.Command | tg.Command.Id> {
+	return typeof data === "string"
+		? tg.Referent.fromDataString(data, (id) => id as tg.Command.Id)
+		: tg.Referent.fromData(data, (node) => node);
+}
+
+function commandReferentToData(
+	referent: tg.Referent<tg.Process.Data.Command | tg.Command.Id>,
+): tg.Process.Data.CommandReferent {
+	return typeof referent.node === "string"
+		? tg.Referent.toDataString({ ...referent, node: referent.node }, (id) => id)
+		: tg.Referent.toData(referent, (node) => node);
 }
 
 function encodeJsArgs(

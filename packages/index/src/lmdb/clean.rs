@@ -768,12 +768,23 @@ impl Index {
 
 		let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
-		let sandbox = db
+		let process = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get process"))?
 			.map(crate::process::Process::deserialize)
-			.transpose()?
-			.and_then(|process| process.sandbox);
+			.transpose()?;
+		if let Some(process) = &process {
+			let key =
+				crate::lmdb::Key::Process(crate::lmdb::process::Key::CommandCacheableProcess {
+					command: process.command_id.clone(),
+					process: id.clone(),
+				});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key).map_err(|error| {
+				tg::error!(!error, "failed to delete the command cacheable process key")
+			})?;
+		}
+		let sandbox = process.and_then(|process| process.sandbox);
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete process"))?;
 		let id_bytes = id.to_bytes();
@@ -852,17 +863,6 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete object process key"))?;
-			if kind.is_command() {
-				let key =
-					crate::lmdb::Key::Process(crate::lmdb::process::Key::CommandCacheableProcess {
-						command: object.clone(),
-						process: id.clone(),
-					});
-				let key = Self::pack(subspace, &key);
-				db.delete(transaction, &key).map_err(|error| {
-					tg::error!(!error, "failed to delete the command cacheable process key")
-				})?;
-			}
 		}
 		for (_, object, _) in object_entries {
 			Self::decrement_object_reference_count(db, subspace, transaction, &object)?;

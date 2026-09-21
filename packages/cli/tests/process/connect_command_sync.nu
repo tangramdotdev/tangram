@@ -11,7 +11,7 @@ let remote = server spawn --preserve-keys --name remote --config {
 	advanced: { checkpoints: true, single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
-	sync: { get: { store: { lmdb: $store, memory: $store, scylla: $store } } },
+	sync: { control: { index_timeout: 60 }, get: { store: { lmdb: $store, memory: $store, scylla: $store } } },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 
@@ -21,12 +21,14 @@ let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: 'default', token: $created.token.token },
+	sync: { control: { index_timeout: 60 } },
 }
 
 # Create a user and a local server that routes runs through the scheduler.
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
+	sync: { control: { index_timeout: 60 } },
 }
 
 # Store an executable command only on the local server.

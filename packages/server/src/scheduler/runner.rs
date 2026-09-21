@@ -284,7 +284,14 @@ impl Server {
 							tangram_index::process::put::Arg {
 								cached: false,
 								children: None,
-								command: data.command.node.clone().into(),
+								command: Some(
+									data.command
+										.objects()
+										.into_iter()
+										.map(|object| object.node)
+										.collect(),
+								),
+								command_id: data.command.command_id()?.into(),
 								data: Some(data.clone()),
 								error: None,
 								id: process.clone(),

@@ -2,7 +2,10 @@ use {
 	super::{control::Control, graph::Graph, progress::Progress, queue::Queue},
 	crate::Session,
 	futures::{FutureExt as _, stream::BoxStream},
-	std::sync::{Arc, Mutex},
+	std::{
+		collections::BTreeSet,
+		sync::{Arc, Mutex},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tangram_index::prelude::*,
@@ -13,6 +16,7 @@ mod checkout;
 mod database;
 mod index;
 mod input;
+mod pending;
 mod queue;
 mod store;
 
@@ -20,6 +24,7 @@ pub(super) struct State {
 	pub(super) arg: tg::sync::Arg,
 	pub(super) control: Option<Control>,
 	pub(super) graph: Arc<Mutex<Graph>>,
+	pending: Mutex<BTreeSet<tg::Id>>,
 	progress: Progress,
 	queue: Queue,
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
@@ -68,6 +73,7 @@ impl Session {
 			arg,
 			control,
 			graph,
+			pending: Mutex::default(),
 			progress,
 			queue,
 			sender,

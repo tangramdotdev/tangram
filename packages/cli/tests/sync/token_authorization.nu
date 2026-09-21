@@ -18,6 +18,7 @@ let alice_local = server spawn --name alice-local --config {
 }
 let bob_local = server spawn --name bob-local --config {
 	remotes: { default: { token: $bob.token, url: $remote.url } },
+	sync: { control: { index_timeout: 1 } },
 }
 
 # Hold Alice's private object before storage and leave a second object held to keep the sync open.
@@ -35,11 +36,11 @@ let push = job spawn {
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $private_watch 0 | ignore
 wait_until { (open --raw $push_log) =~ 'tokens\[remote\]\[sync\][^\r\n]*\r?\n' } 'the push should log its complete sync token'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]\[sync\]' } | first | str trim
-let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][sync]' | first | get value
+let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][sync][0]' | first | get value
 
 # Bob's request is retained, then succeeds with the permissions reported when the object is stored.
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
-let query = { 'tokens[local][sync]': $sync } | url build-query
+let query = { 'tokens[local][sync][0]': $sync } | url build-query
 let read = job spawn {
 	let job_id = job id
 	let output = http get --max-time 30sec --unix-socket $socket --headers {
@@ -56,11 +57,14 @@ timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.st
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $blocker_watch
 success (job recv --tag $push --timeout 10sec) "Alice's push must finish"
 
+# Polling must not expose stored bytes without authorization.
+failure (tg --url $remote.url --token $bob.token get --local $private | complete) "storage alone must not authorize Bob's read"
+
 # A sync token and authorization proofs for unrelated nodes do not authorize Alice's object.
 let unrelated_object = tg --url $bob_local.url put 'tg.file("unrelated")' | str trim
 let unrelated_referent = tg --url $bob_local.url push $unrelated_object | str trim
 let unrelated_uri = $'http://localhost/($unrelated_referent)' | url parse
-let unrelated_sync = $unrelated_uri.params | where key == 'tokens[remote][sync]' | first | get value
+let unrelated_sync = $unrelated_uri.params | where key == 'tokens[remote][sync][0]' | first | get value
 let unrelated = [one two] | each {|name|
 	let value = ['tg.file("' $name '")'] | str join
 	tg --url $remote.url --token $bob.token put $value | str trim
@@ -73,7 +77,7 @@ let tokens = $unrelated | each {|id|
 let query = {
 	'tokens[remote][authorization][0]': ($tokens | get 0),
 	'tokens[remote][authorization][1]': ($tokens | get 1),
-	'tokens[remote][sync]': $unrelated_sync,
+	'tokens[remote][sync][0]': $unrelated_sync,
 } | url build-query
 let output = timeout 10s tg --url $bob_local.url pull $'($private)?($query)' | complete
 assert ($output.exit_code != 124) "the unauthorized pull should finish"

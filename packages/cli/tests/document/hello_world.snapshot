@@ -18,6 +18,7 @@
                   "tokens": {
                     "local": {
                       "authorization": [
+                        "<token>",
                         "<token>"
                       ]
                     }
@@ -48,6 +49,7 @@
                     "tokens": {
                       "local": {
                         "authorization": [
+                          "<token>",
                           "<token>"
                         ]
                       }

@@ -16,13 +16,13 @@ impl Session {
 				let value = tg::Value::try_from_data(data)?;
 				for object in value.objects() {
 					let mut tokens = object.state().tokens();
-					tokens.set_sync(location.clone(), sync.clone());
+					tokens.insert_sync(location.clone(), sync.clone());
 					object.state().set_tokens(tokens);
 				}
 				arg.data.output = Some(value.to_data());
 			}
 			if let Some(tg::Either::Right(error)) = &mut arg.data.error {
-				error.options.tokens.set_sync(location, sync.clone());
+				error.options.tokens.insert_sync(location, sync.clone());
 			}
 		}
 

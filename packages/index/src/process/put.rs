@@ -8,8 +8,11 @@ pub struct Arg {
 	#[tangram_serialize(id = 0)]
 	pub children: Option<Vec<tg::process::data::Child>>,
 
+	#[tangram_serialize(default, id = 17, skip_serializing_if = "Option::is_none")]
+	pub command: Option<Vec<tg::object::Id>>,
+
 	#[tangram_serialize(id = 1)]
-	pub command: tg::object::Id,
+	pub command_id: tg::object::Id,
 
 	#[tangram_serialize(id = 2)]
 	pub data: Option<tg::process::Data>,
@@ -105,6 +108,7 @@ impl Arg {
 	pub fn set(&self) -> super::Set {
 		super::Set {
 			children: self.children.is_some(),
+			command: self.command.is_some(),
 			error: self.error.is_some(),
 			log: self.log.is_some(),
 			output: self.output.is_some(),

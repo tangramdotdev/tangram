@@ -413,7 +413,7 @@ impl Session {
 				.command
 				.options
 				.tokens
-				.set_sync(location.clone(), destination.token.clone());
+				.insert_sync(location.clone(), destination.token.clone());
 			let tg::Either::Left(spawn) = &mut arg.process else {
 				return Err(tg::error!("command sync requires a spawn"));
 			};
@@ -421,7 +421,7 @@ impl Session {
 				.command
 				.options
 				.tokens
-				.set_sync(location, destination.token);
+				.insert_sync(location, destination.token);
 			sync_task = Some(destination.task);
 		}
 		Self::send_connect_ack(high, request_id).await?;

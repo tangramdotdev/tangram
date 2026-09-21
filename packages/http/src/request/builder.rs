@@ -6,7 +6,7 @@ use {
 };
 
 pub trait Ext: Sized {
-	/// Put the arg in the query, or prepend it to the body when the query is too large.
+	/// Put the arg in the query, or prepend it to the body when the query is too large or cannot represent it.
 	fn arg<T, B>(
 		self,
 		arg: &T,
@@ -61,8 +61,12 @@ impl Ext for http::request::Builder {
 		// Serialize the arg.
 		let query = serde_qs::Config::new()
 			.use_form_encoding(true)
-			.serialize_string(arg)?;
-		let arg_in_body = query.len() > body::arg::THRESHOLD;
+			.serialize_string(arg)
+			.ok();
+		let arg_in_body = query
+			.as_ref()
+			.is_none_or(|query| query.len() > body::arg::THRESHOLD);
+		let query = query.unwrap_or_default();
 
 		// Set the query.
 		let uri = self.uri_ref().cloned().unwrap_or_default();

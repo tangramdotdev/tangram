@@ -106,6 +106,7 @@ impl Session {
 		)?;
 
 		// Send the get end message.
+		Self::sync_get_pending_available(&state).await?;
 		state
 			.sender
 			.send(Ok(tg::sync::GetMessage::End))
@@ -643,16 +644,18 @@ impl Session {
 		if state.arg.process_commands
 			&& !availability.is_some_and(|availability| availability.node_command)
 		{
-			let node = ObjectNode {
-				descendants: true,
-				eager: state.arg.eager,
-				id: data.command.node.clone().into(),
-				kind: Some(crate::sync::queue::ObjectKind::Command),
-				local_tokens: local_tokens.clone(),
-				parent: Some(id.clone().into()),
-				remote_tokens: remote_tokens.clone(),
-			};
-			state.queue.enqueue_object(node);
+			for command in data.command.objects() {
+				let node = ObjectNode {
+					descendants: true,
+					eager: state.arg.eager,
+					id: command.node,
+					kind: Some(crate::sync::queue::ObjectKind::Command),
+					local_tokens: local_tokens.clone(),
+					parent: Some(id.clone().into()),
+					remote_tokens: remote_tokens.clone(),
+				};
+				state.queue.enqueue_object(node);
+			}
 		}
 
 		// Enqueue the error if necessary.

@@ -8,7 +8,7 @@ for kind in [object process] {
 		advanced: { checkpoints: true },
 		authentication: { root: { token: $root_token } },
 		sync: {
-			control: { request_timeout: 120 },
+			control: { index_timeout: 60, request_timeout: 120 },
 			get: { store: { lmdb: $store, memory: $store, scylla: $store } },
 		},
 	}
@@ -54,8 +54,8 @@ for kind in [object process] {
 	timeout 10s tg --url $url --token $root_token checkpoint wait $checkpoint $watch 0 | ignore
 	wait_until { (open --raw $push_log) =~ 'tokens\[remote\]\[sync\][^\r\n]*\r?\n' } 'the push should log the complete referent with the sync token'
 	let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]\[sync\]' } | first | str trim
-	let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][sync]' | first | get value
-	let query = { 'tokens[local][sync]': $sync } | url build-query
+	let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][sync][0]' | first | get value
+	let query = { 'tokens[local][sync][0]': $sync } | url build-query
 	let endpoint = if $kind == object { 'objects' } else { 'processes' }
 	let uri = $'http://localhost/($endpoint)/($node)?($query)'
 

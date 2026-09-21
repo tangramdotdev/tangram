@@ -48,7 +48,6 @@ pub(super) struct RunProcessControlTaskArg {
 	pub stderr_buffered: tokio::sync::oneshot::Sender<tg::Result<()>>,
 	pub stderr_progress: Option<BoxStream<'static, tg::Result<Bytes>>>,
 	pub stdin: tg::process::Stdio,
-	pub stdin_blob: Option<tg::Blob>,
 	pub stdout: tg::process::Stdio,
 	pub stdout_buffered: tokio::sync::oneshot::Sender<tg::Result<()>>,
 }
@@ -165,7 +164,6 @@ impl Session {
 			stderr_buffered,
 			stderr_progress,
 			stdin,
-			stdin_blob,
 			stdout,
 			stdout_buffered,
 		} = arg;
@@ -205,7 +203,6 @@ impl Session {
 			sandbox: sandbox.clone(),
 			sandbox_process: sandbox_process.clone(),
 			stdin,
-			stdin_blob,
 		});
 
 		let (signal_sender, signal_receiver) = tokio::sync::mpsc::channel::<(

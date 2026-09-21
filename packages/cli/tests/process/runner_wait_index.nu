@@ -97,7 +97,7 @@ for location in [local remote] {
 			assert equal $body.resource $object_id "the live response must not expose an ancestor's authorization token"
 		}
 		if $location == remote and ($field == output or $case.both) {
-			assert ($params | any {|param| $param.key == 'tokens[remote][sync]' }) $"the result sync token must be associated with its issuer: ($field) ($params | get key | to json --raw)"
+			assert ($params | any {|param| $param.key == 'tokens[remote][sync][0]' }) $"the result sync token must be associated with its issuer: ($field) ($params | get key | to json --raw)"
 		} else if $location == remote {
 			assert ($params | all {|param| $param.key !~ '\[sync\]' }) "error permission alone must not expose the shared sync for both error and output objects"
 		}

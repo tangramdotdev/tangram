@@ -154,9 +154,9 @@ export namespace Referent {
 					`tokens[${encodeURIComponent(location)}][authorization][${index}]=${encodeURIComponent(token)}`,
 				);
 			}
-			if (entry.sync !== null && entry.sync !== undefined) {
+			for (let [index, token] of (entry.sync ?? []).entries()) {
 				params.push(
-					`tokens[${encodeURIComponent(location)}][sync]=${encodeURIComponent(entry.sync)}`,
+					`tokens[${encodeURIComponent(location)}][sync][${index}]=${encodeURIComponent(token)}`,
 				);
 			}
 		}
@@ -225,10 +225,12 @@ export namespace Referent {
 							}
 							tokens.push(decodeURIComponent(value));
 						} else {
-							if (match[3] !== undefined) {
+							let tokens = (entry.sync ??= []);
+							let index = Number(match[3]);
+							if (match[3] === undefined || index !== tokens.length) {
 								throw new Error("invalid sync token index");
 							}
-							entry.sync = decodeURIComponent(value);
+							tokens.push(decodeURIComponent(value));
 						}
 					}
 				}

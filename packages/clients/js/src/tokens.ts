@@ -6,7 +6,7 @@ export type Tokens = Record<string, Tokens.Entry>;
 export namespace Tokens {
 	export type Entry = {
 		authorization?: Array<Authorization.Token> | null;
-		sync?: Sync.Token | null;
+		sync?: Array<Sync.Token> | null;
 	};
 
 	export let clone = (tokens: Tokens | null | undefined): Tokens =>
@@ -28,8 +28,8 @@ export namespace Tokens {
 	export let withoutAuthorization = (tokens: Tokens): Tokens => {
 		let output: Tokens = {};
 		for (let [location, entry] of Object.entries(tokens)) {
-			if (entry.sync !== null && entry.sync !== undefined) {
-				output[location] = { sync: entry.sync };
+			if ((entry.sync?.length ?? 0) > 0) {
+				output[location] = { sync: [...entry.sync!] };
 			}
 		}
 		return output;
@@ -56,7 +56,9 @@ export namespace Tokens {
 				inherited.authorization = authorization;
 			}
 			if (entry.sync !== undefined && entry.sync !== null) {
-				inherited.sync ??= entry.sync;
+				inherited.sync = [
+					...new Set([...(inherited.sync ?? []), ...entry.sync]),
+				];
 			}
 			if (!isEmptyEntry(inherited)) {
 				tokens[location] = inherited;
@@ -66,12 +68,14 @@ export namespace Tokens {
 
 	let cloneEntry = (entry: Entry): Entry => ({
 		...entry,
+		...(entry.sync === null || entry.sync === undefined
+			? {}
+			: { sync: [...entry.sync] }),
 		...(entry.authorization === null || entry.authorization === undefined
 			? {}
 			: { authorization: [...entry.authorization] }),
 	});
 
 	let isEmptyEntry = (entry: Entry): boolean =>
-		(entry.authorization?.length ?? 0) === 0 &&
-		(entry.sync === null || entry.sync === undefined);
+		(entry.authorization?.length ?? 0) === 0 && (entry.sync?.length ?? 0) === 0;
 }

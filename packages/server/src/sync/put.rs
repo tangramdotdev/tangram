@@ -2,7 +2,10 @@ use {
 	super::{graph::Graph, progress::Progress},
 	crate::Session,
 	futures::stream::BoxStream,
-	std::sync::{Arc, Mutex},
+	std::{
+		collections::BTreeMap,
+		sync::{Arc, Mutex},
+	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
 	tracing::Instrument as _,
@@ -19,6 +22,7 @@ mod store;
 struct State {
 	arg: tg::sync::Arg,
 	graph: Arc<Mutex<Graph>>,
+	pending: Mutex<BTreeMap<tg::Id, tokio::time::Instant>>,
 	progress: Progress,
 	queue: self::queue::Queue,
 	resolve_sender: async_channel::Sender<self::resolve::Node>,
@@ -58,6 +62,7 @@ impl Session {
 		let state = Arc::new(State {
 			arg,
 			graph,
+			pending: Mutex::default(),
 			progress,
 			queue,
 			resolve_sender,
@@ -181,5 +186,28 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
 		Ok(())
+	}
+
+	async fn sync_put_pending(
+		&self,
+		state: &State,
+		id: tg::Id,
+	) -> tg::Result<tokio::time::Instant> {
+		let deadline = {
+			let mut pending = state.pending.lock().unwrap();
+			if let Some(deadline) = pending.get(&id) {
+				return Ok(*deadline);
+			}
+			let deadline =
+				tokio::time::Instant::now() + self.server.config.sync.control.index_timeout;
+			pending.insert(id.clone(), deadline);
+			deadline
+		};
+		state
+			.sender
+			.send(Ok(tg::sync::PutMessage::Pending(id)))
+			.await
+			.map_err(|error| tg::error!(!error, "failed to send the pending message"))?;
+		Ok(deadline)
 	}
 }

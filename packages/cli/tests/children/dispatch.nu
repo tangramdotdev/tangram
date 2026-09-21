@@ -1,4 +1,5 @@
 use ../../test.nu *
+use ../lib/command.nu
 
 # The top-level children command gets the direct graph children of any node.
 
@@ -20,6 +21,6 @@ let process = tg get --no-tokens $build.process | from json
 let expected = [
 	$process.log
 	$process.output.value
-	$process.command
+	(command module-input $process.command)
 ]
 assert equal $process_children $expected "the process should include its direct graph children"

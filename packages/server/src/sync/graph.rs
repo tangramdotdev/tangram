@@ -885,16 +885,23 @@ impl Graph {
 		let objects = if let Some(data) = data {
 			let mut objects: Vec<(usize, tangram_index::process::object::Kind)> = Vec::new();
 
-			let command: tg::object::Id = data.command.node.clone().into();
-			let command_entry = self.nodes.entry(command.into());
-			let command_index = command_entry.index();
-			command_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
-			let parent = Parent::ProcessObject {
-				index,
-				kind: crate::sync::queue::ObjectKind::Command,
-			};
-			self.insert_local_edge(parent, command_index);
-			objects.push((command_index, tangram_index::process::object::Kind::Command));
+			let commands = data
+				.command
+				.objects()
+				.into_iter()
+				.map(|command| command.node)
+				.collect::<BTreeSet<_>>();
+			for command in commands {
+				let command_entry = self.nodes.entry(command.into());
+				let command_index = command_entry.index();
+				command_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+				let parent = Parent::ProcessObject {
+					index,
+					kind: crate::sync::queue::ObjectKind::Command,
+				};
+				self.insert_local_edge(parent, command_index);
+				objects.push((command_index, tangram_index::process::object::Kind::Command));
+			}
 
 			if let Some(error) = &data.error {
 				match error {
@@ -1578,7 +1585,7 @@ impl Graph {
 		self.get_node_tokens(id, Node::remote_tokens)
 	}
 
-	/// Collect authorization proofs from ancestors and inherit the nearest sync token.
+	/// Collect the tokens attached to the node and its ancestors.
 	fn get_node_tokens(
 		&self,
 		id: &tg::Id,
@@ -1721,11 +1728,13 @@ impl Graph {
 		let permissions = node
 			.local_permissions()
 			.map_or_else(|| required.empty_like(), Self::normalize_permissions);
-		let tokens = if permissions.contains(required) {
+		let mut tokens = if permissions.contains(required) {
 			node.local_tokens().clone()
 		} else {
 			self.local_authorization_tokens(index, required)
 		};
+		let id = self.nodes.get_index(index).unwrap().0;
+		tokens.sync = self.get_node_local_tokens(id).sync;
 		Authorization {
 			permissions,
 			tokens,

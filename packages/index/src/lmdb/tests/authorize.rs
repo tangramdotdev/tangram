@@ -108,6 +108,7 @@ fn put_process_with_set(
 	set: crate::process::Set,
 ) {
 	let value = crate::process::Process {
+		command_id: tg::command::Id::new(b"command").into(),
 		data: None,
 		location: None,
 		metadata: tg::process::Metadata::default(),
@@ -1087,6 +1088,7 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 		for process in [&process, &child_process] {
 			let set = crate::process::Set {
 				children: true,
+				command: true,
 				error: true,
 				log: true,
 				output: true,
@@ -1419,6 +1421,7 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 	for process in [&child, &parent] {
 		let entry = crate::process::Set {
 			children: true,
+			command: true,
 			error: true,
 			log: true,
 			output: true,

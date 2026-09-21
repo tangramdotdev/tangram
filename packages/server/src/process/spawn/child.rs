@@ -119,32 +119,43 @@ impl Session {
 		};
 		let now = self.server.clock.unix_timestamp()?;
 		let child_id = &child.process.node;
-		let parent_arg = parent_data.map(|(parent_data, location)| {
-			let parent_data = parent_data.without_location_and_tokens();
-			tangram_index::process::put::Arg {
-				cached: false,
-				children: None,
-				command: parent_data.command.node.clone().into(),
-				data: Some(parent_data.clone()),
-				error: None,
-				id: parent.clone(),
-				location: Some(location),
-				log: None,
-				metadata: tg::process::Metadata::default(),
-				options: tg::referent::Options::default(),
-				output: None,
-				parent: None,
-				sandbox: Some(parent_data.sandbox),
-				storage: tangram_index::process::Storage::default(),
-				subtree_objects: std::collections::BTreeSet::new(),
-				time_to_touch: self.server.config.process.time_to_touch,
-				touched_at: now,
-			}
-		});
+		let parent_arg = parent_data
+			.map(|(parent_data, location)| -> tg::Result<_> {
+				let parent_data = parent_data.without_location_and_tokens();
+				Ok(tangram_index::process::put::Arg {
+					cached: false,
+					children: None,
+					command: Some(
+						parent_data
+							.command
+							.objects()
+							.into_iter()
+							.map(|object| object.node)
+							.collect(),
+					),
+					command_id: parent_data.command.command_id()?.into(),
+					data: Some(parent_data.clone()),
+					error: None,
+					id: parent.clone(),
+					location: Some(location),
+					log: None,
+					metadata: tg::process::Metadata::default(),
+					options: tg::referent::Options::default(),
+					output: None,
+					parent: None,
+					sandbox: Some(parent_data.sandbox),
+					storage: tangram_index::process::Storage::default(),
+					subtree_objects: std::collections::BTreeSet::new(),
+					time_to_touch: self.server.config.process.time_to_touch,
+					touched_at: now,
+				})
+			})
+			.transpose()?;
 		let child_arg = tangram_index::process::put::Arg {
 			cached: child.cached,
 			children: None,
-			command: command.clone().into(),
+			command: None,
+			command_id: command.clone().into(),
 			data: None,
 			error,
 			id: child_id.clone(),

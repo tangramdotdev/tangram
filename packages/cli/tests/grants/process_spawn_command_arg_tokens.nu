@@ -15,7 +15,7 @@ let bob = tg login --verbose --name bob | from json
 let producer = artifact {
 	tangram.ts: '
 		export default async function () {
-			const executable = await tg.file("#!/bin/sh\nif [ \"$FAST\" = 1 ]; then exit 0; fi\nsleep 60", { executable: true });
+			const executable = await tg.file("#!/bin/sh\nif [ \"$FAST\" = 1 ]; then exit 0; fi\nIFS= read -r input\n[ \"$input\" = \"input data\" ]", { executable: true });
 			const stdin = await tg.blob("input data");
 			await tg.Value.store([executable, stdin]);
 			return {
@@ -80,7 +80,9 @@ let source = [
 	'const wait = await child.wait();'
 	'if (wait.exit !== 0) throw new Error("the process failed");'
 	'} else {'
-	'await tg.spawn({ executable, stdin }).stdout("null").sandbox();'
+	'const child = await tg.spawn({ executable, stdin }).stdout("null").sandbox();'
+	'const wait = await child.wait();'
+	'if (wait.exit !== 0) throw new Error("the process failed");'
 	'}'
 	'process.stdout.write("spawned");'
 	'process.exit(0);'

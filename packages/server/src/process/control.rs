@@ -402,7 +402,7 @@ impl Session {
 							if let Some(tg::process::control::ClientResponseOutput::Get(output)) =
 								&mut response.output
 							{
-								output.sync.clone_from(&sync);
+								output.sync = sync.clone();
 							}
 							session
 								.publish_process_control_response(&id, response)
@@ -462,7 +462,7 @@ impl Session {
 		let session = self;
 		crate::checkpoint!(self.server, "process.control.index.started", process = %id).await;
 		if let Some(data) = data {
-			let command = data.command.clone().map(tg::object::Id::from);
+			let commands = data.command.objects();
 			let data = data.without_location_and_tokens();
 			let account = session
 				.usage_account(&tg::Principal::Sandbox(data.sandbox.clone()))
@@ -475,7 +475,14 @@ impl Session {
 				tangram_index::process::put::Arg {
 					cached: false,
 					children: None,
-					command: data.command.node.clone().into(),
+					command: Some(
+						data.command
+							.objects()
+							.into_iter()
+							.map(|object| object.node)
+							.collect(),
+					),
+					command_id: data.command.command_id()?.into(),
 					data: Some(data.clone()),
 					error: None,
 					id: id.clone(),
@@ -517,7 +524,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
 				let expires_at = touched_at + time_to_live;
 				let grant_arg = parent_session
-					.create_process_object_grant_arg(&id, [command], touched_at, Some(expires_at))
+					.create_process_object_grant_arg(&id, commands, touched_at, Some(expires_at))
 					.await?;
 				items.push(tangram_index::batch::Item::PutProcessObjectGrants(
 					grant_arg,
@@ -689,6 +696,9 @@ impl Session {
 		arg.options.tokens = arg.options.tokens.for_location(&destination);
 		if let Some(data) = &mut arg.data {
 			data.command.options.tokens = data.command.options.tokens.for_location(&destination);
+			if let tg::Either::Left(command) = &mut data.command.node {
+				**command = command.as_ref().clone().for_location(&destination);
+			}
 		}
 		let arg = tg::process::control::Arg {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),

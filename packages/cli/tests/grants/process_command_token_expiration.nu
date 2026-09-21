@@ -23,7 +23,7 @@ let path = artifact {
 let first = tg build --detach --verbose $path | from json
 tg wait $first.process | complete
 let first_consumer = tg process children $first.process | from json | get 1 | get process
-let first_command = tg process get $first_consumer | from json | get command
+let first_command = tg process get --no-tokens $first_consumer | from json | get command
 
 # Wait so that a token created now expires later than the token created above.
 sleep 2sec
@@ -41,6 +41,7 @@ sleep 2sec
 let second = tg build --detach --verbose $path | from json
 tg wait $second.process | complete
 let second_consumer = tg process children $second.process | from json | get 1 | get process
-let second_command = tg process get $second_consumer | from json | get command
+let second_command = tg process get --no-tokens $second_consumer | from json | get command
 
 assert ($first_command == $second_command) $"The consumer command id must not depend on the token expiration, but the first build created ($first_command) and the second created ($second_command)."
+assert equal $first_consumer $second_consumer "the unchanged consumer must hit the process cache"

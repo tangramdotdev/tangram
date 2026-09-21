@@ -27,6 +27,8 @@ pub struct Referent<T> {
 	pub options: Options,
 }
 
+pub(crate) struct Either;
+
 #[derive(
 	Clone,
 	Debug,
@@ -271,6 +273,50 @@ impl Options {
 	}
 }
 
+impl<L, R> serde_with::SerializeAs<Referent<tg::Either<L, R>>> for Either
+where
+	L: serde::Serialize,
+	R: serde::Serialize + std::fmt::Display,
+{
+	fn serialize_as<S>(
+		source: &Referent<tg::Either<L, R>>,
+		serializer: S,
+	) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		match &source.node {
+			tg::Either::Left(_) => serde::Serialize::serialize(source, serializer),
+			tg::Either::Right(node) => {
+				serializer.collect_str(&Referent::new(node, source.options.clone()))
+			},
+		}
+	}
+}
+
+impl<'de, L, R> serde_with::DeserializeAs<'de, Referent<tg::Either<L, R>>> for Either
+where
+	L: serde::Deserialize<'de>,
+	R: serde::Deserialize<'de> + std::str::FromStr,
+{
+	fn deserialize_as<D>(deserializer: D) -> Result<Referent<tg::Either<L, R>>, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		let value =
+			<tg::Either<String, Referent<tg::Either<L, R>>> as serde::Deserialize>::deserialize(
+				deserializer,
+			)?;
+		match value {
+			tg::Either::Left(value) => value
+				.parse::<Referent<R>>()
+				.map(|referent| referent.map(tg::Either::Right))
+				.map_err(serde::de::Error::custom),
+			tg::Either::Right(value) => Ok(value),
+		}
+	}
+}
+
 impl<T> std::fmt::Display for Referent<T>
 where
 	T: std::fmt::Display,
@@ -334,11 +380,11 @@ mod tests {
 			},
 			signature: Vec::new(),
 		};
-		tokens.set_sync(
+		tokens.insert_sync(
 			tg::Location::Local(tg::location::Local::default()),
 			sync.clone(),
 		);
-		tokens.set_sync(remote.clone(), sync);
+		tokens.insert_sync(remote.clone(), sync);
 		let mut other = token;
 		other.body.permissions = vec![tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,

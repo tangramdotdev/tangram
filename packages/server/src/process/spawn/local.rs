@@ -170,15 +170,28 @@ impl Session {
 
 	pub(super) async fn spawn_process_get_command(
 		&self,
+		arg: &tg::process::spawn::Arg,
 		command: &tg::Referent<tg::command::Id>,
-	) -> tg::Result<(String, tg::Referent<tg::command::Id>)> {
-		let command = tg::Command::with_referent(command.clone());
-		let object = command
-			.object_with_handle(self)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the command"))?;
-		let host = object.host.clone();
-		let command = command.to_referent();
+	) -> tg::Result<(
+		String,
+		tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
+	)> {
+		let (host, node) = match &arg.command.node {
+			tg::Either::Left(command_arg) => {
+				let host = command_arg
+					.host
+					.clone()
+					.ok_or_else(|| tg::error!("expected a resolved host"))?;
+				let command = tg::process::data::Command::new(command_arg.clone(), host.clone());
+				(host, tg::Either::Left(Box::new(command)))
+			},
+			tg::Either::Right(id) => {
+				let command = tg::Command::with_referent(command.clone());
+				let data = command.data_with_handle(self).await?;
+				(data.host, tg::Either::Right(id.clone()))
+			},
+		};
+		let command = tg::Referent::new(node, arg.command.options.clone());
 		let output = (host, command);
 
 		Ok(output)
@@ -217,7 +230,7 @@ impl Session {
 		grant_command: bool,
 	) -> tg::Result<Option<Output>> {
 		if !matches!(arg.cached, Some(true)) {
-			let (host, command) = self.spawn_process_get_command(command).await?;
+			let (host, command) = self.spawn_process_get_command(arg, command).await?;
 			return self
 				.spawn_process_create_local_process(
 					arg,
@@ -240,7 +253,7 @@ impl Session {
 	async fn spawn_process_create_local_process(
 		&self,
 		arg: &tg::process::spawn::Arg,
-		command: &tg::Referent<tg::command::Id>,
+		command: &tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
 		grant_command: bool,
@@ -396,9 +409,9 @@ impl Session {
 					.as_secs()
 					.to_i64()
 					.unwrap();
-			let command = command.clone().map(Into::into);
+			let commands = command.objects();
 			let grant_arg = self
-				.create_process_object_grant_arg(&id, [command], now, Some(grant_expires_at))
+				.create_process_object_grant_arg(&id, commands, now, Some(grant_expires_at))
 				.await?;
 			self.server
 				.index_batch(tangram_index::batch::Arg {

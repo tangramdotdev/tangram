@@ -17,7 +17,7 @@ let path = artifact {
 
 let build = tg build --detach --verbose $path | from json
 let process = tg get $build.process | from json
-let command = tg get $process.command
+let command = $process.command.node | to json
 assert (not ($command | str contains '"--host"')) "the JavaScript command must not override the runner's native host"
 
 let output = tg output $build.process | from json

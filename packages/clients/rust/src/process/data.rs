@@ -5,6 +5,10 @@ use {
 	tangram_util::serde::{is_default, is_false},
 };
 
+mod command;
+
+pub use self::command::Command;
+
 #[serde_as]
 #[derive(
 	Clone,
@@ -27,9 +31,9 @@ pub struct Data {
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub children: Option<Vec<tg::process::data::Child>>,
 
-	#[serde_as(as = "DisplayFromStr")]
+	#[serde_as(as = "tg::referent::Either")]
 	#[tangram_serialize(id = 3)]
-	pub command: tg::Referent<tg::command::Id>,
+	pub command: tg::Referent<tg::Either<Box<Command>, tg::command::Id>>,
 
 	#[tangram_serialize(id = 4)]
 	pub created_at: i64,
@@ -132,6 +136,10 @@ impl Data {
 	#[must_use]
 	pub fn without_location_and_tokens(mut self) -> Self {
 		self.command.options.clear_location_and_tokens();
+		self.command.node = self
+			.command
+			.node
+			.map_left(|command| Box::new(command.without_location_and_tokens()));
 		self.children = self.children.map(|children| {
 			children
 				.into_iter()

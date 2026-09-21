@@ -79,7 +79,15 @@ impl Session {
 				.map(|bytes| bytes.len().to_u64().unwrap())
 				.unwrap_or_default();
 			let mut batch = state.node.take().map(|node| vec![node]).unwrap_or_default();
-			while let Some(node) = state.object_receiver.recv().await {
+			loop {
+				let node = if batch.is_empty() {
+					state.object_receiver.recv().await
+				} else {
+					state.object_receiver.try_recv().ok()
+				};
+				let Some(node) = node else {
+					break;
+				};
 				let size = node
 					.bytes
 					.as_ref()
@@ -297,26 +305,35 @@ impl Session {
 		let now = self.server.clock.unix_timestamp()?;
 		let put_processes: Vec<_> = batch
 			.iter()
-			.map(|(id, data, metadata)| tangram_index::process::put::Arg {
-				cached: false,
-				children: data.children.clone(),
-				command: data.command.node.clone().into(),
-				data: Some(data.clone()),
-				error: None,
-				id: id.clone(),
-				location: None,
-				log: None,
-				metadata: metadata.clone().unwrap_or_default(),
-				options: tg::referent::Options::default(),
-				output: None,
-				parent: None,
-				sandbox: Some(data.sandbox.clone()),
-				storage: tangram_index::process::Storage::default(),
-				subtree_objects: std::collections::BTreeSet::new(),
-				time_to_touch: self.server.config.process.time_to_touch,
-				touched_at: now,
+			.map(|(id, data, metadata)| {
+				Ok(tangram_index::process::put::Arg {
+					cached: false,
+					children: data.children.clone(),
+					command: Some(
+						data.command
+							.objects()
+							.into_iter()
+							.map(|object| object.node)
+							.collect(),
+					),
+					command_id: data.command.command_id()?.into(),
+					data: Some(data.clone()),
+					error: None,
+					id: id.clone(),
+					location: None,
+					log: None,
+					metadata: metadata.clone().unwrap_or_default(),
+					options: tg::referent::Options::default(),
+					output: None,
+					parent: None,
+					sandbox: Some(data.sandbox.clone()),
+					storage: tangram_index::process::Storage::default(),
+					subtree_objects: std::collections::BTreeSet::new(),
+					time_to_touch: self.server.config.process.time_to_touch,
+					touched_at: now,
+				})
 			})
-			.collect();
+			.collect::<tg::Result<_>>()?;
 		self.server
 			.index
 			.batch(tangram_index::batch::Arg {

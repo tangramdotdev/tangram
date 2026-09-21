@@ -151,7 +151,7 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_index_object_batch(
+	pub(super) async fn sync_get_index_object_batch(
 		&self,
 		state: &State,
 		checkout_sender: &tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
@@ -244,17 +244,15 @@ impl Session {
 			}
 
 			if node.missing {
-				// If the node carries a sync token, then check the store before the index, and retry while that sync runs.
+				// Retry a missing object while also listening for incoming sync notifications.
 				let entry = state
 					.graph
 					.lock()
 					.unwrap()
 					.get_node_local_tokens(&tg::Id::from(node.id.clone()));
-				let syncing = entry
-					.sync
-					.as_ref()
-					.is_some_and(|token| self.verify_sync_token(token));
-				let stored = if output.is_none() && syncing {
+				let stored = if output.is_none() {
+					crate::checkpoint!(self.server, "sync.get.index.object.wait", id = %node.id)
+						.await;
 					let tokens = tg::Tokens::with_local_entry(entry.clone());
 					let request = tg::sync::control::ClientRequestArg::object(node.id.clone());
 					self.try_get_with_sync_wait(&tokens, request, |output| {
@@ -274,10 +272,31 @@ impl Session {
 								}
 							} else {
 								let ids = std::slice::from_ref(&id);
-								let mut permissions =
-									self.sync_get_authorize_objects(&state.graph, ids).await?;
-								if permissions.pop().flatten().is_none() {
+								let touched_at = self.server.clock.unix_timestamp()?;
+								let (mut objects, mut permissions) = self
+									.sync_get_touch_authorized_objects(
+										&state.graph,
+										ids,
+										touched_at,
+										self.server.config.object.time_to_touch,
+									)
+									.await?;
+								let permissions = permissions.pop().flatten();
+								if permissions.is_none() {
 									return Ok(None);
+								}
+								if let Some(object) = objects.pop().flatten() {
+									let arg = UpdateObjectLocalArg {
+										data: None,
+										id: &id,
+										marked: None,
+										metadata: Some(object.metadata),
+										permissions,
+										put: Some(object.put),
+										requested: None,
+										storage: Some(object.storage),
+									};
+									state.graph.lock().unwrap().update_object_local(arg);
 								}
 							}
 							let output = self.server.try_get_object_local(&id, false).await?;
@@ -364,6 +383,15 @@ impl Session {
 						&entry,
 						&remote_tokens,
 					);
+					if state
+						.graph
+						.lock()
+						.unwrap()
+						.get_object_local_availability(&node.id)
+						.subtree
+					{
+						Self::sync_get_index_send_object_available(state, &node.id).await?;
+					}
 				}
 			}
 		}
@@ -373,7 +401,7 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_index_send_object_available(
+	pub(super) async fn sync_get_index_send_object_available(
 		state: &State,
 		id: &tg::object::Id,
 	) -> tg::Result<()> {
@@ -389,7 +417,7 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_index_process_batch(
+	pub(super) async fn sync_get_index_process_batch(
 		&self,
 		state: &State,
 		nodes: Vec<ProcessNode>,
@@ -538,7 +566,7 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_get_index_send_process_available(
+	pub(super) async fn sync_get_index_send_process_available(
 		state: &State,
 		id: &tg::process::Id,
 		availability: &tg::process::Availability,
@@ -1013,10 +1041,14 @@ impl Session {
 				Node::Process(node) => {
 					let id = tg::process::Id::try_from(id.clone())?;
 					if node.marked() {
-						let children = node
+						let data = node
 							.data()
-							.and_then(|data| data.children.clone())
+							.ok_or_else(|| tg::error!("expected the process data to be set"))?;
+						let children = data
+							.children
+							.clone()
 							.ok_or_else(|| tg::error!("expected the process children to be set"))?;
+						let command_id = data.command.command_id()?.into();
 						let storage = node.local_storage().cloned().unwrap();
 						let metadata = node.metadata().cloned().unwrap();
 						let objects = node
@@ -1025,7 +1057,7 @@ impl Session {
 							.iter()
 							.copied()
 							.map(|(index, kind)| {
-								let id = graph
+								let id: tg::object::Id = graph
 									.nodes()
 									.get_index(index)
 									.unwrap()
@@ -1035,14 +1067,14 @@ impl Session {
 								Ok((id, kind))
 							})
 							.collect::<tg::Result<Vec<_>>>()?;
-						let mut command = None;
+						let mut command = Vec::new();
 						let mut error = Vec::new();
 						let mut log = None;
 						let mut output = Vec::new();
 						for (object, kind) in objects {
 							match kind {
 								tangram_index::process::object::Kind::Command => {
-									command = Some(object);
+									command.push(object);
 								},
 								tangram_index::process::object::Kind::Error => {
 									error.push(object);
@@ -1055,16 +1087,12 @@ impl Session {
 								},
 							}
 						}
-						let command =
-							command.ok_or_else(|| tg::error!("expected the command to be set"))?;
 						let arg = tangram_index::process::put::Arg {
 							cached: false,
 							children: Some(children),
-							command,
-							data: node
-								.data()
-								.cloned()
-								.map(tg::process::Data::without_location_and_tokens),
+							command: Some(command),
+							command_id,
+							data: Some(data.clone().without_location_and_tokens()),
 							error: Some((!error.is_empty()).then_some(error)),
 							id,
 							location: None,
