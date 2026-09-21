@@ -230,12 +230,19 @@ impl Session {
 			return Err(tg::error!("invalid log end positions"));
 		}
 
-		// Consult the index only for completion, never for a write batch.
-		let data = self
-			.get_process_from_index(id)
+		// Finish confirms submission, so its index write may still be pending at EOF.
+		let mut data = self
+			.try_get_process_from_index(id)
 			.await?
-			.data
-			.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+			.and_then(|process| process.data);
+		if !data.as_ref().is_some_and(|data| data.status.is_finished()) {
+			self.server.wait_for_indexing().await?;
+			data = self
+				.try_get_process_from_index(id)
+				.await?
+				.and_then(|process| process.data);
+		}
+		let data = data.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
 		if !data.status.is_finished() {
 			return Err(tg::error!("the process is not finished"));
 		}

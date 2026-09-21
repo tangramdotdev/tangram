@@ -14,7 +14,7 @@ for kind in [sandbox process] {
 		advanced: { checkpoints: true },
 		remotes: { default: { token: $created.token.token, url: $remote.url } },
 		roles: [api indexer runner],
-		runner: { cpus: 1, id: $created.data.id, remote: default, sandbox_pool_size: 1, token: $created.token.token },
+		runner: { cpus: 1, id: $created.data.id, process_control_connection_pool_size: 0, remote: default, sandbox_control_connection_pool_size: 0, sandbox_pool_size: 1, token: $created.token.token },
 	}
 	let alice = tg --url $remote.url login --verbose --name alice | from json
 	let local = server spawn --name $'local-($kind)' --config {

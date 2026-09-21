@@ -1,5 +1,6 @@
 use {
 	super::{super::Index, new_index},
+	crate::Index as _,
 	std::str::FromStr as _,
 	tangram_client::prelude::*,
 };
@@ -21,6 +22,84 @@ fn try_get_organization(
 fn try_get_user(index: &Index, id: &tg::user::Id) -> Option<crate::user::User> {
 	let transaction = index.env.read_txn().unwrap();
 	Index::try_get_user_with_transaction(&index.db, &index.subspace, &transaction, id).unwrap()
+}
+
+fn process_arg(id: tg::process::Id, status: tg::process::Status) -> crate::process::put::Arg {
+	let command = tg::command::Id::new(b"command");
+	let finished = status.is_finished();
+	let data = tg::process::Data {
+		actual_checksum: None,
+		cacheable: false,
+		children: None,
+		command: tg::Referent::with_node(tg::Either::Right(command.clone())),
+		created_at: 0,
+		debug: None,
+		error: None,
+		exit: finished.then_some(0),
+		expected_checksum: None,
+		finished_at: finished.then_some(0),
+		host: String::new(),
+		log: None,
+		output: None,
+		retry: false,
+		sandbox: tg::sandbox::Id::new(),
+		started_at: Some(0),
+		status,
+		stderr: tg::process::Stdio::default(),
+		stdin: tg::process::Stdio::default(),
+		stdout: tg::process::Stdio::default(),
+		tty: None,
+	};
+	crate::process::put::Arg {
+		cached: false,
+		children: None,
+		command: Some(vec![command.clone().into()]),
+		command_id: command.into(),
+		data: Some(data),
+		error: None,
+		id,
+		location: None,
+		log: None,
+		metadata: tg::process::Metadata::default(),
+		options: tg::referent::Options::default(),
+		output: None,
+		parent: None,
+		sandbox: None,
+		storage: crate::process::Storage::default(),
+		subtree_objects: std::collections::BTreeSet::new(),
+		time_to_touch: std::time::Duration::ZERO,
+		touched_at: 0,
+	}
+}
+
+fn sandbox_arg(id: tg::sandbox::Id, status: tg::sandbox::Status) -> crate::sandbox::put::Arg {
+	let data = tg::sandbox::get::Output {
+		data: tg::sandbox::Data {
+			cpu: None,
+			creator: None,
+			hostname: None,
+			id: id.clone(),
+			isolation: None,
+			memory: None,
+			mounts: Vec::new(),
+			network: None,
+			owner: None,
+			status,
+			ttl: None,
+			usage: None,
+		},
+		location: None,
+		tokens: tg::Tokens::default(),
+	};
+	crate::sandbox::put::Arg {
+		account: None,
+		created_at: 0,
+		data: Some(data),
+		id,
+		location: None,
+		runner: None,
+		touched_at: 0,
+	}
 }
 
 #[tokio::test]
@@ -324,6 +403,60 @@ async fn process_children_must_be_unique() {
 			.to_string()
 			.contains("process children must be unique")
 	);
+}
+
+#[tokio::test]
+async fn process_status_does_not_regress() {
+	let (_dir, index) = new_index();
+	let id = tg::process::Id::new();
+	let parent = tg::process::Id::new();
+	for status in [tg::process::Status::Finished, tg::process::Status::Started] {
+		let mut process = process_arg(id.clone(), status);
+		if status.is_started() {
+			process.parent = Some(parent.clone());
+		}
+		let arg = crate::batch::Arg {
+			items: vec![crate::batch::Item::PutProcess(process)],
+		};
+		index.batch(arg).await.unwrap();
+	}
+
+	let process = index
+		.try_get_process(&id)
+		.await
+		.unwrap()
+		.unwrap()
+		.data
+		.unwrap();
+	assert!(process.status.is_finished());
+	let transaction = index.env.read_txn().unwrap();
+	let parents =
+		Index::get_process_parents_with_transaction(&index.db, &index.subspace, &transaction, &id)
+			.unwrap();
+	assert_eq!(parents, vec![parent]);
+}
+
+#[tokio::test]
+async fn sandbox_status_does_not_regress() {
+	let (_dir, index) = new_index();
+	let id = tg::sandbox::Id::new();
+	let location = tg::Location::Local(tg::location::Local {
+		region: Some("test".to_owned()),
+	});
+	for status in [tg::sandbox::Status::Destroyed, tg::sandbox::Status::Started] {
+		let mut sandbox = sandbox_arg(id.clone(), status);
+		sandbox.location = Some(location.clone());
+		let arg = crate::batch::Arg {
+			items: vec![crate::batch::Item::PutSandbox(sandbox)],
+		};
+		index.batch(arg).await.unwrap();
+	}
+
+	let sandbox = index.try_get_sandbox(&id).await.unwrap().unwrap();
+	assert_eq!(sandbox.location, Some(location.clone()));
+	let sandbox = sandbox.data.unwrap();
+	assert!(sandbox.data.status.is_destroyed());
+	assert_eq!(sandbox.location, Some(location));
 }
 
 #[tokio::test]

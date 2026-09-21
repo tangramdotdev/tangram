@@ -880,6 +880,14 @@ impl Server {
 			.items
 			.iter()
 			.any(|item| matches!(item, index::batch::Item::EnqueueLogCompaction(_)));
+		let destroyed_sandbox = arg.items.iter().any(|item| {
+			matches!(item, index::batch::Item::PutSandbox(arg)
+				if arg.data.as_ref().is_some_and(|data| data.data.status.is_destroyed()))
+		});
+		let started_process = arg.items.iter().any(|item| {
+			matches!(item, index::batch::Item::PutProcess(arg)
+				if arg.data.as_ref().is_some_and(|data| data.status.is_started()))
+		});
 		self.index_tasks
 			.spawn({
 				let server = self.clone();
@@ -888,10 +896,12 @@ impl Server {
 						server,
 						"index.batch",
 						command_object_grant,
-						finished_process
+						destroyed_sandbox,
+						finished_process,
+						started_process
 					)
 					.await;
-					let result = server.index.batch(arg).await;
+					let result = server.index_batch_inner(arg).await;
 					if let Err(error) = &result {
 						tracing::error!(error = %error.trace(), "failed to index a batch");
 					}
@@ -905,6 +915,34 @@ impl Server {
 			})
 			.detach();
 
+		Ok(())
+	}
+
+	pub(crate) async fn index_batch_inner(&self, arg: index::batch::Arg) -> tg::Result<()> {
+		// Wake index-backed readers after the runner state has been persisted.
+		let sandboxes = arg
+			.items
+			.iter()
+			.filter_map(|item| match item {
+				index::batch::Item::PutSandbox(arg) if arg.data.is_some() => Some(arg.id.clone()),
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+		let processes = arg
+			.items
+			.iter()
+			.filter_map(|item| match item {
+				index::batch::Item::PutProcess(arg) if arg.data.is_some() => Some(arg.id.clone()),
+				_ => None,
+			})
+			.collect::<Vec<_>>();
+		self.index.batch(arg).await?;
+		for id in sandboxes {
+			self.spawn_publish_sandbox_status_task(&id);
+		}
+		for id in processes {
+			self.spawn_publish_process_status_task(&id);
+		}
 		Ok(())
 	}
 

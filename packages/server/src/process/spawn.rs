@@ -19,7 +19,7 @@ mod wait;
 
 pub(super) mod lease;
 
-pub(super) struct Prepared {
+pub(super) struct PrepareOutput {
 	pub command: tg::Referent<tg::command::Id>,
 	pub parent_sandbox: Option<tg::sandbox::Id>,
 }
@@ -31,14 +31,14 @@ impl Session {
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
-		let prepared = self.prepare_spawn_process(&mut arg).await?;
-		self.try_spawn_process_inner(arg, prepared).await
+		let prepare_output = self.spawn_process_prepare(&mut arg).await?;
+		self.try_spawn_process_inner(arg, prepare_output).await
 	}
 
-	pub(super) async fn prepare_spawn_process(
+	pub(super) async fn spawn_process_prepare(
 		&self,
 		arg: &mut tg::process::spawn::Arg,
-	) -> tg::Result<Prepared> {
+	) -> tg::Result<PrepareOutput> {
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
 		}
@@ -107,12 +107,12 @@ impl Session {
 				.map(|process| process.sandbox.clone())
 		});
 
-		let prepared = Prepared {
+		let output = PrepareOutput {
 			command,
 			parent_sandbox,
 		};
 
-		Ok(prepared)
+		Ok(output)
 	}
 
 	fn spawn_process_resolve_command(
@@ -143,14 +143,14 @@ impl Session {
 	pub(super) async fn try_spawn_process_inner(
 		&self,
 		arg: tg::process::spawn::Arg,
-		prepared: Prepared,
+		prepare_output: PrepareOutput,
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
-		let Prepared {
+		let PrepareOutput {
 			command,
 			parent_sandbox,
-		} = prepared;
+		} = prepare_output;
 
 		// Create the progress.
 		let progress = crate::progress::Handle::new();

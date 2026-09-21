@@ -777,6 +777,14 @@ impl Server {
 		};
 		let runner_config = self::runner::Config {
 			capacity,
+			process_control_connection_pool_size: config
+				.runner
+				.process_control_connection_pool_size,
+			process_control_connection_pool_ttl: config.runner.process_control_connection_pool_ttl,
+			sandbox_control_connection_pool_size: config
+				.runner
+				.sandbox_control_connection_pool_size,
+			sandbox_control_connection_pool_ttl: config.runner.sandbox_control_connection_pool_ttl,
 			sandbox_pool_size,
 		};
 		let runner = self::runner::Runner::new(runner_config);

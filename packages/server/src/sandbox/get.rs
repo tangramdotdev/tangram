@@ -157,32 +157,11 @@ impl Session {
 				{
 					indexed.data.unwrap()
 				} else {
-					let data = control_future.await?;
-					if data.data.status.is_destroyed() {
-						let Some(indexed) = self.try_get_sandbox_from_index(id).await? else {
-							return Ok(None);
-						};
-						indexed
-							.data
-							.ok_or_else(|| tg::error!(%id, "missing the sandbox data"))?
-					} else {
-						data
-					}
+					// The runner is authoritative even when destruction is not indexed yet.
+					control_future.await?
 				}
 			},
-			future::Either::Right((data, _)) => {
-				let data = data?;
-				if data.data.status.is_destroyed() {
-					let Some(indexed) = self.try_get_sandbox_from_index(id).await? else {
-						return Ok(None);
-					};
-					indexed
-						.data
-						.ok_or_else(|| tg::error!(%id, "missing the sandbox data"))?
-				} else {
-					data
-				}
-			},
+			future::Either::Right((data, _)) => data?,
 		};
 		Ok(Some(output))
 	}

@@ -145,12 +145,27 @@ impl Session {
 
 	async fn get_sandbox_control_stream_local(
 		&self,
-		mut arg: tg::sandbox::control::Arg,
+		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> tg::Result<(
 		tg::sandbox::control::Output,
 		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
 	)> {
+		self.get_sandbox_control_stream_local_inner(arg, stream, None)
+			.boxed()
+			.await
+	}
+
+	async fn get_sandbox_control_stream_local_inner(
+		&self,
+		mut arg: tg::sandbox::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+		create_request: Option<String>,
+	) -> tg::Result<(
+		tg::sandbox::control::Output,
+		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
+	)> {
+		let assign = arg.id.is_none();
 		let (id, token) = if let Some(id) = arg.id.take() {
 			match &self.context.principal {
 				tg::Principal::Sandbox(sandbox) if sandbox == &id => (),
@@ -179,35 +194,51 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
+		if !arg.create {
+			if assign && !matches!(self.context.principal, tg::Principal::Runner(_)) {
+				return Err(tg::error!(
+					"a deferred sandbox control connection requires a runner"
+				));
+			}
+			if arg.created_at.is_some() || arg.data.is_some() {
+				return Err(tg::error!(
+					"a deferred sandbox control connection must not have data or a creation time"
+				));
+			}
+			let output = tg::sandbox::control::Output {
+				id: id.clone(),
+				token,
+			};
+			let stream =
+				session.wait_for_sandbox_control_create(id, arg.location, arg.runner, stream);
+			crate::checkpoint!(self.server, "sandbox.control.output", sandbox = %output.id).await;
+
+			return Ok((output, stream));
+		}
+		self.server.spawn_publish_sandbox_status_task(&id);
 		let created_at = if let Some(created_at) = arg.created_at {
 			created_at
 		} else {
 			self.server.clock.unix_timestamp()?
 		};
-		let location = self.server.location(arg.location.as_ref())?;
-		let data = arg.data.map(|data| tg::sandbox::get::Output {
-			data: tg::sandbox::Data {
-				cpu: data.arg.cpu,
-				creator: data.creator,
-				hostname: data.arg.hostname,
-				id: id.clone(),
-				isolation: data.arg.isolation,
-				memory: data.arg.memory,
-				mounts: data.arg.mounts,
-				network: data.arg.network,
-				owner: data.arg.owner,
-				status: tg::sandbox::Status::Started,
-				ttl: data.arg.ttl,
-				usage: None,
-			},
-			location: Some(location),
-			tokens: tg::Tokens::default(),
-		});
-		let account = match data.as_ref().and_then(|data| data.data.owner.as_ref()) {
-			Some(owner) => self.usage_account(owner).await?,
-			None => None,
-		};
 		let runner = arg.runner;
+
+		// Prepare and submit initialization before accepting subsequent requests.
+		crate::checkpoint!(self.server, "sandbox.control.connect", sandbox = %id).await;
+		if let Some(data) = arg.data {
+			let sandbox = session
+				.prepare_sandbox_control_index_arg(&id, created_at, data, runner.clone())
+				.await?;
+			let arg = tangram_index::batch::Arg {
+				items: vec![tangram_index::batch::Item::PutSandbox(sandbox)],
+			};
+			self.server
+				.index_batch(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the sandbox"))?;
+		}
+		crate::checkpoint!(self.server, "sandbox.control.index.submitted", sandbox = %id).await;
+
 		let server_messages = self
 			.server
 			.messenger
@@ -222,7 +253,11 @@ impl Session {
 
 		let forwarded_requests = Arc::new(DashSet::new());
 		let (sender, receiver) = tokio::sync::mpsc::channel(256);
-		let control = crate::control::Stream::new(stream, sender, crate::control::stream_options());
+		let mut control =
+			crate::control::Stream::new(stream, sender, crate::control::stream_options());
+		if let Some(id) = &create_request {
+			control.acknowledge_now(id.clone());
+		}
 		let control_sender = control.sender();
 		let mut server_messages = server_messages;
 		let server_message_sender = control_sender.clone();
@@ -254,6 +289,7 @@ impl Session {
 			let id = id.clone();
 			let forwarded_requests = forwarded_requests.clone();
 			let runner = runner.clone();
+
 			move |_| async move {
 				let mut control = control;
 				while let Some(message) = control.recv_without_ack().await? {
@@ -270,6 +306,11 @@ impl Session {
 							let request_id = request.id;
 							control.acknowledge(request_id.clone()).await?;
 							let result = match request.arg {
+								tg::sandbox::control::ClientRequestArg::Create(_) => {
+									let output =
+										tg::sandbox::control::CreateServerResponseOutput {};
+									Ok(tg::sandbox::control::ServerResponseOutput::Create(output))
+								},
 								tg::sandbox::control::ClientRequestArg::Destroy(request) => session
 									.destroy_sandbox_control_request(
 										&id,
@@ -304,31 +345,6 @@ impl Session {
 			.with_stopper(session.context.stopper.clone())
 			.boxed();
 
-		crate::checkpoint!(self.server, "sandbox.control.connect", sandbox = %id).await;
-
-		if let Some(data) = data {
-			let location = tg::Location::Local(tg::location::Local {
-				region: self.server.config.region.clone(),
-			});
-			let index_arg = tangram_index::batch::Arg {
-				items: vec![tangram_index::batch::Item::PutSandbox(
-					tangram_index::sandbox::put::Arg {
-						account,
-						created_at,
-						data: Some(data),
-						id: id.clone(),
-						location: Some(location),
-						runner,
-						touched_at: created_at,
-					},
-				)],
-			};
-			self.server
-				.index_batch(index_arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the sandbox"))?;
-		}
-
 		session
 			.server
 			.messenger
@@ -341,6 +357,121 @@ impl Session {
 		let output = tg::sandbox::control::Output { id, token };
 
 		Ok((output, stream))
+	}
+
+	fn wait_for_sandbox_control_create(
+		&self,
+		id: tg::sandbox::Id,
+		location: Option<tg::location::Arg>,
+		runner: Option<tg::runner::Id>,
+		mut stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
+	) -> BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>> {
+		let session = self.clone();
+		futures::stream::once(async move {
+			let mut buffered = Vec::new();
+			let request = loop {
+				let message = stream
+					.try_next()
+					.await?
+					.ok_or_else(|| tg::error!("the sandbox control stream ended before create"))?;
+				if let tg::sandbox::control::ClientMessage::Request(request) = &message
+					&& matches!(
+						&request.arg,
+						tg::sandbox::control::ClientRequestArg::Create(_)
+					) {
+					let tg::sandbox::control::ClientMessage::Request(request) = message else {
+						unreachable!();
+					};
+					break request;
+				}
+				buffered.push(Ok(message));
+			};
+			let tg::sandbox::control::ClientRequestArg::Create(create) = request.arg else {
+				unreachable!();
+			};
+			crate::checkpoint!(session.server, "sandbox.control.create.received", sandbox = %id)
+				.await;
+			let tg::sandbox::control::CreateClientRequestArg { created_at, data } = create;
+			let arg = tg::sandbox::control::Arg {
+				create: true,
+				created_at: Some(created_at),
+				data: Some(data),
+				id: Some(id),
+				location,
+				runner,
+			};
+			let stream = futures::stream::iter(buffered).chain(stream).boxed();
+			let output = session
+				.get_sandbox_control_stream_local_inner(arg, stream, Some(request.id.clone()))
+				.boxed()
+				.await;
+			let ack = tg::sandbox::control::ServerMessage::Ack(tg::sandbox::control::ServerAck {
+				id: request.id.clone(),
+			});
+			let (response, stream) = match output {
+				Ok((_, stream)) => {
+					let output = tg::sandbox::control::CreateServerResponseOutput {};
+					let output = tg::sandbox::control::ServerResponseOutput::Create(output);
+					let response = Self::sandbox_control_server_response(request.id, Ok(output));
+					(response, stream)
+				},
+				Err(error) => {
+					let response = Self::sandbox_control_server_response(request.id, Err(error));
+					let stream = futures::stream::empty().boxed();
+					(response, stream)
+				},
+			};
+			let prefix = futures::stream::iter([Ok(ack), Ok(response)]);
+			let stream = prefix.chain(stream).boxed();
+
+			Ok::<_, tg::Error>(stream)
+		})
+		.try_flatten()
+		.boxed()
+	}
+
+	pub(crate) async fn prepare_sandbox_control_index_arg(
+		&self,
+		id: &tg::sandbox::Id,
+		created_at: i64,
+		data: tg::sandbox::control::Data,
+		runner: Option<tg::runner::Id>,
+	) -> tg::Result<tangram_index::sandbox::put::Arg> {
+		let account = match data.arg.owner.as_ref() {
+			Some(owner) => self.usage_account(owner).await?,
+			None => None,
+		};
+		let location = tg::Location::Local(tg::location::Local {
+			region: self.server.config.region.clone(),
+		});
+		let data = tg::sandbox::get::Output {
+			data: tg::sandbox::Data {
+				cpu: data.arg.cpu,
+				creator: data.creator,
+				hostname: data.arg.hostname,
+				id: id.clone(),
+				isolation: data.arg.isolation,
+				memory: data.arg.memory,
+				mounts: data.arg.mounts,
+				network: data.arg.network,
+				owner: data.arg.owner,
+				status: tg::sandbox::Status::Started,
+				ttl: data.arg.ttl,
+				usage: None,
+			},
+			location: Some(location.clone()),
+			tokens: tg::Tokens::default(),
+		};
+		let arg = tangram_index::sandbox::put::Arg {
+			account,
+			created_at,
+			data: Some(data),
+			id: id.clone(),
+			location: Some(location),
+			runner,
+			touched_at: created_at,
+		};
+		Ok(arg)
 	}
 
 	async fn publish_sandbox_control_ack(

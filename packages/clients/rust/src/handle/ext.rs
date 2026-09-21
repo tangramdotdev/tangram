@@ -498,16 +498,32 @@ pub trait Ext: tg::Handle {
 	> + Send {
 		async move {
 			let handle = self.clone();
+			let deferred = !arg.create;
+			#[derive(Default)]
+			struct CreateState {
+				create: Option<tg::sandbox::control::ClientRequest>,
+			}
+			let create_state = Arc::new(Mutex::new(CreateState::default()));
 
 			// Create a channel for buffering events from the input.
 			let (input_sender, input_receiver) = async_channel::bounded(1);
 
 			// Create the input task. This will read events from the input stream and write them to the input channel. It is detached so that it forwards the remaining events when the request stream is dropped. It completes when the input stream ends or all of the receivers are dropped.
-			let mut input_task = Task::spawn(move |_| async move {
-				let mut input = pin!(stream);
-				while let Some(event) = input.next().await {
-					if input_sender.send(event).await.is_err() {
-						break;
+			let mut input_task = Task::spawn({
+				let create_state = create_state.clone();
+				move |_| async move {
+					let mut input = pin!(stream);
+					while let Some(event) = input.next().await {
+						if deferred
+							&& let Ok(tg::sandbox::control::ClientMessage::Request(request)) =
+								&event && let tg::sandbox::control::ClientRequestArg::Create(_) =
+							&request.arg
+						{
+							create_state.lock().unwrap().create.replace(request.clone());
+						}
+						if input_sender.send(event).await.is_err() {
+							break;
+						}
 					}
 				}
 			});
@@ -536,9 +552,17 @@ pub trait Ext: tg::Handle {
 				let handle = handle.clone();
 				let arg = arg.clone();
 				let input_receiver = input_receiver.clone();
+				let create_state = create_state.clone();
 				async move {
 					loop {
 						if state.stream.is_none() {
+							// A successful create confirms submission, not persistence.
+							let create = create_state.lock().unwrap().create.clone();
+							let input = stream::iter(create.map(|request| {
+								Ok(tg::sandbox::control::ClientMessage::Request(request))
+							}))
+							.chain(input_receiver.clone())
+							.boxed();
 							let retries = state.retries.get_or_insert_with(|| {
 								let options = tangram_futures::retry::Options {
 									max_retries: u64::MAX,
@@ -547,13 +571,7 @@ pub trait Ext: tg::Handle {
 								tangram_futures::retry::stream(options).boxed()
 							});
 							retries.next().await?;
-							match handle
-								.get_sandbox_control_stream(
-									arg.clone(),
-									input_receiver.clone().boxed(),
-								)
-								.await
-							{
+							match handle.get_sandbox_control_stream(arg.clone(), input).await {
 								Ok((_, stream)) => {
 									state.stream.replace(stream.boxed());
 									return Some((Ok(tg::control::Event::Reconnect), state));
@@ -602,16 +620,32 @@ pub trait Ext: tg::Handle {
 	> + Send {
 		async move {
 			let handle = self.clone();
+			let deferred = !arg.start;
+			#[derive(Default)]
+			struct StartState {
+				start: Option<tg::process::control::ClientRequest>,
+			}
+			let start_state = Arc::new(Mutex::new(StartState::default()));
 
 			// Create a channel for buffering events from the input.
 			let (response_sender, response_receiver) = async_channel::bounded(1);
 
 			// Create the input task. This will read events from the input stream and write them to the response channel. It is detached so that it forwards the remaining events when the request stream is dropped. It completes when the input stream ends or all of the receivers are dropped.
-			let mut input_task = Task::spawn(move |_| async move {
-				let mut input = pin!(stream);
-				while let Some(event) = input.next().await {
-					if response_sender.send(event).await.is_err() {
-						break;
+			let mut input_task = Task::spawn({
+				let start_state = start_state.clone();
+				move |_| async move {
+					let mut input = pin!(stream);
+					while let Some(event) = input.next().await {
+						if deferred
+							&& let Ok(tg::process::control::ClientMessage::Request(request)) =
+								&event && let tg::process::control::ClientRequestArg::Start(_) =
+							&request.arg
+						{
+							start_state.lock().unwrap().start.replace(request.clone());
+						}
+						if response_sender.send(event).await.is_err() {
+							break;
+						}
 					}
 				}
 			});
@@ -646,9 +680,17 @@ pub trait Ext: tg::Handle {
 				let handle = handle.clone();
 				let arg = arg.clone();
 				let response_receiver = response_receiver.clone();
+				let start_state = start_state.clone();
 				async move {
 					loop {
 						if state.stream.is_none() {
+							// A successful start confirms submission, not persistence.
+							let start = start_state.lock().unwrap().start.clone();
+							let input = stream::iter(start.map(|request| {
+								Ok(tg::process::control::ClientMessage::Request(request))
+							}))
+							.chain(response_receiver.clone())
+							.boxed();
 							let retries = state.retries.get_or_insert_with(|| {
 								let options = tangram_futures::retry::Options {
 									max_retries: u64::MAX,
@@ -658,10 +700,7 @@ pub trait Ext: tg::Handle {
 							});
 							retries.next().await?;
 							match handle
-								.try_get_process_control_stream(
-									arg.clone(),
-									response_receiver.clone().boxed(),
-								)
+								.try_get_process_control_stream(arg.clone(), input)
 								.await
 							{
 								Ok(Some((_, stream))) => {

@@ -264,9 +264,12 @@ impl Session {
 		length: u64,
 	) -> tg::Result<Output> {
 		let status = self
-			.try_get_sandbox_status_local(id)
+			.server
+			.index
+			.try_get_sandbox(id)
 			.await?
-			.unwrap_or(tg::sandbox::Status::Destroyed);
+			.and_then(|sandbox| sandbox.data)
+			.map_or(tg::sandbox::Status::Started, |sandbox| sandbox.data.status);
 		let mut processes = self
 			.server
 			.index
