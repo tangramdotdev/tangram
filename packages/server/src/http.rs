@@ -72,9 +72,9 @@ impl Server {
 					let stream = tokio::net::TcpStream::connect((host, port))
 						.await
 						.map_err(|error| tg::error!(!error, "failed to connect to the socket"))?;
-					stream
-						.set_nodelay(true)
-						.map_err(|error| tg::error!(!error, "failed to set nodelay on the socket"))?;
+					stream.set_nodelay(true).map_err(|error| {
+						tg::error!(!error, "failed to set nodelay on the socket")
+					})?;
 					Stream::Tcp(stream)
 				},
 				Some("http+unix") => {

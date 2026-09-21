@@ -70,9 +70,9 @@ impl Client {
 				.map_err(
 					|error| tg::error!(!error, %host, %port, "failed to create the S3 TCP connection"),
 				)?;
-		stream
-			.set_nodelay(true)
-			.map_err(|error| tg::error!(!error, "failed to set nodelay on the S3 TCP connection"))?;
+		stream.set_nodelay(true).map_err(|error| {
+			tg::error!(!error, "failed to set nodelay on the S3 TCP connection")
+		})?;
 		Ok(stream)
 	}
 
