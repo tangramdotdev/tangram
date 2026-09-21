@@ -757,23 +757,29 @@ impl Cli {
 
 	/// Initialize miette.
 	fn initialize_miette() {
-		let theme = miette::GraphicalTheme {
-			characters: miette::ThemeCharacters::unicode(),
-			styles: miette::ThemeStyles {
-				error: owo_colors::style().red(),
-				highlights: vec![owo_colors::style().red()],
-				link: owo_colors::style().blue(),
-				linum: owo_colors::style().dimmed(),
-				warning: owo_colors::style().yellow(),
-				..miette::ThemeStyles::none()
-			},
-		};
-		let highlighter =
-			miette::highlighters::SyntectHighlighter::new_themed(crate::theme::tangram(), false);
-		let handler = miette::GraphicalReportHandler::new()
-			.with_theme(theme)
-			.with_syntax_highlighting(highlighter);
-		miette::set_hook(Box::new(move |_| Box::new(handler.clone()))).unwrap();
+		miette::set_hook(Box::new(|_| {
+			let theme = miette::GraphicalTheme {
+				characters: miette::ThemeCharacters::unicode(),
+				styles: miette::ThemeStyles {
+					error: owo_colors::style().red(),
+					highlights: vec![owo_colors::style().red()],
+					link: owo_colors::style().blue(),
+					linum: owo_colors::style().dimmed(),
+					warning: owo_colors::style().yellow(),
+					..miette::ThemeStyles::none()
+				},
+			};
+			let highlighter = miette::highlighters::SyntectHighlighter::new_themed(
+				crate::theme::tangram(),
+				false,
+			);
+			let handler = miette::GraphicalReportHandler::new()
+				.with_theme(theme)
+				.with_syntax_highlighting(highlighter);
+
+			Box::new(handler)
+		}))
+		.unwrap();
 	}
 
 	/// Initialize V8.
