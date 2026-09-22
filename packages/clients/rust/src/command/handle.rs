@@ -63,7 +63,7 @@ impl Command {
 	pub fn to_referent(&self) -> tg::Referent<Id> {
 		let options = tg::referent::Options {
 			location: self.state.location(),
-			tokens: self.state.referent_tokens(),
+			tokens: self.state.collect_tokens(),
 			..tg::referent::Options::default()
 		};
 

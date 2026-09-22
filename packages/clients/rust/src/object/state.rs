@@ -249,32 +249,48 @@ impl State {
 	}
 
 	#[must_use]
-	pub fn referent_tokens(&self) -> tg::Tokens {
-		// Collect only loaded handles, without retaining descendant tokens on their ancestors.
-		let mut tokens = self.tokens();
+	pub fn collect_tokens(&self) -> tg::Tokens {
+		// Discover the token locations on all loaded handles.
+		let mut locations = BTreeSet::new();
+		self.visit_loaded(|state| {
+			locations.extend(state.tokens().iter().map(|(location, _)| location.clone()));
+			true
+		});
+
+		// Prune each subtree only for the location that grants access to it.
+		let mut tokens = tg::Tokens::default();
+		for location in locations {
+			let mut entry = tg::tokens::Entry::default();
+			self.visit_loaded(|state| {
+				let state_tokens = state.tokens();
+				let Some(state_entry) = state_tokens.get(&location) else {
+					return true;
+				};
+				entry.inherit(state_entry);
+				!state_entry
+					.authorization
+					.iter()
+					.any(|token| token.grants_subtree(&state.id().into()))
+			});
+			if !entry.is_empty() {
+				tokens.set(location, entry);
+			}
+		}
+
+		tokens
+	}
+
+	fn visit_loaded(&self, mut descend: impl FnMut(&Self) -> bool) {
 		let mut visited = BTreeSet::new();
 		let mut stack = vec![self.clone()];
 		while let Some(state) = stack.pop() {
-			if !visited.insert(state.identity()) {
-				continue;
-			}
-			let state_tokens = state.tokens();
-			tokens.inherit(&state_tokens);
-			let subtree = !state_tokens.is_empty()
-				&& state_tokens.iter().any(|(_, entry)| {
-					entry
-						.authorization
-						.iter()
-						.any(|token| token.grants_subtree(&state.id().into()))
-				});
-			if subtree {
+			if !visited.insert(state.identity()) || !descend(&state) {
 				continue;
 			}
 			if let Some(object) = state.object() {
 				stack.extend(object.children().into_iter().map(|child| child.state()));
 			}
 		}
-		tokens
 	}
 
 	#[must_use]

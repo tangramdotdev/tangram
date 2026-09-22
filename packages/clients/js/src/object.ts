@@ -205,9 +205,35 @@ export namespace Object {
 			tg.Tokens.inherit(this.#tokens, tokens);
 		}
 
-		referentTokens(): tg.Tokens {
-			// Collect only loaded handles, without retaining descendant tokens on their ancestors.
-			let tokens = tg.Tokens.clone(this.#tokens);
+		collectTokens(): tg.Tokens {
+			// Discover the token locations on all loaded handles.
+			let locations = new Set<string>();
+			this.#visitLoaded((state) => {
+				for (let location of globalThis.Object.keys(state.#tokens)) {
+					locations.add(location);
+				}
+				return true;
+			});
+
+			// Prune each subtree only for the location that grants access to it.
+			let tokens: tg.Tokens = {};
+			for (let location of locations) {
+				this.#visitLoaded((state) => {
+					let entry = state.#tokens[location];
+					if (entry === undefined) {
+						return true;
+					}
+					tg.Tokens.inherit(tokens, { [location]: entry });
+					return !(entry.authorization ?? []).some((token) =>
+						tg.Authorization.Token.grantsSubtree(token, state.id),
+					);
+				});
+			}
+
+			return tokens;
+		}
+
+		#visitLoaded(descend: (state: tg.Object.State) => boolean): void {
 			let visited = new Set<tg.Object.State>();
 			let stack: Array<tg.Object.State> = [this];
 			while (stack.length > 0) {
@@ -216,16 +242,7 @@ export namespace Object {
 					continue;
 				}
 				visited.add(state);
-				let stateTokens = state.tokens;
-				tg.Tokens.inherit(tokens, stateTokens);
-				let subtree =
-					!tg.Tokens.isEmpty(stateTokens) &&
-					globalThis.Object.values(stateTokens).some((entry) =>
-						(entry.authorization ?? []).some((token) =>
-							tg.Authorization.Token.grantsSubtree(token, state.id),
-						),
-					);
-				if (subtree) {
+				if (!descend(state)) {
 					continue;
 				}
 				if (state.object !== null) {
@@ -236,7 +253,6 @@ export namespace Object {
 					);
 				}
 			}
-			return tokens;
 		}
 
 		get kind(): tg.Object.Kind {
@@ -509,7 +525,7 @@ export namespace Object {
 	): tg.Referent<T["id"]> => {
 		let options = {
 			location: object.state.location,
-			tokens: object.state.referentTokens(),
+			tokens: object.state.collectTokens(),
 		};
 		return { node: object.id, options };
 	};
