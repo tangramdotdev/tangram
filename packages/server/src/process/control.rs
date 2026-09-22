@@ -469,6 +469,7 @@ impl Session {
 							}
 							session
 								.publish_process_control_response(&id, response)
+								.boxed()
 								.await?;
 						},
 					}

@@ -662,23 +662,27 @@ impl Session {
 				move |_| async move {
 					let mut log_buffered_sender = Some(log_buffered_sender);
 					let result = async {
-						let sandbox_process = loop {
-							if let Some(process) = sandbox_process.borrow().clone() {
-								break process;
-							}
-							if sandbox_process.changed().await.is_err() {
-								if let Some(sender) = log_buffered_sender.take() {
-									sender.send(Ok(())).ok();
-								}
-
-								return Ok(());
-							}
-						};
-						let input = sandbox
-							.read_stdio(&sandbox_process, log_streams)
+						let sandbox_process = sandbox_process
+							.wait_for(Option::is_some)
 							.await
-							.map_err(|error| tg::error!(!error, "failed to read process stdio"))?
-							.boxed();
+							.ok()
+							.and_then(|process| process.as_ref().cloned());
+						let input = match sandbox_process {
+							None => {
+								// A process that never spawned still needs to drain progress and finish its log.
+								futures::stream::once(future::ok(
+									tangram_sandbox::stdio::read::Event::End,
+								))
+								.boxed()
+							},
+							Some(sandbox_process) => sandbox
+								.read_stdio(&sandbox_process, log_streams)
+								.await
+								.map_err(|error| {
+									tg::error!(!error, "failed to read process stdio")
+								})?
+								.boxed(),
+						};
 
 						// Drain progress along with the process output.
 						let input = match log_progress {
