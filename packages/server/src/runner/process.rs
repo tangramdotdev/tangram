@@ -389,6 +389,7 @@ impl Session {
 						tg::error!(!error, "the sandbox failed before becoming ready")
 					})?;
 				}
+				crate::checkpoint!(self.server, "runner.process.control.acquire").await;
 				let connection = self
 					.server
 					.runner

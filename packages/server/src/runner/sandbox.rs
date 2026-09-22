@@ -302,6 +302,7 @@ impl Session {
 			} else {
 				let server = self.server.clone();
 				async move {
+					crate::checkpoint!(server, "runner.sandbox.control.acquire").await;
 					let connection = server
 						.runner
 						.sandbox_control_connection_pool()

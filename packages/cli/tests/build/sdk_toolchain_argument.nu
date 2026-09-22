@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Reading a tool through an SDK symlink overlay must not prevent passing the overlay to another build.
 # Reduced from std buildSdk: its bootstrap bin directory contained 85 distinct tool files.

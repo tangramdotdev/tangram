@@ -53,9 +53,13 @@ assert equal $result.exit 0
 assert (not ($result.output.value | str contains 'authorization')) "a node reader must not receive an output capability"
 failure (tg --token $reader.token cat $result.output.value | complete) "a node reader must not read the output"
 
-# New waits use the normal path once completion is published.
-tg --token $root_token checkpoint continue process.control.finish $finish_watch 0
-tg --token $root_token checkpoint unwatch process.control.finish $finish_watch
+# An output reader can receive the output capability and read the result before completion is indexed.
 tg --token $owner.token grant $reader.user.id process_node_output $process | ignore
 let result = timeout 10s tg --token $reader.token wait $process | from json
-assert (not ($result.output.value | str contains 'authorization')) "waiting must not mint an output capability even for an output reader"
+assert equal $result.exit 0
+assert ($result.output.value | str contains 'authorization') "an output reader should retain the output capability"
+let output = tg --token $reader.token cat $result.output.value | complete
+success $output "an output reader must read the result"
+assert equal $output.stdout 'output'
+tg --token $root_token checkpoint continue process.control.finish $finish_watch 0
+tg --token $root_token checkpoint unwatch process.control.finish $finish_watch

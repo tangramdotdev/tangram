@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 const js_path = path self '../../../js'
 cd $js_path

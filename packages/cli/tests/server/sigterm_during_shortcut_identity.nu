@@ -20,9 +20,8 @@ for kind in [sandbox process] {
 	let local = server spawn --name $'local-($kind)' --config {
 		remotes: { default: { token: $alice.token, url: $remote.url } },
 	}
-	let checkpoint = $'runner.($kind).control.connect'
-	let params = { $kind: 'None' } | to json --raw
-	let control_watch = tg --url $runner.url checkpoint watch $checkpoint --params $params | from json | get watch
+	let checkpoint = $'runner.($kind).control.acquire'
+	let control_watch = tg --url $runner.url checkpoint watch $checkpoint | from json | get watch
 	let pool_watch = tg --url $runner.url checkpoint watch runner.sandbox.pool.take | from json | get watch
 	let start_watch = tg --url $runner.url checkpoint watch runner.process.start | from json | get watch
 	let path = artifact {

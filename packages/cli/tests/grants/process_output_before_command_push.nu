@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A remote runner must not push a process's output before its command push completes.
+# A remote runner can return a token-bearing output before its command push completes.
 
 let root_token = random chars
 
@@ -57,23 +57,20 @@ let build = job spawn {
 let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 0 | complete
 success $output "the runner must push the child command on the shortcut path"
 
-# The build must not complete while the command push is held, because the output push must wait for it.
-let held = try { job recv --tag $build --timeout 5sec } catch { null }
-if $held != null {
-	error make { msg: "the build completed while the command push was held" }
+# The runner-backed wait can return the output while the command push is held.
+let output = try { job recv --tag $build --timeout 30sec } catch { null }
+if $output == null {
+	error make { msg: "the build did not complete while the command push was held" }
 }
+success $output "the build must return its output before the command push completes"
+let file = $output.stdout | str trim
+assert ($file | str contains '[sync]') "the output must carry a sync token"
 
 # Release the command push.
 tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.command.push.started $push_watch
 
-# The build must complete and the user must read the output.
-let output = try { job recv --tag $build --timeout 30sec } catch { null }
-if $output == null {
-	error make { msg: "the build did not complete after the command push was released" }
-}
-success $output "the build must succeed after the command push completes"
-
-let file = $output.stdout | str trim
-let read = tg --url $local.url get $file --depth inf | complete
-success $read "the user must read the pushed output"
+# The returned referent must allow the user to read the output.
+let read = tg --url $local.url cat $file | complete
+success $read "the user must read the returned output"
+assert equal $read.stdout 'hello'
