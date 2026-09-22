@@ -33,8 +33,7 @@ for location in [local remote] {
 				const directory = await tg.directory({ shared: tg.file("output inherited"), private: tg.file("private") });
 				await directory.store();
 				const file = await directory.get("shared");
-				const token = directory.state.tokens.local?.authorization?.[0];
-				tg.assert(token && file.state.tokens.local?.authorization?.includes(token));
+				tg.assert(file.state.tokens.local?.authorization?.some((token) => tg.Authorization.Token.grantsObjectSubtree(token, file.id)));
 				console.log("runner log");
 				return file;
 			};'
@@ -81,6 +80,11 @@ for location in [local remote] {
 			error make { msg: $'($location) ($field) wait did not return while the finished-process batch was held' }
 		}
 		let output = $output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
+		if $field == output {
+			assert equal $output.exit 0 "the process must succeed before reading its output"
+		} else {
+			assert ($output.exit != 0) "the process must fail before reading its error"
+		}
 		let object = if $field == output { $output.output.value } else { $output.error }
 		let object_id = $object | split row '?' | first
 		let node_output = job recv --tag $node_wait_job --timeout 10sec
