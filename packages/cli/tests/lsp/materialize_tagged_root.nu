@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/lsp.nu
 
 # Document-link and go-to-definition requests against a tagged dependency resolve to the materialized tag path and opening the materialized definition reports no diagnostics.

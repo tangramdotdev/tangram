@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/command.nu
 
 # Recursively pushing a process without commands leaves the tree's commands absent on the remote, and a subsequent recursive push with commands makes every command present and records the expected metadata fields, under both eager and lazy push.

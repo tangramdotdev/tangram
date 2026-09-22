@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Formatting a path to a file that is not a module succeeds without changing the file.
 

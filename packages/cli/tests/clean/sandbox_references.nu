@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Cleaning retains a destroyed sandbox while a process references it and removes the sandbox after the process is cleaned.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting a path whose parent does not exist fails to canonicalize, and getting a missing file in an existing directory fails to check in.
 

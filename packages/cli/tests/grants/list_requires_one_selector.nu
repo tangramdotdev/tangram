@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Listing grants requires exactly one of a resource or a subject.
 

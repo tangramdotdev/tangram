@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # --watch with --no-solve skips dependency resolution.
 

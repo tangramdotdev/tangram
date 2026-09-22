@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # The builder's node method appends a single node.
 

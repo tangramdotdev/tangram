@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The top level touch command dispatches a reference to an object touch or a process touch.
 

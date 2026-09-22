@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Graph.expect throws when the value is not a graph.
 

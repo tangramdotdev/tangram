@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.encoding.toml.encode serializes a table to a TOML string.
 

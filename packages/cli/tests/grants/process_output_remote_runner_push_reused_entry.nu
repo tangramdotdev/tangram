@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A remote runner must be able to push a parent process output that reuses an entry of a child's output directory. The entry referent carries no token of its own, so the parent's output is stored with only a node grant and the push reports the entry as missing.
 

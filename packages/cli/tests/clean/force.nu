@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Force cleaning stops the server and removes the entire directory.
 

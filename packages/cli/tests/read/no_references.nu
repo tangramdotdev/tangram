@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Reading with no references succeeds and outputs nothing.
 

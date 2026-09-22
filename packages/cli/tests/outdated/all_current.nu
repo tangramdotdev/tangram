@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Outdated prints nothing when every dependency is on its latest version.
 

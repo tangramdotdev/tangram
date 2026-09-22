@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Bug: Publishing from different entry points in a cycle produces different IDs.
 

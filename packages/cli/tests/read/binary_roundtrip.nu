@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Writing and reading a blob preserves binary bytes exactly.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/checkin.nu checkin-output
 
 # Permissions proven across a dependency's direct children make a checked-in file subtree-readable.

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Formatting a package reformats its TypeScript modules while respecting the tangramignore file, producing a tree that matches the snapshot.
 

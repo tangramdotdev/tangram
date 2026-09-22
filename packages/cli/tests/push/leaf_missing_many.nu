@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Eagerly pushing a directory of many files whose leaf blobs are all missing locally but present on the remote completes and yields matching metadata.
 

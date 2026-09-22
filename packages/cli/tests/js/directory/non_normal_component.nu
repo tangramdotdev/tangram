@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.directory throws when an entry path component is not normal.
 

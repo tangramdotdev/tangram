@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A blob's bytes accessor returns its contents as a byte array.
 

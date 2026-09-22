@@ -1,5 +1,5 @@
 # Publishing a package with the same metadata tag requires force to replace the tag.
-use ../../test.nu *
+use ../lib/test.nu *
 
 let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config {

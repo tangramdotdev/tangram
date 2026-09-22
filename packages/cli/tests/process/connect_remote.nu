@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 const driver = path self ../lib/process_connect.mjs
 let remote = server spawn --name remote

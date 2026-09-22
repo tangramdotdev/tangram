@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting an object by a well-formed id that does not exist fails.
 

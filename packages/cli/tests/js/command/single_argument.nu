@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.command preserves an unloaded command passed as its sole argument without loading it.
 

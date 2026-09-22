@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The default health reports the database, diagnostics, processes, and version fields.
 

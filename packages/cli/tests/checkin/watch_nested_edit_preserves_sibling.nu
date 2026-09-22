@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Editing a nested file invalidates only its subtree, so a sibling is preserved and the watched checkin matches a cold checkin.
 

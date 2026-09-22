@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A child can name a sibling's output without gaining access to it.
 

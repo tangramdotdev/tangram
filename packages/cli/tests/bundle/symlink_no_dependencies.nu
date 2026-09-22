@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Bundling a symlink with no dependencies returns the symlink unchanged.
 

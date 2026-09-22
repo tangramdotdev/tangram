@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A null artifact override clears the inherited symlink artifact via the fluent builder.
 

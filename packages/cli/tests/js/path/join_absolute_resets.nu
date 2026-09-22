@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.path.join discards earlier components when a later argument is absolute.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Rerunning a build whose command throws produces the same failure and identical error output on each run.
 

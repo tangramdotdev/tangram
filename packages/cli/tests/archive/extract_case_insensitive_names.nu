@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Extracting a tar archive containing two entries whose names differ only in case produces a directory with both entries on a case sensitive file system, and reports the case conflict on a case insensitive one.
 

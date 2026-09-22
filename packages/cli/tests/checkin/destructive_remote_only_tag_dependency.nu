@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A destructive checkin resolves a tag dependency that exists only on the remote by fetching it into the local cache.
 

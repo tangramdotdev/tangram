@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A runner preserves its sandboxes across a scheduler restart and assigns child work to the new scheduler.
 

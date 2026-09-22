@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A build whose default export returns a Uint8Array produces the expected serialized output.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Conflicting nodes are rejected without deleting destination subtrees.
 

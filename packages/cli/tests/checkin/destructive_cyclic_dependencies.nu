@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A destructive checkin of a package with a cyclic path dependency produces the expected graph object.
 

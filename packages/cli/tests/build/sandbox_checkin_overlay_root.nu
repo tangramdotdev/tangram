@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A build can check in a file created inside the sandbox and the resulting artifact contains the expected contents.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A piped stdio read that arrives after the process's sandbox is destroyed receives the
 # process's buffered output rather than failing to create the stream.

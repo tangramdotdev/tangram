@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/stripe.nu *
 
 # Managing billing does not hold a database connection while Stripe responds.

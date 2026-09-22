@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Deleting a remote that does not exist fails with a missing-remote error.
 

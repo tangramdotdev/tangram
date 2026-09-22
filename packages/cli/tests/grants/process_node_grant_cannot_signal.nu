@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Granting process_node to a principal should not allow that principal to signal the process.
 

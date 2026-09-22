@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A named node remains pending while its ancestor requests are registered.
 

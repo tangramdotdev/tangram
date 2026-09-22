@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Finish is acknowledged before Output, and reconnects preserve the output/error sync token.
 const driver = path self ../lib/log_control.py

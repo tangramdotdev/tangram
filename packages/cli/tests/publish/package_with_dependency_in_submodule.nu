@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a package whose dependency is imported from a submodule publishes exactly the package and its dependency, does not treat internal submodules as separate packages, and syncs objects and metadata to the remote.
 

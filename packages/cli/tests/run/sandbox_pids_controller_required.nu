@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A container only requires the pids controller when it has a process limit.
 

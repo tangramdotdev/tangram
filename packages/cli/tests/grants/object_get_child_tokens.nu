@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Object get returns exact child tokens using the authorization it already performed.
 

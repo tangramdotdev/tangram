@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking out to a path under a nonexistent parent directory fails.
 

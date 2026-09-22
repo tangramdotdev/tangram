@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.encoding.base64.encode encodes a byte array to a standard padded base64 string.
 

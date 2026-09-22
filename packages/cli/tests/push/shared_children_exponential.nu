@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A push must not take time exponential in the depth of the object graph. A recursive End check that
 # clones its visited set at every edge visits each node once per path that reaches it rather than

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Checking out a directory containing a file that participates in a dependency cycle writes the directory into the checkouts directory.
 

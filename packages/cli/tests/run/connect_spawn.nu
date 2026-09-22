@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Spawn mode accepts a finite request body and returns without waiting for process completion.
 let server = server spawn

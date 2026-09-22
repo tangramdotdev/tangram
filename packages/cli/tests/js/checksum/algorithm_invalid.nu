@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Checksum.algorithm throws when the checksum has neither a colon nor a dash separator.
 

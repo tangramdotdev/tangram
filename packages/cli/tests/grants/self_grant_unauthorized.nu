@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An adversary cannot escalate by granting herself a permission on a resource she does not administer.
 

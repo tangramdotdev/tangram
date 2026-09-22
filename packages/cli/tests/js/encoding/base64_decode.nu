@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.encoding.base64.decode decodes a base64 string back to the original bytes.
 

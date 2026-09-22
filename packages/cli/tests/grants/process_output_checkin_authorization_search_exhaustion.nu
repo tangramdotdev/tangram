@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a process output preserves authorization for dependencies inherited from an input file.
 

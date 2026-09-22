@@ -1,4 +1,4 @@
-use ../test.nu *
+use lib/test.nu *
 
 # After pushing an object to a remote and cleaning it locally, checking out the object pulls it back from the remote, with snapshots matching on the local server, the remote, and the checkout.
 

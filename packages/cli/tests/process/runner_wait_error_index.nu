@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Grant preparation waits for the error object's index batch, but a runner wait does not wait for the finished-process batch.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Only runners may obtain new identities on deferred control connections.
 let root_token = random chars

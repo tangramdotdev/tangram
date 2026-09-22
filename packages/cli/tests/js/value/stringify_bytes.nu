@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Value.stringify renders a byte string with the tg.bytes form.
 

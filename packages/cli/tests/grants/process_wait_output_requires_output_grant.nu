@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Waiting returns an output object reference; reading the object requires separate authorization.
 

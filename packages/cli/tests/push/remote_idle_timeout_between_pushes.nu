@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A push succeeds after the remote's idle timeout closes the local server's pooled connection between pushes.
 

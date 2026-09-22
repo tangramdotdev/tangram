@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A watched checkin rejects a lockfile change made after it snapshots the watch.
 

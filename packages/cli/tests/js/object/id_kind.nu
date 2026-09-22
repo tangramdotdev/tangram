@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Object.Id.kind maps each object id prefix to its kind.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking out to a path that already exists succeeds with the force flag.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Formatting a directory that contains no modules succeeds as a no-op.
 

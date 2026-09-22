@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Every sandboxed process execs its executable through its own per-sandbox FUSE mount, so a build
 # that runs many short-lived sandboxed processes creates and tears down that many FUSE connections.

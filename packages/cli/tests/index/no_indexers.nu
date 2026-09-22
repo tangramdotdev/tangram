@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An empty indexer list must not imply that pending indexing work is complete.
 let server = server spawn --config {

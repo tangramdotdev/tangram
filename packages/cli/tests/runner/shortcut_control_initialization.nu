@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Both initialization orders work, and tg index waits for queued terminal writes.
 for order in [process sandbox] {

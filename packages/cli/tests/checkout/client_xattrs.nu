@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The client reads checkout metadata and writes the same schema for checkin.
 

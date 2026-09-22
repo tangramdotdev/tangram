@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An anonymous client cannot claim a group, and a user with no grant cannot create a child of another user's group.
 

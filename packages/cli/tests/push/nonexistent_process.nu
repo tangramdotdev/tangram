@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pushing a nonexistent process and pulling a nonexistent process each fail, under both eager and lazy strategies.
 

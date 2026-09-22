@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A tag charges storage only in regions where its target is present, including
 # when the target arrives after the tag.

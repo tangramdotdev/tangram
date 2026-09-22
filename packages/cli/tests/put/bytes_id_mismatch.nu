@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Putting bytes under an id they do not hash to is rejected by the server, and the object is not stored.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Test metadata for a simple directory with files and no tag dependencies.
 

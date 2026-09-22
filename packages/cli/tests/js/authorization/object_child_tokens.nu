@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Loading an object attaches the returned exact tokens to each child handle.
 

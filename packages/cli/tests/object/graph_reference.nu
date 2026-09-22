@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting a graph object built from a module with mutually referencing file nodes returns the full graph that matches the snapshot.
 

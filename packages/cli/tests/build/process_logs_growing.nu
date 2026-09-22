@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 const driver = path self ../lib/log_control.py
 if (which python3 | is-empty) {

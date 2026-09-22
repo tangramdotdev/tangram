@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Artifact.expect throws when the value is an object that is not an artifact.
 

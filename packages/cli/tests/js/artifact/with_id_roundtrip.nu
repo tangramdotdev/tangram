@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Artifact.withId returns an artifact of the kind named by the id, preserving the id.
 

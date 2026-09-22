@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A watch registered during checkin is automatically removed after the configured watch TTL elapses.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a package that depends on both a single-file package and a multi-file package publishes exactly those three packages, does not treat internal submodules as separate packages, and syncs objects and metadata to the remote.
 

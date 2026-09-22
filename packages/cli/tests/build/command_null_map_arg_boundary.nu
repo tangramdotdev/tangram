@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Null map entries survive the JSON network boundary at every position (top-level,
 # nested, in arrays, and alongside artifacts), round-tripping as null and staying

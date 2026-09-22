@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting a relative reference reports the resolved path relative to the working directory; an absolute reference reports it absolute.
 

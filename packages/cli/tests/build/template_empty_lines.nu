@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A tg template literal preserves blank lines within its body and the resulting template matches the snapshot.
 

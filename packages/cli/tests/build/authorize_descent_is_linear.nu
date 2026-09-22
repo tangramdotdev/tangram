@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Each lookup retains its own subtree token, so descending does not search the authorization index for parents.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.path.isAbsolute reports whether a path begins with a separator.
 

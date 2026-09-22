@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A spawned process's env getter returns a single value when given a name.
 

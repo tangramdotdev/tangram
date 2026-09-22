@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Applying a merge mutation combines its entries into an existing map, keeping existing keys.
 

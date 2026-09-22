@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking out an executable file preserves writable and executable permissions with and without a prior internal checkout.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A deep chain of sandboxed builds completes with a single runner allocation.
 # Each parent process waits for a sandboxed child, so the child must be able

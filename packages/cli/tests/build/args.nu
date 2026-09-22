@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A build forwards a command-line argument to the default export function and produces the expected output.
 

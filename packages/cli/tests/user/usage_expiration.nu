@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Usage expiration preserves coarser aggregates, expires each period independently, and retains zero storage checkpoints.
 

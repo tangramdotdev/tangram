@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package that imports a tagged package whose modules form a cycle resolves and writes the expected lockfile.
 

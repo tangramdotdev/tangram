@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Unsandboxed process arguments keep the command inline instead of storing it.
 

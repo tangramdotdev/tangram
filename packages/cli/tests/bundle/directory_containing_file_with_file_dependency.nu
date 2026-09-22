@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Bundling a directory containing an executable file with a file dependency produces a checkout that matches the snapshot.
 

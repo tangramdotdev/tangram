@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.path.join concatenates a relative path onto an absolute base.
 

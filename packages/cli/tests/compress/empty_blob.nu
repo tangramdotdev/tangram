@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An empty blob compresses and decompresses back to itself.
 

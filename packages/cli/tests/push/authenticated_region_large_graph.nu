@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pushing a large graph to an authenticated region in a multi-region cloud
 # instance completes under bidirectional backpressure.

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Compressing a blob with gzip and then decompressing it preserves the original contents.
 

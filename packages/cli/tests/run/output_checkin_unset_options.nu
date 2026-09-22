@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A local process whose output is checked in must succeed: unset checkin options are omitted from the request, not sent as null, which the server's non-optional fields would reject.
 

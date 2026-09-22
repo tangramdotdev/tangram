@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Input that is not an id in either text or binary form is rejected.
 

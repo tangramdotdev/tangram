@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Reading a filesystem path checks it in and returns the file contents.
 

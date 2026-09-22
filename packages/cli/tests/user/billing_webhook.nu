@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/stripe.nu *
 
 # Stripe webhooks project payment method state locally for sandbox billing checks.

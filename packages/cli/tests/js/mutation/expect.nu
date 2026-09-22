@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Mutation.expect returns the value unchanged when it is a mutation.
 

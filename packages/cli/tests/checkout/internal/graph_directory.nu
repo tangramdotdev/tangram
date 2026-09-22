@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Checking out a directory defined through a graph node writes the directory into the checkouts directory.
 

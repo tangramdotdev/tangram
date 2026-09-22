@@ -1,4 +1,4 @@
-use ../test.nu *
+use lib/test.nu *
 
 # A container sandbox has cgroup v2 mounted at /sys/fs/cgroup. A server creates a cgroup for every sandbox it spawns, so a server running in a sandbox cannot spawn one without it.
 

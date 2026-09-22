@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/checkin.nu checkin-output
 
 # Solving a branch directory preserves the graph context of an internal pointer in a child.

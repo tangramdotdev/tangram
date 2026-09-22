@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process can return the output of its own remote cache-hit child directly.
 

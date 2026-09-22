@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The io_uring FUSE transport registers every kernel queue before serving the mount.
 

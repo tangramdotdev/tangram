@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # `tg run --build .` checks out artifacts referenced in the command before executing.
 

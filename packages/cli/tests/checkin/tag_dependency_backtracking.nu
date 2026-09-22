@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Solving intersecting tag patterns backtracks from the newest incompatible candidate to an older compatible candidate.
 

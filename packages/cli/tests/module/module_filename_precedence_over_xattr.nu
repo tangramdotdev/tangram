@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Filename pattern takes precedence over xattr.
 # A file named foo.tg.ts with xattr "js" should be detected as "ts".

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing fails promptly when the remote server is not running.
 

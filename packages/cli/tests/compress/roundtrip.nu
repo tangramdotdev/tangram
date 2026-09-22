@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Compressing a blob and then decompressing it returns the original blob across each supported format.
 

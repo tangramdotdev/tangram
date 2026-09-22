@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Bug: Checking in from different entry points in a cycle produces different graph node orderings,
 # which results in different IDs for the same packages.

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Checking out a directory whose entry count exceeds the configured max_leaf_entries, forcing it into a branch directory, writes all of the entries into the checkouts directory.
 

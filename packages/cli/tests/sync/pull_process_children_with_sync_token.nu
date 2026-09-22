@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process pull reads the child list using permissions proven by sync control before the incoming sync finishes.
 let root_token = random chars

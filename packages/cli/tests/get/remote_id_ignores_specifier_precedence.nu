@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting by ID finds the exact remote node even when a different local node has the same specifier.
 

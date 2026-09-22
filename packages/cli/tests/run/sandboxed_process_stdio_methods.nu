@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The piped stdio methods of a sandboxed process allow writing to stdin and reading the full stdout and stderr streams.
 

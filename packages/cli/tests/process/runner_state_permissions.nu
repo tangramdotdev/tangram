@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Runner-backed reads preserve process and output permissions before completion reaches the index.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A module with xattr (but no .tg.ts extension) can be built by ID.
 

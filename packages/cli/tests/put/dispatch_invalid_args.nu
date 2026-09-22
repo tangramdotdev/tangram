@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Combining a process id with the kind flag is rejected because kind only applies to objects.
 

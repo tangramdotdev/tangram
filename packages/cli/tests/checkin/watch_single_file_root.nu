@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A watched checkin whose root is a single file, rather than a directory, picks up an edit to that file and matches a cold checkin.
 

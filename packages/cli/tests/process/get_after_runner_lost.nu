@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting a process whose runner is gone must return the record the index already
 # has. The get races the index against a control request to the runner, and when

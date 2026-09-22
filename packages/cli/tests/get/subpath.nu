@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A reference with a get option resolves a subpath within a directory, including nested entries.
 

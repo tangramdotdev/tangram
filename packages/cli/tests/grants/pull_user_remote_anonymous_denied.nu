@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A user-configured remote carries no server credentials. A user on a shared server may add her own remote to a source, but her requests authenticate anonymously, so she still cannot pull a private object she has no access to on the source.
 

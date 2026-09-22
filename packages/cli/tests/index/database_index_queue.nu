@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Database index batches follow commit order and are serviced by a later indexer.
 

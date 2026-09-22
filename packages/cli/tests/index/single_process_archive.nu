@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/archive.nu *
 
 # Single-process indexing waits for background archiving to succeed, including retries after an upload failure.

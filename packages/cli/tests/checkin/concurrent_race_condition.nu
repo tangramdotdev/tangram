@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A checkin that subscribes after the shared root task finishes still receives its
 # output. Regression test for 4819305a (#734).

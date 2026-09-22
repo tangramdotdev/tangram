@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # With an empty remotes key in the config, a remote added through the CLI does not survive a restart.
 

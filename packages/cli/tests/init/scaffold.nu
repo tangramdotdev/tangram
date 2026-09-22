@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Initializing the current directory writes the autobuild scaffold to tangram.ts without requiring a server.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Object.withId returns an object of the kind named by the id, preserving the id.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Cleaning retains a checkout referenced by a live blob produced by sync.
 

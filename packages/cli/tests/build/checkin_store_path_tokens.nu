@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checkin reuses the command's artifact tokens inside a process, including without the VFS.
 

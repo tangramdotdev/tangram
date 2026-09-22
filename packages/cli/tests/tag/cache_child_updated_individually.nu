@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A child tag cached as part of a parent branch fetch can later be updated individually with --ttl 0.
 

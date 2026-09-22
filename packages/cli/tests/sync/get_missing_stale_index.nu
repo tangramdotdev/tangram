@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Ensure eager and lazy pushes succeed when the source is missing a child which is in the destination's store but not yet in its index.
 

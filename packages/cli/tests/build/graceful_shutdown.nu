@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Restarting the remote server mid-build does not lose log output, and the full stdout and stderr streams are still readable afterward.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Putting a process with input that is not valid process data fails with a deserialization error.
 

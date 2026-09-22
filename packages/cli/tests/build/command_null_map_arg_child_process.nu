@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A map arg with a null entry must round-trip into a child process with the key preserved, distinct from an absent key. Existence is checked with `!== undefined`, not the `in` operator.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a single-file package tags it on both the local and remote servers, syncs the object, and produces matching metadata.
 

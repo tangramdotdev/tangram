@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Building --public in a multi-server setup is safe: it operates on the builder's own local process, not a remote one. Even when the remote holds another user's process for the same command, --public must succeed without attempting to grant on the remote's process.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Updating a package with nothing to update prints nothing and leaves the lockfile unchanged.
 

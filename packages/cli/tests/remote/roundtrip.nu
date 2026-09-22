@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A remote can be put, retrieved, listed, and deleted.
 

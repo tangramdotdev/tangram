@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pushing a group under a user requires write permission on that user.
 

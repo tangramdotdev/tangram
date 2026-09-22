@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A tg.download that responds with an error status fails with the reason on the CLI.
 

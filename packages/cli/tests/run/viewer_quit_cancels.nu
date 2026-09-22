@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Typing q in the fullscreen viewer exits successfully and cancels the process through its wait lease.
 

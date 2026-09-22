@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sync token embedded in a referent must not affect a content-addressed command's ID.
 

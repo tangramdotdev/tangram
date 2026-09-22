@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A local node capability must not hide parent authority on the owner or in a local grant.
 const connect_helper = path self '../lib/process_connect.mjs'

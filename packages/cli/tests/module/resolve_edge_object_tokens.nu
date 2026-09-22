@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/module.nu *
 
 # Resolving Edge::Object modules returns tokens for the resolved file IDs, so subsequent resolutions use exact-token authorization.

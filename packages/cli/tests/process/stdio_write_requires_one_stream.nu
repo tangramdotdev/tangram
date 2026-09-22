@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Writing process stdio without exactly one stream selected fails.
 

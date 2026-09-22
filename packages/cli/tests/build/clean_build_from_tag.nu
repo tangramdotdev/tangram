@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Building a tag on a second local server pulls the published artifact from the remote and produces the same output as the original build.
 

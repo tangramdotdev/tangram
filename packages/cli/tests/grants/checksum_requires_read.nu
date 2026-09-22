@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A principal who cannot read a private file must not be able to checksum it, since checksumming reads its bytes.
 

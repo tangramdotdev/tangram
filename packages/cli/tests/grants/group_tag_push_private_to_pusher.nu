@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pushing a group and tag to a shared remote grants the pusher access without exposing them to other users.
 

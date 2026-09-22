@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Reading a graph directory pointer with a get path option returns the contents of the referenced file.
 

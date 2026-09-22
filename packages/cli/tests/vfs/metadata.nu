@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # FUSE reports symlink target size consistently with readlink.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # New reads must not revive a cleaned process from retained runner state.
 

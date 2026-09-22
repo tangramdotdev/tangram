@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Putting an object's raw bytes with only the kind flag recomputes the identical content-addressed id.
 

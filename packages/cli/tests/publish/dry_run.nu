@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing with the dry run flag prints the plan and does not create the tag.
 

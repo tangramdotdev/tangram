@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The --organization owner alias resolves only an organization; a group or a user is rejected.
 

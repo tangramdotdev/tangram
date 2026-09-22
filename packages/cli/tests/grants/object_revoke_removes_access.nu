@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Revoking an object grant should succeed and remove the grantee's access.
 

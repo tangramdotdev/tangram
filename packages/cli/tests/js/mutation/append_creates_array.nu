@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Applying an append mutation to an absent value creates a new array.
 

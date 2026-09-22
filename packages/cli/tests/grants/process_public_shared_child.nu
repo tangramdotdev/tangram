@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A public build's children are public too: a child of a public build is reused by a different owner whose build depends on the same child.
 

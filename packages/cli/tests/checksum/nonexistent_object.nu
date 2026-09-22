@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checksumming a well formed blob id that does not exist fails.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pushing a directory whose child the pusher cannot read must fail. The remote cannot make Bob's file visible to Alice, so it requests the file, and Alice's server holds the directory shallowly and cannot send it.
 

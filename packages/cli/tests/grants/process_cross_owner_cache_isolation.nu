@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Cache reuse is owner-scoped: a different owner building the same deterministic command does not reuse the first owner's private cached process. Cross-principal reuse requires a public build.
 

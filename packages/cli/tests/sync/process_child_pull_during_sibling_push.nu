@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A child process consumes a sibling's output while the runner that produced it is still pushing it.
 # The parent runs on one runner and a first child borrows its capacity there, so the producer and the

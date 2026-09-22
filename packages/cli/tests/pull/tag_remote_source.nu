@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pulling a tag with a specified remote fetches the object from that remote even when another remote has a conflicting tag of the same name.
 

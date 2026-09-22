@@ -1,6 +1,4 @@
-use ../../test.nu *
-
-const js_path = path self '../../../js'
+use ../lib/test.nu *
 
 # An inline spawn command authorizes its private executable and stdin directly from their referent tokens without traversing the authorization graph.
 
@@ -42,82 +40,36 @@ $config | to json | save --force $server.config_path
 let server = $server | upsert config $config
 let server = server restart $server
 
-# Spawn the same inline command with and without the input referent tokens as Bob.
-let executable_referent_json = $executable_referent | to json
-let stdin_referent_json = $stdin_referent | to json
-let source = [
-	'import * as tg from "@tangramdotdev/client";'
-	''
-	'const decoder = new TextDecoder();'
-	'const encoder = new TextEncoder();'
-	'tg.setEncoding({'
-	'json: { decode: JSON.parse, encode: JSON.stringify },'
-	'utf8: { decode: (value) => decoder.decode(value), encode: (value) => encoder.encode(value) },'
-	'});'
-	''
-	'const env = Object.fromEntries('
-	'Object.entries(process.env).filter(([, value]) => value !== undefined),'
-	');'
-	'tg.setProcess({'
-	'args: process.argv.slice(2),'
-	'cwd: process.cwd(),'
-	'env,'
-	'executable: process.execPath,'
-	'});'
-	''
-	$'const executableReferent = ($executable_referent_json);'
-	$'const stdinReferent = ($stdin_referent_json);'
-	''
-	'const mode = process.env.TOKEN_MODE;'
-	'const executable = mode === "executable" || mode === "both"'
-	'? tg.File.withReferent(executableReferent)'
-	': tg.File.withId(executableReferent.node);'
-	'const stdin = mode === "stdin" || mode === "both"'
-	'? tg.Blob.withReferent(stdinReferent)'
-	': tg.Blob.withId(stdinReferent.node);'
-	'if (process.env.EXECUTION_MODE === "unsandboxed") {'
-	'const child = await tg.spawn({ env: { FAST: "1" }, executable }).stdio("null");'
-	'const wait = await child.wait();'
-	'if (wait.exit !== 0) throw new Error("the process failed");'
-	'} else {'
-	'const child = await tg.spawn({ executable, stdin }).stdout("null").sandbox();'
-	'const wait = await child.wait();'
-	'if (wait.exit !== 0) throw new Error("the process failed");'
-	'}'
-	'process.stdout.write("spawned");'
-	'process.exit(0);'
-] | str join "\n"
+# Spawn inline commands directly so this authorization test does not depend on the Node.js client.
+let socket = $server.url | str replace 'http+unix://' '' | url decode
+let headers = { Authorization: $'Bearer ($bob.token)', 'Content-Type': 'application/json' }
 
-cd $js_path
+for mode in [none stdin executable both] {
+	let executable_options = if $mode in [executable both] { $executable_referent.options } else { {} }
+	let stdin_options = if $mode in [stdin both] { $stdin_referent.options } else { {} }
+	let arg = {
+		command: {
+			node: {
+				executable: { node: { artifact: $executable_referent.node }, options: $executable_options }
+				stdin: { node: $stdin_referent.node, options: $stdin_options }
+			}
+		}
+		sandbox: { ttl: 0 }
+		stdin: 'pipe'
+		stdout: 'null'
+		stderr: 'null'
+	} | to json --raw
+	let response = http post --full --allow-errors --raw --max-time 30sec --unix-socket $socket --headers $headers 'http://localhost/processes/spawn' $arg
 
-let output = with-env { TANGRAM_TOKEN: $bob.token, TOKEN_MODE: none } {
-	node --input-type=module -e $source | complete
+	assert equal $response.status 200 'the spawn request must be accepted'
+	assert (not ($response.body | str contains 'event: error')) 'the spawn must return a process'
+	let output = $response.body | lines | where { $in starts-with 'data: ' } | last | str substring 6.. | from json
+	let token = $output.tokens.local.authorization.0
+	let reference = $'($output.process)?tokens[local][authorization][0]=($token | url encode --all)'
+	let outcome = tg --token $bob.token wait $reference | from json
+	if $mode == both {
+		assert equal $outcome.exit 0 'the authorized process must read its private stdin and finish successfully'
+	} else {
+		assert ($outcome.exit != 0) $'the inline command with token mode ($mode) must not be authorized'
+	}
 }
-failure $output 'the inline command without referent tokens must not be authorized'
-
-let output = with-env { TANGRAM_TOKEN: $bob.token, TOKEN_MODE: stdin } {
-	node --input-type=module -e $source | complete
-}
-failure $output 'the inline command with only the stdin token must not be authorized'
-
-let output = with-env { TANGRAM_TOKEN: $bob.token, TOKEN_MODE: executable } {
-	node --input-type=module -e $source | complete
-}
-failure $output 'the inline command with only the executable token must not be authorized'
-
-let output = with-env { TANGRAM_TOKEN: $bob.token, TOKEN_MODE: both } {
-	node --input-type=module -e $source | complete
-}
-success $output 'the inline command with executable and stdin tokens must be authorized'
-snapshot $output.stdout 'spawned'
-
-let output = with-env { EXECUTION_MODE: unsandboxed, TANGRAM_TOKEN: $bob.token, TOKEN_MODE: none } {
-	node --input-type=module -e $source | complete
-}
-failure $output 'the unsandboxed inline command without the executable token must not be authorized'
-
-let output = with-env { EXECUTION_MODE: unsandboxed, TANGRAM_TOKEN: $bob.token, TOKEN_MODE: executable } {
-	node --input-type=module -e $source | complete
-}
-success $output 'the unsandboxed inline command with the executable token must be authorized'
-snapshot $output.stdout 'spawned'

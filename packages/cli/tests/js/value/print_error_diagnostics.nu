@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Value.print renders an error whose diagnostic has no location without crashing.
 

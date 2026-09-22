@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Updating with a pattern argument bumps only the named dependency.
 

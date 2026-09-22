@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Start all three input waits before allowing any of them to finish.
 let server = server spawn --config {

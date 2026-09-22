@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.error preserves an unloaded error passed as its sole argument without loading it.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Artifact.Data.is recognizes file, directory, and symlink data shapes and rejects an array.
 

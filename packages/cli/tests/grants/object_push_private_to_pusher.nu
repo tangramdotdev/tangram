@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pushing an object to a shared remote keeps it private to the pusher: a second authenticated user and an anonymous client must not read it without a grant.
 

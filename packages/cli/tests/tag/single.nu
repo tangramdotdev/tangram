@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A single tag put on a checked-in artifact can be listed and retrieved with tg list and tg tag get.
 

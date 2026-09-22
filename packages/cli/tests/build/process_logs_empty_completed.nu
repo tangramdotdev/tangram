@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 let server = server spawn --config { advanced: { checkpoints: true }, indexer: { log_compaction: false }, runner: { process_state_ttl: 0.01 } }
 let watch = tg checkpoint watch runner.process.control.finished | from json | get watch

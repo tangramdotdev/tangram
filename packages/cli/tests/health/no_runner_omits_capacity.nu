@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A server without a runner omits the capacity from the processes health.
 

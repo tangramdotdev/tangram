@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Running a basic default export that logs to the console succeeds and returns the logged output.
 

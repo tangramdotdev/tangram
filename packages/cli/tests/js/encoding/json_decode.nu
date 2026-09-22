@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.encoding.json.decode parses a JSON string into a value.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Displaying a tree for a path that does not exist fails.
 

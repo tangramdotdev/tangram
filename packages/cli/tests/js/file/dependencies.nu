@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A file's dependencies accessor returns each reference mapped to a referent for its object.
 

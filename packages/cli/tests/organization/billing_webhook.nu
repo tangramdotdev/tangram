@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/stripe.nu *
 
 # Organization-owned sandboxes use the organization's projected Stripe state.

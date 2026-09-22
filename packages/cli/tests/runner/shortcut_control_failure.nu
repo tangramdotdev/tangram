@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A rejected shortcut handshake releases its physical sandbox and borrowed capacity without running the child.
 

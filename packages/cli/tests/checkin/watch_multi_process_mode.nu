@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A watched checkin fails when the server is not in single-process mode.
 

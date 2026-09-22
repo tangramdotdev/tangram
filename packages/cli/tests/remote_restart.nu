@@ -1,4 +1,4 @@
-use ../test.nu *
+use lib/test.nu *
 
 # After a remote runner produces a process output, restarting the remote server preserves the process log so it can still be retrieved from the local server.
 

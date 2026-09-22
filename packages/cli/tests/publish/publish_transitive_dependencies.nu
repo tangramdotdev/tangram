@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Bug: When a transitive dependency is updated, publishing a top-level package
 # should automatically republish intermediate dependencies in topological order.

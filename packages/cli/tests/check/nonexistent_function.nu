@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The check command fails when a module calls a function that is not defined.
 

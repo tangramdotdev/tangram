@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Successive .mount calls on a sandboxed process append the mounts in order and the resulting mount list is reported back faithfully.
 

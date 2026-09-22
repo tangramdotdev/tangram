@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A failing tg.assert in an imported module causes the run to fail and produces the expected diagnostic on stderr.
 

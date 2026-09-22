@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/lsp.nu
 
 # A go-to-definition request that resolves into the built-in tangram library materializes the library source on disk and opening the materialized definition reports no diagnostics.

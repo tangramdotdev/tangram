@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.checksum computes a sha256 checksum of a string, formatted as the algorithm and a lowercase hex digest.
 

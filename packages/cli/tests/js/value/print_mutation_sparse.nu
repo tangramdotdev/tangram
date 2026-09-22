@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # The printer omits absent mutation separators and preserves empty payloads and explicit separators.
 

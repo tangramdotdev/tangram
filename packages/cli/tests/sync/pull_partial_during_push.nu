@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A client that already has an object but not its child pulls the object with a sync token while a push of it is held. The pull requests the missing child and waits for the push instead of failing.
 

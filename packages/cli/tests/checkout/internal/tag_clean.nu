@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Cleaning a tag checkout removes its tag and ancestor entries, and a later checkout recreates them.
 

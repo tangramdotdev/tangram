@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Value.print wraps a value in ANSI color codes when the color option is set.
 

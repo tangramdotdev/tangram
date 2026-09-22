@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/lsp.nu
 
 # A tagged file module uses the explicit @module suffix so literal tags ending in module-like suffixes remain unambiguous.

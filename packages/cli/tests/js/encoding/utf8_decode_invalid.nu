@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.encoding.utf8.decode fails when the byte array is not valid UTF-8.
 

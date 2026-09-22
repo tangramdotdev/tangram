@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # console.log formats booleans, null, and undefined by name.
 

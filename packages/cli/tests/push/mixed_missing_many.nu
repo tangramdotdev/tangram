@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pushing a directory of many files with a mix of intermediate files and leaf blobs split between the local and remote servers completes and yields matching metadata, under both eager and lazy push.
 

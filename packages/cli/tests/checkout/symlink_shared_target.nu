@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking out a directory containing two symlinks that target the same sibling file materializes the directory and both symlinks on disk.
 

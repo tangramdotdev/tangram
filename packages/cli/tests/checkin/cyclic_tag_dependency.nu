@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Two packages with a cyclic tag dependency can both be tagged, including re-tagging one of them with the --no-source-dependencies flag despite the cycle.
 

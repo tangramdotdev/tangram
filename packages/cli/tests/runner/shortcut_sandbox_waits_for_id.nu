@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A shortcut can claim an IDless physical sandbox, but cannot activate it until control delivers its identity.
 

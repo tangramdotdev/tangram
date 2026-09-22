@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Force retargets a tag in place and preserves its grants.
 

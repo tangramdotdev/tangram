@@ -1,6 +1,6 @@
 # Checking in different files from a cyclic module graph produces the same graph ID regardless of which file is checked in first.
 
-use ../../test.nu *
+use ../lib/test.nu *
 
 let server = server spawn
 

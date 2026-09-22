@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Revoking a grant immediately removes the principal's access, not just the grant record.
 

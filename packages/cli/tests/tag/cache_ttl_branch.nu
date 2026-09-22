@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Resolving a branch tag returns the cached child within its TTL and returns the newest child when fetched with --ttl 0.
 

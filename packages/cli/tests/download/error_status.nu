@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Downloading a URL that responds with an error status fails with the reason on the CLI.
 

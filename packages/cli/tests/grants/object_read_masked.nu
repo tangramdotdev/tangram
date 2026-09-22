@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A private object is masked as not found until its owner grants the reader the subtree.
 

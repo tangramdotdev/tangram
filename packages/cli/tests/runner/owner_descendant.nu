@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A runner can run sandboxes owned by descendants of its owner but not unrelated principals.
 

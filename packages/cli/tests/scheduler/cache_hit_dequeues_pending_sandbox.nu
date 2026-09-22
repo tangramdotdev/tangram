@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 let remote = server spawn --name remote
 let local = server spawn --name local --config {

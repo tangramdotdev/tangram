@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking out an artifact to a path must require its subtree: a principal without an artifact's subtree must not be able to materialize it to disk. Otherwise external checkout is an exfiltration channel that bypasses the subtree check that internal checkout enforces.
 

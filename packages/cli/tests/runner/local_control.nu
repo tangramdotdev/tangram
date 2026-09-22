@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Connected and standalone runtime operations use the runner without routing through the owner.
 

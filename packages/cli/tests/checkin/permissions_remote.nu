@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/checkin.nu checkin-output
 
 # A trusted remote localizes its permission token, while an untrusted remote does not.

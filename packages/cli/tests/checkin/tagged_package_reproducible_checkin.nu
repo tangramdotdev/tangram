@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package with a remote tag dependency produces the same object on two independent local servers.
 

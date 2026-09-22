@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/archive.nu *
 
 # Graceful shutdown waits for a single-process blob batch to finish archiving.

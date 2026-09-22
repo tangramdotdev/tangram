@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A local nonrecursive list returns only the immediate children of its parent.
 

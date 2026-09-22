@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Entities are listed with tg list by specifier, so there is no tg organization list subcommand, just as there is none for groups.
 

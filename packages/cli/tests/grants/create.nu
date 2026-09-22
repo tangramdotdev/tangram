@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Creating a grant returns the grant record and lists it on the resource.
 

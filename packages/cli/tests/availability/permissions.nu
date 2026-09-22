@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Availability is masked by the authenticated principal's permissions.
 

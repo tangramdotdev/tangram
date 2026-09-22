@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # tg.download succeeds when given the wildcard "sha256:any" checksum, which accepts any downloaded contents.
 

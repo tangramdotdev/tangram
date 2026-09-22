@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Starting a failed pull must not grant access to a private object already on the destination.
 let source = server spawn --name source --config { sync: { control: { index_timeout: 1 } } }

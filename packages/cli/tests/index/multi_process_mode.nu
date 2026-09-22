@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Indexing uses the index queue when the server is not in single process mode.
 

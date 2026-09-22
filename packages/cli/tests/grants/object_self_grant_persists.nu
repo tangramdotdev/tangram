@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Exercising a grant is akin to cloning the capability, so a principal who re-grants access to themselves retains it even after the granting principal revokes; revocation is not a global kill-switch.
 

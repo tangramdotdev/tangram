@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sandbox owner can be provided as a specifier, and write on that owner grants sandbox access.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A build whose return value is a self-referential object fails because of the cyclic value.
 

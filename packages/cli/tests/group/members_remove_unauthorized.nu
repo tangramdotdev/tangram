@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Membership confers write but not admin, so a member cannot remove another member.
 

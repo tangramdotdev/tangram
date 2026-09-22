@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # The ambient tg.process.args is an empty list for a default-export build with no arguments.
 

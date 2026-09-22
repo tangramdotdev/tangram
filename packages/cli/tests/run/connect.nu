@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A retained connection carries stdin, independent output readers, and repeated waits in one HTTP request.
 let server = server spawn

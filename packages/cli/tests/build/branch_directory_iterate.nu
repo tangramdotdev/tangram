@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Iterating a directory large enough to be split into branch nodes yields all of its entry names.
 

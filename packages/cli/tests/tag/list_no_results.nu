@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # tg list produces empty output when no tag matches the requested pattern.
 

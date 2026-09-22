@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Checking out a directory containing a file that depends on its enclosing directory writes the directory into the checkouts directory.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pulling an object must require its subtree: a principal without an object's subtree on a remote must not be able to pull it onto her own server. The remote's sync send path must authorize the caller before shipping bytes.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A directory node's entry edge resolves to the node at that index.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # The ambient tg.process.module carries the module that is being built.
 

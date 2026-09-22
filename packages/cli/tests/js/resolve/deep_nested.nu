@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.resolve resolves promises nested at every depth through arrays and objects.
 

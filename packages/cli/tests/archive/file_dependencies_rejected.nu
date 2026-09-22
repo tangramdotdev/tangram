@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Archiving a directory that contains a file with dependencies fails instead of producing a truncated archive.
 

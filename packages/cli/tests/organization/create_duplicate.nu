@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Creating an organization whose specifier is already in use fails with a clear error.
 

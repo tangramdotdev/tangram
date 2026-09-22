@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Touching an object must require read access: a principal that cannot read an object must not be able to touch it. An unreadable object should be masked as not found, otherwise touch is an existence oracle and lets any principal keep arbitrary objects alive against garbage collection.
 

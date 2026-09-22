@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/checkin.nu checkin-output
 
 # An opaque permission-only graph pointer does not prevent a later normal reference from expanding the same node.

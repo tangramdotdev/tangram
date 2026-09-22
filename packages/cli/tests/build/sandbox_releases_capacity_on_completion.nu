@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sandbox releases its runner capacity after its process exits so that a
 # subsequent build can start.

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Blob.leaf concatenates its arguments into a single leaf node holding bytes.
 

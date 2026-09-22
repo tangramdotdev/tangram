@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A watched package whose tag dependency does not yet exist checks in unsolved, then resolves the dependency once the tag is created.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Eagerly pushing a built nested directory to a remote makes the object and its metadata identical on the local and remote servers.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An unsandboxed process inherits an environment variable from the client's environment and can read it through tg.process.env.
 

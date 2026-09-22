@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking out a directory containing a file with a tagged dependency materializes the directory and writes the corresponding sibling lockfile.
 

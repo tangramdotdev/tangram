@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a directory with more entries than the configured max leaf entries produces a branched directory object.
 

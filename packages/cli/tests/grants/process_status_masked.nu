@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process's status is masked from a principal without a grant, so knowing the process id is not an existence or liveness oracle.
 

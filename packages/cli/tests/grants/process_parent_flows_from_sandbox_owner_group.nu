@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A write grant on the owner of an ancestor process's sandbox confers process_parent on descendants.
 

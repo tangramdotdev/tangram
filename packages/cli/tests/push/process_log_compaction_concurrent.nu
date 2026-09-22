@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sync that reads the log cache after background compaction must preserve the compacted log.
 

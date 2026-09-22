@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Incremental backtracking uses candidates for the conflicted dependency rather than candidates saved for another dependency.
 

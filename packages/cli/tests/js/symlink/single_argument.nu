@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.symlink preserves an unloaded symlink passed as its sole argument without loading it.
 

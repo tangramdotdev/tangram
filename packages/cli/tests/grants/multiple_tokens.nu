@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Multiple proofs reach authorization without an unrelated or invalid proof displacing an exact token.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A principal without a grant cannot signal another principal's private process; the process is masked as not found rather than reporting that it exists.
 

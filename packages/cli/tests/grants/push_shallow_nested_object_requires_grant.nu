@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pushing a directory must stop at an intermediate object the pusher cannot read, even when she can read the leaf beneath it. The remote cannot make the middle directory visible to Alice, so it requests it, and Alice's server holds the outer directory shallowly and cannot send it.
 

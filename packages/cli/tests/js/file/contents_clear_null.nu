@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A null contents override clears the inherited file contents, and the object and fluent forms are equivalent.
 

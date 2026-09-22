@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Writing a blob and reading it back returns the original contents.
 

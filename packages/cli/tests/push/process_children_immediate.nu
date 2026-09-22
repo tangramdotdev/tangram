@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A push makes the authoritative process children list visible before its final index batch runs.
 

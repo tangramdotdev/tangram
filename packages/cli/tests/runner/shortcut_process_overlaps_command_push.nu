@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A shortcut child can finish and satisfy its parent's wait while command push is blocked.
 let root_token = random chars

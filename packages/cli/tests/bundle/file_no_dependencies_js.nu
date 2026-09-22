@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Building a module that bundles a file with no dependencies produces a checkout that matches the snapshot.
 

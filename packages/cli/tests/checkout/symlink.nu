@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking out a directory containing a symlink that targets a sibling file materializes the directory and symlink on disk.
 

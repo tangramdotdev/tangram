@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Clients retain complementary proofs and prune only covered permissions and lifetimes.
 

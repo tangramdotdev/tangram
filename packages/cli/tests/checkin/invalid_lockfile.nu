@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package with an invalid sibling lockfile ignores the lockfile, produces the expected object, and removes the lockfile.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A remote runner writes the logs of a process it executes back to the remote, and the user who
 # spawned that process can read them. The runner resolves the remote for the log write as itself

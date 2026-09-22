@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Building an artifact whose tagged dependencies form a transitive chain with version constraints, checking it out with dependencies, deleting the tags and cleaning, and checking it back in yields the same artifact ID.
 

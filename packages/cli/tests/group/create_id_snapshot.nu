@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Group creation retries when an ancestor is created after authorization.
 

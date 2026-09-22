@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A module file checked in and referenced by its object id can be run directly after indexing.
 

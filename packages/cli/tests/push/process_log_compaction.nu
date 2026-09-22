@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Sync waits for the writer's EOF and compacts the log before sending the process, even with background compaction disabled.
 

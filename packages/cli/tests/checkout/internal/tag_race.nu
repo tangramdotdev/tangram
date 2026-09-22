@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A tag mutation racing a checkout removes the stale entry after the checkout releases the lock.
 

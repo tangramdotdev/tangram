@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The tree command renders a tag and its object as distinct graph nodes.
 

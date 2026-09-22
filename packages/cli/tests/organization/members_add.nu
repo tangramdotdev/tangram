@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An admin can add a member to an organization, and the member is listed.
 

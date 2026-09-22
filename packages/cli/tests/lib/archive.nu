@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 const archive_path = path self archive.ts
 

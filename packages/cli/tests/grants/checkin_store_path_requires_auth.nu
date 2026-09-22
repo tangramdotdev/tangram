@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a store path must authorize the caller on the named artifact: the store-path branch creates an object subtree authorization token for the artifact ID in the path, so a principal who cannot read that artifact must not be able to check it in and obtain a read capability for it.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/checkin.nu checkin-output
 
 # Reusing a tag solution observes the selected object with each referrer's location, independent of traversal order.

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Archiving and extracting a directory with an executable file as tar preserves the executable bit.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/vfs.nu
 
 if $nu.os-info.name == 'macos' {

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Recursively pulling a tagged process brings the whole process tree present locally and records the tag locally.
 

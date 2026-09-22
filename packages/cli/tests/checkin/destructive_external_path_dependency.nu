@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A destructive checkin of a package with a path dependency outside the checked-in root fails.
 

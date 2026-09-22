@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A build succeeds when a configured remote is unreachable, because consulting a remote for a cached process is an optimization and not a prerequisite.
 

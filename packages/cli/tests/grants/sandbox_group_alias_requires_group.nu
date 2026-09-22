@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The --group owner alias resolves only a group; an organization or a user is rejected.
 

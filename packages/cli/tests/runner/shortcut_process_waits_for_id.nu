@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A shortcut child waits for its ID, then runs and checks in its output before runner indexing completes.
 

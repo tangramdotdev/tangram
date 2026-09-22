@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.encoding.hex.decode decodes a lowercase hexadecimal string back to the original bytes.
 

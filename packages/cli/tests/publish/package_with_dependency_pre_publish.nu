@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a dependency and then a package that imports it tags both on the local and remote servers, syncs their objects, and produces matching metadata.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Usage is available through the user-specific and top-level commands.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # SIGTERM shuts the server down immediately, so it does not wait for a running process to finish.
 

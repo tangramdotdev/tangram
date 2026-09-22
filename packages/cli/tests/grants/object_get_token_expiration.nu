@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Only a token accepted by authorization should limit the returned tokens' expiration.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/vfs.nu
 
 # A dependency reference read through the VFS includes a token so a later checkin does not need an authorization graph search.

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Cleaning removes an object whose tag was applied twice and then deleted, leaving the object no longer retained.
 

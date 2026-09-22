@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A build fails when it attempts to modify an artifact in the sandbox's read-only store directory.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A single index item larger than NATS's default message limit must be split into byte fragments.
 if (which nats-server | is-empty) {

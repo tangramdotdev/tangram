@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A --watch checkin notices a real on-disk edit without a touch, and a plain checkin agrees with the watched one.
 

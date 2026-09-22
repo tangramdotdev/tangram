@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Cancellation can use runner state without changing the process owner or accepting an explicit local location.
 

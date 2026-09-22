@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process starts before its index is ready, but its authenticated child spawn waits for the index.
 

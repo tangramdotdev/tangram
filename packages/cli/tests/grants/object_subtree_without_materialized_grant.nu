@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Object subtree authorization must derive access from explicit grants when no materialized grant exists.
 

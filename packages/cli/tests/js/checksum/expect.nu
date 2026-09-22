@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Checksum.expect returns the value unchanged when it is a well-formed checksum.
 

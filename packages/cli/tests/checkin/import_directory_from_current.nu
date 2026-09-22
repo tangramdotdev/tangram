@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a module that imports the current directory as a directory artifact produces the expected object and writes no lockfile.
 

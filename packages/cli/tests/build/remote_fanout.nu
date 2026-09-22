@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A build fanning out eight children across four concurrent remote runners
 # completes without releasing leases for children it already waited for.

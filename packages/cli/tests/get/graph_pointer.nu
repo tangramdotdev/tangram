@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting a graph directory pointer fails with an error indicating that a pointer was found instead of an object.
 

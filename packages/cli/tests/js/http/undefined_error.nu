@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # An HTTP response body propagates an undefined stream error.
 

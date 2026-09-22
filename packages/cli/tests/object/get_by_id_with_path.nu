@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting an object by its directory ID with a get path option resolves to the nested file and reports the resolved referent on stderr.
 

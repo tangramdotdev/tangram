@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Checking out a directory whose graph forms a cycle fails with an error reporting a detected directory cycle.
 

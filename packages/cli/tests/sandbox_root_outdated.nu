@@ -1,4 +1,4 @@
-use ../test.nu *
+use lib/test.nu *
 
 # A server atomically rebuilds out-of-date container roots.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking out a directory containing a symlink whose artifact is a dependency file, with dependencies enabled, materializes the directory and symlink on disk.
 

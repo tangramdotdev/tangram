@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A client pulls a process's output, conferred through the referent the process's wait returns, while the runner is still pushing that output. The pull waits for the push instead of failing.
 

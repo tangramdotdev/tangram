@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The check command succeeds for a module that imports the current package with the directory type assertion.
 

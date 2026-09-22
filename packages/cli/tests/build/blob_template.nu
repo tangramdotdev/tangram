@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The tg.blob template literal strips the leading indentation from a multiline blob and the text matches the snapshot.
 

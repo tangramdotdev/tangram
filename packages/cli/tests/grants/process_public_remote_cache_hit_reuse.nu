@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A client that reuses another user's public process from its remote must be able to use that
 # process's output. The remote authorizes the cache hit because the process is public, but finishing

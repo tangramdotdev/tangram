@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A routed run schedules its process before the command push finishes, and the runner uses the
 # command's sync token to read its graph while it is still in flight.

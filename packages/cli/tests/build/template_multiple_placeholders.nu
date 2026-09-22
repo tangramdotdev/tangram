@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A tg template literal interpolates the same artifact placeholder multiple times within a line and the result matches the snapshot.
 

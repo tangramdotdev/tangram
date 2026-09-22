@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sandboxed process resolves its executable against the sandbox's standard PATH rather than the parent client's PATH, so an executable only on the parent's PATH cannot be found.
 

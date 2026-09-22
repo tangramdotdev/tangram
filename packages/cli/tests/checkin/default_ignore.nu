@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package ignores the default-ignored entries such as the .DS_Store, .git, and .tangram entries.
 

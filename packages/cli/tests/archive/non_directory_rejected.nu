@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Archiving an artifact that is not a directory fails instead of producing an unusable archive.
 

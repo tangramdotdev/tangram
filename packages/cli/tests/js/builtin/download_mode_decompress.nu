@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.download with the "decompress" mode decompresses the downloaded archive, returning a file artifact.
 

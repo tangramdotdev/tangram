@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A departing indexer leaves shared work for a fresh wait, even if the replacement already responded.
 if (which nats-server | is-empty) {

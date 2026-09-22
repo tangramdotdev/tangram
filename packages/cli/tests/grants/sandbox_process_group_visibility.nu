@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process owned by a group is readable by group members and hidden from outsiders, because reading a process requires reading its sandbox.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A symlink node's artifact edge resolves to the node at that index.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A pull sends its first get node before the remote returns the sync response headers.
 

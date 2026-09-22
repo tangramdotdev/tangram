@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Documenting a module surfaces doc comment text for an export.
 

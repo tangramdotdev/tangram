@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A spawned process's env getter returns the full environment map, preserving value types.
 

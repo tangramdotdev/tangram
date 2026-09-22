@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Stopping a server that has already stopped succeeds. A clean shutdown truncates the lock file rather than removing it, so the second stop reads an empty lock file.
 

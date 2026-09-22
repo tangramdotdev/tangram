@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Template.join omits empty templates so no separator is inserted for them.
 

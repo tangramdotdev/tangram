@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A large FUSE directory is enumerated over multiple stable snapshot pages.
 

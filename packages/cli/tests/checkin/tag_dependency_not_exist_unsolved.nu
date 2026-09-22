@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package that depends on a nonexistent tag succeeds under --unsolved-dependencies, leaving the dependency unresolved.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Bundling a checked-in file with no dependencies produces a bundled object that matches the snapshot.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A stdin close held until the process control task exits observes the finished process instead of retrying forever against the retired control connection.
 

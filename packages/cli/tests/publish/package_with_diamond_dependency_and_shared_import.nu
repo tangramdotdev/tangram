@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a package with a diamond dependency graph where the root also imports the shared bottom dependency directly publishes all four packages, tags them on both servers, syncs their objects, and produces matching metadata.
 

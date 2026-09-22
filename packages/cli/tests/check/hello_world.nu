@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The check command succeeds for a minimal package whose default export returns a string.
 

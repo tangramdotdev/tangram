@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Adding a member grants that member write on the organization, so the operation requires admin: a write user cannot add members.
 

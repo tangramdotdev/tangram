@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Rejections handled within the microtask checkpoint do not fail the process.
 let server = server spawn

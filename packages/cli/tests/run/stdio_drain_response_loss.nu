@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A piped stdout response published while the response wait times out is retained
 # rather than being lost in a subscription gap.

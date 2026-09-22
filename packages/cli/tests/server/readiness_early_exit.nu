@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A server that exits before signaling readiness reports its output immediately instead of waiting for the readiness timeout.
 

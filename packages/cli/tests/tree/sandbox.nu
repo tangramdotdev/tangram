@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The tree command renders the processes that ran in a sandbox.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A directory entry is removed by setting its value to null in a merge argument. Omitting the key would keep the entry, so a null value is distinct from absence.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A single-line tg template literal interpolates an imported file artifact and matches the snapshot.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # whoami returns the logged-in user and reports not-logged-in for an anonymous client.
 

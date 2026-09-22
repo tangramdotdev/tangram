@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Concurrent requests share the server waiter and keep their own cutoffs.
 

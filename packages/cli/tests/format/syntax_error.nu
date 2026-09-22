@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Formatting a module with a syntax error fails and leaves the module unchanged.
 

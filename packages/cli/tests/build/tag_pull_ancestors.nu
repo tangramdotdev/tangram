@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Building with a nested tag should pull the tag's missing ancestors from a remote, the way tagging
 # does. Every spelling of the flag is covered: the aliases, the explicit policies, and the last flag

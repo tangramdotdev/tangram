@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pulling must honor nested object masking: a principal granted the subtree of one child file may pull that file but must not pull its parent directory or a sibling she was not granted.
 

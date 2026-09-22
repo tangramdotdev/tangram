@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Documenting a process reference fails because a module must be an object.
 

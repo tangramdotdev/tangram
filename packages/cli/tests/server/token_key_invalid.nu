@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A damaged persisted token key prevents startup instead of silently invalidating existing tokens.
 

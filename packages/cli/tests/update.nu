@@ -1,4 +1,4 @@
-use ../test.nu *
+use lib/test.nu *
 
 # Updating a package against an existing lockfile reports added, updated, and removed dependencies, including transitive changes, matching the snapshot.
 

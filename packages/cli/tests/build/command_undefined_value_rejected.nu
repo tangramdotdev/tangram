@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An explicit `undefined` inside a value is rejected at the boundary rather than coerced to `null`. A map with a `null` entry round-trips (see command_null_map_arg_*), but an `undefined` entry must fail.
 

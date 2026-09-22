@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a package that was already tagged locally keeps the tag on both the local and remote servers, syncs the object, and produces matching metadata.
 

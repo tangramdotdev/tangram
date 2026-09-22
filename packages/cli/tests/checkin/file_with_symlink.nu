@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package that imports a symlink with an explicit symlink kind produces the expected object and writes no lockfile.
 

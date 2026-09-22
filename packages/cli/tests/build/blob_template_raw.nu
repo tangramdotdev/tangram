@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The tg.Blob.raw template literal preserves the leading indentation and whitespace of a multiline blob and the text matches the snapshot.
 

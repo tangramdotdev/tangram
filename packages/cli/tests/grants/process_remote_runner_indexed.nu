@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A remote runner indexes a process it runs and retains the process's grants after finish.
 

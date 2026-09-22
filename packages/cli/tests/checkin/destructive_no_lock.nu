@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A destructive checkin with --lock=file does not write a lockfile or lock xattr for a file with a tag dependency.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Granting an object permission the actor cannot see is masked as a missing resource, so it is not an existence oracle.
 

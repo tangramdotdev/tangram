@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 const driver = path self ../lib/stdio_transport.mjs
 let server = server spawn

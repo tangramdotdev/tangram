@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/module.nu *
 
 # Resolving Edge::Pointer modules returns a token for their graph ID, so subsequent resolutions use exact-token authorization.

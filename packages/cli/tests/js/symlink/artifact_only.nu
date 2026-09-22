@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A symlink created from an artifact has that artifact and no path.
 

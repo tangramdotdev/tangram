@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A nested group requires its parent by default, while -p creates missing parent groups.
 

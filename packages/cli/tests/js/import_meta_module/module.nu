@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # import.meta.module refers to the module's own source; empty referent options are omitted.
 

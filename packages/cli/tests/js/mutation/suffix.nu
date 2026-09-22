@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Applying a suffix mutation appends a template to the existing value, joined by the separator.
 

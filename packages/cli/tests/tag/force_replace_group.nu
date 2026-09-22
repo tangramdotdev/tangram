@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Force replaces a conflicting group and its complete named subtree with a tag.
 

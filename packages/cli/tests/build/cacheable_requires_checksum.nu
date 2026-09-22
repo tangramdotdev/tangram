@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Builds requiring non-reproducible features such as network access, mounts, pipes, inherited stdio, or a tty fail unless a checksum is provided, and the CLI build command enforces the same cacheability guard.
 

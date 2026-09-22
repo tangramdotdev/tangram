@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A single-line tg template literal interpolates two distinct artifact placeholders separated by a space and matches the snapshot.
 

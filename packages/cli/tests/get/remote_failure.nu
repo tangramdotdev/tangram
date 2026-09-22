@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting a group fails when any queried remote fails, even if the preferred remote has the group.
 

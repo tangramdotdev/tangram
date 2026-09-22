@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Argument authorization tokens stay on their objects instead of spreading to siblings through the command.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Remotes are queried concurrently and conflicting results prefer the alphabetically first remote.
 

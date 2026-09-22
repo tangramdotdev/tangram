@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A nested JavaScript function invoked via tg.run receives a structured argument object and returns its computed result.
 

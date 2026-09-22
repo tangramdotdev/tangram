@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Waiting for a sandbox blocks until it is destroyed and is idempotent.
 

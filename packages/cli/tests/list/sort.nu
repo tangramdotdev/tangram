@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Merged results are sorted by specifier without using their locations.
 

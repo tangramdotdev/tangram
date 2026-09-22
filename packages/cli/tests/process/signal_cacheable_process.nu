@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Signalling a cacheable process fails because cacheable processes cannot receive signals.
 

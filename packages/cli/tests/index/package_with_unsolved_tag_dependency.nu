@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Test incremental indexing for a package with an unsolved tag dependency.
 # Puts directory, file, and blob incrementally and verifies metadata at each step.

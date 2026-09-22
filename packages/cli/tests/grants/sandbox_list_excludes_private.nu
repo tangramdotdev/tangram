@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Listing sandboxes is scoped to the principal's visible sandboxes.
 

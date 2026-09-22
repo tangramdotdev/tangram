@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Test metadata for a directory with mixed children (nested dir with tag dep and file without).
 

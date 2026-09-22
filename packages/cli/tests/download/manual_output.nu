@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A manual builtin invocation reports the reason on stderr without writing to a process output path.
 

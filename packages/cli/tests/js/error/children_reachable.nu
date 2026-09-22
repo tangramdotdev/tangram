@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Error children enumerate module objects reachable through the error's location, stack, and diagnostics, not only its source.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Value.isMap accepts a plain object and rejects an array or a byte string.
 

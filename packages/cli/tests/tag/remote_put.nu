@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # tg tag put --remote pushes a tag to the configured remote server so the same tag resolves to the same node on both the local and the remote server.
 

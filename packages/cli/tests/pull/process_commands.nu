@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/command.nu
 
 # Pulling a process with the commands flag brings the process command present locally.

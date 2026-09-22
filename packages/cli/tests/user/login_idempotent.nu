@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Logging in twice as the same user returns the same user, and each login issues a fresh token.
 

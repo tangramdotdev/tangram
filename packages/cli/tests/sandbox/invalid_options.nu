@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Malformed mount and isolation options are rejected at argument parsing.
 

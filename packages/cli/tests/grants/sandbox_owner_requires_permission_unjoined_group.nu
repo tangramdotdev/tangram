@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Creating a sandbox owned by a group requires write on that group, so read access to it is not enough to claim it as owner.
 

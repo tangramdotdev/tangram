@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Documenting a module file path directly produces documentation for its exports.
 

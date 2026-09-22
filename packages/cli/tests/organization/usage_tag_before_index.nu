@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A tag is billed to an organization that is created in the same sync transaction.
 

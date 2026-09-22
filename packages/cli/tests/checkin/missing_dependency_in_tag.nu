@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package that depends on a tag whose own dependency is missing fails with the expected error.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A command argument map with a null entry must round-trip through the object
 # store. The id is computed over the serde/v8 bridge, which keeps the null-valued

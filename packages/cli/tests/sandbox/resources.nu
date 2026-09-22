@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The cpu and memory options are reflected when getting the sandbox.
 

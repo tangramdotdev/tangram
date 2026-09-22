@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The serve command can mark one of its remotes as trusted.
 

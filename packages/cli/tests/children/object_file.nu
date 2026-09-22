@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A file's children are its contents blob, and the blob itself has no children.
 

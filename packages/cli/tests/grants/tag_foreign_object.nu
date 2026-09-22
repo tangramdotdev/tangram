@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Tagging an object the tagger cannot read records no permissions, so the tag must not confer read access to that object.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A local spawn that selects a remote cached process forwards the connection before reading its logs.
 const driver = path self ../lib/process_connect.mjs

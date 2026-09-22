@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Revoking the write grant on the owning group removes a non-member's access to the group-owned sandbox.
 

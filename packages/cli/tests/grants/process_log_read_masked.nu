@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process's log is masked from a principal without a grant: the owner reads it, but knowing the process id is not enough for another principal.
 

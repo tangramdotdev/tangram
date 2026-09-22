@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A push that fails because the remote is down does not corrupt state: an earlier push remains intact after the remote restarts, and a retry of the failed push succeeds.
 

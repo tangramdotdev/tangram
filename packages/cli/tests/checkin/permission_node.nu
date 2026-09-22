@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/checkin.nu checkin-output
 
 # Solving fails when node permission does not reveal whether an artifact's subtree needs solving.

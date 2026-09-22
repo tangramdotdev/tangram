@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An incremental solve handles a conflict after reusing a saved solution without panicking.
 

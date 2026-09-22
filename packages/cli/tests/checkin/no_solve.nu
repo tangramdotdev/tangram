@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package with --no-solve leaves the tag dependency unresolved rather than solving it.
 

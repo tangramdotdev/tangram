@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Cancelling a finished process with an invalid lease succeeds.
 

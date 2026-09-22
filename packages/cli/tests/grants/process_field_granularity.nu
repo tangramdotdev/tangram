@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/command.nu
 
 # A grant on one process field confers only that field, leaving the process node and other fields masked.

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A child sandbox cannot widen its parent's network or mount access.
 

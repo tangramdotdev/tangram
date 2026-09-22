@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A build produces a deep directory, and the output reuses one of its deep entries nested inside
 # another directory. The reused entry is external and carries only an ancestor token whose resource

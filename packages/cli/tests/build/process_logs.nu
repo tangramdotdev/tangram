@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process's stdout, stderr, combined, and mid-stream-position logs can be read both locally and after pushing the logs to a remote.
 

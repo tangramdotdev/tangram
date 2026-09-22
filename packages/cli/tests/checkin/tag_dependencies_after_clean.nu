@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package with a remote tag dependency produces the same object after a clean restart of the local server, confirming the lockfile round-trips correctly.
 

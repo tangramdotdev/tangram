@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Extracting a compressed blob that is not an archive fails, because a compression magic number makes the extractor assume a compressed tar archive.
 

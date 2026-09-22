@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The default lock mode writes a lockattr for a file with a tag dependency.
 

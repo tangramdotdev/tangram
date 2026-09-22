@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/checkin.nu checkin-output
 
 # Solving an explicit unsolved artifact retrieves its permissions as part of the normal solve traversal.

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process's console.log and console.error output are routed to the run command's stdout and stderr respectively, preserving order.
 

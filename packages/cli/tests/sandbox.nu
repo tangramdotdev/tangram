@@ -1,4 +1,4 @@
-use ../test.nu *
+use lib/test.nu *
 
 # A sandbox can be created with hostname, mount, and network options, listed with those options reflected, and destroyed so that it is eventually cleaned and no longer found.
 

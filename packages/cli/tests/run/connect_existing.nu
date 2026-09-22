@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Detaching disarms cancellation before the stream closes, and connecting by ID does not spawn again.
 let server = server spawn

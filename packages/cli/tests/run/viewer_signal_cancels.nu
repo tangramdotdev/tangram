@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # SIGINT and SIGTERM gracefully exit a running viewer and cancel the process through its wait lease.
 

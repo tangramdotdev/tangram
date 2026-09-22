@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 let source = server spawn --name source
 let local = server spawn --name local

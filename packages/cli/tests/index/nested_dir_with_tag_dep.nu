@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Test metadata for nested directories where an inner file has a tag dependency.
 

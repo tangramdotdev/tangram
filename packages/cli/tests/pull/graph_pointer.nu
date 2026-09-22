@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Eagerly pulling a graph directory pointer from a remote fails with an error indicating that a pointer was found instead of an object.
 

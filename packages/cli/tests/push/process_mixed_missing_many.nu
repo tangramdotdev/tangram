@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/command.nu
 
 # Recursively pushing a process with many child processes whose command inputs, outputs, blobs, and child processes are split between the local and remote servers completes and yields matching metadata, under both eager and lazy push.

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A user can build a package that depends on busybox under authentication.
 

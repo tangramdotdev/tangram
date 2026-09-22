@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a module that imports its own enclosing package via the current directory produces the expected object and writes no lockfile.
 

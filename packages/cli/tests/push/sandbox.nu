@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A destroyed sandbox can be pushed without its processes, then pushed again with its processes.
 

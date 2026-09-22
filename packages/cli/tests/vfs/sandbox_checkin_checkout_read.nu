@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sandboxed process can read back an artifact it checked in itself, through the path returned by
 # an internal checkout. The standard library's linker proxy depends on this: it checks in the file

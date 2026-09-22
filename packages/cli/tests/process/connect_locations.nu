@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A remote connection can select another region, and an existing process can be discovered there.
 const proxy_path = path self ../lib/process_connect_proxy.mjs

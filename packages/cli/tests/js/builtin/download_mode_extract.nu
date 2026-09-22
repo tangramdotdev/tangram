@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.download with the "extract" mode unpacks the downloaded archive, returning a directory artifact.
 

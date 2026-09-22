@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A public build is reusable across owners: a build owned by public carries a public grant, so a different owner building the same deterministic command reuses the cached result.
 

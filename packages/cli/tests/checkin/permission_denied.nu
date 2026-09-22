@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/checkin.nu checkin-output
 
 # Solving fails when an explicit dependency is inaccessible. Without solving, it remains opaque.

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting a sandbox fails when any queried remote fails, even if another remote has the sandbox.
 

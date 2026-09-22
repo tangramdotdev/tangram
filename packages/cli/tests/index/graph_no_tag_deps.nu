@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Test metadata for a graph with cyclic local imports but no tag dependencies.
 

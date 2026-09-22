@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Building a directory containing an artifact symlink, checking it out with dependencies, cleaning, and checking it back in yields the same artifact ID.
 

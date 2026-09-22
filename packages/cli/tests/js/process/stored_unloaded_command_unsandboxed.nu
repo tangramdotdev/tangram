@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # An existing stored but unloaded command can be run unsandboxed.
 

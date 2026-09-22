@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package that imports a tagged non-package object resolves the object and writes the expected lockfile.
 

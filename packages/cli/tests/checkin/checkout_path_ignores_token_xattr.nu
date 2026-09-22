@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Reproduce checkin ignoring a valid token xattr on a path in the checkouts directory.
 

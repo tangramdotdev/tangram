@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A grant on a referenced directory covers its whole subtree, so a deeply nested file is readable.
 

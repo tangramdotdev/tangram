@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.compress and tg.decompress round-trip a blob through every supported format.
 

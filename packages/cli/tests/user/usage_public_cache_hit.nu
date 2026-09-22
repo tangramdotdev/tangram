@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Reusing a public cached process adds the process to the new owner's storage usage.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A scheduler that stops emitting heartbeats is treated as dead while a sandbox waits for capacity.
 

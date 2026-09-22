@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The update command bumps a tagged dependency in an existing lockfile to a newly tagged version.
 

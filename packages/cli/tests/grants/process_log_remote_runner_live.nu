@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A running process on a remote runner writes its log to the remote as the process principal while the owner reads it live from her own server. Reading the live log requires the log permission, just as reading it once compacted to a blob does: the owner reads it, a principal holding only the process node is denied, and granting the log permission restores access.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A tag put reauthorizes when a parent is created after authorization.
 

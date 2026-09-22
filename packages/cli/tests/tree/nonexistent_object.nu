@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Displaying a tree for an object that does not exist renders a load failure marker.
 

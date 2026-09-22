@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A tag batch can repeat a specifier without treating its own earlier write as a snapshot mismatch.
 

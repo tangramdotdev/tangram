@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/checkin.nu checkin-output
 
 # A dependency grant that is not embedded in its reference is not observed with solving disabled.

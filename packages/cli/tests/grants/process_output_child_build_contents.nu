@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process can return a file whose contents are a child build's output blob, and the builder can read the contents.
 

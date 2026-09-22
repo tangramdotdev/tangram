@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # tg.download succeeds when the downloaded contents match the exact sha256 checksum that was provided.
 

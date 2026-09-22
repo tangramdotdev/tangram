@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.path.components splits an absolute path into a root component followed by its normal components.
 

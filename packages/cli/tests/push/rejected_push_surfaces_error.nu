@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A push the remote rejects fails with the remote's error instead of hanging or reporting a generic sync failure.
 

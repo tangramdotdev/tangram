@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A pull uses the remote session it resolved even if the remote is replaced while the pull is in progress.
 

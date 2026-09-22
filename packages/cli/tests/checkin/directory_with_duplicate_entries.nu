@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a directory whose entries have identical contents deduplicates them into a single blob.
 

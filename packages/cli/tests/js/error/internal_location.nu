@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Errors thrown by the embedded runtime include source-mapped internal stack locations when enabled.
 
@@ -24,7 +24,7 @@ let paths = $error
 	| sort
 
 snapshot $paths '
-	packages/clients/js/dist/assert.js
+	packages/clients/js/src/assert.ts
 	packages/js/src/start.ts
 
 '

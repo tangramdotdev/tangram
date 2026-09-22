@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An untrusted runner re-pulls a stored artifact for a second principal to prove that principal's permissions.
 

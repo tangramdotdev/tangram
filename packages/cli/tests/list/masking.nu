@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Listing a reference lists the children of the node selected by get.
 

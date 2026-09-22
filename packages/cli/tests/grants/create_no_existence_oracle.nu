@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Attempting to grant on a resource the actor cannot see does not reveal whether it exists.
 

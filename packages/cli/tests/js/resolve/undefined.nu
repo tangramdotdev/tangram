@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.resolve rejects undefined at runtime when the type checker is bypassed.
 

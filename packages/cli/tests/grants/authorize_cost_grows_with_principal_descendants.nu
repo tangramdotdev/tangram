@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Authorizing a directly granted resource should not get more expensive as the principal gains descendants.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package that imports by relative path a dependency which itself imports a sibling by relative path with a get path option resolves the full transitive graph.
 

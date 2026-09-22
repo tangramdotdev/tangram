@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Listing a resource's grants returns every grant on it, including the creator's admin grant.
 

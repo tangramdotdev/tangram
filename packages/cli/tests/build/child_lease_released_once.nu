@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Releasing a child lease is idempotent. If a child handle releases its lease
 # before parent completion, the parent's cleanup release is a no-op and logs no

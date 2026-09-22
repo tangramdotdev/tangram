@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A remote runner writes the logs of a child process it executes back to the remote, and the user who spawned the parent build can read them. The user holds no grant on the child directly, so reading the child log must flow from the parent process through the sandbox owner.
 

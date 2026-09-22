@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Two destructive checkins of identical content race to rename their roots to the same checkout path. The loser must treat the existing destination as already checked out rather than failing.
 #

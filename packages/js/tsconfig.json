@@ -11,7 +11,7 @@
 		"noUncheckedIndexedAccess": true,
 		"noUncheckedSideEffectImports": true,
 		"paths": {
-			"@tangramdotdev/client": ["../clients/js/dist/index.d.ts"]
+			"@tangramdotdev/client": ["../clients/js/src/index.ts"]
 		},
 		"strict": true,
 		"target": "esnext",

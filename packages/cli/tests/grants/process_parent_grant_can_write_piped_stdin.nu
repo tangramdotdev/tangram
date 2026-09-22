@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process_parent grant permits writing piped stdin, while process_node does not.
 

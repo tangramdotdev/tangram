@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/command.nu
 
 # The top-level children command gets the direct graph children of any node.

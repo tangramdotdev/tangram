@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Building a package with a named export selects that export's command and returns its value.
 

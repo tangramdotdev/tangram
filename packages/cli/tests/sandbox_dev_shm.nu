@@ -1,4 +1,4 @@
-use ../test.nu *
+use lib/test.nu *
 
 # A container sandbox has a tmpfs on /dev/shm. LMDB guards its reader table with POSIX semaphores, which are files there, so a server started in a sandbox fails to open its index without it.
 

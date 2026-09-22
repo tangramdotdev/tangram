@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Compressing with an unsupported format is rejected by the command line parser.
 

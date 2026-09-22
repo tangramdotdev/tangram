@@ -1,4 +1,4 @@
-use ../test.nu *
+use lib/test.nu *
 
 let root_token = random chars
 let config = {

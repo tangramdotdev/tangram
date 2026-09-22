@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A request sent after the connection's idle timeout must not send an empty body.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Creating an organization returns its record, makes it retrievable, and grants the creator admin.
 

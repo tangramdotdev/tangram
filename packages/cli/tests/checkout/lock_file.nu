@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # --lock=file writes a sibling lockfile for a file with a tag dependency.
 

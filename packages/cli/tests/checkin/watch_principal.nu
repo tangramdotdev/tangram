@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A watched checkin is scoped to its principal, so one user cannot reuse another user's authorized dependency solutions.
 

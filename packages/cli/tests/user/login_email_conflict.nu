@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An email is globally unique, so a second user cannot claim an email already in use.
 

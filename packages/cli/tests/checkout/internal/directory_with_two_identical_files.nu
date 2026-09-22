@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Checking out a directory containing two entries with identical contents writes the directory into the checkouts directory.
 

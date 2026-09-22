@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A remote runner starts an assigned process without waiting for process control to connect.
 

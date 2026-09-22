@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A cached leaf tag resolves to the old node within its TTL and resolves to the updated node when fetched with --ttl 0.
 

@@ -1,4 +1,4 @@
-use ../test.nu *
+use lib/test.nu *
 
 # A container sandbox binds the host's device nodes into its dev mount. The dev mount must not shadow its own bind sources when the target is the current /dev.
 

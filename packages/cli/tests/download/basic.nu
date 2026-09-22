@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Downloading a URL with a wildcard checksum returns a blob with the downloaded contents.
 

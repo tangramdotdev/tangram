@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Indexing computes the expected process metadata locally and the metadata matches after pushing the process to a remote and indexing there.
 

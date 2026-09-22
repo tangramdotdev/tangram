@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Reproduces a bug where reading a compacted log with mid-entry position repeats endlessly.
 

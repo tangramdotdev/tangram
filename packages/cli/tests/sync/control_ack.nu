@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Control requests retry until acknowledged, then wait for the retained request's response.
 let root_token = random chars

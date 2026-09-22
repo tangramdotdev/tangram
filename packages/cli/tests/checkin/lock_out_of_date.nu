@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package whose existing lockfile is out of date discards the stale lockfile and removes it.
 

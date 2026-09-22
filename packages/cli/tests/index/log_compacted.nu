@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A finished process wakes log compaction without waiting for the fallback interval.
 

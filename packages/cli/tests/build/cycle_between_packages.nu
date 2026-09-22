@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Two packages whose builds invoke each other fail because they form a process cycle.
 

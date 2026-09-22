@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A build preserves command-line order when `--arg-value` and `--arg-string` are interleaved, and accepts repeated `--arg-value`.
 

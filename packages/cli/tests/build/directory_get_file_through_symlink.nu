@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Directory.get resolves a path whose intermediate component is a symlink to a subdirectory and returns the target file.
 

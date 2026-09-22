@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Enumerating an authorized tag carries a target token into the sandbox VFS without exposing unrelated artifacts.
 

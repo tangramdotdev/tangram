@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Archiving and extracting a directory roundtrips to the original artifact across each supported tar compression format and the zip format.
 

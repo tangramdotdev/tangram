@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 if $nu.os-info.name != 'linux' {
 	return

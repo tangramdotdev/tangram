@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Sandbox process lists must include indexed processes that never had runner state.
 

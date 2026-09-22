@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # An internal checkout creates a tag checkout entry, while tag mutations only invalidate it.
 

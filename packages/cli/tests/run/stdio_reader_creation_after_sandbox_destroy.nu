@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process's sandbox must remain alive until its piped stdio is buffered.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a single-file root module that imports both a directory dependency and a file dependency by source succeeds.
 

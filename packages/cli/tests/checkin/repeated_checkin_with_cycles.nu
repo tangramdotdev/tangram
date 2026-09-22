@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Graph IDs must be identical regardless of entry point for cyclic imports.
 #

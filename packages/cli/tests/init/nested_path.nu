@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Initializing a nested path whose parent does not exist creates the full directory chain.
 

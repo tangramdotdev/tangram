@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An exact sandbox get can be served from the principal-scoped remote cache.
 

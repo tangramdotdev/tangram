@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The availability flag prints availability alongside object and process get output.
 

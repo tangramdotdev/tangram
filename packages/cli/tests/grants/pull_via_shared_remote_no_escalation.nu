@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A user on a shared server must not inherit the server's configured service remote. The server-level remote and its token are isolated from authenticated users, so a user cannot ride the server's credentials to pull a private object from the source.
 

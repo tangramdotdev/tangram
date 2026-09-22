@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting a tag that only exists on the remote fails promptly when the remote server is not running.
 

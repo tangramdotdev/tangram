@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # tg.download fails when the downloaded contents do not match the provided sha256 checksum.
 

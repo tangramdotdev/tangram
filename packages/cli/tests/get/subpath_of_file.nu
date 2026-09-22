@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A reference with a get option on a file fails because only directories support subpaths.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 def assert_idle_error [source: string] {
 	let path = artifact {

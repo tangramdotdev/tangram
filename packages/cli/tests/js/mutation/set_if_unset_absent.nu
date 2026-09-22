@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Applying a set-if-unset mutation returns the new value when the input is absent.
 

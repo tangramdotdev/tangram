@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Every sandboxed process execs its executable through its own per-sandbox FUSE mount. This ensures
 # that the lightweight per-sandbox io_uring configuration stays within the process's locked memory

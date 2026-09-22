@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # tg tag get fails when no tag matches the requested pattern.
 

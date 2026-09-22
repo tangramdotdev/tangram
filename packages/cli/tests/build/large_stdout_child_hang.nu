@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A log write failure fails the process instead of leaving the child blocked on stdout.
 

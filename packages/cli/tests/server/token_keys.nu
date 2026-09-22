@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Default token keys are private to their server directory and survive graceful and abrupt restarts.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Once a process log is compacted, it becomes a blob object, so reading it requires a grant on that object rather than just the process node: process_node alone must not read the compacted log, but process_node plus process_subtree_log must.
 

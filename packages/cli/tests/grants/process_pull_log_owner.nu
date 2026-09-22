@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Sync compacts and transfers a finished process's log for an authorized caller even when background compaction is disabled.
 

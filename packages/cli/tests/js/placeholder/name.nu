@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A placeholder exposes the name it was constructed with through its name getter.
 

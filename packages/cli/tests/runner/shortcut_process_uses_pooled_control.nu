@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A shortcut child in a new sandbox takes reserved sandbox and process control connections from the pools. It runs and finishes before the control server starts either of them.
 

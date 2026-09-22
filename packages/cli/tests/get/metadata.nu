@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The metadata flag prints the object's metadata as an info message alongside the value.
 

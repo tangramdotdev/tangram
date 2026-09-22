@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Reverting a watched file back to its original contents restores the original id, since checkin is purely content addressed.
 

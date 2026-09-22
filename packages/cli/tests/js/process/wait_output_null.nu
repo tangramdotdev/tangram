@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A missing process output remains distinct from a process that outputs null.
 

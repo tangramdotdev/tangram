@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Expired cached tokens are refreshed when possible and omitted from cached-only responses.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sandboxed workload cannot inspect the environment of the sandbox init process.
 

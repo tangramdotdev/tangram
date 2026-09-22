@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # tg tag put fails when the node is a graph pointer reference, because tagging graph pointers is unsupported.
 

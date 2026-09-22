@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.sleep resolves after the given duration, allowing the build to continue.
 

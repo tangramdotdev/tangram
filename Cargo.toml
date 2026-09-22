@@ -63,9 +63,6 @@ unsafe_derive_deserialize = "allow"
 unused_async = "allow"
 unused_async_trait_impl = "allow"
 
-[profile.client]
-inherits = "release"
-
 [profile.fast]
 inherits = "release"
 lto = "off"

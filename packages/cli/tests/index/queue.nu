@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An index batch split within its encoded items survives an indexer crash and is reassembled on restart.
 

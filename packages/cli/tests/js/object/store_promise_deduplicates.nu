@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Concurrent stores share one promise, update every state, and batch each ID once.
 

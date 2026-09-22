@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A separately written grant for a nested object remains durable when indexing is interrupted.
 

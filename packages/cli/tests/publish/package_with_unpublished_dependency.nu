@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a package whose tagged dependency has not yet been published also publishes the dependency, tags both packages on the remote, syncs their objects, and produces matching metadata.
 

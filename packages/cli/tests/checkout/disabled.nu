@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Disabling checkouts avoids creating or using the local checkout directory while preserving object I/O.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process can name an unreadable object as its output without gaining access to it.
 

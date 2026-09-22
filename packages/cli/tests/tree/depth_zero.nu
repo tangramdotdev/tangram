@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Displaying a tree with depth zero renders only the root.
 

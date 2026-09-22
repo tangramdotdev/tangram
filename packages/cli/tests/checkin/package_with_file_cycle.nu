@@ -1,6 +1,6 @@
 # This test checks in a module inside a package that forms a cycle with another module, demonstrating that root detection works and a reference artifact is correctly created for the path even if it is not the root.
 
-use ../../test.nu *
+use ../lib/test.nu *
 
 let server = server spawn
 

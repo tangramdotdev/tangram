@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The ReadWrite FUSE transport mounts the store directory and serves a materialized artifact.
 

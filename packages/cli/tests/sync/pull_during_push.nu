@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A pull of an object whose push is still in progress waits for the pushed children to arrive instead
 # of failing. A separately obtained authorization proof grants access to the subtree, while the sync

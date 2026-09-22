@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Putting a nested tag pulls a remote ancestor, then creates the remaining ancestors.
 

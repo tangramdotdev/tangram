@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A node grant does not confer the object's children, so the grantee still cannot rely on the subtree of a private file.
 

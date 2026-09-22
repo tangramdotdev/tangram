@@ -1,5 +1,5 @@
 # tg.Unresolved<tg.Command<A, R>> properly accepts functions of the correct type.
-use ../../test.nu *
+use ../lib/test.nu *
 
 let server = server spawn
 

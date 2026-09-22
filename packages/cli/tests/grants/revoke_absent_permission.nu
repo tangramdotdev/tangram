@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Revoking a permission the grant does not hold fails and leaves the existing permissions intact.
 

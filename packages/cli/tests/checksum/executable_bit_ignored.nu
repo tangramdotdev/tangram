@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A file's executable bit does not affect the checksum of its contents bytes.
 

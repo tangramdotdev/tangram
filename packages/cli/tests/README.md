@@ -71,7 +71,7 @@ not the mechanics that the code already makes obvious. Avoid boilerplate
 prefixes such as "Verifies that" or "This test".
 
 ```nushell
-use ../../test.nu *
+use ../lib/test.nu *
 
 # <The single behavior that must hold>.
 ```
@@ -83,8 +83,9 @@ Comments are complete sentences that end in periods and do not use contractions.
 A test verifies a single behavior and ideally takes a single snapshot (or a
 tight cluster of snapshots for that one behavior). Reuse the `server spawn`,
 `artifact { ... }`, `snapshot`, `success`, and `failure` helpers from
-`test.nu`. When a file would test several independent behaviors, split it into
-one file per behavior.
+`lib/test.nu`. Tests import this helper module, not the runner in `../test.nu`, so
+each test avoids parsing runner-only code. When a file would test several
+independent behaviors, split it into one file per behavior.
 
 To assert on what the server itself logged, spawn it with
 `--config { tracing: { stderr_format: 'json' } }` and snapshot `server_errors`,
@@ -162,7 +163,7 @@ snapshot --normalize --redact [$path $server.directory] $output.stderr '…'
 ### 5. Synchronize with `wait_until`, not `sleep`
 
 Never wait for the system with a bare `sleep` or a hand-rolled polling loop.
-Use the `wait_until` helper from `test.nu`, which polls a condition and errors
+Use the `wait_until` helper from `lib/test.nu`, which polls a condition and errors
 with a clear message after a timeout:
 
 ```nushell
@@ -197,7 +198,7 @@ the commit that introduced the test, when the fix cannot be attributed):
 ### 7. Skip tests whose prerequisites are missing
 
 When a test cannot run in the current environment — a platform-specific
-feature, a missing external tool — call the `skip_test` helper from `test.nu`
+feature, a missing external tool — call the `skip_test` helper from `lib/test.nu`
 with the reason instead of returning early or failing:
 
 ```nushell

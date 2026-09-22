@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A public build grants public read, not control: another principal may read a public process but must not signal or cancel it.
 

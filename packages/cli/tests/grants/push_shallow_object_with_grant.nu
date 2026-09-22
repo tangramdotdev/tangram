@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pushing a directory whose child the pusher was granted must succeed without sending the child. The remote resolves Bob's file from Alice's grant, so it never requests the file her server does not have.
 

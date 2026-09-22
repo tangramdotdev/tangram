@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # import.meta.module reports the kind of the entry point module.
 

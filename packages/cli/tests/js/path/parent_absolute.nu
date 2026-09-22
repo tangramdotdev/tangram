@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.path.parent removes the last component of an absolute path without doubling the leading slash.
 

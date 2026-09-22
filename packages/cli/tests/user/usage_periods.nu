@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Usage period selectors use exact UTC boundaries and reject ambiguous or unrepresentable input.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sandboxed process reads an artifact it references but is denied a foreign artifact whose id it merely knows.
 

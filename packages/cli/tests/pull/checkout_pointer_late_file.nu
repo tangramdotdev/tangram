@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A blob received before a file that uses it is published through a default checkout and reused for the file.
 

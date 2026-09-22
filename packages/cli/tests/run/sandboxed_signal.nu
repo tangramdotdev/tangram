@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The tg signal command delivers a KILL signal to a running sandboxed process and the process finishes with the corresponding exit status.
 

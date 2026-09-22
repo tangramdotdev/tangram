@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A checked-in output allows completion and Finish before control returns.
 

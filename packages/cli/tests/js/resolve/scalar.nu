@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.resolve returns an already-resolved scalar value unchanged.
 

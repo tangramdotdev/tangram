@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Spawning a process into an existing sandbox requires write on that sandbox, so a user who cannot write it is denied while the owner can.
 

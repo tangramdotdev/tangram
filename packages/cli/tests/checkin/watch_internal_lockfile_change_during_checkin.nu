@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A watched checkin ignores the lockfile event caused by its own lock write.
 

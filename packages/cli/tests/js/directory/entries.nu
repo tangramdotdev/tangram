@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A directory's entries accessor returns its child names mapped to artifacts.
 

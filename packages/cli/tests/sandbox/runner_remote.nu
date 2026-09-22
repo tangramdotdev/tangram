@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Runner-backed sandbox reads do not wait for owner-side registration or destruction.
 

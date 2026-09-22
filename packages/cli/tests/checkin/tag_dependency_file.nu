@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package that imports a file tagged dependency produces the expected object and writes the expected lockfile.
 

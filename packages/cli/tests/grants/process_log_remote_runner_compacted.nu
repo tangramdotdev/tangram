@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Once a process run by a remote runner has its log compacted, the log becomes a blob object on the remote, so reading it requires a grant on that object rather than just the process node. The log entries were written by the runner as the process principal and the blob was created by the remote's indexer, so the owner reaches it only through the process log link.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Local sandbox operations bypass owner-side control dispatch without borrowing the runner's authority.
 let root_token = random chars

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A checkin reusing a watcher waits for the checkin that published its graph to finish indexing.
 

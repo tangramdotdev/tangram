@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process is subject to tag authorization when its sandbox has network access.
 

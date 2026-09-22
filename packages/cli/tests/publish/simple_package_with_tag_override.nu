@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a package with the --tag override applies the override tag on both servers and does not create the tag declared in the package metadata.
 

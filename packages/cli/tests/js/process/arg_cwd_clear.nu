@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Null clears an inherited command working directory during process argument composition.
 

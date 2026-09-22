@@ -1,4 +1,4 @@
-use ../test.nu *
+use lib/test.nu *
 
 # The local flag restricts get and object metadata to the local server, failing when the object is only on a remote, while omitting the flag fetches it from the remote.
 

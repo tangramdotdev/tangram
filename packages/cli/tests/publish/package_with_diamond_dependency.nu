@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a package with a diamond dependency graph publishes all four packages in a valid order, tags them on both servers, syncs their objects, and produces matching metadata.
 

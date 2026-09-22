@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A build must not fail because of unrelated content in the store. The same build succeeds against a clean store, then fails once unrelated artifacts contain the same file and exhaust the authorization search.
 

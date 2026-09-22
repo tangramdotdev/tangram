@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 for compaction in [false true] {
 	let server = server spawn --config { indexer: { log_compaction: $compaction } }

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sandbox that no registered runner can satisfy is retried for a grace period and then discarded, rather than waiting forever.
 

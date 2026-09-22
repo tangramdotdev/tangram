@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.download defaults to the wildcard "sha256:any" checksum when no checksum is given, returning a blob.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Checksum.algorithm extracts the algorithm from a checksum that uses a dash separator.
 

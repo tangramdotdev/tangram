@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking out a directory whose two files share a dependency on the same directory containing a symlink, with dependencies enabled, materializes the shared dependency on disk.
 

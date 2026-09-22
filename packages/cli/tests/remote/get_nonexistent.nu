@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Getting a remote that does not exist fails with a missing-remote error.
 

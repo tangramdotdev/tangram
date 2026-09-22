@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A lazy file pull materializes its contents under the file ID and stores the leaf through a checkout pointer.
 

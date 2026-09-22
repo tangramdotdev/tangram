@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Downloading a URL without a checksum fails, because the default checksum matches nothing and the caller must opt in with a wildcard.
 

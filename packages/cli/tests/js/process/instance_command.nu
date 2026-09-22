@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A spawned process exposes its inline command data through the command getter.
 

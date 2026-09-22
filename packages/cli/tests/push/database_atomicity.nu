@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A failed sync leaves objects and processes as cache entries but does not commit any database nodes.
 

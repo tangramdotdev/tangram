@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package with a tagged dependency and a source-path override under --no-source-dependencies resolves to the tag and writes the expected lockfile.
 

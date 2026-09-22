@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Runner reads precede remote dispatch without changing the process's location or token issuer.
 

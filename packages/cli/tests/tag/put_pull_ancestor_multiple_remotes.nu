@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Ancestor pulling continues until a remote supplies the immediate parent.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sandbox mount target cannot traverse a symlink in the guest root.
 

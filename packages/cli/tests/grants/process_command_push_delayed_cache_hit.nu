@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sibling's cache-hit query and module loads must stay correct while every command push is delayed.
 

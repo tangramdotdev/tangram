@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Placeholder.assert narrows the value without throwing when it is a placeholder.
 

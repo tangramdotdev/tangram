@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sync retries when a conflicting ID is created after authorization.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A shortcut child that finishes before the runner has started it on the remote must still deliver its result to the guest client.
 

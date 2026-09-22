@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A principal who can read an object cannot revoke a grant another principal created on it; only the creator may revoke.
 

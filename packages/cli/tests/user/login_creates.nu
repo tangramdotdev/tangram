@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Logging in as a new user creates the user, returns its record, and authenticates subsequent requests.
 

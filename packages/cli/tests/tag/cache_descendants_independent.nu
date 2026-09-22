@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A descendant tag can be fetched and cached independently of the siblings already cached under the same parent.
 

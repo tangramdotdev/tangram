@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Get preserves named nodes by default and follows them only when requested.
 

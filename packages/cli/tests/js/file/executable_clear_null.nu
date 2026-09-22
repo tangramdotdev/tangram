@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A null executable override clears the inherited file executable flag, and the object and fluent forms are equivalent.
 

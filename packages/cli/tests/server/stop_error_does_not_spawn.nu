@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Printing an error from a failing `server stop` does not spawn a server.
 

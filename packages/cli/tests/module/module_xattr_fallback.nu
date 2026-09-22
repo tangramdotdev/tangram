@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Xattr is used when filename doesn't match a known pattern.
 # A file named foo.ts (not .tg.ts) with xattr "ts" should be detected as "ts".

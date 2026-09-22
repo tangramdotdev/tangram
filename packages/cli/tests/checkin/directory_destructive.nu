@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A destructive checkin of a directory containing chained relative symlinks produces the expected object and writes no lockfile.
 

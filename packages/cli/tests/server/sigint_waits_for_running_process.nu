@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # SIGINT waits for running processes and their final index writes in both process modes.
 

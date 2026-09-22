@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Documenting the runtime produces documentation for the tangram.d.ts module.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # SIGTERM cleans up a claimed physical sandbox even when a shortcut has not received its sandbox or process ID.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Background cleaning collects an untouched object after its time to live while a continuously touched object survives.
 

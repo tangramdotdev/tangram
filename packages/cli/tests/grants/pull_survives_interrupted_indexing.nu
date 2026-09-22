@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A separately written object grant remains durable when indexing is interrupted.
 

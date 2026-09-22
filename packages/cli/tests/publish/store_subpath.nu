@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a store subpath preserves its root through nested files and source dependencies.
 

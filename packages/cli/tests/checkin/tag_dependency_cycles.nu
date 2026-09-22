@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package whose tagged dependencies form a cycle through their versions resolves and writes the expected lockfile.
 

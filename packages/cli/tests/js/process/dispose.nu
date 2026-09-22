@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Disposing a process handle releases its lease and cancels the process.
 

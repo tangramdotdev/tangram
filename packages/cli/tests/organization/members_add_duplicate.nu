@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Adding a member that is already in the organization fails because the membership already exists.
 

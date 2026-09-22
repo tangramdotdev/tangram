@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Symlink.withId returns a symlink that preserves the given id.
 

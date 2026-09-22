@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Building with a nested tag should be able to create the tag's missing ancestor groups, the way
 # tagging and creating a group do, and should keep refusing by default. Every spelling of the flag is

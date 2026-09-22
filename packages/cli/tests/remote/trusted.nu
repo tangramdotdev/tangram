@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Only Root can mark a remote as trusted, and a later ordinary put clears the trust bit.
 

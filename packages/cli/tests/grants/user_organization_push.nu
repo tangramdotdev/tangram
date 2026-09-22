@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Users retain their IDs and emails, and organizations retain their IDs, when synced.
 

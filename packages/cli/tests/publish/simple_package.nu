@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a simple package tags it on both the local and remote servers, syncs the object to the remote, and produces matching metadata after indexing.
 

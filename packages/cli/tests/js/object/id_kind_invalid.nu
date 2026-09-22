@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Object.Id.kind throws when the id prefix is not a known object kind.
 

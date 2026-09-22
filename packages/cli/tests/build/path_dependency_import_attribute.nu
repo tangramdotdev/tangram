@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A package can import a sibling package using the "source" import attribute to point at a relative path and run its default export.
 

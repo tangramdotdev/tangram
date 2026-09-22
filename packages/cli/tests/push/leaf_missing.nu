@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pushing a directory whose leaf blob is missing locally but present on the remote completes and yields matching objects and metadata, under both eager and lazy push.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Logging out removes the local token and revokes the server-side session.
 

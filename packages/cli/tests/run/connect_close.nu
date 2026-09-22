@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Closing a read and failing an input iterator leave the connection usable.
 let server = server spawn

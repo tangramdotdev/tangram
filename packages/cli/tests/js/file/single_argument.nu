@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.file preserves an unloaded file passed as its sole argument and does not load a sole blob contents argument.
 

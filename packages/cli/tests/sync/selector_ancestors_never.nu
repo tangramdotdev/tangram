@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A sync get by specifier works when ancestor transfer is disabled.
 

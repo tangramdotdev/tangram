@@ -44,58 +44,11 @@ fn js() {
 			.unwrap();
 	}
 
-	// Build the client.
+	// Track the client sources bundled into the embedded runtime.
 	println!("cargo:rerun-if-changed=../../packages/clients/js/package.json");
-	println!("cargo:rerun-if-changed=../../packages/clients/js/build.ts");
 	println!("cargo:rerun-if-changed=../../packages/clients/js/src");
 	println!("cargo:rerun-if-changed=../../packages/clients/js/tsconfig.json");
-	println!("cargo:rerun-if-changed=../../packages/clients/js/native");
 	let node_path = std::env::var("NODE_PATH").ok();
-	let client_dist_path = if let Some(node_path) = &node_path {
-		// The client's build script writes into the client directory, which is read only under NODE_PATH.
-		let client_dist_path = out_dir_path.join("client");
-		let tsconfig_path = out_dir_path.join("client.tsconfig.json");
-		std::fs::write(
-			&tsconfig_path,
-			formatdoc!(
-				r#"
-					{{
-						"extends": "{client_path}/tsconfig.json",
-						"compilerOptions": {{
-							"outDir": "{client_dist_path}",
-							"paths": {{
-								"*": ["{node_path}/*"]
-							}},
-							"typeRoots": ["{node_path}/@types"]
-						}},
-						"include": ["{client_path}/src/**/*"]
-					}}
-				"#,
-				client_dist_path = client_dist_path.display(),
-				client_path = client_path.display(),
-			),
-		)
-		.unwrap();
-		std::process::Command::new("bunx")
-			.args(["tsc", "--project"])
-			.arg(&tsconfig_path)
-			.status()
-			.unwrap()
-			.success()
-			.then_some(())
-			.unwrap();
-		client_dist_path
-	} else {
-		std::process::Command::new("bun")
-			.args(["run", "build"])
-			.current_dir(&client_path)
-			.status()
-			.unwrap()
-			.success()
-			.then_some(())
-			.unwrap();
-		client_path.join("dist")
-	};
 
 	// Build the js.
 	println!("cargo:rerun-if-changed=./src");
@@ -108,7 +61,7 @@ fn js() {
 						"extends": "{manifest_directory_path}/tsconfig.json",
 						"compilerOptions": {{
 							"paths": {{
-								"@tangramdotdev/client": ["{client_dist_path}/index.d.ts"],
+								"@tangramdotdev/client": ["{client_path}/src/index.ts"],
 								"*": ["{node_path}/*", "{node_path}/../packages/clients/js/node_modules/*"]
 							}},
 							"typeRoots": ["{node_path}/@types"]
@@ -116,7 +69,7 @@ fn js() {
 						"include": ["{manifest_directory_path}/src/**/*"]
 					}}
 				"#,
-				client_dist_path = client_dist_path.display(),
+				client_path = client_path.display(),
 				manifest_directory_path = manifest_directory_path.display(),
 			),
 		)
@@ -139,7 +92,7 @@ fn js() {
 	}
 	let alias = format!(
 		"--alias:@tangramdotdev/client={}",
-		client_dist_path.join("index.js").display()
+		client_path.join("src/index.ts").display()
 	);
 	let outdir = format!("--outdir={}", out_dir_path.display());
 	let mut esbuild = std::process::Command::new("bunx");

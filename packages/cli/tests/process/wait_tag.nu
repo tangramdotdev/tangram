@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Waiting for a process through a tag preserves the resolved location.
 

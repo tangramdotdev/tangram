@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A common public child is reused even when the parent builds are unshared: two owners building distinct public parents that depend on the same child share that child but not the parents.
 

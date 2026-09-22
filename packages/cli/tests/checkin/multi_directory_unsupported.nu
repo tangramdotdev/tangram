@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Check-in is rejected when the server uses multi-directory storage.
 

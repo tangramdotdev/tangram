@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/checkin.nu checkin-output
 
 # Both solver reads and prefetches use exact child tokens through branches, graphs, symlinks, and dependencies.

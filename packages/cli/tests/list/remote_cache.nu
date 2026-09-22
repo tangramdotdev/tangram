@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The remote cache stores filtered list responses and honors TTL overrides.
 

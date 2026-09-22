@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.Process.expect throws a failed assertion when the value is not a process.
 

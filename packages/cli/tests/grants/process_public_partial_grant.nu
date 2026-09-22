@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # --public reconciles a partial existing grant: if the process already has some public read permissions but not all, --public adds the missing ones without error.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A null env override clears the inherited environment, and the object and fluent forms are equivalent.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # tg.download fails when the checksum argument is not a well-formed checksum.
 

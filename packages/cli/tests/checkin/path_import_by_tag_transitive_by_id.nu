@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package that imports by object ID a dependency which itself imports by tag with a get path option resolves the full transitive graph.
 

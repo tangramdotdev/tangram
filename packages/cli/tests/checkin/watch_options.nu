@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A checkin with different options replaces incompatible watch state instead of reusing it under the previous options.
 

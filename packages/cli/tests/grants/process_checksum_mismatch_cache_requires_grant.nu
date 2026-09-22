@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A checksum-mismatch cache reuse must not confer read access to another principal's process: building the same command with a different checksum must not copy an unauthorized principal's checksum-mismatch process subtree.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking out a file with dependencies writes the dependencies xattr, both when the file is uncached and when the server reflinks it from the checkouts directory.
 #

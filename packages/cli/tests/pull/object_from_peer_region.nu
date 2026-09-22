@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Pulling an object through a remote region fetches it from a peer region when it is absent in the region serving the request.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking in a package with a diamond of tagged dependencies converging on a shared dependency resolves and writes the expected lockfile.
 

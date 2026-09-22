@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # tg tag delete --recursive on a deep tag hierarchy processes tags in order from the deepest to the shallowest path.
 

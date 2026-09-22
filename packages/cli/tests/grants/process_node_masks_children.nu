@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A process_node grant confers the node but not its child processes, so a node grantee reads the parent while its children stay masked.
 

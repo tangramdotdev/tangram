@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Eagerly pushing a graph pointer reference fails with an error reporting that an object was expected but a pointer was given.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A public build's output is readable by another owner: after reusing a public build, its output contents can be read.
 

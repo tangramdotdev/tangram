@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A failing tg.assert in a process spawned via tg.run from an out-of-tree dependency causes the run to fail and produces the expected diagnostic on stderr.
 

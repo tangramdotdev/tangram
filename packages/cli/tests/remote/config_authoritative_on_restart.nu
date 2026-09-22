@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The remotes key in the config is authoritative at startup: a restart restores a deleted config remote and removes a remote added through the CLI.
 

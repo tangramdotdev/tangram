@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Sandbox status comes from the runner even while its destroy index update is delayed.
 

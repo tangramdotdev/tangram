@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A subtree grant on one file confers neither its parent directory nor its sibling files.
 

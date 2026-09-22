@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The checksum of a file is the checksum of its contents bytes.
 

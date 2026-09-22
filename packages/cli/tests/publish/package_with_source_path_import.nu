@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Publishing a package that imports a sibling dependency by source path discovers and publishes the dependency, tags both packages on the local and remote servers, syncs objects and metadata, and rewrites the dependency reference to use a tag rather than a path.
 

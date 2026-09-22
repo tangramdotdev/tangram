@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A deterministic checkin resolves tag dependencies strictly from the provided lockfile without consulting the tag store.
 

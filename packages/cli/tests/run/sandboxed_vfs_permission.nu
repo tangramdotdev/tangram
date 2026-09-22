@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Verify that a per-sandbox VFS grants command inputs and hides unrelated artifacts with ENOENT.
 # The server creates principal-scoped mounts for Linux container and VM isolation when the VFS is enabled.

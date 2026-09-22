@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Login fails when authentication is enabled but no authentication providers are configured.
 

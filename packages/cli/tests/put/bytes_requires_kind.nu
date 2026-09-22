@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Putting raw bytes without an id requires the kind flag to compute the id.
 

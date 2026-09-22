@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A successful lazy push creates an implicit grant, so the same principal's next push skips its whole available subtree and transfers nothing.
 

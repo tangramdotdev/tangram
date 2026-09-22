@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Metadata propagates from child to parent through the update queue.
 

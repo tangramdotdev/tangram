@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A remote runner finishes a checked-in output before control or initial indexing completes.
 

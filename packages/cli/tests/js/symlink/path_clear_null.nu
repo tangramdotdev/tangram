@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A null path override clears the inherited symlink path via the fluent builder.
 

@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A build that succeeds logs no error on the server. Destroying a sandbox kills
 # the sandbox process, which closes the socket under the server's HTTP client

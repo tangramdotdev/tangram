@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Checking out a reference to a directory that points into a cycle materializes the directory on disk.
 

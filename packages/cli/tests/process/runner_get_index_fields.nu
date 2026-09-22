@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Runner gets fetch metadata and availability concurrently, preserving the requested region for those reads.
 

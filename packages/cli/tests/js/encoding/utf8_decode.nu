@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # tg.encoding.utf8.decode decodes a UTF-8 byte array, including multi-byte characters, to a string.
 

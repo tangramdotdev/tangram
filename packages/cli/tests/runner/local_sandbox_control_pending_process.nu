@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A pending process connection must not block sandbox destruction or subsequent control requests.
 let server = server spawn --config { advanced: { checkpoints: true } }

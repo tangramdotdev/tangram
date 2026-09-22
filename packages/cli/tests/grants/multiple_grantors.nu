@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Separate grantors can grant overlapping permissions to the same subject on the same resource.
 

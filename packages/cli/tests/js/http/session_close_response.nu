@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Closing an HTTP/2 session gracefully must let an active response finish.
 let server = server spawn

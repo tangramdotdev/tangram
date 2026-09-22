@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/command.nu
 
 # Pushing a process whose root is missing locally but present on the remote completes and yields matching processes and metadata, under both eager and lazy push.

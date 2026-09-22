@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A pull for logs that the held push does not carry ends after bounded polling. A pull for what the push carries succeeds when the process arrives.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # Checking out a symlink defined through a graph node writes the symlink into the checkouts directory.
 

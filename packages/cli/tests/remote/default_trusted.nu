@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # The built-in Tangram Cloud remote is trusted.
 

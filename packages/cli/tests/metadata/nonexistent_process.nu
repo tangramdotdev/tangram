@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Process metadata for a well formed id that does not exist fails.
 

@@ -1,4 +1,4 @@
-use ../../../test.nu *
+use ../../lib/test.nu *
 
 # A directory node whose entry edge points to itself resolves back to the same directory.
 

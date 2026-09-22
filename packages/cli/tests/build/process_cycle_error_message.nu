@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A self-referential build fails with a process cycle error and the formatted error message matches the snapshot.
 

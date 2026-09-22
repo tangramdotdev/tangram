@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 use ../lib/lsp.nu
 
 # With the store directory mounted as a VFS on Linux, a go-to-definition request against a tagged dependency resolves to the materialized tag path and opening the materialized definition reports no diagnostics.

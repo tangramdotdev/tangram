@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A source with node permission on a shallow directory can push it when the destination already has its missing child.
 

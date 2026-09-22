@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Destroying a sandbox that does not exist fails with a missing-sandbox error.
 

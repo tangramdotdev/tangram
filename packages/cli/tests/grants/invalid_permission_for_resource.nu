@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A permission whose kind does not match the resource kind is rejected.
 
