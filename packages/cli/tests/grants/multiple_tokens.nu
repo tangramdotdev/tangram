@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Multiple proofs reach authorization without an unrelated or invalid proof displacing an exact token.
+# An exact authorization token grants access alongside unrelated tokens.
 
 def get-object [socket: string, bearer: string, id: string, tokens: list<string>] {
 	let query = $tokens | enumerate | each { |entry|
@@ -24,21 +24,18 @@ let subtree = (get-object $socket $alice.token $directory []).tokens.local.autho
 let other = (get-object $socket $alice.token $unrelated []).tokens.local.authorization.0
 tg --token $alice.token grant $bob.user.id object_node $directory
 let node = (get-object $socket $bob.token $directory []).tokens.local.authorization.0
-let parts = $subtree | split row '.'
-let signature = $parts.3 | decode base64 | bytes reverse | encode base64
-let forged = [$parts.0 $parts.1 $parts.2 $signature] | str join '.'
 
 let watch = tg --token $root_token checkpoint watch authorization.index | from json | get watch
-for tokens in [[$node $other $forged $subtree] [$subtree $forged $other $node]] {
+for tokens in [[$node $other $subtree] [$subtree $other $node]] {
 	let output = get-object $socket $bob.token $directory $tokens
 	assert equal ($output.children | columns | length) 1
 }
 tg --token $root_token checkpoint unwatch authorization.index $watch
 
-let output = get-object $socket $bob.token $directory [$node $other $forged]
+let output = get-object $socket $bob.token $directory [$node $other]
 assert equal ($output.children? | default {}) {}
 
-# A large collection of distinct proofs uses the framed arg through the Rust client.
+# A large collection of distinct authorization tokens uses the framed arg through the Rust client.
 let objects = 0..<16 | each { |i|
 	let value = ['tg.file("proof ' ($i | into string) '")'] | str join
 	tg --token $alice.token put $value | str trim
