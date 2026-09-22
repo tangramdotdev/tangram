@@ -35,6 +35,18 @@ export class Body implements AsyncIterable<Uint8Array> {
 		return this.#replayable;
 	}
 
+	prepend(bytes: Uint8Array) {
+		let body = this;
+		let output = new Body({
+			async *[Symbol.asyncIterator]() {
+				yield bytes;
+				yield* body;
+			},
+		});
+		output.#replayable = this.#replayable;
+		return output;
+	}
+
 	async collect() {
 		let chunks: Array<Uint8Array> = [];
 		for await (let chunk of this) {

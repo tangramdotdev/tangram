@@ -1,5 +1,5 @@
 import * as tg from "../../../index.ts";
-import { Body, Request, Response, Uri, percentEncode } from "../../../http.ts";
+import { Body, Request, Response, percentEncode } from "../../../http.ts";
 import { chunkSize, maxChunks } from "../../../process/stdio/flow.ts";
 import type { Client } from "../../../client.ts";
 
@@ -275,17 +275,7 @@ async function writeProcessStdioOnce(
 	arg: tg.Process.Stdio.Write.Stream.Arg,
 ): Promise<Connection | null> {
 	let input = new Channel<tg.Process.Stdio.Write.ClientMessage>();
-	let uri = new Uri({
-		path: `/processes/${percentEncode(id)}/stdio/write`,
-		query: {
-			...arg,
-			location:
-				arg.location === undefined || arg.location === null
-					? null
-					: tg.Location.Arg.toDataString(arg.location),
-			streams: arg.streams.join(","),
-		},
-	});
+	let uri = `/processes/${percentEncode(id)}/stdio/write`;
 	let request = new Request({
 		body: Body.sse(encodeClientMessages(input)),
 		headers: {
@@ -294,6 +284,14 @@ async function writeProcessStdioOnce(
 		},
 		method: "POST",
 		uri,
+	}).arg({
+		...arg,
+		location:
+			arg.location === undefined || arg.location === null
+				? null
+				: tg.Location.Arg.toDataString(arg.location),
+		streams: arg.streams.join(","),
+		tokens: arg.tokens ?? {},
 	});
 	let response = await client.send(request);
 	if (response.status === 404) {

@@ -1,5 +1,5 @@
 import * as tg from "../../index.ts";
-import { Request, Uri, percentEncode } from "../../http.ts";
+import { Request, percentEncode } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export async function getSandbox(
@@ -20,15 +20,7 @@ export async function tryGetSandbox(
 	arg?: tg.Sandbox.Get.Arg | null,
 ): Promise<tg.Sandbox.Get.Output | null> {
 	let method = "GET";
-	let uri = new Uri({
-		path: `/sandboxes/${percentEncode(id)}`,
-		query: {
-			location:
-				arg?.location === undefined || arg.location === null
-					? null
-					: tg.Location.Arg.toDataString(arg.location),
-		},
-	});
+	let uri = `/sandboxes/${percentEncode(id)}`;
 	let headers = {
 		accept: "application/json",
 	};
@@ -36,6 +28,11 @@ export async function tryGetSandbox(
 		method,
 		uri,
 		headers,
+	}).arg({
+		location:
+			arg?.location === undefined || arg.location === null
+				? null
+				: tg.Location.Arg.toDataString(arg.location),
 	});
 	let response = await client.sendWithRetry(request);
 	if (response.status === 404) {

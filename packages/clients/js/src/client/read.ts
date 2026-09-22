@@ -1,5 +1,5 @@
 import * as tg from "../index.ts";
-import { Request, Response, Uri } from "../http.ts";
+import { Request, Response } from "../http.ts";
 import type { Client } from "../client.ts";
 
 export namespace Read {
@@ -50,16 +50,7 @@ export async function tryReadStream(
 	arg: tg.Read.Arg,
 ): Promise<AsyncIterableIterator<tg.Read.Event> | null> {
 	let method = "GET";
-	let uri = new Uri({
-		path: "/read",
-		query: {
-			blob: arg.blob,
-			length: arg.length ?? null,
-			position: arg.position ?? null,
-			size: arg.size ?? null,
-			tokens: arg.tokens ?? null,
-		},
-	});
+	let uri = "/read";
 	let headers = {
 		accept: "application/octet-stream",
 	};
@@ -67,6 +58,12 @@ export async function tryReadStream(
 		method,
 		uri,
 		headers,
+	}).arg({
+		blob: arg.blob,
+		length: arg.length ?? null,
+		position: arg.position ?? null,
+		size: arg.size ?? null,
+		tokens: arg.tokens ?? {},
 	});
 	let response = await client.sendWithRetry(request);
 	if (response.status === 404) {

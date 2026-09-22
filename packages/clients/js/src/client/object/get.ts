@@ -1,5 +1,5 @@
 import * as tg from "../../index.ts";
-import { Request, Uri, percentEncode } from "../../http.ts";
+import { Request, percentEncode } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export async function getObject(
@@ -20,17 +20,7 @@ export async function tryGetObject(
 	arg?: tg.Object.Get.Arg | null,
 ): Promise<tg.Object.Get.Output | null> {
 	let method = "GET";
-	let uri = new Uri({
-		path: `/objects/${percentEncode(id)}`,
-		query: {
-			location:
-				arg?.location === undefined || arg.location === null
-					? null
-					: tg.Location.Arg.toDataString(arg.location),
-			metadata: arg?.metadata === true ? true.toString() : null,
-			tokens: arg?.tokens ?? null,
-		},
-	});
+	let uri = `/objects/${percentEncode(id)}`;
 	let headers = {
 		accept: "application/json",
 	};
@@ -38,6 +28,13 @@ export async function tryGetObject(
 		method,
 		uri,
 		headers,
+	}).arg({
+		location:
+			arg?.location === undefined || arg.location === null
+				? null
+				: tg.Location.Arg.toDataString(arg.location),
+		metadata: arg?.metadata ?? false,
+		tokens: arg?.tokens ?? {},
 	});
 	let response = await client.sendWithRetry(request);
 	if (response.status === 404) {

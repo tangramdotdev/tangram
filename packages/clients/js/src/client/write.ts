@@ -1,5 +1,5 @@
 import * as tg from "../index.ts";
-import { Body, Request, Uri } from "../http.ts";
+import { Body, Request } from "../http.ts";
 import type { Client } from "../client.ts";
 
 export namespace Write {
@@ -30,15 +30,7 @@ export async function write(
 		return (output as tg.Write.Output).blob.node;
 	}
 	let method = "POST";
-	let uri = new Uri({
-		path: "/write",
-		query: {
-			checkout_pointers:
-				argOrBytes.checkoutPointers === undefined
-					? null
-					: argOrBytes.checkoutPointers.toString(),
-		},
-	});
+	let uri = "/write";
 	let headers = {
 		accept: "application/json",
 		"content-type": "application/octet-stream",
@@ -50,6 +42,8 @@ export async function write(
 		method,
 		uri,
 		headers,
+	}).arg({
+		checkout_pointers: argOrBytes.checkoutPointers ?? null,
 	});
 	let response = await client.send(request);
 	if (response.status < 200 || response.status >= 300) {
