@@ -133,7 +133,7 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 }
 
 #[tokio::test]
-async fn process_object_grants_abort_when_authorization_exhausts() {
+async fn process_object_grants_with_disabled_search() {
 	let search = crate::authorize::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
@@ -147,7 +147,6 @@ async fn process_object_grants_abort_when_authorization_exhausts() {
 	};
 	let (_dir, index) = new_index();
 	let object = object_id(0);
-	let process = tg::process::Id::new();
 	index
 		.batch(crate::batch::Arg {
 			items: vec![crate::batch::Item::PutObject(crate::object::put::Arg {
@@ -163,34 +162,50 @@ async fn process_object_grants_abort_when_authorization_exhausts() {
 		})
 		.await
 		.unwrap();
-	let error = index
-		.batch(crate::batch::Arg {
-			items: vec![crate::batch::Item::PutProcessObjectGrants(
-				crate::process::object::grant::Arg {
-					authorize,
-					created_at: 0,
-					expires_at: None,
-					principal: tg::Principal::Process(process.clone()),
-					process: process.clone(),
-					roots: vec![crate::process::object::grant::Root {
-						object: object.clone(),
-						permissions: None,
-					}],
-					time_to_touch: None,
-				},
-			)],
-		})
-		.await
-		.unwrap_err();
-	assert!(
-		error
-			.to_string()
-			.contains("process object grant authorization search exhausted")
-	);
 	let node = tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Node,
 	);
-	assert!(process_grant(&index, &process, &object, node).is_none());
+	let subtree = tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	for permissions in [None, Some(node.into()), Some(subtree.into())] {
+		let process = tg::process::Id::new();
+		let root = crate::process::object::grant::Root {
+			object: object.clone(),
+			permissions,
+		};
+		let grant = crate::process::object::grant::Arg {
+			authorize,
+			created_at: 0,
+			expires_at: None,
+			principal: tg::Principal::Process(process.clone()),
+			process: process.clone(),
+			roots: vec![root],
+			time_to_touch: None,
+		};
+		let arg = crate::batch::Arg {
+			items: vec![crate::batch::Item::PutProcessObjectGrants(grant)],
+		};
+		let result = index.batch(arg).await;
+		if permissions.is_some_and(|permissions| permissions.contains(subtree)) {
+			result.unwrap();
+			assert_eq!(
+				process_grant(&index, &process, &object, subtree)
+					.unwrap()
+					.implicit,
+				Some(None)
+			);
+		} else {
+			let error = result.unwrap_err();
+			assert!(
+				error
+					.to_string()
+					.contains("process object grant authorization search exhausted")
+			);
+			assert!(process_grant(&index, &process, &object, subtree).is_none());
+		}
+		assert!(process_grant(&index, &process, &object, node).is_none());
+	}
 }
 
 #[tokio::test]

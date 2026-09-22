@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Writing a process object grant must not search for a root whose subtree permission an exact token already proved. The writer authorizes every root with no tokens before it consults the permissions it was handed, so the search is redundant, and an exhausted one fails the whole grant write.
+# An exact subtree token must authorize a process command grant without another authorization search.
 
 let root = random chars
 let server = server spawn --preserve-keys --config {
