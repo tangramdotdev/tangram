@@ -56,7 +56,11 @@ export namespace Module {
 		};
 		for (let child of children(value)) {
 			let options = tg.Object.toReferent(child).options;
-			tg.Tokens.inherit(referent.options.tokens, options?.tokens ?? {});
+			tg.Tokens.inherit(
+				referent.options.tokens,
+				options?.tokens ?? {},
+				child.id,
+			);
 			referent.options.location ??= options?.location ?? null;
 		}
 		return referent;

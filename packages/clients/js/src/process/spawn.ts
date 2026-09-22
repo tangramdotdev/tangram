@@ -749,7 +749,11 @@ async function checkoutArtifacts(
 		let referent = tg.Object.toReferent(object);
 		referent.options ??= {};
 		referent.options.tokens ??= {};
-		tg.Tokens.inherit(referent.options.tokens, options.tokens ?? {});
+		tg.Tokens.inherit(
+			referent.options.tokens,
+			options.tokens ?? {},
+			referent.node,
+		);
 		if (
 			(referent.options.location === undefined ||
 				referent.options.location === null) &&
@@ -763,7 +767,11 @@ async function checkoutArtifacts(
 		} else {
 			existing.options ??= {};
 			existing.options.tokens ??= {};
-			tg.Tokens.inherit(existing.options.tokens, referent.options.tokens);
+			tg.Tokens.inherit(
+				existing.options.tokens,
+				referent.options.tokens,
+				existing.node,
+			);
 			if (
 				(existing.options.location === undefined ||
 					existing.options.location === null) &&

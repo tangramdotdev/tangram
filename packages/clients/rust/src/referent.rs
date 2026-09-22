@@ -394,7 +394,7 @@ mod tests {
 		tokens.insert_authorization(remote.clone(), other.clone());
 		for index in 0..20 {
 			let mut token = other.clone();
-			token.metadata.key = format!("key{index}");
+			token.body.resource = tg::file::Id::new(format!("file{index}").as_bytes()).into();
 			tokens.insert_local_authorization(token);
 		}
 		let options = tg::referent::Options {

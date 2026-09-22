@@ -59,6 +59,7 @@ impl Module {
 		for child in self.children() {
 			let options = child.to_referent().options;
 			referent.options.tokens.inherit(&options.tokens);
+			referent.options.tokens.normalize(Some(&child.id().into()));
 			if referent.options.location.is_none() {
 				referent.options.location = options.location;
 			}

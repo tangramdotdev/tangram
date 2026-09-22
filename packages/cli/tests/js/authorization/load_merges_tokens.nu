@@ -78,8 +78,8 @@ let path = artifact {
 
 let output = tg build $path | from json
 let expected = {
-	object: { local: { authorization: [returned inherited] }, remote: { authorization: [remote] } }
-	process: { local: { authorization: [returned inherited] }, remote: { authorization: [remote] } }
-	sandbox: { local: { authorization: [returned inherited] }, remote: { authorization: [remote] } }
+	object: { local: { authorization: [inherited returned] }, remote: { authorization: [remote] } }
+	process: { local: { authorization: [inherited returned] }, remote: { authorization: [remote] } }
+	sandbox: { local: { authorization: [inherited returned] }, remote: { authorization: [remote] } }
 }
 assert equal $output $expected

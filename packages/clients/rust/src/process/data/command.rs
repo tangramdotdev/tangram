@@ -1,6 +1,9 @@
 use {
 	crate::prelude::*,
-	std::{collections::BTreeMap, path::PathBuf},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		path::PathBuf,
+	},
 };
 
 #[cfg(test)]
@@ -89,8 +92,14 @@ impl Command {
 
 	fn update_options(&mut self, update: &Update<'_>) {
 		update_options(&mut self.executable.options, update);
+		let resource = self.executable.node.artifact.clone().map(tg::Id::from);
+		self.executable.options.tokens.normalize(resource.as_ref());
 		if let Some(stdin) = &mut self.stdin {
 			update_options(&mut stdin.options, update);
+			stdin
+				.options
+				.tokens
+				.normalize(Some(&stdin.node.clone().into()));
 		}
 		for value in self.args.iter_mut().chain(self.env.values_mut()) {
 			let (tg::command::data::Value::String(value) | tg::command::data::Value::Value(value)) =
@@ -239,7 +248,13 @@ fn update_value_options(value: &mut tg::value::Data, update: &Update<'_>) {
 				update_value_options(value, update);
 			}
 		},
-		tg::value::Data::Module(module) => update_options(&mut module.referent.options, update),
+		tg::value::Data::Module(module) => {
+			update_options(&mut module.referent.options, update);
+			let mut children = BTreeSet::new();
+			module.children(&mut children);
+			let resource = children.into_iter().next().map(tg::Id::from);
+			module.referent.options.tokens.normalize(resource.as_ref());
+		},
 		tg::value::Data::Mutation(mutation) => match mutation {
 			tg::mutation::Data::Append { values } | tg::mutation::Data::Prepend { values } => {
 				for value in values {
@@ -260,7 +275,13 @@ fn update_value_options(value: &mut tg::value::Data, update: &Update<'_>) {
 			},
 			tg::mutation::Data::Unset => {},
 		},
-		tg::value::Data::Object(object) => update_options(&mut object.options, update),
+		tg::value::Data::Object(object) => {
+			update_options(&mut object.options, update);
+			object
+				.options
+				.tokens
+				.normalize(Some(&object.node.clone().into()));
+		},
 		tg::value::Data::Template(template) => update_template_options(template, update),
 		tg::value::Data::Bool(_)
 		| tg::value::Data::Bytes(_)
@@ -275,6 +296,10 @@ fn update_template_options(template: &mut tg::template::Data, update: &Update<'_
 	for component in &mut template.components {
 		if let tg::template::data::Component::Artifact(artifact) = component {
 			update_options(&mut artifact.options, update);
+			artifact
+				.options
+				.tokens
+				.normalize(Some(&artifact.node.clone().into()));
 		}
 	}
 }

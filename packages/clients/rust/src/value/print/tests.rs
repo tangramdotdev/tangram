@@ -35,6 +35,24 @@ fn nonempty_referent_options_are_preserved() {
 	}
 }
 
+#[test]
+fn object_query_is_gray() {
+	let id = tg::file::Id::new(b"source");
+	let referent = tg::Referent::with_node_and_local_tokens(id.clone(), vec![token()]);
+	let string = referent.to_string();
+	let (_, query) = string.split_once('?').unwrap();
+	let value = tg::Value::from(tg::File::with_referent(referent));
+	let options = tg::value::print::Options {
+		color: true,
+		tokens: true,
+		..Default::default()
+	};
+	assert_eq!(
+		value.print(options),
+		format!("\x1b[94m{id}\x1b[0m\x1b[38;5;244m?{query}\x1b[0m")
+	);
+}
+
 fn print_values(options: tg::referent::Options) -> [String; 3] {
 	let module = tg::Module {
 		kind: tg::module::Kind::Ts,

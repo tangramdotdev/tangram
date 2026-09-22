@@ -69,6 +69,7 @@ impl Sandbox {
 		let location = RwLock::new(location);
 		let owned = AtomicBool::new(handle.is_some());
 		let mut tokens = tokens;
+		tokens.normalize(None);
 		if let Some(state) = &state {
 			tokens.inherit(&state.tokens);
 		}

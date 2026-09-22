@@ -714,7 +714,14 @@ export class Printer {
 	private objectId(state: tg.Object.State): string {
 		let referent = tg.Referent.withNodeAndTokens(state.id, state.tokens);
 		let string = tg.Referent.toDataString(referent, (id) => id);
-		return this.id(string);
+		let index = string.indexOf("?");
+		if (index === -1) {
+			return this.id(string);
+		}
+		return (
+			this.id(string.slice(0, index)) +
+			this.style(string.slice(index), colors.gray)
+		);
 	}
 
 	private bytesEqual(a: Uint8Array, b: Uint8Array): boolean {

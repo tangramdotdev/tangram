@@ -208,6 +208,7 @@ impl State {
 		inner.stored = true;
 		object.options.tokens.inherit(&inner.tokens);
 		inner.tokens = object.options.tokens;
+		inner.tokens.normalize(Some(&object.node.into()));
 
 		Ok(())
 	}
@@ -231,12 +232,17 @@ impl State {
 		}
 	}
 
-	pub fn set_tokens(&self, tokens: tg::Tokens) {
+	pub fn set_tokens(&self, mut tokens: tg::Tokens) {
+		let id = self.id().into();
+		tokens.normalize(Some(&id));
 		self.0.write().unwrap().tokens = tokens;
 	}
 
 	pub fn inherit_tokens(&self, tokens: &tg::Tokens) {
-		self.0.write().unwrap().tokens.inherit(tokens);
+		let id = self.id().into();
+		let mut inner = self.0.write().unwrap();
+		inner.tokens.inherit(tokens);
+		inner.tokens.normalize(Some(&id));
 	}
 
 	pub fn set_object(&self, object: impl Into<tg::object::Object>) {
@@ -257,21 +263,48 @@ impl State {
 			true
 		});
 
-		// Prune each subtree only for the location that grants access to it.
+		// Carry the ancestor proof lifetime along each path while preserving every sync token.
 		let mut tokens = tg::Tokens::default();
 		for location in locations {
 			let mut entry = tg::tokens::Entry::default();
-			self.visit_loaded(|state| {
+			let mut visited = BTreeSet::new();
+			let mut stack = vec![(self.clone(), None::<i64>)];
+			while let Some((state, expiration)) = stack.pop() {
+				if !visited.insert((state.identity(), expiration)) {
+					continue;
+				}
 				let state_tokens = state.tokens();
-				let Some(state_entry) = state_tokens.get(&location) else {
-					return true;
-				};
-				entry.inherit(state_entry);
-				!state_entry
-					.authorization
-					.iter()
-					.any(|token| token.grants_subtree(&state.id().into()))
-			});
+				let mut expiration = expiration;
+				if let Some(state_entry) = state_tokens.get(&location) {
+					let mut uncovered = state_entry.clone();
+					uncovered.authorization.retain(|token| {
+						expiration.is_none_or(|expiration| {
+							!tg::authorization::Token::covers_expiration(
+								expiration,
+								token.body.expires_at,
+							)
+						})
+					});
+					entry.inherit(&uncovered);
+					let id = state.id().into();
+					// Only retained proofs can cover descendants without compounding the tolerance.
+					let subtree = uncovered
+						.authorization
+						.iter()
+						.filter(|token| token.grants_object_subtree(&id))
+						.map(|token| token.body.expires_at)
+						.max();
+					expiration = expiration.max(subtree);
+				}
+				if let Some(object) = state.object() {
+					stack.extend(
+						object
+							.children()
+							.into_iter()
+							.map(|child| (child.state(), expiration)),
+					);
+				}
+			}
 			if !entry.is_empty() {
 				tokens.set(location, entry);
 			}
@@ -442,6 +475,7 @@ impl State {
 		if !output.tokens.is_empty() {
 			output.tokens.inherit(&inner.tokens);
 			inner.tokens = output.tokens;
+			inner.tokens.normalize(Some(&id.into()));
 		}
 		inner.object.replace(object.clone());
 

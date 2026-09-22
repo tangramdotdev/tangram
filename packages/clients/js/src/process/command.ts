@@ -52,12 +52,22 @@ export let withoutLocationAndTokens = (
 let inheritReferent = <T>(
 	data: tg.Referent.Data<T>,
 	options: tg.Referent.Options,
+	resource?: string,
 ): tg.Referent.Data<T> => {
 	let referent = tg.Referent.fromData(data, (node) => node);
 	referent.options ??= {};
 	referent.options.location ??= options.location ?? null;
 	referent.options.tokens ??= {};
-	tg.Tokens.inherit(referent.options.tokens, options.tokens ?? {});
+	resource ??=
+		typeof referent.node === "string"
+			? referent.node
+			: typeof referent.node === "object" &&
+				  referent.node !== null &&
+				  "artifact" in referent.node &&
+				  typeof referent.node.artifact === "string"
+				? referent.node.artifact
+				: undefined;
+	tg.Tokens.inherit(referent.options.tokens, options.tokens ?? {}, resource);
 	return tg.Referent.toData(referent, (node) => node);
 };
 
@@ -66,7 +76,11 @@ let inheritString = (data: string, options: tg.Referent.Options): string => {
 	referent.options ??= {};
 	referent.options.location ??= options.location ?? null;
 	referent.options.tokens ??= {};
-	tg.Tokens.inherit(referent.options.tokens, options.tokens ?? {});
+	tg.Tokens.inherit(
+		referent.options.tokens,
+		options.tokens ?? {},
+		referent.node,
+	);
 	return tg.Referent.toDataString(referent, (node) => node);
 };
 
@@ -82,9 +96,16 @@ let inheritValue = (
 				for (let child of Object.values(value.value))
 					inheritValue(child, options);
 				break;
-			case "module":
-				value.value.referent = inheritReferent(value.value.referent, options);
+			case "module": {
+				const module = tg.Module.fromData(value.value);
+				const resource = tg.Module.children(module)[0]?.id;
+				value.value.referent = inheritReferent(
+					value.value.referent,
+					options,
+					resource,
+				);
 				break;
+			}
 			case "object":
 				value.value = inheritString(value.value, options);
 				break;

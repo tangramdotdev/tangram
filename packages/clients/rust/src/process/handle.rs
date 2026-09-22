@@ -87,6 +87,8 @@ impl<O> Process<O> {
 			state,
 			tokens,
 		} = options;
+		let mut tokens = tokens;
+		tokens.normalize(None);
 		let location = Arc::new(RwLock::new(location));
 		let state = RwLock::new(state.map(Arc::new));
 		let stderr = tg::process::stdio::Reader::from_process(tg::process::stdio::Stream::Stderr);

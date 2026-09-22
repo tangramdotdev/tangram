@@ -15,6 +15,7 @@ export class Sandbox {
 		this.#owned = arg.owned ?? false;
 		this.#state = arg.state ?? null;
 		this.#tokens = tg.Tokens.clone(arg.tokens);
+		tg.Tokens.normalize(this.#tokens);
 		if (this.#state !== null) {
 			tg.Tokens.inherit(this.#tokens, this.#state.tokens ?? {});
 		}

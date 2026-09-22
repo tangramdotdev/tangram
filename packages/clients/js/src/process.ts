@@ -295,6 +295,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#stderr = arg.stderr;
 		this.#stopper = arg.stopper ?? null;
 		this.#tokens = tg.Tokens.clone(arg.tokens);
+		tg.Tokens.normalize(this.#tokens);
 		this.#wait = arg.wait ?? null;
 		this.#owned =
 			this.#wait === null &&
@@ -392,6 +393,7 @@ export class Process<O extends tg.Value = tg.Value> {
 
 	set tokens(tokens: tg.Tokens) {
 		this.#tokens = tg.Tokens.clone(tokens);
+		tg.Tokens.normalize(this.#tokens);
 	}
 
 	inheritLocation(location: tg.Location.Arg | null): void {
@@ -1464,7 +1466,11 @@ export namespace Process {
 		export let inheritTokens = (state: State, tokens: tg.Tokens): void => {
 			state.command.options ??= {};
 			state.command.options.tokens ??= {};
-			tg.Tokens.inherit(state.command.options.tokens, tokens);
+			tg.Tokens.inherit(
+				state.command.options.tokens,
+				tokens,
+				typeof state.command.node === "string" ? state.command.node : undefined,
+			);
 			for (let child of state.children ?? []) {
 				child.process.inheritTokens(tokens);
 			}

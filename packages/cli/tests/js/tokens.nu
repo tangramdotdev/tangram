@@ -27,6 +27,7 @@ let path = artifact {
 			tg.assert(result.state.tokens.local.authorization[0] === "child-authorization");
 			inherited.local.authorization[0] = "child-authorization";
 			inherited.local.authorization.push("another-authorization");
+			tg.Tokens.normalize(inherited);
 			const referent = { node: "a", options: { tokens: inherited } };
 			const encoded = tg.Referent.toDataString(referent, (value) => value);
 			const decoded = tg.Referent.fromDataString(encoded, (value) => value);

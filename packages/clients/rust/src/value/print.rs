@@ -605,7 +605,13 @@ where
 			tg::Tokens::default()
 		};
 		let referent = tg::Referent::with_node_and_tokens(state.id(), tokens);
-		self.color(referent, Color::Blue)?;
+		let string = referent.to_string();
+		if let Some((id, query)) = string.split_once('?') {
+			self.color(id, Color::Blue)?;
+			self.color(format_args!("?{query}"), Color::Gray)?;
+		} else {
+			self.color(string, Color::Blue)?;
+		}
 		Ok(())
 	}
 

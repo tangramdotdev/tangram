@@ -252,6 +252,45 @@ fn command_id_referent_has_only_the_command_as_a_root() {
 	assert_eq!(referent.command_id().unwrap(), id);
 }
 
+#[test]
+fn inheritance_normalizes_object_referents() {
+	let mut command = command();
+	let resource = command.executable.node.artifact.clone().unwrap().into();
+	let key =
+		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+			.unwrap();
+	let body = tg::authorization::Body {
+		expires_at: 30,
+		permissions: vec![tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		)],
+		resource,
+	};
+	let direct = tg::authorization::Token::sign(body, &key).unwrap();
+	command.executable.options.tokens = tg::Tokens::with_authorization([direct.clone()]);
+	let mut inherited = direct.clone();
+	inherited.body.resource = tg::directory::Id::new(b"parent").into();
+	let options = tg::referent::Options {
+		tokens: tg::Tokens::with_authorization([inherited.clone()]),
+		..Default::default()
+	};
+	command.inherit_location_and_tokens(&options);
+	assert_eq!(
+		command.executable.options.tokens.local_authorization(),
+		&[direct]
+	);
+	assert_eq!(
+		command
+			.stdin
+			.as_ref()
+			.unwrap()
+			.options
+			.tokens
+			.local_authorization(),
+		&[inherited]
+	);
+}
+
 fn command() -> Command {
 	let file = tg::file::Id::new(b"file");
 	let executable = tg::command::data::Executable {

@@ -1,5 +1,8 @@
 use crate::prelude::*;
 
+// Expirations within this many seconds are equivalent for token minimization.
+const EXPIRATION_THRESHOLD: i64 = 60;
+
 const VERSION: &str = "0";
 
 #[derive(
@@ -132,22 +135,34 @@ impl Token {
 	#[must_use]
 	pub fn covers(&self, other: &Self) -> bool {
 		self == other
-			|| (self.metadata == other.metadata
-				&& self.body.resource == other.body.resource
-				&& self.body.expires_at >= other.body.expires_at
+			|| (self.body.resource == other.body.resource
+				&& Self::covers_expiration(self.body.expires_at, other.body.expires_at)
 				&& other
 					.body
 					.permissions
 					.iter()
-					.all(|permission| self.body.grants(*permission)))
+					.all(|permission| self.grants(&other.body.resource, *permission)))
 	}
 
+	/// Compare expirations with a tolerance without changing signed expiration times.
 	#[must_use]
-	pub fn grants_subtree(&self, resource: &tg::Id) -> bool {
+	pub fn covers_expiration(expires_at: i64, other_expires_at: i64) -> bool {
+		expires_at.saturating_add(EXPIRATION_THRESHOLD) >= other_expires_at
+	}
+
+	/// Check the resource and implied permission without verifying the signature or expiration.
+	#[must_use]
+	pub fn grants(&self, resource: &tg::Id, permission: tg::authorization::Permission) -> bool {
+		self.body.resource == *resource && self.body.grants(permission)
+	}
+
+	/// Check object containment coverage through the same permission rules as other resource kinds.
+	#[must_use]
+	pub fn grants_object_subtree(&self, resource: &tg::Id) -> bool {
 		let subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
-		self.body.resource == *resource && self.body.grants(subtree)
+		self.grants(resource, subtree)
 	}
 
 	pub fn sign(body: Body, private_key: &PrivateKey) -> tg::Result<Self> {
@@ -326,6 +341,29 @@ mod tests {
 	use crate as tg;
 
 	#[test]
+	fn expiration_coverage_uses_a_threshold() {
+		for (a, b, expected) in [
+			(120, 121, true),
+			(120, 179, true),
+			(120, 180, true),
+			(120, 181, false),
+			(179, 180, true),
+			(181, 120, true),
+			(179, 238, true),
+			(120, 238, false),
+			(-60, -1, true),
+			(-1, 0, true),
+			(-60, 1, false),
+			(i64::MAX - 60, i64::MAX, true),
+			(i64::MAX - 61, i64::MAX, false),
+			(i64::MIN, i64::MAX, false),
+			(i64::MAX, i64::MAX, true),
+		] {
+			assert_eq!(tg::authorization::Token::covers_expiration(a, b), expected);
+		}
+	}
+
+	#[test]
 	fn algorithm_round_trips() {
 		assert_eq!(tg::authorization::Algorithm::Ed25519.to_string(), "ed25519");
 		assert_eq!(
@@ -388,6 +426,51 @@ mod tests {
 			};
 
 			body.validate().unwrap();
+		}
+	}
+
+	#[test]
+	fn grants_checks_resources_and_permission_implications() {
+		use tg::authorization::permission::{object, process};
+		let key =
+			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+				.unwrap();
+		let object_node = tg::authorization::Permission::Object(object::Permission::Node);
+		let object_subtree = tg::authorization::Permission::Object(object::Permission::Subtree);
+		let process_node = tg::authorization::Permission::Process(process::Permission::Node);
+		let process_output =
+			tg::authorization::Permission::Process(process::Permission::NodeOutput);
+		let process_subtree = tg::authorization::Permission::Process(process::Permission::Subtree);
+		for (kind, granted, needed, unrelated) in [
+			(
+				tg::id::Kind::File,
+				object_subtree,
+				object_node,
+				process_node,
+			),
+			(
+				tg::id::Kind::Process,
+				process_subtree,
+				process_node,
+				process_output,
+			),
+		] {
+			let resource = tg::Id::new_uuidv7(kind);
+			let other = tg::Id::new_uuidv7(kind);
+			let body = tg::authorization::Body {
+				expires_at: 120,
+				permissions: vec![granted],
+				resource: resource.clone(),
+			};
+			let token = tg::authorization::Token::sign(body, &key).unwrap();
+			assert!(token.grants(&resource, granted));
+			assert!(token.grants(&resource, needed));
+			assert!(!token.grants(&other, needed));
+			assert!(!token.grants(&resource, unrelated));
+			assert_eq!(
+				token.grants_object_subtree(&resource),
+				kind == tg::id::Kind::File
+			);
 		}
 	}
 
@@ -516,9 +599,9 @@ mod tests {
 	fn inheritance_retains_complementary_permissions_and_lifetimes() {
 		use tg::authorization::permission::process::Permission;
 		let resource = tg::Id::new_uuidv7(tg::id::Kind::Process);
-		let token = |permissions: Vec<Permission>, expires_at| tg::authorization::Token {
+		let token = |permissions: Vec<Permission>, expires_at: i64| tg::authorization::Token {
 			body: tg::authorization::Body {
-				expires_at,
+				expires_at: expires_at * 60,
 				permissions: permissions
 					.into_iter()
 					.map(tg::authorization::Permission::Process)
@@ -556,7 +639,7 @@ mod tests {
 	}
 
 	#[test]
-	fn inheritance_retains_resources_signers_and_locations() {
+	fn inheritance_ignores_keys_and_retains_resources_and_locations() {
 		let token = |resource, key: &str| tg::authorization::Token {
 			body: tg::authorization::Body {
 				expires_at: i64::MAX,
@@ -575,6 +658,22 @@ mod tests {
 		let second = tg::Id::new_blake3(tg::id::Kind::File, b"second");
 		let a = token(first.clone(), "a");
 		let b = token(first, "b");
+		assert!(a.covers(&b));
+		assert!(b.covers(&a));
+		let file = tg::File::with_id(a.body.resource.clone().try_into().unwrap());
+		file.state()
+			.set_tokens(tg::Tokens::with_authorization([a.clone()]));
+		let mut parent = b.clone();
+		parent.body.resource = tg::Id::new_uuidv7(tg::id::Kind::Process);
+		parent.body.permissions = vec![tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		)];
+		file.state()
+			.inherit_tokens(&tg::Tokens::with_authorization([parent]));
+		assert_eq!(
+			file.state().tokens().local_authorization(),
+			std::slice::from_ref(&a)
+		);
 		let c = token(second, "a");
 		let mut tokens = tg::Tokens::with_authorization([a.clone()]);
 		let mut incoming = tg::Tokens::with_authorization([b.clone(), c.clone()]);
@@ -584,7 +683,7 @@ mod tests {
 		});
 		incoming.insert_authorization(remote.clone(), a.clone());
 		tokens.inherit(&incoming);
-		assert_eq!(tokens.local_authorization(), &[a.clone(), b, c]);
+		assert_eq!(tokens.local_authorization(), &[a.clone(), c]);
 		assert_eq!(tokens.for_location(&remote).local_authorization(), &[a]);
 	}
 }

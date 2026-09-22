@@ -652,6 +652,8 @@ impl<O: 'static> tg::Process<O> {
 		let handle = (output.lease.is_some() && wait.is_none())
 			.then(|| tg::handle::dynamic::Handle::new(handle.clone()));
 		let owned = std::sync::atomic::AtomicBool::new(handle.is_some());
+		let mut tokens = output.tokens;
+		tokens.normalize(None);
 		let inner = Arc::new(super::handle::Inner {
 			cached: Some(output.cached),
 			connection,
@@ -666,7 +668,7 @@ impl<O: 'static> tg::Process<O> {
 			stdio_task,
 			stdout,
 			task: None,
-			tokens: RwLock::new(output.tokens),
+			tokens: RwLock::new(tokens),
 			wait: Mutex::new(wait),
 		});
 		let process = Self(inner, std::marker::PhantomData);
@@ -1012,6 +1014,7 @@ where
 			.entry(artifact)
 			.and_modify(|existing| {
 				existing.options.tokens.inherit(&referent.options.tokens);
+				existing.options.tokens.normalize(Some(&existing.node));
 				if existing.options.location.is_none() {
 					existing
 						.options
