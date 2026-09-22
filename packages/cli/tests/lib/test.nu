@@ -1468,7 +1468,8 @@ def wait_for_server_exit [path: string] {
 	}
 	# Follow the precreated file so completion is event-driven and late readers retain the status.
 	let command = r#'
-		exec 3< <(tail -n +1 -f "$1")
+		# Ensure the recorded PID identifies tail so cleanup terminates the watcher.
+		exec 3< <(exec tail -n +1 -f "$1")
 		tail_pid=$!
 		cleanup() {
 			kill "$tail_pid" 2>/dev/null || true

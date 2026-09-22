@@ -211,8 +211,18 @@ pub fn write_output(path: impl AsRef<Path>, value: &[u8]) -> tg::Result<()> {
 	Ok(())
 }
 
-/// Read optional checkin metadata, treating an inaccessible attribute list as absent.
+/// Read dependencies through symlinks, reporting filesystem errors.
 pub fn read_dependencies(path: impl AsRef<Path>) -> tg::Result<Option<Vec<tg::Reference>>> {
+	let path = path.as_ref();
+	let names = xattr::list_deref(path)
+		.map_err(|error| tg::error!(!error, "failed to list the file's xattrs"))?;
+	dependencies::try_read_dependencies_xattrs(names, |name| xattr::get_deref(path, name))
+}
+
+/// Read checkin metadata without following symlinks, treating an inaccessible attribute list as absent.
+pub fn read_dependencies_for_checkin(
+	path: impl AsRef<Path>,
+) -> tg::Result<Option<Vec<tg::Reference>>> {
 	let path = path.as_ref();
 	let Ok(names) = xattr::list(path) else {
 		return Ok(None);

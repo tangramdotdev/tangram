@@ -219,6 +219,30 @@ export let host: Host = {
 		return await readXattr(path, name);
 	},
 
+	async listxattr(path: string): Promise<Array<string>> {
+		if (process.platform === "darwin") {
+			let bytes = await execFile("xattr", [path]);
+			return new TextDecoder()
+				.decode(bytes)
+				.split("\n")
+				.filter((name) => name !== "");
+		}
+		if (process.platform === "linux") {
+			let bytes = await execFile("getfattr", [
+				"--absolute-names",
+				"--match=-",
+				path,
+			]);
+			return new TextDecoder()
+				.decode(bytes)
+				.split("\n")
+				.filter((name) => name !== "" && !name.startsWith("#"));
+		}
+		throw new Error(
+			`extended attributes are unsupported on ${process.platform}`,
+		);
+	},
+
 	isForegroundControllingTty(fd: number): boolean {
 		return this.isTty(fd);
 	},

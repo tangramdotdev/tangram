@@ -595,7 +595,7 @@ impl Session {
 	}
 
 	fn checkin_read_dependencies_xattr(path: &Path) -> tg::Result<Option<Vec<tg::Reference>>> {
-		tg::file::xattrs::read_dependencies(path)
+		tg::file::xattrs::read_dependencies_for_checkin(path)
 	}
 
 	pub(super) fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::Tokens> {

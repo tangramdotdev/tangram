@@ -15,23 +15,41 @@ let readSharded = async (
 	name: string,
 ): Promise<Uint8Array | null> => {
 	let value = await tg.host.getxattr(path, name);
-	if (value !== null) {
+	let prefix = `${name}.`;
+	let names = await tg.host.listxattr(path);
+	let indices = new Map<number, string>();
+	for (let name of names) {
+		if (!name.startsWith(prefix)) {
+			continue;
+		}
+		let suffix = name.slice(prefix.length);
+		let index = Number(suffix);
+		if (!Number.isSafeInteger(index) || index < 0 || suffix !== String(index)) {
+			throw new Error("invalid xattr shard name");
+		}
+		indices.set(index, name);
+	}
+	if (indices.size === 0) {
 		return value;
+	}
+	if (value !== null) {
+		throw new Error("found both unsharded and sharded xattrs");
 	}
 
 	// Read the numbered shards in order before decoding the value.
 	let shards: Array<Uint8Array> = [];
 	let size = 0;
-	for (let index = 0; ; index++) {
-		let shard = await tg.host.getxattr(path, `${name}.${index}`);
+	let entries = [...indices.entries()].sort(([a], [b]) => a - b);
+	for (let [expected, [index, name]] of entries.entries()) {
+		if (index !== expected) {
+			throw new Error("found a gap in the xattr shards");
+		}
+		let shard = await tg.host.getxattr(path, name);
 		if (shard === null) {
-			break;
+			throw new Error("an xattr shard disappeared");
 		}
 		shards.push(shard);
 		size += shard.length;
-	}
-	if (shards.length === 0) {
-		return null;
 	}
 	let output = new Uint8Array(size);
 	let offset = 0;

@@ -180,6 +180,17 @@ impl Host {
 		Ok(bytes.map(Bytes::from))
 	}
 
+	pub async fn listxattr(&self, path: String) -> tg::Result<Vec<String>> {
+		let names = tokio::task::spawn_blocking(move || {
+			xattr::list(&path)
+				.map(|names| names.filter_map(|name| name.into_string().ok()).collect())
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "the xattr task panicked"))?
+		.map_err(|error| tg::error!(!error, "failed to list the xattrs"))?;
+		Ok(names)
+	}
+
 	pub fn is_tty(fd: i32) -> bool {
 		tangram_util::tty::is_tty(fd)
 	}

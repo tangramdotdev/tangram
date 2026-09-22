@@ -282,6 +282,26 @@ fn named_metadata() {
 }
 
 #[test]
+fn dependency_symlink_behavior() {
+	let temp = Temp::new().unwrap();
+	std::fs::write(&temp, "file").unwrap();
+	let link = Temp::new().unwrap();
+	symlink(&temp, &link).unwrap();
+	let references = vec!["./dependency".parse().unwrap()];
+	let options = Options { max_value_size: 4 };
+	write_dependencies(&link, &references, options).unwrap();
+	assert_eq!(read_dependencies(&link).unwrap(), Some(references.clone()));
+	assert_eq!(
+		read_dependencies_for_checkin(&temp).unwrap(),
+		Some(references)
+	);
+	assert_eq!(read_dependencies_for_checkin(&link).unwrap(), None);
+	let missing = Temp::new().unwrap();
+	assert!(read_dependencies(&missing).is_err());
+	assert_eq!(read_dependencies_for_checkin(&missing).unwrap(), None);
+}
+
+#[test]
 fn named_process_metadata() {
 	let temp = Temp::new().unwrap();
 	std::fs::write(&temp, "file").unwrap();

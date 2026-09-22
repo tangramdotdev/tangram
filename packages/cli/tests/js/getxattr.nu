@@ -12,6 +12,11 @@ let input = artifact (file --xattrs {
 let path = artifact {
 	tangram.ts: '
 		export default async function (path: string) {
+			const names = await tg.host.listxattr(path);
+			for (const name of ["user.tangram.output.0", "user.tangram.output.1", "user.tangram.error", "user.tangram.error.invalid"]) {
+				tg.assert(names.includes(name));
+			}
+			tg.assert(!names.includes("user.tangram.output"));
 			tg.assert(await tg.host.getxattr(path, "user.tangram.output") === null);
 			const shard = await tg.host.getxattr(path, "user.tangram.output.0");
 			tg.assert(shard !== null && tg.encoding.utf8.decode(shard) === "first");
