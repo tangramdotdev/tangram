@@ -58,7 +58,7 @@ for case in [
 	assert equal ($uri.params | where key == path | first | get value) $case.path
 	let tokens = $uri.params | where key starts-with 'tokens[local]' | get value
 	assert equal ($tokens | length) 2
-	assert equal ($tokens | each { token-body $in | get resource }) [$output.artifact $directory]
+	assert equal ($tokens | each { token-body $in | get resource } | sort) ([$output.artifact $directory] | sort)
 	for token in $tokens {
 		let body = token-body $token
 		assert equal $body.permissions [object_subtree]

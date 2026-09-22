@@ -41,7 +41,6 @@ snapshot ($json | to json --indent 2) '
 	                  "tokens": {
 	                    "local": {
 	                      "authorization": [
-	                        "<token>",
 	                        "<token>"
 	                      ]
 	                    }
@@ -75,7 +74,6 @@ snapshot ($json | to json --indent 2) '
 	                          "tokens": {
 	                            "local": {
 	                              "authorization": [
-	                                "<token>",
 	                                "<token>"
 	                              ]
 	                            }

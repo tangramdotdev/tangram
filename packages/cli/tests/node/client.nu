@@ -59,10 +59,9 @@ let output = node --input-type=module -e '
 	const xattrs = process.argv[1];
 	assert.equal(await tg.host.getxattr(xattrs, "user.missing"), null);
 	assert.equal((await tg.host.getxattr(xattrs, "user.example"))?.length, 0);
-	assert.deepEqual(
-		JSON.parse(new TextDecoder().decode(await tg.host.getxattr(xattrs, "user.tangram.output"))),
-		{ PATH: "bin" },
-	);
+	assert.equal(await tg.host.getxattr(xattrs, "user.tangram.output"), null);
+	assert.equal(new TextDecoder().decode(await tg.host.getxattr(xattrs, "user.tangram.output.0")), "{\"PATH\":");
+	assert.equal(new TextDecoder().decode(await tg.host.getxattr(xattrs, "user.tangram.output.1")), "\"bin\"}");
 
 	const response = await tg.client.send(
 		new tg.Request({ method: "GET", uri: "/health" }),

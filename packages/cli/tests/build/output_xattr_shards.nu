@@ -33,6 +33,7 @@ let path = artifact {
 				env[name] = await tg.Mutation.prefix(tg.Template.join(":", ...directories.map((directory) => tg`${directory}/${suffix}`)), ":");
 			}
 			// Exceed the 64 KiB limit even on tmpfs.
+			env.PADDING = "x".repeat(70_000);
 			tg.assert(tg.encoding.utf8.encode(tg.Value.print(env)).length > 65_536);
 			return env;
 		}
