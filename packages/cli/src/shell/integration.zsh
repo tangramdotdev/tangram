@@ -1,16 +1,14 @@
 _tg_shell_eval() {
-	local output_path exit_code
-	output_path="$(mktemp)" || return $?
-	command tangram "$@" >"$output_path"
+	local output exit_code
+	output="$(command tangram "$@")"
 	exit_code="$?"
 	if [[ "$exit_code" -ne 0 ]]; then
-		rm -f "$output_path"
 		return "$exit_code"
 	fi
-	if [[ -s "$output_path" ]]; then
-		source "$output_path"
+	if [[ -n "$output" ]]; then
+		eval "$output"
 	fi
-	rm -f "$output_path"
+	return 0
 }
 
 _tg_shell_activate() {

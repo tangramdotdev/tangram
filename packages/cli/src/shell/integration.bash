@@ -1,16 +1,14 @@
 _tg_shell_eval() {
-	local output_path status
-	output_path="$(mktemp)" || return $?
-	command tangram "$@" >"$output_path"
+	local output status
+	output="$(command tangram "$@")"
 	status="$?"
 	if [[ "$status" -ne 0 ]]; then
-		rm -f "$output_path"
 		return "$status"
 	fi
-	if [[ -s "$output_path" ]]; then
-		source "$output_path"
+	if [[ -n "$output" ]]; then
+		eval "$output"
 	fi
-	rm -f "$output_path"
+	return 0
 }
 
 _tg_shell_activate() {

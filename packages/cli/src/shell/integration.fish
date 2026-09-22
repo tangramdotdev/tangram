@@ -1,15 +1,13 @@
 function __tg_shell_eval
-	set -l output_path (command mktemp)
-	command tangram $argv >$output_path
+	set -l output (command tangram $argv)
 	set -l status_code $status
 	if test $status_code -ne 0
-		rm -f $output_path
 		return $status_code
 	end
-	if test -s $output_path
-		source $output_path
+	if test (count $output) -gt 0
+		string join \n $output | source
 	end
-	rm -f $output_path
+	return 0
 end
 
 function __tg_shell_activate

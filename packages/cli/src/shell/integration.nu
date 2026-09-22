@@ -18,22 +18,15 @@ def --env __tg_shell_apply [output] {
 	}
 }
 
-def __tg_shell_output_path [] {
-	let directory = ($env | get -o TMPDIR | default $nu.temp-dir)
-	let name = $"tg-shell-((random uuid))"
-	$directory | path join $name
-}
-
 def --env __tg_shell_eval [...argv] {
-	let output_path = (__tg_shell_output_path)
-	'' | save --force --raw $output_path
-	^tangram ...$argv o> $output_path
-	if $env.LAST_EXIT_CODE != 0 {
-		rm --force $output_path
+	let result = (^tangram ...$argv | complete)
+	if not ($result.stderr | is-empty) {
+		print --no-newline --raw --stderr $result.stderr
+	}
+	if $result.exit_code != 0 {
 		return
 	}
-	let output = (open --raw $output_path)
-	rm --force $output_path
+	let output = $result.stdout
 	if ($output | str length) == 0 {
 		return
 	}
