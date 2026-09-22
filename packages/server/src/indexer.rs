@@ -424,7 +424,12 @@ impl Server {
 		let wait_task = SharedTask::spawn({
 			let indexer = indexer.clone();
 			let state = state.clone();
-			move |stopper| async move { indexer.wait_task(&state, wait_receiver, stopper).await }
+			let changed = changed.clone();
+			move |stopper| async move {
+				indexer
+					.wait_task(&state, &changed, wait_receiver, stopper)
+					.await
+			}
 		});
 
 		// Spawn the request task.
