@@ -1,5 +1,5 @@
 import * as tg from "../../index.ts";
-import { Request, Uri, percentEncode } from "../../http.ts";
+import { Request, percentEncode } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export namespace Cancel {
@@ -31,17 +31,14 @@ export async function tryCancelProcess(
 	arg: tg.Process.Cancel.Arg,
 ): Promise<tg.Process.Cancel.Output | null> {
 	let method = "POST";
-	let uri = new Uri({
-		path: `/processes/${percentEncode(id)}/cancel`,
-		query: {
-			lease: arg.lease,
-			location:
-				arg.location === undefined || arg.location === null
-					? null
-					: tg.Location.Arg.toDataString(arg.location),
-		},
+	let uri = `/processes/${percentEncode(id)}/cancel`;
+	let request = new Request({ method, uri }).arg({
+		lease: arg.lease,
+		location:
+			arg.location === undefined || arg.location === null
+				? null
+				: tg.Location.Arg.toDataString(arg.location),
 	});
-	let request = new Request({ method, uri });
 	let response = await client.sendWithRetry(request);
 	if (response.status === 404) {
 		return null;

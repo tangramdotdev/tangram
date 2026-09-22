@@ -1,5 +1,5 @@
 import * as tg from "../../index.ts";
-import { Body, Request, Uri, percentEncode } from "../../http.ts";
+import { Body, Request, percentEncode } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export async function putObject(
@@ -8,19 +8,7 @@ export async function putObject(
 	arg: tg.Object.Put.Arg,
 ): Promise<tg.Object.Put.Output> {
 	let method = "PUT";
-	let uri = new Uri({
-		path: `/objects/${percentEncode(id)}`,
-		query: {
-			children:
-				arg.children?.map((child) =>
-					tg.Referent.toDataString(child, (id) => id),
-				) ?? null,
-			location:
-				arg.location === undefined || arg.location === null
-					? null
-					: tg.Location.Arg.toDataString(arg.location),
-		},
-	});
+	let uri = `/objects/${percentEncode(id)}`;
 	let headers = {
 		accept: "application/json",
 		"content-type": "application/json",
@@ -31,6 +19,15 @@ export async function putObject(
 		method,
 		uri,
 		headers,
+	}).arg({
+		children:
+			arg.children?.map((child) =>
+				tg.Referent.toDataString(child, (id) => id),
+			) ?? [],
+		location:
+			arg.location === undefined || arg.location === null
+				? null
+				: tg.Location.Arg.toDataString(arg.location),
 	});
 	let response = await client.sendWithRetry(request);
 	if (response.status < 200 || response.status >= 300) {

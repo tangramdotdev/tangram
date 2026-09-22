@@ -1,5 +1,5 @@
 import * as tg from "../../index.ts";
-import { Request, Uri, percentEncode } from "../../http.ts";
+import { Request, percentEncode } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
 export namespace Wait {
@@ -64,16 +64,7 @@ async function waitProcessOnce(
 	arg: tg.Process.Wait.Arg,
 ): Promise<tg.Process.Wait | null> {
 	let method = "POST";
-	let uri = new Uri({
-		path: `/processes/${percentEncode(id)}/wait`,
-		query: {
-			...arg,
-			location:
-				arg.location === undefined || arg.location === null
-					? null
-					: tg.Location.Arg.toDataString(arg.location),
-		},
-	});
+	let uri = `/processes/${percentEncode(id)}/wait`;
 	let headers = {
 		accept: "text/event-stream",
 	};
@@ -81,6 +72,13 @@ async function waitProcessOnce(
 		method,
 		uri,
 		headers,
+	}).arg({
+		...arg,
+		location:
+			arg.location === undefined || arg.location === null
+				? null
+				: tg.Location.Arg.toDataString(arg.location),
+		tokens: arg.tokens ?? {},
 	});
 	let response = await client.sendWithRetry(request);
 	if (response.status === 404) {
