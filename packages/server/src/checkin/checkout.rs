@@ -125,6 +125,16 @@ impl Session {
 		let id = node.id.as_ref().unwrap();
 		let src = node.path.as_ref().unwrap();
 		let dst = self.server.checkout_path().join(id.to_string());
+
+		// Write the file tokens before publishing the checkout.
+		tokio::task::spawn_blocking({
+			let session = self.clone();
+			let graph = graph.clone();
+			let root = root.to_owned();
+			move || session.checkin_checkout_destructive_xattrs(&graph, &root, &root)
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "the destructive checkin xattr task panicked"))??;
 		if id.is_directory() {
 			let permissions = std::fs::Permissions::from_mode(0o755);
 			std::fs::set_permissions(src, permissions).map_err(
@@ -148,7 +158,8 @@ impl Session {
 				false
 			},
 			Err(error) if error.raw_os_error() == Some(libc::EXDEV) => {
-				self.checkin_checkout_destructive_copy(src, &dst).await?
+				self.checkin_checkout_destructive_copy(graph, src, &dst)
+					.await?
 			},
 			Err(error)
 				if matches!(
@@ -181,13 +192,91 @@ impl Session {
 		Ok(())
 	}
 
-	async fn checkin_checkout_destructive_copy(&self, src: &Path, dst: &Path) -> tg::Result<bool> {
+	fn checkin_checkout_destructive_xattrs(
+		&self,
+		graph: &Graph,
+		root: &Path,
+		checkout: &Path,
+	) -> tg::Result<()> {
+		let capabilities = xattrs::internal_capabilities(&self.server)?;
+		for node in graph.nodes.values() {
+			let Variant::File(file) = &node.variant else {
+				continue;
+			};
+			let Some(path) = &node.path else {
+				continue;
+			};
+			let Ok(path) = path.strip_prefix(root) else {
+				continue;
+			};
+			let path = if path.as_os_str().is_empty() {
+				checkout.to_owned()
+			} else {
+				checkout.join(path)
+			};
+
+			// Match the permissions established by checkin for this object.
+			let id = node.id.as_ref().unwrap();
+			let permission = if graph
+				.object_permissions(id)
+				.contains(tg::authorization::permission::object::Set::SUBTREE)
+			{
+				tg::authorization::permission::object::Permission::Subtree
+			} else {
+				tg::authorization::permission::object::Permission::Node
+			};
+			let token = self.create_token(
+				id.clone().into(),
+				vec![tg::authorization::Permission::Object(permission)],
+				i64::MAX,
+			)?;
+			let references = file.dependencies.keys().cloned().collect::<Vec<_>>();
+			let arg = tg::file::xattrs::Arg {
+				dependencies: (!references.is_empty()).then_some(references.as_slice()),
+				required: &[],
+				token: token.as_ref(),
+			};
+
+			// Restore the read-only permissions even if writing the xattrs fails.
+			let metadata = std::fs::symlink_metadata(&path).map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to get the metadata"),
+			)?;
+			let permissions =
+				std::fs::Permissions::from_mode(metadata.permissions().mode() | 0o200);
+			std::fs::set_permissions(&path, permissions).map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to set permissions"),
+			)?;
+			let result = tg::file::xattrs::write(&path, arg, capabilities);
+			std::fs::set_permissions(&path, metadata.permissions()).map_err(
+				|error| tg::error!(!error, path = %path.display(), "failed to restore permissions"),
+			)?;
+			result?;
+		}
+
+		Ok(())
+	}
+
+	async fn checkin_checkout_destructive_copy(
+		&self,
+		graph: &Graph,
+		src: &Path,
+		dst: &Path,
+	) -> tg::Result<bool> {
+		let session = self.clone();
+		let graph = graph.clone();
 		let src = src.to_owned();
 		let dst = dst.to_owned();
 		let temp = Temp::new(&self.server);
 		let temp_path = temp.path().to_owned();
 		tokio::task::spawn_blocking(move || {
 			Self::checkin_checkout_destructive_copy_inner(&src, &temp_path)?;
+			session.checkin_checkout_destructive_xattrs(&graph, &src, &temp_path)?;
+			if temp_path.is_dir() {
+				let permissions = std::fs::Permissions::from_mode(0o755);
+				std::fs::set_permissions(&temp_path, permissions).map_err(
+					|error| tg::error!(!error, path = %temp_path.display(), "failed to set permissions"),
+				)?;
+			}
 			let done = match tangram_util::fs::rename_noreplace_sync(&temp_path, &dst) {
 				Ok(()) => false,
 				Err(error)
