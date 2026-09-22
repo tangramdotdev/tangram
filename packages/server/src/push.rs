@@ -187,7 +187,7 @@ impl Session {
 			},
 		};
 
-		// Select the source tokens for the sync protocol.
+		// Preserve the destination's local tokens alongside the source tokens for the sync protocol.
 		let get = get
 			.into_iter()
 			.map(|mut node| {
@@ -195,7 +195,7 @@ impl Session {
 				node.options.tokens = if destination.is_remote() {
 					tokens.for_location(&destination)
 				} else {
-					let mut relay = tg::Tokens::default();
+					let mut relay = tg::Tokens::with_local(tokens.local().cloned());
 					if let Some(entry) = tokens.get(&source) {
 						relay.set(source.clone(), entry.clone());
 					}

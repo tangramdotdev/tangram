@@ -73,6 +73,7 @@ pub struct Output {
 	pub nodes: Vec<tg::Referent<tg::Id>>,
 
 	pub skipped: Amounts,
+
 	pub transferred: Amounts,
 }
 
