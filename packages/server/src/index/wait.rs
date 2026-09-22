@@ -70,10 +70,26 @@ impl Server {
 		let mut interval = tokio::time::interval(self.config.indexer.request.poll_interval);
 		interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
-			// Wake on new requests, indexer completion, index changes, or the fallback tick.
+			// Register before reading progress so changes during the reads wake the next pass.
 			let changed = self.index_changed.notified();
 			tokio::pin!(changed);
 			changed.as_mut().enable();
+
+			// Advance every request as far as the current index state allows.
+			if !state.waits.is_empty() {
+				state.remove_closed();
+				let server = self.clone();
+				state.start_indexer_wait(async move { server.wait_for_indexers().await });
+				let result = tokio::select! {
+					() = stopper.wait() => return,
+					result = state.poll(self) => result,
+				};
+				if let Err(error) = result {
+					state.fail(&error);
+				}
+			}
+
+			// Wake on new requests, indexer completion, index changes, or the fallback tick.
 			tokio::select! {
 				() = stopper.wait() => return,
 				request = receiver.recv(), if state.waits.len() < self.config.indexer.request.wait_concurrency => {
@@ -85,21 +101,6 @@ impl Server {
 				},
 				() = &mut changed, if !state.waits.is_empty() => {},
 				_ = interval.tick(), if !state.waits.is_empty() => {},
-			}
-			if state.waits.is_empty() {
-				continue;
-			}
-
-			// Advance every request as far as the current index state allows.
-			state.remove_closed();
-			let server = self.clone();
-			state.start_indexer_wait(async move { server.wait_for_indexers().await });
-			let result = tokio::select! {
-				() = stopper.wait() => return,
-				result = state.poll(self) => result,
-			};
-			if let Err(error) = result {
-				state.fail(&error);
 			}
 		}
 	}

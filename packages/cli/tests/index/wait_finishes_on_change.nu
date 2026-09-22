@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # A wait that finds an index write pending must finish as soon as that write lands, without waiting for the poll interval.
 let server = server spawn --config {

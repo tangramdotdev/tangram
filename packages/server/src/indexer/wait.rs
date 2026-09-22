@@ -70,10 +70,33 @@ impl Indexer {
 		let mut interval = tokio::time::interval(self.server.config.indexer.request.poll_interval);
 		interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
-			// Wake on new requests, task wait completion, queue changes, or the fallback tick.
+			// Register before reading progress so changes during the reads wake the next pass.
 			let notified = changed.notified();
 			tokio::pin!(notified);
 			notified.as_mut().enable();
+
+			// Advance every request as far as the current queue state allows.
+			state.waits.retain(|_, request| !request.sender.is_closed());
+			if !state
+				.waits
+				.values()
+				.any(|request| matches!(request.state, RequestState::TasksPending))
+			{
+				state.task_waits.clear();
+			}
+			if !state.waits.is_empty() {
+				state.start_task_wait(&self.server);
+				let (read, target) = {
+					let state = queues.lock().unwrap();
+					(
+						state.queues.read_sequences(),
+						state.queues.target_sequences(),
+					)
+				};
+				state.poll_queues(self.server.config.advanced.single_process, read, target);
+			}
+
+			// Wake on new requests, task wait completion, queue changes, or the fallback tick.
 			tokio::select! {
 				() = stopper.wait() => return Ok(()),
 				request = receiver.recv(), if state.waits.len() < self.server.config.indexer.request.wait_concurrency => {
@@ -86,25 +109,6 @@ impl Indexer {
 				() = &mut notified, if !state.waits.is_empty() => {},
 				_ = interval.tick(), if !state.waits.is_empty() => {},
 			}
-			if state.waits.is_empty() {
-				continue;
-			}
-
-			// Advance every request as far as the current queue state allows.
-			state.waits.retain(|_, request| !request.sender.is_closed());
-			if !state
-				.waits
-				.values()
-				.any(|request| matches!(request.state, RequestState::TasksPending))
-			{
-				state.task_waits.clear();
-			}
-			state.start_task_wait(&self.server);
-			let (read, target) = {
-				let state = queues.lock().unwrap();
-				(state.queues.read_sequences(), state.queues.target_sequences())
-			};
-			state.poll_queues(self.server.config.advanced.single_process, read, target);
 		}
 	}
 }
