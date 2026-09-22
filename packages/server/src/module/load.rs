@@ -120,8 +120,12 @@ impl Session {
 							formatdoc!(
 								r#"
 										// @ts-nocheck
-										const object = tg.{class}.withPointer(tg.Graph.Pointer.fromDataString("{pointer}"));
+										const pointer = tg.Graph.Pointer.fromDataString("{pointer}");
+										const object = tg.{class}.withPointer(pointer);
 										{inherit_tokens}
+										if (pointer.graph) {{
+											tg.Object.inheritTokens(pointer.graph, object.state.tokens);
+										}}
 										export default object as tg.{class};
 									"#
 							)
