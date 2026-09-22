@@ -44,6 +44,24 @@ impl Index {
 
 		// Walk the authorized portion of the locally indexed object graph.
 		while !objects.is_empty() {
+			// Use the supplied subtree permissions before searching the index.
+			objects.retain(|object| {
+				if !root_permissions
+					.get(object)
+					.is_some_and(|permissions| permissions.contains(subtree))
+				{
+					return true;
+				}
+				grants.insert(
+					object.clone(),
+					tg::authorization::permission::object::Permission::Subtree,
+				);
+				false
+			});
+			if objects.is_empty() {
+				break;
+			}
+
 			let authorize_args = objects
 				.iter()
 				.cloned()
@@ -78,17 +96,16 @@ impl Index {
 						));
 					},
 				};
-				let root_permissions = root_permissions
+				let proven_permissions = root_permissions
 					.get(&object)
 					.copied()
 					.unwrap_or_else(|| requested.empty_like());
-				let permission = if root_permissions.contains(subtree)
-					|| authorization
-						.as_ref()
-						.is_some_and(|authorization| authorization.permissions.contains(subtree))
+				let permission = if authorization
+					.as_ref()
+					.is_some_and(|authorization| authorization.permissions.contains(subtree))
 				{
 					tg::authorization::permission::object::Permission::Subtree
-				} else if root_permissions.contains(node)
+				} else if proven_permissions.contains(node)
 					|| authorization
 						.as_ref()
 						.is_some_and(|authorization| authorization.permissions.contains(node))
