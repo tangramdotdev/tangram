@@ -2,6 +2,10 @@
 
 Tangram is a build system and package manager that makes builds and tests fast and reliable.
 
+## Git
+
+Work in the current checkout. Do not create additional Git worktrees.
+
 ## Checking
 
 Run `bun run check` to check changes for errors. Never use `cargo clippy --package` or `cargo check --package` as they do not check all crates. Always use `bun run check` which runs clippy on the entire workspace. Clear clippy warnings when you complete tasks.
