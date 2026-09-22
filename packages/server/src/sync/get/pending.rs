@@ -167,7 +167,11 @@ impl Session {
 				else {
 					return Err(tg::error!("expected process permissions"));
 				};
-				let request = tg::sync::control::ClientRequestArg::process(id.clone(), permissions);
+				let request = tg::sync::control::ClientRequestArg::process(
+					id.clone(),
+					permissions,
+					Some(tg::process::Storage::default()),
+				);
 				self.try_get_with_sync_wait(&tokens, request, |output| {
 					let id = id.clone();
 					async move {

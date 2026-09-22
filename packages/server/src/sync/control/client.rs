@@ -32,7 +32,7 @@ pub(crate) struct Request {
 #[derive(Clone)]
 pub(crate) enum Output {
 	Pending,
-	Ready(tg::Result<protocol::GetServerResponseOutput>),
+	Ready(tg::Result<Option<protocol::GetServerResponseOutput>>),
 }
 
 struct State {
@@ -377,26 +377,9 @@ impl Server {
 						(Some(error), None, _) => Some(Err(tg::Error::try_from(error.clone())?)),
 						(
 							None,
-							Some(protocol::ServerResponseOutput::Get(
-								protocol::GetServerResponseOutput::Object(output),
-							)),
-							protocol::ClientRequestArg::Get(protocol::GetClientRequestArg::Object(
-								_,
-							)),
-						) => Some(Ok(protocol::GetServerResponseOutput::Object(
-							output.clone(),
-						))),
-						(
-							None,
-							Some(protocol::ServerResponseOutput::Get(
-								protocol::GetServerResponseOutput::Process(output),
-							)),
-							protocol::ClientRequestArg::Get(
-								protocol::GetClientRequestArg::Process(_),
-							),
-						) => Some(Ok(protocol::GetServerResponseOutput::Process(
-							output.clone(),
-						))),
+							Some(protocol::ServerResponseOutput::Get(output)),
+							protocol::ClientRequestArg::Get(arg),
+						) if output.as_ref().is_none_or(|output| output.satisfies(arg)) => Some(Ok(output.clone())),
 						_ => None,
 					};
 					if let Some(result) = result {

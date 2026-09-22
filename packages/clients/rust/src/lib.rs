@@ -15,6 +15,7 @@ mod session;
 pub use {
 	self::{
 		artifact::Handle as Artifact,
+		availability::Availability,
 		blob::Handle as Blob,
 		builtin::{ArchiveFormat, CompressionFormat, DownloadMode, DownloadOptions},
 		checkin::checkin,
@@ -44,6 +45,7 @@ pub use {
 		selector::Selector,
 		session::Session,
 		specifier::Specifier,
+		storage::Storage,
 		symlink::Handle as Symlink,
 		tag::Handle as Tag,
 		template::Handle as Template,
@@ -57,6 +59,7 @@ pub(crate) use self::handle::handle;
 
 pub mod artifact;
 pub mod authorization;
+pub mod availability;
 pub mod blob;
 pub mod builtin;
 pub mod bytes;
@@ -111,6 +114,7 @@ pub mod sandbox;
 pub mod scheduler;
 pub mod selector;
 pub mod specifier;
+pub mod storage;
 pub mod store;
 pub mod symlink;
 pub mod sync;

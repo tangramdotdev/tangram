@@ -13,11 +13,13 @@ impl Graph {
 			return;
 		}
 		if matches!(parent, Parent::Node(_)) {
+			self.queue_local(child);
 			return;
 		}
 
 		// Account for facts already published by the child; pending changes will follow through the queue.
 		let facts = Self::published_local_facts(node);
+		self.queue_local(child);
 		self.update_local_dependency(parent, None, &facts);
 		let permissions = self
 			.nodes
@@ -154,8 +156,12 @@ impl Graph {
 	}
 
 	pub(super) fn propagate_local(&mut self) {
+		let mut changed = std::collections::BTreeSet::new();
 		while let Some(index) = self.local_queue.pop_front() {
 			self.local_queued.remove(&index);
+			if self.control.is_some() {
+				changed.insert(self.nodes.get_index(index).unwrap().0.clone());
+			}
 			let node = self.nodes.get_index_mut(index).unwrap().1;
 			let old = Self::published_local_facts(node);
 			Self::compute_local_state(node);
@@ -202,6 +208,18 @@ impl Graph {
 			}
 			self.update_local_end(index);
 		}
+		if let Some(control) = self
+			.control
+			.as_ref()
+			.and_then(tokio::sync::mpsc::WeakUnboundedSender::upgrade)
+			&& !changed.is_empty()
+		{
+			control
+				.send(super::super::control::Event::Nodes(
+					changed.into_iter().collect(),
+				))
+				.ok();
+		}
 	}
 
 	fn compute_local_state(node: &mut Node) {
@@ -209,8 +227,21 @@ impl Graph {
 			Node::Object(node) => {
 				let children = node.state.dependencies.facts();
 				if node.children.is_some() {
-					if node.marked || node.local_storage.is_some() {
-						node.local_storage.get_or_insert_default().subtree |= children.storage;
+					if let Some(storage) = &mut node.local_storage {
+						storage.subtree |= children.storage;
+					}
+					if children.permissions
+						&& node.local_permissions.is_some_and(|permissions| {
+							permissions.contains(tg::authorization::permission::Set::Object(
+								tg::authorization::permission::object::Set::NODE,
+							))
+						}) {
+						Self::merge_local_permissions(
+							&mut node.local_permissions,
+							tg::authorization::permission::Set::Object(
+								tg::authorization::permission::object::Set::SUBTREE,
+							),
+						);
 					}
 					if let Some(metadata) = &mut node.metadata {
 						let subtree = tg::object::metadata::Subtree {
@@ -232,12 +263,7 @@ impl Graph {
 				let availability = Self::compute_object_availability(
 					node.local_storage.as_ref(),
 					node.local_permissions,
-				) || (node.children.is_some()
-					&& children.availability
-					&& node
-						.local_storage
-						.as_ref()
-						.is_some_and(|storage| storage.subtree));
+				);
 				node.local_availability.get_or_insert_default().subtree |= availability;
 			},
 			Node::Process(node) => {
@@ -269,21 +295,47 @@ impl Graph {
 						subtree_log: children_known && subtree_objects.log.storage,
 						subtree_output: children_known && subtree_objects.output.storage,
 					};
-					node.local_storage.get_or_insert_default().merge(&storage);
-					let availability = tg::process::Availability {
-						node_command: objects.command.availability,
-						node_error: objects.error.availability,
-						node_log: objects.log.availability,
-						node_output: objects.output.availability,
-						subtree: children_known && children.availability,
-						subtree_command: children_known && subtree_objects.command.availability,
-						subtree_error: children_known && subtree_objects.error.availability,
-						subtree_log: children_known && subtree_objects.log.availability,
-						subtree_output: children_known && subtree_objects.output.availability,
-					};
-					node.local_availability
-						.get_or_insert_default()
-						.merge(&availability);
+					if let Some(local_storage) = &mut node.local_storage {
+						local_storage.merge(&storage);
+					}
+					if Self::contains_process_permission(
+						node.local_permissions,
+						tg::authorization::permission::process::Permission::Node,
+					) {
+						use tg::authorization::permission::process::Set;
+						let mut permissions = Set::empty();
+						for (proven, permission) in [
+							(objects.command.permissions, Set::NODE_COMMAND),
+							(objects.error.permissions, Set::NODE_ERROR),
+							(objects.log.permissions, Set::NODE_LOG),
+							(objects.output.permissions, Set::NODE_OUTPUT),
+							(children_known && children.permissions, Set::SUBTREE),
+							(
+								children_known && subtree_objects.command.permissions,
+								Set::SUBTREE_COMMAND,
+							),
+							(
+								children_known && subtree_objects.error.permissions,
+								Set::SUBTREE_ERROR,
+							),
+							(
+								children_known && subtree_objects.log.permissions,
+								Set::SUBTREE_LOG,
+							),
+							(
+								children_known && subtree_objects.output.permissions,
+								Set::SUBTREE_OUTPUT,
+							),
+						] {
+							if proven {
+								permissions.insert(permission);
+							}
+						}
+						Self::merge_local_permissions(
+							&mut node.local_permissions,
+							tg::authorization::permission::Set::Process(permissions),
+						);
+					}
 					// The process metadata aggregates numeric object facts; solvability belongs to objects.
 					let metadata = |facts: &Facts| tg::object::metadata::Subtree {
 						count: facts.metadata.count,
@@ -329,15 +381,16 @@ impl Graph {
 		match node {
 			Node::Object(node) => {
 				let facts = Facts {
-					availability: node
-						.local_availability
-						.as_ref()
-						.is_some_and(|availability| availability.subtree),
 					metadata: node
 						.metadata
 						.as_ref()
 						.map(|metadata| metadata.subtree.clone())
 						.unwrap_or_default(),
+					permissions: node.local_permissions.is_some_and(|permissions| {
+						permissions.contains(tg::authorization::permission::Set::Object(
+							tg::authorization::permission::object::Set::SUBTREE,
+						))
+					}),
 					storage: node
 						.local_storage
 						.as_ref()
@@ -346,36 +399,50 @@ impl Graph {
 				node.state.propagated = facts;
 			},
 			Node::Process(node) => {
-				let availability = node.local_availability.clone().unwrap_or_default();
 				let storage = node.local_storage.clone().unwrap_or_default();
 				let metadata = node.metadata.clone().unwrap_or_default();
 				let core = Facts {
-					availability: availability.subtree,
 					metadata: tg::object::metadata::Subtree {
 						count: metadata.subtree.count,
 						..Default::default()
 					},
+					permissions: Self::contains_process_permission(
+						node.local_permissions,
+						tg::authorization::permission::process::Permission::Subtree,
+					),
 					storage: storage.subtree,
 				};
 				let objects = Aspects {
 					command: Facts {
-						availability: availability.subtree_command,
 						metadata: metadata.subtree.command,
+						permissions: Self::contains_process_permission(
+							node.local_permissions,
+							tg::authorization::permission::process::Permission::SubtreeCommand,
+						),
 						storage: storage.subtree_command,
 					},
 					error: Facts {
-						availability: availability.subtree_error,
 						metadata: metadata.subtree.error,
+						permissions: Self::contains_process_permission(
+							node.local_permissions,
+							tg::authorization::permission::process::Permission::SubtreeError,
+						),
 						storage: storage.subtree_error,
 					},
 					log: Facts {
-						availability: availability.subtree_log,
 						metadata: metadata.subtree.log,
+						permissions: Self::contains_process_permission(
+							node.local_permissions,
+							tg::authorization::permission::process::Permission::SubtreeLog,
+						),
 						storage: storage.subtree_log,
 					},
 					output: Facts {
-						availability: availability.subtree_output,
 						metadata: metadata.subtree.output,
+						permissions: Self::contains_process_permission(
+							node.local_permissions,
+							tg::authorization::permission::process::Permission::SubtreeOutput,
+						),
 						storage: storage.subtree_output,
 					},
 				};

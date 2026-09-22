@@ -305,7 +305,8 @@ class Peer:
     def respond(self, request, error=None, stored=True):
         storage = {0: True} if stored else None
         permissions = [Variant(0), Variant(1)] if stored else []
-        output = None if error else Variant(1, Variant(request[0].value.id, {0: storage, 1: permissions}))
+        kind = 1 if request[0].value[0][2] == 8 else 0
+        output = None if error else Variant(1, Variant(kind, {0: storage, 1: permissions}) if stored else None)
         self.reply(request, Variant(1, {0: {3: error} if error else None, 1: request[2], 2: request[3], 3: output}))
 
     def cancel(self, id, lease):
@@ -320,8 +321,8 @@ class Peer:
         return self.messenger.receive(lambda path, message:
             path == f"{self.subject}.leases.{lease}.server" and message == Variant(0, {0: id, 1: lease}))
 
-    def send(self, id, node=None, lease=None, client="client"):
-        arg = Variant(0, {}) if node is None else Variant(1, Variant(0, {0: node_bytes(node)}))
+    def send(self, id, node=None, lease=None, client="client", permissions=Variant(1, [Variant(0)]), storage=Variant(0, {})):
+        arg = Variant(0, {}) if node is None else Variant(1, {0: node_bytes(node), 1: permissions, 2: storage})
         request = {0: arg, 1: client, 2: id, 3: lease}
         path = f"{self.subject}.server" if lease is None else f"{self.subject}.leases.{lease}.server"
         self.messenger.publish(path, Variant(1, request))
@@ -902,7 +903,7 @@ def test_finish(messenger):
         if cancel:
             assert first[0] is not None and first[3] is None, first
         else:
-            assert first[0] is None and first[3] == Variant(1, Variant(0, {0: None, 1: []})), first
+            assert first[0] is None and first[3] == Variant(1, None), first
         ack_watch = watch("sync.control.response_ack", id="missing", lease=lease)
         peer.acknowledge(first)
         reached("sync.control.response_ack", ack_watch)
@@ -921,6 +922,49 @@ def test_finish(messenger):
             path == f"{peer.subject}.client.client" and message.id == 1 and message.value[1] == "after-finish")
         if not cancel:
             sync.close()
+
+
+def test_requirements(messenger):
+    child = source_blob("child")
+    data = b"\x01\x00" + encode({0: [{0: node_bytes(child), 1: 5}]})
+    parent = subprocess.check_output(
+        [tangram, "--url", source_url, "put", "--bytes", "--kind", "blob"],
+        input=data,
+        timeout=15,
+    ).decode().strip()
+    blocker = missing_id(77)
+    sync = Sync({"get": f"{parent},{blocker}"})
+    peer = Peer(messenger, sync.token)
+    lease = peer.connect()
+    peer.send("node", parent, lease)
+    peer.send("permissions", parent, lease, permissions=Variant(1, [Variant(1)]), storage=None)
+    peer.send("storage", parent, lease, permissions=Variant(1, []))
+    peer.send("subtree", parent, lease, permissions=Variant(1, [Variant(1)]), storage=Variant(0, {0: True}))
+    for id in ("node", "storage", "subtree"):
+        peer.retained(id)
+    response = peer.response("permissions")
+    assert response[0] is None and response[3].value.value[0] is None, response
+    peer.acknowledge(response)
+    sync.requested(parent)
+    sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(parent), 1: data}))))
+    response = peer.response("node")
+    assert response[0] is None and response[3].value.value[0] == {}, response
+    peer.acknowledge(response)
+    response = peer.response("storage")
+    assert response[0] is None and response[3].value.value[0] == {}, response
+    peer.acknowledge(response)
+    messenger.absent(lambda path, message: path == f"{peer.subject}.client.client"
+                     and message.id == 1 and message.value[1] == "subtree")
+    sync.requested(child)
+    sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(child), 1: b"\x00child"}))))
+    response = peer.response("subtree")
+    assert response[0] is None and response[3].value.value[0] == {0: True}, response
+    peer.acknowledge(response)
+    peer.send("late", parent, lease, permissions=Variant(1, [Variant(1)]), storage=Variant(0, {0: True}))
+    response = peer.response("late")
+    assert response[0] is None and response[3].value.value[0] == {0: True}, response
+    peer.acknowledge(response)
+    sync.close()
 
 
 def test_shutdown(messenger):

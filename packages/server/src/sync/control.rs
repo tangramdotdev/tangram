@@ -12,6 +12,8 @@ use {
 };
 
 mod client;
+#[cfg(test)]
+mod tests;
 
 pub(crate) use self::client::{Client, Output};
 
@@ -21,7 +23,6 @@ pub(super) struct Control {
 }
 
 struct State {
-	arg: tg::sync::Arg,
 	clients: BTreeMap<String, String>,
 	finished: Option<(Instant, tg::Result<()>)>,
 	graph: Arc<Mutex<Graph>>,
@@ -43,7 +44,7 @@ struct Request {
 	response: Option<protocol::ServerResponse>,
 }
 
-enum Event {
+pub(super) enum Event {
 	Finish(tg::Result<()>),
 	Nodes(Vec<tg::Id>),
 }
@@ -55,40 +56,25 @@ pub(crate) struct ClientMessage(pub protocol::ClientMessage);
 pub(crate) struct ServerMessage(pub protocol::ServerMessage);
 
 impl Control {
-	pub fn nodes(&self, ids: impl IntoIterator<Item = tg::Id>) -> tg::Result<()> {
-		self.sender
-			.send(Event::Nodes(ids.into_iter().collect()))
-			.map_err(|error| tg::error!(!error, "failed to notify the sync control task"))?;
-		Ok(())
-	}
-
 	pub fn finish(&self, result: tg::Result<()>) {
 		self.sender.send(Event::Finish(result)).ok();
 	}
 }
 
 impl Session {
-	pub(super) async fn sync_control_respond_to_nodes(
-		&self,
-		state: &crate::sync::get::State,
-		ids: impl IntoIterator<Item = tg::Id>,
-	) -> tg::Result<()> {
-		if let Some(control) = &state.control {
-			control.nodes(ids)?;
-		}
-		Ok(())
-	}
-
 	pub(super) fn spawn_sync_control_task(
 		&self,
-		arg: tg::sync::Arg,
 		graph: Arc<Mutex<Graph>>,
 		token: &tg::sync::Token,
 	) -> Control {
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+		let control = Control { sender };
+		graph
+			.lock()
+			.unwrap()
+			.set_control(control.sender.downgrade());
 		let subject = subject(token);
 		let state = State {
-			arg,
 			clients: BTreeMap::new(),
 			finished: None,
 			graph,
@@ -111,7 +97,7 @@ impl Session {
 				}
 			})
 			.detach();
-		Control { sender }
+		control
 	}
 }
 
@@ -162,8 +148,11 @@ impl Server {
 							for id in ids {
 								if let Some(requests) = state.nodes.remove(&id) {
 									for (lease, request) in requests {
-										Self::sync_control_create_response(&mut state, &lease, &request, Ok(true));
-										responses.push((lease, request));
+										if Self::sync_control_create_response(&mut state, &lease, &request) {
+											responses.push((lease, request));
+										} else {
+											state.nodes.entry(id.clone()).or_default().insert((lease, request));
+										}
 									}
 								}
 							}
@@ -404,20 +393,6 @@ impl Server {
 		}
 
 		let node = request.arg.node().unwrap();
-		let protocol::ClientRequestArg::Get(arg) = &request.arg else {
-			unreachable!()
-		};
-		let carried = match arg {
-			protocol::GetClientRequestArg::Object(_) => true,
-			protocol::GetClientRequestArg::Process(process) => {
-				(!process.children || state.arg.process_children)
-					&& (!process.commands || state.arg.process_commands)
-					&& (!process.errors || state.arg.process_errors)
-					&& (!process.logs || state.arg.process_logs)
-					&& (!process.outputs || state.arg.process_outputs)
-			},
-		};
-		let stored = state.graph.lock().unwrap().is_node_stored(&node);
 		let entry = Request {
 			acknowledged_at: None,
 			arg: request.arg,
@@ -429,15 +404,8 @@ impl Server {
 			.unwrap()
 			.requests
 			.insert(id.clone(), entry);
-		if !carried {
-			self.sync_control_respond(subject, state, &lease, &id, Ok(false))
-				.await;
-		} else if stored {
-			self.sync_control_respond(subject, state, &lease, &id, Ok(true))
-				.await;
-		} else if let Some((_, result)) = &state.finished {
-			let result = result.clone().map(|()| false);
-			self.sync_control_respond(subject, state, &lease, &id, result)
+		if Self::sync_control_create_response(state, &lease, &id) {
+			self.sync_control_send_responses_inner(subject, state, vec![(lease, id)])
 				.await;
 		} else {
 			state
@@ -458,71 +426,50 @@ impl Server {
 		}
 		state.finished = Some((Instant::now(), result.clone()));
 		let requests = std::mem::take(&mut state.nodes);
-		for (node, requests) in requests {
-			let stored = state.graph.lock().unwrap().is_node_stored(&node);
+		for requests in requests.into_values() {
 			for (lease, id) in requests {
-				let result = if stored {
-					Ok(true)
-				} else {
-					result.clone().map(|()| false)
-				};
-				Self::sync_control_create_response(state, &lease, &id, result);
+				Self::sync_control_create_response(state, &lease, &id);
 			}
 		}
 		self.sync_control_send_responses(subject, state).await;
 		crate::checkpoint!(self, "sync.control.finish").await;
 	}
 
-	async fn sync_control_respond(
-		&self,
-		subject: &str,
-		state: &mut State,
-		lease: &str,
-		id: &str,
-		result: tg::Result<bool>,
-	) {
-		Self::sync_control_create_response(state, lease, id, result);
-		let entry = &state.leases[lease];
-		if let Some(response) = &entry.requests[id].response {
-			self.sync_control_publish(
-				subject,
-				&entry.client,
-				protocol::ServerMessage::Response(response.clone()),
-			)
-			.await;
-		}
-	}
-
-	fn sync_control_create_response(
-		state: &mut State,
-		lease: &str,
-		id: &str,
-		result: tg::Result<bool>,
-	) {
-		let Some(node) = state
+	fn sync_control_create_response(state: &mut State, lease: &str, id: &str) -> bool {
+		let Some(request) = state
 			.leases
 			.get(lease)
 			.and_then(|lease| lease.requests.get(id))
-			.and_then(|request| request.arg.node())
 		else {
-			return;
-		};
-		let result = result.and_then(|stored| {
-			state
-				.graph
-				.lock()
-				.unwrap()
-				.get_node_local_control_output(&node, stored)
-		});
-		let Some(entry) = state.leases.get_mut(lease) else {
-			return;
-		};
-		let Some(request) = entry.requests.get_mut(id) else {
-			return;
+			return false;
 		};
 		if request.response.is_some() {
-			return;
+			return true;
 		}
+		let protocol::ClientRequestArg::Get(arg) = &request.arg else {
+			return false;
+		};
+		let result = state
+			.graph
+			.lock()
+			.unwrap()
+			.try_get_node_local_control_output(arg);
+		let result = match result {
+			Ok(None) => {
+				let Some((_, result)) = &state.finished else {
+					return false;
+				};
+				result.clone().map(|()| None)
+			},
+			result => result,
+		};
+		let request = state
+			.leases
+			.get_mut(lease)
+			.unwrap()
+			.requests
+			.get_mut(id)
+			.unwrap();
 		let (error, output) = match result {
 			Ok(output) => (None, Some(protocol::ServerResponseOutput::Get(output))),
 			Err(error) => {
@@ -540,6 +487,7 @@ impl Server {
 			output,
 		};
 		request.response = Some(response);
+		true
 	}
 
 	async fn sync_control_send_responses(&self, subject: &str, state: &mut State) {

@@ -1,5 +1,5 @@
 use {
-	super::{Graph, Node, ObjectNode, ProcessNode, UpdateObjectLocalArg, UpdateProcessLocalArg},
+	super::{Graph, ProcessNode, UpdateObjectLocalArg, UpdateProcessLocalArg},
 	tangram_client::prelude::*,
 };
 
@@ -54,7 +54,7 @@ fn inline_command_objects_are_distinct_process_children() {
 }
 
 #[test]
-fn received_object_is_not_stored_until_marked() {
+fn received_object_is_not_stored_until_written() {
 	let id = tg::object::Id::from(tg::blob::Id::new(b"pending"));
 	let data = tg::object::Data::Blob(tg::blob::Data::Leaf(tg::blob::data::Leaf {
 		bytes: b"pending".as_slice().into(),
@@ -85,7 +85,7 @@ fn received_object_is_not_stored_until_marked() {
 		permissions: None,
 		put: None,
 		requested: None,
-		storage: None,
+		storage: Some(tg::object::Storage::default()),
 	};
 	graph.update_object_local(update);
 	assert!(graph.get_object_local_availability(&id).subtree);
@@ -298,7 +298,7 @@ fn dependency_facts_reject_revisions() {
 	}
 	for old in [
 		super::state::Facts {
-			availability: true,
+			permissions: true,
 			..Default::default()
 		},
 		super::state::Facts {
@@ -506,55 +506,6 @@ fn process_log_metadata_waits_for_compaction() {
 }
 
 #[test]
-fn object_grants_retain_proven_subtree_before_storage() {
-	let arg = tg::sync::Arg::default();
-	let mut graph = Graph::new(&arg, false);
-	let id = tg::Id::from(tg::file::Id::new(b"object"));
-	let subtree = tg::authorization::permission::Set::Object(
-		tg::authorization::permission::object::Set::SUBTREE,
-	);
-	let node = ObjectNode {
-		local_permissions: Some(subtree),
-		local_storage: Some(tangram_index::object::Storage { subtree: false }),
-		..Default::default()
-	};
-	graph.nodes.insert(id.clone(), Node::Object(node));
-	assert!(graph.try_get_node_local_grant_permissions(&id).is_none());
-	graph.nodes[&id].unwrap_object_mut().marked = true;
-	let permissions = graph.try_get_node_local_grant_permissions(&id).unwrap();
-	assert!(permissions.contains(subtree));
-	graph.nodes[&id].unwrap_object_mut().local_permissions = None;
-	let permissions = graph.try_get_node_local_grant_permissions(&id).unwrap();
-	assert!(!permissions.contains(subtree));
-}
-
-#[test]
-fn process_grants_combine_storage_and_existing_proofs() {
-	let arg = tg::sync::Arg::default();
-	let mut graph = Graph::new(&arg, false);
-	let id = tg::Id::from(tg::process::Id::new());
-	let mut proven = tg::authorization::permission::process::Set::NODE_ERROR;
-	proven.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
-	let node = ProcessNode {
-		local_availability: Some(tg::process::Availability {
-			node_log: true,
-			..Default::default()
-		}),
-		local_permissions: Some(tg::authorization::permission::Set::Process(proven)),
-		marked: true,
-		..Default::default()
-	};
-	graph.nodes.insert(id.clone(), Node::Process(node));
-	let mut expected = proven;
-	expected.insert(tg::authorization::permission::process::Set::NODE);
-	expected.insert(tg::authorization::permission::process::Set::NODE_LOG);
-	assert_eq!(
-		graph.try_get_node_local_grant_permissions(&id),
-		Some(tg::authorization::permission::Set::Process(expected))
-	);
-}
-
-#[test]
 fn object_control_updates_keep_storage_and_permissions_independent() {
 	use tg::sync::control::{GetObjectServerResponseOutput, GetServerResponseOutput};
 	let arg = tg::sync::Arg::default();
@@ -661,6 +612,327 @@ fn control_responses_preserve_storage_and_permissions_on_the_wire() {
 	}
 }
 
+#[test]
+fn control_requirements_are_independent_in_either_order() {
+	use tg::sync::control::{
+		GetClientRequestArg, GetObjectServerResponseOutput, GetServerResponseOutput,
+	};
+	for storage_first in [false, true] {
+		let config = tg::sync::Arg::default();
+		let mut graph = Graph::new(&config, false);
+		let node: tg::Id = tg::blob::Id::new(b"independent").into();
+		let permissions = tg::authorization::permission::object::Set::SUBTREE;
+		let permission_request = GetClientRequestArg {
+			node: node.clone(),
+			permissions: tg::authorization::permission::Set::Object(permissions),
+			storage: None,
+		};
+		let stored_request = GetClientRequestArg {
+			storage: Some(tg::Storage::Object(tg::object::Storage { subtree: true })),
+			..permission_request.clone()
+		};
+		let storage_only_request = GetClientRequestArg {
+			permissions: stored_request.permissions.empty_like(),
+			..stored_request.clone()
+		};
+		assert!(
+			graph
+				.try_get_node_local_control_output(&permission_request)
+				.unwrap()
+				.is_none()
+		);
+		for stored in [storage_first, !storage_first] {
+			let output = GetServerResponseOutput::Object(GetObjectServerResponseOutput {
+				permissions: if stored {
+					tg::authorization::permission::object::Set::empty()
+				} else {
+					permissions
+				},
+				storage: stored.then_some(tg::object::Storage { subtree: true }),
+			});
+			graph
+				.update_node_local_control_output(&node, &output)
+				.unwrap();
+			if stored == storage_first {
+				assert_eq!(
+					graph
+						.try_get_node_local_control_output(&storage_only_request)
+						.unwrap()
+						.is_some(),
+					stored
+				);
+				assert!(
+					graph
+						.try_get_node_local_control_output(&stored_request)
+						.unwrap()
+						.is_none()
+				);
+				assert_eq!(
+					graph
+						.try_get_node_local_control_output(&permission_request)
+						.unwrap()
+						.is_some(),
+					!stored
+				);
+				assert_eq!(
+					graph.nodes[&node]
+						.unwrap_object_ref()
+						.local_storage
+						.is_some(),
+					stored
+				);
+			}
+		}
+		assert!(
+			graph
+				.try_get_node_local_control_output(&stored_request)
+				.unwrap()
+				.is_some()
+		);
+		assert!(!graph.nodes[&node].unwrap_object_ref().marked);
+		assert!(
+			graph
+				.try_get_node_local_control_output(&storage_only_request)
+				.unwrap()
+				.is_some()
+		);
+	}
+}
+
+#[test]
+fn process_data_and_permissions_do_not_prove_storage() {
+	use tg::sync::control::GetClientRequestArg;
+	let config = tg::sync::Arg::default();
+	let mut graph = Graph::new(&config, false);
+	let id = tg::process::Id::new();
+	let command = tg::command::Id::new(b"command");
+	let data = process_data(&command, Some(&[]));
+	let permissions = tg::authorization::permission::Set::Process(
+		tg::authorization::permission::process::Set::all(),
+	);
+	let update = UpdateProcessLocalArg {
+		data: Some(&data),
+		id: &id,
+		marked: None,
+		metadata: None,
+		permissions: Some(permissions),
+		requested: None,
+		storage: None,
+	};
+	graph.update_process_local(update);
+	let request = GetClientRequestArg {
+		node: id.clone().into(),
+		permissions,
+		storage: None,
+	};
+	assert!(
+		graph
+			.try_get_node_local_control_output(&request)
+			.unwrap()
+			.is_some()
+	);
+	assert!(graph.get_process_local_storage(&id).is_none());
+	let request = GetClientRequestArg {
+		storage: Some(tg::Storage::Process(tg::process::Storage::default())),
+		..request
+	};
+	assert!(
+		graph
+			.try_get_node_local_control_output(&request)
+			.unwrap()
+			.is_none()
+	);
+	let update = UpdateProcessLocalArg {
+		data: None,
+		id: &id,
+		marked: None,
+		metadata: None,
+		permissions: None,
+		requested: None,
+		storage: Some(tg::process::Storage::default()),
+	};
+	graph.update_process_local(update);
+	assert!(
+		graph
+			.try_get_node_local_control_output(&request)
+			.unwrap()
+			.is_some()
+	);
+	let request = GetClientRequestArg {
+		storage: Some(tg::Storage::Process(tg::process::Storage {
+			node_command: true,
+			..Default::default()
+		})),
+		..request
+	};
+	assert!(
+		graph
+			.try_get_node_local_control_output(&request)
+			.unwrap()
+			.is_none()
+	);
+}
+
+#[test]
+fn permissions_aggregate_without_storage() {
+	use tg::sync::control::{
+		GetClientRequestArg, GetObjectServerResponseOutput, GetServerResponseOutput,
+	};
+	let config = tg::sync::Arg::default();
+	let mut graph = Graph::new(&config, false);
+	let parent = tg::object::Id::from(tg::blob::Id::new(b"parent"));
+	let child = tg::blob::Id::new(b"child");
+	let data = tg::object::Data::Blob(tg::blob::Data::Branch(tg::blob::data::Branch {
+		children: vec![tg::blob::data::Child {
+			blob: child.clone(),
+			length: 1,
+		}],
+	}));
+	let update = UpdateObjectLocalArg {
+		data: Some(&data),
+		id: &parent,
+		marked: None,
+		metadata: None,
+		permissions: Some(tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::NODE,
+		)),
+		put: None,
+		requested: None,
+		storage: None,
+	};
+	graph.update_object_local(update);
+	let request = GetClientRequestArg {
+		node: parent.clone().into(),
+		permissions: tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::SUBTREE,
+		),
+		storage: None,
+	};
+	assert!(
+		graph
+			.try_get_node_local_control_output(&request)
+			.unwrap()
+			.is_none()
+	);
+	let output = GetServerResponseOutput::Object(GetObjectServerResponseOutput {
+		permissions: tg::authorization::permission::object::Set::SUBTREE,
+		storage: None,
+	});
+	graph
+		.update_node_local_control_output(&child.into(), &output)
+		.unwrap();
+	assert!(
+		graph
+			.try_get_node_local_control_output(&request)
+			.unwrap()
+			.is_some()
+	);
+	assert!(
+		graph.nodes[&tg::Id::from(parent)]
+			.unwrap_object_ref()
+			.local_storage
+			.is_none()
+	);
+}
+
+#[test]
+fn process_command_permissions_aggregate_without_process_storage() {
+	use tg::authorization::permission::{Set, object, process};
+	let arg = tg::sync::Arg::default();
+	let mut graph = Graph::new(&arg, false);
+	let parent = tg::process::Id::new();
+	let child = tg::process::Id::new();
+	let command = tg::command::Id::new(b"command");
+	let data = process_data(&command, Some(std::slice::from_ref(&child)));
+	let update = UpdateProcessLocalArg {
+		data: Some(&data),
+		id: &parent,
+		marked: None,
+		metadata: None,
+		permissions: Some(Set::Process(process::Set::NODE)),
+		requested: None,
+		storage: None,
+	};
+	graph.update_process_local(update);
+	graph.update_object_local_permissions(&command.into(), Set::Object(object::Set::SUBTREE));
+	let permissions = Set::Process(process::Set::SUBTREE_COMMAND);
+	assert!(
+		!graph
+			.process_local_permissions(&parent)
+			.contains(permissions)
+	);
+	graph.update_process_local_permissions(&child, permissions);
+	assert!(
+		graph
+			.process_local_permissions(&parent)
+			.contains(permissions)
+	);
+	assert!(
+		!graph
+			.process_local_permissions(&child)
+			.contains(Set::Process(process::Set::NODE))
+	);
+	assert!(
+		!graph
+			.process_local_permissions(&parent)
+			.contains(Set::Process(process::Set::SUBTREE))
+	);
+	assert!(
+		graph.nodes[&tg::Id::from(parent)]
+			.unwrap_process_ref()
+			.local_storage()
+			.is_none()
+	);
+}
+
+#[test]
+fn control_requests_preserve_storage_variants_on_the_wire() {
+	use tg::sync::control::GetClientRequestArg;
+	let object: tg::Id = tg::blob::Id::new(b"object").into();
+	let process: tg::Id = tg::process::Id::new().into();
+	for (node, permissions, storage) in [
+		(
+			object,
+			tg::authorization::permission::Set::Object(
+				tg::authorization::permission::object::Set::NODE,
+			),
+			tg::Storage::Object(tg::object::Storage::default()),
+		),
+		(
+			process,
+			tg::authorization::permission::Set::Process(
+				tg::authorization::permission::process::Set::NODE,
+			),
+			tg::Storage::Process(tg::process::Storage::default()),
+		),
+	] {
+		for permissions in [permissions.empty_like(), permissions] {
+			for storage in [None, Some(storage.clone())] {
+				let request = GetClientRequestArg {
+					node: node.clone(),
+					permissions,
+					storage,
+				};
+				request.validate().unwrap();
+				let json = serde_json::to_value(&request).unwrap();
+				let decoded: GetClientRequestArg = serde_json::from_value(json.clone()).unwrap();
+				assert_eq!(serde_json::to_value(decoded).unwrap(), json);
+				let bytes = tangram_serialize::to_vec(&request).unwrap();
+				let decoded: GetClientRequestArg = tangram_serialize::from_slice(&bytes).unwrap();
+				assert_eq!(serde_json::to_value(decoded).unwrap(), json);
+			}
+		}
+	}
+	let request = GetClientRequestArg {
+		node: tg::blob::Id::new(b"mismatched").into(),
+		permissions: tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::NODE,
+		),
+		storage: Some(tg::Storage::Process(tg::process::Storage::default())),
+	};
+	assert!(request.validate().is_err());
+}
+
 fn permutations<const N: usize>(values: [usize; N]) -> Vec<[usize; N]> {
 	fn visit<const N: usize>(values: &mut [usize; N], index: usize, output: &mut Vec<[usize; N]>) {
 		if index == N {
@@ -725,7 +997,13 @@ fn assert_object_reference(graph: &Graph, root: &tg::object::Id, granted: bool) 
 		let permissions = graph.object_local_permissions(&id.clone().try_into().unwrap());
 		assert_eq!(
 			!permissions.is_empty(),
-			granted && reachable.contains(&index)
+			node.marked() || granted && reachable.contains(&index)
+		);
+		assert_eq!(
+			permissions.contains(tg::authorization::permission::Set::Object(
+				tg::authorization::permission::object::Set::SUBTREE,
+			)),
+			stored || granted && reachable.contains(&index)
 		);
 	}
 }
@@ -924,7 +1202,7 @@ fn update_object_data(graph: &mut Graph, id: &tg::object::Id, data: &tg::object:
 		permissions: None,
 		put: None,
 		requested: None,
-		storage: None,
+		storage: Some(tg::object::Storage::default()),
 	};
 	graph.update_object_local(update);
 }
@@ -958,7 +1236,7 @@ fn update_process(graph: &mut Graph, id: &tg::process::Id, data: &tg::process::D
 		metadata: None,
 		permissions: None,
 		requested: None,
-		storage: None,
+		storage: Some(tg::process::Storage::default()),
 	};
 	graph.update_process_local(update);
 }

@@ -87,7 +87,11 @@ impl Session {
 				if let Some(output) = self
 					.try_get_with_sync_wait(
 						tokens,
-						tg::sync::control::ClientRequestArg::object(id.clone()),
+						tg::sync::control::ClientRequestArg::object(
+							id.clone(),
+							tg::authorization::permission::object::Set::NODE,
+							Some(tg::object::Storage::default()),
+						),
 						|control| {
 							let arg = arg.clone();
 							async move {

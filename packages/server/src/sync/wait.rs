@@ -68,17 +68,17 @@ impl Session {
 					Output::Pending => true,
 					Output::Ready(result) => {
 						match result {
-							Ok(output) if output.is_stored() => {
+							Ok(Some(output)) => {
 								outputs.push(output);
 							},
-							Ok(_) => {},
+							Ok(None) => {},
 							Err(error) => tracing::trace!(%error, "a sync control request failed"),
 						}
 						false
 					},
 				});
 
-				// A stored response can precede the index, and another sync may supply a usable proof first.
+				// A control proof can precede the index, and another sync may supply a usable proof first.
 				for output in &outputs {
 					if let Some(value) = f(Some(output.clone())).await? {
 						return Ok(Some(value));

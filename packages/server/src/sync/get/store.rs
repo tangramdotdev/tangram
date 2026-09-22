@@ -203,15 +203,11 @@ impl Session {
 					permissions: None,
 					put: Some(node.put),
 					requested: None,
-					storage: node.storage.clone(),
+					storage: Some(node.storage.clone().unwrap_or_default()),
 				};
 				graph.update_object_local(arg);
 			}
 		}
-
-		// Answer the syncs waiting for the objects.
-		let ids = nodes.iter().map(|node| tg::Id::from(node.id.clone()));
-		self.sync_control_respond_to_nodes(state, ids).await?;
 
 		// Update the progress.
 		let objects = nodes
@@ -357,15 +353,11 @@ impl Session {
 					metadata,
 					permissions: None,
 					requested: None,
-					storage: None,
+					storage: Some(tg::process::Storage::default()),
 				};
 				graph.update_process_local(arg);
 			}
 		}
-
-		// Answer the syncs waiting for the processes.
-		let ids = batch.iter().map(|(id, _, _)| tg::Id::from(id.clone()));
-		self.sync_control_respond_to_nodes(state, ids).await?;
 
 		// Update the progress.
 		let processes = count.to_u64().unwrap();

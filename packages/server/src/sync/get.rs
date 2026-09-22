@@ -68,7 +68,7 @@ impl Session {
 		let control = arg
 			.token
 			.as_ref()
-			.map(|token| self.spawn_sync_control_task(arg.clone(), graph.clone(), token));
+			.map(|token| self.spawn_sync_control_task(graph.clone(), token));
 		let state = Arc::new(State {
 			arg,
 			control,
@@ -299,7 +299,7 @@ impl Session {
 		Vec<Option<tangram_index::object::Object>>,
 		Vec<Option<tg::authorization::permission::Set>>,
 	)> {
-		let mut permissions = self.sync_get_authorize_objects(graph, ids).await?;
+		let permissions = self.sync_get_authorize_objects(graph, ids).await?;
 		let mut touch_indices = Vec::new();
 		let mut touch_ids = Vec::new();
 		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
@@ -317,9 +317,6 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to touch the objects"))?;
 		let mut outputs = vec![None; ids.len()];
 		for (index, output) in std::iter::zip(touch_indices, touched) {
-			if output.is_none() {
-				permissions[index] = None;
-			}
 			outputs[index] = output;
 		}
 		Ok((outputs, permissions))
@@ -359,7 +356,7 @@ impl Session {
 		Vec<Option<tangram_index::process::Process>>,
 		Vec<Option<tg::authorization::permission::Set>>,
 	)> {
-		let mut permissions = self.sync_get_authorize_processes(graph, ids, arg).await?;
+		let permissions = self.sync_get_authorize_processes(graph, ids, arg).await?;
 		let mut touch_indices = Vec::new();
 		let mut touch_ids = Vec::new();
 		for (index, (id, permissions)) in std::iter::zip(ids, &permissions).enumerate() {
@@ -379,9 +376,6 @@ impl Session {
 		for (index, output) in std::iter::zip(touch_indices, touched) {
 			// Treat a process without data as absent.
 			let output = output.filter(|process| process.data.is_some());
-			if output.is_none() {
-				permissions[index] = None;
-			}
 			outputs[index] = output;
 		}
 		Ok((outputs, permissions))

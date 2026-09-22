@@ -18,6 +18,11 @@ pub struct Storage {
 }
 
 impl Storage {
+	#[must_use]
+	pub fn contains(&self, other: &Self) -> bool {
+		!other.subtree || self.subtree
+	}
+
 	pub fn merge(&mut self, other: &Self) {
 		self.subtree = self.subtree || other.subtree;
 	}

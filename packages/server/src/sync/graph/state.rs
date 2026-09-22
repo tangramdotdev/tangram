@@ -33,17 +33,17 @@ pub(super) struct Aspects<T> {
 /// The facts a dependency contributes to its parents.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct Facts {
-	pub availability: bool,
 	pub metadata: tg::object::metadata::Subtree,
+	pub permissions: bool,
 	pub storage: bool,
 }
 
 /// The dependencies contribute once per edge and newly known fact; known metadata is immutable, proofs only accumulate, and callers must know the complete dependency set before publishing derived metadata.
 #[derive(Clone, Debug, Default)]
 pub(super) struct Dependencies {
-	available: usize,
 	count: Field,
 	depth: Field,
+	permitted: usize,
 	size: Field,
 	solvable: Field,
 	solved: Field,
@@ -91,12 +91,12 @@ impl Dependencies {
 	}
 
 	pub fn update(&mut self, old: &Facts, new: &Facts) {
-		debug_assert!(
-			!old.availability || new.availability,
-			"availability must not regress"
-		);
 		debug_assert!(!old.storage || new.storage, "storage must not regress");
-		self.available += usize::from(!old.availability && new.availability);
+		debug_assert!(
+			!old.permissions || new.permissions,
+			"permissions must not regress"
+		);
+		self.permitted += usize::from(!old.permissions && new.permissions);
 		self.stored += usize::from(!old.storage && new.storage);
 		self.count.update(old.metadata.count, new.metadata.count);
 		self.depth.update(old.metadata.depth, new.metadata.depth);
@@ -109,7 +109,7 @@ impl Dependencies {
 			old.metadata.solved.map(u64::from),
 			new.metadata.solved.map(u64::from),
 		);
-		debug_assert!(self.available <= self.total);
+		debug_assert!(self.permitted <= self.total);
 		debug_assert!(self.stored <= self.total);
 	}
 
@@ -129,8 +129,8 @@ impl Dependencies {
 				.then_some(self.solved.sum == self.total as u64),
 		};
 		Facts {
-			availability: self.available == self.total,
 			metadata,
+			permissions: self.permitted == self.total,
 			storage: self.stored == self.total,
 		}
 	}

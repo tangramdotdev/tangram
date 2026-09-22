@@ -50,6 +50,7 @@ impl Session {
 							tg::sync::control::ClientRequestArg::process(
 								id.clone(),
 								tg::authorization::permission::process::Set::NODE,
+								Some(tg::process::Storage::default()),
 							),
 							|control| async move {
 								if let Some(tg::sync::control::GetServerResponseOutput::Process(

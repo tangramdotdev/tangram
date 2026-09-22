@@ -254,9 +254,16 @@ impl Session {
 					crate::checkpoint!(self.server, "sync.get.index.object.wait", id = %node.id)
 						.await;
 					let tokens = tg::Tokens::with_local_entry(entry.clone());
-					let request = tg::sync::control::ClientRequestArg::object(node.id.clone());
-					self.try_get_with_sync_wait(&tokens, request, |output| {
+					let request = tg::sync::control::ClientRequestArg::object(
+						node.id.clone(),
+						tg::authorization::permission::object::Set::NODE,
+						Some(tg::object::Storage::default()),
+					);
+					self.try_get_with_sync_wait(&tokens, request.clone(), |output| {
 						let id = node.id.clone();
+						let tg::sync::control::ClientRequestArg::Get(request) = &request else {
+							unreachable!();
+						};
 						async move {
 							if let Some(output) = output {
 								let mut graph = state.graph.lock().unwrap();
@@ -298,6 +305,15 @@ impl Session {
 									};
 									state.graph.lock().unwrap().update_object_local(arg);
 								}
+							}
+							if state
+								.graph
+								.lock()
+								.unwrap()
+								.try_get_node_local_control_output(request)?
+								.is_none()
+							{
+								return Ok(None);
 							}
 							let output = self.server.try_get_object_local(&id, false).await?;
 							Ok(output.map(|_| ()))
@@ -423,6 +439,10 @@ impl Session {
 		nodes: Vec<ProcessNode>,
 		retry_sender: Option<&tokio::sync::mpsc::Sender<tg::Either<ObjectNode, ProcessNode>>>,
 	) -> tg::Result<()> {
+		for node in &nodes {
+			crate::checkpoint!(self.server, "sync.get.index.process.filter", id = %node.id).await;
+		}
+
 		// Separate the available nodes. Missing nodes still need the local index as a fallback.
 		let (available_nodes, nodes): (Vec<_>, Vec<_>) = {
 			let graph = state.graph.lock().unwrap();

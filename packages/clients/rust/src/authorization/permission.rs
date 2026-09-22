@@ -55,19 +55,32 @@ pub enum Permission {
 	Eq,
 	Hash,
 	PartialEq,
-	serde_with::DeserializeFromStr,
-	serde_with::SerializeDisplay,
+	serde::Deserialize,
+	serde::Serialize,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[tangram_serialize(display, from_str)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum Set {
+	#[tangram_serialize(id = 0)]
 	Group(group::Set),
+
+	#[tangram_serialize(id = 1)]
 	Object(object::Set),
+
+	#[tangram_serialize(id = 2)]
 	Organization(organization::Set),
+
+	#[tangram_serialize(id = 3)]
 	Process(process::Set),
+
+	#[tangram_serialize(id = 4)]
 	Sandbox(sandbox::Set),
+
+	#[tangram_serialize(id = 5)]
 	Tag(tag::Set),
+
+	#[tangram_serialize(id = 6)]
 	User(user::Set),
 }
 
@@ -586,8 +599,47 @@ impl std::str::FromStr for Permission {
 
 #[cfg(test)]
 mod tests {
-	use super::{Permission, group, object, organization, process, sandbox, tag, user};
-	use crate as tg;
+	use {
+		super::{Permission, Set, group, object, organization, process, sandbox, tag, user},
+		crate as tg,
+	};
+
+	#[test]
+	fn set_serialization_preserves_empty_variants() {
+		for (permissions, kind, variant) in [
+			(Set::Group(group::Set::READ), "group", 0),
+			(Set::Object(object::Set::NODE), "object", 1),
+			(
+				Set::Organization(organization::Set::READ),
+				"organization",
+				2,
+			),
+			(Set::Process(process::Set::NODE), "process", 3),
+			(Set::Sandbox(sandbox::Set::READ), "sandbox", 4),
+			(Set::Tag(tag::Set::READ), "tag", 5),
+			(Set::User(user::Set::READ), "user", 6),
+		] {
+			for permissions in [permissions.empty_like(), permissions] {
+				let json = serde_json::to_value(permissions).unwrap();
+				assert_eq!(json["kind"], kind);
+				assert!(json["value"].is_array());
+				assert_eq!(
+					json["value"].as_array().unwrap().is_empty(),
+					permissions.is_empty()
+				);
+				assert_eq!(serde_json::from_value::<Set>(json).unwrap(), permissions);
+				let bytes = tangram_serialize::to_vec(&permissions).unwrap();
+				assert_eq!(&bytes[..2], &[11, variant]);
+				if permissions.is_empty() {
+					assert_eq!(bytes, [11, variant, 8, 0]);
+				}
+				assert_eq!(
+					tangram_serialize::from_slice::<Set>(&bytes).unwrap(),
+					permissions
+				);
+			}
+		}
+	}
 
 	#[test]
 	fn display_from_str_round_trip() {

@@ -568,7 +568,11 @@ impl Session {
 					Some(permissions) if permissions.contains(required) => Some(permissions),
 					_ => {
 						let deadline = self.sync_put_pending(state, id.clone().into()).await?;
-						let request = tg::sync::control::ClientRequestArg::object(id.clone());
+						let request = tg::sync::control::ClientRequestArg::object(
+							id.clone(),
+							tg::authorization::permission::object::Set::NODE,
+							None,
+						);
 						self.try_get_with_sync_wait_until(
 							&resource.options.tokens,
 							request,
@@ -755,12 +759,11 @@ impl Session {
 					Some(permissions) if permissions.contains(required) => Some(permissions),
 					_ => {
 						let deadline = self.sync_put_pending(state, id.clone().into()).await?;
-						let tg::authorization::permission::Set::Process(permissions) = requested
-						else {
-							return Err(tg::error!("expected process permissions"));
-						};
-						let request =
-							tg::sync::control::ClientRequestArg::process(id.clone(), permissions);
+						let request = tg::sync::control::ClientRequestArg::process(
+							id.clone(),
+							tg::authorization::permission::process::Set::NODE,
+							None,
+						);
 						self.try_get_with_sync_wait_until(
 							&resource.options.tokens,
 							request,

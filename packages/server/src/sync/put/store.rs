@@ -259,7 +259,11 @@ impl Session {
 						if let Some(output) = self
 							.try_get_with_sync_wait_until(
 								tokens,
-								tg::sync::control::ClientRequestArg::object(object.node.clone()),
+								tg::sync::control::ClientRequestArg::object(
+									object.node.clone(),
+									tg::authorization::permission::object::Set::NODE,
+									Some(tg::object::Storage::default()),
+								),
 								deadline,
 								|control| {
 									let object = object.clone();
@@ -699,13 +703,10 @@ impl Session {
 					{
 						return Ok(Some(output));
 					}
-					let tg::authorization::permission::Set::Process(requested) = *permissions
-					else {
-						return Err(tg::error!("expected process permissions"));
-					};
 					let request = tg::sync::control::ClientRequestArg::process(
 						process.node.clone(),
-						requested,
+						tg::authorization::permission::process::Set::NODE,
+						Some(tg::process::Storage::default()),
 					);
 					let tokens = &process.options.tokens;
 					let deadline = self

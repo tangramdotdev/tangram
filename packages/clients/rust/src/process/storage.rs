@@ -59,6 +59,19 @@ pub struct Storage {
 }
 
 impl Storage {
+	#[must_use]
+	pub fn contains(&self, other: &Self) -> bool {
+		(!other.node_command || self.node_command)
+			&& (!other.node_error || self.node_error)
+			&& (!other.node_log || self.node_log)
+			&& (!other.node_output || self.node_output)
+			&& (!other.subtree || self.subtree)
+			&& (!other.subtree_command || self.subtree_command)
+			&& (!other.subtree_error || self.subtree_error)
+			&& (!other.subtree_log || self.subtree_log)
+			&& (!other.subtree_output || self.subtree_output)
+	}
+
 	pub fn merge(&mut self, other: &Self) {
 		self.node_command = self.node_command || other.node_command;
 		self.node_error = self.node_error || other.node_error;

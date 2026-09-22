@@ -59,7 +59,7 @@ let object_output = job recv --tag $object_pull --timeout 10sec
 success $object_output "the available object must bypass the local index request"
 tg --url $client.url checkpoint unwatch sync.get.index.object $object_index_watch
 
-# A process with no object output becomes available as soon as its data enters the graph.
+# A process with no object output becomes available after its data is stored.
 let process = "pcs_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0"
 let process_data = {
 	children: [],
@@ -74,6 +74,16 @@ let process_data = {
 tg --url $remote.url process put $process ($process_data | to json)
 tg --url $remote.url index
 
+let process_filter_watch = (
+	tg --url $client.url checkpoint watch sync.get.index.process.filter --params ({ id: $process } | to json)
+	| from json
+	| get watch
+)
+let process_store_watch = (
+	tg --url $client.url checkpoint watch sync.get.store.process --params ({ id: $process } | to json)
+	| from json
+	| get watch
+)
 let process_index_watch = (
 	tg --url $client.url checkpoint watch sync.get.index.process --params ({ id: $process } | to json)
 	| from json
@@ -85,6 +95,12 @@ let process_pull = job spawn {
 	let output = tg --url $client.url pull $process | complete
 	$output | job send --tag $job_id 0
 }
+
+# Let the storage proof reach the graph before the index task checks availability.
+tg --url $client.url checkpoint wait sync.get.index.process.filter $process_filter_watch 0 | ignore
+tg --url $client.url checkpoint wait sync.get.store.process $process_store_watch 0 | ignore
+tg --url $client.url checkpoint unwatch sync.get.index.process.filter $process_filter_watch
+tg --url $client.url checkpoint unwatch sync.get.store.process $process_store_watch
 
 # The pull can finish only if the process bypasses the blocked local index request.
 let process_output = job recv --tag $process_pull --timeout 10sec

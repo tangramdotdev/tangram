@@ -160,7 +160,7 @@ pub struct ServerResponse {
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerResponseOutput {
 	#[tangram_serialize(id = 1)]
-	Get(GetServerResponseOutput),
+	Get(Option<GetServerResponseOutput>),
 
 	#[tangram_serialize(id = 0)]
 	Heartbeat(HeartbeatServerResponseOutput),
@@ -174,13 +174,15 @@ pub enum ServerResponseOutput {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum GetClientRequestArg {
+pub struct GetClientRequestArg {
 	#[tangram_serialize(id = 0)]
-	Object(GetObjectClientRequestArg),
+	pub node: tg::Id,
 
 	#[tangram_serialize(id = 1)]
-	Process(GetProcessClientRequestArg),
+	pub permissions: tg::authorization::permission::Set,
+
+	#[tangram_serialize(id = 2)]
+	pub storage: Option<tg::Storage>,
 }
 
 #[derive(
@@ -208,53 +210,12 @@ pub enum GetServerResponseOutput {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct GetObjectClientRequestArg {
-	#[tangram_serialize(id = 0)]
-	pub node: tg::object::Id,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
 pub struct GetObjectServerResponseOutput {
 	#[tangram_serialize(id = 1)]
 	pub permissions: tg::authorization::permission::object::Set,
 
 	#[tangram_serialize(id = 0)]
 	pub storage: Option<tg::object::Storage>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct GetProcessClientRequestArg {
-	#[tangram_serialize(id = 0)]
-	pub children: bool,
-
-	#[tangram_serialize(id = 1)]
-	pub commands: bool,
-
-	#[tangram_serialize(id = 2)]
-	pub errors: bool,
-
-	#[tangram_serialize(id = 3)]
-	pub logs: bool,
-
-	#[tangram_serialize(id = 4)]
-	pub node: tg::process::Id,
-
-	#[tangram_serialize(id = 5)]
-	pub outputs: bool,
 }
 
 #[derive(
@@ -298,52 +259,79 @@ pub struct HeartbeatServerResponseOutput {
 
 impl ClientRequestArg {
 	#[must_use]
-	pub fn object(node: tg::object::Id) -> Self {
-		Self::Get(GetClientRequestArg::Object(GetObjectClientRequestArg {
-			node,
-		}))
+	pub fn object(
+		node: tg::object::Id,
+		permissions: tg::authorization::permission::object::Set,
+		storage: Option<tg::object::Storage>,
+	) -> Self {
+		Self::Get(GetClientRequestArg {
+			node: node.into(),
+			permissions: tg::authorization::permission::Set::Object(permissions),
+			storage: storage.map(tg::Storage::Object),
+		})
 	}
 
 	#[must_use]
 	pub fn process(
 		node: tg::process::Id,
 		permissions: tg::authorization::permission::process::Set,
+		storage: Option<tg::process::Storage>,
 	) -> Self {
-		use tg::authorization::permission::process::Set;
-		let children = permissions.contains(Set::SUBTREE);
-		let commands =
-			permissions.contains(Set::NODE_COMMAND) || permissions.contains(Set::SUBTREE_COMMAND);
-		let errors =
-			permissions.contains(Set::NODE_ERROR) || permissions.contains(Set::SUBTREE_ERROR);
-		let logs = permissions.contains(Set::NODE_LOG) || permissions.contains(Set::SUBTREE_LOG);
-		let outputs =
-			permissions.contains(Set::NODE_OUTPUT) || permissions.contains(Set::SUBTREE_OUTPUT);
-		Self::Get(GetClientRequestArg::Process(GetProcessClientRequestArg {
-			children,
-			commands,
-			errors,
-			logs,
-			node,
-			outputs,
-		}))
+		Self::Get(GetClientRequestArg {
+			node: node.into(),
+			permissions: tg::authorization::permission::Set::Process(permissions),
+			storage: storage.map(tg::Storage::Process),
+		})
 	}
 
 	#[must_use]
 	pub fn node(&self) -> Option<tg::Id> {
 		match self {
-			Self::Get(GetClientRequestArg::Object(arg)) => Some(arg.node.clone().into()),
-			Self::Get(GetClientRequestArg::Process(arg)) => Some(arg.node.clone().into()),
+			Self::Get(arg) => Some(arg.node.clone()),
 			Self::Heartbeat(_) => None,
 		}
 	}
 }
 
+impl GetClientRequestArg {
+	pub fn validate(&self) -> tg::Result<()> {
+		let valid = match (&self.permissions, &self.storage) {
+			(
+				tg::authorization::permission::Set::Object(_),
+				None | Some(tg::Storage::Object(_)),
+			) => self.node.kind().is_object(),
+			(
+				tg::authorization::permission::Set::Process(_),
+				None | Some(tg::Storage::Process(_)),
+			) => self.node.kind() == tg::id::Kind::Process,
+			_ => false,
+		};
+		if !valid {
+			return Err(tg::error!(
+				"the sync request permissions or storage do not match the node"
+			));
+		}
+		Ok(())
+	}
+}
+
 impl GetServerResponseOutput {
 	#[must_use]
-	pub fn is_stored(&self) -> bool {
-		match self {
-			Self::Object(output) => output.storage.is_some(),
-			Self::Process(output) => output.storage.is_some(),
+	pub fn satisfies(&self, arg: &GetClientRequestArg) -> bool {
+		if !self.permissions().contains(arg.permissions) {
+			return false;
+		}
+		match (self, &arg.storage) {
+			(_, None) => true,
+			(Self::Object(output), Some(tg::Storage::Object(required))) => output
+				.storage
+				.as_ref()
+				.is_some_and(|storage| storage.contains(required)),
+			(Self::Process(output), Some(tg::Storage::Process(required))) => output
+				.storage
+				.as_ref()
+				.is_some_and(|storage| storage.contains(required)),
+			_ => false,
 		}
 	}
 
