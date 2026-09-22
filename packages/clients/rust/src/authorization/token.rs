@@ -142,6 +142,14 @@ impl Token {
 					.all(|permission| self.body.grants(*permission)))
 	}
 
+	#[must_use]
+	pub fn grants_subtree(&self, resource: &tg::Id) -> bool {
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		self.body.resource == *resource && self.body.grants(subtree)
+	}
+
 	pub fn sign(body: Body, private_key: &PrivateKey) -> tg::Result<Self> {
 		body.validate()?;
 		let metadata = Metadata {

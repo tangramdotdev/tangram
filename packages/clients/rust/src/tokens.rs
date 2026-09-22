@@ -282,6 +282,79 @@ mod tests {
 	}
 
 	#[test]
+	fn prunes_descendant_tokens_only_for_the_same_location() {
+		let key =
+			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+				.unwrap();
+		let local = tg::Location::Local(tg::location::Local::default());
+		let remote = tg::Location::Remote(tg::location::Remote {
+			name: "default".into(),
+			region: None,
+		});
+		let authorization = |resource| {
+			let body = tg::authorization::Body {
+				expires_at: i64::MAX,
+				permissions: vec![tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				)],
+				resource,
+			};
+			tg::authorization::Token::sign(body, &key).unwrap()
+		};
+		for (covered, uncovered) in [(local.clone(), remote.clone()), (remote, local)] {
+			let child = tg::Directory::with_id(tg::directory::Id::new(b"child"));
+			let parent = tg::Directory::with_entries(BTreeMap::from([(
+				"child".into(),
+				child.clone().into(),
+			)]));
+			let wrapper = tg::Directory::with_entries(BTreeMap::from([(
+				"parent".into(),
+				parent.clone().into(),
+			)]));
+			let child_authorization = authorization(child.id().into());
+			let parent_authorization = authorization(parent.id().into());
+			let mut child_tokens = Tokens::default();
+			for location in [&covered, &uncovered] {
+				child_tokens.insert_authorization(location.clone(), child_authorization.clone());
+			}
+			child.state().set_tokens(child_tokens.clone());
+			let mut parent_tokens = Tokens::default();
+			parent_tokens.insert_authorization(covered.clone(), parent_authorization.clone());
+			parent.state().set_tokens(parent_tokens.clone());
+
+			let tokens = wrapper.to_referent().options.tokens;
+			assert_eq!(
+				tokens.authorization(&covered),
+				std::slice::from_ref(&parent_authorization)
+			);
+			assert_eq!(
+				tokens.authorization(&uncovered),
+				std::slice::from_ref(&child_authorization)
+			);
+			assert_eq!(child.state().tokens(), child_tokens);
+			assert_eq!(parent.state().tokens(), parent_tokens);
+			assert!(wrapper.state().tokens().is_empty());
+
+			// Preserve a shared descendant reached through an uncovered sibling path.
+			let shared = tg::Directory::with_entries(BTreeMap::from([
+				("child".into(), child.into()),
+				("parent".into(), parent.into()),
+			]));
+			let tokens = shared.to_referent().options.tokens;
+			assert!(
+				tokens
+					.authorization(&covered)
+					.contains(&child_authorization)
+			);
+			assert!(
+				tokens
+					.authorization(&covered)
+					.contains(&parent_authorization)
+			);
+		}
+	}
+
+	#[test]
 	fn inherits_each_kind_and_rebases_locations() {
 		let id = tg::object::Id::new(tg::object::Kind::File, &bytes::Bytes::new());
 		let key =

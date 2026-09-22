@@ -37,6 +37,17 @@ export namespace Authorization {
 			);
 		};
 
+		export let grantsSubtree = (token: Token, resource: string): boolean => {
+			let data = parse(token);
+			return (
+				data !== null &&
+				data.body.resource === resource &&
+				data.body.permissions.some((granted) =>
+					implies(granted, "object_subtree"),
+				)
+			);
+		};
+
 		let parse = (token: Token): Data | null => {
 			if (cache.has(token)) {
 				return cache.get(token)!;

@@ -205,6 +205,56 @@ export namespace Object {
 			tg.Tokens.inherit(this.#tokens, tokens);
 		}
 
+		collectTokens(): tg.Tokens {
+			// Discover the token locations on all loaded handles.
+			let locations = new Set<string>();
+			this.#visitLoaded((state) => {
+				for (let location of globalThis.Object.keys(state.#tokens)) {
+					locations.add(location);
+				}
+				return true;
+			});
+
+			// Prune each subtree only for the location that grants access to it.
+			let tokens: tg.Tokens = {};
+			for (let location of locations) {
+				this.#visitLoaded((state) => {
+					let entry = state.#tokens[location];
+					if (entry === undefined) {
+						return true;
+					}
+					tg.Tokens.inherit(tokens, { [location]: entry });
+					return !(entry.authorization ?? []).some((token) =>
+						tg.Authorization.Token.grantsSubtree(token, state.id),
+					);
+				});
+			}
+
+			return tokens;
+		}
+
+		#visitLoaded(descend: (state: tg.Object.State) => boolean): void {
+			let visited = new Set<tg.Object.State>();
+			let stack: Array<tg.Object.State> = [this];
+			while (stack.length > 0) {
+				let state = stack.pop()!;
+				if (visited.has(state)) {
+					continue;
+				}
+				visited.add(state);
+				if (!descend(state)) {
+					continue;
+				}
+				if (state.object !== null) {
+					stack.push(
+						...tg.Object.Object.children(state.object).map(
+							(child) => child.state,
+						),
+					);
+				}
+			}
+		}
+
 		get kind(): tg.Object.Kind {
 			if (this.#object !== null) {
 				return this.#object.kind;
@@ -473,24 +523,9 @@ export namespace Object {
 	export let toReferent = <T extends tg.Object>(
 		object: T,
 	): tg.Referent<T["id"]> => {
-		// Collect only loaded handles, without retaining descendant tokens on their ancestors.
-		let tokens = tg.Tokens.clone(object.state.tokens);
-		let visited = new Set<tg.Object.State>();
-		let stack = [object as tg.Object];
-		while (stack.length > 0) {
-			let state = stack.pop()!.state;
-			if (visited.has(state)) {
-				continue;
-			}
-			visited.add(state);
-			tg.Tokens.inherit(tokens, state.tokens);
-			if (state.object !== null) {
-				stack.push(...tg.Object.Object.children(state.object));
-			}
-		}
 		let options = {
 			location: object.state.location,
-			tokens,
+			tokens: object.state.collectTokens(),
 		};
 		return { node: object.id, options };
 	};
