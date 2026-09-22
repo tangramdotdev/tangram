@@ -1,4 +1,5 @@
 import { blake3 } from "@noble/hashes/blake3.js";
+import { Buffer } from "node:buffer";
 import * as childProcess from "node:child_process";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -215,28 +216,31 @@ export let host: Host = {
 	},
 
 	async getxattr(path: string, name: string): Promise<Uint8Array | null> {
-		let executable: string;
-		let args: Array<string>;
+		return await readXattr(path, name);
+	},
+
+	async listxattr(path: string): Promise<Array<string>> {
 		if (process.platform === "darwin") {
-			executable = "xattr";
-			args = ["-px", name, path];
-		} else if (process.platform === "linux") {
-			executable = "getfattr";
-			args = ["--absolute-names", "--name", name, "--only-values", path];
-		} else {
-			throw new Error(
-				`extended attributes are unsupported on ${process.platform}`,
-			);
+			let bytes = await execFile("xattr", [path]);
+			return new TextDecoder()
+				.decode(bytes)
+				.split("\n")
+				.filter((name) => name !== "");
 		}
-		try {
-			let bytes = await execFile(executable, args);
-			return process.platform === "darwin" ? decodeHex(bytes) : bytes;
-		} catch (error) {
-			if (isMissingXattrError(error)) {
-				return null;
-			}
-			throw error;
+		if (process.platform === "linux") {
+			let bytes = await execFile("getfattr", [
+				"--absolute-names",
+				"--match=-",
+				path,
+			]);
+			return new TextDecoder()
+				.decode(bytes)
+				.split("\n")
+				.filter((name) => name !== "" && !name.startsWith("#"));
 		}
+		throw new Error(
+			`extended attributes are unsupported on ${process.platform}`,
+		);
 	},
 
 	isForegroundControllingTty(fd: number): boolean {
@@ -629,6 +633,34 @@ function nodeSignal(signal: tg.Host.Signal): NodeJS.Signals {
 
 function nodeStdio(stdio: tg.Host.Stdio): "ignore" | "inherit" | "pipe" {
 	return stdio === "null" ? "ignore" : stdio;
+}
+
+async function readXattr(
+	path: string,
+	name: string,
+): Promise<Uint8Array | null> {
+	let executable: string;
+	let args: Array<string>;
+	if (process.platform === "darwin") {
+		executable = "xattr";
+		args = ["-px", name, path];
+	} else if (process.platform === "linux") {
+		executable = "getfattr";
+		args = ["--absolute-names", "--name", name, "--only-values", path];
+	} else {
+		throw new Error(
+			`extended attributes are unsupported on ${process.platform}`,
+		);
+	}
+	try {
+		let bytes = await execFile(executable, args);
+		return process.platform === "darwin" ? decodeHex(bytes) : bytes;
+	} catch (error) {
+		if (isMissingXattrError(error)) {
+			return null;
+		}
+		throw error;
+	}
 }
 
 async function readFd(

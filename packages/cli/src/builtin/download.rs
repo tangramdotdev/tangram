@@ -154,7 +154,7 @@ pub async fn run(args: Args) -> tg::Result<()> {
 			.finalize()
 			.to_string();
 		if let Some(output) = output {
-			xattr::set(&output, "user.tangram.checksum", checksum.as_bytes()).map_err(
+			tg::file::xattrs::write_checksum(&output, checksum.as_bytes()).map_err(
 				|error| tg::error!(!error, path = %output.display(), "failed to write the checksum xattr"),
 			)?;
 		}

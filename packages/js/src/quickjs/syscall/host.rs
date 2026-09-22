@@ -69,6 +69,11 @@ pub async fn getxattr(ctx: qjs::Ctx<'_>, path: String, name: String) -> Result<O
 	Result(result)
 }
 
+pub async fn listxattr(ctx: qjs::Ctx<'_>, path: String) -> Result<Serde<Vec<String>>> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(state.host.listxattr(path).await.map(Serde))
+}
+
 pub fn is_tty(_ctx: qjs::Ctx<'_>, fd: i32) -> Result<bool> {
 	Result(Ok(crate::host::Host::is_tty(fd)))
 }

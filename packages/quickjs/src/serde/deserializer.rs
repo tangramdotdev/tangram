@@ -76,7 +76,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_> {
 			self.deserialize_i32(visitor)
 		} else if self.value.is_float() {
 			self.deserialize_f64(visitor)
-		} else if self.value.is_string() {
+		} else if is_string(&self.value) {
 			self.deserialize_string(visitor)
 		} else if self.value.type_of() == qjs::Type::Undefined || self.value.is_null() {
 			self.deserialize_unit(visitor)
@@ -359,7 +359,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_> {
 	where
 		V: serde::de::Visitor<'de>,
 	{
-		if self.value.is_string() {
+		if is_string(&self.value) {
 			visitor.visit_enum(EnumAccess {
 				ctx: self.ctx.clone(),
 				tag: self.value,
@@ -516,4 +516,11 @@ impl serde::de::Error for Error {
 	{
 		Self(msg.to_string().into())
 	}
+}
+
+fn is_string(value: &qjs::Value<'_>) -> bool {
+	// The binding's string predicate does not recognize QuickJS rope strings.
+	// SAFETY: The tag is read from a live QuickJS value without accessing its payload.
+	let tag = unsafe { qjs::qjs::JS_VALUE_GET_TAG(value.as_raw()) };
+	matches!(tag, qjs::qjs::JS_TAG_STRING | qjs::qjs::JS_TAG_STRING_ROPE)
 }

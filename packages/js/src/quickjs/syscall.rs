@@ -58,6 +58,7 @@ pub fn syscall<'js>(
 			qjs::Function::new(ctx.clone(), self::host::is_foreground_controlling_tty)
 		},
 		"host_is_tty" => qjs::Function::new(ctx.clone(), self::host::is_tty),
+		"host_listxattr" => qjs::Function::new(ctx.clone(), Async(self::host::listxattr)),
 		"host_magic" => qjs::Function::new(ctx.clone(), self::host::magic),
 		"host_mkdtemp" => qjs::Function::new(ctx.clone(), Async(self::host::mkdtemp)),
 		"host_object_id" => qjs::Function::new(ctx.clone(), self::host::object_id),

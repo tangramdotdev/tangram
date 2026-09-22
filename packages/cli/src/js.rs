@@ -173,7 +173,7 @@ impl Cli {
 					..Default::default()
 				};
 				let tgon = output.print(options);
-				xattr::set(&output_path, "user.tangram.output", tgon.as_bytes())
+				tg::file::xattrs::write_output(&output_path, tgon.as_bytes())
 					.map_err(|error| tg::error!(!error, "failed to write the output xattr"))?;
 			}
 			if let Some(error) = &error {
@@ -184,12 +184,12 @@ impl Cli {
 				{
 					let json = serde_json::to_vec(&data)
 						.map_err(|error| tg::error!(!error, "failed to serialize the error"))?;
-					xattr::set(&output_path, "user.tangram.error", &json)
+					tg::file::xattrs::write_error(&output_path, &json)
 						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
 				} else {
 					let referent = error.to_referent();
 					let string = referent.to_string();
-					xattr::set(&output_path, "user.tangram.error", string.as_bytes())
+					tg::file::xattrs::write_error(&output_path, string.as_bytes())
 						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
 				}
 			}

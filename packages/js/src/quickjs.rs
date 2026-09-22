@@ -14,7 +14,7 @@ use {
 		task::Poll,
 	},
 	tangram_client::prelude::*,
-	tangram_quickjs::Serde,
+	tangram_quickjs::{Deserialize as _, Serde},
 };
 
 mod error;
@@ -282,19 +282,16 @@ impl Runtime {
 			let promise = value
 				.as_promise()
 				.ok_or_else(|| tg::error!("expected a promise"))?;
-			let result = promise
+			let value = promise
 				.clone()
-				.into_future::<Serde<tg::value::Data>>()
-				.await;
+				.into_future::<qjs::Value>()
+				.await
+				.catch(&ctx)
+				.map_err(|error| self::error::from_catch(&state, &ctx, error))?;
 
-			if let Ok(value) = result {
-				Ok(value)
-			} else {
-				let exception = ctx.catch();
-				let error = self::error::from_exception(&state, &ctx, &exception)
-					.unwrap_or_else(|| tg::error!("promise rejected"));
-				Err(error)
-			}
+			// Deserialize the resolved value while preserving conversion errors.
+			let value = Serde::<tg::value::Data>::deserialize(&ctx, value)?;
+			Ok(value)
 		});
 		let mut rejections = self.state.rejections.subscribe();
 		let rejection = async {

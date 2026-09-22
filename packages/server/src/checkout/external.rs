@@ -700,11 +700,8 @@ impl Session {
 		};
 		let module = node.module.as_ref().map(ToString::to_string);
 		let required = [
-			(tg::file::LOCK_XATTR_NAME, lock),
-			(
-				tg::file::MODULE_XATTR_NAME,
-				module.as_ref().map(String::as_bytes),
-			),
+			tg::file::xattrs::Required::Lock(lock),
+			tg::file::xattrs::Required::Module(module.as_ref().map(String::as_bytes)),
 		];
 		let token = self.create_permanent_object_token(id)?;
 		let xattrs = tg::file::xattrs::Arg {

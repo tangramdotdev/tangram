@@ -734,18 +734,9 @@ impl Cli {
 
 						tg::Artifact::File(file) => {
 							let kind = referent.path().and_then(|path| {
-								tg::module::module_kind_for_path(path).ok().or_else(|| {
-									if let Ok(Some(xattr)) =
-										xattr::get(path, tg::file::MODULE_XATTR_NAME)
-										&& let Some(kind) = String::from_utf8(xattr)
-											.ok()
-											.and_then(|s| s.parse::<tg::module::Kind>().ok())
-									{
-										Some(kind)
-									} else {
-										None
-									}
-								})
+								tg::module::module_kind_for_path(path)
+									.ok()
+									.or_else(|| tg::file::xattrs::read_module(path).ok().flatten())
 							});
 							let kind = if kind.is_some() {
 								kind

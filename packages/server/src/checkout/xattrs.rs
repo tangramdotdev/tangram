@@ -38,7 +38,7 @@ pub fn probe(directory: &Path) -> tg::Result<tg::file::xattrs::Options> {
 	)?;
 
 	// Find a supported value size.
-	let value = vec![0; tg::file::DEPENDENCIES_XATTR_VALUE_SIZE];
+	let value = vec![0; tg::file::xattrs::MAX_VALUE_SIZE];
 	let mut max_value_size = value.len();
 	loop {
 		match file.set_xattr(PROBE_XATTR_NAME, &value[..max_value_size]) {

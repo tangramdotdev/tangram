@@ -33,7 +33,11 @@ export type Host = {
 
 	getTtySize(): tg.Process.Tty.Size | null;
 
+	/** Read a single extended attribute. */
 	getxattr(path: string, name: string): Promise<Uint8Array | null>;
+
+	/** List extended attribute names without interpreting them. */
+	listxattr(path: string): Promise<Array<string>>;
 
 	isForegroundControllingTty(fd: number): boolean;
 

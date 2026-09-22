@@ -59,6 +59,8 @@ declare global {
 		name: string,
 	): Promise<Uint8Array | null>;
 
+	function syscall(syscall: "host_listxattr", path: string): Promise<Array<string>>;
+
 	function syscall(
 		syscall: "host_is_foreground_controlling_tty",
 		fd: number,

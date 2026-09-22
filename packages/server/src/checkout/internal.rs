@@ -1282,8 +1282,7 @@ impl Session {
 
 			// Write all file xattrs before making the file read-only.
 			let module = node.module.as_ref().map(ToString::to_string);
-			let required = [(
-				tg::file::MODULE_XATTR_NAME,
+			let required = [tg::file::xattrs::Required::Module(
 				module.as_ref().map(String::as_bytes),
 			)];
 			let token = self.create_permanent_object_token(id)?;

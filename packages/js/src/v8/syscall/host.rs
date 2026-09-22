@@ -68,6 +68,12 @@ pub async fn getxattr(state: Rc<State>, args: (String, String)) -> tg::Result<Op
 	state.host.getxattr(path, name).await
 }
 
+pub async fn listxattr(state: Rc<State>, args: (String,)) -> tg::Result<Serde<Vec<String>>> {
+	let (path,) = args;
+	let names = state.host.listxattr(path).await?;
+	Ok(Serde(names))
+}
+
 pub fn is_tty(
 	_state: Rc<State>,
 	_scope: &mut v8::PinScope<'_, '_>,

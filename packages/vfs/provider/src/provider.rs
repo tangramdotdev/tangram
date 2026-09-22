@@ -1151,16 +1151,18 @@ impl Inner {
 		let mut names = Vec::new();
 		if !dependencies.is_empty() {
 			let references = dependencies.into_keys().collect::<Vec<_>>();
-			let xattrs =
-				tg::file::dependencies_xattrs(&references, tg::file::DEPENDENCIES_XATTR_VALUE_SIZE)
-					.map_err(eio)?;
+			let xattrs = tg::file::xattrs::encode_dependencies(
+				&references,
+				tg::file::xattrs::MAX_VALUE_SIZE,
+			)
+			.map_err(eio)?;
 			names.extend(xattrs.into_iter().map(|xattr| xattr.name));
 		}
 		if module.is_some() {
-			names.push(tg::file::MODULE_XATTR_NAME.to_owned());
+			names.push(tg::file::xattrs::MODULE_NAME.to_owned());
 		}
 		if !file.state().tokens().local_authorization().is_empty() {
-			names.push(tg::file::TOKEN_XATTR_NAME.to_owned());
+			names.push(tg::file::xattrs::TOKEN_NAME.to_owned());
 		}
 		Ok(names)
 	}
@@ -1179,9 +1181,9 @@ impl Inner {
 		let tg::Artifact::File(file) = tg::Artifact::with_id(artifact) else {
 			return Ok(None);
 		};
-		if tg::file::is_dependencies_xattr_name(name) || name == tg::file::TOKEN_XATTR_NAME {
+		if tg::file::xattrs::is_dependencies_name(name) || name == tg::file::xattrs::TOKEN_NAME {
 			let references = self.file_dependency_references(&file).await?;
-			if name == tg::file::TOKEN_XATTR_NAME {
+			if name == tg::file::xattrs::TOKEN_NAME {
 				// The file xattr contains a single subtree proof for this file.
 				let resource = tg::Id::from(file.id());
 				let permission = tg::authorization::Permission::Object(
@@ -1200,15 +1202,17 @@ impl Inner {
 					.map(Bytes::from);
 				return Ok(value);
 			}
-			let xattrs =
-				tg::file::dependencies_xattrs(&references, tg::file::DEPENDENCIES_XATTR_VALUE_SIZE)
-					.map_err(eio)?;
+			let xattrs = tg::file::xattrs::encode_dependencies(
+				&references,
+				tg::file::xattrs::MAX_VALUE_SIZE,
+			)
+			.map_err(eio)?;
 			let value = xattrs
 				.into_iter()
 				.find_map(|xattr| (xattr.name == name).then_some(xattr.value));
 			return Ok(value);
 		}
-		if name == tg::file::MODULE_XATTR_NAME {
+		if name == tg::file::xattrs::MODULE_NAME {
 			let Some(module) = file.module_with_handle(&self.client).await.map_err(eio)? else {
 				return Ok(None);
 			};
@@ -1384,13 +1388,13 @@ impl Fast {
 		if !matches!(artifact.kind(), tg::artifact::Kind::File) {
 			return Ok(None);
 		}
-		if tg::file::is_dependencies_xattr_name(name) || name == tg::file::TOKEN_XATTR_NAME {
+		if tg::file::xattrs::is_dependencies_name(name) || name == tg::file::xattrs::TOKEN_NAME {
 			// Use the token-aware client path for dependency references.
 			return Err(fallback());
 		}
 		let transaction = self.transaction()?;
 		let (file, _) = self.file_node_with_transaction(&transaction, artifact)?;
-		if name == tg::file::MODULE_XATTR_NAME {
+		if name == tg::file::xattrs::MODULE_NAME {
 			let Some(module) = file.module else {
 				return Ok(None);
 			};
