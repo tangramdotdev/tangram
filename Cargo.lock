@@ -8092,7 +8092,6 @@ dependencies = [
  "v8",
  "waitpid-any",
  "webbrowser",
- "xattr",
 ]
 
 [[package]]

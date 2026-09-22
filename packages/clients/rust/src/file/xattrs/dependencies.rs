@@ -5,15 +5,15 @@ use {
 };
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct DependenciesXattr {
+pub struct Entry {
 	pub name: String,
 	pub value: Bytes,
 }
 
-pub fn dependencies_xattrs(
+pub fn encode_dependencies(
 	references: &[tg::Reference],
 	max_value_size: usize,
-) -> tg::Result<Vec<DependenciesXattr>> {
+) -> tg::Result<Vec<Entry>> {
 	// Validate the shard size.
 	if max_value_size == 0 {
 		return Err(tg::error!(
@@ -30,30 +30,30 @@ pub fn dependencies_xattrs(
 		.enumerate()
 		.map(|(index, value)| {
 			let name = if count == 1 {
-				tg::file::DEPENDENCIES_XATTR_NAME.to_owned()
+				tg::file::xattrs::DEPENDENCIES_NAME.to_owned()
 			} else {
-				format!("{}.{index}", tg::file::DEPENDENCIES_XATTR_NAME)
+				format!("{}.{index}", tg::file::xattrs::DEPENDENCIES_NAME)
 			};
 			let value = Bytes::copy_from_slice(value);
-			DependenciesXattr { name, value }
+			Entry { name, value }
 		})
 		.collect();
 
 	Ok(xattrs)
 }
 
-pub fn deserialize_dependencies_xattr(value: &[u8]) -> tg::Result<Vec<tg::Reference>> {
+pub(super) fn deserialize_dependencies_xattr(value: &[u8]) -> tg::Result<Vec<tg::Reference>> {
 	serde_json::from_slice(value)
 		.map_err(|error| tg::error!(!error, "failed to deserialize the dependencies"))
 }
 
 #[must_use]
-pub fn is_dependencies_xattr_name(name: &str) -> bool {
-	if name == tg::file::DEPENDENCIES_XATTR_NAME {
+pub fn is_dependencies_name(name: &str) -> bool {
+	if name == tg::file::xattrs::DEPENDENCIES_NAME {
 		return true;
 	}
 	let Some(suffix) = name
-		.strip_prefix(tg::file::DEPENDENCIES_XATTR_NAME)
+		.strip_prefix(tg::file::xattrs::DEPENDENCIES_NAME)
 		.and_then(|suffix| suffix.strip_prefix('.'))
 	else {
 		return false;
@@ -62,7 +62,7 @@ pub fn is_dependencies_xattr_name(name: &str) -> bool {
 }
 
 /// Read the dependency references from the listed attributes.
-pub fn try_read_dependencies_xattrs(
+pub(super) fn try_read_dependencies_xattrs(
 	names: impl IntoIterator<Item = OsString>,
 	mut read: impl FnMut(&str) -> std::io::Result<Option<Vec<u8>>>,
 ) -> tg::Result<Option<Vec<tg::Reference>>> {
@@ -73,12 +73,12 @@ pub fn try_read_dependencies_xattrs(
 		let Some(name) = name.to_str() else {
 			continue;
 		};
-		if name == tg::file::DEPENDENCIES_XATTR_NAME {
+		if name == tg::file::xattrs::DEPENDENCIES_NAME {
 			base = true;
 			continue;
 		}
 		let Some(suffix) = name
-			.strip_prefix(tg::file::DEPENDENCIES_XATTR_NAME)
+			.strip_prefix(tg::file::xattrs::DEPENDENCIES_NAME)
 			.and_then(|suffix| suffix.strip_prefix('.'))
 		else {
 			continue;
@@ -97,7 +97,7 @@ pub fn try_read_dependencies_xattrs(
 		));
 	}
 	if base {
-		shards.insert(0, tg::file::DEPENDENCIES_XATTR_NAME.to_owned());
+		shards.insert(0, tg::file::xattrs::DEPENDENCIES_NAME.to_owned());
 	}
 	if shards.is_empty() {
 		return Ok(None);

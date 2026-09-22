@@ -476,20 +476,22 @@ impl Provider {
 			return Ok(None);
 		}
 		let (file, graph) = self.file_node_inner(&artifact).await?;
-		if tg::file::is_dependencies_xattr_name(name) {
+		if tg::file::xattrs::is_dependencies_name(name) {
 			if file.dependencies.is_empty() {
 				return Ok(None);
 			}
 			let references = self.file_dependency_references(&file, graph.as_ref())?;
-			let xattrs =
-				tg::file::dependencies_xattrs(&references, tg::file::DEPENDENCIES_XATTR_VALUE_SIZE)
-					.map_err(|error| std::io::Error::other(error.to_string()))?;
+			let xattrs = tg::file::xattrs::encode_dependencies(
+				&references,
+				tg::file::xattrs::MAX_VALUE_SIZE,
+			)
+			.map_err(|error| std::io::Error::other(error.to_string()))?;
 			let value = xattrs
 				.into_iter()
 				.find_map(|xattr| (xattr.name == name).then_some(xattr.value));
 			return Ok(value);
 		}
-		if name == tg::file::TOKEN_XATTR_NAME {
+		if name == tg::file::xattrs::TOKEN_NAME {
 			let token = self
 				.session()
 				.create_permanent_object_token(&artifact.id)
@@ -497,7 +499,7 @@ impl Provider {
 			let value = token.map(|token| Bytes::from(token.to_string()));
 			return Ok(value);
 		}
-		if name == tg::file::MODULE_XATTR_NAME {
+		if name == tg::file::xattrs::MODULE_NAME {
 			let Some(module) = file.module else {
 				return Ok(None);
 			};
@@ -524,20 +526,22 @@ impl Provider {
 			return Ok(None);
 		}
 		let (file, graph) = self.file_node_sync_inner(&artifact, transaction)?;
-		if tg::file::is_dependencies_xattr_name(name) {
+		if tg::file::xattrs::is_dependencies_name(name) {
 			if file.dependencies.is_empty() {
 				return Ok(None);
 			}
 			let references = self.file_dependency_references(&file, graph.as_ref())?;
-			let xattrs =
-				tg::file::dependencies_xattrs(&references, tg::file::DEPENDENCIES_XATTR_VALUE_SIZE)
-					.map_err(|error| std::io::Error::other(error.to_string()))?;
+			let xattrs = tg::file::xattrs::encode_dependencies(
+				&references,
+				tg::file::xattrs::MAX_VALUE_SIZE,
+			)
+			.map_err(|error| std::io::Error::other(error.to_string()))?;
 			let value = xattrs
 				.into_iter()
 				.find_map(|xattr| (xattr.name == name).then_some(xattr.value));
 			return Ok(value);
 		}
-		if name == tg::file::TOKEN_XATTR_NAME {
+		if name == tg::file::xattrs::TOKEN_NAME {
 			let token = self
 				.session()
 				.create_permanent_object_token(&artifact.id)
@@ -545,7 +549,7 @@ impl Provider {
 			let value = token.map(|token| Bytes::from(token.to_string()));
 			return Ok(value);
 		}
-		if name == tg::file::MODULE_XATTR_NAME {
+		if name == tg::file::xattrs::MODULE_NAME {
 			let Some(module) = file.module else {
 				return Ok(None);
 			};
@@ -602,20 +606,22 @@ impl Provider {
 		let mut names = Vec::new();
 		if !file.dependencies.is_empty() {
 			let references = self.file_dependency_references(&file, graph.as_ref())?;
-			let xattrs =
-				tg::file::dependencies_xattrs(&references, tg::file::DEPENDENCIES_XATTR_VALUE_SIZE)
-					.map_err(|error| std::io::Error::other(error.to_string()))?;
+			let xattrs = tg::file::xattrs::encode_dependencies(
+				&references,
+				tg::file::xattrs::MAX_VALUE_SIZE,
+			)
+			.map_err(|error| std::io::Error::other(error.to_string()))?;
 			names.extend(xattrs.into_iter().map(|xattr| xattr.name));
 		}
 		if file.module.is_some() {
-			names.push(tg::file::MODULE_XATTR_NAME.to_owned());
+			names.push(tg::file::xattrs::MODULE_NAME.to_owned());
 		}
 		let token = self
 			.session()
 			.create_permanent_object_token(&artifact.id)
 			.map_err(|error| std::io::Error::other(error.to_string()))?;
 		if token.is_some() {
-			names.push(tg::file::TOKEN_XATTR_NAME.to_owned());
+			names.push(tg::file::xattrs::TOKEN_NAME.to_owned());
 		}
 		Ok(names)
 	}
@@ -640,20 +646,22 @@ impl Provider {
 		let mut names = Vec::new();
 		if !file.dependencies.is_empty() {
 			let references = self.file_dependency_references(&file, graph.as_ref())?;
-			let xattrs =
-				tg::file::dependencies_xattrs(&references, tg::file::DEPENDENCIES_XATTR_VALUE_SIZE)
-					.map_err(|error| std::io::Error::other(error.to_string()))?;
+			let xattrs = tg::file::xattrs::encode_dependencies(
+				&references,
+				tg::file::xattrs::MAX_VALUE_SIZE,
+			)
+			.map_err(|error| std::io::Error::other(error.to_string()))?;
 			names.extend(xattrs.into_iter().map(|xattr| xattr.name));
 		}
 		if file.module.is_some() {
-			names.push(tg::file::MODULE_XATTR_NAME.to_owned());
+			names.push(tg::file::xattrs::MODULE_NAME.to_owned());
 		}
 		let token = self
 			.session()
 			.create_permanent_object_token(&artifact.id)
 			.map_err(|error| std::io::Error::other(error.to_string()))?;
 		if token.is_some() {
-			names.push(tg::file::TOKEN_XATTR_NAME.to_owned());
+			names.push(tg::file::xattrs::TOKEN_NAME.to_owned());
 		}
 		Ok(names)
 	}

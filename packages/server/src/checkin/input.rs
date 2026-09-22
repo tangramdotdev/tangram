@@ -595,17 +595,13 @@ impl Session {
 	}
 
 	fn checkin_read_dependencies_xattr(path: &Path) -> tg::Result<Option<Vec<tg::Reference>>> {
-		let Ok(names) = xattr::list(path) else {
-			return Ok(None);
-		};
-		tg::file::xattrs::try_read_dependencies_xattrs(names, |name| xattr::get(path, name))
+		tg::file::xattrs::read_dependencies(path)
 	}
 
 	pub(super) fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::Tokens> {
-		let Ok(Some(value)) = xattr::get(path, tg::file::TOKEN_XATTR_NAME) else {
+		let Some(token) = tg::file::xattrs::read_token(path)? else {
 			return Ok(tg::Tokens::default());
 		};
-		let token = tg::file::xattrs::deserialize_token_xattr(&value)?;
 		let tokens = tg::Tokens::with_authorization(Some(token));
 
 		Ok(tokens)
@@ -973,17 +969,7 @@ impl Session {
 		if name == "tangram.ts" || name.ends_with(".tg.ts") {
 			return Ok(Some(tg::module::Kind::Ts));
 		}
-		let Some(xattr) = xattr::get(path, tg::file::MODULE_XATTR_NAME)
-			.map_err(|error| tg::error!(!error, "failed to get the module xattr"))?
-		else {
-			return Ok(None);
-		};
-		let xattr = String::from_utf8(xattr)
-			.map_err(|error| tg::error!(!error, "the module xattr is not valid utf-8"))?;
-		let kind = xattr
-			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the module kind"))?;
-		Ok(Some(kind))
+		tg::file::xattrs::read_module(path)
 	}
 }
 

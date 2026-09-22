@@ -1,7 +1,16 @@
 import * as tg from "../index.ts";
 
+const ERROR_NAME = "user.tangram.error";
+const OUTPUT_NAME = "user.tangram.output";
+
+export let readError = (path: string): Promise<Uint8Array | null> =>
+	readSharded(path, ERROR_NAME);
+
+export let readOutput = (path: string): Promise<Uint8Array | null> =>
+	readSharded(path, OUTPUT_NAME);
+
 /** Read a Tangram attribute stored as a single value or numbered shards. */
-export let readSharded = async (
+let readSharded = async (
 	path: string,
 	name: string,
 ): Promise<Uint8Array | null> => {

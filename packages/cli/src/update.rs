@@ -174,7 +174,7 @@ pub(crate) async fn try_read_lock(path: PathBuf) -> tg::Result<Option<tg::graph:
 				contents
 			} else {
 				// Fall back to xattr.
-				xattr::get(&path, tg::file::LOCK_XATTR_NAME).ok().flatten()
+				tg::file::xattrs::read_lock(&path).ok().flatten()
 			}
 		} else {
 			None

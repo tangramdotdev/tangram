@@ -23,7 +23,7 @@ impl Session {
 				contents
 			} else {
 				// Fall back to xattr.
-				xattr::get(path, tg::file::LOCK_XATTR_NAME).ok().flatten()
+				tg::file::xattrs::read_lock(path).ok().flatten()
 			}
 		} else {
 			None
@@ -100,7 +100,7 @@ impl Session {
 				Variant::File(_) => {
 					let lockfile_path = root.with_extension("lock");
 					tangram_util::fs::remove(&lockfile_path).await.ok();
-					xattr::remove(root, tg::file::LOCK_XATTR_NAME).ok();
+					tg::file::xattrs::remove_lock(root).ok();
 				},
 				Variant::Object => unreachable!(),
 				Variant::Symlink(_) => (),
@@ -180,7 +180,7 @@ impl Session {
 						tangram_util::fs::remove(&lockfile_path).await.ok();
 
 						// Remove an existing lockattr.
-						xattr::remove(root, tg::file::LOCK_XATTR_NAME).ok();
+						tg::file::xattrs::remove_lock(root).ok();
 
 						// Do not write an empty lock.
 						if lock.nodes.is_empty() {
@@ -192,13 +192,13 @@ impl Session {
 							.map_err(|error| tg::error!(!error, "failed to serialize the lock"))?;
 
 						// Write the lockattr.
-						xattr::set(root, tg::file::LOCK_XATTR_NAME, &contents)
+						tg::file::xattrs::write_lock(root, &contents)
 							.map_err(|error| tg::error!(!error, "failed to write the lockattr"))?;
 					},
 
 					tg::checkin::Lock::File => {
 						// Remove an existing lockattr.
-						xattr::remove(root, tg::file::LOCK_XATTR_NAME).ok();
+						tg::file::xattrs::remove_lock(root).ok();
 
 						// Get the lockfile path.
 						let lockfile_path = root.with_extension("lock");

@@ -9,7 +9,7 @@ fn absence() {
 	let temp = Temp::new().unwrap();
 	std::fs::write(&temp, "ordinary file").unwrap();
 	assert_eq!(read(&temp).unwrap(), Output::default());
-	xattr::set(&temp, tg::file::DEPENDENCIES_XATTR_NAME, b"[]").unwrap();
+	xattr::set(&temp, tg::file::xattrs::DEPENDENCIES_NAME, b"[]").unwrap();
 	let output = read(&temp).unwrap();
 	assert_eq!(output.dependencies, Some(Vec::new()));
 	assert_eq!(output.token, None);
@@ -27,7 +27,7 @@ fn explicit_empty_dependencies() {
 	write(&temp, arg, Options::default()).unwrap();
 	assert_eq!(read(&temp).unwrap().dependencies, Some(Vec::new()));
 	assert_eq!(
-		xattr::get(&temp, tg::file::DEPENDENCIES_XATTR_NAME)
+		xattr::get(&temp, tg::file::xattrs::DEPENDENCIES_NAME)
 			.unwrap()
 			.as_deref(),
 		Some(b"[]".as_slice())
@@ -38,11 +38,11 @@ fn explicit_empty_dependencies() {
 fn invalid_metadata() {
 	for (name, value) in [
 		(
-			tg::file::DEPENDENCIES_XATTR_NAME,
+			tg::file::xattrs::DEPENDENCIES_NAME,
 			b"[\"./dependency\"".as_slice(),
 		),
-		(tg::file::TOKEN_XATTR_NAME, b"invalid".as_slice()),
-		(tg::file::TOKEN_XATTR_NAME, b"\xff".as_slice()),
+		(tg::file::xattrs::TOKEN_NAME, b"invalid".as_slice()),
+		(tg::file::xattrs::TOKEN_NAME, b"\xff".as_slice()),
 	] {
 		let temp = Temp::new().unwrap();
 		std::fs::write(&temp, "file").unwrap();
@@ -80,14 +80,14 @@ fn references_and_tokens() {
 	];
 
 	// Write the shards in reverse order to verify that their numeric indices determine the order.
-	let xattrs = dependencies_xattrs(&references, 64).unwrap();
+	let xattrs = encode_dependencies(&references, 64).unwrap();
 	assert!(xattrs.len() > 10);
 	for xattr in xattrs.into_iter().rev() {
 		xattr::set(&temp, &xattr.name, &xattr.value).unwrap();
 	}
 	xattr::set(
 		&temp,
-		tg::file::TOKEN_XATTR_NAME,
+		tg::file::xattrs::TOKEN_NAME,
 		token.to_string().as_bytes(),
 	)
 	.unwrap();
@@ -111,11 +111,8 @@ fn write_and_replace() {
 	let references = vec!["./first".parse().unwrap(), "./second".parse().unwrap()];
 	let token = token("file");
 	let required = [
-		(
-			tg::file::LOCK_XATTR_NAME,
-			Some(b"{\"nodes\":[]}".as_slice()),
-		),
-		(tg::file::MODULE_XATTR_NAME, Some(b"ts".as_slice())),
+		Required::Lock(Some(b"{\"nodes\":[]}".as_slice())),
+		Required::Module(Some(b"ts".as_slice())),
 	];
 	let arg = Arg {
 		dependencies: Some(&references),
@@ -132,12 +129,13 @@ fn write_and_replace() {
 			.unwrap()
 			.is_some()
 	);
-	for (name, value) in required {
+	for attribute in required {
+		let (name, value) = attribute.parts();
 		assert_eq!(xattr::get(&temp, name).unwrap().as_deref(), value);
 	}
 
 	// Replace the shards with an unsharded value and remove the module and token attributes.
-	let required = [(tg::file::MODULE_XATTR_NAME, None)];
+	let required = [Required::Module(None)];
 	let arg = Arg {
 		dependencies: Some(&references[..1]),
 		required: &required,
@@ -148,12 +146,12 @@ fn write_and_replace() {
 	assert_eq!(output.dependencies.as_deref(), Some(&references[..1]));
 	assert_eq!(output.token, None);
 	assert!(
-		xattr::get(&temp, tg::file::MODULE_XATTR_NAME)
+		xattr::get(&temp, tg::file::xattrs::MODULE_NAME)
 			.unwrap()
 			.is_none()
 	);
 	assert!(
-		xattr::get(&temp, tg::file::LOCK_XATTR_NAME)
+		xattr::get(&temp, tg::file::xattrs::LOCK_NAME)
 			.unwrap()
 			.is_some()
 	);
@@ -181,7 +179,7 @@ fn write_and_replace() {
 fn zero_shard_size() {
 	let temp = Temp::new().unwrap();
 	std::fs::write(&temp, "file").unwrap();
-	xattr::set(&temp, tg::file::DEPENDENCIES_XATTR_NAME, b"[]").unwrap();
+	xattr::set(&temp, tg::file::xattrs::DEPENDENCIES_NAME, b"[]").unwrap();
 	let arg = Arg {
 		dependencies: None,
 		required: &[],
@@ -190,7 +188,7 @@ fn zero_shard_size() {
 	let options = Options { max_value_size: 0 };
 	assert!(write(&temp, arg, options).is_err());
 	assert_eq!(
-		xattr::get(&temp, tg::file::DEPENDENCIES_XATTR_NAME)
+		xattr::get(&temp, tg::file::xattrs::DEPENDENCIES_NAME)
 			.unwrap()
 			.as_deref(),
 		Some(b"[]".as_slice())
@@ -200,24 +198,27 @@ fn zero_shard_size() {
 #[test]
 fn json_round_trip() {
 	let references = vec![tg::Reference::with_path(PathBuf::from("dependency"))];
-	let xattrs = dependencies_xattrs(&references, 4).unwrap();
+	let xattrs = encode_dependencies(&references, 4).unwrap();
 	assert!(xattrs.len() > 1);
 	assert_eq!(xattrs[0].name, "user.tangram.dependencies.0");
 	let value = xattrs
 		.into_iter()
 		.flat_map(|xattr| xattr.value)
 		.collect::<Vec<_>>();
-	assert_eq!(deserialize_dependencies_xattr(&value).unwrap(), references);
+	assert_eq!(
+		dependencies::deserialize_dependencies_xattr(&value).unwrap(),
+		references
+	);
 }
 
 #[test]
 fn unsharded_round_trip() {
 	let references = vec![tg::Reference::with_path(PathBuf::from("dependency"))];
-	let xattrs = dependencies_xattrs(&references, usize::MAX).unwrap();
+	let xattrs = encode_dependencies(&references, usize::MAX).unwrap();
 	assert_eq!(xattrs.len(), 1);
 	assert_eq!(xattrs[0].name, "user.tangram.dependencies");
 	assert_eq!(
-		deserialize_dependencies_xattr(&xattrs[0].value).unwrap(),
+		dependencies::deserialize_dependencies_xattr(&xattrs[0].value).unwrap(),
 		references
 	);
 }
@@ -234,21 +235,66 @@ fn invalid_shards() {
 		vec!["."],
 		vec![".18446744073709551616"],
 	] {
-		let names = suffixes
-			.into_iter()
-			.map(|suffix| OsString::from(format!("{}{suffix}", tg::file::DEPENDENCIES_XATTR_NAME)));
-		assert!(try_read_dependencies_xattrs(names, |_| Ok(Some(b"[]".to_vec()))).is_err());
+		let names = suffixes.into_iter().map(|suffix| {
+			OsString::from(format!("{}{suffix}", tg::file::xattrs::DEPENDENCIES_NAME))
+		});
+		assert!(
+			dependencies::try_read_dependencies_xattrs(names, |_| Ok(Some(b"[]".to_vec())))
+				.is_err()
+		);
 	}
 }
 
 #[test]
 fn unreadable_shards() {
-	let names = [OsString::from(tg::file::DEPENDENCIES_XATTR_NAME)];
-	assert!(try_read_dependencies_xattrs(names.clone(), |_| Ok(None)).is_err());
-	let result = try_read_dependencies_xattrs(names, |_| {
+	let names = [OsString::from(tg::file::xattrs::DEPENDENCIES_NAME)];
+	assert!(dependencies::try_read_dependencies_xattrs(names.clone(), |_| Ok(None)).is_err());
+	let result = dependencies::try_read_dependencies_xattrs(names, |_| {
 		Err(std::io::Error::from(std::io::ErrorKind::PermissionDenied))
 	});
 	assert!(result.is_err());
+}
+
+#[test]
+fn named_metadata() {
+	let temp = Temp::new().unwrap();
+	std::fs::write(&temp, "file").unwrap();
+	let references = vec!["./first".parse().unwrap(), "./second".parse().unwrap()];
+	let token = token("file");
+	write_lock(&temp, b"lock").unwrap();
+	write_module(&temp, tg::module::Kind::Ts).unwrap();
+	write_token(&temp, &token).unwrap();
+	let options = Options { max_value_size: 4 };
+	write_dependencies(&temp, &references, options).unwrap();
+	assert_eq!(read_dependencies(&temp).unwrap(), Some(references));
+	assert_eq!(read_token(&temp).unwrap(), Some(token));
+	assert_eq!(read_module(&temp).unwrap(), Some(tg::module::Kind::Ts));
+	assert_eq!(read_lock(&temp).unwrap(), Some(b"lock".to_vec()));
+	write_dependencies(&temp, &[], Options::default()).unwrap();
+	assert_eq!(read_dependencies(&temp).unwrap(), Some(Vec::new()));
+	assert!(xattr::list(&temp).unwrap().all(|name| {
+		!name
+			.to_string_lossy()
+			.starts_with(&format!("{DEPENDENCIES_NAME}."))
+	}));
+	remove_lock(&temp).unwrap();
+	assert_eq!(read_lock(&temp).unwrap(), None);
+}
+
+#[test]
+fn named_process_metadata() {
+	let temp = Temp::new().unwrap();
+	std::fs::write(&temp, "file").unwrap();
+	let value = vec![42; 131_072];
+	write_output(&temp, &value).unwrap();
+	write_error(&temp, &value).unwrap();
+	write_checksum(&temp, b"checksum").unwrap();
+	assert_eq!(read_output(&temp).unwrap().as_ref(), Some(&value));
+	assert_eq!(read_error(&temp).unwrap().as_ref(), Some(&value));
+	write_output(&temp, b"output").unwrap();
+	assert_eq!(read_output(&temp).unwrap(), Some(b"output".to_vec()));
+	assert_eq!(read_error(&temp).unwrap(), Some(value));
+	assert_eq!(read_checksum(&temp).unwrap(), Some(b"checksum".to_vec()));
 }
 
 fn token(contents: &str) -> tg::authorization::Token {

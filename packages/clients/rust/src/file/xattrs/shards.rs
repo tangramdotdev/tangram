@@ -4,7 +4,7 @@ use std::{collections::BTreeMap, io, path::Path};
 mod tests;
 
 /// Read an attribute stored as a single value or numbered shards.
-pub fn read_sharded(path: impl AsRef<Path>, name: &str) -> io::Result<Option<Vec<u8>>> {
+pub(super) fn read_sharded(path: impl AsRef<Path>, name: &str) -> io::Result<Option<Vec<u8>>> {
 	let path = path.as_ref();
 	let value = xattr::get(path, name)?;
 	let prefix = format!("{name}.");
@@ -54,7 +54,7 @@ pub fn read_sharded(path: impl AsRef<Path>, name: &str) -> io::Result<Option<Vec
 }
 
 /// Write an attribute, splitting the value when the filesystem limits its size.
-pub fn write_sharded(path: impl AsRef<Path>, name: &str, value: &[u8]) -> io::Result<()> {
+pub(super) fn write_sharded(path: impl AsRef<Path>, name: &str, value: &[u8]) -> io::Result<()> {
 	let path = path.as_ref();
 	remove(path, name)?;
 	match xattr::set(path, name, value) {

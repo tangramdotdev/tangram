@@ -2296,7 +2296,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to determine if the output path exists"))?;
 
 		// Try to read the user.tangram.checksum xattr.
-		if let Ok(Some(bytes)) = xattr::get(&path, "user.tangram.checksum") {
+		if let Ok(Some(bytes)) = tg::file::xattrs::read_checksum(&path) {
 			let checksum = String::from_utf8(bytes)
 				.map_err(|error| tg::error!(!error, "failed to parse the checksum xattr"))
 				.and_then(|string| string.parse::<tg::Checksum>())
@@ -2305,7 +2305,7 @@ impl Session {
 		}
 
 		// Try to read the user.tangram.output xattr.
-		if let Ok(Some(bytes)) = tg::file::xattrs::read_sharded(&path, "user.tangram.output") {
+		if let Ok(Some(bytes)) = tg::file::xattrs::read_output(&path) {
 			let tgon = String::from_utf8(bytes)
 				.map_err(|error| tg::error!(!error, "failed to decode the output xattr"))?;
 			output.value = Some(
@@ -2315,7 +2315,7 @@ impl Session {
 		}
 
 		// Try to read the user.tangram.error xattr.
-		if let Ok(Some(bytes)) = tg::file::xattrs::read_sharded(&path, "user.tangram.error") {
+		if let Ok(Some(bytes)) = tg::file::xattrs::read_error(&path) {
 			let error = if let Ok(data) = serde_json::from_slice::<tg::error::Data>(&bytes) {
 				tg::Error::try_from(data)
 					.map_err(|error| tg::error!(!error, "failed to convert the error data"))?
