@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Without solving, an unproven dependency must not gain subtree authority through the file token.
 let server = server spawn --config { vfs: false }

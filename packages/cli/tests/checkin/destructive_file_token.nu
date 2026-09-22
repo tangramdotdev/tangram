@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Compare identical files in separate stores so neither checkin reuses the other checkout.
 let ordinary = server spawn --config { vfs: false }

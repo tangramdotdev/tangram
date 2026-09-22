@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # Destructive directory checkin writes exact file tokens while preserving dependencies and permissions.
 let server = server spawn --config { vfs: false }
