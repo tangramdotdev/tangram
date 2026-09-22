@@ -133,7 +133,7 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 }
 
 #[tokio::test]
-async fn process_object_grants_with_disabled_search() {
+async fn process_object_grants_require_search_unless_subtree_is_proven() {
 	let search = crate::authorize::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,

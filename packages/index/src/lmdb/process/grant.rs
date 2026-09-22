@@ -89,7 +89,7 @@ impl Index {
 						));
 					},
 				};
-				let root_permissions = root_permissions
+				let proven_permissions = root_permissions
 					.get(&object)
 					.copied()
 					.unwrap_or_else(|| requested.empty_like());
@@ -98,7 +98,7 @@ impl Index {
 					.is_some_and(|authorization| authorization.permissions.contains(subtree))
 				{
 					tg::authorization::permission::object::Permission::Subtree
-				} else if root_permissions.contains(node)
+				} else if proven_permissions.contains(node)
 					|| authorization
 						.as_ref()
 						.is_some_and(|authorization| authorization.permissions.contains(node))
