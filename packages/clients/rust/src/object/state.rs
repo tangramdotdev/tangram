@@ -258,7 +258,18 @@ impl State {
 			if !visited.insert(state.identity()) {
 				continue;
 			}
-			tokens.inherit(&state.tokens());
+			let state_tokens = state.tokens();
+			tokens.inherit(&state_tokens);
+			let subtree = !state_tokens.is_empty()
+				&& state_tokens.iter().any(|(_, entry)| {
+					entry
+						.authorization
+						.iter()
+						.any(|token| token.grants_subtree(&state.id().into()))
+				});
+			if subtree {
+				continue;
+			}
 			if let Some(object) = state.object() {
 				stack.extend(object.children().into_iter().map(|child| child.state()));
 			}

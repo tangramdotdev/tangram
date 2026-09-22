@@ -205,6 +205,40 @@ export namespace Object {
 			tg.Tokens.inherit(this.#tokens, tokens);
 		}
 
+		referentTokens(): tg.Tokens {
+			// Collect only loaded handles, without retaining descendant tokens on their ancestors.
+			let tokens = tg.Tokens.clone(this.#tokens);
+			let visited = new Set<tg.Object.State>();
+			let stack: Array<tg.Object.State> = [this];
+			while (stack.length > 0) {
+				let state = stack.pop()!;
+				if (visited.has(state)) {
+					continue;
+				}
+				visited.add(state);
+				let stateTokens = state.tokens;
+				tg.Tokens.inherit(tokens, stateTokens);
+				let subtree =
+					!tg.Tokens.isEmpty(stateTokens) &&
+					globalThis.Object.values(stateTokens).some((entry) =>
+						(entry.authorization ?? []).some((token) =>
+							tg.Authorization.Token.grantsSubtree(token, state.id),
+						),
+					);
+				if (subtree) {
+					continue;
+				}
+				if (state.object !== null) {
+					stack.push(
+						...tg.Object.Object.children(state.object).map(
+							(child) => child.state,
+						),
+					);
+				}
+			}
+			return tokens;
+		}
+
 		get kind(): tg.Object.Kind {
 			if (this.#object !== null) {
 				return this.#object.kind;
@@ -473,24 +507,9 @@ export namespace Object {
 	export let toReferent = <T extends tg.Object>(
 		object: T,
 	): tg.Referent<T["id"]> => {
-		// Collect only loaded handles, without retaining descendant tokens on their ancestors.
-		let tokens = tg.Tokens.clone(object.state.tokens);
-		let visited = new Set<tg.Object.State>();
-		let stack = [object as tg.Object];
-		while (stack.length > 0) {
-			let state = stack.pop()!.state;
-			if (visited.has(state)) {
-				continue;
-			}
-			visited.add(state);
-			tg.Tokens.inherit(tokens, state.tokens);
-			if (state.object !== null) {
-				stack.push(...tg.Object.Object.children(state.object));
-			}
-		}
 		let options = {
 			location: object.state.location,
-			tokens,
+			tokens: object.state.referentTokens(),
 		};
 		return { node: object.id, options };
 	};
