@@ -1,17 +1,20 @@
-use {super::*, crate::fs::Temp};
+use {super::*, tangram_util::fs::Temp};
 
 #[test]
 fn round_trip_and_replace() {
 	let path = Temp::new().unwrap();
 	std::fs::write(&path, "").unwrap();
 	xattr::set(&path, "user.example", b"preserved").unwrap();
-	assert_eq!(get(&path, "user.tangram.output").unwrap(), None);
+	assert_eq!(read_sharded(&path, "user.tangram.output").unwrap(), None);
 	for size in [0, 4, 20_000, 131_072, 4, 0] {
 		let value = (0..size)
 			.map(|index| u8::try_from(index % 256).unwrap())
 			.collect::<Vec<_>>();
-		set(&path, "user.tangram.output", &value).unwrap();
-		assert_eq!(get(&path, "user.tangram.output").unwrap(), Some(value));
+		write_sharded(&path, "user.tangram.output", &value).unwrap();
+		assert_eq!(
+			read_sharded(&path, "user.tangram.output").unwrap(),
+			Some(value)
+		);
 	}
 	assert_eq!(
 		xattr::get(&path, "user.example").unwrap(),
@@ -32,7 +35,7 @@ fn numeric_order() {
 		xattr::set(&path, format!("user.tangram.output.{index}"), &[index]).unwrap();
 	}
 	assert_eq!(
-		get(&path, "user.tangram.output").unwrap(),
+		read_sharded(&path, "user.tangram.output").unwrap(),
 		Some((0..12).collect())
 	);
 }
@@ -46,7 +49,9 @@ fn invalid_shards() {
 			xattr::set(&path, format!("user.tangram.output{suffix}"), b"part").unwrap();
 		}
 		assert_eq!(
-			get(&path, "user.tangram.output").unwrap_err().kind(),
+			read_sharded(&path, "user.tangram.output")
+				.unwrap_err()
+				.kind(),
 			io::ErrorKind::InvalidData
 		);
 	}

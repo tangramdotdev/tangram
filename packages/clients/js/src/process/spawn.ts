@@ -1,3 +1,4 @@
+import { readSharded } from "../file/xattrs.ts";
 import * as tg from "../index.ts";
 import { Connection } from "./connect.ts";
 import * as stdio from "./stdio.ts";
@@ -361,15 +362,12 @@ export let waitUnsandboxed = async (
 		wait = wait_;
 		let exists = await tg.host.exists(outputPath);
 		if (exists) {
-			let outputBytes = await tg.host.getxattr(
-				outputPath,
-				"user.tangram.output",
-			);
+			let outputBytes = await readSharded(outputPath, "user.tangram.output");
 			if (outputBytes !== null) {
 				let tgon = tg.encoding.utf8.decode(outputBytes);
 				wait_.output = tg.Value.parse(tgon);
 			}
-			let errorBytes = await tg.host.getxattr(outputPath, "user.tangram.error");
+			let errorBytes = await readSharded(outputPath, "user.tangram.error");
 			if (errorBytes !== null) {
 				let string = tg.encoding.utf8.decode(errorBytes);
 				try {

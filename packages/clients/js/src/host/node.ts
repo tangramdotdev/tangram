@@ -216,21 +216,7 @@ export let host: Host = {
 	},
 
 	async getxattr(path: string, name: string): Promise<Uint8Array | null> {
-		let value = await readXattr(path, name);
-		if (value !== null) {
-			return value;
-		}
-
-		// Read the numbered shards in order before decoding the value.
-		let shards: Array<Uint8Array> = [];
-		for (let index = 0; ; index++) {
-			let shard = await readXattr(path, `${name}.${index}`);
-			if (shard === null) {
-				break;
-			}
-			shards.push(shard);
-		}
-		return shards.length === 0 ? null : Buffer.concat(shards);
+		return await readXattr(path, name);
 	},
 
 	isForegroundControllingTty(fd: number): boolean {

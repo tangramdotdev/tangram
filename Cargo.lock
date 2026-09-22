@@ -8373,6 +8373,7 @@ dependencies = [
  "toml",
  "uuid",
  "v8",
+ "xattr",
 ]
 
 [[package]]

@@ -173,8 +173,12 @@ impl Cli {
 					..Default::default()
 				};
 				let tgon = output.print(options);
-				tangram_util::xattr::set(&output_path, "user.tangram.output", tgon.as_bytes())
-					.map_err(|error| tg::error!(!error, "failed to write the output xattr"))?;
+				tg::file::xattrs::write_sharded(
+					&output_path,
+					"user.tangram.output",
+					tgon.as_bytes(),
+				)
+				.map_err(|error| tg::error!(!error, "failed to write the output xattr"))?;
 			}
 			if let Some(error) = &error {
 				if let Some(data) = error
@@ -184,13 +188,17 @@ impl Cli {
 				{
 					let json = serde_json::to_vec(&data)
 						.map_err(|error| tg::error!(!error, "failed to serialize the error"))?;
-					tangram_util::xattr::set(&output_path, "user.tangram.error", &json)
+					tg::file::xattrs::write_sharded(&output_path, "user.tangram.error", &json)
 						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
 				} else {
 					let referent = error.to_referent();
 					let string = referent.to_string();
-					tangram_util::xattr::set(&output_path, "user.tangram.error", string.as_bytes())
-						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
+					tg::file::xattrs::write_sharded(
+						&output_path,
+						"user.tangram.error",
+						string.as_bytes(),
+					)
+					.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
 				}
 			}
 		}

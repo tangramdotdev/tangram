@@ -1,4 +1,4 @@
-use ../../test.nu *
+use ../lib/test.nu *
 
 # An environment composed from child build outputs preserves its artifact references through all three process output readers.
 

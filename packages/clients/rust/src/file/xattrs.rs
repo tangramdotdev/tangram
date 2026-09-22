@@ -1,12 +1,16 @@
 use {crate::prelude::*, std::path::Path};
 
 mod dependencies;
+mod shards;
 #[cfg(test)]
 mod tests;
 
-pub use self::dependencies::{
-	DependenciesXattr, dependencies_xattrs, deserialize_dependencies_xattr,
-	is_dependencies_xattr_name, try_read_dependencies_xattrs,
+pub use self::{
+	dependencies::{
+		DependenciesXattr, dependencies_xattrs, deserialize_dependencies_xattr,
+		is_dependencies_xattr_name, try_read_dependencies_xattrs,
+	},
+	shards::{read_sharded, write_sharded},
 };
 
 #[derive(Clone, Copy, Debug)]

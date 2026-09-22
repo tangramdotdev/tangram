@@ -10,4 +10,3 @@ pub mod read;
 pub mod serde;
 pub mod tty;
 pub mod varint;
-pub mod xattr;
