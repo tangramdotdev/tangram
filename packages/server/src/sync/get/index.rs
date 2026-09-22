@@ -874,11 +874,18 @@ impl Session {
 					| Node::Tag(_)
 					| Node::User(_) => {},
 					Node::Object(node) => {
+						let id = tg::object::Id::try_from(id.clone())?;
+						let proven = graph.object_local_permissions(&id);
+						let node_permission = tg::authorization::Permission::Object(
+							tg::authorization::permission::object::Permission::Node,
+						);
 						let availability = node
 							.local_availability()
 							.is_some_and(|availability| availability.subtree);
 						let mut subtree = false;
-						if node.marked() && !object_covered[index] {
+						if (node.marked() || proven.contains(node_permission))
+							&& !object_covered[index]
+						{
 							let permissions = Graph::object_grant_permissions(availability);
 							subtree = availability;
 							put_grant_args.push(tangram_index::grant::put::Arg {
@@ -889,7 +896,7 @@ impl Session {
 									permissions,
 								),
 								subject: grant_subject.clone(),
-								resource: tg::object::Id::try_from(id.clone())?.into(),
+								resource: id.into(),
 								time_to_touch: Some(self.server.config.object.grant_time_to_touch),
 							});
 						}
@@ -907,6 +914,12 @@ impl Session {
 						} else {
 							tg::authorization::permission::process::Set::empty()
 						};
+						let tg::authorization::permission::Set::Process(proven) =
+							graph.process_local_permissions(&id.clone().try_into()?)
+						else {
+							return Err(tg::error!("expected process permissions"));
+						};
+						permissions.insert(proven);
 						Self::sync_get_index_remove_process_permissions_covered_by_ancestors(
 							&mut permissions,
 							process_covered[index],

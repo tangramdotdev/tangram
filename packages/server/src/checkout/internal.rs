@@ -599,6 +599,7 @@ impl Session {
 		}
 
 		// Pull.
+		let source = self.checkout_pull_source().await?;
 		let stream = self
 			.pull(tg::pull::Arg {
 				nodes: artifacts
@@ -606,6 +607,7 @@ impl Session {
 					.cloned()
 					.map(|artifact| artifact.map(tg::Id::from))
 					.collect(),
+				source,
 				..Default::default()
 			})
 			.await

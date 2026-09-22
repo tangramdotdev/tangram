@@ -440,6 +440,19 @@ impl Session {
 		self.server.store_path().join(name)
 	}
 
+	async fn checkout_pull_source(&self) -> tg::Result<Option<tg::Location>> {
+		let remote = self
+			.try_get_remote("default", tg::remote::get::Arg::default())
+			.await?;
+		let source = remote.map(|_| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})
+		});
+		Ok(source)
+	}
+
 	pub(crate) async fn checkout_request(
 		&self,
 		request: http::Request<BoxBody>,

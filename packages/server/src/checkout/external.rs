@@ -207,9 +207,11 @@ impl Session {
 		}
 
 		// Pull.
+		let source = self.checkout_pull_source().await?;
 		let stream = self
 			.pull(tg::pull::Arg {
 				nodes: vec![artifact.clone().map(tg::Id::from)],
+				source,
 				..Default::default()
 			})
 			.await

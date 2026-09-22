@@ -16,7 +16,7 @@ tg --url $destination.url --token $bob.token remote put default $source.url
 
 # Call the pull endpoint directly so the CLI does not first try to resolve the private object.
 let socket = $destination.url | str replace 'http+unix://' '' | url decode
-let response = http post --max-time 10sec --raw --content-type application/json --headers { Authorization: $'Bearer ($bob.token)' } --unix-socket $socket http://localhost/pull { nodes: [$private] }
+let response = http post --max-time 10sec --raw --content-type application/json --headers { Authorization: $'Bearer ($bob.token)' } --unix-socket $socket http://localhost/pull { nodes: [$private], source: 'remote' }
 assert ($response | str contains 'event: error') "the pull from the empty source should fail"
 let logs = $response | split row "\n\n" | where {|event| $event starts-with 'event: log' } | each {|event|
 	$event | lines | where {|line| $line starts-with 'data:' } | first | str substring 5.. | from json

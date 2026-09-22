@@ -187,7 +187,10 @@ impl TagTargets {
 impl Cli {
 	pub async fn command_push(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let destination = args.destination.to_location()?;
+		let destination = args
+			.destination
+			.to_location()?
+			.or(tg::push::Arg::default().destination);
 		let source = tg::Location::Local(tg::location::Local::default());
 
 		// Get the references.
