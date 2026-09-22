@@ -52,6 +52,7 @@ impl Cli {
 				return Err(tg::error!("invalid args"));
 			},
 		}
+
 		Ok(())
 	}
 }

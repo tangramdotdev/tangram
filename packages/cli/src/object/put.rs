@@ -31,7 +31,7 @@ impl Cli {
 	pub async fn command_object_put(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let location = args.location.get();
-		let concrete_location = args.location.to_location()?;
+		let location_ = args.location.to_location()?;
 
 		// Read input from argument or stdin.
 		let input = if let Some(input) = args.input {
@@ -83,7 +83,7 @@ impl Cli {
 
 			// Store the value.
 			value
-				.store_with_location_with_handle(&client, concrete_location)
+				.store_with_location_with_handle(&client, location_)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to store the value"))?;
 
