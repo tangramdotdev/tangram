@@ -15,7 +15,7 @@ let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
-	runner: { id: $created.data.id, remote: default, token: $created.token.token },
+	runner: { id: $created.data.id, remote: default, sandbox_state_ttl: 0, token: $created.token.token },
 	sandbox: { status_wakeup_interval: 3600.0 },
 }
 let connect_watch = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.connect | from json | get watch
@@ -25,7 +25,7 @@ let create_job = job spawn {
 	let output = tg --url $remote.url --token $root_token sandbox create | complete
 	$output | job send --tag $job_id 0
 }
-timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 0 | ignore
+success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 0 | complete) "the runner must insert the sandbox state"
 tg --url $runner.url checkpoint continue runner.sandbox.state.inserted $state_watch 0
 tg --url $runner.url checkpoint unwatch runner.sandbox.state.inserted $state_watch
 let sandbox = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.connect $connect_watch 0 | from json | get params.sandbox
@@ -55,16 +55,18 @@ let wait_job = job spawn {
 }
 assert equal (job recv --tag $wait_job --timeout 10sec) 'data: "started"'
 tg --url $remote.url --token $root_token sandbox destroy $sandbox
-timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.destroy $destroy_watch 0 | ignore
+success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sandbox.control.destroy $destroy_watch 0 | complete) "the control destroy handler must reach the checkpoint"
 assert equal (job recv --tag $wait_job --timeout 10sec) 'data: "destroyed"'
 assert equal (job recv --tag $wait_job --timeout 10sec) 'event: end'
 tg --url $remote.url --token $root_token checkpoint continue sandbox.control.destroy $destroy_watch 0
 tg --url $remote.url --token $root_token checkpoint unwatch sandbox.control.destroy $destroy_watch
 
-# Retained remote runner state must not answer new requests after the sandbox expires.
+# Wait for both index expiry and remote runner state expiry before expecting missing reads.
 wait_until { (tg --url $remote.url --token $root_token sandbox get $sandbox | complete | get exit_code) != 0 } --timeout 15sec "the sandbox should expire"
-let status = http get --allow-errors --full --max-time 10sec --unix-socket $socket $'http://localhost/sandboxes/($sandbox)/status?location=remote&timeout=0'
-assert equal $status.status 404
+wait_until {
+	let status = http get --allow-errors --full --max-time 10sec --unix-socket $socket $'http://localhost/sandboxes/($sandbox)/status?location=remote&timeout=0'
+	$status.status == 404
+} --timeout 10sec "the remote runner state should expire"
 let output = timeout 10s tg --url $runner.url sandbox wait --remote $sandbox | complete
 failure $output
 assert ($output.stderr | str contains "failed to find the sandbox")

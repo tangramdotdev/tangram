@@ -47,7 +47,7 @@ for location in [local remote] {
 		let path = artifact { tangram.ts: $source }
 		let spawned = tg --url $owner.url --token $root_token build --detach --verbose $path | from json
 		let process = $spawned.process | split row '?' | first
-		timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | ignore
+		success (timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | complete) "the runner must reach the finish checkpoint"
 		tg --url $runner.url --token $root_token grant $reader.user.id process_node $process | ignore
 		tg --url $runner.url --token $root_token grant $reader.user.id $'process_node_($field)' $process | ignore
 		if $case.both {
@@ -64,18 +64,19 @@ for location in [local remote] {
 			let output = http post --raw --max-time 30sec --unix-socket $socket --headers { Accept: 'text/event-stream', Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)/wait?($query)' ''
 			$output | job send --tag $job_id 0
 		}
-		timeout 10s tg --url $runner.url --token $root_token checkpoint wait process.wait.attach $attach_watch 0 | ignore
+		success (timeout 10s tg --url $runner.url --token $root_token checkpoint wait process.wait.attach $attach_watch 0 | complete) "the reader must attach before completion"
 		let node_wait_job = job spawn {
 			let job_id = job id
 			let output = http post --raw --max-time 30sec --unix-socket $socket --headers { Accept: 'text/event-stream', Authorization: $'Bearer ($node_reader.token)' } $'http://localhost/processes/($process)/wait?($query)' ''
 			$output | job send --tag $job_id 0
 		}
-		timeout 10s tg --url $runner.url --token $root_token checkpoint wait process.wait.attach $attach_watch 1 | ignore
+		success (timeout 10s tg --url $runner.url --token $root_token checkpoint wait process.wait.attach $attach_watch 1 | complete) "the node reader must attach before completion"
 		tg --url $runner.url --token $root_token checkpoint unwatch process.wait.attach $attach_watch
-		let batch_watch = tg --url $runner.url --token $root_token checkpoint watch index.batch --params '{"finished_process":true}' | from json | get watch
+		let batch_params = if $case.control_first { '{"finished_process":true,"runner":true}' } else { '{"finished_process":true}' }
+		let batch_watch = tg --url $runner.url --token $root_token checkpoint watch index.batch --params $batch_params | from json | get watch
 		tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch
-		timeout 30s tg --url $runner.url --token $root_token checkpoint wait index.batch $batch_watch 0 | ignore
-		timeout 30s tg --url $owner.url --token $root_token checkpoint wait process.control.finish $control_watch 0 | ignore
+		success (timeout 30s tg --url $runner.url --token $root_token checkpoint wait index.batch $batch_watch 0 | complete) "the finished-process batch must reach the checkpoint"
+		success (timeout 30s tg --url $owner.url --token $root_token checkpoint wait process.control.finish $control_watch 0 | complete) "the control finish handler must reach the checkpoint"
 		let output = try { job recv --tag $wait_job --timeout 10sec } catch {
 			error make { msg: $'($location) ($field) wait did not return while the finished-process batch was held' }
 		}

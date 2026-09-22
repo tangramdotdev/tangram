@@ -1362,7 +1362,8 @@ impl Session {
 			self.server,
 			"index.batch",
 			command_object_grant = false,
-			finished_process = true
+			finished_process = true,
+			runner = true
 		)
 		.await;
 		let result = self

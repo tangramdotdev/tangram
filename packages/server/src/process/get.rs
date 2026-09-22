@@ -18,7 +18,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		if let Some(output) = self.try_get_process_runner(id, &arg).await? {
+		if let Some(output) = self.try_get_process_runner(id, &arg).boxed().await? {
 			return Ok(Some(output));
 		}
 
@@ -161,6 +161,9 @@ impl Session {
 		let Some(data) = runner.processes.get(id).map(|process| process.data()) else {
 			return Ok(None);
 		};
+		if data.status.is_finished() {
+			return Ok(None);
+		}
 		let mut output =
 			self.create_process_get_output(id, data, Some(runner.location.clone()), None);
 		output.tokens = arg.tokens.clone();
@@ -462,10 +465,7 @@ impl Session {
 					);
 					return Ok(Some(output));
 				};
-				let indexed = if data.status.is_finished() {
-					// Read only committed state; initialization may still be pending.
-					self.server.index.try_get_process(id).await?
-				} else if metadata {
+				let indexed = if data.status.is_finished() || metadata {
 					index_future.await?
 				} else {
 					None

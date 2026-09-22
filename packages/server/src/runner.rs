@@ -882,4 +882,25 @@ impl State {
 			.get(id)
 			.map(|sandbox| sandbox.value().clone())
 	}
+
+	pub(crate) fn remove_process(&self, id: &tg::process::Id) {
+		let Some((_, sandbox)) = self.processes.remove(id) else {
+			return;
+		};
+		if let Some(sandbox) = self.sandboxes.get_by_id(&sandbox) {
+			sandbox.processes.remove(id);
+		}
+	}
+
+	pub(crate) fn remove_sandbox(&self, id: &tg::sandbox::Id) {
+		let Some(index) = self.sandboxes.get_by_id(id).map(|sandbox| *sandbox.key()) else {
+			return;
+		};
+		if let Some(sandbox) = self.sandboxes.remove(index) {
+			for process in sandbox.processes.iter() {
+				self.processes.remove(process.key());
+			}
+			sandbox.processes.clear();
+		}
+	}
 }

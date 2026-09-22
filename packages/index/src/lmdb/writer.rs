@@ -1113,6 +1113,7 @@ impl Index {
 				existing.checkouts.extend(new.checkouts);
 				existing.objects.extend(new.objects);
 				existing.processes.extend(new.processes);
+				existing.sandboxes.extend(new.sandboxes);
 				existing.done = new.done;
 			},
 			(Response::ExpireUsageOutput(existing), Response::ExpireUsageOutput(new)) => {

@@ -164,6 +164,15 @@ impl Server {
 			})
 			.await?;
 
+		// Remove the cleaned nodes from retained runner state.
+		let runner = self.runner.state();
+		for process in &output.processes {
+			runner.remove_process(process);
+		}
+		for sandbox in &output.sandboxes {
+			runner.remove_sandbox(sandbox);
+		}
+
 		// Prepare the side effects.
 		let (artifacts, named): (Vec<_>, Vec<_>) = output
 			.checkouts

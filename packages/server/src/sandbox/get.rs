@@ -161,7 +161,20 @@ impl Session {
 					control_future.await?
 				}
 			},
-			future::Either::Right((data, _)) => data?,
+			future::Either::Right((data, index_future)) => {
+				let Ok(data) = data else {
+					return Ok(index_future.await?.and_then(|indexed| indexed.data));
+				};
+				if data.data.status.is_destroyed() {
+					index_future
+						.await?
+						.and_then(|indexed| indexed.data)
+						.filter(|data| data.data.status.is_destroyed())
+						.unwrap_or(data)
+				} else {
+					data
+				}
+			},
 		};
 		Ok(Some(output))
 	}
