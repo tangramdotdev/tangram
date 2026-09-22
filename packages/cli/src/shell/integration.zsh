@@ -39,6 +39,24 @@ _tg_shell_update() {
 	_tg_shell_eval shell directory update zsh
 }
 
+_tg_shell_update_on_chpwd() {
+	local exit_code
+	_tg_shell_update
+	exit_code="$?"
+	if [[ "$exit_code" -eq 0 ]]; then
+		_tg_shell_updated_since_prompt=1
+	fi
+	return "$exit_code"
+}
+
+_tg_shell_update_on_precmd() {
+	if [[ -n "${_tg_shell_updated_since_prompt:-}" ]]; then
+		unset _tg_shell_updated_since_prompt
+		return 0
+	fi
+	_tg_shell_update
+}
+
 _tg_shell_dispatch() {
 	if [[ "${1-}" == "shell" && "${2-}" == "activate" ]]; then
 		shift 2
@@ -66,7 +84,9 @@ typeset -ga precmd_functions
 autoload -Uz add-zsh-hook
 add-zsh-hook -D chpwd _tg_shell_update >/dev/null 2>&1
 add-zsh-hook -D precmd _tg_shell_update >/dev/null 2>&1
-add-zsh-hook chpwd _tg_shell_update
-add-zsh-hook precmd _tg_shell_update
+add-zsh-hook -D chpwd _tg_shell_update_on_chpwd >/dev/null 2>&1
+add-zsh-hook -D precmd _tg_shell_update_on_precmd >/dev/null 2>&1
+add-zsh-hook chpwd _tg_shell_update_on_chpwd
+add-zsh-hook precmd _tg_shell_update_on_precmd
 
 _tg_shell_update
