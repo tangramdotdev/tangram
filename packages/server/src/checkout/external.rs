@@ -682,11 +682,10 @@ impl Session {
 				.map_err(|error| tg::error!(!error, ?path, "failed to write to the file"))?;
 
 			// Set the permissions.
-			if node.executable {
-				let permissions = std::fs::Permissions::from_mode(0o755);
-				std::fs::set_permissions(path, permissions)
-					.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
-			}
+			let mode = if node.executable { 0o755 } else { 0o644 };
+			let permissions = std::fs::Permissions::from_mode(mode);
+			std::fs::set_permissions(path, permissions)
+				.map_err(|error| tg::error!(!error, "failed to set the permissions"))?;
 		}
 
 		// Write all file xattrs with the required xattrs taking priority over tokens.
