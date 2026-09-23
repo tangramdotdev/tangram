@@ -1,4 +1,10 @@
-use {super::local::Output, crate::Session, futures::FutureExt as _, tangram_client::prelude::*};
+use {
+	super::local::Output,
+	crate::Session,
+	futures::{FutureExt as _, TryStreamExt as _},
+	std::pin::pin,
+	tangram_client::prelude::*,
+};
 
 impl Session {
 	pub(super) async fn spawn_process_in_new_or_existing_sandbox(
@@ -51,6 +57,7 @@ impl Session {
 				let connected = self
 					.try_wait_process_connection(
 						&scheduler,
+						&sandbox,
 						&mut process_connection_future,
 						&mut sandbox_connection_future,
 					)
@@ -87,16 +94,41 @@ impl Session {
 	async fn try_wait_process_connection(
 		&self,
 		scheduler: &tg::scheduler::Id,
+		sandbox: &tg::sandbox::Id,
 		process_connection_future: &mut crate::process::ConnectionFuture,
 		sandbox_connection_future: &mut crate::sandbox::ConnectionFuture,
 	) -> tg::Result<Option<crate::process::control::Connected>> {
+		let mut heartbeat_future = pin!(self.scheduler_heartbeat_expired(scheduler));
+		tokio::select! {
+			result = process_connection_future.as_mut() => return result.map(Some),
+			result = sandbox_connection_future.as_mut() => result?,
+			result = heartbeat_future.as_mut() => return result.map(|()| None),
+		}
+		crate::checkpoint!(self.server, "process.spawn.connection.wait", %sandbox).await;
+		let wakeups = self
+			.create_sandbox_status_wakeup_stream(sandbox, None, None)
+			.await?;
+		let mut status_stream = self.create_sandbox_status_stream_local_with_wakeups(
+			sandbox,
+			None,
+			Some(wakeups),
+			tg::sandbox::Source::Auto,
+		);
+		let destroyed_future = async {
+			while let Some(event) = status_stream.try_next().await? {
+				if let tg::sandbox::status::Event::Status(status) = event
+					&& status.is_destroyed()
+				{
+					return Err(tg::error!(%sandbox, "the sandbox was destroyed"));
+				}
+			}
+			Err(tg::error!(%sandbox, "the sandbox status stream ended"))
+		};
+		let destroyed_future = pin!(destroyed_future);
 		tokio::select! {
 			result = process_connection_future.as_mut() => result.map(Some),
-			result = sandbox_connection_future.as_mut() => {
-				result?;
-				process_connection_future.as_mut().await.map(Some)
-			},
-			result = self.scheduler_heartbeat_expired(scheduler) => result.map(|()| None),
+			result = destroyed_future => result,
+			result = heartbeat_future.as_mut() => result.map(|()| None),
 		}
 	}
 
