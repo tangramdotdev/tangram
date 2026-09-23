@@ -113,8 +113,8 @@ fn create_sandbox_profile(arg: &crate::Arg) -> tg::Result<CString> {
 			;; Allow most process operations, except for `process-exec`. `process-exec` will let you execute binaries without having been granted the corresponding `file-read*` permission.
 			(allow process-fork process-info*)
 
-			;; Allow signaling child processes spawned by the sandbox server.
-			(allow signal (target children))
+			;; Allow signaling processes spawned within this sandbox, including descendants.
+			(allow signal (target same-sandbox))
 
 			;; Allow limited exploration of the root.
 			(allow file-read* file-test-existence
