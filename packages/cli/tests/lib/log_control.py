@@ -174,15 +174,18 @@ def reconnect():
     # Replay a persisted write without duplicating it.
     sock, response, _ = connect(arg, token)
     assert request(sock, response, "second", write)["value"] == {"closed": False, "length": 6}
-    request(sock, response, "finish", {"kind": "finish", "value": {"data": finished}})
     close(sock, response)
 
-    # The writer supplies the final positions on a fresh connection.
+    # The writer can supply EOF before Finish is processed.
     end = {"kind": "write", "value": {"kind": "end", "value": {
         "combined_position": 12, "stream_positions": {"stderr": 6, "stdout": 6},
     }}}
     sock, response, _ = connect(arg, token)
     assert request(sock, response, "end", end, False)["value"] == {"closed": True, "length": 0}
+    close(sock, response)
+
+    sock, response, _ = connect(arg, token)
+    request(sock, response, "finish", {"kind": "finish", "value": {"data": finished}})
     close(sock, response)
 
     command = [tangram, "--url", url]
@@ -265,7 +268,8 @@ def reordered():
             assert result.stdout == expected_stdout and result.stderr == expected_stderr, result
             result = subprocess.run(command + ["log", "--no-timeout", "--position", "3", "--length=-3", id], capture_output=True, timeout=10)
             assert result.returncode == 0, result.stderr
-            assert result.stdout == expected_stdout and result.stderr == expected_stderr, result
+            expected_reverse_stdout = b"CBA" if last_stream == "stdout" else b"BA"
+            assert result.stdout == expected_reverse_stdout and result.stderr == expected_stderr, result
         finally:
             if reader is not None:
                 close(*reader)

@@ -4,7 +4,7 @@ use {
 		FutureExt as _, StreamExt as _, TryStreamExt as _,
 		stream::{FuturesOrdered, FuturesUnordered},
 	},
-	std::{collections::BTreeSet, io::SeekFrom, sync::Arc},
+	std::{collections::BTreeSet, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
@@ -401,7 +401,7 @@ impl Session {
 			// Validate the process before waiting for all of its children.
 			Self::validate_process_data(&output.data)?;
 
-			// Compact a local log if needed, leaving an uncompacted remote log unset.
+			// Wait for a local log to be compacted, leaving an uncompacted remote log unset.
 			if node.descendants
 				&& state.arg.process_logs
 				&& Self::process_log_needs_compaction(&output.data)
@@ -419,45 +419,20 @@ impl Session {
 					return Err(tg::error!("unauthorized"));
 				}
 
-				// Wait for the writer's EOF before compacting, discarding any remaining log bytes.
-				let streams = [
-					(tg::process::stdio::Stream::Stderr, &output.data.stderr),
-					(tg::process::stdio::Stream::Stdout, &output.data.stdout),
-				]
-				.into_iter()
-				.filter_map(|(stream, stdio)| stdio.is_log().then_some(stream))
-				.collect();
-				let arg = tg::process::stdio::read::Arg {
-					location: output.location.clone().map(Into::into),
-					position: Some(SeekFrom::End(0)),
-					streams,
-					..Default::default()
-				};
-				self.server
-					.try_read_process_stdio_all(&node.id, arg)
-					.boxed()
-					.await?
-					.ok_or_else(|| tg::error!(process = %node.id, "failed to get the process log"))?
-					.try_for_each(|_| std::future::ready(Ok(())))
-					.await
-					.map_err(
-						|error| tg::error!(!error, process = %node.id, "failed to read the log"),
-					)?;
-
-				// Compact.
-				self.compact_process_log(&node.id).boxed().await.map_err(
-					|error| tg::error!(!error, process = %node.id, "failed to compact the log"),
-				)?;
-
-				// Get the compacted process data from the index.
+				self.server.index_inner().await?;
 				output.data = self
 					.server
 					.try_get_process_local(&node.id, false)
 					.await?
 					.ok_or_else(
-						|| tg::error!(process = %node.id, "failed to get the process after compaction"),
+						|| tg::error!(process = %node.id, "failed to get the process after indexing"),
 					)?
 					.data;
+				if Self::process_log_needs_compaction(&output.data) {
+					return Err(
+						tg::error!(process = %node.id, "the process log was not compacted"),
+					);
+				}
 			}
 
 			// Read the local children using the node permission already proven by the graph.

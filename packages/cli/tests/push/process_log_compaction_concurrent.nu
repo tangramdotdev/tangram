@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A sync that reads the log cache after background compaction must preserve the compacted log.
+# Sync waits for background compaction and transfers the compacted log.
 
 for mode in [--eager --lazy] {
 	let remote = server spawn --cloud --name remote
@@ -17,14 +17,14 @@ for mode in [--eager --lazy] {
 	let hit = timeout 10s tg checkpoint wait process.log.compact.read $watch 0 | from json
 	assert equal $hit.params.process $process
 
-	# Both callers must observe an uncompacted log before either reads the cache.
+	# Sync must wait while the queued compactor is held before reading the cache.
 	let push_job = job spawn {
 		let job_id = job id
 		let output = tg --url $local.url push $process --process-logs $mode | complete
 		$output | job send --tag $job_id 0
 	}
-	let hit = timeout 10s tg checkpoint wait process.log.compact.read $watch 1 | from json
-	assert equal $hit.params.process $process
+	let premature = try { job recv --tag $push_job --timeout 1sec } catch { null }
+	assert equal $premature null "sync must wait for log compaction"
 
 	# Finish background compaction, including deletion of the cached log entries.
 	tg checkpoint continue process.log.compact.read $watch 0
@@ -35,7 +35,7 @@ for mode in [--eager --lazy] {
 	assert equal $output.stdout "stdout\n"
 	assert equal $output.stderr "stderr\n"
 
-	# Resume sync after the cache is empty and verify that it retains the same log.
+	# Verify that sync transfers the compacted log after the cache is empty.
 	tg checkpoint unwatch process.log.compact.read $watch
 	let output = job recv --tag $push_job --timeout 10sec
 	success $output

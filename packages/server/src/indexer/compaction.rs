@@ -123,9 +123,8 @@ impl Indexer {
 	}
 
 	async fn compact_logs(&self, entries: &[tangram_index::log::Entry]) -> tg::Result<()> {
-		for entry in entries {
-			self.compact_log(entry).boxed().await?;
-		}
+		let futures = entries.iter().map(|entry| self.compact_log(entry).boxed());
+		future::try_join_all(futures).await?;
 
 		Ok(())
 	}

@@ -29,7 +29,7 @@ impl Session {
 
 		let options = crate::process::put::Options {
 			defer_index: true,
-			enqueue_log_compaction: false,
+			enqueue_log_compaction: true,
 			location: None,
 			store_data: true,
 		};

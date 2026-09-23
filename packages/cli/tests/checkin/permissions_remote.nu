@@ -6,6 +6,7 @@ use ../lib/checkin.nu checkin-output
 let remote = server spawn --name remote --config { remotes: {} }
 let dependency_path = artifact { value: remote }
 let dependency = tg --url $remote.url checkin --no-lock --root $dependency_path | str trim
+tg --url $remote.url index
 let remote_metadata = tg --url $remote.url metadata $dependency | from json
 assert ($remote_metadata.subtree.count > 1) "the remote fixture should have subtree permission"
 

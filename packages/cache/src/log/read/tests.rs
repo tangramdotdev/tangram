@@ -56,9 +56,10 @@ async fn read(cache: &impl crate::Cache) {
 	put(cache, &process, 4, Stdout, 2, b"ef").await;
 	assert_eq!(bytes(cache, &arg).await, b"abefgh");
 	let entries = cache.try_read_log(arg.clone()).await.unwrap();
-	assert_eq!(entries.len(), 2);
+	assert_eq!(entries.len(), 3);
 	assert_eq!((entries[0].position, entries[0].stream_position), (0, 0));
 	assert_eq!((entries[1].position, entries[1].stream_position), (4, 2));
+	assert_eq!((entries[2].position, entries[2].stream_position), (6, 4));
 	arg.streams = BTreeSet::from([Stderr, Stdout]);
 	assert_eq!(bytes(cache, &arg).await, b"ab");
 
@@ -75,6 +76,29 @@ async fn read(cache: &impl crate::Cache) {
 	arg.position = 0;
 	arg.length = 0;
 	assert!(cache.try_read_log(arg).await.unwrap().is_empty());
+
+	// Keep the timestamps of adjacent writes to the same stream.
+	let process = tg::process::Id::new();
+	for (position, timestamp) in [(0, 1), (2, 2)] {
+		let arg = log::put::Arg {
+			bytes: Bytes::from_static(b"ab"),
+			position,
+			process: process.clone(),
+			stream: Stdout,
+			stream_position: position,
+			timestamp,
+		};
+		cache.put_log(arg).await.unwrap();
+	}
+	let arg = Arg {
+		length: u64::MAX,
+		position: 0,
+		process,
+		streams: BTreeSet::from([Stdout]),
+	};
+	let entries = cache.try_read_log(arg).await.unwrap();
+	assert_eq!(entries.len(), 2);
+	assert_eq!((entries[0].timestamp, entries[1].timestamp), (1, 2));
 }
 
 async fn put(

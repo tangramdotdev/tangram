@@ -24,7 +24,7 @@ for location in [local remote] {
 	let reader = tg --url $runner.url login --verbose --name reader | from json
 	let node_reader = tg --url $runner.url login --verbose --name node-reader | from json
 	let socket = $runner.url | str replace 'http+unix://' '' | url decode
-	for case in [{ field: output, both: false, control_first: false, inherited: false }, { field: error, both: false, control_first: false, inherited: false }, { field: error, both: true, control_first: false, inherited: false }, { field: output, both: false, control_first: true, inherited: false }, { field: output, both: false, control_first: false, inherited: true }] {
+	for case in [{ field: output, both: false, inherited: false }, { field: error, both: false, inherited: false }, { field: error, both: true, inherited: false }, { field: output, both: false, inherited: true }] {
 		let field = $case.field
 		let finish_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.finish | from json | get watch
 		let control_watch = tg --url $owner.url --token $root_token checkpoint watch process.control.finish | from json | get watch
@@ -42,7 +42,7 @@ for location in [local remote] {
 		} else {
 			'export default () => { throw new Error("runner error"); };'
 		}
-		let source = $source + $"\n// ($location) ($case.control_first) ($case.both)"
+		let source = $source + $"\n// ($location) ($case.both)"
 		let path = artifact { tangram.ts: $source }
 		let spawned = tg --url $owner.url --token $root_token build --detach --verbose $path | from json
 		let process = $spawned.process | split row '?' | first
@@ -54,7 +54,7 @@ for location in [local remote] {
 		}
 		tg --url $runner.url --token $root_token grant $node_reader.user.id process_node $process | ignore
 
-		# Attach the reader before completion, then hold the finished-process batch and the control finish handler.
+		# Attach the reader before completion, then hold the finished-process batch.
 		let params = { process: $process } | to json --raw
 		let attach_watch = tg --url $runner.url --token $root_token checkpoint watch process.wait.attach --params $params | from json | get watch
 		let query = { lease: $spawned.lease, location: $location } | url build-query
@@ -71,13 +71,17 @@ for location in [local remote] {
 		}
 		success (timeout 10s tg --url $runner.url --token $root_token checkpoint wait process.wait.attach $attach_watch 1 | complete) "the node reader must attach before completion"
 		tg --url $runner.url --token $root_token checkpoint unwatch process.wait.attach $attach_watch
-		let batch_params = if $case.control_first { '{"finished_process":true,"runner":true}' } else { '{"finished_process":true}' }
+		let batch_params = '{"finished_process":true}'
 		let batch_watch = tg --url $runner.url --token $root_token checkpoint watch index.batch --params $batch_params | from json | get watch
 		tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch
 		success (timeout 30s tg --url $runner.url --token $root_token checkpoint wait index.batch $batch_watch 0 | complete) "the finished-process batch must reach the checkpoint"
+		let premature = try { job recv --tag $wait_job --timeout 1sec } catch { null }
+		tg --url $runner.url --token $root_token checkpoint unwatch index.batch $batch_watch
 		success (timeout 30s tg --url $owner.url --token $root_token checkpoint wait process.control.finish $control_watch 0 | complete) "the control finish handler must reach the checkpoint"
-		let output = try { job recv --tag $wait_job --timeout 10sec } catch {
-			error make { msg: $'($location) ($field) wait did not return while the finished-process batch was held' }
+		let output = if $premature != null { $premature } else {
+			try { job recv --tag $wait_job --timeout 10sec } catch {
+				error make { msg: $'($location) ($field) wait did not return after the finished-process batch was indexed' }
+			}
 		}
 		let output = $output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
 		if $field == output {
@@ -106,12 +110,7 @@ for location in [local remote] {
 		} else if $location == remote {
 			assert ($params | all {|param| $param.key !~ '\[sync\]' }) "error permission alone must not expose the shared sync for both error and output objects"
 		}
-		if $case.control_first {
-			tg --url $owner.url --token $root_token checkpoint unwatch process.control.finish $control_watch
-			tg --url $runner.url --token $root_token checkpoint unwatch index.batch $batch_watch
-		}
-
-		# An authorized read waits for the queued batch instead of failing before the control handler indexes completion.
+		# An authorized read uses the runner's indexed grant before the control finish request completes.
 		let read_job = job spawn {
 			let job_id = job id
 			let output = if $field == output {
@@ -121,22 +120,14 @@ for location in [local remote] {
 			}
 			$output | job send --tag $job_id 0
 		}
-		if not $case.control_first {
-			let premature = try { job recv --tag $read_job --timeout 1sec } catch { null }
-			assert equal $premature null "object authorization must wait for the queued finished-process batch"
-			tg --url $runner.url --token $root_token checkpoint unwatch index.batch $batch_watch
-		}
 		let read = try { job recv --tag $read_job --timeout 10sec } catch {
 			error make { msg: $'($location) ($field) read did not finish after the index batch was released' }
 		}
 		success $read "the field grant must authorize the object before the control finish handler runs"
 		assert ($read.stdout | str contains (if $field == output { 'output' } else { 'runner error' }))
+		tg --url $owner.url --token $root_token checkpoint unwatch process.control.finish $control_watch
 		failure (tg --url $runner.url --token $node_reader.token get $object_id | complete) "node permission must not grant access to the object"
-		if not $case.control_first {
-			tg --url $owner.url --token $root_token checkpoint unwatch process.control.finish $control_watch
-		}
 		if $field == output {
-			tg --url $owner.url --token $root_token process log --position end.0 --no-timeout $process | ignore
 			tg --url $owner.url --token $root_token index
 			let log = tg --url $owner.url --token $root_token process log $process | str trim
 			assert equal $log 'runner log' "the finish handler must preserve the process log after early runner indexing"

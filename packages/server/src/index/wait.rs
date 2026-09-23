@@ -48,7 +48,7 @@ enum Progress<T> {
 }
 
 impl Server {
-	pub(crate) async fn wait_for_indexing(&self) -> tg::Result<()> {
+	pub(crate) async fn index_inner(&self) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request {
 			id: crate::control::id(),
@@ -272,7 +272,7 @@ impl State {
 	}
 
 	async fn poll(&mut self, server: &Server) -> tg::Result<()> {
-		// These sources can create updates, but do not enqueue work for one another.
+		// Index batches can enqueue log compactions, so snapshot them after the indexers finish.
 		let region = server.config.region.clone().unwrap_or_default();
 		self.poll_inputs(
 			|batch| async move {
@@ -357,6 +357,7 @@ impl State {
 				matches!(
 					request.state,
 					RequestState::Inputs {
+						indexers: Progress::Complete,
 						log_compactions: Progress::Ready,
 						..
 					}
@@ -367,6 +368,7 @@ impl State {
 					matches!(
 						request.state,
 						RequestState::Inputs {
+							indexers: Progress::Complete,
 							log_compactions: Progress::Pending(_),
 							..
 						}
@@ -416,7 +418,9 @@ impl State {
 		if let Some((transaction_id, oldest)) = log_compactions {
 			for request in self.waits.values_mut() {
 				let RequestState::Inputs {
-					log_compactions, ..
+					indexers: Progress::Complete,
+					log_compactions,
+					..
 				} = &mut request.state
 				else {
 					continue;

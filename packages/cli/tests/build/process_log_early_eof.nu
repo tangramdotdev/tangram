@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Verify that a large compacted log can be transferred and read completely without an early EOF.
 
-let local = server spawn --name local --config { indexer: { log_compaction: false } }
+let local = server spawn --name local
 let remote = server spawn --name remote
 
 let path = artifact {
@@ -17,7 +17,7 @@ let path = artifact {
 
 let id = tg --url $local.url build --detach $path | str trim
 tg --url $local.url wait $id
-assert ((tg --url $local.url get $id | from json | get log?) == null) "The source log should remain live before the push"
+tg --url $local.url index
 tg --url $local.url remote put default $remote.url | complete
 tg --url $local.url push --process-logs $id
 

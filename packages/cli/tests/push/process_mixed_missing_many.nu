@@ -36,7 +36,6 @@ def test [...args] {
 
 	# Wait for the process to finish.
 	tg --url $source.url wait $process_id
-	tg --url $source.url log $process_id --position end.0 --no-timeout o+e>| ignore
 	tg --url $source.url index
 
 	# Get the process data.
@@ -44,10 +43,6 @@ def test [...args] {
 	let main_module_id = (command module-input $process_data.command)
 	let main_output_id = $process_data.output.value
 	let children = $process_data.children
-	for child in $children {
-		let child_id = $child.process | split row '?' | first
-		tg --url $source.url log $child_id --position end.0 --no-timeout o+e>| ignore
-	}
 	tg --url $source.url index
 
 	# Put the main process to the local server.

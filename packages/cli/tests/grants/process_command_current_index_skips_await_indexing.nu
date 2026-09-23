@@ -26,7 +26,6 @@ let path = artifact {
 }
 let build = tg --url $server.url --token $alice.token build --detach --verbose $path | from json
 let command = tg --url $server.url --token $alice.token wait $build.process | from json | get output.value
-tg --url $server.url --token $alice.token process log --position end.0 --no-timeout $build.process | ignore
 tg --url $server.url --token $alice.token grant $alice.user.id object_subtree $command | ignore
 tg --url $server.url --token $alice.token index
 let config = (

@@ -1395,7 +1395,7 @@ impl Session {
 
 		// Queue the process grants before publishing completion so authorization can wait for indexing.
 		// Grant preparation can call index(), so this work must remain outside server.index_tasks.
-		// Leave the local process data to the control finish handler and log compaction to EOF handling.
+		// The control finish handler queues local log compaction, and the log writer records EOF.
 		let remote = location.is_remote();
 		let options = crate::process::put::Options {
 			defer_index: self.server.config.advanced.single_process,
@@ -1485,7 +1485,6 @@ impl Session {
 	async fn write_process_log_task(
 		&self,
 		arg: WriteProcessLogTaskArg,
-		finished: tokio::sync::oneshot::Receiver<()>,
 		sender: control::ProcessControlSender,
 	) -> tg::Result<()> {
 		let WriteProcessLogTaskArg {
@@ -1606,9 +1605,6 @@ impl Session {
 
 		// Commit the end only after every chunk has a successful response.
 		result?;
-		finished
-			.await
-			.map_err(|_| tg::error!("failed to receive the process finish notification"))?;
 		let end = tg::process::stdio::End {
 			combined_position: position,
 			stream_positions: [

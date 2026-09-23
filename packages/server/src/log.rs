@@ -1,16 +1,17 @@
 use {
 	crate::Session,
 	futures::{
-		StreamExt as _,
+		FutureExt as _, StreamExt as _, TryStreamExt as _,
 		stream::{self, BoxStream},
 	},
 	num::ToPrimitive as _,
 	std::{
+		borrow::Cow,
 		collections::{BTreeSet, VecDeque},
 		io::{Cursor, SeekFrom},
 	},
 	tangram_cache::{Cache as _, log},
-	tangram_client::{self as tg},
+	tangram_client::{self as tg, handle::Ext as _},
 	tangram_futures::{read::Ext as _, write::Ext as _},
 	tangram_index::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
@@ -111,26 +112,36 @@ impl Session {
 
 		crate::checkpoint!(self.server, "process.log.compact.read", %process).await;
 
+		let streams = [
+			(tg::process::stdio::Stream::Stderr, &data.stderr),
+			(tg::process::stdio::Stream::Stdout, &data.stdout),
+		]
+		.into_iter()
+		.filter_map(|(stream, stdio)| stdio.is_log().then_some(stream))
+		.collect();
+		let arg = tg::process::stdio::read::Arg {
+			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+			position: Some(SeekFrom::Start(0)),
+			streams,
+			..Default::default()
+		};
 		let entries = self
-			.server
-			.cache
-			.try_read_log(log::read::Arg {
-				process: process.clone(),
-				position: 0,
-				length: u64::MAX,
-				streams: BTreeSet::from([
-					tg::process::stdio::Stream::Stdout,
-					tg::process::stdio::Stream::Stderr,
-				]),
-			})
+			.try_read_process_stdio_all(process, arg)
+			.boxed()
+			.await?
+			.ok_or_else(|| tg::error!(%process, "failed to find the process log"))?
+			.try_collect::<Vec<_>>()
 			.await
-			.map_err(|error| tg::error!(!error, "failed to get the log entries"))?;
+			.map_err(|error| tg::error!(!error, %process, "failed to read the process log"))?;
 
 		// Another compactor may have updated the index and deleted the cached entries before this read.
 		let indexed = self.get_process_from_index(process).await?;
 		let mut data = indexed
 			.data
 			.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
+		if !data.status.is_finished() {
+			return Err(tg::error!(%process, "the process is not finished"));
+		}
 		if !Self::process_log_needs_compaction(&data) {
 			return Ok(());
 		}
@@ -139,7 +150,17 @@ impl Session {
 		let mut entries_bytes = Vec::new();
 		let mut blob_position = 0u64;
 
-		for (i, entry) in entries.into_iter().enumerate() {
+		for (i, chunk) in entries.into_iter().enumerate() {
+			let timestamp = chunk
+				.timestamp
+				.ok_or_else(|| tg::error!(%process, "missing a process log timestamp"))?;
+			let entry = log::read::Entry {
+				bytes: Cow::Owned(chunk.bytes.to_vec()),
+				position: chunk.combined_position,
+				stream: chunk.stream,
+				stream_position: chunk.stream_position,
+				timestamp,
+			};
 			let serialized = tangram_serialize::to_vec(&entry).unwrap();
 			let blob_length = serialized.len().to_u64().unwrap();
 

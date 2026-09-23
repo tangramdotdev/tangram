@@ -38,7 +38,6 @@ let process = tg --url $local.url build --remote --detach $path
 success (tg --url $local.url wait $process | complete)
 
 # Wait for the remote to compact the log into a blob.
-tg --url $remote.url --token $alice.token log $process --position end.0 --no-timeout o+e>| ignore
 tg --url $remote.url --token $alice.token index
 
 # The owner reads the compacted log across servers. Each of the process's streams is written to the corresponding stream of the log command.

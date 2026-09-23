@@ -13,7 +13,6 @@ let path = artifact {
 }
 let id = tg build --detach $path | str trim
 tg wait $id
-tg log $id --position end.0 --no-timeout o+e>| ignore
 
 timeout 10 tg index
 

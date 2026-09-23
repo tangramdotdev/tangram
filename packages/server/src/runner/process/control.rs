@@ -168,15 +168,11 @@ impl Session {
 			stdout_buffered,
 		} = arg;
 		let sender = control.sender();
-		let (finished_sender, finished_receiver) = tokio::sync::oneshot::channel();
 		let log_task = log.map(|arg| {
 			let session = self.clone();
 			let sender = sender.clone();
 			Task::spawn(move |_| async move {
-				session
-					.write_process_log_task(arg, finished_receiver, sender)
-					.boxed()
-					.await
+				session.write_process_log_task(arg, sender).boxed().await
 			})
 		});
 
@@ -247,7 +243,6 @@ impl Session {
 		output
 			.try_unwrap_finish()
 			.map_err(|_| tg::error!("expected a finish process response"))?;
-		finished_sender.send(()).ok();
 		let log_result = if let Some(log_task) = log_task {
 			match log_task.wait().await {
 				Ok(result) => result,

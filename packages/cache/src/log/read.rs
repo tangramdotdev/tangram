@@ -78,23 +78,14 @@ impl<'a> Builder<'a> {
 		let position = entry.position + offset;
 		let stream_position = entry.stream_position + offset;
 
-		// Preserve both positions when coalescing entries, including reads of a single stream.
-		if let Some(previous) = self.entries.last_mut()
-			&& previous.stream == entry.stream
-			&& previous.position + previous.bytes.len().to_u64().unwrap() == position
-			&& previous.stream_position + previous.bytes.len().to_u64().unwrap() == stream_position
-		{
-			previous.bytes.to_mut().extend_from_slice(bytes);
-		} else {
-			let entry = Entry {
-				bytes: Cow::Owned(bytes.to_vec()),
-				position,
-				stream: entry.stream,
-				stream_position,
-				timestamp: entry.timestamp,
-			};
-			self.entries.push(entry);
-		}
+		let entry = Entry {
+			bytes: Cow::Owned(bytes.to_vec()),
+			position,
+			stream: entry.stream,
+			stream_position,
+			timestamp: entry.timestamp,
+		};
+		self.entries.push(entry);
 		self.position += length;
 		self.remaining -= length;
 

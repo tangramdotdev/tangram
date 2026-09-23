@@ -14,7 +14,6 @@ let path = artifact {
 
 let id = tg build -d $path | str trim
 tg wait $id
-tg process log --position end.0 --no-timeout $id | ignore
 tg index
 let stderr = tg process log --stream stderr $id | complete
 snapshot $stderr.stderr '

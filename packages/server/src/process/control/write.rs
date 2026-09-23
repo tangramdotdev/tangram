@@ -6,7 +6,6 @@ use {
 	tangram_cache::{Cache as _, log},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
-	tangram_index::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -230,23 +229,11 @@ impl Session {
 			return Err(tg::error!("invalid log end positions"));
 		}
 
-		// Finish confirms submission, so its index write may still be pending at EOF.
-		let mut data = self
+		let data = self
 			.try_get_process_from_index(id)
 			.await?
 			.and_then(|process| process.data);
-		if !data.as_ref().is_some_and(|data| data.status.is_finished()) {
-			self.server.wait_for_indexing().await?;
-			data = self
-				.try_get_process_from_index(id)
-				.await?
-				.and_then(|process| process.data);
-		}
-		let data = data.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-		if !data.status.is_finished() {
-			return Err(tg::error!("the process is not finished"));
-		}
-		if data.log.is_some() {
+		if data.is_some_and(|data| data.log.is_some()) {
 			return Ok(tg::process::control::WriteServerResponseOutput {
 				closed: true,
 				length: 0,
@@ -255,7 +242,7 @@ impl Session {
 
 		crate::checkpoint!(self.server, "process.control.log.end", process = %id).await;
 
-		// Persist the writer's final positions before scheduling compaction or reporting success.
+		// Persist the writer's final positions before reporting success.
 		if let Some(stored) = self.server.cache.try_get_log_end(id).await? {
 			if stored != end {
 				return Err(tg::error!("the log end positions do not match"));
@@ -271,10 +258,6 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to store the log end"))?;
 		}
-		self.server.index.enqueue_log_compaction(id).await.map_err(
-			|error| tg::error!(!error, %id, "failed to enqueue the process log compaction"),
-		)?;
-		self.server.spawn_publish_log_compaction_notification_task();
 		self.server.log_notifications.notify(id);
 		for &stream in streams {
 			self.server

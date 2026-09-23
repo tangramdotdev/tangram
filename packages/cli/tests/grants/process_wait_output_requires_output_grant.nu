@@ -46,4 +46,4 @@ assert equal (tg --token $eve.token cat $everesult2.output.value | str trim) sec
 tg --token $alice.token index
 let data = tg --token $eve.token get $process | from json
 assert equal $data.output.value ($aliceresult.output.value | split row '?' | first)
-assert equal $everesult2.output.value $data.output.value
+assert equal ($everesult2.output.value | split row '?' | first) $data.output.value

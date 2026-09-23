@@ -29,7 +29,6 @@ def test [...args] {
 
 	# Wait for the process to finish.
 	tg --url $source.url wait $process_id
-	tg --url $source.url process log --position end.0 --no-timeout $process_id | ignore
 	tg --url $source.url index
 
 	# Get the process data.

@@ -1073,7 +1073,7 @@ impl Session {
 
 	async fn index_task(&self, progress: &crate::progress::Handle<()>) -> tg::Result<()> {
 		progress.spinner("index", "waiting for indexing");
-		self.server.wait_for_indexing().await?;
+		self.server.index_inner().await?;
 		progress.finish("index");
 		Ok(())
 	}
