@@ -39,6 +39,10 @@ tg wait $b_process
 tg wait $c_process
 tg wait $d_process
 tg wait $e_process
+for process in [$a_process $b_process $c_process $d_process $e_process] {
+	tg process log --position end.0 --no-timeout $process | ignore
+}
+tg index
 
 # Tag b and d.
 tg tag b $b_process
