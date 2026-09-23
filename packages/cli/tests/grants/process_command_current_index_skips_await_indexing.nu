@@ -24,10 +24,9 @@ let path = artifact {
 		}
 	',
 }
-let command = (
-	tg --url $server.url --token $alice.token build $path
-	| str trim
-)
+let build = tg --url $server.url --token $alice.token build --detach --verbose $path | from json
+let command = tg --url $server.url --token $alice.token wait $build.process | from json | get output.value
+tg --url $server.url --token $alice.token process log --position end.0 --no-timeout $build.process | ignore
 tg --url $server.url --token $alice.token grant $alice.user.id object_subtree $command | ignore
 tg --url $server.url --token $alice.token index
 let config = (
@@ -54,5 +53,5 @@ let output = (
 )
 success $output "a current subtree authorization should avoid awaiting indexing."
 let process = $output.stdout | from json | get process
-let output = tg --url $server.url --token $alice.token wait $process | complete
+let output = tg --url $server.url --token $root_token wait $process | complete
 success $output "finishing with a current subtree authorization should avoid awaiting indexing."
