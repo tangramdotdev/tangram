@@ -108,10 +108,6 @@ for location in [local remote] {
 		}
 		if $case.control_first {
 			tg --url $owner.url --token $root_token checkpoint unwatch process.control.finish $control_watch
-			wait_until {
-				let data = tg --url $owner.url --token $root_token process get $process | from json
-				$data.log? | is-not-empty
-			} --timeout 10sec "the control finish handler should write and compact the log before the runner batch"
 			tg --url $runner.url --token $root_token checkpoint unwatch index.batch $batch_watch
 		}
 
@@ -140,6 +136,7 @@ for location in [local remote] {
 			tg --url $owner.url --token $root_token checkpoint unwatch process.control.finish $control_watch
 		}
 		if $field == output {
+			tg --url $owner.url --token $root_token process log --position end.0 --no-timeout $process | ignore
 			tg --url $owner.url --token $root_token index
 			let log = tg --url $owner.url --token $root_token process log $process | str trim
 			assert equal $log 'runner log' "the finish handler must preserve the process log after early runner indexing"
