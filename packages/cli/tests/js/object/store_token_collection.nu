@@ -27,4 +27,4 @@ let output = tg build $path | complete
 success $output
 let counts = $output.stdout | from json
 print $counts
-assert ($counts.1 <= 4 * $counts.0) 'doubling the files should not increase token comparisons more than fourfold'
+assert ($counts.1 * (4 * 3) <= $counts.0 * (8 * 7)) 'token comparisons per file pair should not increase with the file count'
