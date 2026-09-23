@@ -29,7 +29,7 @@ impl Server {
 			tg::process::Signal::SIGUSR1 => libc::SIGUSR1,
 			tg::process::Signal::SIGUSR2 => libc::SIGUSR2,
 		};
-		let pid = child.pid;
+		let pid = -child.pid;
 		unsafe {
 			let result = libc::kill(pid, signal);
 			if result != 0 {

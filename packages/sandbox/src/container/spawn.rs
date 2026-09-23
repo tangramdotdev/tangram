@@ -247,8 +247,10 @@ pub(crate) async fn spawn(
 	for path in &init_arg.serve.library_paths {
 		command.arg("--library-path").arg(path);
 	}
+	// Keep the launcher outside the server's terminal process group during Ctrl-C shutdown.
 	command
 		.kill_on_drop(true)
+		.process_group(0)
 		.stdin(std::process::Stdio::piped())
 		.stdout(std::process::Stdio::piped())
 		.stderr(std::process::Stdio::inherit());
