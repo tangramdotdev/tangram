@@ -172,10 +172,7 @@ export class ClientHttp2Session extends EventEmitter {
 		this.#closed = true;
 		this.#destroyed = true;
 		this.#token = null;
-		let message = error instanceof Error ? error.message : null;
-		await syscall("http2_session_destroy", token, message).catch(
-			() => undefined,
-		);
+		await syscall("http2_session_close", token).catch(() => undefined);
 		if (error !== undefined) {
 			this.emit("error", error);
 		}
@@ -308,6 +305,7 @@ export class ClientHttp2Stream extends EventEmitter {
 		} catch (error) {
 			this.emit("error", error);
 		} finally {
+			await syscall("http2_stream_close", token).catch(() => undefined);
 			this.#emitClose();
 		}
 	}

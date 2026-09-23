@@ -269,7 +269,11 @@ impl Http2 {
 	}
 
 	pub(crate) async fn session_close(&self, session: usize) -> tg::Result<()> {
-		self.session_destroy(session, None).await
+		// Keep the streams alive until their buffered response events have been consumed.
+		if let Some((_token, session)) = self.sessions.remove(&session) {
+			session.event_tx.try_send(SessionEvent::Close).ok();
+		}
+		Ok(())
 	}
 
 	pub(crate) async fn session_destroy(
