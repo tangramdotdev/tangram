@@ -14,7 +14,7 @@ tg --token $alice.token group members add team $carol.user.id
 
 # Bob builds a process whose sandbox is owned by the team; the process record's visibility follows the team-owned sandbox.
 let path = artifact { tangram.ts: 'export default function () { return tg.file("revoked-visibility-team"); }' }
-let process = tg --token $bob.token build --detach --group team $path | str trim
+let process = tg --token $bob.token build --detach --group team $path | str trim | split row '?' | first
 tg --token $bob.token wait $process | complete | ignore
 
 # Carol, a member, can read the team-owned process.
@@ -22,6 +22,7 @@ success (tg --token $carol.token get $process | complete) "a group member should
 
 # After Carol's membership is revoked, she can no longer read it.
 tg --token $alice.token group members remove team $carol.user.id
+tg --token $alice.token index
 failure (tg --token $carol.token get $process | complete) "a former member must not read the group-owned process after revocation"
 
 # Bob, the builder, retains access through his per-subject process grant.
