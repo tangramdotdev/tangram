@@ -9,6 +9,7 @@ let path = artifact {
 }
 let build = tg build --detach --verbose $path | from json
 tg wait $build.process
+tg log $build.process --position end.0 --no-timeout o+e>| ignore
 tg index
 
 # A path reference resolves to object metadata.

@@ -940,7 +940,9 @@ def server_is_running [server: record] {
 }
 
 def create_macos_app_group_socket_path [server: record] {
-	if $nu.os-info.name != 'macos' or $server.config.vfs?.kind? != 'fskit' {
+	let vfs = $server.config.vfs?
+	let kind = if ($vfs | describe) =~ '^record' { $vfs.kind? } else { null }
+	if $nu.os-info.name != 'macos' or $kind != 'fskit' {
 		return null
 	}
 	let group_id = (identifiers).app_group_identifier
