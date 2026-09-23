@@ -114,13 +114,21 @@ impl Tokens {
 	}
 
 	pub fn inherit(&mut self, parent: &Self) {
+		self.inherit_with_resource(parent, None);
+	}
+
+	pub fn inherit_with_resource(&mut self, parent: &Self, resource: Option<&tg::Id>) {
 		for (location, token) in parent.iter() {
 			if token.is_empty() {
 				continue;
 			}
-			self.map.entry(location.clone()).or_default().inherit(token);
+			let entry = self.map.entry(location.clone()).or_default();
+			entry
+				.authorization
+				.extend(token.authorization.iter().cloned());
+			entry.sync.extend(token.sync.iter().cloned());
 		}
-		self.normalize(None);
+		self.normalize(resource);
 	}
 
 	/// Normalize each location independently, optionally pruning proofs redundant for the receiving object.
@@ -216,49 +224,33 @@ impl Entry {
 	}
 
 	pub fn normalize(&mut self, resource: Option<&tg::Id>) {
+		// Compare proofs only within the same resource, using the encoded token to break ties.
 		let mut authorization = std::mem::take(&mut self.authorization);
-		// Compare later expirations first and break ties by the encoded token.
-		authorization.sort_by_cached_key(|token| {
-			(std::cmp::Reverse(token.body.expires_at), token.to_string())
-		});
+		authorization.sort_by_cached_key(ToString::to_string);
+		let mut resources = BTreeMap::<tg::Id, Vec<tg::authorization::Token>>::new();
 		for token in authorization {
-			self.insert_authorization(token);
+			let proofs = resources.entry(token.body.resource.clone()).or_default();
+			if proofs.iter().any(|existing| existing.covers(&token)) {
+				continue;
+			}
+			proofs.retain(|existing| !token.covers(existing));
+			proofs.push(token);
 		}
-		// An exact subtree proof covers the receiving object regardless of the inherited proof's resource.
-		if let Some(resource) = resource {
-			let expiration = self
+		self.authorization = resources.into_values().flatten().collect();
+
+		// An exact subtree proof replaces the inherited proofs for the receiving object.
+		if let Some(resource) = resource
+			&& self
 				.authorization
 				.iter()
-				.filter(|token| token.grants_object_subtree(resource))
-				.map(|token| token.body.expires_at)
-				.max();
-			if let Some(expiration) = expiration {
-				self.authorization.retain(|token| {
-					token.grants_object_subtree(resource)
-						|| !tg::authorization::Token::covers_expiration(
-							expiration,
-							token.body.expires_at,
-						)
-				});
-			}
+				.any(|token| token.grants_object_subtree(resource))
+		{
+			self.authorization
+				.retain(|token| token.grants_object_subtree(resource));
 		}
+		self.authorization.sort_by_cached_key(ToString::to_string);
 		let mut seen = std::collections::BTreeSet::new();
 		self.sync.retain(|token| seen.insert(token.clone()));
-	}
-
-	fn insert_authorization(&mut self, token: tg::authorization::Token) {
-		if self.authorization.iter().any(|existing| {
-			existing.covers(&token)
-				&& (!token.covers(existing)
-					|| existing.body.expires_at > token.body.expires_at
-					|| (existing.body.expires_at == token.body.expires_at
-						&& existing.to_string() <= token.to_string()))
-		}) {
-			return;
-		}
-		self.authorization
-			.retain(|existing| !token.covers(existing));
-		self.authorization.push(token);
 	}
 }
 
@@ -511,7 +503,7 @@ mod tests {
 	}
 
 	#[test]
-	fn collection_preserves_longer_lifetimes_and_sync_tokens() {
+	fn collection_ignores_expiration_and_preserves_sync_tokens() {
 		let child = tg::Directory::with_id(tg::directory::Id::new(b"child"));
 		let parent =
 			tg::Directory::with_entries(BTreeMap::from([("child".into(), child.clone().into())]));
@@ -533,17 +525,14 @@ mod tests {
 			child.state().set_tokens(child_tokens.clone());
 			let collected = parent.to_referent().options.tokens;
 			assert!(collected.local_authorization().contains(&parent_proof));
-			assert_eq!(
-				collected.local_authorization().contains(&child_proof),
-				expiration > 180
-			);
+			assert!(!collected.local_authorization().contains(&child_proof));
 			assert_eq!(collected.local_sync(), std::slice::from_ref(&sync));
 			assert_eq!(child.state().tokens(), child_tokens);
 		}
 	}
 
 	#[test]
-	fn collection_does_not_accumulate_expiration_tolerance() {
+	fn collection_prunes_descendants_regardless_of_expiration() {
 		let leaf = tg::Directory::with_id(tg::directory::Id::new(b"leaf"));
 		let middle =
 			tg::Directory::with_entries(BTreeMap::from([("leaf".into(), leaf.clone().into())]));
@@ -562,11 +551,11 @@ mod tests {
 				.set_tokens(Tokens::with_authorization([token.clone()]));
 		}
 		let tokens = root.to_referent().options.tokens;
-		assert_eq!(tokens.local_authorization(), &[leaf_proof, root_proof]);
+		assert_eq!(tokens.local_authorization(), &[root_proof]);
 	}
 
 	#[test]
-	fn expiration_tolerance_preserves_pairwise_merge_laws() {
+	fn pruning_preserves_merge_laws() {
 		let resource: tg::Id = tg::file::Id::new(b"file").into();
 		let other: tg::Id = tg::directory::Id::new(b"other").into();
 		let mut inputs = Vec::new();
@@ -585,8 +574,7 @@ mod tests {
 		}
 		let merge = |a: &Tokens, b: &Tokens, context: Option<&tg::Id>| {
 			let mut output = a.clone();
-			output.inherit(b);
-			output.normalize(context);
+			output.inherit_with_resource(b, context);
 			output
 		};
 		let proofs = |tokens: &Tokens| {
@@ -603,13 +591,19 @@ mod tests {
 					let ab = merge(a, b, context);
 					assert_eq!(proofs(&ab), proofs(&merge(b, a, context)));
 					assert_eq!(proofs(&merge(&ab, &ab, context)), proofs(&ab));
+					for c in &inputs {
+						assert_eq!(
+							proofs(&merge(&ab, c, context)),
+							proofs(&merge(a, &merge(b, c, context), context))
+						);
+					}
 				}
 			}
 		}
 	}
 
 	#[test]
-	fn normalization_sorts_before_comparing_expirations() {
+	fn normalization_ignores_expiration() {
 		use tg::authorization::permission::process::Permission;
 		let resource = tg::Id::new_uuidv7(tg::id::Kind::Process);
 		let mut tokens = Vec::new();
@@ -642,18 +636,30 @@ mod tests {
 			};
 			entry.normalize(None);
 			assert_eq!(entry.authorization, normalized.local_authorization());
+			let mut sequential = Tokens::default();
+			for index in order {
+				sequential.inherit(&Tokens::with_authorization([tokens[index].clone()]));
+			}
+			assert_eq!(sequential, normalized);
 		}
 	}
 
 	#[test]
-	fn equivalent_proofs_keep_the_latest_expiration() {
+	fn equivalent_proofs_use_the_encoded_token_to_break_ties() {
 		let resource = tg::file::Id::new(b"file").into();
 		let earlier = proof(resource, 120);
 		let mut later = earlier.clone();
 		later.body.expires_at = 121;
+		let expected = [earlier.clone(), later.clone()]
+			.into_iter()
+			.min_by_key(ToString::to_string)
+			.unwrap();
 		for authorization in [[earlier.clone(), later.clone()], [later.clone(), earlier]] {
 			let tokens = Tokens::with_authorization(authorization);
-			assert_eq!(tokens.local_authorization(), std::slice::from_ref(&later));
+			assert_eq!(
+				tokens.local_authorization(),
+				std::slice::from_ref(&expected)
+			);
 		}
 	}
 

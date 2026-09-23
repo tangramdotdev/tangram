@@ -1,6 +1,6 @@
 use ../../lib/test.nu *
 
-# Expiration coverage uses a direct threshold and preserves pairwise merge laws.
+# Token pruning ignores expiration and preserves the merge laws.
 let server = server spawn
 let path = artifact {
 	tangram.ts: '
@@ -9,9 +9,6 @@ let path = artifact {
 			const other = "dir_010000000000000000000000000000000000000000000000000000";
 			const encode = (value) => tg.encoding.base64.encode(tg.encoding.utf8.encode(JSON.stringify(value)));
 			const proof = (resource, expires_at, permission) => `0.${encode({ expires_at, permissions: [permission], resource })}.${encode({ algorithm: "ed25519", key: "test" })}.`;
-			for (const [a, b, expected] of [[120n, 121n, true], [120n, 179n, true], [120n, 180n, true], [120n, 181n, false], [179n, 180n, true], [181n, 120n, true], [179n, 238n, true], [120n, 238n, false], [-60n, -1n, true], [-1n, 0n, true], [-60n, 1n, false], [(1n << 63n) - 61n, (1n << 63n) - 1n, true], [(1n << 63n) - 62n, (1n << 63n) - 1n, false], [-(1n << 63n), (1n << 63n) - 1n, false]]) {
-				tg.assert(tg.Authorization.Token.coversExpiration(a, b) === expected);
-			}
 			const inputs = [id, other].flatMap((resource) => [120, 179, 180, 181].flatMap((expiration) => ["object_node", "object_subtree"].map((permission) => ({ local: { authorization: [proof(resource, expiration, permission)] } }))));
 			const merge = (a, b, resource) => {
 				const output = tg.Tokens.clone(a);
@@ -26,6 +23,7 @@ let path = artifact {
 						const ab = merge(a, b, resource);
 						equal(ab, merge(b, a, resource));
 						equal(ab, merge(ab, ab, resource));
+						for (const c of inputs) equal(merge(ab, c, resource), merge(a, merge(b, c, resource), resource));
 					}
 				}
 			}
@@ -43,11 +41,15 @@ let path = artifact {
 				const tokens = { local: { authorization: order.map((index) => chain[index]) } };
 				tg.Tokens.normalize(tokens);
 				tg.assert(JSON.stringify(tokens.local.authorization) === JSON.stringify([chain[0]]));
+				const sequential = {};
+				for (const index of order) tg.Tokens.inherit(sequential, { local: { authorization: [chain[index]] } });
+				equal(sequential, tokens);
 			}
 			const earlier = { local: { authorization: [proof(id, 120, "object_subtree")] } };
 			const later = { local: { authorization: [proof(id, 121, "object_subtree")] } };
-			equal(merge(earlier, later, id), later);
-			equal(merge(later, earlier, id), later);
+			const expected = { local: { authorization: [earlier.local.authorization[0], later.local.authorization[0]].sort().slice(0, 1) } };
+			equal(merge(earlier, later, id), expected);
+			equal(merge(later, earlier, id), expected);
 			const leaf = tg.Directory.withId(other);
 			const middle = tg.Directory.withObject({ entries: { leaf } });
 			const root = tg.Directory.withObject({ entries: { middle } });
@@ -56,7 +58,7 @@ let path = artifact {
 			root.state.tokens = { local: { authorization: [rootProof] } };
 			middle.state.tokens = { local: { authorization: [proof(middle.id, 179, "object_subtree")] } };
 			leaf.state.tokens = { local: { authorization: [leafProof] } };
-			equal(tg.Object.toReferent(root).options.tokens, { local: { authorization: [rootProof, leafProof] } });
+			equal(tg.Object.toReferent(root).options.tokens, { local: { authorization: [rootProof] } });
 			return true;
 		}
 	'

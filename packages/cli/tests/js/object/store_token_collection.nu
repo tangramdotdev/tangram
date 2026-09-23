@@ -1,6 +1,6 @@
 use ../../lib/test.nu *
 
-# Reproduce superquadratic token comparison growth while storing a directory.
+# Unrelated resources do not require pairwise token comparisons during storage.
 
 let server = server spawn
 
@@ -27,4 +27,4 @@ let output = tg build $path | complete
 success $output
 let counts = $output.stdout | from json
 print $counts
-assert ($counts.1 * (4 * 3) <= $counts.0 * (8 * 7)) 'token comparisons per file pair should not increase with the file count'
+assert equal $counts [0 0]

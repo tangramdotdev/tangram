@@ -55,13 +55,14 @@ impl State {
 	}
 
 	pub(crate) fn inherit_tokens(&mut self, tokens: &tg::Tokens) {
-		self.command.options.tokens.inherit(tokens);
-		if let tg::Either::Right(id) = &self.command.node {
-			self.command
-				.options
-				.tokens
-				.normalize(Some(&id.clone().into()));
-		}
+		let resource = match &self.command.node {
+			tg::Either::Left(_) => None,
+			tg::Either::Right(id) => Some(id.clone().into()),
+		};
+		self.command
+			.options
+			.tokens
+			.inherit_with_resource(tokens, resource.as_ref());
 		if let Some(children) = &self.children {
 			for child in children {
 				child.process.inherit_tokens(tokens);

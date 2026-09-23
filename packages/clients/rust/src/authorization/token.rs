@@ -1,8 +1,5 @@
 use crate::prelude::*;
 
-// Expirations within this many seconds are equivalent for token minimization.
-const EXPIRATION_THRESHOLD: i64 = 60;
-
 const VERSION: &str = "0";
 
 #[derive(
@@ -131,23 +128,16 @@ impl PublicKey {
 }
 
 impl Token {
-	/// Compare the token claims without verifying their signatures.
+	/// Compare the resources and permissions without considering expiration or verifying signatures.
 	#[must_use]
 	pub fn covers(&self, other: &Self) -> bool {
 		self == other
 			|| (self.body.resource == other.body.resource
-				&& Self::covers_expiration(self.body.expires_at, other.body.expires_at)
 				&& other
 					.body
 					.permissions
 					.iter()
 					.all(|permission| self.grants(&other.body.resource, *permission)))
-	}
-
-	/// Compare expirations with a tolerance without changing signed expiration times.
-	#[must_use]
-	pub fn covers_expiration(expires_at: i64, other_expires_at: i64) -> bool {
-		expires_at.saturating_add(EXPIRATION_THRESHOLD) >= other_expires_at
 	}
 
 	/// Check the resource and implied permission without verifying the signature or expiration.
@@ -339,29 +329,6 @@ impl std::str::FromStr for Token {
 #[cfg(test)]
 mod tests {
 	use crate as tg;
-
-	#[test]
-	fn expiration_coverage_uses_a_threshold() {
-		for (a, b, expected) in [
-			(120, 121, true),
-			(120, 179, true),
-			(120, 180, true),
-			(120, 181, false),
-			(179, 180, true),
-			(181, 120, true),
-			(179, 238, true),
-			(120, 238, false),
-			(-60, -1, true),
-			(-1, 0, true),
-			(-60, 1, false),
-			(i64::MAX - 60, i64::MAX, true),
-			(i64::MAX - 61, i64::MAX, false),
-			(i64::MIN, i64::MAX, false),
-			(i64::MAX, i64::MAX, true),
-		] {
-			assert_eq!(tg::authorization::Token::covers_expiration(a, b), expected);
-		}
-	}
 
 	#[test]
 	fn algorithm_round_trips() {
@@ -596,7 +563,7 @@ mod tests {
 	}
 
 	#[test]
-	fn inheritance_retains_complementary_permissions_and_lifetimes() {
+	fn inheritance_retains_complementary_permissions() {
 		use tg::authorization::permission::process::Permission;
 		let resource = tg::Id::new_uuidv7(tg::id::Kind::Process);
 		let token = |permissions: Vec<Permission>, expires_at: i64| tg::authorization::Token {
@@ -622,7 +589,9 @@ mod tests {
 			log.clone(),
 			output.clone(),
 		]));
-		assert_eq!(tokens.local_authorization(), &[node.clone(), output, log]);
+		let mut expected = [node, output, log];
+		expected.sort_by_cached_key(ToString::to_string);
+		assert_eq!(tokens.local_authorization(), &expected);
 		let broad = token(
 			vec![
 				Permission::Subtree,
@@ -632,7 +601,7 @@ mod tests {
 			20,
 		);
 		tokens.inherit(&tg::Tokens::with_authorization([broad.clone()]));
-		assert_eq!(tokens.local_authorization(), &[node, broad]);
+		assert_eq!(tokens.local_authorization(), &[broad]);
 		let broad = token(vec![Permission::Parent], 30);
 		tokens.inherit(&tg::Tokens::with_authorization([broad.clone()]));
 		assert_eq!(tokens.local_authorization(), &[broad]);

@@ -1,6 +1,6 @@
 use ../../lib/test.nu *
 
-# Clients retain complementary proofs and prune only covered permissions and lifetimes.
+# Clients retain complementary proofs and prune covered permissions regardless of expiration.
 
 let server = server spawn
 let path = artifact {
@@ -19,13 +19,13 @@ let path = artifact {
 			tg.Tokens.inherit(tokens, { local: { authorization: [log, output] } });
 			tg.assert(tokens.local.authorization.length === 3);
 			tg.Tokens.inherit(tokens, { local: { authorization: [broad] } });
-			tg.assert(tokens.local.authorization.length === 2 && tokens.local.authorization.includes(node) && tokens.local.authorization.includes(broad));
+			tg.assert(tokens.local.authorization.length === 1 && tokens.local.authorization[0] === broad);
 			tg.Tokens.inherit(tokens, { local: { authorization: [parent] }, remote: { authorization: [output, log] } });
 			tg.assert(tokens.local.authorization.length === 1 && tokens.local.authorization[0] === parent);
 			tg.assert(tokens.remote.authorization.length === 2);
 			const differentKey = token(["process_parent"], 40, id, "other");
 			tg.Tokens.inherit(tokens, { local: { authorization: [differentKey] } });
-			tg.assert(tokens.local.authorization.length === 1 && tokens.local.authorization[0] === differentKey);
+			tg.assert(tokens.local.authorization.length === 1 && tokens.local.authorization[0] === [parent, differentKey].sort()[0]);
 			const differentAlgorithm = token(["process_parent"], 40, id, "other", "other");
 			tg.assert(tg.Authorization.Token.covers(differentAlgorithm, differentKey));
 			tg.assert(tg.Authorization.Token.covers(differentKey, differentAlgorithm));
@@ -40,11 +40,11 @@ let path = artifact {
 			tg.assert(file.state.tokens.remote.authorization[0] === parent);
 			const longer = token(["process_parent"], 50);
 			file.state.inheritTokens({ local: { authorization: [longer] } });
-			tg.assert(file.state.tokens.local.authorization.includes(longer));
+			tg.assert(file.state.tokens.local.authorization.length === 1 && file.state.tokens.local.authorization[0] === fileToken);
 			const permanentBody = '{"expires_at":9223372036854775807,"permissions":["process_parent"],"resource":"' + id + '"}';
 			const permanent = "0." + tg.encoding.base64.encode(tg.encoding.utf8.encode(permanentBody)) + "." + encode({ algorithm: "ed25519", key: "default" }) + ".";
 			tg.Tokens.inherit(tokens, { local: { authorization: [permanent] } });
-			tg.assert(tokens.local.authorization.length === 1 && tokens.local.authorization[0] === permanent);
+			tg.assert(tokens.local.authorization.length === 1 && tokens.local.authorization[0] === [parent, differentKey, differentAlgorithm, permanent].sort()[0]);
 			tg.assert(!tg.Authorization.Token.covers(token(["process_node"], 40), output));
 			for (const aspect of ["", "_command", "_error", "_log", "_output"]) {
 				const node = token(["process_node" + aspect], 20);
