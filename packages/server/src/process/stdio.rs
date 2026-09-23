@@ -1,5 +1,4 @@
 use {
-	crate::Server,
 	bytes::Bytes,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	tangram_client::prelude::*,
@@ -8,7 +7,6 @@ use {
 		body::{BodyStream, Boxed as BoxBody},
 		request::Ext as _,
 	},
-	tangram_messenger::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
 	tokio_stream::wrappers::ReceiverStream,
 	tokio_util::io::StreamReader,
@@ -245,44 +243,4 @@ where
 	});
 
 	BoxBody::with_stream(stream)
-}
-
-impl Server {
-	pub(crate) fn spawn_publish_process_stdio_close_message_task(
-		&self,
-		id: &tg::process::Id,
-		stream: tg::process::stdio::Stream,
-	) {
-		self.spawn_publish_process_stdio_message_task(id, stream, "close");
-	}
-
-	fn spawn_publish_process_stdio_message_task(
-		&self,
-		id: &tg::process::Id,
-		stream: tg::process::stdio::Stream,
-		action: &str,
-	) {
-		let id = id.clone();
-		let action = action.to_owned();
-		let subject = format!("processes.{id}.{stream}.{action}");
-		tokio::spawn({
-			let server = self.clone();
-			async move {
-				server
-					.messenger
-					.publish(subject, ())
-					.await
-					.inspect_err(|error| {
-						tracing::error!(
-							%error,
-							%id,
-							%stream,
-							%action,
-							"failed to publish the process stdio message"
-						);
-					})
-					.ok();
-			}
-		});
-	}
 }

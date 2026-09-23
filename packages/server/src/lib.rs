@@ -65,6 +65,7 @@ mod match_;
 mod messenger;
 mod module;
 mod node;
+mod notification;
 mod object;
 mod organization;
 mod process;
@@ -136,9 +137,9 @@ pub struct State {
 	ip_pool: tangram_sandbox::network::ip::Pool,
 	library: Mutex<Option<Arc<Temp>>>,
 	lock: Mutex<Option<tokio::fs::File>>,
-	log_notifications: self::process::log::Notifications,
 	messenger: Messenger,
 	next_watch_id: AtomicU64,
+	notifications: self::notification::Notifications,
 	object_get_tasks: self::object::get::Tasks,
 	path: PathBuf,
 	regions: DashMap<String, tg::Client, fnv::FnvBuildHasher>,
@@ -1006,7 +1007,7 @@ impl Server {
 				}
 			},
 		};
-		let log_notifications = self::process::log::Notifications::new(messenger.clone());
+		let notifications = self::notification::Notifications::new(messenger.clone(), &config);
 
 		// Create the IP pool.
 		#[cfg(target_os = "linux")]
@@ -1173,9 +1174,9 @@ impl Server {
 			ip_pool,
 			library,
 			lock,
-			log_notifications,
 			messenger,
 			next_watch_id,
+			notifications,
 			object_get_tasks,
 			path,
 			regions,

@@ -1071,17 +1071,11 @@ impl Scheduler {
 	}
 
 	fn publish_scheduler_heartbeat(&self, state: &mut State) {
-		let subject = scheduler_heartbeat_subject(&self.id);
+		let id = self.id.clone();
 		let server = self.server.clone();
 		state.operations.push(
 			async move {
-				let result = server
-					.messenger
-					.publish(subject, ())
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to publish the scheduler heartbeat")
-					});
+				let result = server.notifications.publish_scheduler_heartbeat(&id).await;
 				Operation::Publish {
 					context: "failed to publish the scheduler heartbeat",
 					result,
@@ -1176,7 +1170,7 @@ pub(crate) fn runner_heartbeat_subject(
 	format!("schedulers.{scheduler}.runners.{runner}.heartbeat")
 }
 
-fn scheduler_heartbeat_subject(scheduler: &tg::scheduler::Id) -> String {
+pub(crate) fn scheduler_heartbeat_subject(scheduler: &tg::scheduler::Id) -> String {
 	format!("schedulers.{scheduler}.heartbeat")
 }
 

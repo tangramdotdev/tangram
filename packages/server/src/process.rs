@@ -1,11 +1,6 @@
 use {
-	crate::{Server, Session},
-	dashmap::DashMap,
-	futures::future::BoxFuture,
-	indexmap::IndexMap,
-	std::collections::BTreeSet,
-	tangram_client::prelude::*,
-	tangram_messenger::prelude::*,
+	crate::Session, dashmap::DashMap, futures::future::BoxFuture, indexmap::IndexMap,
+	std::collections::BTreeSet, tangram_client::prelude::*,
 };
 
 mod grant;
@@ -19,7 +14,6 @@ pub mod children;
 pub mod connect;
 pub mod control;
 pub mod get;
-pub mod log;
 pub mod metadata;
 pub mod put;
 pub mod signal;
@@ -219,20 +213,5 @@ impl Session {
 		tokens
 			.iter()
 			.any(|token| self.authorize_token(&resource, permission.into(), token))
-	}
-}
-
-impl Server {
-	pub(crate) fn spawn_publish_process_status_task(&self, id: &tg::process::Id) {
-		let subject = format!("processes.{id}.status");
-		tokio::spawn({
-			let server = self.clone();
-			async move {
-				let result = server.messenger.publish(subject, ()).await;
-				if let Err(error) = result {
-					tracing::error!(%error, "failed to publish the process status message");
-				}
-			}
-		});
 	}
 }

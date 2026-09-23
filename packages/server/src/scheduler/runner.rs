@@ -322,7 +322,7 @@ impl Server {
 				}
 			}
 			if log_needs_compaction {
-				self.log_notifications.notify(&process);
+				self.notifications.notify_process_log(&process);
 			}
 		}
 

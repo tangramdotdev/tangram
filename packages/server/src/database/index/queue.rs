@@ -120,29 +120,9 @@ impl Server {
 
 		Ok(ControlFlow::Break(()))
 	}
-
-	pub(crate) fn spawn_publish_database_index_queue_notification_task(&self) {
-		let regions = database_index_queue_regions(&self.config);
-		tokio::spawn({
-			let server = self.clone();
-			async move {
-				for region in regions {
-					let subject = crate::indexer::database_index_queue_subject();
-					let target_region = (!region.is_empty()).then_some(region.as_str());
-					if let Err(error) = server
-						.messenger
-						.publish_to_region(target_region, subject, ())
-						.await
-					{
-						tracing::error!(%error, %region, "failed to publish a database index queue notification");
-					}
-				}
-			}
-		});
-	}
 }
 
-fn database_index_queue_regions(config: &crate::Config) -> BTreeSet<String> {
+pub(crate) fn database_index_queue_regions(config: &crate::Config) -> BTreeSet<String> {
 	let mut regions = config
 		.regions
 		.as_ref()

@@ -347,12 +347,9 @@ impl Session {
 
 		session
 			.server
-			.messenger
-			.publish(connected_subject(&id), ())
-			.await
-			.map_err(|error| {
-				tg::error!(!error, "failed to publish the sandbox control connection")
-			})?;
+			.notifications
+			.publish_sandbox_control_connected(&id)
+			.await?;
 
 		let output = tg::sandbox::control::Output { id, token };
 

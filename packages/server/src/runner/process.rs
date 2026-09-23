@@ -921,15 +921,9 @@ impl Session {
 		let process = tg::Process::new(id.clone(), entry);
 		session
 			.server
-			.messenger
-			.publish(format!("sandboxes.{sandbox_id}.processes"), ())
-			.await
-			.map_err(|error| {
-				tg::error!(
-					!error,
-					"failed to publish the sandbox process spawned notification"
-				)
-			})?;
+			.notifications
+			.publish_sandbox_process_spawned(&sandbox_id)
+			.await?;
 
 		// Index the remote process before reporting the connection.
 		let arg = IndexProcessTaskArg {

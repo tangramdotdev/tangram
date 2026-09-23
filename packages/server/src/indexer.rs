@@ -26,6 +26,7 @@ mod wait;
 pub(crate) use {
 	cache::Cache,
 	cleaning::CleanBatchArg,
+	compaction::log_compaction_subject,
 	database::database_index_queue_subject,
 	request::{ArchiveRequestArg, IndexRequestArg, RequestArg},
 };

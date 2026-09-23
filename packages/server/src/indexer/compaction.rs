@@ -1,6 +1,5 @@
 use {
 	super::{Indexer, RETRY_OPTIONS, partition},
-	crate::Server,
 	futures::{FutureExt as _, StreamExt as _, future, stream},
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -9,20 +8,6 @@ use {
 	tangram_messenger::Messenger as _,
 	tokio_stream::wrappers::IntervalStream,
 };
-
-impl Server {
-	pub(crate) fn spawn_publish_log_compaction_notification_task(&self) {
-		let subject = log_compaction_subject();
-		tokio::spawn({
-			let server = self.clone();
-			async move {
-				if let Err(error) = server.messenger.publish(subject, ()).await {
-					tracing::error!(%error, "failed to publish a log compaction notification");
-				}
-			}
-		});
-	}
-}
 
 impl Indexer {
 	pub(super) async fn log_compaction_task(

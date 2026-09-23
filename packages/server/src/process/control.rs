@@ -376,15 +376,9 @@ impl Session {
 						) => {
 							session
 								.server
-								.messenger
-								.publish(format!("processes.{id}.children"), ())
-								.await
-								.map_err(|error| {
-									tg::error!(
-										!error,
-										"failed to publish the child spawned notification"
-									)
-								})?;
+								.notifications
+								.publish_process_child_spawned(&id)
+								.await?;
 						},
 						tg::process::control::ClientMessage::Notification(
 							tg::process::control::ClientNotification::BorrowableCapacity(

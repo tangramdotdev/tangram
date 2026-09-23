@@ -4,7 +4,6 @@ use {
 	futures::future::BoxFuture,
 	std::{collections::BTreeMap, sync::Arc},
 	tangram_client::prelude::*,
-	tangram_messenger::prelude::*,
 };
 
 mod runner;
@@ -150,19 +149,6 @@ impl Server {
 			.ok_or_else(|| tg::error!(%index, "failed to find the origin sandbox"))?;
 
 		Ok(Some(sandbox))
-	}
-
-	pub(crate) fn spawn_publish_sandbox_status_task(&self, id: &tg::sandbox::Id) {
-		let subject = format!("sandboxes.{id}.status");
-		tokio::spawn({
-			let server = self.clone();
-			async move {
-				let result = server.messenger.publish(subject, ()).await;
-				if let Err(error) = result {
-					tracing::error!(%error, "failed to publish the sandbox status message");
-				}
-			}
-		});
 	}
 
 	pub(crate) fn validate_sandbox_resources(
