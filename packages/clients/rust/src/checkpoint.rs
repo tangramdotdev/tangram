@@ -3,6 +3,8 @@ use std::collections::BTreeMap;
 mod continue_;
 mod unwatch;
 
+pub mod abort;
+pub mod panic;
 pub mod wait;
 pub mod watch;
 

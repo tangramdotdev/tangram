@@ -1,6 +1,8 @@
 use {crate::Cli, tangram_client::prelude::*};
 
+pub mod abort;
 pub mod continue_;
+pub mod panic;
 pub mod unwatch;
 pub mod wait;
 pub mod watch;
@@ -14,7 +16,9 @@ pub struct Args {
 
 #[derive(Clone, Debug, clap::Subcommand)]
 pub enum Command {
+	Abort(self::abort::Args),
 	Continue(self::continue_::Args),
+	Panic(self::panic::Args),
 	Unwatch(self::unwatch::Args),
 	Wait(self::wait::Args),
 	Watch(self::watch::Args),
@@ -23,8 +27,14 @@ pub enum Command {
 impl Cli {
 	pub async fn command_checkpoint(&mut self, args: Args) -> tg::Result<()> {
 		match args.command {
+			Command::Abort(args) => {
+				self.command_checkpoint_abort(args).await?;
+			},
 			Command::Continue(args) => {
 				self.command_checkpoint_continue(args).await?;
+			},
+			Command::Panic(args) => {
+				self.command_checkpoint_panic(args).await?;
 			},
 			Command::Unwatch(args) => {
 				self.command_checkpoint_unwatch(args).await?;

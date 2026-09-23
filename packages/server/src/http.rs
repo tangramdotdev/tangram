@@ -616,6 +616,12 @@ impl Server {
 			(http::Method::DELETE, ["checkpoints", checkpoint, "watches", watch]) => session
 				.unwatch_checkpoint_request(request, checkpoint, watch)
 				.boxed(),
+			(http::Method::POST, ["checkpoints", checkpoint, "abort"]) => session
+				.abort_checkpoint_request(request, checkpoint)
+				.boxed(),
+			(http::Method::POST, ["checkpoints", checkpoint, "panic"]) => session
+				.panic_checkpoint_request(request, checkpoint)
+				.boxed(),
 
 			// Grants.
 			(http::Method::GET, ["grants"]) => session.list_grants_request(request).boxed(),

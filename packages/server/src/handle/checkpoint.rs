@@ -38,4 +38,24 @@ impl tg::handle::Checkpoint for Server {
 			.try_unwatch_checkpoint(checkpoint, watch)
 			.await
 	}
+
+	async fn try_abort_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::abort::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.try_abort_checkpoint(checkpoint, arg)
+			.await
+	}
+
+	async fn try_panic_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::panic::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.try_panic_checkpoint(checkpoint, arg)
+			.await
+	}
 }

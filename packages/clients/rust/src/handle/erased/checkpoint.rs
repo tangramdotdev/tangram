@@ -29,6 +29,18 @@ pub trait Checkpoint: Send + Sync + 'static {
 		checkpoint: &'a str,
 		watch: u64,
 	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+
+	fn try_abort_checkpoint<'a>(
+		&'a self,
+		checkpoint: &'a str,
+		arg: tg::checkpoint::abort::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+
+	fn try_panic_checkpoint<'a>(
+		&'a self,
+		checkpoint: &'a str,
+		arg: tg::checkpoint::panic::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
 }
 
 impl<T> Checkpoint for T
@@ -68,5 +80,21 @@ where
 		watch: u64,
 	) -> BoxFuture<'a, tg::Result<Option<()>>> {
 		self.try_unwatch_checkpoint(checkpoint, watch).boxed()
+	}
+
+	fn try_abort_checkpoint<'a>(
+		&'a self,
+		checkpoint: &'a str,
+		arg: tg::checkpoint::abort::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_abort_checkpoint(checkpoint, arg).boxed()
+	}
+
+	fn try_panic_checkpoint<'a>(
+		&'a self,
+		checkpoint: &'a str,
+		arg: tg::checkpoint::panic::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_panic_checkpoint(checkpoint, arg).boxed()
 	}
 }
