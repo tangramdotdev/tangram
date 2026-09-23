@@ -209,8 +209,13 @@ impl Session {
 				id: id.clone(),
 				token,
 			};
-			let stream =
-				session.wait_for_sandbox_control_create(id, arg.location, arg.runner, stream);
+			let stream = session.wait_for_sandbox_control_create(
+				id,
+				arg.location,
+				arg.runner,
+				arg.attempt,
+				stream,
+			);
 			crate::checkpoint!(self.server, "sandbox.control.output", sandbox = %output.id).await;
 
 			return Ok((output, stream));
@@ -362,6 +367,7 @@ impl Session {
 		id: tg::sandbox::Id,
 		location: Option<tg::location::Arg>,
 		runner: Option<tg::runner::Id>,
+		attempt: String,
 		mut stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>> {
 		let session = self.clone();
@@ -389,11 +395,7 @@ impl Session {
 			};
 			crate::checkpoint!(session.server, "sandbox.control.create.received", sandbox = %id)
 				.await;
-			let tg::sandbox::control::CreateClientRequestArg {
-				attempt,
-				created_at,
-				data,
-			} = create;
+			let tg::sandbox::control::CreateClientRequestArg { created_at, data } = create;
 			let arg = tg::sandbox::control::Arg {
 				attempt,
 				create: true,
@@ -439,7 +441,7 @@ impl Session {
 		created_at: i64,
 		data: tg::sandbox::control::Data,
 		runner: Option<tg::runner::Id>,
-		attempt: Option<String>,
+		attempt: String,
 	) -> tg::Result<tangram_index::sandbox::put::Arg> {
 		let account = match data.arg.owner.as_ref() {
 			Some(owner) => self.usage_account(owner).await?,
@@ -468,7 +470,7 @@ impl Session {
 		};
 		let arg = tangram_index::sandbox::put::Arg {
 			account,
-			attempt,
+			attempt: Some(attempt),
 			created_at,
 			data: Some(data),
 			id: id.clone(),

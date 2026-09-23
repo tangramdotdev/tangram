@@ -350,9 +350,7 @@ impl Session {
 			let SandboxControlConnectionKind::Pooled(connection_) = connection_ else {
 				unreachable!();
 			};
-			let attempt = Some(self.server.runner.state.attempt().to_owned());
 			let create = tg::sandbox::control::CreateClientRequestArg {
-				attempt,
 				created_at,
 				data: control_data.clone(),
 			};
@@ -412,7 +410,7 @@ impl Session {
 		};
 		let session = self.server.session(&context);
 		let sandbox_initialization = shortcut.then(|| tg::process::control::Sandbox {
-			attempt: Some(self.server.runner.state.attempt().to_owned()),
+			attempt: self.server.runner.state.attempt().to_owned(),
 			created_at,
 			data: control_data.clone(),
 			runner: self.server.runner.state.id(),
@@ -1392,8 +1390,9 @@ impl Session {
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
 			.map(Ok)
 			.boxed();
+		let attempt = self.server.runner.state.attempt().to_owned();
 		let arg = tg::sandbox::control::Arg {
-			attempt: None,
+			attempt,
 			create: false,
 			created_at: None,
 			data: None,
@@ -1433,7 +1432,7 @@ impl Session {
 			.state
 			.id()
 			.ok_or_else(|| tg::error!("missing the runner id"))?;
-		let attempt = Some(self.server.runner.state.attempt().to_owned());
+		let attempt = self.server.runner.state.attempt().to_owned();
 		let arg = tg::sandbox::control::Arg {
 			attempt,
 			create: true,

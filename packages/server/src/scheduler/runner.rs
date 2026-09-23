@@ -192,13 +192,6 @@ impl Scheduler {
 				return Err(tg::error!(runner = %request.runner, "failed to find the runner"));
 			},
 		};
-		crate::checkpoint!(
-			self.server,
-			"scheduler.runner.add",
-			runner = %request.runner,
-			attempt = %request.attempt
-		)
-		.await;
 		if reconcile {
 			let server = self.server.clone();
 			let runner = request.runner.clone();
@@ -250,7 +243,7 @@ impl Server {
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
 			)?;
 		for sandbox in sandboxes {
-			if attempt.is_some() && sandbox.attempt.as_deref() == attempt {
+			if attempt == Some(sandbox.attempt.as_str()) {
 				continue;
 			}
 			crate::checkpoint!(self, "scheduler.runner.expired.sandbox", %runner, sandbox = %sandbox.id).await;
