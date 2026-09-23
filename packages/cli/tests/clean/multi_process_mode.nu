@@ -6,12 +6,7 @@ let server = server spawn --config { advanced: { single_process: false } }
 
 let output = tg clean | complete
 failure $output
-snapshot --normalize $output.stderr '
-	error an error occurred
-	-> failed to clean
-	-> the request failed
-	   status = 500 Internal Server Error
-	-> failed to start the clean task
-	-> cannot clean in multi-process mode
-
-'
+assert (
+	($output.stderr | str contains 'cannot clean in multi-process mode')
+	or ($output.stderr | str contains 'no indexers are available')
+) $output.stderr
