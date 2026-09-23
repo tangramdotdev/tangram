@@ -517,6 +517,9 @@ pub struct StartClientRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct Sandbox {
+	#[tangram_serialize(id = 4)]
+	pub attempt: Option<String>,
+
 	#[tangram_serialize(id = 0)]
 	pub created_at: i64,
 

@@ -61,7 +61,7 @@ struct Requests {
 	replies: usize,
 }
 
-#[derive(Clone, Copy, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum RequestKind {
 	AddRunner,
 	DequeueSandbox,
@@ -194,6 +194,7 @@ pub(crate) struct HeartbeatNotification {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AddRunnerRequestArg {
+	pub attempt: String,
 	pub capacity: tg::runner::control::Capacity,
 	pub host: String,
 	pub runner: tg::runner::Id,
@@ -821,6 +822,8 @@ impl Scheduler {
 		let server = self.server.clone();
 		state.operations.push(
 			async move {
+				crate::checkpoint!(server, "scheduler.request.acknowledge", id = %request.id, kind = ?kind)
+					.await;
 				let result = server
 					.messenger
 					.publish(subject, message)

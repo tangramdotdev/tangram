@@ -20,6 +20,7 @@ pub(super) struct Runners {
 }
 
 pub(super) struct Runner {
+	pub attempt: String,
 	pub borrowable: HashSet<tg::sandbox::Id, tg::id::BuildHasher>,
 	pub capacity: tg::runner::control::Capacity,
 	pub committed: tg::runner::Capacity,
@@ -83,9 +84,15 @@ impl State {
 		request: AddRunnerRequestArg,
 	) {
 		let connection_index = self.runners.next_connection_index();
+		let reconcile = self
+			.runners
+			.entries
+			.get(&request.runner)
+			.is_none_or(|runner| runner.attempt != request.attempt);
 		let completions = self.remove_runner(&request.runner);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
 		let runner = Runner {
+			attempt: request.attempt.clone(),
 			borrowable: HashSet::default(),
 			capacity: request.capacity,
 			committed: tg::runner::Capacity::default(),
@@ -106,7 +113,9 @@ impl State {
 		let runner = request.runner.clone();
 		self.operations.push(
 			async move {
-				let result = scheduler.add_runner(connection_index, request).await;
+				let result = scheduler
+					.add_runner(connection_index, request, reconcile)
+					.await;
 				Operation::AddRunner {
 					connection_index,
 					id,
@@ -145,6 +154,8 @@ impl State {
 		let scheduler = scheduler.clone();
 		self.operations.push(
 			async move {
+				crate::checkpoint!(scheduler.server, "scheduler.runner.remove", runner = %request.runner)
+					.await;
 				let result = scheduler.remove_runner(request).boxed().await;
 				Operation::RemoveRunner { id, result }
 			}
@@ -158,6 +169,7 @@ impl Scheduler {
 		&self,
 		connection_index: u64,
 		request: AddRunnerRequestArg,
+		reconcile: bool,
 	) -> tg::Result<(AddRunnerResponseOutput, Option<tg::Id>)> {
 		let runner = self
 			.server
@@ -180,6 +192,24 @@ impl Scheduler {
 				return Err(tg::error!(runner = %request.runner, "failed to find the runner"));
 			},
 		};
+		crate::checkpoint!(
+			self.server,
+			"scheduler.runner.add",
+			runner = %request.runner,
+			attempt = %request.attempt
+		)
+		.await;
+		if reconcile {
+			let server = self.server.clone();
+			let runner = request.runner.clone();
+			let attempt = request.attempt.clone();
+			tokio::spawn(async move {
+				crate::checkpoint!(server, "scheduler.runner.reconcile", %runner, %attempt).await;
+				if let Err(error) = server.handle_expired_runner(&runner, Some(&attempt)).await {
+					tracing::error!(error = %error.trace(), %runner, "failed to reconcile the runner sandboxes");
+				}
+			});
+		}
 		let output = AddRunnerResponseOutput {
 			connection_index,
 			runner: request.runner,
@@ -194,7 +224,7 @@ impl Scheduler {
 		request: RemoveRunnerRequestArg,
 	) -> tg::Result<RemoveRunnerResponseOutput> {
 		self.server
-			.handle_expired_runner(&request.runner)
+			.handle_expired_runner(&request.runner, None)
 			.boxed()
 			.await
 			.map_err(
@@ -210,13 +240,21 @@ impl Scheduler {
 }
 
 impl Server {
-	pub(crate) async fn handle_expired_runner(&self, runner: &tg::runner::Id) -> tg::Result<()> {
+	pub(crate) async fn handle_expired_runner(
+		&self,
+		runner: &tg::runner::Id,
+		attempt: Option<&str>,
+	) -> tg::Result<()> {
 		let sandboxes =
 			self.index.get_runner_sandboxes(runner).await.map_err(
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
 			)?;
 		for sandbox in sandboxes {
-			self.destroy_expired_runner_sandbox(&sandbox).await?;
+			if attempt.is_some() && sandbox.attempt.as_deref() == attempt {
+				continue;
+			}
+			crate::checkpoint!(self, "scheduler.runner.expired.sandbox", %runner, sandbox = %sandbox.id).await;
+			self.destroy_expired_runner_sandbox(&sandbox.id).await?;
 		}
 
 		Ok(())
@@ -346,6 +384,7 @@ impl Server {
 				items: vec![tangram_index::batch::Item::PutSandbox(
 					tangram_index::sandbox::put::Arg {
 						account,
+						attempt: None,
 						created_at: indexed.created_at,
 						data: indexed.data,
 						id: id.clone(),

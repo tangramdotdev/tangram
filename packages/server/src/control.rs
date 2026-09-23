@@ -651,7 +651,15 @@ impl Server {
 				let result = tokio::time::timeout(timeout, receive).await;
 
 				match result {
-					Ok(Ok(ReceiveControlRequestOutput::Ack)) => acknowledged = true,
+					Ok(Ok(ReceiveControlRequestOutput::Ack)) => {
+						acknowledged = true;
+						crate::checkpoint!(
+							server,
+							"control.request.acknowledged",
+							subject = server_subject.clone(),
+						)
+						.await;
+					},
 					Ok(Ok(ReceiveControlRequestOutput::Response { id, response })) => {
 						let ack = ack(id);
 						server

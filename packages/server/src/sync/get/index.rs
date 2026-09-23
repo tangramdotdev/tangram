@@ -873,6 +873,7 @@ impl Session {
 			}
 			put_sandbox_args.push(tangram_index::sandbox::put::Arg {
 				account,
+				attempt: None,
 				created_at: message.created_at,
 				data: Some(message.data),
 				id: message.id,

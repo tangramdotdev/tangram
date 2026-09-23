@@ -507,7 +507,7 @@ impl crate::Index for Index {
 	async fn get_runner_sandboxes(
 		&self,
 		runner: &tg::runner::Id,
-	) -> tg::Result<Vec<tg::sandbox::Id>> {
+	) -> tg::Result<Vec<crate::runner::Sandbox>> {
 		self.get_runner_sandboxes(runner).await
 	}
 
