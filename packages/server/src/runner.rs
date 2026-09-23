@@ -67,6 +67,7 @@ pub struct Runner {
 }
 
 pub struct State {
+	attempt: String,
 	capacity: self::capacity::Pool,
 	id: Mutex<Option<tg::runner::Id>>,
 	next_sandbox_index: AtomicU64,
@@ -81,7 +82,9 @@ impl Runner {
 	#[must_use]
 	pub fn new(config: Config) -> Self {
 		let (scheduler, _) = tokio::sync::watch::channel(None);
+		let attempt = uuid::Uuid::now_v7().to_string();
 		let state = State {
+			attempt,
 			capacity: self::capacity::Pool::new(config.capacity),
 			id: Mutex::new(None),
 			next_sandbox_index: AtomicU64::new(1),
@@ -558,7 +561,9 @@ impl Session {
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
 		let scheduler_ttl = self.server.config.runner.scheduler_ttl;
+		let attempt = self.server.runner.state.attempt().to_owned();
 		let arg = tg::runner::control::Arg {
+			attempt,
 			heartbeat,
 			host,
 			id: id.clone(),
@@ -656,6 +661,7 @@ impl Session {
 					process: request.process,
 					token: Some(token),
 				});
+			crate::checkpoint!(self.server, "runner.sandbox.create.spawned", %sandbox).await;
 
 			// Send the response.
 			let output = tg::runner::control::CreateSandboxClientResponseOutput { created: true };
@@ -807,6 +813,11 @@ impl State {
 	#[must_use]
 	pub fn id(&self) -> Option<tg::runner::Id> {
 		self.id.lock().unwrap().clone()
+	}
+
+	#[must_use]
+	pub fn attempt(&self) -> &str {
+		&self.attempt
 	}
 
 	#[must_use]

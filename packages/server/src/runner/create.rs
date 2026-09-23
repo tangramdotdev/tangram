@@ -47,6 +47,7 @@ impl Session {
 				.boxed()
 			})
 			.await?;
+		crate::checkpoint!(self.server, "runner.create.committed", %runner).await;
 		let data = tg::runner::Data {
 			created_at,
 			id: runner,

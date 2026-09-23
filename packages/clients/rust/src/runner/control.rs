@@ -147,6 +147,8 @@ pub struct CreateSandboxClientResponseOutput {
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	pub attempt: String,
+
 	pub heartbeat: HeartbeatClientNotification,
 
 	pub host: String,

@@ -90,6 +90,7 @@ impl Session {
 
 		let request =
 			crate::scheduler::RequestArg::AddRunner(crate::scheduler::AddRunnerRequestArg {
+				attempt: arg.attempt,
 				capacity: arg.heartbeat.capacity,
 				host: arg.host,
 				runner: id.clone(),
@@ -282,6 +283,7 @@ impl Session {
 					}
 				}
 				if !scheduler_unavailable.load(Ordering::Acquire) {
+					crate::checkpoint!(session.server, "runner.control.remove", %runner).await;
 					let request = crate::scheduler::RequestArg::RemoveRunner(
 						crate::scheduler::RemoveRunnerRequestArg {
 							connection_index,

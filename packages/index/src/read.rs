@@ -115,7 +115,7 @@ pub(crate) enum Response {
 	GetIndexers(Vec<crate::indexer::Indexer>),
 	LogCompactionBatch(Vec<crate::log::Entry>),
 	GetRequesterSubjects(Vec<tg::authorization::Subject>),
-	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
+	GetRunnerSandboxes(Vec<crate::runner::Sandbox>),
 	GetTransactionId(u64),
 	ListSandboxes(Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>),
 	ProcessHasAncestor(bool),

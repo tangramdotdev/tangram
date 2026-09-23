@@ -17,6 +17,7 @@ pub mod organization;
 pub mod permission;
 pub mod process;
 mod read;
+pub mod runner;
 pub mod sandbox;
 pub mod tag;
 pub mod update;
@@ -294,7 +295,7 @@ pub trait Index {
 	fn get_runner_sandboxes(
 		&self,
 		runner: &tg::runner::Id,
-	) -> impl Future<Output = tg::Result<Vec<tg::sandbox::Id>>> + Send;
+	) -> impl Future<Output = tg::Result<Vec<crate::runner::Sandbox>>> + Send;
 
 	fn try_get_sandbox_processes_count(
 		&self,

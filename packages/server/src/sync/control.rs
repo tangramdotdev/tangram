@@ -156,6 +156,7 @@ impl Server {
 									}
 								}
 							}
+							crate::checkpoint!(self, "sync.control.nodes.response", count = responses.len()).await;
 							self.sync_control_send_responses_inner(&subject, &mut state, responses).await;
 						},
 						None => {

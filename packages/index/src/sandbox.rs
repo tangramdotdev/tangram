@@ -5,6 +5,7 @@ pub mod put;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Sandbox {
 	pub account: Option<crate::usage::Account>,
+	pub attempt: Option<String>,
 	pub created_at: i64,
 	pub data: Option<tg::sandbox::get::Output>,
 	pub location: Option<tg::Location>,
