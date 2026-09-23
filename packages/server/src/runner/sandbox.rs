@@ -539,12 +539,18 @@ impl Session {
 				error: Some(error),
 				location: Some(location.into()),
 			};
-			if let Err(error) = session.destroy_sandbox(&id, arg).boxed().await {
-				tracing::error!(
-					error = %error.trace(),
-					sandbox = %id,
-					"failed to destroy the sandbox after the sandbox failed"
-				);
+			match session.try_destroy_sandbox(&id, arg).boxed().await {
+				Ok(Some(_)) => {},
+				Ok(None) => {
+					tracing::error!(sandbox = %id, "failed to find the sandbox after the sandbox failed");
+				},
+				Err(error) => {
+					tracing::error!(
+						error = %error.trace(),
+						sandbox = %id,
+						"failed to destroy the sandbox after the sandbox failed"
+					);
+				},
 			}
 		}
 

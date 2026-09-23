@@ -120,6 +120,9 @@ impl Server {
 					Ok(())
 				});
 			}
+		} else {
+			// Give non-TTY processes a separate group so signals reach their descendants.
+			command.process_group(0);
 		}
 
 		// Spawn.
