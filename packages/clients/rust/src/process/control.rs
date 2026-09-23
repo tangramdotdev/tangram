@@ -518,7 +518,7 @@ pub struct StartClientRequestArg {
 )]
 pub struct Sandbox {
 	#[tangram_serialize(id = 4)]
-	pub attempt: Option<String>,
+	pub attempt: String,
 
 	#[tangram_serialize(id = 0)]
 	pub created_at: i64,

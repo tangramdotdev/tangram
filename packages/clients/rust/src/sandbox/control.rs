@@ -118,8 +118,6 @@ pub struct DestroyServerResponseOutput {}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CreateClientRequestArg {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub attempt: Option<String>,
 	pub created_at: i64,
 	pub data: Data,
 }
@@ -166,8 +164,7 @@ pub struct Data {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub attempt: Option<String>,
+	pub attempt: String,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub create: bool,

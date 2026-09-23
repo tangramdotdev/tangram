@@ -42,13 +42,9 @@ impl Index {
 			let Key::Runner(crate::lmdb::runner::Key::RunnerSandbox { sandbox, .. }) = key else {
 				return Err(tg::error!("unexpected key type"));
 			};
-			let attempt = if value.is_empty() {
-				None
-			} else {
-				let attempt = std::str::from_utf8(value)
-					.map_err(|error| tg::error!(!error, "invalid runner sandbox attempt"))?;
-				Some(attempt.to_owned())
-			};
+			let attempt = std::str::from_utf8(value)
+				.map_err(|error| tg::error!(!error, "invalid runner sandbox attempt"))?
+				.to_owned();
 			let sandbox = crate::runner::Sandbox {
 				attempt,
 				id: sandbox,
