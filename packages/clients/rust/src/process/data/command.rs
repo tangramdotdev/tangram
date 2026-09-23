@@ -91,15 +91,10 @@ impl Command {
 	}
 
 	fn update_options(&mut self, update: &Update<'_>) {
-		update_options(&mut self.executable.options, update);
 		let resource = self.executable.node.artifact.clone().map(tg::Id::from);
-		self.executable.options.tokens.normalize(resource.as_ref());
+		update_options(&mut self.executable.options, update, resource.as_ref());
 		if let Some(stdin) = &mut self.stdin {
-			update_options(&mut stdin.options, update);
-			stdin
-				.options
-				.tokens
-				.normalize(Some(&stdin.node.clone().into()));
+			update_options(&mut stdin.options, update, Some(&stdin.node.clone().into()));
 		}
 		for value in self.args.iter_mut().chain(self.env.values_mut()) {
 			let (tg::command::data::Value::String(value) | tg::command::data::Value::Value(value)) =
@@ -221,17 +216,24 @@ impl tg::Referent<tg::Either<Box<Command>, tg::command::Id>> {
 	}
 }
 
-fn update_options(target: &mut tg::referent::Options, update: &Update<'_>) {
+fn update_options(
+	target: &mut tg::referent::Options,
+	update: &Update<'_>,
+	resource: Option<&tg::Id>,
+) {
 	match update {
 		Update::ForLocation(location) => {
 			target.location = None;
 			target.tokens = target.tokens.for_location(location);
+			target.tokens.normalize(resource);
 		},
 		Update::Inherit(source) => {
 			if target.location.is_none() {
 				target.location.clone_from(&source.location);
 			}
-			target.tokens.inherit(&source.tokens);
+			target
+				.tokens
+				.inherit_with_resource(&source.tokens, resource);
 		},
 	}
 }
@@ -249,11 +251,10 @@ fn update_value_options(value: &mut tg::value::Data, update: &Update<'_>) {
 			}
 		},
 		tg::value::Data::Module(module) => {
-			update_options(&mut module.referent.options, update);
 			let mut children = BTreeSet::new();
 			module.children(&mut children);
 			let resource = children.into_iter().next().map(tg::Id::from);
-			module.referent.options.tokens.normalize(resource.as_ref());
+			update_options(&mut module.referent.options, update, resource.as_ref());
 		},
 		tg::value::Data::Mutation(mutation) => match mutation {
 			tg::mutation::Data::Append { values } | tg::mutation::Data::Prepend { values } => {
@@ -276,11 +277,11 @@ fn update_value_options(value: &mut tg::value::Data, update: &Update<'_>) {
 			tg::mutation::Data::Unset => {},
 		},
 		tg::value::Data::Object(object) => {
-			update_options(&mut object.options, update);
-			object
-				.options
-				.tokens
-				.normalize(Some(&object.node.clone().into()));
+			update_options(
+				&mut object.options,
+				update,
+				Some(&object.node.clone().into()),
+			);
 		},
 		tg::value::Data::Template(template) => update_template_options(template, update),
 		tg::value::Data::Bool(_)
@@ -295,11 +296,11 @@ fn update_value_options(value: &mut tg::value::Data, update: &Update<'_>) {
 fn update_template_options(template: &mut tg::template::Data, update: &Update<'_>) {
 	for component in &mut template.components {
 		if let tg::template::data::Component::Artifact(artifact) = component {
-			update_options(&mut artifact.options, update);
-			artifact
-				.options
-				.tokens
-				.normalize(Some(&artifact.node.clone().into()));
+			update_options(
+				&mut artifact.options,
+				update,
+				Some(&artifact.node.clone().into()),
+			);
 		}
 	}
 }

@@ -33,7 +33,15 @@ let path = artifact {
 				await object.state.load();
 				tg.assert(JSON.stringify(object.state.tokens.local.authorization) === JSON.stringify([direct]));
 				object.state.tokens = { local: { authorization: [inherited] } };
-				object.state.finishStore({ node: id, options: { tokens: { local: { authorization: [direct] } } } });
+				const normalize = tg.Tokens.normalize;
+				let normalizations = 0;
+				tg.Tokens.normalize = (...args) => { normalizations++; return normalize(...args); };
+				try {
+					object.state.finishStore({ node: id, options: { tokens: { local: { authorization: [direct] } } } });
+				} finally {
+					tg.Tokens.normalize = normalize;
+				}
+				tg.assert(normalizations === 1);
 				tg.assert(JSON.stringify(object.state.tokens.local.authorization) === JSON.stringify([direct]));
 			} finally {
 				tg.client.getObject = getObject;
@@ -47,14 +55,14 @@ let path = artifact {
 				child.state.tokens = { local: { authorization: [childToken], sync: ["sync"] }, remote: { authorization: [childToken] } };
 				const tokens = tg.Object.toReferent(parent).options.tokens;
 				tg.assert(tokens.local.authorization.includes(parentToken));
-				tg.assert(tokens.local.authorization.includes(childToken) === (expiration > 180));
+				tg.assert(!tokens.local.authorization.includes(childToken));
 				tg.assert(tokens.local.sync[0] === "sync");
 				tg.assert(tokens.remote.authorization[0] === childToken);
 				tg.assert(child.state.tokens.local.authorization[0] === childToken);
 			}
 			child.state.object = { kind: "directory", value: { entries: { parent } } };
 			const cyclic = tg.Object.toReferent(parent).options.tokens;
-			tg.assert(cyclic.local.authorization.length === 2);
+			tg.assert(cyclic.local.authorization.length === 1);
 			tg.assert(cyclic.local.sync.length === 1);
 			child.state.object = null;
 			return true;

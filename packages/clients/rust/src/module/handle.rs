@@ -58,8 +58,10 @@ impl Module {
 		let mut referent = self.referent.clone();
 		for child in self.children() {
 			let options = child.to_referent().options;
-			referent.options.tokens.inherit(&options.tokens);
-			referent.options.tokens.normalize(Some(&child.id().into()));
+			referent
+				.options
+				.tokens
+				.inherit_with_resource(&options.tokens, Some(&child.id().into()));
 			if referent.options.location.is_none() {
 				referent.options.location = options.location;
 			}

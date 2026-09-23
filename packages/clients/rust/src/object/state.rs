@@ -206,9 +206,11 @@ impl State {
 		}
 		inner.location = object.options.location;
 		inner.stored = true;
-		object.options.tokens.inherit(&inner.tokens);
+		object
+			.options
+			.tokens
+			.inherit_with_resource(&inner.tokens, Some(&object.node.into()));
 		inner.tokens = object.options.tokens;
-		inner.tokens.normalize(Some(&object.node.into()));
 
 		Ok(())
 	}
@@ -241,8 +243,7 @@ impl State {
 	pub fn inherit_tokens(&self, tokens: &tg::Tokens) {
 		let id = self.id().into();
 		let mut inner = self.0.write().unwrap();
-		inner.tokens.inherit(tokens);
-		inner.tokens.normalize(Some(&id));
+		inner.tokens.inherit_with_resource(tokens, Some(&id));
 	}
 
 	pub fn set_object(&self, object: impl Into<tg::object::Object>) {
@@ -263,45 +264,37 @@ impl State {
 			true
 		});
 
-		// Carry the ancestor proof lifetime along each path while preserving every sync token.
+		// Collect uncovered authorization proofs and every sync token.
 		let mut tokens = tg::Tokens::default();
 		for location in locations {
 			let mut entry = tg::tokens::Entry::default();
 			let mut visited = BTreeSet::new();
-			let mut stack = vec![(self.clone(), None::<i64>)];
-			while let Some((state, expiration)) = stack.pop() {
-				if !visited.insert((state.identity(), expiration)) {
+			let mut stack = vec![(self.clone(), false)];
+			while let Some((state, covered)) = stack.pop() {
+				if !visited.insert((state.identity(), covered)) {
 					continue;
 				}
 				let state_tokens = state.tokens();
-				let mut expiration = expiration;
+				let mut covered = covered;
 				if let Some(state_entry) = state_tokens.get(&location) {
-					let mut uncovered = state_entry.clone();
-					uncovered.authorization.retain(|token| {
-						expiration.is_none_or(|expiration| {
-							!tg::authorization::Token::covers_expiration(
-								expiration,
-								token.body.expires_at,
-							)
-						})
-					});
-					entry.inherit(&uncovered);
-					let id = state.id().into();
-					// Only retained proofs can cover descendants without compounding the tolerance.
-					let subtree = uncovered
-						.authorization
-						.iter()
-						.filter(|token| token.grants_object_subtree(&id))
-						.map(|token| token.body.expires_at)
-						.max();
-					expiration = expiration.max(subtree);
+					entry.sync.extend(state_entry.sync.iter().cloned());
+					if !covered {
+						entry
+							.authorization
+							.extend(state_entry.authorization.iter().cloned());
+						let id = state.id().into();
+						covered = state_entry
+							.authorization
+							.iter()
+							.any(|token| token.grants_object_subtree(&id));
+					}
 				}
 				if let Some(object) = state.object() {
 					stack.extend(
 						object
 							.children()
 							.into_iter()
-							.map(|child| (child.state(), expiration)),
+							.map(|child| (child.state(), covered)),
 					);
 				}
 			}
@@ -473,9 +466,10 @@ impl State {
 		// Update the state.
 		let mut inner = self.0.write().unwrap();
 		if !output.tokens.is_empty() {
-			output.tokens.inherit(&inner.tokens);
+			output
+				.tokens
+				.inherit_with_resource(&inner.tokens, Some(&id.into()));
 			inner.tokens = output.tokens;
-			inner.tokens.normalize(Some(&id.into()));
 		}
 		inner.object.replace(object.clone());
 

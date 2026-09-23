@@ -186,8 +186,8 @@ export namespace Object {
 			this.location = object.options?.location ?? null;
 			this.#stored = true;
 			let tokens = tg.Tokens.clone(object.options?.tokens);
-			tg.Tokens.inherit(tokens, this.#tokens);
-			this.tokens = tokens;
+			tg.Tokens.inherit(tokens, this.#tokens, this.id);
+			this.#tokens = tokens;
 		}
 
 		clearStorePromise(promise: Promise<void>): void {
@@ -221,56 +221,49 @@ export namespace Object {
 				return true;
 			});
 
-			// Carry the ancestor proof lifetime along each path while preserving every sync token.
+			// Collect uncovered authorization proofs and every sync token.
 			let tokens: tg.Tokens = {};
 			for (let location of locations) {
-				let visited = new Map<tg.Object.State, Set<bigint | null>>();
-				let stack: Array<[tg.Object.State, bigint | null]> = [[this, null]];
+				let visited = new Map<tg.Object.State, Set<boolean>>();
+				let stack: Array<[tg.Object.State, boolean]> = [[this, false]];
 				while (stack.length > 0) {
-					let [state, expiration] = stack.pop()!;
-					let seen = visited.get(state) ?? new Set<bigint | null>();
-					if (seen.has(expiration)) {
+					let [state, covered] = stack.pop()!;
+					let seen = visited.get(state) ?? new Set<boolean>();
+					if (seen.has(covered)) {
 						continue;
 					}
-					seen.add(expiration);
+					seen.add(covered);
 					visited.set(state, seen);
 					let entry = state.#tokens[location];
 					if (entry !== undefined) {
-						let uncovered = {
-							...entry,
-							authorization: (entry.authorization ?? []).filter((token) => {
-								let lifetime = tg.Authorization.Token.expiresAt(token);
-								return (
-									expiration === null ||
-									lifetime === null ||
-									!tg.Authorization.Token.coversExpiration(expiration, lifetime)
+						let collected = (tokens[location] ??= {
+							authorization: [],
+							sync: [],
+						});
+						for (let token of entry.sync ?? []) {
+							collected.sync!.push(token);
+						}
+						if (!covered) {
+							for (let token of entry.authorization ?? []) {
+								collected.authorization!.push(token);
+								covered ||= tg.Authorization.Token.grantsObjectSubtree(
+									token,
+									state.id,
 								);
-							}),
-						};
-						tg.Tokens.inherit(tokens, { [location]: uncovered });
-						// Only retained proofs can cover descendants without compounding the tolerance.
-						for (let token of uncovered.authorization) {
-							if (tg.Authorization.Token.grantsObjectSubtree(token, state.id)) {
-								let lifetime = tg.Authorization.Token.expiresAt(token)!;
-								if (expiration === null || lifetime > expiration) {
-									expiration = lifetime;
-								}
 							}
 						}
 					}
 					if (state.object !== null) {
 						stack.push(
 							...tg.Object.Object.children(state.object).map(
-								(child): [tg.Object.State, bigint | null] => [
-									child.state,
-									expiration,
-								],
+								(child): [tg.Object.State, boolean] => [child.state, covered],
 							),
 						);
 					}
 				}
 			}
 
+			tg.Tokens.normalize(tokens);
 			return tokens;
 		}
 

@@ -59,51 +59,44 @@ export namespace Tokens {
 	// Normalize each location independently, optionally pruning proofs redundant for the receiving object.
 	export let normalize = (tokens: Tokens, resource?: string): void => {
 		for (let [location, entry] of Object.entries(tokens)) {
+			// Compare proofs only within the same resource, using the encoded token to break ties.
+			let resources = new Map<string, Array<Authorization.Token>>();
 			let authorization: Array<Authorization.Token> = [];
-			// Compare later expirations first and break ties by the encoded token.
-			const ordered = (entry.authorization ?? []).toSorted((a, b) => {
-				const aExpiration = Authorization.Token.expiresAt(a);
-				const bExpiration = Authorization.Token.expiresAt(b);
-				if (aExpiration !== bExpiration) {
-					if (aExpiration === null) return 1;
-					if (bExpiration === null) return -1;
-					return aExpiration > bExpiration ? -1 : 1;
+			for (let token of [...new Set(entry.authorization ?? [])].sort()) {
+				let resource = Authorization.Token.resource(token);
+				if (resource === null) {
+					authorization.push(token);
+					continue;
 				}
-				return a < b ? -1 : a > b ? 1 : 0;
-			});
-			for (let token of ordered) {
+				let proofs = resources.get(resource) ?? [];
 				if (
-					authorization.some(
-						(existing) =>
-							Authorization.Token.covers(existing, token) &&
-							(!Authorization.Token.covers(token, existing) ||
-								Authorization.Token.expiresAt(existing)! >
-									Authorization.Token.expiresAt(token)! ||
-								(Authorization.Token.expiresAt(existing) ===
-									Authorization.Token.expiresAt(token) &&
-									existing <= token)),
-					)
+					proofs.some((existing) => Authorization.Token.covers(existing, token))
 				) {
 					continue;
 				}
-				authorization = authorization.filter(
+				proofs = proofs.filter(
 					(existing) => !Authorization.Token.covers(token, existing),
 				);
-				authorization.push(token);
+				proofs.push(token);
+				resources.set(resource, proofs);
 			}
-			// An exact subtree proof covers the receiving object regardless of the inherited proof's resource.
-			if (resource !== undefined) {
-				const proofs = authorization.filter((token) =>
+			for (let proofs of resources.values()) {
+				for (let token of proofs) {
+					authorization.push(token);
+				}
+			}
+			// An exact subtree proof replaces the inherited proofs for the receiving object.
+			if (
+				resource !== undefined &&
+				authorization.some((token) =>
+					Authorization.Token.grantsObjectSubtree(token, resource),
+				)
+			) {
+				authorization = authorization.filter((token) =>
 					Authorization.Token.grantsObjectSubtree(token, resource),
 				);
-				authorization = authorization.filter(
-					(token) =>
-						Authorization.Token.grantsObjectSubtree(token, resource) ||
-						!proofs.some((proof) =>
-							Authorization.Token.coversObjectSubtree(proof, token, resource),
-						),
-				);
 			}
+			authorization.sort();
 			const sync = [...new Set(entry.sync ?? [])];
 			if (authorization.length === 0 && sync.length === 0) {
 				delete tokens[location];

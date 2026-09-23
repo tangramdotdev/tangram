@@ -16,11 +16,9 @@ export namespace Authorization {
 			};
 		};
 
-		// Expirations within this many seconds are equivalent for token minimization.
-		const expirationThreshold = 60n;
-
 		const cache = new Map<string, Data | null>();
 
+		// Compare the resources and permissions without considering expiration or verifying signatures.
 		export let covers = (token: Token, other: Token): boolean => {
 			if (token === other) {
 				return true;
@@ -31,32 +29,11 @@ export namespace Authorization {
 				a !== null &&
 				b !== null &&
 				a.body.resource === b.body.resource &&
-				coversExpiration(a.body.expires_at, b.body.expires_at) &&
 				b.body.permissions.every((needed) =>
 					grants(token, b.body.resource, needed),
 				)
 			);
 		};
-
-		export let coversObjectSubtree = (
-			token: Token,
-			other: Token,
-			resource: string,
-		): boolean => {
-			let a = parse(token);
-			let b = parse(other);
-			return (
-				a !== null &&
-				b !== null &&
-				grantsObjectSubtree(token, resource) &&
-				coversExpiration(a.body.expires_at, b.body.expires_at)
-			);
-		};
-
-		export let coversExpiration = (
-			expiresAt: bigint,
-			otherExpiresAt: bigint,
-		): boolean => expiresAt + expirationThreshold >= otherExpiresAt;
 
 		// Check the resource and implied permission without verifying the signature or expiration.
 		export let grants = (
@@ -78,8 +55,8 @@ export namespace Authorization {
 			resource: string,
 		): boolean => grants(token, resource, "object_subtree");
 
-		export let expiresAt = (token: Token): bigint | null =>
-			parse(token)?.body.expires_at ?? null;
+		export let resource = (token: Token): string | null =>
+			parse(token)?.body.resource ?? null;
 
 		let parse = (token: Token): Data | null => {
 			if (cache.has(token)) {
