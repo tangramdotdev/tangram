@@ -277,6 +277,7 @@ fn put_process_implicit_grant_with_expiration(
 fn put_sandbox(index: &Index, txn: &mut lmdb::RwTxn<'_>, sandbox: &tg::sandbox::Id) {
 	let value = crate::sandbox::Sandbox {
 		account: None,
+		attempt: None,
 		created_at: 0,
 		data: None,
 		location: None,

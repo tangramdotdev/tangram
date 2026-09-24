@@ -92,6 +92,7 @@ fn sandbox_arg(id: tg::sandbox::Id, status: tg::sandbox::Status) -> crate::sandb
 	};
 	crate::sandbox::put::Arg {
 		account: None,
+		attempt: None,
 		created_at: 0,
 		data: Some(data),
 		id,
