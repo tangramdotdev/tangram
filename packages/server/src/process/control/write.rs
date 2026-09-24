@@ -6,6 +6,7 @@ use {
 	tangram_cache::{Cache as _, log},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
+	tangram_index::Index as _,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -230,7 +231,9 @@ impl Session {
 		}
 
 		let data = self
-			.try_get_process_from_index(id)
+			.server
+			.index
+			.try_get_process(id)
 			.await?
 			.and_then(|process| process.data);
 		if data.is_some_and(|data| data.log.is_some()) {
