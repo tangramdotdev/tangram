@@ -118,11 +118,18 @@ def early_finish():
     watches = {name: checkpoint("watch", name)["watch"] for name in (
         "process.control.output", "process.control.finish",
     )}
+    # End the synthetic writer's empty log before Finish queues compaction.
+    end = {"kind": "write", "value": {"kind": "end", "value": {
+        "combined_position": 0, "stream_positions": {"stderr": 0, "stdout": 0},
+    }}}
     finish = {"kind": "finish", "value": {"data": finished}}
     request_id = "early-finish"
-    message = ("request", {"id": request_id, "arg": finish})
+    messages = [
+        ("request", {"id": "end", "arg": end}),
+        ("request", {"id": request_id, "arg": finish}),
+    ]
     with concurrent.futures.ThreadPoolExecutor() as executor:
-        pending = executor.submit(connect, {"parent": parent, "lease": "test", "data": data}, None, [message])
+        pending = executor.submit(connect, {"parent": parent, "lease": "test", "data": data}, None, messages)
         try:
             # The request body reaches the server before Output is returned.
             for name in watches:
