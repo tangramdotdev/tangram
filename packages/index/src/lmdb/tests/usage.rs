@@ -559,6 +559,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 	let sandbox = tg::sandbox::Id::new();
 	let started = crate::sandbox::put::Arg {
 		account: Some(account.clone()),
+		attempt: None,
 		created_at: 1,
 		data: Some(sandbox_data(
 			sandbox.clone(),
@@ -580,6 +581,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 		.unwrap();
 	let destroyed = crate::sandbox::put::Arg {
 		account: Some(account.clone()),
+		attempt: None,
 		created_at: 1,
 		data: Some(sandbox_data(
 			sandbox.clone(),
@@ -634,6 +636,7 @@ async fn records_compute_once_when_destroy_precedes_start() {
 		});
 		let arg = crate::sandbox::put::Arg {
 			account: Some(account.clone()),
+			attempt: None,
 			created_at: 1,
 			data: Some(sandbox_data(sandbox.clone(), owner.clone(), status, usage)),
 			id: sandbox.clone(),
@@ -663,6 +666,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 	let sandbox = tg::sandbox::Id::new();
 	let started = crate::sandbox::put::Arg {
 		account: Some(account.clone()),
+		attempt: None,
 		created_at: 1,
 		data: Some(sandbox_data(
 			sandbox.clone(),
@@ -684,6 +688,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 		.unwrap();
 	let destroyed = crate::sandbox::put::Arg {
 		account: None,
+		attempt: None,
 		created_at: 1,
 		data: Some(sandbox_data(
 			sandbox.clone(),

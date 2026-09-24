@@ -75,6 +75,7 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 		let location = location.parse::<tg::Location>().unwrap();
 		let mut sandbox = crate::sandbox::put::Arg {
 			account: None,
+			attempt: None,
 			created_at: 1,
 			data: None,
 			id: id.clone(),
