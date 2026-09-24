@@ -23,10 +23,37 @@ impl Session {
 			let request = tg::process::control::ServerRequestArg::ReleaseLease(
 				tg::process::control::ReleaseLeaseServerRequestArg { lease: arg.lease },
 			);
-			let response = control
-				.control_sender
-				.request(request)
-				.await?
+			crate::checkpoint!(self.server, "process.cancel.runner", process = %id).await;
+			let response = match control.control_sender.start(request).await {
+				Err(error) => Err(error),
+				Ok(response) => response.await,
+			};
+			let response = match response {
+				Err(error) => {
+					if self
+						.try_get_process_control_runner_inner(id, arg.location.as_ref())
+						.is_some_and(|control| control.data.status.is_finished())
+					{
+						let output = tg::process::cancel::Output { released: false };
+						return Ok(Some(output));
+					}
+					if self
+						.try_get_process_from_index(id)
+						.await?
+						.is_some_and(|process| {
+							process
+								.data
+								.as_ref()
+								.is_some_and(|data| data.status.is_finished())
+						}) {
+						let output = tg::process::cancel::Output { released: false };
+						return Ok(Some(output));
+					}
+					return Err(error);
+				},
+				Ok(response) => response?,
+			};
+			let response = response
 				.try_unwrap_release_lease()
 				.map_err(|_| tg::error!("expected a release process lease response"))?;
 			let output = tg::process::cancel::Output {
@@ -82,13 +109,16 @@ impl Session {
 			retry: tangram_futures::retry::Options::default(),
 			timeout: std::time::Duration::from_secs(10),
 		};
-		let release_future = self
-			.send_process_control_request(id, request, options)
-			.boxed();
-		let get_future = self.try_get_process_from_index(id).boxed();
-		let response = match future::select(pin!(release_future), pin!(get_future)).await {
-			future::Either::Left((response, _)) => response,
-			future::Either::Right((process, release_future)) => {
+		let release_future = async {
+			crate::checkpoint!(self.server, "process.cancel.control", process = %id).await;
+			self.send_process_control_request(id, request, options)
+				.await
+		}
+		.boxed();
+		let get_future = async {
+			loop {
+				let process = self.try_get_process_from_index(id).await;
+				crate::checkpoint!(self.server, "process.cancel.index", process = %id).await;
 				let Some(process) = process
 					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 				else {
@@ -109,9 +139,31 @@ impl Session {
 					let output = tg::process::cancel::Output { released: false };
 					return Ok(Some(output));
 				}
-				release_future.await
-			},
+				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+			}
+		}
+		.boxed();
+		let response = match future::select(pin!(release_future), pin!(get_future)).await {
+			future::Either::Left((response, _)) => response,
+			future::Either::Right((output, _)) => return output,
 		};
+		if response.is_err()
+			&& self
+				.try_get_process_from_index(id)
+				.await?
+				.is_some_and(|process| {
+					!process
+						.location
+						.as_ref()
+						.is_some_and(tg::Location::is_remote)
+						&& process
+							.data
+							.as_ref()
+							.is_some_and(|data| data.status.is_finished())
+				}) {
+			let output = tg::process::cancel::Output { released: false };
+			return Ok(Some(output));
+		}
 		let response = response
 			.map_err(|error| tg::error!(!error, %id, "failed to release the process lease"))?
 			.map_err(|error| tg::error!(!error, %id, "the release process lease request failed"))?;

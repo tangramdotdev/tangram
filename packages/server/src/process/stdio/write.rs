@@ -25,6 +25,9 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum Destination {
 	Null,
@@ -301,31 +304,50 @@ impl Session {
 			self.start_process_control_request(id, request, options)
 				.await?
 		};
-		let future = async move {
-			let response = tokio::select! {
-				biased;
-				response = response => response,
-				result = wait.clone() => { result?; return Ok(Output { closed: true, length: 0 }); },
-			};
-			let response = match response {
-				Ok(response) => response?,
-				Err(error) => {
-					// The local handler can retire between enqueueing a write and delivering its response.
-					if let Some(result) = wait.now_or_never() {
-						result?;
-						return Ok(Output {
-							closed: true,
-							length: 0,
-						});
-					}
-					return Err(error);
-				},
-			};
-			response
-				.try_unwrap_write()
-				.map_err(|_| tg::error!("expected a write response"))
+		let local = control_sender.is_some();
+		let future = Self::finish_write_process_stdio(response, wait, local).boxed();
+		Ok(future)
+	}
+
+	async fn finish_write_process_stdio(
+		response: BoxFuture<
+			'static,
+			tg::Result<tg::Result<tg::process::control::ClientResponseOutput>>,
+		>,
+		wait: futures::future::Shared<BoxFuture<'static, tg::Result<()>>>,
+		local: bool,
+	) -> tg::Result<Output> {
+		let response = tokio::select! {
+			biased;
+			response = response => response,
+			result = wait.clone() => { result?; return Ok(Output { closed: true, length: 0 }); },
 		};
-		Ok(future.boxed())
+		let response = match response {
+			Ok(response) => response?,
+			Err(error) => {
+				// The local handler can retire between enqueueing a write and delivering its response.
+				let finished = if local {
+					tokio::time::timeout(Duration::from_secs(10), wait)
+						.await
+						.ok()
+				} else {
+					wait.now_or_never()
+				};
+				if let Some(result) = finished {
+					result?;
+					return Ok(Output {
+						closed: true,
+						length: 0,
+					});
+				}
+				return Err(error);
+			},
+		};
+		let output = response
+			.try_unwrap_write()
+			.map_err(|_| tg::error!("expected a write response"))?;
+
+		Ok(output)
 	}
 
 	async fn try_write_process_stdio_region(

@@ -1387,7 +1387,9 @@ impl Session {
 			processes,
 		} = arg;
 
-		// Queue the process grants before publishing completion so authorization can wait for indexing.
+		// Publish completion before waiting for indexing to prepare the process grants.
+		self.publish_finished_process(id, &processes, data).await?;
+
 		// Grant preparation can call index(), so this work must remain outside server.index_tasks.
 		// The control finish handler queues local log compaction, and the log writer records EOF.
 		let remote = location.is_remote();
@@ -1400,7 +1402,6 @@ impl Session {
 		self.put_finished_process_local(id, data.clone(), options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to index the finished process"))?;
-		self.publish_finished_process(id, &processes, data).await?;
 
 		Ok(())
 	}

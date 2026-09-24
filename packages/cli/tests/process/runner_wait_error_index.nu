@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Grant preparation waits for the error object's index batch, but a runner wait does not wait for the finished-process batch.
+# A runner wait returns when the process finishes, before the error object or finished process is indexed.
 
 let root_token = random chars
 let server = server spawn --config {
@@ -41,13 +41,11 @@ tg --token $root_token checkpoint unwatch process.wait.attach $attach_watch
 let process_watch = tg --token $root_token checkpoint watch index.batch --params '{"finished_process":true}' | from json | get watch
 tg --token $root_token checkpoint unwatch runner.process.finish $finish_watch
 timeout 10s tg --token $root_token checkpoint wait index.batch $object_watch 0 | ignore
-let premature = try { job recv --tag $wait_job --timeout 1sec } catch { null }
-assert equal $premature null "grant preparation must wait for the error object's index batch before finishing the process"
-tg --token $root_token checkpoint unwatch index.batch $object_watch
-timeout 10s tg --token $root_token checkpoint wait index.batch $process_watch 0 | ignore
 let output = job recv --tag $wait_job --timeout 10sec
 let output = $output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
-assert equal $output.exit 1
+assert equal $output.exit 1 "the runner wait must return before grant preparation completes"
+tg --token $root_token checkpoint unwatch index.batch $object_watch
+timeout 10s tg --token $root_token checkpoint wait index.batch $process_watch 0 | ignore
 assert (not ($output.error | str contains 'tokens')) "waiting must not mint error capabilities"
 timeout 10s tg --token $root_token checkpoint wait process.control.finish $control_watch 0 | ignore
 

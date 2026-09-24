@@ -225,6 +225,11 @@ impl Session {
 			let mut ready = false;
 			let mut finished = Vec::new();
 			for (id, (read, sender)) in &mut reads {
+				// A dropped transport must not consume output while its close request is pending.
+				if matches!(sender, Reply::Local(sender) if sender.is_closed()) {
+					finished.push(id.clone());
+					continue;
+				}
 				let message = reader.read(read);
 				let response = match message {
 					Ok(Some(tg::process::stdio::read::ServerMessage::Notification(event))) => {
