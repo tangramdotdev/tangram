@@ -8,5 +8,5 @@ let path = artifact {
 	tangram.ts: 'export default async function () { return (await tg.Mutation.set(await tg.file("hi"))).objects(); }'
 }
 
-let output = tg build $path
-snapshot --normalize-ids $output '[fil_010000000000000000000000000000000000000000000000000000?tokens[local][0]=<token>&tokens[local][1]=<token>]'
+let output = tg build --no-tokens $path
+snapshot --normalize-ids $output '[fil_010000000000000000000000000000000000000000000000000000]'

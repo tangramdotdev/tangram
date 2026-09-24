@@ -985,6 +985,10 @@ impl Session {
 
 	async fn connect_process_detach(state: &mut State<'_>, id: u64) -> tg::Result<()> {
 		state.cancel.store(false, Ordering::SeqCst);
+		// Drop the subscribed reads before acknowledging detach so fallback readers can take over.
+		state.streams.tasks.clear();
+		state.streams.reads.clear();
+		state.streams.aborts.clear();
 		Self::send_connect_response(
 			state.high,
 			id,
