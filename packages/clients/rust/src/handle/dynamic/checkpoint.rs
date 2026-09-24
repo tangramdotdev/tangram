@@ -52,4 +52,26 @@ impl tg::handle::Checkpoint for Handle {
 			)
 		}
 	}
+
+	fn try_abort_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::abort::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		// SAFETY: The erased future borrows the handle and checkpoint for the returned future's lifetime.
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_abort_checkpoint(checkpoint, arg))
+		}
+	}
+
+	fn try_panic_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::panic::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		// SAFETY: The erased future borrows the handle and checkpoint for the returned future's lifetime.
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_panic_checkpoint(checkpoint, arg))
+		}
+	}
 }

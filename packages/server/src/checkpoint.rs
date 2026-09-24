@@ -4,7 +4,9 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod abort;
 mod continue_;
+mod panic;
 mod unwatch;
 mod wait;
 mod watch;
@@ -20,7 +22,9 @@ struct Inner {
 
 #[derive(Default)]
 struct Checkpoint {
+	aborts: Vec<tg::checkpoint::Params>,
 	next_watch: u64,
+	panics: Vec<tg::checkpoint::Params>,
 	watches: BTreeMap<u64, Watch>,
 }
 
@@ -105,7 +109,37 @@ impl State {
 			.is_some()
 	}
 
+	pub fn abort(&self, checkpoint: &str, params: tg::checkpoint::Params) {
+		let mut inner = self.inner.lock().unwrap();
+		let checkpoint = inner.checkpoints.entry(checkpoint.to_owned()).or_default();
+		checkpoint.aborts.push(params);
+	}
+
+	pub fn panic(&self, checkpoint: &str, params: tg::checkpoint::Params) {
+		let mut inner = self.inner.lock().unwrap();
+		let checkpoint = inner.checkpoints.entry(checkpoint.to_owned()).or_default();
+		checkpoint.panics.push(params);
+	}
+
 	pub async fn hit(&self, checkpoint: &str, params: tg::checkpoint::Params) {
+		let panic = {
+			let inner = self.inner.lock().unwrap();
+			let Some(checkpoint) = inner.checkpoints.get(checkpoint) else {
+				return;
+			};
+			if checkpoint
+				.aborts
+				.iter()
+				.any(|expected| params_match(expected, &params))
+			{
+				std::process::abort();
+			}
+			checkpoint
+				.panics
+				.iter()
+				.any(|expected| params_match(expected, &params))
+		};
+		assert!(!panic, "checkpoint panic");
 		let receivers = {
 			let mut inner = self.inner.lock().unwrap();
 			let Some(checkpoint) = inner.checkpoints.get_mut(checkpoint) else {

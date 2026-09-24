@@ -76,6 +76,42 @@ pub trait Checkpoint: Clone + Unpin + Send + Sync + 'static {
 		checkpoint: &str,
 		watch: u64,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+
+	fn abort_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::abort::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		async move {
+			self.try_abort_checkpoint(checkpoint, arg)
+				.await?
+				.ok_or_else(|| tg::error!("checkpoints are not enabled"))
+		}
+	}
+
+	fn try_abort_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::abort::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+
+	fn panic_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::panic::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		async move {
+			self.try_panic_checkpoint(checkpoint, arg)
+				.await?
+				.ok_or_else(|| tg::error!("checkpoints are not enabled"))
+		}
+	}
+
+	fn try_panic_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::panic::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 }
 
 impl tg::handle::Checkpoint for tg::Client {
@@ -114,6 +150,26 @@ impl tg::handle::Checkpoint for tg::Client {
 	async fn try_unwatch_checkpoint(&self, checkpoint: &str, watch: u64) -> tg::Result<Option<()>> {
 		self.session(&self.context)
 			.try_unwatch_checkpoint(checkpoint, watch)
+			.await
+	}
+
+	async fn try_abort_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::abort::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.try_abort_checkpoint(checkpoint, arg)
+			.await
+	}
+
+	async fn try_panic_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::panic::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.try_panic_checkpoint(checkpoint, arg)
 			.await
 	}
 }

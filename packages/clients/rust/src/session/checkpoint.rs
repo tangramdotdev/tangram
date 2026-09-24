@@ -34,4 +34,20 @@ impl tg::handle::Checkpoint for tg::Session {
 	) -> impl Future<Output = tg::Result<Option<()>>> {
 		self.try_unwatch_checkpoint(checkpoint, watch)
 	}
+
+	fn try_abort_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::abort::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		self.try_abort_checkpoint(checkpoint, arg)
+	}
+
+	fn try_panic_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::panic::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		self.try_panic_checkpoint(checkpoint, arg)
+	}
 }

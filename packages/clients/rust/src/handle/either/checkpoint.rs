@@ -64,4 +64,30 @@ where
 				.right_future(),
 		}
 	}
+
+	fn try_abort_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::abort::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		match self {
+			tg::Either::Left(handle) => handle.try_abort_checkpoint(checkpoint, arg).left_future(),
+			tg::Either::Right(handle) => {
+				handle.try_abort_checkpoint(checkpoint, arg).right_future()
+			},
+		}
+	}
+
+	fn try_panic_checkpoint(
+		&self,
+		checkpoint: &str,
+		arg: tg::checkpoint::panic::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		match self {
+			tg::Either::Left(handle) => handle.try_panic_checkpoint(checkpoint, arg).left_future(),
+			tg::Either::Right(handle) => {
+				handle.try_panic_checkpoint(checkpoint, arg).right_future()
+			},
+		}
+	}
 }
