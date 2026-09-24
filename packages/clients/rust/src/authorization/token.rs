@@ -541,7 +541,7 @@ mod tests {
 			resource: tg::Id::new_uuidv7(tg::id::Kind::File),
 		};
 		let token = tg::authorization::Token::sign(body, &private_key).unwrap();
-		let mut tokens = tg::Tokens::default();
+		let mut tokens = tg::authorization::Tokens::default();
 		let local = tg::Location::Local(tg::location::Local {
 			region: Some("east".into()),
 		});
@@ -590,8 +590,9 @@ mod tests {
 		let node = token(vec![Permission::Node], 30);
 		let output = token(vec![Permission::NodeOutput], 20);
 		let log = token(vec![Permission::NodeLog], 20);
-		let mut tokens = tg::Tokens::with_authorization([node.clone(), output.clone()]);
-		tokens.inherit(&tg::Tokens::with_authorization([
+		let mut tokens =
+			tg::authorization::Tokens::with_authorization([node.clone(), output.clone()]);
+		tokens.inherit(&tg::authorization::Tokens::with_authorization([
 			log.clone(),
 			output.clone(),
 		]));
@@ -606,10 +607,14 @@ mod tests {
 			],
 			20,
 		);
-		tokens.inherit(&tg::Tokens::with_authorization([broad.clone()]));
+		tokens.inherit(&tg::authorization::Tokens::with_authorization([
+			broad.clone()
+		]));
 		assert_eq!(tokens.local_authorization(), &[broad]);
 		let broad = token(vec![Permission::Parent], 30);
-		tokens.inherit(&tg::Tokens::with_authorization([broad.clone()]));
+		tokens.inherit(&tg::authorization::Tokens::with_authorization([
+			broad.clone()
+		]));
 		assert_eq!(tokens.local_authorization(), &[broad]);
 	}
 
@@ -637,21 +642,21 @@ mod tests {
 		assert!(b.covers(&a));
 		let file = tg::File::with_id(a.body.resource.clone().try_into().unwrap());
 		file.state()
-			.set_tokens(tg::Tokens::with_authorization([a.clone()]));
+			.set_tokens(tg::authorization::Tokens::with_authorization([a.clone()]));
 		let mut parent = b.clone();
 		parent.body.resource = tg::Id::new_uuidv7(tg::id::Kind::Process);
 		parent.body.permissions = vec![tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Parent,
 		)];
 		file.state()
-			.inherit_tokens(&tg::Tokens::with_authorization([parent]));
+			.inherit_tokens(&tg::authorization::Tokens::with_authorization([parent]));
 		assert_eq!(
 			file.state().tokens().local_authorization(),
 			std::slice::from_ref(&a)
 		);
 		let c = token(second, "a");
-		let mut tokens = tg::Tokens::with_authorization([a.clone()]);
-		let mut incoming = tg::Tokens::with_authorization([b.clone(), c.clone()]);
+		let mut tokens = tg::authorization::Tokens::with_authorization([a.clone()]);
+		let mut incoming = tg::authorization::Tokens::with_authorization([b.clone(), c.clone()]);
 		let remote = tg::Location::Remote(tg::location::Remote {
 			name: "default".into(),
 			region: None,

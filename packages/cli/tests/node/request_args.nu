@@ -15,7 +15,7 @@ let output = timeout 10 node --input-type=module -e '
 		},
 	});
 	const client = tg.client;
-	const tokens = { local: { authorization: ["a".repeat(70000)] } };
+	const tokens = { local: ["a".repeat(70000)] };
 	const id = "pcs_010000000000000000000000000000000000000000000000000000";
 	const blob = "blb_01zby8hmr9wc7c8t2g8c7qt29cyt8hkeg2y6y1yahh585dx6hebf2g";
 	const stopped = tg.error.sync("request inspected");

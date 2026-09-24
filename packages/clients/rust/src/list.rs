@@ -133,11 +133,11 @@ impl Entry {
 	}
 
 	#[must_use]
-	pub fn tokens(&self) -> &tg::Tokens {
+	pub fn tokens(&self) -> &tg::authorization::Tokens {
 		&self.node.options.tokens
 	}
 
-	pub fn set_tokens(&mut self, value: tg::Tokens) {
+	pub fn set_tokens(&mut self, value: tg::authorization::Tokens) {
 		self.node.options.tokens = value;
 	}
 }

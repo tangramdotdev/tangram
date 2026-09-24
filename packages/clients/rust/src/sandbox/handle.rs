@@ -18,14 +18,14 @@ pub(super) struct Inner {
 	pub(super) location: RwLock<Option<tg::location::Arg>>,
 	owned: AtomicBool,
 	pub(super) state: RwLock<Option<Arc<tg::sandbox::get::Output>>>,
-	pub(super) tokens: RwLock<tg::Tokens>,
+	pub(super) tokens: RwLock<tg::authorization::Tokens>,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub location: Option<tg::location::Arg>,
 	pub state: Option<tg::sandbox::get::Output>,
-	pub tokens: tg::Tokens,
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl Sandbox {
@@ -103,7 +103,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
-	pub fn tokens(&self) -> tg::Tokens {
+	pub fn tokens(&self) -> tg::authorization::Tokens {
 		self.0.tokens.read().unwrap().clone()
 	}
 

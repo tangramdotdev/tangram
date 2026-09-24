@@ -33,7 +33,7 @@ for location in [local remote] {
 				const directory = await tg.directory({ shared: tg.file("output inherited"), private: tg.file("private") });
 				await directory.store();
 				const file = await directory.get("shared");
-				tg.assert(file.state.tokens.local?.authorization?.some((token) => tg.Authorization.Token.grantsObjectSubtree(token, file.id)));
+				tg.assert(file.state.tokens.local?.some((token) => tg.Authorization.Token.grantsObjectSubtree(token, file.id)));
 				console.log("runner log");
 				return file;
 			};'
@@ -99,18 +99,18 @@ for location in [local remote] {
 		assert ($node_params | all {|param| $param.key !~ '^tokens' }) "a live node reader must not receive output or error capabilities"
 		let params = $'http://localhost/($object)' | url parse | get params
 		if $field == output and not $case.inherited {
-			assert ($params | any {|param| $param.key == 'tokens[local][authorization][0]' }) "a live output reader must retain the output's authorization token"
+			assert ($params | any {|param| $param.key == 'tokens[local][0]' }) "a live output reader must retain the output's authorization token"
 		}
-		for param in ($params | where {|param| $param.key =~ '\[authorization\]' }) {
+		for param in ($params | where {|param| $param.key =~ '^tokens\[' }) {
 			let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
 			if not ($body.resource | str starts-with "syn_") {
 				assert equal $body.resource $object_id "the live response must not expose an ancestor's authorization token"
 			}
 		}
 		if $location == remote and ($field == output or $case.both) {
-			assert ($params | any {|param| $param.key == 'tokens[remote][authorization][0]' }) $"the result sync token must be associated with its issuer: ($field) ($params | get key | to json --raw)"
+			assert ($params | any {|param| $param.key == 'tokens[remote][0]' }) $"the result sync token must be associated with its issuer: ($field) ($params | get key | to json --raw)"
 		} else if $location == remote {
-			assert ($params | where {|param| $param.key =~ '\[authorization\]' } | all {|param|
+			assert ($params | where {|param| $param.key =~ '^tokens\[' } | all {|param|
 				let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
 				not ($body.resource | str starts-with 'syn_')
 			}) "error permission alone must not expose the shared sync for both error and output objects"

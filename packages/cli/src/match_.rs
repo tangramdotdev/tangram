@@ -42,7 +42,7 @@ impl Cli {
 			pattern: args.pattern.clone(),
 			reverse: args.reverse,
 			tags: args.entries.tags(),
-			tokens: tg::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 			ttl: args.ttl.get(),
 			users: args.entries.users(),
 		};

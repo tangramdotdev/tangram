@@ -219,7 +219,11 @@ impl std::fmt::Debug for Writer {
 async fn ensure_process_with_handle<H>(
 	process: Option<Weak<tg::process::handle::Inner>>,
 	handle: &H,
-) -> tg::Result<(Option<tg::location::Arg>, tg::process::Id, tg::Tokens)>
+) -> tg::Result<(
+	Option<tg::location::Arg>,
+	tg::process::Id,
+	tg::authorization::Tokens,
+)>
 where
 	H: tg::Handle,
 {

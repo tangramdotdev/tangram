@@ -305,7 +305,7 @@ impl Session {
 
 	fn update_wait_value_tokens(
 		data: &mut tg::value::Data,
-		update: &mut impl FnMut(&mut tg::Tokens, &tg::object::Id),
+		update: &mut impl FnMut(&mut tg::authorization::Tokens, &tg::object::Id),
 	) {
 		match data {
 			tg::value::Data::Array(array) => {
@@ -362,7 +362,7 @@ impl Session {
 
 	fn update_wait_template_tokens(
 		template: &mut tg::template::Data,
-		update: &mut impl FnMut(&mut tg::Tokens, &tg::object::Id),
+		update: &mut impl FnMut(&mut tg::authorization::Tokens, &tg::object::Id),
 	) {
 		for component in &mut template.components {
 			if let tg::template::data::Component::Artifact(artifact) = component {
@@ -371,7 +371,7 @@ impl Session {
 		}
 	}
 
-	fn retain_wait_object_tokens(tokens: &mut tg::Tokens, id: &tg::object::Id) {
+	fn retain_wait_object_tokens(tokens: &mut tg::authorization::Tokens, id: &tg::object::Id) {
 		// An inherited capability can cover objects outside this result.
 		let original = std::mem::take(tokens);
 		for (location, entry) in original.iter() {
@@ -512,7 +512,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::Tokens,
+		tokens: tg::authorization::Tokens,
 		regions: &[String],
 	) -> tg::Result<
 		Option<(
@@ -547,7 +547,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::Tokens,
+		tokens: tg::authorization::Tokens,
 		region: &str,
 	) -> tg::Result<
 		Option<(
@@ -582,7 +582,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::Tokens,
+		tokens: tg::authorization::Tokens,
 		remotes: &[crate::location::Remote],
 	) -> tg::Result<
 		Option<(
@@ -617,7 +617,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		lease: Option<String>,
-		tokens: tg::Tokens,
+		tokens: tg::authorization::Tokens,
 		remote: &crate::location::Remote,
 	) -> tg::Result<
 		Option<(

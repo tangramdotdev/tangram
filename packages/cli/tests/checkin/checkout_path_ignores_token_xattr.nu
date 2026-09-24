@@ -24,7 +24,7 @@ let body = $token | split row '.' | get 1 | decode base64 | decode utf-8 | from 
 assert equal $body.resource $id
 assert equal $body.permissions [object_subtree]
 let token = $token | url encode --all
-let output = tg --token $bob.token get --bytes $'($id)?tokens[local][authorization][0]=($token)' | complete
+let output = tg --token $bob.token get --bytes $'($id)?tokens[local][0]=($token)' | complete
 success $output 'the token from the xattr should authorize the object read'
 
 # Checkin should authorize the same path using the token in its xattr.

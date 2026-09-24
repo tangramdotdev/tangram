@@ -46,13 +46,13 @@ for authority in [remote local] {
 		tg --url $runner.url --token $runner_root checkpoint unwatch runner.process.state.inserted $watch
 		let spawned = job recv --tag $spawn --timeout 30sec
 		let process = $spawned.process
-		let capability = $spawned.tokens.local.authorization.0 | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+		let capability = $spawned.tokens.local.0 | split row '.' | get 1 | decode base64 | decode utf-8 | from json
 		assert equal $capability.resource $process
 		assert equal $capability.permissions [process_parent]
 		let response = http get --unix-socket $socket --headers { Authorization: $'Bearer ($runner_root)' } $'http://localhost/processes/($process)?location=remote'
-		let node = $response.tokens.local.authorization.0
-		let tokens = { local: { authorization: [$node] } }
-		let query = $'location=remote&tokens[local][authorization][0]=($node | url encode --all)'
+		let node = $response.tokens.local.0
+		let tokens = { local: [$node] }
+		let query = $'location=remote&tokens[local][0]=($node | url encode --all)'
 		let reference = $'($process)?($query)'
 
 		# Node authority alone must not permit signaling or accessing pipes.
@@ -83,7 +83,7 @@ for authority in [remote local] {
 		}
 		if $protocol == standalone {
 			let query = if $authority == remote {
-				$'($query)&tokens[remote][authorization][0]=($tokens.remote.authorization.0 | url encode --all)'
+				$'($query)&tokens[remote][0]=($tokens.remote.0 | url encode --all)'
 			} else { $query }
 			let reference = $'($process)?($query)'
 			let ready = timeout 10s tg --url $runner.url --token $reader.token process stdio read $reference --stream stdout --length 6 --no-timeout | complete

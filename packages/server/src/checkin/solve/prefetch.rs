@@ -33,14 +33,14 @@ type TagTasks = tangram_futures::task::Map<
 pub(super) struct ObjectOptions {
 	children: Option<Arc<BTreeMap<tg::object::Id, tg::object::get::Child>>>,
 	location: Option<tg::location::Arg>,
-	tokens: tg::Tokens,
+	tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct ObjectKey {
 	id: tg::object::Id,
 	location: Option<tg::location::Arg>,
-	tokens: tg::Tokens,
+	tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone)]
@@ -80,7 +80,10 @@ impl ObjectOptions {
 	}
 
 	#[must_use]
-	pub fn with_location_and_tokens(location: Option<tg::Location>, tokens: tg::Tokens) -> Self {
+	pub fn with_location_and_tokens(
+		location: Option<tg::Location>,
+		tokens: tg::authorization::Tokens,
+	) -> Self {
 		let location = location.map(Into::into);
 		Self {
 			children: None,
@@ -115,7 +118,7 @@ impl ObjectOptions {
 		}
 	}
 
-	fn tokens_for_object(&self, id: &tg::object::Id) -> tg::Tokens {
+	fn tokens_for_object(&self, id: &tg::object::Id) -> tg::authorization::Tokens {
 		let Some(child) = self.children.as_ref().and_then(|children| children.get(id)) else {
 			return self.tokens.clone();
 		};

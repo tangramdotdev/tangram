@@ -290,7 +290,7 @@ impl Session {
 		id: &tg::process::Id,
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 		control: tg::sync::control::GetProcessServerResponseOutput,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens.clone());
@@ -618,7 +618,7 @@ impl Session {
 			id: id.clone(),
 			location: Some(location),
 			metadata,
-			tokens: tg::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		}
 	}
 
@@ -628,7 +628,7 @@ impl Session {
 		regions: &[String],
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = regions
 			.iter()
@@ -659,7 +659,7 @@ impl Session {
 		region: &str,
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -695,7 +695,7 @@ impl Session {
 		remotes: &[crate::location::Remote],
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = remotes
 			.iter()
@@ -736,7 +736,7 @@ impl Session {
 		id: &tg::process::Id,
 		data: &tg::process::Data,
 		location: Option<&tg::Location>,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) {
 		let mut session = self.clone();
 		session.context.stopper = None;
@@ -765,7 +765,7 @@ impl Session {
 		id: &tg::process::Id,
 		mut data: tg::process::Data,
 		location: Option<tg::location::Arg>,
-		tokens: tg::Tokens,
+		tokens: tg::authorization::Tokens,
 	) -> tg::Result<()> {
 		let children = if let Some(children) = data.children.take() {
 			children
@@ -805,7 +805,7 @@ impl Session {
 		remote: &crate::location::Remote,
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)
@@ -979,7 +979,7 @@ impl Server {
 					id: id.clone(),
 					location: process.location.or_else(|| Some(location.clone())),
 					metadata,
-					tokens: tg::Tokens::default(),
+					tokens: tg::authorization::Tokens::default(),
 				})
 			})
 			.collect();

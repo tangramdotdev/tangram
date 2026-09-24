@@ -9,4 +9,4 @@ let path = artifact {
 }
 
 let output = tg build $path
-snapshot --normalize-ids $output 'tg.template(["cat ",fil_010000000000000000000000000000000000000000000000000000?tokens[local][authorization][0]=<token>&tokens[local][authorization][1]=<token>," end"])'
+snapshot --normalize-ids $output 'tg.template(["cat ",fil_010000000000000000000000000000000000000000000000000000?tokens[local][0]=<token>&tokens[local][1]=<token>," end"])'

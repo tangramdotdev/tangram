@@ -267,11 +267,12 @@ fn inheritance_normalizes_object_referents() {
 		resource,
 	};
 	let direct = tg::authorization::Token::sign(body, &key).unwrap();
-	command.executable.options.tokens = tg::Tokens::with_authorization([direct.clone()]);
+	command.executable.options.tokens =
+		tg::authorization::Tokens::with_authorization([direct.clone()]);
 	let mut inherited = direct.clone();
 	inherited.body.resource = tg::directory::Id::new(b"parent").into();
 	let options = tg::referent::Options {
-		tokens: tg::Tokens::with_authorization([inherited.clone()]),
+		tokens: tg::authorization::Tokens::with_authorization([inherited.clone()]),
 		..Default::default()
 	};
 	command.inherit_location_and_tokens(&options);
@@ -311,7 +312,7 @@ fn command() -> Command {
 	}
 }
 
-fn tokens() -> tg::Tokens {
+fn tokens() -> tg::authorization::Tokens {
 	let key =
 		tg::authorization::PrivateKey::generate("default", tg::authorization::Algorithm::Ed25519)
 			.unwrap();
@@ -326,7 +327,7 @@ fn tokens() -> tg::Tokens {
 		&key,
 	)
 	.unwrap();
-	let mut tokens = tg::Tokens::default();
+	let mut tokens = tg::authorization::Tokens::default();
 	tokens.insert_authorization(tg::Location::Local(tg::location::Local::default()), token);
 	tokens
 }

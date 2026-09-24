@@ -39,11 +39,9 @@ snapshot ($json | to json --indent 2) '
 	                "options": {
 	                  "path": "tangram.ts",
 	                  "tokens": {
-	                    "local": {
-	                      "authorization": [
-	                        "<token>"
-	                      ]
-	                    }
+	                    "local": [
+	                      "<token>"
+	                    ]
 	                  }
 	                }
 	              }
@@ -72,11 +70,9 @@ snapshot ($json | to json --indent 2) '
 	                        "options": {
 	                          "path": "tangram.ts",
 	                          "tokens": {
-	                            "local": {
-	                              "authorization": [
-	                                "<token>"
-	                              ]
-	                            }
+	                            "local": [
+	                              "<token>"
+	                            ]
 	                          }
 	                        }
 	                      }

@@ -105,7 +105,7 @@ impl Session {
 
 	pub(crate) fn update_tokens_and_location(
 		&self,
-		tokens: &mut tg::Tokens,
+		tokens: &mut tg::authorization::Tokens,
 		output_location: Option<&mut Option<tg::Location>>,
 		location: &tg::Location,
 		trusted: bool,

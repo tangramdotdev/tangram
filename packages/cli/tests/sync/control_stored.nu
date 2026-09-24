@@ -52,10 +52,10 @@ for kind in [object process] {
 		$output | job send --tag $job_id 0
 	}
 	timeout 10s tg --url $url --token $root_token checkpoint wait $checkpoint $watch 0 | ignore
-	wait_until { (open --raw $push_log) =~ 'tokens\[remote\]\[authorization\][^\r\n]*\r?\n' } 'the push should log the complete referent with the sync token'
-	let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]\[authorization\]' } | first | str trim
-	let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][authorization][0]' | first | get value
-	let query = { 'tokens[local][authorization][0]': $sync } | url build-query
+	wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log the complete referent with the sync token'
+	let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
+	let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
+	let query = { 'tokens[local][0]': $sync } | url build-query
 	let endpoint = if $kind == object { 'objects' } else { 'processes' }
 	let uri = $'http://localhost/($endpoint)/($node)?($query)'
 

@@ -52,9 +52,13 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
 	pub timeout: Option<Duration>,
 
-	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
-	#[tangram_serialize(default, id = 6, skip_serializing_if = "tg::Tokens::is_empty")]
-	pub tokens: tg::Tokens,
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 6,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(

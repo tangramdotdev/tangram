@@ -513,7 +513,7 @@ impl Session {
 					outputs[position] = Some(authorization.permissions);
 					continue;
 				}
-				let tokens = tg::Tokens::with_local_entry(authorization.tokens);
+				let tokens = tg::authorization::Tokens::with_local_entry(authorization.tokens);
 				let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
 				args.push((resource, requested));
 				positions.push(position);

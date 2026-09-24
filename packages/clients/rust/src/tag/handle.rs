@@ -9,7 +9,7 @@ pub struct Tag {
 	pub parent: Option<tg::Id>,
 	pub permissions: Vec<tg::authorization::Permission>,
 	pub specifier: tg::Specifier,
-	pub tokens: tg::Tokens,
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug)]

@@ -243,7 +243,7 @@ impl Cli {
 	pub(crate) fn print_location_and_tokens(
 		&self,
 		location: Option<&tg::Location>,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<()> {
 		if let Some(location) = location {
 			let location = serde_json::to_string(location)

@@ -78,7 +78,7 @@ export namespace Stdio {
 			size?: number | null;
 			streams: Array<tg.Process.Stdio.Stream>;
 			timeout?: number | null;
-			tokens?: tg.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 
 		export type ClientMessage =
@@ -137,7 +137,7 @@ export namespace Stdio {
 		export type Arg = {
 			data: Data;
 			location?: tg.Location.Arg | null;
-			tokens?: tg.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 		export type ClientMessage =
 			| { kind: "ack"; value: { id: number } }
@@ -170,7 +170,7 @@ export namespace Stdio {
 			export type Arg = {
 				location?: tg.Location.Arg | null;
 				streams: Array<tg.Process.Stdio.Stream>;
-				tokens?: tg.Tokens | null;
+				tokens?: tg.Authorization.Tokens | null;
 			};
 		}
 	}
@@ -589,7 +589,7 @@ async function* writeChunks(
 export let task = async (
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
-	tokens: tg.Tokens,
+	tokens: tg.Authorization.Tokens,
 	stdin: "pipe" | "tty" | null,
 	stdout: "pipe" | "tty" | null,
 	stderr: "pipe" | "tty" | null,
@@ -675,7 +675,7 @@ async function cleanup(
 async function stdinTask(
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
-	tokens: tg.Tokens,
+	tokens: tg.Authorization.Tokens,
 	stdin: "pipe" | "tty",
 	stopper: tg.Host.Stopper,
 	client: Pick<
@@ -742,7 +742,7 @@ async function stdinTask(
 async function stdoutStderrTask(
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
-	tokens: tg.Tokens,
+	tokens: tg.Authorization.Tokens,
 	stdout: "pipe" | "tty" | null,
 	stderr: "pipe" | "tty" | null,
 	client: Pick<
@@ -777,7 +777,7 @@ async function stdoutStderrTask(
 async function sigwinchTask(
 	id: tg.Process.Id,
 	location: tg.Location.Arg | null,
-	tokens: tg.Tokens,
+	tokens: tg.Authorization.Tokens,
 	signalListener: tg.Host.SignalListener,
 	client: Pick<
 		typeof tg.client,

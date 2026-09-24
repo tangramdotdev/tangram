@@ -30,7 +30,7 @@ pub(super) struct DatabaseNode {
 	pub id: tg::Id,
 	pub selector: tg::Selector<tg::Id>,
 	pub send: bool,
-	pub tokens: tg::tokens::Entry,
+	pub tokens: tg::authorization::tokens::Entry,
 }
 
 pub(super) struct ObjectNode {
@@ -55,7 +55,7 @@ pub(super) struct SandboxNode {
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
 	pub send: bool,
-	pub tokens: tg::tokens::Entry,
+	pub tokens: tg::authorization::tokens::Entry,
 }
 
 pub(super) struct SyncPutQueueArg {
@@ -90,7 +90,12 @@ impl Queue {
 		}
 	}
 
-	pub fn enqueue(&self, eager: bool, id: tg::Id, tokens: tg::tokens::Entry) -> tg::Result<()> {
+	pub fn enqueue(
+		&self,
+		eager: bool,
+		id: tg::Id,
+		tokens: tg::authorization::tokens::Entry,
+	) -> tg::Result<()> {
 		self.enqueue_with_descendants(true, eager, id, tokens)
 	}
 
@@ -99,7 +104,7 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		tokens: tg::tokens::Entry,
+		tokens: tg::authorization::tokens::Entry,
 	) -> tg::Result<()> {
 		let mut graph = self.graph.lock().unwrap();
 		graph.insert_remote_root(id.clone());
@@ -111,7 +116,7 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		tokens: tg::tokens::Entry,
+		tokens: tg::authorization::tokens::Entry,
 	) -> tg::Result<()> {
 		let mut graph = self.graph.lock().unwrap();
 		self.enqueue_with_descendants_with_graph(&mut graph, descendants, eager, id, tokens)
@@ -160,7 +165,7 @@ impl Queue {
 			eager: request.eager,
 			id,
 			local_tokens: request.tokens,
-			remote_tokens: tg::tokens::Entry::default(),
+			remote_tokens: tg::authorization::tokens::Entry::default(),
 			selector,
 		};
 		self.enqueue_database_with_graph(&mut graph, node)
@@ -200,7 +205,7 @@ impl Queue {
 		descendants: bool,
 		eager: bool,
 		id: tg::Id,
-		tokens: tg::tokens::Entry,
+		tokens: tg::authorization::tokens::Entry,
 	) -> tg::Result<()> {
 		match id.kind() {
 			tg::id::Kind::Group
@@ -213,7 +218,7 @@ impl Queue {
 					eager,
 					id,
 					local_tokens: tokens,
-					remote_tokens: tg::tokens::Entry::default(),
+					remote_tokens: tg::authorization::tokens::Entry::default(),
 					selector,
 				};
 				self.enqueue_database_with_graph(graph, node)?;
@@ -225,7 +230,7 @@ impl Queue {
 					id: id.try_into()?,
 					local_tokens: tokens,
 					parent: None,
-					remote_tokens: tg::tokens::Entry::default(),
+					remote_tokens: tg::authorization::tokens::Entry::default(),
 				};
 				self.enqueue_process_with_graph(graph, node)?;
 			},
@@ -235,7 +240,7 @@ impl Queue {
 					eager,
 					id: id.try_into()?,
 					local_tokens: tokens,
-					remote_tokens: tg::tokens::Entry::default(),
+					remote_tokens: tg::authorization::tokens::Entry::default(),
 				};
 				self.enqueue_sandbox_with_graph(graph, node)?;
 			},
@@ -249,7 +254,7 @@ impl Queue {
 					kind: None,
 					local_tokens: tokens,
 					parent: None,
-					remote_tokens: tg::tokens::Entry::default(),
+					remote_tokens: tg::authorization::tokens::Entry::default(),
 				};
 				self.enqueue_object_with_graph(graph, node)?;
 			},
@@ -545,7 +550,7 @@ impl Session {
 
 			let id = node.id.clone();
 			drop(graph);
-			let tokens = tg::Tokens::with_local_entry(authorization.tokens);
+			let tokens = tg::authorization::Tokens::with_local_entry(authorization.tokens);
 			let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
 			authorization_args.push((resource, requested));
 			authorization_ids.push(id);
@@ -736,7 +741,7 @@ impl Session {
 
 			let id = node.id.clone();
 			drop(graph);
-			let tokens = tg::Tokens::with_local_entry(authorization.tokens);
+			let tokens = tg::authorization::Tokens::with_local_entry(authorization.tokens);
 			let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
 			authorization_args.push((resource, requested));
 			authorization_ids.push(id);

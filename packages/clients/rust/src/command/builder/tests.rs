@@ -69,7 +69,7 @@ fn input_tokens_are_not_pooled() {
 	assert_eq!(second.state().tokens(), second_tokens);
 }
 
-fn tokens(resource: tg::Id, location: &tg::Location) -> tg::Tokens {
+fn tokens(resource: tg::Id, location: &tg::Location) -> tg::authorization::Tokens {
 	let token = tg::authorization::Token {
 		body: tg::authorization::Body {
 			expires_at: i64::MAX,
@@ -84,7 +84,7 @@ fn tokens(resource: tg::Id, location: &tg::Location) -> tg::Tokens {
 		},
 		signature: Vec::new(),
 	};
-	let mut tokens = tg::Tokens::default();
+	let mut tokens = tg::authorization::Tokens::default();
 	tokens.insert_authorization(location.clone(), token);
 
 	tokens

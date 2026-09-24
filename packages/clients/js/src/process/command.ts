@@ -67,7 +67,11 @@ let inheritReferent = <T>(
 				  typeof referent.node.artifact === "string"
 				? referent.node.artifact
 				: undefined;
-	tg.Tokens.inherit(referent.options.tokens, options.tokens ?? {}, resource);
+	tg.Authorization.Tokens.inherit(
+		referent.options.tokens,
+		options.tokens ?? {},
+		resource,
+	);
 	return tg.Referent.toData(referent, (node) => node);
 };
 
@@ -76,7 +80,7 @@ let inheritString = (data: string, options: tg.Referent.Options): string => {
 	referent.options ??= {};
 	referent.options.location ??= options.location ?? null;
 	referent.options.tokens ??= {};
-	tg.Tokens.inherit(
+	tg.Authorization.Tokens.inherit(
 		referent.options.tokens,
 		options.tokens ?? {},
 		referent.node,

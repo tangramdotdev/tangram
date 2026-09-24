@@ -103,7 +103,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		regions: &[String],
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let mut futures = regions
 			.iter()
@@ -132,7 +132,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		region: &str,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -157,7 +157,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		remotes: &[crate::location::Remote],
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let mut futures = remotes
 			.iter()
@@ -186,7 +186,7 @@ impl Session {
 		&self,
 		id: &tg::object::Id,
 		remote: &crate::location::Remote,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),

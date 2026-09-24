@@ -68,9 +68,13 @@ pub struct Options {
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub tag: Option<tg::Specifier>,
 
-	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "tg::Tokens::is_empty")]
-	pub tokens: tg::Tokens,
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 5,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl<T> Referent<T> {
@@ -90,11 +94,11 @@ impl<T> Referent<T> {
 		node: T,
 		tokens: impl IntoIterator<Item = tg::authorization::Token>,
 	) -> Self {
-		Self::with_node_and_tokens(node, tg::Tokens::with_authorization(tokens))
+		Self::with_node_and_tokens(node, tg::authorization::Tokens::with_authorization(tokens))
 	}
 
 	#[must_use]
-	pub fn with_node_and_tokens(node: T, tokens: tg::Tokens) -> Self {
+	pub fn with_node_and_tokens(node: T, tokens: tg::authorization::Tokens) -> Self {
 		let options = Options {
 			tokens,
 			..Default::default()
@@ -139,7 +143,7 @@ impl<T> Referent<T> {
 		self.options.tokens.local_authorization()
 	}
 
-	pub fn tokens(&self) -> &tg::Tokens {
+	pub fn tokens(&self) -> &tg::authorization::Tokens {
 		&self.options.tokens
 	}
 
@@ -245,7 +249,7 @@ impl Options {
 			name: None,
 			path: Some(path.into()),
 			tag: None,
-			tokens: tg::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		}
 	}
 
@@ -366,7 +370,7 @@ mod tests {
 			name: "default".into(),
 			region: None,
 		});
-		let mut tokens = tg::Tokens::default();
+		let mut tokens = tg::authorization::Tokens::default();
 		tokens.insert_local_authorization(token.clone());
 		tokens.insert_authorization(remote.clone(), token.clone());
 		let sync = tg::authorization::Token {

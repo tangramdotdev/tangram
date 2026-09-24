@@ -50,14 +50,14 @@ timeout 30s tg --token $root_token checkpoint wait process.control.finish $finis
 let result = job recv --tag $wait_job --timeout 10sec
 let result = $result | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
 assert equal $result.exit 0
-assert (not ($result.output.value | str contains 'authorization')) "a node reader must not receive an output capability"
+assert (not ($result.output.value | str contains 'tokens[')) "a node reader must not receive an output capability"
 failure (tg --token $reader.token cat $result.output.value | complete) "a node reader must not read the output"
 
 # An output reader can receive the output capability and read the result before completion is indexed.
 tg --token $owner.token grant $reader.user.id process_node_output $process | ignore
 let result = timeout 10s tg --token $reader.token wait $process | from json
 assert equal $result.exit 0
-assert ($result.output.value | str contains 'authorization') "an output reader should retain the output capability"
+assert ($result.output.value | str contains 'tokens[') "an output reader should retain the output capability"
 let output = tg --token $reader.token cat $result.output.value | complete
 success $output "an output reader must read the result"
 assert equal $output.stdout 'output'

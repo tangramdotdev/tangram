@@ -7,17 +7,17 @@ export class Sandbox {
 	#location: tg.Location.Arg | null;
 	#owned: boolean;
 	#state: tg.Sandbox.Get.Output | null;
-	#tokens: tg.Tokens;
+	#tokens: tg.Authorization.Tokens;
 
 	constructor(arg: tg.Sandbox.ConstructorArg) {
 		this.#id = arg.id;
 		this.#location = arg.location ?? null;
 		this.#owned = arg.owned ?? false;
 		this.#state = arg.state ?? null;
-		this.#tokens = tg.Tokens.clone(arg.tokens);
-		tg.Tokens.normalize(this.#tokens);
+		this.#tokens = tg.Authorization.Tokens.clone(arg.tokens);
+		tg.Authorization.Tokens.normalize(this.#tokens);
 		if (this.#state !== null) {
-			tg.Tokens.inherit(this.#tokens, this.#state.tokens ?? {});
+			tg.Authorization.Tokens.inherit(this.#tokens, this.#state.tokens ?? {});
 		}
 	}
 
@@ -56,10 +56,10 @@ export class Sandbox {
 		if (
 			output.tokens !== undefined &&
 			output.tokens !== null &&
-			!tg.Tokens.isEmpty(output.tokens)
+			!tg.Authorization.Tokens.isEmpty(output.tokens)
 		) {
-			let tokens = tg.Tokens.clone(output.tokens);
-			tg.Tokens.inherit(tokens, this.#tokens);
+			let tokens = tg.Authorization.Tokens.clone(output.tokens);
+			tg.Authorization.Tokens.inherit(tokens, this.#tokens);
 			this.#tokens = tokens;
 		}
 		this.#location =
@@ -119,8 +119,8 @@ export class Sandbox {
 		return this.#state;
 	}
 
-	get tokens(): tg.Tokens {
-		return tg.Tokens.clone(this.#tokens);
+	get tokens(): tg.Authorization.Tokens {
+		return tg.Authorization.Tokens.clone(this.#tokens);
 	}
 
 	run<A extends tg.UnresolvedArgs<Array<tg.Value>>, O extends tg.ReturnValue>(
@@ -190,7 +190,7 @@ export namespace Sandbox {
 		export type Output = {
 			data: tg.Sandbox.Data;
 			location?: tg.Location | null;
-			tokens?: tg.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 	}
 
@@ -400,7 +400,7 @@ export namespace Sandbox {
 		location?: tg.Location.Arg | null;
 		owned?: boolean;
 		state?: tg.Sandbox.Get.Output | null;
-		tokens?: tg.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 
 	export namespace Create {
@@ -409,7 +409,7 @@ export namespace Sandbox {
 		export type Output = {
 			data: tg.Sandbox.Data;
 			location?: tg.Location | null;
-			tokens?: tg.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 	}
 

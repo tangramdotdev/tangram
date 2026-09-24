@@ -276,7 +276,7 @@ fn sandbox_data(
 			usage,
 		},
 		location: None,
-		tokens: tg::Tokens::default(),
+		tokens: tg::authorization::Tokens::default(),
 	}
 }
 

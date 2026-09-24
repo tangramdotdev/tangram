@@ -149,8 +149,12 @@ pub struct GetNodeMessage {
 	#[tangram_serialize(id = 0)]
 	pub selector: tg::Selector<tg::Id>,
 
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "tg::Tokens::is_empty")]
-	pub tokens: tg::Tokens,
+	#[tangram_serialize(
+		default,
+		id = 2,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

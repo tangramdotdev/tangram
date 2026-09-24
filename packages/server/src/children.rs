@@ -77,7 +77,7 @@ impl Session {
 					.create_tag_target_token_with_permissions(&target, output.data.permissions)?;
 				let options = tg::referent::Options {
 					location: Some(location),
-					tokens: tg::Tokens::with_authorization(token),
+					tokens: tg::authorization::Tokens::with_authorization(token),
 					..Default::default()
 				};
 				vec![tg::Referent::new(target, options)]

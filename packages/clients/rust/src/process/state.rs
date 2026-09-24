@@ -54,7 +54,7 @@ impl State {
 		}
 	}
 
-	pub(crate) fn inherit_tokens(&mut self, tokens: &tg::Tokens) {
+	pub(crate) fn inherit_tokens(&mut self, tokens: &tg::authorization::Tokens) {
 		let resource = match &self.command.node {
 			tg::Either::Left(_) => None,
 			tg::Either::Right(id) => Some(id.clone().into()),

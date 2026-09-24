@@ -197,7 +197,10 @@ export namespace Value {
 		}
 	};
 
-	export let inheritTokens = (value: tg.Value, tokens: tg.Tokens): void => {
+	export let inheritTokens = (
+		value: tg.Value,
+		tokens: tg.Authorization.Tokens,
+	): void => {
 		for (let object of tg.Value.objects(value)) {
 			tg.Object.inheritTokens(object, tokens);
 		}

@@ -11,7 +11,7 @@ let path = artifact {
 tg --token $alice.token build $path | ignore
 let output = tg --token $alice.token build $path | str trim
 let uri = $'http://localhost/($output)' | url parse
-let tokens = $uri.params | where key starts-with 'tokens[local][authorization]'
+let tokens = $uri.params | where key starts-with 'tokens[local]'
 assert equal ($tokens | length) 1
 let body = $tokens.0.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
 assert equal $body.resource ($uri.path | str substring 1..)
@@ -33,5 +33,5 @@ let printed = tg --token $alice.token build $wrapper | from json
 assert ($printed | str starts-with $'(char --integer 27)[94mfil_')
 assert ($printed | str contains $'(char --integer 27)[0m(char --integer 27)[38;5;244m?')
 let reference = $printed | ansi strip
-let tokens = $'http://localhost/($reference)' | url parse | get params | where key starts-with 'tokens[local][authorization]'
+let tokens = $'http://localhost/($reference)' | url parse | get params | where key starts-with 'tokens[local]'
 assert equal ($tokens | length) 1

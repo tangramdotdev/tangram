@@ -161,7 +161,7 @@ impl Session {
 					.lock()
 					.unwrap()
 					.get_node_local_tokens(&id.clone().into());
-				let tokens = tg::Tokens::with_local_entry(entry);
+				let tokens = tg::authorization::Tokens::with_local_entry(entry);
 				let tg::authorization::permission::Set::Process(permissions) =
 					Self::sync_get_process_permissions(&state.arg)
 				else {

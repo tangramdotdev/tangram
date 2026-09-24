@@ -51,12 +51,12 @@ export namespace Module {
 			node: value.referent.node,
 			options: {
 				...value.referent.options,
-				tokens: tg.Tokens.clone(value.referent.options?.tokens),
+				tokens: tg.Authorization.Tokens.clone(value.referent.options?.tokens),
 			},
 		};
 		for (let child of children(value)) {
 			let options = tg.Object.toReferent(child).options;
-			tg.Tokens.inherit(
+			tg.Authorization.Tokens.inherit(
 				referent.options.tokens,
 				options?.tokens ?? {},
 				child.id,
@@ -139,9 +139,9 @@ export namespace Module {
 		for (let [location, entry] of Object.entries(
 			value.referent.options?.tokens ?? {},
 		)) {
-			for (let [index, token] of (entry.authorization ?? []).entries()) {
+			for (let [index, token] of entry.entries()) {
 				params.push(
-					`tokens[${encodeURIComponent(location)}][authorization][${index}]=${encodeURIComponent(token)}`,
+					`tokens[${encodeURIComponent(location)}][${index}]=${encodeURIComponent(token)}`,
 				);
 			}
 		}
@@ -203,18 +203,15 @@ export namespace Module {
 						break;
 					}
 					default: {
-						let match = key?.match(
-							/^tokens\[(.*)\]\[(authorization)\](?:\[(\d+)\])?$/,
-						);
+						let match = key?.match(/^tokens\[(.*?)\]\[(\d+)\]$/);
 						if (match === null || match === undefined) {
 							throw new Error("invalid key");
 						}
 						options.tokens ??= {};
 						let location = decodeURIComponent(match[1]!);
-						let entry = (options.tokens[location] ??= {});
-						let tokens = (entry.authorization ??= []);
-						let index = Number(match[3]);
-						if (match[3] === undefined || index !== tokens.length) {
+						let tokens = (options.tokens[location] ??= []);
+						let index = Number(match[2]);
+						if (match[2] === undefined || index !== tokens.length) {
 							throw new Error("invalid token index");
 						}
 						tokens.push(decodeURIComponent(value));

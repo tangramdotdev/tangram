@@ -14,7 +14,7 @@ pub struct Node {
 	pub eager: bool,
 	pub id: tg::Id,
 	pub send: bool,
-	pub tokens: tg::tokens::Entry,
+	pub tokens: tg::authorization::tokens::Entry,
 }
 
 struct Output {
@@ -39,7 +39,7 @@ impl Session {
 		// Authorize the node.
 		let permission = Self::sync_put_database_read_permission(&node.id)?;
 		let resource = tg::Selector::Id(node.id.clone());
-		let tokens = tg::Tokens::with_local_entry(node.tokens.clone());
+		let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
 		let resource = tg::Referent::with_node_and_tokens(resource, tokens);
 		let authorized = self
 			.authorize(resource, permission)

@@ -199,7 +199,7 @@ impl Session {
 				node.options.tokens = if destination.is_remote() {
 					tokens.for_location(&destination)
 				} else {
-					let mut relay = tg::Tokens::with_local(tokens.local().cloned());
+					let mut relay = tg::authorization::Tokens::with_local(tokens.local().cloned());
 					if let Some(source) = &source
 						&& let Some(entry) = tokens.get(source)
 					{

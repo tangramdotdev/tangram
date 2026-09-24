@@ -35,7 +35,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		location: Option<&tg::location::Arg>,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 		required: tg::authorization::permission::process::Set,
 	) -> tg::Result<Option<Control>> {
 		let Some(control) = self.try_get_process_control_runner_inner(id, location) else {
@@ -85,7 +85,7 @@ impl Session {
 	pub(crate) async fn authorize_process_runner(
 		&self,
 		id: &tg::process::Id,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 		permissions: tg::authorization::permission::process::Set,
 	) -> tg::Result<Option<tg::authorization::permission::Set>> {
 		let resource = tg::Referent::with_node_and_local_tokens(

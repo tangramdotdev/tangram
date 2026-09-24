@@ -411,7 +411,7 @@ impl Session {
 		let (control_sender, control_receiver) = crate::sandbox::control::local::Local::new();
 		let entry = crate::sandbox::State {
 			allocation: Some(allocation),
-			authorization_tokens: tg::Tokens::default(),
+			authorization_tokens: tg::authorization::Tokens::default(),
 			changed: tokio::sync::watch::channel(()).0,
 			control_sender,
 			data: control_data,

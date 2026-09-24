@@ -28,10 +28,10 @@ let push = job spawn {
 }
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | ignore
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.subscribe $subscribe_watch 0 | ignore
-wait_until { open --raw $push_log | str contains 'tokens[remote][authorization][0]' } 'the push should log the referent with the sync token'
-let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]\[authorization\]' } | first | str trim
-let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][authorization][0]' | first | get value
-let query = { 'tokens[local][authorization][0]': $sync } | url build-query
+wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should log the referent with the sync token'
+let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
+let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
+let query = { 'tokens[local][0]': $sync } | url build-query
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let read = job spawn {
 	let job_id = job id

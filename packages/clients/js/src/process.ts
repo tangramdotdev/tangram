@@ -41,7 +41,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	#stdioPromise: Promise<void> | null;
 	#stopper: tg.Host.Stopper | null;
 	#stdout: tg.Process.Stdio.Reader;
-	#tokens: tg.Tokens;
+	#tokens: tg.Authorization.Tokens;
 	#wait: tg.Process.Wait | null;
 
 	static async connect<O extends tg.Value = tg.Value>(
@@ -294,8 +294,8 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#stdout = arg.stdout;
 		this.#stderr = arg.stderr;
 		this.#stopper = arg.stopper ?? null;
-		this.#tokens = tg.Tokens.clone(arg.tokens);
-		tg.Tokens.normalize(this.#tokens);
+		this.#tokens = tg.Authorization.Tokens.clone(arg.tokens);
+		tg.Authorization.Tokens.normalize(this.#tokens);
 		this.#wait = arg.wait ?? null;
 		this.#owned =
 			this.#wait === null &&
@@ -344,10 +344,10 @@ export class Process<O extends tg.Value = tg.Value> {
 		if (
 			output.tokens !== undefined &&
 			output.tokens !== null &&
-			!tg.Tokens.isEmpty(output.tokens)
+			!tg.Authorization.Tokens.isEmpty(output.tokens)
 		) {
-			let tokens = tg.Tokens.clone(output.tokens);
-			tg.Tokens.inherit(tokens, this.#tokens);
+			let tokens = tg.Authorization.Tokens.clone(output.tokens);
+			tg.Authorization.Tokens.inherit(tokens, this.#tokens);
 			this.#tokens = tokens;
 		}
 		this.#location =
@@ -387,13 +387,13 @@ export class Process<O extends tg.Value = tg.Value> {
 		return this.#location ?? null;
 	}
 
-	get tokens(): tg.Tokens {
-		return tg.Tokens.clone(this.#tokens);
+	get tokens(): tg.Authorization.Tokens {
+		return tg.Authorization.Tokens.clone(this.#tokens);
 	}
 
-	set tokens(tokens: tg.Tokens) {
-		this.#tokens = tg.Tokens.clone(tokens);
-		tg.Tokens.normalize(this.#tokens);
+	set tokens(tokens: tg.Authorization.Tokens) {
+		this.#tokens = tg.Authorization.Tokens.clone(tokens);
+		tg.Authorization.Tokens.normalize(this.#tokens);
 	}
 
 	inheritLocation(location: tg.Location.Arg | null): void {
@@ -402,8 +402,8 @@ export class Process<O extends tg.Value = tg.Value> {
 		}
 	}
 
-	inheritTokens(tokens: tg.Tokens): void {
-		tg.Tokens.inherit(this.#tokens, tokens);
+	inheritTokens(tokens: tg.Authorization.Tokens): void {
+		tg.Authorization.Tokens.inherit(this.#tokens, tokens);
 	}
 
 	/** Get this process's command. */
@@ -415,7 +415,7 @@ export class Process<O extends tg.Value = tg.Value> {
 				...referent.options,
 				tokens: { ...referent.options?.tokens },
 			};
-			tg.Tokens.inherit(options.tokens, this.#tokens);
+			tg.Authorization.Tokens.inherit(options.tokens, this.#tokens);
 			if (typeof referent.node === "string") {
 				return tg.Command.withReferent({ node: referent.node, options });
 			}
@@ -867,7 +867,7 @@ export namespace Process {
 			export type Arg = {
 				location?: tg.Location.Arg | null;
 				size: tg.Process.Tty.Size;
-				tokens?: tg.Tokens | null;
+				tokens?: tg.Authorization.Tokens | null;
 			};
 		}
 	}
@@ -1241,7 +1241,7 @@ export namespace Process {
 		stdioPromise?: Promise<void> | null;
 		stopper?: tg.Host.Stopper | null;
 		stdout: tg.Process.Stdio.Reader;
-		tokens?: tg.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 		wait?: tg.Process.Wait | null;
 	};
 
@@ -1463,10 +1463,13 @@ export namespace Process {
 			}
 		};
 
-		export let inheritTokens = (state: State, tokens: tg.Tokens): void => {
+		export let inheritTokens = (
+			state: State,
+			tokens: tg.Authorization.Tokens,
+		): void => {
 			state.command.options ??= {};
 			state.command.options.tokens ??= {};
-			tg.Tokens.inherit(
+			tg.Authorization.Tokens.inherit(
 				state.command.options.tokens,
 				tokens,
 				typeof state.command.node === "string" ? state.command.node : undefined,
@@ -1745,7 +1748,7 @@ export namespace Process {
 		export type Arg = {
 			lease?: string | null;
 			location?: tg.Location.Arg | null;
-			tokens?: tg.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 
 		export type Data = {
@@ -1789,7 +1792,7 @@ export namespace Process {
 
 		export let inheritTokens = (
 			wait: tg.Process.Wait,
-			tokens: tg.Tokens,
+			tokens: tg.Authorization.Tokens,
 		): void => {
 			if (wait.error !== null) {
 				tg.Object.inheritTokens(wait.error, tokens);

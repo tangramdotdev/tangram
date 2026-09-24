@@ -29,7 +29,7 @@ pub struct Sandboxes {
 
 pub struct State {
 	pub allocation: Option<Arc<tokio::sync::Mutex<Option<crate::runner::capacity::Allocation>>>>,
-	pub authorization_tokens: tg::Tokens,
+	pub authorization_tokens: tg::authorization::Tokens,
 	pub changed: tokio::sync::watch::Sender<()>,
 	pub(crate) control_sender: control::local::Local,
 	pub data: tg::sandbox::control::Data,

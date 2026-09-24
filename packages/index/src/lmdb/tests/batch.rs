@@ -88,7 +88,7 @@ fn sandbox_arg(id: tg::sandbox::Id, status: tg::sandbox::Status) -> crate::sandb
 			usage: None,
 		},
 		location: None,
-		tokens: tg::Tokens::default(),
+		tokens: tg::authorization::Tokens::default(),
 	};
 	crate::sandbox::put::Arg {
 		account: None,

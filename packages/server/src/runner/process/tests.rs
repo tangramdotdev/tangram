@@ -73,7 +73,7 @@ fn input(bytes: &[u8]) -> tg::command::data::Value {
 		&key,
 	)
 	.unwrap();
-	let mut tokens = tg::Tokens::default();
+	let mut tokens = tg::authorization::Tokens::default();
 	tokens.insert_authorization(tg::Location::Local(tg::location::Local::default()), token);
 	let id = tg::file::Id::new(bytes).into();
 	let referent = tg::Referent::with_node_and_tokens(id, tokens);

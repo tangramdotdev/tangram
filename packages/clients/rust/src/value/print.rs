@@ -602,7 +602,7 @@ where
 		let tokens = if self.options.tokens {
 			state.tokens()
 		} else {
-			tg::Tokens::default()
+			tg::authorization::Tokens::default()
 		};
 		let referent = tg::Referent::with_node_and_tokens(state.id(), tokens);
 		let string = referent.to_string();

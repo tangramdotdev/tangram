@@ -29,9 +29,13 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
-	#[tangram_serialize(default, id = 2, skip_serializing_if = "tg::Tokens::is_empty")]
-	pub tokens: tg::Tokens,
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 2,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug)]
@@ -253,7 +257,7 @@ impl Wait {
 		}
 	}
 
-	pub(crate) fn inherit_tokens(&self, tokens: &tg::Tokens) {
+	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
 		if let Some(error) = &self.error {
 			error.state().inherit_tokens(tokens);
 		}

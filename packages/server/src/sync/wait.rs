@@ -11,7 +11,7 @@ use {
 impl Session {
 	pub(crate) async fn try_get_with_sync_wait<T, F, Fut>(
 		&self,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 		arg: tg::sync::control::ClientRequestArg,
 		mut f: F,
 	) -> tg::Result<Option<T>>
@@ -26,7 +26,7 @@ impl Session {
 
 	pub(crate) async fn try_get_with_sync_wait_until<T, F, Fut>(
 		&self,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 		arg: tg::sync::control::ClientRequestArg,
 		deadline: tokio::time::Instant,
 		mut f: F,

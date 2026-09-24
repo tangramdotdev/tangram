@@ -25,8 +25,8 @@ assert not ($logs | is-empty) "the pull should publish its sync token"
 for log in $logs {
 	let referent = $log.message
 	let params = $'http://localhost/($referent)' | url parse | get params
-	assert ($params | any {|param| $param.key == 'tokens[local][authorization][0]' }) "the referent should identify the sync"
-	for param in ($params | where {|param| $param.key =~ 'authorization' }) {
+	assert ($params | any {|param| $param.key == 'tokens[local][0]' }) "the referent should identify the sync"
+	for param in ($params | where {|param| $param.key =~ '^tokens\[' }) {
 		let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
 		assert ($body.resource | str starts-with 'syn_') "starting a sync must not grant access directly to an object"
 		assert equal $body.permissions [sync_read]

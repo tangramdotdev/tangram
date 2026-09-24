@@ -51,7 +51,7 @@ impl Session {
 	pub(crate) async fn try_get_group_local(
 		&self,
 		id: &tg::group::Id,
-		tokens: tg::Tokens,
+		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::group::get::Output>> {
 		let permission = tg::authorization::Permission::Group(
 			tg::authorization::permission::group::Permission::Read,
@@ -94,7 +94,7 @@ impl Session {
 		id: &tg::group::Id,
 		mut arg: tg::group::get::Arg,
 		remote: tg::location::Remote,
-		tokens: tg::Tokens,
+		tokens: tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::group::get::Output>> {
 		let cached = arg.cached;
 		let cacheable = arg.tokens.is_empty();

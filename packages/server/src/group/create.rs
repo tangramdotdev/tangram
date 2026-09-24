@@ -201,7 +201,7 @@ impl Session {
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
 				let data = group.ok_or_else(|| tg::error!("failed to find the group"))?;
-				let mut tokens = tg::Tokens::default();
+				let mut tokens = tg::authorization::Tokens::default();
 				if let Some(token) = self.create_read_token(&id.clone().into())? {
 					tokens.insert_local_authorization(token);
 				}
@@ -238,7 +238,7 @@ impl Session {
 			ControlFlow::Break(group) => group,
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
-		let mut tokens = tg::Tokens::default();
+		let mut tokens = tg::authorization::Tokens::default();
 		if let Some(token) = self.create_read_token(&group.id.clone().into())? {
 			tokens.insert_local_authorization(token);
 		}

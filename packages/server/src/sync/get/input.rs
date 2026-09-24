@@ -305,13 +305,13 @@ impl Session {
 					tg::Selector::Id(id) => match id.kind() {
 						tg::id::Kind::Process => {
 							let id = id.try_into()?;
-							let tokens = tg::tokens::Entry {
+							let tokens = tg::authorization::tokens::Entry {
 								authorization: message.tokens,
 							};
 							state.graph.lock().unwrap().update_process_tokens(
 								&id,
 								&tokens,
-								&tg::tokens::Entry::default(),
+								&tg::authorization::tokens::Entry::default(),
 							);
 							if pending.missing(&id.clone().into())? {
 								continue;
@@ -323,13 +323,13 @@ impl Session {
 						},
 						kind if kind.is_object() => {
 							let id = id.try_into()?;
-							let tokens = tg::tokens::Entry {
+							let tokens = tg::authorization::tokens::Entry {
 								authorization: message.tokens,
 							};
 							state.graph.lock().unwrap().update_object_tokens(
 								&id,
 								&tokens,
-								&tg::tokens::Entry::default(),
+								&tg::authorization::tokens::Entry::default(),
 							);
 							if pending.missing(&id.clone().into())? {
 								continue;
@@ -481,7 +481,7 @@ impl Session {
 				descendants: false,
 				eager: state.arg.eager,
 				selector,
-				tokens: tg::Tokens::default(),
+				tokens: tg::authorization::Tokens::default(),
 			});
 			state
 				.sender

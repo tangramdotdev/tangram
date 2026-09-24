@@ -17,7 +17,7 @@ let path = artifact {
 			const pointer = await source.object();
 			tg.assert("index" in pointer && pointer.graph);
 			const graph = pointer.graph;
-			const tokens = source.state.tokens.local?.authorization ?? [];
+			const tokens = source.state.tokens.local ?? [];
 			tg.assert(tokens.some((token) => {
 				const body = JSON.parse(tg.encoding.utf8.decode(tg.encoding.base64.decode(token.split(".")[1]!)));
 				return body.resource === graph.id && body.permissions.includes("object_subtree");

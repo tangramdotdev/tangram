@@ -457,7 +457,7 @@ impl Session {
 				usage: None,
 			},
 			location: Some(location.clone()),
-			tokens: tg::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		let arg = tangram_index::sandbox::put::Arg {
 			account,

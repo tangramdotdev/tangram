@@ -34,9 +34,9 @@ pub struct Tokens {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+#[serde(transparent)]
+#[tangram_serialize(transparent)]
 pub struct Entry {
-	#[serde(default, skip_serializing_if = "Vec::is_empty")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Vec::is_empty")]
 	pub authorization: Vec<tg::authorization::Token>,
 }
 
@@ -453,7 +453,7 @@ mod tests {
 		expected.sort_by_cached_key(ToString::to_string);
 		assert_eq!(tokens.local_authorization(), &expected);
 		let json = serde_json::to_value(&tokens).unwrap();
-		assert_eq!(json["local"]["authorization"].as_array().unwrap().len(), 4);
+		assert_eq!(json["local"].as_array().unwrap().len(), 4);
 		assert_eq!(serde_json::from_value::<Tokens>(json).unwrap(), tokens);
 		let bytes = tangram_serialize::to_vec(&tokens).unwrap();
 		assert_eq!(

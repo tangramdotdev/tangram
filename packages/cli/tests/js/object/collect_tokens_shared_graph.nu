@@ -11,25 +11,25 @@ let path = artifact {
 				for (let i = 0; i < count; i++) {
 					root = tg.Directory.withObject({ entries: { a: root, b: root } });
 					const token = `0.${encode({ expires_at: 120, permissions: ["object_node"], resource: root.id })}.${encode({ algorithm: "ed25519", key: "test" })}.`;
-					root.state.tokens = { local: { authorization: [token, `sync-${i}`] } };
+					root.state.tokens = { local: [token, `sync-${i}`] };
 				}
 				const children = tg.Object.Object.children;
-				const normalize = tg.Tokens.normalize;
+				const normalize = tg.Authorization.Tokens.normalize;
 				let visits = 0;
 				let normalizations = 0;
 				let tokenInputs = 0;
 				tg.Object.Object.children = (object) => { visits++; return children(object); };
-				tg.Tokens.normalize = (tokens, resource) => {
+				tg.Authorization.Tokens.normalize = (tokens, resource) => {
 					normalizations++;
-					for (const entry of Object.values(tokens)) tokenInputs += (entry.authorization?.length ?? 0);
+					for (const entry of Object.values(tokens)) tokenInputs += (entry.length);
 					return normalize(tokens, resource);
 				};
 				try {
 					const tokens = root.state.collectTokens();
-					tg.assert(tokens.local.authorization.length === count * 2);
+					tg.assert(tokens.local.length === count * 2);
 				} finally {
 					tg.Object.Object.children = children;
-					tg.Tokens.normalize = normalize;
+					tg.Authorization.Tokens.normalize = normalize;
 				}
 				return { normalizations, tokenInputs, visits };
 			}

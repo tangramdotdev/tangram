@@ -26,7 +26,7 @@ tg --url $remote.url --token $root_token index
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let unrelated_token = (
 	http get --headers { Accept: 'application/json', Authorization: $'Bearer ($bob.token)' } --unix-socket $socket $'http://localhost/objects/($unrelated)'
-	| get tokens.local.authorization.0
+	| get tokens.local.0
 )
 
 # Alice has the directory and its file. Bob has the directory but not the file.
@@ -54,16 +54,16 @@ let push = job spawn {
 }
 let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $watch 0 | complete
 success $output "alice's push should reach the blob"
-wait_until { open --raw $push_log | str contains 'tokens[remote][authorization][0]' } 'the push should log the referent with the sync token'
-let push_lines = open --raw $push_log | lines | where {|line| $line =~ "authorization" }
+wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should log the referent with the sync token'
+let push_lines = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[' }
 let referent = $push_lines | first | str trim
 
 # Obtain authorization separately from the sync and put the unrelated proof first.
 let root_proof = (
 	http get --headers { Accept: 'application/json', Authorization: $'Bearer ($root_token)' } --unix-socket $socket $'http://localhost/objects/($directory)'
-	| get tokens.local.authorization.0
+	| get tokens.local.0
 )
-let referent = $'($referent)&tokens[remote][authorization][0]=($unrelated_token | url encode --all)&tokens[remote][authorization][1]=($root_proof | url encode --all)'
+let referent = $'($referent)&tokens[remote][0]=($unrelated_token | url encode --all)&tokens[remote][1]=($root_proof | url encode --all)'
 
 # Bob pulls the referent. The pull requests the file and waits for the blob.
 let pull = job spawn {

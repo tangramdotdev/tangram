@@ -233,9 +233,13 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 4)]
 	pub reads: std::collections::BTreeMap<u64, tg::process::stdio::read::Arg>,
 
-	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "tg::Tokens::is_empty")]
-	pub tokens: tg::Tokens,
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 5,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(
@@ -264,7 +268,7 @@ pub struct Options {
 	pub lease: Option<String>,
 	pub location: Option<tg::location::Arg>,
 	pub reads: Vec<tg::process::stdio::read::Options>,
-	pub tokens: tg::Tokens,
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(
@@ -350,7 +354,7 @@ impl<O: 'static> tg::Process<O> {
 					size: options.size,
 					streams: options.streams,
 					timeout: options.timeout,
-					tokens: tg::Tokens::default(),
+					tokens: tg::authorization::Tokens::default(),
 				};
 				(index as u64 + 1, arg)
 			})

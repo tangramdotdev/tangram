@@ -54,7 +54,7 @@ struct State<'a> {
 	requests: BTreeSet<u64>,
 	responses: BTreeSet<u64>,
 	streams: Streams,
-	tokens: tg::Tokens,
+	tokens: tg::authorization::Tokens,
 	writer: Option<Writer>,
 	writes: BTreeSet<u64>,
 }
@@ -939,7 +939,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::connect::ClientRequestArg,
 		location: Option<tg::location::Arg>,
-		tokens: tg::Tokens,
+		tokens: tg::authorization::Tokens,
 	) -> tg::Result<tg::process::connect::ServerResponseOutput> {
 		let output = match arg {
 			tg::process::connect::ClientRequestArg::Cancel(mut arg) => {

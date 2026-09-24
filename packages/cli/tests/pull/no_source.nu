@@ -26,8 +26,8 @@ let push = job spawn {
 	$output | job send --tag $job_id 0
 }
 timeout 10s tg --url $destination.url --token $root_token checkpoint wait sync.get.store.object $file_watch 0 | ignore
-wait_until { (open --raw $push_log) =~ 'tokens\[remote\]\[authorization\][^\r\n]*\r?\n' } 'the push should log its sync token'
-let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]\[authorization\]' } | first | str trim
+wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log its sync token'
+let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
 let referent = $referent | str replace --all 'tokens[remote]' 'tokens[local]'
 let socket = $destination.url | str replace 'http+unix://' '' | url decode
 let pull = job spawn {

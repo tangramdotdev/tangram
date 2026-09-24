@@ -51,7 +51,7 @@ success $output "the build should reach its output push"
 # The process finishes before its push, and its wait names the output with the sync token.
 let output = timeout 30s tg --url $alice_local.url wait $process | from json
 let file = $output.output.value
-assert ($file =~ "authorization") "the output referent should carry the sync token"
+assert ($file =~ 'tokens\[') "the output referent should carry the sync token"
 
 # Alice grants Bob the process's output, and Bob pulls the conferred referent while the push is held.
 tg --url $remote.url --token $alice.token grant $bob.user.id process_node_output $process

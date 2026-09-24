@@ -32,7 +32,7 @@ let directory = tg --token $alice.token put 'tg.directory({
 })' | str trim
 tg --token $alice.token index
 let first = http get --headers { Accept: 'application/json', Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($directory)'
-let proof = $first.tokens.local.authorization.0
+let proof = $first.tokens.local.0
 let expiration = (token-body $proof).expires_at
 
 # Canonicalize physical parents, then use the root proof to resolve and authorize the artifact.
@@ -63,7 +63,7 @@ for case in [
 		let body = token-body $token
 		assert equal $body.permissions [object_subtree]
 		assert equal $body.expires_at $expiration
-		let reference = $'($body.resource)?tokens[local][authorization][0]=($token | url encode --all)'
+		let reference = $'($body.resource)?tokens[local][0]=($token | url encode --all)'
 		success (tg --token $bob.token object get --bytes $reference | complete)
 	}
 	if $resolved != '' {
@@ -98,7 +98,7 @@ for case in [
 
 # A token for a child cannot authorize its parent, and invalid signatures grant nothing.
 let child = http get --headers { Accept: 'application/json', Authorization: $'Bearer ($root_token)' } --unix-socket $socket $'http://localhost/objects/($resolved)'
-let wrong = $child.tokens.local.authorization.0
+let wrong = $child.tokens.local.0
 xattr_write user.tangram.token $wrong $root
 failure (tg --token $bob.token checkin $root | complete)
 let parts = $proof | split row '.'

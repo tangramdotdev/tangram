@@ -16,11 +16,9 @@
                   "location": "local",
                   "path": "tangram.ts",
                   "tokens": {
-                    "local": {
-                      "authorization": [
+                    "local": [
                         "<token>"
                       ]
-                    }
                   }
                 }
               }
@@ -46,11 +44,9 @@
                     "location": "local",
                     "path": "tangram.ts",
                     "tokens": {
-                      "local": {
-                        "authorization": [
+                      "local": [
                           "<token>"
                         ]
-                      }
                     }
                   }
                 }

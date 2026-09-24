@@ -254,7 +254,7 @@ impl Session {
 				let stored = if output.is_none() {
 					crate::checkpoint!(self.server, "sync.get.index.object.wait", id = %node.id)
 						.await;
-					let tokens = tg::Tokens::with_local_entry(entry.clone());
+					let tokens = tg::authorization::Tokens::with_local_entry(entry.clone());
 					let request = tg::sync::control::ClientRequestArg::object(
 						node.id.clone(),
 						tg::authorization::permission::object::Set::NODE,

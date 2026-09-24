@@ -21,7 +21,7 @@ impl Session {
 				pattern: pattern.clone(),
 				reverse: false,
 				tags: true,
-				tokens: tg::Tokens::default(),
+				tokens: tg::authorization::Tokens::default(),
 				ttl: tg::remote::cache::Ttl::default(),
 				users: false,
 			})

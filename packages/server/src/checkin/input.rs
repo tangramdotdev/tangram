@@ -598,11 +598,11 @@ impl Session {
 		tg::file::xattrs::read_dependencies_for_checkin(path)
 	}
 
-	pub(super) fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::Tokens> {
+	pub(super) fn checkin_read_file_tokens(path: &Path) -> tg::Result<tg::authorization::Tokens> {
 		let Some(token) = tg::file::xattrs::read_token(path)? else {
-			return Ok(tg::Tokens::default());
+			return Ok(tg::authorization::Tokens::default());
 		};
-		let tokens = tg::Tokens::with_authorization(Some(token));
+		let tokens = tg::authorization::Tokens::with_authorization(Some(token));
 
 		Ok(tokens)
 	}

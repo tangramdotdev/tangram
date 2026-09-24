@@ -14,35 +14,35 @@ let path = artifact {
 			for (const authorization of [[direct, inherited], [inherited, direct]]) {
 				const object = tg.Directory.withId(id);
 				for (const token of authorization) {
-					object.state.inheritTokens({ local: { authorization: [token] } });
+					object.state.inheritTokens({ local: [token] });
 				}
-				tg.assert(JSON.stringify(object.state.tokens.local.authorization) === JSON.stringify([direct]));
-				object.state.tokens = { local: { authorization } };
-				tg.assert(JSON.stringify(object.state.tokens.local.authorization) === JSON.stringify([direct]));
+				tg.assert(JSON.stringify(object.state.tokens.local) === JSON.stringify([direct]));
+				object.state.tokens = { local: authorization };
+				tg.assert(JSON.stringify(object.state.tokens.local) === JSON.stringify([direct]));
 			}
 			const commandId = "cmd_010000000000000000000000000000000000000000000000000000";
 			const commandToken = proof(commandId, 20);
-			const state = { command: { node: commandId, options: { tokens: { local: { authorization: [commandToken] } } } }, error: null, log: null } as tg.Process.State;
-			tg.Process.State.inheritTokens(state, { local: { authorization: [inherited] } });
-			tg.assert(JSON.stringify(state.command.options.tokens.local.authorization) === JSON.stringify([commandToken]));
+			const state = { command: { node: commandId, options: { tokens: { local: [commandToken] } } }, error: null, log: null } as tg.Process.State;
+			tg.Process.State.inheritTokens(state, { local: [inherited] });
+			tg.assert(JSON.stringify(state.command.options.tokens.local) === JSON.stringify([commandToken]));
 			const getObject = tg.client.getObject;
 			try {
-				tg.client.getObject = async () => ({ data: { kind: "directory", value: { entries: {} } }, tokens: { local: { authorization: [direct] } } });
+				tg.client.getObject = async () => ({ data: { kind: "directory", value: { entries: {} } }, tokens: { local: [direct] } });
 				const object = tg.Directory.withId(id);
-				object.state.tokens = { local: { authorization: [inherited] } };
+				object.state.tokens = { local: [inherited] };
 				await object.state.load();
-				tg.assert(JSON.stringify(object.state.tokens.local.authorization) === JSON.stringify([direct]));
-				object.state.tokens = { local: { authorization: [inherited] } };
-				const normalize = tg.Tokens.normalize;
+				tg.assert(JSON.stringify(object.state.tokens.local) === JSON.stringify([direct]));
+				object.state.tokens = { local: [inherited] };
+				const normalize = tg.Authorization.Tokens.normalize;
 				let normalizations = 0;
-				tg.Tokens.normalize = (...args) => { normalizations++; return normalize(...args); };
+				tg.Authorization.Tokens.normalize = (...args) => { normalizations++; return normalize(...args); };
 				try {
-					object.state.finishStore({ node: id, options: { tokens: { local: { authorization: [direct] } } } });
+					object.state.finishStore({ node: id, options: { tokens: { local: [direct] } } });
 				} finally {
-					tg.Tokens.normalize = normalize;
+					tg.Authorization.Tokens.normalize = normalize;
 				}
 				tg.assert(normalizations === 1);
-				tg.assert(JSON.stringify(object.state.tokens.local.authorization) === JSON.stringify([direct]));
+				tg.assert(JSON.stringify(object.state.tokens.local) === JSON.stringify([direct]));
 			} finally {
 				tg.client.getObject = getObject;
 			}
@@ -50,20 +50,20 @@ let path = artifact {
 			const child = tg.Directory.withId(other);
 			const parent = tg.Directory.withObject({ entries: { child } });
 			const parentToken = proof(parent.id, 120);
-			parent.state.tokens = { local: { authorization: [parentToken] } };
+			parent.state.tokens = { local: [parentToken] };
 			for (const expiration of [60, 120, 121, 179, 180, 181, 240]) {
 				const childToken = proof(child.id, expiration);
-				child.state.tokens = { local: { authorization: [childToken, sync] }, remote: { authorization: [childToken] } };
+				child.state.tokens = { local: [childToken, sync], remote: [childToken] };
 				const tokens = tg.Object.toReferent(parent).options.tokens;
-				tg.assert(tokens.local.authorization.includes(parentToken));
-				tg.assert(!tokens.local.authorization.includes(childToken));
-				tg.assert(tokens.remote.authorization[0] === childToken);
-				tg.assert(child.state.tokens.local.authorization.includes(childToken));
-				tg.assert(tokens.local.authorization.includes(sync));
+				tg.assert(tokens.local.includes(parentToken));
+				tg.assert(!tokens.local.includes(childToken));
+				tg.assert(tokens.remote[0] === childToken);
+				tg.assert(child.state.tokens.local.includes(childToken));
+				tg.assert(tokens.local.includes(sync));
 			}
 			child.state.object = { kind: "directory", value: { entries: { parent } } };
 			const cyclic = tg.Object.toReferent(parent).options.tokens;
-			tg.assert(cyclic.local.authorization.length === 2);
+			tg.assert(cyclic.local.length === 2);
 			child.state.object = null;
 			return true;
 		}

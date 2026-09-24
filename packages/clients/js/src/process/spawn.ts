@@ -88,7 +88,7 @@ let spawnArgFromResolvedWithSandbox = async (
 		}
 		if (command_ !== undefined) {
 			options.tokens ??= {};
-			tg.Tokens.inherit(options.tokens, command_.state.tokens);
+			tg.Authorization.Tokens.inherit(options.tokens, command_.state.tokens);
 		}
 	}
 	if (arg.name !== undefined) {
@@ -749,7 +749,7 @@ async function checkoutArtifacts(
 		let referent = tg.Object.toReferent(object);
 		referent.options ??= {};
 		referent.options.tokens ??= {};
-		tg.Tokens.inherit(
+		tg.Authorization.Tokens.inherit(
 			referent.options.tokens,
 			options.tokens ?? {},
 			referent.node,
@@ -767,7 +767,7 @@ async function checkoutArtifacts(
 		} else {
 			existing.options ??= {};
 			existing.options.tokens ??= {};
-			tg.Tokens.inherit(
+			tg.Authorization.Tokens.inherit(
 				existing.options.tokens,
 				referent.options.tokens,
 				existing.node,

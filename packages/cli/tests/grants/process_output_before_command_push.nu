@@ -64,7 +64,11 @@ if $output == null {
 }
 success $output "the build must return its output before the command push completes"
 let file = $output.stdout | str trim
-assert ($file | str contains '[sync]') "the output must carry a sync token"
+let params = $'http://localhost/($file)' | url parse | get params
+assert ($params | where {|param| $param.key starts-with 'tokens[' } | any {|param|
+	let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+	$body.resource | str starts-with 'syn_'
+}) "the output must carry a sync token"
 
 # Release the command push.
 tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 0

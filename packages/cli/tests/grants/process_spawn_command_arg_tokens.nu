@@ -64,8 +64,8 @@ for mode in [none stdin executable both] {
 	assert equal $response.status 200 'the spawn request must be accepted'
 	assert (not ($response.body | str contains 'event: error')) 'the spawn must return a process'
 	let output = $response.body | lines | where { $in starts-with 'data: ' } | last | str substring 6.. | from json
-	let token = $output.tokens.local.authorization.0
-	let reference = $'($output.process)?tokens[local][authorization][0]=($token | url encode --all)'
+	let token = $output.tokens.local.0
+	let reference = $'($output.process)?tokens[local][0]=($token | url encode --all)'
 	let outcome = tg --token $bob.token wait $reference | from json
 	if $mode == both {
 		assert equal $outcome.exit 0 'the authorized process must read its private stdin and finish successfully'

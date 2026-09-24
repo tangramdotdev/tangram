@@ -765,7 +765,7 @@ impl Inner {
 		}
 		let arg = tg::object::get::Arg {
 			location,
-			tokens: tg::Tokens::with_authorization(tokens),
+			tokens: tg::authorization::Tokens::with_authorization(tokens),
 			..Default::default()
 		};
 		let Ok(Some(output)) = session.try_get_object(&id, arg).await else {
@@ -848,7 +848,7 @@ impl Inner {
 				position: Some(SeekFrom::Start(position)),
 				size: None,
 			},
-			tokens: tg::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		let stream = self
 			.client

@@ -356,7 +356,7 @@ def read_object(id, token, collection="objects"):
     sock.settimeout(10)
     sock.connect(socket_path)
     tokens = token if isinstance(token, list) else [token]
-    query = urllib.parse.urlencode({f"tokens[local][authorization][{index}]": token for index, token in enumerate(tokens)})
+    query = urllib.parse.urlencode({f"tokens[local][{index}]": token for index, token in enumerate(tokens)})
     sock.sendall(f"GET /{collection}/{id}?{query} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n".encode())
     response = http.client.HTTPResponse(sock)
     response.begin()
@@ -503,7 +503,7 @@ def test_pending_source(messenger):
     # A local hit must not send pending or start alternate-sync requests.
     alternate, peer, subscribe = fake_peer(messenger)
     token = urllib.parse.quote(alternate.token, safe="")
-    sync = Sync({"put": f"{id}?tokens[local][authorization][0]={token}"})
+    sync = Sync({"put": f"{id}?tokens[local][0]={token}"})
     assert sync.put_message().id == 0
     messenger.absent(lambda path, message:
         path.startswith(peer.subject + ".") and path.endswith(".server") and message.id == 1)
@@ -517,7 +517,7 @@ def test_pending_cancel(messenger):
     text = "the original source wins"
     id = source_blob(text)
     token = urllib.parse.quote(alternate.token, safe="")
-    sync = Sync({"get": f"{id}?tokens[local][authorization][0]={token}"})
+    sync = Sync({"get": f"{id}?tokens[local][0]={token}"})
     sync.requested(id)
     sync.pending(id)
     peer.heartbeat(peer.request(True), "pending")
@@ -737,7 +737,7 @@ def test_shared_heartbeat(messenger):
     sequential_ids = [source_blob(value) for value in ("first", "second")]
     sync, peer, subscribe = fake_peer(messenger, [parent] + sequential_ids)
     token = urllib.parse.quote(sync.token, safe="")
-    outgoing = Sync({"eager": True, "put": f"{parent}?tokens[local][authorization][0]={token}"})
+    outgoing = Sync({"eager": True, "put": f"{parent}?tokens[local][0]={token}"})
     clients, requests = set(), {}
     deadline = time.monotonic() + 15
     while len(requests) < len(ids):
@@ -765,7 +765,7 @@ def test_shared_heartbeat(messenger):
 
     # Keep a second transfer open while its individual callers finish, then issue another request.
     ids = sequential_ids
-    incoming = Sync({"get": ",".join(f"{id}?tokens[local][authorization][0]={token}" for id in ids)})
+    incoming = Sync({"get": ",".join(f"{id}?tokens[local][0]={token}" for id in ids)})
     client = None
     for id, value in zip(ids, ("first", "second")):
         incoming.requested(id)
@@ -837,7 +837,7 @@ def test_client_cancel(messenger):
     peers = [Peer(messenger, sync.token) for sync in syncs]
     id = missing_id(1)
     parent = command("put", 'tg.command({"args":[{"kind":"value","value":' + id + '}],"executable":"true","host":"builtin"})')
-    query = "&".join(f"tokens[local][authorization][{index}]={urllib.parse.quote(sync.token, safe='')}" for index, sync in enumerate(syncs))
+    query = "&".join(f"tokens[local][{index}]={urllib.parse.quote(sync.token, safe='')}" for index, sync in enumerate(syncs))
     outgoing = Sync({"eager": True, "put": f"{parent}?{query}"})
     requests = []
     for index, peer in enumerate(peers):

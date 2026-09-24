@@ -21,7 +21,7 @@ struct Inner {
 	#[debug(ignore)]
 	store: Option<StoreTask>,
 	stored: bool,
-	tokens: tg::Tokens,
+	tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone)]
@@ -49,7 +49,7 @@ impl State {
 			object,
 			store: None,
 			stored,
-			tokens: tg::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		})))
 	}
 
@@ -62,7 +62,7 @@ impl State {
 			object: None,
 			store: None,
 			stored: true,
-			tokens: tg::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		})))
 	}
 
@@ -75,7 +75,7 @@ impl State {
 			object: Some(object.into()),
 			store: None,
 			stored: false,
-			tokens: tg::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		})))
 	}
 
@@ -234,13 +234,13 @@ impl State {
 		}
 	}
 
-	pub fn set_tokens(&self, mut tokens: tg::Tokens) {
+	pub fn set_tokens(&self, mut tokens: tg::authorization::Tokens) {
 		let id = self.id().into();
 		tokens.normalize(Some(&id));
 		self.0.write().unwrap().tokens = tokens;
 	}
 
-	pub fn inherit_tokens(&self, tokens: &tg::Tokens) {
+	pub fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
 		let id = self.id().into();
 		let mut inner = self.0.write().unwrap();
 		inner.tokens.inherit_with_resource(tokens, Some(&id));
@@ -251,12 +251,12 @@ impl State {
 	}
 
 	#[must_use]
-	pub fn tokens(&self) -> tg::Tokens {
+	pub fn tokens(&self) -> tg::authorization::Tokens {
 		self.0.read().unwrap().tokens.clone()
 	}
 
 	#[must_use]
-	pub fn collect_tokens(&self) -> tg::Tokens {
+	pub fn collect_tokens(&self) -> tg::authorization::Tokens {
 		// Discover the token locations on all loaded handles.
 		let mut locations = BTreeSet::new();
 		self.visit_loaded(|state| {
@@ -265,9 +265,9 @@ impl State {
 		});
 
 		// Collect uncovered authorization proofs and sync tokens for pending transfers.
-		let mut tokens = tg::Tokens::default();
+		let mut tokens = tg::authorization::Tokens::default();
 		for location in locations {
-			let mut entry = tg::tokens::Entry::default();
+			let mut entry = tg::authorization::tokens::Entry::default();
 			let mut visited = BTreeSet::new();
 			let mut stack = vec![(self.clone(), false)];
 			while let Some((state, covered)) = stack.pop() {

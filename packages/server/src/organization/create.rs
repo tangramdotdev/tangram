@@ -247,7 +247,9 @@ impl Session {
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			}
 		}
-		let tokens = tg::Tokens::with_authorization(self.create_read_token(&id.clone().into())?);
+		let tokens = tg::authorization::Tokens::with_authorization(
+			self.create_read_token(&id.clone().into())?,
+		);
 		let data = tg::organization::Data {
 			id,
 			name,

@@ -43,8 +43,8 @@ struct JsonOutput {
 	data: tg::object::Data,
 	#[serde(skip_serializing_if = "Option::is_none")]
 	metadata: Option<tg::object::Metadata>,
-	#[serde(skip_serializing_if = "tg::Tokens::is_empty")]
-	tokens: tg::Tokens,
+	#[serde(skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -53,7 +53,7 @@ pub(crate) struct TaskKey {
 	pub id: tg::object::Id,
 	pub location: tg::Location,
 	pub metadata: bool,
-	pub tokens: tg::Tokens,
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl Session {
@@ -338,7 +338,7 @@ impl Session {
 		data.children(&mut children);
 		for id in children {
 			if let Some(token) = self.create_token(id.clone().into(), vec![subtree], expires_at)? {
-				let tokens = tg::Tokens::with_authorization(Some(token));
+				let tokens = tg::authorization::Tokens::with_authorization(Some(token));
 				let child = tg::object::get::Child { tokens };
 				output.children.insert(id, child);
 			}
@@ -397,7 +397,7 @@ impl Session {
 		regions: &[String],
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let mut futures = regions
 			.iter()
@@ -430,7 +430,7 @@ impl Session {
 		region: &str,
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
@@ -453,7 +453,7 @@ impl Session {
 		remotes: &[crate::location::Remote],
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let mut futures = remotes
 			.iter()
@@ -487,7 +487,7 @@ impl Session {
 		remote: &crate::location::Remote,
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let location = tg::Location::Remote(tg::location::Remote {
 			name: remote.name.clone(),
@@ -516,7 +516,7 @@ impl Session {
 		location: tg::Location,
 		metadata: bool,
 		availability: bool,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::object::get::Output>> {
 		let key = TaskKey {
 			availability,
@@ -761,7 +761,7 @@ impl Server {
 			bytes,
 			children: BTreeMap::new(),
 			metadata,
-			tokens: tg::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 
 		Ok(Some(output))
@@ -801,7 +801,7 @@ impl Server {
 			bytes,
 			children: BTreeMap::new(),
 			metadata: None,
-			tokens: tg::Tokens::default(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		Ok(Some(output))
 	}
@@ -838,7 +838,7 @@ impl Server {
 					bytes,
 					children: BTreeMap::new(),
 					metadata,
-					tokens: tg::Tokens::default(),
+					tokens: tg::authorization::Tokens::default(),
 				})
 			})
 			.collect();

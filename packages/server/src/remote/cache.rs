@@ -369,7 +369,10 @@ pub(crate) fn tokens_valid(
 			.is_ok_and(|now| tokens.iter().all(|token| token.body.expires_at > now))
 }
 
-pub(crate) fn remove_expired_tokens(tokens: &mut tg::Tokens, clock: &crate::clock::Clock) {
+pub(crate) fn remove_expired_tokens(
+	tokens: &mut tg::authorization::Tokens,
+	clock: &crate::clock::Clock,
+) {
 	let now = clock.unix_timestamp();
 	for token in tokens.remove_local_authorization() {
 		if now.as_ref().is_ok_and(|now| token.body.expires_at > *now) {
@@ -402,7 +405,8 @@ mod tests {
 		};
 		let expired = token(i64::MIN);
 		let valid = token(i64::MAX);
-		let mut tokens = tg::Tokens::with_authorization([expired.clone(), valid.clone()]);
+		let mut tokens =
+			tg::authorization::Tokens::with_authorization([expired.clone(), valid.clone()]);
 		let remote = tg::Location::Remote(tg::location::Remote {
 			name: "default".into(),
 			region: None,

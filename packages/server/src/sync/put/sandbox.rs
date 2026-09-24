@@ -10,7 +10,7 @@ pub struct Node {
 	pub eager: bool,
 	pub id: tg::sandbox::Id,
 	pub send: bool,
-	pub tokens: tg::tokens::Entry,
+	pub tokens: tg::authorization::tokens::Entry,
 }
 
 impl Session {
@@ -31,7 +31,7 @@ impl Session {
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Read,
 		);
-		let tokens = tg::Tokens::with_local_entry(node.tokens.clone());
+		let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
 		let resource = tg::Referent::with_node_and_tokens(node.id.clone(), tokens);
 		let authorized = self
 			.authorize(resource, permission)

@@ -9,13 +9,13 @@ let path = artifact {
 			const other = "dir_010000000000000000000000000000000000000000000000000000";
 			const encode = (value) => tg.encoding.base64.encode(tg.encoding.utf8.encode(JSON.stringify(value)));
 			const proof = (resource, expires_at, permission) => `0.${encode({ expires_at, permissions: [permission], resource })}.${encode({ algorithm: "ed25519", key: "test" })}.`;
-			const inputs = [id, other].flatMap((resource) => [120, 179, 180, 181].flatMap((expiration) => ["object_node", "object_subtree"].map((permission) => ({ local: { authorization: [proof(resource, expiration, permission)] } }))));
+			const inputs = [id, other].flatMap((resource) => [120, 179, 180, 181].flatMap((expiration) => ["object_node", "object_subtree"].map((permission) => ({ local: [proof(resource, expiration, permission)] }))));
 			const merge = (a, b, resource) => {
-				const output = tg.Tokens.clone(a);
-				tg.Tokens.inherit(output, b, resource);
+				const output = tg.Authorization.Tokens.clone(a);
+				tg.Authorization.Tokens.inherit(output, b, resource);
 				return output;
 			};
-			const equal = (a, b) => tg.assert(JSON.stringify(a.local.authorization.toSorted()) === JSON.stringify(b.local.authorization.toSorted()));
+			const equal = (a, b) => tg.assert(JSON.stringify(a.local.toSorted()) === JSON.stringify(b.local.toSorted()));
 			for (const resource of [undefined, id]) {
 				for (const a of inputs) {
 					equal(merge(a, a, resource), a);
@@ -38,16 +38,16 @@ let path = artifact {
 			}
 			const chain = [proof(processId, 120, "process_parent"), proof(processId, 179, "process_subtree"), proof(processId, 238, "process_node")];
 			for (const order of [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]) {
-				const tokens = { local: { authorization: order.map((index) => chain[index]) } };
-				tg.Tokens.normalize(tokens);
-				tg.assert(JSON.stringify(tokens.local.authorization) === JSON.stringify([chain[0]]));
+				const tokens = { local: order.map((index) => chain[index]) };
+				tg.Authorization.Tokens.normalize(tokens);
+				tg.assert(JSON.stringify(tokens.local) === JSON.stringify([chain[0]]));
 				const sequential = {};
-				for (const index of order) tg.Tokens.inherit(sequential, { local: { authorization: [chain[index]] } });
+				for (const index of order) tg.Authorization.Tokens.inherit(sequential, { local: [chain[index]] });
 				equal(sequential, tokens);
 			}
-			const earlier = { local: { authorization: [proof(id, 120, "object_subtree")] } };
-			const later = { local: { authorization: [proof(id, 121, "object_subtree")] } };
-			const expected = { local: { authorization: [earlier.local.authorization[0], later.local.authorization[0]].sort().slice(0, 1) } };
+			const earlier = { local: [proof(id, 120, "object_subtree")] };
+			const later = { local: [proof(id, 121, "object_subtree")] };
+			const expected = { local: [earlier.local[0], later.local[0]].sort().slice(0, 1) };
 			equal(merge(earlier, later, id), expected);
 			equal(merge(later, earlier, id), expected);
 			const leaf = tg.Directory.withId(other);
@@ -55,10 +55,10 @@ let path = artifact {
 			const root = tg.Directory.withObject({ entries: { middle } });
 			const rootProof = proof(root.id, 120, "object_subtree");
 			const leafProof = proof(leaf.id, 238, "object_subtree");
-			root.state.tokens = { local: { authorization: [rootProof] } };
-			middle.state.tokens = { local: { authorization: [proof(middle.id, 179, "object_subtree")] } };
-			leaf.state.tokens = { local: { authorization: [leafProof] } };
-			equal(tg.Object.toReferent(root).options.tokens, { local: { authorization: [rootProof] } });
+			root.state.tokens = { local: [rootProof] };
+			middle.state.tokens = { local: [proof(middle.id, 179, "object_subtree")] };
+			leaf.state.tokens = { local: [leafProof] };
+			equal(tg.Object.toReferent(root).options.tokens, { local: [rootProof] });
 			return true;
 		}
 	'

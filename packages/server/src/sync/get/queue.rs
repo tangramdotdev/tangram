@@ -120,8 +120,8 @@ impl Session {
 		state: &State,
 		eager: bool,
 		id: tg::Id,
-		local_tokens: tg::tokens::Entry,
-		remote_tokens: tg::tokens::Entry,
+		local_tokens: tg::authorization::tokens::Entry,
+		remote_tokens: tg::authorization::tokens::Entry,
 	) -> tg::Result<()> {
 		let requested = state.graph.lock().unwrap().update_node_local_requested(
 			&id,
@@ -136,7 +136,7 @@ impl Session {
 			descendants: true,
 			eager,
 			selector,
-			tokens: tg::Tokens::with_local_entry(remote_tokens),
+			tokens: tg::authorization::Tokens::with_local_entry(remote_tokens),
 		});
 		state
 			.sender
@@ -212,7 +212,7 @@ impl Session {
 						descendants: true,
 						eager: node.eager,
 						selector: tg::Selector::Id(node.id.clone().into()),
-						tokens: tg::Tokens::with_local_entry(node.remote_tokens),
+						tokens: tg::authorization::Tokens::with_local_entry(node.remote_tokens),
 					});
 					state
 						.sender
@@ -475,7 +475,7 @@ impl Session {
 						descendants: true,
 						eager: node.eager,
 						selector: tg::Selector::Id(node.id.clone().into()),
-						tokens: tg::Tokens::with_local_entry(node.remote_tokens),
+						tokens: tg::authorization::Tokens::with_local_entry(node.remote_tokens),
 					});
 					state
 						.sender
@@ -541,7 +541,9 @@ impl Session {
 							descendants: true,
 							eager: node.eager,
 							selector: tg::Selector::Id(node.id.clone().into()),
-							tokens: tg::Tokens::with_local_entry(node.remote_tokens.clone()),
+							tokens: tg::authorization::Tokens::with_local_entry(
+								node.remote_tokens.clone(),
+							),
 						});
 						state
 							.sender
@@ -589,8 +591,8 @@ impl Session {
 		id: &tg::object::Id,
 		data: &tg::object::Data,
 		kind: Option<crate::sync::queue::ObjectKind>,
-		local_tokens: &tg::tokens::Entry,
-		remote_tokens: &tg::tokens::Entry,
+		local_tokens: &tg::authorization::tokens::Entry,
+		remote_tokens: &tg::authorization::tokens::Entry,
 	) {
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
@@ -612,8 +614,8 @@ impl Session {
 		id: &tg::process::Id,
 		data: &tg::process::Data,
 		availability: Option<&tg::process::Availability>,
-		local_tokens: &tg::tokens::Entry,
-		remote_tokens: &tg::tokens::Entry,
+		local_tokens: &tg::authorization::tokens::Entry,
+		remote_tokens: &tg::authorization::tokens::Entry,
 	) {
 		// Enqueue the children if necessary.
 		if state.arg.process_children

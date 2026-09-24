@@ -49,7 +49,6 @@ pub use {
 		symlink::Handle as Symlink,
 		tag::Handle as Tag,
 		template::Handle as Template,
-		tokens::Tokens,
 		value::Handle as Value,
 	},
 	tangram_either::Either,
@@ -121,7 +120,6 @@ pub mod sync;
 pub mod tag;
 pub mod template;
 pub mod token;
-pub mod tokens;
 pub mod usage;
 pub mod user;
 pub mod value;

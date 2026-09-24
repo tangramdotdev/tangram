@@ -24,7 +24,7 @@ tg --token $root grant $bob.user.id object_subtree $granted | ignore
 tg --token $root index
 
 let token = http get --headers { Accept: 'application/json', Authorization: $'Bearer ($root)' } --unix-socket $socket $'http://localhost/objects/($proven)'
-	| get tokens.local.authorization.0
+	| get tokens.local.0
 let body = $token | split row '.' | get 1 | decode base64 | decode utf-8 | from json
 assert equal $body.resource $proven
 assert ('object_subtree' in $body.permissions) 'the token must prove subtree access to the command'
@@ -44,7 +44,7 @@ def spawn [socket: string, headers: record, command: record] {
 	assert ($output.process? != null) $'the spawn must be authorized: ($response)'
 }
 
-spawn $socket $headers { node: $proven, options: { tokens: { local: { authorization: [$token] } } } }
+spawn $socket $headers { node: $proven, options: { tokens: { local: [$token] } } }
 spawn $socket $headers { node: $granted, options: {} }
 
 # Stopping the server drains the asynchronous grant writes.

@@ -19,7 +19,7 @@ export namespace Reference {
 		path?: string | null;
 		source?: string | null;
 		tag?: tg.Tag | null;
-		tokens?: tg.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 
 	export let toData = <T, U>(
@@ -152,9 +152,9 @@ export namespace Reference {
 			params.push(`tag=${encodeURIComponent(value.options.tag)}`);
 		}
 		for (let [location, entry] of Object.entries(value.options?.tokens ?? {})) {
-			for (let [index, token] of (entry.authorization ?? []).entries()) {
+			for (let [index, token] of entry.entries()) {
 				params.push(
-					`tokens[${encodeURIComponent(location)}][authorization][${index}]=${encodeURIComponent(token)}`,
+					`tokens[${encodeURIComponent(location)}][${index}]=${encodeURIComponent(token)}`,
 				);
 			}
 		}
@@ -214,18 +214,15 @@ export namespace Reference {
 						break;
 					}
 					default: {
-						let match = key?.match(
-							/^tokens\[(.*)\]\[(authorization)\](?:\[(\d+)\])?$/,
-						);
+						let match = key?.match(/^tokens\[(.*?)\]\[(\d+)\]$/);
 						if (match === null || match === undefined) {
 							throw new Error("invalid key");
 						}
 						options.tokens ??= {};
 						let location = decodeURIComponent(match[1]!);
-						let entry = (options.tokens[location] ??= {});
-						let tokens = (entry.authorization ??= []);
-						let index = Number(match[3]);
-						if (match[3] === undefined || index !== tokens.length) {
+						let tokens = (options.tokens[location] ??= []);
+						let index = Number(match[2]);
+						if (match[2] === undefined || index !== tokens.length) {
 							throw new Error("invalid token index");
 						}
 						tokens.push(decodeURIComponent(value));
@@ -277,7 +274,7 @@ export namespace Reference {
 			path?: string | null;
 			source?: string | null;
 			tag?: tg.Tag | null;
-			tokens?: tg.Tokens | null;
+			tokens?: tg.Authorization.Tokens | null;
 		};
 	}
 }

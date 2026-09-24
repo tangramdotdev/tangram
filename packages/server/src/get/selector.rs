@@ -9,7 +9,7 @@ impl Session {
 		&self,
 		selector: &tg::Selector<tg::Id>,
 		location: Option<&tg::location::Arg>,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<tg::get::Output>> {
@@ -26,7 +26,7 @@ impl Session {
 		&self,
 		selector: &tg::Selector<tg::Id>,
 		location: Option<&tg::location::Arg>,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<tg::get::Output>> {
@@ -115,7 +115,7 @@ impl Session {
 		if !authorized {
 			return Ok(None);
 		}
-		let mut tokens = tg::Tokens::with_authorization(tokens.to_vec());
+		let mut tokens = tg::authorization::Tokens::with_authorization(tokens.to_vec());
 		if let Some(token) = self.create_read_token(&id)? {
 			tokens.insert_local_authorization(token);
 		}
@@ -134,7 +134,7 @@ impl Session {
 		&self,
 		selector: &tg::Selector<tg::Id>,
 		region: &str,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::get::Output>> {
 		// Create the region request.
 		let source = tg::Location::Local(tg::location::Local {
@@ -194,7 +194,7 @@ impl Session {
 		&self,
 		selector: &tg::Selector<tg::Id>,
 		remote: Remote,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
 	) -> tg::Result<Option<tg::get::Output>> {

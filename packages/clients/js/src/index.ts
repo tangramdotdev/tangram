@@ -39,7 +39,6 @@ import { Resolve, resolve, type Resolved, type Unresolved } from "./resolve.ts";
 import { Sandbox } from "./sandbox.ts";
 import { sleep } from "./sleep.ts";
 import type { Sync } from "./sync.ts";
-import { Tokens } from "./tokens.ts";
 import { Symlink, symlink } from "./symlink.ts";
 import type { Tag } from "./tag.ts";
 import { Template, template } from "./template.ts";
@@ -120,7 +119,6 @@ export {
 	Sandbox,
 	Symlink,
 	Template,
-	Tokens,
 	Uri,
 	Value,
 	archive,

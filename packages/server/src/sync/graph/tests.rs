@@ -123,7 +123,7 @@ fn lifted_sync_tokens_follow_attachment_ancestors() {
 	update_object(&mut graph, &ids[0], &ids[1..3]);
 	update_object(&mut graph, &ids[1], &ids[3..4]);
 	update_object(&mut graph, &ids[2], &ids[4..5]);
-	let entry = tg::tokens::Entry {
+	let entry = tg::authorization::tokens::Entry {
 		authorization: tokens.clone(),
 	};
 	graph.update_object_tokens(&ids[0], &entry, &entry);

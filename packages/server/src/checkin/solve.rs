@@ -74,7 +74,7 @@ struct Candidate {
 	location: Option<tg::Location>,
 	object: tg::object::Id,
 	tag: tg::Specifier,
-	tokens: tg::Tokens,
+	tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug)]

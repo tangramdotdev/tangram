@@ -246,8 +246,11 @@ impl Query {
 	}
 }
 
-fn tokens_for_remote(tokens: &tg::Tokens, remote: &str) -> tg::Tokens {
-	let mut output = tg::Tokens::default();
+fn tokens_for_remote(
+	tokens: &tg::authorization::Tokens,
+	remote: &str,
+) -> tg::authorization::Tokens {
+	let mut output = tg::authorization::Tokens::default();
 	for (location, tokens) in tokens.iter() {
 		let tg::Location::Remote(location) = location else {
 			continue;

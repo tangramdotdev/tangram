@@ -25,8 +25,8 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
 
-	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
-	pub tokens: tg::Tokens,
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug)]
@@ -35,7 +35,7 @@ pub struct Output {
 	pub bytes: Bytes,
 	pub children: BTreeMap<tg::object::Id, Child>,
 	pub metadata: Option<tg::object::Metadata>,
-	pub tokens: tg::Tokens,
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(
@@ -47,9 +47,13 @@ pub struct Output {
 	tangram_serialize::Serialize,
 )]
 pub struct Child {
-	#[serde(default, skip_serializing_if = "tg::Tokens::is_empty")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "tg::Tokens::is_empty")]
-	pub tokens: tg::Tokens,
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 0,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -68,7 +72,7 @@ struct Header {
 	#[tangram_serialize(id = 3)]
 	size: usize,
 	#[tangram_serialize(id = 4)]
-	tokens: tg::Tokens,
+	tokens: tg::authorization::Tokens,
 }
 
 impl Output {

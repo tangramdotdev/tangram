@@ -18,12 +18,12 @@ let batch_watch = tg --url $destination.url --token $root_token checkpoint watch
 let stopped_watch = tg --url $destination.url --token $root_token checkpoint watch sync.control.stopped | from json | get watch
 let referent = tg --url $source.url push $file | str trim
 let referent = $referent | str replace --all 'tokens[remote]' 'tokens[local]'
-let proof = $'http://localhost/($referent)' | url parse | get params | where {|param| $param.key =~ '\[authorization\]' } | each {|param|
+let proof = $'http://localhost/($referent)' | url parse | get params | where {|param| $param.key =~ '^tokens\[' } | each {|param|
 	let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
 	{ body: $body, token: $param.value }
 } | where {|proof| $proof.body.resource | str starts-with 'syn_' } | first
 let body = $proof.body
-let query = $'tokens[local][authorization][0]=($proof.token | url encode --all)'
+let query = $'tokens[local][0]=($proof.token | url encode --all)'
 let referent = $'($file)?($query)'
 assert ($body.resource | str starts-with 'syn_') 'the token should identify a sync'
 assert equal $body.permissions [sync_read]

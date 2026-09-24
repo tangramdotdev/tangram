@@ -342,7 +342,7 @@ impl Session {
 		id: &tg::process::Id,
 		regions: &[String],
 		timeout: Option<Duration>,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = regions
 			.iter()
@@ -372,7 +372,7 @@ impl Session {
 		id: &tg::process::Id,
 		region: &str,
 		timeout: Option<Duration>,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -402,7 +402,7 @@ impl Session {
 		id: &tg::process::Id,
 		remotes: &[crate::location::Remote],
 		timeout: Option<Duration>,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = remotes
 			.iter()
@@ -432,7 +432,7 @@ impl Session {
 		id: &tg::process::Id,
 		remote: &crate::location::Remote,
 		timeout: Option<Duration>,
-		tokens: &tg::Tokens,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)

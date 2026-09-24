@@ -369,7 +369,7 @@ export namespace Graph {
 		id?: tg.Graph.Id;
 		object?: tg.Graph.Object;
 		stored: boolean;
-		tokens?: tg.Tokens | null;
+		tokens?: tg.Authorization.Tokens | null;
 	};
 
 	export class Builder {

@@ -17,7 +17,7 @@ pub struct ObjectNode {
 	pub kind: Option<crate::sync::queue::ObjectKind>,
 	pub permissions: tg::authorization::permission::Set,
 	pub send: bool,
-	pub tokens: tg::tokens::Entry,
+	pub tokens: tg::authorization::tokens::Entry,
 }
 
 pub struct ProcessNode {
@@ -26,7 +26,7 @@ pub struct ProcessNode {
 	pub id: tg::process::Id,
 	pub permissions: tg::authorization::permission::Set,
 	pub send: bool,
-	pub tokens: tg::tokens::Entry,
+	pub tokens: tg::authorization::tokens::Entry,
 }
 
 impl Session {
@@ -92,7 +92,7 @@ impl Session {
 		let objects = nodes
 			.iter()
 			.map(|node| {
-				let tokens = tg::Tokens::with_local_entry(node.tokens.clone());
+				let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
 				tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
 			})
 			.collect::<Vec<_>>();
@@ -205,7 +205,7 @@ impl Session {
 						kind: node.kind,
 						local_tokens: node.tokens.clone(),
 						parent: Some(node.id.clone().into()),
-						remote_tokens: tg::tokens::Entry::default(),
+						remote_tokens: tg::authorization::tokens::Entry::default(),
 					});
 				state.queue.enqueue_objects(nodes)?;
 			}
@@ -350,7 +350,7 @@ impl Session {
 		let processes = nodes
 			.iter()
 			.map(|node| {
-				let tokens = tg::Tokens::with_local_entry(node.tokens.clone());
+				let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
 				tg::Referent::with_node_and_tokens(node.id.clone(), tokens)
 			})
 			.collect::<Vec<_>>();
@@ -454,7 +454,7 @@ impl Session {
 			if output.data.children.is_none() {
 				let arg = tg::process::children::get::Arg {
 					location: output.location.clone().map(Into::into),
-					tokens: tg::Tokens::with_local_entry(node.tokens.clone()),
+					tokens: tg::authorization::Tokens::with_local_entry(node.tokens.clone()),
 					..Default::default()
 				};
 				let children = self
@@ -536,7 +536,7 @@ impl Session {
 						id: child.process.node.clone(),
 						local_tokens: node.tokens.clone(),
 						parent: Some(node.id.clone()),
-						remote_tokens: tg::tokens::Entry::default(),
+						remote_tokens: tg::authorization::tokens::Entry::default(),
 					});
 				state.queue.enqueue_processes(nodes)?;
 			}
@@ -551,7 +551,7 @@ impl Session {
 						kind: Some(crate::sync::queue::ObjectKind::Command),
 						local_tokens: node.tokens.clone(),
 						parent: Some(node.id.clone().into()),
-						remote_tokens: tg::tokens::Entry::default(),
+						remote_tokens: tg::authorization::tokens::Entry::default(),
 					};
 					state.queue.enqueue_object(node)?;
 				}
@@ -577,7 +577,7 @@ impl Session {
 									kind: Some(crate::sync::queue::ObjectKind::Error),
 									local_tokens: node.tokens.clone(),
 									parent: Some(node.id.clone().into()),
-									remote_tokens: tg::tokens::Entry::default(),
+									remote_tokens: tg::authorization::tokens::Entry::default(),
 								});
 						state.queue.enqueue_objects(nodes)?;
 					},
@@ -589,7 +589,7 @@ impl Session {
 							kind: Some(crate::sync::queue::ObjectKind::Error),
 							local_tokens: node.tokens.clone(),
 							parent: Some(node.id.clone().into()),
-							remote_tokens: tg::tokens::Entry::default(),
+							remote_tokens: tg::authorization::tokens::Entry::default(),
 						};
 						state.queue.enqueue_object(node)?;
 					},
@@ -609,7 +609,7 @@ impl Session {
 					kind: Some(crate::sync::queue::ObjectKind::Log),
 					local_tokens: node.tokens.clone(),
 					parent: Some(node.id.clone().into()),
-					remote_tokens: tg::tokens::Entry::default(),
+					remote_tokens: tg::authorization::tokens::Entry::default(),
 				};
 				state.queue.enqueue_object(node)?;
 			}
@@ -631,7 +631,7 @@ impl Session {
 						kind: Some(crate::sync::queue::ObjectKind::Output),
 						local_tokens: node.tokens.clone(),
 						parent: Some(node.id.clone().into()),
-						remote_tokens: tg::tokens::Entry::default(),
+						remote_tokens: tg::authorization::tokens::Entry::default(),
 					});
 				state.queue.enqueue_objects(nodes)?;
 			}

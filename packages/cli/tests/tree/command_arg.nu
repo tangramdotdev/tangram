@@ -47,18 +47,16 @@ snapshot --normalize-ids $tree '
 	│ │         └╴options: map
 	│ │           ├╴location: "local"
 	│ │           └╴tokens: map
-	│ │             └╴local: map
-	│ │               └╴authorization: array
-	│ │                 └╴"<token>"
+	│ │             └╴local: array
+	│ │               └╴"<token>"
 	│ ├╴executable: map
 	│ │ ├╴node: map
 	│ │ │ └╴path: "tg"
 	│ │ └╴options: map
 	│ │   ├╴location: "local"
 	│ │   └╴tokens: map
-	│ │     └╴local: map
-	│ │       └╴authorization: array
-	│ │         └╴"<token>"
+	│ │     └╴local: array
+	│ │       └╴"<token>"
 	│ └╴host: "<host>"
 	└╴✓ a.tg.ts#run
 	  ├╴output: "hello"
@@ -84,10 +82,9 @@ snapshot --normalize-ids $tree '
 	  │ │ │       └╴options: map
 	  │ │ │         ├╴location: "local"
 	  │ │ │         └╴tokens: map
-	  │ │ │           └╴local: map
-	  │ │ │             └╴authorization: array
-	  │ │ │               ├╴"<token>"
-	  │ │ │               └╴"<token>"
+	  │ │ │           └╴local: array
+	  │ │ │             ├╴"<token>"
+	  │ │ │             └╴"<token>"
 	  │ │ ├╴map
 	  │ │ │ ├╴kind: "string"
 	  │ │ │ └╴value: "-A"
@@ -95,17 +92,16 @@ snapshot --normalize-ids $tree '
 	  │ │   ├╴kind: "value"
 	  │ │   └╴value: map
 	  │ │     ├╴kind: "object"
-	  │ │     └╴value: "cmd_010000000000000000000000000000000000000000000000000000?location=local&tokens[local][authorization][0]=<token>&tokens[local][authorization][1]=<token>"
+	  │ │     └╴value: "cmd_010000000000000000000000000000000000000000000000000000?location=local&tokens[local][0]=<token>&tokens[local][1]=<token>"
 	  │ ├╴executable: map
 	  │ │ ├╴node: map
 	  │ │ │ └╴path: "tg"
 	  │ │ └╴options: map
 	  │ │   ├╴location: "local"
 	  │ │   └╴tokens: map
-	  │ │     └╴local: map
-	  │ │       └╴authorization: array
-	  │ │         ├╴"<token>"
-	  │ │         └╴"<token>"
+	  │ │     └╴local: array
+	  │ │       ├╴"<token>"
+	  │ │       └╴"<token>"
 	  │ └╴host: "<host>"
 	  └╴✓ fil_010000000000000000000000000000000000000000000000000000#target
 	    ├╴output: "hello"
@@ -131,21 +127,19 @@ snapshot --normalize-ids $tree '
 	      │         └╴options: map
 	      │           ├╴location: "local"
 	      │           └╴tokens: map
-	      │             └╴local: map
-	      │               └╴authorization: array
-	      │                 ├╴"<token>"
-	      │                 ├╴"<token>"
-	      │                 └╴"<token>"
+	      │             └╴local: array
+	      │               ├╴"<token>"
+	      │               ├╴"<token>"
+	      │               └╴"<token>"
 	      ├╴executable: map
 	      │ ├╴node: map
 	      │ │ └╴path: "tg"
 	      │ └╴options: map
 	      │   ├╴location: "local"
 	      │   └╴tokens: map
-	      │     └╴local: map
-	      │       └╴authorization: array
-	      │         ├╴"<token>"
-	      │         ├╴"<token>"
-	      │         └╴"<token>"
+	      │     └╴local: array
+	      │       ├╴"<token>"
+	      │       ├╴"<token>"
+	      │       └╴"<token>"
 	      └╴host: "<host>"
 '
