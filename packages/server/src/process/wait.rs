@@ -727,12 +727,15 @@ impl Session {
 
 		// If a lease is provided, attach a cancellation guard.
 		if let Some(lease) = arg.lease.clone() {
-			let stopper = self.context.stopper.clone();
 			let future = {
 				let cancel = cancel.clone();
+				let stopper = self.context.stopper.clone();
 				async move {
 					let output = future.await;
-					if matches!(&output, Ok(Some(_))) {
+					// Suppress cancellation when the wait returns during shutdown.
+					if matches!(&output, Ok(Some(_)))
+						|| stopper.as_ref().is_some_and(Stopper::stopped)
+					{
 						cancel.store(false, Ordering::SeqCst);
 					}
 					output
@@ -740,12 +743,12 @@ impl Session {
 			}
 			.boxed();
 
+			// Cancel the process if the client drops the wait before it ends.
 			let session = self.clone();
 			let checkpoint_id = id.clone();
 			let id = id.clone();
 			let guard = scopeguard::guard((), move |()| {
-				if cancel.load(Ordering::SeqCst) && !stopper.as_ref().is_some_and(Stopper::stopped)
-				{
+				if cancel.load(Ordering::SeqCst) {
 					let arg = tg::process::cancel::Arg {
 						location: location.clone(),
 						lease,
