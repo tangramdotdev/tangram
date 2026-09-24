@@ -75,6 +75,12 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
+		// Subscribe before reading so completion remains observable after the control handler retires.
+		let mut wakeups = self
+			.create_process_status_wakeup_stream(id, None, None)
+			.await?;
+
+		// Keep the lease release in flight while checking the index for completion.
 		let request = tg::process::control::ServerRequestArg::ReleaseLease(
 			tg::process::control::ReleaseLeaseServerRequestArg { lease: arg.lease },
 		);
@@ -82,43 +88,51 @@ impl Session {
 			retry: tangram_futures::retry::Options::default(),
 			timeout: std::time::Duration::from_secs(10),
 		};
-		let release_future = self
-			.send_process_control_request(id, request, options)
-			.boxed();
-		let get_future = self.try_get_process_from_index(id).boxed();
-		let response = match future::select(pin!(release_future), pin!(get_future)).await {
-			future::Either::Left((response, _)) => response,
-			future::Either::Right((process, release_future)) => {
-				let Some(process) = process
-					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-				else {
-					return Ok(None);
-				};
-				crate::checkpoint!(
-					self.server,
-					"process.cancel.index",
-					finished = process.data.as_ref().is_some_and(|data| data.status.is_finished()),
-					process = %id,
-				)
-				.await;
-				if process
-					.location
-					.as_ref()
-					.is_some_and(tg::Location::is_remote)
-				{
-					return Ok(None);
-				}
-				if process
-					.data
-					.as_ref()
-					.is_some_and(|data| data.status.is_finished())
-				{
-					let output = tg::process::cancel::Output { released: false };
-					return Ok(Some(output));
-				}
-				release_future.await
-			},
+		let mut release_future = pin!(self.send_process_control_request(id, request, options));
+		let response = loop {
+			let get_future = self.try_get_process_from_index(id).boxed();
+			let process = match future::select(release_future.as_mut(), get_future).await {
+				future::Either::Left((response, _)) => break response,
+				future::Either::Right((process, _)) => process,
+			};
+			let Some(process) =
+				process.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
+			else {
+				return Ok(None);
+			};
+			crate::checkpoint!(
+				self.server,
+				"process.cancel.index",
+				finished = process.data.as_ref().is_some_and(|data| data.status.is_finished()),
+				process = %id,
+			)
+			.await;
+			if process
+				.location
+				.as_ref()
+				.is_some_and(tg::Location::is_remote)
+			{
+				return Ok(None);
+			}
+			if process
+				.data
+				.as_ref()
+				.is_some_and(|data| data.status.is_finished())
+			{
+				let output = tg::process::cancel::Output { released: false };
+				return Ok(Some(output));
+			}
+			match future::select(release_future.as_mut(), wakeups.next()).await {
+				future::Either::Left((response, _)) => break response,
+				future::Either::Right((wakeup, _)) => {
+					if wakeup.is_none() {
+						return Err(tg::error!("the process status wakeup stream ended"));
+					}
+				},
+			}
 		};
+
+		// Create the output from the lease release response.
 		let response = response
 			.map_err(|error| tg::error!(!error, %id, "failed to release the process lease"))?
 			.map_err(|error| tg::error!(!error, %id, "the release process lease request failed"))?;
@@ -128,6 +142,7 @@ impl Session {
 		let output = tg::process::cancel::Output {
 			released: output.released,
 		};
+
 		Ok(Some(output))
 	}
 
