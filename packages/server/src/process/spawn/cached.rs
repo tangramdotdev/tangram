@@ -371,17 +371,46 @@ impl Session {
 			timeout: std::time::Duration::from_secs(10),
 		};
 		let location = tg::Location::Local(tg::location::Local::default()).into();
-		let response = if let Some(control) =
-			self.try_get_process_control_runner_inner(&output.id, Some(&location))
-		{
-			control.control_sender.start(request).await?.await
+		let runner = self.try_get_process_runner_inner(&output.id, Some(&location));
+		let control = runner.as_ref().and_then(|runner| {
+			let process = runner.processes.get(&output.id)?;
+			let data = process.data.status.is_finished().then(|| process.data());
+			Some((process.control_sender.clone(), data))
+		});
+		let response = if let Some((control_sender, data)) = control {
+			if let Some(data) = data {
+				output.data = data;
+				return Ok(output.data.cacheable.then_some(output));
+			}
+			match control_sender.start(request).await {
+				Err(error) => Err(error),
+				Ok(response) => response.await,
+			}
 		} else {
 			self.send_process_control_request(&output.id, request, options)
 				.await
+		};
+		let response = match response {
+			Err(error) => {
+				if let Some(data) = runner.as_ref().and_then(|runner| {
+					let process = runner.processes.get(&output.id)?;
+					process.data.status.is_finished().then(|| process.data())
+				}) {
+					output.data = data;
+					return Ok(output.data.cacheable.then_some(output));
+				}
+				if let Some(process) = self.try_get_process_local_inner(&output.id, false).await?
+					&& process.data.status.is_finished()
+				{
+					output.data = process.data;
+					return Ok(output.data.cacheable.then_some(output));
+				}
+				return Err(
+					tg::error!(!error, process = %output.id, "failed to acquire a process lease"),
+				);
+			},
+			Ok(response) => response,
 		}
-		.map_err(
-			|error| tg::error!(!error, process = %output.id, "failed to acquire a process lease"),
-		)?
 		.map_err(
 			|error| tg::error!(!error, process = %output.id, "the acquire process lease request failed"),
 		)?;
