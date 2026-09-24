@@ -66,6 +66,7 @@ struct Streams {
 }
 
 struct Writer {
+	closed: bool,
 	input: mpsc::Sender<tg::Result<tg::process::stdio::write::ClientMessage>>,
 	output: BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>,
 }
@@ -659,6 +660,7 @@ impl Session {
 				&& pending.is_empty()
 				&& state.streams.tasks.is_empty()
 				&& state.operations.is_empty()
+				&& state.writer.as_ref().is_none_or(|writer| writer.closed)
 				&& state.writes.is_empty()
 				&& state.responses.is_empty()
 			{
@@ -790,6 +792,9 @@ impl Session {
 			Some(Ok(write::ServerMessage::Ack(_))) => return Ok(()),
 			Some(Ok(write::ServerMessage::Response(response))) => {
 				let id = response.id;
+				// Keep the connection open between writes until stdin is confirmed closed.
+				state.writer.as_mut().unwrap().closed |= response.error.is_some()
+					|| response.output.as_ref().is_some_and(|output| output.closed);
 				state
 					.writer
 					.as_ref()
@@ -1077,7 +1082,11 @@ impl Session {
 				)
 				.await?
 				.ok_or_else(|| tg::error!("failed to find process stdio"))?;
-			state.writer = Some(Writer { input, output });
+			state.writer = Some(Writer {
+				closed: false,
+				input,
+				output,
+			});
 		}
 		match &arg.data {
 			write::Data::Chunk(chunk) if chunk.stream != Stream::Stdin => {
