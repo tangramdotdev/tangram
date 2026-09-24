@@ -94,6 +94,13 @@ impl Session {
 				else {
 					return Ok(None);
 				};
+				crate::checkpoint!(
+					self.server,
+					"process.cancel.index",
+					finished = process.data.as_ref().is_some_and(|data| data.status.is_finished()),
+					process = %id,
+				)
+				.await;
 				if process
 					.location
 					.as_ref()

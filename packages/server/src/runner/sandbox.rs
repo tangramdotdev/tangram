@@ -1326,6 +1326,8 @@ impl Session {
 			}
 		}
 
+		crate::checkpoint!(self.server, "runner.sandbox.processes.finished", sandbox = %id).await;
+
 		// Retain the sandbox state and control stream.
 		let retention_ttl = self.server.config.runner.sandbox_state_ttl;
 		let retention_future = tokio::time::sleep(retention_ttl);
