@@ -245,7 +245,7 @@ impl Session {
 			}
 
 			if node.missing {
-				// Retry a missing object while also listening for incoming sync notifications.
+				// Wait for an incoming sync to supply the missing object.
 				let entry = state
 					.graph
 					.lock()

@@ -9,7 +9,7 @@ let store = { object_max_batch: 1 }
 let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	sync: { control: { index_timeout: 60 }, get: { store: { lmdb: $store, memory: $store, scylla: $store } } },
+	sync: { get: { store: { lmdb: $store, memory: $store, scylla: $store } } },
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let alice_local = server spawn --name alice-local --config {
@@ -63,7 +63,8 @@ let root_proof = (
 	http get --headers { Accept: 'application/json', Authorization: $'Bearer ($root_token)' } --unix-socket $socket $'http://localhost/objects/($directory)'
 	| get tokens.local.0
 )
-let referent = $'($referent)&tokens[remote][0]=($unrelated_token | url encode --all)&tokens[remote][1]=($root_proof | url encode --all)'
+let referent = $referent | str replace --all 'tokens[remote][0]' 'tokens[remote][1]'
+let referent = $'($referent)&tokens[remote][0]=($unrelated_token | url encode --all)&tokens[remote][2]=($root_proof | url encode --all)'
 
 # Bob pulls the referent. The pull requests the file and waits for the blob.
 let pull = job spawn {

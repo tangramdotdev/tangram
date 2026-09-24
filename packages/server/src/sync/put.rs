@@ -3,7 +3,7 @@ use {
 	crate::Session,
 	futures::stream::BoxStream,
 	std::{
-		collections::BTreeMap,
+		collections::BTreeSet,
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
@@ -22,7 +22,7 @@ mod store;
 struct State {
 	arg: tg::sync::Arg,
 	graph: Arc<Mutex<Graph>>,
-	pending: Mutex<BTreeMap<tg::Id, tokio::time::Instant>>,
+	pending: Mutex<BTreeSet<tg::Id>>,
 	progress: Progress,
 	queue: self::queue::Queue,
 	resolve_sender: async_channel::Sender<self::resolve::Node>,
@@ -188,26 +188,15 @@ impl Session {
 		Ok(())
 	}
 
-	async fn sync_put_pending(
-		&self,
-		state: &State,
-		id: tg::Id,
-	) -> tg::Result<tokio::time::Instant> {
-		let deadline = {
-			let mut pending = state.pending.lock().unwrap();
-			if let Some(deadline) = pending.get(&id) {
-				return Ok(*deadline);
-			}
-			let deadline =
-				tokio::time::Instant::now() + self.server.config.sync.control.index_timeout;
-			pending.insert(id.clone(), deadline);
-			deadline
-		};
+	async fn sync_put_pending(&self, state: &State, id: tg::Id) -> tg::Result<()> {
+		if !state.pending.lock().unwrap().insert(id.clone()) {
+			return Ok(());
+		}
 		state
 			.sender
 			.send(Ok(tg::sync::PutMessage::Pending(id)))
 			.await
 			.map_err(|error| tg::error!(!error, "failed to send the pending message"))?;
-		Ok(deadline)
+		Ok(())
 	}
 }

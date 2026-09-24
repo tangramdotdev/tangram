@@ -1,11 +1,11 @@
 use ../lib/test.nu *
 
 # Starting a failed pull must not grant access to a private object already on the destination.
-let source = server spawn --name source --config { sync: { control: { index_timeout: 1 } } }
+let source = server spawn --name source
 let root_token = random chars
 let destination = server spawn --cloud --name destination --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	sync: { control: { index_timeout: 1, recovery_timeout: 1, request_timeout: 1 } },
+	sync: { control: { recovery_timeout: 1, request_timeout: 1 } },
 }
 let alice = tg --url $destination.url login --verbose --name alice | from json
 let bob = tg --url $destination.url login --verbose --name bob | from json

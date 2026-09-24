@@ -250,21 +250,19 @@ impl Session {
 						return Ok(Some(output));
 					}
 
-					// Retry a miss while also listening for incoming sync notifications.
-					let deadline = self
-						.sync_put_pending(state, object.node.clone().into())
+					// Wait for an incoming sync to supply the missing node.
+					self.sync_put_pending(state, object.node.clone().into())
 						.await?;
 					let tokens = &object.options.tokens;
 					let local_future = async {
 						if let Some(output) = self
-							.try_get_with_sync_wait_until(
+							.try_get_with_sync_wait(
 								tokens,
 								tg::sync::control::ClientRequestArg::object(
 									object.node.clone(),
 									tg::authorization::permission::object::Set::NODE,
 									Some(tg::object::Storage::default()),
 								),
-								deadline,
 								|control| {
 									let object = object.clone();
 									let mut permissions = *permissions;
@@ -684,12 +682,11 @@ impl Session {
 						Some(tg::process::Storage::default()),
 					);
 					let tokens = &process.options.tokens;
-					let deadline = self
-						.sync_put_pending(state, process.node.clone().into())
+					self.sync_put_pending(state, process.node.clone().into())
 						.await?;
 					let local_future = async {
 						if let Some(output) = self
-							.try_get_with_sync_wait_until(tokens, request, deadline, |control| {
+							.try_get_with_sync_wait(tokens, request, |control| {
 								let mut permissions = *permissions;
 								async move {
 									if state

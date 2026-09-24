@@ -5,11 +5,9 @@ use ../lib/test.nu *
 def test [...args] {
 	let remote = server spawn --cloud --name remote --config {
 		advanced: { checkpoints: true },
-		sync: { control: { index_timeout: 60 } },
 	}
 	let local = server spawn --name local --config {
 		remotes: { default: { url: $remote.url } },
-		sync: { control: { index_timeout: 1 } },
 	}
 
 	# Hold the remote's index writes.
@@ -27,9 +25,9 @@ def test [...args] {
 	# Put the parent on the local server without the child.
 	tg --url $remote.url get --bytes $directory | tg --url $local.url put --bytes --kind dir
 
-	# Hold the slow path after the initial index lookup misses the child.
+	# Hold the local fallback before it awaits the queued index writes.
 	let retry_watch = (
-		tg --url $remote.url checkpoint watch sync.get.index.object.wait --params ({ id: $file } | to json)
+		tg --url $remote.url checkpoint watch sync.get.pending.index --params ({ id: $file } | to json)
 		| from json
 		| get watch
 	)
@@ -42,8 +40,8 @@ def test [...args] {
 	}
 
 	# Release the retry and the pending index writes once the destination starts waiting.
-	tg --url $remote.url checkpoint wait sync.get.index.object.wait $retry_watch 0 | ignore
-	tg --url $remote.url checkpoint unwatch sync.get.index.object.wait $retry_watch
+	tg --url $remote.url checkpoint wait sync.get.pending.index $retry_watch 0 | ignore
+	tg --url $remote.url checkpoint unwatch sync.get.pending.index $retry_watch
 	tg --url $remote.url checkpoint unwatch index.batch $batch_watch
 
 	let output = job recv --tag $push --timeout 30sec

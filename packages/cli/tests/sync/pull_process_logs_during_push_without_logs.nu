@@ -1,14 +1,13 @@
 use ../lib/test.nu *
 
-# A pull for logs that the held push does not carry ends after bounded polling. A pull for what the push carries succeeds when the process arrives.
+# A pull for missing logs fails once the sync completes; a pull for what it carries succeeds.
 
 let root_token = random chars
 
-# Polling expires before the control request timeout.
 let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	sync: { control: { index_timeout: 10, request_timeout: 120 } },
+	sync: { control: { request_timeout: 120 } },
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let alice_local = server spawn --name alice-local --config {
@@ -18,7 +17,7 @@ let alice_local = server spawn --name alice-local --config {
 let bob = tg --url $remote.url login --verbose --name bob | from json
 let bob_local = server spawn --name bob-local --config {
 	remotes: { default: { token: $bob.token, url: $remote.url } },
-	sync: { control: { index_timeout: 10 } },
+
 }
 
 # Alice builds a process that writes a log.
@@ -56,12 +55,12 @@ wait_until { ($push_log | path exists) and ((open --raw $push_log) | str contain
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[' }
 let referent = $push_lines | first | str trim
 
-# Bob's pull asks for the logs, which the push does not carry, so it completes while the push is held.
-let output = timeout 15s tg --url $bob_local.url pull --process-logs $referent | complete
-if $output.exit_code == 124 {
-	error make { msg: "the pull should stop after bounded polling rather than wait for the unrelated push" }
+# Bob's pull asks for logs that cannot be supplied by this push.
+let logs_pull = job spawn {
+	let job_id = job id
+	let output = tg --url $bob_local.url pull --logs $referent | complete
+	$output | job send --tag $job_id 0
 }
-failure $output "the pull should not find the process with its logs"
 
 # Bob's pull for what the push carries waits for the process.
 let pull = job spawn {
@@ -79,3 +78,5 @@ tg --url $alice_local.url checkpoint continue sync.put.store.process $watch 0
 tg --url $alice_local.url checkpoint unwatch sync.put.store.process $watch
 success (job recv --tag $push --timeout 30sec) "alice's push should complete"
 success (job recv --tag $pull --timeout 30sec) "bob's pull should complete"
+
+failure (job recv --tag $logs_pull --timeout 30sec) "the completed sync should not prove the missing logs"

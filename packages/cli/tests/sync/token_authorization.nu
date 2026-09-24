@@ -7,7 +7,7 @@ let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	sync: {
-		control: { index_timeout: 1, recovery_timeout: 1, request_timeout: 1 },
+		control: { recovery_timeout: 1, request_timeout: 1 },
 		get: { store: { lmdb: $store, memory: $store, scylla: $store } },
 	},
 }
@@ -18,7 +18,7 @@ let alice_local = server spawn --name alice-local --config {
 }
 let bob_local = server spawn --name bob-local --config {
 	remotes: { default: { token: $bob.token, url: $remote.url } },
-	sync: { control: { index_timeout: 1 } },
+
 }
 
 # Hold Alice's private object before storage and leave a second object held to keep the sync open.

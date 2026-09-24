@@ -7,7 +7,6 @@ let destination = server spawn --name destination --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	sync: {
-		control: { index_timeout: 5 },
 		get: { store: { lmdb: $store, memory: $store, scylla: $store } },
 	},
 }

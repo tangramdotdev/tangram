@@ -5,7 +5,7 @@ let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token } },
-	sync: { control: { index_timeout: 60, retry_interval: 0.1 } },
+	sync: { control: { retry_interval: 0.1 } },
 }
 let local = server spawn --name local --config {
 	remotes: { default: { token: $root_token, url: $remote.url } },

@@ -7,4 +7,4 @@ let started = date now
 let output = tg --url $local.url get --local --bytes $id | complete
 let elapsed = (date now) - $started
 failure $output
-assert ($elapsed >= 800ms and $elapsed < 3sec) 'the default availability timeout must be one second'
+assert ($elapsed < 800ms) 'a tokenless miss must not wait for a polling timeout'

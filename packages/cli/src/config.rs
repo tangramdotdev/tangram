@@ -1649,13 +1649,6 @@ pub struct SyncControl {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub heartbeat_interval: Option<Duration>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub index_retry: Option<Retry>,
-
-	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub index_timeout: Option<Duration>,
-
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub lease_ttl: Option<Duration>,
@@ -3933,12 +3926,6 @@ fn resolve_sync_control(source: SyncControl) -> server::SyncControl {
 	let mut target = server::SyncControl::default();
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;
-	}
-	if let Some(source) = source.index_retry {
-		target.index_retry = resolve_retry_with_default(source, target.index_retry);
-	}
-	if let Some(value) = source.index_timeout {
-		target.index_timeout = value;
 	}
 	if let Some(value) = source.lease_ttl {
 		target.lease_ttl = value;

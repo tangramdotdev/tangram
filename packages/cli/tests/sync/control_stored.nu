@@ -8,7 +8,7 @@ for kind in [object process] {
 		advanced: { checkpoints: true },
 		authentication: { root: { token: $root_token } },
 		sync: {
-			control: { index_timeout: 60, request_timeout: 120 },
+			control: { request_timeout: 120 },
 			get: { store: { lmdb: $store, memory: $store, scylla: $store } },
 		},
 	}

@@ -476,8 +476,7 @@ def test_final_read(messenger):
         peer.ack(request)
         reached("sync.control.ack", ack_watch)
         assert command("put", 'tg.blob("final read")') == id
-        status, body = read.result(timeout=5)
-        assert status == 200, (status, body)
+        assert not read.done(), "an acknowledged sync must wait for a response"
         release("sync.control.ack", ack_watch)
         peer.respond(request, "the transfer failed")
         status, body = read.result(timeout=5)
@@ -490,15 +489,23 @@ def test_final_read(messenger):
 def test_pending_source(messenger):
     text = "source recovers after pending"
     id = source_blob(text)
-    sync = Sync({"put": id})
+    alternate, peer, subscribe = fake_peer(messenger)
+    token = urllib.parse.quote(alternate.token, safe="")
+    sync = Sync({"put": f"{id}?tokens[local][0]={token}"})
     started = time.monotonic()
     assert sync.put_message() == Variant(4, node_bytes(id))
     assert time.monotonic() - started < 1, "pending must precede the retry timeout"
+    peer.heartbeat(peer.request(True), "pending")
+    request = peer.request()
+    peer.ack(request)
     assert command("put", f"tg.blob({json.dumps(text)})") == id
+    peer.respond(request)
     message = sync.put_message()
     assert message.id == 0 and message.value.id == 1, message
     assert message.value.value[0] == node_bytes(id)
     sync.close()
+    alternate.close()
+    release("sync.control.subscribe", subscribe)
 
     # A local hit must not send pending or start alternate-sync requests.
     alternate, peer, subscribe = fake_peer(messenger)
@@ -536,11 +543,17 @@ def test_pending_cancel(messenger):
 def test_pending_destination(messenger):
     text = "destination recovers after pending"
     id = source_blob(text)
-    sync = Sync({"get": id})
+    alternate, peer, subscribe = fake_peer(messenger)
+    token = urllib.parse.quote(alternate.token, safe="")
+    sync = Sync({"get": f"{id}?tokens[local][0]={token}"})
     sync.requested(id)
     sync.pending(id)
     time.sleep(0.1)
+    peer.heartbeat(peer.request(True), "pending")
+    request = peer.request()
+    peer.ack(request)
     assert command("put", f"tg.blob({json.dumps(text)})") == id
+    peer.respond(request)
     command("index")
     sync.available(id)
     # The source's eventual failure must not defeat the successful fallback.
@@ -549,10 +562,12 @@ def test_pending_destination(messenger):
     while sync.receive().id != 2:
         pass
     sync.close()
+    alternate.close()
+    release("sync.control.subscribe", subscribe)
 
 
 def test_pending_late_source(messenger):
-    text = "source succeeds after destination fallback expires"
+    text = "source succeeds after destination fallback fails"
     id = source_blob(text)
     sync = Sync({"get": id})
     sync.requested(id)
@@ -579,13 +594,27 @@ def test_pending_process(messenger):
         "sandbox": "sbx_00041061050r3gg28a1c60t3gf20",
         "status": "finished",
     }
-    sender = Sync({"put": id})
-    receiver = Sync({"get": id})
+    alternate, peer, subscribe = fake_peer(messenger)
+    token = urllib.parse.quote(alternate.token, safe="")
+    referent = f"{id}?tokens[local][0]={token}"
+    sender = Sync({"put": referent})
+    receiver = Sync({"get": referent})
     receiver.requested(id)
     receiver.pending(id)
     assert sender.put_message() == Variant(4, node_bytes(id))
+    requests = {}
+    while len(requests) < 2:
+        request = messenger.receive(lambda path, message:
+            path.startswith(peer.subject + ".") and path.endswith(".server") and message.id == 1)
+        if request[0].id == 0:
+            peer.heartbeat(request, "pending")
+        else:
+            requests[request[2]] = request
+            peer.ack(request)
     command("process", "put", id, json.dumps(data))
     command("index")
+    for request in requests.values():
+        peer.respond(request)
     message = sender.put_message()
     assert message.id == 0 and message.value.id == 3, message
     while True:
@@ -602,17 +631,20 @@ def test_pending_process(messenger):
     receiver.close()
 
 
-def test_pending_timeout(messenger):
+    alternate.close()
+    release("sync.control.subscribe", subscribe)
+
+def test_pending_missing(messenger):
     id = missing_id(100)
     sync = Sync({"put": id})
     started = time.monotonic()
     assert sync.put_message() == Variant(4, node_bytes(id))
     message = sync.put_message()
     elapsed = time.monotonic() - started
-    assert message.id == 1 and 0.8 <= elapsed < 2, (message, elapsed)
+    assert message.id == 1 and elapsed < 1, (message, elapsed)
     sync.close()
 
-    # A later missing reply must not restart the destination's deadline.
+    # A later missing reply observes the completed tokenless fallback.
     sync = Sync({"get": id})
     sync.requested(id)
     started = time.monotonic()
@@ -625,52 +657,26 @@ def test_pending_timeout(messenger):
     except AssertionError as error:
         assert str(error) == "the stream ended inside a varint", error
     elapsed = time.monotonic() - started
-    assert 0.8 <= elapsed < 1.5, elapsed
+    assert 0.6 <= elapsed < 1.5, elapsed
     sync.close()
 
 
-def test_retry_limit(messenger):
+def test_no_polling(messenger):
+    id = source_blob("no polling without tokens")
     started = time.monotonic()
-    status, body = read_object(missing_id(101), [])
-    elapsed = time.monotonic() - started
-    assert status == 404 and 0.08 <= elapsed < 1, (status, body, elapsed)
-
-
-def test_polling(messenger):
-    id = source_blob("polling without tokens")
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        read = executor.submit(read_object, id, [])
-        time.sleep(0.2)
-        assert not read.done(), "a tokenless miss must retry"
-        assert command("put", 'tg.blob("polling without tokens")') == id
-        status, body = read.result(timeout=2)
-        assert status == 200, (status, body)
+    status, body = read_object(id, [])
+    assert status == 404 and time.monotonic() - started < 1, (status, body)
+    assert command("put", 'tg.blob("no polling without tokens")') == id
+    status, body = read_object(id, [])
+    assert status == 200, (status, body)
     process = "pcs_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0"
-    data = {
-        "children": [],
-        "command": "cmd_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0",
-        "created_at": 0,
-        "finished_at": 0,
-        "host": "test",
-        "output": 5,
-        "sandbox": "sbx_00041061050r3gg28a1c60t3gf20",
-        "status": "finished",
-    }
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        read = executor.submit(read_object, process, [], "processes")
-        time.sleep(0.2)
-        assert not read.done(), "a tokenless process miss must retry"
-        command("process", "put", process, json.dumps(data))
-        command("index")
-        status, body = read.result(timeout=2)
-        assert status == 200, (status, body)
     started = time.monotonic()
-    status, body = read_object(missing_id(99), [])
-    elapsed = time.monotonic() - started
-    assert status == 404 and 4.5 <= elapsed < 8, (status, body, elapsed)
+    status, body = read_object(process, [], "processes")
+    # Process gets also perform the existing runner-control discovery.
+    assert status == 404 and time.monotonic() - started < 4, (status, body)
 
 
-def test_failed_polling(messenger):
+def test_failed_wait(messenger):
     sync, peer, subscribe = fake_peer(messenger)
     id = source_blob("polling after failure")
     with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -680,10 +686,10 @@ def test_failed_polling(messenger):
         peer.ack(request)
         peer.respond(request, "the transfer failed")
         peer.acknowledged(request[2], request[3])
-        time.sleep(0.2)
-        assert not read.done(), "a failed sync must not end polling"
-        assert command("put", 'tg.blob("polling after failure")') == id
         status, body = read.result(timeout=2)
+        assert status == 404, (status, body)
+        assert command("put", 'tg.blob("polling after failure")') == id
+        status, body = read_object(id, [])
         assert status == 200, (status, body)
     sync.close()
     release("sync.control.subscribe", subscribe)
@@ -709,7 +715,7 @@ def test_notification(messenger):
     release("sync.control.subscribe", subscribe)
 
 
-def test_polling_timeout(messenger):
+def test_live_wait(messenger):
     sync, peer, subscribe = fake_peer(messenger)
     with concurrent.futures.ThreadPoolExecutor() as executor:
         started = time.monotonic()
@@ -717,15 +723,15 @@ def test_polling_timeout(messenger):
         peer.heartbeat(peer.request(True), "lease")
         request = peer.request()
         peer.ack(request)
-        while not read.done():
+        while time.monotonic() - started < 1.5:
+            assert not read.done(), "a live sync must outlast the former polling deadline"
             try:
                 peer.heartbeat(peer.request(True, timeout=0.1), "lease")
             except TimeoutError:
                 pass
-        status, body = read.result()
-        elapsed = time.monotonic() - started
-        assert status == 404 and 4.5 <= elapsed < 8, (status, body, elapsed)
-        peer.cancelled(request)
+        peer.respond(request, "the transfer failed")
+        status, body = read.result(timeout=2)
+        assert status == 404, (status, body)
     sync.close()
     release("sync.control.subscribe", subscribe)
 
@@ -827,6 +833,42 @@ def test_candidates(messenger):
     for sync in syncs:
         sync.close()
     release("sync.control.subscribe", subscribe)
+
+
+def test_candidate_local_fallback(messenger):
+    for missing in (False, True):
+        subscribe = watch("sync.control.subscribe")
+        syncs = [Sync({"get": missing_id()}) for _ in range(2)]
+        for index in range(len(syncs)):
+            reached("sync.control.subscribe", subscribe, index)
+        peers = [Peer(messenger, sync.token) for sync in syncs]
+        text = f"local fallback after candidate ends: {missing}"
+        id = source_blob(text)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            read = executor.submit(read_object, id, [sync.token for sync in syncs])
+            requests = []
+            for index, peer in enumerate(peers):
+                peer.heartbeat(peer.request(True), f"fallback-{index}")
+                request = peer.request()
+                ack = watch("sync.control.ack", id=request[2])
+                peer.ack(request)
+                reached("sync.control.ack", ack)
+                release("sync.control.ack", ack)
+                requests.append(request)
+            assert command("put", f"tg.blob({json.dumps(text)})") == id
+            command("index")
+            assert not read.done(), "local availability must not trigger polling"
+            if missing:
+                peers[0].respond(requests[0], stored=False)
+            else:
+                peers[0].respond(requests[0], "this sync failed")
+            status, body = read.result(timeout=1)
+            assert status == 200, (status, body)
+            assert base64.b64decode(json.loads(body)["data"]["value"]["bytes"]) == text.encode()
+            peers[1].cancelled(requests[1])
+        for sync in syncs:
+            sync.close()
+        release("sync.control.subscribe", subscribe)
 
 
 def test_client_cancel(messenger):

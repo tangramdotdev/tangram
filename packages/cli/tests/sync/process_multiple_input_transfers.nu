@@ -7,7 +7,7 @@ let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
-	sync: { control: { index_timeout: 60 }, get: { store: { lmdb: $store, memory: $store, scylla: $store } } },
+	sync: { get: { store: { lmdb: $store, memory: $store, scylla: $store } } },
 }
 let runners = 1..4 | each {
 	let created = tg --url $remote.url --token $root_token runner create | from json
@@ -15,7 +15,7 @@ let runners = 1..4 | each {
 		advanced: { checkpoints: true },
 		remotes: { default: { token: $created.token.token, url: $remote.url } },
 		roles: [api indexer runner],
-		sync: { control: { index_timeout: 60 } },
+
 		runner: { cpus: 1, id: $created.data.id, remote: 'default', token: $created.token.token },
 	}
 }

@@ -9,7 +9,7 @@ let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer scheduler],
-	sync: { control: { index_timeout: 60 } },
+
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 
@@ -19,18 +19,18 @@ let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
-	sync: { control: { index_timeout: 60 } },
+
 }
 
 # Create user credentials and spawn two local servers so that the second build cannot hit the first local server's cache.
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let first = server spawn --name first --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
-	sync: { control: { index_timeout: 60 } },
+
 }
 let second = server spawn --name second --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
-	sync: { control: { index_timeout: 60 } },
+
 }
 
 # The build outputs a file so that the runner pushes its output.

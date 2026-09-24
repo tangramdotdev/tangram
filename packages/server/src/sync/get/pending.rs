@@ -7,6 +7,7 @@ use {
 	},
 	std::{collections::BTreeMap, sync::Arc},
 	tangram_client::prelude::*,
+	tangram_futures::stream::TryExt as _,
 };
 
 #[derive(Default)]
@@ -37,17 +38,10 @@ impl Pending {
 		let state = state.clone();
 		let checkout_sender = checkout_sender.clone();
 		let node_id = id.clone();
-		let deadline =
-			tokio::time::Instant::now() + session.server.config.sync.control.index_timeout;
 		let future = async move {
-			let future = session.sync_get_pending(&state, &checkout_sender, node_id.clone());
-			let output = tokio::time::timeout_at(deadline, future)
-				.await
-				.unwrap_or_else(|_| {
-					Err(
-						tg::error!(id = %node_id, "the node did not become available before the deadline"),
-					)
-				});
+			let output = session
+				.sync_get_pending(&state, &checkout_sender, node_id.clone())
+				.await;
 			(node_id, output)
 		};
 		let (future, abort) = futures::future::abortable(future);
@@ -153,6 +147,15 @@ impl Session {
 		checkout_sender: &tokio::sync::mpsc::Sender<super::checkout::ObjectNode>,
 		id: tg::Id,
 	) -> tg::Result<()> {
+		// Flush the queued metadata before looking for a local fallback.
+		crate::checkpoint!(self.server, "sync.get.pending.index", id = %id).await;
+		self.index()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?
+			.try_last()
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index"))?;
+
 		match id.kind() {
 			tg::id::Kind::Process => {
 				let id: tg::process::Id = id.try_into()?;
