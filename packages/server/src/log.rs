@@ -227,7 +227,6 @@ impl Session {
 						parent: None,
 						sandbox: Some(data.sandbox.clone()),
 						storage: indexed.storage,
-						subtree_objects: std::collections::BTreeSet::new(),
 						time_to_touch: self.server.config.process.time_to_touch,
 						touched_at,
 					}),

@@ -89,7 +89,6 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 					parent: None,
 					sandbox: None,
 					storage: crate::process::Storage::default(),
-					subtree_objects: std::collections::BTreeSet::new(),
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
 				}),
@@ -209,7 +208,7 @@ async fn process_object_grants_require_search_unless_subtree_is_proven() {
 }
 
 #[tokio::test]
-async fn process_object_subtree_edges_authorize_without_grants() {
+async fn process_object_permissions_require_permanent_grants() {
 	let (_dir, index) = new_index();
 	let process = tg::process::Id::new();
 	let reader = tg::user::Id::new();
@@ -262,7 +261,7 @@ async fn process_object_subtree_edges_authorize_without_grants() {
 	}
 	let arg = crate::batch::Arg { items };
 	index.batch(arg).await.unwrap();
-	let mut process_arg = crate::process::put::Arg {
+	let process_arg = crate::process::put::Arg {
 		cached: false,
 		children: None,
 		command: Some(vec![tg::command::Id::new(b"command").into()]),
@@ -278,7 +277,6 @@ async fn process_object_subtree_edges_authorize_without_grants() {
 		parent: None,
 		sandbox: None,
 		storage: crate::process::Storage::default(),
-		subtree_objects: BTreeSet::new(),
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,
 	};
@@ -308,13 +306,23 @@ async fn process_object_subtree_edges_authorize_without_grants() {
 		})
 		.collect::<Vec<_>>();
 
-	// Upgrade an existing relationship, then replay it without the proof.
+	// Add a permanent grant, then replay the relationship without changing the grant.
 	for (proven, expected) in [(false, false), (true, true), (false, true)] {
-		process_arg.subtree_objects = if proven {
-			BTreeSet::from([root.clone()])
-		} else {
-			BTreeSet::new()
-		};
+		if proven {
+			let grant = crate::grant::put::Arg {
+				created_at: 0,
+				creator: Some(tg::Principal::Process(process.clone())),
+				implicit: Some(None),
+				permissions: subtree.into(),
+				resource: root.clone().into(),
+				subject: tg::authorization::Subject::Process(process.clone()),
+				time_to_touch: None,
+			};
+			let arg = crate::batch::Arg {
+				items: vec![crate::batch::Item::PutGrant(grant)],
+			};
+			index.batch(arg).await.unwrap();
+		}
 		let arg = crate::batch::Arg {
 			items: vec![crate::batch::Item::PutProcess(process_arg.clone())],
 		};
@@ -326,12 +334,11 @@ async fn process_object_subtree_edges_authorize_without_grants() {
 			process: process.clone(),
 		});
 		let key = Index::pack(&index.subspace, &key);
-		let data = crate::process::object::Data::deserialize(
-			index.db.get(&transaction, &key).unwrap().unwrap(),
-		)
-		.unwrap();
+		assert_eq!(
+			index.db.get(&transaction, &key).unwrap(),
+			Some([].as_slice())
+		);
 		drop(transaction);
-		assert_eq!(data.subtree, expected);
 		for config in configs {
 			for principal in [
 				tg::Principal::User(reader.clone()),
@@ -345,7 +352,7 @@ async fn process_object_subtree_edges_authorize_without_grants() {
 					outcomes
 						.iter()
 						.all(|outcome| matches!(outcome, crate::authorize::Outcome::Authorized(_))),
-					data.subtree
+					expected
 				);
 			}
 			let outcomes = index
@@ -358,7 +365,10 @@ async fn process_object_subtree_edges_authorize_without_grants() {
 					.all(|outcome| !matches!(outcome, crate::authorize::Outcome::Authorized(_)))
 			);
 		}
-		assert!(process_grant(&index, &process, &root, subtree).is_none());
+		assert_eq!(
+			process_grant(&index, &process, &root, subtree).is_some(),
+			expected
+		);
 		assert!(process_grant(&index, &process, &root, node).is_none());
 	}
 }

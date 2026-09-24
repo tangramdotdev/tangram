@@ -178,6 +178,7 @@ impl Index {
 		id: &tg::Id,
 	) -> tg::Result<ControlFlow<Option<tg::Id>, fdb::FdbError>> {
 		let key = match id.kind {
+			tg::id::Kind::Sync => return Ok(ControlFlow::Break(Some(id.clone()))),
 			tg::id::Kind::User => Key::User(crate::fdb::user::Key::User(id.clone().try_into()?)),
 			tg::id::Kind::Group => {
 				Key::Group(crate::fdb::group::Key::Group(id.clone().try_into()?))

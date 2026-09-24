@@ -46,24 +46,24 @@ let path = artifact {
 			} finally {
 				tg.client.getObject = getObject;
 			}
+			const sync = `0.${encode({ expires_at: 120, permissions: ["sync_read"], resource: "syn_0000000000000000000000000000" })}.${encode({ algorithm: "ed25519", key: "test" })}.`;
 			const child = tg.Directory.withId(other);
 			const parent = tg.Directory.withObject({ entries: { child } });
 			const parentToken = proof(parent.id, 120);
 			parent.state.tokens = { local: { authorization: [parentToken] } };
 			for (const expiration of [60, 120, 121, 179, 180, 181, 240]) {
 				const childToken = proof(child.id, expiration);
-				child.state.tokens = { local: { authorization: [childToken], sync: ["sync"] }, remote: { authorization: [childToken] } };
+				child.state.tokens = { local: { authorization: [childToken, sync] }, remote: { authorization: [childToken] } };
 				const tokens = tg.Object.toReferent(parent).options.tokens;
 				tg.assert(tokens.local.authorization.includes(parentToken));
 				tg.assert(!tokens.local.authorization.includes(childToken));
-				tg.assert(tokens.local.sync[0] === "sync");
 				tg.assert(tokens.remote.authorization[0] === childToken);
-				tg.assert(child.state.tokens.local.authorization[0] === childToken);
+				tg.assert(child.state.tokens.local.authorization.includes(childToken));
+				tg.assert(tokens.local.authorization.includes(sync));
 			}
 			child.state.object = { kind: "directory", value: { entries: { parent } } };
 			const cyclic = tg.Object.toReferent(parent).options.tokens;
-			tg.assert(cyclic.local.authorization.length === 1);
-			tg.assert(cyclic.local.sync.length === 1);
+			tg.assert(cyclic.local.authorization.length === 2);
 			child.state.object = null;
 			return true;
 		}

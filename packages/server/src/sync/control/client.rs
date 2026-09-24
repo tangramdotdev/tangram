@@ -16,7 +16,7 @@ use {
 
 #[derive(Default)]
 pub(crate) struct Client {
-	peers: Mutex<BTreeMap<String, Arc<Peer>>>,
+	peers: Mutex<BTreeMap<tg::sync::Id, Arc<Peer>>>,
 }
 
 struct Peer {
@@ -86,13 +86,13 @@ impl Client {
 	pub fn request(
 		&self,
 		session: &Session,
-		token: &tg::sync::Token,
+		id: &tg::sync::Id,
 		arg: protocol::ClientRequestArg,
 	) -> Request {
 		let peer = {
 			let mut peers = self.peers.lock().unwrap();
 			if let Some(peer) = peers
-				.get(&token.body.id)
+				.get(id)
 				.filter(|peer| !peer.sender.is_closed())
 				.cloned()
 			{
@@ -108,7 +108,7 @@ impl Client {
 					last_heartbeat: None,
 					lease: None,
 					requests: BTreeMap::new(),
-					subject: subject(token),
+					subject: subject(id),
 				};
 				session
 					.server
@@ -126,7 +126,7 @@ impl Client {
 						}
 					})
 					.detach();
-				peers.insert(token.body.id.clone(), peer.clone());
+				peers.insert(id.clone(), peer.clone());
 				peer
 			}
 		};

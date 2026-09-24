@@ -369,10 +369,13 @@ mod tests {
 		let mut tokens = tg::Tokens::default();
 		tokens.insert_local_authorization(token.clone());
 		tokens.insert_authorization(remote.clone(), token.clone());
-		let sync = tg::sync::Token {
-			body: tg::sync::token::Body {
+		let sync = tg::authorization::Token {
+			body: tg::authorization::Body {
 				expires_at: i64::MAX,
-				id: "sync".into(),
+				permissions: vec![tg::authorization::Permission::Sync(
+					tg::authorization::permission::sync::Permission::Read,
+				)],
+				resource: tg::sync::Id::new().into(),
 			},
 			metadata: tg::authorization::token::Metadata {
 				algorithm: tg::authorization::token::Algorithm::Ed25519,
@@ -380,11 +383,11 @@ mod tests {
 			},
 			signature: Vec::new(),
 		};
-		tokens.insert_sync(
+		tokens.insert_authorization(
 			tg::Location::Local(tg::location::Local::default()),
 			sync.clone(),
 		);
-		tokens.insert_sync(remote.clone(), sync);
+		tokens.insert_authorization(remote.clone(), sync);
 		let mut other = token;
 		other.body.permissions = vec![tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,

@@ -209,6 +209,10 @@ impl Session {
 			}
 		}
 
+		for node in &nodes {
+			crate::checkpoint!(self.server, "sync.get.store.object.stored", id = %node.id).await;
+		}
+
 		// Update the progress.
 		let objects = nodes
 			.iter()
@@ -324,7 +328,6 @@ impl Session {
 					parent: None,
 					sandbox: Some(data.sandbox.clone()),
 					storage: tangram_index::process::Storage::default(),
-					subtree_objects: std::collections::BTreeSet::new(),
 					time_to_touch: self.server.config.process.time_to_touch,
 					touched_at: now,
 				})

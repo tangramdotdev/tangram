@@ -154,7 +154,7 @@ pub(crate) enum Output {
 	},
 	ObjectProcesses {
 		after: Option<Vec<u8>>,
-		processes: Vec<(tg::process::Id, crate::process::object::Kind, bool)>,
+		processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
 	},
 	Process(Option<crate::process::Process>),
 	ProcessObjectKinds(Vec<crate::process::object::Kind>),
@@ -488,7 +488,7 @@ impl Output {
 		self,
 	) -> tg::Result<(
 		Option<Vec<u8>>,
-		Vec<(tg::process::Id, crate::process::object::Kind, bool)>,
+		Vec<(tg::process::Id, crate::process::object::Kind)>,
 	)> {
 		let Self::ObjectProcesses { after, processes } = self else {
 			return Err(tg::error!(

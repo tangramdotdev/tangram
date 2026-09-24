@@ -52,8 +52,8 @@ let push = job spawn {
 }
 let output = timeout 30s tg --url $alice_local.url checkpoint wait sync.put.store.process $watch 0 | complete
 success $output "alice's push should reach the process"
-wait_until { open --raw $push_log | str contains 'tokens[remote][sync][0]' } 'the push should log the referent with the sync token'
-let push_lines = open --raw $push_log | lines | where {|line| $line =~ "sync" }
+wait_until { ($push_log | path exists) and ((open --raw $push_log) | str contains 'tokens[remote][authorization][0]') } 'the push should log the referent with the sync token'
+let push_lines = open --raw $push_log | lines | where {|line| $line =~ "authorization" }
 let referent = $push_lines | first | str trim
 
 # Bob's pull asks for the logs, which the push does not carry, so it completes while the push is held.

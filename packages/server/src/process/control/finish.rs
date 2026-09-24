@@ -5,7 +5,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::control::FinishClientRequestArg,
-		sync: Option<&tg::sync::Token>,
+		sync: Option<&tg::authorization::Token>,
 	) -> tg::Result<tg::process::control::FinishServerResponseOutput> {
 		self.server.spawn_publish_process_status_task(id);
 		crate::checkpoint!(self.server, "process.control.finish", id = %id).await;
@@ -17,13 +17,16 @@ impl Session {
 				let value = tg::Value::try_from_data(data)?;
 				for object in value.objects() {
 					let mut tokens = object.state().tokens();
-					tokens.insert_sync(location.clone(), sync.clone());
+					tokens.insert_authorization(location.clone(), sync.clone());
 					object.state().set_tokens(tokens);
 				}
 				arg.data.output = Some(value.to_data());
 			}
 			if let Some(tg::Either::Right(error)) = &mut arg.data.error {
-				error.options.tokens.insert_sync(location, sync.clone());
+				error
+					.options
+					.tokens
+					.insert_authorization(location, sync.clone());
 			}
 		}
 

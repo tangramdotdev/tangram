@@ -47,10 +47,6 @@ pub struct Args {
 	#[arg(long)]
 	pub sandbox_processes: bool,
 
-	/// The sync token of the incoming sync to join.
-	#[arg(long)]
-	pub sync: Option<tg::sync::Token>,
-
 	#[command(flatten)]
 	pub tag_targets: TagTargets,
 
@@ -235,7 +231,6 @@ impl Cli {
 			process_outputs: args.process_outputs.get(),
 			sandbox_processes: args.sandbox_processes,
 			source: Some(source),
-			sync: args.sync,
 			tag_targets: args.tag_targets.get(),
 			user_children: args.user_children,
 		};

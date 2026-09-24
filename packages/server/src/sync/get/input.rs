@@ -307,7 +307,6 @@ impl Session {
 							let id = id.try_into()?;
 							let tokens = tg::tokens::Entry {
 								authorization: message.tokens,
-								sync: Vec::new(),
 							};
 							state.graph.lock().unwrap().update_process_tokens(
 								&id,
@@ -326,7 +325,6 @@ impl Session {
 							let id = id.try_into()?;
 							let tokens = tg::tokens::Entry {
 								authorization: message.tokens,
-								sync: Vec::new(),
 							};
 							state.graph.lock().unwrap().update_object_tokens(
 								&id,

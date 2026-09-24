@@ -331,6 +331,15 @@ impl Search {
 					.ok()
 					.map(|permission| (resource, permission))
 			}),
+			Read::SubjectGrants {
+				subject: tg::authorization::Subject::Sync(sync),
+				..
+			} => Some((
+				sync.clone().into(),
+				tg::authorization::Permission::Sync(
+					tg::authorization::permission::sync::Permission::Read,
+				),
+			)),
 			_ => None,
 		};
 		let retry = read.clone();
@@ -506,6 +515,7 @@ impl Search {
 			},
 			Read::SubjectGrants { depth, subject, .. } => {
 				let (after, grants) = output.into_grants()?;
+				let sync = matches!(subject, tg::authorization::Subject::Sync(_));
 				let continuation = after.map(|after| DescendantTask::SubjectGrants {
 					after: Some(after),
 					depth,
@@ -513,6 +523,7 @@ impl Search {
 				});
 				let neighbors = grants
 					.into_iter()
+					.filter(|grant| !sync || grant.permission.is_read_like())
 					.map(|grant| (grant.resource, grant.permission))
 					.collect();
 
@@ -896,6 +907,22 @@ impl Search {
 						sandbox,
 					});
 			},
+			tg::authorization::Permission::Sync(
+				tg::authorization::permission::sync::Permission::Read,
+			) => {
+				let Ok(sync) = tg::sync::Id::try_from(resource) else {
+					self.exhausted = true;
+					return;
+				};
+				self.queues
+					.entry(depth)
+					.or_default()
+					.push_back(DescendantTask::SubjectGrants {
+						after: None,
+						depth: depth + 1,
+						subject: tg::authorization::Subject::Sync(sync),
+					});
+			},
 			tg::authorization::Permission::Group(_)
 			| tg::authorization::Permission::Organization(_)
 			| tg::authorization::Permission::Tag(_)
@@ -1125,7 +1152,8 @@ impl Search {
 			| tg::authorization::Subject::Public
 			| tg::authorization::Subject::Root
 			| tg::authorization::Subject::Runner(_)
-			| tg::authorization::Subject::Sandbox(_) => None,
+			| tg::authorization::Subject::Sandbox(_)
+			| tg::authorization::Subject::Sync(_) => None,
 		};
 		let Some(member) = member else {
 			return;

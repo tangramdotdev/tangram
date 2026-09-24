@@ -6,7 +6,7 @@ let remote = server spawn --name remote
 let server = server spawn --config { remotes: { default: { url: $remote.url } } }
 let object = tg put 'tg.file("input")' | str trim
 let referent = tg push $object | str trim
-let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][sync][0]' | first | get value
+let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][authorization][0]' | first | get value
 
 let path = artifact {
 	tangram.ts: '
@@ -17,7 +17,7 @@ let path = artifact {
 		export default async function (sync: string) {
 			const file = await tg.build(producer);
 			const tokens = file.state.tokens;
-			tokens.local = { ...tokens.local, sync: [sync] };
+			tokens.local = { ...tokens.local, authorization: [...(tokens.local?.authorization ?? []), sync] };
 			file.state.tokens = tokens;
 			const bare = tg.File.withId(file.id);
 			const withToken = await tg.command({

@@ -2,9 +2,14 @@ use ../lib/test.nu *
 
 # A destroyed sandbox can be pushed without its processes, then pushed again with its processes.
 
-let remote = server spawn --cloud --name remote
-let local = server spawn --name local
-tg remote put default $remote.url
+let root_token = random chars
+let remote = server spawn --cloud --name remote --config {
+	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
+}
+let alice = tg --url $remote.url login --verbose --name alice | from json
+let local = server spawn --name local --config {
+	remotes: { default: { token: $alice.token, url: $remote.url } },
+}
 
 let path = artifact {
 	tangram.ts: '
@@ -20,11 +25,11 @@ tg wait $sandbox
 tg index
 
 tg push $sandbox
-let remote_sandbox = tg --url $remote.url sandbox get $sandbox | from json
+let remote_sandbox = tg --url $remote.url --token $alice.token sandbox get $sandbox | from json
 assert equal $remote_sandbox.data.id $sandbox
 assert equal $remote_sandbox.data.status destroyed
 assert (($remote_sandbox | get --optional tokens.local.authorization) != null) "sandbox get should return a token"
-failure (tg --url $remote.url process get $process | complete)
+failure (tg --url $remote.url --token $alice.token process get $process | complete)
 
 tg push --sandbox-processes $sandbox
-success (tg --url $remote.url process get $process | complete)
+success (tg --url $remote.url --token $alice.token process get $process | complete)

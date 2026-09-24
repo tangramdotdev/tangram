@@ -331,6 +331,7 @@ impl Session {
 			None => Some((&mut initial).await),
 		};
 		let index_wait = async {
+			crate::checkpoint!(self.server, "authorization.index.wait").await;
 			self.index()
 				.await
 				.map_err(|error| tg::error!(!error, "failed to index"))?

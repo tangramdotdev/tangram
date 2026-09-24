@@ -10,7 +10,7 @@ let client = server spawn --name client --config {
 }
 
 # Put a directory with two branches. The deeper branch provides a checkpoint after the file's blob
-# has updated the graph while still keeping the pull open.
+# is stored while still keeping the pull open.
 let directory = (
 	tg --url $remote.url put 'tg.directory({
 		"f": tg.file("available"),
@@ -19,6 +19,7 @@ let directory = (
 	| str trim
 )
 let file = tg --url $remote.url put 'tg.file("available")' | str trim
+let file_blob = tg --url $remote.url put 'tg.blob("available")' | str trim
 let deep_blob = tg --url $remote.url put 'tg.blob("later")' | str trim
 tg --url $remote.url index
 
@@ -38,6 +39,12 @@ let object_input_watch = (
 	| get watch
 )
 
+let stored_watches = [$file $file_blob] | each {|id|
+	tg --url $client.url checkpoint watch sync.get.store.object.stored --params ({ id: $id } | to json)
+	| from json
+	| get watch
+}
+
 let object_pull = job spawn {
 	let job_id = job id
 	let output = tg --url $client.url pull $directory | complete
@@ -48,6 +55,10 @@ let object_pull = job spawn {
 # graph.
 tg --url $client.url checkpoint wait sync.get.index.object.filter $object_filter_watch 0 | ignore
 tg --url $client.url checkpoint wait sync.get.input.object $object_input_watch 0 | ignore
+for watch in $stored_watches {
+	tg --url $client.url checkpoint wait sync.get.store.object.stored $watch 0 | ignore
+	tg --url $client.url checkpoint unwatch sync.get.store.object.stored $watch
+}
 tg --url $client.url checkpoint continue sync.get.index.object.filter $object_filter_watch 0
 tg --url $client.url checkpoint unwatch sync.get.index.object.filter $object_filter_watch
 

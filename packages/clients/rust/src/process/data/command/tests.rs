@@ -315,8 +315,18 @@ fn tokens() -> tg::Tokens {
 	let key =
 		tg::authorization::PrivateKey::generate("default", tg::authorization::Algorithm::Ed25519)
 			.unwrap();
-	let token = tg::sync::Token::sign(tg::sync::token::Body::new(i64::MAX), &key).unwrap();
+	let token = tg::authorization::Token::sign(
+		tg::authorization::Body {
+			expires_at: i64::MAX,
+			permissions: vec![tg::authorization::Permission::Sync(
+				tg::authorization::permission::sync::Permission::Read,
+			)],
+			resource: tg::sync::Id::new().into(),
+		},
+		&key,
+	)
+	.unwrap();
 	let mut tokens = tg::Tokens::default();
-	tokens.insert_sync(tg::Location::Local(tg::location::Local::default()), token);
+	tokens.insert_authorization(tg::Location::Local(tg::location::Local::default()), token);
 	tokens
 }

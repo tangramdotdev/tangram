@@ -25,7 +25,6 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 		parent: None,
 		sandbox: None,
 		storage: crate::process::Storage::default(),
-		subtree_objects: std::collections::BTreeSet::new(),
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,
 	};

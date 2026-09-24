@@ -103,12 +103,17 @@ for location in [local remote] {
 		}
 		for param in ($params | where {|param| $param.key =~ '\[authorization\]' }) {
 			let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-			assert equal $body.resource $object_id "the live response must not expose an ancestor's authorization token"
+			if not ($body.resource | str starts-with "syn_") {
+				assert equal $body.resource $object_id "the live response must not expose an ancestor's authorization token"
+			}
 		}
 		if $location == remote and ($field == output or $case.both) {
-			assert ($params | any {|param| $param.key == 'tokens[remote][sync][0]' }) $"the result sync token must be associated with its issuer: ($field) ($params | get key | to json --raw)"
+			assert ($params | any {|param| $param.key == 'tokens[remote][authorization][0]' }) $"the result sync token must be associated with its issuer: ($field) ($params | get key | to json --raw)"
 		} else if $location == remote {
-			assert ($params | all {|param| $param.key !~ '\[sync\]' }) "error permission alone must not expose the shared sync for both error and output objects"
+			assert ($params | where {|param| $param.key =~ '\[authorization\]' } | all {|param|
+				let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+				not ($body.resource | str starts-with 'syn_')
+			}) "error permission alone must not expose the shared sync for both error and output objects"
 		}
 		# An authorized read uses the runner's indexed grant before the control finish request completes.
 		let read_job = job spawn {

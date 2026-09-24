@@ -569,7 +569,7 @@ impl Session {
 			..Default::default()
 		};
 		let stream = self
-			.push_for_process(push_arg)
+			.push_for_process(push_arg, None)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to push the command"))?;
 		let mut stream = pin!(stream);

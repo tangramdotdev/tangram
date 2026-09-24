@@ -43,8 +43,8 @@ let push = job spawn {
 }
 success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.process $stored_watch 0 | complete) 'the process should be stored'
 success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blocker_watch 0 | complete) 'the unrelated object should keep the push open'
-wait_until { (open --raw $push_log) =~ 'tokens\[remote\]\[sync\][^\r\n]*\r?\n' } 'the push should log its complete sync token'
-let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]\[sync\]' } | first | str trim
+wait_until { (open --raw $push_log) =~ 'tokens\[remote\]\[authorization\][^\r\n]*\r?\n' } 'the push should log its complete sync token'
+let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]\[authorization\]' } | first | str trim
 
 # Bob cannot read the stored process's children using his ordinary authorization.
 let output = timeout 10s tg --url $remote.url --token $bob.token process children --local $process | complete

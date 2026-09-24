@@ -42,9 +42,10 @@ impl Session {
 			}
 			let mut ids = BTreeSet::new();
 			let tokens = tokens
-				.local_sync()
+				.local_authorization()
 				.iter()
-				.filter(|token| self.verify_sync_token(token) && ids.insert(&token.body.id))
+				.filter_map(|token| self.try_get_sync_id_from_token(token))
+				.filter(|id| ids.insert(id.clone()))
 				.collect::<Vec<_>>();
 			if arg.node().is_none() {
 				return Err(tg::error!("expected a sync node request"));
@@ -55,7 +56,7 @@ impl Session {
 				.unwrap_or_else(|| Arc::new(Client::default()));
 			let mut requests = tokens
 				.into_iter()
-				.map(|token| client.request(self, token, arg.clone()))
+				.map(|id| client.request(self, &id, arg.clone()))
 				.collect::<Vec<_>>();
 			let options = config.index_retry.clone().into();
 			let mut retry = std::pin::pin!(tangram_futures::retry::stream(options));

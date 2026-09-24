@@ -1746,7 +1746,13 @@ impl Graph {
 			self.local_authorization_tokens(index, required)
 		};
 		let id = self.nodes.get_index(index).unwrap().0;
-		tokens.sync = self.get_node_local_tokens(id).sync;
+		tokens.authorization.extend(
+			self.get_node_local_tokens(id)
+				.authorization
+				.into_iter()
+				.filter(|token| token.body.resource.kind() == tg::id::Kind::Sync),
+		);
+		tokens.normalize(Some(id));
 		Authorization {
 			permissions,
 			tokens,

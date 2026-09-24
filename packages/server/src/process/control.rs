@@ -187,12 +187,12 @@ impl Session {
 		let parent = arg.parent;
 		let sync = match arg.sync {
 			Some(sync) => {
-				if !session.verify_sync_token(&sync) {
+				if session.try_get_sync_id_from_token(&sync).is_none() {
 					return Err(tg::error!("invalid sync token"));
 				}
 				Some(sync)
 			},
-			None => session.create_sync_token()?,
+			None => session.create_read_token(&tg::sync::Id::new().into())?,
 		};
 		if !arg.start {
 			if assign && !matches!(self.context.principal, tg::Principal::Runner(_)) {
@@ -514,7 +514,7 @@ impl Session {
 		id: tg::process::Id,
 		location: Option<tg::location::Arg>,
 		mut stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-		sync: Option<tg::sync::Token>,
+		sync: Option<tg::authorization::Token>,
 	) -> BoxStream<'static, tg::Result<tg::process::control::ServerMessage>> {
 		let session = self.clone();
 		futures::stream::once(async move {
@@ -663,7 +663,6 @@ impl Session {
 					parent: parent.clone(),
 					sandbox: Some(data.sandbox.clone()),
 					storage: tangram_index::process::Storage::default(),
-					subtree_objects: std::collections::BTreeSet::new(),
 					time_to_touch: session.server.config.process.time_to_touch,
 					touched_at,
 				},

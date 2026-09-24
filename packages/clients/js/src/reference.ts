@@ -157,11 +157,6 @@ export namespace Reference {
 					`tokens[${encodeURIComponent(location)}][authorization][${index}]=${encodeURIComponent(token)}`,
 				);
 			}
-			for (let [index, token] of (entry.sync ?? []).entries()) {
-				params.push(
-					`tokens[${encodeURIComponent(location)}][sync][${index}]=${encodeURIComponent(token)}`,
-				);
-			}
 		}
 		if (params.length > 0) {
 			string += "?";
@@ -220,7 +215,7 @@ export namespace Reference {
 					}
 					default: {
 						let match = key?.match(
-							/^tokens\[(.*)\]\[(authorization|sync)\](?:\[(\d+)\])?$/,
+							/^tokens\[(.*)\]\[(authorization)\](?:\[(\d+)\])?$/,
 						);
 						if (match === null || match === undefined) {
 							throw new Error("invalid key");
@@ -228,21 +223,12 @@ export namespace Reference {
 						options.tokens ??= {};
 						let location = decodeURIComponent(match[1]!);
 						let entry = (options.tokens[location] ??= {});
-						if (match[2] === "authorization") {
-							let tokens = (entry.authorization ??= []);
-							let index = Number(match[3]);
-							if (match[3] === undefined || index !== tokens.length) {
-								throw new Error("invalid token index");
-							}
-							tokens.push(decodeURIComponent(value));
-						} else {
-							let tokens = (entry.sync ??= []);
-							let index = Number(match[3]);
-							if (match[3] === undefined || index !== tokens.length) {
-								throw new Error("invalid sync token index");
-							}
-							tokens.push(decodeURIComponent(value));
+						let tokens = (entry.authorization ??= []);
+						let index = Number(match[3]);
+						if (match[3] === undefined || index !== tokens.length) {
+							throw new Error("invalid token index");
 						}
+						tokens.push(decodeURIComponent(value));
 					}
 				}
 			}

@@ -48,7 +48,7 @@ pub struct State {
 	pub leases: BTreeSet<String>,
 	pub process: Option<tangram_sandbox::Process>,
 	pub stopper: tangram_futures::task::Stopper,
-	pub sync: Option<tg::sync::Token>,
+	pub sync: Option<tg::authorization::Token>,
 }
 
 impl State {

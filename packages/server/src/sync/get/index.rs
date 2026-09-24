@@ -5,6 +5,7 @@ use {
 	num::ToPrimitive as _,
 	std::{
 		collections::BTreeSet,
+		ops::ControlFlow,
 		sync::{Arc, Mutex},
 	},
 	tangram_cache::prelude::*,
@@ -623,10 +624,14 @@ impl Session {
 		}
 	}
 
-	pub(super) async fn sync_get_index_put(&self, graph: Arc<Mutex<Graph>>) -> tg::Result<()> {
+	pub(super) async fn sync_get_index_put(
+		&self,
+		graph: Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
+	) -> tg::Result<()> {
 		let (put_sandbox_args, put_sandbox_grant_args) =
-			self.sync_get_index_sandbox_args(&graph).await?;
-		self.sync_get_index_put_inner(graph, put_sandbox_args, put_sandbox_grant_args)
+			self.sync_get_index_sandbox_args(&graph, sync).await?;
+		self.sync_get_index_put_inner(graph, put_sandbox_args, put_sandbox_grant_args, sync)
 			.await?;
 
 		Ok(())
@@ -635,8 +640,9 @@ impl Session {
 	pub(super) async fn sync_get_index_put_partial(
 		&self,
 		graph: Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
 	) -> tg::Result<()> {
-		self.sync_get_index_put_inner(graph, Vec::new(), Vec::new())
+		self.sync_get_index_put_inner(graph, Vec::new(), Vec::new(), sync)
 			.await?;
 
 		Ok(())
@@ -647,7 +653,29 @@ impl Session {
 		graph: Arc<Mutex<Graph>>,
 		put_sandbox_args: Vec<tangram_index::sandbox::put::Arg>,
 		put_sandbox_grant_args: Vec<tangram_index::grant::put::Arg>,
+		sync: &tg::sync::Id,
 	) -> tg::Result<()> {
+		let options = self.server.config.sync.retry.clone().into();
+		tangram_futures::retry(&options, || {
+			self.sync_get_index_put_attempt(
+				graph.clone(),
+				put_sandbox_args.clone(),
+				put_sandbox_grant_args.clone(),
+				sync,
+			)
+		})
+		.await?;
+
+		Ok(())
+	}
+
+	async fn sync_get_index_put_attempt(
+		&self,
+		graph: Arc<Mutex<Graph>>,
+		put_sandbox_args: Vec<tangram_index::sandbox::put::Arg>,
+		put_sandbox_grant_args: Vec<tangram_index::grant::put::Arg>,
+		sync: &tg::sync::Id,
+	) -> tg::Result<ControlFlow<(), tg::Error>> {
 		// Flush the cache.
 		self.server
 			.cache
@@ -685,10 +713,16 @@ impl Session {
 		// Create the index args and update the graph with the permissions being granted.
 		let account = self.usage_account(&self.context.principal).await?;
 		let touched_at = self.server.clock.unix_timestamp()?;
-		let (put_checkout_args, put_grant_args, put_object_args, put_process_args, storage_roots) = {
+		let (
+			put_checkout_args,
+			mut put_grant_args,
+			put_object_args,
+			put_process_args,
+			storage_roots,
+		) = {
 			let mut graph = graph.lock().unwrap();
 			let args = self
-				.sync_get_index_create_args(&graph)
+				.sync_get_index_create_args(&graph, sync)
 				.map_err(|error| tg::error!(!error, "failed to create the index args"))?;
 			for arg in &args.0 {
 				match arg.resource.kind() {
@@ -714,6 +748,10 @@ impl Session {
 			let storage_roots = graph.remote_roots().iter().cloned().collect::<Vec<_>>();
 			(put_checkout_args, args.0, args.1, args.2, storage_roots)
 		};
+		if let Some(arg) = self.sync_get_create_implicit_grant(&sync.clone().into(), None)? {
+			put_grant_args.push(arg);
+		}
+
 		// Index the objects, processes, and sandboxes.
 		let arg = tangram_index::batch::Arg {
 			items: put_checkout_args
@@ -764,17 +802,20 @@ impl Session {
 				}))
 				.collect(),
 		};
-		self.server
-			.index_batch(arg)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to index the sync"))?;
-
-		Ok(())
+		crate::checkpoint!(self.server, "sync.get.index.enqueue", sync = %sync).await;
+		match self.server.index_batch(arg).await {
+			Ok(()) => Ok(ControlFlow::Break(())),
+			Err(error) => {
+				let error = tg::error!(!error, "failed to index the sync");
+				Ok(ControlFlow::Continue(error))
+			},
+		}
 	}
 
 	async fn sync_get_index_sandbox_args(
 		&self,
 		graph: &Arc<Mutex<Graph>>,
+		sync: &tg::sync::Id,
 	) -> tg::Result<(
 		Vec<tangram_index::sandbox::put::Arg>,
 		Vec<tangram_index::grant::put::Arg>,
@@ -818,8 +859,15 @@ impl Session {
 				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 					return Err(tg::error!("unauthorized"));
 				}
-			} else if let Some(arg) =
-				self.sync_get_create_implicit_grant(&message.id.clone().into())?
+			}
+			if let Some(arg) =
+				self.sync_get_create_implicit_grant(&message.id.clone().into(), Some(sync))?
+			{
+				put_grant_args.push(arg);
+			}
+			// Preserve the caller's write permission when the sandbox is synced again.
+			if let Some(arg) =
+				self.sync_get_create_implicit_grant(&message.id.clone().into(), None)?
 			{
 				put_grant_args.push(arg);
 			}
@@ -840,6 +888,7 @@ impl Session {
 	fn sync_get_index_create_args(
 		&self,
 		graph: &Graph,
+		sync: &tg::sync::Id,
 	) -> tg::Result<(
 		Vec<tangram_index::grant::put::Arg>,
 		Vec<tangram_index::object::put::Arg>,
@@ -858,116 +907,96 @@ impl Session {
 
 		// Create the grant args.
 		let mut put_grant_args = Vec::new();
-		let grant_subject = match &self.context.principal {
-			tg::Principal::Root => None,
-			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
-			principal => Some(principal.try_to_subject()?),
-		};
-		if let Some(grant_subject) = grant_subject {
-			let object_expires_at = touched_at
-				+ self
-					.server
-					.config
-					.object
-					.grant_time_to_live
-					.as_secs()
-					.to_i64()
-					.unwrap();
-			let process_expires_at = touched_at
-				+ self
-					.server
-					.config
-					.process
-					.grant_time_to_live
-					.as_secs()
-					.to_i64()
-					.unwrap();
-			let mut object_covered = vec![false; graph.nodes().len()];
-			let mut process_covered =
-				vec![tg::authorization::permission::process::Set::empty(); graph.nodes().len()];
-			for index in indices.iter().rev().copied() {
-				let (id, node) = graph.nodes().get_index(index).unwrap();
-				match node {
-					Node::Group(_)
-					| Node::Organization(_)
-					| Node::Sandbox(_)
-					| Node::Tag(_)
-					| Node::User(_) => {},
-					Node::Object(node) => {
-						let id = tg::object::Id::try_from(id.clone())?;
-						let proven = graph.object_local_permissions(&id);
-						let node_permission = tg::authorization::Permission::Object(
-							tg::authorization::permission::object::Permission::Node,
-						);
-						let availability = node
-							.local_availability()
-							.is_some_and(|availability| availability.subtree);
-						let mut subtree = false;
-						if (node.marked() || proven.contains(node_permission))
-							&& !object_covered[index]
-						{
-							let permissions = Graph::object_grant_permissions(availability);
-							subtree = availability;
-							put_grant_args.push(tangram_index::grant::put::Arg {
-								created_at: touched_at,
-								creator: Some(self.context.principal.clone()),
-								implicit: Some(Some(object_expires_at)),
-								permissions: tg::authorization::permission::Set::Object(
-									permissions,
-								),
-								subject: grant_subject.clone(),
-								resource: id.into(),
-								time_to_touch: Some(self.server.config.object.grant_time_to_touch),
-							});
+		let grant_subject = tg::authorization::Subject::Sync(sync.clone());
+		let expires_at = touched_at
+			+ self
+				.server
+				.config
+				.sync
+				.grant_time_to_live
+				.as_secs()
+				.to_i64()
+				.unwrap();
+		let mut object_covered = vec![false; graph.nodes().len()];
+		let mut process_covered =
+			vec![tg::authorization::permission::process::Set::empty(); graph.nodes().len()];
+		for index in indices.iter().rev().copied() {
+			let (id, node) = graph.nodes().get_index(index).unwrap();
+			match node {
+				Node::Group(_)
+				| Node::Organization(_)
+				| Node::Sandbox(_)
+				| Node::Tag(_)
+				| Node::User(_) => {},
+				Node::Object(node) => {
+					let id = tg::object::Id::try_from(id.clone())?;
+					let proven = graph.object_local_permissions(&id);
+					let node_permission = tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Node,
+					);
+					let availability = node
+						.local_availability()
+						.is_some_and(|availability| availability.subtree);
+					let mut subtree = false;
+					if (node.marked() || proven.contains(node_permission)) && !object_covered[index]
+					{
+						let permissions = Graph::object_grant_permissions(availability);
+						subtree = availability;
+						put_grant_args.push(tangram_index::grant::put::Arg {
+							created_at: touched_at,
+							creator: Some(self.context.principal.clone()),
+							implicit: Some(Some(expires_at)),
+							permissions: tg::authorization::permission::Set::Object(permissions),
+							subject: grant_subject.clone(),
+							resource: id.into(),
+							time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+						});
+					}
+					let covered = object_covered[index] || subtree;
+					if covered && let Some(children) = node.children() {
+						for child in children {
+							object_covered[*child] = true;
 						}
-						let covered = object_covered[index] || subtree;
-						if covered && let Some(children) = node.children() {
-							for child in children {
-								object_covered[*child] = true;
-							}
+					}
+				},
+				Node::Process(node) => {
+					let availability = node.local_availability().cloned().unwrap_or_default();
+					let mut permissions = if node.marked() {
+						Graph::process_grant_permissions(&availability)
+					} else {
+						tg::authorization::permission::process::Set::empty()
+					};
+					let tg::authorization::permission::Set::Process(proven) =
+						graph.process_local_permissions(&id.clone().try_into()?)
+					else {
+						return Err(tg::error!("expected process permissions"));
+					};
+					permissions.insert(proven);
+					Self::sync_get_index_remove_process_permissions_covered_by_ancestors(
+						&mut permissions,
+						process_covered[index],
+					);
+					if !permissions.is_empty() {
+						put_grant_args.push(tangram_index::grant::put::Arg {
+							created_at: touched_at,
+							creator: Some(self.context.principal.clone()),
+							implicit: Some(Some(expires_at)),
+							permissions: tg::authorization::permission::Set::Process(permissions),
+							subject: grant_subject.clone(),
+							resource: tg::process::Id::try_from(id.clone())?.into(),
+							time_to_touch: Some(self.server.config.process.grant_time_to_touch),
+						});
+					}
+					let subtree_permissions =
+						Self::sync_get_index_process_subtree_permissions(permissions);
+					let mut covered = process_covered[index];
+					covered.insert(subtree_permissions);
+					if let Some(children) = node.children() {
+						for child in children {
+							process_covered[*child].insert(covered);
 						}
-					},
-					Node::Process(node) => {
-						let availability = node.local_availability().cloned().unwrap_or_default();
-						let mut permissions = if node.marked() {
-							Graph::process_grant_permissions(&availability)
-						} else {
-							tg::authorization::permission::process::Set::empty()
-						};
-						let tg::authorization::permission::Set::Process(proven) =
-							graph.process_local_permissions(&id.clone().try_into()?)
-						else {
-							return Err(tg::error!("expected process permissions"));
-						};
-						permissions.insert(proven);
-						Self::sync_get_index_remove_process_permissions_covered_by_ancestors(
-							&mut permissions,
-							process_covered[index],
-						);
-						if !permissions.is_empty() {
-							put_grant_args.push(tangram_index::grant::put::Arg {
-								created_at: touched_at,
-								creator: Some(self.context.principal.clone()),
-								implicit: Some(Some(process_expires_at)),
-								permissions: tg::authorization::permission::Set::Process(
-									permissions,
-								),
-								subject: grant_subject.clone(),
-								resource: tg::process::Id::try_from(id.clone())?.into(),
-								time_to_touch: Some(self.server.config.process.grant_time_to_touch),
-							});
-						}
-						let subtree_permissions =
-							Self::sync_get_index_process_subtree_permissions(permissions);
-						let mut covered = process_covered[index];
-						covered.insert(subtree_permissions);
-						if let Some(children) = node.children() {
-							for child in children {
-								process_covered[*child].insert(covered);
-							}
-						}
-					},
-				}
+					}
+				},
 			}
 		}
 
@@ -1136,7 +1165,6 @@ impl Session {
 							parent: None,
 							sandbox: None,
 							storage,
-							subtree_objects: std::collections::BTreeSet::new(),
 							time_to_touch: self.server.config.process.time_to_touch,
 							touched_at,
 						};

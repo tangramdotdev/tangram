@@ -16,6 +16,7 @@ pub enum ResourceKind {
 	Organization,
 	Process,
 	Sandbox,
+	Sync,
 	Tag,
 	User,
 }
@@ -31,6 +32,7 @@ impl ResourceKind {
 			crate::id::Kind::Organization => Some(Self::Organization),
 			crate::id::Kind::Process => Some(Self::Process),
 			crate::id::Kind::Sandbox => Some(Self::Sandbox),
+			crate::id::Kind::Sync => Some(Self::Sync),
 			crate::id::Kind::Tag => Some(Self::Tag),
 			crate::id::Kind::User => Some(Self::User),
 			_ => None,

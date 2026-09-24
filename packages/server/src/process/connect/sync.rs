@@ -11,7 +11,7 @@ use {
 pub(super) struct Destination {
 	pub input: Input,
 	pub task: Task<tg::Result<()>>,
-	pub token: tg::sync::Token,
+	pub token: tg::authorization::Token,
 }
 
 pub(super) struct Source {

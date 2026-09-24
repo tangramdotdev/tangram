@@ -23,6 +23,7 @@ struct PushOrPullInnerArg<'a> {
 	process: bool,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
 	source: Option<tg::Location>,
+	token: Option<tg::authorization::Token>,
 }
 
 struct PushOrPullTaskArg {
@@ -34,6 +35,7 @@ struct PushOrPullTaskArg {
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
 	source: Option<tg::Location>,
 	source_session: Option<tg::Session>,
+	token: Option<tg::authorization::Token>,
 }
 
 impl Session {
@@ -58,6 +60,7 @@ impl Session {
 	pub(crate) async fn push_for_process(
 		&self,
 		arg: tg::push::Arg,
+		token: Option<tg::authorization::Token>,
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + use<>,
 	> {
@@ -70,7 +73,7 @@ impl Session {
 			.clone()
 			.ok_or_else(|| tg::error!("a push requires a destination"))?;
 		let stream = self
-			.push_or_pull_for_process(&arg, Some(source), destination)
+			.push_or_pull_for_process(&arg, Some(source), destination, token)
 			.await?;
 		Ok(stream)
 	}
@@ -94,6 +97,7 @@ impl Session {
 			process: false,
 			received_specifiers: None,
 			source,
+			token: None,
 		};
 		self.push_or_pull_inner(inner_arg).await
 	}
@@ -116,6 +120,7 @@ impl Session {
 			process: false,
 			received_specifiers: Some(received_specifiers.clone()),
 			source: Some(source),
+			token: None,
 		};
 		let stream = self.push_or_pull_inner(inner_arg).await?;
 		let output = (stream, received_specifiers);
@@ -128,6 +133,7 @@ impl Session {
 		arg: &tg::push::Arg,
 		source: Option<tg::Location>,
 		destination: tg::Location,
+		token: Option<tg::authorization::Token>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
 		let get = arg
 			.nodes
@@ -142,6 +148,7 @@ impl Session {
 			process: true,
 			received_specifiers: None,
 			source,
+			token,
 		};
 		self.push_or_pull_inner(inner_arg).await
 	}
@@ -157,6 +164,7 @@ impl Session {
 			process,
 			received_specifiers,
 			source,
+			token,
 		} = inner_arg;
 		let source_session = match &source {
 			None | Some(tg::Location::Local(_)) => None,
@@ -264,6 +272,7 @@ impl Session {
 					received_specifiers,
 					source,
 					source_session,
+					token,
 				};
 				let result = AssertUnwindSafe(session.push_or_pull_task(task_arg))
 					.catch_unwind()
@@ -440,6 +449,7 @@ impl Session {
 			received_specifiers,
 			source,
 			source_session,
+			token,
 		} = task_arg;
 		let source_trusted = source_session.as_ref().is_some_and(tg::Session::trusted);
 		let retry = &self.server.config.sync.retry;
@@ -459,6 +469,7 @@ impl Session {
 			let session = session.clone();
 			let source = source.clone();
 			let source_session = source_session.clone();
+			let token = token.clone();
 			async move {
 				if let Some(received_specifiers) = &received_specifiers {
 					received_specifiers.lock().unwrap().clear();
@@ -537,7 +548,7 @@ impl Session {
 					put: Vec::new(),
 					sandbox_processes: arg.sandbox_processes,
 					tag_targets: arg.tag_targets,
-					token: arg.sync.clone(),
+					token,
 					user_children: arg.user_children,
 				};
 				let destination_input_stream =
@@ -614,7 +625,7 @@ impl Session {
 							let mut node = node.clone();
 							node.options
 								.tokens
-								.insert_sync(destination.clone(), token.clone());
+								.insert_authorization(destination.clone(), token.clone());
 							progress.log(None, node.to_string());
 						}
 					}
@@ -650,7 +661,7 @@ impl Session {
 						for node in &mut output.nodes {
 							node.options
 								.tokens
-								.insert_sync(destination.clone(), token.clone());
+								.insert_authorization(destination.clone(), token.clone());
 						}
 					}
 					Ok(ControlFlow::Break(output))

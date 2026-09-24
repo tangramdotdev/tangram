@@ -5,6 +5,7 @@ pub mod object;
 pub mod organization;
 pub mod process;
 pub mod sandbox;
+pub mod sync;
 pub mod tag;
 pub mod user;
 
@@ -41,6 +42,9 @@ pub enum Permission {
 	#[display("sandbox_{_0}")]
 	Sandbox(sandbox::Permission),
 
+	#[display("sync_{_0}")]
+	Sync(sync::Permission),
+
 	#[display("tag_{_0}")]
 	Tag(tag::Permission),
 
@@ -76,6 +80,9 @@ pub enum Set {
 
 	#[tangram_serialize(id = 4)]
 	Sandbox(sandbox::Set),
+
+	#[tangram_serialize(id = 7)]
+	Sync(sync::Set),
 
 	#[tangram_serialize(id = 5)]
 	Tag(tag::Set),
@@ -117,6 +124,12 @@ impl Permission {
 					.map_err(|_| tg::error!("invalid authorization permission"))?;
 				Ok(Self::Sandbox(permission))
 			},
+			tg::authorization::ResourceKind::Sync => {
+				let permission = s
+					.parse()
+					.map_err(|_| tg::error!("invalid authorization permission"))?;
+				Ok(Self::Sync(permission))
+			},
 			tg::authorization::ResourceKind::Tag => {
 				let permission = s
 					.parse()
@@ -140,6 +153,7 @@ impl Permission {
 			Self::Organization(_) => tg::authorization::ResourceKind::Organization,
 			Self::Process(_) => tg::authorization::ResourceKind::Process,
 			Self::Sandbox(_) => tg::authorization::ResourceKind::Sandbox,
+			Self::Sync(_) => tg::authorization::ResourceKind::Sync,
 			Self::Tag(_) => tg::authorization::ResourceKind::Tag,
 			Self::User(_) => tg::authorization::ResourceKind::User,
 		}
@@ -153,6 +167,7 @@ impl Permission {
 			(Self::Organization(granted), Self::Organization(needed)) => granted.implies(needed),
 			(Self::Process(granted), Self::Process(needed)) => granted.implies(needed),
 			(Self::Sandbox(granted), Self::Sandbox(needed)) => granted.implies(needed),
+			(Self::Sync(granted), Self::Sync(needed)) => granted.implies(needed),
 			(Self::Tag(granted), Self::Tag(needed)) => granted.implies(needed),
 			(Self::User(granted), Self::User(needed)) => granted.implies(needed),
 			_ => false,
@@ -178,6 +193,7 @@ impl Permission {
 				| process::Permission::SubtreeOutput,
 			)
 			| Self::Sandbox(sandbox::Permission::Read)
+			| Self::Sync(sync::Permission::Read)
 			| Self::Tag(tag::Permission::Read)
 			| Self::User(user::Permission::Read) => true,
 			Self::Group(group::Permission::Admin | group::Permission::Write)
@@ -238,6 +254,7 @@ impl Set {
 			Permission::Sandbox(permission) => {
 				Self::Sandbox(sandbox::Set::from_permission(permission))
 			},
+			Permission::Sync(permission) => Self::Sync(sync::Set::from_permission(permission)),
 			Permission::Tag(permission) => Self::Tag(tag::Set::from_permission(permission)),
 			Permission::User(permission) => Self::User(user::Set::from_permission(permission)),
 		}
@@ -252,6 +269,7 @@ impl Set {
 			(Self::Organization(this), Self::Organization(other)) => this.contains(other),
 			(Self::Process(this), Self::Process(other)) => this.contains(other),
 			(Self::Sandbox(this), Self::Sandbox(other)) => this.contains(other),
+			(Self::Sync(this), Self::Sync(other)) => this.contains(other),
 			(Self::Tag(this), Self::Tag(other)) => this.contains(other),
 			(Self::User(this), Self::User(other)) => this.contains(other),
 			_ => false,
@@ -266,6 +284,7 @@ impl Set {
 			Self::Organization(_) => tg::authorization::ResourceKind::Organization,
 			Self::Process(_) => tg::authorization::ResourceKind::Process,
 			Self::Sandbox(_) => tg::authorization::ResourceKind::Sandbox,
+			Self::Sync(_) => tg::authorization::ResourceKind::Sync,
 			Self::Tag(_) => tg::authorization::ResourceKind::Tag,
 			Self::User(_) => tg::authorization::ResourceKind::User,
 		}
@@ -286,6 +305,7 @@ impl Set {
 			},
 			tg::authorization::ResourceKind::Process => Self::Process(process::Set::empty()),
 			tg::authorization::ResourceKind::Sandbox => Self::Sandbox(sandbox::Set::empty()),
+			tg::authorization::ResourceKind::Sync => Self::Sync(sync::Set::empty()),
 			tg::authorization::ResourceKind::Tag => Self::Tag(tag::Set::empty()),
 			tg::authorization::ResourceKind::User => Self::User(user::Set::empty()),
 		}
@@ -299,6 +319,7 @@ impl Set {
 			Self::Organization(permissions) => permissions.is_empty(),
 			Self::Process(permissions) => permissions.is_empty(),
 			Self::Sandbox(permissions) => permissions.is_empty(),
+			Self::Sync(permissions) => permissions.is_empty(),
 			Self::Tag(permissions) => permissions.is_empty(),
 			Self::User(permissions) => permissions.is_empty(),
 		}
@@ -311,6 +332,7 @@ impl Set {
 			(Self::Organization(this), Self::Organization(other)) => this.insert(other),
 			(Self::Process(this), Self::Process(other)) => this.insert(other),
 			(Self::Sandbox(this), Self::Sandbox(other)) => this.insert(other),
+			(Self::Sync(this), Self::Sync(other)) => this.insert(other),
 			(Self::Tag(this), Self::Tag(other)) => this.insert(other),
 			(Self::User(this), Self::User(other)) => this.insert(other),
 			_ => {},
@@ -324,6 +346,7 @@ impl Set {
 			(Self::Organization(this), Self::Organization(other)) => this.remove(other),
 			(Self::Process(this), Self::Process(other)) => this.remove(other),
 			(Self::Sandbox(this), Self::Sandbox(other)) => this.remove(other),
+			(Self::Sync(this), Self::Sync(other)) => this.remove(other),
 			(Self::Tag(this), Self::Tag(other)) => this.remove(other),
 			(Self::User(this), Self::User(other)) => this.remove(other),
 			_ => {},
@@ -372,6 +395,7 @@ impl Set {
 				None,
 			],
 			Self::Sandbox(permissions) => Self::sandbox_entries(permissions),
+			Self::Sync(permissions) => Self::sync_entries(permissions),
 			Self::Tag(permissions) => Self::tag_entries(permissions),
 			Self::User(permissions) => Self::user_entries(permissions),
 		};
@@ -460,6 +484,29 @@ impl Set {
 		permissions
 			.contains(sandbox::Set::from_permission(permission))
 			.then_some(Permission::Sandbox(permission))
+	}
+
+	fn sync_entries(permissions: sync::Set) -> [Option<Permission>; 12] {
+		[
+			Self::sync_entry(permissions, sync::Permission::Read),
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+			None,
+		]
+	}
+
+	fn sync_entry(permissions: sync::Set, permission: sync::Permission) -> Option<Permission> {
+		permissions
+			.contains(sync::Set::from_permission(permission))
+			.then_some(Permission::Sync(permission))
 	}
 
 	fn tag_entries(permissions: tag::Set) -> [Option<Permission>; 12] {
@@ -581,6 +628,12 @@ impl std::str::FromStr for Permission {
 				.map_err(|_| tg::error!("invalid authorization permission"))?;
 			return Ok(Self::Sandbox(permission));
 		}
+		if let Some(s) = s.strip_prefix("sync_") {
+			let permission = s
+				.parse()
+				.map_err(|_| tg::error!("invalid authorization permission"))?;
+			return Ok(Self::Sync(permission));
+		}
 		if let Some(s) = s.strip_prefix("tag_") {
 			let permission = s
 				.parse()
@@ -600,7 +653,7 @@ impl std::str::FromStr for Permission {
 #[cfg(test)]
 mod tests {
 	use {
-		super::{Permission, Set, group, object, organization, process, sandbox, tag, user},
+		super::{Permission, Set, group, object, organization, process, sandbox, sync, tag, user},
 		crate as tg,
 	};
 
@@ -616,6 +669,7 @@ mod tests {
 			),
 			(Set::Process(process::Set::NODE), "process", 3),
 			(Set::Sandbox(sandbox::Set::READ), "sandbox", 4),
+			(Set::Sync(sync::Set::READ), "sync", 7),
 			(Set::Tag(tag::Set::READ), "tag", 5),
 			(Set::User(user::Set::READ), "user", 6),
 		] {
@@ -716,6 +770,7 @@ mod tests {
 				Permission::Sandbox(sandbox::Permission::Write),
 				"sandbox_write",
 			),
+			(Permission::Sync(sync::Permission::Read), "sync_read"),
 			(Permission::Tag(tag::Permission::Admin), "tag_admin"),
 			(Permission::Tag(tag::Permission::Read), "tag_read"),
 			(Permission::Tag(tag::Permission::Write), "tag_write"),
@@ -815,6 +870,7 @@ mod tests {
 			Permission::Process(process::Permission::SubtreeLog),
 			Permission::Process(process::Permission::SubtreeOutput),
 			Permission::Sandbox(sandbox::Permission::Read),
+			Permission::Sync(sync::Permission::Read),
 			Permission::Tag(tag::Permission::Read),
 			Permission::User(user::Permission::Read),
 		] {

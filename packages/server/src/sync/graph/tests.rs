@@ -105,26 +105,39 @@ fn lifted_sync_tokens_follow_attachment_ancestors() {
 	let key =
 		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
 			.unwrap();
-	let tokens = (0..3)
+	let mut tokens = (0..3)
 		.map(|_| {
-			let body = tg::sync::token::Body::new(i64::MAX);
-			tg::sync::Token::sign(body, &key).unwrap()
+			let body = tg::authorization::Body {
+				expires_at: i64::MAX,
+				permissions: vec![tg::authorization::Permission::Sync(
+					tg::authorization::permission::sync::Permission::Read,
+				)],
+				resource: tg::sync::Id::new().into(),
+			};
+			tg::authorization::Token::sign(body, &key).unwrap()
 		})
 		.collect::<Vec<_>>();
+	tokens.sort_by_cached_key(ToString::to_string);
 	let arg = tg::sync::Arg::default();
 	let mut graph = Graph::new(&arg, false);
 	update_object(&mut graph, &ids[0], &ids[1..3]);
 	update_object(&mut graph, &ids[1], &ids[3..4]);
 	update_object(&mut graph, &ids[2], &ids[4..5]);
 	let entry = tg::tokens::Entry {
-		sync: tokens.clone(),
-		..Default::default()
+		authorization: tokens.clone(),
 	};
 	graph.update_object_tokens(&ids[0], &entry, &entry);
 	for id in &ids {
-		assert_eq!(graph.get_node_local_tokens(&id.clone().into()).sync, tokens);
 		assert_eq!(
-			graph.get_node_remote_tokens(&id.clone().into()).sync,
+			graph
+				.get_node_local_tokens(&id.clone().into())
+				.authorization,
+			tokens
+		);
+		assert_eq!(
+			graph
+				.get_node_remote_tokens(&id.clone().into())
+				.authorization,
 			tokens
 		);
 	}
@@ -134,9 +147,16 @@ fn lifted_sync_tokens_follow_attachment_ancestors() {
 	graph.update_object_tokens(&ids[1], &entry, &entry);
 	graph.update_object_tokens(&ids[3], &entry, &entry);
 	for id in [&ids[1], &ids[3]] {
-		assert_eq!(graph.get_node_local_tokens(&id.clone().into()).sync, tokens);
 		assert_eq!(
-			graph.get_node_remote_tokens(&id.clone().into()).sync,
+			graph
+				.get_node_local_tokens(&id.clone().into())
+				.authorization,
+			tokens
+		);
+		assert_eq!(
+			graph
+				.get_node_remote_tokens(&id.clone().into())
+				.authorization,
 			tokens
 		);
 	}
@@ -144,13 +164,13 @@ fn lifted_sync_tokens_follow_attachment_ancestors() {
 		assert!(
 			graph
 				.get_node_local_tokens(&id.clone().into())
-				.sync
+				.authorization
 				.is_empty()
 		);
 		assert!(
 			graph
 				.get_node_remote_tokens(&id.clone().into())
-				.sync
+				.authorization
 				.is_empty()
 		);
 	}

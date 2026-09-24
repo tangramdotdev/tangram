@@ -39,6 +39,7 @@ pub enum Kind {
 	Token,
 	Runner,
 	Scheduler,
+	Sync,
 }
 
 #[derive(Clone, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -124,6 +125,7 @@ impl Id {
 			Kind::User => 9,
 			Kind::Group => 10,
 			Kind::Indexer => 16,
+			Kind::Sync => 17,
 			Kind::Organization => 11,
 			Kind::Tag => 12,
 			Kind::Runner => 13,
@@ -182,6 +184,7 @@ impl Id {
 			9 => Kind::User,
 			10 => Kind::Group,
 			16 => Kind::Indexer,
+			17 => Kind::Sync,
 			11 => Kind::Organization,
 			12 => Kind::Tag,
 			13 => Kind::Runner,
@@ -338,6 +341,7 @@ impl std::fmt::Display for Kind {
 			Self::Command => "cmd",
 			Self::Error => "err",
 			Self::Sandbox => "sbx",
+			Self::Sync => "syn",
 			Self::Process => "pcs",
 			Self::User => "usr",
 			Self::Group => "grp",
@@ -366,6 +370,7 @@ impl std::str::FromStr for Kind {
 			"cmd" | "command" => Self::Command,
 			"err" | "error" => Self::Error,
 			"sbx" | "sandbox" => Self::Sandbox,
+			"syn" | "sync" => Self::Sync,
 			"pcs" | "process" => Self::Process,
 			"usr" | "user" => Self::User,
 			"grp" | "group" => Self::Group,

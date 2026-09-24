@@ -341,30 +341,16 @@ impl Index {
 			let previous = db
 				.get(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to get the process object"))?;
-			let previous = previous
-				.as_ref()
-				.map(|bytes| crate::process::object::Data::deserialize(bytes))
-				.transpose()?;
 			let added = match kind {
 				crate::process::object::Kind::Command => command_changed,
 				crate::process::object::Kind::Error => error_changed,
 				crate::process::object::Kind::Log => log_changed,
 				crate::process::object::Kind::Output => output_changed,
 			};
-			if previous.is_none() && !added {
+			if previous.is_some() || !added {
 				continue;
 			}
-
-			let subtree = arg.subtree_objects.contains(&object)
-				|| previous.as_ref().is_some_and(|data| data.subtree);
-			if previous
-				.as_ref()
-				.is_some_and(|data| data.subtree == subtree)
-			{
-				continue;
-			}
-			let data = crate::process::object::Data { subtree };
-			let value = data.serialize()?;
+			let value = [];
 			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, "failed to put the process object"))?;
 

@@ -604,6 +604,7 @@ impl Search {
 			tg::authorization::Permission::Group(_)
 			| tg::authorization::Permission::Organization(_)
 			| tg::authorization::Permission::Sandbox(_)
+			| tg::authorization::Permission::Sync(_)
 			| tg::authorization::Permission::Tag(_)
 			| tg::authorization::Permission::User(_) => {},
 		}
@@ -902,8 +903,8 @@ impl Search {
 		}
 		match permission {
 			tg::authorization::Permission::Object(_) => {
-				for (process, kind, subtree) in &facts.object_processes {
-					if *subtree || implicit_processes.contains(process) {
+				for (process, kind) in &facts.object_processes {
+					if implicit_processes.contains(process) {
 						let permission = tg::authorization::Permission::Process(
 							crate::authorize::process_object_permission(*kind),
 						);
@@ -928,6 +929,7 @@ impl Search {
 			tg::authorization::Permission::Group(_)
 			| tg::authorization::Permission::Organization(_)
 			| tg::authorization::Permission::Sandbox(_)
+			| tg::authorization::Permission::Sync(_)
 			| tg::authorization::Permission::Tag(_)
 			| tg::authorization::Permission::User(_) => {
 				if let Some(owner) = &facts.sandbox_owner {
@@ -977,6 +979,20 @@ impl Search {
 	) -> bool {
 		if !grant.permission.implies(dependent.1) {
 			return true;
+		}
+		if let tg::authorization::Subject::Sync(sync) = &grant.subject {
+			if !grant.permission.is_read_like() {
+				return true;
+			}
+			let permission = tg::authorization::Permission::Sync(
+				tg::authorization::permission::sync::Permission::Read,
+			);
+			return self.add_dependency(
+				state,
+				dependent,
+				(sync.clone().into(), permission),
+				depth + 1,
+			);
 		}
 		let source = (grant.resource.clone(), grant.permission);
 		let subject = grant.subject.clone();
@@ -1089,6 +1105,7 @@ impl Search {
 			| tg::authorization::Subject::Root
 			| tg::authorization::Subject::Runner(_)
 			| tg::authorization::Subject::Sandbox(_)
+			| tg::authorization::Subject::Sync(_)
 			| tg::authorization::Subject::User(_) => return,
 		};
 		self.queues.entry(depth).or_default().push_back(task);
@@ -1146,6 +1163,7 @@ impl Search {
 			tg::authorization::Permission::Group(_)
 			| tg::authorization::Permission::Organization(_)
 			| tg::authorization::Permission::Sandbox(_)
+			| tg::authorization::Permission::Sync(_)
 			| tg::authorization::Permission::Tag(_)
 			| tg::authorization::Permission::User(_) => None,
 		};

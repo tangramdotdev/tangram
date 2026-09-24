@@ -300,7 +300,7 @@ impl Index {
 				);
 				let processes = entries
 					.into_iter()
-					.map(|(key, value)| {
+					.map(|(key, _)| {
 						let Key::Object(crate::fdb::object::Key::ObjectProcess {
 							kind,
 							process,
@@ -310,8 +310,7 @@ impl Index {
 							return Err(tg::error!("unexpected key type"));
 						};
 
-						let data = crate::process::object::Data::deserialize(&value)?;
-						Ok((process, kind, data.subtree))
+						Ok((process, kind))
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
@@ -473,31 +472,7 @@ impl Index {
 				permission,
 				process,
 			} => {
-				let mut subtree = false;
-				for kind in [
-					crate::process::object::Kind::Command,
-					crate::process::object::Kind::Error,
-					crate::process::object::Kind::Log,
-					crate::process::object::Kind::Output,
-				] {
-					let key = crate::fdb::Key::Process(crate::fdb::process::Key::ProcessObject {
-						kind,
-						object: object.clone(),
-						process: process.clone(),
-					});
-					let key = Self::pack(subspace, &key);
-					let result = txn.get(&key, false).await;
-					let value = crate::fdb::retry!(result);
-					if let Some(value) = value {
-						subtree |= crate::process::object::Data::deserialize(&value)?.subtree;
-					}
-					if subtree {
-						break;
-					}
-				}
-				let value = if subtree {
-					true
-				} else {
+				let value = {
 					let creator = Some(tg::Principal::Process(process.clone()));
 					let permission = tg::authorization::Permission::Object(*permission);
 					let resource = object.clone().into();

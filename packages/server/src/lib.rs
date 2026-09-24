@@ -158,6 +158,7 @@ pub struct State {
 	sandbox_vm_snapshot_lock: tokio::sync::Mutex<()>,
 	shutdown: tokio::sync::watch::Sender<Option<Shutdown>>,
 	sync_control_tasks: tangram_futures::task::Set<tg::Result<()>>,
+	sync_index_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	tangram_path: PathBuf,
 	temps: DashSet<PathBuf, fnv::FnvBuildHasher>,
 	version: String,
@@ -1195,6 +1196,7 @@ impl Server {
 			sandbox_vm_snapshot_lock: tokio::sync::Mutex::new(()),
 			shutdown,
 			sync_control_tasks: tangram_futures::task::Set::default(),
+			sync_index_tasks: tangram_futures::task::Set::default(),
 			tangram_path,
 			temps,
 			version,
@@ -1648,6 +1650,9 @@ impl Server {
 				}
 				tracing::trace!("remote list tasks");
 
+				// Enqueue interrupted transfers before stopping their control tasks.
+				server.sync_index_tasks.wait().await;
+
 				// Drain the sync control tasks after the transfers have stopped.
 				server.sync_control_tasks.stop_all();
 				server.sync_control_tasks.wait().await;
@@ -1923,6 +1928,7 @@ impl Deref for Server {
 impl Drop for Owned {
 	fn drop(&mut self) {
 		self.sync_control_tasks.abort_all();
+		self.sync_index_tasks.abort_all();
 		self.archive_tasks.abort_all();
 		self.checkout_graph_tasks.abort_all();
 		self.checkout_tasks.abort_all();

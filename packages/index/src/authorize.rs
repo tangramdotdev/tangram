@@ -223,6 +223,7 @@ pub fn validate_permission(
 	permission: tg::authorization::Permission,
 ) -> tg::Result<()> {
 	let valid = match permission {
+		tg::authorization::Permission::Sync(_) => resource.kind() == tg::id::Kind::Sync,
 		tg::authorization::Permission::Group(_) => resource.kind() == tg::id::Kind::Group,
 		tg::authorization::Permission::Object(_) => {
 			tg::object::Id::try_from(resource.clone()).is_ok()
@@ -327,6 +328,9 @@ pub(crate) fn permissions_implied_by(
 	permission: tg::authorization::Permission,
 ) -> Vec<tg::authorization::Permission> {
 	let permissions = match permission {
+		tg::authorization::Permission::Sync(_) => vec![tg::authorization::Permission::Sync(
+			tg::authorization::permission::sync::Permission::Read,
+		)],
 		tg::authorization::Permission::Group(_) => vec![
 			tg::authorization::Permission::Group(
 				tg::authorization::permission::group::Permission::Admin,

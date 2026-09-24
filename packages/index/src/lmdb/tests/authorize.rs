@@ -14,14 +14,7 @@ fn object_id(n: usize) -> tg::object::Id {
 }
 
 fn put(index: &Index, txn: &mut lmdb::RwTxn<'_>, key: &Key) {
-	let value = match key {
-		Key::Process(ProcessKey::ProcessObject { .. })
-		| Key::Object(ObjectKey::ObjectProcess { .. }) => {
-			crate::process::object::Data::default().serialize().unwrap()
-		},
-		_ => Vec::new(),
-	};
-	put_value(index, txn, key, &value);
+	put_value(index, txn, key, &[]);
 }
 
 fn put_value(index: &Index, txn: &mut lmdb::RwTxn<'_>, key: &Key, value: &[u8]) {
@@ -3351,5 +3344,124 @@ async fn multiple_tokens_preserve_descendant_proof_expiration() {
 			.unwrap();
 		let output = outcomes.into_iter().next().unwrap().into_result().unwrap();
 		assert_eq!(output.expires_at, Some(200));
+	}
+}
+
+#[tokio::test]
+async fn sync_read_confers_only_read_like_permissions() {
+	let (_dir, index) = new_index();
+	let sync = tg::sync::Id::new();
+	let reader = tg::user::Id::new();
+	let stranger = tg::user::Id::new();
+	let root = object_id(900);
+	let child = object_id(901);
+	let sandbox = tg::sandbox::Id::new();
+	let process = tg::process::Id::new();
+	let read =
+		tg::authorization::Permission::Sync(tg::authorization::permission::sync::Permission::Read);
+	let subtree = object_permission(tg::authorization::permission::object::Permission::Subtree);
+	let sandbox_read = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Read,
+	);
+	let sandbox_write = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Write,
+	);
+	let process_node = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Node,
+	);
+	let process_parent = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Parent,
+	);
+	let mut transaction = index.env.write_txn().unwrap();
+	put_object(&index, &mut transaction, &root);
+	put_object(&index, &mut transaction, &child);
+	put_child(&index, &mut transaction, &root, &child);
+	put_process(&index, &mut transaction, &process, &sandbox);
+	put_sandbox(&index, &mut transaction, &sandbox);
+	put_resource_grant(
+		&index,
+		&mut transaction,
+		sync.clone().into(),
+		tg::authorization::Subject::User(reader.clone()),
+		read,
+	);
+	for (resource, permission) in [
+		(root.clone().into(), subtree),
+		(sandbox.clone().into(), sandbox_read),
+		(sandbox.clone().into(), sandbox_write),
+		(process.clone().into(), process_node),
+		(process.clone().into(), process_parent),
+	] {
+		put_resource_grant(
+			&index,
+			&mut transaction,
+			resource,
+			tg::authorization::Subject::Sync(sync.clone()),
+			permission,
+		);
+	}
+	transaction.commit().unwrap();
+	let disabled = crate::authorize::SearchConfig {
+		max_depth: 0,
+		max_edges: 0,
+		max_nodes: 0,
+		..Default::default()
+	};
+	for config in [
+		crate::authorize::Config::default(),
+		crate::authorize::Config {
+			descendant: disabled,
+			..Default::default()
+		},
+		crate::authorize::Config {
+			ancestor: disabled,
+			..Default::default()
+		},
+	] {
+		for (principal, tokens, allowed) in [
+			(tg::Principal::User(reader.clone()), Vec::new(), true),
+			(tg::Principal::User(stranger.clone()), Vec::new(), false),
+			(
+				tg::Principal::User(stranger.clone()),
+				vec![tg::authorization::Body {
+					expires_at: 200,
+					permissions: vec![read],
+					resource: sync.clone().into(),
+				}],
+				true,
+			),
+		] {
+			for (resource, permission, read_like) in [
+				(root.clone().into(), subtree, true),
+				(child.clone().into(), subtree, true),
+				(sandbox.clone().into(), sandbox_read, true),
+				(sandbox.clone().into(), sandbox_write, false),
+				(process.clone().into(), process_node, true),
+				(process.clone().into(), process_parent, false),
+			] {
+				let arg = crate::authorize::Arg {
+					required: permission.into(),
+					requested: permission.into(),
+					resource: tg::Selector::Id(resource),
+					tokens: tokens.clone(),
+				};
+				let output = index
+					.authorize_batch(&[arg], config, &principal)
+					.await
+					.unwrap();
+				let authorized = output[0]
+					.output()
+					.is_some_and(|output| output.permissions.contains(permission));
+				if allowed && read_like && !tokens.is_empty() {
+					assert_eq!(output[0].output().unwrap().expires_at, Some(200));
+				}
+
+				assert_eq!(
+					authorized,
+					allowed && read_like,
+					"{permission:?} {principal:?} {config:?}"
+				);
+			}
+		}
 	}
 }

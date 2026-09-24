@@ -1,12 +1,10 @@
 import { Authorization } from "./authorization.ts";
-import type { Sync } from "./sync.ts";
 
 export type Tokens = Record<string, Tokens.Entry>;
 
 export namespace Tokens {
 	export type Entry = {
 		authorization?: Array<Authorization.Token> | null;
-		sync?: Array<Sync.Token> | null;
 	};
 
 	export let clone = (tokens: Tokens | null | undefined): Tokens =>
@@ -29,16 +27,6 @@ export namespace Tokens {
 		return tokens;
 	};
 
-	export let withoutAuthorization = (tokens: Tokens): Tokens => {
-		let output: Tokens = {};
-		for (let [location, entry] of Object.entries(tokens)) {
-			if ((entry.sync?.length ?? 0) > 0) {
-				output[location] = { sync: [...entry.sync!] };
-			}
-		}
-		return output;
-	};
-
 	export let inherit = (
 		tokens: Tokens,
 		parent: Tokens,
@@ -50,7 +38,6 @@ export namespace Tokens {
 				...(inherited.authorization ?? []),
 				...(entry.authorization ?? []),
 			];
-			inherited.sync = [...(inherited.sync ?? []), ...(entry.sync ?? [])];
 			tokens[location] = inherited;
 		}
 		normalize(tokens, resource);
@@ -85,40 +72,35 @@ export namespace Tokens {
 					authorization.push(token);
 				}
 			}
-			// An exact subtree proof replaces the inherited proofs for the receiving object.
+			// Keep sync tokens so readers can wait for objects that are still being transferred.
 			if (
 				resource !== undefined &&
 				authorization.some((token) =>
 					Authorization.Token.grantsObjectSubtree(token, resource),
 				)
 			) {
-				authorization = authorization.filter((token) =>
-					Authorization.Token.grantsObjectSubtree(token, resource),
+				authorization = authorization.filter(
+					(token) =>
+						Authorization.Token.resource(token)?.startsWith("syn_") ||
+						Authorization.Token.grantsObjectSubtree(token, resource),
 				);
 			}
 			authorization.sort();
-			const sync = [...new Set(entry.sync ?? [])];
-			if (authorization.length === 0 && sync.length === 0) {
+			if (authorization.length === 0) {
 				delete tokens[location];
 				continue;
 			}
-			tokens[location] = {
-				...(authorization.length === 0 ? {} : { authorization }),
-				...(sync.length === 0 ? {} : { sync }),
-			};
+			tokens[location] = { authorization };
 		}
 	};
 
 	let cloneEntry = (entry: Entry): Entry => ({
 		...entry,
-		...(entry.sync === null || entry.sync === undefined
-			? {}
-			: { sync: [...entry.sync] }),
 		...(entry.authorization === null || entry.authorization === undefined
 			? {}
 			: { authorization: [...entry.authorization] }),
 	});
 
 	let isEmptyEntry = (entry: Entry): boolean =>
-		(entry.authorization?.length ?? 0) === 0 && (entry.sync?.length ?? 0) === 0;
+		(entry.authorization?.length ?? 0) === 0;
 }

@@ -411,15 +411,26 @@ mod tests {
 		let key =
 			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
 				.unwrap();
-		let sync = tg::sync::Token::sign(tg::sync::token::Body::new(i64::MAX), &key).unwrap();
+		let sync = tg::authorization::Token::sign(
+			tg::authorization::Body {
+				expires_at: i64::MAX,
+				permissions: vec![tg::authorization::Permission::Sync(
+					tg::authorization::permission::sync::Permission::Read,
+				)],
+				resource: tg::sync::Id::new().into(),
+			},
+			&key,
+		)
+		.unwrap();
 		let location = tg::Location::Local(tg::location::Local::default());
-		tokens.insert_sync(location, sync.clone());
+		tokens.insert_authorization(location, sync.clone());
 
 		assert!(!super::tokens_valid(tokens.local_authorization(), &clock));
 		super::remove_expired_tokens(&mut tokens, &clock);
-		assert_eq!(tokens.local_authorization(), &[valid]);
+		assert_eq!(tokens.local_authorization().len(), 2);
+		assert!(tokens.local_authorization().contains(&valid));
 		assert_eq!(tokens.authorization(&remote), &[expired]);
 		assert!(super::tokens_valid(tokens.local_authorization(), &clock));
-		assert_eq!(tokens.local_sync(), std::slice::from_ref(&sync));
+		assert!(tokens.local_authorization().contains(&sync));
 	}
 }

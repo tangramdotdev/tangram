@@ -264,7 +264,7 @@ impl State {
 			true
 		});
 
-		// Collect uncovered authorization proofs and every sync token.
+		// Collect uncovered authorization proofs and sync tokens for pending transfers.
 		let mut tokens = tg::Tokens::default();
 		for location in locations {
 			let mut entry = tg::tokens::Entry::default();
@@ -277,17 +277,20 @@ impl State {
 				let state_tokens = state.tokens();
 				let mut covered = covered;
 				if let Some(state_entry) = state_tokens.get(&location) {
-					entry.sync.extend(state_entry.sync.iter().cloned());
-					if !covered {
-						entry
-							.authorization
-							.extend(state_entry.authorization.iter().cloned());
-						let id = state.id().into();
-						covered = state_entry
+					entry.authorization.extend(
+						state_entry
 							.authorization
 							.iter()
-							.any(|token| token.grants_object_subtree(&id));
-					}
+							.filter(|token| {
+								!covered || token.body.resource.kind() == tg::id::Kind::Sync
+							})
+							.cloned(),
+					);
+					let id = state.id().into();
+					covered |= state_entry
+						.authorization
+						.iter()
+						.any(|token| token.grants_object_subtree(&id));
 				}
 				if let Some(object) = state.object() {
 					stack.extend(

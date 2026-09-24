@@ -25,8 +25,12 @@ assert not ($logs | is-empty) "the pull should publish its sync token"
 for log in $logs {
 	let referent = $log.message
 	let params = $'http://localhost/($referent)' | url parse | get params
-	assert ($params | any {|param| $param.key == 'tokens[local][sync][0]' }) "the referent should identify the sync"
-	assert not ($params | any {|param| $param.key =~ 'authorization' }) "starting a sync must not mint authorization tokens"
+	assert ($params | any {|param| $param.key == 'tokens[local][authorization][0]' }) "the referent should identify the sync"
+	for param in ($params | where {|param| $param.key =~ 'authorization' }) {
+		let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+		assert ($body.resource | str starts-with 'syn_') "starting a sync must not grant access directly to an object"
+		assert equal $body.permissions [sync_read]
+	}
 	failure (tg --url $destination.url --token $bob.token read $referent | complete) "the sync token must not authorize Bob"
 }
 failure (tg --url $destination.url --token $bob.token get --local $private | complete) "the failed pull must not grant access"

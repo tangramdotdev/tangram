@@ -65,7 +65,7 @@ impl Session {
 	pub(super) fn spawn_sync_control_task(
 		&self,
 		graph: Arc<Mutex<Graph>>,
-		token: &tg::sync::Token,
+		id: &tg::sync::Id,
 	) -> Control {
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 		let control = Control { sender };
@@ -73,7 +73,7 @@ impl Session {
 			.lock()
 			.unwrap()
 			.set_control(control.sender.downgrade());
-		let subject = subject(token);
+		let subject = subject(id);
 		let state = State {
 			clients: BTreeMap::new(),
 			finished: None,
@@ -192,6 +192,8 @@ impl Server {
 				break;
 			}
 		}
+
+		crate::checkpoint!(self, "sync.control.stopped", subject = %subject).await;
 
 		Ok(())
 	}
@@ -603,8 +605,8 @@ impl tangram_messenger::Payload for ServerMessage {
 	}
 }
 
-pub(crate) fn subject(token: &tg::sync::Token) -> String {
-	format!("syncs.{}.control", token.body.id)
+pub(crate) fn subject(id: &tg::sync::Id) -> String {
+	format!("syncs.{id}.control")
 }
 
 fn client_subject(subject: &str, client: &str) -> String {

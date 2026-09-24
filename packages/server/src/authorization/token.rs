@@ -1,6 +1,17 @@
 use {crate::Session, num::ToPrimitive as _, tangram_client::prelude::*};
 
 impl Session {
+	pub(crate) fn try_get_sync_id_from_token(
+		&self,
+		token: &tg::authorization::Token,
+	) -> Option<tg::sync::Id> {
+		let id = token.body.resource.clone().try_into().ok()?;
+		let permission = tg::authorization::Permission::Sync(
+			tg::authorization::permission::sync::Permission::Read,
+		);
+		(self.verify_token(token) && token.body.grants(permission)).then_some(id)
+	}
+
 	pub(crate) fn create_read_token(
 		&self,
 		id: &tg::Id,
@@ -111,6 +122,9 @@ impl Session {
 		if trusted {
 			// Trust the remote tokens by signing their exact permissions locally.
 			for token in &entry.authorization {
+				if token.body.resource.kind() == tg::id::Kind::Sync {
+					continue;
+				}
 				let body = &token.body;
 				if let Some(token) = self.create_token(
 					body.resource.clone(),
@@ -123,9 +137,6 @@ impl Session {
 		}
 		for token in entry.authorization {
 			tokens.insert_authorization(location.clone(), token);
-		}
-		for token in entry.sync {
-			tokens.insert_sync(location.clone(), token);
 		}
 		Ok(())
 	}

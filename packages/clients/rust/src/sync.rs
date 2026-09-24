@@ -13,10 +13,10 @@ use {
 	tokio_util::io::StreamReader,
 };
 
-pub use token::Token;
+pub use id::Id;
 
 pub mod control;
-pub mod token;
+pub mod id;
 
 pub const CONTENT_TYPE: &str = "application/vnd.tangram.sync";
 
@@ -92,7 +92,7 @@ pub struct Arg {
 	pub tag_targets: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::sync::Token>,
+	pub token: Option<tg::authorization::Token>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -102,7 +102,7 @@ pub struct Arg {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::sync::Token>,
+	pub token: Option<tg::authorization::Token>,
 }
 
 #[derive(

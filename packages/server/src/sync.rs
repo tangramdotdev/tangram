@@ -18,7 +18,6 @@ mod graph;
 mod progress;
 mod put;
 mod queue;
-mod token;
 mod wait;
 
 pub(crate) use self::graph::Graph;
@@ -107,12 +106,12 @@ impl Session {
 		// Verify or create the sync token before starting the transfer.
 		arg.token = match &arg.token {
 			Some(token) => {
-				if !self.verify_sync_token(token) {
+				if self.try_get_sync_id_from_token(token).is_none() {
 					return Err(tg::error!("invalid sync token"));
 				}
 				Some(token.clone())
 			},
-			None => self.create_sync_token()?,
+			None => self.create_read_token(&tg::sync::Id::new().into())?,
 		};
 		let output = tg::sync::Output {
 			token: arg.token.clone(),

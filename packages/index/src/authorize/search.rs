@@ -68,7 +68,7 @@ pub(crate) enum DescendantFallback {
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AncestorNodeFacts {
 	pub grants: Vec<Grant>,
-	pub object_processes: Vec<(tg::process::Id, crate::process::object::Kind, bool)>,
+	pub object_processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
 	pub parent: Option<tg::Id>,
 	pub process_sandbox: Option<tg::sandbox::Id>,
 	pub sandbox_owner: Option<tg::Principal>,
@@ -251,7 +251,7 @@ pub(crate) enum ReadOutput {
 	},
 	ObjectProcesses {
 		after: Option<Vec<u8>>,
-		processes: Vec<(tg::process::Id, crate::process::object::Kind, bool)>,
+		processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
 	},
 	Process(Option<crate::process::Process>),
 	ProcessObjects {
@@ -459,7 +459,7 @@ impl ReadOutput {
 		self,
 	) -> tg::Result<(
 		Option<Vec<u8>>,
-		Vec<(tg::process::Id, crate::process::object::Kind, bool)>,
+		Vec<(tg::process::Id, crate::process::object::Kind)>,
 	)> {
 		let Self::ObjectProcesses { after, processes } = self else {
 			return Err(tg::error!(

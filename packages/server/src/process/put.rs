@@ -262,7 +262,7 @@ impl Session {
 		let log: Option<Option<tg::object::Id>> =
 			(!log_needs_compaction).then(|| arg.data.log.clone().map(|log| log.node.into()));
 		let enqueue_log_compaction = enqueue_log_compaction && log_needs_compaction;
-		let (subtree_objects, put_object_grants) = match object_grants {
+		let (subtree_objects, mut put_object_grants) = match object_grants {
 			ObjectGrants::Authorized(authorization) => {
 				let Authorization {
 					command_grants_subtree,
@@ -315,6 +315,21 @@ impl Session {
 				(objects, grants)
 			},
 		};
+		for object in subtree_objects {
+			let arg = tangram_index::grant::put::Arg {
+				created_at: now,
+				creator: Some(tg::Principal::Process(id.clone())),
+				implicit: Some(None),
+				permissions: tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				)
+				.into(),
+				resource: object.into(),
+				subject: tg::authorization::Subject::Process(id.clone()),
+				time_to_touch: None,
+			};
+			put_object_grants.push(tangram_index::batch::Item::PutGrant(arg));
+		}
 		let data = store_data.then(|| arg.data.clone());
 		let put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
@@ -339,7 +354,6 @@ impl Session {
 			parent: None,
 			sandbox: Some(arg.data.sandbox.clone()),
 			storage: tangram_index::process::Storage::default(),
-			subtree_objects,
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};

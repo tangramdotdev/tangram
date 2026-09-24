@@ -132,6 +132,7 @@ impl Index {
 		id: &tg::Id,
 	) -> tg::Result<Option<tg::Id>> {
 		let key = match id.kind {
+			tg::id::Kind::Sync => return Ok(Some(id.clone())),
 			tg::id::Kind::User => Key::User(crate::lmdb::user::Key::User(id.clone().try_into()?)),
 			tg::id::Kind::Group => {
 				Key::Group(crate::lmdb::group::Key::Group(id.clone().try_into()?))

@@ -199,7 +199,7 @@ impl Session {
 	fn create_process_wait_output_runner(
 		data: &tg::process::Data,
 		permissions: tg::authorization::permission::process::Set,
-		sync: Option<&tg::sync::Token>,
+		sync: Option<&tg::authorization::Token>,
 		location: &tg::Location,
 	) -> tg::Result<tg::process::wait::Output> {
 		let exit = data
@@ -343,18 +343,18 @@ impl Session {
 
 	fn update_wait_output_sync_token(
 		output: &mut tg::process::wait::Output,
-		sync: &tg::sync::Token,
+		sync: &tg::authorization::Token,
 		location: &tg::Location,
 	) {
 		if let Some(tg::Either::Right(error)) = &mut output.error {
 			error
 				.options
 				.tokens
-				.insert_sync(location.clone(), sync.clone());
+				.insert_authorization(location.clone(), sync.clone());
 		}
 		if let Some(data) = &mut output.output {
 			Self::update_wait_value_tokens(data, &mut |tokens, _| {
-				tokens.insert_sync(location.clone(), sync.clone());
+				tokens.insert_authorization(location.clone(), sync.clone());
 			});
 		}
 	}

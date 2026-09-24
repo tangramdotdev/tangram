@@ -337,30 +337,16 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			let result = txn.get(&key, false).await;
 			let previous = crate::fdb::retry!(result);
-			let previous = previous
-				.as_ref()
-				.map(|bytes| crate::process::object::Data::deserialize(bytes))
-				.transpose()?;
 			let added = match kind {
 				crate::process::object::Kind::Command => command_changed,
 				crate::process::object::Kind::Error => error_changed,
 				crate::process::object::Kind::Log => log_changed,
 				crate::process::object::Kind::Output => output_changed,
 			};
-			if previous.is_none() && !added {
+			if previous.is_some() || !added {
 				continue;
 			}
-
-			let subtree = arg.subtree_objects.contains(&object)
-				|| previous.as_ref().is_some_and(|data| data.subtree);
-			if previous
-				.as_ref()
-				.is_some_and(|data| data.subtree == subtree)
-			{
-				continue;
-			}
-			let data = crate::process::object::Data { subtree };
-			let value = data.serialize()?;
+			let value = [];
 			txn.set(&key, &value);
 
 			let key = Key::Object(crate::fdb::object::Key::ObjectProcess {

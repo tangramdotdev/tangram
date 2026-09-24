@@ -1,13 +1,6 @@
-use {foundationdb_tuple as fdbt, num_traits::FromPrimitive as _, tangram_client::prelude::*};
+use {foundationdb_tuple as fdbt, num_traits::FromPrimitive as _};
 
 pub mod grant;
-
-#[derive(Clone, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct Data {
-	/// Whether the process has proven subtree permission on the object.
-	#[tangram_serialize(id = 0)]
-	pub subtree: bool,
-}
 
 #[derive(
 	Clone,
@@ -40,18 +33,6 @@ pub enum Kind {
 
 	#[tangram_serialize(id = 3)]
 	Output = 3,
-}
-
-impl Data {
-	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
-		tangram_serialize::to_vec(self)
-			.map_err(|error| tg::error!(!error, "failed to serialize the process object"))
-	}
-
-	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
-		tangram_serialize::from_slice(bytes)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the process object"))
-	}
 }
 
 impl fdbt::TuplePack for Kind {

@@ -112,7 +112,7 @@ def missing_id(index=0):
 def subject(token):
     body = token.split(".")[1]
     body = json.loads(base64.b64decode(body + "=" * (-len(body) % 4)))
-    return f"syncs.{body['id']}.control"
+    return f"syncs.{body['resource']}.control"
 
 
 def command(*args):
@@ -356,7 +356,7 @@ def read_object(id, token, collection="objects"):
     sock.settimeout(10)
     sock.connect(socket_path)
     tokens = token if isinstance(token, list) else [token]
-    query = urllib.parse.urlencode({f"tokens[local][sync][{index}]": token for index, token in enumerate(tokens)})
+    query = urllib.parse.urlencode({f"tokens[local][authorization][{index}]": token for index, token in enumerate(tokens)})
     sock.sendall(f"GET /{collection}/{id}?{query} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n".encode())
     response = http.client.HTTPResponse(sock)
     response.begin()
@@ -384,7 +384,7 @@ def test_output(messenger):
     sync.close()
     parts = token.split(".")
     body = json.loads(base64.b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
-    body["id"] += "x"
+    body["expires_at"] += 1
     parts[1] = base64.b64encode(json.dumps(body).encode()).decode()
     sync = Sync({"get": missing_id(), "token": ".".join(parts)}, status=500)
     assert b"invalid sync token" in sync.response.read()
@@ -503,7 +503,7 @@ def test_pending_source(messenger):
     # A local hit must not send pending or start alternate-sync requests.
     alternate, peer, subscribe = fake_peer(messenger)
     token = urllib.parse.quote(alternate.token, safe="")
-    sync = Sync({"put": f"{id}?tokens[local][sync][0]={token}"})
+    sync = Sync({"put": f"{id}?tokens[local][authorization][0]={token}"})
     assert sync.put_message().id == 0
     messenger.absent(lambda path, message:
         path.startswith(peer.subject + ".") and path.endswith(".server") and message.id == 1)
@@ -517,7 +517,7 @@ def test_pending_cancel(messenger):
     text = "the original source wins"
     id = source_blob(text)
     token = urllib.parse.quote(alternate.token, safe="")
-    sync = Sync({"get": f"{id}?tokens[local][sync][0]={token}"})
+    sync = Sync({"get": f"{id}?tokens[local][authorization][0]={token}"})
     sync.requested(id)
     sync.pending(id)
     peer.heartbeat(peer.request(True), "pending")
@@ -737,7 +737,7 @@ def test_shared_heartbeat(messenger):
     sequential_ids = [source_blob(value) for value in ("first", "second")]
     sync, peer, subscribe = fake_peer(messenger, [parent] + sequential_ids)
     token = urllib.parse.quote(sync.token, safe="")
-    outgoing = Sync({"eager": True, "put": f"{parent}?tokens[local][sync][0]={token}"})
+    outgoing = Sync({"eager": True, "put": f"{parent}?tokens[local][authorization][0]={token}"})
     clients, requests = set(), {}
     deadline = time.monotonic() + 15
     while len(requests) < len(ids):
@@ -765,7 +765,7 @@ def test_shared_heartbeat(messenger):
 
     # Keep a second transfer open while its individual callers finish, then issue another request.
     ids = sequential_ids
-    incoming = Sync({"get": ",".join(f"{id}?tokens[local][sync][0]={token}" for id in ids)})
+    incoming = Sync({"get": ",".join(f"{id}?tokens[local][authorization][0]={token}" for id in ids)})
     client = None
     for id, value in zip(ids, ("first", "second")):
         incoming.requested(id)
@@ -837,7 +837,7 @@ def test_client_cancel(messenger):
     peers = [Peer(messenger, sync.token) for sync in syncs]
     id = missing_id(1)
     parent = command("put", 'tg.command({"args":[{"kind":"value","value":' + id + '}],"executable":"true","host":"builtin"})')
-    query = "&".join(f"tokens[local][sync][{index}]={urllib.parse.quote(sync.token, safe='')}" for index, sync in enumerate(syncs))
+    query = "&".join(f"tokens[local][authorization][{index}]={urllib.parse.quote(sync.token, safe='')}" for index, sync in enumerate(syncs))
     outgoing = Sync({"eager": True, "put": f"{parent}?{query}"})
     requests = []
     for index, peer in enumerate(peers):
@@ -921,6 +921,59 @@ def test_finish(messenger):
         messenger.absent(lambda path, message:
             path == f"{peer.subject}.client.client" and message.id == 1 and message.value[1] == "after-finish")
         if not cancel:
+            sync.close()
+
+
+def test_index_handoff(messenger):
+    for interruption in ("cancel", "failure", "enqueue"):
+        text = "handoff " + interruption
+        id = source_blob(text)
+        filler = source_blob(text + " filler")
+        missing = missing_id(85)
+        nodes = f"{id},{filler}" if interruption == "enqueue" else f"{id},{filler},{missing}"
+        sync = Sync({"get": nodes})
+        peer = Peer(messenger, sync.token)
+        lease = peer.connect()
+        peer.send("stored", id, lease)
+        peer.retained("stored")
+        sync.requested(id)
+        sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(id), 1: b"\x00" + text.encode()}))))
+        sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(filler), 1: b"\x00" + (text + " filler").encode()}))))
+        stored = peer.response("stored")
+        assert stored[0] is None, stored
+        peer.acknowledge(stored)
+        peer.send("missing", missing, lease)
+        peer.retained("missing")
+        enqueue = watch("sync.get.index.enqueue")
+        if interruption == "enqueue":
+            sync.finish()
+            reached("sync.get.index.enqueue", enqueue)
+            sync.close()
+            # Cancelling the final enqueue must leave the partial-indexing fallback armed.
+            reached("sync.get.index.enqueue", enqueue, 1)
+        elif interruption == "cancel":
+            sync.close()
+            reached("sync.get.index.enqueue", enqueue)
+        else:
+            sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(missing), 1: b"\xff"}))))
+            reached("sync.get.index.enqueue", enqueue)
+        messenger.absent(lambda path, message:
+            path == f"{peer.subject}.client.client" and message.id == 1 and message.value[1] == "missing")
+        # Control must still accept new readers while the partial grant batch is blocked.
+        fresh_lease = peer.connect("fresh", client="fresh")
+        peer.send("read", id, fresh_lease, client="fresh")
+        response = peer.response("read", client="fresh")
+        assert response[0] is None and response[3] == stored[3], response
+        peer.acknowledge(response)
+        batch = watch("index.batch")
+        release("sync.get.index.enqueue", enqueue)
+        reached("index.batch", batch)
+        # Finishing control requires enqueueing, but does not require processing the batch.
+        terminal = peer.response("missing")
+        assert terminal[0] is not None, terminal
+        peer.acknowledge(terminal)
+        release("index.batch", batch)
+        if interruption == "failure":
             sync.close()
 
 

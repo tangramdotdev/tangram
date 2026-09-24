@@ -238,6 +238,7 @@ impl Index {
 			tg::authorization::Permission::Group(_)
 			| tg::authorization::Permission::Organization(_)
 			| tg::authorization::Permission::Sandbox(_)
+			| tg::authorization::Permission::Sync(_)
 			| tg::authorization::Permission::Tag(_)
 			| tg::authorization::Permission::User(_) => {},
 		}

@@ -1698,7 +1698,7 @@ impl Session {
 		&self,
 		process: &tg::Process,
 		data: &tg::process::Data,
-		sync: Option<tg::sync::Token>,
+		sync: Option<tg::authorization::Token>,
 	) -> tg::Result<()> {
 		let Some(tg::Location::Remote(remote)) = process
 			.location()
@@ -1731,17 +1731,24 @@ impl Session {
 			name: remote.name.clone(),
 			region: remote.region.clone(),
 		});
+		if let Some(token) = &sync {
+			for object in &mut objects {
+				object
+					.options
+					.tokens
+					.insert_authorization(destination.clone(), token.clone());
+			}
+		}
 		let arg = tg::push::Arg {
 			destination: Some(destination),
 			nodes: objects
 				.into_iter()
 				.map(|object| object.map(Into::into))
 				.collect(),
-			sync,
 			..Default::default()
 		};
 		let stream = self
-			.push_for_process(arg)
+			.push_for_process(arg, sync)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to push the output"))?;
 		let mut stream = std::pin::pin!(stream);
@@ -1835,7 +1842,7 @@ impl Session {
 			process_commands: true,
 			..Default::default()
 		};
-		let stream = session.push_for_process(arg).await?;
+		let stream = session.push_for_process(arg, None).await?;
 		let mut stream = std::pin::pin!(stream);
 		while let Some(event) = stream.try_next().await? {
 			if event.is_output() {
@@ -1930,7 +1937,6 @@ impl Session {
 			parent: parent.cloned(),
 			sandbox: Some(sandbox),
 			storage: tangram_index::process::Storage::default(),
-			subtree_objects: std::collections::BTreeSet::new(),
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};

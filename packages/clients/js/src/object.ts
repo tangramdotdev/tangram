@@ -221,7 +221,7 @@ export namespace Object {
 				return true;
 			});
 
-			// Collect uncovered authorization proofs and every sync token.
+			// Collect uncovered authorization proofs and sync tokens for pending transfers.
 			let tokens: tg.Tokens = {};
 			for (let location of locations) {
 				let visited = new Map<tg.Object.State, Set<boolean>>();
@@ -238,19 +238,19 @@ export namespace Object {
 					if (entry !== undefined) {
 						let collected = (tokens[location] ??= {
 							authorization: [],
-							sync: [],
 						});
-						for (let token of entry.sync ?? []) {
-							collected.sync!.push(token);
-						}
-						if (!covered) {
-							for (let token of entry.authorization ?? []) {
+						let inherited = covered;
+						for (let token of entry.authorization ?? []) {
+							if (
+								!inherited ||
+								tg.Authorization.Token.resource(token)?.startsWith("syn_")
+							) {
 								collected.authorization!.push(token);
-								covered ||= tg.Authorization.Token.grantsObjectSubtree(
-									token,
-									state.id,
-								);
 							}
+							covered ||= tg.Authorization.Token.grantsObjectSubtree(
+								token,
+								state.id,
+							);
 						}
 					}
 					if (state.object !== null) {

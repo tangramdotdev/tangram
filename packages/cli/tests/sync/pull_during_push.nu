@@ -53,8 +53,8 @@ let push = job spawn {
 	$output | job send --tag $job_id 0
 }
 tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blob_watch 0 | ignore
-wait_until { open --raw $push_log | str contains 'tokens[remote][sync][0]' } 'the push should log the referent with the sync token'
-let push_lines = open --raw $push_log | lines | where {|line| $line =~ "sync" }
+wait_until { open --raw $push_log | str contains 'tokens[remote][authorization][0]' } 'the push should log the referent with the sync token'
+let push_lines = open --raw $push_log | lines | where {|line| $line =~ "authorization" }
 let referent = $push_lines | first | str trim
 
 # Obtain authorization separately from the sync and put the unrelated proof first.

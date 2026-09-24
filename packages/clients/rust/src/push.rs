@@ -55,9 +55,6 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub source: Option<tg::Location>,
 
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub sync: Option<tg::sync::Token>,
-
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub tag_targets: bool,
 
@@ -172,7 +169,6 @@ impl Default for Arg {
 			process_outputs: true,
 			sandbox_processes: false,
 			source: Some(tg::Location::Local(tg::location::Local::default())),
-			sync: None,
 			tag_targets: true,
 			user_children: false,
 		}

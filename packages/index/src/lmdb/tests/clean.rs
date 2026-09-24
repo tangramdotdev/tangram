@@ -108,7 +108,6 @@ async fn deleting_a_process_deletes_all_grants_it_holds() {
 					parent: None,
 					sandbox: None,
 					storage: crate::process::Storage::default(),
-					subtree_objects: std::collections::BTreeSet::new(),
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
 				}),

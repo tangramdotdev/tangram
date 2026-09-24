@@ -51,7 +51,7 @@ success $output "the build should reach its output push"
 # The process finishes before its push, and its wait names the error with the sync token.
 let output = timeout 30s tg --url $alice_local.url wait $process | from json
 let error = $output.error
-assert ($error =~ "sync") "the error referent should carry the sync token"
+assert ($error =~ "authorization") "the error referent should carry the sync token"
 
 # Alice grants Bob the process's error, and Bob pulls it while the push is held.
 tg --url $remote.url --token $alice.token grant $bob.user.id process_node_error $process

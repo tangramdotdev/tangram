@@ -39,6 +39,9 @@ pub enum Subject {
 	Sandbox(tg::sandbox::Id),
 
 	#[display("{_0}")]
+	Sync(tg::sync::Id),
+
+	#[display("{_0}")]
 	User(tg::user::Id),
 }
 
@@ -88,6 +91,9 @@ impl std::str::FromStr for Subject {
 		if let Ok(id) = s.parse::<tg::sandbox::Id>() {
 			return Ok(Self::Sandbox(id));
 		}
+		if let Ok(id) = s.parse::<tg::sync::Id>() {
+			return Ok(Self::Sync(id));
+		}
 		if let Ok(id) = s.parse::<tg::user::Id>() {
 			return Ok(Self::User(id));
 		}
@@ -105,6 +111,7 @@ impl Subject {
 			Self::Root => Ok(tg::Principal::Root),
 			Self::Runner(id) => Ok(tg::Principal::Runner(id.clone())),
 			Self::Sandbox(id) => Ok(tg::Principal::Sandbox(id.clone())),
+			Self::Sync(_) => Err(tg::error!("invalid principal")),
 			Self::User(id) => Ok(tg::Principal::User(id.clone())),
 		}
 	}

@@ -1346,7 +1346,7 @@ impl Session {
 			};
 			batch.items.push(item);
 			if created.contains(&id)
-				&& let Some(arg) = self.sync_get_create_implicit_grant(&id)?
+				&& let Some(arg) = self.sync_get_create_implicit_grant(&id, None)?
 			{
 				batch.items.push(tangram_index::batch::Item::PutGrant(arg));
 			}

@@ -373,6 +373,12 @@ mod tests {
 				),
 			),
 			(
+				tg::id::Kind::Sync,
+				tg::authorization::Permission::Sync(
+					tg::authorization::permission::sync::Permission::Read,
+				),
+			),
+			(
 				tg::id::Kind::Tag,
 				tg::authorization::Permission::Tag(
 					tg::authorization::permission::tag::Permission::Read,
