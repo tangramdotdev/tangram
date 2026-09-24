@@ -401,19 +401,29 @@ impl Index {
 							.map(|()| Response::Unit)
 					},
 				};
+				let failed = result.is_err();
 				results.push(result);
+				if failed {
+					break;
+				}
 			}
 
-			// Commit the transaction.
-			let commit_result = transaction
-				.commit()
-				.map_err(|error| tg::error!(!error, "failed to commit the transaction"));
+			// Abort failed transactions so a commit error does not hide the original failure.
+			let commit_result = if let Some(Err(error)) = results.last() {
+				drop(transaction);
+				Err(error.clone())
+			} else {
+				transaction
+					.commit()
+					.map_err(|error| tg::error!(!error, "failed to commit the transaction"))
+			};
 
 			// Merge the results into the trackers and send completed responses.
-			for (result, tracker_index) in std::iter::zip(results, &batch.tracker_indices) {
+			let mut results = results.into_iter();
+			for tracker_index in &batch.tracker_indices {
 				let result = match commit_result {
 					Err(ref error) => Err(error.clone()),
-					Ok(()) => result,
+					Ok(()) => results.next().unwrap(),
 				};
 				Self::complete_tracker(&mut trackers[*tracker_index], result);
 			}

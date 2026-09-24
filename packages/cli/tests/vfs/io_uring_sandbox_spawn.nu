@@ -13,6 +13,8 @@ if not (fuse_io_uring_available) {
 }
 
 let server = server spawn --config {
+	# Allow room for the process records and grants from 256 concurrent sandboxes.
+	index: { map_size: 67_108_864 }
 	runner: {
 		cpus: 128,
 		memory: (128e9 | into int),
