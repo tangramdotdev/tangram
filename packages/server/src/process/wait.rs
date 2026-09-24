@@ -1,16 +1,16 @@
 use {
 	crate::Session,
 	futures::{
-		FutureExt as _, StreamExt as _,
-		future::{self, BoxFuture},
-		stream::{self, FuturesUnordered},
+		FutureExt as _, StreamExt as _, TryStreamExt as _,
+		future::BoxFuture,
+		stream::{self, BoxStream, FuturesUnordered},
 	},
 	std::sync::{
 		Arc,
 		atomic::{AtomicBool, Ordering},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{future::Ext as _, stream::TryExt as _, task::Stopper},
+	tangram_futures::{future::Ext as _, task::Stopper},
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
@@ -31,48 +31,55 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<BoxFuture<'static, tg::Result<()>>> {
-		if let Some(mut runner) = self.try_get_process_runner_including_finished(id, None) {
+		if let Some(mut runner) = self.try_get_process_runner_inner(id, None) {
+			let session = self.clone();
 			let id = id.clone();
 			let future = async move {
 				loop {
-					if runner
-						.processes
-						.get(&id)
-						.is_none_or(|process| process.data.status.is_finished())
-					{
+					let status = runner.processes.get(&id).map(|process| process.data.status);
+					let Some(status) = status else {
 						break;
+					};
+					if status.is_finished() {
+						return Ok(());
 					}
 					if runner.changed.changed().await.is_err() {
 						break;
 					}
 				}
+
+				let wakeups = session
+					.create_process_status_wakeup_stream(&id, None, None)
+					.await?;
+				let stream = session.create_process_data_stream_local(&id, None, Some(wakeups));
+				Self::wait_process_finished_stream(stream).await?;
+
 				Ok(())
 			}
 			.boxed();
 			return Ok(future);
 		}
-		let mut stream = self
-			.create_process_status_stream_local(id, None, None)
-			.await?;
-		let future = async move {
-			while let Some(event) = stream.next().await {
-				match event? {
-					tg::process::status::Event::End => break,
-					tg::process::status::Event::Status(status) => {
-						if status.is_finished() {
-							return Ok(());
-						}
-					},
-				}
-			}
 
-			Err(tg::error!(
-				"the process status stream ended before the process finished"
-			))
-		}
-		.boxed();
+		let wakeups = self
+			.create_process_status_wakeup_stream(id, None, None)
+			.await?;
+		let stream = self.create_process_data_stream_local(id, None, Some(wakeups));
+		let future = Self::wait_process_finished_stream(stream).boxed();
 
 		Ok(future)
+	}
+
+	async fn wait_process_finished_stream(
+		mut stream: BoxStream<'static, tg::Result<tg::process::Data>>,
+	) -> tg::Result<()> {
+		while let Some(data) = stream.try_next().await? {
+			if data.status.is_finished() {
+				return Ok(());
+			}
+		}
+		Err(tg::error!(
+			"the process status stream ended before the process finished"
+		))
 	}
 
 	async fn try_wait_process_stream(
@@ -104,16 +111,63 @@ impl Session {
 		// This session owns cancellation; downstream waits only observe the process.
 		let mut observe_arg = arg.clone();
 		observe_arg.lease = None;
-		let output = match self.try_wait_process_runner(id, &observe_arg).await? {
-			Some(output) => Some(output),
-			None => self.try_wait_process_inner(id, observe_arg).await?,
+		let attach = |future, location: tg::Location| {
+			self.attach_wait_process_guard(id, &arg, Some(location.into()), cancel, future)
 		};
-		let Some((future, location)) = output else {
+
+		let arg = &observe_arg;
+		if let Some((future, location)) = self.try_wait_process_runner(id, arg).await? {
+			return Ok(Some(attach(future, location)));
+		}
+
+		let locations = self
+			.locations(arg.location.as_ref())
+			.await
+			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
+		if let Some(local) = &locations.local {
+			if local.current
+				&& let Some(future) = self
+					.try_wait_process_local(id, arg.tokens.local_authorization().to_vec())
+					.await
+					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
+			{
+				let location = tg::Location::Local(tg::location::Local::default());
+				return Ok(Some(attach(future, location)));
+			}
+
+			if let Some((future, region)) = self
+				.try_wait_process_regions(id, arg.lease.clone(), arg.tokens.clone(), &local.regions)
+				.await
+				.map_err(
+					|error| tg::error!(!error, %id, "failed to wait for the process in another region"),
+				)? {
+				let location = tg::Location::Local(tg::location::Local {
+					region: Some(region),
+				});
+				return Ok(Some(attach(future, location)));
+			}
+		}
+
+		let Some((future, remote)) = self
+			.try_wait_process_remotes(
+				id,
+				arg.lease.clone(),
+				arg.tokens.clone(),
+				&locations.remotes,
+			)
+			.await
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to wait for the process on the remote"),
+			)?
+		else {
 			return Ok(None);
 		};
-		let future =
-			self.attach_wait_process_guard(id, &arg, Some(location.into()), cancel, future);
-		Ok(Some(future))
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+
+		Ok(Some(attach(future, location)))
 	}
 
 	pub(super) async fn try_wait_process_runner(
@@ -126,9 +180,7 @@ impl Session {
 			tg::Location,
 		)>,
 	> {
-		let Some(runner) =
-			self.try_get_process_runner_including_finished(id, arg.location.as_ref())
-		else {
+		let Some(runner) = self.try_get_process_runner_inner(id, arg.location.as_ref()) else {
 			return Ok(None);
 		};
 		let mut requested = tg::authorization::permission::process::Set::NODE;
@@ -153,47 +205,54 @@ impl Session {
 		Ok(Some((future, location)))
 	}
 
-	async fn try_wait_process_runner_task(
-		&self,
-		id: &tg::process::Id,
+	fn try_wait_process_runner_task<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
 		mut arg: tg::process::wait::Arg,
 		mut runner: crate::process::Runner,
 		permissions: tg::authorization::permission::process::Set,
-	) -> tg::Result<Option<tg::process::wait::Output>> {
-		loop {
-			let output = runner
-				.processes
-				.get(id)
-				.map(|process| -> tg::Result<_> {
-					if !process.data.status.is_finished() {
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::wait::Output>>> {
+		async move {
+			loop {
+				let output = runner
+					.processes
+					.get(id)
+					.map(|process| -> tg::Result<_> {
+						if !process.data.status.is_finished() {
+							return Ok(None);
+						}
+						let output = Self::create_process_wait_output_runner(
+							&process.data,
+							permissions,
+							process.sync.as_ref(),
+							&runner.location,
+						)?;
+						Ok(Some(output))
+					})
+					.transpose()?;
+				let Some(output) = output else {
+					arg.location = Some(runner.location_arg);
+					let Some(future) = self.try_wait_process_future(id, arg).boxed().await? else {
 						return Ok(None);
-					}
-					let output = Self::create_process_wait_output_runner(
-						&process.data,
-						permissions,
-						process.sync.as_ref(),
-						&runner.location,
-					)?;
-					Ok(Some(output))
-				})
-				.transpose()?;
-			let Some(output) = output else {
-				arg.location = Some(runner.location_arg);
-				let Some((future, _)) = self.try_wait_process_inner(id, arg).await? else {
-					return Ok(None);
+					};
+					return future.await;
 				};
-				return future.await;
-			};
-			if let Some(mut output) = output {
-				// The runner has the output locally, but the process still belongs to its original location.
-				if runner.location.is_remote() {
-					let location = tg::Location::Local(tg::location::Local::default());
-					self.update_wait_output_referents_for_location(&mut output, &location, false)?;
+				if let Some(mut output) = output {
+					// The runner has the output locally, but the process still belongs to its original location.
+					if runner.location.is_remote() {
+						let location = tg::Location::Local(tg::location::Local::default());
+						self.update_wait_output_referents_for_location(
+							&mut output,
+							&location,
+							false,
+						)?;
+					}
+					return Ok(Some(output));
 				}
-				return Ok(Some(output));
+				runner.changed.changed().await.ok();
 			}
-			runner.changed.changed().await.ok();
 		}
+		.boxed()
 	}
 
 	fn create_process_wait_output_runner(
@@ -359,138 +418,37 @@ impl Session {
 		}
 	}
 
-	async fn try_wait_process_inner(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::wait::Arg,
-	) -> tg::Result<
-		Option<(
-			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
-			tg::Location,
-		)>,
-	> {
-		let locations = self
-			.locations(arg.location.as_ref())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(future) = self
-					.try_wait_process_local(id, arg.tokens.local_authorization().to_vec())
-					.await
-					.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
-			{
-				let location = tg::Location::Local(tg::location::Local::default());
-				return Ok(Some((future, location)));
-			}
-
-			if let Some((future, region)) = self
-				.try_wait_process_regions(id, arg.lease.clone(), arg.tokens.clone(), &local.regions)
-				.await
-				.map_err(
-					|error| tg::error!(!error, %id, "failed to wait for the process in another region"),
-				)? {
-				let location = tg::Location::Local(tg::location::Local {
-					region: Some(region),
-				});
-				return Ok(Some((future, location)));
-			}
-		}
-
-		let Some((future, remote)) = self
-			.try_wait_process_remotes(
-				id,
-				arg.lease.clone(),
-				arg.tokens.clone(),
-				&locations.remotes,
-			)
-			.await
-			.map_err(
-				|error| tg::error!(!error, %id, "failed to wait for the process on the remote"),
-			)?
-		else {
-			return Ok(None);
-		};
-		let location = tg::Location::Remote(tg::location::Remote {
-			name: remote.name.clone(),
-			region: None,
-		});
-
-		Ok(Some((future, location)))
-	}
-
 	pub(super) async fn try_wait_process_local(
 		&self,
 		id: &tg::process::Id,
 		tokens: Vec<tg::authorization::Token>,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.clone());
-		let permission = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Node,
-		);
-		let mut wakeups = self
+		let wakeups = self
 			.create_process_status_wakeup_stream(id, None, None)
 			.await?;
-		let authorize_future = self.authorize(resource, permission).boxed();
-		let get_future = self
-			.try_get_process_local_inner_with_wakeups(id, false, &mut wakeups)
-			.boxed();
-		let (permissions, process) = future::try_join(authorize_future, get_future).await?;
-		let Some(permissions) = permissions else {
+		let Some(process) = self.try_get_process_observation_local(id, &tokens).await? else {
 			return Ok(None);
 		};
-		let Some(process) = process else {
-			return Ok(None);
-		};
-		if !permissions.contains(permission) {
-			return Ok(None);
-		}
-		if !process.data.status.is_finished()
-			&& process
-				.location
-				.as_ref()
-				.is_some_and(tg::Location::is_remote)
-		{
-			return Ok(None);
-		}
-		let initial = process.data.status;
-		let stream =
-			self.create_process_status_stream_local_with_wakeups(id, Some(initial), Some(wakeups));
+
+		let mut stream = self.create_process_data_stream_local(id, Some(process), Some(wakeups));
 		let session = self.clone();
 		let id = id.clone();
-		let stream = stream.boxed();
 		let future = async move {
-			let stream = stream
-				.take_while(|event| {
-					future::ready(!matches!(event, Ok(tg::process::status::Event::End)))
-				})
-				.map(|event| match event {
-					Ok(tg::process::status::Event::Status(status)) => Ok(status),
-					Err(error) => Err(error),
-					_ => unreachable!(),
-				});
-			let status = stream
-				.try_last()
-				.await?
-				.ok_or_else(|| tg::error!("failed to get the status"))?;
-			if !status.is_finished() {
-				return Err(tg::error!("expected the process to be finished"));
-			}
-			let process = session
-				.get_process_local(&id, false)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
+			let process = loop {
+				let process = stream.try_next().await?.ok_or_else(|| {
+					tg::error!("the process status stream ended before the process finished")
+				})?;
+				if process.status.is_finished() {
+					break process;
+				}
+			};
 			let exit = process
-				.data
 				.exit
 				.ok_or_else(|| tg::error!("expected the exit to be set"))?;
 			let mut output = tg::process::wait::Output {
-				error: process
-					.data
-					.error
-					.map(|error| error.map_right(|error| error)),
+				error: process.error.map(|error| error.map_right(|error| error)),
 				exit,
-				output: process.data.output,
+				output: process.output,
 			};
 			session
 				.add_wait_output_sync_token(&id, tokens, &mut output)

@@ -60,17 +60,6 @@ impl Session {
 		id: &tg::process::Id,
 		location: Option<&tg::location::Arg>,
 	) -> Option<Runner> {
-		let runner = self.try_get_process_runner_including_finished(id, location)?;
-		let finished = runner.processes.get(id)?.data.status.is_finished();
-		(!finished).then_some(runner)
-	}
-
-	#[must_use]
-	pub(crate) fn try_get_process_runner_including_finished(
-		&self,
-		id: &tg::process::Id,
-		location: Option<&tg::location::Arg>,
-	) -> Option<Runner> {
 		// Get the process.
 		let state = self.server.runner.state();
 		let sandbox = state.try_get_process_sandbox(id)?;

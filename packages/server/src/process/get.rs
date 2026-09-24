@@ -2,8 +2,9 @@ use {
 	crate::{Server, Session},
 	futures::{
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
-		stream::{self, BoxStream, FuturesUnordered},
+		stream::{self, FuturesUnordered},
 	},
+	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{
@@ -12,14 +13,26 @@ use {
 	tangram_index::prelude::*,
 };
 
+pub(super) struct Output<T> {
+	pub control: Option<T>,
+	pub indexed: Option<tangram_index::process::Process>,
+}
+
 impl Session {
 	pub async fn try_get_process(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		if let Some(output) = self.try_get_process_runner(id, &arg).boxed().await? {
-			return Ok(Some(output));
+		let runner = self.try_get_process_runner(id, &arg).boxed().await?;
+		if let Some(output) = &runner
+			&& !output.data.status.is_finished()
+		{
+			return Ok(runner);
+		}
+		let mut arg = arg;
+		if let Some(output) = &runner {
+			arg.location = output.location.clone().map(Into::into);
 		}
 
 		let locations = self
@@ -37,6 +50,11 @@ impl Session {
 				)
 				.await?
 		{
+			let output = if output.data.status.is_finished() {
+				output
+			} else {
+				runner.unwrap_or(output)
+			};
 			return Ok(Some(output));
 		}
 
@@ -131,12 +149,23 @@ impl Session {
 		let mut error = None;
 		while let Some(result) = futures.next().await {
 			match result {
-				Ok(Some(output)) => return Ok(Some(output)),
-				Ok(None) => {},
 				Err(source) => error = Some(source),
+				Ok(None) => {},
+				Ok(Some(output)) => {
+					let output = if output.data.status.is_finished() {
+						output
+					} else {
+						runner.unwrap_or(output)
+					};
+					return Ok(Some(output));
+				},
 			}
 		}
-		error.map_or(Ok(None), Err)
+		if let Some(error) = error {
+			return Err(error);
+		}
+
+		Ok(runner)
 	}
 
 	async fn try_get_process_runner(
@@ -161,9 +190,7 @@ impl Session {
 		let Some(data) = runner.processes.get(id).map(|process| process.data()) else {
 			return Ok(None);
 		};
-		if data.status.is_finished() {
-			return Ok(None);
-		}
+
 		let mut output =
 			self.create_process_get_output(id, data, Some(runner.location.clone()), None);
 		output.tokens = arg.tokens.clone();
@@ -369,122 +396,146 @@ impl Session {
 		let mut wakeups = self
 			.create_process_status_wakeup_stream(id, None, None)
 			.await?;
-		self.try_get_process_local_inner_with_wakeups(id, metadata, &mut wakeups)
-			.await
-	}
-
-	pub(super) async fn try_get_process_local_inner_with_wakeups(
-		&self,
-		id: &tg::process::Id,
-		metadata: bool,
-		wakeups: &mut BoxStream<'static, ()>,
-	) -> tg::Result<Option<tg::process::get::Output>> {
-		loop {
+		let output = loop {
 			tokio::select! {
-				output = self.try_get_process_local_inner_attempt(id, metadata) => {
-					return output;
-				},
+				output = self.get_process_state_local(
+					id,
+					self.get_process_from_control(id),
+					|data| metadata || data.status.is_finished(),
+					false,
+				).boxed() => break output?,
 				wakeup = wakeups.next() => {
 					if wakeup.is_none() {
 						return Err(tg::error!("the process status wakeup stream ended"));
 					}
 				},
 			}
-		}
-	}
+		};
 
-	pub(super) async fn try_get_process_local_inner_attempt(
-		&self,
-		id: &tg::process::Id,
-		metadata: bool,
-	) -> tg::Result<Option<tg::process::get::Output>> {
-		let index_future = self.try_get_process_from_index(id).boxed();
-		let control_future = self.get_process_from_control(id).boxed();
-		let output = match future::select(index_future, control_future).await {
-			future::Either::Left((indexed, control_future)) => {
-				let Some(indexed) = indexed? else {
+		let (data, location, metadata) = match (output.control, output.indexed) {
+			(None, None) => return Ok(None),
+			(None, Some(indexed)) => {
+				let Some(data) = indexed.data else {
 					return Ok(None);
 				};
-				// A remote process has no local control connection, but its indexed data can be read here.
-				if indexed
-					.location
-					.as_ref()
-					.is_some_and(tg::Location::is_remote)
-					|| indexed
-						.data
-						.as_ref()
-						.is_some_and(|data| data.status.is_finished())
-				{
-					let Some(data) = indexed.data else {
-						return Ok(None);
-					};
-					self.create_process_get_output(
-						id,
-						data,
-						indexed.location,
-						metadata.then_some(indexed.metadata),
-					)
-				} else {
-					let Ok(Ok(data)) =
-						tokio::time::timeout(std::time::Duration::from_secs(1), control_future)
-							.await
-					else {
-						let data = indexed
-							.data
-							.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-						let output = self.create_process_get_output(
-							id,
-							data,
-							indexed.location,
-							metadata.then_some(indexed.metadata),
-						);
-						return Ok(Some(output));
-					};
-					// Preserve the runner's finished data while the index still lags.
-					self.create_process_get_output(
-						id,
-						data,
-						indexed.location,
-						metadata.then_some(indexed.metadata),
-					)
-				}
+				let metadata = metadata.then_some(indexed.metadata);
+				(data, indexed.location, metadata)
 			},
-			future::Either::Right((data, index_future)) => {
-				let Ok(data) = data else {
-					let Some(indexed) = index_future.await? else {
-						return Ok(None);
+			(Some(data), None) => (data, None, None),
+			(Some(data), Some(indexed)) => {
+				let data = indexed
+					.data
+					.filter(|data| data.status.is_finished())
+					.unwrap_or(data);
+				let metadata = metadata.then_some(indexed.metadata);
+				(data, indexed.location, metadata)
+			},
+		};
+		let output = self.create_process_get_output(id, data, location, metadata);
+
+		Ok(Some(output))
+	}
+
+	pub(super) async fn get_process_state_local<T: Send>(
+		&self,
+		id: &tg::process::Id,
+		control_future: impl Future<Output = tg::Result<T>> + Send,
+		index_required: impl Fn(&T) -> bool + Send,
+		children: bool,
+	) -> tg::Result<Output<T>> {
+		let index_complete = |process: &tangram_index::process::Process| {
+			children
+				|| process
+					.data
+					.as_ref()
+					.is_some_and(|data| data.status.is_finished())
+		};
+		let get_index = || async {
+			let indexed = self.try_get_process_from_index(id).await?;
+			let indexed = indexed.filter(|process| !children || process.set.children);
+			Ok::<_, tg::Error>(indexed)
+		};
+		let index_future = async {
+			let indexed = get_index().await;
+			crate::checkpoint!(self.server, "process.get.index", process = %id).await;
+			indexed
+		}
+		.boxed();
+		let control_future = async {
+			let output = control_future.await;
+			crate::checkpoint!(self.server, "process.get.control", process = %id).await;
+			output
+		}
+		.boxed();
+
+		let (control, indexed) = match future::select(index_future, control_future).await {
+			future::Either::Left((indexed, control_future)) => {
+				let indexed = indexed?;
+				if indexed.as_ref().is_some_and(|process| {
+					index_complete(process)
+						|| process
+							.location
+							.as_ref()
+							.is_some_and(tg::Location::is_remote)
+				}) {
+					let output = Output {
+						control: None,
+						indexed,
 					};
-					let data = indexed
-						.data
-						.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-					let output = self.create_process_get_output(
-						id,
-						data,
-						indexed.location,
-						metadata.then_some(indexed.metadata),
-					);
-					return Ok(Some(output));
+					return Ok(output);
+				}
+				let index_future = async {
+					tokio::time::sleep(Duration::from_secs(1)).await;
+					get_index().await
+				}
+				.boxed();
+				let control = match future::select(control_future, index_future).await {
+					future::Either::Left((control, _)) => control,
+					future::Either::Right((indexed, _)) => {
+						let indexed = indexed?;
+						let output = Output {
+							control: None,
+							indexed,
+						};
+						return Ok(output);
+					},
 				};
-				let indexed = if data.status.is_finished() || metadata {
-					index_future.await?
+				let indexed = if control.as_ref().is_ok_and(&index_required) {
+					get_index().await?
+				} else {
+					indexed
+				};
+				(control, indexed)
+			},
+			future::Either::Right((control, index_future)) => {
+				let indexed = if control.as_ref().is_ok_and(&index_required) {
+					let indexed = index_future.await?;
+					if indexed.as_ref().is_some_and(&index_complete) {
+						indexed
+					} else {
+						get_index().await?
+					}
 				} else {
 					None
 				};
-				let (data, location, metadata) = if let Some(indexed) = indexed {
-					// Finished index data may include a compacted log absent from runner state.
-					let data = indexed
-						.data
-						.filter(|data| data.status.is_finished())
-						.unwrap_or(data);
-					(data, indexed.location, metadata.then_some(indexed.metadata))
-				} else {
-					(data, None, None)
-				};
-				self.create_process_get_output(id, data, location, metadata)
+				(control, indexed)
 			},
 		};
 
-		Ok(Some(output))
+		let control = match control {
+			Err(_) => {
+				let indexed = get_index().await?;
+				let output = Output {
+					control: None,
+					indexed,
+				};
+				return Ok(output);
+			},
+			Ok(control) => Some(control),
+		};
+		let output = Output { control, indexed };
+
+		Ok(output)
 	}
 
 	pub(crate) async fn get_process_from_index(
