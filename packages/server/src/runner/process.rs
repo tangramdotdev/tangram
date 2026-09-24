@@ -1763,6 +1763,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to push the output"))?;
 		let mut stream = std::pin::pin!(stream);
 		while stream.try_next().await?.is_some() {}
+		crate::checkpoint!(
+			self.server,
+			"runner.process.output.push.finished",
+			process = %id,
+		)
+		.await;
 
 		Ok(())
 	}
