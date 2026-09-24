@@ -230,7 +230,6 @@ impl Session {
 			return Err(tg::error!("invalid log end positions"));
 		}
 
-		// Waiting for indexing here can wait for the compaction that needs this EOF.
 		let data = self
 			.server
 			.index
