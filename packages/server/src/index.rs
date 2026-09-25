@@ -439,18 +439,6 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn get_sandbox_processes(
-		&self,
-		sandbox: &tg::sandbox::Id,
-	) -> tg::Result<Vec<(tg::process::Id, index::process::Process)>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_sandbox_processes(sandbox).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_sandbox_processes(sandbox).await,
-		}
-	}
-
 	async fn list_sandboxes(&self) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
 		match self {
 			#[cfg(feature = "foundationdb")]

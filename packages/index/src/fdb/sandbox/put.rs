@@ -80,8 +80,14 @@ impl Index {
 			};
 			if processes_changed && let Some(processes) = &arg.processes {
 				crate::fdb::propagate!(
-					Self::put_sandbox_processes_with_transaction(txn, subspace, &arg.id, processes)
-						.await
+					Self::put_sandbox_processes_with_transaction(
+						txn,
+						subspace,
+						&arg.id,
+						processes,
+						partition_total
+					)
+					.await
 				);
 			}
 			let value = sandbox.serialize()?;

@@ -485,13 +485,6 @@ impl crate::Index for Index {
 		self.try_get_sandbox_processes(id, position, length).await
 	}
 
-	async fn get_sandbox_processes(
-		&self,
-		sandbox: &tg::sandbox::Id,
-	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
-		self.get_sandbox_processes(sandbox).await
-	}
-
 	async fn list_sandboxes(&self) -> tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>> {
 		self.list_sandboxes().await
 	}

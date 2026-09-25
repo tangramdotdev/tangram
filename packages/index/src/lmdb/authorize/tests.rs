@@ -152,7 +152,7 @@ async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 }
 
 #[test]
-fn sandbox_process_facts_exclude_historical_membership() {
+fn sandbox_process_facts_preserve_all_relationships() {
 	let (_dir, index) = new_index();
 	let sandbox = tg::sandbox::Id::new();
 	let other = tg::sandbox::Id::new();
@@ -187,7 +187,7 @@ fn sandbox_process_facts_exclude_historical_membership() {
 	}
 	txn.commit().unwrap();
 
-	// Filtering a page must preserve its cursor so later live members remain reachable.
+	// Pagination preserves the ordered relationships regardless of local process records.
 	let txn = index.env.read_txn().unwrap();
 	let mut after = None;
 	let mut ids = Vec::new();
@@ -217,5 +217,12 @@ fn sandbox_process_facts_exclude_historical_membership() {
 			break;
 		}
 	}
-	assert_eq!(ids, [tg::Id::from(current)]);
+	assert_eq!(
+		ids,
+		[
+			tg::Id::from(missing),
+			tg::Id::from(moved),
+			tg::Id::from(current)
+		]
+	);
 }

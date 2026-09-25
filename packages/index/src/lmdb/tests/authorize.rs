@@ -3452,3 +3452,44 @@ async fn sync_read_confers_only_read_like_permissions() {
 		}
 	}
 }
+
+#[tokio::test]
+async fn authorize_sandbox_process_without_a_local_record() {
+	let (_dir, index) = new_index();
+	let process = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let reader = tg::user::Id::new();
+	let mut txn = index.env.write_txn().unwrap();
+	put_sandbox(&index, &mut txn, &sandbox);
+	Index::put_sandbox_process_with_transaction(
+		&index.db,
+		&index.subspace,
+		&mut txn,
+		&sandbox,
+		&process,
+	)
+	.unwrap();
+	let read = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Read,
+	);
+	put_resource_grant(
+		&index,
+		&mut txn,
+		sandbox.into(),
+		tg::authorization::Subject::User(reader.clone()),
+		read,
+	);
+	txn.commit().unwrap();
+	let permission = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Node,
+	);
+	assert!(
+		is_authorized(
+			&index,
+			process.into(),
+			permission,
+			&tg::Principal::User(reader)
+		)
+		.await
+	);
+}

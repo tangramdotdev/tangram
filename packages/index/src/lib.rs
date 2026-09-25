@@ -310,8 +310,17 @@ pub trait Index {
 
 	fn get_sandbox_processes(
 		&self,
-		sandbox: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<Vec<(tg::process::Id, crate::process::Process)>>> + Send;
+		id: &tg::sandbox::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> impl Future<Output = tg::Result<Vec<tg::process::Id>>> + Send {
+		self.try_get_sandbox_processes(id, position, length)
+			.map(|result| {
+				result.and_then(|option| {
+					option.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))
+				})
+			})
+	}
 
 	fn list_sandboxes(
 		&self,

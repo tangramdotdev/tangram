@@ -86,6 +86,7 @@ impl Index {
 							txn,
 							subspace,
 							std::slice::from_ref(id),
+							partition_totals.cleaning,
 						)
 						.await
 					);

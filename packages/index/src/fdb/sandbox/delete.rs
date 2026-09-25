@@ -22,10 +22,12 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::sandbox::Id],
+		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for id in ids {
 			crate::fdb::propagate!(
-				Self::delete_sandbox_processes_with_transaction(txn, subspace, id).await
+				Self::delete_sandbox_processes_with_transaction(txn, subspace, id, partition_total)
+					.await
 			);
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 			let key = Self::pack(subspace, &key);

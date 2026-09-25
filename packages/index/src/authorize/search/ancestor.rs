@@ -679,9 +679,20 @@ impl Search {
 					});
 				}
 			},
-			AncestorNodeRead::Process { .. } => {
-				pending.facts.process_sandbox =
-					output.into_process()?.and_then(|process| process.sandbox);
+			AncestorNodeRead::ProcessSandboxes { process, .. } => {
+				let (after, sandboxes) = output.into_ids()?;
+				for sandbox in sandboxes {
+					let sandbox = tg::sandbox::Id::try_from(sandbox)?;
+					pending.facts.process_sandboxes.push(sandbox);
+				}
+				if let Some(after) = after {
+					let limit = self.budget.config.page_size;
+					next.push(AncestorNodeRead::ProcessSandboxes {
+						after: Some(after),
+						limit,
+						process,
+					});
+				}
 			},
 			AncestorNodeRead::ResourceGrants { resource, .. } => {
 				let (after, grants) = output.into_grants()?;
@@ -775,7 +786,11 @@ impl Search {
 				target: resource.clone(),
 			});
 		} else if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
-			reads.push(AncestorNodeRead::Process { process });
+			reads.push(AncestorNodeRead::ProcessSandboxes {
+				after: None,
+				limit,
+				process,
+			});
 			reads.push(AncestorNodeRead::TargetTags {
 				after: None,
 				limit,
@@ -914,7 +929,7 @@ impl Search {
 				dependencies.extend(Self::tag_dependencies(facts, *permission));
 			},
 			tg::authorization::Permission::Process(process_permission) => {
-				if let Some(sandbox) = &facts.process_sandbox {
+				for sandbox in &facts.process_sandboxes {
 					let permission = match process_permission {
 						tg::authorization::permission::process::Permission::Parent => {
 							tg::authorization::permission::sandbox::Permission::Write

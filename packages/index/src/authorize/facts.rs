@@ -100,6 +100,11 @@ pub(crate) enum Request {
 		limit: usize,
 		process: tg::process::Id,
 	},
+	ProcessSandboxes {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		process: tg::process::Id,
+	},
 	ResourceGrants {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -223,6 +228,11 @@ enum CacheKey {
 		process: tg::process::Id,
 	},
 	ProcessParents {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		process: tg::process::Id,
+	},
+	ProcessSandboxes {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		process: tg::process::Id,
@@ -381,6 +391,15 @@ impl Request {
 				limit,
 				process,
 			} => CacheKey::ProcessParents {
+				after: after.clone(),
+				limit: *limit,
+				process: process.clone(),
+			},
+			Self::ProcessSandboxes {
+				after,
+				limit,
+				process,
+			} => CacheKey::ProcessSandboxes {
 				after: after.clone(),
 				limit: *limit,
 				process: process.clone(),

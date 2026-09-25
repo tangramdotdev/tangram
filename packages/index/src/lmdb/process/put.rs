@@ -99,10 +99,6 @@ impl Index {
 				.as_ref()
 				.and_then(|existing| existing.sandbox.clone())
 		});
-		let sandbox_changed = existing
-			.as_ref()
-			.and_then(|existing| existing.sandbox.as_ref())
-			!= sandbox.as_ref();
 		let changed = parent_changed
 			|| arg.data.is_some()
 			|| existing.as_ref().is_none_or(|existing| {
@@ -130,14 +126,6 @@ impl Index {
 		.serialize()?;
 		db.put(transaction, &key, &value)
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process"))?;
-
-		if sandbox_changed
-			&& let Some(existing_sandbox) = existing
-				.as_ref()
-				.and_then(|existing| existing.sandbox.as_ref())
-		{
-			Self::decrement_sandbox_reference_count(db, subspace, transaction, existing_sandbox)?;
-		}
 
 		if let Some(sandbox) = &sandbox {
 			Self::put_sandbox_process_with_transaction(db, subspace, transaction, sandbox, id)?;

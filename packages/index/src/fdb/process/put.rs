@@ -101,10 +101,6 @@ impl Index {
 				.as_ref()
 				.and_then(|existing| existing.sandbox.clone())
 		});
-		let sandbox_changed = existing
-			.as_ref()
-			.and_then(|existing| existing.sandbox.as_ref())
-			!= sandbox.as_ref();
 		let changed = parent_changed
 			|| arg.data.is_some()
 			|| existing.as_ref().is_none_or(|existing| {
@@ -131,22 +127,6 @@ impl Index {
 		}
 		.serialize()?;
 		txn.set(&key, &value);
-
-		if sandbox_changed
-			&& let Some(existing_sandbox) = existing
-				.as_ref()
-				.and_then(|existing| existing.sandbox.as_ref())
-		{
-			crate::fdb::propagate!(
-				Self::decrement_sandbox_reference_count(
-					txn,
-					subspace,
-					existing_sandbox,
-					partition_total,
-				)
-				.await
-			);
-		}
 
 		if let Some(sandbox) = &sandbox {
 			crate::fdb::propagate!(

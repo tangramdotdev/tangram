@@ -27,9 +27,7 @@ pub(crate) enum Request {
 	GetRunnerSandboxes {
 		runner: tg::runner::Id,
 	},
-	GetSandboxProcesses {
-		sandbox: tg::sandbox::Id,
-	},
+
 	GetTransactionId,
 	ListSandboxes,
 	ListSandboxesForCreator {
@@ -118,7 +116,6 @@ pub(crate) enum Response {
 	LogCompactionBatch(Vec<crate::log::Entry>),
 	GetRequesterSubjects(Vec<tg::authorization::Subject>),
 	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
-	GetSandboxProcesses(Vec<(tg::process::Id, crate::process::Process)>),
 	GetTransactionId(u64),
 	ListSandboxes(Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>),
 	ProcessHasAncestor(bool),

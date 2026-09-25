@@ -626,11 +626,27 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.unwrap(),
 		processes[3998..]
 	);
-	// Membership reads share the ordered keys but exclude history without process records.
-	let members = index.get_sandbox_processes(&sandbox).await.unwrap();
+	// Both APIs return the ordered list, including processes that are not stored locally.
 	assert_eq!(
-		members.into_iter().map(|(id, _)| id).collect::<Vec<_>>(),
-		[first.clone(), second.clone()]
+		index
+			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
+			.await
+			.unwrap(),
+		processes
+	);
+	let missing = tg::sandbox::Id::new();
+	assert!(
+		index
+			.try_get_sandbox_processes(&missing, std::io::SeekFrom::Start(0), 1)
+			.await
+			.unwrap()
+			.is_none()
+	);
+	assert!(
+		index
+			.get_sandbox_processes(&missing, std::io::SeekFrom::Start(0), 1)
+			.await
+			.is_err()
 	);
 
 	// Replayed complete lists must not change finalized ordering.
@@ -649,7 +665,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 		processes
 	);
 
-	// Cleaning processes releases membership without leaving holes in the history.
+	// The sandbox retains its processes even when the processes are eligible for cleanup.
 	loop {
 		let arg = crate::clean::Arg {
 			batch_size: 100,
@@ -664,15 +680,9 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			break;
 		}
 	}
-	assert!(index.try_get_process(&first).await.unwrap().is_none());
-	assert!(index.try_get_process(&second).await.unwrap().is_none());
-	assert!(
-		index
-			.get_sandbox_processes(&sandbox)
-			.await
-			.unwrap()
-			.is_empty()
-	);
+	assert!(index.try_get_process(&first).await.unwrap().is_some());
+	assert!(index.try_get_process(&second).await.unwrap().is_some());
+
 	assert_eq!(
 		index
 			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
@@ -682,7 +692,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 		processes
 	);
 
-	// Historical entries must not keep the sandbox alive after its processes are cleaned.
+	// Cleaning the sandbox releases its processes so cleanup can collect them too.
 	loop {
 		let arg = crate::clean::Arg {
 			batch_size: 100,
@@ -698,6 +708,8 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 		}
 	}
 	assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_none());
+	assert!(index.try_get_process(&first).await.unwrap().is_none());
+	assert!(index.try_get_process(&second).await.unwrap().is_none());
 	index
 		.delete_sandboxes(std::slice::from_ref(&sandbox))
 		.await

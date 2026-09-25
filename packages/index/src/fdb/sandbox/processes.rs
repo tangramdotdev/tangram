@@ -70,9 +70,16 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		sandbox: &tg::sandbox::Id,
 		processes: &[tg::process::Id],
+		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		crate::fdb::propagate!(
-			Self::delete_sandbox_processes_with_transaction(txn, subspace, sandbox).await
+			Self::delete_sandbox_processes_with_transaction(
+				txn,
+				subspace,
+				sandbox,
+				partition_total
+			)
+			.await
 		);
 		for (position, process) in processes.iter().enumerate() {
 			let position = i64::try_from(position)
@@ -99,6 +106,7 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		sandbox: &tg::sandbox::Id,
+		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let prefix = Self::pack(
 			subspace,
@@ -124,11 +132,15 @@ impl Index {
 			};
 			txn.clear(entry.key());
 			let key = Key::Process(crate::fdb::process::Key::ProcessSandbox {
-				process,
+				process: process.clone(),
 				sandbox: sandbox.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
+			crate::fdb::propagate!(
+				Self::decrement_process_reference_count(txn, subspace, &process, partition_total)
+					.await
+			);
 		}
 
 		Ok(ControlFlow::Break(()))

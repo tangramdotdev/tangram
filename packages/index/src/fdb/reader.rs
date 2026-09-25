@@ -329,13 +329,7 @@ impl Index {
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::GetRunnerSandboxes(output)
 			},
-			crate::read::Request::GetSandboxProcesses { sandbox } => {
-				let result =
-					Self::get_sandbox_processes_with_transaction(transaction, subspace, sandbox)
-						.await;
-				let output = crate::fdb::propagate!(result);
-				crate::read::Response::GetSandboxProcesses(output)
-			},
+
 			crate::read::Request::GetTransactionId => {
 				let result = transaction.get_read_version().await;
 				let output = crate::fdb::retry!(result).cast_unsigned();

@@ -130,12 +130,13 @@ impl Index {
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the sandbox process"))?;
 			let key = Key::Process(crate::lmdb::process::Key::ProcessSandbox {
-				process,
+				process: process.clone(),
 				sandbox: sandbox.clone(),
 			});
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)
 				.map_err(|error| tg::error!(!error, "failed to delete the process sandbox"))?;
+			Self::decrement_process_reference_count(db, subspace, transaction, &process)?;
 		}
 
 		Ok(())

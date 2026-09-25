@@ -271,11 +271,7 @@ impl Index {
 						Self::compute_process_reference_count(txn, subspace, id).await
 					)
 				},
-				Item::Sandbox(id) => {
-					crate::fdb::propagate!(
-						Self::compute_sandbox_reference_count(txn, subspace, id).await
-					)
-				},
+				Item::Sandbox(_) => 0,
 			};
 
 			let (item, put) = if reference_count > 0 {
@@ -575,6 +571,7 @@ impl Index {
 				id.as_ref()
 			),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ProcessAccount, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ProcessSandbox, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::UsageUpdate, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::TargetTag, id.as_ref()),
 		);
@@ -583,6 +580,7 @@ impl Index {
 			grant_update_count,
 			storage_and_metadata_update_count,
 			process_account_count,
+			process_sandbox_count,
 			usage_update_count,
 			target_tag_count,
 		) = crate::fdb::retry!(result);
@@ -590,21 +588,9 @@ impl Index {
 			+ grant_update_count
 			+ storage_and_metadata_update_count
 			+ process_account_count
+			+ process_sandbox_count
 			+ usage_update_count
 			+ target_tag_count;
-
-		Ok(ControlFlow::Break(count))
-	}
-
-	async fn compute_sandbox_reference_count(
-		txn: &crate::fdb::Transaction,
-		subspace: &Subspace,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
-		let processes = crate::fdb::propagate!(
-			Self::get_sandbox_processes_with_transaction(txn, subspace, id).await
-		);
-		let count = processes.len() as u64;
 
 		Ok(ControlFlow::Break(count))
 	}
@@ -699,7 +685,7 @@ impl Index {
 			Item::Checkout(id) => Self::delete_checkout(txn, subspace, id, partition_total).await,
 			Item::Object(id) => Self::delete_object(txn, subspace, id, partition_total).await,
 			Item::Process(id) => Self::delete_process(txn, subspace, id, partition_total).await,
-			Item::Sandbox(id) => Self::delete_sandbox(txn, subspace, id).await,
+			Item::Sandbox(id) => Self::delete_sandbox(txn, subspace, id, partition_total).await,
 		}
 	}
 
@@ -892,7 +878,6 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);
 		}
-		let sandbox = process.and_then(|process| process.sandbox);
 		txn.clear(&key);
 		let id_bytes = id.to_bytes();
 		Self::clear_update_propagated_versions(txn, subspace, id_bytes.as_ref());
@@ -974,14 +959,6 @@ impl Index {
 		for (object, _) in object_processes {
 			crate::fdb::propagate!(
 				Self::decrement_object_reference_count(txn, subspace, &object, partition_total)
-					.await
-			);
-		}
-
-		// Retain the ordered history until the sandbox is deleted, but release the live reference.
-		if let Some(sandbox) = sandbox {
-			crate::fdb::propagate!(
-				Self::decrement_sandbox_reference_count(txn, subspace, &sandbox, partition_total,)
 					.await
 			);
 		}
@@ -1069,8 +1046,15 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
+		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		Self::delete_sandboxes_with_transaction(txn, subspace, std::slice::from_ref(id)).await
+		Self::delete_sandboxes_with_transaction(
+			txn,
+			subspace,
+			std::slice::from_ref(id),
+			partition_total,
+		)
+		.await
 	}
 
 	async fn delete_materialized_grants_for_resource(
@@ -1245,43 +1229,6 @@ impl Index {
 			let clean_key = Self::pack(subspace, &key);
 			txn.set(&clean_key, &[]);
 		}
-		Ok(ControlFlow::Break(()))
-	}
-
-	pub(super) async fn decrement_sandbox_reference_count(
-		txn: &crate::fdb::Transaction,
-		subspace: &Subspace,
-		id: &tg::sandbox::Id,
-		partition_total: u64,
-	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		let key = crate::fdb::Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
-		let key = Self::pack(subspace, &key);
-		let result = txn.get(&key, false).await;
-		let Some(bytes) = crate::fdb::retry!(result) else {
-			return Ok(ControlFlow::Break(()));
-		};
-		let mut sandbox = crate::sandbox::Sandbox::deserialize(&bytes)?;
-		sandbox.reference_count = sandbox.reference_count.saturating_sub(1);
-		let bytes = sandbox.serialize()?;
-		txn.set(&key, &bytes);
-
-		if sandbox.reference_count == 0
-			&& sandbox
-				.data
-				.as_ref()
-				.is_some_and(|data| data.data.status.is_destroyed())
-		{
-			let id_bytes = id.to_bytes();
-			let partition = Self::partition_for_id(id_bytes.as_ref(), partition_total);
-			let key = crate::fdb::Key::Clean(crate::fdb::clean::Key::Sandbox {
-				id: id.clone(),
-				partition,
-				touched_at: sandbox.touched_at,
-			});
-			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
-		}
-
 		Ok(ControlFlow::Break(()))
 	}
 }

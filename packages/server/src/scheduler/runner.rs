@@ -232,11 +232,26 @@ impl Server {
 			message: Some("heartbeat expired".to_owned()),
 			..Default::default()
 		};
-		let processes =
-			self.index.get_sandbox_processes(id).await.map_err(
-				|source| tg::error!(!source, %id, "failed to get the sandbox processes"),
-			)?;
-		for (process, indexed) in processes {
+		let length = self
+			.index
+			.try_get_sandbox_processes_count(id)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox in the index"))?;
+		let processes = self
+			.index
+			.get_sandbox_processes(id, std::io::SeekFrom::Start(0), length)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox processes"))?;
+		let indexed = self
+			.index
+			.try_get_processes(&processes)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the process records"))?;
+		for (process, indexed) in processes.iter().zip(indexed) {
+			let Some(indexed) = indexed else {
+				continue;
+			};
+			let process = process.clone();
 			let mut data = indexed
 				.data
 				.ok_or_else(|| tg::error!(%process, "missing the process data"))?;

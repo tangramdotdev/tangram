@@ -1,8 +1,8 @@
 use {
 	crate::{Session, sync::put::State},
+	futures::TryStreamExt as _,
 	std::sync::Arc,
 	tangram_client::prelude::*,
-	tangram_index::prelude::*,
 };
 
 pub struct Node {
@@ -62,15 +62,21 @@ impl Session {
 		}
 		data.tokens.clear();
 
-		// Get the processes.
+		// Read the ordered relationships even when the process records are not being sent.
+		let arg = tg::sandbox::processes::get::Arg {
+			tokens: tg::authorization::Tokens::with_local_entry(node.tokens.clone()),
+			..Default::default()
+		};
+		let processes = self
+			.get_sandbox_processes(&node.id, arg)
+			.await?
+			.try_fold(Vec::new(), |mut processes, chunk| async move {
+				processes.extend(chunk.data);
+				Ok(processes)
+			})
+			.await?;
 		let children = if node.descendants && state.arg.sandbox_processes {
-			self.server
-				.index
-				.get_sandbox_processes(&node.id)
-				.await?
-				.into_iter()
-				.map(|(id, _)| tg::Id::from(id))
-				.collect()
+			processes.iter().cloned().map(tg::Id::from).collect()
 		} else {
 			Vec::new()
 		};
@@ -81,6 +87,7 @@ impl Session {
 				created_at: sandbox.created_at,
 				data,
 				id: node.id.clone(),
+				processes,
 			};
 			let message = tg::sync::PutMessage::Node(tg::sync::PutNodeMessage::Sandbox(message));
 			state
