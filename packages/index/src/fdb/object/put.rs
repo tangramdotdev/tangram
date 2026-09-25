@@ -128,14 +128,14 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Left(id.clone()),
-				partition_totals.node_update,
+				partition_totals.storage_and_metadata_update,
 			);
 			crate::fdb::propagate!(
 				Self::enqueue_account_object_from_parents(
 					txn,
 					subspace,
 					id,
-					partition_totals.storage_update,
+					partition_totals.usage_update,
 					touched_at,
 				)
 				.await

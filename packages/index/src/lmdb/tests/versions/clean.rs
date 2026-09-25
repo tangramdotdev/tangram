@@ -34,7 +34,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 		tg::Either::Right(process_id.clone()),
 	];
 	let subject = tg::authorization::Subject::User(tg::user::Id::new());
-	let kinds = [Kind::Grant(subject), Kind::Node];
+	let kinds = [Kind::Grant(subject), Kind::StorageAndMetadata];
 	let arg = crate::batch::Arg {
 		items: vec![
 			crate::batch::Item::PutObject(object),
@@ -47,7 +47,10 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 			enqueue(&index, id, kind, None);
 		}
 	}
-	for queue in [crate::update::Kind::Grant, crate::update::Kind::Node] {
+	for queue in [
+		crate::update::Kind::Grant,
+		crate::update::Kind::StorageAndMetadata,
+	] {
 		drain(&index, queue).await;
 	}
 	for id in &ids {
@@ -74,7 +77,10 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 			enqueue(&index, id, kind, None);
 		}
 	}
-	for queue in [crate::update::Kind::Grant, crate::update::Kind::Node] {
+	for queue in [
+		crate::update::Kind::Grant,
+		crate::update::Kind::StorageAndMetadata,
+	] {
 		drain(&index, queue).await;
 	}
 	for _ in 0..100 {
@@ -100,7 +106,10 @@ async fn cleans_versions_without_collecting_the_objects() {
 	for subject in subjects {
 		enqueue(&index, &id, &Kind::Grant(subject), None);
 	}
-	for kind in [crate::update::Kind::Grant, crate::update::Kind::Node] {
+	for kind in [
+		crate::update::Kind::Grant,
+		crate::update::Kind::StorageAndMetadata,
+	] {
 		drain(&index, kind).await;
 	}
 	assert_eq!(count_versions(&index), 3);
@@ -131,13 +140,16 @@ async fn cleaning_retains_pending_versions_and_ignores_stale_entries() {
 	object.touched_at = 100;
 	let id = tg::Either::Left(object.id.clone());
 	put(&index, vec![object]).await;
-	drain(&index, crate::update::Kind::Node).await;
+	drain(&index, crate::update::Kind::StorageAndMetadata).await;
 	index.clean(clean_arg(100)).await.unwrap();
 	let blocker = tg::Either::Right(tg::process::Id::new());
 	let subject = tg::authorization::Subject::User(tg::user::Id::new());
 	for (kind, queue) in [
 		(Kind::Grant(subject), crate::update::Kind::Grant),
-		(Kind::Node, crate::update::Kind::Node),
+		(
+			Kind::StorageAndMetadata,
+			crate::update::Kind::StorageAndMetadata,
+		),
 	] {
 		enqueue(&index, &id, &kind, None);
 		drain(&index, queue).await;
@@ -188,11 +200,14 @@ async fn replacing_propagated_versions_replaces_cleanup_entries() {
 	object.touched_at = 100;
 	let id = tg::Either::Left(object.id.clone());
 	put(&index, vec![object]).await;
-	drain(&index, crate::update::Kind::Node).await;
+	drain(&index, crate::update::Kind::StorageAndMetadata).await;
 	let subject = tg::authorization::Subject::User(tg::user::Id::new());
 	for (kind, queue) in [
 		(Kind::Grant(subject), crate::update::Kind::Grant),
-		(Kind::Node, crate::update::Kind::Node),
+		(
+			Kind::StorageAndMetadata,
+			crate::update::Kind::StorageAndMetadata,
+		),
 	] {
 		for expected in [100, 200, 150, 150, 300, 50] {
 			enqueue(&index, &id, &kind, Some(expected));
@@ -258,7 +273,7 @@ fn clean_arg(batch_size: usize) -> crate::clean::Arg {
 fn count_versions(index: &Index) -> usize {
 	let kinds = [
 		crate::lmdb::Kind::GrantUpdatePropagatedVersion,
-		crate::lmdb::Kind::NodeUpdatePropagatedVersion,
+		crate::lmdb::Kind::StorageAndMetadataUpdatePropagatedVersion,
 	];
 	count_keys(index, &kinds)
 }
@@ -266,7 +281,7 @@ fn count_versions(index: &Index) -> usize {
 fn count_clean_entries(index: &Index) -> usize {
 	let kinds = [
 		crate::lmdb::Kind::GrantUpdateClean,
-		crate::lmdb::Kind::NodeUpdateClean,
+		crate::lmdb::Kind::StorageAndMetadataUpdateClean,
 	];
 	count_keys(index, &kinds)
 }

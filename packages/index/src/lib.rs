@@ -545,10 +545,10 @@ pub trait Index {
 	fn log_compaction_partition_total(&self) -> u64;
 
 	#[must_use]
-	fn node_update_partition_total(&self) -> u64;
+	fn storage_and_metadata_update_partition_total(&self) -> u64;
 
 	#[must_use]
-	fn storage_update_partition_total(&self) -> u64;
+	fn usage_update_partition_total(&self) -> u64;
 
 	#[must_use]
 	fn usage_partition_total(&self) -> u64;

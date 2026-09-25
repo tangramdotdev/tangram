@@ -502,8 +502,8 @@ impl State {
 		}
 		let oldests = future::try_join3(
 			read(tangram_index::update::Kind::Grant),
-			read(tangram_index::update::Kind::Node),
-			read(tangram_index::update::Kind::Storage),
+			read(tangram_index::update::Kind::StorageAndMetadata),
+			read(tangram_index::update::Kind::Usage),
 		)
 		.await?;
 		let ids = self

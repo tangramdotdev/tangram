@@ -16,7 +16,7 @@ async fn a_batch_preserves_an_older_propagation_when_combining_updates() {
 	let middle = object(1, [leaf.id.clone()]);
 	let top = object(2, [middle.id.clone()]);
 	put(&index, vec![middle.clone(), top.clone()]).await;
-	drain(&index, crate::update::Kind::Node).await;
+	drain(&index, crate::update::Kind::StorageAndMetadata).await;
 	put(&index, vec![leaf.clone()]).await;
 	let cutoff = index.get_transaction_id().await.unwrap();
 	let mut middle = middle;
@@ -37,7 +37,7 @@ async fn a_batch_preserves_an_older_propagation_when_combining_updates() {
 			&index.subspace,
 			&mut transaction,
 			2,
-			crate::update::Kind::Node,
+			crate::update::Kind::StorageAndMetadata,
 			None,
 			1,
 		)
@@ -46,7 +46,7 @@ async fn a_batch_preserves_an_older_propagation_when_combining_updates() {
 		transaction.commit().unwrap();
 	}
 	let oldest = index
-		.try_get_oldest_update_transaction_id(crate::update::Kind::Node)
+		.try_get_oldest_update_transaction_id(crate::update::Kind::StorageAndMetadata)
 		.await
 		.unwrap();
 	assert!(oldest.is_some_and(|version| version <= cutoff));
@@ -55,7 +55,7 @@ async fn a_batch_preserves_an_older_propagation_when_combining_updates() {
 		.await
 		.unwrap();
 	assert_eq!(objects[0].as_ref().unwrap().metadata.subtree.count, None);
-	drain(&index, crate::update::Kind::Node).await;
+	drain(&index, crate::update::Kind::StorageAndMetadata).await;
 	let objects = index.try_get_objects(&[top.id]).await.unwrap();
 	assert_eq!(objects[0].as_ref().unwrap().metadata.subtree.count, Some(3));
 }
@@ -73,21 +73,21 @@ async fn a_batch_preserves_an_older_storage_propagation_when_combining_updates()
 		vec![bottom.clone(), leaf, middle, first.clone(), second.clone()],
 	)
 	.await;
-	drain(&index, crate::update::Kind::Node).await;
+	drain(&index, crate::update::Kind::StorageAndMetadata).await;
 	let account = crate::usage::Account::User(tg::user::Id::new());
 	associate(&index, &account, &first.id).await;
 	let cutoff = index.get_transaction_id().await.unwrap();
 	associate(&index, &account, &second.id).await;
 	assert_eq!(
 		index
-			.update_batch(crate::update::Kind::Storage, 2)
+			.update_batch(crate::update::Kind::Usage, 2)
 			.await
 			.unwrap()
 			.count,
 		2
 	);
 	let oldest = index
-		.try_get_oldest_update_transaction_id(crate::update::Kind::Storage)
+		.try_get_oldest_update_transaction_id(crate::update::Kind::Usage)
 		.await
 		.unwrap();
 	assert!(
@@ -95,7 +95,7 @@ async fn a_batch_preserves_an_older_storage_propagation_when_combining_updates()
 		"the storage wait lost its pending descendants: {oldest:?} > {cutoff}"
 	);
 	assert!(!associated(&index, &account, &bottom.id));
-	drain(&index, crate::update::Kind::Storage).await;
+	drain(&index, crate::update::Kind::Usage).await;
 	assert!(associated(&index, &account, &bottom.id));
 }
 
@@ -106,21 +106,21 @@ async fn late_storage_puts_preserve_the_oldest_version() {
 	let middle = object(1, [leaf.id.clone()]);
 	let top = object(2, [middle.id.clone()]);
 	put(&index, vec![leaf.clone(), middle.clone(), top.clone()]).await;
-	drain(&index, crate::update::Kind::Node).await;
+	drain(&index, crate::update::Kind::StorageAndMetadata).await;
 	let account = crate::usage::Account::User(tg::user::Id::new());
 	associate(&index, &account, &top.id).await;
 	let cutoff = index.get_transaction_id().await.unwrap();
 	associate(&index, &account, &middle.id).await;
 	assert_eq!(
 		index
-			.update_batch(crate::update::Kind::Storage, 1)
+			.update_batch(crate::update::Kind::Usage, 1)
 			.await
 			.unwrap()
 			.count,
 		1
 	);
 	let oldest = index
-		.try_get_oldest_update_transaction_id(crate::update::Kind::Storage)
+		.try_get_oldest_update_transaction_id(crate::update::Kind::Usage)
 		.await
 		.unwrap();
 	assert!(
@@ -128,7 +128,7 @@ async fn late_storage_puts_preserve_the_oldest_version() {
 		"the late storage put lost its pending descendants: {oldest:?} > {cutoff}"
 	);
 	assert!(!associated(&index, &account, &leaf.id));
-	drain(&index, crate::update::Kind::Storage).await;
+	drain(&index, crate::update::Kind::Usage).await;
 	assert!(associated(&index, &account, &leaf.id));
 
 	// Collection removes the retained versions without evicting the cached objects.
@@ -162,7 +162,7 @@ async fn late_storage_puts_preserve_the_oldest_version() {
 	for id in &ids {
 		assert!(!associated(&index, &account, id));
 		let transaction = index.env.read_txn().unwrap();
-		let key = Key::Update(super::super::update::Key::StorageUpdatePutVersion {
+		let key = Key::Update(super::super::update::Key::UsageUpdatePutVersion {
 			account: account.clone(),
 			id: tg::Either::Left(id.clone()),
 		});
@@ -175,7 +175,7 @@ async fn late_storage_puts_preserve_the_oldest_version() {
 		);
 	}
 	associate(&index, &account, &top.id).await;
-	drain(&index, crate::update::Kind::Storage).await;
+	drain(&index, crate::update::Kind::Usage).await;
 	assert!(associated(&index, &account, &leaf.id));
 }
 
@@ -185,10 +185,13 @@ async fn propagation_versions_reset_and_repeated_updates_stop() {
 	let child = object(0, []);
 	let parent = object(1, [child.id.clone()]);
 	put(&index, vec![child.clone(), parent.clone()]).await;
-	drain(&index, crate::update::Kind::Node).await;
+	drain(&index, crate::update::Kind::StorageAndMetadata).await;
 	let subject = tg::authorization::Subject::User(tg::user::Id::new());
 	for (kind, queue) in [
-		(Kind::Node, crate::update::Kind::Node),
+		(
+			Kind::StorageAndMetadata,
+			crate::update::Kind::StorageAndMetadata,
+		),
 		(Kind::Grant(subject.clone()), crate::update::Kind::Grant),
 	] {
 		for (source, version, propagated) in [
@@ -256,7 +259,7 @@ async fn propagation_versions_reset_and_repeated_updates_stop() {
 	);
 	let transaction = index.env.read_txn().unwrap();
 	for id in ids {
-		for kind in [Kind::Node, Kind::Grant(subject.clone())] {
+		for kind in [Kind::StorageAndMetadata, Kind::Grant(subject.clone())] {
 			let key = Key::Update(super::super::update::Key::PropagatedVersion {
 				id: tg::Either::Left(id.clone()),
 				kind,

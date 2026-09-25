@@ -61,10 +61,10 @@ pub struct Options {
 	pub instance: Option<String>,
 	pub log_compaction_partition_total: u64,
 	pub max_process_depth: Option<u64>,
-	pub node_update_partition_total: u64,
+	pub storage_and_metadata_update_partition_total: u64,
 	pub read_request_batch_size: usize,
 	pub read_transaction_concurrency: usize,
-	pub storage_update_partition_total: u64,
+	pub usage_update_partition_total: u64,
 	pub usage_partition_total: u64,
 	pub write_operation_batch_size: usize,
 	pub write_transaction_concurrency: usize,
@@ -80,8 +80,8 @@ pub(super) struct PartitionTotals {
 	pub cleaning: u64,
 	pub grant_update: u64,
 	pub log_compaction: u64,
-	pub node_update: u64,
-	pub storage_update: u64,
+	pub storage_and_metadata_update: u64,
+	pub usage_update: u64,
 	pub usage: u64,
 }
 
@@ -90,8 +90,8 @@ impl PartitionTotals {
 	fn update(self, kind: crate::update::Kind) -> u64 {
 		match kind {
 			crate::update::Kind::Grant => self.grant_update,
-			crate::update::Kind::Node => self.node_update,
-			crate::update::Kind::Storage => self.storage_update,
+			crate::update::Kind::StorageAndMetadata => self.storage_and_metadata_update,
+			crate::update::Kind::Usage => self.usage_update,
 		}
 	}
 }
@@ -113,8 +113,8 @@ impl Index {
 			cleaning: options.cleaning_partition_total,
 			grant_update: options.grant_update_partition_total,
 			log_compaction: options.log_compaction_partition_total,
-			node_update: options.node_update_partition_total,
-			storage_update: options.storage_update_partition_total,
+			storage_and_metadata_update: options.storage_and_metadata_update_partition_total,
+			usage_update: options.usage_update_partition_total,
 			usage: options.usage_partition_total,
 		};
 
@@ -197,8 +197,11 @@ impl Index {
 			("cleaning", options.cleaning_partition_total),
 			("grant update", options.grant_update_partition_total),
 			("log compaction", options.log_compaction_partition_total),
-			("node update", options.node_update_partition_total),
-			("storage update", options.storage_update_partition_total),
+			(
+				"storage and metadata update",
+				options.storage_and_metadata_update_partition_total,
+			),
+			("usage update", options.usage_update_partition_total),
 			("usage", options.usage_partition_total),
 		] {
 			if partition_total == 0 {
@@ -287,13 +290,13 @@ impl Index {
 	}
 
 	#[must_use]
-	pub fn node_update_partition_total(&self) -> u64 {
-		self.partition_totals.node_update
+	pub fn storage_and_metadata_update_partition_total(&self) -> u64 {
+		self.partition_totals.storage_and_metadata_update
 	}
 
 	#[must_use]
-	pub fn storage_update_partition_total(&self) -> u64 {
-		self.partition_totals.storage_update
+	pub fn usage_update_partition_total(&self) -> u64 {
+		self.partition_totals.usage_update
 	}
 
 	#[must_use]
@@ -715,11 +718,11 @@ impl crate::Index for Index {
 		self.log_compaction_partition_total()
 	}
 
-	fn node_update_partition_total(&self) -> u64 {
-		self.node_update_partition_total()
+	fn storage_and_metadata_update_partition_total(&self) -> u64 {
+		self.storage_and_metadata_update_partition_total()
 	}
 
-	fn storage_update_partition_total(&self) -> u64 {
-		self.storage_update_partition_total()
+	fn usage_update_partition_total(&self) -> u64 {
+		self.usage_update_partition_total()
 	}
 }

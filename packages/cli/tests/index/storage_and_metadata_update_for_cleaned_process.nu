@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Cleaning deletes a process while a node update for it is still queued, because the two run independently. The indexer must tolerate the missing process. Failing the update instead leaves the entry at the head of the update queue, which blocks every later update and logs the failure on every retry, including after a restart.
+# Cleaning deletes a process while a storage and metadata update for it is still queued, because the two run independently. The indexer must tolerate the missing process. Failing the update instead leaves the entry at the head of the update queue, which blocks every later update and logs the failure on every retry, including after a restart.
 
 let server = server spawn --config {
 	advanced: {
@@ -27,13 +27,13 @@ let data = tg process get $process
 
 # Hold the update task so that the queue cannot drain.
 let batch_watch = (
-	tg checkpoint watch indexer.update.node.batch
+	tg checkpoint watch indexer.update.storage_and_metadata.batch
 	| from json
 	| get watch
 )
-tg checkpoint wait indexer.update.node.batch $batch_watch 0 | ignore
+tg checkpoint wait indexer.update.storage_and_metadata.batch $batch_watch 0 | ignore
 
-# Putting the process queues a node update for it.
+# Putting the process queues a storage and metadata update for it.
 $data | tg process put $process
 
 # Watch cleaning only now, so that the hit below is necessarily a deletion that follows the queued update.
@@ -43,18 +43,18 @@ let delete_watch = (
 	| get watch
 )
 
-# Wait for cleaning to delete the process, so that the queued node update refers to a process that is gone.
+# Wait for cleaning to delete the process, so that the queued storage and metadata update refers to a process that is gone.
 tg checkpoint wait cleaning.process.delete $delete_watch 0 | ignore
 tg checkpoint continue cleaning.process.delete $delete_watch 0
 tg checkpoint unwatch cleaning.process.delete $delete_watch
 
 # Release the update task.
-tg checkpoint continue indexer.update.node.batch $batch_watch 0
-tg checkpoint unwatch indexer.update.node.batch $batch_watch
+tg checkpoint continue indexer.update.storage_and_metadata.batch $batch_watch 0
+tg checkpoint unwatch indexer.update.storage_and_metadata.batch $batch_watch
 
 # The update queue must drain.
 let index = timeout 15 tg index | complete
-success $index "the update queue must drain after a node update for a cleaned process"
+success $index "the update queue must drain after a storage and metadata update for a cleaned process"
 
 let errors = server_errors $server | where { $in | str starts-with 'tangram_server::indexer' }
 snapshot $errors ''

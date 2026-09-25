@@ -809,21 +809,21 @@ impl index::Index for Index {
 		}
 	}
 
-	fn node_update_partition_total(&self) -> u64 {
+	fn storage_and_metadata_update_partition_total(&self) -> u64 {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.node_update_partition_total(),
+			Self::Fdb(index) => index.storage_and_metadata_update_partition_total(),
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.node_update_partition_total(),
+			Self::Lmdb(index) => index.storage_and_metadata_update_partition_total(),
 		}
 	}
 
-	fn storage_update_partition_total(&self) -> u64 {
+	fn usage_update_partition_total(&self) -> u64 {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.storage_update_partition_total(),
+			Self::Fdb(index) => index.usage_update_partition_total(),
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.storage_update_partition_total(),
+			Self::Lmdb(index) => index.usage_update_partition_total(),
 		}
 	}
 

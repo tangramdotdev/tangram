@@ -3,8 +3,8 @@ use tangram_client::prelude::*;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
 	Grant,
-	Node,
-	Storage,
+	StorageAndMetadata,
+	Usage,
 }
 
 #[derive(Clone, Debug, Default)]

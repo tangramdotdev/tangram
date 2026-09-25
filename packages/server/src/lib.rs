@@ -364,8 +364,11 @@ impl Server {
 			}
 			for (name, update) in [
 				("grant", &indexer.updates.grants),
-				("node", &indexer.updates.nodes),
-				("storage", &indexer.updates.storage),
+				(
+					"storage and metadata",
+					&indexer.updates.storage_and_metadata,
+				),
+				("usage", &indexer.updates.usage),
 			] {
 				if update.batch_size == 0 {
 					return Err(tg::error!(
@@ -425,14 +428,14 @@ impl Server {
 						index.grant_update_partition_total,
 					),
 					(
-						"node update",
-						&indexer.updates.nodes.partitions,
-						index.node_update_partition_total,
+						"storage and metadata update",
+						&indexer.updates.storage_and_metadata.partitions,
+						index.storage_and_metadata_update_partition_total,
 					),
 					(
-						"storage update",
-						&indexer.updates.storage.partitions,
-						index.storage_update_partition_total,
+						"usage update",
+						&indexer.updates.usage.partitions,
+						index.usage_update_partition_total,
 					),
 					(
 						"usage",
@@ -444,8 +447,12 @@ impl Server {
 					("cleaning", &indexer.cleaning.partitions, 1),
 					("log compaction", &indexer.log_compaction.partitions, 1),
 					("grant update", &indexer.updates.grants.partitions, 1),
-					("node update", &indexer.updates.nodes.partitions, 1),
-					("storage update", &indexer.updates.storage.partitions, 1),
+					(
+						"storage and metadata update",
+						&indexer.updates.storage_and_metadata.partitions,
+						1,
+					),
+					("usage update", &indexer.updates.usage.partitions, 1),
 					(
 						"usage",
 						&indexer.usage_partitions,
@@ -917,10 +924,11 @@ impl Server {
 							.then(|| {
 								u64::try_from(config.indexer.updates.max_process_depth).unwrap()
 							}),
-						node_update_partition_total: options.node_update_partition_total,
+						storage_and_metadata_update_partition_total: options
+							.storage_and_metadata_update_partition_total,
 						read_request_batch_size: options.read_request_batch_size,
 						read_transaction_concurrency: options.read_transaction_concurrency,
-						storage_update_partition_total: options.storage_update_partition_total,
+						usage_update_partition_total: options.usage_update_partition_total,
 						usage_partition_total: options.usage_partition_total,
 						write_operation_batch_size: options.write_operation_batch_size,
 						write_transaction_concurrency: options.write_transaction_concurrency,

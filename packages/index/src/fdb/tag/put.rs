@@ -55,7 +55,7 @@ impl Index {
 							txn,
 							subspace,
 							id,
-							partition_totals.storage_update,
+							partition_totals.usage_update,
 						)
 						.await
 					);
@@ -66,7 +66,7 @@ impl Index {
 							txn,
 							subspace,
 							id,
-							partition_totals.storage_update,
+							partition_totals.usage_update,
 						)
 						.await
 					);

@@ -28,8 +28,8 @@ async fn run(test: impl AsyncFnOnce(&Index)) {
 		cleaning: 2,
 		grant_update: 2,
 		log_compaction: 2,
-		node_update: 2,
-		storage_update: 2,
+		storage_and_metadata_update: 2,
+		usage_update: 2,
 		usage: 1,
 	};
 	run_with_partition_totals(partition_totals, test).await;
@@ -56,10 +56,10 @@ async fn run_with_partition_totals(
 		)),
 		log_compaction_partition_total: partition_totals.log_compaction,
 		max_process_depth: None,
-		node_update_partition_total: partition_totals.node_update,
+		storage_and_metadata_update_partition_total: partition_totals.storage_and_metadata_update,
 		read_request_batch_size: 1,
 		read_transaction_concurrency: 1,
-		storage_update_partition_total: partition_totals.storage_update,
+		usage_update_partition_total: partition_totals.usage_update,
 		usage_partition_total: partition_totals.usage,
 		write_operation_batch_size: 1024,
 		write_transaction_concurrency: 1,
@@ -129,7 +129,7 @@ async fn reproduce(index: &Index, late: bool) {
 
 	// Waiting must still include the top directory even though its metadata is unchanged locally.
 	let oldest = index
-		.try_get_oldest_update_transaction_id(crate::update::Kind::Node)
+		.try_get_oldest_update_transaction_id(crate::update::Kind::StorageAndMetadata)
 		.await
 		.unwrap();
 	assert!(
@@ -145,8 +145,15 @@ async fn reproduce(index: &Index, late: bool) {
 		let id = tg::Either::Left(middle.id.clone());
 		let version = &version;
 		async move {
-			Index::enqueue_update_propagate(&txn, &index.subspace, &id, &Kind::Node, version, 2)
-				.await
+			Index::enqueue_update_propagate(
+				&txn,
+				&index.subspace,
+				&id,
+				&Kind::StorageAndMetadata,
+				version,
+				2,
+			)
+			.await
 		}
 	})
 	.await
@@ -192,7 +199,7 @@ async fn reproduce(index: &Index, late: bool) {
 						&txn,
 						&index.subspace,
 						&id,
-						&Kind::Node
+						&Kind::StorageAndMetadata
 					)
 					.await
 				);
@@ -258,7 +265,7 @@ async fn put(index: &Index, objects: Vec<crate::object::put::Arg>) {
 async fn drain(index: &Index) {
 	for _ in 0..100 {
 		if index
-			.update_batch(crate::update::Kind::Node, 1024, 0, 2)
+			.update_batch(crate::update::Kind::StorageAndMetadata, 1024, 0, 2)
 			.await
 			.unwrap()
 			.count == 0
@@ -266,13 +273,13 @@ async fn drain(index: &Index) {
 			return;
 		}
 	}
-	panic!("the node updates did not drain");
+	panic!("the storage and metadata updates did not drain");
 }
 
 async fn step(index: &Index) {
 	assert_eq!(
 		index
-			.update_batch(crate::update::Kind::Node, 1, 0, 2)
+			.update_batch(crate::update::Kind::StorageAndMetadata, 1, 0, 2)
 			.await
 			.unwrap()
 			.count,
@@ -337,7 +344,7 @@ async fn move_entries(index: &Index, id: &tg::object::Id, partition: u64, newest
 				};
 				let key = crate::fdb::Key::Update(Key::UpdateVersion {
 					id: id.clone(),
-					kind: Kind::Node,
+					kind: Kind::StorageAndMetadata,
 					partition,
 					version: version.clone(),
 				});

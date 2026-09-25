@@ -18,7 +18,7 @@ let config = {
 	indexer: {
 		cache: { poll_interval: 0.01 },
 		cleaning: false,
-		updates: { nodes: { batch_size: 1 } },
+		updates: { storage_and_metadata: { batch_size: 1 } },
 	},
 	messenger: { kind: 'nats', url: $'nats://127.0.0.1:($port)' },
 	roles: [api indexer],
@@ -34,8 +34,8 @@ let a = server spawn --name a --config ($config | merge deep {
 		log_compaction: { partitions: { start: 0, end: 0 } },
 		updates: {
 			grants: { partitions: { start: 0, end: 0 } },
-			nodes: { partitions: { start: 0, end: 0 } },
-			storage: { partitions: { start: 0, end: 0 } },
+			storage_and_metadata: { partitions: { start: 0, end: 0 } },
+			usage: { partitions: { start: 0, end: 0 } },
 		},
 	},
 })
@@ -46,8 +46,8 @@ let a_wait_watch = tg --url $a.url checkpoint watch indexer.request.receive | fr
 let object = tg --url $a.url put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
 tg --url $a.url checkpoint wait index.batch $batch_watch 0 | ignore
 let b = server spawn --name b --config $config
-let update_watch = tg --url $b.url checkpoint watch indexer.update.node.batch | from json | get watch
-tg --url $b.url checkpoint wait indexer.update.node.batch $update_watch 0 | ignore
+let update_watch = tg --url $b.url checkpoint watch indexer.update.storage_and_metadata.batch | from json | get watch
+tg --url $b.url checkpoint wait indexer.update.storage_and_metadata.batch $update_watch 0 | ignore
 let api = server spawn --name api --config ($config | upsert roles [api])
 let params = { indexer: $b.config.indexer.id } | to json --raw
 let complete_watch = tg --url $api.url checkpoint watch indexer.wait.complete --params $params | from json | get watch
@@ -85,7 +85,7 @@ let pending = try {
 	true
 }
 assert $pending 'the server wait must include the shared updates after the local wait finishes'
-tg --url $b.url checkpoint unwatch indexer.update.node.batch $update_watch
+tg --url $b.url checkpoint unwatch indexer.update.storage_and_metadata.batch $update_watch
 let output = job recv --tag $request --timeout 10sec
 success $output 'the replacement wait must finish after the shared updates'
 let metadata = tg --url $api.url object metadata $object | from json
@@ -111,7 +111,7 @@ snapshot --normalize $output.stderr '
 
 # Losing the last indexer after its local wait finishes must fail the pending shared wait.
 let c = server spawn --name c --config ($config | merge deep {
-	indexer: { updates: { nodes: { partitions: { start: 0, end: 0 } } } },
+	indexer: { updates: { storage_and_metadata: { partitions: { start: 0, end: 0 } } } },
 })
 tg --url $api.url put 'tg.directory({ "x.txt": tg.file("xxx"), "y.txt": tg.file("yyy") })' | ignore
 let shared_watch = tg --url $api.url checkpoint watch index.wait.updates | from json | get watch

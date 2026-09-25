@@ -2,7 +2,7 @@ mod key;
 #[cfg(test)]
 mod tests;
 
-pub(super) use key::{Key, Kind, StorageKind};
+pub(super) use key::{Key, Kind, UsageKind};
 
 use {
 	super::{Index, Kind as KeyKind, Request, Response},
@@ -27,7 +27,7 @@ pub(super) struct GrantUpdate {
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub(super) struct NodeUpdate {
+pub(super) struct StorageAndMetadataUpdate {
 	#[tangram_serialize(id = 0)]
 	pub source: Source,
 }
@@ -35,9 +35,9 @@ pub(super) struct NodeUpdate {
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub(super) struct StorageUpdate {
+pub(super) struct UsageUpdate {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub cursor: Option<StorageCursor>,
+	pub cursor: Option<UsageCursor>,
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub version: Option<[u8; 12]>,
@@ -46,7 +46,7 @@ pub(super) struct StorageUpdate {
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub(super) enum StorageCursor {
+pub(super) enum UsageCursor {
 	#[tangram_serialize(id = 0)]
 	Object(tg::object::Id),
 
@@ -108,7 +108,7 @@ struct ProcessOutput {
 	depth_exceeded: bool,
 }
 
-enum StorageRelationship {
+enum UsageRelationship {
 	Object(tg::object::Id),
 	Process(tg::process::Id),
 }
@@ -134,23 +134,31 @@ impl GrantUpdate {
 	}
 }
 
-impl NodeUpdate {
+impl StorageAndMetadataUpdate {
 	pub fn new(source: Source) -> Self {
 		Self { source }
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
-		tangram_serialize::to_vec(self)
-			.map_err(|error| tg::error!(!error, "failed to serialize the node update"))
+		tangram_serialize::to_vec(self).map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to serialize the storage and metadata update"
+			)
+		})
 	}
 
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
-		tangram_serialize::from_slice(bytes)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the node update"))
+		tangram_serialize::from_slice(bytes).map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to deserialize the storage and metadata update"
+			)
+		})
 	}
 }
 
-impl StorageUpdate {
+impl UsageUpdate {
 	pub fn new() -> Self {
 		Self {
 			cursor: None,
@@ -160,12 +168,12 @@ impl StorageUpdate {
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
-			.map_err(|error| tg::error!(!error, "failed to serialize the storage update"))
+			.map_err(|error| tg::error!(!error, "failed to serialize the usage update"))
 	}
 
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the storage update"))
+			.map_err(|error| tg::error!(!error, "failed to deserialize the usage update"))
 	}
 }
 
@@ -180,7 +188,7 @@ impl Index {
 			txn,
 			subspace,
 			id,
-			&Kind::Node,
+			&Kind::StorageAndMetadata,
 			Source::Put,
 			partition_total,
 		);
@@ -423,19 +431,19 @@ impl Index {
 				value.to_vec()
 			} else {
 				let key = match &kind {
-					Kind::Grant(_) | Kind::Node => Some(Key::PropagatedVersion {
+					Kind::Grant(_) | Kind::StorageAndMetadata => Some(Key::PropagatedVersion {
 						id: id.clone(),
 						kind: kind.clone(),
 					}),
-					Kind::Storage(StorageKind::Clean(_) | StorageKind::CleanAll) => None,
-					Kind::Storage(StorageKind::Propagate { account, .. }) => {
-						Some(Key::StorageUpdatePropagatedVersion {
+					Kind::Usage(UsageKind::Clean(_) | UsageKind::CleanAll) => None,
+					Kind::Usage(UsageKind::Propagate { account, .. }) => {
+						Some(Key::UsageUpdatePropagatedVersion {
 							account: account.clone(),
 							id: id.clone(),
 						})
 					},
-					Kind::Storage(StorageKind::Put { account, .. }) => {
-						Some(Key::StorageUpdatePutVersion {
+					Kind::Usage(UsageKind::Put { account, .. }) => {
+						Some(Key::UsageUpdatePutVersion {
 							account: account.clone(),
 							id: id.clone(),
 						})
@@ -465,11 +473,11 @@ impl Index {
 			};
 
 			let (cursor, source) = match &kind {
-				Kind::Grant(_) | Kind::Node => {
+				Kind::Grant(_) | Kind::StorageAndMetadata => {
 					(None, Some(deserialize_source_update(&kind, &value)?))
 				},
-				Kind::Storage(_) => {
-					let update = StorageUpdate::deserialize(&value)?;
+				Kind::Usage(_) => {
+					let update = UsageUpdate::deserialize(&value)?;
 					let previous = update.version.map(fdbt::Versionstamp::from);
 					// Revisit earlier pages when an older obligation joins the traversal.
 					let cursor = if previous
@@ -515,7 +523,7 @@ impl Index {
 						)
 					},
 				},
-				Kind::Node => match &id {
+				Kind::StorageAndMetadata => match &id {
 					tg::Either::Left(id) => {
 						crate::fdb::propagate!(Self::update_object(txn, subspace, id).await)
 					},
@@ -529,7 +537,7 @@ impl Index {
 						process_output.changed
 					},
 				},
-				Kind::Storage(StorageKind::Clean(account)) => {
+				Kind::Usage(UsageKind::Clean(account)) => {
 					next_cursor = crate::fdb::propagate!(
 						Self::propagate_storage_clean(
 							txn,
@@ -543,7 +551,7 @@ impl Index {
 					);
 					false
 				},
-				Kind::Storage(StorageKind::CleanAll) => {
+				Kind::Usage(UsageKind::CleanAll) => {
 					next_cursor = crate::fdb::propagate!(
 						Self::propagate_storage_accounts_clean(
 							txn,
@@ -556,7 +564,7 @@ impl Index {
 					);
 					false
 				},
-				Kind::Storage(StorageKind::Propagate {
+				Kind::Usage(UsageKind::Propagate {
 					account,
 					touched_at,
 				}) => {
@@ -575,7 +583,7 @@ impl Index {
 					);
 					false
 				},
-				Kind::Storage(StorageKind::Put {
+				Kind::Usage(UsageKind::Put {
 					account,
 					touched_at,
 				}) => match &id {
@@ -664,7 +672,7 @@ impl Index {
 			}
 
 			let continued = if let Some(cursor) = next_cursor {
-				let update = StorageUpdate {
+				let update = UsageUpdate {
 					cursor: Some(cursor),
 					version: Some(*version.as_bytes()),
 				};
@@ -745,9 +753,9 @@ impl Index {
 	) {
 		for kind in [
 			KeyKind::GrantUpdatePropagatedVersion,
-			KeyKind::NodeUpdatePropagatedVersion,
-			KeyKind::StorageUpdatePropagatedVersion,
-			KeyKind::StorageUpdatePutVersion,
+			KeyKind::StorageAndMetadataUpdatePropagatedVersion,
+			KeyKind::UsageUpdatePropagatedVersion,
+			KeyKind::UsageUpdatePutVersion,
 		] {
 			let prefix = Self::pack(subspace, &(kind.to_i32().unwrap(), id));
 			let (_, end) = Subspace::from_bytes(prefix.clone()).range();
@@ -755,14 +763,14 @@ impl Index {
 		}
 	}
 
-	pub(super) async fn lower_storage_update_put_version(
+	pub(super) async fn lower_usage_update_put_version(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &crate::usage::Account,
 		version: &fdbt::Versionstamp,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
-		let key = Key::StorageUpdatePutVersion {
+		let key = Key::UsageUpdatePutVersion {
 			account: account.clone(),
 			id: id.clone(),
 		};
@@ -778,18 +786,18 @@ impl Index {
 		Ok(ControlFlow::Break(true))
 	}
 
-	pub(super) fn clear_storage_update_versions(
+	pub(super) fn clear_usage_update_versions(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &crate::usage::Account,
 	) {
 		for key in [
-			Key::StorageUpdatePropagatedVersion {
+			Key::UsageUpdatePropagatedVersion {
 				account: account.clone(),
 				id: id.clone(),
 			},
-			Key::StorageUpdatePutVersion {
+			Key::UsageUpdatePutVersion {
 				account: account.clone(),
 				id: id.clone(),
 			},
@@ -804,11 +812,11 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &crate::usage::Account,
-		cursor: Option<&StorageCursor>,
-		storage_update_partition_total: u64,
+		cursor: Option<&UsageCursor>,
+		usage_update_partition_total: u64,
 		touched_at: i64,
 		version: &fdbt::Versionstamp,
-	) -> tg::Result<ControlFlow<Option<StorageCursor>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<Option<UsageCursor>, fdb::FdbError>> {
 		let key = match id {
 			tg::Either::Left(object) => crate::fdb::usage::Key::AccountObject {
 				account: account.clone(),
@@ -829,20 +837,20 @@ impl Index {
 		// Resolve the put version once a versionstamped insertion starts propagating.
 		if cursor.is_none() {
 			crate::fdb::propagate!(
-				Self::lower_storage_update_put_version(txn, subspace, id, account, version).await
+				Self::lower_usage_update_put_version(txn, subspace, id, account, version).await
 			);
 		}
 		let (relationships, cursor) = crate::fdb::propagate!(
 			Self::get_storage_relationships_page(txn, subspace, id, cursor).await
 		);
-		let kind = Kind::Storage(StorageKind::Put {
+		let kind = Kind::Usage(UsageKind::Put {
 			account: account.clone(),
 			touched_at,
 		});
 		for relationship in relationships {
 			let id = match relationship {
-				StorageRelationship::Object(id) => tg::Either::Left(id),
-				StorageRelationship::Process(id) => tg::Either::Right(id),
+				UsageRelationship::Object(id) => tg::Either::Left(id),
+				UsageRelationship::Process(id) => tg::Either::Right(id),
 			};
 			Self::enqueue_update_with_kind_at_version(
 				txn,
@@ -850,13 +858,13 @@ impl Index {
 				&id,
 				&kind,
 				Source::Put,
-				storage_update_partition_total,
+				usage_update_partition_total,
 				Some(version),
 			);
 		}
 
 		if cursor.is_none() {
-			let key = Key::StorageUpdatePropagatedVersion {
+			let key = Key::UsageUpdatePropagatedVersion {
 				account: account.clone(),
 				id: id.clone(),
 			};
@@ -874,9 +882,9 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
 		account: &crate::usage::Account,
-		cursor: Option<&StorageCursor>,
+		cursor: Option<&UsageCursor>,
 		cleaning_partition_total: u64,
-	) -> tg::Result<ControlFlow<Option<StorageCursor>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<Option<UsageCursor>, fdb::FdbError>> {
 		let (relationships, cursor) = crate::fdb::propagate!(
 			Self::get_storage_relationships_page(txn, subspace, id, cursor).await
 		);
@@ -884,7 +892,7 @@ impl Index {
 			let result =
 				future::try_join_all(relationships.iter().map(|relationship| async move {
 					match relationship {
-						StorageRelationship::Object(object) => {
+						UsageRelationship::Object(object) => {
 							Self::schedule_account_object_for_cleaning(
 								txn,
 								subspace,
@@ -894,7 +902,7 @@ impl Index {
 							)
 							.await
 						},
-						StorageRelationship::Process(process) => {
+						UsageRelationship::Process(process) => {
 							Self::schedule_account_process_for_cleaning(
 								txn,
 								subspace,
@@ -923,9 +931,9 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
-		cursor: Option<&StorageCursor>,
+		cursor: Option<&UsageCursor>,
 		cleaning_partition_total: u64,
-	) -> tg::Result<ControlFlow<Option<StorageCursor>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<Option<UsageCursor>, fdb::FdbError>> {
 		let (accounts, cursor) = crate::fdb::propagate!(
 			Self::get_storage_accounts_page(txn, subspace, id, cursor).await
 		);
@@ -971,19 +979,18 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
-		cursor: Option<&StorageCursor>,
-	) -> tg::Result<ControlFlow<(Vec<StorageRelationship>, Option<StorageCursor>), fdb::FdbError>>
-	{
+		cursor: Option<&UsageCursor>,
+	) -> tg::Result<ControlFlow<(Vec<UsageRelationship>, Option<UsageCursor>), fdb::FdbError>> {
 		match id {
 			tg::Either::Left(object) => {
 				let after = match cursor {
 					None => None,
-					Some(StorageCursor::Object(object)) => Some(object),
+					Some(UsageCursor::Object(object)) => Some(object),
 					Some(
-						StorageCursor::ObjectAccount(_)
-						| StorageCursor::ProcessChild(_)
-						| StorageCursor::ProcessObject(_)
-						| StorageCursor::ProcessAccount(_),
+						UsageCursor::ObjectAccount(_)
+						| UsageCursor::ProcessChild(_)
+						| UsageCursor::ProcessObject(_)
+						| UsageCursor::ProcessAccount(_),
 					) => {
 						return Err(tg::error!(%object, "an object update has an invalid cursor"));
 					},
@@ -994,9 +1001,9 @@ impl Index {
 				if matches!(
 					cursor,
 					Some(
-						StorageCursor::Object(_)
-							| StorageCursor::ObjectAccount(_)
-							| StorageCursor::ProcessAccount(_)
+						UsageCursor::Object(_)
+							| UsageCursor::ObjectAccount(_)
+							| UsageCursor::ProcessAccount(_)
 					)
 				) {
 					return Err(tg::error!(%process, "a process update has an invalid cursor"));
@@ -1010,12 +1017,12 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::Either<tg::object::Id, tg::process::Id>,
-		cursor: Option<&StorageCursor>,
-	) -> tg::Result<ControlFlow<(Vec<crate::usage::Account>, Option<StorageCursor>), fdb::FdbError>>
+		cursor: Option<&UsageCursor>,
+	) -> tg::Result<ControlFlow<(Vec<crate::usage::Account>, Option<UsageCursor>), fdb::FdbError>>
 	{
 		let (kind, item, after) = match (id, cursor) {
 			(tg::Either::Left(object), None) => (KeyKind::ObjectAccount, object.to_bytes(), None),
-			(tg::Either::Left(object), Some(StorageCursor::ObjectAccount(account))) => (
+			(tg::Either::Left(object), Some(UsageCursor::ObjectAccount(account))) => (
 				KeyKind::ObjectAccount,
 				object.to_bytes(),
 				Some(crate::fdb::Key::Usage(
@@ -1028,7 +1035,7 @@ impl Index {
 			(tg::Either::Right(process), None) => {
 				(KeyKind::ProcessAccount, process.to_bytes(), None)
 			},
-			(tg::Either::Right(process), Some(StorageCursor::ProcessAccount(account))) => (
+			(tg::Either::Right(process), Some(UsageCursor::ProcessAccount(account))) => (
 				KeyKind::ProcessAccount,
 				process.to_bytes(),
 				Some(crate::fdb::Key::Usage(
@@ -1072,8 +1079,8 @@ impl Index {
 			accounts.truncate(STORAGE_RELATION_BATCH_SIZE);
 			let account = accounts.last().unwrap().clone();
 			Some(match id {
-				tg::Either::Left(_) => StorageCursor::ObjectAccount(account),
-				tg::Either::Right(_) => StorageCursor::ProcessAccount(account),
+				tg::Either::Left(_) => UsageCursor::ObjectAccount(account),
+				tg::Either::Right(_) => UsageCursor::ProcessAccount(account),
 			})
 		} else {
 			None
@@ -1087,8 +1094,7 @@ impl Index {
 		subspace: &Subspace,
 		object: &tg::object::Id,
 		after: Option<&tg::object::Id>,
-	) -> tg::Result<ControlFlow<(Vec<StorageRelationship>, Option<StorageCursor>), fdb::FdbError>>
-	{
+	) -> tg::Result<ControlFlow<(Vec<UsageRelationship>, Option<UsageCursor>), fdb::FdbError>> {
 		let object_bytes = object.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -1126,13 +1132,13 @@ impl Index {
 			.collect::<tg::Result<Vec<_>>>()?;
 		let cursor = if children.len() > STORAGE_RELATION_BATCH_SIZE {
 			children.truncate(STORAGE_RELATION_BATCH_SIZE);
-			Some(StorageCursor::Object(children.last().unwrap().clone()))
+			Some(UsageCursor::Object(children.last().unwrap().clone()))
 		} else {
 			None
 		};
 		let relationships = children
 			.into_iter()
-			.map(StorageRelationship::Object)
+			.map(UsageRelationship::Object)
 			.collect();
 
 		Ok(ControlFlow::Break((relationships, cursor)))
@@ -1142,39 +1148,38 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		process: &tg::process::Id,
-		cursor: Option<&StorageCursor>,
-	) -> tg::Result<ControlFlow<(Vec<StorageRelationship>, Option<StorageCursor>), fdb::FdbError>>
-	{
+		cursor: Option<&UsageCursor>,
+	) -> tg::Result<ControlFlow<(Vec<UsageRelationship>, Option<UsageCursor>), fdb::FdbError>> {
 		let mut relationships = Vec::new();
 		let process_object_cursor = match cursor {
-			None | Some(StorageCursor::ProcessChild(_)) => {
+			None | Some(UsageCursor::ProcessChild(_)) => {
 				let after = match cursor {
-					Some(StorageCursor::ProcessChild(position)) => Some(*position),
+					Some(UsageCursor::ProcessChild(position)) => Some(*position),
 					_ => None,
 				};
 				let (children, child_cursor, more) = crate::fdb::propagate!(
 					Self::get_storage_process_children_page(txn, subspace, process, after).await
 				);
-				relationships.extend(children.into_iter().map(StorageRelationship::Process));
+				relationships.extend(children.into_iter().map(UsageRelationship::Process));
 				if more {
 					return Ok(ControlFlow::Break((
 						relationships,
-						Some(StorageCursor::ProcessChild(child_cursor.unwrap())),
+						Some(UsageCursor::ProcessChild(child_cursor.unwrap())),
 					)));
 				}
 				if relationships.len() == STORAGE_RELATION_BATCH_SIZE {
 					return Ok(ControlFlow::Break((
 						relationships,
-						Some(StorageCursor::ProcessObject(None)),
+						Some(UsageCursor::ProcessObject(None)),
 					)));
 				}
 				None
 			},
-			Some(StorageCursor::ProcessObject(cursor)) => cursor.as_ref(),
+			Some(UsageCursor::ProcessObject(cursor)) => cursor.as_ref(),
 			Some(
-				StorageCursor::Object(_)
-				| StorageCursor::ObjectAccount(_)
-				| StorageCursor::ProcessAccount(_),
+				UsageCursor::Object(_)
+				| UsageCursor::ObjectAccount(_)
+				| UsageCursor::ProcessAccount(_),
 			) => unreachable!(),
 		};
 		let limit = STORAGE_RELATION_BATCH_SIZE - relationships.len();
@@ -1195,9 +1200,9 @@ impl Index {
 		relationships.extend(
 			objects
 				.into_iter()
-				.map(|(object, _)| StorageRelationship::Object(object)),
+				.map(|(object, _)| UsageRelationship::Object(object)),
 		);
-		let cursor = more.then_some(StorageCursor::ProcessObject(cursor));
+		let cursor = more.then_some(UsageCursor::ProcessObject(cursor));
 
 		Ok(ControlFlow::Break((relationships, cursor)))
 	}
@@ -3134,16 +3139,16 @@ impl Index {
 fn update_version_key_kind(kind: crate::update::Kind) -> KeyKind {
 	match kind {
 		crate::update::Kind::Grant => KeyKind::GrantUpdateVersion,
-		crate::update::Kind::Node => KeyKind::NodeUpdateVersion,
-		crate::update::Kind::Storage => KeyKind::StorageUpdateVersion,
+		crate::update::Kind::StorageAndMetadata => KeyKind::StorageAndMetadataUpdateVersion,
+		crate::update::Kind::Usage => KeyKind::UsageUpdateVersion,
 	}
 }
 
 fn deserialize_source_update(kind: &Kind, bytes: &[u8]) -> tg::Result<Source> {
 	let source = match kind {
 		Kind::Grant(_) => GrantUpdate::deserialize(bytes)?.source,
-		Kind::Node => NodeUpdate::deserialize(bytes)?.source,
-		Kind::Storage(_) => return Err(tg::error!("expected a source update")),
+		Kind::StorageAndMetadata => StorageAndMetadataUpdate::deserialize(bytes)?.source,
+		Kind::Usage(_) => return Err(tg::error!("expected a source update")),
 	};
 
 	Ok(source)
@@ -3152,8 +3157,8 @@ fn deserialize_source_update(kind: &Kind, bytes: &[u8]) -> tg::Result<Source> {
 fn serialize_update(kind: &Kind, source: Source) -> tg::Result<Vec<u8>> {
 	let value = match kind {
 		Kind::Grant(_) => GrantUpdate::new(source).serialize()?,
-		Kind::Node => NodeUpdate::new(source).serialize()?,
-		Kind::Storage(_) => StorageUpdate::new().serialize()?,
+		Kind::StorageAndMetadata => StorageAndMetadataUpdate::new(source).serialize()?,
+		Kind::Usage(_) => UsageUpdate::new().serialize()?,
 	};
 
 	Ok(value)

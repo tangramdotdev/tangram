@@ -1,6 +1,6 @@
 use {
 	super::{Index, Key, Kind},
-	crate::fdb::update::StorageKind,
+	crate::fdb::update::UsageKind,
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
@@ -20,13 +20,13 @@ async fn late_storage_puts_preserve_the_oldest_version() {
 
 #[tokio::test]
 #[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
-async fn paginated_storage_updates_preserve_the_oldest_version() {
+async fn paginated_usage_updates_preserve_the_oldest_version() {
 	super::run(pages).await;
 }
 
 #[tokio::test]
 #[ignore = "requires FoundationDB and FDB_CLUSTER_FILE"]
-async fn completed_storage_updates_preserve_the_oldest_version() {
+async fn completed_usage_updates_preserve_the_oldest_version() {
 	super::run(async |index| {
 		let leaf = super::directory(&[]);
 		let middle = super::directory(&[("leaf", leaf.id.clone())]);
@@ -35,7 +35,7 @@ async fn completed_storage_updates_preserve_the_oldest_version() {
 		let account = crate::usage::Account::User(tg::user::Id::new());
 		associate(index, &account, &middle.id, 0).await;
 		let old = queue(index).await.pop().unwrap();
-		let kind = Kind::Storage(StorageKind::Propagate {
+		let kind = Kind::Usage(UsageKind::Propagate {
 			account: account.clone(),
 			touched_at: 0,
 		});
@@ -93,11 +93,11 @@ async fn puts(index: &Index, late: bool) {
 		step(index, &old).await;
 	}
 	let entries = queue(index).await;
-	let old = entries.iter().find(|key| matches!(key, Key::UpdateVersion { kind: Kind::Storage(StorageKind::Put { .. }), version: value, .. } if *value == old_version)).unwrap();
+	let old = entries.iter().find(|key| matches!(key, Key::UpdateVersion { kind: Kind::Usage(UsageKind::Put { .. }), version: value, .. } if *value == old_version)).unwrap();
 	step(index, old).await;
 	assert!(!associated(index, &account, &leaf.id).await);
 	let oldest = index
-		.try_get_oldest_update_transaction_id(crate::update::Kind::Storage)
+		.try_get_oldest_update_transaction_id(crate::update::Kind::Usage)
 		.await
 		.unwrap();
 	assert!(
@@ -111,7 +111,7 @@ async fn puts(index: &Index, late: bool) {
 	enqueue(
 		index,
 		&middle.id,
-		&Kind::Storage(StorageKind::Put {
+		&Kind::Usage(UsageKind::Put {
 			account: account.clone(),
 			touched_at: 0,
 		}),
@@ -157,11 +157,11 @@ async fn puts(index: &Index, late: bool) {
 		let account = &account;
 		crate::fdb::run(&index.database, |txn| async move {
 			for key in [
-				Key::StorageUpdatePutVersion {
+				Key::UsageUpdatePutVersion {
 					account: account.clone(),
 					id: tg::Either::Left(id.clone()),
 				},
-				Key::StorageUpdatePropagatedVersion {
+				Key::UsageUpdatePropagatedVersion {
 					account: account.clone(),
 					id: tg::Either::Left(id.clone()),
 				},
@@ -207,7 +207,7 @@ async fn pages(index: &Index) {
 	associate(index, &account, &middle.id, 0).await;
 	let old = queue(index).await.pop().unwrap();
 	let cutoff = index.get_transaction_id().await.unwrap();
-	let kind = Kind::Storage(StorageKind::Propagate {
+	let kind = Kind::Usage(UsageKind::Propagate {
 		account: account.clone(),
 		touched_at: 0,
 	});
@@ -228,7 +228,7 @@ async fn pages(index: &Index) {
 		"the older traversal skipped the page already visited by the newer traversal"
 	);
 	let oldest = index
-		.try_get_oldest_update_transaction_id(crate::update::Kind::Storage)
+		.try_get_oldest_update_transaction_id(crate::update::Kind::Usage)
 		.await
 		.unwrap();
 	assert!(oldest.is_some_and(|version| version <= cutoff));
@@ -343,7 +343,7 @@ async fn step(index: &Index, selected: &Key) {
 	.unwrap();
 	assert_eq!(
 		index
-			.update_batch(crate::update::Kind::Storage, 1, 0, 1)
+			.update_batch(crate::update::Kind::Usage, 1, 0, 1)
 			.await
 			.unwrap()
 			.count,
@@ -354,7 +354,7 @@ async fn step(index: &Index, selected: &Key) {
 async fn drain(index: &Index) {
 	for _ in 0..100 {
 		if index
-			.update_batch(crate::update::Kind::Storage, 100, 0, 2)
+			.update_batch(crate::update::Kind::Usage, 100, 0, 2)
 			.await
 			.unwrap()
 			.count == 0
@@ -362,7 +362,7 @@ async fn drain(index: &Index) {
 			return;
 		}
 	}
-	panic!("the storage updates did not drain");
+	panic!("the usage updates did not drain");
 }
 
 async fn queue(index: &Index) -> Vec<Key> {

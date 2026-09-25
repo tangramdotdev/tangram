@@ -110,7 +110,7 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Left(object.clone()),
-				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Put {
+				&crate::fdb::update::Kind::Usage(crate::fdb::update::UsageKind::Put {
 					account,
 					touched_at,
 				}),
@@ -161,7 +161,7 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Right(process.clone()),
-				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Put {
+				&crate::fdb::update::Kind::Usage(crate::fdb::update::UsageKind::Put {
 					account,
 					touched_at,
 				}),
@@ -213,7 +213,7 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Right(process.clone()),
-				&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Propagate {
+				&crate::fdb::update::Kind::Usage(crate::fdb::update::UsageKind::Propagate {
 					account,
 					touched_at,
 				}),
@@ -323,7 +323,7 @@ impl Index {
 						&tg::Either::Left(arg.object.clone()),
 						&arg.account,
 						arg.touched_at,
-						partition_totals.storage_update,
+						partition_totals.usage_update,
 						Some(version)
 					)
 					.await
@@ -382,7 +382,7 @@ impl Index {
 				&tg::Either::Left(arg.object.clone()),
 				&arg.account,
 				arg.touched_at,
-				partition_totals.storage_update,
+				partition_totals.usage_update,
 				version
 			)
 			.await
@@ -423,7 +423,7 @@ impl Index {
 						&tg::Either::Right(arg.process.clone()),
 						&arg.account,
 						arg.touched_at,
-						partition_totals.storage_update,
+						partition_totals.usage_update,
 						Some(version)
 					)
 					.await
@@ -471,7 +471,7 @@ impl Index {
 				&tg::Either::Right(arg.process.clone()),
 				&arg.account,
 				arg.touched_at,
-				partition_totals.storage_update,
+				partition_totals.usage_update,
 				version
 			)
 			.await
@@ -491,13 +491,13 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		if let Some(version) = version {
 			let lowered = crate::fdb::propagate!(
-				Self::lower_storage_update_put_version(txn, subspace, id, account, version).await
+				Self::lower_usage_update_put_version(txn, subspace, id, account, version).await
 			);
 			if !lowered {
 				return Ok(ControlFlow::Break(()));
 			}
 		}
-		let kind = crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Propagate {
+		let kind = crate::fdb::update::Kind::Usage(crate::fdb::update::UsageKind::Propagate {
 			account: account.clone(),
 			touched_at,
 		});

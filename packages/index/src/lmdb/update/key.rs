@@ -16,7 +16,7 @@ pub enum Key {
 		kind: Kind,
 	},
 	/// The oldest put version for an account association is independent of its touch timestamp.
-	StorageUpdatePutVersion {
+	UsageUpdatePutVersion {
 		account: crate::usage::Account,
 		id: tg::Either<tg::object::Id, tg::process::Id>,
 	},
@@ -34,12 +34,12 @@ pub enum Key {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Kind {
 	Grant(tg::authorization::Subject),
-	Node,
-	Storage(StorageKind),
+	StorageAndMetadata,
+	Usage(UsageKind),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum StorageKind {
+pub enum UsageKind {
 	Clean(crate::usage::Account),
 	CleanAll,
 	Propagate {

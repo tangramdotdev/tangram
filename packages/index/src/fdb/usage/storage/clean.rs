@@ -31,7 +31,7 @@ impl Index {
 			txn,
 			subspace,
 			&tg::Either::Left(object.clone()),
-			&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::CleanAll),
+			&crate::fdb::update::Kind::Usage(crate::fdb::update::UsageKind::CleanAll),
 			crate::fdb::update::Source::Put,
 			partition_total,
 		);
@@ -49,7 +49,7 @@ impl Index {
 			txn,
 			subspace,
 			&tg::Either::Right(process.clone()),
-			&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::CleanAll),
+			&crate::fdb::update::Kind::Usage(crate::fdb::update::UsageKind::CleanAll),
 			crate::fdb::update::Source::Put,
 			partition_total,
 		);
@@ -377,7 +377,7 @@ impl Index {
 			object: object.clone(),
 		});
 		txn.clear(&Self::pack(subspace, &key));
-		Self::clear_storage_update_versions(
+		Self::clear_usage_update_versions(
 			txn,
 			subspace,
 			&tg::Either::Left(object.clone()),
@@ -397,11 +397,9 @@ impl Index {
 			txn,
 			subspace,
 			&tg::Either::Left(object.clone()),
-			&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Clean(
-				account.clone(),
-			)),
+			&crate::fdb::update::Kind::Usage(crate::fdb::update::UsageKind::Clean(account.clone())),
 			crate::fdb::update::Source::Put,
-			partition_totals.storage_update,
+			partition_totals.usage_update,
 		);
 		let value = crate::fdb::propagate!(
 			Self::try_get_object_with_transaction(txn, subspace, object).await
@@ -449,7 +447,7 @@ impl Index {
 			process: process.clone(),
 		});
 		txn.clear(&Self::pack(subspace, &key));
-		Self::clear_storage_update_versions(
+		Self::clear_usage_update_versions(
 			txn,
 			subspace,
 			&tg::Either::Right(process.clone()),
@@ -469,11 +467,9 @@ impl Index {
 			txn,
 			subspace,
 			&tg::Either::Right(process.clone()),
-			&crate::fdb::update::Kind::Storage(crate::fdb::update::StorageKind::Clean(
-				account.clone(),
-			)),
+			&crate::fdb::update::Kind::Usage(crate::fdb::update::UsageKind::Clean(account.clone())),
 			crate::fdb::update::Source::Put,
-			partition_totals.storage_update,
+			partition_totals.usage_update,
 		);
 		let value = crate::fdb::propagate!(
 			Self::try_get_process_with_transaction(txn, subspace, process).await

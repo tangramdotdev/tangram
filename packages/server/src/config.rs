@@ -481,13 +481,13 @@ pub struct FdbIndex {
 
 	pub log_compaction_partition_total: u64,
 
-	pub node_update_partition_total: u64,
+	pub storage_and_metadata_update_partition_total: u64,
 
 	pub read_request_batch_size: usize,
 
 	pub read_transaction_concurrency: usize,
 
-	pub storage_update_partition_total: u64,
+	pub usage_update_partition_total: u64,
 
 	pub usage_partition_total: u64,
 
@@ -635,9 +635,9 @@ pub struct IndexerUpdates {
 
 	pub max_process_depth: usize,
 
-	pub nodes: IndexerUpdate,
+	pub storage_and_metadata: IndexerUpdate,
 
-	pub storage: IndexerUpdate,
+	pub usage: IndexerUpdate,
 }
 
 #[derive(Clone, Debug)]
@@ -1599,10 +1599,10 @@ impl Default for FdbIndex {
 			grant_update_partition_total: 1,
 			instance: None,
 			log_compaction_partition_total: 1,
-			node_update_partition_total: 1,
+			storage_and_metadata_update_partition_total: 1,
 			read_request_batch_size: 64,
 			read_transaction_concurrency: 64,
-			storage_update_partition_total: 1,
+			usage_update_partition_total: 1,
 			usage_partition_total: 1,
 			write_operation_batch_size: 8_000,
 			write_transaction_concurrency: 256,
@@ -1712,8 +1712,8 @@ impl Default for IndexerUpdates {
 		Self {
 			grants: IndexerUpdate::default(),
 			max_process_depth: 1024,
-			nodes: IndexerUpdate::default(),
-			storage: IndexerUpdate::default(),
+			storage_and_metadata: IndexerUpdate::default(),
+			usage: IndexerUpdate::default(),
 		}
 	}
 }

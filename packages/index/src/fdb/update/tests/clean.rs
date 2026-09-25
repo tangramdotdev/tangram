@@ -12,8 +12,8 @@ async fn cleaning_supports_different_partition_totals() {
 		cleaning: 1,
 		grant_update: 3,
 		log_compaction: 2,
-		node_update: 4,
-		storage_update: 2,
+		storage_and_metadata_update: 4,
+		usage_update: 2,
 		usage: 1,
 	};
 	super::run_with_partition_totals(partition_totals, async |index| {
@@ -35,7 +35,10 @@ async fn cleaning_supports_different_partition_totals() {
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
 		for (kind, queue) in [
 			(Kind::Grant(subject), crate::update::Kind::Grant),
-			(Kind::Node, crate::update::Kind::Node),
+			(
+				Kind::StorageAndMetadata,
+				crate::update::Kind::StorageAndMetadata,
+			),
 		] {
 			enqueue(index, &blocker, &kind).await;
 			let last = partition_totals.update(queue) - 1;
@@ -86,7 +89,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 			tg::Either::Right(process_id.clone()),
 		];
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
-		let kinds = [Kind::Grant(subject), Kind::Node];
+		let kinds = [Kind::Grant(subject), Kind::StorageAndMetadata];
 		let arg = crate::batch::Arg {
 			items: vec![
 				crate::batch::Item::PutObject(object),
@@ -194,7 +197,10 @@ async fn cleaning_respects_other_partitions_and_newer_versions() {
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
 		for (kind, queue) in [
 			(Kind::Grant(subject), crate::update::Kind::Grant),
-			(Kind::Node, crate::update::Kind::Node),
+			(
+				Kind::StorageAndMetadata,
+				crate::update::Kind::StorageAndMetadata,
+			),
 		] {
 			enqueue(index, &id, &kind).await;
 			drain(index).await;
@@ -304,13 +310,22 @@ async fn concurrent_propagation_conflicts_with_cleaning() {
 			panic!("the cleaning transaction failed");
 		};
 		assert!(!output.done);
-		enqueue(index, &id, &Kind::Node).await;
+		enqueue(index, &id, &Kind::StorageAndMetadata).await;
 		drain(index).await;
-		let expected = version(index, &id, &Kind::Node).await.unwrap();
+		let expected = version(index, &id, &Kind::StorageAndMetadata)
+			.await
+			.unwrap();
 		assert!(transaction.take().unwrap().commit().await.is_err());
-		assert_eq!(version(index, &id, &Kind::Node).await, Some(expected));
+		assert_eq!(
+			version(index, &id, &Kind::StorageAndMetadata).await,
+			Some(expected)
+		);
 		index.clean(clean_arg(100, 0, 2)).await.unwrap();
-		assert!(version(index, &id, &Kind::Node).await.is_none());
+		assert!(
+			version(index, &id, &Kind::StorageAndMetadata)
+				.await
+				.is_none()
+		);
 	})
 	.await;
 }
@@ -331,7 +346,10 @@ async fn unrelated_queue_progress_does_not_conflict_with_cleaning() {
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
 		for (kind, queue) in [
 			(Kind::Grant(subject), crate::update::Kind::Grant),
-			(Kind::Node, crate::update::Kind::Node),
+			(
+				Kind::StorageAndMetadata,
+				crate::update::Kind::StorageAndMetadata,
+			),
 		] {
 			index.clean(clean_arg(100, 0, 2)).await.unwrap();
 			enqueue(index, &id, &kind).await;
@@ -378,7 +396,7 @@ async fn replacing_propagated_versions_replaces_cleanup_entries() {
 		put(index, vec![object]).await;
 		drain(index).await;
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
-		for kind in [Kind::Grant(subject), Kind::Node] {
+		for kind in [Kind::Grant(subject), Kind::StorageAndMetadata] {
 			enqueue(index, &id, &kind).await;
 			drain(index).await;
 			let previous = version(index, &id, &kind).await.unwrap();
@@ -490,7 +508,10 @@ async fn enqueue(index: &Index, id: &tg::Either<tg::object::Id, tg::process::Id>
 async fn drain(index: &Index) {
 	for _ in 0..100 {
 		let mut count = 0;
-		for kind in [crate::update::Kind::Grant, crate::update::Kind::Node] {
+		for kind in [
+			crate::update::Kind::Grant,
+			crate::update::Kind::StorageAndMetadata,
+		] {
 			count += index
 				.update_batch(kind, 100, 0, index.partition_totals.update(kind))
 				.await
@@ -519,7 +540,7 @@ fn clean_arg(batch_size: usize, partition_start: u64, partition_end: u64) -> cra
 async fn count_versions(index: &Index) -> usize {
 	let kinds = [
 		crate::fdb::Kind::GrantUpdatePropagatedVersion,
-		crate::fdb::Kind::NodeUpdatePropagatedVersion,
+		crate::fdb::Kind::StorageAndMetadataUpdatePropagatedVersion,
 	];
 	count_keys(index, &kinds).await
 }
@@ -527,7 +548,7 @@ async fn count_versions(index: &Index) -> usize {
 async fn count_clean_entries(index: &Index) -> usize {
 	let kinds = [
 		crate::fdb::Kind::GrantUpdateClean,
-		crate::fdb::Kind::NodeUpdateClean,
+		crate::fdb::Kind::StorageAndMetadataUpdateClean,
 	];
 	count_keys(index, &kinds).await
 }

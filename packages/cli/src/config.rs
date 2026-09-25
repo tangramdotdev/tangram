@@ -724,7 +724,7 @@ pub struct FdbIndex {
 	pub log_compaction_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub node_update_partition_total: Option<u64>,
+	pub storage_and_metadata_update_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_request_batch_size: Option<usize>,
@@ -733,7 +733,7 @@ pub struct FdbIndex {
 	pub read_transaction_concurrency: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub storage_update_partition_total: Option<u64>,
+	pub usage_update_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub usage_partition_total: Option<u64>,
@@ -952,10 +952,10 @@ pub struct IndexerUpdates {
 	pub max_process_depth: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub nodes: Option<IndexerUpdate>,
+	pub storage_and_metadata: Option<IndexerUpdate>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub storage: Option<IndexerUpdate>,
+	pub usage: Option<IndexerUpdate>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -2955,8 +2955,8 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(value) = source.log_compaction_partition_total {
 		target.log_compaction_partition_total = value;
 	}
-	if let Some(value) = source.node_update_partition_total {
-		target.node_update_partition_total = value;
+	if let Some(value) = source.storage_and_metadata_update_partition_total {
+		target.storage_and_metadata_update_partition_total = value;
 	}
 	if let Some(value) = source.read_request_batch_size {
 		target.read_request_batch_size = value;
@@ -2964,8 +2964,8 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(value) = source.read_transaction_concurrency {
 		target.read_transaction_concurrency = value;
 	}
-	if let Some(value) = source.storage_update_partition_total {
-		target.storage_update_partition_total = value;
+	if let Some(value) = source.usage_update_partition_total {
+		target.usage_update_partition_total = value;
 	}
 	if let Some(value) = source.usage_partition_total {
 		target.usage_partition_total = value;
@@ -3200,11 +3200,11 @@ fn resolve_indexer_updates(source: IndexerUpdates) -> server::IndexerUpdates {
 	if let Some(value) = source.max_process_depth {
 		target.max_process_depth = value;
 	}
-	if let Some(source) = source.nodes {
-		target.nodes = resolve_indexer_update(source);
+	if let Some(source) = source.storage_and_metadata {
+		target.storage_and_metadata = resolve_indexer_update(source);
 	}
-	if let Some(source) = source.storage {
-		target.storage = resolve_indexer_update(source);
+	if let Some(source) = source.usage {
+		target.usage = resolve_indexer_update(source);
 	}
 	target
 }
@@ -4849,8 +4849,8 @@ mod tests {
 				"updates": {
 					"grants": { "partitions": { "end": 11, "start": 5 } },
 					"max_process_depth": 64,
-					"nodes": { "partitions": { "end": 12, "start": 6 } },
-					"storage": { "partitions": { "end": 13, "start": 7 } },
+					"storage_and_metadata": { "partitions": { "end": 12, "start": 6 } },
+					"usage": { "partitions": { "end": 13, "start": 7 } },
 				},
 				"usage_partitions": {
 					"end": 7,
@@ -4909,10 +4909,16 @@ mod tests {
 		assert_eq!(target.indexer.updates.grants.partitions.end, 11);
 		assert_eq!(target.indexer.updates.grants.partitions.start, 5);
 		assert_eq!(target.indexer.updates.max_process_depth, 64);
-		assert_eq!(target.indexer.updates.nodes.partitions.end, 12);
-		assert_eq!(target.indexer.updates.nodes.partitions.start, 6);
-		assert_eq!(target.indexer.updates.storage.partitions.end, 13);
-		assert_eq!(target.indexer.updates.storage.partitions.start, 7);
+		assert_eq!(
+			target.indexer.updates.storage_and_metadata.partitions.end,
+			12
+		);
+		assert_eq!(
+			target.indexer.updates.storage_and_metadata.partitions.start,
+			6
+		);
+		assert_eq!(target.indexer.updates.usage.partitions.end, 13);
+		assert_eq!(target.indexer.updates.usage.partitions.start, 7);
 		assert_eq!(target.indexer.usage_partitions.end, 7);
 		assert_eq!(target.indexer.usage_partitions.start, 1);
 	}
@@ -5031,7 +5037,7 @@ mod tests {
 					}),
 				}),
 				max_process_depth: Some(55),
-				nodes: Some(IndexerUpdate {
+				storage_and_metadata: Some(IndexerUpdate {
 					batch_size: Some(22),
 					concurrency: Some(3),
 					partitions: Some(IndexerPartitions {
@@ -5039,7 +5045,7 @@ mod tests {
 						start: Some(4),
 					}),
 				}),
-				storage: Some(IndexerUpdate {
+				usage: Some(IndexerUpdate {
 					batch_size: Some(33),
 					concurrency: Some(4),
 					partitions: Some(IndexerPartitions {
@@ -5057,14 +5063,14 @@ mod tests {
 		assert_eq!(target.updates.grants.partitions.end, 9);
 		assert_eq!(target.updates.grants.partitions.start, 3);
 		assert_eq!(target.updates.max_process_depth, 55);
-		assert_eq!(target.updates.nodes.batch_size, 22);
-		assert_eq!(target.updates.nodes.concurrency, 3);
-		assert_eq!(target.updates.nodes.partitions.end, 10);
-		assert_eq!(target.updates.nodes.partitions.start, 4);
-		assert_eq!(target.updates.storage.batch_size, 33);
-		assert_eq!(target.updates.storage.concurrency, 4);
-		assert_eq!(target.updates.storage.partitions.end, 11);
-		assert_eq!(target.updates.storage.partitions.start, 5);
+		assert_eq!(target.updates.storage_and_metadata.batch_size, 22);
+		assert_eq!(target.updates.storage_and_metadata.concurrency, 3);
+		assert_eq!(target.updates.storage_and_metadata.partitions.end, 10);
+		assert_eq!(target.updates.storage_and_metadata.partitions.start, 4);
+		assert_eq!(target.updates.usage.batch_size, 33);
+		assert_eq!(target.updates.usage.concurrency, 4);
+		assert_eq!(target.updates.usage.partitions.end, 11);
+		assert_eq!(target.updates.usage.partitions.start, 5);
 	}
 
 	#[test]
@@ -5139,8 +5145,8 @@ mod tests {
 			cleaning_partition_total: Some(128),
 			grant_update_partition_total: Some(256),
 			log_compaction_partition_total: Some(64),
-			node_update_partition_total: Some(512),
-			storage_update_partition_total: Some(1_024),
+			storage_and_metadata_update_partition_total: Some(512),
+			usage_update_partition_total: Some(1_024),
 			usage_partition_total: Some(512),
 			..FdbIndex::default()
 		});
@@ -5152,8 +5158,8 @@ mod tests {
 		assert_eq!(fdb.cleaning_partition_total, 128);
 		assert_eq!(fdb.grant_update_partition_total, 256);
 		assert_eq!(fdb.log_compaction_partition_total, 64);
-		assert_eq!(fdb.node_update_partition_total, 512);
-		assert_eq!(fdb.storage_update_partition_total, 1_024);
+		assert_eq!(fdb.storage_and_metadata_update_partition_total, 512);
+		assert_eq!(fdb.usage_update_partition_total, 1_024);
 		assert_eq!(fdb.usage_partition_total, 512);
 		assert_eq!(lmdb.usage_partition_total, 2);
 	}

@@ -110,7 +110,7 @@ async fn command_objects_can_be_empty_or_multiple_without_a_stored_command() {
 		index.batch(arg).await.unwrap();
 		loop {
 			let output = index
-				.update_batch(crate::update::Kind::Node, 100)
+				.update_batch(crate::update::Kind::StorageAndMetadata, 100)
 				.await
 				.unwrap();
 			if output.count == 0 {
@@ -258,7 +258,7 @@ async fn account_storage_deduplicates_a_diamond_and_cleans() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100)
+			.update_batch(crate::update::Kind::Usage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -313,7 +313,7 @@ async fn account_storage_traverses_process_relationships() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100)
+			.update_batch(crate::update::Kind::Usage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -366,7 +366,7 @@ async fn account_storage_traverses_new_process_relationships() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100)
+			.update_batch(crate::update::Kind::Usage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -387,7 +387,7 @@ async fn account_storage_traverses_new_process_relationships() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100)
+			.update_batch(crate::update::Kind::Usage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -419,7 +419,7 @@ async fn account_storage_traverses_objects_indexed_after_their_parents() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100)
+			.update_batch(crate::update::Kind::Usage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -438,7 +438,7 @@ async fn account_storage_traverses_objects_indexed_after_their_parents() {
 		.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100)
+			.update_batch(crate::update::Kind::Usage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -489,7 +489,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100)
+			.update_batch(crate::update::Kind::Usage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -527,7 +527,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 		.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100)
+			.update_batch(crate::update::Kind::Usage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -565,7 +565,7 @@ async fn account_storage_traverses_processes_indexed_after_their_parents() {
 	index.batch(arg).await.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100)
+			.update_batch(crate::update::Kind::Usage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -588,7 +588,7 @@ async fn account_storage_traverses_processes_indexed_after_their_parents() {
 		.unwrap();
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Storage, 100)
+			.update_batch(crate::update::Kind::Usage, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {

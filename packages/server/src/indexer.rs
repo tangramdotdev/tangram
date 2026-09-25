@@ -69,12 +69,12 @@ struct Tasks {
 	index_queue: SharedTask<tg::Result<()>>,
 	index_sequence_reservations: SharedTask<tg::Result<()>>,
 	log_compaction: Task<tg::Result<()>>,
-	node_update: Task<tg::Result<()>>,
+	storage_and_metadata_update: Task<tg::Result<()>>,
 	object_cache: Task<tg::Result<()>>,
 	queue_checkpoints: SharedTask<tg::Result<()>>,
 	queue_completions: SharedTask<tg::Result<()>>,
 	request: SharedTask<tg::Result<()>>,
-	storage_update: Task<tg::Result<()>>,
+	usage_update: Task<tg::Result<()>>,
 	stripe_cleanup: Task<tg::Result<()>>,
 	usage_aggregation: Task<tg::Result<()>>,
 	usage_expiration: Task<tg::Result<()>>,
@@ -384,34 +384,34 @@ impl Server {
 			}
 		});
 
-		// Spawn the node update task.
-		let node_update_task = Task::spawn({
+		// Spawn the storage and metadata update task.
+		let storage_and_metadata_update_task = Task::spawn({
 			let config = config.clone();
 			let indexer = indexer.clone();
 			move |stopper| async move {
 				indexer
 					.update_task(
-						tangram_index::update::Kind::Node,
-						&config.updates.nodes,
-						config.updates.nodes.partitions.start,
-						config.updates.nodes.partitions.end,
+						tangram_index::update::Kind::StorageAndMetadata,
+						&config.updates.storage_and_metadata,
+						config.updates.storage_and_metadata.partitions.start,
+						config.updates.storage_and_metadata.partitions.end,
 						&stopper,
 					)
 					.await
 			}
 		});
 
-		// Spawn the storage update task.
-		let storage_update_task = Task::spawn({
+		// Spawn the usage update task.
+		let usage_update_task = Task::spawn({
 			let config = config.clone();
 			let indexer = indexer.clone();
 			move |stopper| async move {
 				indexer
 					.update_task(
-						tangram_index::update::Kind::Storage,
-						&config.updates.storage,
-						config.updates.storage.partitions.start,
-						config.updates.storage.partitions.end,
+						tangram_index::update::Kind::Usage,
+						&config.updates.usage,
+						config.updates.usage.partitions.start,
+						config.updates.usage.partitions.end,
 						&stopper,
 					)
 					.await
@@ -478,12 +478,12 @@ impl Server {
 			index_queue: index_queue_task,
 			index_sequence_reservations: index_sequence_reservations_task,
 			log_compaction: log_compaction_task,
-			node_update: node_update_task,
+			storage_and_metadata_update: storage_and_metadata_update_task,
 			object_cache: object_cache_task,
 			queue_checkpoints: queue_checkpoints_task,
 			queue_completions: queue_completions_task,
 			request: request_task,
-			storage_update: storage_update_task,
+			usage_update: usage_update_task,
 			stripe_cleanup: stripe_cleanup_task,
 			usage_aggregation: usage_aggregation_task,
 			usage_expiration: usage_expiration_task,
@@ -582,12 +582,12 @@ impl Indexer {
 			index_queue,
 			index_sequence_reservations,
 			log_compaction,
-			node_update,
+			storage_and_metadata_update,
 			object_cache,
 			queue_checkpoints,
 			queue_completions,
 			request,
-			storage_update,
+			usage_update,
 			stripe_cleanup,
 			usage_aggregation,
 			usage_expiration,
@@ -609,9 +609,9 @@ impl Indexer {
 		database_index_queue.stop();
 		grant_update.stop();
 		log_compaction.stop();
-		node_update.stop();
+		storage_and_metadata_update.stop();
 		object_cache.stop();
-		storage_update.stop();
+		usage_update.stop();
 		stripe_cleanup.stop();
 		usage_aggregation.stop();
 		usage_expiration.stop();
@@ -620,9 +620,9 @@ impl Indexer {
 			("database index queue", database_index_queue),
 			("grant update", grant_update),
 			("log compaction", log_compaction),
-			("node update", node_update),
+			("storage and metadata update", storage_and_metadata_update),
 			("object cache", object_cache),
-			("storage update", storage_update),
+			("usage update", usage_update),
 			("Stripe cleanup", stripe_cleanup),
 			("usage aggregation", usage_aggregation),
 			("usage expiration", usage_expiration),

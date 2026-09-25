@@ -258,7 +258,7 @@ async fn separates_update_queues() {
 		&index.subspace,
 		&mut transaction,
 		id.clone(),
-		super::super::update::Kind::Node,
+		super::super::update::Kind::StorageAndMetadata,
 		super::super::update::Source::Put,
 		None,
 	)
@@ -268,7 +268,7 @@ async fn separates_update_queues() {
 		&index.subspace,
 		&mut transaction,
 		id,
-		super::super::update::Kind::Storage(super::super::update::StorageKind::Put {
+		super::super::update::Kind::Usage(super::super::update::UsageKind::Put {
 			account: crate::usage::Account::User(user),
 			touched_at: 0,
 		}),
@@ -280,8 +280,8 @@ async fn separates_update_queues() {
 
 	for kind in [
 		crate::update::Kind::Grant,
-		crate::update::Kind::Node,
-		crate::update::Kind::Storage,
+		crate::update::Kind::StorageAndMetadata,
+		crate::update::Kind::Usage,
 	] {
 		assert!(
 			index
@@ -293,13 +293,13 @@ async fn separates_update_queues() {
 	}
 
 	let output = index
-		.update_batch(crate::update::Kind::Node, 100)
+		.update_batch(crate::update::Kind::StorageAndMetadata, 100)
 		.await
 		.unwrap();
 	assert_eq!(output.count, 1);
 	assert_eq!(
 		index
-			.try_get_oldest_update_transaction_id(crate::update::Kind::Node)
+			.try_get_oldest_update_transaction_id(crate::update::Kind::StorageAndMetadata)
 			.await
 			.unwrap(),
 		None
@@ -313,7 +313,7 @@ async fn separates_update_queues() {
 	);
 	assert!(
 		index
-			.try_get_oldest_update_transaction_id(crate::update::Kind::Storage)
+			.try_get_oldest_update_transaction_id(crate::update::Kind::Usage)
 			.await
 			.unwrap()
 			.is_some()
@@ -333,20 +333,20 @@ async fn separates_update_queues() {
 	);
 	assert!(
 		index
-			.try_get_oldest_update_transaction_id(crate::update::Kind::Storage)
+			.try_get_oldest_update_transaction_id(crate::update::Kind::Usage)
 			.await
 			.unwrap()
 			.is_some()
 	);
 
 	let output = index
-		.update_batch(crate::update::Kind::Storage, 100)
+		.update_batch(crate::update::Kind::Usage, 100)
 		.await
 		.unwrap();
 	assert_eq!(output.count, 1);
 	assert_eq!(
 		index
-			.try_get_oldest_update_transaction_id(crate::update::Kind::Storage)
+			.try_get_oldest_update_transaction_id(crate::update::Kind::Usage)
 			.await
 			.unwrap(),
 		None

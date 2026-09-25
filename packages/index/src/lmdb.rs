@@ -664,11 +664,11 @@ impl crate::Index for Index {
 		1
 	}
 
-	fn node_update_partition_total(&self) -> u64 {
+	fn storage_and_metadata_update_partition_total(&self) -> u64 {
 		1
 	}
 
-	fn storage_update_partition_total(&self) -> u64 {
+	fn usage_update_partition_total(&self) -> u64 {
 		1
 	}
 }

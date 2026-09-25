@@ -528,27 +528,32 @@ impl Index {
 		let result = futures::try_join!(
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ChildObject, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::GrantUpdate, id.as_ref()),
-			Self::count_entries_for_kind_and_id(txn, subspace, Kind::NodeUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(
+				txn,
+				subspace,
+				Kind::StorageAndMetadataUpdate,
+				id.as_ref()
+			),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ObjectAccount, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ObjectProcess, id.as_ref()),
-			Self::count_entries_for_kind_and_id(txn, subspace, Kind::StorageUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::UsageUpdate, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::TargetTag, id.as_ref()),
 		);
 		let (
 			child_object_count,
 			grant_update_count,
-			node_update_count,
+			storage_and_metadata_update_count,
 			object_account_count,
 			object_process_count,
-			storage_update_count,
+			usage_update_count,
 			target_tag_count,
 		) = crate::fdb::retry!(result);
 		let count = child_object_count
 			+ grant_update_count
-			+ node_update_count
+			+ storage_and_metadata_update_count
 			+ object_account_count
 			+ object_process_count
-			+ storage_update_count
+			+ usage_update_count
 			+ target_tag_count;
 
 		Ok(ControlFlow::Break(count))
@@ -563,24 +568,29 @@ impl Index {
 		let result = futures::try_join!(
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ChildProcess, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::GrantUpdate, id.as_ref()),
-			Self::count_entries_for_kind_and_id(txn, subspace, Kind::NodeUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(
+				txn,
+				subspace,
+				Kind::StorageAndMetadataUpdate,
+				id.as_ref()
+			),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ProcessAccount, id.as_ref()),
-			Self::count_entries_for_kind_and_id(txn, subspace, Kind::StorageUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::UsageUpdate, id.as_ref()),
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::TargetTag, id.as_ref()),
 		);
 		let (
 			child_process_count,
 			grant_update_count,
-			node_update_count,
+			storage_and_metadata_update_count,
 			process_account_count,
-			storage_update_count,
+			usage_update_count,
 			target_tag_count,
 		) = crate::fdb::retry!(result);
 		let count = child_process_count
 			+ grant_update_count
-			+ node_update_count
+			+ storage_and_metadata_update_count
 			+ process_account_count
-			+ storage_update_count
+			+ usage_update_count
 			+ target_tag_count;
 
 		Ok(ControlFlow::Break(count))

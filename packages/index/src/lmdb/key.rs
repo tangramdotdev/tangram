@@ -76,18 +76,18 @@ pub enum Kind {
 	UsageAggregation = 57,
 	GrantUpdate = 58,
 	GrantUpdateVersion = 59,
-	NodeUpdate = 60,
-	NodeUpdateVersion = 61,
-	StorageUpdate = 62,
-	StorageUpdateVersion = 63,
+	StorageAndMetadataUpdate = 60,
+	StorageAndMetadataUpdateVersion = 61,
+	UsageUpdate = 62,
+	UsageUpdateVersion = 63,
 	UsageStarted = 64,
 	UsageUnavailable = 65,
 	GrantUpdatePropagatedVersion = 66,
-	NodeUpdatePropagatedVersion = 67,
-	StorageUpdatePutVersion = 68,
+	StorageAndMetadataUpdatePropagatedVersion = 67,
+	UsageUpdatePutVersion = 68,
 	Indexer = 70,
 	GrantUpdateClean = 71,
-	NodeUpdateClean = 72,
+	StorageAndMetadataUpdateClean = 72,
 }
 
 impl fdbt::TuplePack for Key {
@@ -553,8 +553,10 @@ impl fdbt::TuplePack for Key {
 			Key::Update(crate::lmdb::update::Key::PropagatedVersion { id, kind }) => {
 				let key_kind = match kind {
 					crate::lmdb::update::Kind::Grant(_) => Kind::GrantUpdatePropagatedVersion,
-					crate::lmdb::update::Kind::Node => Kind::NodeUpdatePropagatedVersion,
-					crate::lmdb::update::Kind::Storage(_) => unreachable!(),
+					crate::lmdb::update::Kind::StorageAndMetadata => {
+						Kind::StorageAndMetadataUpdatePropagatedVersion
+					},
+					crate::lmdb::update::Kind::Usage(_) => unreachable!(),
 				};
 				key_kind.to_i32().unwrap().pack(w, tuple_depth)?;
 				let id = match id {
@@ -566,13 +568,13 @@ impl fdbt::TuplePack for Key {
 				Ok(offset)
 			},
 
-			Key::Update(crate::lmdb::update::Key::StorageUpdatePutVersion { account, id }) => {
+			Key::Update(crate::lmdb::update::Key::UsageUpdatePutVersion { account, id }) => {
 				let id = match id {
 					tg::Either::Left(id) => id.to_bytes(),
 					tg::Either::Right(id) => id.to_bytes(),
 				};
 				(
-					Kind::StorageUpdatePutVersion.to_i32().unwrap(),
+					Kind::UsageUpdatePutVersion.to_i32().unwrap(),
 					id.as_ref(),
 					account.id().to_bytes().as_ref(),
 				)
@@ -582,8 +584,8 @@ impl fdbt::TuplePack for Key {
 			Key::Update(crate::lmdb::update::Key::Update { id, kind }) => {
 				let key_kind = match kind {
 					crate::lmdb::update::Kind::Grant(_) => Kind::GrantUpdate,
-					crate::lmdb::update::Kind::Node => Kind::NodeUpdate,
-					crate::lmdb::update::Kind::Storage(_) => Kind::StorageUpdate,
+					crate::lmdb::update::Kind::StorageAndMetadata => Kind::StorageAndMetadataUpdate,
+					crate::lmdb::update::Kind::Usage(_) => Kind::UsageUpdate,
 				};
 				key_kind.to_i32().unwrap().pack(w, tuple_depth)?;
 				let id = match &id {
@@ -603,9 +605,13 @@ impl fdbt::TuplePack for Key {
 				let key_kind = match kind {
 					crate::lmdb::update::Kind::Grant(_) if clean => Kind::GrantUpdateClean,
 					crate::lmdb::update::Kind::Grant(_) => Kind::GrantUpdateVersion,
-					crate::lmdb::update::Kind::Node if clean => Kind::NodeUpdateClean,
-					crate::lmdb::update::Kind::Node => Kind::NodeUpdateVersion,
-					crate::lmdb::update::Kind::Storage(_) => Kind::StorageUpdateVersion,
+					crate::lmdb::update::Kind::StorageAndMetadata if clean => {
+						Kind::StorageAndMetadataUpdateClean
+					},
+					crate::lmdb::update::Kind::StorageAndMetadata => {
+						Kind::StorageAndMetadataUpdateVersion
+					},
+					crate::lmdb::update::Kind::Usage(_) => Kind::UsageUpdateVersion,
 				};
 				key_kind.to_i32().unwrap().pack(w, tuple_depth)?;
 				let mut offset = version.pack(w, tuple_depth)?;
@@ -1482,7 +1488,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::StorageUpdatePutVersion => {
+			Kind::UsageUpdatePutVersion => {
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::Id::from_slice(&id)
 					.map_err(|_| fdbt::PackError::Message("invalid id".into()))?;
@@ -1498,14 +1504,17 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 				let account = crate::usage::Account::try_from(account)
 					.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
-				let key = crate::lmdb::update::Key::StorageUpdatePutVersion { account, id };
+				let key = crate::lmdb::update::Key::UsageUpdatePutVersion { account, id };
 				Ok((input, Key::Update(key)))
 			},
 
-			Kind::GrantUpdatePropagatedVersion | Kind::NodeUpdatePropagatedVersion => {
+			Kind::GrantUpdatePropagatedVersion
+			| Kind::StorageAndMetadataUpdatePropagatedVersion => {
 				let update_kind = match kind {
 					Kind::GrantUpdatePropagatedVersion => crate::update::Kind::Grant,
-					Kind::NodeUpdatePropagatedVersion => crate::update::Kind::Node,
+					Kind::StorageAndMetadataUpdatePropagatedVersion => {
+						crate::update::Kind::StorageAndMetadata
+					},
 					_ => unreachable!(),
 				};
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
@@ -1523,11 +1532,11 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::GrantUpdate | Kind::NodeUpdate | Kind::StorageUpdate => {
+			Kind::GrantUpdate | Kind::StorageAndMetadataUpdate | Kind::UsageUpdate => {
 				let update_kind = match kind {
 					Kind::GrantUpdate => crate::update::Kind::Grant,
-					Kind::NodeUpdate => crate::update::Kind::Node,
-					Kind::StorageUpdate => crate::update::Kind::Storage,
+					Kind::StorageAndMetadataUpdate => crate::update::Kind::StorageAndMetadata,
+					Kind::UsageUpdate => crate::update::Kind::Usage,
 					_ => unreachable!(),
 				};
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
@@ -1549,14 +1558,19 @@ impl fdbt::TupleUnpack<'_> for Key {
 
 			Kind::GrantUpdateClean
 			| Kind::GrantUpdateVersion
-			| Kind::NodeUpdateClean
-			| Kind::NodeUpdateVersion
-			| Kind::StorageUpdateVersion => {
-				let clean = matches!(kind, Kind::GrantUpdateClean | Kind::NodeUpdateClean);
+			| Kind::StorageAndMetadataUpdateClean
+			| Kind::StorageAndMetadataUpdateVersion
+			| Kind::UsageUpdateVersion => {
+				let clean = matches!(
+					kind,
+					Kind::GrantUpdateClean | Kind::StorageAndMetadataUpdateClean
+				);
 				let update_kind = match kind {
 					Kind::GrantUpdateClean | Kind::GrantUpdateVersion => crate::update::Kind::Grant,
-					Kind::NodeUpdateClean | Kind::NodeUpdateVersion => crate::update::Kind::Node,
-					Kind::StorageUpdateVersion => crate::update::Kind::Storage,
+					Kind::StorageAndMetadataUpdateClean | Kind::StorageAndMetadataUpdateVersion => {
+						crate::update::Kind::StorageAndMetadata
+					},
+					Kind::UsageUpdateVersion => crate::update::Kind::Usage,
 					_ => unreachable!(),
 				};
 				let (input, version): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
@@ -1589,15 +1603,15 @@ fn pack_update_kind<W: std::io::Write>(
 ) -> std::io::Result<fdbt::VersionstampOffset> {
 	match kind {
 		crate::lmdb::update::Kind::Grant(subject) => subject.to_string().pack(w, tuple_depth),
-		crate::lmdb::update::Kind::Node => ().pack(w, tuple_depth),
-		crate::lmdb::update::Kind::Storage(kind) => match kind {
-			crate::lmdb::update::StorageKind::Clean(account) => {
+		crate::lmdb::update::Kind::StorageAndMetadata => ().pack(w, tuple_depth),
+		crate::lmdb::update::Kind::Usage(kind) => match kind {
+			crate::lmdb::update::UsageKind::Clean(account) => {
 				let mut offset = 1i32.pack(w, tuple_depth)?;
 				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
 				Ok(offset)
 			},
-			crate::lmdb::update::StorageKind::CleanAll => 2i32.pack(w, tuple_depth),
-			crate::lmdb::update::StorageKind::Propagate {
+			crate::lmdb::update::UsageKind::CleanAll => 2i32.pack(w, tuple_depth),
+			crate::lmdb::update::UsageKind::Propagate {
 				account,
 				touched_at,
 			} => {
@@ -1606,7 +1620,7 @@ fn pack_update_kind<W: std::io::Write>(
 				offset += touched_at.pack(w, tuple_depth)?;
 				Ok(offset)
 			},
-			crate::lmdb::update::StorageKind::Put {
+			crate::lmdb::update::UsageKind::Put {
 				account,
 				touched_at,
 			} => {
@@ -1632,8 +1646,10 @@ fn unpack_update_kind(
 				.map_err(|_| fdbt::PackError::Message("invalid authorization subject".into()))?;
 			Ok((input, crate::lmdb::update::Kind::Grant(subject)))
 		},
-		crate::update::Kind::Node => Ok((input, crate::lmdb::update::Kind::Node)),
-		crate::update::Kind::Storage => {
+		crate::update::Kind::StorageAndMetadata => {
+			Ok((input, crate::lmdb::update::Kind::StorageAndMetadata))
+		},
+		crate::update::Kind::Usage => {
 			let (input, kind): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 			let (input, kind) = match kind {
 				0 | 3 => {
@@ -1646,11 +1662,11 @@ fn unpack_update_kind(
 					let account = crate::usage::Account::try_from(account)
 						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 					let kind = match kind {
-						0 => crate::lmdb::update::StorageKind::Put {
+						0 => crate::lmdb::update::UsageKind::Put {
 							account,
 							touched_at,
 						},
-						3 => crate::lmdb::update::StorageKind::Propagate {
+						3 => crate::lmdb::update::UsageKind::Propagate {
 							account,
 							touched_at,
 						},
@@ -1665,16 +1681,14 @@ fn unpack_update_kind(
 						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 					let account = crate::usage::Account::try_from(account)
 						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
-					(input, crate::lmdb::update::StorageKind::Clean(account))
+					(input, crate::lmdb::update::UsageKind::Clean(account))
 				},
-				2 => (input, crate::lmdb::update::StorageKind::CleanAll),
+				2 => (input, crate::lmdb::update::UsageKind::CleanAll),
 				_ => {
-					return Err(fdbt::PackError::Message(
-						"invalid storage update kind".into(),
-					));
+					return Err(fdbt::PackError::Message("invalid usage update kind".into()));
 				},
 			};
-			Ok((input, crate::lmdb::update::Kind::Storage(kind)))
+			Ok((input, crate::lmdb::update::Kind::Usage(kind)))
 		},
 	}
 }

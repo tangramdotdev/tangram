@@ -22,8 +22,10 @@ impl Indexer {
 		}
 		let checkpoint = match kind {
 			tangram_index::update::Kind::Grant => "indexer.update.grant.batch",
-			tangram_index::update::Kind::Node => "indexer.update.node.batch",
-			tangram_index::update::Kind::Storage => "indexer.update.storage.batch",
+			tangram_index::update::Kind::StorageAndMetadata => {
+				"indexer.update.storage_and_metadata.batch"
+			},
+			tangram_index::update::Kind::Usage => "indexer.update.usage.batch",
 		};
 		let finish_tasks = tangram_futures::task::Map::<tg::process::Id, ()>::default();
 		loop {

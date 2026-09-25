@@ -16,7 +16,10 @@ impl Index {
 		let mut candidates = Vec::new();
 		for (kind, key_kind) in [
 			(crate::update::Kind::Grant, Kind::GrantUpdateClean),
-			(crate::update::Kind::Node, Kind::NodeUpdateClean),
+			(
+				crate::update::Kind::StorageAndMetadata,
+				Kind::StorageAndMetadataUpdateClean,
+			),
 		] {
 			let remaining = batch_size.saturating_sub(candidates.len());
 			if remaining == 0 {
