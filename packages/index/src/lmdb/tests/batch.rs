@@ -96,6 +96,7 @@ fn sandbox_arg(id: tg::sandbox::Id, status: tg::sandbox::Status) -> crate::sandb
 		data: Some(data),
 		id,
 		location: None,
+		process: None,
 		processes: None,
 		runner: None,
 		touched_at: 0,
@@ -580,6 +581,37 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 		Some(0)
 	);
 
+	// Explicit spawn updates append once in indexed order without finalizing the list.
+	let mut first_membership = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Started);
+	first_membership.data = None;
+	first_membership.process = Some(first.clone());
+	let mut second_membership = first_membership.clone();
+	second_membership.process = Some(second.clone());
+	let arg = crate::batch::Arg {
+		items: vec![
+			crate::batch::Item::PutSandbox(second_membership),
+			crate::batch::Item::PutSandbox(first_membership.clone()),
+			crate::batch::Item::PutSandbox(first_membership),
+		],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
+			.await
+			.unwrap(),
+		[second.clone(), first.clone()]
+	);
+	assert!(
+		!index
+			.try_get_sandbox(&sandbox)
+			.await
+			.unwrap()
+			.unwrap()
+			.set
+			.processes
+	);
+
 	// A data-only snapshot does not claim to contain a complete process history.
 	let arg = crate::batch::Arg {
 		items: vec![crate::batch::Item::PutSandbox(sandbox_arg(
@@ -598,7 +630,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.processes
 	);
 
-	// A final runner snapshot establishes order without growing the sandbox record.
+	// A final runner snapshot establishes runner order without growing the sandbox record.
 	let processes = [first.clone(), second.clone()]
 		.into_iter()
 		.chain((0..3998).map(|_| tg::process::Id::new()))
@@ -661,6 +693,22 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
 			.await
 			.unwrap()
+			.unwrap(),
+		processes
+	);
+
+	// A delayed spawn update must not change the finalized process list.
+	let mut membership = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Started);
+	membership.data = None;
+	membership.process = Some(tg::process::Id::new());
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutSandbox(membership)],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
+			.await
 			.unwrap(),
 		processes
 	);
@@ -802,6 +850,14 @@ async fn process_writes_do_not_create_sandbox_relationships() {
 		.delete_sandboxes(std::slice::from_ref(&sandbox))
 		.await
 		.unwrap();
+	let mut membership = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Started);
+	membership.data = None;
+	membership.process = Some(process.clone());
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutSandbox(membership)],
+	};
+	index.batch(arg).await.unwrap();
+
 	process_arg.touched_at = 2;
 	let arg = crate::batch::Arg {
 		items: vec![crate::batch::Item::PutProcess(process_arg)],

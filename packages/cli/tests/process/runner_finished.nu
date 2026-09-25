@@ -9,6 +9,7 @@ for location in [local remote] {
 		authentication: { root: { token: $root_token } },
 		indexer: { cleaning: {} },
 		process: { time_to_live: 2 },
+		sandbox: { time_to_live: 2 },
 		roles: (if $location == local { [api indexer runner scheduler] } else { [api indexer scheduler] }),
 		runner: { process_state_ttl: 0 },
 	}

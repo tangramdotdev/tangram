@@ -9,6 +9,8 @@ let server = server spawn --config {
 	process: {
 		time_to_live: 1,
 	},
+	# The sandbox retains its processes until it is cleaned.
+	sandbox: { time_to_live: 1 },
 	tracing: {
 		stderr_format: 'json',
 	},

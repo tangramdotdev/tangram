@@ -200,6 +200,7 @@ mod tests {
 					data: Some(data),
 					id: sandbox,
 					location: None,
+					process: None,
 					processes: None,
 					runner: None,
 					touched_at: 2,

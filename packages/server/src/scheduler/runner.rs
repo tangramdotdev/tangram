@@ -377,6 +377,7 @@ impl Server {
 						data: indexed.data,
 						id: id.clone(),
 						location: None,
+						process: None,
 						processes: Some(processes),
 						runner: indexed.runner,
 						touched_at: now,

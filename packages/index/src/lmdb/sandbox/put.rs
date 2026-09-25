@@ -22,6 +22,11 @@ impl Index {
 				.map(crate::sandbox::Sandbox::deserialize)
 				.transpose()?;
 
+			// A replayed membership update must not recreate a deleted sandbox.
+			if arg.process.is_some() && arg.data.is_none() && existing.is_none() {
+				continue;
+			}
+
 			let processes_changed = arg.processes.is_some()
 				&& existing
 					.as_ref()
@@ -87,6 +92,18 @@ impl Index {
 					processes,
 				)?;
 			}
+			if !sandbox.set.processes
+				&& let Some(process) = &arg.process
+			{
+				Self::put_sandbox_process_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&arg.id,
+					process,
+				)?;
+			}
+
 			let value = sandbox.serialize()?;
 			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, "failed to put the sandbox"))?;
