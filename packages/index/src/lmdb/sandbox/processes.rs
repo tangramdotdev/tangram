@@ -14,7 +14,7 @@ impl Index {
 		process: &tg::process::Id,
 	) -> tg::Result<()> {
 		// Preserve the first indexed position when initialization is replayed.
-		let key = Key::Sandbox(super::Key::SandboxProcessPosition {
+		let key = Key::Process(crate::lmdb::process::Key::ProcessSandbox {
 			process: process.clone(),
 			sandbox: sandbox.clone(),
 		});
@@ -31,7 +31,7 @@ impl Index {
 		let prefix = Self::pack(
 			subspace,
 			&(
-				Kind::SandboxProcessEntry.to_i32().unwrap(),
+				Kind::SandboxProcess.to_i32().unwrap(),
 				sandbox.to_bytes().as_ref(),
 			),
 		);
@@ -43,7 +43,7 @@ impl Index {
 			.map_err(|error| tg::error!(!error, "failed to read a sandbox process entry"))?;
 		let position = entry
 			.map(|(key, _)| -> tg::Result<i64> {
-				let Key::Sandbox(super::Key::SandboxProcessEntry { position, .. }) =
+				let Key::Sandbox(super::Key::SandboxProcess { position, .. }) =
 					Self::unpack(subspace, key)?
 				else {
 					return Err(tg::error!("unexpected key type"));
@@ -56,7 +56,7 @@ impl Index {
 			.unwrap_or(0);
 		db.put(transaction, &key, &position.to_be_bytes())
 			.map_err(|error| tg::error!(!error, "failed to put the sandbox process entry"))?;
-		let key = Key::Sandbox(super::Key::SandboxProcessEntry {
+		let key = Key::Sandbox(super::Key::SandboxProcess {
 			position,
 			process: process.clone(),
 			sandbox: sandbox.clone(),
@@ -79,7 +79,7 @@ impl Index {
 		for (position, process) in processes.iter().enumerate() {
 			let position = i64::try_from(position)
 				.map_err(|error| tg::error!(!error, "the sandbox has too many processes"))?;
-			let key = Key::Sandbox(super::Key::SandboxProcessEntry {
+			let key = Key::Sandbox(super::Key::SandboxProcess {
 				position,
 				process: process.clone(),
 				sandbox: sandbox.clone(),
@@ -87,7 +87,7 @@ impl Index {
 			let key = Self::pack(subspace, &key);
 			db.put(transaction, &key, &[])
 				.map_err(|error| tg::error!(!error, "failed to put the sandbox process entry"))?;
-			let key = Key::Sandbox(super::Key::SandboxProcessPosition {
+			let key = Key::Process(crate::lmdb::process::Key::ProcessSandbox {
 				process: process.clone(),
 				sandbox: sandbox.clone(),
 			});
@@ -105,22 +105,37 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<()> {
-		for kind in [Kind::SandboxProcessEntry, Kind::SandboxProcessPosition] {
-			let prefix = Self::pack(
-				subspace,
-				&(kind.to_i32().unwrap(), sandbox.to_bytes().as_ref()),
-			);
-			let keys = db
-				.prefix_iter(transaction, &prefix)
-				.map_err(|error| tg::error!(!error, "failed to get the sandbox process entries"))?
-				.map(|entry| entry.map(|(key, _)| key.to_vec()))
-				.collect::<Result<Vec<_>, _>>()
-				.map_err(|error| tg::error!(!error, "failed to read a sandbox process entry"))?;
-			for key in keys {
-				db.delete(transaction, &key).map_err(|error| {
-					tg::error!(!error, "failed to delete a sandbox process entry")
-				})?;
-			}
+		let prefix = Self::pack(
+			subspace,
+			&(
+				Kind::SandboxProcess.to_i32().unwrap(),
+				sandbox.to_bytes().as_ref(),
+			),
+		);
+		let entries = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get the sandbox processes"))?
+			.map(|entry| {
+				let (key, _) = entry
+					.map_err(|error| tg::error!(!error, "failed to read a sandbox process"))?;
+				let Key::Sandbox(super::Key::SandboxProcess { process, .. }) =
+					Self::unpack(subspace, key)?
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok((key.to_vec(), process))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		for (key, process) in entries {
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the sandbox process"))?;
+			let key = Key::Process(crate::lmdb::process::Key::ProcessSandbox {
+				process,
+				sandbox: sandbox.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the process sandbox"))?;
 		}
 
 		Ok(())

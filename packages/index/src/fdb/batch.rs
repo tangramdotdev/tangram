@@ -81,11 +81,14 @@ impl Index {
 					));
 				},
 				crate::batch::Item::DeleteSandbox(id) => {
-					crate::fdb::propagate!(Self::delete_sandboxes_with_transaction(
-						txn,
-						subspace,
-						std::slice::from_ref(id),
-					));
+					crate::fdb::propagate!(
+						Self::delete_sandboxes_with_transaction(
+							txn,
+							subspace,
+							std::slice::from_ref(id),
+						)
+						.await
+					);
 				},
 				crate::batch::Item::DeleteTag(id) => {
 					crate::fdb::propagate!(

@@ -22,6 +22,11 @@ impl Index {
 				.map(crate::sandbox::Sandbox::deserialize)
 				.transpose()?;
 
+			let processes_changed = arg.processes.is_some()
+				&& existing
+					.as_ref()
+					.is_none_or(|existing| !existing.set.processes);
+
 			// A delayed or replayed start must not overwrite a destroyed sandbox.
 			if arg
 				.data
@@ -73,7 +78,7 @@ impl Index {
 				},
 				touched_at,
 			};
-			if let Some(processes) = &arg.processes {
+			if processes_changed && let Some(processes) = &arg.processes {
 				Self::put_sandbox_processes_with_transaction(
 					db,
 					subspace,

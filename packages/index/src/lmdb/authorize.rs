@@ -631,12 +631,12 @@ impl Index {
 				limit,
 				sandbox,
 			} => {
-				let sandbox = sandbox.to_bytes();
+				let bytes = sandbox.to_bytes();
 				let prefix = Self::pack(
 					subspace,
 					&(
 						crate::lmdb::Kind::SandboxProcess.to_i32().unwrap(),
-						sandbox.as_ref(),
+						bytes.as_ref(),
 					),
 				);
 				let (keys, after) = Self::get_authorization_key_page_with_transaction(
@@ -647,19 +647,25 @@ impl Index {
 					after.as_deref(),
 					*limit,
 				)?;
-				let ids =
-					keys.into_iter()
-						.map(|key| {
-							let crate::lmdb::Key::Sandbox(
-								crate::lmdb::sandbox::Key::SandboxProcess { process, .. },
-							) = key
-							else {
-								return Err(tg::error!("unexpected key type"));
-							};
-
-							Ok(tg::Id::from(process))
-						})
-						.collect::<tg::Result<Vec<_>>>()?;
+				let mut ids = Vec::new();
+				for key in keys {
+					let crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
+						process,
+						..
+					}) = key
+					else {
+						return Err(tg::error!("unexpected key type"));
+					};
+					let data = Self::try_get_process_with_transaction(
+						db,
+						subspace,
+						transaction,
+						&process,
+					)?;
+					if data.is_some_and(|data| data.sandbox.as_ref() == Some(sandbox)) {
+						ids.push(tg::Id::from(process));
+					}
+				}
 
 				Output::Ids { after, ids }
 			},

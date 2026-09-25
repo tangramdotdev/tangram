@@ -598,34 +598,10 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.processes
 	);
 
-	// Runner expiration finalizes the entries already persisted by process initialization.
-	let mut final_arg = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Destroyed);
-	final_arg.processes = Some(processes);
-	let arg = crate::batch::Arg {
-		items: vec![crate::batch::Item::PutSandbox(final_arg)],
-	};
-	index.batch(arg).await.unwrap();
-	assert!(
-		index
-			.try_get_sandbox(&sandbox)
-			.await
-			.unwrap()
-			.unwrap()
-			.set
-			.processes
-	);
-	assert_eq!(
-		index
-			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(1), 1)
-			.await
-			.unwrap()
-			.unwrap(),
-		[first]
-	);
-
 	// A final runner snapshot replaces provisional order without growing the sandbox record.
-	let processes = (0..4000)
-		.map(|_| tg::process::Id::new())
+	let processes = [first.clone(), second.clone()]
+		.into_iter()
+		.chain((0..3998).map(|_| tg::process::Id::new()))
 		.collect::<Vec<_>>();
 	let mut final_arg = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Destroyed);
 	final_arg.processes = Some(processes.clone());
@@ -650,6 +626,78 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.unwrap(),
 		processes[3998..]
 	);
+	// Membership reads share the ordered keys but exclude history without process records.
+	let members = index.get_sandbox_processes(&sandbox).await.unwrap();
+	assert_eq!(
+		members.into_iter().map(|(id, _)| id).collect::<Vec<_>>(),
+		[first.clone(), second.clone()]
+	);
+
+	// Replayed complete lists must not change finalized ordering.
+	let mut replay = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Destroyed);
+	replay.processes = Some(vec![second.clone(), first.clone()]);
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutSandbox(replay)],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
+			.await
+			.unwrap()
+			.unwrap(),
+		processes
+	);
+
+	// Cleaning processes releases membership without leaving holes in the history.
+	loop {
+		let arg = crate::clean::Arg {
+			batch_size: 100,
+			max_object_touched_at: i64::MIN,
+			max_process_touched_at: i64::MAX,
+			max_sandbox_touched_at: i64::MIN,
+			now: 1,
+			partition_end: 1,
+			partition_start: 0,
+		};
+		if index.clean(arg).await.unwrap().done {
+			break;
+		}
+	}
+	assert!(index.try_get_process(&first).await.unwrap().is_none());
+	assert!(index.try_get_process(&second).await.unwrap().is_none());
+	assert!(
+		index
+			.get_sandbox_processes(&sandbox)
+			.await
+			.unwrap()
+			.is_empty()
+	);
+	assert_eq!(
+		index
+			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
+			.await
+			.unwrap()
+			.unwrap(),
+		processes
+	);
+
+	// Historical entries must not keep the sandbox alive after its processes are cleaned.
+	loop {
+		let arg = crate::clean::Arg {
+			batch_size: 100,
+			max_object_touched_at: i64::MIN,
+			max_process_touched_at: i64::MAX,
+			max_sandbox_touched_at: i64::MAX,
+			now: 2,
+			partition_end: 1,
+			partition_start: 0,
+		};
+		if index.clean(arg).await.unwrap().done {
+			break;
+		}
+	}
+	assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_none());
 	index
 		.delete_sandboxes(std::slice::from_ref(&sandbox))
 		.await
@@ -667,5 +715,21 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.await
 			.unwrap(),
 		Some(0)
+	);
+	// Recreating a process verifies that sandbox cleanup removed the reverse position too.
+	let mut arg = process_arg(first.clone(), tg::process::Status::Started);
+	arg.sandbox = Some(sandbox.clone());
+	arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutProcess(arg)],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 1)
+			.await
+			.unwrap()
+			.unwrap(),
+		[first]
 	);
 }

@@ -22,6 +22,11 @@ impl Index {
 				.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
 				.transpose()?;
 
+			let processes_changed = arg.processes.is_some()
+				&& existing
+					.as_ref()
+					.is_none_or(|existing| !existing.set.processes);
+
 			// A delayed or replayed start must not overwrite a destroyed sandbox.
 			if arg
 				.data
@@ -73,10 +78,11 @@ impl Index {
 				},
 				touched_at,
 			};
-			if let Some(processes) = &arg.processes {
-				crate::fdb::propagate!(Self::put_sandbox_processes_with_transaction(
-					txn, subspace, &arg.id, processes
-				));
+			if processes_changed && let Some(processes) = &arg.processes {
+				crate::fdb::propagate!(
+					Self::put_sandbox_processes_with_transaction(txn, subspace, &arg.id, processes)
+						.await
+				);
 			}
 			let value = sandbox.serialize()?;
 			txn.set(&key, &value);

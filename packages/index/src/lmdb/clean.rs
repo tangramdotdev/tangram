@@ -505,14 +505,9 @@ impl Index {
 		transaction: &lmdb::RwTxn<'_>,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<u64> {
-		let prefix = Self::pack(
-			subspace,
-			&(
-				Kind::SandboxProcess.to_i32().unwrap(),
-				id.to_bytes().as_ref(),
-			),
-		);
-		let count = Self::count_keys_with_prefix(db, transaction, &prefix)?;
+		let processes =
+			Self::get_sandbox_processes_with_transaction(db, subspace, transaction, id)?;
+		let count = processes.len() as u64;
 
 		Ok(count)
 	}
@@ -868,23 +863,8 @@ impl Index {
 			Self::decrement_object_reference_count(db, subspace, transaction, &object)?;
 		}
 
+		// Retain the ordered history until the sandbox is deleted, but release the live reference.
 		if let Some(sandbox) = sandbox {
-			let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessSandbox {
-				process: id.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete process sandbox"))?;
-
-			let key = crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
-				process: id.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete sandbox process"))?;
-
 			Self::decrement_sandbox_reference_count(db, subspace, transaction, &sandbox)?;
 		}
 

@@ -12,15 +12,7 @@ pub enum Key {
 	},
 	Sandbox(tg::sandbox::Id),
 	SandboxProcess {
-		process: tg::process::Id,
-		sandbox: tg::sandbox::Id,
-	},
-	SandboxProcessEntry {
 		position: i64,
-		process: tg::process::Id,
-		sandbox: tg::sandbox::Id,
-	},
-	SandboxProcessPosition {
 		process: tg::process::Id,
 		sandbox: tg::sandbox::Id,
 	},

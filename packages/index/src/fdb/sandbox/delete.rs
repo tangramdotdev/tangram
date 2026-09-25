@@ -1,5 +1,3 @@
-#![allow(clippy::unnecessary_wraps)]
-
 use {
 	crate::fdb::{Index, Key, Request, Response},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
@@ -20,15 +18,15 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) fn delete_sandboxes_with_transaction(
+	pub(crate) async fn delete_sandboxes_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		ids: &[tg::sandbox::Id],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for id in ids {
-			crate::fdb::propagate!(Self::delete_sandbox_processes_with_transaction(
-				txn, subspace, id
-			));
+			crate::fdb::propagate!(
+				Self::delete_sandbox_processes_with_transaction(txn, subspace, id).await
+			);
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);

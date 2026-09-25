@@ -601,11 +601,10 @@ impl Index {
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
-		let id = id.to_bytes();
-		let result =
-			Self::count_entries_for_kind_and_id(txn, subspace, Kind::SandboxProcess, id.as_ref())
-				.await;
-		let count = crate::fdb::retry!(result);
+		let processes = crate::fdb::propagate!(
+			Self::get_sandbox_processes_with_transaction(txn, subspace, id).await
+		);
+		let count = processes.len() as u64;
 
 		Ok(ControlFlow::Break(count))
 	}
@@ -700,7 +699,7 @@ impl Index {
 			Item::Checkout(id) => Self::delete_checkout(txn, subspace, id, partition_total).await,
 			Item::Object(id) => Self::delete_object(txn, subspace, id, partition_total).await,
 			Item::Process(id) => Self::delete_process(txn, subspace, id, partition_total).await,
-			Item::Sandbox(id) => Self::delete_sandbox(txn, subspace, id),
+			Item::Sandbox(id) => Self::delete_sandbox(txn, subspace, id).await,
 		}
 	}
 
@@ -979,21 +978,8 @@ impl Index {
 			);
 		}
 
+		// Retain the ordered history until the sandbox is deleted, but release the live reference.
 		if let Some(sandbox) = sandbox {
-			let key = crate::fdb::Key::Process(crate::fdb::process::Key::ProcessSandbox {
-				process: id.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			txn.clear(&key);
-
-			let key = crate::fdb::Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess {
-				process: id.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			txn.clear(&key);
-
 			crate::fdb::propagate!(
 				Self::decrement_sandbox_reference_count(txn, subspace, &sandbox, partition_total,)
 					.await
@@ -1079,12 +1065,12 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 
-	fn delete_sandbox(
+	async fn delete_sandbox(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		id: &tg::sandbox::Id,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		Self::delete_sandboxes_with_transaction(txn, subspace, std::slice::from_ref(id))
+		Self::delete_sandboxes_with_transaction(txn, subspace, std::slice::from_ref(id)).await
 	}
 
 	async fn delete_materialized_grants_for_resource(

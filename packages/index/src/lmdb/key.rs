@@ -88,8 +88,6 @@ pub enum Kind {
 	Indexer = 70,
 	GrantUpdateClean = 71,
 	StorageAndMetadataUpdateClean = 72,
-	SandboxProcessEntry = 73,
-	SandboxProcessPosition = 74,
 }
 
 impl fdbt::TuplePack for Key {
@@ -209,33 +207,17 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
-			Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcessEntry {
+			Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
 				position,
 				process,
 				sandbox,
 			}) => (
-				Kind::SandboxProcessEntry.to_i32().unwrap(),
+				Kind::SandboxProcess.to_i32().unwrap(),
 				sandbox.to_bytes().as_ref(),
 				*position,
 				process.to_bytes().as_ref(),
 			)
 				.pack(w, tuple_depth),
-			Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcessPosition {
-				process,
-				sandbox,
-			}) => (
-				Kind::SandboxProcessPosition.to_i32().unwrap(),
-				sandbox.to_bytes().as_ref(),
-				process.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-			Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess { sandbox, process }) => (
-				Kind::SandboxProcess.to_i32().unwrap(),
-				sandbox.to_bytes().as_ref(),
-				process.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
 			Key::Process(crate::lmdb::process::Key::ProcessSandbox { process, sandbox }) => (
 				Kind::ProcessSandbox.to_i32().unwrap(),
 				process.to_bytes().as_ref(),
@@ -856,7 +838,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				))
 			},
 
-			Kind::SandboxProcessEntry => {
+			Kind::SandboxProcess => {
 				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, position): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
@@ -866,41 +848,13 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
 				Ok((
 					input,
-					Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcessEntry {
+					Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
 						position,
 						process,
 						sandbox,
 					}),
 				))
 			},
-			Kind::SandboxProcessPosition => {
-				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
-					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
-				let process = tg::process::Id::from_slice(&process)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				Ok((
-					input,
-					Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcessPosition {
-						process,
-						sandbox,
-					}),
-				))
-			},
-			Kind::SandboxProcess => {
-				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let sandbox = tg::sandbox::Id::from_slice(&sandbox)
-					.map_err(|_| fdbt::PackError::Message("invalid sandbox id".into()))?;
-				let process = tg::process::Id::from_slice(&process)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				Ok((
-					input,
-					Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess { sandbox, process }),
-				))
-			},
-
 			Kind::ProcessSandbox => {
 				let (input, process): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, sandbox): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;

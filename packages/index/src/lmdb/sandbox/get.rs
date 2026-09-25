@@ -58,10 +58,10 @@ impl Index {
 		transaction: &lmdb::RoTxn<'_>,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<Vec<(tg::process::Id, crate::process::Process)>> {
-		let sandbox = sandbox.to_bytes();
+		let bytes = sandbox.to_bytes();
 		let prefix = Self::pack(
 			subspace,
-			&(Kind::SandboxProcess.to_i32().unwrap(), sandbox.as_ref()),
+			&(Kind::SandboxProcess.to_i32().unwrap(), bytes.as_ref()),
 		);
 		let iter = db
 			.prefix_iter(transaction, &prefix)
@@ -75,8 +75,14 @@ impl Index {
 			else {
 				return Err(tg::error!("unexpected key type"));
 			};
-			let data = Self::try_get_process_with_transaction(db, subspace, transaction, &process)?
-				.ok_or_else(|| tg::error!(%process, "failed to find the sandbox process"))?;
+			let Some(data) =
+				Self::try_get_process_with_transaction(db, subspace, transaction, &process)?
+			else {
+				continue;
+			};
+			if data.sandbox.as_ref() != Some(sandbox) {
+				continue;
+			}
 			output.push((process, data));
 		}
 
@@ -135,7 +141,7 @@ impl Index {
 		let bytes = id.to_bytes();
 		let prefix = Self::pack(
 			subspace,
-			&(Kind::SandboxProcessEntry.to_i32().unwrap(), bytes.as_ref()),
+			&(Kind::SandboxProcess.to_i32().unwrap(), bytes.as_ref()),
 		);
 		let entry = db
 			.rev_prefix_iter(transaction, &prefix)
@@ -146,7 +152,7 @@ impl Index {
 		let Some((key, _)) = entry else {
 			return Ok(Some(0));
 		};
-		let Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcessEntry { position, .. }) =
+		let Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess { position, .. }) =
 			Self::unpack(subspace, key)?
 		else {
 			return Err(tg::error!("unexpected key type"));
@@ -176,10 +182,7 @@ impl Index {
 			.to_usize()
 			.ok_or_else(|| tg::error!("the sandbox process length is too large"))?;
 		let id_bytes = id.to_bytes();
-		let prefix = &(
-			Kind::SandboxProcessEntry.to_i32().unwrap(),
-			id_bytes.as_ref(),
-		);
+		let prefix = &(Kind::SandboxProcess.to_i32().unwrap(), id_bytes.as_ref());
 		let prefix = Self::pack(subspace, prefix);
 		let position = match position {
 			std::io::SeekFrom::Start(position) => position
@@ -197,7 +200,7 @@ impl Index {
 					.map_err(|error| tg::error!(!error, "failed to read a sandbox process entry"))?
 					.ok_or_else(|| tg::error!("invalid sandbox process position"))?;
 				let key = Self::unpack(subspace, entry.0)?;
-				let Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcessEntry {
+				let Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
 					position: last_position,
 					..
 				}) = key
@@ -219,7 +222,7 @@ impl Index {
 		let start = Self::pack(
 			subspace,
 			&(
-				Kind::SandboxProcessEntry.to_i32().unwrap(),
+				Kind::SandboxProcess.to_i32().unwrap(),
 				id_bytes.as_ref(),
 				position,
 			),
@@ -239,7 +242,7 @@ impl Index {
 				break;
 			}
 			let key = Self::unpack(subspace, key)?;
-			let Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcessEntry {
+			let Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
 				process: process_id,
 				position: process_position,
 				..

@@ -119,22 +119,8 @@ fn put_process_with_set(
 		&Key::Process(ProcessKey::Process(process.clone())),
 		&value,
 	);
-	put(
-		index,
-		txn,
-		&Key::Process(ProcessKey::ProcessSandbox {
-			process: process.clone(),
-			sandbox: sandbox.clone(),
-		}),
-	);
-	put(
-		index,
-		txn,
-		&Key::Sandbox(SandboxKey::SandboxProcess {
-			process: process.clone(),
-			sandbox: sandbox.clone(),
-		}),
-	);
+	Index::put_sandbox_process_with_transaction(&index.db, &index.subspace, txn, sandbox, process)
+		.unwrap();
 }
 
 fn put_process_child(

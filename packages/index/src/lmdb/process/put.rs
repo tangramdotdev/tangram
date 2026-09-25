@@ -136,41 +136,7 @@ impl Index {
 				.as_ref()
 				.and_then(|existing| existing.sandbox.as_ref())
 		{
-			let key = Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
-				sandbox: existing_sandbox.clone(),
-				process: id.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete the sandbox process"))?;
-
-			let key = Key::Process(crate::lmdb::process::Key::ProcessSandbox {
-				process: id.clone(),
-				sandbox: existing_sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete the process sandbox"))?;
-
 			Self::decrement_sandbox_reference_count(db, subspace, transaction, existing_sandbox)?;
-		}
-
-		if sandbox_changed && let Some(sandbox) = &sandbox {
-			let key = Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
-				sandbox: sandbox.clone(),
-				process: id.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[])
-				.map_err(|error| tg::error!(!error, "failed to put the sandbox process"))?;
-
-			let key = Key::Process(crate::lmdb::process::Key::ProcessSandbox {
-				process: id.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[])
-				.map_err(|error| tg::error!(!error, "failed to put the process sandbox"))?;
 		}
 
 		if let Some(sandbox) = &sandbox {

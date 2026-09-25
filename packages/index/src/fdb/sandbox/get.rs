@@ -60,16 +60,19 @@ impl Index {
 		subspace: &Subspace,
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<ControlFlow<Vec<(tg::process::Id, crate::process::Process)>, fdb::FdbError>> {
-		let sandbox = sandbox.to_bytes();
+		let bytes = sandbox.to_bytes();
 		let prefix = Self::pack(
 			subspace,
-			&(Kind::SandboxProcess.to_i32().unwrap(), sandbox.as_ref()),
+			&(Kind::SandboxProcess.to_i32().unwrap(), bytes.as_ref()),
 		);
 		let entry = fdb::RangeOption {
 			mode: fdb::options::StreamingMode::WantAll,
 			..fdb::RangeOption::from(&Subspace::from_bytes(prefix))
 		};
-		let result = txn.get_range(&entry, 1, false).await;
+		let result = txn
+			.get_ranges_keyvalues(entry, false)
+			.try_collect::<Vec<_>>()
+			.await;
 		let entries = crate::fdb::retry!(result);
 		let processes = entries
 			.iter()
@@ -88,10 +91,10 @@ impl Index {
 				futures::future::try_join_all(processes.into_iter().map(|process| async move {
 					let data = crate::fdb::propagate!(
 						Self::try_get_process_with_transaction(txn, subspace, &process).await
-					)
-					.ok_or_else(|| tg::error!(%process, "failed to find the sandbox process"))?;
+					);
+					let data = data.filter(|data| data.sandbox.as_ref() == Some(sandbox));
 
-					Ok::<_, tg::Error>(ControlFlow::Break((process, data)))
+					Ok::<_, tg::Error>(ControlFlow::Break(data.map(|data| (process, data))))
 				}))
 				.await;
 			let results = result?;
@@ -101,7 +104,7 @@ impl Index {
 					ControlFlow::Break(value) => value,
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				};
-				values.push(value);
+				values.extend(value);
 			}
 			values
 		};
@@ -182,7 +185,7 @@ impl Index {
 		let bytes = id.to_bytes();
 		let prefix = Self::pack(
 			subspace,
-			&(Kind::SandboxProcessEntry.to_i32().unwrap(), bytes.as_ref()),
+			&(Kind::SandboxProcess.to_i32().unwrap(), bytes.as_ref()),
 		);
 		let (begin, end) = Subspace::from_bytes(prefix).range();
 		let selector = fdb::KeySelector::last_less_than(end);
@@ -191,7 +194,7 @@ impl Index {
 		if key.as_ref() < begin.as_slice() {
 			return Ok(ControlFlow::Break(Some(0)));
 		}
-		let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcessEntry { position, .. }) =
+		let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess { position, .. }) =
 			Self::unpack(subspace, &key)?
 		else {
 			return Err(tg::error!("unexpected key type"));
@@ -222,7 +225,7 @@ impl Index {
 			.to_usize()
 			.ok_or_else(|| tg::error!("the sandbox process length is too large"))?;
 		let bytes = id.to_bytes();
-		let key = (Kind::SandboxProcessEntry.to_i32().unwrap(), bytes.as_ref());
+		let key = (Kind::SandboxProcess.to_i32().unwrap(), bytes.as_ref());
 		let prefix = Self::pack(subspace, &key);
 		let range_subspace = Subspace::from_bytes(prefix);
 		let (begin, end) = range_subspace.range();
@@ -241,7 +244,7 @@ impl Index {
 					return Err(tg::error!("invalid sandbox process position"));
 				}
 				let key = Self::unpack(subspace, &key)?;
-				let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcessEntry {
+				let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess {
 					position: last_position,
 					..
 				}) = key
@@ -263,7 +266,7 @@ impl Index {
 		let begin = Self::pack(
 			subspace,
 			&(
-				Kind::SandboxProcessEntry.to_i32().unwrap(),
+				Kind::SandboxProcess.to_i32().unwrap(),
 				bytes.as_ref(),
 				position,
 			),
@@ -285,7 +288,7 @@ impl Index {
 			.enumerate()
 			.map(|(index, entry)| {
 				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcessEntry {
+				let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess {
 					process: process_id,
 					position: process_position,
 					..

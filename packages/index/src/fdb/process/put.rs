@@ -137,20 +137,6 @@ impl Index {
 				.as_ref()
 				.and_then(|existing| existing.sandbox.as_ref())
 		{
-			let key = Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess {
-				sandbox: existing_sandbox.clone(),
-				process: id.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			txn.clear(&key);
-
-			let key = Key::Process(crate::fdb::process::Key::ProcessSandbox {
-				process: id.clone(),
-				sandbox: existing_sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			txn.clear(&key);
-
 			crate::fdb::propagate!(
 				Self::decrement_sandbox_reference_count(
 					txn,
@@ -160,22 +146,6 @@ impl Index {
 				)
 				.await
 			);
-		}
-
-		if sandbox_changed && let Some(sandbox) = &sandbox {
-			let key = Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess {
-				sandbox: sandbox.clone(),
-				process: id.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
-
-			let key = Key::Process(crate::fdb::process::Key::ProcessSandbox {
-				process: id.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			txn.set(&key, &[]);
 		}
 
 		if let Some(sandbox) = &sandbox {
