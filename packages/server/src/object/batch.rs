@@ -1,7 +1,7 @@
 use {
 	crate::Session,
 	num::ToPrimitive as _,
-	std::collections::{BTreeMap, BTreeSet},
+	std::collections::{BTreeMap, BTreeSet, btree_map},
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
@@ -232,14 +232,25 @@ impl Session {
 		batch_subtrees: &BTreeSet<tg::object::Id>,
 		batch_objects: &BTreeSet<tg::object::Id>,
 	) -> tg::Result<bool> {
-		let mut children_map = std::collections::BTreeMap::new();
+		// Merge the tokens of a child that appears more than once, such as a file under two directory entries.
+		let mut children_map = BTreeMap::<tg::object::Id, tg::Referent<tg::object::Id>>::new();
 		for child in children {
-			let id = child.node.clone();
-			if !actual_children.contains(&id) {
+			if !actual_children.contains(&child.node) {
 				continue;
 			}
-			if children_map.insert(id, child.clone()).is_some() {
-				return Ok(false);
+			match children_map.entry(child.node.clone()) {
+				btree_map::Entry::Occupied(mut entry) => {
+					for token in child.options.tokens.local_authorization() {
+						entry
+							.get_mut()
+							.options
+							.tokens
+							.insert_local_authorization(token.clone());
+					}
+				},
+				btree_map::Entry::Vacant(entry) => {
+					entry.insert(child.clone());
+				},
 			}
 		}
 
