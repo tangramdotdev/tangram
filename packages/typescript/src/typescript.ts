@@ -7,6 +7,9 @@ import { Module } from "./module.ts";
 let libraryRoot = "/__library__";
 let moduleRoot = "/__module__";
 
+// Map each file name, which excludes tokens, to the latest module with tokens.
+let modules = new Map<string, Module>();
+
 // Create the TypeScript compiler options.
 export let compilerOptions: ts.CompilerOptions = {
 	allowJs: true,
@@ -301,7 +304,7 @@ export let fileNameFromModule = (module: Module): string => {
 		let path = source.startsWith("./") ? source.slice(2) : source;
 		return `${libraryRoot}/${path}`;
 	}
-	let string = Module.toDataString(module);
+	let string = Module.toDataString(Module.withoutToken(module));
 	let extension: string;
 	if (module.kind === "js") {
 		extension = ".js";
@@ -311,7 +314,12 @@ export let fileNameFromModule = (module: Module): string => {
 		extension = ".ts";
 	}
 	string += `&extension=${extension}`;
-	return `${moduleRoot}${string}`;
+	let fileName = `${moduleRoot}${string}`;
+	let tokens = module.referent.options?.tokens;
+	if (tokens !== undefined && tokens !== null) {
+		modules.set(fileName, module);
+	}
+	return fileName;
 };
 
 /** Convert a TypeScript file name to a module. */
@@ -325,7 +333,10 @@ export let moduleFromFileName = (fileName: string): Module => {
 		};
 	}
 	if (fileName.startsWith(moduleRoot)) {
-		return Module.fromDataString(fileName.slice(moduleRoot.length));
+		return (
+			modules.get(fileName) ??
+			Module.fromDataString(fileName.slice(moduleRoot.length))
+		);
 	}
 	throw new Error("invalid module file name");
 };
