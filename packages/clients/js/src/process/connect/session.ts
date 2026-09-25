@@ -1,6 +1,10 @@
 import * as tg from "../../index.ts";
 import { capacity, maxChunks } from "../stdio/flow.ts";
-import { type Connect, connectProcess } from "../../client/process/connect.ts";
+import {
+	type Connect,
+	connectProcess,
+	requestWindow,
+} from "../../client/process/connect.ts";
 import type { Connection as ReadConnection } from "../../client/process/stdio/read.ts";
 import type { Connection as WriteConnection } from "../../client/process/stdio/write.ts";
 import { Channel } from "./channel.ts";
@@ -26,6 +30,7 @@ export class Session {
 			resolve: (output: Connect.ServerResponseOutput) => void;
 		}
 	>();
+	#unacknowledged = new Set<number>();
 	#wait = Promise.withResolvers<tg.Process.Wait | null>();
 	#waited = false;
 
@@ -66,6 +71,7 @@ export class Session {
 	): Promise<void> {
 		for await (let message of output) {
 			if (message.kind === "ack") {
+				this.#unacknowledged.delete(message.value.id);
 				continue;
 			}
 			if (message.kind === "response") {
@@ -127,21 +133,37 @@ export class Session {
 				this.#error ?? new Error("the process connection closed"),
 			);
 		}
-		if (this.#requests.size >= 128 && arg.kind !== "detach") {
+		if (this.#requests.size >= requestWindow && arg.kind !== "detach") {
 			return Promise.reject(new Error("too many process requests"));
 		}
 		let pending = Promise.withResolvers<Connect.ServerResponseOutput>();
 		this.#requests.set(id, pending);
 		try {
-			if (!this.#input.push({ kind: "request", value: { arg, id } })) {
-				throw new Error("the process connection closed");
-			}
+			this.#sendRequest(arg, id);
 			if (arg.kind !== "connect") this.confirm();
 		} catch (error) {
 			this.#requests.delete(id);
 			pending.reject(error);
 		}
 		return pending.promise;
+	}
+
+	#sendRequest(arg: Connect.ClientRequestArg, id: number): void {
+		if (id !== 0) {
+			const limit = requestWindow + Number(arg.kind === "detach");
+			if (this.#unacknowledged.size >= limit) {
+				throw new Error("the process request window was exceeded");
+			}
+			this.#unacknowledged.add(id);
+		}
+		try {
+			if (!this.#input.push({ kind: "request", value: { arg, id } })) {
+				throw new Error("the process connection closed");
+			}
+		} catch (error) {
+			this.#unacknowledged.delete(id);
+			throw error;
+		}
 	}
 
 	get closed(): boolean {
@@ -239,13 +261,7 @@ export class Session {
 			output = new Channel(capacity);
 			this.#reads.set(requestId, output);
 			try {
-				if (
-					!this.#input.push({
-						kind: "request",
-						value: { arg: { kind: "read", value: arg }, id: requestId },
-					})
-				)
-					throw new Error("the process connection closed");
+				this.#sendRequest({ kind: "read", value: arg }, requestId);
 			} catch (error) {
 				this.#reads.delete(requestId);
 				throw error;
@@ -336,10 +352,7 @@ export class Session {
 	#close(id: number): void {
 		if (this.#closed) return;
 		try {
-			this.#input.push({
-				kind: "request",
-				value: { arg: { kind: "close", value: id }, id: this.#nextId++ },
-			});
+			this.#sendRequest({ kind: "close", value: id }, this.#nextId++);
 		} catch (error) {
 			this.#finish(error);
 		}

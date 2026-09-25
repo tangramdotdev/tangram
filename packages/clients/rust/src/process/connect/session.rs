@@ -2,7 +2,7 @@ use {
 	super::*,
 	futures::{FutureExt as _, TryStreamExt as _, stream},
 	std::{
-		collections::BTreeMap,
+		collections::{BTreeMap, BTreeSet},
 		sync::{
 			Arc, Mutex,
 			atomic::{AtomicBool, AtomicU64, Ordering},
@@ -39,6 +39,7 @@ struct State {
 	reads: Mutex<BTreeMap<u64, mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>>>,
 	requests: Mutex<BTreeMap<u64, oneshot::Sender<tg::Result<ServerResponseOutput>>>>,
 	sender: mpsc::Sender<tg::Result<ClientMessage>>,
+	unacknowledged: Mutex<BTreeSet<u64>>,
 	wait: watch::Sender<Option<tg::Result<tg::process::wait::Output>>>,
 }
 
@@ -98,6 +99,7 @@ impl Session {
 			reads: Mutex::new(reads),
 			requests: Mutex::new(BTreeMap::new()),
 			sender,
+			unacknowledged: Mutex::new(BTreeSet::new()),
 			wait,
 		};
 		let state = Arc::new(state);
@@ -135,7 +137,9 @@ impl Session {
 	) -> tg::Result<()> {
 		while let Some(message) = output.try_next().await? {
 			match message {
-				ServerMessage::Ack(_) => (),
+				ServerMessage::Ack(ack) => {
+					state.unacknowledged.lock().unwrap().remove(&ack.id);
+				},
 				ServerMessage::Sync(_) => {
 					return Err(tg::error!("unexpected process sync message"));
 				},
@@ -238,7 +242,7 @@ impl Session {
 			if self.closed() {
 				return Ok(futures::future::ready(self.error().map_or(Ok(None), Err)).boxed());
 			}
-			if requests.len() >= 128 && !matches!(arg, ClientRequestArg::Detach) {
+			if requests.len() >= REQUEST_WINDOW && !matches!(arg, ClientRequestArg::Detach) {
 				return Err(tg::error!("too many process requests"));
 			}
 			requests.insert(id, sender);
@@ -247,11 +251,7 @@ impl Session {
 			state.requests.lock().unwrap().remove(&id);
 		});
 		let request = ClientRequest { arg, id };
-		self.state
-			.sender
-			.send(Ok(ClientMessage::Request(request)))
-			.await
-			.ok();
+		self.state.send_request(request).await?;
 		self.confirm().await;
 		let state = self.state.clone();
 		let future = async move {
@@ -399,15 +399,9 @@ impl Session {
 				arg: ClientRequestArg::Read(arg),
 				id,
 			};
-			if self
-				.state
-				.sender
-				.send(Ok(ClientMessage::Request(request)))
-				.await
-				.is_err()
-			{
+			if let Err(error) = self.state.send_request(request).await {
 				self.state.reads.lock().unwrap().remove(&id);
-				return Err(tg::error!("the process connection closed"));
+				return Err(error);
 			}
 
 			(id, receiver)
@@ -492,6 +486,28 @@ impl Session {
 }
 
 impl State {
+	async fn send_request(&self, request: ClientRequest) -> tg::Result<()> {
+		let id = request.id;
+		{
+			let mut unacknowledged = self.unacknowledged.lock().unwrap();
+			let limit =
+				REQUEST_WINDOW + usize::from(matches!(request.arg, ClientRequestArg::Detach));
+			if unacknowledged.len() >= limit {
+				return Err(tg::error!("the process request window was exceeded"));
+			}
+			unacknowledged.insert(id);
+		}
+		let guard = scopeguard::guard(id, |id| {
+			self.unacknowledged.lock().unwrap().remove(&id);
+		});
+		self.sender
+			.send(Ok(ClientMessage::Request(request)))
+			.await
+			.map_err(|_| tg::error!("the process connection closed"))?;
+		scopeguard::ScopeGuard::into_inner(guard);
+		Ok(())
+	}
+
 	async fn close(&self, id: u64) {
 		self.reads.lock().unwrap().remove(&id);
 		if self.closed.load(Ordering::SeqCst) {
@@ -501,10 +517,9 @@ impl State {
 			arg: ClientRequestArg::Close(id),
 			id: self.next_id.fetch_add(1, Ordering::Relaxed),
 		};
-		self.sender
-			.send(Ok(ClientMessage::Request(request)))
-			.await
-			.ok();
+		if let Err(error) = self.send_request(request).await {
+			self.fail(Some(error));
+		}
 	}
 
 	fn fail(&self, error: Option<tg::Error>) {

@@ -2,6 +2,9 @@ import * as tg from "../../index.ts";
 import { Body, Request, Uri } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
+// Keep this fixed receipt window aligned with tangram_client::process::connect::REQUEST_WINDOW.
+export const requestWindow = 128;
+
 export namespace Connect {
 	export type Mode = "run" | "spawn";
 	export type Options = tg.Process.Wait.Arg & {

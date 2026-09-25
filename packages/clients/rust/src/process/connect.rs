@@ -25,6 +25,9 @@ mod tests;
 
 pub use connection::Connection;
 
+/// Maximum requests awaiting receipt, excluding the opening request and one reserved detach.
+pub const REQUEST_WINDOW: usize = 128;
+
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-connect";
 
 #[derive(

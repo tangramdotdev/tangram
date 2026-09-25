@@ -97,6 +97,7 @@ struct FinishProcessRunArg {
 }
 
 struct FinishProcessRunOutput {
+	data: tg::process::Data,
 	index_task: Option<crate::process::IndexTask>,
 }
 
@@ -117,8 +118,12 @@ struct RecordFinishedProcessArg<'a> {
 struct FinishProcessTaskArg {
 	buffered_task: Task<tg::Result<()>>,
 	control_task: Task<tg::Result<()>>,
+	data: tg::process::Data,
 	id: tg::process::Id,
+	location: tg::Location,
 	log_task: Option<Task<tg::Result<()>>>,
+	processes: Arc<crate::process::Processes>,
+	push: tokio::sync::oneshot::Sender<()>,
 }
 
 struct IndexProcessTaskArg<'a> {
@@ -765,6 +770,7 @@ impl Session {
 			let token = token.clone();
 			move |_| async move {
 				let command = command.await?;
+				crate::checkpoint!(session.server, "runner.process.run", process = %id).await;
 				let arg = RunProcessArg {
 					command,
 					guest_url,
@@ -825,6 +831,7 @@ impl Session {
 				Ok::<_, tg::Error>(arg)
 			})
 			.transpose()?;
+		let (push_sender, push_receiver) = tokio::sync::oneshot::channel();
 		let control_task = Task::spawn({
 			let session = session.clone();
 			let exited = exited.clone();
@@ -839,6 +846,7 @@ impl Session {
 					finish: finish_receiver,
 					local: control_receiver,
 					log,
+					push: push_receiver,
 					retention_stopper,
 					sandbox,
 					sandbox_process: sandbox_process_receiver,
@@ -922,6 +930,8 @@ impl Session {
 			Err(error) => {
 				process_stopper.stop();
 				drop(index_sender);
+				// Unblock the finish task if it is waiting for the connection's sync token.
+				drop(sync_sender);
 				finish_task.wait().await.ok();
 
 				return Err(error);
@@ -992,7 +1002,7 @@ impl Session {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "the process finish task panicked"))??;
-		let FinishProcessRunOutput { index_task } = output;
+		let FinishProcessRunOutput { data, index_task } = output;
 		event_sender.send(Ok(Event::Exited)).ok();
 		session
 			.release_finished_process_children(&id, &processes)
@@ -1032,8 +1042,12 @@ impl Session {
 		let arg = FinishProcessTaskArg {
 			buffered_task,
 			control_task,
+			data,
 			id,
+			location,
 			log_task,
+			processes: processes.clone(),
+			push: push_sender,
 		};
 
 		let result = session.finish_process_task(arg).boxed().await;
@@ -1323,15 +1337,17 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "the process initialization failed"))?;
 		}
 
-		// Push the output and wait for the push to complete before sending the finish request. The process has finished, so a failure is logged.
-		let sync = sync_receiver
-			.await
-			.map_err(|_| tg::error!("the process connection failed before the output push"))?;
-		let started = std::time::Instant::now();
-		if let Err(error) = self.push_process_output(&id, &location, &data, sync).await {
-			tracing::error!(error = %error.trace(), process = %id, "failed to push the process output");
+		// Await the result transfer by default until concurrent push and finish are reliable.
+		if self.server.config.process.await_push && location.is_remote() {
+			let sync = sync_receiver
+				.await
+				.map_err(|_| tg::error!("the process connection failed before the output push"))?;
+			let started = std::time::Instant::now();
+			if let Err(error) = self.push_process_output(&id, &location, &data, sync).await {
+				tracing::error!(error = %error.trace(), process = %id, "failed to push the process output");
+			}
+			tracing::debug!(process = %id, elapsed = ?started.elapsed(), "pushed the process output before finish");
 		}
-		tracing::debug!(process = %id, elapsed = ?started.elapsed(), "pushed the process output before finish");
 
 		// Retain the finish request across retries and reconnects without waiting for its response.
 		crate::checkpoint!(self.server, "runner.process.control.finish.request").await;
@@ -1349,7 +1365,7 @@ impl Session {
 			.map_err(|_| tg::error!("failed to send the process finish response receiver"))?;
 		crate::checkpoint!(self.server, "runner.process.control.finish.sent", process = %id).await;
 		tracing::debug!(process = %id, "sent the process finish request");
-		let output = FinishProcessRunOutput { index_task };
+		let output = FinishProcessRunOutput { data, index_task };
 
 		Ok(output)
 	}
@@ -1677,9 +1693,14 @@ impl Session {
 		let FinishProcessTaskArg {
 			buffered_task,
 			control_task,
+			data,
 			id,
+			location,
 			log_task,
+			processes,
+			push,
 		} = arg;
+		let sync = processes.get(&id).and_then(|state| state.sync.clone());
 		let log_result = if let Some(log_task) = log_task {
 			match log_task.wait().await {
 				Ok(result) => {
@@ -1694,6 +1715,14 @@ impl Session {
 			Ok(result) => result,
 			Err(error) => Err(tg::error!(!error, %id, "the process buffered task panicked")),
 		};
+
+		// Retain the original concurrent finish behavior when awaiting pushes is disabled.
+		if !self.server.config.process.await_push
+			&& let Err(error) = self.push_process_output(&id, &location, &data, sync).await
+		{
+			tracing::error!(error = %error.trace(), process = %id, "failed to push the process output");
+		}
+		push.send(()).ok();
 
 		let control_result = match control_task.wait().await {
 			Ok(result) => result,

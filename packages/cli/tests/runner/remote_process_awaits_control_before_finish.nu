@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# With concurrent pushes enabled, a remote runner queues Finish before control or initial indexing completes.
+# The default waits for the remote control sync token before pushing the output and sending Finish.
 
 let root_token = random chars
 
@@ -15,7 +15,6 @@ let created = tg --url $remote.url --token $root_token runner create | from json
 # Spawn the runner with checkpoints enabled.
 let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
-	process: { await_push: false },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: 'default', token: $created.token.token },
@@ -27,7 +26,7 @@ let local = server spawn --name alice-local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 
-for checkpoint in [runner.process.control.connect process.control.output process.control.index.started runner.process.index.started] {
+for checkpoint in [runner.process.control.connect process.control.output] {
 	let receiver = if ($checkpoint | str starts-with 'process.') { $remote } else { $runner }
 	let receiver_token = if ($checkpoint | str starts-with 'process.') { $root_token } else { '' }
 	let control_watch = tg --url $receiver.url --token $receiver_token checkpoint watch $checkpoint | from json | get watch
@@ -50,9 +49,10 @@ for checkpoint in [runner.process.control.connect process.control.output process
 	tg --url $runner.url checkpoint unwatch runner.process.output.stored $stored_watch
 	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete) "completion should not wait for the control connection or indexing"
 	tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch
-	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "Finish should be queued before control returns"
-	tg --url $runner.url checkpoint unwatch runner.process.control.finish.sent $sent_watch
+	failure (timeout 1s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "Finish must wait for the control sync token"
 	tg --url $receiver.url --token $receiver_token checkpoint unwatch $checkpoint $control_watch
+	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "Finish should follow the control connection and output push"
+	tg --url $runner.url checkpoint unwatch runner.process.control.finish.sent $sent_watch
 
 	success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.finish $received_watch 0 | complete) "the runner should send Finish"
 	tg --url $remote.url --token $root_token checkpoint unwatch process.control.finish $received_watch

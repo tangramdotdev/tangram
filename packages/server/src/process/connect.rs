@@ -30,6 +30,8 @@ use {
 mod sync;
 
 const MAX_OPERATIONS: usize = 64;
+// Reserve the request window, one detach request, and the opening response acknowledgment.
+const MAX_PENDING: usize = tg::process::connect::REQUEST_WINDOW + 2;
 
 type Input = BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>;
 type Operation = BoxFuture<'static, (u64, tg::Result<()>)>;
@@ -122,18 +124,23 @@ impl Session {
 					.await;
 			}
 
+			let spawn_only = arg.mode == tg::process::connect::Mode::Spawn;
 			let input = input.take().unwrap();
 			let (sender, receiver) = mpsc::channel(64);
 			let session = self.clone();
-			let task = Task::spawn(move |_| async move {
+			let mut task = Task::spawn(move |_| async move {
 				if let Err(error) = session
 					.connect_process_spawn_task(arg, request_id, input, prepare_output, &sender)
 					.boxed()
-					.await
+					.await && sender.send(Err(error.clone())).await.is_err()
 				{
-					sender.send(Err(error)).await.ok();
+					tracing::error!(error = %error.trace(), "the detached process connection failed");
 				}
 			});
+			// A spawn response can close the client connection while its command transfer is still running.
+			if spawn_only {
+				task.detach();
+			}
 			let output = ReceiverStream::new(receiver).attach(task).boxed();
 
 			Ok(Some(output))
@@ -161,6 +168,27 @@ impl Session {
 			.try_prepare_spawn_process_for_location(spawn_arg, &location, parent_sandbox.as_ref())
 			.await;
 		let spawn_arg = spawn_arg.clone();
+
+		let spawned = Arc::new(AtomicBool::new(false));
+
+		// A spawn-only client can disconnect after receiving its response without canceling the command transfer.
+		let input = if arg.mode == tg::process::connect::Mode::Spawn && !arg.command_sync {
+			let spawned = spawned.clone();
+			futures::stream::unfold((input, false, spawned), move |(mut input, finished, spawned)| async move {
+				if finished {
+					return None;
+				}
+				let message = input.next().await?;
+				if message.is_err() && spawned.load(Ordering::SeqCst) {
+					return None;
+				}
+				let finished = matches!(&message, Ok(tg::process::connect::ClientMessage::Ack(ack)) if ack.id == id);
+				Some((message, (input, finished, spawned)))
+			})
+			.boxed()
+		} else {
+			input
+		};
 
 		// Start a command sync when this is the first routing hop.
 		let mut input = Some(input);
@@ -261,6 +289,7 @@ impl Session {
 				notify = None;
 				self.spawn_process_add_child(&spawn_arg, &command, output)
 					.await?;
+				spawned.store(true, Ordering::SeqCst);
 			}
 			sender
 				.send(Ok(message))
@@ -431,7 +460,14 @@ impl Session {
 			sync_task = Some(destination.task);
 		}
 		Self::send_connect_ack(high, request_id).await?;
+
+		// Buffer the fixed request window while command sync progresses on the same connection.
 		let mut pending = VecDeque::new();
+		if self.server.config.process.await_push {
+			Self::connect_process_await_command_sync(&mut sync_task, &mut input, &mut pending)
+				.await?;
+		}
+
 		let mode = arg.mode;
 		let (output, location) = match arg.process {
 			tg::Either::Left(spawn) => {
@@ -464,13 +500,14 @@ impl Session {
 
 		// Complete a spawn-only connection.
 		if mode == tg::process::connect::Mode::Spawn {
-			Self::connect_process_finish_command_sync(&mut sync_task).await?;
 			Self::send_connect_response(
 				high,
 				request_id,
 				Ok(tg::process::connect::ServerResponseOutput::Connect(output)),
 			)
 			.await?;
+			// Keep the transfer alive after responding when command sync runs concurrently.
+			Self::connect_process_finish_command_sync(&mut sync_task).await?;
 			Self::finish_connect_response(&mut input, request_id).await?;
 			return Ok(());
 		}
@@ -604,9 +641,9 @@ impl Session {
 		let mut input_open = true;
 		let output = loop {
 			tokio::select! {
-				message = input.try_next(), if input_open && pending.len() < MAX_OPERATIONS => {
+				message = input.try_next(), if input_open => {
 					match message? {
-						Some(message) => pending.push_back(message),
+						Some(message) => Self::connect_process_buffer_message(pending, message)?,
 						None if mode == tg::process::connect::Mode::Spawn => input_open = false,
 						None => return Err(tg::error!("the process connection closed while spawning")),
 					}
@@ -870,8 +907,9 @@ impl Session {
 				state.streams.tasks.len() >= MAX_OPERATIONS
 					|| state.operations.len() >= MAX_OPERATIONS
 			},
-			tg::process::connect::ClientRequestArg::Write(_) => {
-				state.writes.len() >= MAX_OPERATIONS
+			tg::process::connect::ClientRequestArg::Write(arg) => {
+				let limit = flow::MAX_CHUNKS + usize::from(matches!(arg.data, write::Data::End(_)));
+				state.writes.len() >= limit
 			},
 		};
 		if limit {

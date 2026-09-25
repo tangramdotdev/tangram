@@ -1,12 +1,16 @@
 use {
-	super::{Input, Sender},
+	super::{Input, MAX_PENDING, Sender},
 	crate::Session,
-	futures::{StreamExt as _, stream},
+	futures::{StreamExt as _, TryStreamExt as _, stream},
+	std::collections::VecDeque,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tokio::sync::mpsc,
 	tokio_stream::wrappers::ReceiverStream,
 };
+
+#[cfg(test)]
+mod tests;
 
 pub(super) struct Destination {
 	pub input: Input,
@@ -20,6 +24,48 @@ pub(super) struct Source {
 }
 
 impl Session {
+	pub(super) async fn connect_process_await_command_sync(
+		task: &mut Option<Task<tg::Result<()>>>,
+		input: &mut Input,
+		pending: &mut VecDeque<tg::process::connect::ClientMessage>,
+	) -> tg::Result<()> {
+		let finish = Self::connect_process_finish_command_sync(task);
+		tokio::pin!(finish);
+		let mut input_open = true;
+		loop {
+			tokio::select! {
+				result = &mut finish => {
+					result?;
+					return Ok(());
+				},
+				message = input.try_next(), if input_open => {
+					match message? {
+						Some(message) => Self::connect_process_buffer_message(pending, message)?,
+						None => input_open = false,
+					}
+				},
+			}
+		}
+	}
+
+	pub(super) fn connect_process_buffer_message(
+		pending: &mut VecDeque<tg::process::connect::ClientMessage>,
+		message: tg::process::connect::ClientMessage,
+	) -> tg::Result<()> {
+		if pending.len() >= MAX_PENDING {
+			return Err(tg::error!("the process request window was exceeded"));
+		}
+		if let tg::process::connect::ClientMessage::Request(request) = &message
+			&& let tg::process::connect::ClientRequestArg::Write(arg) = &request.arg
+			&& let tg::process::stdio::write::Data::Chunk(chunk) = &arg.data
+			&& chunk.bytes.len() > tg::process::stdio::flow::CHUNK_SIZE
+		{
+			return Err(tg::error!("invalid stdio chunk size"));
+		}
+		pending.push_back(message);
+		Ok(())
+	}
+
 	pub(super) async fn connect_process_finish_command_sync(
 		task: &mut Option<Task<tg::Result<()>>>,
 	) -> tg::Result<()> {

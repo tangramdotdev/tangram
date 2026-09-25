@@ -237,7 +237,9 @@ impl Session {
 						},
 						ClientMessage::Request(request) => {
 							if ended || end.is_some() { return Err(tg::error!("received a write after stdio EOF")); }
-							if responses.len() >= flow::MAX_CHUNKS || responses.insert(request.id, false).is_some() {
+							// EOF has a reserved slot after a full window of data chunks.
+							let limit = flow::MAX_CHUNKS + usize::from(matches!(request.arg, Data::End(_)));
+							if responses.len() >= limit || responses.insert(request.id, false).is_some() {
 								return Err(tg::error!("the stdio write window was exceeded"));
 							}
 							validate_write(&request.arg, streams)?;

@@ -40,6 +40,7 @@ pub(super) struct RunProcessControlTaskArg {
 	pub finish: tokio::sync::oneshot::Receiver<ProcessControlResponseReceiver>,
 	pub local: tokio::sync::mpsc::Receiver<local::Message>,
 	pub log: Option<super::WriteProcessLogTaskArg>,
+	pub push: tokio::sync::oneshot::Receiver<()>,
 	pub retention_stopper: Stopper,
 	pub sandbox: tangram_sandbox::Sandbox,
 	pub sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
@@ -155,6 +156,7 @@ impl Session {
 			finish,
 			local,
 			log,
+			push,
 			retention_stopper,
 			sandbox,
 			sandbox_process,
@@ -251,6 +253,11 @@ impl Session {
 		} else {
 			Ok(())
 		};
+
+		// Retain control so waits can obtain the result sync token while its objects are in transit.
+		if !self.server.config.process.await_push {
+			push.await.ok();
+		}
 
 		let stdio_task = async {
 			output_task.wait().await.map_err(|error| {
