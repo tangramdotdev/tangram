@@ -31,6 +31,9 @@ let result = tg --url $local.url wait $process | from json
 assert equal $result.exit 0 "the remote process should finish successfully."
 let output = $result.output.value | split row '?' | first
 
+# Wait for the runner to persist completion before restarting it.
+tg --url $runner.url --token $runner_root_token wait --local --source=index $process | ignore
+
 # Restart the runner without its remote so all remaining reads must be served locally.
 let runner_directory = $runner.directory
 let runner_url = $runner.url
