@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let server = server spawn
 
-# Each alias is a union of 90,000 strings, so checking a thousand of them exceeds any default V8 heap limit.
+# Each alias expands to 90,000 distinct strings to exhaust the default V8 heap.
 let aliases = 0..999 | each { |i| $'type A($i) = `($i)${T}`;' }
 let path = artifact {
 	tangram.ts: ([
