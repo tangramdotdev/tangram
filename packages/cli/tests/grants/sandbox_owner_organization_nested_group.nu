@@ -21,6 +21,7 @@ success (tg --token $bob.token sandbox get $sandbox | complete) "a member of a g
 
 # Removing the team from the organization revokes Bob's transitive access.
 tg --token $alice.token organization members remove acme $team.id
+tg index
 failure (tg --token $bob.token sandbox get $sandbox | complete) "a member must lose access once their group is removed from the organization"
 
 tg --token $alice.token sandbox destroy $sandbox

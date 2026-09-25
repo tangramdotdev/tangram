@@ -15,6 +15,7 @@ tg --token $bob.token group get resource
 
 # After revoking the grant, bob loses access entirely.
 tg --token $alice.token revoke $bob.user.id read resource
+tg index
 let output = tg --token $bob.token group get resource | complete
 failure $output "revoking the grant should remove the principal's access"
 snapshot --normalize $output.stderr '

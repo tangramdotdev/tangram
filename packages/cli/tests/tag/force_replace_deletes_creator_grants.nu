@@ -14,6 +14,7 @@ tg --token $bob.token group get team
 
 let target = tg --token $root_token put 'tg.file("replacement")' | str trim
 tg --token $root_token tag put --force alice $target
+tg index
 
 failure (tg --token $bob.token group get team | complete) "the grant created by the replaced user should be deleted"
 let grants = tg --token $root_token grants list --resource team | from json

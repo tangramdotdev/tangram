@@ -26,6 +26,7 @@ success $granted "Bob should read the file while the grant is in effect."
 # Revoking an object grant should succeed rather than fail because admin is invalid on an object resource.
 let revoked = tg --url $remote.url --token $alice.token revoke $bob.user.id object_subtree $file | complete
 success $revoked "revoking an object grant should succeed."
+tg --url $remote.url index
 
 # After revocation Bob can no longer read the file.
 let denied = tg --url $remote.url --token $bob.token get $file | complete
