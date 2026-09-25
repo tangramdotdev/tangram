@@ -13,9 +13,6 @@ pub struct Arg {
 	/// The sandbox location, or `None` to preserve the indexed location.
 	#[tangram_serialize(id = 6)]
 	pub location: Option<tg::Location>,
-	/// A spawned process to append unless the process list is already complete.
-	#[tangram_serialize(id = 8)]
-	pub process: Option<tg::process::Id>,
 	#[tangram_serialize(id = 7)]
 	pub processes: Option<Vec<tg::process::Id>>,
 	#[tangram_serialize(id = 4)]

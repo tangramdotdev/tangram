@@ -22,11 +22,6 @@ impl Index {
 				.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
 				.transpose()?;
 
-			// A replayed membership update must not recreate a deleted sandbox.
-			if arg.process.is_some() && arg.data.is_none() && existing.is_none() {
-				continue;
-			}
-
 			let processes_changed = arg.processes.is_some()
 				&& existing
 					.as_ref()
@@ -95,15 +90,6 @@ impl Index {
 					.await
 				);
 			}
-			if !sandbox.set.processes
-				&& let Some(process) = &arg.process
-			{
-				crate::fdb::propagate!(
-					Self::put_sandbox_process_with_transaction(txn, subspace, &arg.id, process)
-						.await
-				);
-			}
-
 			let value = sandbox.serialize()?;
 			txn.set(&key, &value);
 

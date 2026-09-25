@@ -671,20 +671,9 @@ impl Session {
 					touched_at,
 				},
 			)];
-			// Record membership only when the process initializes, independently of process writes.
-			let mut sandbox = sandbox.unwrap_or_else(|| tangram_index::sandbox::put::Arg {
-				account: account.clone(),
-				created_at: data.created_at,
-				data: None,
-				id: sandbox_id.clone(),
-				location: None,
-				process: None,
-				processes: None,
-				runner: None,
-				touched_at,
-			});
-			sandbox.process = Some(id.clone());
-			items.insert(0, tangram_index::batch::Item::PutSandbox(sandbox));
+			if let Some(sandbox) = sandbox {
+				items.insert(0, tangram_index::batch::Item::PutSandbox(sandbox));
+			}
 			if let Some(account) = account {
 				items.push(tangram_index::batch::Item::PutAccountProcess(
 					tangram_index::usage::storage::put::ProcessArg {

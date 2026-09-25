@@ -1517,7 +1517,6 @@ impl Session {
 			data,
 			id: id.clone(),
 			location: Some(location.clone()),
-			process: None,
 			processes: processes.map(<[_]>::to_vec),
 			runner: None,
 			touched_at,

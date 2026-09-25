@@ -462,7 +462,6 @@ impl Session {
 			return Ok(());
 		};
 		let child = output.process.as_ref().unwrap_right();
-		let sandbox = self.server.runner.state().try_get_process_sandbox(child);
 		crate::checkpoint!(
 			self.server,
 			"process.spawn.child.add",
@@ -480,7 +479,6 @@ impl Session {
 			location: output.location.as_ref(),
 			options: &command.options,
 			parent,
-			sandbox: sandbox.as_ref(),
 			tokens: &output.tokens,
 			wait: output.wait.as_ref(),
 		})

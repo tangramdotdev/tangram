@@ -465,7 +465,6 @@ impl Session {
 			data: Some(data),
 			id: id.clone(),
 			location: Some(location),
-			process: None,
 			processes: None,
 			runner,
 			touched_at: created_at,

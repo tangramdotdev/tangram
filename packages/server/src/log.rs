@@ -225,7 +225,7 @@ impl Session {
 						options: tg::referent::Options::default(),
 						output: None,
 						parent: None,
-						sandbox: data.sandbox.clone(),
+						sandbox: None,
 						storage: indexed.storage,
 						time_to_touch: self.server.config.process.time_to_touch,
 						touched_at,

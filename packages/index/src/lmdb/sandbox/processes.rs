@@ -13,6 +13,12 @@ impl Index {
 		sandbox: &tg::sandbox::Id,
 		process: &tg::process::Id,
 	) -> tg::Result<()> {
+		// A replay must not recreate a deleted sandbox or change its finalized list.
+		let indexed = Self::try_get_sandbox_with_transaction(db, subspace, transaction, sandbox)?;
+		if indexed.is_none_or(|sandbox| sandbox.set.processes) {
+			return Ok(());
+		}
+
 		// Preserve the first indexed position when initialization is replayed.
 		let key = Key::Process(crate::lmdb::process::Key::ProcessSandbox {
 			process: process.clone(),

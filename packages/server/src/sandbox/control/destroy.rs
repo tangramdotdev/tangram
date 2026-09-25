@@ -33,7 +33,6 @@ impl Session {
 			data: Some(arg.data),
 			id: id.clone(),
 			location: Some(location),
-			process: None,
 			processes: Some(arg.processes),
 			runner,
 			touched_at: now,

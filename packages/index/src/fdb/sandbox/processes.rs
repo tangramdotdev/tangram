@@ -14,6 +14,14 @@ impl Index {
 		sandbox: &tg::sandbox::Id,
 		process: &tg::process::Id,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		// A replay must not recreate a deleted sandbox or change its finalized list.
+		let indexed = crate::fdb::propagate!(
+			Self::try_get_sandbox_with_transaction(txn, subspace, sandbox).await
+		);
+		if indexed.is_none_or(|sandbox| sandbox.set.processes) {
+			return Ok(ControlFlow::Break(()));
+		}
+
 		// Preserve the first indexed position when initialization is replayed.
 		let key = Key::Process(crate::fdb::process::Key::ProcessSandbox {
 			process: process.clone(),

@@ -96,7 +96,6 @@ fn sandbox_arg(id: tg::sandbox::Id, status: tg::sandbox::Status) -> crate::sandb
 		data: Some(data),
 		id,
 		location: None,
-		process: None,
 		processes: None,
 		runner: None,
 		touched_at: 0,
@@ -550,10 +549,10 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	let first = tg::process::Id::new();
 	let second = tg::process::Id::new();
 	let mut first_arg = process_arg(first.clone(), tg::process::Status::Started);
-	first_arg.sandbox = Some(sandbox.clone());
+	first_arg.sandbox = None;
 	first_arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
 	let mut second_arg = process_arg(second.clone(), tg::process::Status::Started);
-	second_arg.sandbox = Some(sandbox.clone());
+	second_arg.sandbox = None;
 	second_arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
 	let arg = crate::batch::Arg {
 		items: vec![
@@ -582,16 +581,16 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	);
 
 	// Explicit spawn updates append once in indexed order without finalizing the list.
-	let mut first_membership = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Started);
+	let mut first_membership = process_arg(first.clone(), tg::process::Status::Started);
 	first_membership.data = None;
-	first_membership.process = Some(first.clone());
+	first_membership.sandbox = Some(sandbox.clone());
 	let mut second_membership = first_membership.clone();
-	second_membership.process = Some(second.clone());
+	second_membership.id = second.clone();
 	let arg = crate::batch::Arg {
 		items: vec![
-			crate::batch::Item::PutSandbox(second_membership),
-			crate::batch::Item::PutSandbox(first_membership.clone()),
-			crate::batch::Item::PutSandbox(first_membership),
+			crate::batch::Item::PutProcess(second_membership),
+			crate::batch::Item::PutProcess(first_membership.clone()),
+			crate::batch::Item::PutProcess(first_membership),
 		],
 	};
 	index.batch(arg).await.unwrap();
@@ -698,11 +697,11 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	);
 
 	// A delayed spawn update must not change the finalized process list.
-	let mut membership = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Started);
+	let mut membership = process_arg(tg::process::Id::new(), tg::process::Status::Started);
 	membership.data = None;
-	membership.process = Some(tg::process::Id::new());
+	membership.sandbox = Some(sandbox.clone());
 	let arg = crate::batch::Arg {
-		items: vec![crate::batch::Item::PutSandbox(membership)],
+		items: vec![crate::batch::Item::PutProcess(membership)],
 	};
 	index.batch(arg).await.unwrap();
 	assert_eq!(
@@ -776,9 +775,9 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.unwrap(),
 		Some(0)
 	);
-	// Recreating a process must not recreate either sandbox relationship.
+	// An ordinary process write must not recreate either sandbox relationship.
 	let mut arg = process_arg(first.clone(), tg::process::Status::Started);
-	arg.sandbox = Some(sandbox.clone());
+	arg.sandbox = None;
 	arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
 	let arg = crate::batch::Arg {
 		items: vec![crate::batch::Item::PutProcess(arg)],
@@ -795,12 +794,12 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 }
 
 #[tokio::test]
-async fn process_writes_do_not_create_sandbox_relationships() {
+async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
 	let (_dir, index) = new_index();
 	let sandbox = tg::sandbox::Id::new();
 	let process = tg::process::Id::new();
 	let mut process_arg = process_arg(process.clone(), tg::process::Status::Finished);
-	process_arg.sandbox = Some(sandbox.clone());
+	process_arg.sandbox = None;
 	process_arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
 
 	// A process-only write preserves its sandbox field without establishing membership.
@@ -850,11 +849,12 @@ async fn process_writes_do_not_create_sandbox_relationships() {
 		.delete_sandboxes(std::slice::from_ref(&sandbox))
 		.await
 		.unwrap();
-	let mut membership = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Started);
+	let mut membership = process_arg.clone();
 	membership.data = None;
-	membership.process = Some(process.clone());
+	membership.id = process.clone();
+	membership.sandbox = Some(sandbox.clone());
 	let arg = crate::batch::Arg {
-		items: vec![crate::batch::Item::PutSandbox(membership)],
+		items: vec![crate::batch::Item::PutProcess(membership)],
 	};
 	index.batch(arg).await.unwrap();
 

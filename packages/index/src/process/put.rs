@@ -57,6 +57,7 @@ pub struct Arg {
 	#[tangram_serialize(id = 8)]
 	pub parent: Option<tg::process::Id>,
 
+	/// Register sandbox membership during authorized process initialization; ordinary writes leave this unset.
 	#[tangram_serialize(id = 9)]
 	pub sandbox: Option<tg::sandbox::Id>,
 

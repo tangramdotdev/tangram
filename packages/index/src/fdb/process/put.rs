@@ -68,6 +68,7 @@ impl Index {
 				.as_ref()
 				.is_none_or(|existing| !existing.set.output);
 		let parent_changed = arg.parent.is_some();
+		let sandbox_changed = arg.sandbox.is_some();
 		let mut set = arg.set();
 		if merge && let Some(ref existing) = existing {
 			set.merge(&existing.set);
@@ -96,12 +97,18 @@ impl Index {
 				.as_ref()
 				.and_then(|existing| existing.location.clone())
 		});
-		let sandbox = arg.sandbox.clone().or_else(|| {
-			existing
-				.as_ref()
-				.and_then(|existing| existing.sandbox.clone())
-		});
+		let sandbox = arg.data.as_ref().map_or_else(
+			|| {
+				arg.sandbox.clone().or_else(|| {
+					existing
+						.as_ref()
+						.and_then(|existing| existing.sandbox.clone())
+				})
+			},
+			|data| data.sandbox.clone(),
+		);
 		let changed = parent_changed
+			|| sandbox_changed
 			|| arg.data.is_some()
 			|| existing.as_ref().is_none_or(|existing| {
 				existing.location != location
@@ -231,6 +238,12 @@ impl Index {
 				txn.set(&process_child_key, &value);
 				txn.set(&key, &position.to_be_bytes());
 			}
+		}
+
+		if let Some(sandbox) = &arg.sandbox {
+			crate::fdb::propagate!(
+				Self::put_sandbox_process_with_transaction(txn, subspace, sandbox, id).await
+			);
 		}
 
 		txn.set_option(fdb::options::TransactionOption::NextWriteNoWriteConflictRange)
