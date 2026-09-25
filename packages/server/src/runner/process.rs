@@ -1927,7 +1927,10 @@ impl Session {
 		let data = data.without_location_and_tokens();
 		options.clear_location_and_tokens();
 		let command_id = data.command.command_id()?;
-		let sandbox = data.sandbox.clone();
+		let sandbox = data
+			.sandbox
+			.as_ref()
+			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
 		let now = self.server.clock.unix_timestamp()?;
 		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
 			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
@@ -1952,12 +1955,14 @@ impl Session {
 			options,
 			output: None,
 			parent: parent.cloned(),
-			sandbox,
+			sandbox: Some(sandbox.clone()),
 			storage: tangram_index::process::Storage::default(),
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};
 		let mut items = vec![tangram_index::batch::Item::PutProcess(put_process_arg)];
+		let grant_arg = self.create_process_sandbox_grant_arg(id, sandbox, now)?;
+		items.push(tangram_index::batch::Item::PutGrant(grant_arg));
 		if let Some(parent) = parent {
 			let grant_arg = tangram_index::process::object::grant::Arg {
 				authorize: crate::authorization_search_config(

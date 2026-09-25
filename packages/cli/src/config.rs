@@ -1512,6 +1512,14 @@ pub struct Sandbox {
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_grant_time_to_live: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub process_grant_time_to_touch: Option<Duration>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub processes_wakeup_interval: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -3822,6 +3830,12 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 	}
 	if let Some(value) = source.nice {
 		target.nice = value;
+	}
+	if let Some(value) = source.process_grant_time_to_live {
+		target.process_grant_time_to_live = value;
+	}
+	if let Some(value) = source.process_grant_time_to_touch {
+		target.process_grant_time_to_touch = value;
 	}
 	if let Some(value) = source.processes_wakeup_interval {
 		target.processes_wakeup_interval = value;

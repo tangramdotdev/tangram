@@ -674,6 +674,8 @@ impl Session {
 			if let Some(sandbox) = sandbox {
 				items.insert(0, tangram_index::batch::Item::PutSandbox(sandbox));
 			}
+			let grant_arg = self.create_process_sandbox_grant_arg(&id, sandbox_id, touched_at)?;
+			items.push(tangram_index::batch::Item::PutGrant(grant_arg));
 			if let Some(account) = account {
 				items.push(tangram_index::batch::Item::PutAccountProcess(
 					tangram_index::usage::storage::put::ProcessArg {

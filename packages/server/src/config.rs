@@ -983,6 +983,10 @@ pub struct Sandbox {
 
 	pub nice: u8,
 
+	pub process_grant_time_to_live: Duration,
+
+	pub process_grant_time_to_touch: Duration,
+
 	pub processes_wakeup_interval: Duration,
 
 	pub status_wakeup_interval: Duration,
@@ -1932,6 +1936,8 @@ impl Default for Sandbox {
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
+			process_grant_time_to_live: default_process_grant_time_to_live(),
+			process_grant_time_to_touch: default_time_to_touch(),
 			processes_wakeup_interval: Duration::from_mins(1),
 			status_wakeup_interval: Duration::from_mins(1),
 			time_to_live: default_time_to_live(),

@@ -774,6 +774,7 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 #[tokio::test]
 async fn authorize_process_parent_delegates_only_read_like_permissions() {
 	let (_dir, index) = new_index();
+	let descendant = object_id(2);
 	let expiring_object = object_id(1);
 	let node_reader = tg::user::Id::new();
 	let object = object_id(0);
@@ -805,6 +806,8 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 	let mut txn = index.env.write_txn().unwrap();
 	put_object(&index, &mut txn, &expiring_object);
 	put_object(&index, &mut txn, &object);
+	put_object(&index, &mut txn, &descendant);
+	put_child(&index, &mut txn, &object, &descendant);
 	put_sandbox(&index, &mut txn, &sandbox);
 	put_sandbox(&index, &mut txn, &target);
 	put_process(&index, &mut txn, &process, &sandbox);
@@ -852,11 +855,19 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 			permission,
 		);
 	}
+	put_resource_grant(
+		&index,
+		&mut txn,
+		process.clone().into(),
+		tg::authorization::Subject::Sandbox(sandbox.clone()),
+		process_parent,
+	);
 	txn.commit().unwrap();
 
 	for (principal, expected_read, expected_write) in [
 		(tg::Principal::Process(process), true, true),
-		(tg::Principal::Sandbox(sandbox), false, false),
+		(tg::Principal::Sandbox(sandbox), true, false),
+		(tg::Principal::Sandbox(tg::sandbox::Id::new()), false, false),
 		(tg::Principal::User(sandbox_reader), false, false),
 		(tg::Principal::User(sandbox_writer), false, false),
 		(tg::Principal::User(node_reader), false, false),
@@ -875,6 +886,10 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 		);
 		assert_eq!(
 			is_authorized(&index, object.clone().into(), subtree, &principal).await,
+			expected_read,
+		);
+		assert_eq!(
+			is_authorized(&index, descendant.clone().into(), subtree, &principal).await,
 			expected_read,
 		);
 		assert_eq!(
