@@ -1,7 +1,7 @@
 use {
 	self::syscall::syscall,
 	crate::{Compiler, Request, Response},
-	std::{rc::Rc, sync::Mutex},
+	std::{ffi::c_void, ops::ControlFlow, rc::Rc, sync::Mutex},
 	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
 };
@@ -83,9 +83,21 @@ impl Typescript {
 }
 
 fn run(compiler: &Compiler, mut request_receiver: RequestReceiver) {
-	// Create the isolate.
+	// Replace the isolate each time a request exhausts its heap.
+	while run_isolate(compiler, &mut request_receiver).is_continue() {}
+}
+
+fn run_isolate(compiler: &Compiler, request_receiver: &mut RequestReceiver) -> ControlFlow<()> {
+	// Create the isolate. Declare the handle first so that it outlives the isolate.
+	#[expect(clippy::needless_late_init)]
+	let isolate_handle;
 	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT.into());
 	let mut isolate = v8::Isolate::new(params);
+	isolate_handle = isolate.thread_safe_handle();
+
+	// Terminate execution rather than abort the process when the heap nears its limit.
+	let data = (&raw const isolate_handle).cast_mut().cast();
+	isolate.add_near_heap_limit_callback(near_heap_limit_callback, data);
 
 	// Set the prepare stack trace callback.
 	isolate.set_prepare_stack_trace_callback(self::error::prepare_stack_trace_callback);
@@ -132,6 +144,13 @@ fn run(compiler: &Compiler, mut request_receiver: RequestReceiver) {
 		let receiver = v8::undefined(scope).into();
 		let response = handle.call(scope, receiver, &[request]);
 
+		// Replace the isolate if the request exhausted the heap.
+		if scope.has_terminated() {
+			let error = tg::error!("the compiler ran out of memory");
+			response_sender.send(Err(error)).ok();
+			return ControlFlow::Continue(());
+		}
+
 		// Handle an error.
 		if let Some(exception) = scope.exception() {
 			let error = error::from_exception(scope, exception);
@@ -155,4 +174,19 @@ fn run(compiler: &Compiler, mut request_receiver: RequestReceiver) {
 		// Send the response.
 		response_sender.send(Ok(response)).ok();
 	}
+
+	ControlFlow::Break(())
+}
+
+extern "C" fn near_heap_limit_callback(
+	data: *mut c_void,
+	current_heap_limit: usize,
+	_initial_heap_limit: usize,
+) -> usize {
+	// SAFETY: The data points to the isolate's handle, which outlives the isolate.
+	let isolate_handle = unsafe { &*data.cast::<v8::IsolateHandle>() };
+	isolate_handle.terminate_execution();
+
+	// Raise the limit so that the terminated request can unwind.
+	current_heap_limit * 2
 }
