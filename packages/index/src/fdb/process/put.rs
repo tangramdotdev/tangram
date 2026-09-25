@@ -120,7 +120,7 @@ impl Index {
 			location,
 			metadata,
 			reference_count: 0,
-			sandbox: sandbox.clone(),
+			sandbox,
 			set,
 			storage,
 			touched_at,
@@ -128,11 +128,6 @@ impl Index {
 		.serialize()?;
 		txn.set(&key, &value);
 
-		if let Some(sandbox) = &sandbox {
-			crate::fdb::propagate!(
-				Self::put_sandbox_process_with_transaction(txn, subspace, sandbox, id).await
-			);
-		}
 		if children_changed && let Some(children) = &arg.children {
 			let id_bytes = id.to_bytes();
 			let prefix = (Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());

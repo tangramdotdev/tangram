@@ -160,16 +160,14 @@ fn sandbox_process_facts_preserve_all_relationships() {
 	let moved = tg::process::Id::new();
 	let current = tg::process::Id::new();
 	let mut txn = index.env.write_txn().unwrap();
-	for process in [&missing, &moved, &current] {
-		Index::put_sandbox_process_with_transaction(
-			&index.db,
-			&index.subspace,
-			&mut txn,
-			&sandbox,
-			process,
-		)
-		.unwrap();
-	}
+	Index::put_sandbox_processes_with_transaction(
+		&index.db,
+		&index.subspace,
+		&mut txn,
+		&sandbox,
+		&[missing.clone(), moved.clone(), current.clone()],
+	)
+	.unwrap();
 	for (process, sandbox) in [(&moved, &other), (&current, &sandbox)] {
 		let data = crate::process::Process {
 			command_id: tg::command::Id::new(b"command").into(),

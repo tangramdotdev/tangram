@@ -483,18 +483,7 @@ impl Search {
 					sandbox,
 				});
 				let permissions = match permission {
-					tg::authorization::permission::sandbox::Permission::Read => vec![
-						tg::authorization::permission::process::Permission::Node,
-						tg::authorization::permission::process::Permission::NodeCommand,
-						tg::authorization::permission::process::Permission::NodeError,
-						tg::authorization::permission::process::Permission::NodeLog,
-						tg::authorization::permission::process::Permission::NodeOutput,
-						tg::authorization::permission::process::Permission::Subtree,
-						tg::authorization::permission::process::Permission::SubtreeCommand,
-						tg::authorization::permission::process::Permission::SubtreeError,
-						tg::authorization::permission::process::Permission::SubtreeLog,
-						tg::authorization::permission::process::Permission::SubtreeOutput,
-					],
+					tg::authorization::permission::sandbox::Permission::Read => Vec::new(),
 					tg::authorization::permission::sandbox::Permission::Write => {
 						vec![tg::authorization::permission::process::Permission::Parent]
 					},
@@ -893,6 +882,9 @@ impl Search {
 				}
 			},
 			tg::authorization::Permission::Sandbox(permission) => {
+				if permission == tg::authorization::permission::sandbox::Permission::Read {
+					return;
+				}
 				let Ok(sandbox) = tg::sandbox::Id::try_from(resource) else {
 					self.exhausted = true;
 					return;

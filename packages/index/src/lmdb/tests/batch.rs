@@ -571,13 +571,13 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 		.await
 		.unwrap()
 		.unwrap();
-	assert_eq!(processes, [second.clone(), first.clone()]);
+	assert!(processes.is_empty());
 	assert_eq!(
 		index
 			.try_get_sandbox_processes_count(&sandbox)
 			.await
 			.unwrap(),
-		Some(2)
+		Some(0)
 	);
 
 	// A data-only snapshot does not claim to contain a complete process history.
@@ -598,7 +598,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.processes
 	);
 
-	// A final runner snapshot replaces provisional order without growing the sandbox record.
+	// A final runner snapshot establishes order without growing the sandbox record.
 	let processes = [first.clone(), second.clone()]
 		.into_iter()
 		.chain((0..3998).map(|_| tg::process::Id::new()))
@@ -728,7 +728,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.unwrap(),
 		Some(0)
 	);
-	// Recreating a process verifies that sandbox cleanup removed the reverse position too.
+	// Recreating a process must not recreate either sandbox relationship.
 	let mut arg = process_arg(first.clone(), tg::process::Status::Started);
 	arg.sandbox = Some(sandbox.clone());
 	arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
@@ -742,6 +742,75 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			.await
 			.unwrap()
 			.unwrap(),
-		[first]
+		Vec::<tg::process::Id>::new()
 	);
+}
+
+#[tokio::test]
+async fn process_writes_do_not_create_sandbox_relationships() {
+	let (_dir, index) = new_index();
+	let sandbox = tg::sandbox::Id::new();
+	let process = tg::process::Id::new();
+	let mut process_arg = process_arg(process.clone(), tg::process::Status::Finished);
+	process_arg.sandbox = Some(sandbox.clone());
+	process_arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
+
+	// A process-only write preserves its sandbox field without establishing membership.
+	for touched_at in [0, 1] {
+		process_arg.touched_at = touched_at;
+		let arg = crate::batch::Arg {
+			items: vec![crate::batch::Item::PutProcess(process_arg.clone())],
+		};
+		index.batch(arg).await.unwrap();
+		assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_none());
+		let indexed = index.try_get_process(&process).await.unwrap().unwrap();
+		assert_eq!(indexed.sandbox, Some(sandbox.clone()));
+		let transaction = index.env.read_txn().unwrap();
+		for key in [
+			crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
+				position: 0,
+				process: process.clone(),
+				sandbox: sandbox.clone(),
+			}),
+			crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessSandbox {
+				process: process.clone(),
+				sandbox: sandbox.clone(),
+			}),
+		] {
+			let key = Index::pack(&index.subspace, &key);
+			assert!(index.db.get(&transaction, &key).unwrap().is_none());
+		}
+	}
+
+	// Only the sandbox write establishes membership.
+	let mut membership = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Destroyed);
+	membership.processes = Some(vec![process.clone()]);
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutSandbox(membership)],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
+			.await
+			.unwrap(),
+		std::slice::from_ref(&process)
+	);
+
+	// A process update must not recreate membership in a deleted sandbox.
+	index
+		.delete_sandboxes(std::slice::from_ref(&sandbox))
+		.await
+		.unwrap();
+	process_arg.touched_at = 2;
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutProcess(process_arg)],
+	};
+	index.batch(arg).await.unwrap();
+	assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_none());
+	let transaction = index.env.read_txn().unwrap();
+	let key =
+		crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessSandbox { process, sandbox });
+	let key = Index::pack(&index.subspace, &key);
+	assert!(index.db.get(&transaction, &key).unwrap().is_none());
 }

@@ -119,8 +119,35 @@ fn put_process_with_set(
 		&Key::Process(ProcessKey::Process(process.clone())),
 		&value,
 	);
-	Index::put_sandbox_process_with_transaction(&index.db, &index.subspace, txn, sandbox, process)
-		.unwrap();
+	let length = Index::try_get_sandbox_processes_count_with_transaction(
+		&index.db,
+		&index.subspace,
+		txn,
+		sandbox,
+	)
+	.unwrap()
+	.unwrap_or_default();
+	let mut processes = Index::try_get_sandbox_processes_page_with_transaction(
+		&index.db,
+		&index.subspace,
+		txn,
+		sandbox,
+		std::io::SeekFrom::Start(0),
+		length,
+	)
+	.unwrap()
+	.unwrap_or_default();
+	if !processes.contains(process) {
+		processes.push(process.clone());
+	}
+	Index::put_sandbox_processes_with_transaction(
+		&index.db,
+		&index.subspace,
+		txn,
+		sandbox,
+		&processes,
+	)
+	.unwrap();
 }
 
 fn put_process_child(
@@ -1304,7 +1331,7 @@ async fn authorize_parent_permission_flows_to_process_children() {
 }
 
 #[tokio::test]
-async fn authorize_flows_sandbox_permissions_to_its_processes() {
+async fn authorize_only_flows_sandbox_write_to_process_parent() {
 	let (_dir, index) = new_index();
 	let process = tg::process::Id::new();
 	let reader = tg::user::Id::new();
@@ -1349,7 +1376,7 @@ async fn authorize_flows_sandbox_permissions_to_its_processes() {
 	] {
 		let permission = tg::authorization::Permission::Process(permission);
 		assert!(
-			is_authorized(
+			!is_authorized(
 				&index,
 				process.clone().into(),
 				permission,
@@ -3454,19 +3481,19 @@ async fn sync_read_confers_only_read_like_permissions() {
 }
 
 #[tokio::test]
-async fn authorize_sandbox_process_without_a_local_record() {
+async fn authorize_denies_sandbox_read_for_process_without_a_local_record() {
 	let (_dir, index) = new_index();
 	let process = tg::process::Id::new();
 	let sandbox = tg::sandbox::Id::new();
 	let reader = tg::user::Id::new();
 	let mut txn = index.env.write_txn().unwrap();
 	put_sandbox(&index, &mut txn, &sandbox);
-	Index::put_sandbox_process_with_transaction(
+	Index::put_sandbox_processes_with_transaction(
 		&index.db,
 		&index.subspace,
 		&mut txn,
 		&sandbox,
-		&process,
+		std::slice::from_ref(&process),
 	)
 	.unwrap();
 	let read = tg::authorization::Permission::Sandbox(
@@ -3484,7 +3511,7 @@ async fn authorize_sandbox_process_without_a_local_record() {
 		tg::authorization::permission::process::Permission::Node,
 	);
 	assert!(
-		is_authorized(
+		!is_authorized(
 			&index,
 			process.into(),
 			permission,

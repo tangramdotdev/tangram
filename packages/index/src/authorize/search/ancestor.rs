@@ -929,15 +929,14 @@ impl Search {
 				dependencies.extend(Self::tag_dependencies(facts, *permission));
 			},
 			tg::authorization::Permission::Process(process_permission) => {
-				for sandbox in &facts.process_sandboxes {
-					let permission = match process_permission {
-						tg::authorization::permission::process::Permission::Parent => {
-							tg::authorization::permission::sandbox::Permission::Write
-						},
-						_ => tg::authorization::permission::sandbox::Permission::Read,
-					};
-					let permission = tg::authorization::Permission::Sandbox(permission);
-					dependencies.push((tg::Id::from(sandbox.clone()), permission));
+				if *process_permission == tg::authorization::permission::process::Permission::Parent
+				{
+					for sandbox in &facts.process_sandboxes {
+						let permission = tg::authorization::Permission::Sandbox(
+							tg::authorization::permission::sandbox::Permission::Write,
+						);
+						dependencies.push((tg::Id::from(sandbox.clone()), permission));
+					}
 				}
 				dependencies.extend(Self::tag_dependencies(facts, *permission));
 			},
