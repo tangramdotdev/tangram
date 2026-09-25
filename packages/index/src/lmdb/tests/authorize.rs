@@ -119,22 +119,35 @@ fn put_process_with_set(
 		&Key::Process(ProcessKey::Process(process.clone())),
 		&value,
 	);
-	put(
-		index,
+	let length = Index::try_get_sandbox_processes_count_with_transaction(
+		&index.db,
+		&index.subspace,
 		txn,
-		&Key::Process(ProcessKey::ProcessSandbox {
-			process: process.clone(),
-			sandbox: sandbox.clone(),
-		}),
-	);
-	put(
-		index,
+		sandbox,
+	)
+	.unwrap()
+	.unwrap_or_default();
+	let mut processes = Index::try_get_sandbox_processes_page_with_transaction(
+		&index.db,
+		&index.subspace,
 		txn,
-		&Key::Sandbox(SandboxKey::SandboxProcess {
-			process: process.clone(),
-			sandbox: sandbox.clone(),
-		}),
-	);
+		sandbox,
+		std::io::SeekFrom::Start(0),
+		length,
+	)
+	.unwrap()
+	.unwrap_or_default();
+	if !processes.contains(process) {
+		processes.push(process.clone());
+	}
+	Index::put_sandbox_processes_with_transaction(
+		&index.db,
+		&index.subspace,
+		txn,
+		sandbox,
+		&processes,
+	)
+	.unwrap();
 }
 
 fn put_process_child(
@@ -280,6 +293,7 @@ fn put_sandbox(index: &Index, txn: &mut lmdb::RwTxn<'_>, sandbox: &tg::sandbox::
 		created_at: 0,
 		data: None,
 		location: None,
+		set: crate::sandbox::Set::default(),
 		reference_count: 0,
 		runner: None,
 		touched_at: 0,
@@ -760,6 +774,7 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 #[tokio::test]
 async fn authorize_process_parent_delegates_only_read_like_permissions() {
 	let (_dir, index) = new_index();
+	let descendant = object_id(2);
 	let expiring_object = object_id(1);
 	let node_reader = tg::user::Id::new();
 	let object = object_id(0);
@@ -791,6 +806,8 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 	let mut txn = index.env.write_txn().unwrap();
 	put_object(&index, &mut txn, &expiring_object);
 	put_object(&index, &mut txn, &object);
+	put_object(&index, &mut txn, &descendant);
+	put_child(&index, &mut txn, &object, &descendant);
 	put_sandbox(&index, &mut txn, &sandbox);
 	put_sandbox(&index, &mut txn, &target);
 	put_process(&index, &mut txn, &process, &sandbox);
@@ -838,13 +855,21 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 			permission,
 		);
 	}
+	put_resource_grant(
+		&index,
+		&mut txn,
+		process.clone().into(),
+		tg::authorization::Subject::Sandbox(sandbox.clone()),
+		process_parent,
+	);
 	txn.commit().unwrap();
 
 	for (principal, expected_read, expected_write) in [
 		(tg::Principal::Process(process), true, true),
 		(tg::Principal::Sandbox(sandbox), true, false),
+		(tg::Principal::Sandbox(tg::sandbox::Id::new()), false, false),
 		(tg::Principal::User(sandbox_reader), false, false),
-		(tg::Principal::User(sandbox_writer), true, false),
+		(tg::Principal::User(sandbox_writer), false, false),
 		(tg::Principal::User(node_reader), false, false),
 		(tg::Principal::User(subtree_reader), false, false),
 		(tg::Principal::User(process_node_holder), false, false),
@@ -861,6 +886,10 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 		);
 		assert_eq!(
 			is_authorized(&index, object.clone().into(), subtree, &principal).await,
+			expected_read,
+		);
+		assert_eq!(
+			is_authorized(&index, descendant.clone().into(), subtree, &principal).await,
 			expected_read,
 		);
 		assert_eq!(
@@ -1317,7 +1346,7 @@ async fn authorize_parent_permission_flows_to_process_children() {
 }
 
 #[tokio::test]
-async fn authorize_flows_sandbox_permissions_to_its_processes() {
+async fn authorize_sandbox_permissions_do_not_authorize_processes() {
 	let (_dir, index) = new_index();
 	let process = tg::process::Id::new();
 	let reader = tg::user::Id::new();
@@ -1354,6 +1383,7 @@ async fn authorize_flows_sandbox_permissions_to_its_processes() {
 		tg::authorization::permission::process::Permission::NodeError,
 		tg::authorization::permission::process::Permission::NodeLog,
 		tg::authorization::permission::process::Permission::NodeOutput,
+		tg::authorization::permission::process::Permission::Parent,
 		tg::authorization::permission::process::Permission::Subtree,
 		tg::authorization::permission::process::Permission::SubtreeCommand,
 		tg::authorization::permission::process::Permission::SubtreeError,
@@ -1361,29 +1391,18 @@ async fn authorize_flows_sandbox_permissions_to_its_processes() {
 		tg::authorization::permission::process::Permission::SubtreeOutput,
 	] {
 		let permission = tg::authorization::Permission::Process(permission);
-		assert!(
-			is_authorized(
-				&index,
-				process.clone().into(),
-				permission,
-				&tg::Principal::User(reader.clone()),
-			)
-			.await
-		);
+		for user in [&reader, &writer] {
+			assert!(
+				!is_authorized(
+					&index,
+					process.clone().into(),
+					permission,
+					&tg::Principal::User(user.clone())
+				)
+				.await
+			);
+		}
 	}
-	let parent = tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::Parent,
-	);
-	assert!(
-		!is_authorized(
-			&index,
-			process.clone().into(),
-			parent,
-			&tg::Principal::User(reader),
-		)
-		.await
-	);
-	assert!(is_authorized(&index, process.into(), parent, &tg::Principal::User(writer),).await);
 }
 
 #[tokio::test]
@@ -3464,4 +3483,45 @@ async fn sync_read_confers_only_read_like_permissions() {
 			}
 		}
 	}
+}
+
+#[tokio::test]
+async fn authorize_denies_sandbox_read_for_process_without_a_local_record() {
+	let (_dir, index) = new_index();
+	let process = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let reader = tg::user::Id::new();
+	let mut txn = index.env.write_txn().unwrap();
+	put_sandbox(&index, &mut txn, &sandbox);
+	Index::put_sandbox_processes_with_transaction(
+		&index.db,
+		&index.subspace,
+		&mut txn,
+		&sandbox,
+		std::slice::from_ref(&process),
+	)
+	.unwrap();
+	let read = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Read,
+	);
+	put_resource_grant(
+		&index,
+		&mut txn,
+		sandbox.into(),
+		tg::authorization::Subject::User(reader.clone()),
+		read,
+	);
+	txn.commit().unwrap();
+	let permission = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Node,
+	);
+	assert!(
+		!is_authorized(
+			&index,
+			process.into(),
+			permission,
+			&tg::Principal::User(reader)
+		)
+		.await
+	);
 }

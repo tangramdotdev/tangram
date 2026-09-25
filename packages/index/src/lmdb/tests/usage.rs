@@ -568,6 +568,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 		)),
 		id: sandbox.clone(),
 		location: None,
+		processes: None,
 		runner: None,
 		touched_at: 1,
 	};
@@ -591,6 +592,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 		)),
 		id: sandbox,
 		location: None,
+		processes: None,
 		runner: None,
 		touched_at: 2,
 	};
@@ -636,6 +638,7 @@ async fn records_compute_once_when_destroy_precedes_start() {
 			data: Some(sandbox_data(sandbox.clone(), owner.clone(), status, usage)),
 			id: sandbox.clone(),
 			location: None,
+			processes: None,
 			runner: None,
 			touched_at: 2,
 		};
@@ -669,6 +672,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 		)),
 		id: sandbox.clone(),
 		location: None,
+		processes: None,
 		runner: None,
 		touched_at: 1,
 	};
@@ -692,6 +696,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 		)),
 		id: sandbox,
 		location: None,
+		processes: None,
 		runner: None,
 		touched_at: 2,
 	};

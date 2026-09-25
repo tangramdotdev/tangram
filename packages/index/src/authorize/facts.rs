@@ -108,11 +108,6 @@ pub(crate) enum Request {
 	SandboxOwner {
 		sandbox: tg::sandbox::Id,
 	},
-	SandboxProcesses {
-		after: Option<Vec<u8>>,
-		limit: usize,
-		sandbox: tg::sandbox::Id,
-	},
 	Specifier {
 		specifier: tg::Specifier,
 	},
@@ -411,7 +406,6 @@ impl Request {
 			| Self::OwnerSandboxes { .. }
 			| Self::OrganizationMembers { .. }
 			| Self::ProcessChildren { .. }
-			| Self::SandboxProcesses { .. }
 			| Self::SubjectGrants { .. } => return None,
 		};
 

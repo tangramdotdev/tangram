@@ -134,7 +134,13 @@ impl Session {
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>
 	{
 		let output = self
-			.try_get_process_local(id, false, false, arg.tokens.local_authorization())
+			.try_get_process_local(
+				id,
+				false,
+				false,
+				arg.tokens.local_authorization(),
+				tg::process::Source::Auto,
+			)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?;
 		let Some(output) = output else {

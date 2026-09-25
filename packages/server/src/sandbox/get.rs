@@ -4,12 +4,15 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{
-		body::Boxed as BoxBody,
-		request::Ext as _,
-		response::{Ext as _, builder::Ext as _},
+		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 	tangram_index::prelude::*,
 };
+
+pub(super) struct Output<T> {
+	pub control: Option<T>,
+	pub indexed: Option<tangram_index::sandbox::Sandbox>,
+}
 
 impl Session {
 	pub(crate) async fn try_get_sandbox(
@@ -17,44 +20,75 @@ impl Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::get::Arg,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		if let Some(output) = self.try_get_sandbox_runner(id, &arg).await? {
-			return Ok(Some(output));
+		let runner = if arg.source.is_index() {
+			None
+		} else {
+			self.try_get_sandbox_runner(id, &arg).boxed().await?
+		};
+		if let Some(output) = &runner
+			&& (arg.source.is_runner() || !output.data.status.is_destroyed())
+		{
+			return Ok(runner);
 		}
+		let mut arg = arg;
+		if let Some(output) = &runner {
+			arg.location = output.location.clone().map(Into::into);
+		}
+
 		let locations = self
 			.locations(arg.location.as_ref())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if let Some(local) = &locations.local {
-			if local.current
-				&& let Some(output) = self
-					.try_get_sandbox_local(id)
-					.boxed()
-					.await
-					.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox"))?
-			{
-				return Ok(Some(output));
-			}
+		if locations.local.as_ref().is_some_and(|local| local.current)
+			&& let Some(output) = self
+				.try_get_sandbox_local(id, arg.tokens.local_authorization(), arg.source)
+				.await?
+		{
+			let output = if output.data.status.is_destroyed() {
+				output
+			} else {
+				runner.unwrap_or(output)
+			};
+			return Ok(Some(output));
+		}
 
-			if let Some(output) = self
-				.try_get_sandbox_regions(id, &local.regions)
+		if let Some(local) = &locations.local
+			&& let Some(output) = self
+				.try_get_sandbox_regions(id, &local.regions, &arg.tokens, arg.source)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to get the sandbox from another region"),
 				)? {
-				return Ok(Some(output));
-			}
-		}
-
-		if let Some(output) = self
-			.try_get_sandbox_remotes(id, &locations.remotes, arg.cached, arg.ttl)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox from a remote"))?
-		{
+			let output = if output.data.status.is_destroyed() {
+				output
+			} else {
+				runner.unwrap_or(output)
+			};
 			return Ok(Some(output));
 		}
 
-		Ok(None)
+		if let Some(output) = self
+			.try_get_sandbox_remotes(
+				id,
+				&locations.remotes,
+				arg.cached,
+				arg.ttl,
+				&arg.tokens,
+				arg.source,
+			)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox from a remote"))?
+		{
+			let output = if output.data.status.is_destroyed() {
+				output
+			} else {
+				runner.unwrap_or(output)
+			};
+			return Ok(Some(output));
+		}
+
+		Ok(runner)
 	}
 
 	async fn try_get_sandbox_runner(
@@ -65,38 +99,27 @@ impl Session {
 		let Some(runner) = self.try_get_sandbox_runner_inner(id, arg.location.as_ref()) else {
 			return Ok(None);
 		};
-		let available = self
-			.server
-			.runner
-			.state()
-			.sandboxes()
-			.get(runner.index)
-			.is_some_and(|sandbox| !sandbox.status.is_destroyed());
-		if !available {
-			return Ok(None);
-		}
 		if !self
 			.authorize_sandbox_runner(
 				id,
-				&[],
+				arg.tokens.local_authorization(),
 				tg::authorization::permission::sandbox::Permission::Read,
 			)
 			.await?
 		{
 			return Ok(None);
 		}
-		// Retained runner state must not resurrect a destroyed sandbox after its index entry expires.
-		let output = self
+		let Some(mut output) = self
 			.server
 			.runner
 			.state()
 			.sandboxes()
 			.get(runner.index)
-			.filter(|sandbox| !sandbox.status.is_destroyed())
-			.map(|sandbox| sandbox.data());
-		let Some(mut output) = output else {
+			.map(|sandbox| sandbox.data())
+		else {
 			return Ok(None);
 		};
+
 		// The runner's capabilities belong to the runner, not to the caller.
 		output.tokens.clear();
 		if let Some(token) = self.create_read_token(&id.clone().into())? {
@@ -108,75 +131,174 @@ impl Session {
 	pub(crate) async fn try_get_sandbox_local(
 		&self,
 		id: &tg::sandbox::Id,
+		tokens: &[tg::authorization::Token],
+		source: tg::sandbox::Source,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Read,
 		);
-		let authorize_future = async {
-			let authorized = self.authorize(id.clone(), permission).await?;
-			Ok::<_, tg::Error>(
-				authorized.is_some_and(|permissions| permissions.contains(permission)),
-			)
-		}
-		.boxed();
-		let get_future = self.try_get_sandbox_local_inner(id).boxed();
-		let (authorized, mut output) = future::try_join(authorize_future, get_future).await?;
-		if !authorized {
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
+		let authorize_future = self.authorize(resource, permission).boxed();
+		let get_future = self.try_get_sandbox_local_inner(id, source).boxed();
+		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
+		if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
 		}
-		if let Some(output) = &mut output
-			&& let Some(token) = self.create_read_token(&id.clone().into())?
-		{
+		let Some(mut output) = output else {
+			return Ok(None);
+		};
+		output.tokens.clear();
+		if let Some(token) = self.create_read_token(&id.clone().into())? {
 			output.tokens.insert_local_authorization(token);
 		}
-		Ok(output)
+		Ok(Some(output))
 	}
 
 	pub(crate) async fn try_get_sandbox_local_inner(
 		&self,
 		id: &tg::sandbox::Id,
+		source: tg::sandbox::Source,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		let index_future = self.try_get_sandbox_from_index(id).boxed();
-		let control_future = self.get_sandbox_from_control(id).boxed();
-		let output = match future::select(index_future, control_future).await {
-			future::Either::Left((indexed, control_future)) => {
-				let Some(indexed) = indexed? else {
+		// Subscribe before reading to avoid missing a status change between the read and subscription.
+		let mut wakeups = self
+			.create_sandbox_status_wakeup_stream(id, None, None)
+			.await?;
+		let deadline = self.server.control_read_deadline();
+		let output = loop {
+			tokio::select! {
+				output = self.get_sandbox_state_local(id, self.get_sandbox_from_control(id), |data| data.data.status.is_destroyed(), false, source, deadline).boxed() => break output?,
+				wakeup = wakeups.next() => {
+					if wakeup.is_none() {
+						return Err(tg::error!("the sandbox status wakeup stream ended"));
+					}
+				},
+			}
+		};
+
+		let output = match (output.control, output.indexed) {
+			(None, None) => return Ok(None),
+			(None, Some(indexed)) => {
+				let Some(data) = indexed.data else {
 					return Ok(None);
 				};
-				if indexed
-					.location
-					.as_ref()
-					.is_some_and(tg::Location::is_remote)
-				{
-					return Ok(indexed.data);
-				}
-				if indexed
+				data
+			},
+			(Some(data), None) => data,
+			(Some(data), Some(indexed)) => indexed
+				.data
+				.filter(|data| data.data.status.is_destroyed())
+				.unwrap_or(data),
+		};
+
+		Ok(Some(output))
+	}
+
+	pub(super) async fn get_sandbox_state_local<T: Send>(
+		&self,
+		id: &tg::sandbox::Id,
+		control_future: impl Future<Output = tg::Result<T>> + Send,
+		index_required: impl Fn(&T) -> bool + Send,
+		processes: bool,
+		source: tg::sandbox::Source,
+		deadline: tokio::time::Instant,
+	) -> tg::Result<Output<T>> {
+		let index_complete = |sandbox: &tangram_index::sandbox::Sandbox| {
+			processes
+				|| sandbox
 					.data
 					.as_ref()
 					.is_some_and(|data| data.data.status.is_destroyed())
-				{
-					indexed.data.unwrap()
-				} else {
-					// The runner is authoritative even when destruction is not indexed yet.
-					control_future.await?
-				}
+		};
+		let get_index = || async {
+			let indexed = self.try_get_sandbox_from_index(id).await?;
+			Ok::<_, tg::Error>(indexed.filter(|sandbox| !processes || sandbox.set.processes))
+		};
+		let index_future = async {
+			let indexed = get_index().await;
+			crate::checkpoint!(self.server, "sandbox.get.index", sandbox = %id).await;
+			indexed
+		}
+		.boxed();
+		let control_future = self
+			.server
+			.read_control_response_until(deadline, async {
+				let output = control_future.await;
+				crate::checkpoint!(self.server, "sandbox.get.control", sandbox = %id).await;
+				output
+			})
+			.boxed();
+
+		match source {
+			tg::sandbox::Source::Auto => {},
+			tg::sandbox::Source::Index => {
+				let indexed = index_future.await?;
+				return Ok(Output {
+					control: None,
+					indexed,
+				});
 			},
-			future::Either::Right((data, index_future)) => {
-				let Ok(data) = data else {
-					return Ok(index_future.await?.and_then(|indexed| indexed.data));
-				};
-				if data.data.status.is_destroyed() {
-					index_future
-						.await?
-						.and_then(|indexed| indexed.data)
-						.filter(|data| data.data.status.is_destroyed())
-						.unwrap_or(data)
-				} else {
-					data
+			tg::sandbox::Source::Runner => {
+				let control = control_future.await.ok();
+				return Ok(Output {
+					control,
+					indexed: None,
+				});
+			},
+		}
+
+		let (control, indexed) = match future::select(index_future, control_future).await {
+			future::Either::Left((indexed, control_future)) => {
+				let indexed = indexed?;
+				if indexed.as_ref().is_some_and(|sandbox| {
+					index_complete(sandbox)
+						|| sandbox
+							.location
+							.as_ref()
+							.is_some_and(tg::Location::is_remote)
+				}) {
+					let output = Output {
+						control: None,
+						indexed,
+					};
+					return Ok(output);
 				}
+				let control = control_future.await;
+				let indexed = if control.as_ref().is_ok_and(&index_required) {
+					get_index().await?
+				} else {
+					indexed
+				};
+				(control, indexed)
+			},
+			future::Either::Right((control, index_future)) => {
+				let indexed = if control.as_ref().is_ok_and(&index_required) {
+					let indexed = index_future.await?;
+					if indexed.as_ref().is_some_and(&index_complete) {
+						indexed
+					} else {
+						get_index().await?
+					}
+				} else {
+					None
+				};
+				(control, indexed)
 			},
 		};
-		Ok(Some(output))
+
+		let control = match control {
+			Err(_) => {
+				let indexed = get_index().await?;
+				let output = Output {
+					control: None,
+					indexed,
+				};
+				return Ok(output);
+			},
+			Ok(control) => Some(control),
+		};
+		let output = Output { control, indexed };
+
+		Ok(output)
 	}
 
 	pub(crate) async fn get_sandbox_from_index(
@@ -217,10 +339,10 @@ impl Session {
 		};
 		let options = crate::control::Options {
 			retry,
-			timeout: std::time::Duration::from_secs(10),
+			timeout: self.server.config.control.read_timeout,
 		};
 		let response = self
-			.send_sandbox_control_request(id, request, options)
+			.request_sandbox_control(id, request, options)
 			.boxed()
 			.await
 			.map_err(
@@ -241,10 +363,12 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 		regions: &[String],
+		tokens: &tg::authorization::Tokens,
+		source: tg::sandbox::Source,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_sandbox_region(id, region))
+			.map(|region| self.try_get_sandbox_region(id, region, tokens, source))
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -269,6 +393,8 @@ impl Session {
 		&self,
 		id: &tg::sandbox::Id,
 		region: &str,
+		tokens: &tg::authorization::Tokens,
+		source: tg::sandbox::Source,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		let client = self.get_region_session(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -278,12 +404,13 @@ impl Session {
 		});
 		let arg = tg::sandbox::get::Arg {
 			location: Some(location.clone().into()),
+			source,
+			tokens: tokens.for_location(&location),
 			..tg::sandbox::get::Arg::default()
 		};
-		let Some(mut output) = client
-			.try_get_sandbox(id, arg)
-			.await
-			.map_err(|error| tg::error!(!error, region = %region, "failed to get the sandbox"))?
+		let Some(mut output) = client.try_get_sandbox(id, arg).await.map_err(
+			|error| tg::error!(!error, %id, region = %region, "failed to get the sandbox"),
+		)?
 		else {
 			return Ok(None);
 		};
@@ -302,29 +429,28 @@ impl Session {
 		remotes: &[crate::location::Remote],
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
+		tokens: &tg::authorization::Tokens,
+		source: tg::sandbox::Source,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
-		let results = remotes
+		let mut futures = remotes
 			.iter()
-			.map(|remote| async move {
-				let name = remote.name.clone();
-				let result = self.try_get_sandbox_remote(id, remote, cached, ttl).await;
-				(name, result)
-			})
-			.collect::<FuturesUnordered<_>>()
-			.collect::<Vec<_>>()
-			.await;
-		let mut results = results;
-		results.sort_by(|a, b| a.0.cmp(&b.0));
-		let mut output = None;
-		for (name, result) in results {
-			let result = result
-				.map_err(|error| tg::error!(!error, remote = %name, "failed to get the sandbox"))?;
-			if output.is_none() {
-				output = result;
+			.map(|remote| self.try_get_sandbox_remote(id, remote, cached, ttl, tokens, source))
+			.collect::<FuturesUnordered<_>>();
+		let mut result = Ok(None);
+		while let Some(next) = futures.next().await {
+			match next {
+				Ok(Some(output)) => {
+					result = Ok(Some(output));
+					break;
+				},
+				Ok(None) => (),
+				Err(source) => result = Err(source),
 			}
 		}
-
-		Ok(output)
+		let Some(output) = result? else {
+			return Ok(None);
+		};
+		Ok(Some(output))
 	}
 
 	async fn try_get_sandbox_remote(
@@ -333,8 +459,14 @@ impl Session {
 		remote: &crate::location::Remote,
 		cached: bool,
 		ttl: tg::remote::cache::Ttl,
+		tokens: &tg::authorization::Tokens,
+		source: tg::sandbox::Source,
 	) -> tg::Result<Option<tg::sandbox::get::Output>> {
 		// Create the remote request.
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
 		let arg = tg::sandbox::get::Arg {
 			cached: false,
 			location: Some(tg::location::Arg(vec![
@@ -342,6 +474,8 @@ impl Session {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			source,
+			tokens: tokens.for_location(&location),
 			ttl: tg::remote::cache::Ttl::default(),
 		};
 		let request =
@@ -355,31 +489,25 @@ impl Session {
 		let trusted = client.trusted();
 
 		// Get a cached response.
-		if let Some(crate::remote::cache::Response::SandboxGet(response)) = self
-			.try_get_cached_remote_response(&remote.name, &request, ttl)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
+		if source.is_auto()
+			&& let Some(crate::remote::cache::Response::SandboxGet(response)) = self
+				.try_get_cached_remote_response(&remote.name, &request, ttl)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to get the remote cache"))?
+			&& let Some(mut output) = response.output
 		{
-			let mut output = response.output;
-			let valid = output.as_ref().is_none_or(|output| {
-				crate::remote::cache::tokens_valid(
-					output.tokens.local_authorization(),
-					&self.server.clock,
-				)
-			});
+			let valid = crate::remote::cache::tokens_valid(
+				output.tokens.local_authorization(),
+				&self.server.clock,
+			);
 			if valid || cached {
-				if let Some(output) = &mut output {
-					crate::remote::cache::remove_expired_tokens(
-						&mut output.tokens,
-						&self.server.clock,
-					);
-					self.set_remote_sandbox_location(output, remote, trusted)?;
-				}
+				crate::remote::cache::remove_expired_tokens(&mut output.tokens, &self.server.clock);
+				self.set_remote_sandbox_location(&mut output, remote, trusted)?;
 
-				return Ok(output);
+				return Ok(Some(output));
 			}
 		}
-		if cached {
+		if cached && source.is_auto() {
 			return Ok(None);
 		}
 
@@ -387,13 +515,19 @@ impl Session {
 		let mut output = client.try_get_sandbox(id, arg).await.map_err(
 			|error| tg::error!(!error, %id, remote = %remote.name, "failed to get the sandbox"),
 		)?;
-		let response =
-			crate::remote::cache::Response::SandboxGet(crate::remote::cache::SandboxGetResponse {
-				output: output.clone(),
-			});
-		self.put_cached_remote_response(&remote.name, &request, &response)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
+		if output
+			.as_ref()
+			.is_some_and(|output| output.data.status.is_destroyed())
+		{
+			let response = crate::remote::cache::Response::SandboxGet(
+				crate::remote::cache::SandboxGetResponse {
+					output: output.clone(),
+				},
+			);
+			self.put_cached_remote_response(&remote.name, &request, &response)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to put the remote cache"))?;
+		}
 		if let Some(output) = &mut output {
 			self.set_remote_sandbox_location(output, remote, trusted)?;
 		}
@@ -429,18 +563,25 @@ impl Session {
 		request: http::Request<BoxBody>,
 		id: &str,
 	) -> tg::Result<http::Response<BoxBody>> {
+		// Get the accept header.
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
 			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+
+		// Parse the sandbox id.
 		let id = id
-			.parse::<tg::sandbox::Id>()
+			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
+
+		// Get the arg.
 		let (arg, _) = request
-			.arg()
+			.arg::<tg::sandbox::get::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
+
+		// Get the sandbox.
 		let Some(output) = self.try_get_sandbox(&id, arg).boxed().await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
@@ -449,6 +590,7 @@ impl Session {
 				.boxed_body());
 		};
 
+		// Create the response.
 		let (content_type, body) = match accept
 			.as_ref()
 			.map(|accept| (accept.type_(), accept.subtype()))
@@ -467,6 +609,8 @@ impl Session {
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}
-		Ok(response.body(body).unwrap())
+		let response = response.body(body).unwrap();
+
+		Ok(response)
 	}
 }

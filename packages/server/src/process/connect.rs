@@ -287,6 +287,7 @@ impl Session {
 			let wait_arg = tg::process::wait::Arg {
 				lease: None,
 				location: arg.location.clone(),
+				source: tg::process::Source::Auto,
 				tokens: arg.tokens.clone(),
 			};
 			if let Some(wait) = self.try_wait_process_runner(process, &wait_arg).await? {
@@ -342,7 +343,11 @@ impl Session {
 	) -> tg::Result<Option<Output>> {
 		let wait = if let tg::Either::Right(id) = &arg.process {
 			let Some(wait) = self
-				.try_wait_process_local(id, arg.tokens.local_authorization().to_vec())
+				.try_wait_process_local(
+					id,
+					arg.tokens.local_authorization().to_vec(),
+					tg::process::Source::Auto,
+				)
 				.await?
 			else {
 				return Ok(None);
@@ -517,6 +522,7 @@ impl Session {
 		let wait_arg = tg::process::wait::Arg {
 			lease: output.lease.clone(),
 			location: location.clone(),
+			source: tg::process::Source::Auto,
 			tokens: tokens.clone(),
 		};
 		let wait = if let Some(output) = output.wait.clone() {
@@ -525,7 +531,11 @@ impl Session {
 			let future = match wait {
 				Some((wait, _)) => wait,
 				None => self
-					.try_wait_process_local(&id, wait_arg.tokens.local_authorization().to_vec())
+					.try_wait_process_local(
+						&id,
+						wait_arg.tokens.local_authorization().to_vec(),
+						tg::process::Source::Auto,
+					)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?,
 			};

@@ -103,7 +103,7 @@ impl Indexer {
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		let finish_future = session.send_process_control_request(id, request, options);
+		let finish_future = session.request_process_control(id, request, options);
 		let mut wait_future = pin!(wait_future);
 		let mut finish_future = pin!(finish_future);
 		tokio::select! {

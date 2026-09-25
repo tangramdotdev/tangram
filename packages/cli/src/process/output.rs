@@ -12,6 +12,10 @@ pub struct Args {
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
+
+	/// Select the source of process state.
+	#[arg(long, default_value = "auto", value_parser = super::source_parser())]
+	pub source: tg::process::Source,
 }
 
 impl Cli {
@@ -25,7 +29,10 @@ impl Cli {
 		let id = process.node.clone();
 		let location = locations.get_for_options(&process);
 		let process = tg::Process::<tg::Value>::with_referent(process);
-		let options = tg::process::wait::Options { location };
+		let options = tg::process::wait::Options {
+			location,
+			source: args.source,
+		};
 		let output = process
 			.output_with_handle(&client, options)
 			.await

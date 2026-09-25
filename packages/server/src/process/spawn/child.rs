@@ -8,7 +8,6 @@ pub(super) struct AddProcessChildArg<'a> {
 	pub location: Option<&'a tg::Location>,
 	pub options: &'a tg::referent::Options,
 	pub parent: &'a tg::process::Id,
-	pub sandbox: Option<&'a tg::sandbox::Id>,
 	pub tokens: &'a tg::authorization::Tokens,
 	pub wait: Option<&'a tg::process::wait::Output>,
 }
@@ -18,7 +17,6 @@ impl Session {
 		let child = arg.child.clone();
 		let command = arg.command.clone();
 		let parent = arg.parent.clone();
-		let sandbox = arg.sandbox.cloned();
 		let mut options = arg.options.clone();
 		options.location = arg.location.cloned();
 		options.tokens = arg.tokens.clone();
@@ -28,7 +26,7 @@ impl Session {
 		};
 		let Some(parent_sandbox) = self.server.runner.state().try_get_process_sandbox(&parent)
 		else {
-			self.index_process_child(&parent, &data, &command, sandbox.as_ref(), None, arg.wait)
+			self.index_process_child(&parent, &data, &command, None, arg.wait)
 				.await?;
 			return Ok(());
 		};
@@ -88,7 +86,6 @@ impl Session {
 			&parent,
 			&data,
 			&command,
-			sandbox.as_ref(),
 			Some((parent_data, parent_location)),
 			arg.wait,
 		)
@@ -102,7 +99,6 @@ impl Session {
 		parent: &tg::process::Id,
 		child: &tg::process::data::Child,
 		command: &tg::command::Id,
-		sandbox: Option<&tg::sandbox::Id>,
 		parent_data: Option<(tg::process::Data, tg::Location)>,
 		wait: Option<&tg::process::wait::Output>,
 	) -> tg::Result<()> {
@@ -143,7 +139,7 @@ impl Session {
 					options: tg::referent::Options::default(),
 					output: None,
 					parent: None,
-					sandbox: Some(parent_data.sandbox),
+					sandbox: None,
 					storage: tangram_index::process::Storage::default(),
 					time_to_touch: self.server.config.process.time_to_touch,
 					touched_at: now,
@@ -164,7 +160,7 @@ impl Session {
 			options: child.process.options.clone(),
 			output,
 			parent: Some(parent.clone()),
-			sandbox: sandbox.cloned(),
+			sandbox: None,
 			storage: tangram_index::process::Storage::default(),
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,

@@ -25,6 +25,18 @@ impl Index {
 		Ok(output)
 	}
 
+	pub async fn try_get_process_children_count(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<u64>> {
+		let request = crate::read::Request::TryGetProcessChildrenCount { id: id.clone() };
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetProcessChildrenCount(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+		Ok(output)
+	}
+
 	pub async fn try_get_process_children(
 		&self,
 		id: &tg::process::Id,
@@ -278,6 +290,43 @@ impl Index {
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		Ok(ControlFlow::Break(children))
+	}
+
+	pub(crate) async fn try_get_process_children_count_with_transaction(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::process::Id,
+	) -> tg::Result<ControlFlow<Option<u64>, fdb::FdbError>> {
+		let process = Self::try_get_process_with_transaction(txn, subspace, id).await?;
+		let process = match process {
+			ControlFlow::Break(process) => process,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if process.is_none() {
+			return Ok(ControlFlow::Break(None));
+		}
+		let bytes = id.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ProcessChild.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let (begin, end) = Subspace::from_bytes(prefix).range();
+		let selector = fdb::KeySelector::last_less_than(end);
+		let result = txn.get_key(&selector, false).await;
+		let key = crate::fdb::retry!(result);
+		if key.as_ref() < begin.as_slice() {
+			return Ok(ControlFlow::Break(Some(0)));
+		}
+		let Key::Process(crate::fdb::process::Key::ProcessChild { position, .. }) =
+			Self::unpack(subspace, &key)?
+		else {
+			return Err(tg::error!("unexpected key type"));
+		};
+		let count = u64::try_from(position)
+			.map_err(|error| tg::error!(!error, "invalid process child position"))?
+			.checked_add(1)
+			.ok_or_else(|| tg::error!("invalid process child count"))?;
+		Ok(ControlFlow::Break(Some(count)))
 	}
 
 	pub(crate) async fn try_get_process_children_page_with_transaction(

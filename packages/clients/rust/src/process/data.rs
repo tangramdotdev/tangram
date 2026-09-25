@@ -6,6 +6,8 @@ use {
 };
 
 mod command;
+#[cfg(test)]
+mod tests;
 
 pub use self::command::Command;
 
@@ -84,8 +86,9 @@ pub struct Data {
 	#[tangram_serialize(default, id = 13, skip_serializing_if = "is_false")]
 	pub retry: bool,
 
-	#[tangram_serialize(id = 11)]
-	pub sandbox: tg::sandbox::Id,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 11, skip_serializing_if = "Option::is_none")]
+	pub sandbox: Option<tg::sandbox::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]

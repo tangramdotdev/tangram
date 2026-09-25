@@ -6,6 +6,7 @@ export namespace Get {
 	export type Arg = {
 		location?: tg.Location.Arg | null;
 		metadata?: boolean;
+		source?: tg.Process.Source;
 		tokens?: tg.Authorization.Tokens | null;
 	};
 
@@ -14,6 +15,7 @@ export namespace Get {
 		id: tg.Process.Id;
 		location?: tg.Location | null;
 		metadata?: unknown;
+		source?: tg.Process.Source;
 		tokens?: tg.Authorization.Tokens | null;
 	};
 }
@@ -50,6 +52,7 @@ export async function tryGetProcess(
 				? null
 				: tg.Location.Arg.toDataString(arg.location),
 		metadata: arg?.metadata ?? false,
+		source: arg?.source ?? "auto",
 		tokens: arg?.tokens ?? {},
 	});
 	let response = await client.sendWithRetry(request);

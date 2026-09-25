@@ -2,6 +2,7 @@ use {
 	crate::{Origin, Server},
 	dashmap::DashMap,
 	futures::future::BoxFuture,
+	indexmap::IndexMap,
 	std::{collections::BTreeMap, sync::Arc},
 	tangram_client::prelude::*,
 };
@@ -35,6 +36,7 @@ pub struct State {
 	pub data: tg::sandbox::control::Data,
 	pub id: tg::sandbox::Id,
 	pub location: tg::Location,
+	pub process_ids: IndexMap<tg::process::Id, (), tg::id::BuildHasher>,
 	pub processes: Arc<crate::process::Processes>,
 	pub sandbox: Option<tangram_sandbox::Sandbox>,
 	pub status: tg::sandbox::Status,
@@ -122,6 +124,25 @@ impl State {
 			data,
 			location: Some(self.location.clone()),
 			tokens: self.authorization_tokens.clone(),
+		}
+	}
+	#[must_use]
+	pub fn processes(
+		&self,
+		position: u64,
+		length: u64,
+	) -> tg::sandbox::control::GetProcessesClientResponseOutput {
+		let processes = self
+			.process_ids
+			.keys()
+			.skip(usize::try_from(position).unwrap())
+			.take(usize::try_from(length).unwrap())
+			.cloned()
+			.collect();
+		tg::sandbox::control::GetProcessesClientResponseOutput {
+			length: u64::try_from(self.process_ids.len()).unwrap(),
+			processes,
+			status: self.status,
 		}
 	}
 }

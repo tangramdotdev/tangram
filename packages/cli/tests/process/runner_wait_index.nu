@@ -133,6 +133,7 @@ for location in [local remote] {
 		tg --url $owner.url --token $root_token checkpoint unwatch process.control.finish $control_watch
 		failure (tg --url $runner.url --token $node_reader.token get $object_id | complete) "node permission must not grant access to the object"
 		if $field == output {
+			tg --url $owner.url --token $root_token wait --source=index $process | ignore
 			tg --url $owner.url --token $root_token index
 			let log = tg --url $owner.url --token $root_token process log $process | str trim
 			assert equal $log 'runner log' "the finish handler must preserve the process log after early runner indexing"

@@ -192,7 +192,7 @@ impl crate::Server {
 			},
 			server_subject: Indexer::server_subject(indexer),
 		};
-		self.send_control_request(arg).await
+		self.request_control(arg).await
 	}
 }
 

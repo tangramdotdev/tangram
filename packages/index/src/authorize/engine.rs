@@ -1158,14 +1158,6 @@ where
 
 				ReadOutput::ObjectProcesses { after, processes }
 			},
-			super::search::AncestorNodeRead::Process { process } => {
-				let output = read!(facts::Request::Process {
-					process: process.clone(),
-				});
-				let process = output.into_process()?;
-
-				ReadOutput::Process(process)
-			},
 			super::search::AncestorNodeRead::ResourceGrants {
 				after,
 				limit,
@@ -1415,21 +1407,6 @@ where
 			};
 
 			ReadOutput::Resolved(resource)
-		},
-		Read::SandboxProcesses {
-			after,
-			limit,
-			sandbox,
-			..
-		} => {
-			let output = read!(facts::Request::SandboxProcesses {
-				after: after.clone(),
-				limit: *limit,
-				sandbox: sandbox.clone(),
-			});
-			let (after, ids) = output.into_ids()?;
-
-			ReadOutput::Ids { after, ids }
 		},
 		Read::SubjectGrants {
 			after,
@@ -2060,7 +2037,6 @@ mod tests {
 					after: None,
 					processes: Vec::new(),
 				},
-				AncestorNodeRead::Process { .. } => ReadOutput::Process(None),
 				AncestorNodeRead::ResourceGrants { .. } => ReadOutput::Grants {
 					after: None,
 					grants: Vec::new(),
@@ -2094,7 +2070,6 @@ mod tests {
 			| Read::ProcessChildren { .. }
 			| Read::ProcessParents { .. }
 			| Read::Resolve { .. }
-			| Read::SandboxProcesses { .. }
 			| Read::SubtreeObjectChildren { .. }
 			| Read::SubtreeProcessChildren { .. } => match read {
 				Read::Resolve { selector, .. } => {

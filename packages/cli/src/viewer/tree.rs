@@ -2750,6 +2750,7 @@ impl Tree {
 									availability: false,
 									location: None,
 									metadata: true,
+									source: tg::process::Source::Auto,
 								};
 								process
 									.try_get_with_handle(&client, options)

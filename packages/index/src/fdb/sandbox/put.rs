@@ -14,12 +14,18 @@ impl Index {
 		usage_partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for arg in args {
+			arg.validate()?;
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
 			let result = txn.get(&key, false).await;
 			let existing = crate::fdb::retry!(result)
 				.map(|bytes| crate::sandbox::Sandbox::deserialize(&bytes))
 				.transpose()?;
+
+			let processes_changed = arg.processes.is_some()
+				&& existing
+					.as_ref()
+					.is_none_or(|existing| !existing.set.processes);
 
 			// A delayed or replayed start must not overwrite a destroyed sandbox.
 			if arg
@@ -64,8 +70,26 @@ impl Index {
 					.as_ref()
 					.map_or(0, |sandbox| sandbox.reference_count),
 				runner,
+				set: crate::sandbox::Set {
+					processes: arg.processes.is_some()
+						|| existing
+							.as_ref()
+							.is_some_and(|sandbox| sandbox.set.processes),
+				},
 				touched_at,
 			};
+			if processes_changed && let Some(processes) = &arg.processes {
+				crate::fdb::propagate!(
+					Self::put_sandbox_processes_with_transaction(
+						txn,
+						subspace,
+						&arg.id,
+						processes,
+						partition_total
+					)
+					.await
+				);
+			}
 			let value = sandbox.serialize()?;
 			txn.set(&key, &value);
 

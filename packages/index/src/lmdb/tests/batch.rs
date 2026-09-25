@@ -42,7 +42,7 @@ fn process_arg(id: tg::process::Id, status: tg::process::Status) -> crate::proce
 		log: None,
 		output: None,
 		retry: false,
-		sandbox: tg::sandbox::Id::new(),
+		sandbox: Some(tg::sandbox::Id::new()),
 		started_at: Some(0),
 		status,
 		stderr: tg::process::Stdio::default(),
@@ -96,6 +96,7 @@ fn sandbox_arg(id: tg::sandbox::Id, status: tg::sandbox::Status) -> crate::sandb
 		data: Some(data),
 		id,
 		location: None,
+		processes: None,
 		runner: None,
 		touched_at: 0,
 	}
@@ -192,7 +193,7 @@ async fn process_children_are_stored_separately_from_data() {
 		log: None,
 		output: None,
 		retry: false,
-		sandbox: tg::sandbox::Id::new(),
+		sandbox: Some(tg::sandbox::Id::new()),
 		started_at: Some(0),
 		status: tg::process::Status::Finished,
 		stderr: tg::process::Stdio::default(),
@@ -232,6 +233,13 @@ async fn process_children_are_stored_separately_from_data() {
 		.unwrap();
 	assert!(indexed.data.unwrap().children.is_none());
 	assert!(indexed.set.children);
+	assert_eq!(
+		index
+			.try_get_process_children_count(&process)
+			.await
+			.unwrap(),
+		Some(expected.len() as u64)
+	);
 	let children = index
 		.try_get_process_children(&process, std::io::SeekFrom::Start(0), 10)
 		.await
@@ -532,4 +540,333 @@ async fn preserves_order_and_transaction_boundary() {
 	let after = index.get_transaction_id().await.unwrap();
 	assert_eq!(after, before + 1);
 	assert!(try_get_group(&index, &id).is_some());
+}
+
+#[tokio::test]
+async fn sandbox_processes_are_ordered_and_stored_separately() {
+	let (_dir, index) = new_index();
+	let sandbox = tg::sandbox::Id::new();
+	let first = tg::process::Id::new();
+	let second = tg::process::Id::new();
+	let mut first_arg = process_arg(first.clone(), tg::process::Status::Started);
+	first_arg.sandbox = None;
+	first_arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
+	let mut second_arg = process_arg(second.clone(), tg::process::Status::Started);
+	second_arg.sandbox = None;
+	second_arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
+	let arg = crate::batch::Arg {
+		items: vec![
+			crate::batch::Item::PutSandbox(sandbox_arg(
+				sandbox.clone(),
+				tg::sandbox::Status::Started,
+			)),
+			crate::batch::Item::PutProcess(second_arg),
+			crate::batch::Item::PutProcess(first_arg.clone()),
+			crate::batch::Item::PutProcess(first_arg),
+		],
+	};
+	index.batch(arg).await.unwrap();
+	let processes = index
+		.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
+		.await
+		.unwrap()
+		.unwrap();
+	assert!(processes.is_empty());
+	assert_eq!(
+		index
+			.try_get_sandbox_processes_count(&sandbox)
+			.await
+			.unwrap(),
+		Some(0)
+	);
+
+	// Explicit spawn updates append once in indexed order without finalizing the list.
+	let mut first_membership = process_arg(first.clone(), tg::process::Status::Started);
+	first_membership.data = None;
+	first_membership.sandbox = Some(sandbox.clone());
+	let mut second_membership = first_membership.clone();
+	second_membership.id = second.clone();
+	let arg = crate::batch::Arg {
+		items: vec![
+			crate::batch::Item::PutProcess(second_membership),
+			crate::batch::Item::PutProcess(first_membership.clone()),
+			crate::batch::Item::PutProcess(first_membership),
+		],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
+			.await
+			.unwrap(),
+		[second.clone(), first.clone()]
+	);
+	assert!(
+		!index
+			.try_get_sandbox(&sandbox)
+			.await
+			.unwrap()
+			.unwrap()
+			.set
+			.processes
+	);
+
+	// A data-only snapshot does not claim to contain a complete process history.
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutSandbox(sandbox_arg(
+			sandbox.clone(),
+			tg::sandbox::Status::Destroyed,
+		))],
+	};
+	index.batch(arg).await.unwrap();
+	assert!(
+		!index
+			.try_get_sandbox(&sandbox)
+			.await
+			.unwrap()
+			.unwrap()
+			.set
+			.processes
+	);
+
+	// A final runner snapshot establishes runner order without growing the sandbox record.
+	let processes = [first.clone(), second.clone()]
+		.into_iter()
+		.chain((0..3998).map(|_| tg::process::Id::new()))
+		.collect::<Vec<_>>();
+	let mut final_arg = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Destroyed);
+	final_arg.processes = Some(processes.clone());
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutSandbox(final_arg)],
+	};
+	index.batch(arg).await.unwrap();
+	let indexed = index.try_get_sandbox(&sandbox).await.unwrap().unwrap();
+	assert!(indexed.serialize().unwrap().len() < 1000);
+	assert_eq!(
+		index
+			.try_get_sandbox_processes_count(&sandbox)
+			.await
+			.unwrap(),
+		Some(4000)
+	);
+	assert_eq!(
+		index
+			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::End(-2), 2)
+			.await
+			.unwrap()
+			.unwrap(),
+		processes[3998..]
+	);
+	// Both APIs return the ordered list, including processes that are not stored locally.
+	assert_eq!(
+		index
+			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
+			.await
+			.unwrap(),
+		processes
+	);
+	let missing = tg::sandbox::Id::new();
+	assert!(
+		index
+			.try_get_sandbox_processes(&missing, std::io::SeekFrom::Start(0), 1)
+			.await
+			.unwrap()
+			.is_none()
+	);
+	assert!(
+		index
+			.get_sandbox_processes(&missing, std::io::SeekFrom::Start(0), 1)
+			.await
+			.is_err()
+	);
+
+	// Replayed complete lists must not change finalized ordering.
+	let mut replay = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Destroyed);
+	replay.processes = Some(vec![second.clone(), first.clone()]);
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutSandbox(replay)],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
+			.await
+			.unwrap()
+			.unwrap(),
+		processes
+	);
+
+	// A delayed spawn update must not change the finalized process list.
+	let mut membership = process_arg(tg::process::Id::new(), tg::process::Status::Started);
+	membership.data = None;
+	membership.sandbox = Some(sandbox.clone());
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutProcess(membership)],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
+			.await
+			.unwrap(),
+		processes
+	);
+
+	// The sandbox retains its processes even when the processes are eligible for cleanup.
+	loop {
+		let arg = crate::clean::Arg {
+			batch_size: 100,
+			max_object_touched_at: i64::MIN,
+			max_process_touched_at: i64::MAX,
+			max_sandbox_touched_at: i64::MIN,
+			now: 1,
+			partition_end: 1,
+			partition_start: 0,
+		};
+		if index.clean(arg).await.unwrap().done {
+			break;
+		}
+	}
+	assert!(index.try_get_process(&first).await.unwrap().is_some());
+	assert!(index.try_get_process(&second).await.unwrap().is_some());
+
+	assert_eq!(
+		index
+			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
+			.await
+			.unwrap()
+			.unwrap(),
+		processes
+	);
+
+	// Cleaning the sandbox releases its processes so cleanup can collect them too.
+	loop {
+		let arg = crate::clean::Arg {
+			batch_size: 100,
+			max_object_touched_at: i64::MIN,
+			max_process_touched_at: i64::MAX,
+			max_sandbox_touched_at: i64::MAX,
+			now: 2,
+			partition_end: 1,
+			partition_start: 0,
+		};
+		if index.clean(arg).await.unwrap().done {
+			break;
+		}
+	}
+	assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_none());
+	assert!(index.try_get_process(&first).await.unwrap().is_none());
+	assert!(index.try_get_process(&second).await.unwrap().is_none());
+	index
+		.delete_sandboxes(std::slice::from_ref(&sandbox))
+		.await
+		.unwrap();
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutSandbox(sandbox_arg(
+			sandbox.clone(),
+			tg::sandbox::Status::Started,
+		))],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.try_get_sandbox_processes_count(&sandbox)
+			.await
+			.unwrap(),
+		Some(0)
+	);
+	// An ordinary process write must not recreate either sandbox relationship.
+	let mut arg = process_arg(first.clone(), tg::process::Status::Started);
+	arg.sandbox = None;
+	arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutProcess(arg)],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 1)
+			.await
+			.unwrap()
+			.unwrap(),
+		Vec::<tg::process::Id>::new()
+	);
+}
+
+#[tokio::test]
+async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
+	let (_dir, index) = new_index();
+	let sandbox = tg::sandbox::Id::new();
+	let process = tg::process::Id::new();
+	let mut process_arg = process_arg(process.clone(), tg::process::Status::Finished);
+	process_arg.sandbox = None;
+	process_arg.data.as_mut().unwrap().sandbox = Some(sandbox.clone());
+
+	// A process-only write preserves its sandbox field without establishing membership.
+	for touched_at in [0, 1] {
+		process_arg.touched_at = touched_at;
+		let arg = crate::batch::Arg {
+			items: vec![crate::batch::Item::PutProcess(process_arg.clone())],
+		};
+		index.batch(arg).await.unwrap();
+		assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_none());
+		let indexed = index.try_get_process(&process).await.unwrap().unwrap();
+		assert_eq!(indexed.sandbox, Some(sandbox.clone()));
+		let transaction = index.env.read_txn().unwrap();
+		for key in [
+			crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
+				position: 0,
+				process: process.clone(),
+				sandbox: sandbox.clone(),
+			}),
+			crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessSandbox {
+				process: process.clone(),
+				sandbox: sandbox.clone(),
+			}),
+		] {
+			let key = Index::pack(&index.subspace, &key);
+			assert!(index.db.get(&transaction, &key).unwrap().is_none());
+		}
+	}
+
+	// Only the sandbox write establishes membership.
+	let mut membership = sandbox_arg(sandbox.clone(), tg::sandbox::Status::Destroyed);
+	membership.processes = Some(vec![process.clone()]);
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutSandbox(membership)],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(
+		index
+			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
+			.await
+			.unwrap(),
+		std::slice::from_ref(&process)
+	);
+
+	// A process update must not recreate membership in a deleted sandbox.
+	index
+		.delete_sandboxes(std::slice::from_ref(&sandbox))
+		.await
+		.unwrap();
+	let mut membership = process_arg.clone();
+	membership.data = None;
+	membership.id = process.clone();
+	membership.sandbox = Some(sandbox.clone());
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutProcess(membership)],
+	};
+	index.batch(arg).await.unwrap();
+
+	process_arg.touched_at = 2;
+	let arg = crate::batch::Arg {
+		items: vec![crate::batch::Item::PutProcess(process_arg)],
+	};
+	index.batch(arg).await.unwrap();
+	assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_none());
+	let transaction = index.env.read_txn().unwrap();
+	let key =
+		crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessSandbox { process, sandbox });
+	let key = Index::pack(&index.subspace, &key);
+	assert!(index.db.get(&transaction, &key).unwrap().is_none());
 }

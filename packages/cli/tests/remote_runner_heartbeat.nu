@@ -78,6 +78,14 @@ snapshot $output.stderr ''
 
 tg --url $local.url process wait $empty_process | ignore
 
+# The process history remains readable after the runner is lost.
+let sandbox = tg --url $remote.url --token $root_token get --source=index $process | from json | get sandbox
+tg --url $remote.url --token $root_token sandbox wait --source=index $sandbox | ignore
+let socket = $remote.url | str replace 'http+unix://' '' | url decode
+let output = http get --raw --unix-socket $socket --headers { Authorization: $'Bearer ($root_token)' } $'http://localhost/sandboxes/($sandbox)/processes?source=index&timeout=0'
+let processes = $output | lines | where { $in starts-with 'data: ' } | each { str substring 6.. | from json | get data } | flatten
+assert ($process in $processes)
+
 # The stored markers close nonempty and empty logs without compaction, including after a restart.
 for restart in [false true] {
 	let remote = if $restart { server restart $remote } else { $remote }

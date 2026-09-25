@@ -609,17 +609,21 @@ impl Session {
 		if let Some(data) = data {
 			let commands = data.command.objects();
 			let data = data.without_location_and_tokens();
+			let sandbox_id = data
+				.sandbox
+				.as_ref()
+				.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
 			let sandbox = if let Some(sandbox) = sandbox {
 				let authentication = self
 					.server
 					.authenticate(self.context.origin, Some(&sandbox.token))
 					.await?;
-				if authentication.principal != tg::Principal::Sandbox(data.sandbox.clone()) {
+				if authentication.principal != tg::Principal::Sandbox(sandbox_id.clone()) {
 					return Err(tg::error!("invalid sandbox initialization token"));
 				}
 				Some(
 					self.prepare_sandbox_control_index_arg(
-						&data.sandbox,
+						sandbox_id,
 						sandbox.created_at,
 						sandbox.data,
 						sandbox.runner,
@@ -633,7 +637,7 @@ impl Session {
 				sandbox.account.clone()
 			} else {
 				session
-					.usage_account(&tg::Principal::Sandbox(data.sandbox.clone()))
+					.usage_account(&tg::Principal::Sandbox(sandbox_id.clone()))
 					.await?
 			};
 			let touched_at = self.server.clock.unix_timestamp()?;
@@ -661,7 +665,7 @@ impl Session {
 					options,
 					output: None,
 					parent: parent.clone(),
-					sandbox: Some(data.sandbox.clone()),
+					sandbox: Some(sandbox_id.clone()),
 					storage: tangram_index::process::Storage::default(),
 					time_to_touch: session.server.config.process.time_to_touch,
 					touched_at,
@@ -670,6 +674,8 @@ impl Session {
 			if let Some(sandbox) = sandbox {
 				items.insert(0, tangram_index::batch::Item::PutSandbox(sandbox));
 			}
+			let grant_arg = self.create_process_sandbox_grant_arg(&id, sandbox_id, touched_at)?;
+			items.push(tangram_index::batch::Item::PutGrant(grant_arg));
 			if let Some(account) = account {
 				items.push(tangram_index::batch::Item::PutAccountProcess(
 					tangram_index::usage::storage::put::ProcessArg {
@@ -900,6 +906,69 @@ impl Session {
 		Ok(output)
 	}
 
+	pub(crate) async fn request_process_control(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::control::ServerRequestArg,
+		options: crate::control::Options,
+	) -> tg::Result<tg::Result<tg::process::control::ClientResponseOutput>> {
+		self.send_process_control_request(id, arg, options)
+			.boxed()
+			.await?
+			.await
+	}
+
+	pub(crate) async fn send_process_control_request(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::control::ServerRequestArg,
+		options: crate::control::Options,
+	) -> tg::Result<
+		futures::future::BoxFuture<
+			'static,
+			tg::Result<tg::Result<tg::process::control::ClientResponseOutput>>,
+		>,
+	> {
+		let request_id = crate::control::id();
+		let request = ServerMessage(tg::process::control::ServerMessage::Request(
+			tg::process::control::ServerRequest {
+				arg,
+				id: request_id.clone(),
+			},
+		));
+		let arg = crate::control::SendControlRequestArg {
+			ack: |id| {
+				ServerMessage(tg::process::control::ServerMessage::Ack(
+					tg::process::control::ServerAck { id },
+				))
+			},
+			client_subject: format!("processes.{id}.control.client.{request_id}"),
+			is_ack: |message: &ClientMessage| {
+				matches!(&message.0, tg::process::control::ClientMessage::Ack(_))
+			},
+			marker: std::marker::PhantomData,
+			options,
+			request,
+			response: |message: ClientMessage| {
+				let ClientMessage(tg::process::control::ClientMessage::Response(message)) = message
+				else {
+					return Ok(None);
+				};
+				if let Some(error) = message.error {
+					let error = tg::Error::try_from(error)
+						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+					return Ok(Some((message.id, Err(error))));
+				}
+				let Some(output) = message.output else {
+					return Err(tg::error!("missing process control response output"));
+				};
+				Ok(Some((message.id, Ok(output))))
+			},
+			server_subject: format!("processes.{id}.control.server"),
+		};
+		self.server.send_control_request(arg).await
+	}
+
 	pub(crate) async fn try_get_process_control_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
@@ -960,71 +1029,6 @@ impl Session {
 			.unwrap();
 
 		Ok(response)
-	}
-
-	pub(crate) async fn send_process_control_request(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::control::ServerRequestArg,
-		options: crate::control::Options,
-	) -> tg::Result<tg::Result<tg::process::control::ClientResponseOutput>> {
-		self.start_process_control_request(id, arg, options)
-			.await?
-			.await
-	}
-
-	pub(crate) async fn start_process_control_request(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::control::ServerRequestArg,
-		options: crate::control::Options,
-	) -> tg::Result<
-		futures::future::BoxFuture<
-			'static,
-			tg::Result<tg::Result<tg::process::control::ClientResponseOutput>>,
-		>,
-	> {
-		let request_id = crate::control::id();
-		let payload = ServerMessage(tg::process::control::ServerMessage::Request(
-			tg::process::control::ServerRequest {
-				arg,
-				id: request_id.clone(),
-			},
-		));
-		self.server
-			.start_control_request(crate::control::SendControlRequestArg {
-				ack: |id| {
-					ServerMessage(tg::process::control::ServerMessage::Ack(
-						tg::process::control::ServerAck { id },
-					))
-				},
-				client_subject: format!("processes.{id}.control.client.{request_id}"),
-				is_ack: |message: &ClientMessage| {
-					matches!(&message.0, tg::process::control::ClientMessage::Ack(_))
-				},
-				marker: std::marker::PhantomData,
-				options,
-				request: payload,
-				response: |message: ClientMessage| {
-					let ClientMessage(tg::process::control::ClientMessage::Response(message)) =
-						message
-					else {
-						return Ok(None);
-					};
-					if let Some(error) = message.error {
-						let error = tg::Error::try_from(error).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the error")
-						})?;
-						return Ok(Some((message.id, Err(error))));
-					}
-					let Some(output) = message.output else {
-						return Err(tg::error!("missing process control response output"));
-					};
-					Ok(Some((message.id, Ok(output))))
-				},
-				server_subject: format!("processes.{id}.control.server"),
-			})
-			.await
 	}
 }
 

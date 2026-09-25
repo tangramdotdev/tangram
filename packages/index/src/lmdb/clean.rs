@@ -189,9 +189,7 @@ impl Index {
 				Item::Process(id) => {
 					Self::compute_process_reference_count(db, subspace, transaction, id)?
 				},
-				Item::Sandbox(id) => {
-					Self::compute_sandbox_reference_count(db, subspace, transaction, id)?
-				},
+				Item::Sandbox(_) => 0,
 			};
 
 			let (item, put) = if reference_count > 0 {
@@ -480,6 +478,16 @@ impl Index {
 		let child_process_count =
 			Self::count_keys_with_prefix(db, transaction, &child_process_prefix)?;
 
+		let process_sandbox_prefix = Self::pack(
+			subspace,
+			&(
+				Kind::ProcessSandbox.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+			),
+		);
+		let process_sandbox_count =
+			Self::count_keys_with_prefix(db, transaction, &process_sandbox_prefix)?;
+
 		// Count tags referencing this process.
 		let target_tag_prefix = Self::pack(
 			subspace,
@@ -496,25 +504,7 @@ impl Index {
 		let process_account_count =
 			Self::count_keys_with_prefix(db, transaction, &process_account_prefix)?;
 
-		Ok(child_process_count + process_account_count + target_tag_count)
-	}
-
-	fn compute_sandbox_reference_count(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RwTxn<'_>,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<u64> {
-		let prefix = Self::pack(
-			subspace,
-			&(
-				Kind::SandboxProcess.to_i32().unwrap(),
-				id.to_bytes().as_ref(),
-			),
-		);
-		let count = Self::count_keys_with_prefix(db, transaction, &prefix)?;
-
-		Ok(count)
+		Ok(child_process_count + process_account_count + process_sandbox_count + target_tag_count)
 	}
 
 	fn count_keys_with_prefix(
@@ -784,7 +774,6 @@ impl Index {
 				tg::error!(!error, "failed to delete the command cacheable process key")
 			})?;
 		}
-		let sandbox = process.and_then(|process| process.sandbox);
 		db.delete(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to delete process"))?;
 		let id_bytes = id.to_bytes();
@@ -866,26 +855,6 @@ impl Index {
 		}
 		for (_, object, _) in object_entries {
 			Self::decrement_object_reference_count(db, subspace, transaction, &object)?;
-		}
-
-		if let Some(sandbox) = sandbox {
-			let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::ProcessSandbox {
-				process: id.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete process sandbox"))?;
-
-			let key = crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
-				process: id.clone(),
-				sandbox: sandbox.clone(),
-			});
-			let key = Self::pack(subspace, &key);
-			db.delete(transaction, &key)
-				.map_err(|error| tg::error!(!error, "failed to delete sandbox process"))?;
-
-			Self::decrement_sandbox_reference_count(db, subspace, transaction, &sandbox)?;
 		}
 
 		Ok(())
@@ -1125,44 +1094,6 @@ impl Index {
 					.map_err(|error| tg::error!(!error, "failed to put clean key"))?;
 			}
 		}
-		Ok(())
-	}
-
-	pub(super) fn decrement_sandbox_reference_count(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &mut lmdb::RwTxn<'_>,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<()> {
-		let key = crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::Sandbox(id.clone()));
-		let key = Self::pack(subspace, &key);
-		let Some(bytes) = db
-			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to get sandbox"))?
-		else {
-			return Ok(());
-		};
-		let mut sandbox = crate::sandbox::Sandbox::deserialize(bytes)?;
-		sandbox.reference_count = sandbox.reference_count.saturating_sub(1);
-		let bytes = sandbox.serialize()?;
-		db.put(transaction, &key, &bytes)
-			.map_err(|error| tg::error!(!error, "failed to put sandbox"))?;
-
-		if sandbox.reference_count == 0
-			&& sandbox
-				.data
-				.as_ref()
-				.is_some_and(|data| data.data.status.is_destroyed())
-		{
-			let key = crate::lmdb::Key::Clean(crate::lmdb::clean::Key::Sandbox {
-				id: id.clone(),
-				touched_at: sandbox.touched_at,
-			});
-			let key = Self::pack(subspace, &key);
-			db.put(transaction, &key, &[])
-				.map_err(|error| tg::error!(!error, "failed to put clean key"))?;
-		}
-
 		Ok(())
 	}
 }

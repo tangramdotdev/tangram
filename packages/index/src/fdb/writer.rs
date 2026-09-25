@@ -1223,7 +1223,9 @@ impl Index {
 				Response::Unit
 			},
 			Request::DeleteSandboxes(ids) => {
-				let result = Self::delete_sandboxes_with_transaction(txn, subspace, ids);
+				let result =
+					Self::delete_sandboxes_with_transaction(txn, subspace, ids, partition_total)
+						.await;
 				crate::fdb::propagate!(result);
 				Response::Unit
 			},

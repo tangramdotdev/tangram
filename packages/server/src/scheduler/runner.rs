@@ -232,11 +232,26 @@ impl Server {
 			message: Some("heartbeat expired".to_owned()),
 			..Default::default()
 		};
-		let processes =
-			self.index.get_sandbox_processes(id).await.map_err(
-				|source| tg::error!(!source, %id, "failed to get the sandbox processes"),
-			)?;
-		for (process, indexed) in processes {
+		let length = self
+			.index
+			.try_get_sandbox_processes_count(id)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox in the index"))?;
+		let processes = self
+			.index
+			.get_sandbox_processes(id, std::io::SeekFrom::Start(0), length)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the sandbox processes"))?;
+		let indexed = self
+			.index
+			.try_get_processes(&processes)
+			.await
+			.map_err(|source| tg::error!(!source, %id, "failed to get the process records"))?;
+		for (process, indexed) in processes.iter().zip(indexed) {
+			let Some(indexed) = indexed else {
+				continue;
+			};
+			let process = process.clone();
 			let mut data = indexed
 				.data
 				.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
@@ -301,7 +316,7 @@ impl Server {
 								options: tg::referent::Options::default(),
 								output: None,
 								parent: None,
-								sandbox: Some(data.sandbox.clone()),
+								sandbox: None,
 								storage: indexed.storage,
 								time_to_touch: self.config.process.time_to_touch,
 								touched_at: now,
@@ -324,6 +339,18 @@ impl Server {
 				self.notifications.notify_process_log(&process);
 			}
 		}
+
+		// Finalize the process history that survived the runner.
+		let length = self
+			.index
+			.try_get_sandbox_processes_count(id)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox in the index"))?;
+		let processes = self
+			.index
+			.try_get_sandbox_processes(id, std::io::SeekFrom::Start(0), length)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox processes in the index"))?;
 
 		let mut indexed = self
 			.index
@@ -350,6 +377,7 @@ impl Server {
 						data: indexed.data,
 						id: id.clone(),
 						location: None,
+						processes: Some(processes),
 						runner: indexed.runner,
 						touched_at: now,
 					},

@@ -4,6 +4,38 @@ use {
 };
 
 impl Session {
+	pub(crate) fn create_process_sandbox_grant_arg(
+		&self,
+		process: &tg::process::Id,
+		sandbox: &tg::sandbox::Id,
+		created_at: i64,
+	) -> tg::Result<tangram_index::grant::put::Arg> {
+		let time_to_live = i64::try_from(
+			self.server
+				.config
+				.sandbox
+				.process_grant_time_to_live
+				.as_secs(),
+		)
+		.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let expires_at = created_at
+			.checked_add(time_to_live)
+			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		);
+		let arg = tangram_index::grant::put::Arg {
+			created_at,
+			creator: Some(self.context.principal.clone()),
+			implicit: Some(Some(expires_at)),
+			permissions: permission.into(),
+			resource: process.clone().into(),
+			subject: tg::authorization::Subject::Sandbox(sandbox.clone()),
+			time_to_touch: Some(self.server.config.sandbox.process_grant_time_to_touch),
+		};
+		Ok(arg)
+	}
+
 	pub(crate) async fn create_process_object_grant_arg(
 		&self,
 		process: &tg::process::Id,

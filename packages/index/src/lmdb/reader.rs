@@ -149,6 +149,24 @@ impl Index {
 				let output = Self::get_indexers_with_transaction(db, subspace, transaction)?;
 				crate::read::Response::GetIndexers(output)
 			},
+			crate::read::Request::TryGetProcessChildrenCount { id } => {
+				let output = Self::try_get_process_children_count_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&id,
+				)?;
+				crate::read::Response::TryGetProcessChildrenCount(output)
+			},
+			crate::read::Request::TryGetSandboxProcessesCount { id } => {
+				let output = Self::try_get_sandbox_processes_count_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&id,
+				)?;
+				crate::read::Response::TryGetSandboxProcessesCount(output)
+			},
 			crate::read::Request::TryGetProcessChildren {
 				id,
 				length,
@@ -163,6 +181,21 @@ impl Index {
 					length,
 				)?;
 				crate::read::Response::TryGetProcessChildren(output)
+			},
+			crate::read::Request::TryGetSandboxProcesses {
+				id,
+				length,
+				position,
+			} => {
+				let output = Self::try_get_sandbox_processes_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&id,
+					position,
+					length,
+				)?;
+				crate::read::Response::TryGetSandboxProcesses(output)
 			},
 			crate::read::Request::TryGetProcessNodeChildren { id } => {
 				let output = Self::try_get_process_node_children_with_transaction(
@@ -209,15 +242,7 @@ impl Index {
 				)?;
 				crate::read::Response::GetRunnerSandboxes(output)
 			},
-			crate::read::Request::GetSandboxProcesses { sandbox } => {
-				let output = Self::get_sandbox_processes_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&sandbox,
-				)?;
-				crate::read::Response::GetSandboxProcesses(output)
-			},
+
 			crate::read::Request::GetTransactionId => {
 				crate::read::Response::GetTransactionId(transaction.id() as u64)
 			},

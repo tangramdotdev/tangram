@@ -23,13 +23,17 @@ impl Session {
 				let connected_event = ready_event
 					.connected_event
 					.ok_or_else(|| tg::error!("expected the process to be connected"))?;
-				process.data.sandbox = ready_event.sandbox;
+				process.data.sandbox = Some(ready_event.sandbox);
 				Self::spawn_process_apply_connected(process, connected_event);
 			},
 			Some(tg::Either::Left(_)) => {
 				let id = process.id.clone();
 				let mut process_connection_future = self.subscribe_process_connection(&id).await?;
-				let sandbox = process.data.sandbox.clone();
+				let sandbox = process
+					.data
+					.sandbox
+					.clone()
+					.ok_or_else(|| tg::error!("the scheduled process has no sandbox"))?;
 				let mut sandbox_connection_future =
 					self.subscribe_sandbox_connection(&sandbox).await?;
 				self.spawn_process_in_new_sandbox(process).await?;
@@ -166,7 +170,11 @@ impl Session {
 		let process = Self::spawn_process_runner_arg(output);
 		let id = output.id.clone();
 		let assigned = process.id.is_some();
-		let sandbox = output.data.sandbox.clone();
+		let sandbox = output
+			.data
+			.sandbox
+			.clone()
+			.ok_or_else(|| tg::error!("the scheduled process has no sandbox"))?;
 		let request = tg::sandbox::control::ServerRequestArg::SpawnProcess(
 			tg::sandbox::control::SpawnProcessServerRequestArg { process },
 		);
@@ -180,13 +188,13 @@ impl Session {
 		{
 			control_sender.request(request).await
 		} else {
-			self.send_sandbox_control_request(&sandbox, request, options)
+			self.request_sandbox_control(&sandbox, request, options)
 				.boxed()
 				.await
+				.map_err(|error| {
+					tg::error!(!error, %sandbox, process = %id, "failed to send the spawn process request")
+				})?
 		}
-		.map_err(
-			|error| tg::error!(!error, %sandbox, process = %id, "failed to send the spawn process request"),
-		)?
 		.map_err(
 			|error| tg::error!(!error, %sandbox, process = %id, "the spawn process request failed"),
 		)?;
@@ -212,6 +220,11 @@ impl Session {
 		&self,
 		output: &mut Output,
 	) -> tg::Result<Option<crate::runner::sandbox::ReadyEvent>> {
+		let sandbox = output
+			.data
+			.sandbox
+			.clone()
+			.ok_or_else(|| tg::error!("the scheduled process has no sandbox"))?;
 		let arg = output
 			.sandbox_arg
 			.clone()
@@ -219,10 +232,7 @@ impl Session {
 		let process = Self::spawn_process_runner_arg(output);
 		if let Some(allocation) = output.allocation.take() {
 			let location = self.server.location(arg.location.as_ref())?;
-			let id = output
-				.sandbox_token
-				.as_ref()
-				.map(|_| output.data.sandbox.clone());
+			let id = output.sandbox_token.as_ref().map(|_| sandbox.clone());
 			let token = output.sandbox_token.clone();
 			let spawn_sandbox_task_arg = crate::runner::sandbox::SpawnSandboxTaskArg {
 				allocation,
@@ -255,12 +265,12 @@ impl Session {
 			creator: Some(self.context.principal.clone()),
 			parent: output.parent_sandbox.clone(),
 			process: Some(process),
-			sandbox: output.data.sandbox.clone(),
+			sandbox: sandbox.clone(),
 			scheduler: output.scheduler.clone(),
 			token: output.sandbox_token.clone(),
 		};
 		let scheduler = self.enqueue_sandbox(request).await.map_err(|error| {
-			tg::error!(!error, sandbox = %output.data.sandbox, process = %output.id, "failed to enqueue the sandbox")
+			tg::error!(!error, sandbox = %sandbox, process = %output.id, "failed to enqueue the sandbox")
 		})?;
 		output.scheduler = Some(scheduler);
 		Ok(None)

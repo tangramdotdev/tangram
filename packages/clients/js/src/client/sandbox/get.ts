@@ -29,6 +29,8 @@ export async function tryGetSandbox(
 		uri,
 		headers,
 	}).arg({
+		source: arg?.source ?? "auto",
+		tokens: arg?.tokens ?? {},
 		location:
 			arg?.location === undefined || arg.location === null
 				? null

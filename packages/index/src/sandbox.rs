@@ -10,7 +10,13 @@ pub struct Sandbox {
 	pub location: Option<tg::Location>,
 	pub reference_count: u64,
 	pub runner: Option<tg::runner::Id>,
+	pub set: Set,
 	pub touched_at: i64,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Set {
+	pub processes: bool,
 }
 
 impl Sandbox {

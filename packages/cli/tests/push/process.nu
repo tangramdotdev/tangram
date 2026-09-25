@@ -17,7 +17,7 @@ export def test [path: string, ...args] {
 	let process_id = tg build --detach $path | str trim
 
 	# Wait for the process to finish.
-	tg wait $process_id
+	tg wait --source=index $process_id
 
 	tg index
 

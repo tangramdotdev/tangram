@@ -130,7 +130,7 @@ impl Session {
 			}
 			Ok::<_, tg::Error>(None)
 		};
-		let region_future = async {
+		let lookup_future = async {
 			if let Some(local) = &locations.local
 				&& let Some(output) = self
 					.try_get_object_regions(
@@ -146,9 +146,7 @@ impl Session {
 					)? {
 				return Ok(Some(output));
 			}
-			Ok(None)
-		};
-		let remote_future = async {
+
 			if let Some(output) = self
 				.try_get_object_remotes(
 					id,
@@ -166,13 +164,9 @@ impl Session {
 
 			Ok(None)
 		};
-		let mut futures = [
-			local_future.boxed(),
-			region_future.boxed(),
-			remote_future.boxed(),
-		]
-		.into_iter()
-		.collect::<FuturesUnordered<_>>();
+		let mut futures = [local_future.boxed(), lookup_future.boxed()]
+			.into_iter()
+			.collect::<FuturesUnordered<_>>();
 		let mut error = None;
 		while let Some(result) = futures.next().await {
 			match result {

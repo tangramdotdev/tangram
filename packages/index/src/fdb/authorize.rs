@@ -119,11 +119,31 @@ impl Index {
 				Output::Ids { after, ids }
 			},
 			Request::Id { id } => {
-				let id = crate::fdb::propagate!(
+				let mut resolved = crate::fdb::propagate!(
 					Self::try_resolve_id_with_transaction(txn, subspace, id).await
 				);
+				// A parent or sandbox can reference a process whose record is stored elsewhere.
+				if resolved.is_none() && id.kind() == tg::id::Kind::Process {
+					for kind in [
+						crate::fdb::Kind::ChildProcess,
+						crate::fdb::Kind::ProcessSandbox,
+					] {
+						let prefix =
+							Self::pack(subspace, &(kind.to_i32().unwrap(), id.to_bytes().as_ref()));
+						let (keys, _) = crate::fdb::propagate!(
+							Self::get_authorization_key_page_with_transaction(
+								txn, subspace, &prefix, None, 1
+							)
+							.await
+						);
+						if !keys.is_empty() {
+							resolved = Some(id.clone());
+							break;
+						}
+					}
+				}
 
-				Output::Id(id)
+				Output::Id(resolved)
 			},
 			Request::MemberGroups {
 				after,
@@ -623,42 +643,6 @@ impl Index {
 				.and_then(|data| data.data.owner);
 
 				Output::SandboxOwner(owner)
-			},
-			Request::SandboxProcesses {
-				after,
-				limit,
-				sandbox,
-			} => {
-				let sandbox = sandbox.to_bytes();
-				let prefix = Self::pack(
-					subspace,
-					&(Kind::SandboxProcess.to_i32().unwrap(), sandbox.as_ref()),
-				);
-				let (keys, after) = crate::fdb::propagate!(
-					Self::get_authorization_key_page_with_transaction(
-						txn,
-						subspace,
-						&prefix,
-						after.as_deref(),
-						*limit,
-					)
-					.await
-				);
-				let ids = keys
-					.into_iter()
-					.map(|key| {
-						let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcess {
-							process, ..
-						}) = key
-						else {
-							return Err(tg::error!("unexpected key type"));
-						};
-
-						Ok(tg::Id::from(process))
-					})
-					.collect::<tg::Result<Vec<_>>>()?;
-
-				Output::Ids { after, ids }
 			},
 			Request::Specifier { specifier } => {
 				let id = crate::fdb::propagate!(

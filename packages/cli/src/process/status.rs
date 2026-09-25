@@ -13,6 +13,10 @@ pub struct Args {
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
 
+	/// Select the source of process state.
+	#[arg(long, default_value = "auto", value_parser = super::source_parser())]
+	pub source: tg::process::Source,
+
 	#[command(flatten)]
 	pub timeout: Timeout,
 }
@@ -53,6 +57,7 @@ impl Cli {
 		let process = tg::Process::<tg::Value>::with_referent(process);
 		let options = tg::process::status::Options {
 			location,
+			source: args.source,
 			timeout: args.timeout.get(),
 		};
 		let stream = process

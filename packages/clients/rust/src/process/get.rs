@@ -23,6 +23,9 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub metadata: bool,
 
+	#[serde(default, skip_serializing_if = "tg::process::Source::is_auto")]
+	pub source: tg::process::Source,
+
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	pub tokens: tg::authorization::Tokens,
 }
@@ -51,6 +54,7 @@ pub struct Options {
 	pub availability: bool,
 	pub location: Option<tg::location::Arg>,
 	pub metadata: bool,
+	pub source: tg::process::Source,
 }
 
 impl<O> tg::Process<O> {
@@ -100,6 +104,7 @@ impl<O> tg::Process<O> {
 			availability: options.availability,
 			location: options.location.or_else(|| self.location()),
 			metadata: options.metadata,
+			source: options.source,
 			tokens: self.tokens(),
 		};
 		let Some(output) = handle.try_get_process(id, arg).await? else {

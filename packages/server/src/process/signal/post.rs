@@ -75,7 +75,7 @@ impl Session {
 		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<()>> {
 		let Some(output) = self
-			.try_get_process_local(id, false, false, tokens)
+			.try_get_process_local(id, false, false, tokens, tg::process::Source::Auto)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
 		else {
@@ -134,8 +134,7 @@ impl Session {
 		let response = if let Some(control_sender) = control_sender {
 			control_sender.request(request).await?
 		} else {
-			self.send_process_control_request(id, request, options)
-				.await??
+			self.request_process_control(id, request, options).await??
 		};
 		response
 			.try_unwrap_signal()

@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Revoking group membership hides a group-owned process from the former member, while the builder keeps access through their own process grant.
+# Revoking group membership removes a group process grant while the builder keeps independent access.
 
 let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
@@ -12,12 +12,14 @@ tg --token $alice.token group create team
 tg --token $alice.token group members add team $bob.user.id
 tg --token $alice.token group members add team $carol.user.id
 
-# Bob builds a process whose sandbox is owned by the team; the process record's visibility follows the team-owned sandbox.
+# Bob builds a process and explicitly grants the team access.
 let path = artifact { tangram.ts: 'export default function () { return tg.file("revoked-visibility-team"); }' }
 let process = tg --token $bob.token build --detach --group team $path | str trim | split row '?' | first
 tg --token $bob.token wait $process | complete | ignore
 
-# Carol, a member, can read the team-owned process.
+tg --token $bob.token grant team process_subtree $process
+
+# Carol can read through the explicit group process grant.
 success (tg --token $carol.token get $process | complete) "a group member should read the group-owned process"
 
 # After Carol's membership is revoked, she can no longer read it.

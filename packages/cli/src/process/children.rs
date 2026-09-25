@@ -36,6 +36,10 @@ pub struct Options {
 	#[arg(long)]
 	pub size: Option<u64>,
 
+	/// Select the source of process state.
+	#[arg(long, default_value = "auto", value_parser = super::source_parser())]
+	pub source: tg::process::Source,
+
 	#[command(flatten)]
 	pub timeout: Timeout,
 }
@@ -96,6 +100,7 @@ impl Cli {
 			location,
 			position: options.position,
 			size: options.size,
+			source: options.source,
 			timeout: options.timeout.get(),
 		};
 		let stream = process

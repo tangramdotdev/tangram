@@ -125,7 +125,7 @@ impl Session {
 			},
 			server_subject: format!("processes.{id}.control.server"),
 		};
-		let response = self.server.start_control_request(arg).await?;
+		let response = self.server.send_control_request(arg).await?;
 		let mut response = std::pin::pin!(response);
 		loop {
 			tokio::select! {
@@ -149,11 +149,8 @@ impl Session {
 			retry: tangram_futures::retry::Options::default(),
 			timeout: Duration::from_secs(1),
 		};
-		let close = self.send_process_control_request(
-			id,
-			control::ServerRequestArg::Close(request_id),
-			options,
-		);
+		let close =
+			self.request_process_control(id, control::ServerRequestArg::Close(request_id), options);
 		tokio::time::timeout(Duration::from_secs(10), async {
 			let _ = futures::join!(close, response);
 		})

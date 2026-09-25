@@ -14,51 +14,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
-		if let Some(control) = self.try_get_process_control_runner_inner(id, arg.location.as_ref())
-		{
-			if control.data.status.is_finished() {
-				let output = tg::process::cancel::Output { released: false };
-				return Ok(Some(output));
-			}
-			let request = tg::process::control::ServerRequestArg::ReleaseLease(
-				tg::process::control::ReleaseLeaseServerRequestArg { lease: arg.lease },
-			);
-			crate::checkpoint!(self.server, "process.cancel.runner", process = %id).await;
-			let response = match control.control_sender.start(request).await {
-				Err(error) => Err(error),
-				Ok(response) => response.await,
-			};
-			let response = match response {
-				Err(error) => {
-					if self
-						.try_get_process_control_runner_inner(id, arg.location.as_ref())
-						.is_some_and(|control| control.data.status.is_finished())
-					{
-						let output = tg::process::cancel::Output { released: false };
-						return Ok(Some(output));
-					}
-					if self
-						.try_get_process_from_index(id)
-						.await?
-						.is_some_and(|process| {
-							process
-								.data
-								.as_ref()
-								.is_some_and(|data| data.status.is_finished())
-						}) {
-						let output = tg::process::cancel::Output { released: false };
-						return Ok(Some(output));
-					}
-					return Err(error);
-				},
-				Ok(response) => response?,
-			};
-			let response = response
-				.try_unwrap_release_lease()
-				.map_err(|_| tg::error!("expected a release process lease response"))?;
-			let output = tg::process::cancel::Output {
-				released: response.released,
-			};
+		if let Some(output) = self.try_cancel_process_runner(id, &arg).await? {
 			return Ok(Some(output));
 		}
 		let locations = self
@@ -97,76 +53,102 @@ impl Session {
 		Ok(None)
 	}
 
+	async fn try_cancel_process_runner(
+		&self,
+		id: &tg::process::Id,
+		arg: &tg::process::cancel::Arg,
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
+		let Some(control) = self.try_get_process_control_runner_inner(id, arg.location.as_ref())
+		else {
+			return Ok(None);
+		};
+		if control.data.status.is_finished() {
+			let output = tg::process::cancel::Output { released: false };
+			return Ok(Some(output));
+		}
+		crate::checkpoint!(self.server, "process.cancel.runner", process = %id).await;
+		self.cancel_process_with_control(id, arg.lease.clone(), Some(control.control_sender))
+			.boxed()
+			.await
+	}
+
 	pub(crate) async fn try_cancel_process_local(
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::cancel::Arg,
 	) -> tg::Result<Option<tg::process::cancel::Output>> {
+		self.cancel_process_with_control(id, arg.lease, None)
+			.boxed()
+			.await
+	}
+
+	async fn cancel_process_with_control(
+		&self,
+		id: &tg::process::Id,
+		lease: String,
+		control_sender: Option<super::control::local::Local>,
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
 		let request = tg::process::control::ServerRequestArg::ReleaseLease(
-			tg::process::control::ReleaseLeaseServerRequestArg { lease: arg.lease },
+			tg::process::control::ReleaseLeaseServerRequestArg { lease },
 		);
 		let options = crate::control::Options {
 			retry: tangram_futures::retry::Options::default(),
 			timeout: std::time::Duration::from_secs(10),
 		};
-		let release_future = async {
-			crate::checkpoint!(self.server, "process.cancel.control", process = %id).await;
-			self.send_process_control_request(id, request, options)
-				.await
-		}
-		.boxed();
-		let get_future = async {
-			loop {
-				let process = self.try_get_process_from_index(id).await;
-				crate::checkpoint!(self.server, "process.cancel.index", process = %id).await;
-				let Some(process) = process
-					.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-				else {
-					return Ok(None);
-				};
-				if process
-					.location
-					.as_ref()
-					.is_some_and(tg::Location::is_remote)
-				{
-					return Ok(None);
-				}
-				if process
-					.data
-					.as_ref()
-					.is_some_and(|data| data.status.is_finished())
-				{
-					let output = tg::process::cancel::Output { released: false };
-					return Ok(Some(output));
-				}
-				tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+		let runner = control_sender.is_some();
+		let response = if let Some(control_sender) = control_sender {
+			match control_sender.send_request(request).await {
+				Err(error) => Err(error),
+				Ok(response) => response.await,
 			}
-		}
-		.boxed();
-		let response = match future::select(pin!(release_future), pin!(get_future)).await {
-			future::Either::Left((response, _)) => response,
-			future::Either::Right((output, _)) => return output,
+		} else {
+			let wakeups = self
+				.create_process_status_wakeup_stream(id, self.context.stopper.clone(), None)
+				.await?;
+			let cancel_future = async {
+				crate::checkpoint!(self.server, "process.cancel.control", process = %id).await;
+				self.request_process_control(id, request, options).await
+			};
+			let get_future = self.wait_for_process_cancel_local(id, wakeups);
+			match future::select(pin!(cancel_future), pin!(get_future)).await {
+				future::Either::Left((response, _)) => response,
+				future::Either::Right((output, _)) => return output,
+			}
 		};
-		if response.is_err()
-			&& self
+		if response.is_err() {
+			if runner
+				&& self
+					.try_get_process_control_runner_inner(id, None)
+					.is_some_and(|control| control.data.status.is_finished())
+			{
+				let output = tg::process::cancel::Output { released: false };
+				return Ok(Some(output));
+			}
+			if self
 				.try_get_process_from_index(id)
 				.await?
 				.is_some_and(|process| {
-					!process
-						.location
-						.as_ref()
-						.is_some_and(tg::Location::is_remote)
+					(runner
+						|| !process
+							.location
+							.as_ref()
+							.is_some_and(tg::Location::is_remote))
 						&& process
 							.data
 							.as_ref()
 							.is_some_and(|data| data.status.is_finished())
 				}) {
-			let output = tg::process::cancel::Output { released: false };
-			return Ok(Some(output));
+				let output = tg::process::cancel::Output { released: false };
+				return Ok(Some(output));
+			}
 		}
 		let response = response
-			.map_err(|error| tg::error!(!error, %id, "failed to release the process lease"))?
-			.map_err(|error| tg::error!(!error, %id, "the release process lease request failed"))?;
+			.map_err(
+				|error| tg::error!(!error, %id, "failed to send the release process lease control request"),
+			)?
+			.map_err(
+				|error| tg::error!(!error, %id, "the release process lease control request failed"),
+			)?;
 		let output = response
 			.try_unwrap_release_lease()
 			.map_err(|_| tg::error!("expected a release process lease response"))?;
@@ -174,6 +156,40 @@ impl Session {
 			released: output.released,
 		};
 		Ok(Some(output))
+	}
+
+	async fn wait_for_process_cancel_local(
+		&self,
+		id: &tg::process::Id,
+		mut wakeups: futures::stream::BoxStream<'static, ()>,
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
+		loop {
+			let process = self.try_get_process_from_index(id).await;
+			crate::checkpoint!(self.server, "process.cancel.index", process = %id).await;
+			let Some(process) =
+				process.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
+			else {
+				return Ok(None);
+			};
+			if process
+				.location
+				.as_ref()
+				.is_some_and(tg::Location::is_remote)
+			{
+				return Ok(None);
+			}
+			if process
+				.data
+				.as_ref()
+				.is_some_and(|data| data.status.is_finished())
+			{
+				let output = tg::process::cancel::Output { released: false };
+				return Ok(Some(output));
+			}
+			if wakeups.next().await.is_none() {
+				return Err(tg::error!("the process status wakeup stream ended"));
+			}
+		}
 	}
 
 	async fn try_cancel_process_regions(

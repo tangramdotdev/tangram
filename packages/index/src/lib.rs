@@ -254,6 +254,11 @@ pub trait Index {
 		ids: &[tg::process::Id],
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
 
+	fn try_get_process_children_count(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<u64>>> + Send;
+
 	fn try_get_process_children(
 		&self,
 		id: &tg::process::Id,
@@ -291,10 +296,31 @@ pub trait Index {
 		runner: &tg::runner::Id,
 	) -> impl Future<Output = tg::Result<Vec<tg::sandbox::Id>>> + Send;
 
+	fn try_get_sandbox_processes_count(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<Option<u64>>> + Send;
+
+	fn try_get_sandbox_processes(
+		&self,
+		id: &tg::sandbox::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> impl Future<Output = tg::Result<Option<Vec<tg::process::Id>>>> + Send;
+
 	fn get_sandbox_processes(
 		&self,
-		sandbox: &tg::sandbox::Id,
-	) -> impl Future<Output = tg::Result<Vec<(tg::process::Id, crate::process::Process)>>> + Send;
+		id: &tg::sandbox::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> impl Future<Output = tg::Result<Vec<tg::process::Id>>> + Send {
+		self.try_get_sandbox_processes(id, position, length)
+			.map(|result| {
+				result.and_then(|option| {
+					option.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))
+				})
+			})
+	}
 
 	fn list_sandboxes(
 		&self,

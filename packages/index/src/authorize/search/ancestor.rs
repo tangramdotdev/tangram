@@ -447,7 +447,6 @@ impl Search {
 			| Read::ProcessObjectChildren { .. }
 			| Read::ProcessObjects { .. }
 			| Read::Resolve { .. }
-			| Read::SandboxProcesses { .. }
 			| Read::SubjectGrants { .. }
 			| Read::SubtreeObjectChildren { .. }
 			| Read::SubtreeProcessChildren { .. } => {
@@ -679,10 +678,6 @@ impl Search {
 					});
 				}
 			},
-			AncestorNodeRead::Process { .. } => {
-				pending.facts.process_sandbox =
-					output.into_process()?.and_then(|process| process.sandbox);
-			},
 			AncestorNodeRead::ResourceGrants { resource, .. } => {
 				let (after, grants) = output.into_grants()?;
 				grants_for_search.clone_from(&grants);
@@ -774,8 +769,7 @@ impl Search {
 				limit,
 				target: resource.clone(),
 			});
-		} else if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
-			reads.push(AncestorNodeRead::Process { process });
+		} else if resource.kind() == tg::id::Kind::Process {
 			reads.push(AncestorNodeRead::TargetTags {
 				after: None,
 				limit,
@@ -913,17 +907,7 @@ impl Search {
 				}
 				dependencies.extend(Self::tag_dependencies(facts, *permission));
 			},
-			tg::authorization::Permission::Process(process_permission) => {
-				if let Some(sandbox) = &facts.process_sandbox {
-					let permission = match process_permission {
-						tg::authorization::permission::process::Permission::Parent => {
-							tg::authorization::permission::sandbox::Permission::Write
-						},
-						_ => tg::authorization::permission::sandbox::Permission::Read,
-					};
-					let permission = tg::authorization::Permission::Sandbox(permission);
-					dependencies.push((tg::Id::from(sandbox.clone()), permission));
-				}
+			tg::authorization::Permission::Process(_) => {
 				dependencies.extend(Self::tag_dependencies(facts, *permission));
 			},
 			tg::authorization::Permission::Group(_)

@@ -308,6 +308,9 @@ pub struct PutNodeSandboxMessage {
 
 	#[tangram_serialize(id = 2)]
 	pub id: tg::sandbox::Id,
+
+	#[tangram_serialize(id = 3)]
+	pub processes: Vec<tg::process::Id>,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

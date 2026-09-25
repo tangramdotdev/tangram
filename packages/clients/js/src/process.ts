@@ -369,7 +369,11 @@ export class Process<O extends tg.Value = tg.Value> {
 			return null;
 		}
 		await this.load();
-		let output = await tg.client.getSandbox(this.#state!.sandbox);
+		let sandbox = this.#state!.sandbox;
+		if (sandbox === null) {
+			return null;
+		}
+		let output = await tg.client.getSandbox(sandbox);
 		return output.data;
 	}
 
@@ -1355,7 +1359,7 @@ export namespace Process {
 		log: tg.Blob | null;
 		output?: tg.Value;
 		retry: boolean;
-		sandbox: string;
+		sandbox: string | null;
 		startedAt: number | null;
 		status: tg.Process.Status;
 		stderr: tg.Process.Stdio;
@@ -1494,7 +1498,6 @@ export namespace Process {
 				command,
 				created_at: value.createdAt,
 				host: value.host,
-				sandbox: value.sandbox,
 				status: value.status,
 			};
 			if (value.actualChecksum !== null) {
@@ -1530,6 +1533,9 @@ export namespace Process {
 			}
 			if (value.retry) {
 				output.retry = value.retry;
+			}
+			if (value.sandbox !== null) {
+				output.sandbox = value.sandbox;
 			}
 			if (value.startedAt !== null) {
 				output.started_at = value.startedAt;
@@ -1587,7 +1593,7 @@ export namespace Process {
 							})()
 						: null,
 				retry: data.retry ?? false,
-				sandbox: data.sandbox,
+				sandbox: data.sandbox ?? null,
 				startedAt: data.started_at ?? null,
 				status: data.status,
 				stderr: data.stderr ?? "inherit",
@@ -1653,7 +1659,7 @@ export namespace Process {
 		log?: string | null;
 		output?: tg.Value.Data;
 		retry?: boolean;
-		sandbox: string;
+		sandbox?: string | null;
 		started_at?: number | null;
 		status: tg.Process.Status;
 		stderr?: tg.Process.Stdio;
@@ -1744,10 +1750,13 @@ export namespace Process {
 		output?: tg.Value;
 	};
 
+	export type Source = "auto" | "index" | "runner";
+
 	export namespace Wait {
 		export type Arg = {
 			lease?: string | null;
 			location?: tg.Location.Arg | null;
+			source?: tg.Process.Source;
 			tokens?: tg.Authorization.Tokens | null;
 		};
 

@@ -308,14 +308,14 @@ impl Session {
 
 						Ok(None)
 					};
-					let remote_future = self.try_get_object_regions(
+					let region_future = self.try_get_object_regions(
 						&object.node,
 						&regions,
 						metadata,
 						false,
 						&object.options.tokens,
 					);
-					let mut futures = [local_future.boxed(), remote_future.boxed()]
+					let mut futures = [local_future.boxed(), region_future.boxed()]
 						.into_iter()
 						.collect::<FuturesUnordered<_>>();
 					let mut error = None;
@@ -724,14 +724,15 @@ impl Session {
 
 						Ok(None)
 					};
-					let remote_future = self.try_get_process_regions(
+					let region_future = self.try_get_process_regions(
 						&process.node,
 						&regions,
 						metadata,
 						false,
 						&process.options.tokens,
+						tg::process::Source::Auto,
 					);
-					let mut futures = [local_future.boxed(), remote_future.boxed()]
+					let mut futures = [local_future.boxed(), region_future.boxed()]
 						.into_iter()
 						.collect::<FuturesUnordered<_>>();
 					let mut error = None;

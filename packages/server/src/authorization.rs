@@ -240,10 +240,10 @@ impl Session {
 				&& match self.server.runner.state().try_get_process_sandbox(&process) {
 					Some(process_sandbox) => process_sandbox == *sandbox,
 					None => self
-						.try_get_process_local_inner(&process, false)
+						.try_get_process_local_inner(&process, false, tg::process::Source::Auto)
 						.boxed()
 						.await?
-						.is_some_and(|output| output.data.sandbox == *sandbox),
+						.is_some_and(|output| output.data.sandbox.as_ref() == Some(sandbox)),
 				} {
 				let output = Output {
 					expires_at: None,

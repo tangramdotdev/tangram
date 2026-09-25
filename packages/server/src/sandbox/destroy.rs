@@ -16,20 +16,8 @@ impl Session {
 		id: &tg::sandbox::Id,
 		arg: tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
-		if let Some(control_sender) =
-			self.try_get_sandbox_control_runner_inner(id, arg.location.as_ref())
-			&& self
-				.authorize_sandbox_runner(
-					id,
-					&[],
-					tg::authorization::permission::sandbox::Permission::Write,
-				)
-				.await?
-		{
-			return self
-				.destroy_sandbox_with_control(id, arg.error, Some(control_sender))
-				.boxed()
-				.await;
+		if let Some(output) = self.try_destroy_sandbox_runner(id, &arg).await? {
+			return Ok(Some(output));
 		}
 		let locations = self
 			.locations(arg.location.as_ref())
@@ -68,44 +56,41 @@ impl Session {
 		Ok(None)
 	}
 
-	pub(crate) async fn destroy_sandbox_when_available(
+	async fn try_destroy_sandbox_runner(
 		&self,
 		id: &tg::sandbox::Id,
-		arg: tg::sandbox::destroy::Arg,
-		connection_future: super::ConnectionFuture,
-	) -> tg::Result<()> {
-		match self.try_destroy_sandbox(id, arg.clone()).await {
-			Ok(Some(_)) => return Ok(()),
-			Ok(None) => {},
-			Err(error) => {
-				tracing::error!(
-					error = %error.trace(),
-					%id,
-					"failed to destroy the sandbox before its control connection"
-				);
-			},
+		arg: &tg::sandbox::destroy::Arg,
+	) -> tg::Result<Option<bool>> {
+		let Some(runner) = self.try_get_sandbox_runner_inner(id, arg.location.as_ref()) else {
+			return Ok(None);
+		};
+		if !self
+			.authorize_sandbox_runner(
+				id,
+				&[],
+				tg::authorization::permission::sandbox::Permission::Write,
+			)
+			.await?
+		{
+			return Ok(None);
 		}
-		let timeout = self.server.config.scheduler.create_sandbox_timeout;
-		tokio::time::timeout(timeout, connection_future)
-			.await
-			.map_err(|_| {
-				tg::error!(
-					%id,
-					"timed out waiting for the sandbox control connection before destroying it"
-				)
-			})??;
-		let output = self
-			.try_destroy_sandbox(id, arg)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?;
-		if output.is_none() {
-			return Err(tg::error!(
-				%id,
-				"failed to find the sandbox after its control connection"
-			));
+		let Some((status, control_sender)) = self
+			.server
+			.runner
+			.state()
+			.sandboxes()
+			.get(runner.index)
+			.map(|sandbox| (sandbox.status, sandbox.control_sender.clone()))
+		else {
+			return Ok(None);
+		};
+		if status.is_destroyed() {
+			return Ok(Some(false));
 		}
-
-		Ok(())
+		crate::checkpoint!(self.server, "sandbox.destroy.runner", sandbox = %id).await;
+		self.destroy_sandbox_with_control(id, arg.error.clone(), Some(control_sender))
+			.boxed()
+			.await
 	}
 
 	pub(crate) async fn try_destroy_sandbox_local(
@@ -159,20 +144,57 @@ impl Session {
 			retry: tangram_futures::retry::Options::default(),
 			timeout: std::time::Duration::from_secs(10),
 		};
+		let runner = control_sender.is_some();
 		let response = if let Some(control_sender) = control_sender {
-			control_sender.request(request).await
+			match control_sender.send_request(request).await {
+				Err(error) => Err(error),
+				Ok(response) => response.await,
+			}
 		} else {
-			let destroy_future = self.send_sandbox_control_request(id, request, options);
-			let status_future = self.try_get_sandbox_status_local(id);
-			match future::select(pin!(destroy_future), pin!(status_future)).await {
+			let wakeups = self
+				.create_sandbox_status_wakeup_stream(id, self.context.stopper.clone(), None)
+				.await?;
+			let destroy_future = async {
+				crate::checkpoint!(self.server, "sandbox.destroy.control", sandbox = %id).await;
+				self.request_sandbox_control(id, request, options)
+					.boxed()
+					.await
+			};
+			let get_future = self.wait_for_sandbox_destroy_local(id, wakeups);
+			match future::select(pin!(destroy_future), pin!(get_future)).await {
 				future::Either::Left((response, _)) => response,
-				future::Either::Right((status, destroy_future)) => match status? {
-					Some(status) if status.is_destroyed() => return Ok(Some(false)),
-					Some(_) => destroy_future.await,
-					None => return Ok(None),
-				},
+				future::Either::Right((output, _)) => return output,
 			}
 		};
+		if response.is_err() {
+			if runner
+				&& self
+					.server
+					.runner
+					.state()
+					.sandboxes()
+					.get_by_id(id)
+					.is_some_and(|sandbox| sandbox.status.is_destroyed())
+			{
+				return Ok(Some(false));
+			}
+			if self
+				.try_get_sandbox_from_index(id)
+				.await?
+				.is_some_and(|sandbox| {
+					(runner
+						|| !sandbox
+							.location
+							.as_ref()
+							.is_some_and(tg::Location::is_remote))
+						&& sandbox
+							.data
+							.as_ref()
+							.is_some_and(|output| output.data.status.is_destroyed())
+				}) {
+				return Ok(Some(false));
+			}
+		}
 		let response = response
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to send the destroy sandbox control request"),
@@ -184,6 +206,39 @@ impl Session {
 			.try_unwrap_destroy()
 			.map_err(|_| tg::error!(%id, "expected a destroy sandbox response"))?;
 		Ok(Some(response.destroyed))
+	}
+
+	async fn wait_for_sandbox_destroy_local(
+		&self,
+		id: &tg::sandbox::Id,
+		mut wakeups: futures::stream::BoxStream<'static, ()>,
+	) -> tg::Result<Option<bool>> {
+		loop {
+			let sandbox = self.try_get_sandbox_from_index(id).await;
+			crate::checkpoint!(self.server, "sandbox.destroy.index", sandbox = %id).await;
+			let Some(sandbox) =
+				sandbox.map_err(|error| tg::error!(!error, %id, "failed to get the sandbox"))?
+			else {
+				return Ok(None);
+			};
+			if sandbox
+				.location
+				.as_ref()
+				.is_some_and(tg::Location::is_remote)
+			{
+				return Ok(None);
+			}
+			if sandbox
+				.data
+				.as_ref()
+				.is_some_and(|output| output.data.status.is_destroyed())
+			{
+				return Ok(Some(false));
+			}
+			if wakeups.next().await.is_none() {
+				return Err(tg::error!("the sandbox status wakeup stream ended"));
+			}
+		}
 	}
 
 	async fn try_destroy_sandbox_regions(
@@ -293,6 +348,46 @@ impl Session {
 			return Ok(None);
 		};
 		Ok(Some(destroyed))
+	}
+
+	pub(crate) async fn destroy_sandbox_when_available(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::destroy::Arg,
+		connection_future: super::ConnectionFuture,
+	) -> tg::Result<()> {
+		match self.try_destroy_sandbox(id, arg.clone()).await {
+			Ok(Some(_)) => return Ok(()),
+			Ok(None) => {},
+			Err(error) => {
+				tracing::error!(
+					error = %error.trace(),
+					%id,
+					"failed to destroy the sandbox before its control connection"
+				);
+			},
+		}
+		let timeout = self.server.config.scheduler.create_sandbox_timeout;
+		tokio::time::timeout(timeout, connection_future)
+			.await
+			.map_err(|_| {
+				tg::error!(
+					%id,
+					"timed out waiting for the sandbox control connection before destroying it"
+				)
+			})??;
+		let output = self
+			.try_destroy_sandbox(id, arg)
+			.await
+			.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?;
+		if output.is_none() {
+			return Err(tg::error!(
+				%id,
+				"failed to find the sandbox after its control connection"
+			));
+		}
+
+		Ok(())
 	}
 
 	pub(crate) async fn try_destroy_sandbox_request(

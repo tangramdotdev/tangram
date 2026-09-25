@@ -44,12 +44,6 @@ enum DescendantTask {
 		permission: tg::authorization::permission::process::Permission,
 		process: tg::process::Id,
 	},
-	SandboxProcesses {
-		after: Option<Vec<u8>>,
-		depth: usize,
-		permission: tg::authorization::permission::sandbox::Permission,
-		sandbox: tg::sandbox::Id,
-	},
 	Subject {
 		depth: usize,
 		subject: tg::authorization::Subject,
@@ -250,21 +244,6 @@ impl Search {
 						process,
 					});
 				},
-				DescendantTask::SandboxProcesses {
-					after,
-					depth,
-					permission,
-					sandbox,
-				} => {
-					let limit = self.budget.config.page_size;
-					reads.push(Read::SandboxProcesses {
-						after,
-						depth,
-						limit,
-						permission,
-						sandbox,
-					});
-				},
 				DescendantTask::Subject { depth, subject } => {
 					self.expand_subject(depth, subject);
 				},
@@ -317,14 +296,6 @@ impl Search {
 			} => Some((
 				process.clone().into(),
 				tg::authorization::Permission::Process(*permission),
-			)),
-			Read::SandboxProcesses {
-				sandbox,
-				permission,
-				..
-			} => Some((
-				sandbox.clone().into(),
-				tg::authorization::Permission::Sandbox(*permission),
 			)),
 			Read::OwnerSandboxes { owner, .. } => owner.to_id().and_then(|resource| {
 				crate::authorize::write_permission_for_resource(&resource)
@@ -468,50 +439,6 @@ impl Search {
 				self.queue_fallback(depth, fallback);
 
 				return Ok(());
-			},
-			Read::SandboxProcesses {
-				depth,
-				permission,
-				sandbox,
-				..
-			} => {
-				let (after, processes) = output.into_ids()?;
-				let continuation = after.map(|after| DescendantTask::SandboxProcesses {
-					after: Some(after),
-					depth,
-					permission,
-					sandbox,
-				});
-				let permissions = match permission {
-					tg::authorization::permission::sandbox::Permission::Read => vec![
-						tg::authorization::permission::process::Permission::Node,
-						tg::authorization::permission::process::Permission::NodeCommand,
-						tg::authorization::permission::process::Permission::NodeError,
-						tg::authorization::permission::process::Permission::NodeLog,
-						tg::authorization::permission::process::Permission::NodeOutput,
-						tg::authorization::permission::process::Permission::Subtree,
-						tg::authorization::permission::process::Permission::SubtreeCommand,
-						tg::authorization::permission::process::Permission::SubtreeError,
-						tg::authorization::permission::process::Permission::SubtreeLog,
-						tg::authorization::permission::process::Permission::SubtreeOutput,
-					],
-					tg::authorization::permission::sandbox::Permission::Write => {
-						vec![tg::authorization::permission::process::Permission::Parent]
-					},
-				};
-				let neighbors = processes
-					.into_iter()
-					.flat_map(|process| {
-						permissions.iter().map(move |permission| {
-							(
-								process.clone(),
-								tg::authorization::Permission::Process(*permission),
-							)
-						})
-					})
-					.collect();
-
-				(depth, depth + 1, continuation, neighbors)
 			},
 			Read::SubjectGrants { depth, subject, .. } => {
 				let (after, grants) = output.into_grants()?;
@@ -846,7 +773,8 @@ impl Search {
 			},
 			tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Node,
-			) => {},
+			)
+			| tg::authorization::Permission::Sandbox(_) => {},
 			tg::authorization::Permission::Process(permission) => {
 				let Ok(process) = tg::process::Id::try_from(resource.clone()) else {
 					self.exhausted = true;
@@ -891,21 +819,6 @@ impl Search {
 						self.queue_fallback(depth, fallback);
 					}
 				}
-			},
-			tg::authorization::Permission::Sandbox(permission) => {
-				let Ok(sandbox) = tg::sandbox::Id::try_from(resource) else {
-					self.exhausted = true;
-					return;
-				};
-				self.queues
-					.entry(depth)
-					.or_default()
-					.push_back(DescendantTask::SandboxProcesses {
-						after: None,
-						depth,
-						permission,
-						sandbox,
-					});
 			},
 			tg::authorization::Permission::Sync(
 				tg::authorization::permission::sync::Permission::Read,
@@ -1243,21 +1156,6 @@ impl Search {
 					depth,
 					permission,
 					process,
-				},
-			),
-			Read::SandboxProcesses {
-				after,
-				depth,
-				permission,
-				sandbox,
-				..
-			} => (
-				depth,
-				DescendantTask::SandboxProcesses {
-					after,
-					depth,
-					permission,
-					sandbox,
 				},
 			),
 			Read::SubjectGrants {

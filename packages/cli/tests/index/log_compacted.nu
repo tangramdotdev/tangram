@@ -12,7 +12,7 @@ let path = artifact {
 	'#
 }
 let id = tg build --detach $path | str trim
-tg wait $id
+tg wait --source=index $id
 
 timeout 10 tg index
 

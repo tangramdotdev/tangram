@@ -19,6 +19,10 @@ pub struct Options {
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	/// Select the source of process state.
+	#[arg(long, default_value = "auto", value_parser = super::source_parser())]
+	pub source: tg::process::Source,
 }
 
 impl Cli {
@@ -42,7 +46,10 @@ impl Cli {
 		let id = process.node.clone();
 		let location = options.locations.get_for_options(&process);
 		let process = tg::Process::<tg::Value>::with_referent(process);
-		let options_ = tg::process::wait::Options { location };
+		let options_ = tg::process::wait::Options {
+			location,
+			source: options.source,
+		};
 		let output = process
 			.wait_with_handle(&client, options_)
 			.await

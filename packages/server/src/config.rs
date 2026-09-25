@@ -27,6 +27,8 @@ pub struct Config {
 
 	pub checkouts: bool,
 
+	pub control: Control,
+
 	pub database: Database,
 
 	pub directory: Option<PathBuf>,
@@ -365,6 +367,12 @@ pub struct CheckinDirectory {
 	pub max_branch_children: usize,
 
 	pub max_leaf_entries: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Control {
+	/// The maximum time to wait for a live process or sandbox read response.
+	pub read_timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -975,6 +983,10 @@ pub struct Sandbox {
 
 	pub nice: u8,
 
+	pub process_grant_time_to_live: Duration,
+
+	pub process_grant_time_to_touch: Duration,
+
 	pub processes_wakeup_interval: Duration,
 
 	pub status_wakeup_interval: Duration,
@@ -1327,6 +1339,7 @@ impl Default for Config {
 			cache: Cache::default(),
 			checkin: Checkin::default(),
 			checkouts: true,
+			control: Control::default(),
 			database: Database::default(),
 			directory: None,
 			http: Http::default(),
@@ -1466,6 +1479,14 @@ impl Default for CheckinDirectory {
 		Self {
 			max_branch_children: 128,
 			max_leaf_entries: 1024,
+		}
+	}
+}
+
+impl Default for Control {
+	fn default() -> Self {
+		Self {
+			read_timeout: Duration::from_secs(1),
 		}
 	}
 }
@@ -1915,6 +1936,8 @@ impl Default for Sandbox {
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
+			process_grant_time_to_live: default_process_grant_time_to_live(),
+			process_grant_time_to_touch: default_time_to_touch(),
 			processes_wakeup_interval: Duration::from_mins(1),
 			status_wakeup_interval: Duration::from_mins(1),
 			time_to_live: default_time_to_live(),

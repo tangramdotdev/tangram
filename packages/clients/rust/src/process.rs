@@ -16,6 +16,7 @@ pub use self::{
 	metadata::Metadata,
 	run::{run, run_with_handle},
 	signal::Signal,
+	source::Source,
 	spawn::{spawn, spawn_with_handle},
 	state::State,
 	status::Status,
@@ -43,6 +44,7 @@ pub mod metadata;
 pub mod put;
 pub mod run;
 pub mod signal;
+pub mod source;
 pub mod spawn;
 pub mod state;
 pub mod status;

@@ -37,9 +37,15 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
+	#[serde(default, skip_serializing_if = "tg::sandbox::Source::is_auto")]
+	pub source: tg::sandbox::Source,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	pub timeout: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone, Debug, derive_more::TryUnwrap)]
@@ -50,6 +56,7 @@ pub enum Event {
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
+	pub source: tg::sandbox::Source,
 	pub timeout: Option<Duration>,
 }
 
@@ -74,6 +81,8 @@ impl tg::Sandbox {
 
 		let arg = tg::sandbox::status::Arg {
 			location: self.location(),
+			source: options.source,
+			tokens: self.tokens(),
 			timeout: options.timeout,
 		};
 		let stream = handle.get_sandbox_status(self.id(), arg).await?;

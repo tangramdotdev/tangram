@@ -12,6 +12,10 @@ pub struct Args {
 
 	#[arg(index = 1)]
 	pub reference: tg::Reference,
+
+	/// Select the source of process or sandbox state.
+	#[arg(long, default_value = "auto", value_parser = crate::process::source_parser())]
+	pub source: tg::process::Source,
 }
 
 impl Cli {
@@ -32,6 +36,7 @@ impl Cli {
 				let options = crate::process::wait::Options {
 					locations,
 					print: args.print,
+					source: args.source,
 				};
 				self.command_process_wait_inner(process, options).await?;
 			},
@@ -41,6 +46,7 @@ impl Cli {
 				let options = crate::sandbox::wait::Options {
 					locations,
 					print: args.print,
+					source: args.source,
 				};
 				self.command_sandbox_wait_inner(sandbox, options).await?;
 			},

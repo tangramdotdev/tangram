@@ -465,6 +465,7 @@ impl Session {
 			data: Some(data),
 			id: id.clone(),
 			location: Some(location),
+			processes: None,
 			runner,
 			touched_at: created_at,
 		};
@@ -594,6 +595,76 @@ impl Session {
 		Ok((output, stream))
 	}
 
+	pub(crate) async fn request_sandbox_control(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::ServerRequestArg,
+		options: crate::control::Options,
+	) -> tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>> {
+		self.send_sandbox_control_request(id, arg, options)
+			.boxed()
+			.await?
+			.await
+	}
+
+	pub(crate) async fn send_sandbox_control_request(
+		&self,
+		id: &tg::sandbox::Id,
+		arg: tg::sandbox::control::ServerRequestArg,
+		options: crate::control::Options,
+	) -> tg::Result<
+		futures::future::BoxFuture<
+			'static,
+			tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>>,
+		>,
+	> {
+		let kind = match &arg {
+			tg::sandbox::control::ServerRequestArg::Destroy(_) => "destroy",
+			tg::sandbox::control::ServerRequestArg::Get(_) => "get",
+			tg::sandbox::control::ServerRequestArg::GetProcesses(_) => "get_processes",
+			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => "spawn_process",
+		};
+		crate::checkpoint!(self.server, "sandbox.control.request", sandbox = %id, kind).await;
+		let request_id = crate::control::id();
+		let request = ServerMessage(tg::sandbox::control::ServerMessage::Request(
+			tg::sandbox::control::ServerRequest {
+				arg,
+				id: request_id.clone(),
+			},
+		));
+		let arg = crate::control::SendControlRequestArg {
+			ack: |id| {
+				ServerMessage(tg::sandbox::control::ServerMessage::Ack(
+					tg::sandbox::control::ServerAck { id },
+				))
+			},
+			client_subject: format!("sandboxes.{id}.control.client.{request_id}"),
+			is_ack: |message: &ClientMessage| {
+				matches!(&message.0, tg::sandbox::control::ClientMessage::Ack(_))
+			},
+			marker: std::marker::PhantomData,
+			options,
+			request,
+			response: |message: ClientMessage| {
+				let ClientMessage(tg::sandbox::control::ClientMessage::Response(message)) = message
+				else {
+					return Ok(None);
+				};
+				if let Some(error) = message.error {
+					let error = tg::Error::try_from(error)
+						.map_err(|source| tg::error!(!source, "failed to deserialize the error"))?;
+					return Ok(Some((message.id, Err(error))));
+				}
+				let Some(output) = message.output else {
+					return Err(tg::error!("missing sandbox control response output"));
+				};
+				Ok(Some((message.id, Ok(output))))
+			},
+			server_subject: format!("sandboxes.{id}.control.server"),
+		};
+		self.server.send_control_request(arg).await
+	}
+
 	pub(crate) async fn get_sandbox_control_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
@@ -653,59 +724,6 @@ impl Session {
 			.unwrap();
 
 		Ok(response)
-	}
-
-	pub(crate) async fn send_sandbox_control_request(
-		&self,
-		sandbox: &tg::sandbox::Id,
-		arg: tg::sandbox::control::ServerRequestArg,
-		options: crate::control::Options,
-	) -> tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>> {
-		let kind = match &arg {
-			tg::sandbox::control::ServerRequestArg::Destroy(_) => "destroy",
-			tg::sandbox::control::ServerRequestArg::Get(_) => "get",
-			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => "spawn_process",
-		};
-		crate::checkpoint!(self.server, "sandbox.control.request", sandbox = %sandbox, kind).await;
-		let id = crate::control::id();
-		let request =
-			tg::sandbox::control::ServerMessage::Request(tg::sandbox::control::ServerRequest {
-				arg,
-				id: id.clone(),
-			});
-		let request = ServerMessage(request);
-		self.server
-			.send_control_request(crate::control::SendControlRequestArg {
-				ack: |id| {
-					ServerMessage(tg::sandbox::control::ServerMessage::Ack(
-						tg::sandbox::control::ServerAck { id },
-					))
-				},
-				client_subject: format!("sandboxes.{sandbox}.control.client.{id}"),
-				is_ack: |message: &ClientMessage| {
-					matches!(&message.0, tg::sandbox::control::ClientMessage::Ack(_))
-				},
-				marker: std::marker::PhantomData,
-				options,
-				request,
-				response: |message: ClientMessage| {
-					let tg::sandbox::control::ClientMessage::Response(message) = message.0 else {
-						return Ok(None);
-					};
-					if let Some(error) = message.error {
-						let error = tg::Error::try_from(error).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the error")
-						})?;
-						return Ok(Some((message.id, Err(error))));
-					}
-					let Some(output) = message.output else {
-						return Err(tg::error!("missing sandbox control response output"));
-					};
-					Ok(Some((message.id, Ok(output))))
-				},
-				server_subject: format!("sandboxes.{sandbox}.control.server"),
-			})
-			.await
 	}
 }
 

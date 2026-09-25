@@ -27,6 +27,10 @@ pub struct Options {
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	/// Select the source of process state.
+	#[arg(long, default_value = "auto", value_parser = super::source_parser())]
+	pub source: tg::process::Source,
 }
 
 impl Cli {
@@ -54,6 +58,7 @@ impl Cli {
 			availability: options.availability,
 			location,
 			metadata: options.metadata,
+			source: options.source,
 		};
 		let output = process
 			.get_with_handle(&client, options_)

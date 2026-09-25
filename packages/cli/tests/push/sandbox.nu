@@ -19,9 +19,9 @@ let path = artifact {
 	',
 }
 let process = tg build --detach $path | str trim
-tg wait $process
+tg wait --source=index $process
 let sandbox = tg get $process | from json | get sandbox
-tg wait $sandbox
+tg wait --source=index $sandbox
 tg index
 
 tg push $sandbox
@@ -30,6 +30,12 @@ assert equal $remote_sandbox.data.id $sandbox
 assert equal $remote_sandbox.data.status destroyed
 assert (($remote_sandbox | get --optional tokens.local) != null) "sandbox get should return a token"
 failure (tg --url $remote.url --token $alice.token process get $process | complete)
+
+# The sandbox retains its ordered process IDs even before those process records are transferred.
+let socket = $remote.url | str replace 'http+unix://' '' | url decode
+let output = http get --raw --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/sandboxes/($sandbox)/processes?source=index'
+let processes = $output | lines | where { $in starts-with 'data: ' } | each { str substring 6.. | from json } | get data | flatten
+assert equal $processes [$process]
 
 tg push --sandbox-processes $sandbox
 success (tg --url $remote.url --token $alice.token process get $process | complete)
