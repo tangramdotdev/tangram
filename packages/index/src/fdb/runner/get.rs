@@ -11,7 +11,7 @@ impl Index {
 	pub async fn get_runner_sandboxes(
 		&self,
 		runner: &tg::runner::Id,
-	) -> tg::Result<Vec<tg::sandbox::Id>> {
+	) -> tg::Result<Vec<crate::runner::Sandbox>> {
 		let request = crate::read::Request::GetRunnerSandboxes {
 			runner: runner.clone(),
 		};
@@ -27,7 +27,7 @@ impl Index {
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		runner: &tg::runner::Id,
-	) -> tg::Result<ControlFlow<Vec<tg::sandbox::Id>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<Vec<crate::runner::Sandbox>, fdb::FdbError>> {
 		let runner = runner.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -46,6 +46,13 @@ impl Index {
 				let Key::Runner(crate::fdb::runner::Key::RunnerSandbox { sandbox, .. }) = key
 				else {
 					return Err(tg::error!("unexpected key type"));
+				};
+				let attempt = std::str::from_utf8(entry.value())
+					.map_err(|error| tg::error!(!error, "invalid runner sandbox attempt"))?
+					.to_owned();
+				let sandbox = crate::runner::Sandbox {
+					attempt,
+					id: sandbox,
 				};
 				Ok(sandbox)
 			})

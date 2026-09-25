@@ -273,6 +273,8 @@ impl Session {
 		{
 			output.location = Some(location);
 		}
+		let cached = output.as_ref().is_some_and(|output| output.cached);
+		crate::checkpoint!(self.server, "process.spawn.lease.guard", cached).await;
 		let mut lease_guard = output
 			.as_ref()
 			.and_then(|output| lease::LeaseGuard::new(self, output));

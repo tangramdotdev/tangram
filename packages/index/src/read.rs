@@ -106,7 +106,7 @@ pub(crate) enum Response {
 	GetIndexers(Vec<crate::indexer::Indexer>),
 	LogCompactionBatch(Vec<crate::log::Entry>),
 	GetRequesterSubjects(Vec<tg::authorization::Subject>),
-	GetRunnerSandboxes(Vec<tg::sandbox::Id>),
+	GetRunnerSandboxes(Vec<crate::runner::Sandbox>),
 	GetSandboxProcesses(Vec<(tg::process::Id, crate::process::Process)>),
 	GetTransactionId(u64),
 	ListSandboxes(Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>),

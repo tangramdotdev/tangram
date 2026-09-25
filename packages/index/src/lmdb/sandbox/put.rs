@@ -50,11 +50,17 @@ impl Index {
 				.runner
 				.clone()
 				.or_else(|| existing.as_ref().and_then(|sandbox| sandbox.runner.clone()));
+			let attempt = arg.attempt.clone().or_else(|| {
+				existing
+					.as_ref()
+					.and_then(|sandbox| sandbox.attempt.clone())
+			});
 			let touched_at = existing.as_ref().map_or(arg.touched_at, |sandbox| {
 				sandbox.touched_at.max(arg.touched_at)
 			});
 			let sandbox = crate::sandbox::Sandbox {
 				account,
+				attempt,
 				created_at: existing
 					.as_ref()
 					.map_or(arg.created_at, |sandbox| sandbox.created_at),
@@ -194,7 +200,8 @@ impl Index {
 					sandbox: arg.id.clone(),
 				});
 				let key = Self::pack(subspace, &key);
-				db.put(transaction, &key, &[])
+				let value = sandbox.attempt.as_deref().unwrap_or_default().as_bytes();
+				db.put(transaction, &key, value)
 					.map_err(|error| tg::error!(!error, "failed to put the runner sandbox"))?;
 
 				let key = Key::Sandbox(crate::lmdb::sandbox::Key::SandboxRunner {

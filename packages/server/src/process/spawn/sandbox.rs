@@ -90,6 +90,7 @@ impl Session {
 			result = process_connection_future.as_mut() => result.map(Some),
 			result = sandbox_connection_future.as_mut() => {
 				result?;
+				crate::checkpoint!(self.server, "process.spawn.connection.wait", %scheduler).await;
 				process_connection_future.as_mut().await.map(Some)
 			},
 			result = self.scheduler_heartbeat_expired(scheduler) => result.map(|()| None),

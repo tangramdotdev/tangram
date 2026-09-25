@@ -209,8 +209,13 @@ impl Session {
 				id: id.clone(),
 				token,
 			};
-			let stream =
-				session.wait_for_sandbox_control_create(id, arg.location, arg.runner, stream);
+			let stream = session.wait_for_sandbox_control_create(
+				id,
+				arg.location,
+				arg.runner,
+				arg.attempt,
+				stream,
+			);
 			crate::checkpoint!(self.server, "sandbox.control.output", sandbox = %output.id).await;
 
 			return Ok((output, stream));
@@ -222,12 +227,13 @@ impl Session {
 			self.server.clock.unix_timestamp()?
 		};
 		let runner = arg.runner;
+		let attempt = arg.attempt;
 
 		// Prepare and submit initialization before accepting subsequent requests.
 		crate::checkpoint!(self.server, "sandbox.control.connect", sandbox = %id).await;
 		if let Some(data) = arg.data {
 			let sandbox = session
-				.prepare_sandbox_control_index_arg(&id, created_at, data, runner.clone())
+				.prepare_sandbox_control_index_arg(&id, created_at, data, runner.clone(), attempt)
 				.await?;
 			let arg = tangram_index::batch::Arg {
 				items: vec![tangram_index::batch::Item::PutSandbox(sandbox)],
@@ -361,6 +367,7 @@ impl Session {
 		id: tg::sandbox::Id,
 		location: Option<tg::location::Arg>,
 		runner: Option<tg::runner::Id>,
+		attempt: String,
 		mut stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>> {
 		let session = self.clone();
@@ -390,6 +397,7 @@ impl Session {
 				.await;
 			let tg::sandbox::control::CreateClientRequestArg { created_at, data } = create;
 			let arg = tg::sandbox::control::Arg {
+				attempt,
 				create: true,
 				created_at: Some(created_at),
 				data: Some(data),
@@ -433,6 +441,7 @@ impl Session {
 		created_at: i64,
 		data: tg::sandbox::control::Data,
 		runner: Option<tg::runner::Id>,
+		attempt: String,
 	) -> tg::Result<tangram_index::sandbox::put::Arg> {
 		let account = match data.arg.owner.as_ref() {
 			Some(owner) => self.usage_account(owner).await?,
@@ -461,6 +470,7 @@ impl Session {
 		};
 		let arg = tangram_index::sandbox::put::Arg {
 			account,
+			attempt: Some(attempt),
 			created_at,
 			data: Some(data),
 			id: id.clone(),

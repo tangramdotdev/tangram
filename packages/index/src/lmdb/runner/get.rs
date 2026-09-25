@@ -9,7 +9,7 @@ impl Index {
 	pub async fn get_runner_sandboxes(
 		&self,
 		runner: &tg::runner::Id,
-	) -> tg::Result<Vec<tg::sandbox::Id>> {
+	) -> tg::Result<Vec<crate::runner::Sandbox>> {
 		let request = crate::read::Request::GetRunnerSandboxes {
 			runner: runner.clone(),
 		};
@@ -26,7 +26,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		runner: &tg::runner::Id,
-	) -> tg::Result<Vec<tg::sandbox::Id>> {
+	) -> tg::Result<Vec<crate::runner::Sandbox>> {
 		let runner = runner.to_bytes();
 		let prefix = Self::pack(
 			subspace,
@@ -36,11 +36,18 @@ impl Index {
 			.prefix_iter(transaction, &prefix)
 			.map_err(|error| tg::error!(!error, "failed to get the runner sandboxes"))?;
 		iter.map(|entry| {
-			let (key, _) =
+			let (key, value) =
 				entry.map_err(|error| tg::error!(!error, "failed to read a runner sandbox"))?;
 			let key = Self::unpack(subspace, key)?;
 			let Key::Runner(crate::lmdb::runner::Key::RunnerSandbox { sandbox, .. }) = key else {
 				return Err(tg::error!("unexpected key type"));
+			};
+			let attempt = std::str::from_utf8(value)
+				.map_err(|error| tg::error!(!error, "invalid runner sandbox attempt"))?
+				.to_owned();
+			let sandbox = crate::runner::Sandbox {
+				attempt,
+				id: sandbox,
 			};
 			Ok(sandbox)
 		})

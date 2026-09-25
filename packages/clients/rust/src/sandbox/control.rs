@@ -164,6 +164,8 @@ pub struct Data {
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	pub attempt: String,
+
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub create: bool,
 

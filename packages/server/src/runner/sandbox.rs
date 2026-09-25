@@ -398,6 +398,7 @@ impl Session {
 		};
 		let session = self.server.session(&context);
 		let sandbox_initialization = shortcut.then(|| tg::process::control::Sandbox {
+			attempt: self.server.runner.state.attempt().to_owned(),
 			created_at,
 			data: control_data.clone(),
 			runner: self.server.runner.state.id(),
@@ -1369,7 +1370,9 @@ impl Session {
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
 			.map(Ok)
 			.boxed();
+		let attempt = self.server.runner.state.attempt().to_owned();
 		let arg = tg::sandbox::control::Arg {
+			attempt,
 			create: false,
 			created_at: None,
 			data: None,
@@ -1409,7 +1412,9 @@ impl Session {
 			.state
 			.id()
 			.ok_or_else(|| tg::error!("missing the runner id"))?;
+		let attempt = self.server.runner.state.attempt().to_owned();
 		let arg = tg::sandbox::control::Arg {
+			attempt,
 			create: true,
 			created_at: Some(created_at),
 			data: Some(data),
@@ -1492,6 +1497,7 @@ impl Session {
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let sandbox = tangram_index::sandbox::put::Arg {
 			account: None,
+			attempt: None,
 			created_at,
 			data,
 			id: id.clone(),

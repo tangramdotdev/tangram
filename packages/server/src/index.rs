@@ -392,7 +392,7 @@ impl index::Index for Index {
 	async fn get_runner_sandboxes(
 		&self,
 		runner: &tg::runner::Id,
-	) -> tg::Result<Vec<tg::sandbox::Id>> {
+	) -> tg::Result<Vec<tangram_index::runner::Sandbox>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.get_runner_sandboxes(runner).await,

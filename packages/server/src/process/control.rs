@@ -623,6 +623,7 @@ impl Session {
 						sandbox.created_at,
 						sandbox.data,
 						sandbox.runner,
+						sandbox.attempt,
 					)
 					.await?,
 				)
