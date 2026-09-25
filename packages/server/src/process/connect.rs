@@ -522,12 +522,21 @@ impl Session {
 		let wait = if let Some(output) = output.wait.clone() {
 			futures::future::ready(Ok(Some(output))).boxed()
 		} else {
-			let future = match wait {
-				Some((wait, _)) => wait,
-				None => self
-					.try_wait_process_local(&id, wait_arg.tokens.local_authorization().to_vec())
+			// This connection owns cancellation; downstream waits only observe the process.
+			let mut observe_arg = wait_arg.clone();
+			observe_arg.lease = None;
+
+			// Prefer the runner over the local wait because the runner's output retains the result tokens.
+			let future = if let Some((future, _)) = wait {
+				future
+			} else if let Some((future, _)) =
+				self.try_wait_process_runner(&id, &observe_arg).await?
+			{
+				future
+			} else {
+				self.try_wait_process_local(&id, wait_arg.tokens.local_authorization().to_vec())
 					.await?
-					.ok_or_else(|| tg::error!("failed to find the process"))?,
+					.ok_or_else(|| tg::error!("failed to find the process"))?
 			};
 			self.attach_wait_process_guard(&id, &wait_arg, location.clone(), cancel.clone(), future)
 		};
