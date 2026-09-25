@@ -7,7 +7,6 @@ import { Module } from "./module.ts";
 let libraryRoot = "/__library__";
 let moduleRoot = "/__module__";
 
-// Map each file name, which excludes tokens, to the latest module with tokens.
 let modules = new Map<string, Module>();
 
 // Create the TypeScript compiler options.
@@ -305,14 +304,7 @@ export let fileNameFromModule = (module: Module): string => {
 		return `${libraryRoot}/${path}`;
 	}
 	let string = Module.toDataString(Module.withoutToken(module));
-	let extension: string;
-	if (module.kind === "js") {
-		extension = ".js";
-	} else if (module.kind === "ts") {
-		extension = ".ts";
-	} else {
-		extension = ".ts";
-	}
+	let extension = module.kind === "js" ? ".js" : ".ts";
 	string += `&extension=${extension}`;
 	let fileName = `${moduleRoot}${string}`;
 	let tokens = module.referent.options?.tokens;
