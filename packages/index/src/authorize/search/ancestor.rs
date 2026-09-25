@@ -447,7 +447,6 @@ impl Search {
 			| Read::ProcessObjectChildren { .. }
 			| Read::ProcessObjects { .. }
 			| Read::Resolve { .. }
-			| Read::SandboxProcesses { .. }
 			| Read::SubjectGrants { .. }
 			| Read::SubtreeObjectChildren { .. }
 			| Read::SubtreeProcessChildren { .. } => {
@@ -679,21 +678,6 @@ impl Search {
 					});
 				}
 			},
-			AncestorNodeRead::ProcessSandboxes { process, .. } => {
-				let (after, sandboxes) = output.into_ids()?;
-				for sandbox in sandboxes {
-					let sandbox = tg::sandbox::Id::try_from(sandbox)?;
-					pending.facts.process_sandboxes.push(sandbox);
-				}
-				if let Some(after) = after {
-					let limit = self.budget.config.page_size;
-					next.push(AncestorNodeRead::ProcessSandboxes {
-						after: Some(after),
-						limit,
-						process,
-					});
-				}
-			},
 			AncestorNodeRead::ResourceGrants { resource, .. } => {
 				let (after, grants) = output.into_grants()?;
 				grants_for_search.clone_from(&grants);
@@ -785,12 +769,7 @@ impl Search {
 				limit,
 				target: resource.clone(),
 			});
-		} else if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
-			reads.push(AncestorNodeRead::ProcessSandboxes {
-				after: None,
-				limit,
-				process,
-			});
+		} else if resource.kind() == tg::id::Kind::Process {
 			reads.push(AncestorNodeRead::TargetTags {
 				after: None,
 				limit,
@@ -928,16 +907,7 @@ impl Search {
 				}
 				dependencies.extend(Self::tag_dependencies(facts, *permission));
 			},
-			tg::authorization::Permission::Process(process_permission) => {
-				if *process_permission == tg::authorization::permission::process::Permission::Parent
-				{
-					for sandbox in &facts.process_sandboxes {
-						let permission = tg::authorization::Permission::Sandbox(
-							tg::authorization::permission::sandbox::Permission::Write,
-						);
-						dependencies.push((tg::Id::from(sandbox.clone()), permission));
-					}
-				}
+			tg::authorization::Permission::Process(_) => {
 				dependencies.extend(Self::tag_dependencies(facts, *permission));
 			},
 			tg::authorization::Permission::Group(_)

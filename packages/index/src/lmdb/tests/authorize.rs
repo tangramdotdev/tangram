@@ -856,9 +856,9 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 
 	for (principal, expected_read, expected_write) in [
 		(tg::Principal::Process(process), true, true),
-		(tg::Principal::Sandbox(sandbox), true, false),
+		(tg::Principal::Sandbox(sandbox), false, false),
 		(tg::Principal::User(sandbox_reader), false, false),
-		(tg::Principal::User(sandbox_writer), true, false),
+		(tg::Principal::User(sandbox_writer), false, false),
 		(tg::Principal::User(node_reader), false, false),
 		(tg::Principal::User(subtree_reader), false, false),
 		(tg::Principal::User(process_node_holder), false, false),
@@ -1331,7 +1331,7 @@ async fn authorize_parent_permission_flows_to_process_children() {
 }
 
 #[tokio::test]
-async fn authorize_only_flows_sandbox_write_to_process_parent() {
+async fn authorize_sandbox_permissions_do_not_authorize_processes() {
 	let (_dir, index) = new_index();
 	let process = tg::process::Id::new();
 	let reader = tg::user::Id::new();
@@ -1368,6 +1368,7 @@ async fn authorize_only_flows_sandbox_write_to_process_parent() {
 		tg::authorization::permission::process::Permission::NodeError,
 		tg::authorization::permission::process::Permission::NodeLog,
 		tg::authorization::permission::process::Permission::NodeOutput,
+		tg::authorization::permission::process::Permission::Parent,
 		tg::authorization::permission::process::Permission::Subtree,
 		tg::authorization::permission::process::Permission::SubtreeCommand,
 		tg::authorization::permission::process::Permission::SubtreeError,
@@ -1375,29 +1376,18 @@ async fn authorize_only_flows_sandbox_write_to_process_parent() {
 		tg::authorization::permission::process::Permission::SubtreeOutput,
 	] {
 		let permission = tg::authorization::Permission::Process(permission);
-		assert!(
-			!is_authorized(
-				&index,
-				process.clone().into(),
-				permission,
-				&tg::Principal::User(reader.clone()),
-			)
-			.await
-		);
+		for user in [&reader, &writer] {
+			assert!(
+				!is_authorized(
+					&index,
+					process.clone().into(),
+					permission,
+					&tg::Principal::User(user.clone())
+				)
+				.await
+			);
+		}
 	}
-	let parent = tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::Parent,
-	);
-	assert!(
-		!is_authorized(
-			&index,
-			process.clone().into(),
-			parent,
-			&tg::Principal::User(reader),
-		)
-		.await
-	);
-	assert!(is_authorized(&index, process.into(), parent, &tg::Principal::User(writer),).await);
 }
 
 #[tokio::test]

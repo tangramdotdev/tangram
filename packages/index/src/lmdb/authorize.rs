@@ -593,43 +593,6 @@ impl Index {
 
 				Output::Ids { after, ids }
 			},
-			Request::ProcessSandboxes {
-				after,
-				limit,
-				process,
-			} => {
-				let process = process.to_bytes();
-				let prefix = Self::pack(
-					subspace,
-					&(
-						crate::lmdb::Kind::ProcessSandbox.to_i32().unwrap(),
-						process.as_ref(),
-					),
-				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&prefix,
-					after.as_deref(),
-					*limit,
-				)?;
-				let ids =
-					keys.into_iter()
-						.map(|key| {
-							let crate::lmdb::Key::Process(
-								crate::lmdb::process::Key::ProcessSandbox { sandbox, .. },
-							) = key
-							else {
-								return Err(tg::error!("unexpected key type"));
-							};
-
-							Ok(tg::Id::from(sandbox))
-						})
-						.collect::<tg::Result<Vec<_>>>()?;
-
-				Output::Ids { after, ids }
-			},
 			Request::ResourceGrants {
 				after,
 				limit,
@@ -685,41 +648,6 @@ impl Index {
 						.and_then(|data| data.data.owner);
 
 				Output::SandboxOwner(owner)
-			},
-			Request::SandboxProcesses {
-				after,
-				limit,
-				sandbox,
-			} => {
-				let bytes = sandbox.to_bytes();
-				let prefix = Self::pack(
-					subspace,
-					&(
-						crate::lmdb::Kind::SandboxProcess.to_i32().unwrap(),
-						bytes.as_ref(),
-					),
-				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
-					db,
-					subspace,
-					transaction,
-					&prefix,
-					after.as_deref(),
-					*limit,
-				)?;
-				let mut ids = Vec::new();
-				for key in keys {
-					let crate::lmdb::Key::Sandbox(crate::lmdb::sandbox::Key::SandboxProcess {
-						process,
-						..
-					}) = key
-					else {
-						return Err(tg::error!("unexpected key type"));
-					};
-					ids.push(tg::Id::from(process));
-				}
-
-				Output::Ids { after, ids }
 			},
 			Request::Specifier { specifier } => {
 				let id = Self::try_get_node_with_transaction(db, subspace, transaction, specifier)?;

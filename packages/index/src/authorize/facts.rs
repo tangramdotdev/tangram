@@ -100,22 +100,12 @@ pub(crate) enum Request {
 		limit: usize,
 		process: tg::process::Id,
 	},
-	ProcessSandboxes {
-		after: Option<Vec<u8>>,
-		limit: usize,
-		process: tg::process::Id,
-	},
 	ResourceGrants {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		resource: tg::Id,
 	},
 	SandboxOwner {
-		sandbox: tg::sandbox::Id,
-	},
-	SandboxProcesses {
-		after: Option<Vec<u8>>,
-		limit: usize,
 		sandbox: tg::sandbox::Id,
 	},
 	Specifier {
@@ -228,11 +218,6 @@ enum CacheKey {
 		process: tg::process::Id,
 	},
 	ProcessParents {
-		after: Option<Vec<u8>>,
-		limit: usize,
-		process: tg::process::Id,
-	},
-	ProcessSandboxes {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		process: tg::process::Id,
@@ -395,15 +380,6 @@ impl Request {
 				limit: *limit,
 				process: process.clone(),
 			},
-			Self::ProcessSandboxes {
-				after,
-				limit,
-				process,
-			} => CacheKey::ProcessSandboxes {
-				after: after.clone(),
-				limit: *limit,
-				process: process.clone(),
-			},
 			Self::ResourceGrants {
 				after,
 				limit,
@@ -430,7 +406,6 @@ impl Request {
 			| Self::OwnerSandboxes { .. }
 			| Self::OrganizationMembers { .. }
 			| Self::ProcessChildren { .. }
-			| Self::SandboxProcesses { .. }
 			| Self::SubjectGrants { .. } => return None,
 		};
 

@@ -4,6 +4,37 @@ use {
 };
 
 impl Session {
+	pub(super) fn spawn_process_create_creator_grant_arg(
+		&self,
+		id: &tg::process::Id,
+		created_at: i64,
+	) -> tg::Result<Option<tangram_index::grant::put::Arg>> {
+		let subject = match &self.context.principal {
+			tg::Principal::Anonymous => tg::authorization::Subject::Public,
+			tg::Principal::Root => return Ok(None),
+			principal => principal.try_to_subject()?,
+		};
+		let time_to_live =
+			i64::try_from(self.server.config.process.grant_time_to_live.as_secs())
+				.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let expires_at = created_at
+			.checked_add(time_to_live)
+			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		);
+		let arg = tangram_index::grant::put::Arg {
+			created_at,
+			creator: Some(self.context.principal.clone()),
+			implicit: Some(Some(expires_at)),
+			permissions: permission.into(),
+			resource: id.clone().into(),
+			subject,
+			time_to_touch: Some(self.server.config.process.grant_time_to_touch),
+		};
+		Ok(Some(arg))
+	}
+
 	pub(super) async fn spawn_process_create_public_grant_if_requested(
 		&self,
 		arg: &tg::process::spawn::Arg,

@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A write grant on the owner of an ancestor process's sandbox confers process_parent on descendants.
+# Sandbox ownership does not confer process authority; an explicit parent grant does.
 
 let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
@@ -22,7 +22,11 @@ let child = tg --token $token run --network=true --detach $child_object | str tr
 tg --token $alice.token index
 
 let signaled = tg --token $eve.token process signal $child --signal KILL | complete
-success $signaled "write on the sandbox owner should permit signaling a descendant process."
+failure $signaled "sandbox ownership must not permit signaling a descendant process"
+failure (tg --token $eve.token process get $child | complete) "sandbox ownership must not permit reading a process"
+
+tg --token $alice.token grant $eve.user.id process_parent $parent.process
+success (tg --token $eve.token process signal $child --signal KILL | complete) "an explicit parent grant should permit signaling a descendant process"
 
 wait_until { (tg --token $alice.token process status $child | from json | get 0) == "finished" } "the child should finish after Eve signals it"
 tg --token $alice.token process signal $parent.process --signal KILL | complete | ignore

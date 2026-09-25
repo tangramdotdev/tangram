@@ -70,7 +70,6 @@ pub(crate) struct AncestorNodeFacts {
 	pub grants: Vec<Grant>,
 	pub object_processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
 	pub parent: Option<tg::Id>,
-	pub process_sandboxes: Vec<tg::sandbox::Id>,
 	pub sandbox_owner: Option<tg::Principal>,
 	pub tags: Vec<(tg::tag::Id, Vec<tg::authorization::Permission>)>,
 }
@@ -90,11 +89,6 @@ pub(crate) enum AncestorNodeRead {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		object: tg::object::Id,
-	},
-	ProcessSandboxes {
-		after: Option<Vec<u8>>,
-		limit: usize,
-		process: tg::process::Id,
 	},
 	ResourceGrants {
 		after: Option<Vec<u8>>,
@@ -204,13 +198,6 @@ pub(crate) enum Read {
 	Resolve {
 		index: usize,
 		selector: tg::Selector<tg::Id>,
-	},
-	SandboxProcesses {
-		after: Option<Vec<u8>>,
-		depth: usize,
-		limit: usize,
-		permission: tg::authorization::permission::sandbox::Permission,
-		sandbox: tg::sandbox::Id,
 	},
 	SubjectGrants {
 		after: Option<Vec<u8>>,
@@ -757,7 +744,6 @@ impl AncestorOrDescendantSearch {
 			| Read::OwnerSandboxes { .. }
 			| Read::ProcessChildren { .. }
 			| Read::ProcessObjectChildren { .. }
-			| Read::SandboxProcesses { .. }
 			| Read::SubjectGrants { .. }) => self
 				.descendant
 				.as_mut()

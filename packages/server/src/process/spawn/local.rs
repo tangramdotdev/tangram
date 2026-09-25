@@ -399,6 +399,11 @@ impl Session {
 			scheduler: arg.scheduler.clone(),
 			tokens: token.into_iter().collect(),
 		};
+		// Grant the creator authority independently of the sandbox and prepare command access.
+		let mut items = Vec::new();
+		if let Some(grant) = self.spawn_process_create_creator_grant_arg(&id, now)? {
+			items.push(tangram_index::batch::Item::PutGrant(grant));
+		}
 		if grant_command {
 			let grant_expires_at = now
 				+ self
@@ -413,14 +418,16 @@ impl Session {
 			let grant_arg = self
 				.create_process_object_grant_arg(&id, commands, now, Some(grant_expires_at))
 				.await?;
+			items.push(tangram_index::batch::Item::PutProcessObjectGrants(
+				grant_arg,
+			));
+		}
+		if !items.is_empty() {
+			let arg = tangram_index::batch::Arg { items };
 			self.server
-				.index_batch(tangram_index::batch::Arg {
-					items: vec![tangram_index::batch::Item::PutProcessObjectGrants(
-						grant_arg,
-					)],
-				})
+				.index_batch(arg)
 				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to grant the process command"))?;
+				.map_err(|error| tg::error!(!error, %id, "failed to grant process access"))?;
 		}
 
 		Ok(output)
