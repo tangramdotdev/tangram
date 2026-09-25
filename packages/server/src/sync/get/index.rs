@@ -877,6 +877,7 @@ impl Session {
 				data: Some(message.data),
 				id: message.id,
 				location: None,
+				processes: None,
 				runner: None,
 				touched_at,
 			});

@@ -15,7 +15,11 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
-	pub sandbox: tg::sandbox::Id,
+	pub sandbox: tg::Referent<tg::sandbox::Id>,
+
+	/// Select the source of sandbox state.
+	#[arg(long, default_value = "auto", value_parser = crate::process::source_parser())]
+	pub source: tg::sandbox::Source,
 
 	#[command(flatten)]
 	pub ttl: crate::get::Ttl,
@@ -24,14 +28,17 @@ pub struct Args {
 impl Cli {
 	pub async fn command_sandbox_get(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let id = args.sandbox;
+		let location = args.locations.get_for_options(&args.sandbox);
+		let id = args.sandbox.node;
 		let entry = tg::sandbox::Options {
-			location: args.locations.get(),
+			location,
+			tokens: args.sandbox.options.tokens,
 			..Default::default()
 		};
 		let sandbox = tg::Sandbox::new(id.clone(), entry);
 		let options = tg::sandbox::get::Options {
 			cached: args.cached,
+			source: args.source,
 			ttl: args.ttl.get(),
 		};
 		let output = sandbox

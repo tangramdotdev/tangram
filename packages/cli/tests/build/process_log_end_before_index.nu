@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 let server = server spawn --config { advanced: { checkpoints: true } }
 
-# Hold initialization and completion so EOF cannot find an indexed process.
-let batch = tg checkpoint watch index.batch --params '{"started_process":true}' | from json | get watch
+# Hold the child’s initialization and completion so EOF cannot find it in the index.
+let batch = tg checkpoint watch index.batch --params '{"child_process":true,"started_process":true}' | from json | get watch
 let finish = tg checkpoint watch runner.process.finish | from json | get watch
 let end = tg checkpoint watch process.control.log.end | from json | get watch
 let path = artifact {
@@ -21,6 +21,7 @@ assert ($child != $id)
 tg checkpoint unwatch process.control.log.end $end
 tg checkpoint unwatch index.batch $batch
 tg checkpoint unwatch runner.process.finish $finish
-timeout 10s tg wait $id | ignore
+timeout 10s tg wait --source=index $child | ignore
+timeout 10s tg wait --source=index $id | ignore
 success (timeout 10s tg index | complete)
 assert ((tg get $child | from json | get log?) | is-not-empty)

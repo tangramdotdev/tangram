@@ -35,7 +35,7 @@ let path = artifact {
 	'
 }
 let process = tg --url $local.url build --remote --detach $path
-success (tg --url $local.url wait $process | complete)
+success (tg --url $remote.url --token $alice.token wait --source=index $process | complete)
 
 # Wait for the remote to compact the log into a blob.
 tg --url $remote.url --token $alice.token index

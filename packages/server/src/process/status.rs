@@ -24,7 +24,9 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::status::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
-		if let Some(stream) = self.try_get_process_status_stream_runner(id, &arg).await? {
+		if !arg.source.is_index()
+			&& let Some(stream) = self.try_get_process_status_stream_runner(id, &arg).await?
+		{
 			return Ok(Some(stream));
 		}
 		let locations = self
@@ -35,7 +37,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			let stopper = self.context.stopper.clone();
 			if local.current {
-				let wakeups = if arg.timeout == Some(Duration::ZERO) {
+				let mut wakeups = if arg.timeout == Some(Duration::ZERO) {
 					None
 				} else {
 					Some(
@@ -43,19 +45,43 @@ impl Session {
 							.await?,
 					)
 				};
-				if let Some(process) = self
-					.try_get_process_observation_local(id, arg.tokens.local_authorization())
-					.await?
-				{
+				let deadline = self.server.control_read_deadline();
+				let initial = loop {
+					tokio::select! {
+						output = self
+					.try_get_process_observation_local(
+						id,
+						arg.tokens.local_authorization(),
+						arg.source,
+						deadline,
+					) => break output?,
+						wakeup = async {
+							match &mut wakeups {
+								Some(wakeups) => wakeups.next().await,
+								None => std::future::pending().await,
+							}
+						} => {
+							if wakeup.is_none() { return Ok(None); }
+						},
+					}
+				};
+				if let Some(process) = initial {
 					let initial = Some(process);
-					let stream =
-						self.create_process_status_stream_local_with_wakeups(id, initial, wakeups);
+					let stream = self.create_process_status_stream_local_with_wakeups(
+						id, initial, wakeups, arg.source,
+					);
 					return Ok(Some(stream));
 				}
 			}
 
 			if let Some(status) = self
-				.try_get_process_status_stream_regions(id, &local.regions, arg.timeout, &arg.tokens)
+				.try_get_process_status_stream_regions(
+					id,
+					&local.regions,
+					arg.timeout,
+					&arg.tokens,
+					arg.source,
+				)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to get the process status from another region"),
@@ -65,7 +91,13 @@ impl Session {
 		}
 
 		if let Some(status) = self
-			.try_get_process_status_stream_remotes(id, &locations.remotes, arg.timeout, &arg.tokens)
+			.try_get_process_status_stream_remotes(
+				id,
+				&locations.remotes,
+				arg.timeout,
+				&arg.tokens,
+				arg.source,
+			)
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to get the process status from a remote"),
@@ -173,13 +205,15 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		tokens: &[tg::authorization::Token],
+		source: tg::process::Source,
+		deadline: tokio::time::Instant,
 	) -> tg::Result<Option<tg::process::Data>> {
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);
 		let authorize_future = self.authorize(resource, permission);
-		let get_future = self.try_get_process_data_local(id);
+		let get_future = self.try_get_process_data_local(id, source, deadline);
 		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
 
 		if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
@@ -193,10 +227,11 @@ impl Session {
 		id: &tg::process::Id,
 		initial: Option<tg::process::Data>,
 		wakeups: Option<BoxStream<'static, ()>>,
+		source: tg::process::Source,
 	) -> BoxStream<'static, tg::Result<tg::process::status::Event>> {
 		let once = wakeups.is_none();
 		let mut previous = None;
-		self.create_process_data_stream_local(id, initial, wakeups)
+		self.create_process_data_stream_local(id, initial, wakeups, source)
 			.flat_map(move |result| {
 				let mut events = Vec::new();
 				match result {
@@ -222,13 +257,20 @@ impl Session {
 		id: &tg::process::Id,
 		initial: Option<tg::process::Data>,
 		wakeups: Option<BoxStream<'static, ()>>,
+		source: tg::process::Source,
 	) -> BoxStream<'static, tg::Result<tg::process::Data>> {
 		let (sender, receiver) = tokio::sync::mpsc::channel(1);
 		let session = self.clone();
 		let id = id.clone();
 		let task = Task::spawn(|_| async move {
 			let result = session
-				.create_process_data_stream_local_task(&id, sender.clone(), initial, wakeups)
+				.create_process_data_stream_local_task(
+					&id,
+					sender.clone(),
+					initial,
+					wakeups,
+					source,
+				)
 				.await;
 			if let Err(error) = result {
 				sender.send(Err(error)).await.ok();
@@ -274,19 +316,23 @@ impl Session {
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::process::Data>>,
 		mut initial: Option<tg::process::Data>,
 		mut wakeups: Option<BoxStream<'static, ()>>,
+		source: tg::process::Source,
 	) -> tg::Result<()> {
 		loop {
+			let deadline = self.server.control_read_deadline();
 			let data = if let Some(initial) = initial.take() {
 				Some(initial)
 			} else {
 				match &mut wakeups {
-					None => self.try_get_process_data_local(id).await?,
-					Some(wakeups) => {
+					None => {
+						self.try_get_process_data_local(id, source, deadline)
+							.await?
+					},
+					Some(wakeups) => loop {
 						tokio::select! {
-							result = self.try_get_process_data_local(id) => result?,
+							result = self.try_get_process_data_local(id, source, deadline) => break result?,
 							wakeup = wakeups.next() => {
 								if wakeup.is_none() { return Ok(()); }
-								continue;
 							},
 						}
 					},
@@ -311,9 +357,18 @@ impl Session {
 	async fn try_get_process_data_local(
 		&self,
 		id: &tg::process::Id,
+		source: tg::process::Source,
+		deadline: tokio::time::Instant,
 	) -> tg::Result<Option<tg::process::Data>> {
 		let output = self
-			.get_process_state_local(id, self.get_process_from_control(id), |_| false, false)
+			.get_process_state_local(
+				id,
+				self.get_process_from_control(id),
+				|_| false,
+				false,
+				source,
+				deadline,
+			)
 			.boxed()
 			.await?;
 		if let Some(data) = output.control {
@@ -343,10 +398,13 @@ impl Session {
 		regions: &[String],
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
+		source: tg::process::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_status_stream_region(id, region, timeout, tokens))
+			.map(|region| {
+				self.try_get_process_status_stream_region(id, region, timeout, tokens, source)
+			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -373,6 +431,7 @@ impl Session {
 		region: &str,
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
+		source: tg::process::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -382,6 +441,7 @@ impl Session {
 		});
 		let arg = tg::process::status::Arg {
 			location: Some(location.clone().into()),
+			source,
 			timeout,
 			tokens: tokens.for_location(&location),
 		};
@@ -403,10 +463,13 @@ impl Session {
 		remotes: &[crate::location::Remote],
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
+		source: tg::process::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_status_stream_remote(id, remote, timeout, tokens))
+			.map(|remote| {
+				self.try_get_process_status_stream_remote(id, remote, timeout, tokens, source)
+			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -433,6 +496,7 @@ impl Session {
 		remote: &crate::location::Remote,
 		timeout: Option<Duration>,
 		tokens: &tg::authorization::Tokens,
+		source: tg::process::Source,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)
@@ -450,6 +514,7 @@ impl Session {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			source,
 			timeout,
 			tokens: tokens.for_location(&location),
 		};

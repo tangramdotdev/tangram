@@ -315,6 +315,18 @@ impl index::Index for Index {
 		}
 	}
 
+	async fn try_get_process_children_count(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<u64>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_process_children_count(id).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_process_children_count(id).await,
+		}
+	}
+
 	async fn try_get_process_children(
 		&self,
 		id: &tg::process::Id,
@@ -398,6 +410,32 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.get_runner_sandboxes(runner).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.get_runner_sandboxes(runner).await,
+		}
+	}
+
+	async fn try_get_sandbox_processes_count(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<Option<u64>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_sandbox_processes_count(id).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_sandbox_processes_count(id).await,
+		}
+	}
+
+	async fn try_get_sandbox_processes(
+		&self,
+		id: &tg::sandbox::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> tg::Result<Option<Vec<tg::process::Id>>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.try_get_sandbox_processes(id, position, length).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.try_get_sandbox_processes(id, position, length).await,
 		}
 	}
 
@@ -884,6 +922,9 @@ impl Server {
 			matches!(item, index::batch::Item::PutSandbox(arg)
 				if arg.data.as_ref().is_some_and(|data| data.data.status.is_destroyed()))
 		});
+		let child_process = arg.items.iter().any(
+			|item| matches!(item, index::batch::Item::PutProcess(arg) if arg.parent.is_some()),
+		);
 		let started_process = arg.items.iter().any(|item| {
 			matches!(item, index::batch::Item::PutProcess(arg)
 				if arg.data.as_ref().is_some_and(|data| data.status.is_started()))
@@ -895,6 +936,7 @@ impl Server {
 					crate::checkpoint!(
 						server,
 						"index.batch",
+						child_process,
 						command_object_grant,
 						destroyed_sandbox,
 						finished_process,

@@ -4,7 +4,6 @@ use {
 		FutureExt as _, StreamExt as _, TryStreamExt as _, future,
 		stream::{self, FuturesUnordered},
 	},
-	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{
@@ -24,9 +23,13 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::get::Arg,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		let runner = self.try_get_process_runner(id, &arg).boxed().await?;
+		let runner = if arg.source.is_index() {
+			None
+		} else {
+			self.try_get_process_runner(id, &arg).boxed().await?
+		};
 		if let Some(output) = &runner
-			&& !output.data.status.is_finished()
+			&& (arg.source.is_runner() || !output.data.status.is_finished())
 		{
 			return Ok(runner);
 		}
@@ -47,6 +50,7 @@ impl Session {
 					arg.metadata,
 					arg.availability,
 					arg.tokens.local_authorization(),
+					arg.source,
 				)
 				.await?
 		{
@@ -62,6 +66,7 @@ impl Session {
 			if let Some(local) = &locations.local {
 				let tokens = &arg.tokens;
 				if local.current
+					&& arg.source.is_auto()
 					&& let Some(output) = self
 						.try_get_with_sync_wait(
 							tokens,
@@ -91,6 +96,7 @@ impl Session {
 									arg.metadata,
 									arg.availability,
 									tokens.local_authorization(),
+									arg.source,
 								)
 								.await
 							},
@@ -103,7 +109,7 @@ impl Session {
 			}
 			Ok::<_, tg::Error>(None)
 		};
-		let region_future = async {
+		let lookup_future = async {
 			if let Some(local) = &locations.local
 				&& let Some(output) = self
 					.try_get_process_regions(
@@ -112,6 +118,7 @@ impl Session {
 						arg.metadata,
 						arg.availability,
 						&arg.tokens,
+						arg.source,
 					)
 					.await
 					.map_err(
@@ -119,9 +126,7 @@ impl Session {
 					)? {
 				return Ok(Some(output));
 			}
-			Ok(None)
-		};
-		let remote_future = async {
+
 			if let Some(output) = self
 				.try_get_process_remotes(
 					id,
@@ -129,6 +134,7 @@ impl Session {
 					arg.metadata,
 					arg.availability,
 					&arg.tokens,
+					arg.source,
 				)
 				.await
 				.map_err(
@@ -139,13 +145,9 @@ impl Session {
 
 			Ok(None)
 		};
-		let mut futures = [
-			local_future.boxed(),
-			region_future.boxed(),
-			remote_future.boxed(),
-		]
-		.into_iter()
-		.collect::<FuturesUnordered<_>>();
+		let mut futures = [local_future.boxed(), lookup_future.boxed()]
+			.into_iter()
+			.collect::<FuturesUnordered<_>>();
 		let mut error = None;
 		while let Some(result) = futures.next().await {
 			match result {
@@ -238,7 +240,10 @@ impl Session {
 			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
 			return Ok(None);
 		}
-		let Some(mut output) = self.try_get_process_local_inner(id, metadata).await? else {
+		let Some(mut output) = self
+			.try_get_process_local_inner(id, metadata, tg::process::Source::Auto)
+			.await?
+		else {
 			return Ok(None);
 		};
 		if let Some(metadata) = output.metadata.take() {
@@ -253,13 +258,16 @@ impl Session {
 		metadata: bool,
 		availability: bool,
 		tokens: &[tg::authorization::Token],
+		source: tg::process::Source,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);
 		let authorize_future = async { self.authorize(resource, permission).await }.boxed();
-		let get_future = self.try_get_process_local_inner(id, metadata).boxed();
+		let get_future = self
+			.try_get_process_local_inner(id, metadata, source)
+			.boxed();
 		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
 		if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
 			return Ok(None);
@@ -349,7 +357,7 @@ impl Session {
 		metadata: bool,
 	) -> tg::Result<tg::process::get::Output> {
 		let output = self
-			.try_get_process_local_inner(id, metadata)
+			.try_get_process_local_inner(id, metadata, tg::process::Source::Auto)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 
@@ -391,11 +399,13 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		metadata: bool,
+		source: tg::process::Source,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		// Subscribe before reading to avoid missing a status change between the read and subscription.
 		let mut wakeups = self
 			.create_process_status_wakeup_stream(id, None, None)
 			.await?;
+		let deadline = self.server.control_read_deadline();
 		let output = loop {
 			tokio::select! {
 				output = self.get_process_state_local(
@@ -403,6 +413,8 @@ impl Session {
 					self.get_process_from_control(id),
 					|data| metadata || data.status.is_finished(),
 					false,
+					source,
+					deadline,
 				).boxed() => break output?,
 				wakeup = wakeups.next() => {
 					if wakeup.is_none() {
@@ -442,6 +454,8 @@ impl Session {
 		control_future: impl Future<Output = tg::Result<T>> + Send,
 		index_required: impl Fn(&T) -> bool + Send,
 		children: bool,
+		source: tg::process::Source,
+		deadline: tokio::time::Instant,
 	) -> tg::Result<Output<T>> {
 		let index_complete = |process: &tangram_index::process::Process| {
 			children
@@ -461,12 +475,32 @@ impl Session {
 			indexed
 		}
 		.boxed();
-		let control_future = async {
-			let output = control_future.await;
-			crate::checkpoint!(self.server, "process.get.control", process = %id).await;
-			output
+		let control_future = self
+			.server
+			.read_control_response_until(deadline, async {
+				let output = control_future.await;
+				crate::checkpoint!(self.server, "process.get.control", process = %id).await;
+				output
+			})
+			.boxed();
+
+		match source {
+			tg::process::Source::Auto => {},
+			tg::process::Source::Index => {
+				let indexed = index_future.await?;
+				return Ok(Output {
+					control: None,
+					indexed,
+				});
+			},
+			tg::process::Source::Runner => {
+				let control = control_future.await.ok();
+				return Ok(Output {
+					control,
+					indexed: None,
+				});
+			},
 		}
-		.boxed();
 
 		let (control, indexed) = match future::select(index_future, control_future).await {
 			future::Either::Left((indexed, control_future)) => {
@@ -484,22 +518,7 @@ impl Session {
 					};
 					return Ok(output);
 				}
-				let index_future = async {
-					tokio::time::sleep(Duration::from_secs(1)).await;
-					get_index().await
-				}
-				.boxed();
-				let control = match future::select(control_future, index_future).await {
-					future::Either::Left((control, _)) => control,
-					future::Either::Right((indexed, _)) => {
-						let indexed = indexed?;
-						let output = Output {
-							control: None,
-							indexed,
-						};
-						return Ok(output);
-					},
-				};
+				let control = control_future.await;
 				let indexed = if control.as_ref().is_ok_and(&index_required) {
 					get_index().await?
 				} else {
@@ -584,10 +603,11 @@ impl Session {
 		};
 		let options = crate::control::Options {
 			retry,
-			timeout: std::time::Duration::from_secs(10),
+			timeout: self.server.config.control.read_timeout,
 		};
 		let response = self
-			.send_process_control_request(id, request, options)
+			.request_process_control(id, request, options)
+			.boxed()
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to send the get process control request"),
@@ -629,10 +649,13 @@ impl Session {
 		metadata: bool,
 		availability: bool,
 		tokens: &tg::authorization::Tokens,
+		source: tg::process::Source,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = regions
 			.iter()
-			.map(|region| self.try_get_process_region(id, region, metadata, availability, tokens))
+			.map(|region| {
+				self.try_get_process_region(id, region, metadata, availability, tokens, source)
+			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -660,6 +683,7 @@ impl Session {
 		metadata: bool,
 		availability: bool,
 		tokens: &tg::authorization::Tokens,
+		source: tg::process::Source,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self.get_region_session_for_process(region).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to get the region client"),
@@ -671,6 +695,7 @@ impl Session {
 			availability,
 			location: Some(location.clone().into()),
 			metadata,
+			source,
 			tokens: tokens.for_location(&location),
 		};
 		let Some(mut output) = client.try_get_process(id, arg).await.map_err(
@@ -696,10 +721,13 @@ impl Session {
 		metadata: bool,
 		availability: bool,
 		tokens: &tg::authorization::Tokens,
+		source: tg::process::Source,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let mut futures = remotes
 			.iter()
-			.map(|remote| self.try_get_process_remote(id, remote, metadata, availability, tokens))
+			.map(|remote| {
+				self.try_get_process_remote(id, remote, metadata, availability, tokens, source)
+			})
 			.collect::<FuturesUnordered<_>>();
 		let mut result = Ok(None);
 		while let Some(next) = futures.next().await {
@@ -806,6 +834,7 @@ impl Session {
 		metadata: bool,
 		availability: bool,
 		tokens: &tg::authorization::Tokens,
+		source: tg::process::Source,
 	) -> tg::Result<Option<tg::process::get::Output>> {
 		let client = self
 			.get_remote_session_for_process(&remote.name)
@@ -823,6 +852,7 @@ impl Session {
 			availability,
 			location: Some(location),
 			metadata,
+			source,
 			tokens: tokens.for_location(&tg::Location::Remote(tg::location::Remote {
 				name: remote.name.clone(),
 				region: None,
@@ -878,6 +908,7 @@ impl Session {
 
 		// Get the process.
 		let location = arg.location.clone();
+		let source = arg.source;
 		let Some(mut output) = self.try_get_process(&id, arg).await? else {
 			return Ok(http::Response::builder()
 				.status(http::StatusCode::NOT_FOUND)
@@ -888,6 +919,7 @@ impl Session {
 		if output.data.status.is_finished() && output.data.children.is_none() {
 			let arg = tg::process::children::get::Arg {
 				location,
+				source,
 				tokens: output.tokens.clone(),
 				..Default::default()
 			};

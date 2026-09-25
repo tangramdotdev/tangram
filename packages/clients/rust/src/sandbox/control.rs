@@ -58,6 +58,7 @@ pub struct ClientResponse {
 pub enum ClientResponseOutput {
 	Destroy(DestroyClientResponseOutput),
 	Get(GetClientResponseOutput),
+	GetProcesses(GetProcessesClientResponseOutput),
 	SpawnProcess(SpawnProcessClientResponseOutput),
 }
 
@@ -81,6 +82,7 @@ pub struct ServerRequest {
 pub enum ServerRequestArg {
 	Destroy(DestroyServerRequestArg),
 	Get(GetServerRequestArg),
+	GetProcesses(GetProcessesServerRequestArg),
 	SpawnProcess(SpawnProcessServerRequestArg),
 }
 
@@ -101,6 +103,7 @@ pub enum ServerResponseOutput {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct DestroyClientRequestArg {
 	pub data: tg::sandbox::get::Output,
+	pub processes: Vec<tg::process::Id>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -131,6 +134,19 @@ pub struct GetServerRequestArg {}
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct GetClientResponseOutput {
 	pub data: tg::sandbox::get::Output,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct GetProcessesServerRequestArg {
+	pub length: u64,
+	pub position: u64,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct GetProcessesClientResponseOutput {
+	pub length: u64,
+	pub processes: Vec<tg::process::Id>,
+	pub status: tg::sandbox::Status,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

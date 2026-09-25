@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The position and length flags window a process's children list.
 
-let server = server spawn
+let server = server spawn --config { advanced: { checkpoints: true } }
 
 let path = artifact {
 	tangram.ts: '
@@ -18,6 +18,7 @@ let path = artifact {
 		}
 	'
 }
+let watch = tg checkpoint watch runner.process.control.retention.finished | from json | get watch
 let build = tg build --detach --verbose $path | from json
 tg wait $build.process
 
@@ -38,6 +39,18 @@ assert equal ($middle | child_names) [b] "the position and length flags should c
 
 let tail = tg process children --position=end.-2 --size 1 $build.process | from json
 assert equal ($tail | child_names) [b c] "end-relative positions should work across chunks"
+
+# End-relative reads report absolute positions for every source.
+tg wait --source=index $build.process | ignore
+let process = $build.process | split row '?' | first
+let socket = $server.url | str replace 'http+unix://' '' | url decode
+for source in [auto runner index] {
+	let output = http get --raw --max-time 10sec --unix-socket $socket $'http://localhost/processes/($process)/children?source=($source)&position=end.-2&size=1'
+	let chunks = $output | lines | where { $in starts-with 'data: ' } | each { str substring 6.. | from json }
+	assert equal ($chunks | get position) [1 2]
+}
+
+tg checkpoint unwatch runner.process.control.retention.finished $watch
 
 def child_names [] {
 	each { |child|

@@ -486,7 +486,10 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to receive the process index result"))?
 		});
-		let sandbox_id = state.sandbox.clone();
+		let sandbox_id = state
+			.sandbox
+			.clone()
+			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
 		let sync = connection_output
 			.as_ref()
 			.and_then(|output| output.sync.clone().filter(|_| location.is_remote()));
@@ -505,6 +508,7 @@ impl Session {
 			stopper: process_stopper.clone(),
 			sync,
 		};
+		crate::checkpoint!(session.server, "runner.process.state.insert", process = %id).await;
 		match processes.entry(id.clone()) {
 			dashmap::Entry::Occupied(_) => {
 				return Err(tg::error!(%id, "the process ID is already in use"));
@@ -519,6 +523,18 @@ impl Session {
 			.state
 			.processes
 			.insert(id.clone(), sandbox_id.clone());
+		if let Some(mut sandbox) = self
+			.server
+			.runner
+			.state
+			.sandboxes
+			.get_mut_by_id(&sandbox_id)
+		{
+			// Keep the IDs after individual process state expires.
+			if sandbox.process_ids.insert(id.clone(), ()).is_none() {
+				sandbox.changed.send_replace(());
+			}
+		}
 		let processes_for_cleanup = processes.clone();
 		let id_for_cleanup = id.clone();
 		let server = session.server.clone();
@@ -1936,7 +1952,7 @@ impl Session {
 			options,
 			output: None,
 			parent: parent.cloned(),
-			sandbox: Some(sandbox),
+			sandbox,
 			storage: tangram_index::process::Storage::default(),
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
@@ -2029,7 +2045,10 @@ impl Session {
 			// Check out the process's children.
 			self.checkout_process_artifacts(
 				command,
-				&state.sandbox,
+				state
+					.sandbox
+					.as_ref()
+					.ok_or_else(|| tg::error!("the running process has no sandbox"))?,
 				progress_sender.clone(),
 				&state.stderr,
 			)

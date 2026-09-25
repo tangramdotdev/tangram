@@ -254,6 +254,11 @@ pub trait Index {
 		ids: &[tg::process::Id],
 	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
 
+	fn try_get_process_children_count(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<u64>>> + Send;
+
 	fn try_get_process_children(
 		&self,
 		id: &tg::process::Id,
@@ -290,6 +295,18 @@ pub trait Index {
 		&self,
 		runner: &tg::runner::Id,
 	) -> impl Future<Output = tg::Result<Vec<tg::sandbox::Id>>> + Send;
+
+	fn try_get_sandbox_processes_count(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<Option<u64>>> + Send;
+
+	fn try_get_sandbox_processes(
+		&self,
+		id: &tg::sandbox::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> impl Future<Output = tg::Result<Option<Vec<tg::process::Id>>>> + Send;
 
 	fn get_sandbox_processes(
 		&self,

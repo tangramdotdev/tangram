@@ -352,7 +352,7 @@ impl Session {
 			options: tg::referent::Options::default(),
 			output: Some(output),
 			parent: None,
-			sandbox: Some(arg.data.sandbox.clone()),
+			sandbox: arg.data.sandbox.clone(),
 			storage: tangram_index::process::Storage::default(),
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,

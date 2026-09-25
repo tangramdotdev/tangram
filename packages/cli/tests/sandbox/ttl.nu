@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A sandbox defaults to a five-minute ttl, supports an explicitly infinite ttl, and is destroyed after its ttl expires.
 
-let server = server spawn --config { indexer: { cleaning: {} }, sandbox: { ttl: 0 } }
+let server = server spawn --config { indexer: { cleaning: {} }, runner: { sandbox_state_ttl: 0 }, sandbox: { ttl: 0 } }
 
 let default = tg sandbox create | str trim
 let sandbox = tg sandbox get $default | from json | get data
@@ -29,7 +29,7 @@ snapshot --normalize $output.stderr '
 
 '
 
-# Retained runner state must not make an expired sandbox's endpoints available.
+# Expired index entries and expired runner state leave no sandbox endpoints available.
 let socket = $server.url | str replace 'http+unix://' '' | url decode
 let processes = http get --allow-errors --full --max-time 10sec --unix-socket $socket $'http://localhost/sandboxes/($id)/processes?timeout=0'
 assert equal $processes.status 404

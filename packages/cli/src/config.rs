@@ -46,6 +46,9 @@ pub struct Config {
 	pub client: Option<Client>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub control: Option<Control>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub database: Option<Database>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -548,6 +551,16 @@ pub struct CheckinDirectory {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_leaf_entries: Option<usize>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Control {
+	/// The maximum time in seconds to wait for a live process or sandbox read response.
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_timeout: Option<Duration>,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -2296,6 +2309,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(checkouts) = source.checkouts {
 		target.checkouts = checkouts;
 	}
+	if let Some(source) = source.control {
+		target.control = resolve_control(source);
+	}
 	if let Some(source) = source.database {
 		target.database = resolve_database(source);
 	}
@@ -2775,6 +2791,14 @@ fn resolve_checkin_directory(source: CheckinDirectory) -> server::CheckinDirecto
 	}
 	if let Some(value) = source.max_leaf_entries {
 		target.max_leaf_entries = value;
+	}
+	target
+}
+
+fn resolve_control(source: Control) -> server::Control {
+	let mut target = server::Control::default();
+	if let Some(value) = source.read_timeout {
+		target.read_timeout = value;
 	}
 	target
 }

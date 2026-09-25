@@ -27,6 +27,8 @@ pub struct Config {
 
 	pub checkouts: bool,
 
+	pub control: Control,
+
 	pub database: Database,
 
 	pub directory: Option<PathBuf>,
@@ -365,6 +367,12 @@ pub struct CheckinDirectory {
 	pub max_branch_children: usize,
 
 	pub max_leaf_entries: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Control {
+	/// The maximum time to wait for a live process or sandbox read response.
+	pub read_timeout: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -1327,6 +1335,7 @@ impl Default for Config {
 			cache: Cache::default(),
 			checkin: Checkin::default(),
 			checkouts: true,
+			control: Control::default(),
 			database: Database::default(),
 			directory: None,
 			http: Http::default(),
@@ -1466,6 +1475,14 @@ impl Default for CheckinDirectory {
 		Self {
 			max_branch_children: 128,
 			max_leaf_entries: 1024,
+		}
+	}
+}
+
+impl Default for Control {
+	fn default() -> Self {
+		Self {
+			read_timeout: Duration::from_secs(1),
 		}
 	}
 }

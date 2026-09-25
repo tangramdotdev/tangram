@@ -550,7 +550,32 @@ pub(crate) fn stream_options() -> StreamOptions {
 }
 
 impl Server {
-	pub(crate) async fn send_control_request<I, O, Response>(
+	pub(crate) async fn read_control_response<T>(
+		&self,
+		future: impl Future<Output = tg::Result<T>>,
+	) -> tg::Result<T> {
+		self.read_control_response_until(self.control_read_deadline(), future)
+			.await
+	}
+
+	#[must_use]
+	pub(crate) fn control_read_deadline(&self) -> tokio::time::Instant {
+		tokio::time::Instant::now() + self.config.control.read_timeout
+	}
+
+	pub(crate) async fn read_control_response_until<T>(
+		&self,
+		deadline: tokio::time::Instant,
+		future: impl Future<Output = tg::Result<T>>,
+	) -> tg::Result<T> {
+		tokio::time::timeout_at(deadline, future)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "timed out waiting for the control read response")
+			})?
+	}
+
+	pub(crate) async fn request_control<I, O, Response>(
 		&self,
 		arg: SendControlRequestArg<
 			I,
@@ -566,10 +591,10 @@ impl Server {
 		Response: Send + 'static,
 		O: Clone + Payload,
 	{
-		self.start_control_request(arg).await?.await
+		self.send_control_request(arg).await?.await
 	}
 
-	pub(crate) async fn start_control_request<I, O, Response>(
+	pub(crate) async fn send_control_request<I, O, Response>(
 		&self,
 		arg: SendControlRequestArg<
 			I,

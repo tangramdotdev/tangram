@@ -30,7 +30,9 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::children::get::Arg,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>> {
-		if let Some(stream) = self.try_get_process_children_runner(id, &arg).await? {
+		if !arg.source.is_index()
+			&& let Some(stream) = self.try_get_process_children_runner(id, &arg).await?
+		{
 			return Ok(Some(stream));
 		}
 		let locations = self
@@ -241,7 +243,7 @@ impl Session {
 		}
 
 		// Create the wakeups stream.
-		let wakeups = if arg.timeout == Some(Duration::ZERO) {
+		let mut wakeups = if arg.timeout == Some(Duration::ZERO) {
 			None
 		} else {
 			let subject = format!("processes.{id}.children");
@@ -280,9 +282,22 @@ impl Session {
 			std::io::SeekFrom::Start(position) => (position, size),
 			std::io::SeekFrom::Current(_) | std::io::SeekFrom::End(_) => (0, 0),
 		};
-		let output = self
-			.get_process_children_local_inner(id, start, length)
-			.await?;
+		let deadline = self.server.control_read_deadline();
+		let output = loop {
+			tokio::select! {
+				output = self.get_process_children_local_inner(id, start, length, arg.source, deadline) => break output?,
+				wakeup = async {
+					match &mut wakeups {
+						Some(wakeups) => wakeups.next().await,
+						None => std::future::pending().await,
+					}
+				} => {
+					if wakeup.is_none() {
+						return Ok(None);
+					}
+				},
+			}
+		};
 		if output.control.is_none() && output.indexed.is_none() {
 			return Ok(None);
 		}
@@ -290,17 +305,20 @@ impl Session {
 		let initial = match position {
 			std::io::SeekFrom::Start(_) => Some(output),
 			std::io::SeekFrom::Current(seek) | std::io::SeekFrom::End(seek) => {
-				if let Some(control) = &output.control {
-					let position = control
-						.length
-						.checked_add_signed(seek)
-						.ok_or_else(|| tg::error!("invalid position"))?;
-					arg.position = Some(std::io::SeekFrom::Start(position));
-					None
+				let length = if let Some(control) = &output.control {
+					control.length
 				} else {
-					arg.position = Some(std::io::SeekFrom::End(seek));
-					Some(output)
-				}
+					self.server
+						.index
+						.try_get_process_children_count(id)
+						.await?
+						.ok_or_else(|| tg::error!("missing the process children"))?
+				};
+				let position = length
+					.checked_add_signed(seek)
+					.ok_or_else(|| tg::error!("invalid position"))?;
+				arg.position = Some(std::io::SeekFrom::Start(position));
+				None
 			},
 		};
 
@@ -329,12 +347,16 @@ impl Session {
 		id: &tg::process::Id,
 		position: u64,
 		length: u64,
+		source: tg::process::Source,
+		deadline: tokio::time::Instant,
 	) -> tg::Result<Output> {
 		self.get_process_state_local(
 			id,
 			self.get_process_children_from_control(id, position, length),
 			|_| false,
 			true,
+			source,
+			deadline,
 		)
 		.boxed()
 		.await
@@ -351,10 +373,11 @@ impl Session {
 		);
 		let options = crate::control::Options {
 			retry: tangram_futures::retry::Options::default(),
-			timeout: Duration::from_secs(10),
+			timeout: self.server.config.control.read_timeout,
 		};
 		let response = self
-			.send_process_control_request(id, request, options)
+			.request_process_control(id, request, options)
+			.boxed()
 			.await
 			.map_err(
 				|error| tg::error!(!error, %id, "failed to send the get children control request"),
@@ -375,15 +398,12 @@ impl Session {
 		mut wakeups: Option<BoxStream<'static, ()>>,
 		mut initial: Option<Output>,
 	) -> tg::Result<()> {
-		let mut position = arg.position.unwrap_or(std::io::SeekFrom::Start(0));
-
-		// Create the state.
-		let size = arg.size.unwrap_or(256);
-		let mut output_position = match position {
-			std::io::SeekFrom::Start(position) => position,
-			std::io::SeekFrom::End(_) => 0,
-			std::io::SeekFrom::Current(_) => unreachable!(),
+		let std::io::SeekFrom::Start(mut position) =
+			arg.position.unwrap_or(std::io::SeekFrom::Start(0))
+		else {
+			return Err(tg::error!(%id, "invalid position"));
 		};
+		let size = arg.size.unwrap_or(256);
 		let mut read = 0;
 
 		// Send the events.
@@ -397,35 +417,37 @@ impl Session {
 				};
 
 				// Read the chunk.
-				let output = self
-					.get_process_children_local(id, position, size, initial.take())
-					.await?;
+				let deadline = self.server.control_read_deadline();
+				let output = loop {
+					tokio::select! {
+						output = self.get_process_children_local(id, position, size, initial.take(), arg.source, deadline) => break output?,
+						wakeup = async {
+							match &mut wakeups {
+								Some(wakeups) => wakeups.next().await,
+								None => std::future::pending().await,
+							}
+						} => {
+							if wakeup.is_none() {
+								return Ok(());
+							}
+						},
+					}
+				};
 
 				// If the chunk is empty, then break.
 				if output.children.is_empty() {
 					break output.status;
 				}
 				let chunk = tg::process::children::get::Chunk {
-					position: output_position,
 					data: output.children,
+					position,
 				};
 
 				// Update the state.
 				let length = chunk.data.len().to_u64().unwrap();
-				position = match position {
-					std::io::SeekFrom::Start(position) => std::io::SeekFrom::Start(
-						position
-							.checked_add(length)
-							.ok_or_else(|| tg::error!("invalid position"))?,
-					),
-					std::io::SeekFrom::End(position) => std::io::SeekFrom::End(
-						position
-							.checked_add(length.to_i64().unwrap())
-							.ok_or_else(|| tg::error!("invalid position"))?,
-					),
-					std::io::SeekFrom::Current(_) => unreachable!(),
-				};
-				output_position += length;
+				position = position
+					.checked_add(length)
+					.ok_or_else(|| tg::error!("invalid position"))?;
 				read += length;
 
 				// Send the data.
@@ -468,28 +490,17 @@ impl Session {
 	async fn get_process_children_local(
 		&self,
 		id: &tg::process::Id,
-		position: std::io::SeekFrom,
+		position: u64,
 		length: u64,
 		initial: Option<Output>,
+		source: tg::process::Source,
+		deadline: tokio::time::Instant,
 	) -> tg::Result<LocalChildren> {
 		let output = match initial {
 			Some(output) => output,
-			None => match position {
-				std::io::SeekFrom::Current(_) => return Err(tg::error!(%id, "invalid position")),
-				std::io::SeekFrom::End(_) => {
-					let indexed = self
-						.try_get_process_from_index(id)
-						.await?
-						.filter(|process| process.set.children);
-					Output {
-						control: None,
-						indexed,
-					}
-				},
-				std::io::SeekFrom::Start(position) => {
-					self.get_process_children_local_inner(id, position, length)
-						.await?
-				},
+			None => {
+				self.get_process_children_local_inner(id, position, length, source, deadline)
+					.await?
 			},
 		};
 		if let Some(output) = output.control {
@@ -513,7 +524,7 @@ impl Session {
 		let children = self
 			.server
 			.index
-			.try_get_process_children(id, position, length)
+			.try_get_process_children(id, std::io::SeekFrom::Start(position), length)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 		let children = children

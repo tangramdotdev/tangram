@@ -29,6 +29,10 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
+	/// Select the source of process or sandbox state.
+	#[arg(long, default_value = "auto", value_parser = crate::process::source_parser())]
+	pub source: tg::process::Source,
+
 	#[command(flatten)]
 	pub ttl: Ttl,
 }
@@ -122,6 +126,7 @@ impl Cli {
 				locations: locations.clone(),
 				metadata: args.metadata,
 				print,
+				source: args.source,
 			};
 			self.command_process_get_inner(process, options).await?;
 
@@ -210,11 +215,17 @@ impl Cli {
 					self.print_serde(data, print).await?;
 				},
 				tg::id::Kind::Sandbox => {
+					let options = tg::referent::Options {
+						tokens,
+						..Default::default()
+					};
+					let sandbox = tg::Referent::new(id.try_into()?, options);
 					let args = crate::sandbox::get::Args {
 						cached: args.cached,
 						locations,
 						print,
-						sandbox: id.try_into()?,
+						sandbox,
+						source: args.source,
 						ttl: args.ttl,
 					};
 					self.command_sandbox_get(args).await?;

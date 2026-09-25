@@ -67,7 +67,11 @@ impl Session {
 				inner_token: Some(process.inner_token.clone()),
 				location: Some(sandbox.location.clone()),
 				retry: process.data.retry,
-				sandbox: process.data.sandbox.clone(),
+				sandbox: process
+					.data
+					.sandbox
+					.clone()
+					.ok_or_else(|| tg::error!(%id, "the authenticated process has no sandbox"))?,
 			}));
 		}
 
@@ -91,7 +95,9 @@ impl Session {
 			inner_token: None,
 			location,
 			retry: data.retry,
-			sandbox: data.sandbox,
+			sandbox: data
+				.sandbox
+				.ok_or_else(|| tg::error!(%id, "the authenticated process has no sandbox"))?,
 		}))
 	}
 

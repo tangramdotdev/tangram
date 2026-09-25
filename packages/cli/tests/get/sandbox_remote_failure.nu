@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Getting a sandbox fails when any queried remote fails, even if another remote has the sandbox.
+# Getting a sandbox succeeds when one remote has it, even if another remote fails.
 
 let root_token = random chars
 let alpha = server spawn --cloud --name alpha --preserve-keys --config {
@@ -27,4 +27,5 @@ kill --signal 2 $pid
 wait_until { ps | where pid == $pid | is-empty } "the zeta remote should stop"
 
 let output = tg --url $local.url get $sandbox | complete
-failure $output
+success $output
+assert equal ($output.stdout | from json | get data.id) $sandbox

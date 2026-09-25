@@ -1,4 +1,7 @@
-use {crate::control, tangram_client::prelude::*};
+use {crate::control, futures::FutureExt as _, tangram_client::prelude::*};
+
+#[cfg(test)]
+mod tests;
 
 #[derive(Clone)]
 pub(crate) struct Local {
@@ -36,7 +39,19 @@ impl Local {
 	pub(crate) async fn request(
 		&self,
 		arg: tg::sandbox::control::ServerRequestArg,
-	) -> tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>> {
+	) -> tg::Result<tg::sandbox::control::ClientResponseOutput> {
+		self.send_request(arg).await?.await?
+	}
+
+	pub(crate) async fn send_request(
+		&self,
+		arg: tg::sandbox::control::ServerRequestArg,
+	) -> tg::Result<
+		futures::future::BoxFuture<
+			'static,
+			tg::Result<tg::Result<tg::sandbox::control::ClientResponseOutput>>,
+		>,
+	> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let message = Message {
 			arg,
@@ -45,10 +60,14 @@ impl Local {
 		self.sender
 			.send(message)
 			.await
-			.map_err(|_| tg::error!("the runner sandbox control channel closed"))?;
-		receiver
-			.await
-			.map_err(|_| tg::error!("the runner sandbox control response channel closed"))
+			.map_err(|_| tg::error!("the runner control channel closed"))?;
+		let future = async move {
+			receiver
+				.await
+				.map_err(|_| tg::error!("the runner control response channel closed"))
+		}
+		.boxed();
+		Ok(future)
 	}
 }
 

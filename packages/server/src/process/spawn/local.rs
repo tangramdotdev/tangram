@@ -377,7 +377,7 @@ impl Session {
 			log: None,
 			output: None,
 			retry: arg.retry,
-			sandbox: sandbox.clone(),
+			sandbox: Some(sandbox.clone()),
 			started_at: Some(now),
 			status: tg::process::Status::Started,
 			stderr: arg.stderr.clone(),

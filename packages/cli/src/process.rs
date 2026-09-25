@@ -98,3 +98,9 @@ impl Cli {
 		Ok(())
 	}
 }
+
+pub(crate) fn source_parser() -> impl clap::builder::TypedValueParser<Value = tg::process::Source> {
+	use clap::builder::TypedValueParser as _;
+	clap::builder::PossibleValuesParser::new(["auto", "runner", "index"])
+		.map(|value| serde_json::from_value(serde_json::Value::String(value)).unwrap())
+}

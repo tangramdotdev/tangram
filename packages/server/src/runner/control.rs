@@ -531,7 +531,7 @@ impl Session {
 		};
 		let scheduler = scheduler.clone();
 		self.server
-			.send_control_request(crate::control::SendControlRequestArg {
+			.request_control(crate::control::SendControlRequestArg {
 				ack: move |id| {
 					let message =
 						tg::runner::control::ServerMessage::Ack(tg::runner::control::ServerAck {

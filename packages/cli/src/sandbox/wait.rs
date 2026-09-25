@@ -8,7 +8,7 @@ pub struct Args {
 	pub options: Options,
 
 	#[arg(index = 1)]
-	pub sandbox: tg::sandbox::Id,
+	pub sandbox: tg::Referent<tg::sandbox::Id>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -19,15 +19,20 @@ pub struct Options {
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	/// Select the source of sandbox state.
+	#[arg(long, default_value = "auto", value_parser = crate::process::source_parser())]
+	pub source: tg::sandbox::Source,
 }
 
 impl Cli {
 	pub async fn command_sandbox_wait(&mut self, args: Args) -> tg::Result<()> {
 		let entry = tg::sandbox::Options {
-			location: args.options.locations.get(),
+			location: args.options.locations.get_for_options(&args.sandbox),
+			tokens: args.sandbox.options.tokens.clone(),
 			..tg::sandbox::Options::default()
 		};
-		let sandbox = tg::Sandbox::new(args.sandbox, entry);
+		let sandbox = tg::Sandbox::new(args.sandbox.node, entry);
 		self.command_sandbox_wait_inner(sandbox, args.options).await
 	}
 
@@ -38,7 +43,10 @@ impl Cli {
 	) -> tg::Result<()> {
 		let client = self.client().await?;
 		let id = sandbox.id().clone();
-		let options_ = tg::sandbox::status::Options::default();
+		let options_ = tg::sandbox::status::Options {
+			source: options.source,
+			..Default::default()
+		};
 		let output = sandbox
 			.wait_with_handle(&client, options_)
 			.await

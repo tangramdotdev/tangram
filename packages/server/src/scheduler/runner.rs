@@ -301,7 +301,7 @@ impl Server {
 								options: tg::referent::Options::default(),
 								output: None,
 								parent: None,
-								sandbox: Some(data.sandbox.clone()),
+								sandbox: data.sandbox.clone(),
 								storage: indexed.storage,
 								time_to_touch: self.config.process.time_to_touch,
 								touched_at: now,
@@ -324,6 +324,18 @@ impl Server {
 				self.notifications.notify_process_log(&process);
 			}
 		}
+
+		// Finalize the process history that survived the runner.
+		let length = self
+			.index
+			.try_get_sandbox_processes_count(id)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox in the index"))?;
+		let processes = self
+			.index
+			.try_get_sandbox_processes(id, std::io::SeekFrom::Start(0), length)
+			.await?
+			.ok_or_else(|| tg::error!(%id, "failed to find the sandbox processes in the index"))?;
 
 		let mut indexed = self
 			.index
@@ -350,6 +362,7 @@ impl Server {
 						data: indexed.data,
 						id: id.clone(),
 						location: None,
+						processes: Some(processes),
 						runner: indexed.runner,
 						touched_at: now,
 					},

@@ -173,6 +173,9 @@ impl Index {
 				.map_err(|error| tg::error!(!error, "failed to put the process sandbox"))?;
 		}
 
+		if let Some(sandbox) = &sandbox {
+			Self::put_sandbox_process_with_transaction(db, subspace, transaction, sandbox, id)?;
+		}
 		if children_changed && let Some(children) = &arg.children {
 			let id_bytes = id.to_bytes();
 			let prefix = &(Kind::ProcessChild.to_i32().unwrap(), id_bytes.as_ref());

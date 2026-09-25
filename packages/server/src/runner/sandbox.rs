@@ -214,6 +214,18 @@ impl Session {
 					)
 				})
 				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
+			tg::sandbox::control::ServerRequestArg::GetProcesses(arg) => self
+				.server
+				.runner
+				.state
+				.sandboxes
+				.get_by_id(id)
+				.map(|sandbox| {
+					tg::sandbox::control::ClientResponseOutput::GetProcesses(
+						sandbox.processes(arg.position, arg.length),
+					)
+				})
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
 			tg::sandbox::control::ServerRequestArg::SpawnProcess(_) => {
 				Err(tg::error!(%id, "the sandbox was destroyed"))
 			},
@@ -417,6 +429,7 @@ impl Session {
 			data: control_data,
 			id: id.clone(),
 			location: location.clone(),
+			process_ids: indexmap::IndexMap::default(),
 			processes: processes.clone(),
 			sandbox: Some(create_output.sandbox.clone()),
 			status: tg::sandbox::Status::Started,
@@ -1042,6 +1055,9 @@ impl Session {
 							let output = tg::sandbox::control::GetClientResponseOutput { data };
 							Ok(tg::sandbox::control::ClientResponseOutput::Get(output))
 						},
+						tg::sandbox::control::ServerRequestArg::GetProcesses(arg) => self.server.runner.state.sandboxes.get_by_id(&id)
+							.map(|sandbox| tg::sandbox::control::ClientResponseOutput::GetProcesses(sandbox.processes(arg.position, arg.length)))
+							.ok_or_else(|| tg::error!(%id, "failed to find the sandbox")),
 						tg::sandbox::control::ServerRequestArg::SpawnProcess(request) => {
 							timer_future.take();
 
@@ -1211,7 +1227,7 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "the serve task panicked"))?;
 
-			let data = {
+			let (data, processes) = {
 				let mut state = self
 					.server
 					.runner
@@ -1222,7 +1238,10 @@ impl Session {
 				state.status = tg::sandbox::Status::Destroyed;
 				state.changed.send_replace(());
 				state.sandbox.take();
-				state.data()
+				(
+					state.data(),
+					state.process_ids.keys().cloned().collect::<Vec<_>>(),
+				)
 			};
 			drop(sandbox);
 
@@ -1233,6 +1252,7 @@ impl Session {
 				&location,
 				self.server.clock.unix_timestamp()?,
 				Some(&data),
+				Some(&processes),
 			)
 			.await?;
 
@@ -1240,7 +1260,7 @@ impl Session {
 			let request =
 				tg::sandbox::control::ClientMessage::Request(tg::sandbox::control::ClientRequest {
 					arg: tg::sandbox::control::ClientRequestArg::Destroy(
-						tg::sandbox::control::DestroyClientRequestArg { data },
+						tg::sandbox::control::DestroyClientRequestArg { data, processes },
 					),
 					id: request_id.clone(),
 				});
@@ -1431,7 +1451,7 @@ impl Session {
 			.ok_or_else(
 				|| tg::error!(id = %output.id, "missing the sandbox authentication token"),
 			)?;
-		self.index_remote_sandbox(&output.id, location, created_at, None)
+		self.index_remote_sandbox(&output.id, location, created_at, None, None)
 			.await?;
 		let connection = ConnectedSandboxControl { requests: control };
 
@@ -1481,6 +1501,7 @@ impl Session {
 		location: &tg::Location,
 		created_at: i64,
 		data: Option<&tg::sandbox::get::Output>,
+		processes: Option<&[tg::process::Id]>,
 	) -> tg::Result<()> {
 		if !location.is_remote() {
 			return Ok(());
@@ -1496,6 +1517,7 @@ impl Session {
 			data,
 			id: id.clone(),
 			location: Some(location.clone()),
+			processes: processes.map(<[_]>::to_vec),
 			runner: None,
 			touched_at,
 		};
@@ -1515,8 +1537,8 @@ impl Session {
 		sandbox: &tg::sandbox::Id,
 	) -> tg::Result<tg::runner::control::Process> {
 		if arg.id.is_none() {
-			arg.data.sandbox = sandbox.clone();
-		} else if arg.data.sandbox != *sandbox {
+			arg.data.sandbox = Some(sandbox.clone());
+		} else if arg.data.sandbox.as_ref() != Some(sandbox) {
 			let process = arg.id.as_ref();
 			return Err(tg::error!(
 				?process,

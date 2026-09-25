@@ -56,7 +56,6 @@ async fn local_requests_do_not_cancel_remote_acknowledgments() {
 		!response
 			.await
 			.unwrap()
-			.unwrap()
 			.try_unwrap_destroy()
 			.unwrap()
 			.destroyed

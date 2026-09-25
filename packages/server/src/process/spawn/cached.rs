@@ -382,12 +382,12 @@ impl Session {
 				output.data = data;
 				return Ok(output.data.cacheable.then_some(output));
 			}
-			match control_sender.start(request).await {
+			match control_sender.send_request(request).await {
 				Err(error) => Err(error),
 				Ok(response) => response.await,
 			}
 		} else {
-			self.send_process_control_request(&output.id, request, options)
+			self.request_process_control(&output.id, request, options)
 				.await
 		};
 		let response = match response {
@@ -399,8 +399,9 @@ impl Session {
 					output.data = data;
 					return Ok(output.data.cacheable.then_some(output));
 				}
-				if let Some(process) = self.try_get_process_local_inner(&output.id, false).await?
-					&& process.data.status.is_finished()
+				if let Some(process) = self
+					.try_get_process_local_inner(&output.id, false, tg::process::Source::Auto)
+					.await? && process.data.status.is_finished()
 				{
 					output.data = process.data;
 					return Ok(output.data.cacheable.then_some(output));
@@ -585,7 +586,7 @@ impl Session {
 			log: None,
 			output: source.output,
 			retry: arg.retry,
-			sandbox: source.sandbox,
+			sandbox: None,
 			started_at: None,
 			status: tg::process::Status::Finished,
 			stderr: arg.stderr.clone(),

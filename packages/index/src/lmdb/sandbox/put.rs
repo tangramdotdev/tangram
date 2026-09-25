@@ -13,6 +13,7 @@ impl Index {
 		usage_partition_total: u64,
 	) -> tg::Result<()> {
 		for arg in args {
+			arg.validate()?;
 			let key = Key::Sandbox(crate::lmdb::sandbox::Key::Sandbox(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
 			let existing = db
@@ -64,8 +65,23 @@ impl Index {
 					.as_ref()
 					.map_or(0, |sandbox| sandbox.reference_count),
 				runner,
+				set: crate::sandbox::Set {
+					processes: arg.processes.is_some()
+						|| existing
+							.as_ref()
+							.is_some_and(|sandbox| sandbox.set.processes),
+				},
 				touched_at,
 			};
+			if let Some(processes) = &arg.processes {
+				Self::put_sandbox_processes_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&arg.id,
+					processes,
+				)?;
+			}
 			let value = sandbox.serialize()?;
 			db.put(transaction, &key, &value)
 				.map_err(|error| tg::error!(!error, "failed to put the sandbox"))?;

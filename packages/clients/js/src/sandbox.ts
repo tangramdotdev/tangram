@@ -48,7 +48,7 @@ export class Sandbox {
 
 	/** Load the sandbox's state. */
 	async load(): Promise<void> {
-		let arg: tg.Sandbox.Get.Arg = {};
+		let arg: tg.Sandbox.Get.Arg = { tokens: this.#tokens };
 		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
@@ -182,9 +182,13 @@ export namespace Sandbox {
 		memory: number;
 	};
 
+	export type Source = tg.Process.Source;
+
 	export namespace Get {
 		export type Arg = {
 			location?: tg.Location.Arg | null;
+			source?: Source | undefined;
+			tokens?: tg.Authorization.Tokens | undefined;
 		};
 
 		export type Output = {

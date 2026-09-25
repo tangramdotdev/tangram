@@ -53,10 +53,10 @@ impl Local {
 		&self,
 		arg: tg::process::control::ServerRequestArg,
 	) -> tg::Result<tg::process::control::ClientResponseOutput> {
-		self.start(arg).await?.await?
+		self.send_request(arg).await?.await?
 	}
 
-	pub(crate) async fn start(
+	pub(crate) async fn send_request(
 		&self,
 		arg: tg::process::control::ServerRequestArg,
 	) -> tg::Result<

@@ -463,6 +463,13 @@ impl crate::Index for Index {
 		self.try_get_processes(ids).await
 	}
 
+	async fn try_get_process_children_count(
+		&self,
+		id: &tg::process::Id,
+	) -> tg::Result<Option<u64>> {
+		self.try_get_process_children_count(id).await
+	}
+
 	async fn try_get_process_children(
 		&self,
 		id: &tg::process::Id,
@@ -512,6 +519,22 @@ impl crate::Index for Index {
 		runner: &tg::runner::Id,
 	) -> tg::Result<Vec<tg::sandbox::Id>> {
 		self.get_runner_sandboxes(runner).await
+	}
+
+	async fn try_get_sandbox_processes_count(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<Option<u64>> {
+		self.try_get_sandbox_processes_count(id).await
+	}
+
+	async fn try_get_sandbox_processes(
+		&self,
+		id: &tg::sandbox::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> tg::Result<Option<Vec<tg::process::Id>>> {
+		self.try_get_sandbox_processes(id, position, length).await
 	}
 
 	async fn get_sandbox_processes(

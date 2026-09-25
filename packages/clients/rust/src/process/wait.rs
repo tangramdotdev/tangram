@@ -29,6 +29,10 @@ pub struct Arg {
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
+	#[serde(default, skip_serializing_if = "tg::process::Source::is_auto")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "tg::process::Source::is_auto")]
+	pub source: tg::process::Source,
+
 	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
 	#[tangram_serialize(
 		default,
@@ -78,6 +82,7 @@ pub struct Output {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub location: Option<tg::location::Arg>,
+	pub source: tg::process::Source,
 }
 
 #[derive(Clone, Debug)]
@@ -105,7 +110,9 @@ impl<O> tg::Process<O> {
 	{
 		let handle = self.handle_with_handle(handle);
 		let handle = &handle;
-		if let Some(task) = &self.0.task {
+		if options.source.is_auto()
+			&& let Some(task) = &self.0.task
+		{
 			self.wait_stdio().await?;
 			let output = task
 				.wait()
@@ -119,7 +126,11 @@ impl<O> tg::Process<O> {
 			self.disarm();
 			return Ok(wait);
 		}
-		let wait = self.0.wait.lock().unwrap().take();
+		let wait = options
+			.source
+			.is_auto()
+			.then(|| self.0.wait.lock().unwrap().take())
+			.flatten();
 		if let Some(wait) = wait {
 			self.wait_stdio().await?;
 			let location = self.location().and_then(|location| location.to_location());
@@ -138,6 +149,7 @@ impl<O> tg::Process<O> {
 		let arg = tg::process::wait::Arg {
 			lease: self.lease().cloned(),
 			location: location.clone(),
+			source: options.source,
 			tokens: self.tokens(),
 		};
 		let mut future = handle.wait_process_future(id, arg.clone()).await?;

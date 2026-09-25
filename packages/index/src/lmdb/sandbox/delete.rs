@@ -25,6 +25,7 @@ impl Index {
 		ids: &[tg::sandbox::Id],
 	) -> tg::Result<()> {
 		for id in ids {
+			Self::delete_sandbox_processes_with_transaction(db, subspace, transaction, id)?;
 			let key = Key::Sandbox(crate::lmdb::sandbox::Key::Sandbox(id.clone()));
 			let key = Self::pack(subspace, &key);
 			db.delete(transaction, &key)

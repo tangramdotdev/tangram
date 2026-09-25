@@ -79,6 +79,7 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 			data: None,
 			id: id.clone(),
 			location: Some(location.clone()),
+			processes: None,
 			runner: None,
 			touched_at: 1,
 		};

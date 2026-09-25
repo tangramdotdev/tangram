@@ -2,12 +2,44 @@ use {
 	crate::fdb::{Index, Key, Kind},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
+	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
 impl Index {
+	pub async fn try_get_sandbox_processes(
+		&self,
+		id: &tg::sandbox::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> tg::Result<Option<Vec<tg::process::Id>>> {
+		let request = crate::read::Request::TryGetSandboxProcesses {
+			id: id.clone(),
+			length,
+			position,
+		};
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetSandboxProcesses(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub async fn try_get_sandbox_processes_count(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<Option<u64>> {
+		let request = crate::read::Request::TryGetSandboxProcessesCount { id: id.clone() };
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetSandboxProcessesCount(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+		Ok(output)
+	}
+
 	pub async fn get_sandbox_processes(
 		&self,
 		sandbox: &tg::sandbox::Id,
@@ -132,5 +164,145 @@ impl Index {
 			.transpose()?;
 
 		Ok(ControlFlow::Break(sandbox))
+	}
+
+	pub(crate) async fn try_get_sandbox_processes_count_with_transaction(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::sandbox::Id,
+	) -> tg::Result<ControlFlow<Option<u64>, fdb::FdbError>> {
+		let sandbox = Self::try_get_sandbox_with_transaction(txn, subspace, id).await?;
+		let sandbox = match sandbox {
+			ControlFlow::Break(sandbox) => sandbox,
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+		};
+		if sandbox.is_none() {
+			return Ok(ControlFlow::Break(None));
+		}
+		let bytes = id.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::SandboxProcessEntry.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let (begin, end) = Subspace::from_bytes(prefix).range();
+		let selector = fdb::KeySelector::last_less_than(end);
+		let result = txn.get_key(&selector, false).await;
+		let key = crate::fdb::retry!(result);
+		if key.as_ref() < begin.as_slice() {
+			return Ok(ControlFlow::Break(Some(0)));
+		}
+		let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcessEntry { position, .. }) =
+			Self::unpack(subspace, &key)?
+		else {
+			return Err(tg::error!("unexpected key type"));
+		};
+		let count = u64::try_from(position)
+			.map_err(|error| tg::error!(!error, "invalid sandbox process position"))?
+			.checked_add(1)
+			.ok_or_else(|| tg::error!("invalid sandbox process count"))?;
+		Ok(ControlFlow::Break(Some(count)))
+	}
+
+	pub(crate) async fn try_get_sandbox_processes_page_with_transaction(
+		txn: &crate::fdb::Transaction,
+		subspace: &Subspace,
+		id: &tg::sandbox::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> tg::Result<ControlFlow<Option<Vec<tg::process::Id>>, fdb::FdbError>> {
+		let Some(_) =
+			crate::fdb::propagate!(Self::try_get_sandbox_with_transaction(txn, subspace, id).await)
+		else {
+			return Ok(ControlFlow::Break(None));
+		};
+		if length == 0 {
+			return Ok(ControlFlow::Break(Some(Vec::new())));
+		}
+		let limit = length
+			.to_usize()
+			.ok_or_else(|| tg::error!("the sandbox process length is too large"))?;
+		let bytes = id.to_bytes();
+		let key = (Kind::SandboxProcessEntry.to_i32().unwrap(), bytes.as_ref());
+		let prefix = Self::pack(subspace, &key);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let (begin, end) = range_subspace.range();
+		let position = match position {
+			std::io::SeekFrom::Start(position) => position
+				.to_i64()
+				.ok_or_else(|| tg::error!("the sandbox process position is too large"))?,
+			std::io::SeekFrom::End(position) => {
+				if position >= 0 {
+					return Ok(ControlFlow::Break(Some(Vec::new())));
+				}
+				let selector = fdb::KeySelector::last_less_than(end.clone());
+				let result = txn.get_key(&selector, false).await;
+				let key = crate::fdb::retry!(result);
+				if key.as_ref() < begin.as_slice() {
+					return Err(tg::error!("invalid sandbox process position"));
+				}
+				let key = Self::unpack(subspace, &key)?;
+				let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcessEntry {
+					position: last_position,
+					..
+				}) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				last_position
+					.checked_add(1)
+					.and_then(|processes_length| processes_length.checked_add(position))
+					.filter(|position| *position >= 0)
+					.ok_or_else(|| tg::error!("invalid sandbox process position"))?
+			},
+			std::io::SeekFrom::Current(_) => {
+				return Err(tg::error!(
+					"a current sandbox process position is not supported"
+				));
+			},
+		};
+		let begin = Self::pack(
+			subspace,
+			&(
+				Kind::SandboxProcessEntry.to_i32().unwrap(),
+				bytes.as_ref(),
+				position,
+			),
+		);
+		let range = fdb::RangeOption {
+			begin: fdb::KeySelector::first_greater_or_equal(begin),
+			end: fdb::KeySelector::first_greater_or_equal(end),
+			limit: Some(limit),
+			mode: fdb::options::StreamingMode::WantAll,
+			..Default::default()
+		};
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let entries = crate::fdb::retry!(result);
+		let processes = entries
+			.iter()
+			.enumerate()
+			.map(|(index, entry)| {
+				let key = Self::unpack(subspace, entry.key())?;
+				let Key::Sandbox(crate::fdb::sandbox::Key::SandboxProcessEntry {
+					process: process_id,
+					position: process_position,
+					..
+				}) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				let expected_position = position
+					.checked_add(index.to_i64().unwrap())
+					.ok_or_else(|| tg::error!("invalid sandbox process position"))?;
+				if process_position != expected_position {
+					return Err(tg::error!("the sandbox process position is invalid"));
+				}
+				Ok(process_id)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(ControlFlow::Break(Some(processes)))
 	}
 }

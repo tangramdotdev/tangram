@@ -228,11 +228,15 @@ impl Session {
 					.map_err(
 						|error| tg::error!(!error, %id, "failed to get the process from the index"),
 					)?
-					.and_then(|process| {
+					.map(|process| {
 						process
 							.sandbox
-							.or_else(|| process.data.map(|data| data.sandbox))
-					});
+							.or_else(|| process.data.and_then(|data| data.sandbox))
+							.ok_or_else(
+								|| tg::error!(%id, "the authenticated process has no sandbox"),
+							)
+					})
+					.transpose()?;
 				if let Some(sandbox) = sandbox {
 					self.server
 						.index

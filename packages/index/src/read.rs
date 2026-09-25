@@ -76,11 +76,22 @@ pub(crate) enum Request {
 		length: u64,
 		position: std::io::SeekFrom,
 	},
+	TryGetProcessChildrenCount {
+		id: tg::process::Id,
+	},
 	TryGetProcessNodeChildren {
 		id: tg::process::Id,
 	},
 	TryGetProcesses {
 		ids: Vec<tg::process::Id>,
+	},
+	TryGetSandboxProcesses {
+		id: tg::sandbox::Id,
+		length: u64,
+		position: std::io::SeekFrom,
+	},
+	TryGetSandboxProcessesCount {
+		id: tg::sandbox::Id,
 	},
 	TryGetSandboxes {
 		ids: Vec<tg::sandbox::Id>,
@@ -123,8 +134,11 @@ pub(crate) enum Response {
 	TryGetOldestUpdateTransactionId(Option<u64>),
 	TryGetOrganizations(Vec<Option<crate::organization::Organization>>),
 	TryGetProcessChildren(Option<Vec<tg::process::data::Child>>),
+	TryGetProcessChildrenCount(Option<u64>),
 	TryGetProcessNodeChildren(Option<crate::process::NodeChildren>),
 	TryGetProcesses(Vec<Option<crate::process::Process>>),
+	TryGetSandboxProcesses(Option<Vec<tg::process::Id>>),
+	TryGetSandboxProcessesCount(Option<u64>),
 	TryGetSandboxes(Vec<Option<crate::sandbox::Sandbox>>),
 	TryGetSpecifiersForIds(Vec<Option<tg::Specifier>>),
 	TryGetTags(Vec<Option<crate::tag::Tag>>),

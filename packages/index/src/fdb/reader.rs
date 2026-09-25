@@ -250,6 +250,32 @@ impl Index {
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::GetIndexers(output)
 			},
+			crate::read::Request::TryGetProcessChildrenCount { id } => {
+				let result = Self::try_get_process_children_count_with_transaction(
+					transaction,
+					subspace,
+					id,
+				)
+				.await?;
+				let output = match result {
+					ControlFlow::Break(output) => output,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				crate::read::Response::TryGetProcessChildrenCount(output)
+			},
+			crate::read::Request::TryGetSandboxProcessesCount { id } => {
+				let result = Self::try_get_sandbox_processes_count_with_transaction(
+					transaction,
+					subspace,
+					id,
+				)
+				.await?;
+				let output = match result {
+					ControlFlow::Break(output) => output,
+					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+				};
+				crate::read::Response::TryGetSandboxProcessesCount(output)
+			},
 			crate::read::Request::TryGetProcessChildren {
 				id,
 				length,
@@ -265,6 +291,22 @@ impl Index {
 				.await;
 				let output = crate::fdb::propagate!(result);
 				crate::read::Response::TryGetProcessChildren(output)
+			},
+			crate::read::Request::TryGetSandboxProcesses {
+				id,
+				length,
+				position,
+			} => {
+				let result = Self::try_get_sandbox_processes_page_with_transaction(
+					transaction,
+					subspace,
+					id,
+					*position,
+					*length,
+				)
+				.await;
+				let output = crate::fdb::propagate!(result);
+				crate::read::Response::TryGetSandboxProcesses(output)
 			},
 			crate::read::Request::TryGetProcessNodeChildren { id } => {
 				let result =

@@ -113,3 +113,55 @@ async fn read_reports_progress_and_closes() {
 	};
 	assert_eq!(id, request.id);
 }
+
+#[tokio::test]
+async fn send_request_enqueues_before_waiting_and_preserves_response_errors() {
+	let (local, mut receiver) = Local::new();
+	let arg =
+		tg::process::control::ServerRequestArg::Get(tg::process::control::GetServerRequestArg {});
+	let response = local.send_request(arg).await.unwrap();
+	let Message::Request { request, sender } = receiver.try_recv().unwrap() else {
+		panic!("expected a get request");
+	};
+	let error = tg::error::Data {
+		message: Some("the request failed".into()),
+		..Default::default()
+	};
+	let message = tg::process::control::ClientResponse {
+		error: Some(error),
+		id: request.id,
+		output: None,
+	};
+	sender
+		.send(tg::process::control::ClientMessage::Response(message))
+		.await
+		.unwrap();
+	assert!(response.await.unwrap().is_err());
+}
+
+#[tokio::test]
+async fn send_request_distinguishes_transport_errors_and_abandoned_callers() {
+	let (local, mut receiver) = Local::new();
+	let arg =
+		tg::process::control::ServerRequestArg::Get(tg::process::control::GetServerRequestArg {});
+	let response = local.send_request(arg.clone()).await.unwrap();
+	drop(receiver.try_recv().unwrap());
+	assert!(response.await.is_err());
+	let response = local.send_request(arg.clone()).await.unwrap();
+	drop(response);
+	let Message::Request { request, sender } = receiver.try_recv().unwrap() else {
+		panic!("expected a get request");
+	};
+	let message = tg::process::control::ClientResponse {
+		error: None,
+		id: request.id,
+		output: None,
+	};
+	sender
+		.send(tg::process::control::ClientMessage::Response(message))
+		.await
+		.unwrap();
+	drop(sender);
+	drop(receiver);
+	assert!(local.send_request(arg).await.is_err());
+}

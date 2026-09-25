@@ -102,7 +102,7 @@ impl Session {
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>>
 	{
 		let Some(tg::process::get::Output { data, location, .. }) = self
-			.try_get_process_local(id, false, false, tokens)
+			.try_get_process_local(id, false, false, tokens, tg::process::Source::Auto)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process"))?
 		else {
@@ -296,12 +296,12 @@ impl Session {
 			timeout: Duration::from_secs(10),
 		};
 		let response = if let Some(control_sender) = control_sender {
-			match control_sender.start(request).await {
+			match control_sender.send_request(request).await {
 				Ok(response) => response,
 				Err(error) => future::err(error).boxed(),
 			}
 		} else {
-			self.start_process_control_request(id, request, options)
+			self.send_process_control_request(id, request, options)
 				.await?
 		};
 		let local = control_sender.is_some();

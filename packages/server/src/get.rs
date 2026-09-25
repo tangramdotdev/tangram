@@ -79,11 +79,13 @@ impl Session {
 
 			return Ok(stream.boxed());
 		}
-		if options.tokens.is_empty() && id.kind() == tg::id::Kind::Sandbox {
+		if id.kind() == tg::id::Kind::Sandbox {
 			let id = tg::sandbox::Id::try_from(id.clone())?;
 			let entry = tg::sandbox::get::Arg {
 				cached: arg.cached,
 				location: options.location.clone(),
+				source: tg::sandbox::Source::Auto,
+				tokens: options.tokens.clone(),
 				ttl: arg.ttl,
 			};
 			let sandbox = self.try_get_sandbox(&id, entry).await?;

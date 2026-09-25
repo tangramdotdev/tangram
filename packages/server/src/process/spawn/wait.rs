@@ -18,6 +18,7 @@ impl Session {
 		let scheduled_sandbox = output.as_ref().and_then(|output| {
 			(output.sandbox_arg.is_some() && output.allocation.is_none())
 				.then(|| output.data.sandbox.clone())
+				.flatten()
 		});
 		let sandbox_connection_future = if let Some(sandbox) = &scheduled_sandbox {
 			Some(self.subscribe_sandbox_connection(sandbox).await?)
@@ -73,8 +74,12 @@ impl Session {
 						match future::select(spawn_future.as_mut(), scheduler_future).await {
 							future::Either::Left((result, _)) => {
 								if let Some(output) = result? {
-									self.destroy_process_candidate_sandbox(&output.data.sandbox)
-										.await?;
+									self.destroy_process_candidate_sandbox(
+										output.data.sandbox.as_ref().ok_or_else(|| {
+											tg::error!("the scheduled process has no sandbox")
+										})?,
+									)
+									.await?;
 								}
 							},
 							future::Either::Right((result, _)) => {

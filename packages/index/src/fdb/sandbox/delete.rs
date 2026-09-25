@@ -26,6 +26,9 @@ impl Index {
 		ids: &[tg::sandbox::Id],
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		for id in ids {
+			crate::fdb::propagate!(Self::delete_sandbox_processes_with_transaction(
+				txn, subspace, id
+			));
 			let key = Key::Sandbox(crate::fdb::sandbox::Key::Sandbox(id.clone()));
 			let key = Self::pack(subspace, &key);
 			txn.clear(&key);

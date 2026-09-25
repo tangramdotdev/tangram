@@ -225,7 +225,7 @@ impl Session {
 						options: tg::referent::Options::default(),
 						output: None,
 						parent: None,
-						sandbox: Some(data.sandbox.clone()),
+						sandbox: data.sandbox.clone(),
 						storage: indexed.storage,
 						time_to_touch: self.server.config.process.time_to_touch,
 						touched_at,
@@ -288,7 +288,7 @@ impl Session {
 			return Err(tg::error!("invalid stdio stream"));
 		}
 		let output = self
-			.try_get_process_local(id, false, false, &[])
+			.try_get_process_local(id, false, false, &[], tg::process::Source::Auto)
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 
@@ -518,7 +518,7 @@ impl Inner {
 		};
 		let Some(output) = inner
 			.session
-			.try_get_process_local(&inner.process, false, false, &[])
+			.try_get_process_local(&inner.process, false, false, &[], tg::process::Source::Auto)
 			.await?
 		else {
 			return Ok(false);
