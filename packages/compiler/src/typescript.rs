@@ -84,12 +84,16 @@ impl Typescript {
 
 fn run(compiler: &Compiler, mut request_receiver: RequestReceiver) {
 	// Replace the isolate each time a request exhausts its heap.
-	while run_isolate(compiler, &mut request_receiver).is_continue() {}
+	loop {
+		let flow = run_inner(compiler, &mut request_receiver);
+		if flow.is_break() {
+			break;
+		}
+	}
 }
 
-fn run_isolate(compiler: &Compiler, request_receiver: &mut RequestReceiver) -> ControlFlow<()> {
+fn run_inner(compiler: &Compiler, request_receiver: &mut RequestReceiver) -> ControlFlow<()> {
 	// Create the isolate. Declare the handle first so that it outlives the isolate.
-	#[expect(clippy::needless_late_init)]
 	let isolate_handle;
 	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT.into());
 	let mut isolate = v8::Isolate::new(params);
