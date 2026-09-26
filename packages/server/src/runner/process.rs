@@ -93,7 +93,7 @@ struct FinishProcessRunArg {
 	run_task: Task<tg::Result<RunProcessOutput>>,
 	sandbox: tangram_sandbox::Sandbox,
 	state: tg::process::State,
-	sync_receiver: tokio::sync::oneshot::Receiver<Option<tg::authorization::Token>>,
+	sync_receiver: tokio::sync::oneshot::Receiver<Option<tg::Referent<tg::sync::Id>>>,
 }
 
 struct FinishProcessRunOutput {

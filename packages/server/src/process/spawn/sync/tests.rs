@@ -5,14 +5,16 @@ fn spawn_command_sync_tokens_survive_forwarding() {
 	let key =
 		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
 			.unwrap();
+	let sync = tg::sync::Id::new();
 	let body = tg::authorization::Body {
 		expires_at: i64::MAX,
 		permissions: vec![tg::authorization::Permission::Sync(
 			tg::authorization::permission::sync::Permission::Read,
 		)],
-		resource: tg::sync::Id::new().into(),
+		resource: sync.clone().into(),
 	};
 	let token = tg::authorization::Token::sign(body, &key).unwrap();
+	let sync = tg::Referent::with_node_and_local_tokens(sync, vec![token.clone()]);
 	let file = tg::file::Id::new(b"file");
 	let blob = tg::blob::Id::new(b"input");
 	let executable = tg::command::data::Executable {
@@ -50,8 +52,7 @@ fn spawn_command_sync_tokens_survive_forwarding() {
 		] {
 			let count = if node.is_left() { 4 } else { 1 };
 			let mut command = tg::Referent::with_node(node);
-			Session::set_spawn_process_command_sync(&mut command, &location, token.clone())
-				.unwrap();
+			Session::set_spawn_process_command_sync(&mut command, &location, &sync).unwrap();
 			Session::update_spawn_process_command_for_location(&mut command, &location).unwrap();
 			assert_eq!(
 				command.options.tokens.local_authorization(),

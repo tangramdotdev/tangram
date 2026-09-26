@@ -21,7 +21,7 @@ impl Session {
 			return Ok(());
 		}
 
-		// Open the source sync before requesting the destination token.
+		// Open the source sync before requesting the destination sync.
 		let local = tg::Location::Local(tg::location::Local::default());
 		let put = nodes
 			.iter()
@@ -58,10 +58,10 @@ impl Session {
 			..Default::default()
 		};
 		let (output, stream) = self.sync_for_process(arg, stream.boxed()).await?;
-		let token = output
-			.token
-			.ok_or_else(|| tg::error!("the command sync did not produce a token"))?;
-		Self::set_spawn_process_command_sync(command, location, token)?;
+		let sync = output
+			.sync
+			.ok_or_else(|| tg::error!("the command sync did not produce a sync referent"))?;
+		Self::set_spawn_process_command_sync(command, location, &sync)?;
 
 		// Keep transferring after the spawn response and its progress stream have been dropped.
 		let session = self.clone();
@@ -85,10 +85,14 @@ impl Session {
 	fn set_spawn_process_command_sync(
 		command: &mut tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
 		location: &tg::Location,
-		token: tg::authorization::Token,
+		sync: &tg::Referent<tg::sync::Id>,
 	) -> tg::Result<()> {
 		let mut options = tg::referent::Options::default();
-		options.tokens.insert_authorization(location.clone(), token);
+		for token in sync.options.tokens.local_authorization() {
+			options
+				.tokens
+				.insert_authorization(location.clone(), token.clone());
+		}
 		command.options.tokens.inherit(&options.tokens);
 		if let tg::Either::Left(command) = &mut command.node {
 			let host = command
