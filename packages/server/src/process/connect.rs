@@ -370,8 +370,10 @@ impl Session {
 		input: &mut Option<Input>,
 		prepare_output: Option<spawn::PrepareOutput>,
 	) -> tg::Result<Option<Output>> {
+		let mut session = self.clone();
+		session.context.stopper = None;
 		let wait = if let tg::Either::Right(id) = &arg.process {
-			let Some(wait) = self
+			let Some(wait) = session
 				.try_wait_process_local(
 					id,
 					arg.tokens.local_authorization().to_vec(),
@@ -401,7 +403,9 @@ impl Session {
 	fn connect_process_local(&self, options: Options, input: Input) -> Output {
 		let (high, receiver_high) = mpsc::channel(64);
 		let (low, receiver_low) = mpsc::channel(16);
-		let session = self.clone();
+		// The connection owns its lease until completion, detachment, or client disconnect.
+		let mut session = self.clone();
+		session.context.stopper = None;
 		let task = Task::spawn(move |_| async move {
 			if let Err(error) = session
 				.connect_process_local_task(options, input, &high, &low)

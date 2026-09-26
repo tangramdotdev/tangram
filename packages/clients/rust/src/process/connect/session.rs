@@ -9,7 +9,7 @@ use {
 		},
 	},
 	tangram_futures::{stream::Ext as _, task::Task},
-	tokio::sync::{mpsc, oneshot, watch},
+	tokio::sync::{Notify, mpsc, oneshot, watch},
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -26,6 +26,7 @@ struct State {
 	acks: mpsc::Sender<tg::Result<ClientMessage>>,
 	closed: AtomicBool,
 	confirmed: AtomicBool,
+	credit: Notify,
 	error: Mutex<Option<tg::Error>>,
 	initial: Mutex<
 		Vec<(
@@ -92,6 +93,7 @@ impl Session {
 			acks,
 			closed: AtomicBool::new(false),
 			confirmed: AtomicBool::new(false),
+			credit: Notify::new(),
 			error: Mutex::new(None),
 			initial: Mutex::new(initial),
 			next_id: AtomicU64::new(next_id),
@@ -139,6 +141,7 @@ impl Session {
 			match message {
 				ServerMessage::Ack(ack) => {
 					state.unacknowledged.lock().unwrap().remove(&ack.id);
+					state.credit.notify_waiters();
 				},
 				ServerMessage::Sync(_) => {
 					return Err(tg::error!("unexpected process sync message"));
@@ -488,17 +491,33 @@ impl Session {
 impl State {
 	async fn send_request(&self, request: ClientRequest) -> tg::Result<()> {
 		let id = request.id;
-		{
-			let mut unacknowledged = self.unacknowledged.lock().unwrap();
-			let limit =
-				REQUEST_WINDOW + usize::from(matches!(request.arg, ClientRequestArg::Detach));
-			if unacknowledged.len() >= limit {
-				return Err(tg::error!("the process request window was exceeded"));
+		loop {
+			let notified = self.credit.notified();
+			if self.closed.load(Ordering::SeqCst) {
+				return Err(self
+					.error
+					.lock()
+					.unwrap()
+					.clone()
+					.unwrap_or_else(|| tg::error!("the process connection closed")));
 			}
-			unacknowledged.insert(id);
+			{
+				let mut unacknowledged = self.unacknowledged.lock().unwrap();
+				let limit =
+					REQUEST_WINDOW + usize::from(matches!(request.arg, ClientRequestArg::Detach));
+				if unacknowledged.len() < limit {
+					unacknowledged.insert(id);
+					break;
+				}
+			}
+			tokio::select! {
+				() = notified => {},
+				() = self.sender.closed() => return Err(tg::error!("the process connection closed")),
+			}
 		}
 		let guard = scopeguard::guard(id, |id| {
 			self.unacknowledged.lock().unwrap().remove(&id);
+			self.credit.notify_waiters();
 		});
 		self.sender
 			.send(Ok(ClientMessage::Request(request)))
@@ -527,6 +546,7 @@ impl State {
 		// Close under the same lock used to register requests.
 		let mut requests = self.requests.lock().unwrap();
 		self.closed.store(true, Ordering::SeqCst);
+		self.credit.notify_waiters();
 		for (_, sender) in std::mem::take(&mut *requests) {
 			if let Some(error) = &error {
 				sender.send(Err(error.clone())).ok();

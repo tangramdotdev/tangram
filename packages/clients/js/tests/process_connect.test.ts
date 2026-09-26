@@ -46,22 +46,30 @@ test("reads and closes share the fixed receipt window", async () => {
 			reads: {},
 		}));
 		for (let i = 0; i < requestWindow / 2; i++) {
-			session.read({ streams: ["stdout"] }).input.close();
+			(await session.read({ streams: ["stdout"] })).input.close();
 		}
-		assert.throws(
-			() => session!.read({ streams: ["stdout"] }),
-			/request window was exceeded/,
-		);
-		emit("ack", { id: 1 });
+		let opened = false;
+		const reading = session.read({ streams: ["stdout"] }).then((read) => {
+			opened = true;
+			return read;
+		});
 		await setImmediate();
-		session.read({ streams: ["stdout"] });
+		assert.equal(opened, false);
+		emit("ack", { id: 1 });
+		await reading;
+		assert.equal(opened, true);
 
 		// Detachment retains one reserved request even when ordinary credit is exhausted.
 		const detaching = session.detach();
-		const detachId = requestWindow + 3;
+		const detachId = requestWindow + 2;
 		emit("ack", { id: detachId });
 		emit("response", { id: detachId, error: null, output: { kind: "detach" } });
 		await detaching;
+
+		// Closing the connection releases callers waiting for request credit.
+		const blocked = session.read({ streams: ["stdout"] });
+		session.close();
+		await assert.rejects(blocked, /process connection closed/);
 	} finally {
 		session?.close();
 		events.close();

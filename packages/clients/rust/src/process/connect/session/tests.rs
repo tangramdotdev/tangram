@@ -15,6 +15,7 @@ async fn responses_are_acknowledged_when_the_request_queue_is_full() {
 		acks,
 		closed: AtomicBool::new(false),
 		confirmed: AtomicBool::new(true),
+		credit: Notify::new(),
 		error: Mutex::new(None),
 		initial: Mutex::new(Vec::new()),
 		next_id: AtomicU64::new(3),
@@ -68,6 +69,7 @@ async fn read_reports_disconnect_after_yielding_a_chunk() {
 		acks,
 		closed: AtomicBool::new(false),
 		confirmed: AtomicBool::new(true),
+		credit: Notify::new(),
 		error: Mutex::new(None),
 		initial: Mutex::new(vec![(1, arg.clone(), read_receiver)]),
 		next_id: AtomicU64::new(2),
@@ -128,6 +130,7 @@ async fn writes_fill_the_window_without_waiting_for_receipt_or_completion() {
 		acks,
 		closed: AtomicBool::new(false),
 		confirmed: AtomicBool::new(true),
+		credit: Notify::new(),
 		error: Mutex::new(None),
 		initial: Mutex::new(Vec::new()),
 		next_id: AtomicU64::new(1),
@@ -224,6 +227,7 @@ async fn receipt_acknowledgments_replenish_the_request_window() {
 		acks,
 		closed: AtomicBool::new(false),
 		confirmed: AtomicBool::new(true),
+		credit: Notify::new(),
 		error: Mutex::new(None),
 		initial: Mutex::new(Vec::new()),
 		next_id: AtomicU64::new(1),
@@ -247,16 +251,14 @@ async fn receipt_acknowledgments_replenish_the_request_window() {
 		arg: ClientRequestArg::Read(tg::process::stdio::read::Arg::default()),
 		id: 1000,
 	};
-	assert!(state.send_request(request).await.is_err());
+	let sending = state.send_request(request);
+	tokio::pin!(sending);
+	assert!(futures::poll!(&mut sending).is_pending());
 
 	// A receipt acknowledgment restores credit without requiring operation completion.
 	let output = stream::iter([Ok(ServerMessage::Ack(Ack { id: 1 }))]).boxed();
 	Session::task(&state, output, &mut None).await.unwrap();
-	let request = ClientRequest {
-		arg: ClientRequestArg::Read(tg::process::stdio::read::Arg::default()),
-		id: 1000,
-	};
-	state.send_request(request).await.unwrap();
+	sending.await.unwrap();
 	receiver.recv().await.unwrap().unwrap();
 
 	// Reserve one additional request for detachment, even with a full ordinary window.
@@ -270,5 +272,15 @@ async fn receipt_acknowledgments_replenish_the_request_window() {
 		arg: ClientRequestArg::Detach,
 		id: 1002,
 	};
-	assert!(state.send_request(request).await.is_err());
+	let sending = state.send_request(request);
+	tokio::pin!(sending);
+	assert!(futures::poll!(&mut sending).is_pending());
+	state.fail(Some(tg::error!("the transport failed")));
+	assert!(
+		sending
+			.await
+			.unwrap_err()
+			.to_string()
+			.contains("transport failed")
+	);
 }
