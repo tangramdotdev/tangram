@@ -1,10 +1,11 @@
 use ../lib/test.nu *
 
-# A sandbox get issued after its runner dies must return promptly instead of waiting on the runner, and must report the sandbox as destroyed once the runner expires.
+# A sandbox get issued after its runner dies must observe destruction without waiting for the control read timeout.
 let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { single_process: false },
 	authentication: { root: { token: $root_token } },
+	control: { read_timeout: 60 },
 	roles: [api indexer scheduler],
 	scheduler: { runner_ttl: 3 },
 }
@@ -36,8 +37,7 @@ if $nu.os-info.name == "linux" {
 	while (ps | where pid == $runner_pid | is-not-empty) { sleep 10ms }
 }
 
-let output = timeout 5s tg --url $remote.url --token $root_token sandbox get $sandbox | complete
-success $output "the sandbox get must return promptly after the runner dies"
-wait_until --timeout 30sec {
-	(tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) == "destroyed"
-} "the sandbox must be destroyed once the runner expires"
+# Allow the runner TTL and the next scheduler cleanup tick, but not the control read timeout.
+let output = timeout 15s tg --url $remote.url --token $root_token sandbox get $sandbox | complete
+success $output "the sandbox get must complete before the control read timeout"
+assert equal ($output.stdout | from json | get data.status) "destroyed" "the pending get must observe destruction once the runner expires"

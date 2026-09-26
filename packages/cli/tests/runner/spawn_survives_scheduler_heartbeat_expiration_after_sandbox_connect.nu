@@ -1,13 +1,12 @@
 use ../lib/test.nu *
 
-# A spawn whose runner dies after the sandbox connects but before the process connects must observe destruction without waiting for the control read timeout.
+# Once the sandbox connects, scheduler heartbeat expiration must not cancel a spawn that is still waiting for its process connection.
 let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { checkpoints: true, single_process: false },
 	authentication: { root: { token: $root_token } },
-	control: { read_timeout: 60 },
 	roles: [api indexer scheduler],
-	scheduler: { runner_ttl: 3 },
+	scheduler: { heartbeat_interval: 60, heartbeat_ttl: 3 },
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
@@ -30,19 +29,13 @@ let build = job spawn {
 }
 
 success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.connect $connect_watch 0 | complete) "the runner must reach the process control connect checkpoint"
-success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.spawn.connection.wait $wait_watch 0 | complete) "the spawner must reach the connection wait checkpoint"
-
-let runner_pid = open ($runner.directory | path join 'lock') | into int
-kill --signal 9 $runner_pid
-if $nu.os-info.name == "linux" {
-	^tail --pid $runner_pid -f /dev/null
-} else {
-	while (ps | where pid == $runner_pid | is-not-empty) { sleep 10ms }
-}
-tg --url $remote.url --token $root_token checkpoint continue process.spawn.connection.wait $wait_watch 0
+success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.spawn.connection.wait $wait_watch 0 | complete) "the sandbox must connect before the scheduler heartbeat expires"
 tg --url $remote.url --token $root_token checkpoint unwatch process.spawn.connection.wait $wait_watch
 
-let output = try { job recv --tag $build --timeout 15sec } catch { null }
-assert ($output != null) "the spawn must return after the runner dies before the process connects"
-failure $output
-assert ($output.stderr | ansi strip | str contains "the sandbox was destroyed") "the spawn must report sandbox destruction"
+let output = try { job recv --tag $build --timeout 5sec } catch { null }
+assert ($output == null) "scheduler heartbeat expiration must not fail a spawn after the sandbox connects"
+
+tg --url $runner.url checkpoint unwatch runner.process.control.connect $connect_watch
+let output = job recv --tag $build --timeout 30sec
+success $output "the build must complete after process control connects"
+assert equal ($output.stdout | str trim) "42"

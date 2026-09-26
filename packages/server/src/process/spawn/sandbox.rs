@@ -98,11 +98,11 @@ impl Session {
 		process_connection_future: &mut crate::process::ConnectionFuture,
 		sandbox_connection_future: &mut crate::sandbox::ConnectionFuture,
 	) -> tg::Result<Option<crate::process::control::Connected>> {
-		let mut heartbeat_future = pin!(self.scheduler_heartbeat_expired(scheduler));
+		// The scheduler only governs startup until the sandbox connects.
 		tokio::select! {
 			result = process_connection_future.as_mut() => return result.map(Some),
 			result = sandbox_connection_future.as_mut() => result?,
-			result = heartbeat_future.as_mut() => return result.map(|()| None),
+			result = self.scheduler_heartbeat_expired(scheduler) => return result.map(|()| None),
 		}
 		crate::checkpoint!(self.server, "process.spawn.connection.wait", %sandbox).await;
 		let wakeups = self
@@ -128,7 +128,6 @@ impl Session {
 		tokio::select! {
 			result = process_connection_future.as_mut() => result.map(Some),
 			result = destroyed_future => result,
-			result = heartbeat_future.as_mut() => result.map(|()| None),
 		}
 	}
 
