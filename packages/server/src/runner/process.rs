@@ -1715,7 +1715,7 @@ impl Session {
 		&self,
 		process: &tg::Process,
 		data: &tg::process::Data,
-		sync: Option<tg::authorization::Token>,
+		sync: Option<tg::Referent<tg::sync::Id>>,
 	) -> tg::Result<()> {
 		let Some(tg::Location::Remote(remote)) = process
 			.location()
@@ -1748,12 +1748,13 @@ impl Session {
 			name: remote.name.clone(),
 			region: remote.region.clone(),
 		});
-		if let Some(token) = &sync {
+		if let Some(sync) = &sync {
+			let mut sync_tokens = tg::authorization::Tokens::default();
+			for token in sync.options.tokens.local_authorization() {
+				sync_tokens.insert_authorization(destination.clone(), token.clone());
+			}
 			for object in &mut objects {
-				object
-					.options
-					.tokens
-					.insert_authorization(destination.clone(), token.clone());
+				object.options.tokens.inherit(&sync_tokens);
 			}
 		}
 		let arg = tg::push::Arg {

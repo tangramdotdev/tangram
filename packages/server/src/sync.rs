@@ -103,18 +103,10 @@ impl Session {
 		tg::sync::Output,
 		BoxStream<'static, tg::Result<tg::sync::Message>>,
 	)> {
-		// Verify or create the sync token before starting the transfer.
-		arg.token = match &arg.token {
-			Some(token) => {
-				if self.try_get_sync_id_from_token(token).is_none() {
-					return Err(tg::error!("invalid sync token"));
-				}
-				Some(token.clone())
-			},
-			None => self.create_read_token(&tg::sync::Id::new().into())?,
-		};
+		// Verify or create the sync before starting the transfer.
+		arg.sync = Some(self.prepare_sync(arg.sync)?);
 		let output = tg::sync::Output {
-			token: arg.token.clone(),
+			sync: arg.sync.clone(),
 		};
 
 		// Start the transfer.
@@ -170,6 +162,28 @@ impl Session {
 			.attach(task);
 
 		Ok((output, stream.boxed()))
+	}
+
+	pub(crate) fn prepare_sync(
+		&self,
+		sync: Option<tg::Referent<tg::sync::Id>>,
+	) -> tg::Result<tg::Referent<tg::sync::Id>> {
+		if let Some(sync) = sync {
+			let authorized = sync
+				.options
+				.tokens
+				.local_authorization()
+				.iter()
+				.any(|token| self.try_get_sync_id_from_token(token).as_ref() == Some(&sync.node));
+			if !authorized {
+				return Err(tg::error!("invalid sync authorization"));
+			}
+			return Ok(sync);
+		}
+		let id = tg::sync::Id::new();
+		let token = self.create_read_token(&id.clone().into())?;
+		let sync = tg::Referent::with_node_and_local_tokens(id, token);
+		Ok(sync)
 	}
 
 	async fn sync_region(

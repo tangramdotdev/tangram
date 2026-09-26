@@ -72,11 +72,9 @@ impl Session {
 
 		// Create the state.
 		let id = arg
-			.token
+			.sync
 			.as_ref()
-			.map(|token| tg::sync::Id::try_from(token.body.resource.clone()))
-			.transpose()?
-			.unwrap_or_else(tg::sync::Id::new);
+			.map_or_else(tg::sync::Id::new, |sync| sync.node.clone());
 		let control = self.spawn_sync_control_task(graph.clone(), &id);
 		let state = Arc::new(State {
 			arg,

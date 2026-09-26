@@ -305,7 +305,7 @@ impl Session {
 				arg,
 				id,
 			});
-		sender.request(request, priority)
+		sender.request(request, priority).boxed()
 	}
 
 	pub(super) async fn receive_process_control_client_response(

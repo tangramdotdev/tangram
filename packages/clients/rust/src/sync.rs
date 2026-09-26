@@ -87,12 +87,12 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub sandbox_processes: bool,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub sync: Option<tg::Referent<tg::sync::Id>>,
+
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub tag_targets: bool,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::authorization::Token>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -102,7 +102,7 @@ pub struct Arg {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub token: Option<tg::authorization::Token>,
+	pub sync: Option<tg::Referent<tg::sync::Id>>,
 }
 
 #[derive(

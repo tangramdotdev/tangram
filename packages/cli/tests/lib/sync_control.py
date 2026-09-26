@@ -154,7 +154,8 @@ class Sync:
             assert self.response.getheader("Content-Type") == "application/vnd.tangram.sync"
             assert self.response.getheader("x-tg-output-in-body") == "true"
             self.output = json.loads(self.response.read(read_varint(self.response)))
-            self.token = self.output["token"]
+            self.sync = self.output["sync"]
+            self.token = self.sync["options"]["tokens"]["local"][0]
 
     def chunk(self, data):
         self.socket.sendall(f"{len(data):x}\r\n".encode() + data + b"\r\n")
@@ -376,19 +377,31 @@ def fake_peer(messenger, nodes=None):
 
 def test_output(messenger):
     sync = Sync({"get": missing_id()})
+    referent = sync.sync
     token = sync.token
-    assert token
+    assert f"syncs.{referent['node']}.control" == subject(token)
     sync.close()
-    sync = Sync({"get": missing_id(), "token": token})
-    assert sync.token == token, "retries must reuse the provided token"
+    sync = Sync({"get": missing_id(), "sync": referent})
+    assert sync.sync == referent, "retries must reuse the supplied sync referent"
     sync.close()
+
+    # An ID alone, another sync's proof, and a forged proof must all be rejected.
+    other = Sync()
+    wrong_id = other.sync["node"]
+    other.close()
     parts = token.split(".")
     body = json.loads(base64.b64decode(parts[1] + "=" * (-len(parts[1]) % 4)))
     body["expires_at"] += 1
     parts[1] = base64.b64encode(json.dumps(body).encode()).decode()
-    sync = Sync({"get": missing_id(), "token": ".".join(parts)}, status=500)
-    assert b"invalid sync token" in sync.response.read()
-    sync.close()
+    invalid = [
+        {"node": referent["node"]},
+        {"node": wrong_id, "options": referent["options"]},
+        {"node": referent["node"], "options": {"tokens": {"local": [".".join(parts)]}}},
+    ]
+    for referent in invalid:
+        sync = Sync({"get": missing_id(), "sync": referent}, status=500)
+        assert b"invalid sync authorization" in sync.response.read()
+        sync.close()
 
 
 def recover_lease(messenger, fail):

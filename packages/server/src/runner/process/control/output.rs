@@ -209,7 +209,9 @@ impl Session {
 			stdout_position: 0,
 			streams,
 		};
-		Self::run_process_control_output_reader_task(reader, receiver).await?;
+		Self::run_process_control_output_reader_task(reader, receiver)
+			.boxed()
+			.await?;
 
 		Ok(())
 	}

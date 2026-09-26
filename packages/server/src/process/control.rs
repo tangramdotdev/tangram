@@ -185,15 +185,7 @@ impl Session {
 		let mut options = arg.options;
 		options.tokens.clear();
 		let parent = arg.parent;
-		let sync = match arg.sync {
-			Some(sync) => {
-				if session.try_get_sync_id_from_token(&sync).is_none() {
-					return Err(tg::error!("invalid sync token"));
-				}
-				Some(sync)
-			},
-			None => session.create_read_token(&tg::sync::Id::new().into())?,
-		};
+		let sync = Some(session.prepare_sync(arg.sync)?);
 		if !arg.start {
 			if assign && !matches!(self.context.principal, tg::Principal::Runner(_)) {
 				return Err(tg::error!(
@@ -514,7 +506,7 @@ impl Session {
 		id: tg::process::Id,
 		location: Option<tg::location::Arg>,
 		mut stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-		sync: Option<tg::authorization::Token>,
+		sync: Option<tg::Referent<tg::sync::Id>>,
 	) -> BoxStream<'static, tg::Result<tg::process::control::ServerMessage>> {
 		let session = self.clone();
 		futures::stream::once(async move {

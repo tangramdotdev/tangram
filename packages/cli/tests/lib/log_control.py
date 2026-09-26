@@ -136,18 +136,18 @@ def early_finish():
                 checkpoint("wait", name, watches[name], 0)
             checkpoint("unwatch", "process.control.output", watches.pop("process.control.output"))
             sock, response, output = pending.result(timeout=10)
-            token = output["sync"]
-            assert token, output
+            sync = output["sync"]
+            assert sync, output
             receive(response, "ack", request_id)
             close(sock, response)
         finally:
             for name, watch in watches.items():
                 checkpoint("unwatch", name, watch)
 
-    # Reconnect after losing an acknowledged request, preserving the sync token for the eventual push.
-    arg = {"id": output["process"]["node"], "lease": "test", "sync": token}
+    # Reconnect after losing an acknowledged request, preserving the sync referent for the eventual push.
+    arg = {"id": output["process"]["node"], "lease": "test", "sync": sync}
     sock, response, reconnected = connect(arg, output["token"])
-    assert reconnected["sync"] == token, reconnected
+    assert reconnected["sync"] == sync, reconnected
     request(sock, response, request_id, finish)
     close(sock, response)
     process = json.loads(subprocess.check_output(command + ["get", arg["id"]], timeout=10))

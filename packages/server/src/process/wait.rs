@@ -281,7 +281,7 @@ impl Session {
 	fn create_process_wait_output_runner(
 		data: &tg::process::Data,
 		permissions: tg::authorization::permission::process::Set,
-		sync: Option<&tg::authorization::Token>,
+		sync: Option<&tg::Referent<tg::sync::Id>>,
 		location: &tg::Location,
 	) -> tg::Result<tg::process::wait::Output> {
 		let exit = data
@@ -320,7 +320,7 @@ impl Session {
 		if permissions.contains(required)
 			&& let Some(sync) = sync
 		{
-			Self::update_wait_output_sync_token(&mut output, sync, location);
+			Self::update_wait_output_sync_tokens(&mut output, sync, location);
 		}
 
 		Ok(output)
@@ -423,20 +423,21 @@ impl Session {
 		permissions
 	}
 
-	fn update_wait_output_sync_token(
+	fn update_wait_output_sync_tokens(
 		output: &mut tg::process::wait::Output,
-		sync: &tg::authorization::Token,
+		sync: &tg::Referent<tg::sync::Id>,
 		location: &tg::Location,
 	) {
+		let mut sync_tokens = tg::authorization::Tokens::default();
+		for token in sync.options.tokens.local_authorization() {
+			sync_tokens.insert_authorization(location.clone(), token.clone());
+		}
 		if let Some(tg::Either::Right(error)) = &mut output.error {
-			error
-				.options
-				.tokens
-				.insert_authorization(location.clone(), sync.clone());
+			error.options.tokens.inherit(&sync_tokens);
 		}
 		if let Some(data) = &mut output.output {
 			Self::update_wait_value_tokens(data, &mut |tokens, _| {
-				tokens.insert_authorization(location.clone(), sync.clone());
+				tokens.inherit(&sync_tokens);
 			});
 		}
 	}
@@ -538,7 +539,7 @@ impl Session {
 			.await && let Some(sync) = control.sync
 		{
 			let location = tg::Location::Local(tg::location::Local::default());
-			Self::update_wait_output_sync_token(output, &sync, &location);
+			Self::update_wait_output_sync_tokens(output, &sync, &location);
 		}
 
 		Ok(())

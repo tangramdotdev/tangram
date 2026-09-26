@@ -10,8 +10,8 @@ use {
 
 pub(super) struct Destination {
 	pub input: Input,
+	pub sync: tg::Referent<tg::sync::Id>,
 	pub task: Task<tg::Result<()>>,
-	pub token: tg::authorization::Token,
 }
 
 pub(super) struct Source {
@@ -50,7 +50,7 @@ impl Session {
 			.boxed();
 		let sync_input = ReceiverStream::new(sync_receiver).boxed();
 
-		// Start the destination sync and obtain its token.
+		// Start the destination sync and obtain its referent.
 		let get = Self::spawn_process_command_nodes(command)?
 			.into_iter()
 			.map(|node| node.map(tg::Selector::Id))
@@ -62,9 +62,9 @@ impl Session {
 			..Default::default()
 		};
 		let (output, mut sync_output) = self.sync_for_process(arg, sync_input).await?;
-		let token = output
-			.token
-			.ok_or_else(|| tg::error!("the command sync did not produce a token"))?;
+		let sync = output
+			.sync
+			.ok_or_else(|| tg::error!("the command sync did not produce a sync"))?;
 
 		// Forward the destination sync messages over the process connection.
 		let sender = sender.clone();
@@ -88,7 +88,7 @@ impl Session {
 			Ok(())
 		});
 
-		let destination = Destination { input, task, token };
+		let destination = Destination { input, sync, task };
 
 		Ok(destination)
 	}

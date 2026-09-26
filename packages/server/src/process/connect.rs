@@ -413,13 +413,12 @@ impl Session {
 				.connect_process_command_sync_destination(&spawn.command, input, high)
 				.await?;
 			input = destination.input;
-			// Attach the destination-minted token to the ephemeral command; process storage strips it.
-			let location = tg::Location::Local(tg::location::Local::default());
+			// Attach the destination-minted tokens to the ephemeral command; process storage strips them.
 			prepare_output
 				.command
 				.options
 				.tokens
-				.insert_authorization(location.clone(), destination.token.clone());
+				.inherit(&destination.sync.options.tokens);
 			let tg::Either::Left(spawn) = &mut arg.process else {
 				return Err(tg::error!("command sync requires a spawn"));
 			};
@@ -427,7 +426,7 @@ impl Session {
 				.command
 				.options
 				.tokens
-				.insert_authorization(location, destination.token);
+				.inherit(&destination.sync.options.tokens);
 			sync_task = Some(destination.task);
 		}
 		Self::send_connect_ack(high, request_id).await?;
