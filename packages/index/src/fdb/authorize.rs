@@ -487,7 +487,7 @@ impl Index {
 
 				Output::ProcessObjectKinds(kinds)
 			},
-			Request::ProcessObjectGrant {
+			Request::ProcessObjectPermission {
 				object,
 				permission,
 				process,
@@ -497,8 +497,8 @@ impl Index {
 					let permission = tg::authorization::Permission::Object(*permission);
 					let resource = object.clone().into();
 					let subject = tg::authorization::Subject::Process(process.clone());
-					let grant = crate::fdb::propagate!(
-						Self::get_authorization_grant_with_transaction(
+					let permission = crate::fdb::propagate!(
+						Self::get_authorization_permission_with_transaction(
 							txn,
 							subspace,
 							creator.as_ref(),
@@ -508,7 +508,7 @@ impl Index {
 						)
 						.await
 					);
-					grant.is_some_and(|grant| grant.is_process_implicit())
+					permission.is_some_and(|permission| permission.is_process_direct())
 				};
 				Output::Bool(value)
 			},
@@ -585,7 +585,7 @@ impl Index {
 
 				Output::Ids { after, ids }
 			},
-			Request::ResourceGrants {
+			Request::ResourcePermissions {
 				after,
 				limit,
 				resource,
@@ -594,7 +594,7 @@ impl Index {
 				let prefix = Self::pack(
 					subspace,
 					&(
-						Kind::ResourceGrant.to_i32().unwrap(),
+						Kind::ResourcePermission.to_i32().unwrap(),
 						resource_bytes.as_ref(),
 					),
 				);
@@ -608,10 +608,10 @@ impl Index {
 					)
 					.await
 				);
-				let grants = entries
+				let permissions = entries
 					.into_iter()
 					.map(|(key, value)| {
-						let Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+						let Key::Permission(crate::fdb::permission::Key::ResourcePermission {
 							creator,
 							permission,
 							subject,
@@ -620,20 +620,20 @@ impl Index {
 						else {
 							return Err(tg::error!("unexpected key type"));
 						};
-						let value = crate::fdb::grant::GrantValue::deserialize(&value)?;
-						let grant = crate::grant::Fact {
+						let value = crate::fdb::permission::PermissionValue::deserialize(&value)?;
+						let permission = crate::permission::Fact {
 							creator,
-							implicit: value.implicit.is_some(),
+							direct: value.direct.is_some(),
 							permission,
 							resource: resource.clone(),
 							subject,
 						};
 
-						Ok(grant)
+						Ok(permission)
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Grants { after, grants }
+				Output::Permissions { after, permissions }
 			},
 			Request::SandboxOwner { sandbox } => {
 				let owner = crate::fdb::propagate!(
@@ -651,13 +651,13 @@ impl Index {
 
 				Output::Id(id)
 			},
-			Request::SubjectGrants {
+			Request::SubjectPermissions {
 				after,
 				limit,
 				subject,
 			} => {
-				let (after, grants) = crate::fdb::propagate!(
-					Self::get_authorization_subject_grants_with_transaction(
+				let (after, permissions) = crate::fdb::propagate!(
+					Self::get_authorization_subject_permissions_with_transaction(
 						txn,
 						subspace,
 						subject,
@@ -667,7 +667,7 @@ impl Index {
 					.await
 				);
 
-				Output::Grants { after, grants }
+				Output::Permissions { after, permissions }
 			},
 			Request::Tag { tag } => {
 				let tag = crate::fdb::propagate!(
@@ -714,15 +714,15 @@ impl Index {
 		Ok(ControlFlow::Break(output))
 	}
 
-	async fn get_authorization_grant_with_transaction(
+	async fn get_authorization_permission_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		creator: Option<&tg::Principal>,
 		permission: tg::authorization::Permission,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
-	) -> tg::Result<ControlFlow<Option<crate::grant::Fact>, fdb::FdbError>> {
-		let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+	) -> tg::Result<ControlFlow<Option<crate::permission::Fact>, fdb::FdbError>> {
+		let key = Key::Permission(crate::fdb::permission::Key::ResourcePermission {
 			creator: creator.cloned(),
 			permission,
 			resource: resource.clone(),
@@ -731,23 +731,23 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let result = txn.get(&key, false).await;
 		let value = crate::fdb::retry!(result);
-		let grant = match value {
+		let permission = match value {
 			Some(value) => {
-				let value = crate::fdb::grant::GrantValue::deserialize(&value)?;
-				let grant = crate::grant::Fact {
+				let value = crate::fdb::permission::PermissionValue::deserialize(&value)?;
+				let permission = crate::permission::Fact {
 					creator: creator.cloned(),
-					implicit: value.implicit.is_some(),
+					direct: value.direct.is_some(),
 					permission,
 					resource: resource.clone(),
 					subject: subject.clone(),
 				};
 
-				Some(grant)
+				Some(permission)
 			},
 			None => None,
 		};
 
-		Ok(ControlFlow::Break(grant))
+		Ok(ControlFlow::Break(permission))
 	}
 
 	async fn get_authorization_key_page_with_transaction(
@@ -805,16 +805,19 @@ impl Index {
 		Ok(ControlFlow::Break((entries, after)))
 	}
 
-	async fn get_authorization_subject_grants_with_transaction(
+	async fn get_authorization_subject_permissions_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		subject: &tg::authorization::Subject,
 		after: Option<&[u8]>,
 		limit: usize,
-	) -> tg::Result<ControlFlow<(Option<Vec<u8>>, Vec<crate::grant::Fact>), fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<(Option<Vec<u8>>, Vec<crate::permission::Fact>), fdb::FdbError>> {
 		let prefix = Self::pack(
 			subspace,
-			&(Kind::SubjectGrant.to_i32().unwrap(), subject.to_string()),
+			&(
+				Kind::SubjectPermission.to_i32().unwrap(),
+				subject.to_string(),
+			),
 		);
 		let (entries, after) = crate::fdb::propagate!(
 			Self::get_authorization_entry_page_with_transaction(
@@ -822,10 +825,10 @@ impl Index {
 			)
 			.await
 		);
-		let grants = entries
+		let permissions = entries
 			.into_iter()
 			.map(|(key, value)| {
-				let Key::Grant(crate::fdb::grant::Key::SubjectGrant {
+				let Key::Permission(crate::fdb::permission::Key::SubjectPermission {
 					creator,
 					permission,
 					resource,
@@ -834,19 +837,19 @@ impl Index {
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				let value = crate::fdb::grant::GrantValue::deserialize(&value)?;
-				let grant = crate::grant::Fact {
+				let value = crate::fdb::permission::PermissionValue::deserialize(&value)?;
+				let permission = crate::permission::Fact {
 					creator,
-					implicit: value.implicit.is_some(),
+					direct: value.direct.is_some(),
 					permission,
 					resource,
 					subject,
 				};
 
-				Ok(grant)
+				Ok(permission)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok(ControlFlow::Break((after, grants)))
+		Ok(ControlFlow::Break((after, permissions)))
 	}
 }

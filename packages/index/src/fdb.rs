@@ -14,7 +14,6 @@ mod batch;
 mod checkout;
 mod clean;
 mod error;
-mod grant;
 mod group;
 mod indexer;
 mod key;
@@ -22,6 +21,7 @@ mod log;
 mod node;
 mod object;
 mod organization;
+mod permission;
 mod process;
 mod reader;
 mod request;
@@ -57,7 +57,7 @@ pub struct Options {
 	pub authorize: AuthorizeConfig,
 	pub cleaning_partition_total: u64,
 	pub cluster: std::path::PathBuf,
-	pub grant_update_partition_total: u64,
+	pub permission_update_partition_total: u64,
 	pub instance: Option<String>,
 	pub log_compaction_partition_total: u64,
 	pub max_process_depth: Option<u64>,
@@ -78,7 +78,7 @@ pub struct AuthorizeConfig {
 #[derive(Clone, Copy)]
 pub(super) struct PartitionTotals {
 	pub cleaning: u64,
-	pub grant_update: u64,
+	pub permission_update: u64,
 	pub log_compaction: u64,
 	pub storage_and_metadata_update: u64,
 	pub usage_update: u64,
@@ -89,7 +89,7 @@ impl PartitionTotals {
 	#[must_use]
 	fn update(self, kind: crate::update::Kind) -> u64 {
 		match kind {
-			crate::update::Kind::Grant => self.grant_update,
+			crate::update::Kind::Permission => self.permission_update,
 			crate::update::Kind::StorageAndMetadata => self.storage_and_metadata_update,
 			crate::update::Kind::Usage => self.usage_update,
 		}
@@ -111,7 +111,7 @@ impl Index {
 
 		let partition_totals = PartitionTotals {
 			cleaning: options.cleaning_partition_total,
-			grant_update: options.grant_update_partition_total,
+			permission_update: options.permission_update_partition_total,
 			log_compaction: options.log_compaction_partition_total,
 			storage_and_metadata_update: options.storage_and_metadata_update_partition_total,
 			usage_update: options.usage_update_partition_total,
@@ -195,7 +195,10 @@ impl Index {
 		}
 		for (name, partition_total) in [
 			("cleaning", options.cleaning_partition_total),
-			("grant update", options.grant_update_partition_total),
+			(
+				"permission update",
+				options.permission_update_partition_total,
+			),
 			("log compaction", options.log_compaction_partition_total),
 			(
 				"storage and metadata update",
@@ -280,8 +283,8 @@ impl Index {
 	}
 
 	#[must_use]
-	pub fn grant_update_partition_total(&self) -> u64 {
-		self.partition_totals.grant_update
+	pub fn permission_update_partition_total(&self) -> u64 {
+		self.partition_totals.permission_update
 	}
 
 	#[must_use]
@@ -605,12 +608,12 @@ impl crate::Index for Index {
 		self.try_get_users(ids).await
 	}
 
-	async fn put_grants(&self, args: &[crate::grant::put::Arg]) -> tg::Result<()> {
-		self.put_grants(args).await
+	async fn put_permissions(&self, args: &[crate::permission::put::Arg]) -> tg::Result<()> {
+		self.put_permissions(args).await
 	}
 
-	async fn delete_grants(&self, args: &[crate::grant::delete::Arg]) -> tg::Result<()> {
-		self.delete_grants(args).await
+	async fn delete_permissions(&self, args: &[crate::permission::delete::Arg]) -> tg::Result<()> {
+		self.delete_permissions(args).await
 	}
 
 	async fn put_groups(&self, args: &[crate::group::put::Arg]) -> tg::Result<()> {
@@ -726,8 +729,8 @@ impl crate::Index for Index {
 		self.cleaning_partition_total()
 	}
 
-	fn grant_update_partition_total(&self) -> u64 {
-		self.grant_update_partition_total()
+	fn permission_update_partition_total(&self) -> u64 {
+		self.permission_update_partition_total()
 	}
 
 	fn log_compaction_partition_total(&self) -> u64 {

@@ -496,7 +496,7 @@ impl Index {
 
 				Output::ProcessObjectKinds(kinds)
 			},
-			Request::ProcessObjectGrant {
+			Request::ProcessObjectPermission {
 				object,
 				permission,
 				process,
@@ -506,7 +506,7 @@ impl Index {
 					let permission = tg::authorization::Permission::Object(*permission);
 					let resource = object.clone().into();
 					let subject = tg::authorization::Subject::Process(process.clone());
-					let grant = Self::get_authorization_grant_with_transaction(
+					let permission = Self::get_authorization_permission_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -515,7 +515,7 @@ impl Index {
 						&resource,
 						&subject,
 					)?;
-					grant.is_some_and(|grant| grant.is_process_implicit())
+					permission.is_some_and(|permission| permission.is_process_direct())
 				};
 				Output::Bool(value)
 			},
@@ -593,7 +593,7 @@ impl Index {
 
 				Output::Ids { after, ids }
 			},
-			Request::ResourceGrants {
+			Request::ResourcePermissions {
 				after,
 				limit,
 				resource,
@@ -602,7 +602,7 @@ impl Index {
 				let prefix = Self::pack(
 					subspace,
 					&(
-						crate::lmdb::Kind::ResourceGrant.to_i32().unwrap(),
+						crate::lmdb::Kind::ResourcePermission.to_i32().unwrap(),
 						resource_bytes.as_ref(),
 					),
 				);
@@ -614,32 +614,34 @@ impl Index {
 					after.as_deref(),
 					*limit,
 				)?;
-				let grants = entries
+				let permissions = entries
 					.into_iter()
 					.map(|(key, value)| {
-						let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
-							creator,
-							permission,
-							subject,
-							..
-						}) = key
+						let crate::lmdb::Key::Permission(
+							crate::lmdb::permission::Key::ResourcePermission {
+								creator,
+								permission,
+								subject,
+								..
+							},
+						) = key
 						else {
 							return Err(tg::error!("unexpected key type"));
 						};
-						let value = crate::lmdb::grant::GrantValue::deserialize(&value)?;
-						let grant = crate::grant::Fact {
+						let value = crate::lmdb::permission::PermissionValue::deserialize(&value)?;
+						let permission = crate::permission::Fact {
 							creator,
-							implicit: value.implicit.is_some(),
+							direct: value.direct.is_some(),
 							permission,
 							resource: resource.clone(),
 							subject,
 						};
 
-						Ok(grant)
+						Ok(permission)
 					})
 					.collect::<tg::Result<Vec<_>>>()?;
 
-				Output::Grants { after, grants }
+				Output::Permissions { after, permissions }
 			},
 			Request::SandboxOwner { sandbox } => {
 				let owner =
@@ -654,21 +656,22 @@ impl Index {
 
 				Output::Id(id)
 			},
-			Request::SubjectGrants {
+			Request::SubjectPermissions {
 				after,
 				limit,
 				subject,
 			} => {
-				let (after, grants) = Self::get_authorization_subject_grants_with_transaction(
-					db,
-					subspace,
-					transaction,
-					subject,
-					after.as_deref(),
-					*limit,
-				)?;
+				let (after, permissions) =
+					Self::get_authorization_subject_permissions_with_transaction(
+						db,
+						subspace,
+						transaction,
+						subject,
+						after.as_deref(),
+						*limit,
+					)?;
 
-				Output::Grants { after, grants }
+				Output::Permissions { after, permissions }
 			},
 			Request::Tag { tag } => {
 				let tag = Self::try_get_tag_with_transaction(db, subspace, transaction, tag)?;
@@ -716,7 +719,7 @@ impl Index {
 		Ok(output)
 	}
 
-	fn get_authorization_grant_with_transaction(
+	fn get_authorization_permission_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
@@ -724,8 +727,8 @@ impl Index {
 		permission: tg::authorization::Permission,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
-	) -> tg::Result<Option<crate::grant::Fact>> {
-		let key = crate::lmdb::Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
+	) -> tg::Result<Option<crate::permission::Fact>> {
+		let key = crate::lmdb::Key::Permission(crate::lmdb::permission::Key::ResourcePermission {
 			creator: creator.cloned(),
 			permission,
 			resource: resource.clone(),
@@ -735,23 +738,23 @@ impl Index {
 		let value = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, "failed to get an authorization fact"))?;
-		let grant = match value {
+		let permission = match value {
 			Some(value) => {
-				let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
-				let grant = crate::grant::Fact {
+				let value = crate::lmdb::permission::PermissionValue::deserialize(value)?;
+				let permission = crate::permission::Fact {
 					creator: creator.cloned(),
-					implicit: value.implicit.is_some(),
+					direct: value.direct.is_some(),
 					permission,
 					resource: resource.clone(),
 					subject: subject.clone(),
 				};
 
-				Some(grant)
+				Some(permission)
 			},
 			None => None,
 		};
 
-		Ok(grant)
+		Ok(permission)
 	}
 
 	fn get_authorization_key_page_with_transaction(
@@ -815,18 +818,18 @@ impl Index {
 		Ok((entries, after))
 	}
 
-	fn get_authorization_subject_grants_with_transaction(
+	fn get_authorization_subject_permissions_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		subject: &tg::authorization::Subject,
 		after: Option<&[u8]>,
 		limit: usize,
-	) -> tg::Result<(Option<Vec<u8>>, Vec<crate::grant::Fact>)> {
+	) -> tg::Result<(Option<Vec<u8>>, Vec<crate::permission::Fact>)> {
 		let prefix = Self::pack(
 			subspace,
 			&(
-				crate::lmdb::Kind::SubjectGrant.to_i32().unwrap(),
+				crate::lmdb::Kind::SubjectPermission.to_i32().unwrap(),
 				subject.to_string(),
 			),
 		);
@@ -838,10 +841,10 @@ impl Index {
 			after,
 			limit,
 		)?;
-		let grants = entries
+		let permissions = entries
 			.into_iter()
 			.map(|(key, value)| {
-				let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::SubjectGrant {
+				let crate::lmdb::Key::Permission(crate::lmdb::permission::Key::SubjectPermission {
 					creator,
 					permission,
 					resource,
@@ -850,19 +853,19 @@ impl Index {
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				let value = crate::lmdb::grant::GrantValue::deserialize(&value)?;
-				let grant = crate::grant::Fact {
+				let value = crate::lmdb::permission::PermissionValue::deserialize(&value)?;
+				let permission = crate::permission::Fact {
 					creator,
-					implicit: value.implicit.is_some(),
+					direct: value.direct.is_some(),
 					permission,
 					resource,
 					subject,
 				};
 
-				Ok(grant)
+				Ok(permission)
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		Ok((after, grants))
+		Ok((after, permissions))
 	}
 }

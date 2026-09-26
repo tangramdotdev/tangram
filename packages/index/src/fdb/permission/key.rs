@@ -2,13 +2,13 @@ use tangram_client::prelude::*;
 
 #[derive(Clone, Debug)]
 pub enum Key {
-	ResourceGrant {
+	ResourcePermission {
 		resource: tg::Id,
 		subject: tg::authorization::Subject,
 		creator: Option<tg::Principal>,
 		permission: tg::authorization::Permission,
 	},
-	SubjectGrant {
+	SubjectPermission {
 		subject: tg::authorization::Subject,
 		resource: tg::Id,
 		creator: Option<tg::Principal>,
@@ -17,16 +17,17 @@ pub enum Key {
 	Visibility {
 		resource: tg::Id,
 		subject: tg::authorization::Subject,
-		grant_resource: tg::Id,
+		permission_resource: tg::Id,
 		creator: Option<tg::Principal>,
 		permission: tg::authorization::Permission,
 	},
-	GrantExpiresAt {
+	PermissionExpiresAt {
+		partition: u64,
 		expires_at: i64,
 		resource: tg::Id,
 		subject: tg::authorization::Subject,
 		creator: Option<tg::Principal>,
 		permission: tg::authorization::Permission,
-		source: super::GrantSource,
+		source: super::PermissionSource,
 	},
 }

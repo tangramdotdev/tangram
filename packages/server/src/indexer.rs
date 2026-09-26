@@ -65,7 +65,7 @@ struct Tasks {
 	batch_expiration: SharedTask<tg::Result<()>>,
 	cleaning: Task<tg::Result<()>>,
 	database_index_queue: Task<tg::Result<()>>,
-	grant_update: Task<tg::Result<()>>,
+	permission_update: Task<tg::Result<()>>,
 	index_queue: SharedTask<tg::Result<()>>,
 	index_sequence_reservations: SharedTask<tg::Result<()>>,
 	log_compaction: Task<tg::Result<()>>,
@@ -367,17 +367,17 @@ impl Server {
 			}
 		});
 
-		// Spawn the grant update task.
-		let grant_update_task = Task::spawn({
+		// Spawn the permission update task.
+		let permission_update_task = Task::spawn({
 			let config = config.clone();
 			let indexer = indexer.clone();
 			move |stopper| async move {
 				indexer
 					.update_task(
-						tangram_index::update::Kind::Grant,
-						&config.updates.grants,
-						config.updates.grants.partitions.start,
-						config.updates.grants.partitions.end,
+						tangram_index::update::Kind::Permission,
+						&config.updates.permissions,
+						config.updates.permissions.partitions.start,
+						config.updates.permissions.partitions.end,
 						&stopper,
 					)
 					.await
@@ -474,7 +474,7 @@ impl Server {
 			batch_expiration: batch_expiration_task,
 			cleaning: cleaning_task,
 			database_index_queue: database_index_queue_task,
-			grant_update: grant_update_task,
+			permission_update: permission_update_task,
 			index_queue: index_queue_task,
 			index_sequence_reservations: index_sequence_reservations_task,
 			log_compaction: log_compaction_task,
@@ -578,7 +578,7 @@ impl Indexer {
 			batch_expiration,
 			cleaning,
 			database_index_queue,
-			grant_update,
+			permission_update,
 			index_queue,
 			index_sequence_reservations,
 			log_compaction,
@@ -607,7 +607,7 @@ impl Indexer {
 		// Finish the current operations without exhausting the partitions.
 		cleaning.stop();
 		database_index_queue.stop();
-		grant_update.stop();
+		permission_update.stop();
 		log_compaction.stop();
 		storage_and_metadata_update.stop();
 		object_cache.stop();
@@ -618,7 +618,7 @@ impl Indexer {
 		for (name, task) in [
 			("cleaning", cleaning),
 			("database index queue", database_index_queue),
-			("grant update", grant_update),
+			("permission update", permission_update),
 			("log compaction", log_compaction),
 			("storage and metadata update", storage_and_metadata_update),
 			("object cache", object_cache),

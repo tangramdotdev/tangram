@@ -483,7 +483,7 @@ pub struct FdbIndex {
 
 	pub cluster: PathBuf,
 
-	pub grant_update_partition_total: u64,
+	pub permission_update_partition_total: u64,
 
 	pub instance: Option<String>,
 
@@ -639,7 +639,7 @@ pub struct IndexerUsageExpiration {
 
 #[derive(Clone, Debug)]
 pub struct IndexerUpdates {
-	pub grants: IndexerUpdate,
+	pub permissions: IndexerUpdate,
 
 	pub max_process_depth: usize,
 
@@ -680,9 +680,9 @@ pub struct Object {
 
 	pub cache: Option<ObjectCache>,
 
-	pub grant_time_to_live: Duration,
+	pub permission_time_to_live: Duration,
 
-	pub grant_time_to_touch: Duration,
+	pub permission_time_to_touch: Duration,
 
 	pub index_queue: IndexQueue,
 
@@ -820,9 +820,9 @@ pub struct ScyllaCacheSimpleSpeculativeExecution {
 pub struct Process {
 	pub children_wakeup_interval: Duration,
 
-	pub grant_time_to_live: Duration,
+	pub permission_time_to_live: Duration,
 
-	pub grant_time_to_touch: Duration,
+	pub permission_time_to_touch: Duration,
 
 	pub spawn: Spawn,
 
@@ -983,9 +983,9 @@ pub struct Sandbox {
 
 	pub nice: u8,
 
-	pub process_grant_time_to_live: Duration,
+	pub process_permission_time_to_live: Duration,
 
-	pub process_grant_time_to_touch: Duration,
+	pub process_permission_time_to_touch: Duration,
 
 	pub processes_wakeup_interval: Duration,
 
@@ -1076,9 +1076,9 @@ pub struct Sync {
 
 	pub get: SyncGet,
 
-	pub grant_time_to_live: Duration,
+	pub permission_time_to_live: Duration,
 
-	pub grant_time_to_touch: Duration,
+	pub permission_time_to_touch: Duration,
 
 	pub max_frame_size: u64,
 
@@ -1617,7 +1617,7 @@ impl Default for FdbIndex {
 			authorize: FdbIndexAuthorize::default(),
 			cleaning_partition_total: 1,
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
-			grant_update_partition_total: 1,
+			permission_update_partition_total: 1,
 			instance: None,
 			log_compaction_partition_total: 1,
 			storage_and_metadata_update_partition_total: 1,
@@ -1731,7 +1731,7 @@ impl Default for IndexerUsageExpiration {
 impl Default for IndexerUpdates {
 	fn default() -> Self {
 		Self {
-			grants: IndexerUpdate::default(),
+			permissions: IndexerUpdate::default(),
 			max_process_depth: 1024,
 			storage_and_metadata: IndexerUpdate::default(),
 			usage: IndexerUpdate::default(),
@@ -1766,8 +1766,8 @@ impl Default for Object {
 		Self {
 			archive_queue: ArchiveQueue::default(),
 			cache: None,
-			grant_time_to_live: default_object_grant_time_to_live(),
-			grant_time_to_touch: default_time_to_touch(),
+			permission_time_to_live: default_object_permission_time_to_live(),
+			permission_time_to_touch: default_time_to_touch(),
 			index_queue: IndexQueue::default(),
 			put_timeout: default_object_put_timeout(),
 			queue_checkpoint_interval: Duration::from_secs(1),
@@ -1852,8 +1852,8 @@ impl Default for Process {
 	fn default() -> Self {
 		Self {
 			children_wakeup_interval: Duration::from_mins(1),
-			grant_time_to_live: default_process_grant_time_to_live(),
-			grant_time_to_touch: default_time_to_touch(),
+			permission_time_to_live: default_process_permission_time_to_live(),
+			permission_time_to_touch: default_time_to_touch(),
 			spawn: Spawn::default(),
 			status_wakeup_interval: Duration::from_mins(1),
 			stdio_wakeup_interval: Duration::from_mins(1),
@@ -1936,8 +1936,8 @@ impl Default for Sandbox {
 			isolation: SandboxIsolation::default(),
 			network: SandboxNetwork::default(),
 			nice: 5,
-			process_grant_time_to_live: default_process_grant_time_to_live(),
-			process_grant_time_to_touch: default_time_to_touch(),
+			process_permission_time_to_live: default_process_permission_time_to_live(),
+			process_permission_time_to_touch: default_time_to_touch(),
 			processes_wakeup_interval: Duration::from_mins(1),
 			status_wakeup_interval: Duration::from_mins(1),
 			time_to_live: default_time_to_live(),
@@ -1995,8 +1995,8 @@ impl Default for Sync {
 		Self {
 			control: SyncControl::default(),
 			get: SyncGet::default(),
-			grant_time_to_live: default_time_to_live(),
-			grant_time_to_touch: default_time_to_touch(),
+			permission_time_to_live: default_time_to_live(),
+			permission_time_to_touch: default_time_to_touch(),
 			max_frame_size: default_sync_max_frame_size(),
 			put: SyncPut::default(),
 			retry: sync_retry_default(),
@@ -2366,11 +2366,11 @@ fn default_time_to_live() -> Duration {
 	Duration::from_hours(24)
 }
 
-fn default_object_grant_time_to_live() -> Duration {
+fn default_object_permission_time_to_live() -> Duration {
 	Duration::from_hours(24)
 }
 
-fn default_process_grant_time_to_live() -> Duration {
+fn default_process_permission_time_to_live() -> Duration {
 	Duration::from_hours(24)
 }
 

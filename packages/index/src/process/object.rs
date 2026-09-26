@@ -1,6 +1,6 @@
 use {foundationdb_tuple as fdbt, num_traits::FromPrimitive as _};
 
-pub mod grant;
+pub mod permission;
 
 #[derive(
 	Clone,

@@ -8,7 +8,7 @@ use {
 pub enum Key {
 	Checkout(crate::fdb::checkout::Key),
 	Clean(crate::fdb::clean::Key),
-	Grant(crate::fdb::grant::Key),
+	Permission(crate::fdb::permission::Key),
 	Group(crate::fdb::group::Key),
 	Indexer(crate::fdb::indexer::Key),
 	LogCompaction(crate::fdb::log::Key),
@@ -52,11 +52,11 @@ pub enum Kind {
 	MemberGroup = 24,
 	OrganizationMember = 25,
 	MemberOrganization = 26,
-	ResourceGrant = 27,
-	SubjectGrant = 28,
+	ResourcePermission = 27,
+	SubjectPermission = 28,
 	Node = 29,
 	Visibility = 30,
-	GrantExpiresAt = 31,
+	PermissionExpiresAt = 31,
 	Sandbox = 32,
 	CommandCacheableProcess = 33,
 	RunnerSandbox = 38,
@@ -74,20 +74,20 @@ pub enum Kind {
 	UsageAggregate = 55,
 	UsageDelta = 56,
 	UsageAggregation = 57,
-	GrantUpdate = 58,
-	GrantUpdateVersion = 59,
+	PermissionUpdate = 58,
+	PermissionUpdateVersion = 59,
 	StorageAndMetadataUpdate = 60,
 	StorageAndMetadataUpdateVersion = 61,
 	UsageUpdate = 62,
 	UsageUpdateVersion = 63,
 	UsageStarted = 64,
 	UsageUnavailable = 65,
-	GrantUpdatePropagatedVersion = 66,
+	PermissionUpdatePropagatedVersion = 66,
 	StorageAndMetadataUpdatePropagatedVersion = 67,
 	UsageUpdatePropagatedVersion = 69,
 	UsageUpdatePutVersion = 68,
 	Indexer = 70,
-	GrantUpdateClean = 71,
+	PermissionUpdateClean = 71,
 	StorageAndMetadataUpdateClean = 72,
 }
 
@@ -423,13 +423,13 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
-			Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+			Key::Permission(crate::fdb::permission::Key::ResourcePermission {
 				resource,
 				subject,
 				creator,
 				permission,
 			}) => (
-				Kind::ResourceGrant.to_i32().unwrap(),
+				Kind::ResourcePermission.to_i32().unwrap(),
 				resource.to_bytes().as_ref(),
 				subject.to_string(),
 				permission.to_string(),
@@ -437,13 +437,13 @@ impl fdbt::TuplePack for Key {
 			)
 				.pack(w, tuple_depth),
 
-			Key::Grant(crate::fdb::grant::Key::SubjectGrant {
+			Key::Permission(crate::fdb::permission::Key::SubjectPermission {
 				subject,
 				resource,
 				creator,
 				permission,
 			}) => (
-				Kind::SubjectGrant.to_i32().unwrap(),
+				Kind::SubjectPermission.to_i32().unwrap(),
 				subject.to_string(),
 				resource.to_bytes().as_ref(),
 				permission.to_string(),
@@ -455,23 +455,23 @@ impl fdbt::TuplePack for Key {
 				(Kind::Node.to_i32().unwrap(), specifier.to_string()).pack(w, tuple_depth)
 			},
 
-			Key::Grant(crate::fdb::grant::Key::Visibility {
+			Key::Permission(crate::fdb::permission::Key::Visibility {
 				resource,
 				subject,
-				grant_resource,
+				permission_resource,
 				creator,
 				permission,
 			}) => (
 				Kind::Visibility.to_i32().unwrap(),
 				resource.to_bytes().as_ref(),
 				subject.to_string(),
-				grant_resource.to_bytes().as_ref(),
+				permission_resource.to_bytes().as_ref(),
 				permission.to_string(),
 				creator.as_ref().map(ToString::to_string),
 			)
 				.pack(w, tuple_depth),
 
-			Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
+			Key::Permission(crate::fdb::permission::Key::PermissionExpiresAt {
 				partition,
 				expires_at,
 				resource,
@@ -480,7 +480,7 @@ impl fdbt::TuplePack for Key {
 				permission,
 				source,
 			}) => (
-				Kind::GrantExpiresAt.to_i32().unwrap(),
+				Kind::PermissionExpiresAt.to_i32().unwrap(),
 				partition,
 				expires_at,
 				resource.to_bytes().as_ref(),
@@ -589,7 +589,9 @@ impl fdbt::TuplePack for Key {
 
 			Key::Update(crate::fdb::update::Key::PropagatedVersion { id, kind }) => {
 				let key_kind = match kind {
-					crate::fdb::update::Kind::Grant(_) => Kind::GrantUpdatePropagatedVersion,
+					crate::fdb::update::Kind::Permission(_) => {
+						Kind::PermissionUpdatePropagatedVersion
+					},
 					crate::fdb::update::Kind::StorageAndMetadata => {
 						Kind::StorageAndMetadataUpdatePropagatedVersion
 					},
@@ -629,7 +631,7 @@ impl fdbt::TuplePack for Key {
 
 			Key::Update(crate::fdb::update::Key::Update { id, kind }) => {
 				let key_kind = match kind {
-					crate::fdb::update::Kind::Grant(_) => Kind::GrantUpdate,
+					crate::fdb::update::Kind::Permission(_) => Kind::PermissionUpdate,
 					crate::fdb::update::Kind::StorageAndMetadata => Kind::StorageAndMetadataUpdate,
 					crate::fdb::update::Kind::Usage(_) => Kind::UsageUpdate,
 				};
@@ -659,8 +661,8 @@ impl fdbt::TuplePack for Key {
 			) => {
 				let clean = matches!(self, Key::Update(crate::fdb::update::Key::Clean { .. }));
 				let key_kind = match kind {
-					crate::fdb::update::Kind::Grant(_) if clean => Kind::GrantUpdateClean,
-					crate::fdb::update::Kind::Grant(_) => Kind::GrantUpdateVersion,
+					crate::fdb::update::Kind::Permission(_) if clean => Kind::PermissionUpdateClean,
+					crate::fdb::update::Kind::Permission(_) => Kind::PermissionUpdateVersion,
 					crate::fdb::update::Kind::StorageAndMetadata if clean => {
 						Kind::StorageAndMetadataUpdateClean
 					},
@@ -1290,7 +1292,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::ResourceGrant => {
+			Kind::ResourcePermission => {
 				let (input, resource_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
@@ -1305,15 +1307,15 @@ impl fdbt::TupleUnpack<'_> for Key {
 				})?;
 				let creator = creator
 					.map(|creator| {
-						creator
-							.parse()
-							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
+						creator.parse().map_err(|_| {
+							fdbt::PackError::Message("invalid permission creator".into())
+						})
 					})
 					.transpose()?;
 				let permission = permission.parse().map_err(|_| {
 					fdbt::PackError::Message("invalid authorization permission".into())
 				})?;
-				let key = Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+				let key = Key::Permission(crate::fdb::permission::Key::ResourcePermission {
 					resource,
 					subject,
 					creator,
@@ -1322,7 +1324,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::SubjectGrant => {
+			Kind::SubjectPermission => {
 				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, resource_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
@@ -1337,15 +1339,15 @@ impl fdbt::TupleUnpack<'_> for Key {
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
 				let creator = creator
 					.map(|creator| {
-						creator
-							.parse()
-							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
+						creator.parse().map_err(|_| {
+							fdbt::PackError::Message("invalid permission creator".into())
+						})
 					})
 					.transpose()?;
 				let permission = permission.parse().map_err(|_| {
 					fdbt::PackError::Message("invalid authorization permission".into())
 				})?;
-				let key = Key::Grant(crate::fdb::grant::Key::SubjectGrant {
+				let key = Key::Permission(crate::fdb::permission::Key::SubjectPermission {
 					subject,
 					resource,
 					creator,
@@ -1367,7 +1369,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let (input, resource_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, grant_resource_bytes): (_, Vec<u8>) =
+				let (input, permission_resource_bytes): (_, Vec<u8>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, permission): (_, String) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
@@ -1378,29 +1380,29 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let subject = subject.parse().map_err(|_| {
 					fdbt::PackError::Message("invalid authorization subject".into())
 				})?;
-				let grant_resource = tg::Id::from_slice(&grant_resource_bytes)
+				let permission_resource = tg::Id::from_slice(&permission_resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
 				let creator = creator
 					.map(|creator| {
-						creator
-							.parse()
-							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
+						creator.parse().map_err(|_| {
+							fdbt::PackError::Message("invalid permission creator".into())
+						})
 					})
 					.transpose()?;
 				let permission = permission.parse().map_err(|_| {
 					fdbt::PackError::Message("invalid authorization permission".into())
 				})?;
-				let key = Key::Grant(crate::fdb::grant::Key::Visibility {
+				let key = Key::Permission(crate::fdb::permission::Key::Visibility {
 					resource,
 					subject,
-					grant_resource,
+					permission_resource,
 					creator,
 					permission,
 				});
 				Ok((input, key))
 			},
 
-			Kind::GrantExpiresAt => {
+			Kind::PermissionExpiresAt => {
 				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, expires_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, resource_bytes): (_, Vec<u8>) =
@@ -1418,17 +1420,17 @@ impl fdbt::TupleUnpack<'_> for Key {
 				})?;
 				let creator = creator
 					.map(|creator| {
-						creator
-							.parse()
-							.map_err(|_| fdbt::PackError::Message("invalid grant creator".into()))
+						creator.parse().map_err(|_| {
+							fdbt::PackError::Message("invalid permission creator".into())
+						})
 					})
 					.transpose()?;
 				let permission = permission.parse().map_err(|_| {
 					fdbt::PackError::Message("invalid authorization permission".into())
 				})?;
-				let source = crate::fdb::grant::GrantSource::from_i32(source)
-					.ok_or_else(|| fdbt::PackError::Message("invalid grant source".into()))?;
-				let key = Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
+				let source = crate::fdb::permission::PermissionSource::from_i32(source)
+					.ok_or_else(|| fdbt::PackError::Message("invalid permission source".into()))?;
+				let key = Key::Permission(crate::fdb::permission::Key::PermissionExpiresAt {
 					partition,
 					expires_at,
 					resource,
@@ -1591,10 +1593,10 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, Key::Update(key)))
 			},
 
-			Kind::GrantUpdatePropagatedVersion
+			Kind::PermissionUpdatePropagatedVersion
 			| Kind::StorageAndMetadataUpdatePropagatedVersion => {
 				let update_kind = match kind {
-					Kind::GrantUpdatePropagatedVersion => crate::update::Kind::Grant,
+					Kind::PermissionUpdatePropagatedVersion => crate::update::Kind::Permission,
 					Kind::StorageAndMetadataUpdatePropagatedVersion => {
 						crate::update::Kind::StorageAndMetadata
 					},
@@ -1615,9 +1617,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 				Ok((input, key))
 			},
 
-			Kind::GrantUpdate | Kind::StorageAndMetadataUpdate | Kind::UsageUpdate => {
+			Kind::PermissionUpdate | Kind::StorageAndMetadataUpdate | Kind::UsageUpdate => {
 				let update_kind = match kind {
-					Kind::GrantUpdate => crate::update::Kind::Grant,
+					Kind::PermissionUpdate => crate::update::Kind::Permission,
 					Kind::StorageAndMetadataUpdate => crate::update::Kind::StorageAndMetadata,
 					Kind::UsageUpdate => crate::update::Kind::Usage,
 					_ => unreachable!(),
@@ -1639,17 +1641,19 @@ impl fdbt::TupleUnpack<'_> for Key {
 				))
 			},
 
-			Kind::GrantUpdateClean
-			| Kind::GrantUpdateVersion
+			Kind::PermissionUpdateClean
+			| Kind::PermissionUpdateVersion
 			| Kind::StorageAndMetadataUpdateClean
 			| Kind::StorageAndMetadataUpdateVersion
 			| Kind::UsageUpdateVersion => {
 				let clean = matches!(
 					kind,
-					Kind::GrantUpdateClean | Kind::StorageAndMetadataUpdateClean
+					Kind::PermissionUpdateClean | Kind::StorageAndMetadataUpdateClean
 				);
 				let update_kind = match kind {
-					Kind::GrantUpdateClean | Kind::GrantUpdateVersion => crate::update::Kind::Grant,
+					Kind::PermissionUpdateClean | Kind::PermissionUpdateVersion => {
+						crate::update::Kind::Permission
+					},
 					Kind::StorageAndMetadataUpdateClean | Kind::StorageAndMetadataUpdateVersion => {
 						crate::update::Kind::StorageAndMetadata
 					},
@@ -1697,7 +1701,7 @@ fn pack_update_kind<W: std::io::Write>(
 	kind: &crate::fdb::update::Kind,
 ) -> std::io::Result<fdbt::VersionstampOffset> {
 	match kind {
-		crate::fdb::update::Kind::Grant(subject) => subject.to_string().pack(w, tuple_depth),
+		crate::fdb::update::Kind::Permission(subject) => subject.to_string().pack(w, tuple_depth),
 		crate::fdb::update::Kind::StorageAndMetadata => ().pack(w, tuple_depth),
 		crate::fdb::update::Kind::Usage(kind) => match kind {
 			crate::fdb::update::UsageKind::Clean(account) => {
@@ -1734,12 +1738,12 @@ fn unpack_update_kind(
 	kind: crate::update::Kind,
 ) -> Result<(&[u8], crate::fdb::update::Kind), fdbt::PackError> {
 	match kind {
-		crate::update::Kind::Grant => {
+		crate::update::Kind::Permission => {
 			let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 			let subject = subject
 				.parse()
 				.map_err(|_| fdbt::PackError::Message("invalid authorization subject".into()))?;
-			Ok((input, crate::fdb::update::Kind::Grant(subject)))
+			Ok((input, crate::fdb::update::Kind::Permission(subject)))
 		},
 		crate::update::Kind::StorageAndMetadata => {
 			Ok((input, crate::fdb::update::Kind::StorageAndMetadata))

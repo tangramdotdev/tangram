@@ -13,7 +13,7 @@ mod descendant;
 mod subtree;
 
 pub(crate) use {
-	crate::grant::Fact as Grant,
+	crate::permission::Fact as Permission,
 	subtree::{Action as SubtreeAction, Search as SubtreeSearch},
 };
 
@@ -67,7 +67,7 @@ pub(crate) enum DescendantFallback {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AncestorNodeFacts {
-	pub grants: Vec<Grant>,
+	pub permissions: Vec<Permission>,
 	pub object_processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
 	pub parent: Option<tg::Id>,
 	pub sandbox_owner: Option<tg::Principal>,
@@ -90,7 +90,7 @@ pub(crate) enum AncestorNodeRead {
 		limit: usize,
 		object: tg::object::Id,
 	},
-	ResourceGrants {
+	ResourcePermissions {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		resource: tg::Id,
@@ -199,7 +199,7 @@ pub(crate) enum Read {
 		index: usize,
 		selector: tg::Selector<tg::Id>,
 	},
-	SubjectGrants {
+	SubjectPermissions {
 		after: Option<Vec<u8>>,
 		depth: usize,
 		limit: usize,
@@ -221,9 +221,9 @@ pub(crate) enum Read {
 
 pub(crate) enum ReadOutput {
 	Bools(Vec<bool>),
-	Grants {
+	Permissions {
 		after: Option<Vec<u8>>,
-		grants: Vec<Grant>,
+		permissions: Vec<Permission>,
 	},
 	Group(Option<crate::group::Group>),
 	Ids {
@@ -394,12 +394,14 @@ impl ReadOutput {
 		Ok(values)
 	}
 
-	fn into_grants(self) -> tg::Result<(Option<Vec<u8>>, Vec<Grant>)> {
-		let Self::Grants { after, grants } = self else {
-			return Err(tg::error!("received a non-grant result for a grant read"));
+	fn into_permissions(self) -> tg::Result<(Option<Vec<u8>>, Vec<Permission>)> {
+		let Self::Permissions { after, permissions } = self else {
+			return Err(tg::error!(
+				"received a non-permission result for a permission read"
+			));
 		};
 
-		Ok((after, grants))
+		Ok((after, permissions))
 	}
 
 	fn into_group(self) -> tg::Result<Option<crate::group::Group>> {
@@ -744,7 +746,7 @@ impl AncestorOrDescendantSearch {
 			| Read::OwnerSandboxes { .. }
 			| Read::ProcessChildren { .. }
 			| Read::ProcessObjectChildren { .. }
-			| Read::SubjectGrants { .. }) => self
+			| Read::SubjectPermissions { .. }) => self
 				.descendant
 				.as_mut()
 				.ok_or_else(|| tg::error!("received a read after the descendant search completed"))?
@@ -1438,9 +1440,9 @@ mod tests {
 				after: None,
 				ids: Vec::new(),
 			},
-			Read::SubjectGrants { .. } => ReadOutput::Grants {
+			Read::SubjectPermissions { .. } => ReadOutput::Permissions {
 				after: None,
-				grants: Vec::new(),
+				permissions: Vec::new(),
 			},
 			_ => panic!("expected a descendant read"),
 		};
@@ -1452,7 +1454,7 @@ mod tests {
 	}
 
 	#[test]
-	fn an_ancestor_grant_page_authorizes_before_the_node_is_complete() {
+	fn an_ancestor_permission_page_authorizes_before_the_node_is_complete() {
 		let root = key();
 		let mut state = State::default();
 		let mut search = AncestorOrDescendantSearch::new(
@@ -1467,20 +1469,20 @@ mod tests {
 		assert!(matches!(
 			&read,
 			Read::AncestorNode {
-				read: AncestorNodeRead::ResourceGrants { .. },
+				read: AncestorNodeRead::ResourcePermissions { .. },
 				..
 			}
 		));
-		let grant = Grant {
+		let permission = Permission {
 			creator: None,
-			implicit: false,
+			direct: false,
 			permission: root.1,
 			resource: root.0.clone(),
 			subject: tg::authorization::Subject::Public,
 		};
-		let output = ReadOutput::Grants {
+		let output = ReadOutput::Permissions {
 			after: None,
-			grants: vec![grant],
+			permissions: vec![permission],
 		};
 		search.apply(&mut state, read, output).unwrap();
 

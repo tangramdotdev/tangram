@@ -35,9 +35,9 @@ impl Index {
 						Self::delete_checkout(txn, subspace, id, partition_total).await
 					);
 				},
-				crate::batch::Item::DeleteGrant(arg) => {
+				crate::batch::Item::DeletePermission(arg) => {
 					crate::fdb::propagate!(
-						Self::delete_grants_with_transaction(
+						Self::delete_permissions_with_transaction(
 							txn,
 							subspace,
 							std::slice::from_ref(arg),
@@ -131,9 +131,9 @@ impl Index {
 						partition_total,
 					));
 				},
-				crate::batch::Item::PutGrant(arg) => {
+				crate::batch::Item::PutPermission(arg) => {
 					crate::fdb::propagate!(
-						Self::put_grants_with_transaction(
+						Self::put_permissions_with_transaction(
 							txn,
 							subspace,
 							std::slice::from_ref(arg),
@@ -214,9 +214,9 @@ impl Index {
 						.await
 					);
 				},
-				crate::batch::Item::PutProcessObjectGrants(arg) => {
+				crate::batch::Item::PutProcessObjectPermissions(arg) => {
 					crate::fdb::propagate!(
-						Self::put_process_object_grants_with_transaction(
+						Self::put_process_object_permissions_with_transaction(
 							authorize.concurrency,
 							txn,
 							subspace,

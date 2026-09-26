@@ -324,9 +324,11 @@ impl Index {
 				txn,
 				subspace,
 				&tg::Either::Left(object),
-				&crate::fdb::update::Kind::Grant(tg::authorization::Subject::Process(id.clone())),
+				&crate::fdb::update::Kind::Permission(tg::authorization::Subject::Process(
+					id.clone(),
+				)),
 				crate::fdb::update::Source::Put,
-				partition_totals.grant_update,
+				partition_totals.permission_update,
 			);
 		}
 

@@ -2,7 +2,7 @@ use tangram_client::prelude::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Kind {
-	Grant,
+	Permission,
 	StorageAndMetadata,
 	Usage,
 }

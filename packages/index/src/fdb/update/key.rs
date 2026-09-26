@@ -40,7 +40,7 @@ pub enum Key {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Kind {
-	Grant(tg::authorization::Subject),
+	Permission(tg::authorization::Subject),
 	StorageAndMetadata,
 	Usage(UsageKind),
 }

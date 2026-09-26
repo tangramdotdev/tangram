@@ -90,8 +90,8 @@ impl Index {
 			txn,
 		} = arg;
 		let partition_total = partition_totals.cleaning;
-		let grants = crate::fdb::propagate!(
-			Self::delete_expired_grants(
+		let permissions = crate::fdb::propagate!(
+			Self::delete_expired_permissions(
 				txn,
 				subspace,
 				now,
@@ -103,10 +103,10 @@ impl Index {
 			.await
 		);
 		let mut output = crate::clean::Output {
-			grants,
+			permissions,
 			..Default::default()
 		};
-		let remaining_batch_size = batch_size.saturating_sub(grants);
+		let remaining_batch_size = batch_size.saturating_sub(permissions);
 		let mut candidates = Vec::new();
 
 		let key_kind = Kind::Clean.to_i32().unwrap();
@@ -325,12 +325,12 @@ impl Index {
 			)
 			.await
 		);
-		output.done = grants == 0 && candidates.is_empty() && propagated_versions == 0;
+		output.done = permissions == 0 && candidates.is_empty() && propagated_versions == 0;
 
 		Ok(ControlFlow::Break(output))
 	}
 
-	async fn delete_expired_grants(
+	async fn delete_expired_permissions(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		now: i64,
@@ -340,7 +340,7 @@ impl Index {
 		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<usize, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
-		let key_kind = Kind::GrantExpiresAt.to_i32().unwrap();
+		let key_kind = Kind::PermissionExpiresAt.to_i32().unwrap();
 		let mut args = Vec::new();
 		for partition in partition_start..partition_end {
 			if args.len() >= batch_size {
@@ -361,7 +361,7 @@ impl Index {
 					break;
 				};
 				let key = Self::unpack(subspace, entry.key())?;
-				let crate::fdb::Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
+				let crate::fdb::Key::Permission(crate::fdb::permission::Key::PermissionExpiresAt {
 					expires_at,
 					resource,
 					subject,
@@ -371,43 +371,38 @@ impl Index {
 					..
 				}) = key
 				else {
-					return Err(tg::error!("expected a grant expiration key"));
+					return Err(tg::error!("expected a permission expiration key"));
 				};
-				args.push((
-					crate::grant::delete::Arg {
-						creator,
-						implicit: Some(Some(expires_at)),
-						permissions: permission.into(),
-						subject,
-						resource,
-					},
-					source,
-				));
+				args.push((creator, expires_at, permission, resource, source, subject));
 			}
 		}
 		let count = args.len();
-		for (arg, source) in args {
-			for permission in arg.permissions.iter() {
-				let entry = crate::fdb::grant::GrantIndexEntry {
-					creator: arg.creator.as_ref(),
-					expires_at: arg.implicit.flatten(),
-					permission,
-					subject: &arg.subject,
-					resource: &arg.resource,
-				};
-				crate::fdb::propagate!(
-					Self::delete_grant_index_entry(txn, subspace, &entry, source, partition_total,)
-						.await
-				);
-				Self::enqueue_grant_update(
+		for (creator, expires_at, permission, resource, source, subject) in args {
+			let entry = crate::fdb::permission::PermissionIndexEntry {
+				creator: creator.as_ref(),
+				expires_at: Some(expires_at),
+				permission,
+				subject: &subject,
+				resource: &resource,
+			};
+			crate::fdb::propagate!(
+				Self::delete_permission_index_entry(
 					txn,
 					subspace,
-					&arg.resource,
-					&arg.subject,
-					permission,
-					partition_totals.grant_update,
-				);
-			}
+					&entry,
+					source,
+					partition_total,
+				)
+				.await
+			);
+			Self::enqueue_permission_update(
+				txn,
+				subspace,
+				&resource,
+				&subject,
+				permission,
+				partition_totals.permission_update,
+			);
 		}
 		Ok(ControlFlow::Break(count))
 	}
@@ -523,7 +518,7 @@ impl Index {
 		let id = id.to_bytes();
 		let result = futures::try_join!(
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ChildObject, id.as_ref()),
-			Self::count_entries_for_kind_and_id(txn, subspace, Kind::GrantUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::PermissionUpdate, id.as_ref()),
 			Self::count_entries_for_kind_and_id(
 				txn,
 				subspace,
@@ -537,7 +532,7 @@ impl Index {
 		);
 		let (
 			child_object_count,
-			grant_update_count,
+			permission_update_count,
 			storage_and_metadata_update_count,
 			object_account_count,
 			object_process_count,
@@ -545,7 +540,7 @@ impl Index {
 			target_tag_count,
 		) = crate::fdb::retry!(result);
 		let count = child_object_count
-			+ grant_update_count
+			+ permission_update_count
 			+ storage_and_metadata_update_count
 			+ object_account_count
 			+ object_process_count
@@ -563,7 +558,7 @@ impl Index {
 		let id = id.to_bytes();
 		let result = futures::try_join!(
 			Self::count_entries_for_kind_and_id(txn, subspace, Kind::ChildProcess, id.as_ref()),
-			Self::count_entries_for_kind_and_id(txn, subspace, Kind::GrantUpdate, id.as_ref()),
+			Self::count_entries_for_kind_and_id(txn, subspace, Kind::PermissionUpdate, id.as_ref()),
 			Self::count_entries_for_kind_and_id(
 				txn,
 				subspace,
@@ -577,7 +572,7 @@ impl Index {
 		);
 		let (
 			child_process_count,
-			grant_update_count,
+			permission_update_count,
 			storage_and_metadata_update_count,
 			process_account_count,
 			process_sandbox_count,
@@ -585,7 +580,7 @@ impl Index {
 			target_tag_count,
 		) = crate::fdb::retry!(result);
 		let count = child_process_count
-			+ grant_update_count
+			+ permission_update_count
 			+ storage_and_metadata_update_count
 			+ process_account_count
 			+ process_sandbox_count
@@ -760,7 +755,7 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let resource = id.clone().into();
 		crate::fdb::propagate!(
-			Self::delete_materialized_grants_for_resource(
+			Self::delete_materialized_permissions_for_resource(
 				txn,
 				subspace,
 				&resource,
@@ -851,7 +846,7 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let resource = id.clone().into();
 		crate::fdb::propagate!(
-			Self::delete_materialized_grants_for_resource(
+			Self::delete_materialized_permissions_for_resource(
 				txn,
 				subspace,
 				&resource,
@@ -861,7 +856,7 @@ impl Index {
 		);
 		let subject = tg::authorization::Subject::Process(id.clone());
 		crate::fdb::propagate!(
-			Self::delete_grants_for_subject(txn, subspace, &subject, partition_total).await
+			Self::delete_permissions_for_subject(txn, subspace, &subject, partition_total).await
 		);
 
 		let key = crate::fdb::Key::Process(crate::fdb::process::Key::Process(id.clone()));
@@ -966,13 +961,16 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 
-	async fn delete_grants_for_subject(
+	async fn delete_permissions_for_subject(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		subject: &tg::authorization::Subject,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		let prefix = (Kind::SubjectGrant.to_i32().unwrap(), subject.to_string());
+		let prefix = (
+			Kind::SubjectPermission.to_i32().unwrap(),
+			subject.to_string(),
+		);
 		let prefix = Self::pack(subspace, &prefix);
 		let range_subspace = Subspace::from_bytes(prefix);
 		let range = fdb::RangeOption {
@@ -985,20 +983,20 @@ impl Index {
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
-				let crate::fdb::Key::Grant(crate::fdb::grant::Key::SubjectGrant {
+				let crate::fdb::Key::Permission(crate::fdb::permission::Key::SubjectPermission {
 					creator,
 					permission,
 					resource,
 					..
 				}) = key
 				else {
-					return Err(tg::error!("expected a subject grant key"));
+					return Err(tg::error!("expected a subject permission key"));
 				};
-				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
+				let value = crate::fdb::permission::PermissionValue::deserialize(entry.value())?;
 				let entries = [
-					crate::fdb::grant::GrantSource::Explicit,
-					crate::fdb::grant::GrantSource::Implicit,
-					crate::fdb::grant::GrantSource::Materialized,
+					crate::fdb::permission::PermissionSource::Grant,
+					crate::fdb::permission::PermissionSource::Direct,
+					crate::fdb::permission::PermissionSource::Materialized,
 				]
 				.into_iter()
 				.filter_map(|source| {
@@ -1022,10 +1020,10 @@ impl Index {
 
 		for (creator, expires_at, permission, resource, source) in entries {
 			crate::fdb::propagate!(
-				Self::delete_grant_index_entry(
+				Self::delete_permission_index_entry(
 					txn,
 					subspace,
-					&crate::fdb::grant::GrantIndexEntry {
+					&crate::fdb::permission::PermissionIndexEntry {
 						creator: creator.as_ref(),
 						expires_at,
 						permission,
@@ -1057,16 +1055,16 @@ impl Index {
 		.await
 	}
 
-	async fn delete_materialized_grants_for_resource(
+	async fn delete_materialized_permissions_for_resource(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		// Collect the materialized grants.
+		// Collect the materialized permissions.
 		let resource_bytes = resource.to_bytes();
 		let prefix = (
-			Kind::ResourceGrant.to_i32().unwrap(),
+			Kind::ResourcePermission.to_i32().unwrap(),
 			resource_bytes.as_ref(),
 		);
 		let prefix = Self::pack(subspace, &prefix);
@@ -1081,18 +1079,18 @@ impl Index {
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
-				let crate::fdb::Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+				let crate::fdb::Key::Permission(crate::fdb::permission::Key::ResourcePermission {
 					creator,
 					permission,
 					subject,
 					..
 				}) = key
 				else {
-					return Err(tg::error!("expected a resource grant key"));
+					return Err(tg::error!("expected a resource permission key"));
 				};
-				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
+				let value = crate::fdb::permission::PermissionValue::deserialize(entry.value())?;
 				let entry = value
-					.source_expires_at(crate::fdb::grant::GrantSource::Materialized)
+					.source_expires_at(crate::fdb::permission::PermissionSource::Materialized)
 					.map(|expires_at| (creator, expires_at, permission, subject));
 				Ok(entry)
 			})
@@ -1101,20 +1099,20 @@ impl Index {
 			.flatten()
 			.collect::<Vec<_>>();
 
-		// Delete the materialized grants.
+		// Delete the materialized permissions.
 		for (creator, expires_at, permission, subject) in entries {
 			crate::fdb::propagate!(
-				Self::delete_grant_index_entry(
+				Self::delete_permission_index_entry(
 					txn,
 					subspace,
-					&crate::fdb::grant::GrantIndexEntry {
+					&crate::fdb::permission::PermissionIndexEntry {
 						creator: creator.as_ref(),
 						expires_at,
 						permission,
 						subject: &subject,
 						resource,
 					},
-					crate::fdb::grant::GrantSource::Materialized,
+					crate::fdb::permission::PermissionSource::Materialized,
 					partition_total,
 				)
 				.await

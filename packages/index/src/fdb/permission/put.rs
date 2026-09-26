@@ -1,7 +1,7 @@
 use {
 	crate::fdb::{
 		Index, Key, Request, Response,
-		grant::{GrantIndexEntry, GrantSource, GrantValue},
+		permission::{PermissionIndexEntry, PermissionSource, PermissionValue},
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	std::ops::ControlFlow,
@@ -9,11 +9,11 @@ use {
 };
 
 impl Index {
-	pub async fn put_grants(&self, args: &[crate::grant::put::Arg]) -> tg::Result<()> {
+	pub async fn put_permissions(&self, args: &[crate::permission::put::Arg]) -> tg::Result<()> {
 		if args.is_empty() {
 			return Ok(());
 		}
-		let request = Request::PutGrants(args.to_vec());
+		let request = Request::PutPermissions(args.to_vec());
 		let response = self.send_write_request(request).await?;
 		let Response::Unit = response else {
 			return Err(tg::error!("unexpected write response"));
@@ -21,49 +21,54 @@ impl Index {
 		Ok(())
 	}
 
-	pub(crate) async fn put_grants_with_transaction(
+	pub(crate) async fn put_permissions_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		args: &[crate::grant::put::Arg],
+		args: &[crate::permission::put::Arg],
 		partition_totals: crate::fdb::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
 		for arg in args {
-			let (expires_at, source) = match arg.implicit {
-				None => (None, GrantSource::Explicit),
-				Some(expires_at) => (expires_at, GrantSource::Implicit),
+			let (expires_at, source) = match arg.source {
+				crate::permission::Source::Direct { expires_at } => {
+					(expires_at, PermissionSource::Direct)
+				},
+				crate::permission::Source::Grant => (None, PermissionSource::Grant),
 			};
-			let non_expiring_implicit = arg.implicit == Some(None);
-			if non_expiring_implicit {
+			let non_expiring_direct = matches!(
+				arg.source,
+				crate::permission::Source::Direct { expires_at: None }
+			);
+			if non_expiring_direct {
 				let tg::authorization::Subject::Process(process) = &arg.subject else {
 					return Err(tg::error!(
-						"a non-expiring implicit grant must have a process subject"
+						"a non-expiring direct permission must have a process subject"
 					));
 				};
 				if arg.creator.as_ref() != Some(&tg::Principal::Process(process.clone())) {
 					return Err(tg::error!(
-						"a non-expiring implicit grant must be created by its process"
+						"a non-expiring direct permission must be created by its process"
 					));
 				}
 				if tg::object::Id::try_from(arg.resource.clone()).is_err() {
 					return Err(tg::error!(
-						"a non-expiring implicit grant must target an object"
+						"a non-expiring direct permission must target an object"
 					));
 				}
 			}
 			for permission in arg.permissions.iter() {
-				if non_expiring_implicit
+				if non_expiring_direct
 					&& !matches!(permission, tg::authorization::Permission::Object(_))
 				{
 					return Err(tg::error!(
-						"a non-expiring implicit grant must contain object permissions"
+						"a non-expiring direct permission must contain object permissions"
 					));
 				}
 				let changed = crate::fdb::propagate!(
-					Self::put_grant_index_entry(
+					Self::put_permission_index_entry(
 						txn,
 						subspace,
-						&GrantIndexEntry {
+						&PermissionIndexEntry {
 							creator: arg.creator.as_ref(),
 							expires_at,
 							permission,
@@ -77,13 +82,13 @@ impl Index {
 					.await
 				);
 				if changed {
-					Self::enqueue_grant_update(
+					Self::enqueue_permission_update(
 						txn,
 						subspace,
 						&arg.resource,
 						&arg.subject,
 						permission,
-						partition_totals.grant_update,
+						partition_totals.permission_update,
 					);
 				}
 			}
@@ -91,23 +96,25 @@ impl Index {
 		Ok(ControlFlow::Break(()))
 	}
 
-	pub(crate) async fn put_grant_index_entry(
+	pub(crate) async fn put_permission_index_entry(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		entry: &GrantIndexEntry<'_>,
-		source: GrantSource,
+		entry: &PermissionIndexEntry<'_>,
+		source: PermissionSource,
 		time_to_touch: Option<std::time::Duration>,
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let mut changed = false;
-		let keys = std::iter::once(Key::Grant(crate::fdb::grant::Key::ResourceGrant {
-			resource: entry.resource.clone(),
-			subject: entry.subject.clone(),
-			creator: entry.creator.cloned(),
-			permission: entry.permission,
-		}))
-		.chain(std::iter::once(Key::Grant(
-			crate::fdb::grant::Key::SubjectGrant {
+		let keys = std::iter::once(Key::Permission(
+			crate::fdb::permission::Key::ResourcePermission {
+				resource: entry.resource.clone(),
+				subject: entry.subject.clone(),
+				creator: entry.creator.cloned(),
+				permission: entry.permission,
+			},
+		))
+		.chain(std::iter::once(Key::Permission(
+			crate::fdb::permission::Key::SubjectPermission {
 				subject: entry.subject.clone(),
 				resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
@@ -118,14 +125,15 @@ impl Index {
 		for key in keys {
 			let key = Self::pack(subspace, &key);
 			let result = txn.get(&key, false).await;
-			let mut value = crate::fdb::retry!(result)
-				.as_deref()
-				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
+			let mut value = crate::fdb::retry!(result).as_deref().map_or_else(
+				|| Ok(PermissionValue::default()),
+				PermissionValue::deserialize,
+			)?;
 			let old_expires_at = value.source_expires_at(source).flatten();
 			if value.put(source, entry.expires_at, time_to_touch) {
 				let bytes = value.serialize()?;
 				txn.set(&key, &bytes);
-				Self::update_grant_expiration(
+				Self::update_permission_expiration(
 					txn,
 					subspace,
 					entry,
@@ -144,18 +152,19 @@ impl Index {
 		for id in crate::fdb::propagate!(
 			Self::ancestor_ids_with_transaction(txn, subspace, entry.resource).await
 		) {
-			let key = Key::Grant(crate::fdb::grant::Key::Visibility {
+			let key = Key::Permission(crate::fdb::permission::Key::Visibility {
 				resource: id,
 				subject: entry.subject.clone(),
-				grant_resource: entry.resource.clone(),
+				permission_resource: entry.resource.clone(),
 				creator: entry.creator.cloned(),
 				permission: entry.permission,
 			});
 			let key = Self::pack(subspace, &key);
 			let result = txn.get(&key, false).await;
-			let mut value = crate::fdb::retry!(result)
-				.as_deref()
-				.map_or_else(|| Ok(GrantValue::default()), GrantValue::deserialize)?;
+			let mut value = crate::fdb::retry!(result).as_deref().map_or_else(
+				|| Ok(PermissionValue::default()),
+				PermissionValue::deserialize,
+			)?;
 			if value.put(source, entry.expires_at, time_to_touch) {
 				let bytes = value.serialize()?;
 				txn.set(&key, &bytes);
@@ -164,18 +173,18 @@ impl Index {
 		Ok(ControlFlow::Break(changed))
 	}
 
-	pub(crate) fn update_grant_expiration(
+	pub(crate) fn update_permission_expiration(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
-		entry: &GrantIndexEntry<'_>,
-		source: GrantSource,
+		entry: &PermissionIndexEntry<'_>,
+		source: PermissionSource,
 		old_expires_at: Option<i64>,
 		new_expires_at: Option<i64>,
 		partition_total: u64,
 	) {
 		let partition = Self::partition_for_id(&entry.resource.to_bytes(), partition_total);
 		if let Some(expires_at) = old_expires_at {
-			let key = Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
+			let key = Key::Permission(crate::fdb::permission::Key::PermissionExpiresAt {
 				partition,
 				expires_at,
 				resource: entry.resource.clone(),
@@ -188,7 +197,7 @@ impl Index {
 			txn.clear(&key);
 		}
 		if let Some(expires_at) = new_expires_at {
-			let key = Key::Grant(crate::fdb::grant::Key::GrantExpiresAt {
+			let key = Key::Permission(crate::fdb::permission::Key::PermissionExpiresAt {
 				partition,
 				expires_at,
 				resource: entry.resource.clone(),
@@ -202,7 +211,7 @@ impl Index {
 		}
 	}
 
-	pub(crate) fn enqueue_grant_update(
+	pub(crate) fn enqueue_permission_update(
 		txn: &crate::fdb::Transaction,
 		subspace: &fdbt::Subspace,
 		resource: &tg::Id,
@@ -217,7 +226,7 @@ impl Index {
 						txn,
 						subspace,
 						&tg::Either::Left(id),
-						&crate::fdb::update::Kind::Grant(subject.clone()),
+						&crate::fdb::update::Kind::Permission(subject.clone()),
 						crate::fdb::update::Source::Put,
 						partition_total,
 					);
@@ -229,7 +238,7 @@ impl Index {
 						txn,
 						subspace,
 						&tg::Either::Right(id),
-						&crate::fdb::update::Kind::Grant(subject.clone()),
+						&crate::fdb::update::Kind::Permission(subject.clone()),
 						crate::fdb::update::Source::Put,
 						partition_total,
 					);

@@ -230,18 +230,20 @@ impl Session {
 						time_to_touch: self.server.config.process.time_to_touch,
 						touched_at,
 					}),
-					tangram_index::batch::Item::PutGrant(tangram_index::grant::put::Arg {
-						created_at: touched_at,
-						creator: Some(tg::Principal::Process(process.clone())),
-						implicit: Some(None),
-						permissions: tg::authorization::Permission::Object(
-							tg::authorization::permission::object::Permission::Subtree,
-						)
-						.into(),
-						resource: tg::object::Id::from(blob.clone()).into(),
-						subject: tg::authorization::Subject::Process(process.clone()),
-						time_to_touch: None,
-					}),
+					tangram_index::batch::Item::PutPermission(
+						tangram_index::permission::put::Arg {
+							created_at: touched_at,
+							creator: Some(tg::Principal::Process(process.clone())),
+							permissions: tg::authorization::Permission::Object(
+								tg::authorization::permission::object::Permission::Subtree,
+							)
+							.into(),
+							resource: tg::object::Id::from(blob.clone()).into(),
+							source: tangram_index::permission::Source::Direct { expires_at: None },
+							subject: tg::authorization::Subject::Process(process.clone()),
+							time_to_touch: None,
+						},
+					),
 				],
 			})
 			.await

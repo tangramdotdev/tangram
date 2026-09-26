@@ -48,7 +48,7 @@ enum DescendantTask {
 		depth: usize,
 		subject: tg::authorization::Subject,
 	},
-	SubjectGrants {
+	SubjectPermissions {
 		after: Option<Vec<u8>>,
 		depth: usize,
 		subject: tg::authorization::Subject,
@@ -77,7 +77,7 @@ impl Search {
 	) -> Self {
 		let authorization_revision = state.authorization_revision();
 		let budget = Budget::with_root_total(config, targets.len());
-		// Public grants are checked only by the ancestor search, so a descendant search cannot deny.
+		// Public permissions are checked only by the ancestor search, so a descendant search cannot deny.
 		let complete = false;
 		let unresolved = targets.into_iter().collect();
 		if config.max_nodes == 0 {
@@ -247,13 +247,13 @@ impl Search {
 				DescendantTask::Subject { depth, subject } => {
 					self.expand_subject(depth, subject);
 				},
-				DescendantTask::SubjectGrants {
+				DescendantTask::SubjectPermissions {
 					after,
 					depth,
 					subject,
 				} => {
 					let limit = self.budget.config.page_size;
-					reads.push(Read::SubjectGrants {
+					reads.push(Read::SubjectPermissions {
 						after,
 						depth,
 						limit,
@@ -302,7 +302,7 @@ impl Search {
 					.ok()
 					.map(|permission| (resource, permission))
 			}),
-			Read::SubjectGrants {
+			Read::SubjectPermissions {
 				subject: tg::authorization::Subject::Sync(sync),
 				..
 			} => Some((
@@ -440,18 +440,18 @@ impl Search {
 
 				return Ok(());
 			},
-			Read::SubjectGrants { depth, subject, .. } => {
-				let (after, grants) = output.into_grants()?;
+			Read::SubjectPermissions { depth, subject, .. } => {
+				let (after, permissions) = output.into_permissions()?;
 				let sync = matches!(subject, tg::authorization::Subject::Sync(_));
-				let continuation = after.map(|after| DescendantTask::SubjectGrants {
+				let continuation = after.map(|after| DescendantTask::SubjectPermissions {
 					after: Some(after),
 					depth,
 					subject,
 				});
-				let neighbors = grants
+				let neighbors = permissions
 					.into_iter()
-					.filter(|grant| !sync || grant.permission.is_read_like())
-					.map(|grant| (grant.resource, grant.permission))
+					.filter(|permission| !sync || permission.permission.is_read_like())
+					.map(|permission| (permission.resource, permission.permission))
 					.collect();
 
 				(depth, depth, continuation, neighbors)
@@ -827,14 +827,13 @@ impl Search {
 					self.exhausted = true;
 					return;
 				};
-				self.queues
-					.entry(depth)
-					.or_default()
-					.push_back(DescendantTask::SubjectGrants {
+				self.queues.entry(depth).or_default().push_back(
+					DescendantTask::SubjectPermissions {
 						after: None,
 						depth: depth + 1,
 						subject: tg::authorization::Subject::Sync(sync),
-					});
+					},
+				);
 			},
 			tg::authorization::Permission::Group(_)
 			| tg::authorization::Permission::Organization(_)
@@ -999,7 +998,7 @@ impl Search {
 		kind: crate::process::object::Kind,
 		relationship_is_known: bool,
 	) -> DescendantCandidate {
-		let grant_permissions = match permission {
+		let covering_permissions = match permission {
 			tg::authorization::permission::object::Permission::Node => vec![
 				tg::authorization::permission::object::Permission::Subtree,
 				tg::authorization::permission::object::Permission::Node,
@@ -1008,9 +1007,9 @@ impl Search {
 				vec![tg::authorization::permission::object::Permission::Subtree]
 			},
 		};
-		let proofs = grant_permissions
+		let proofs = covering_permissions
 			.into_iter()
-			.map(|grant_permission| {
+			.map(|covering_permission| {
 				let mut proof = Vec::new();
 				if !relationship_is_known {
 					proof.push(crate::authorize::Check::ProcessObject {
@@ -1019,9 +1018,9 @@ impl Search {
 						process: process.clone(),
 					});
 				}
-				proof.push(crate::authorize::Check::ProcessObjectGrant {
+				proof.push(crate::authorize::Check::ProcessObjectPermission {
 					object: object.clone(),
-					permission: grant_permission,
+					permission: covering_permission,
 					process: process.clone(),
 				});
 
@@ -1052,7 +1051,7 @@ impl Search {
 		self.queues
 			.entry(depth)
 			.or_default()
-			.push_back(DescendantTask::SubjectGrants {
+			.push_back(DescendantTask::SubjectPermissions {
 				after: None,
 				depth,
 				subject: subject.clone(),
@@ -1158,14 +1157,14 @@ impl Search {
 					process,
 				},
 			),
-			Read::SubjectGrants {
+			Read::SubjectPermissions {
 				after,
 				depth,
 				subject,
 				..
 			} => (
 				depth,
-				DescendantTask::SubjectGrants {
+				DescendantTask::SubjectPermissions {
 					after,
 					depth,
 					subject,

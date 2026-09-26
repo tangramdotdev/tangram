@@ -14,7 +14,7 @@ pub(super) enum Request {
 	Clean(Clean),
 	ExpireUsage(crate::usage::expire::Arg),
 	CompleteLogCompaction(crate::log::Entry),
-	DeleteGrants(Vec<crate::grant::delete::Arg>),
+	DeletePermissions(Vec<crate::permission::delete::Arg>),
 	DeleteGroupMembers(Vec<crate::group::member::delete::Arg>),
 	DeleteGroups(Vec<tg::group::Id>),
 	DeleteIndexer(crate::indexer::delete::Arg),
@@ -30,7 +30,7 @@ pub(super) enum Request {
 		period: crate::usage::Period,
 	},
 	PutCheckouts(Vec<crate::checkout::put::Arg>),
-	PutGrants(Vec<crate::grant::put::Arg>),
+	PutPermissions(Vec<crate::permission::put::Arg>),
 	PutGroupMembers(Vec<crate::group::member::put::Arg>),
 	PutGroups(Vec<crate::group::put::Arg>),
 	PutIndexer(crate::indexer::put::Arg),
@@ -96,7 +96,7 @@ pub(super) enum Item {
 	Clean,
 	ExpireUsage,
 	CompleteLogCompaction(crate::log::Entry),
-	DeleteGrant(crate::grant::delete::Arg),
+	DeletePermission(crate::permission::delete::Arg),
 	DeleteGroup(tg::group::Id),
 	DeleteGroupMember(crate::group::member::delete::Arg),
 	DeleteOrganization(tg::organization::Id),
@@ -107,7 +107,7 @@ pub(super) enum Item {
 	EnqueueLogCompaction(tg::process::Id),
 	GetUsage,
 	PutCheckout(crate::checkout::put::Arg),
-	PutGrant(crate::grant::put::Arg),
+	PutPermission(crate::permission::put::Arg),
 	PutGroup(crate::group::put::Arg),
 	PutGroupMember(crate::group::member::put::Arg),
 	PutObject(crate::object::put::Arg),
@@ -135,7 +135,7 @@ pub(super) enum Kind {
 	},
 	ExpireUsage(crate::usage::expire::Arg),
 	CompleteLogCompaction,
-	DeleteGrants,
+	DeletePermissions,
 	DeleteGroupMembers,
 	DeleteGroups,
 	DeleteOrganizationMembers,
@@ -150,7 +150,7 @@ pub(super) enum Kind {
 		period: crate::usage::Period,
 	},
 	PutCheckouts,
-	PutGrants,
+	PutPermissions,
 	PutGroupMembers,
 	PutGroups,
 	PutObjects,
@@ -190,7 +190,7 @@ impl Request {
 			| Self::CompleteLogCompaction(_)
 			| Self::EnqueueLogCompaction(_)
 			| Self::PutCheckouts(_)
-			| Self::PutGrants(_)
+			| Self::PutPermissions(_)
 			| Self::PutGroupMembers(_)
 			| Self::PutGroups(_)
 			| Self::PutObjects(_)
@@ -202,7 +202,7 @@ impl Request {
 			Self::AggregateUsage(_) | Self::Clean(_) | Self::ExpireUsage(_) | Self::Update(_) => {
 				Priority::Low
 			},
-			Self::DeleteGrants(_)
+			Self::DeletePermissions(_)
 			| Self::DeleteGroupMembers(_)
 			| Self::DeleteGroups(_)
 			| Self::DeleteIndexer(_)

@@ -566,21 +566,21 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn put_grants(&self, args: &[index::grant::put::Arg]) -> tg::Result<()> {
+	async fn put_permissions(&self, args: &[index::permission::put::Arg]) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.put_grants(args).await,
+			Self::Fdb(index) => index.put_permissions(args).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.put_grants(args).await,
+			Self::Lmdb(index) => index.put_permissions(args).await,
 		}
 	}
 
-	async fn delete_grants(&self, args: &[index::grant::delete::Arg]) -> tg::Result<()> {
+	async fn delete_permissions(&self, args: &[index::permission::delete::Arg]) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.delete_grants(args).await,
+			Self::Fdb(index) => index.delete_permissions(args).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.delete_grants(args).await,
+			Self::Lmdb(index) => index.delete_permissions(args).await,
 		}
 	}
 
@@ -817,12 +817,12 @@ impl index::Index for Index {
 		}
 	}
 
-	fn grant_update_partition_total(&self) -> u64 {
+	fn permission_update_partition_total(&self) -> u64 {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.grant_update_partition_total(),
+			Self::Fdb(index) => index.permission_update_partition_total(),
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.grant_update_partition_total(),
+			Self::Lmdb(index) => index.permission_update_partition_total(),
 		}
 	}
 
@@ -890,7 +890,7 @@ impl Server {
 		}) && arg.items.iter().any(|item| {
 			matches!(
 				item,
-				index::batch::Item::PutGrant(arg)
+				index::batch::Item::PutPermission(arg)
 					if arg.resource.kind() == tg::id::Kind::Command
 						&& arg.subject.is_process()
 			)

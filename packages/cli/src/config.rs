@@ -728,7 +728,7 @@ pub struct FdbIndex {
 	pub cluster: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub grant_update_partition_total: Option<u64>,
+	pub permission_update_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub instance: Option<String>,
@@ -959,7 +959,7 @@ pub struct IndexerUsageExpiration {
 #[serde(deny_unknown_fields)]
 pub struct IndexerUpdates {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub grants: Option<IndexerUpdate>,
+	pub permissions: Option<IndexerUpdate>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_process_depth: Option<usize>,
@@ -1020,12 +1020,12 @@ pub struct Object {
 	pub cache: Option<ObjectCache>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(alias = "grant_ttl", default, skip_serializing_if = "Option::is_none")]
-	pub grant_time_to_live: Option<Duration>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub permission_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(alias = "grant_ttt", default, skip_serializing_if = "Option::is_none")]
-	pub grant_time_to_touch: Option<Duration>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub permission_time_to_touch: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub index_queue: Option<IndexQueue>,
@@ -1238,12 +1238,12 @@ pub struct Process {
 	pub children_wakeup_interval: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(alias = "grant_ttl", default, skip_serializing_if = "Option::is_none")]
-	pub grant_time_to_live: Option<Duration>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub permission_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
-	#[serde(alias = "grant_ttt", default, skip_serializing_if = "Option::is_none")]
-	pub grant_time_to_touch: Option<Duration>,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub permission_time_to_touch: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub spawn: Option<Spawn>,
@@ -1512,11 +1512,11 @@ pub struct Sandbox {
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub process_grant_time_to_live: Option<Duration>,
+	pub process_permission_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub process_grant_time_to_touch: Option<Duration>,
+	pub process_permission_time_to_touch: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1646,11 +1646,11 @@ pub struct SyncOptions {
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub grant_time_to_live: Option<Duration>,
+	pub permission_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub grant_time_to_touch: Option<Duration>,
+	pub permission_time_to_touch: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_frame_size: Option<u64>,
@@ -2978,8 +2978,8 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(value) = source.cluster {
 		target.cluster = value;
 	}
-	if let Some(value) = source.grant_update_partition_total {
-		target.grant_update_partition_total = value;
+	if let Some(value) = source.permission_update_partition_total {
+		target.permission_update_partition_total = value;
 	}
 	if let Some(value) = source.instance {
 		target.instance = Some(value);
@@ -3226,8 +3226,8 @@ fn resolve_indexer_log_compaction(
 
 fn resolve_indexer_updates(source: IndexerUpdates) -> server::IndexerUpdates {
 	let mut target = server::IndexerUpdates::default();
-	if let Some(source) = source.grants {
-		target.grants = resolve_indexer_update(source);
+	if let Some(source) = source.permissions {
+		target.permissions = resolve_indexer_update(source);
 	}
 	if let Some(value) = source.max_process_depth {
 		target.max_process_depth = value;
@@ -3345,11 +3345,11 @@ fn resolve_object(source: &Object) -> server::Object {
 	if let Some(source) = source.cache {
 		target.cache = Some(resolve_object_cache(source));
 	}
-	if let Some(value) = source.grant_time_to_live {
-		target.grant_time_to_live = value;
+	if let Some(value) = source.permission_time_to_live {
+		target.permission_time_to_live = value;
 	}
-	if let Some(value) = source.grant_time_to_touch {
-		target.grant_time_to_touch = value;
+	if let Some(value) = source.permission_time_to_touch {
+		target.permission_time_to_touch = value;
 	}
 	if let Some(source) = source.index_queue {
 		target.index_queue = resolve_index_queue(source);
@@ -3564,11 +3564,11 @@ fn resolve_process(source: Process) -> server::Process {
 	if let Some(value) = source.children_wakeup_interval {
 		target.children_wakeup_interval = value;
 	}
-	if let Some(value) = source.grant_time_to_live {
-		target.grant_time_to_live = value;
+	if let Some(value) = source.permission_time_to_live {
+		target.permission_time_to_live = value;
 	}
-	if let Some(value) = source.grant_time_to_touch {
-		target.grant_time_to_touch = value;
+	if let Some(value) = source.permission_time_to_touch {
+		target.permission_time_to_touch = value;
 	}
 	if let Some(source) = source.spawn {
 		target.spawn = resolve_spawn(source);
@@ -3831,11 +3831,11 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 	if let Some(value) = source.nice {
 		target.nice = value;
 	}
-	if let Some(value) = source.process_grant_time_to_live {
-		target.process_grant_time_to_live = value;
+	if let Some(value) = source.process_permission_time_to_live {
+		target.process_permission_time_to_live = value;
 	}
-	if let Some(value) = source.process_grant_time_to_touch {
-		target.process_grant_time_to_touch = value;
+	if let Some(value) = source.process_permission_time_to_touch {
+		target.process_permission_time_to_touch = value;
 	}
 	if let Some(value) = source.processes_wakeup_interval {
 		target.processes_wakeup_interval = value;
@@ -3948,11 +3948,11 @@ fn resolve_sync(source: &SyncOptions) -> server::Sync {
 	if let Some(source) = source.retry {
 		target.retry = resolve_retry_with_default(source, target.retry);
 	}
-	if let Some(value) = source.grant_time_to_live {
-		target.grant_time_to_live = value;
+	if let Some(value) = source.permission_time_to_live {
+		target.permission_time_to_live = value;
 	}
-	if let Some(value) = source.grant_time_to_touch {
-		target.grant_time_to_touch = value;
+	if let Some(value) = source.permission_time_to_touch {
+		target.permission_time_to_touch = value;
 	}
 	if let Some(value) = source.max_frame_size {
 		target.max_frame_size = value;
@@ -4885,7 +4885,7 @@ mod tests {
 					"timeout": 2,
 				},
 				"updates": {
-					"grants": { "partitions": { "end": 11, "start": 5 } },
+					"permissions": { "partitions": { "end": 11, "start": 5 } },
 					"max_process_depth": 64,
 					"storage_and_metadata": { "partitions": { "end": 12, "start": 6 } },
 					"usage": { "partitions": { "end": 13, "start": 7 } },
@@ -4944,8 +4944,8 @@ mod tests {
 		assert_eq!(target.indexer.request.retry.max_retries, 5);
 		assert_eq!(target.indexer.request.timeout, Duration::from_secs(2));
 		assert_eq!(target.indexer.request.response_ttl, Duration::from_secs(90));
-		assert_eq!(target.indexer.updates.grants.partitions.end, 11);
-		assert_eq!(target.indexer.updates.grants.partitions.start, 5);
+		assert_eq!(target.indexer.updates.permissions.partitions.end, 11);
+		assert_eq!(target.indexer.updates.permissions.partitions.start, 5);
 		assert_eq!(target.indexer.updates.max_process_depth, 64);
 		assert_eq!(
 			target.indexer.updates.storage_and_metadata.partitions.end,
@@ -5066,7 +5066,7 @@ mod tests {
 	fn resolves_indexer_update_queues() {
 		let source = Indexer {
 			updates: Some(IndexerUpdates {
-				grants: Some(IndexerUpdate {
+				permissions: Some(IndexerUpdate {
 					batch_size: Some(11),
 					concurrency: Some(2),
 					partitions: Some(IndexerPartitions {
@@ -5096,10 +5096,10 @@ mod tests {
 		};
 		let target = resolve_indexer(&source);
 
-		assert_eq!(target.updates.grants.batch_size, 11);
-		assert_eq!(target.updates.grants.concurrency, 2);
-		assert_eq!(target.updates.grants.partitions.end, 9);
-		assert_eq!(target.updates.grants.partitions.start, 3);
+		assert_eq!(target.updates.permissions.batch_size, 11);
+		assert_eq!(target.updates.permissions.concurrency, 2);
+		assert_eq!(target.updates.permissions.partitions.end, 9);
+		assert_eq!(target.updates.permissions.partitions.start, 3);
 		assert_eq!(target.updates.max_process_depth, 55);
 		assert_eq!(target.updates.storage_and_metadata.batch_size, 22);
 		assert_eq!(target.updates.storage_and_metadata.concurrency, 3);
@@ -5181,7 +5181,7 @@ mod tests {
 	fn resolves_index_partition_totals() {
 		let fdb = resolve_fdb_index(FdbIndex {
 			cleaning_partition_total: Some(128),
-			grant_update_partition_total: Some(256),
+			permission_update_partition_total: Some(256),
 			log_compaction_partition_total: Some(64),
 			storage_and_metadata_update_partition_total: Some(512),
 			usage_update_partition_total: Some(1_024),
@@ -5194,7 +5194,7 @@ mod tests {
 		});
 
 		assert_eq!(fdb.cleaning_partition_total, 128);
-		assert_eq!(fdb.grant_update_partition_total, 256);
+		assert_eq!(fdb.permission_update_partition_total, 256);
 		assert_eq!(fdb.log_compaction_partition_total, 64);
 		assert_eq!(fdb.storage_and_metadata_update_partition_total, 512);
 		assert_eq!(fdb.usage_update_partition_total, 1_024);

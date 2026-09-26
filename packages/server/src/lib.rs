@@ -363,7 +363,7 @@ impl Server {
 				}
 			}
 			for (name, update) in [
-				("grant", &indexer.updates.grants),
+				("permission", &indexer.updates.permissions),
 				(
 					"storage and metadata",
 					&indexer.updates.storage_and_metadata,
@@ -423,9 +423,9 @@ impl Server {
 						index.log_compaction_partition_total,
 					),
 					(
-						"grant update",
-						&indexer.updates.grants.partitions,
-						index.grant_update_partition_total,
+						"permission update",
+						&indexer.updates.permissions.partitions,
+						index.permission_update_partition_total,
 					),
 					(
 						"storage and metadata update",
@@ -446,7 +446,11 @@ impl Server {
 				self::config::Index::Lmdb(index) => [
 					("cleaning", &indexer.cleaning.partitions, 1),
 					("log compaction", &indexer.log_compaction.partitions, 1),
-					("grant update", &indexer.updates.grants.partitions, 1),
+					(
+						"permission update",
+						&indexer.updates.permissions.partitions,
+						1,
+					),
 					(
 						"storage and metadata update",
 						&indexer.updates.storage_and_metadata.partitions,
@@ -915,7 +919,8 @@ impl Server {
 						authorize,
 						cleaning_partition_total: options.cleaning_partition_total,
 						cluster: options.cluster.clone(),
-						grant_update_partition_total: options.grant_update_partition_total,
+						permission_update_partition_total: options
+							.permission_update_partition_total,
 						instance: options.instance.clone(),
 						log_compaction_partition_total: options.log_compaction_partition_total,
 						max_process_depth: config

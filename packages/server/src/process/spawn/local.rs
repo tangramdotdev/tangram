@@ -401,25 +401,30 @@ impl Session {
 		};
 		// Grant the creator authority independently of the sandbox and prepare command access.
 		let mut items = Vec::new();
-		if let Some(grant) = self.spawn_process_create_creator_grant_arg(&id, now)? {
-			items.push(tangram_index::batch::Item::PutGrant(grant));
+		if let Some(permission) = self.spawn_process_create_creator_permission_arg(&id, now)? {
+			items.push(tangram_index::batch::Item::PutPermission(permission));
 		}
 		if grant_command {
-			let grant_expires_at = now
+			let permission_expires_at = now
 				+ self
 					.server
 					.config
 					.object
-					.grant_time_to_live
+					.permission_time_to_live
 					.as_secs()
 					.to_i64()
 					.unwrap();
 			let commands = command.objects();
-			let grant_arg = self
-				.create_process_object_grant_arg(&id, commands, now, Some(grant_expires_at))
+			let permission_arg = self
+				.create_process_object_permission_arg(
+					&id,
+					commands,
+					now,
+					Some(permission_expires_at),
+				)
 				.await?;
-			items.push(tangram_index::batch::Item::PutProcessObjectGrants(
-				grant_arg,
+			items.push(tangram_index::batch::Item::PutProcessObjectPermissions(
+				permission_arg,
 			));
 		}
 		if !items.is_empty() {

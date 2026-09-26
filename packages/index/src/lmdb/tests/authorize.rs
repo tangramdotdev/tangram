@@ -1,8 +1,8 @@
 use {
 	super::super::{
-		Config, Index, Key, grant::Key as GrantKey, group::Key as GroupKey,
-		object::Key as ObjectKey, organization::Key as OrganizationKey, process::Key as ProcessKey,
-		sandbox::Key as SandboxKey,
+		Config, Index, Key, group::Key as GroupKey, object::Key as ObjectKey,
+		organization::Key as OrganizationKey, permission::Key as PermissionKey,
+		process::Key as ProcessKey, sandbox::Key as SandboxKey,
 	},
 	heed as lmdb,
 	std::time::Instant,
@@ -68,14 +68,14 @@ fn put_child(
 	);
 }
 
-fn put_grant(
+fn put_permission(
 	index: &Index,
 	txn: &mut lmdb::RwTxn<'_>,
 	resource: &tg::object::Id,
 	user: &tg::user::Id,
 	permission: tg::authorization::permission::object::Permission,
 ) {
-	put_resource_grant(
+	put_resource_permission(
 		index,
 		txn,
 		resource.clone().into(),
@@ -202,15 +202,15 @@ fn put_process_object(
 	);
 }
 
-fn put_resource_grant(
+fn put_resource_permission(
 	index: &Index,
 	txn: &mut lmdb::RwTxn<'_>,
 	resource: tg::Id,
 	subject: tg::authorization::Subject,
 	permission: tg::authorization::Permission,
 ) {
-	let value = super::super::grant::GrantValue {
-		explicit: true,
+	let value = super::super::permission::PermissionValue {
+		grant: true,
 		..Default::default()
 	}
 	.serialize()
@@ -218,7 +218,7 @@ fn put_resource_grant(
 	put_value(
 		index,
 		txn,
-		&Key::Grant(GrantKey::ResourceGrant {
+		&Key::Permission(PermissionKey::ResourcePermission {
 			creator: None,
 			permission,
 			resource: resource.clone(),
@@ -229,7 +229,7 @@ fn put_resource_grant(
 	put_value(
 		index,
 		txn,
-		&Key::Grant(GrantKey::SubjectGrant {
+		&Key::Permission(PermissionKey::SubjectPermission {
 			creator: None,
 			permission,
 			resource,
@@ -239,17 +239,17 @@ fn put_resource_grant(
 	);
 }
 
-fn put_process_implicit_grant(
+fn put_process_direct_permission(
 	index: &Index,
 	txn: &mut lmdb::RwTxn<'_>,
 	resource: tg::Id,
 	process: &tg::process::Id,
 	permission: tg::authorization::Permission,
 ) {
-	put_process_implicit_grant_with_expiration(index, txn, resource, process, permission, None);
+	put_process_direct_permission_with_expiration(index, txn, resource, process, permission, None);
 }
 
-fn put_process_implicit_grant_with_expiration(
+fn put_process_direct_permission_with_expiration(
 	index: &Index,
 	txn: &mut lmdb::RwTxn<'_>,
 	resource: tg::Id,
@@ -257,8 +257,8 @@ fn put_process_implicit_grant_with_expiration(
 	permission: tg::authorization::Permission,
 	expires_at: Option<i64>,
 ) {
-	let value = super::super::grant::GrantValue {
-		implicit: Some(expires_at),
+	let value = super::super::permission::PermissionValue {
+		direct: Some(expires_at),
 		..Default::default()
 	}
 	.serialize()
@@ -266,7 +266,7 @@ fn put_process_implicit_grant_with_expiration(
 	put_value(
 		index,
 		txn,
-		&Key::Grant(GrantKey::ResourceGrant {
+		&Key::Permission(PermissionKey::ResourcePermission {
 			creator: Some(tg::Principal::Process(process.clone())),
 			permission,
 			resource: resource.clone(),
@@ -277,7 +277,7 @@ fn put_process_implicit_grant_with_expiration(
 	put_value(
 		index,
 		txn,
-		&Key::Grant(GrantKey::SubjectGrant {
+		&Key::Permission(PermissionKey::SubjectPermission {
 			creator: Some(tg::Principal::Process(process.clone())),
 			permission,
 			resource,
@@ -383,7 +383,7 @@ async fn authorize_secs(
 		output[0]
 			.output()
 			.is_some_and(|output| output.permissions.contains(node)),
-		"the node should be authorized via the root's subtree grant"
+		"the node should be authorized via the root's subtree permission"
 	);
 	elapsed
 }
@@ -600,7 +600,7 @@ fn put_authorized_subtree_chain(
 	let nodes = (offset..offset + length).map(object_id).collect::<Vec<_>>();
 	for (position, node) in nodes.iter().enumerate() {
 		put_object(index, transaction, node);
-		put_grant(
+		put_permission(
 			index,
 			transaction,
 			node,
@@ -615,7 +615,7 @@ fn put_authorized_subtree_chain(
 	nodes
 }
 
-async fn authorize_object_process_grants_secs(
+async fn authorize_object_process_permissions_secs(
 	index: &Index,
 	object: &tg::object::Id,
 	user: &tg::user::Id,
@@ -708,7 +708,7 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 		}],
 	)
 	.unwrap();
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		alice.into(),
@@ -811,7 +811,7 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 	put_sandbox(&index, &mut txn, &sandbox);
 	put_sandbox(&index, &mut txn, &target);
 	put_process(&index, &mut txn, &process, &sandbox);
-	put_process_implicit_grant_with_expiration(
+	put_process_direct_permission_with_expiration(
 		&index,
 		&mut txn,
 		expiring_object.clone().into(),
@@ -819,22 +819,22 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 		subtree,
 		Some(i64::MAX),
 	);
-	put_process_implicit_grant(&index, &mut txn, object.clone().into(), &process, subtree);
-	put_process_implicit_grant(
+	put_process_direct_permission(&index, &mut txn, object.clone().into(), &process, subtree);
+	put_process_direct_permission(
 		&index,
 		&mut txn,
 		target.clone().into(),
 		&process,
 		sandbox_write,
 	);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		sandbox.clone().into(),
 		tg::authorization::Subject::User(sandbox_reader.clone()),
 		sandbox_read,
 	);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		sandbox.clone().into(),
@@ -847,7 +847,7 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 		(process_parent_holder.clone(), process_parent),
 		(subtree_reader.clone(), process_subtree),
 	] {
-		put_resource_grant(
+		put_resource_permission(
 			&index,
 			&mut txn,
 			process.clone().into(),
@@ -855,7 +855,7 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 			permission,
 		);
 	}
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		process.clone().into(),
@@ -926,7 +926,7 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 }
 
 #[tokio::test]
-async fn authorize_process_object_permissions_require_process_implicit_grants() {
+async fn authorize_process_object_permissions_require_process_direct_permissions() {
 	let (_dir, index) = new_index();
 	let command_holder = tg::user::Id::new();
 	let object = object_id(0);
@@ -955,21 +955,21 @@ async fn authorize_process_object_permissions_require_process_implicit_grants() 
 		&object,
 		crate::process::object::Kind::Output,
 	);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		process.clone().into(),
 		tg::authorization::Subject::User(command_holder.clone()),
 		subtree_command,
 	);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		process.clone().into(),
 		tg::authorization::Subject::User(output_holder.clone()),
 		subtree_output,
 	);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		process.clone().into(),
@@ -1007,7 +1007,7 @@ async fn authorize_process_object_permissions_require_process_implicit_grants() 
 	);
 
 	let mut txn = index.env.write_txn().unwrap();
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		object.clone().into(),
@@ -1044,7 +1044,7 @@ async fn authorize_process_object_permissions_require_process_implicit_grants() 
 	);
 
 	let mut txn = index.env.write_txn().unwrap();
-	put_process_implicit_grant(&index, &mut txn, object.clone().into(), &process, subtree);
+	put_process_direct_permission(&index, &mut txn, object.clone().into(), &process, subtree);
 	txn.commit().unwrap();
 	assert!(
 		!is_authorized(
@@ -1137,20 +1137,20 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 		] {
 			put_child(&index, &mut transaction, parent, child);
 		}
-		for (process, object, grant) in [
+		for (process, object, permission) in [
 			(&process, &object, Some(subtree)),
 			(&child_process, &child_object, Some(subtree)),
 			(&process, &foreign_object, None),
 			(&process, &node_object, Some(node)),
 		] {
 			put_process_object(&index, &mut transaction, process, object, kind);
-			if let Some(grant) = grant {
-				put_process_implicit_grant(
+			if let Some(permission) = permission {
+				put_process_direct_permission(
 					&index,
 					&mut transaction,
 					object.clone().into(),
 					process,
-					object_permission(grant),
+					object_permission(permission),
 				);
 			}
 		}
@@ -1166,7 +1166,7 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 			&other_object,
 			other_kind,
 		);
-		put_process_implicit_grant(
+		put_process_direct_permission(
 			&index,
 			&mut transaction,
 			other_object.clone().into(),
@@ -1177,7 +1177,7 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 			(&node_reader, permission),
 			(&subtree_reader, permission.to_subtree()),
 		] {
-			put_resource_grant(
+			put_resource_permission(
 				&index,
 				&mut transaction,
 				process.clone().into(),
@@ -1187,7 +1187,7 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 		}
 		transaction.commit().unwrap();
 
-		// Exercise grants and tokens through both search directions independently and together.
+		// Exercise permissions and tokens through both search directions independently and together.
 		let disabled = crate::authorize::SearchConfig {
 			max_depth: 0,
 			max_edges: 0,
@@ -1309,14 +1309,14 @@ async fn authorize_parent_permission_flows_to_process_children() {
 	put_process(&index, &mut txn, &child, &sandbox);
 	put_process(&index, &mut txn, &parent, &sandbox);
 	put_process_child(&index, &mut txn, &parent, &child);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		parent.clone().into(),
 		tg::authorization::Subject::User(parent_user.clone()),
 		parent_permission,
 	);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		parent.into(),
@@ -1361,14 +1361,14 @@ async fn authorize_sandbox_permissions_do_not_authorize_processes() {
 	let mut txn = index.env.write_txn().unwrap();
 	put_sandbox(&index, &mut txn, &sandbox);
 	put_process(&index, &mut txn, &process, &sandbox);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		sandbox.clone().into(),
 		tg::authorization::Subject::User(reader.clone()),
 		read,
 	);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		sandbox.into(),
@@ -1406,7 +1406,7 @@ async fn authorize_sandbox_permissions_do_not_authorize_processes() {
 }
 
 #[tokio::test]
-async fn authorize_derives_process_permissions_without_materialized_grants() {
+async fn authorize_derives_process_permissions_without_materialized_permissions() {
 	let descendant = crate::authorize::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
@@ -1445,7 +1445,7 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 		tg::authorization::permission::process::Permission::Node,
 	);
 	for process in [&child, &parent] {
-		put_resource_grant(
+		put_resource_permission(
 			&index,
 			&mut txn,
 			process.clone().into(),
@@ -1461,7 +1461,7 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 			let object = object_id(n + usize::from(process == &parent) * 4);
 			put_object(&index, &mut txn, &object);
 			put_process_object(&index, &mut txn, process, &object, kind);
-			put_grant(
+			put_permission(
 				&index,
 				&mut txn,
 				&object,
@@ -1511,7 +1511,7 @@ async fn authorize_derives_process_permissions_without_materialized_grants() {
 	}
 }
 
-// Authorizing an object walks its ancestry for a covering grant. The work must
+// Authorizing an object walks its ancestry for a covering permission. The work must
 // grow linearly with the depth of the ancestry.
 #[tokio::test]
 async fn authorize_deep_chain_scales_linearly() {
@@ -1530,7 +1530,7 @@ async fn authorize_deep_chain_scales_linearly() {
 	};
 	let (_dir, index) = new_index();
 
-	// Build a chain nodes[0] (root) -> ... -> nodes[DEPTH] and grant the user only
+	// Build a chain nodes[0] (root) -> ... -> nodes[DEPTH] and permission the user only
 	// the root subtree. Nothing materializes it onto the descendants, so
 	// authorizing one must walk up to the root.
 	let user = tg::user::Id::new();
@@ -1542,7 +1542,7 @@ async fn authorize_deep_chain_scales_linearly() {
 			put_child(&index, &mut txn, &nodes[i - 1], &nodes[i]);
 		}
 	}
-	put_grant(
+	put_permission(
 		&index,
 		&mut txn,
 		&nodes[0],
@@ -1594,7 +1594,7 @@ async fn authorize_combines_ancestor_and_descendant_searches() {
 			put_child(&index, &mut transaction, &nodes[position - 1], object);
 		}
 	}
-	put_grant(
+	put_permission(
 		&index,
 		&mut transaction,
 		&nodes[0],
@@ -1647,7 +1647,7 @@ async fn authorize_deep_chain_batch_scales_linearly() {
 			put_child(&index, &mut transaction, &nodes[position - 1], node);
 		}
 	}
-	put_grant(
+	put_permission(
 		&index,
 		&mut transaction,
 		&nodes[0],
@@ -1707,7 +1707,7 @@ async fn authorize_overlapping_descendant_batch_scales_linearly() {
 	let deep_user = tg::user::Id::new();
 	let mut transaction = index.env.write_txn().unwrap();
 	let base_leaves = put_overlapping_ancestor_component(&index, &mut transaction, 0, BASE, BASE);
-	put_grant(
+	put_permission(
 		&index,
 		&mut transaction,
 		&object_id(0),
@@ -1716,7 +1716,7 @@ async fn authorize_overlapping_descendant_batch_scales_linearly() {
 	);
 	let deep_leaves =
 		put_overlapping_ancestor_component(&index, &mut transaction, 10_000, DEEP, DEEP);
-	put_grant(
+	put_permission(
 		&index,
 		&mut transaction,
 		&object_id(10_000),
@@ -1836,7 +1836,7 @@ async fn authorize_initial_search_limits_can_disable_descendants() {
 	put_object(&index, &mut txn, &child);
 	put_object(&index, &mut txn, &root);
 	put_child(&index, &mut txn, &root, &child);
-	put_grant(
+	put_permission(
 		&index,
 		&mut txn,
 		&root,
@@ -1904,7 +1904,7 @@ async fn authorize_initial_search_limits_can_disable_derived_subtrees() {
 	let mut txn = index.env.write_txn().unwrap();
 	for object in [&child, &root] {
 		put_object(&index, &mut txn, object);
-		put_grant(
+		put_permission(
 			&index,
 			&mut txn,
 			object,
@@ -1957,7 +1957,7 @@ async fn authorize_trait_returns_authorized_and_denied_outcomes() {
 	let user = tg::user::Id::new();
 	let mut txn = index.env.write_txn().unwrap();
 	put_object(&index, &mut txn, &object);
-	put_grant(
+	put_permission(
 		&index,
 		&mut txn,
 		&object,
@@ -2013,7 +2013,7 @@ async fn authorize_returns_an_exhausted_outcome_when_searches_exhaust() {
 	put_object(&index, &mut txn, &child);
 	put_object(&index, &mut txn, &parent);
 	put_child(&index, &mut txn, &parent, &child);
-	put_grant(
+	put_permission(
 		&index,
 		&mut txn,
 		&authorized,
@@ -2078,7 +2078,7 @@ async fn authorize_returns_an_exhausted_outcome_when_the_subtree_search_exhausts
 	let user = tg::user::Id::new();
 	let mut txn = index.env.write_txn().unwrap();
 	put_object(&index, &mut txn, &object);
-	put_grant(
+	put_permission(
 		&index,
 		&mut txn,
 		&object,
@@ -2129,7 +2129,7 @@ async fn authorize_returns_required_permissions_when_an_optional_search_exhausts
 	let user = tg::user::Id::new();
 	let mut transaction = index.env.write_txn().unwrap();
 	put_object(&index, &mut transaction, &object);
-	put_grant(
+	put_permission(
 		&index,
 		&mut transaction,
 		&object,
@@ -2209,7 +2209,7 @@ async fn authorize_wide_fanout_scales_linearly() {
 }
 
 #[tokio::test]
-async fn authorize_object_process_grants_scale_linearly() {
+async fn authorize_object_process_permissions_scale_linearly() {
 	const BASE: usize = 2048;
 	const WIDE: usize = 8192;
 
@@ -2230,7 +2230,7 @@ async fn authorize_object_process_grants_scale_linearly() {
 				object,
 				crate::process::object::Kind::Command,
 			);
-			put_process_implicit_grant(
+			put_process_direct_permission(
 				&index,
 				&mut transaction,
 				object.clone().into(),
@@ -2241,17 +2241,17 @@ async fn authorize_object_process_grants_scale_linearly() {
 	}
 	transaction.commit().unwrap();
 
-	let base = authorize_object_process_grants_secs(&index, &base_object, &user).await;
-	let wide = authorize_object_process_grants_secs(&index, &wide_object, &user).await;
+	let base = authorize_object_process_permissions_secs(&index, &base_object, &user).await;
+	let wide = authorize_object_process_permissions_secs(&index, &wide_object, &user).await;
 	let ratio = wide / base;
 	eprintln!(
-		"object-process grants: {BASE} relations/grants = {:.1}ms, {WIDE} relations/grants = {:.1}ms, ratio = {ratio:.1}x",
+		"object-process permissions: {BASE} relations/permissions = {:.1}ms, {WIDE} relations/permissions = {:.1}ms, ratio = {ratio:.1}x",
 		base * 1e3,
 		wide * 1e3,
 	);
 	assert!(
 		ratio < 8.0,
-		"authorization compounded {ratio:.1}x over a 4x wider relation/grant set"
+		"authorization compounded {ratio:.1}x over a 4x wider relation/permission set"
 	);
 }
 
@@ -2286,7 +2286,7 @@ async fn authorize_process_aspect_denial_wins_over_an_exhausted_object() {
 	}
 	put_child(&index, &mut transaction, exhausted, &child);
 	for object in [exhausted, &child] {
-		put_grant(
+		put_permission(
 			&index,
 			&mut transaction,
 			object,
@@ -2375,7 +2375,7 @@ async fn authorize_keeps_ancestor_or_descendant_and_derived_subtree_results_sepa
 	let mut txn = index.env.write_txn().unwrap();
 	for object in [&root, &child, &leaf] {
 		put_object(&index, &mut txn, object);
-		put_grant(
+		put_permission(
 			&index,
 			&mut txn,
 			object,
@@ -2430,7 +2430,7 @@ async fn authorize_reuses_an_overlapping_derived_subtree_denial() {
 		put_object(&index, &mut transaction, object);
 	}
 	for object in [&root, &child] {
-		put_grant(
+		put_permission(
 			&index,
 			&mut transaction,
 			object,
@@ -2483,7 +2483,7 @@ async fn authorize_reuses_an_overlapping_derived_subtree_proof() {
 	let mut transaction = index.env.write_txn().unwrap();
 	for object in [&root, &child, &leaf] {
 		put_object(&index, &mut transaction, object);
-		put_grant(
+		put_permission(
 			&index,
 			&mut transaction,
 			object,
@@ -2530,14 +2530,14 @@ async fn authorize_prunes_a_covered_subtree_before_loading_its_children() {
 	put_object(&index, &mut txn, &root);
 	put_object(&index, &mut txn, &covered);
 	put_child(&index, &mut txn, &root, &covered);
-	put_grant(
+	put_permission(
 		&index,
 		&mut txn,
 		&root,
 		&user,
 		tg::authorization::permission::object::Permission::Node,
 	);
-	put_grant(
+	put_permission(
 		&index,
 		&mut txn,
 		&covered,
@@ -2578,7 +2578,7 @@ async fn authorize_visits_shared_descendants_once() {
 		.collect::<Vec<_>>();
 	let mut txn = index.env.write_txn().unwrap();
 	put_object(&index, &mut txn, &root);
-	put_grant(
+	put_permission(
 		&index,
 		&mut txn,
 		&root,
@@ -2588,7 +2588,7 @@ async fn authorize_visits_shared_descendants_once() {
 	for layer in &layers {
 		for object in layer {
 			put_object(&index, &mut txn, object);
-			put_grant(
+			put_permission(
 				&index,
 				&mut txn,
 				object,
@@ -2634,7 +2634,7 @@ async fn authorize_subtree_ignores_a_visited_child_at_the_depth_limit() {
 	let mut txn = index.env.write_txn().unwrap();
 	for object in &objects {
 		put_object(&index, &mut txn, object);
-		put_grant(
+		put_permission(
 			&index,
 			&mut txn,
 			object,
@@ -2672,7 +2672,7 @@ async fn authorize_accumulates_permissions_from_different_proofs() {
 	let mut txn = index.env.write_txn().unwrap();
 	for object in [&root, &child] {
 		put_object(&index, &mut txn, object);
-		put_grant(
+		put_permission(
 			&index,
 			&mut txn,
 			object,
@@ -2713,18 +2713,18 @@ async fn authorize_ancestor_or_descendant_cycle_with_an_authorized_escape() {
 	let user = tg::user::Id::new();
 	let first = object_id(0);
 	let second = object_id(1);
-	let granted = object_id(2);
+	let permissioned = object_id(2);
 	let mut txn = index.env.write_txn().unwrap();
-	for object in [&first, &second, &granted] {
+	for object in [&first, &second, &permissioned] {
 		put_object(&index, &mut txn, object);
 	}
 	put_child(&index, &mut txn, &first, &second);
 	put_child(&index, &mut txn, &second, &first);
-	put_child(&index, &mut txn, &granted, &second);
-	put_grant(
+	put_child(&index, &mut txn, &permissioned, &second);
+	put_permission(
 		&index,
 		&mut txn,
-		&granted,
+		&permissioned,
 		&user,
 		tg::authorization::permission::object::Permission::Subtree,
 	);
@@ -2782,7 +2782,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 		],
 	)
 	.unwrap();
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		parent_tag.into(),
@@ -2900,7 +2900,7 @@ async fn authorize_searches_traverse_memberships_in_both_directions() {
 			organization: organization.clone(),
 		}),
 	);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		object.clone().into(),
@@ -3002,14 +3002,14 @@ async fn authorize_ancestor_search_processes_the_shallowest_depth_first() {
 		crate::process::object::Kind::Command,
 	);
 	let node = object_permission(tg::authorization::permission::object::Permission::Node);
-	put_process_implicit_grant(
+	put_process_direct_permission(
 		&index,
 		&mut transaction,
 		target.clone().into(),
 		&process,
 		node,
 	);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut transaction,
 		process.clone().into(),
@@ -3061,7 +3061,7 @@ async fn authorize_derived_search_can_finish_after_ancestor_or_descendant_search
 	let mut transaction = index.env.write_txn().unwrap();
 	for object in [&child, &root] {
 		put_object(&index, &mut transaction, object);
-		put_grant(
+		put_permission(
 			&index,
 			&mut transaction,
 			object,
@@ -3114,7 +3114,7 @@ async fn authorize_batch_propagates_a_converging_positive_proof() {
 	let target = object_id(20);
 	let first = object_id(21);
 	let second = object_id(22);
-	let granted = object_id(23);
+	let permissioned = object_id(23);
 	let first_middle = object_id(24);
 	let first_far = object_id(25);
 	let second_middle = object_id(26);
@@ -3124,7 +3124,7 @@ async fn authorize_batch_propagates_a_converging_positive_proof() {
 		&target,
 		&first,
 		&second,
-		&granted,
+		&permissioned,
 		&first_middle,
 		&first_far,
 		&second_middle,
@@ -3136,16 +3136,16 @@ async fn authorize_batch_propagates_a_converging_positive_proof() {
 	}
 	put_child(&index, &mut transaction, &first, &target);
 	put_child(&index, &mut transaction, &second, &target);
-	put_child(&index, &mut transaction, &granted, &first);
-	put_child(&index, &mut transaction, &granted, &second);
+	put_child(&index, &mut transaction, &permissioned, &first);
+	put_child(&index, &mut transaction, &permissioned, &second);
 	put_child(&index, &mut transaction, &first, &first_middle);
 	put_child(&index, &mut transaction, &first_middle, &first_far);
 	put_child(&index, &mut transaction, &second, &second_middle);
 	put_child(&index, &mut transaction, &second_middle, &second_far);
-	put_grant(
+	put_permission(
 		&index,
 		&mut transaction,
-		&granted,
+		&permissioned,
 		&user,
 		tg::authorization::permission::object::Permission::Subtree,
 	);
@@ -3397,7 +3397,7 @@ async fn sync_read_confers_only_read_like_permissions() {
 	put_child(&index, &mut transaction, &root, &child);
 	put_process(&index, &mut transaction, &process, &sandbox);
 	put_sandbox(&index, &mut transaction, &sandbox);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut transaction,
 		sync.clone().into(),
@@ -3411,7 +3411,7 @@ async fn sync_read_confers_only_read_like_permissions() {
 		(process.clone().into(), process_node),
 		(process.clone().into(), process_parent),
 	] {
-		put_resource_grant(
+		put_resource_permission(
 			&index,
 			&mut transaction,
 			resource,
@@ -3504,7 +3504,7 @@ async fn authorize_denies_sandbox_read_for_process_without_a_local_record() {
 	let read = tg::authorization::Permission::Sandbox(
 		tg::authorization::permission::sandbox::Permission::Read,
 	);
-	put_resource_grant(
+	put_resource_permission(
 		&index,
 		&mut txn,
 		sandbox.into(),

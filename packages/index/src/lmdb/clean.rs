@@ -81,12 +81,13 @@ impl Index {
 			usage_partition_total,
 			transaction,
 		} = arg;
-		let grants = Self::delete_expired_grants(db, subspace, transaction, now, batch_size)?;
+		let permissions =
+			Self::delete_expired_permissions(db, subspace, transaction, now, batch_size)?;
 		let mut output = crate::clean::Output {
-			grants,
+			permissions,
 			..Default::default()
 		};
-		let remaining_batch_size = batch_size.saturating_sub(grants);
+		let remaining_batch_size = batch_size.saturating_sub(permissions);
 
 		let prefix = &(Kind::Clean.to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
@@ -240,31 +241,32 @@ impl Index {
 			transaction,
 			remaining_batch_size,
 		)?;
-		output.done = grants == 0 && candidates.is_empty() && propagated_versions == 0;
+		output.done = permissions == 0 && candidates.is_empty() && propagated_versions == 0;
 
 		Ok(output)
 	}
 
-	fn delete_expired_grants(
+	fn delete_expired_permissions(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		now: i64,
 		batch_size: usize,
 	) -> tg::Result<usize> {
-		let prefix = Self::pack(subspace, &(Kind::GrantExpiresAt.to_i32().unwrap(),));
+		let prefix = Self::pack(subspace, &(Kind::PermissionExpiresAt.to_i32().unwrap(),));
 		let iter = db
 			.prefix_iter(&*transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to iterate grant expiration keys"))?;
+			.map_err(|error| tg::error!(!error, "failed to iterate permission expiration keys"))?;
 		let mut args = Vec::new();
 		for result in iter {
 			if args.len() >= batch_size {
 				break;
 			}
-			let (key, _) = result
-				.map_err(|error| tg::error!(!error, "failed to read the grant expiration key"))?;
+			let (key, _) = result.map_err(|error| {
+				tg::error!(!error, "failed to read the permission expiration key")
+			})?;
 			let key = Self::unpack(subspace, key)?;
-			let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::GrantExpiresAt {
+			let crate::lmdb::Key::Permission(crate::lmdb::permission::Key::PermissionExpiresAt {
 				expires_at,
 				resource,
 				subject,
@@ -273,42 +275,31 @@ impl Index {
 				source,
 			}) = key
 			else {
-				return Err(tg::error!("expected a grant expiration key"));
+				return Err(tg::error!("expected a permission expiration key"));
 			};
 			if expires_at > now {
 				break;
 			}
-			args.push((
-				crate::grant::delete::Arg {
-					creator,
-					implicit: Some(Some(expires_at)),
-					permissions: permission.into(),
-					subject,
-					resource,
-				},
-				source,
-			));
+			args.push((creator, expires_at, permission, resource, source, subject));
 		}
 		let count = args.len();
-		for (arg, source) in args {
-			for permission in arg.permissions.iter() {
-				let entry = crate::lmdb::grant::GrantIndexEntry {
-					creator: arg.creator.as_ref(),
-					expires_at: arg.implicit.flatten(),
-					permission,
-					subject: &arg.subject,
-					resource: &arg.resource,
-				};
-				Self::delete_grant_index_entry(db, subspace, transaction, &entry, source)?;
-				Self::enqueue_grant_update(
-					db,
-					subspace,
-					transaction,
-					&arg.resource,
-					&arg.subject,
-					permission,
-				)?;
-			}
+		for (creator, expires_at, permission, resource, source, subject) in args {
+			let entry = crate::lmdb::permission::PermissionIndexEntry {
+				creator: creator.as_ref(),
+				expires_at: Some(expires_at),
+				permission,
+				subject: &subject,
+				resource: &resource,
+			};
+			Self::delete_permission_index_entry(db, subspace, transaction, &entry, source)?;
+			Self::enqueue_permission_update(
+				db,
+				subspace,
+				transaction,
+				&resource,
+				&subject,
+				permission,
+			)?;
 		}
 		Ok(count)
 	}
@@ -671,7 +662,7 @@ impl Index {
 		id: &tg::object::Id,
 	) -> tg::Result<()> {
 		let resource = id.clone().into();
-		Self::delete_materialized_grants_for_resource(db, subspace, transaction, &resource)?;
+		Self::delete_materialized_permissions_for_resource(db, subspace, transaction, &resource)?;
 
 		let key = crate::lmdb::Key::Object(crate::lmdb::object::Key::Object(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -752,9 +743,9 @@ impl Index {
 		id: &tg::process::Id,
 	) -> tg::Result<()> {
 		let resource = id.clone().into();
-		Self::delete_materialized_grants_for_resource(db, subspace, transaction, &resource)?;
+		Self::delete_materialized_permissions_for_resource(db, subspace, transaction, &resource)?;
 		let subject = tg::authorization::Subject::Process(id.clone());
-		Self::delete_grants_for_subject(db, subspace, transaction, &subject)?;
+		Self::delete_permissions_for_subject(db, subspace, transaction, &subject)?;
 
 		let key = crate::lmdb::Key::Process(crate::lmdb::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -860,36 +851,39 @@ impl Index {
 		Ok(())
 	}
 
-	fn delete_grants_for_subject(
+	fn delete_permissions_for_subject(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		subject: &tg::authorization::Subject,
 	) -> tg::Result<()> {
-		let prefix = &(Kind::SubjectGrant.to_i32().unwrap(), subject.to_string());
+		let prefix = &(
+			Kind::SubjectPermission.to_i32().unwrap(),
+			subject.to_string(),
+		);
 		let prefix = Self::pack(subspace, prefix);
 		let iter = db
 			.prefix_iter(&*transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to iterate the subject grant keys"))?;
+			.map_err(|error| tg::error!(!error, "failed to iterate the subject permission keys"))?;
 		let mut entries = Vec::new();
 		for result in iter {
 			let (key, value) = result
-				.map_err(|error| tg::error!(!error, "failed to read the subject grant key"))?;
+				.map_err(|error| tg::error!(!error, "failed to read the subject permission key"))?;
 			let key = Self::unpack(subspace, key)?;
-			let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::SubjectGrant {
+			let crate::lmdb::Key::Permission(crate::lmdb::permission::Key::SubjectPermission {
 				creator,
 				permission,
 				resource,
 				..
 			}) = key
 			else {
-				return Err(tg::error!("expected a subject grant key"));
+				return Err(tg::error!("expected a subject permission key"));
 			};
-			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
+			let value = crate::lmdb::permission::PermissionValue::deserialize(value)?;
 			for source in [
-				crate::lmdb::grant::GrantSource::Explicit,
-				crate::lmdb::grant::GrantSource::Implicit,
-				crate::lmdb::grant::GrantSource::Materialized,
+				crate::lmdb::permission::PermissionSource::Grant,
+				crate::lmdb::permission::PermissionSource::Direct,
+				crate::lmdb::permission::PermissionSource::Materialized,
 			] {
 				if let Some(expires_at) = value.source_expires_at(source) {
 					entries.push((
@@ -904,14 +898,14 @@ impl Index {
 		}
 
 		for (creator, expires_at, permission, resource, source) in entries {
-			let entry = crate::lmdb::grant::GrantIndexEntry {
+			let entry = crate::lmdb::permission::PermissionIndexEntry {
 				creator: creator.as_ref(),
 				expires_at,
 				permission,
 				resource: &resource,
 				subject,
 			};
-			Self::delete_grant_index_entry(db, subspace, transaction, &entry, source)?;
+			Self::delete_permission_index_entry(db, subspace, transaction, &entry, source)?;
 		}
 
 		Ok(())
@@ -926,60 +920,61 @@ impl Index {
 		Self::delete_sandboxes_with_transaction(db, subspace, transaction, std::slice::from_ref(id))
 	}
 
-	fn delete_materialized_grants_for_resource(
+	fn delete_materialized_permissions_for_resource(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		resource: &tg::Id,
 	) -> tg::Result<()> {
-		// Collect the materialized grants.
+		// Collect the materialized permissions.
 		let resource_bytes = resource.to_bytes();
 		let prefix = &(
-			Kind::ResourceGrant.to_i32().unwrap(),
+			Kind::ResourcePermission.to_i32().unwrap(),
 			resource_bytes.as_ref(),
 		);
 		let prefix = Self::pack(subspace, prefix);
-		let iter = db
-			.prefix_iter(&*transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to iterate the resource grant keys"))?;
+		let iter = db.prefix_iter(&*transaction, &prefix).map_err(|error| {
+			tg::error!(!error, "failed to iterate the resource permission keys")
+		})?;
 		let mut entries = Vec::new();
 		for result in iter {
-			let (key, value) = result
-				.map_err(|error| tg::error!(!error, "failed to read the resource grant key"))?;
+			let (key, value) = result.map_err(|error| {
+				tg::error!(!error, "failed to read the resource permission key")
+			})?;
 			let key = Self::unpack(subspace, key)?;
-			let crate::lmdb::Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
+			let crate::lmdb::Key::Permission(crate::lmdb::permission::Key::ResourcePermission {
 				creator,
 				permission,
 				subject,
 				..
 			}) = key
 			else {
-				return Err(tg::error!("expected a resource grant key"));
+				return Err(tg::error!("expected a resource permission key"));
 			};
-			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
+			let value = crate::lmdb::permission::PermissionValue::deserialize(value)?;
 			let Some(expires_at) =
-				value.source_expires_at(crate::lmdb::grant::GrantSource::Materialized)
+				value.source_expires_at(crate::lmdb::permission::PermissionSource::Materialized)
 			else {
 				continue;
 			};
 			entries.push((creator, expires_at, permission, subject));
 		}
 
-		// Delete the materialized grants.
+		// Delete the materialized permissions.
 		for (creator, expires_at, permission, subject) in entries {
-			let entry = crate::lmdb::grant::GrantIndexEntry {
+			let entry = crate::lmdb::permission::PermissionIndexEntry {
 				creator: creator.as_ref(),
 				expires_at,
 				permission,
 				subject: &subject,
 				resource,
 			};
-			Self::delete_grant_index_entry(
+			Self::delete_permission_index_entry(
 				db,
 				subspace,
 				transaction,
 				&entry,
-				crate::lmdb::grant::GrantSource::Materialized,
+				crate::lmdb::permission::PermissionSource::Materialized,
 			)?;
 		}
 

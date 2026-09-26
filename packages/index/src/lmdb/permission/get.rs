@@ -6,29 +6,30 @@ use {
 };
 
 impl Index {
-	pub(crate) fn get_resource_grant_entries_for_subject_with_transaction(
+	pub(crate) fn get_resource_permission_entries_for_subject_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
-	) -> tg::Result<Vec<crate::lmdb::grant::GrantEntry>> {
+	) -> tg::Result<Vec<crate::lmdb::permission::PermissionEntry>> {
 		let resource_bytes = resource.to_bytes();
 		let prefix = &(
-			Kind::ResourceGrant.to_i32().unwrap(),
+			Kind::ResourcePermission.to_i32().unwrap(),
 			resource_bytes.as_ref(),
 			subject.to_string(),
 		);
 		let prefix = Self::pack(subspace, prefix);
-		let mut grants = Vec::new();
+		let mut permissions = Vec::new();
 		let iter = db
 			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get the resource grants"))?;
+			.map_err(|error| tg::error!(!error, "failed to get the resource permissions"))?;
 		for entry in iter {
-			let (key, value) = entry
-				.map_err(|error| tg::error!(!error, "failed to read the resource grant entry"))?;
+			let (key, value) = entry.map_err(|error| {
+				tg::error!(!error, "failed to read the resource permission entry")
+			})?;
 			let key = Self::unpack(subspace, key)?;
-			let Key::Grant(crate::lmdb::grant::Key::ResourceGrant {
+			let Key::Permission(crate::lmdb::permission::Key::ResourcePermission {
 				creator,
 				permission,
 				subject,
@@ -37,17 +38,17 @@ impl Index {
 			else {
 				return Err(tg::error!("unexpected key type"));
 			};
-			let value = crate::lmdb::grant::GrantValue::deserialize(value)?;
-			grants.push(crate::lmdb::grant::GrantEntry {
+			let value = crate::lmdb::permission::PermissionValue::deserialize(value)?;
+			permissions.push(crate::lmdb::permission::PermissionEntry {
 				creator,
-				explicit: value.explicit,
-				implicit: value.implicit,
+				grant: value.grant,
+				direct: value.direct,
 				materialized: value.materialized,
 				permission,
 				subject,
 			});
 		}
-		Ok(grants)
+		Ok(permissions)
 	}
 
 	pub(crate) fn try_get_visibility_with_transaction(

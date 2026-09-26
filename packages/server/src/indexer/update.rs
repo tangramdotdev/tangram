@@ -21,7 +21,7 @@ impl Indexer {
 			return Ok(());
 		}
 		let checkpoint = match kind {
-			tangram_index::update::Kind::Grant => "indexer.update.grant.batch",
+			tangram_index::update::Kind::Permission => "indexer.update.permission.batch",
 			tangram_index::update::Kind::StorageAndMetadata => {
 				"indexer.update.storage_and_metadata.batch"
 			},

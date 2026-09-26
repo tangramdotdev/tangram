@@ -42,12 +42,12 @@ impl Session {
 	) -> tg::Result<tg::write::Output> {
 		// Get the timestamps.
 		let touched_at = self.server.clock.unix_timestamp()?;
-		let grant_expires_at = touched_at
+		let permission_expires_at = touched_at
 			+ self
 				.server
 				.config
 				.object
-				.grant_time_to_live
+				.permission_time_to_live
 				.as_secs()
 				.to_i64()
 				.unwrap();
@@ -107,7 +107,7 @@ impl Session {
 		// Cache and index the blob.
 		let cache_args = Self::write_cache_args(&blob, checkout_pointer.as_ref());
 		let index_arg = self
-			.write_index_arg(&blob, checkout_pointer, touched_at, grant_expires_at)
+			.write_index_arg(&blob, checkout_pointer, touched_at, permission_expires_at)
 			.await?;
 		self.server
 			.put_object_batch_and_index(cache_args, index_arg)
@@ -120,7 +120,7 @@ impl Session {
 			vec![tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
 			)],
-			grant_expires_at,
+			permission_expires_at,
 		)?;
 		let blob = tg::Referent::with_node_and_local_tokens(blob.id.clone(), token);
 		let output = tg::write::Output { blob };
@@ -134,12 +134,12 @@ impl Session {
 	) -> tg::Result<tg::write::Output> {
 		// Get the timestamps.
 		let touched_at = self.server.clock.unix_timestamp()?;
-		let grant_expires_at = touched_at
+		let permission_expires_at = touched_at
 			+ self
 				.server
 				.config
 				.object
-				.grant_time_to_live
+				.permission_time_to_live
 				.as_secs()
 				.to_i64()
 				.unwrap();
@@ -158,7 +158,7 @@ impl Session {
 		let args = Self::write_cache_args(&blob, None);
 		self.server.put_object_batch_local(args).await?;
 		let arg = self
-			.write_index_arg(&blob, None, touched_at, grant_expires_at)
+			.write_index_arg(&blob, None, touched_at, permission_expires_at)
 			.await?;
 		self.server
 			.index
@@ -172,7 +172,7 @@ impl Session {
 			vec![tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
 			)],
-			grant_expires_at,
+			permission_expires_at,
 		)?;
 		let blob = tg::Referent::with_node_and_local_tokens(blob.id, token);
 		let output = tg::write::Output { blob };
@@ -565,9 +565,9 @@ impl Session {
 		blob: &Output,
 		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
-		grant_expires_at: i64,
+		permission_expires_at: i64,
 	) -> tg::Result<tangram_index::batch::Arg> {
-		let (put_checkout_args, put_object_args, put_grant_args) = Self::write_index_args(
+		let (put_checkout_args, put_object_args, put_permission_args) = Self::write_index_args(
 			blob,
 			checkout_pointer,
 			touched_at,
@@ -576,8 +576,8 @@ impl Session {
 				tg::Principal::Anonymous | tg::Principal::Root
 			))
 			.then_some(&self.context.principal),
-			grant_expires_at,
-			self.server.config.object.grant_time_to_touch,
+			permission_expires_at,
+			self.server.config.object.permission_time_to_touch,
 			self.server.config.object.time_to_touch,
 		);
 		let account = self.usage_account(&self.context.principal).await?;
@@ -592,9 +592,9 @@ impl Session {
 						.map(tangram_index::batch::Item::PutObject),
 				)
 				.chain(
-					put_grant_args
+					put_permission_args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutGrant),
+						.map(tangram_index::batch::Item::PutPermission),
 				)
 				.chain(account.map(|account| {
 					tangram_index::batch::Item::PutAccountObject(
@@ -616,13 +616,13 @@ impl Session {
 		checkout_pointer: Option<(tg::artifact::Id, Option<PathBuf>)>,
 		touched_at: i64,
 		principal: Option<&tg::Principal>,
-		grant_expires_at: i64,
-		grant_time_to_touch: std::time::Duration,
+		permission_expires_at: i64,
+		permission_time_to_touch: std::time::Duration,
 		time_to_touch: std::time::Duration,
 	) -> (
 		Vec<tangram_index::checkout::put::Arg>,
 		Vec<tangram_index::object::put::Arg>,
-		Vec<tangram_index::grant::put::Arg>,
+		Vec<tangram_index::permission::put::Arg>,
 	) {
 		// Collect the blobs in topological order.
 		let mut blobs = Vec::new();
@@ -668,25 +668,27 @@ impl Session {
 		};
 
 		// Grant the subject subtree read access to the blob, since it produced the entire blob.
-		let put_grant_args = principal
-			.map(|principal| tangram_index::grant::put::Arg {
+		let put_permission_args = principal
+			.map(|principal| tangram_index::permission::put::Arg {
 				created_at: touched_at,
 				creator: Some(principal.clone()),
-				implicit: Some(Some(grant_expires_at)),
 				permissions: tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
 				)
 				.into(),
+				resource: tg::object::Id::from(blob.id.clone()).into(),
+				source: tangram_index::permission::Source::Direct {
+					expires_at: Some(permission_expires_at),
+				},
 				subject: principal
 					.try_to_subject()
 					.expect("expected the principal to be a valid authorization subject"),
-				resource: tg::object::Id::from(blob.id.clone()).into(),
-				time_to_touch: Some(grant_time_to_touch),
+				time_to_touch: Some(permission_time_to_touch),
 			})
 			.into_iter()
 			.collect();
 
-		(put_checkout_args, put_object_args, put_grant_args)
+		(put_checkout_args, put_object_args, put_permission_args)
 	}
 
 	pub(crate) async fn write_request(

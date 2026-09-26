@@ -8,7 +8,7 @@ use {
 };
 
 #[tokio::test]
-async fn process_object_grants_walk_and_write_in_one_batch() {
+async fn process_object_permissions_walk_and_write_in_one_batch() {
 	let (_dir, index) = new_index();
 	let child = object_id(1);
 	let child_inaccessible = object_id(4);
@@ -36,13 +36,15 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 			touched_at: 0,
 		})
 	};
-	let put_grant = |resource: tg::object::Id, permission: tg::authorization::Permission| {
-		crate::batch::Item::PutGrant(crate::grant::put::Arg {
+	let put_permission = |resource: tg::object::Id, permission: tg::authorization::Permission| {
+		crate::batch::Item::PutPermission(crate::permission::put::Arg {
 			created_at: 0,
 			creator: Some(creator.clone()),
-			implicit: Some(Some(100)),
 			permissions: permission.into(),
 			resource: tg::Id::from(resource),
+			source: crate::permission::Source::Direct {
+				expires_at: Some(100),
+			},
 			subject: subject.clone(),
 			time_to_touch: None,
 		})
@@ -61,9 +63,9 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 					root.clone(),
 					BTreeSet::from([child.clone(), root_inaccessible.clone()]),
 				),
-				put_grant(root.clone(), node),
-				put_grant(child.clone(), node),
-				put_grant(leaf.clone(), subtree),
+				put_permission(root.clone(), node),
+				put_permission(child.clone(), node),
+				put_permission(leaf.clone(), subtree),
 			],
 		})
 		.await
@@ -92,47 +94,49 @@ async fn process_object_grants_walk_and_write_in_one_batch() {
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
 				}),
-				crate::batch::Item::PutProcessObjectGrants(crate::process::object::grant::Arg {
-					authorize: crate::authorize::Config::default(),
-					created_at: 0,
-					expires_at: None,
-					principal: creator.clone(),
-					process: process.clone(),
-					roots: vec![crate::process::object::grant::Root {
-						object: root.clone(),
-						permissions: None,
-					}],
-					time_to_touch: None,
-				}),
+				crate::batch::Item::PutProcessObjectPermissions(
+					crate::process::object::permission::Arg {
+						authorize: crate::authorize::Config::default(),
+						created_at: 0,
+						expires_at: None,
+						principal: creator.clone(),
+						process: process.clone(),
+						roots: vec![crate::process::object::permission::Root {
+							object: root.clone(),
+							permissions: None,
+						}],
+						time_to_touch: None,
+					},
+				),
 			],
 		})
 		.await
 		.unwrap();
 
 	assert_eq!(
-		process_grant(&index, &process, &root, node)
+		process_permission(&index, &process, &root, node)
 			.unwrap()
-			.implicit,
+			.direct,
 		Some(None)
 	);
 	assert_eq!(
-		process_grant(&index, &process, &child, node)
+		process_permission(&index, &process, &child, node)
 			.unwrap()
-			.implicit,
+			.direct,
 		Some(None)
 	);
 	assert_eq!(
-		process_grant(&index, &process, &leaf, subtree)
+		process_permission(&index, &process, &leaf, subtree)
 			.unwrap()
-			.implicit,
+			.direct,
 		Some(None)
 	);
-	assert!(process_grant(&index, &process, &root_inaccessible, node).is_none());
-	assert!(process_grant(&index, &process, &child_inaccessible, node).is_none());
+	assert!(process_permission(&index, &process, &root_inaccessible, node).is_none());
+	assert!(process_permission(&index, &process, &child_inaccessible, node).is_none());
 }
 
 #[tokio::test]
-async fn process_object_grants_require_search_unless_subtree_is_proven() {
+async fn process_object_permissions_require_search_unless_subtree_is_proven() {
 	let search = crate::authorize::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
@@ -169,11 +173,11 @@ async fn process_object_grants_require_search_unless_subtree_is_proven() {
 	);
 	for permissions in [None, Some(node.into()), Some(subtree.into())] {
 		let process = tg::process::Id::new();
-		let root = crate::process::object::grant::Root {
+		let root = crate::process::object::permission::Root {
 			object: object.clone(),
 			permissions,
 		};
-		let grant = crate::process::object::grant::Arg {
+		let permission = crate::process::object::permission::Arg {
 			authorize,
 			created_at: 0,
 			expires_at: None,
@@ -183,15 +187,15 @@ async fn process_object_grants_require_search_unless_subtree_is_proven() {
 			time_to_touch: None,
 		};
 		let arg = crate::batch::Arg {
-			items: vec![crate::batch::Item::PutProcessObjectGrants(grant)],
+			items: vec![crate::batch::Item::PutProcessObjectPermissions(permission)],
 		};
 		let result = index.batch(arg).await;
 		if permissions.is_some_and(|permissions| permissions.contains(subtree)) {
 			result.unwrap();
 			assert_eq!(
-				process_grant(&index, &process, &object, subtree)
+				process_permission(&index, &process, &object, subtree)
 					.unwrap()
-					.implicit,
+					.direct,
 				Some(None)
 			);
 		} else {
@@ -199,16 +203,16 @@ async fn process_object_grants_require_search_unless_subtree_is_proven() {
 			assert!(
 				error
 					.to_string()
-					.contains("process object grant authorization search exhausted")
+					.contains("process object permission authorization search exhausted")
 			);
-			assert!(process_grant(&index, &process, &object, subtree).is_none());
+			assert!(process_permission(&index, &process, &object, subtree).is_none());
 		}
-		assert!(process_grant(&index, &process, &object, node).is_none());
+		assert!(process_permission(&index, &process, &object, node).is_none());
 	}
 }
 
 #[tokio::test]
-async fn process_object_permissions_require_permanent_grants() {
+async fn process_object_permissions_require_permanent_permissions() {
 	let (_dir, index) = new_index();
 	let process = tg::process::Id::new();
 	let reader = tg::user::Id::new();
@@ -248,16 +252,16 @@ async fn process_object_permissions_require_permanent_grants() {
 			tg::authorization::permission::process::Permission::Node,
 		),
 	] {
-		let arg = crate::grant::put::Arg {
+		let arg = crate::permission::put::Arg {
 			created_at: 0,
 			creator: None,
-			implicit: None,
 			permissions: tg::authorization::Permission::Process(permission).into(),
 			resource: process.clone().into(),
+			source: crate::permission::Source::Grant,
 			subject: tg::authorization::Subject::User(reader.clone()),
 			time_to_touch: None,
 		};
-		items.push(crate::batch::Item::PutGrant(arg));
+		items.push(crate::batch::Item::PutPermission(arg));
 	}
 	let arg = crate::batch::Arg { items };
 	index.batch(arg).await.unwrap();
@@ -306,20 +310,20 @@ async fn process_object_permissions_require_permanent_grants() {
 		})
 		.collect::<Vec<_>>();
 
-	// Add a permanent grant, then replay the relationship without changing the grant.
+	// Add a permanent permission, then replay the relationship without changing the permission.
 	for (proven, expected) in [(false, false), (true, true), (false, true)] {
 		if proven {
-			let grant = crate::grant::put::Arg {
+			let permission = crate::permission::put::Arg {
 				created_at: 0,
 				creator: Some(tg::Principal::Process(process.clone())),
-				implicit: Some(None),
 				permissions: subtree.into(),
 				resource: root.clone().into(),
+				source: crate::permission::Source::Direct { expires_at: None },
 				subject: tg::authorization::Subject::Process(process.clone()),
 				time_to_touch: None,
 			};
 			let arg = crate::batch::Arg {
-				items: vec![crate::batch::Item::PutGrant(grant)],
+				items: vec![crate::batch::Item::PutPermission(permission)],
 			};
 			index.batch(arg).await.unwrap();
 		}
@@ -366,10 +370,10 @@ async fn process_object_permissions_require_permanent_grants() {
 			);
 		}
 		assert_eq!(
-			process_grant(&index, &process, &root, subtree).is_some(),
+			process_permission(&index, &process, &root, subtree).is_some(),
 			expected
 		);
-		assert!(process_grant(&index, &process, &root, node).is_none());
+		assert!(process_permission(&index, &process, &root, node).is_none());
 	}
 }
 
@@ -377,14 +381,14 @@ fn object_id(value: u64) -> tg::object::Id {
 	tg::object::Id::new(tg::object::Kind::Blob, &value.to_le_bytes().to_vec().into())
 }
 
-fn process_grant(
+fn process_permission(
 	index: &Index,
 	process: &tg::process::Id,
 	object: &tg::object::Id,
 	permission: tg::authorization::Permission,
-) -> Option<super::super::grant::GrantValue> {
+) -> Option<super::super::permission::PermissionValue> {
 	let transaction = index.env.read_txn().unwrap();
-	let key = Key::Grant(super::super::grant::Key::ResourceGrant {
+	let key = Key::Permission(super::super::permission::Key::ResourcePermission {
 		creator: Some(tg::Principal::Process(process.clone())),
 		permission,
 		resource: object.clone().into(),
@@ -393,5 +397,5 @@ fn process_grant(
 	let key = Index::pack(&index.subspace, &key);
 	let value = index.db.get(&transaction, &key).unwrap()?;
 
-	Some(super::super::grant::GrantValue::deserialize(value).unwrap())
+	Some(super::super::permission::PermissionValue::deserialize(value).unwrap())
 }

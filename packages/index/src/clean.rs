@@ -16,7 +16,7 @@ pub struct Output {
 	pub bytes: u64,
 	pub checkouts: Vec<tg::Id>,
 	pub done: bool,
-	pub grants: usize,
+	pub permissions: usize,
 	pub objects: Vec<Object>,
 	pub processes: Vec<tg::process::Id>,
 	pub sandboxes: Vec<tg::sandbox::Id>,

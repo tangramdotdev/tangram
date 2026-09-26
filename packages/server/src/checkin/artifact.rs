@@ -1111,18 +1111,18 @@ impl Session {
 			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at,
 		};
-		let grant_subject = match &self.context.principal {
+		let permission_subject = match &self.context.principal {
 			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
 			tg::Principal::Root => None,
 			principal => Some(principal.try_to_subject()?),
 		};
-		let put_grant_arg = grant_subject.map(|subject| {
+		let put_permission_arg = permission_subject.map(|subject| {
 			let expires_at = touched_at
 				+ self
 					.server
 					.config
 					.object
-					.grant_time_to_live
+					.permission_time_to_live
 					.as_secs()
 					.to_i64()
 					.unwrap();
@@ -1134,19 +1134,21 @@ impl Session {
 				tg::authorization::permission::object::Permission::Node
 			};
 			let permissions = tg::authorization::Permission::Object(permission).into();
-			tangram_index::grant::put::Arg {
+			tangram_index::permission::put::Arg {
 				created_at: touched_at,
 				creator: Some(self.context.principal.clone()),
-				implicit: Some(Some(expires_at)),
 				permissions,
 				resource: id.clone().into(),
+				source: tangram_index::permission::Source::Direct {
+					expires_at: Some(expires_at),
+				},
 				subject,
-				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+				time_to_touch: Some(self.server.config.object.permission_time_to_touch),
 			}
 		});
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutObject(put_object_arg))
-				.chain(put_grant_arg.map(tangram_index::batch::Item::PutGrant))
+				.chain(put_permission_arg.map(tangram_index::batch::Item::PutPermission))
 				.collect(),
 		};
 		// Store and index the object.

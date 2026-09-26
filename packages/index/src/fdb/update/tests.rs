@@ -26,7 +26,7 @@ async fn late_updates_preserve_the_oldest_version() {
 async fn run(test: impl AsyncFnOnce(&Index)) {
 	let partition_totals = crate::fdb::PartitionTotals {
 		cleaning: 2,
-		grant_update: 2,
+		permission_update: 2,
 		log_compaction: 2,
 		storage_and_metadata_update: 2,
 		usage_update: 2,
@@ -49,7 +49,7 @@ async fn run_with_partition_totals(
 		cluster: std::env::var_os("FDB_CLUSTER_FILE")
 			.expect("set FDB_CLUSTER_FILE")
 			.into(),
-		grant_update_partition_total: partition_totals.grant_update,
+		permission_update_partition_total: partition_totals.permission_update,
 		instance: Some(format!(
 			"index_update_test_{:032x}/",
 			rand::random::<u128>()

@@ -9,12 +9,12 @@ pub mod authorize;
 pub mod batch;
 pub mod checkout;
 pub mod clean;
-pub mod grant;
 pub mod group;
 pub mod indexer;
 pub mod log;
 pub mod object;
 pub mod organization;
+pub mod permission;
 pub mod process;
 mod read;
 pub mod sandbox;
@@ -457,14 +457,14 @@ pub trait Index {
 		.map(|result| result.map(|mut output| output.pop().unwrap()))
 	}
 
-	fn put_grants(
+	fn put_permissions(
 		&self,
-		args: &[crate::grant::put::Arg],
+		args: &[crate::permission::put::Arg],
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn delete_grants(
+	fn delete_permissions(
 		&self,
-		args: &[crate::grant::delete::Arg],
+		args: &[crate::permission::delete::Arg],
 	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn put_groups(
@@ -565,7 +565,7 @@ pub trait Index {
 	fn cleaning_partition_total(&self) -> u64;
 
 	#[must_use]
-	fn grant_update_partition_total(&self) -> u64;
+	fn permission_update_partition_total(&self) -> u64;
 
 	#[must_use]
 	fn log_compaction_partition_total(&self) -> u64;

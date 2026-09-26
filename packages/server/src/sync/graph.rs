@@ -2056,7 +2056,7 @@ impl Graph {
 	}
 
 	#[must_use]
-	pub fn object_grant_permissions(subtree: bool) -> tg::authorization::permission::object::Set {
+	pub fn object_permissions(subtree: bool) -> tg::authorization::permission::object::Set {
 		let permission = if subtree {
 			tg::authorization::permission::object::Permission::Subtree
 		} else {
@@ -2066,7 +2066,7 @@ impl Graph {
 	}
 
 	#[must_use]
-	pub fn process_grant_permissions(
+	pub fn process_permissions(
 		availability: &tg::process::Availability,
 	) -> tg::authorization::permission::process::Set {
 		let mut permissions = tg::authorization::permission::process::Set::empty();

@@ -15,7 +15,7 @@ let root_token = random chars
 let server = server spawn --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
-	object: { grant_time_to_live: 2 }
+	object: { permission_time_to_live: 2 }
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

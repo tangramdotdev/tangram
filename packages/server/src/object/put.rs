@@ -46,12 +46,12 @@ impl Session {
 		arg: tg::object::put::Arg,
 	) -> tg::Result<tg::object::put::Output> {
 		let now = self.server.clock.unix_timestamp()?;
-		let grant_expires_at = now
+		let permission_expires_at = now
 			+ self
 				.server
 				.config
 				.object
-				.grant_time_to_live
+				.permission_time_to_live
 				.as_secs()
 				.to_i64()
 				.unwrap();
@@ -131,24 +131,27 @@ impl Session {
 			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at: now,
 		};
-		let grant_subject = match &self.context.principal {
+		let permission_subject = match &self.context.principal {
 			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
 			tg::Principal::Root => None,
 			principal => Some(principal.try_to_subject()?),
 		};
-		let put_grant = grant_subject.map(|grant_subject| tangram_index::grant::put::Arg {
-			created_at: now,
-			creator: Some(self.context.principal.clone()),
-			implicit: Some(Some(grant_expires_at)),
-			permissions: tg::authorization::Permission::Object(permission).into(),
-			subject: grant_subject,
-			resource: id.clone().into(),
-			time_to_touch: Some(self.server.config.object.grant_time_to_touch),
-		});
+		let put_permission =
+			permission_subject.map(|permission_subject| tangram_index::permission::put::Arg {
+				created_at: now,
+				creator: Some(self.context.principal.clone()),
+				permissions: tg::authorization::Permission::Object(permission).into(),
+				resource: id.clone().into(),
+				source: tangram_index::permission::Source::Direct {
+					expires_at: Some(permission_expires_at),
+				},
+				subject: permission_subject,
+				time_to_touch: Some(self.server.config.object.permission_time_to_touch),
+			});
 		let account = self.usage_account(&self.context.principal).await?;
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutObject(arg))
-				.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
+				.chain(put_permission.map(tangram_index::batch::Item::PutPermission))
 				.chain(account.map(|account| {
 					tangram_index::batch::Item::PutAccountObject(
 						tangram_index::usage::storage::put::ObjectArg {
@@ -165,7 +168,7 @@ impl Session {
 		let token = self.create_token(
 			id.clone().into(),
 			vec![tg::authorization::Permission::Object(permission)],
-			grant_expires_at,
+			permission_expires_at,
 		)?;
 		let object = tg::Referent::with_node_and_local_tokens(id.clone(), token);
 

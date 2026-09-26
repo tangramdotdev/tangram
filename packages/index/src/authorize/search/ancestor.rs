@@ -447,7 +447,7 @@ impl Search {
 			| Read::ProcessObjectChildren { .. }
 			| Read::ProcessObjects { .. }
 			| Read::Resolve { .. }
-			| Read::SubjectGrants { .. }
+			| Read::SubjectPermissions { .. }
 			| Read::SubtreeObjectChildren { .. }
 			| Read::SubtreeProcessChildren { .. } => {
 				return Err(tg::error!(
@@ -538,7 +538,7 @@ impl Search {
 					};
 					candidates.push(ancestor_candidate(dependency, 1, [check]));
 				}
-				let grant_permissions = match permission {
+				let covering_permissions = match permission {
 					tg::authorization::permission::object::Permission::Node => vec![
 						tg::authorization::permission::object::Permission::Subtree,
 						tg::authorization::permission::object::Permission::Node,
@@ -561,21 +561,21 @@ impl Search {
 						if !self.source_authorizes(&dependency) {
 							continue;
 						}
-						for grant_permission in &grant_permissions {
+						for covering_permission in &covering_permissions {
 							let relationship = crate::authorize::Check::ProcessObject {
 								kind,
 								object: object.clone(),
 								process: process.clone(),
 							};
-							let grant = crate::authorize::Check::ProcessObjectGrant {
+							let permission = crate::authorize::Check::ProcessObjectPermission {
 								object: object.clone(),
-								permission: *grant_permission,
+								permission: *covering_permission,
 								process: process.clone(),
 							};
 							candidates.push(ancestor_candidate(
 								dependency.clone(),
 								2,
-								[relationship, grant],
+								[relationship, permission],
 							));
 						}
 					}
@@ -660,7 +660,7 @@ impl Search {
 			.pending_nodes
 			.get_mut(&resource)
 			.ok_or_else(|| tg::error!("received a fact for an inactive ancestor node"))?;
-		let mut grants_for_search = Vec::new();
+		let mut permissions_for_search = Vec::new();
 		let mut next = Vec::new();
 		match read {
 			AncestorNodeRead::Group { .. } => {
@@ -678,13 +678,13 @@ impl Search {
 					});
 				}
 			},
-			AncestorNodeRead::ResourceGrants { resource, .. } => {
-				let (after, grants) = output.into_grants()?;
-				grants_for_search.clone_from(&grants);
-				pending.facts.grants.extend(grants);
+			AncestorNodeRead::ResourcePermissions { resource, .. } => {
+				let (after, permissions) = output.into_permissions()?;
+				permissions_for_search.clone_from(&permissions);
+				pending.facts.permissions.extend(permissions);
 				if let Some(after) = after {
 					let limit = self.budget.config.page_size;
-					next.push(AncestorNodeRead::ResourceGrants {
+					next.push(AncestorNodeRead::ResourcePermissions {
 						after: Some(after),
 						limit,
 						resource,
@@ -734,8 +734,8 @@ impl Search {
 					read,
 				});
 		}
-		for grant in &grants_for_search {
-			if !self.add_grant(state, key, grant, depth) {
+		for permission in &permissions_for_search {
+			if !self.add_permission(state, key, permission, depth) {
 				break;
 			}
 		}
@@ -751,7 +751,7 @@ impl Search {
 	fn queue_node_reads(&mut self, depth: usize, key: &Key) {
 		let limit = self.budget.config.page_size;
 		let resource = key.0.clone();
-		let mut reads = vec![AncestorNodeRead::ResourceGrants {
+		let mut reads = vec![AncestorNodeRead::ResourcePermissions {
 			after: None,
 			limit,
 			resource: resource.clone(),
@@ -835,8 +835,8 @@ impl Search {
 		facts: &AncestorNodeFacts,
 	) -> tg::Result<()> {
 		// Apply the direct proofs.
-		for grant in &facts.grants {
-			if !self.add_grant(state, key, grant, depth) {
+		for permission in &facts.permissions {
+			if !self.add_permission(state, key, permission, depth) {
 				return Ok(());
 			}
 		}
@@ -857,7 +857,7 @@ impl Search {
 			},
 			_ => false,
 		};
-		let token_grants = self
+		let token_permissions = self
 			.tokens
 			.iter()
 			.any(|body| &body.resource == resource && body.grants(*permission));
@@ -875,7 +875,7 @@ impl Search {
 		}
 		if principal_is_resource {
 			state.authorize_ancestor_or_descendant(key.clone());
-		} else if token_grants {
+		} else if token_permissions {
 			let expires_at = self.source_expiration(key).unwrap();
 			state.authorize_with_expiration(key.clone(), expires_at);
 		}
@@ -885,20 +885,20 @@ impl Search {
 
 		// Construct the authorization dependencies from the facts.
 		let mut dependencies = Vec::new();
-		let mut implicit_processes = HashSet::new();
-		for grant in &facts.grants {
-			if !grant.is_process_implicit() || !grant.permission.implies(*permission) {
+		let mut direct_processes = HashSet::new();
+		for entry in &facts.permissions {
+			if !entry.is_process_direct() || !entry.permission.implies(*permission) {
 				continue;
 			}
-			let tg::authorization::Subject::Process(process) = &grant.subject else {
+			let tg::authorization::Subject::Process(process) = &entry.subject else {
 				continue;
 			};
-			implicit_processes.insert(process.clone());
+			direct_processes.insert(process.clone());
 		}
 		match permission {
 			tg::authorization::Permission::Object(_) => {
 				for (process, kind) in &facts.object_processes {
-					if implicit_processes.contains(process) {
+					if direct_processes.contains(process) {
 						let permission = tg::authorization::Permission::Process(
 							crate::authorize::process_object_permission(*kind),
 						);
@@ -954,18 +954,18 @@ impl Search {
 		Ok(())
 	}
 
-	fn add_grant(
+	fn add_permission(
 		&mut self,
 		state: &mut State,
 		dependent: &Key,
-		grant: &super::Grant,
+		permission: &super::Permission,
 		depth: usize,
 	) -> bool {
-		if !grant.permission.implies(dependent.1) {
+		if !permission.permission.implies(dependent.1) {
 			return true;
 		}
-		if let tg::authorization::Subject::Sync(sync) = &grant.subject {
-			if !grant.permission.is_read_like() {
+		if let tg::authorization::Subject::Sync(sync) = &permission.subject {
+			if !permission.permission.is_read_like() {
 				return true;
 			}
 			let permission = tg::authorization::Permission::Sync(
@@ -978,8 +978,8 @@ impl Search {
 				depth + 1,
 			);
 		}
-		let source = (grant.resource.clone(), grant.permission);
-		let subject = grant.subject.clone();
+		let source = (permission.resource.clone(), permission.permission);
+		let subject = permission.subject.clone();
 		if !self.add_subject_dependency(state, dependent, source, subject.clone(), depth) {
 			return false;
 		}

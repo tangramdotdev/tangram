@@ -128,7 +128,7 @@ struct FinishProcessTaskArg {
 struct IndexProcessTaskArg<'a> {
 	command: tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 	command_data: CommandFuture,
-	command_roots: Vec<tangram_index::process::object::grant::Root>,
+	command_roots: Vec<tangram_index::process::object::permission::Root>,
 	data: tg::process::Data,
 	id: &'a tg::process::Id,
 	location: &'a tg::Location,
@@ -1380,7 +1380,7 @@ impl Session {
 			.put_process_local_inner(
 				&id,
 				arg,
-				crate::process::put::ObjectGrants::Authorized(authorization),
+				crate::process::put::ObjectPermissions::Authorized(authorization),
 				options,
 			)
 			.await;
@@ -1878,7 +1878,7 @@ impl Session {
 		command: &tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 		location: &tg::Location,
 		parent: Option<&tg::process::Id>,
-	) -> tg::Result<Vec<tangram_index::process::object::grant::Root>> {
+	) -> tg::Result<Vec<tangram_index::process::object::permission::Root>> {
 		if !location.is_remote() {
 			return Ok(Vec::new());
 		}
@@ -1892,7 +1892,7 @@ impl Session {
 		};
 		let session = self.server.session(&context);
 		let roots = session
-			.prepare_process_object_grant_roots(
+			.prepare_process_object_permission_roots(
 				command.objects(),
 				tg::authorization::permission::object::Set::NODE,
 			)
@@ -1932,8 +1932,10 @@ impl Session {
 			.as_ref()
 			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
 		let now = self.server.clock.unix_timestamp()?;
-		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
-			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let time_to_live = i64::try_from(
+			self.server.config.object.permission_time_to_live.as_secs(),
+		)
+		.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
 		let expires_at = now + time_to_live;
 		let put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
@@ -1961,10 +1963,10 @@ impl Session {
 			touched_at: now,
 		};
 		let mut items = vec![tangram_index::batch::Item::PutProcess(put_process_arg)];
-		let grant_arg = self.create_process_sandbox_grant_arg(id, sandbox, now)?;
-		items.push(tangram_index::batch::Item::PutGrant(grant_arg));
+		let permission_arg = self.create_process_sandbox_permission_arg(id, sandbox, now)?;
+		items.push(tangram_index::batch::Item::PutPermission(permission_arg));
 		if let Some(parent) = parent {
-			let grant_arg = tangram_index::process::object::grant::Arg {
+			let permission_arg = tangram_index::process::object::permission::Arg {
 				authorize: crate::authorization_search_config(
 					&self.server.config.authorization.final_,
 				),
@@ -1973,26 +1975,28 @@ impl Session {
 				principal: tg::Principal::Process(parent.clone()),
 				process: id.clone(),
 				roots: command_roots,
-				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+				time_to_touch: Some(self.server.config.object.permission_time_to_touch),
 			};
-			items.push(tangram_index::batch::Item::PutProcessObjectGrants(
-				grant_arg,
+			items.push(tangram_index::batch::Item::PutProcessObjectPermissions(
+				permission_arg,
 			));
 		} else {
 			for command in command.objects() {
 				let permission = tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Node,
 				);
-				let grant_arg = tangram_index::grant::put::Arg {
+				let permission_arg = tangram_index::permission::put::Arg {
 					created_at: now,
 					creator: Some(self.context.principal.clone()),
-					implicit: Some(Some(expires_at)),
 					permissions: permission.into(),
 					resource: command.node.into(),
+					source: tangram_index::permission::Source::Direct {
+						expires_at: Some(expires_at),
+					},
 					subject: tg::authorization::Subject::Process(id.clone()),
-					time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+					time_to_touch: Some(self.server.config.object.permission_time_to_touch),
 				};
-				items.push(tangram_index::batch::Item::PutGrant(grant_arg));
+				items.push(tangram_index::batch::Item::PutPermission(permission_arg));
 			}
 		}
 

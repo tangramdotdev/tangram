@@ -8,11 +8,11 @@ pub(super) use key::Key;
 #[derive(
 	Clone, Copy, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub(crate) enum GrantSource {
-	#[tangram_serialize(id = 0)]
-	Explicit,
+pub(crate) enum PermissionSource {
 	#[tangram_serialize(id = 1)]
-	Implicit,
+	Direct,
+	#[tangram_serialize(id = 0)]
+	Grant,
 	#[tangram_serialize(id = 2)]
 	Materialized,
 }
@@ -27,9 +27,9 @@ pub(crate) enum GrantSource {
 	tangram_serialize::Serialize,
 )]
 #[allow(clippy::option_option)]
-pub(crate) struct GrantValue {
+pub(crate) struct PermissionValue {
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "tangram_util::serde::is_false")]
-	pub explicit: bool,
+	pub grant: bool,
 
 	#[tangram_serialize(
 		default,
@@ -37,7 +37,7 @@ pub(crate) struct GrantValue {
 		skip_serializing_if = "Option::is_none",
 		with = "tangram_serialize::with::unwrap_or_skip"
 	)]
-	pub implicit: Option<Option<i64>>,
+	pub direct: Option<Option<i64>>,
 
 	#[tangram_serialize(
 		default,
@@ -50,17 +50,17 @@ pub(crate) struct GrantValue {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::option_option)]
-pub(crate) struct GrantEntry {
+pub(crate) struct PermissionEntry {
 	pub creator: Option<tangram_client::Principal>,
-	pub explicit: bool,
-	pub implicit: Option<Option<i64>>,
+	pub grant: bool,
+	pub direct: Option<Option<i64>>,
 	pub materialized: Option<Option<i64>>,
 	pub permission: tangram_client::authorization::Permission,
 	pub subject: tangram_client::authorization::Subject,
 }
 
 #[derive(Clone)]
-pub(crate) struct GrantIndexEntry<'a> {
+pub(crate) struct PermissionIndexEntry<'a> {
 	pub creator: Option<&'a tangram_client::Principal>,
 	pub expires_at: Option<i64>,
 	pub permission: tangram_client::authorization::Permission,
@@ -68,62 +68,63 @@ pub(crate) struct GrantIndexEntry<'a> {
 	pub resource: &'a tangram_client::Id,
 }
 
-impl GrantValue {
+impl PermissionValue {
 	pub(crate) fn deserialize(bytes: &[u8]) -> tangram_client::Result<Self> {
 		tangram_serialize::from_slice(bytes).map_err(|error| {
-			tangram_client::error!(!error, "failed to deserialize the grant value")
+			tangram_client::error!(!error, "failed to deserialize the permission value")
 		})
 	}
 
 	pub(crate) fn is_empty(&self) -> bool {
-		!self.explicit && self.implicit.is_none() && self.materialized.is_none()
+		!self.grant && self.direct.is_none() && self.materialized.is_none()
 	}
 
 	pub(crate) fn serialize(&self) -> tangram_client::Result<Vec<u8>> {
-		tangram_serialize::to_vec(self)
-			.map_err(|error| tangram_client::error!(!error, "failed to serialize the grant value"))
+		tangram_serialize::to_vec(self).map_err(|error| {
+			tangram_client::error!(!error, "failed to serialize the permission value")
+		})
 	}
 
 	#[allow(clippy::option_option)]
-	pub(crate) fn source_expires_at(&self, source: GrantSource) -> Option<Option<i64>> {
+	pub(crate) fn source_expires_at(&self, source: PermissionSource) -> Option<Option<i64>> {
 		match source {
-			GrantSource::Explicit => self.explicit.then_some(None),
-			GrantSource::Implicit => self.implicit,
-			GrantSource::Materialized => self.materialized,
+			PermissionSource::Direct => self.direct,
+			PermissionSource::Grant => self.grant.then_some(None),
+			PermissionSource::Materialized => self.materialized,
 		}
 	}
 
 	pub(crate) fn put(
 		&mut self,
-		source: GrantSource,
+		source: PermissionSource,
 		expires_at: Option<i64>,
 		time_to_touch: Option<std::time::Duration>,
 	) -> bool {
 		match source {
-			GrantSource::Explicit => {
-				if self.explicit {
-					false
-				} else {
-					self.explicit = true;
-					true
-				}
-			},
-			GrantSource::Implicit => {
-				if self.implicit == Some(None) {
+			PermissionSource::Direct => {
+				if self.direct == Some(None) {
 					return false;
 				}
 				let time_to_touch = time_to_touch
 					.map(|value| i64::try_from(value.as_secs()).unwrap())
 					.unwrap_or_default();
-				if let (Some(Some(current)), Some(expires_at)) = (self.implicit, expires_at)
+				if let (Some(Some(current)), Some(expires_at)) = (self.direct, expires_at)
 					&& (current >= expires_at || expires_at.saturating_sub(current) < time_to_touch)
 				{
 					return false;
 				}
-				self.implicit = Some(expires_at);
+				self.direct = Some(expires_at);
 				true
 			},
-			GrantSource::Materialized => {
+			PermissionSource::Grant => {
+				if self.grant {
+					false
+				} else {
+					self.grant = true;
+					true
+				}
+			},
+			PermissionSource::Materialized => {
 				if self.materialized == Some(expires_at) {
 					false
 				} else {
@@ -134,25 +135,25 @@ impl GrantValue {
 		}
 	}
 
-	pub(crate) fn delete(&mut self, source: GrantSource, expires_at: Option<i64>) -> bool {
+	pub(crate) fn delete(&mut self, source: PermissionSource, expires_at: Option<i64>) -> bool {
 		match source {
-			GrantSource::Explicit => {
-				if expires_at.is_some() || !self.explicit {
-					false
-				} else {
-					self.explicit = false;
-					true
-				}
-			},
-			GrantSource::Implicit => {
-				if self.implicit == Some(expires_at) {
-					self.implicit = None;
+			PermissionSource::Direct => {
+				if self.direct == Some(expires_at) {
+					self.direct = None;
 					true
 				} else {
 					false
 				}
 			},
-			GrantSource::Materialized => {
+			PermissionSource::Grant => {
+				if expires_at.is_some() || !self.grant {
+					false
+				} else {
+					self.grant = false;
+					true
+				}
+			},
+			PermissionSource::Materialized => {
 				if self.materialized == Some(expires_at) {
 					self.materialized = None;
 					true
@@ -164,11 +165,11 @@ impl GrantValue {
 	}
 }
 
-impl GrantSource {
+impl PermissionSource {
 	pub(crate) fn from_i32(value: i32) -> Option<Self> {
 		match value {
-			0 => Some(Self::Explicit),
-			1 => Some(Self::Implicit),
+			0 => Some(Self::Grant),
+			1 => Some(Self::Direct),
 			2 => Some(Self::Materialized),
 			_ => None,
 		}
@@ -176,21 +177,21 @@ impl GrantSource {
 
 	pub(crate) fn to_i32(self) -> i32 {
 		match self {
-			Self::Explicit => 0,
-			Self::Implicit => 1,
+			Self::Direct => 1,
+			Self::Grant => 0,
 			Self::Materialized => 2,
 		}
 	}
 }
 
-impl GrantEntry {
+impl PermissionEntry {
 	#[allow(clippy::option_option)]
 	pub(crate) fn effective_expires_at(&self) -> Option<Option<i64>> {
 		let mut output = None;
-		if self.explicit {
+		if self.grant {
 			output = Some(None);
 		}
-		if let Some(expires_at) = self.implicit {
+		if let Some(expires_at) = self.direct {
 			output = Some(match output {
 				Some(output) => max_expires_at(output, expires_at),
 				None => expires_at,
@@ -206,17 +207,17 @@ impl GrantEntry {
 	}
 
 	pub(crate) fn has_non_materialized_cover(&self, expires_at: Option<i64>) -> bool {
-		self.explicit
+		self.grant
 			|| self
-				.implicit
-				.is_some_and(|implicit| max_expires_at(implicit, expires_at) == implicit)
+				.direct
+				.is_some_and(|direct| max_expires_at(direct, expires_at) == direct)
 	}
 
-	pub(crate) fn is_non_expiring_process_implicit(&self) -> bool {
-		self.implicit == Some(None)
-			&& crate::grant::is_process_implicit(
+	pub(crate) fn is_non_expiring_process_direct(&self) -> bool {
+		self.direct == Some(None)
+			&& crate::permission::is_process_direct(
 				self.creator.as_ref(),
-				self.implicit.is_some(),
+				self.direct.is_some(),
 				&self.subject,
 			)
 	}
@@ -231,32 +232,32 @@ pub(crate) fn max_expires_at(left: Option<i64>, right: Option<i64>) -> Option<i6
 
 #[cfg(test)]
 mod tests {
-	use super::{GrantSource, GrantValue};
+	use super::{PermissionSource, PermissionValue};
 
 	#[test]
-	fn grant_source_ids_are_alphabetical() {
+	fn permission_source_ids_are_stable() {
 		for (id, source) in [
-			GrantSource::Explicit,
-			GrantSource::Implicit,
-			GrantSource::Materialized,
+			PermissionSource::Grant,
+			PermissionSource::Direct,
+			PermissionSource::Materialized,
 		]
 		.into_iter()
 		.enumerate()
 		{
 			let id = i32::try_from(id).unwrap();
 			assert_eq!(source.to_i32(), id);
-			assert_eq!(GrantSource::from_i32(id), Some(source));
+			assert_eq!(PermissionSource::from_i32(id), Some(source));
 		}
 	}
 
 	#[test]
-	fn implicit_grants_upgrade_to_non_expiring() {
-		let mut value = GrantValue::default();
-		assert!(value.put(GrantSource::Implicit, Some(10), None));
-		assert_eq!(value.implicit, Some(Some(10)));
-		assert!(value.put(GrantSource::Implicit, None, None));
-		assert_eq!(value.implicit, Some(None));
-		assert!(!value.put(GrantSource::Implicit, Some(20), None));
-		assert_eq!(value.implicit, Some(None));
+	fn direct_permissions_upgrade_to_non_expiring() {
+		let mut value = PermissionValue::default();
+		assert!(value.put(PermissionSource::Direct, Some(10), None));
+		assert_eq!(value.direct, Some(Some(10)));
+		assert!(value.put(PermissionSource::Direct, None, None));
+		assert_eq!(value.direct, Some(None));
+		assert!(!value.put(PermissionSource::Direct, Some(20), None));
+		assert_eq!(value.direct, Some(None));
 	}
 }

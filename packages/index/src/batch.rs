@@ -13,7 +13,7 @@ pub enum Item {
 	DeleteCheckout(tg::Id),
 
 	#[tangram_serialize(id = 0)]
-	DeleteGrant(crate::grant::delete::Arg),
+	DeletePermission(crate::permission::delete::Arg),
 
 	#[tangram_serialize(id = 1)]
 	DeleteGroup(tg::group::Id),
@@ -43,7 +43,7 @@ pub enum Item {
 	PutCheckout(crate::checkout::put::Arg),
 
 	#[tangram_serialize(id = 9)]
-	PutGrant(crate::grant::put::Arg),
+	PutPermission(crate::permission::put::Arg),
 
 	#[tangram_serialize(id = 10)]
 	PutGroup(crate::group::put::Arg),
@@ -70,7 +70,7 @@ pub enum Item {
 	PutProcess(crate::process::put::Arg),
 
 	#[tangram_serialize(id = 23)]
-	PutProcessObjectGrants(crate::process::object::grant::Arg),
+	PutProcessObjectPermissions(crate::process::object::permission::Arg),
 
 	#[tangram_serialize(id = 17)]
 	PutSandbox(crate::sandbox::put::Arg),
@@ -138,29 +138,29 @@ mod tests {
 		let arg = Arg {
 			items: vec![
 				Item::DeleteCheckout(tag.clone().into()),
-				Item::DeleteGrant(crate::grant::delete::Arg {
+				Item::DeletePermission(crate::permission::delete::Arg {
 					creator: Some(tg::Principal::Root),
-					implicit: None,
 					permissions: tg::authorization::permission::Set::Group(
 						tg::authorization::permission::group::Set::READ,
 					),
-					subject: tg::authorization::Subject::Root,
 					resource: group.clone().into(),
+					source: crate::permission::Source::Grant,
+					subject: tg::authorization::Subject::Root,
 				}),
 				Item::DeleteGroup(group.clone()),
 				Item::DeleteOrganization(organization.clone()),
 				Item::DeleteTag(tag),
 				Item::DeleteUser(user.clone()),
 				Item::EnqueueLogCompaction(process.clone()),
-				Item::PutGrant(crate::grant::put::Arg {
+				Item::PutPermission(crate::permission::put::Arg {
 					created_at: 1,
 					creator: Some(tg::Principal::Root),
-					implicit: None,
 					permissions: tg::authorization::permission::Set::Group(
 						tg::authorization::permission::group::Set::READ,
 					),
-					subject: tg::authorization::Subject::Root,
 					resource: group.clone().into(),
+					source: crate::permission::Source::Grant,
+					subject: tg::authorization::Subject::Root,
 					time_to_touch: Some(std::time::Duration::new(30, 456)),
 				}),
 				Item::PutGroupMember(crate::group::member::put::Arg {
@@ -171,7 +171,7 @@ mod tests {
 					member: tg::organization::Member::User(user),
 					organization,
 				}),
-				Item::PutProcessObjectGrants(crate::process::object::grant::Arg {
+				Item::PutProcessObjectPermissions(crate::process::object::permission::Arg {
 					authorize: crate::authorize::Config {
 						ancestor: crate::authorize::SearchConfig {
 							max_depth: 7,
@@ -183,7 +183,7 @@ mod tests {
 					expires_at: None,
 					principal: tg::Principal::Process(process.clone()),
 					process,
-					roots: vec![crate::process::object::grant::Root {
+					roots: vec![crate::process::object::permission::Root {
 						object,
 						permissions: Some(
 							tg::authorization::Permission::Object(
@@ -210,19 +210,19 @@ mod tests {
 		let arg = Arg::deserialize(&bytes).unwrap();
 		assert_eq!(arg.items.len(), 12);
 		assert!(matches!(&arg.items[6], Item::EnqueueLogCompaction(_)));
-		let Item::PutGrant(grant_arg) = &arg.items[7] else {
+		let Item::PutPermission(permission_arg) = &arg.items[7] else {
 			panic!();
 		};
 		assert_eq!(
-			grant_arg.time_to_touch,
+			permission_arg.time_to_touch,
 			Some(std::time::Duration::new(30, 456))
 		);
 		assert!(matches!(&arg.items[8], Item::PutGroupMember(_)));
 		assert!(matches!(&arg.items[9], Item::PutOrganizationMember(_)));
-		let Item::PutProcessObjectGrants(process_grant_arg) = &arg.items[10] else {
+		let Item::PutProcessObjectPermissions(process_permission_arg) = &arg.items[10] else {
 			panic!();
 		};
-		assert_eq!(process_grant_arg.authorize.ancestor.max_depth, 7);
+		assert_eq!(process_permission_arg.authorize.ancestor.max_depth, 7);
 		let Item::PutSandbox(sandbox_arg) = &arg.items[11] else {
 			panic!();
 		};

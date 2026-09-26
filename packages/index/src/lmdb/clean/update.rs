@@ -15,7 +15,7 @@ impl Index {
 	) -> tg::Result<usize> {
 		let mut candidates = Vec::new();
 		for (kind, key_kind) in [
-			(crate::update::Kind::Grant, Kind::GrantUpdateClean),
+			(crate::update::Kind::Permission, Kind::PermissionUpdateClean),
 			(
 				crate::update::Kind::StorageAndMetadata,
 				Kind::StorageAndMetadataUpdateClean,

@@ -117,7 +117,7 @@ impl Session {
 			(
 				permissions,
 				required,
-				self.server.config.object.grant_time_to_live,
+				self.server.config.object.permission_time_to_live,
 			)
 		} else if id.kind() == tg::id::Kind::Process {
 			let permissions = tg::authorization::permission::Set::Process(
@@ -129,7 +129,7 @@ impl Session {
 			(
 				permissions,
 				required,
-				self.server.config.process.grant_time_to_live,
+				self.server.config.process.permission_time_to_live,
 			)
 		} else {
 			let location = tg::Location::Local(tg::location::Local::default());
@@ -169,14 +169,14 @@ impl Session {
 		if !permissions.contains(required) {
 			return Err(tg::error!(%id, "failed to find the node"));
 		}
-		let expires_at =
-			self.server
-				.clock
-				.unix_timestamp()?
-				.checked_add(i64::try_from(time_to_live.as_secs()).map_err(|error| {
-					tg::error!(!error, "failed to convert the grant time to live")
-				})?)
-				.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+		let expires_at = self
+			.server
+			.clock
+			.unix_timestamp()?
+			.checked_add(i64::try_from(time_to_live.as_secs()).map_err(|error| {
+				tg::error!(!error, "failed to convert the permission time to live")
+			})?)
+			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
 		let token = self.create_token(id.clone(), permissions.iter().collect(), expires_at)?;
 		let mut tokens = options.tokens;
 		if let Some(token) = token {

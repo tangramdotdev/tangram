@@ -74,11 +74,13 @@ impl Session {
 			.filter(|authorization| authorization.permissions.contains(subtree))
 			.ok_or_else(|| tg::error!("unauthorized"))?;
 		let now = self.server.clock.unix_timestamp()?;
-		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
-			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let time_to_live = i64::try_from(
+			self.server.config.object.permission_time_to_live.as_secs(),
+		)
+		.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
 		let expires_at = now
 			.checked_add(time_to_live)
-			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
 		let expires_at = authorization
 			.expires_at
 			.map_or(expires_at, |expiration| expiration.min(expires_at));

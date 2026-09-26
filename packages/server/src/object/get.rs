@@ -301,11 +301,13 @@ impl Session {
 
 		// Bound the tokens by the lifetime of the proof accepted during authorization.
 		let created_at = self.server.clock.unix_timestamp()?;
-		let time_to_live = i64::try_from(self.server.config.object.grant_time_to_live.as_secs())
-			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let time_to_live = i64::try_from(
+			self.server.config.object.permission_time_to_live.as_secs(),
+		)
+		.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
 		let mut expires_at = created_at
 			.checked_add(time_to_live)
-			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
 		if let Some(expiration) = authorization.expires_at {
 			expires_at = expires_at.min(expiration);
 		}

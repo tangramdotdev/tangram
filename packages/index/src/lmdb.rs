@@ -13,7 +13,6 @@ mod authorize;
 mod batch;
 mod checkout;
 mod clean;
-mod grant;
 mod group;
 mod indexer;
 mod key;
@@ -21,6 +20,7 @@ mod log;
 mod node;
 mod object;
 mod organization;
+mod permission;
 mod process;
 mod reader;
 mod request;
@@ -553,12 +553,12 @@ impl crate::Index for Index {
 		self.try_get_users(ids).await
 	}
 
-	async fn put_grants(&self, args: &[crate::grant::put::Arg]) -> tg::Result<()> {
-		self.put_grants(args).await
+	async fn put_permissions(&self, args: &[crate::permission::put::Arg]) -> tg::Result<()> {
+		self.put_permissions(args).await
 	}
 
-	async fn delete_grants(&self, args: &[crate::grant::delete::Arg]) -> tg::Result<()> {
-		self.delete_grants(args).await
+	async fn delete_permissions(&self, args: &[crate::permission::delete::Arg]) -> tg::Result<()> {
+		self.delete_permissions(args).await
 	}
 
 	async fn put_groups(&self, args: &[crate::group::put::Arg]) -> tg::Result<()> {
@@ -672,7 +672,7 @@ impl crate::Index for Index {
 		1
 	}
 
-	fn grant_update_partition_total(&self) -> u64 {
+	fn permission_update_partition_total(&self) -> u64 {
 		1
 	}
 

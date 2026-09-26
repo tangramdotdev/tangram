@@ -22,7 +22,7 @@ impl Session {
 				.server
 				.config
 				.sync
-				.grant_time_to_live
+				.permission_time_to_live
 				.as_secs()
 				.to_i64()
 				.unwrap();
@@ -36,7 +36,7 @@ impl Session {
 				.server
 				.config
 				.object
-				.grant_time_to_live
+				.permission_time_to_live
 				.as_secs()
 				.to_i64()
 				.unwrap();
@@ -55,7 +55,7 @@ impl Session {
 				.server
 				.config
 				.object
-				.grant_time_to_live
+				.permission_time_to_live
 				.as_secs()
 				.to_i64()
 				.unwrap();

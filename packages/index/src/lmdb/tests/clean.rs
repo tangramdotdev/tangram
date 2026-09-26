@@ -16,11 +16,14 @@ fn count_clean_keys(index: &Index) -> usize {
 		.count()
 }
 
-fn count_subject_grants(index: &Index, subject: &tg::authorization::Subject) -> usize {
+fn count_subject_permissions(index: &Index, subject: &tg::authorization::Subject) -> usize {
 	let transaction = index.env.read_txn().unwrap();
 	let prefix = Index::pack(
 		&index.subspace,
-		&(Kind::SubjectGrant.to_i32().unwrap(), subject.to_string()),
+		&(
+			Kind::SubjectPermission.to_i32().unwrap(),
+			subject.to_string(),
+		),
 	);
 	index
 		.db
@@ -65,7 +68,7 @@ async fn object_output_includes_the_deleted_put_and_touched_at() {
 }
 
 #[tokio::test]
-async fn deleting_a_process_deletes_all_grants_it_holds() {
+async fn deleting_a_process_deletes_all_permissions_it_holds() {
 	let (_dir, index) = super::new_index();
 	let command = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
 	let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![1].into());
@@ -111,21 +114,23 @@ async fn deleting_a_process_deletes_all_grants_it_holds() {
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
 				}),
-				crate::batch::Item::PutGrant(crate::grant::put::Arg {
+				crate::batch::Item::PutPermission(crate::permission::put::Arg {
 					created_at: 0,
 					creator: Some(creator.clone()),
-					implicit: Some(None),
 					permissions: subtree.into(),
 					resource: command.into(),
+					source: crate::permission::Source::Direct { expires_at: None },
 					subject: subject.clone(),
 					time_to_touch: None,
 				}),
-				crate::batch::Item::PutGrant(crate::grant::put::Arg {
+				crate::batch::Item::PutPermission(crate::permission::put::Arg {
 					created_at: 0,
 					creator: Some(creator),
-					implicit: Some(Some(10)),
 					permissions: subtree.into(),
 					resource: object.into(),
+					source: crate::permission::Source::Direct {
+						expires_at: Some(10),
+					},
 					subject: subject.clone(),
 					time_to_touch: None,
 				}),
@@ -133,7 +138,7 @@ async fn deleting_a_process_deletes_all_grants_it_holds() {
 		})
 		.await
 		.unwrap();
-	assert_eq!(count_subject_grants(&index, &subject), 2);
+	assert_eq!(count_subject_permissions(&index, &subject), 2);
 
 	loop {
 		let output = index
@@ -153,7 +158,7 @@ async fn deleting_a_process_deletes_all_grants_it_holds() {
 		}
 	}
 
-	assert_eq!(count_subject_grants(&index, &subject), 0);
+	assert_eq!(count_subject_permissions(&index, &subject), 0);
 }
 
 #[tokio::test]

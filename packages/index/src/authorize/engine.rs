@@ -1158,19 +1158,19 @@ where
 
 				ReadOutput::ObjectProcesses { after, processes }
 			},
-			super::search::AncestorNodeRead::ResourceGrants {
+			super::search::AncestorNodeRead::ResourcePermissions {
 				after,
 				limit,
 				resource,
 			} => {
-				let output = read!(facts::Request::ResourceGrants {
+				let output = read!(facts::Request::ResourcePermissions {
 					after: after.clone(),
 					limit: *limit,
 					resource: resource.clone(),
 				});
-				let (after, grants) = output.into_grants()?;
+				let (after, permissions) = output.into_permissions()?;
 
-				ReadOutput::Grants { after, grants }
+				ReadOutput::Permissions { after, permissions }
 			},
 			super::search::AncestorNodeRead::SandboxOwner { sandbox } => {
 				let output = read!(facts::Request::SandboxOwner {
@@ -1408,20 +1408,20 @@ where
 
 			ReadOutput::Resolved(resource)
 		},
-		Read::SubjectGrants {
+		Read::SubjectPermissions {
 			after,
 			limit,
 			subject,
 			..
 		} => {
-			let output = read!(facts::Request::SubjectGrants {
+			let output = read!(facts::Request::SubjectPermissions {
 				after: after.clone(),
 				limit: *limit,
 				subject: subject.clone(),
 			});
-			let (after, grants) = output.into_grants()?;
+			let (after, permissions) = output.into_permissions()?;
 
-			ReadOutput::Grants { after, grants }
+			ReadOutput::Permissions { after, permissions }
 		},
 	};
 
@@ -1533,7 +1533,7 @@ fn principal_is_resource(principal: &tg::Principal, resource: &tg::Id) -> bool {
 mod tests {
 	use {
 		super::*,
-		crate::authorize::search::{AncestorNodeRead, Grant, MemberRead},
+		crate::authorize::search::{AncestorNodeRead, MemberRead, Permission},
 		std::{
 			sync::{
 				Arc,
@@ -1545,29 +1545,29 @@ mod tests {
 	};
 
 	#[test]
-	fn a_direct_grant_is_evaluated_by_the_shared_policy() {
+	fn a_direct_permission_is_evaluated_by_the_shared_policy() {
 		let object = object(0);
 		let user = tg::user::Id::new();
 		let principal = tg::Principal::User(user.clone());
 		let outcome = run(&[arg(object.clone().into(), None)], &principal, |read| {
 			let Read::AncestorNode {
 				key,
-				read: AncestorNodeRead::ResourceGrants { .. },
+				read: AncestorNodeRead::ResourcePermissions { .. },
 				..
 			} = read
 			else {
 				return default_output(read);
 			};
-			let grant = Grant {
+			let permission = Permission {
 				creator: None,
-				implicit: false,
+				direct: false,
 				permission: key.1,
 				resource: key.0.clone(),
 				subject: tg::authorization::Subject::User(user.clone()),
 			};
-			ReadOutput::Grants {
+			ReadOutput::Permissions {
 				after: None,
-				grants: vec![grant],
+				permissions: vec![permission],
 			}
 		});
 
@@ -1586,19 +1586,19 @@ mod tests {
 			|read| match read {
 				Read::AncestorNode {
 					key,
-					read: AncestorNodeRead::ResourceGrants { .. },
+					read: AncestorNodeRead::ResourcePermissions { .. },
 					..
 				} => {
-					let grant = Grant {
+					let permission = Permission {
 						creator: None,
-						implicit: false,
+						direct: false,
 						permission: key.1,
 						resource: key.0.clone(),
 						subject: tg::authorization::Subject::Group(group.clone()),
 					};
-					ReadOutput::Grants {
+					ReadOutput::Permissions {
 						after: None,
-						grants: vec![grant],
+						permissions: vec![permission],
 					}
 				},
 				Read::Member {
@@ -1628,20 +1628,20 @@ mod tests {
 			|read| match read {
 				Read::AncestorNode {
 					key,
-					read: AncestorNodeRead::ResourceGrants { .. },
+					read: AncestorNodeRead::ResourcePermissions { .. },
 					..
 				} if key.0 == tg::Id::from(object.clone()) => {
-					let grant = Grant {
+					let permission = Permission {
 						creator: None,
-						implicit: false,
+						direct: false,
 						permission: key.1,
 						resource: key.0.clone(),
 						subject: tg::authorization::Subject::Group(ancestor_group.clone()),
 					};
 
-					ReadOutput::Grants {
+					ReadOutput::Permissions {
 						after: None,
-						grants: vec![grant],
+						permissions: vec![permission],
 					}
 				},
 				Read::GroupMembers { group, .. } if group == &ancestor_group => ReadOutput::Ids {
@@ -1679,20 +1679,20 @@ mod tests {
 			|read| match read {
 				Read::AncestorNode {
 					key,
-					read: AncestorNodeRead::ResourceGrants { .. },
+					read: AncestorNodeRead::ResourcePermissions { .. },
 					..
 				} => {
-					let grant = Grant {
+					let permission = Permission {
 						creator: None,
-						implicit: false,
+						direct: false,
 						permission: key.1,
 						resource: key.0.clone(),
 						subject: tg::authorization::Subject::Group(group.clone()),
 					};
 
-					ReadOutput::Grants {
+					ReadOutput::Permissions {
 						after: None,
-						grants: vec![grant],
+						permissions: vec![permission],
 					}
 				},
 				Read::GroupMembers {
@@ -1730,13 +1730,13 @@ mod tests {
 					after: None,
 					groups: vec![group.clone()],
 				},
-				Read::SubjectGrants {
+				Read::SubjectPermissions {
 					subject: tg::authorization::Subject::Group(read_group),
 					..
 				} if read_group == &group => {
-					let grant = Grant {
+					let permission = Permission {
 						creator: None,
-						implicit: false,
+						direct: false,
 						permission: tg::authorization::Permission::Object(
 							tg::authorization::permission::object::Permission::Node,
 						),
@@ -1744,9 +1744,9 @@ mod tests {
 						subject: tg::authorization::Subject::Group(group.clone()),
 					};
 
-					ReadOutput::Grants {
+					ReadOutput::Permissions {
 						after: None,
-						grants: vec![grant],
+						permissions: vec![permission],
 					}
 				},
 				_ => default_output(read),
@@ -1827,20 +1827,20 @@ mod tests {
 							after: None,
 							processes: Vec::new(),
 						},
-						facts::Request::ResourceGrants { .. } => {
+						facts::Request::ResourcePermissions { .. } => {
 							let current = active.fetch_add(1, Ordering::SeqCst) + 1;
 							maximum.fetch_max(current, Ordering::SeqCst);
 							barrier.wait().await;
 							active.fetch_sub(1, Ordering::SeqCst);
 
-							facts::Output::Grants {
+							facts::Output::Permissions {
 								after: None,
-								grants: Vec::new(),
+								permissions: Vec::new(),
 							}
 						},
-						facts::Request::SubjectGrants { .. } => facts::Output::Grants {
+						facts::Request::SubjectPermissions { .. } => facts::Output::Permissions {
 							after: None,
-							grants: Vec::new(),
+							permissions: Vec::new(),
 						},
 						facts::Request::TargetTags { .. } => facts::Output::Tags {
 							after: None,
@@ -1914,7 +1914,7 @@ mod tests {
 	}
 
 	#[test]
-	fn process_parent_delegation_ignores_the_grant_source() {
+	fn process_parent_delegation_ignores_the_permission_source() {
 		let matching = object(0);
 		let mismatching = object(1);
 		let process = tg::process::Id::new();
@@ -1928,20 +1928,20 @@ mod tests {
 		let outcome = run(&args, &principal, |read| {
 			let Read::AncestorNode {
 				key,
-				read: AncestorNodeRead::ResourceGrants { .. },
+				read: AncestorNodeRead::ResourcePermissions { .. },
 				..
 			} = read
 			else {
 				return default_output(read);
 			};
-			let grants = if key.0 == tg::Id::from(matching.clone()) {
-				vec![process_grant(&matching, &process, &process, key.1)]
+			let permissions = if key.0 == tg::Id::from(matching.clone()) {
+				vec![process_permission(&matching, &process, &process, key.1)]
 			} else if key.0 == tg::Id::from(mismatching.clone()) {
-				vec![process_grant(&mismatching, &process, &other, key.1)]
+				vec![process_permission(&mismatching, &process, &other, key.1)]
 			} else if key.0 == tg::Id::from(process.clone()) {
-				vec![Grant {
+				vec![Permission {
 					creator: None,
-					implicit: false,
+					direct: false,
 					permission: key.1,
 					resource: key.0.clone(),
 					subject: tg::authorization::Subject::User(user.clone()),
@@ -1949,9 +1949,9 @@ mod tests {
 			} else {
 				Vec::new()
 			};
-			ReadOutput::Grants {
+			ReadOutput::Permissions {
 				after: None,
-				grants,
+				permissions,
 			}
 		});
 
@@ -2037,9 +2037,9 @@ mod tests {
 					after: None,
 					processes: Vec::new(),
 				},
-				AncestorNodeRead::ResourceGrants { .. } => ReadOutput::Grants {
+				AncestorNodeRead::ResourcePermissions { .. } => ReadOutput::Permissions {
 					after: None,
-					grants: Vec::new(),
+					permissions: Vec::new(),
 				},
 				AncestorNodeRead::SandboxOwner { .. } => ReadOutput::SandboxOwner(None),
 				AncestorNodeRead::Tag { .. } | AncestorNodeRead::TargetTag { .. } => {
@@ -2091,9 +2091,9 @@ mod tests {
 					objects: Vec::new(),
 				}
 			},
-			Read::SubjectGrants { .. } => ReadOutput::Grants {
+			Read::SubjectPermissions { .. } => ReadOutput::Permissions {
 				after: None,
-				grants: Vec::new(),
+				permissions: Vec::new(),
 			},
 		}
 	}
@@ -2102,15 +2102,15 @@ mod tests {
 		tg::object::Id::new(tg::object::Kind::Blob, &vec![value].into())
 	}
 
-	fn process_grant(
+	fn process_permission(
 		resource: &tg::object::Id,
 		subject: &tg::process::Id,
 		creator: &tg::process::Id,
 		permission: tg::authorization::Permission,
-	) -> Grant {
-		Grant {
+	) -> Permission {
+		Permission {
 			creator: Some(tg::Principal::Process(creator.clone())),
-			implicit: true,
+			direct: true,
 			permission,
 			resource: resource.clone().into(),
 			subject: tg::authorization::Subject::Process(subject.clone()),

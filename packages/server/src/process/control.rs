@@ -674,8 +674,9 @@ impl Session {
 			if let Some(sandbox) = sandbox {
 				items.insert(0, tangram_index::batch::Item::PutSandbox(sandbox));
 			}
-			let grant_arg = self.create_process_sandbox_grant_arg(&id, sandbox_id, touched_at)?;
-			items.push(tangram_index::batch::Item::PutGrant(grant_arg));
+			let permission_arg =
+				self.create_process_sandbox_permission_arg(&id, sandbox_id, touched_at)?;
+			items.push(tangram_index::batch::Item::PutPermission(permission_arg));
 			if let Some(account) = account {
 				items.push(tangram_index::batch::Item::PutAccountProcess(
 					tangram_index::usage::storage::put::ProcessArg {
@@ -695,16 +696,22 @@ impl Session {
 					..self.context.clone()
 				};
 				let parent_session = self.server.session(&context);
-				let time_to_live = i64::try_from(
-					self.server.config.object.grant_time_to_live.as_secs(),
-				)
-				.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+				let time_to_live =
+					i64::try_from(self.server.config.object.permission_time_to_live.as_secs())
+						.map_err(|error| {
+							tg::error!(!error, "failed to convert the permission time to live")
+						})?;
 				let expires_at = touched_at + time_to_live;
-				let grant_arg = parent_session
-					.create_process_object_grant_arg(&id, commands, touched_at, Some(expires_at))
+				let permission_arg = parent_session
+					.create_process_object_permission_arg(
+						&id,
+						commands,
+						touched_at,
+						Some(expires_at),
+					)
 					.await?;
-				items.push(tangram_index::batch::Item::PutProcessObjectGrants(
-					grant_arg,
+				items.push(tangram_index::batch::Item::PutProcessObjectPermissions(
+					permission_arg,
 				));
 			}
 

@@ -580,7 +580,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 		Some(0)
 	);
 
-	// Explicit spawn updates append once in indexed order without finalizing the list.
+	// Permission spawn updates append once in indexed order without finalizing the list.
 	let mut first_membership = process_arg(first.clone(), tg::process::Status::Started);
 	first_membership.data = None;
 	first_membership.sandbox = Some(sandbox.clone());

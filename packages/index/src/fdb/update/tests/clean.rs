@@ -10,7 +10,7 @@ use {
 async fn cleaning_supports_different_partition_totals() {
 	let partition_totals = crate::fdb::PartitionTotals {
 		cleaning: 1,
-		grant_update: 3,
+		permission_update: 3,
 		log_compaction: 2,
 		storage_and_metadata_update: 4,
 		usage_update: 2,
@@ -34,7 +34,7 @@ async fn cleaning_supports_different_partition_totals() {
 		let blocker = tg::Either::Right(tg::process::Id::new());
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
 		for (kind, queue) in [
-			(Kind::Grant(subject), crate::update::Kind::Grant),
+			(Kind::Permission(subject), crate::update::Kind::Permission),
 			(
 				Kind::StorageAndMetadata,
 				crate::update::Kind::StorageAndMetadata,
@@ -89,7 +89,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 			tg::Either::Right(process_id.clone()),
 		];
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
-		let kinds = [Kind::Grant(subject), Kind::StorageAndMetadata];
+		let kinds = [Kind::Permission(subject), Kind::StorageAndMetadata];
 		let arg = crate::batch::Arg {
 			items: vec![
 				crate::batch::Item::PutObject(object),
@@ -152,7 +152,7 @@ async fn cleans_versions_without_collecting_the_objects() {
 			tg::authorization::Subject::Process(tg::process::Id::new()),
 		];
 		for subject in subjects {
-			enqueue(index, &id, &Kind::Grant(subject)).await;
+			enqueue(index, &id, &Kind::Permission(subject)).await;
 		}
 		drain(index).await;
 		assert_eq!(count_versions(index).await, 3);
@@ -196,7 +196,7 @@ async fn cleaning_respects_other_partitions_and_newer_versions() {
 		index.clean(clean_arg(100, 0, 2)).await.unwrap();
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
 		for (kind, queue) in [
-			(Kind::Grant(subject), crate::update::Kind::Grant),
+			(Kind::Permission(subject), crate::update::Kind::Permission),
 			(
 				Kind::StorageAndMetadata,
 				crate::update::Kind::StorageAndMetadata,
@@ -345,7 +345,7 @@ async fn unrelated_queue_progress_does_not_conflict_with_cleaning() {
 		drain(index).await;
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
 		for (kind, queue) in [
-			(Kind::Grant(subject), crate::update::Kind::Grant),
+			(Kind::Permission(subject), crate::update::Kind::Permission),
 			(
 				Kind::StorageAndMetadata,
 				crate::update::Kind::StorageAndMetadata,
@@ -396,7 +396,7 @@ async fn replacing_propagated_versions_replaces_cleanup_entries() {
 		put(index, vec![object]).await;
 		drain(index).await;
 		let subject = tg::authorization::Subject::User(tg::user::Id::new());
-		for kind in [Kind::Grant(subject), Kind::StorageAndMetadata] {
+		for kind in [Kind::Permission(subject), Kind::StorageAndMetadata] {
 			enqueue(index, &id, &kind).await;
 			drain(index).await;
 			let previous = version(index, &id, &kind).await.unwrap();
@@ -509,7 +509,7 @@ async fn drain(index: &Index) {
 	for _ in 0..100 {
 		let mut count = 0;
 		for kind in [
-			crate::update::Kind::Grant,
+			crate::update::Kind::Permission,
 			crate::update::Kind::StorageAndMetadata,
 		] {
 			count += index
@@ -539,7 +539,7 @@ fn clean_arg(batch_size: usize, partition_start: u64, partition_end: u64) -> cra
 
 async fn count_versions(index: &Index) -> usize {
 	let kinds = [
-		crate::fdb::Kind::GrantUpdatePropagatedVersion,
+		crate::fdb::Kind::PermissionUpdatePropagatedVersion,
 		crate::fdb::Kind::StorageAndMetadataUpdatePropagatedVersion,
 	];
 	count_keys(index, &kinds).await
@@ -547,7 +547,7 @@ async fn count_versions(index: &Index) -> usize {
 
 async fn count_clean_entries(index: &Index) -> usize {
 	let kinds = [
-		crate::fdb::Kind::GrantUpdateClean,
+		crate::fdb::Kind::PermissionUpdateClean,
 		crate::fdb::Kind::StorageAndMetadataUpdateClean,
 	];
 	count_keys(index, &kinds).await

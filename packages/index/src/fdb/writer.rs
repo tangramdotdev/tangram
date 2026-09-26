@@ -296,7 +296,7 @@ impl Index {
 			},
 			Request::Batch(_)
 			| Request::CompleteLogCompaction(_)
-			| Request::DeleteGrants(_)
+			| Request::DeletePermissions(_)
 			| Request::DeleteGroupMembers(_)
 			| Request::DeleteGroups(_)
 			| Request::DeleteIndexer(_)
@@ -307,7 +307,7 @@ impl Index {
 			| Request::DeleteUsers(_)
 			| Request::EnqueueLogCompaction(_)
 			| Request::PutCheckouts(_)
-			| Request::PutGrants(_)
+			| Request::PutPermissions(_)
 			| Request::PutGroupMembers(_)
 			| Request::PutGroups(_)
 			| Request::PutIndexer(_)
@@ -361,9 +361,9 @@ impl Index {
 				vec![Item::CompleteLogCompaction(entry)],
 				Kind::CompleteLogCompaction,
 			),
-			Request::DeleteGrants(args) => {
-				let items = args.into_iter().map(Item::DeleteGrant).collect();
-				(items, Kind::DeleteGrants)
+			Request::DeletePermissions(args) => {
+				let items = args.into_iter().map(Item::DeletePermission).collect();
+				(items, Kind::DeletePermissions)
 			},
 			Request::DeleteGroupMembers(args) => {
 				let items = args.into_iter().map(Item::DeleteGroupMember).collect();
@@ -416,9 +416,9 @@ impl Index {
 				let items = args.into_iter().map(Item::PutCheckout).collect();
 				(items, Kind::PutCheckouts)
 			},
-			Request::PutGrants(args) => {
-				let items = args.into_iter().map(Item::PutGrant).collect();
-				(items, Kind::PutGrants)
+			Request::PutPermissions(args) => {
+				let items = args.into_iter().map(Item::PutPermission).collect();
+				(items, Kind::PutPermissions)
 			},
 			Request::PutGroupMembers(args) => {
 				let items = args.into_iter().map(Item::PutGroupMember).collect();
@@ -562,15 +562,15 @@ impl Index {
 				};
 				Request::CompleteLogCompaction(entry)
 			},
-			Kind::DeleteGrants => {
+			Kind::DeletePermissions => {
 				let args = items
 					.into_iter()
 					.map(|item| match item {
-						Item::DeleteGrant(arg) => arg,
+						Item::DeletePermission(arg) => arg,
 						_ => unreachable!(),
 					})
 					.collect();
-				Request::DeleteGrants(args)
+				Request::DeletePermissions(args)
 			},
 			Kind::DeleteGroupMembers => {
 				let args = items
@@ -674,15 +674,15 @@ impl Index {
 					.collect();
 				Request::PutCheckouts(args)
 			},
-			Kind::PutGrants => {
+			Kind::PutPermissions => {
 				let args = items
 					.into_iter()
 					.map(|item| match item {
-						Item::PutGrant(arg) => arg,
+						Item::PutPermission(arg) => arg,
 						_ => unreachable!(),
 					})
 					.collect();
-				Request::PutGrants(args)
+				Request::PutPermissions(args)
 			},
 			Kind::PutGroupMembers => {
 				let args = items
@@ -1016,7 +1016,7 @@ impl Index {
 					| Request::EnqueueLogCompaction(_)
 					| Request::GetUsage { .. }
 					| Request::PutCheckouts(_)
-					| Request::PutGrants(_)
+					| Request::PutPermissions(_)
 					| Request::PutGroupMembers(_)
 					| Request::PutGroups(_)
 					| Request::PutObjects(_)
@@ -1189,10 +1189,14 @@ impl Index {
 				crate::fdb::propagate!(result);
 				Response::Unit
 			},
-			Request::DeleteGrants(args) => {
-				let result =
-					Self::delete_grants_with_transaction(txn, subspace, args, partition_totals)
-						.await;
+			Request::DeletePermissions(args) => {
+				let result = Self::delete_permissions_with_transaction(
+					txn,
+					subspace,
+					args,
+					partition_totals,
+				)
+				.await;
 				crate::fdb::propagate!(result);
 				Response::Unit
 			},
@@ -1274,9 +1278,10 @@ impl Index {
 				crate::fdb::propagate!(result);
 				Response::Unit
 			},
-			Request::PutGrants(args) => {
+			Request::PutPermissions(args) => {
 				let result =
-					Self::put_grants_with_transaction(txn, subspace, args, partition_totals).await;
+					Self::put_permissions_with_transaction(txn, subspace, args, partition_totals)
+						.await;
 				crate::fdb::propagate!(result);
 				Response::Unit
 			},

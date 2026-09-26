@@ -6,11 +6,11 @@ use {
 };
 
 impl Index {
-	pub(crate) fn put_process_object_grants_with_transaction(
+	pub(crate) fn put_process_object_permissions_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		arg: &crate::process::object::grant::Arg,
+		arg: &crate::process::object::permission::Arg,
 	) -> tg::Result<()> {
 		arg.validate()?;
 		let node = tg::authorization::Permission::Object(
@@ -34,7 +34,7 @@ impl Index {
 			}
 			objects.insert(root.object.clone());
 		}
-		let mut grants = BTreeMap::new();
+		let mut permissions = BTreeMap::new();
 		let mut traversed = BTreeSet::new();
 		let authorization_fact_cache = crate::authorize::facts::Cache::new();
 
@@ -48,7 +48,7 @@ impl Index {
 				{
 					return true;
 				}
-				grants.insert(
+				permissions.insert(
 					object.clone(),
 					tg::authorization::permission::object::Permission::Subtree,
 				);
@@ -85,7 +85,7 @@ impl Index {
 					crate::authorize::Outcome::Denied(None) => None,
 					crate::authorize::Outcome::Exhausted => {
 						return Err(crate::authorize::search_exhausted_error(
-							"the process object grant authorization search exhausted",
+							"the process object permission authorization search exhausted",
 						));
 					},
 				};
@@ -107,7 +107,7 @@ impl Index {
 				} else {
 					continue;
 				};
-				grants
+				permissions
 					.entry(object.clone())
 					.and_modify(|current| {
 						if permission == tg::authorization::permission::object::Permission::Subtree
@@ -135,22 +135,24 @@ impl Index {
 			objects = children;
 		}
 
-		// Put the grants.
+		// Put the permissions.
 		let creator = Some(arg.principal.clone());
 		let subject = tg::authorization::Subject::Process(arg.process.clone());
-		let grant_args = grants
+		let permission_args = permissions
 			.into_iter()
-			.map(|(resource, permission)| crate::grant::put::Arg {
+			.map(|(resource, permission)| crate::permission::put::Arg {
 				created_at: arg.created_at,
 				creator: creator.clone(),
-				implicit: Some(arg.expires_at),
 				permissions: tg::authorization::Permission::Object(permission).into(),
 				resource: resource.into(),
+				source: crate::permission::Source::Direct {
+					expires_at: arg.expires_at,
+				},
 				subject: subject.clone(),
 				time_to_touch: arg.time_to_touch,
 			})
 			.collect::<Vec<_>>();
-		Self::put_grants_with_transaction(db, subspace, transaction, &grant_args)?;
+		Self::put_permissions_with_transaction(db, subspace, transaction, &permission_args)?;
 
 		Ok(())
 	}

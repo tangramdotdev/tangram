@@ -66,8 +66,8 @@ impl Session {
 		}
 
 		// Create put object args in reverse topological order.
-		let put_grant_args =
-			self.checkin_index_create_grants(graph, &index_object_args, touched_at)?;
+		let put_permission_args =
+			self.checkin_index_create_permissions(graph, &index_object_args, touched_at)?;
 		let put_index_object_args: Vec<_> = index_object_args.into_values().rev().collect();
 
 		// Create the index batch.
@@ -81,9 +81,9 @@ impl Session {
 						.map(tangram_index::batch::Item::PutObject),
 				)
 				.chain(
-					put_grant_args
+					put_permission_args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutGrant),
+						.map(tangram_index::batch::Item::PutPermission),
 				)
 				.collect(),
 		};
@@ -91,12 +91,12 @@ impl Session {
 		Ok(arg)
 	}
 
-	fn checkin_index_create_grants(
+	fn checkin_index_create_permissions(
 		&self,
 		graph: &Graph,
 		objects: &IndexObjectArgs,
 		touched_at: i64,
-	) -> tg::Result<Vec<tangram_index::grant::put::Arg>> {
+	) -> tg::Result<Vec<tangram_index::permission::put::Arg>> {
 		let subject = match &self.context.principal {
 			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
 			tg::Principal::Root => None,
@@ -121,13 +121,13 @@ impl Session {
 			.filter_map(|(index, &parents)| (parents == 0).then_some(index))
 			.collect::<VecDeque<_>>();
 
-		// Emit a minimal set of grants in parent-to-child order.
+		// Emit a minimal set of permissions in parent-to-child order.
 		let expires_at = touched_at
 			+ self
 				.server
 				.config
 				.object
-				.grant_time_to_live
+				.permission_time_to_live
 				.as_secs()
 				.to_i64()
 				.unwrap();
@@ -147,14 +147,16 @@ impl Session {
 						tg::authorization::permission::object::Permission::Node
 					};
 				let permissions = tg::authorization::Permission::Object(permission).into();
-				let arg = tangram_index::grant::put::Arg {
+				let arg = tangram_index::permission::put::Arg {
 					created_at: touched_at,
 					creator: Some(self.context.principal.clone()),
-					implicit: Some(Some(expires_at)),
 					permissions,
 					resource: id.clone().into(),
+					source: tangram_index::permission::Source::Direct {
+						expires_at: Some(expires_at),
+					},
 					subject: subject.clone(),
-					time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+					time_to_touch: Some(self.server.config.object.permission_time_to_touch),
 				};
 				args.push(arg);
 			}
@@ -176,7 +178,7 @@ impl Session {
 			}
 		}
 
-		// Emit grants for uncovered external boundaries without descending into old graphs.
+		// Emit permissions for uncovered external boundaries without descending into old graphs.
 		for (id, _) in external.iter().filter(|(_, covered)| !**covered) {
 			let permissions = graph.object_permissions(id);
 			let permission =
@@ -188,14 +190,16 @@ impl Session {
 					continue;
 				};
 			let permissions = tg::authorization::Permission::Object(permission).into();
-			let arg = tangram_index::grant::put::Arg {
+			let arg = tangram_index::permission::put::Arg {
 				created_at: touched_at,
 				creator: Some(self.context.principal.clone()),
-				implicit: Some(Some(expires_at)),
 				permissions,
 				resource: id.clone().into(),
+				source: tangram_index::permission::Source::Direct {
+					expires_at: Some(expires_at),
+				},
 				subject: subject.clone(),
-				time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+				time_to_touch: Some(self.server.config.object.permission_time_to_touch),
 			};
 			args.push(arg);
 		}

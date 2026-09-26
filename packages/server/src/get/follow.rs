@@ -745,9 +745,9 @@ impl Session {
 		permissions: Vec<tg::authorization::Permission>,
 	) -> tg::Result<Option<tg::authorization::Token>> {
 		let time_to_live = if target.kind().is_object() {
-			self.server.config.object.grant_time_to_live
+			self.server.config.object.permission_time_to_live
 		} else if target.kind() == tg::id::Kind::Process {
-			self.server.config.process.grant_time_to_live
+			self.server.config.process.permission_time_to_live
 		} else {
 			return Err(tg::error!("invalid tag target"));
 		};

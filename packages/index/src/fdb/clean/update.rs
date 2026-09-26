@@ -19,7 +19,7 @@ impl Index {
 	) -> tg::Result<ControlFlow<usize, fdb::FdbError>> {
 		let mut candidates = Vec::new();
 		for (kind, key_kind) in [
-			(crate::update::Kind::Grant, Kind::GrantUpdateClean),
+			(crate::update::Kind::Permission, Kind::PermissionUpdateClean),
 			(
 				crate::update::Kind::StorageAndMetadata,
 				Kind::StorageAndMetadataUpdateClean,

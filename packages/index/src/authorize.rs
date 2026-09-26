@@ -20,7 +20,7 @@ pub(crate) enum Check {
 		object: tg::object::Id,
 		process: tg::process::Id,
 	},
-	ProcessObjectGrant {
+	ProcessObjectPermission {
 		object: tg::object::Id,
 		permission: tg::authorization::permission::object::Permission,
 		process: tg::process::Id,
@@ -101,7 +101,7 @@ impl Check {
 			Self::ProcessObject { kind, .. } => output.into_process_object_kinds()?.contains(kind),
 			Self::ObjectChild { .. }
 			| Self::ProcessChild { .. }
-			| Self::ProcessObjectGrant { .. } => output.into_bool()?,
+			| Self::ProcessObjectPermission { .. } => output.into_bool()?,
 		};
 
 		Ok(value)
@@ -123,11 +123,11 @@ impl Check {
 				object: object.clone(),
 				process: process.clone(),
 			},
-			Self::ProcessObjectGrant {
+			Self::ProcessObjectPermission {
 				object,
 				permission,
 				process,
-			} => facts::Request::ProcessObjectGrant {
+			} => facts::Request::ProcessObjectPermission {
 				object: object.clone(),
 				permission: *permission,
 				process: process.clone(),

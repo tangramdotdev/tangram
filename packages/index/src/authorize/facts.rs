@@ -85,7 +85,7 @@ pub(crate) enum Request {
 		object: tg::object::Id,
 		process: tg::process::Id,
 	},
-	ProcessObjectGrant {
+	ProcessObjectPermission {
 		object: tg::object::Id,
 		permission: tg::authorization::permission::object::Permission,
 		process: tg::process::Id,
@@ -100,7 +100,7 @@ pub(crate) enum Request {
 		limit: usize,
 		process: tg::process::Id,
 	},
-	ResourceGrants {
+	ResourcePermissions {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		resource: tg::Id,
@@ -111,7 +111,7 @@ pub(crate) enum Request {
 	Specifier {
 		specifier: tg::Specifier,
 	},
-	SubjectGrants {
+	SubjectPermissions {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		subject: tg::authorization::Subject,
@@ -129,9 +129,9 @@ pub(crate) enum Request {
 #[derive(Clone, Debug)]
 pub(crate) enum Output {
 	Bool(bool),
-	Grants {
+	Permissions {
 		after: Option<Vec<u8>>,
-		grants: Vec<crate::grant::Fact>,
+		permissions: Vec<crate::permission::Fact>,
 	},
 	Group(Option<crate::group::Group>),
 	Id(Option<tg::Id>),
@@ -207,7 +207,7 @@ enum CacheKey {
 		object: tg::object::Id,
 		process: tg::process::Id,
 	},
-	ProcessObjectGrant {
+	ProcessObjectPermission {
 		object: tg::object::Id,
 		permission: tg::authorization::permission::object::Permission,
 		process: tg::process::Id,
@@ -222,7 +222,7 @@ enum CacheKey {
 		limit: usize,
 		process: tg::process::Id,
 	},
-	ResourceGrants {
+	ResourcePermissions {
 		after: Option<Vec<u8>>,
 		limit: usize,
 		resource: tg::Id,
@@ -353,11 +353,11 @@ impl Request {
 				object: object.clone(),
 				process: process.clone(),
 			},
-			Self::ProcessObjectGrant {
+			Self::ProcessObjectPermission {
 				object,
 				permission,
 				process,
-			} => CacheKey::ProcessObjectGrant {
+			} => CacheKey::ProcessObjectPermission {
 				object: object.clone(),
 				permission: *permission,
 				process: process.clone(),
@@ -380,11 +380,11 @@ impl Request {
 				limit: *limit,
 				process: process.clone(),
 			},
-			Self::ResourceGrants {
+			Self::ResourcePermissions {
 				after,
 				limit,
 				resource,
-			} => CacheKey::ResourceGrants {
+			} => CacheKey::ResourcePermissions {
 				after: after.clone(),
 				limit: *limit,
 				resource: resource.clone(),
@@ -406,7 +406,7 @@ impl Request {
 			| Self::OwnerSandboxes { .. }
 			| Self::OrganizationMembers { .. }
 			| Self::ProcessChildren { .. }
-			| Self::SubjectGrants { .. } => return None,
+			| Self::SubjectPermissions { .. } => return None,
 		};
 
 		Some(key)
@@ -422,12 +422,14 @@ impl Output {
 		Ok(value)
 	}
 
-	pub(crate) fn into_grants(self) -> tg::Result<(Option<Vec<u8>>, Vec<crate::grant::Fact>)> {
-		let Self::Grants { after, grants } = self else {
-			return Err(tg::error!("received a non-grant authorization fact"));
+	pub(crate) fn into_permissions(
+		self,
+	) -> tg::Result<(Option<Vec<u8>>, Vec<crate::permission::Fact>)> {
+		let Self::Permissions { after, permissions } = self else {
+			return Err(tg::error!("received a non-permission authorization fact"));
 		};
 
-		Ok((after, grants))
+		Ok((after, permissions))
 	}
 
 	pub(crate) fn into_group(self) -> tg::Result<Option<crate::group::Group>> {

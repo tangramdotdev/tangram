@@ -8,15 +8,15 @@ use {
 };
 
 impl Index {
-	pub(crate) async fn get_resource_grant_entries_for_subject_with_transaction(
+	pub(crate) async fn get_resource_permission_entries_for_subject_with_transaction(
 		txn: &crate::fdb::Transaction,
 		subspace: &Subspace,
 		resource: &tg::Id,
 		subject: &tg::authorization::Subject,
-	) -> tg::Result<ControlFlow<Vec<crate::fdb::grant::GrantEntry>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<Vec<crate::fdb::permission::PermissionEntry>, fdb::FdbError>> {
 		let bytes = resource.to_bytes();
 		let key = (
-			Kind::ResourceGrant.to_i32().unwrap(),
+			Kind::ResourcePermission.to_i32().unwrap(),
 			bytes.as_ref(),
 			subject.to_string(),
 		);
@@ -34,7 +34,7 @@ impl Index {
 			.iter()
 			.map(|entry| {
 				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Grant(crate::fdb::grant::Key::ResourceGrant {
+				let Key::Permission(crate::fdb::permission::Key::ResourcePermission {
 					creator,
 					permission,
 					subject,
@@ -43,11 +43,11 @@ impl Index {
 				else {
 					return Err(tg::error!("unexpected key type"));
 				};
-				let value = crate::fdb::grant::GrantValue::deserialize(entry.value())?;
-				Ok(crate::fdb::grant::GrantEntry {
+				let value = crate::fdb::permission::PermissionValue::deserialize(entry.value())?;
+				Ok(crate::fdb::permission::PermissionEntry {
 					creator,
-					explicit: value.explicit,
-					implicit: value.implicit,
+					grant: value.grant,
+					direct: value.direct,
 					materialized: value.materialized,
 					permission,
 					subject,

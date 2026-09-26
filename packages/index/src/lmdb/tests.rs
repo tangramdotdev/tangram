@@ -6,7 +6,7 @@ mod indexer;
 mod location;
 mod log;
 mod object;
-mod process_object_grant;
+mod process_object_permission;
 mod reader;
 mod storage;
 mod update;

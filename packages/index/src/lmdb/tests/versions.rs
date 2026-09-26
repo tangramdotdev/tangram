@@ -192,7 +192,10 @@ async fn propagation_versions_reset_and_repeated_updates_stop() {
 			Kind::StorageAndMetadata,
 			crate::update::Kind::StorageAndMetadata,
 		),
-		(Kind::Grant(subject.clone()), crate::update::Kind::Grant),
+		(
+			Kind::Permission(subject.clone()),
+			crate::update::Kind::Permission,
+		),
 	] {
 		for (source, version, propagated) in [
 			(Source::Put, 100, true),
@@ -259,7 +262,7 @@ async fn propagation_versions_reset_and_repeated_updates_stop() {
 	);
 	let transaction = index.env.read_txn().unwrap();
 	for id in ids {
-		for kind in [Kind::StorageAndMetadata, Kind::Grant(subject.clone())] {
+		for kind in [Kind::StorageAndMetadata, Kind::Permission(subject.clone())] {
 			let key = Key::Update(super::super::update::Key::PropagatedVersion {
 				id: tg::Either::Left(id.clone()),
 				kind,

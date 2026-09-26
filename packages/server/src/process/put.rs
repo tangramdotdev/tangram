@@ -10,15 +10,15 @@ use {
 };
 
 pub(crate) struct Authorization {
-	pub(super) command_grants_subtree: bool,
-	pub(super) error_grants_subtree: bool,
-	pub(super) log_grants_subtree: bool,
-	pub(super) output_grants_subtree: bool,
+	pub(super) command_has_subtree_permission: bool,
+	pub(super) error_has_subtree_permission: bool,
+	pub(super) log_has_subtree_permission: bool,
+	pub(super) output_has_subtree_permission: bool,
 }
 
-pub(crate) enum ObjectGrants {
+pub(crate) enum ObjectPermissions {
 	Authorized(Authorization),
-	Discover(tangram_index::process::object::grant::Arg),
+	Discover(tangram_index::process::object::permission::Arg),
 }
 
 pub(crate) struct Options {
@@ -68,7 +68,12 @@ impl Session {
 		Self::validate_process_data(&arg.data)?;
 		let authorization = self.authorize_process_data(&arg.data).await?;
 		let output = self
-			.put_process_local_inner(id, arg, ObjectGrants::Authorized(authorization), options)
+			.put_process_local_inner(
+				id,
+				arg,
+				ObjectPermissions::Authorized(authorization),
+				options,
+			)
 			.await?;
 
 		Ok(output)
@@ -81,26 +86,26 @@ impl Session {
 		options: Options,
 	) -> tg::Result<()> {
 		Self::validate_process_data(&data)?;
-		let object_grants = if let Some(authorization) = self
+		let object_permissions = if let Some(authorization) = self
 			.try_prepare_finished_process_authorization(&data)
-			.filter(|authorization| authorization.command_grants_subtree)
+			.filter(|authorization| authorization.command_has_subtree_permission)
 		{
-			ObjectGrants::Authorized(authorization)
+			ObjectPermissions::Authorized(authorization)
 		} else {
 			let roots = Self::finished_process_objects(&data);
 
 			let created_at = self.server.clock.unix_timestamp()?;
-			let process_object_grant_arg = self
-				.create_process_object_grant_arg(id, roots, created_at, None)
+			let process_object_permission_arg = self
+				.create_process_object_permission_arg(id, roots, created_at, None)
 				.await?;
-			ObjectGrants::Discover(process_object_grant_arg)
+			ObjectPermissions::Discover(process_object_permission_arg)
 		};
 
 		let entry = tg::process::put::Arg {
 			data,
 			location: None,
 		};
-		self.put_process_local_inner(id, entry, object_grants, options)
+		self.put_process_local_inner(id, entry, object_permissions, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
 
@@ -114,7 +119,7 @@ impl Session {
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
-		let grants_subtree = |object: &tg::Referent<tg::object::Id>| {
+		let has_subtree_permission = |object: &tg::Referent<tg::object::Id>| {
 			let resource = tg::Id::from(object.node.clone());
 			object
 				.options
@@ -129,13 +134,17 @@ impl Session {
 		};
 		let objects = Self::finished_process_objects(data);
 		let command_object_count = data.command.objects().len();
-		let command_grants_subtree = objects[..command_object_count].iter().all(grants_subtree);
-		let authorized = objects[command_object_count..].iter().all(grants_subtree);
+		let command_has_subtree_permission = objects[..command_object_count]
+			.iter()
+			.all(has_subtree_permission);
+		let authorized = objects[command_object_count..]
+			.iter()
+			.all(has_subtree_permission);
 		authorized.then_some(Authorization {
-			command_grants_subtree,
-			error_grants_subtree: true,
-			log_grants_subtree: true,
-			output_grants_subtree: true,
+			command_has_subtree_permission,
+			error_has_subtree_permission: true,
+			log_has_subtree_permission: true,
+			output_has_subtree_permission: true,
 		})
 	}
 
@@ -196,23 +205,25 @@ impl Session {
 		let authorizations = self
 			.authorize_batch(objects.into_iter().map(|object| (object, permissions)))
 			.await?;
-		let grants_subtree = |authorizations: &[Option<tg::authorization::permission::Set>]| {
-			authorizations.iter().all(|authorization| {
-				authorization.is_some_and(|permissions| permissions.contains(permission))
-			})
-		};
-		let command_grants_subtree = grants_subtree(&authorizations[..command_object_count]);
-		let error_grants_subtree =
-			grants_subtree(&authorizations[command_object_count..error_object_count]);
-		let log_grants_subtree =
-			grants_subtree(&authorizations[error_object_count..log_object_count]);
-		let output_grants_subtree =
-			grants_subtree(&authorizations[log_object_count..output_object_count]);
+		let has_subtree_permission =
+			|authorizations: &[Option<tg::authorization::permission::Set>]| {
+				authorizations.iter().all(|authorization| {
+					authorization.is_some_and(|permissions| permissions.contains(permission))
+				})
+			};
+		let command_has_subtree_permission =
+			has_subtree_permission(&authorizations[..command_object_count]);
+		let error_has_subtree_permission =
+			has_subtree_permission(&authorizations[command_object_count..error_object_count]);
+		let log_has_subtree_permission =
+			has_subtree_permission(&authorizations[error_object_count..log_object_count]);
+		let output_has_subtree_permission =
+			has_subtree_permission(&authorizations[log_object_count..output_object_count]);
 		let authorization = Authorization {
-			command_grants_subtree,
-			error_grants_subtree,
-			log_grants_subtree,
-			output_grants_subtree,
+			command_has_subtree_permission,
+			error_has_subtree_permission,
+			log_has_subtree_permission,
+			output_has_subtree_permission,
 		};
 
 		Ok(authorization)
@@ -222,7 +233,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::put::Arg,
-		object_grants: ObjectGrants,
+		object_permissions: ObjectPermissions,
 		options: Options,
 	) -> tg::Result<tg::process::put::Output> {
 		let Options {
@@ -262,16 +273,16 @@ impl Session {
 		let log: Option<Option<tg::object::Id>> =
 			(!log_needs_compaction).then(|| arg.data.log.clone().map(|log| log.node.into()));
 		let enqueue_log_compaction = enqueue_log_compaction && log_needs_compaction;
-		let (subtree_objects, mut put_object_grants) = match object_grants {
-			ObjectGrants::Authorized(authorization) => {
+		let (subtree_objects, mut put_object_permissions) = match object_permissions {
+			ObjectPermissions::Authorized(authorization) => {
 				let Authorization {
-					command_grants_subtree,
-					error_grants_subtree,
-					log_grants_subtree,
-					output_grants_subtree,
+					command_has_subtree_permission,
+					error_has_subtree_permission,
+					log_has_subtree_permission,
+					output_has_subtree_permission,
 				} = authorization;
 				let mut objects = BTreeSet::new();
-				if command_grants_subtree {
+				if command_has_subtree_permission {
 					objects.extend(
 						arg.data
 							.command
@@ -280,18 +291,18 @@ impl Session {
 							.map(|object| object.node),
 					);
 				}
-				if error_grants_subtree && let Some(error) = &error {
+				if error_has_subtree_permission && let Some(error) = &error {
 					objects.extend(error.iter().cloned());
 				}
-				if log_grants_subtree && let Some(Some(log)) = &log {
+				if log_has_subtree_permission && let Some(Some(log)) = &log {
 					objects.insert(log.clone());
 				}
-				if output_grants_subtree && let Some(output) = &output {
+				if output_has_subtree_permission && let Some(output) = &output {
 					objects.extend(output.iter().cloned());
 				}
 				(objects, Vec::new())
 			},
-			ObjectGrants::Discover(mut arg) => {
+			ObjectPermissions::Discover(mut arg) => {
 				let subtree = tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
 				);
@@ -307,28 +318,28 @@ impl Session {
 						true
 					}
 				});
-				let grants = if arg.roots.is_empty() {
+				let permissions = if arg.roots.is_empty() {
 					Vec::new()
 				} else {
-					vec![tangram_index::batch::Item::PutProcessObjectGrants(arg)]
+					vec![tangram_index::batch::Item::PutProcessObjectPermissions(arg)]
 				};
-				(objects, grants)
+				(objects, permissions)
 			},
 		};
 		for object in subtree_objects {
-			let arg = tangram_index::grant::put::Arg {
+			let arg = tangram_index::permission::put::Arg {
 				created_at: now,
 				creator: Some(tg::Principal::Process(id.clone())),
-				implicit: Some(None),
 				permissions: tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
 				)
 				.into(),
 				resource: object.into(),
+				source: tangram_index::permission::Source::Direct { expires_at: None },
 				subject: tg::authorization::Subject::Process(id.clone()),
 				time_to_touch: None,
 			};
-			put_object_grants.push(tangram_index::batch::Item::PutGrant(arg));
+			put_object_permissions.push(tangram_index::batch::Item::PutPermission(arg));
 		}
 		let data = store_data.then(|| arg.data.clone());
 		let put_process_arg = tangram_index::process::put::Arg {
@@ -357,39 +368,42 @@ impl Session {
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};
-		let grant_expires_at = now
+		let permission_expires_at = now
 			+ self
 				.server
 				.config
 				.process
-				.grant_time_to_live
+				.permission_time_to_live
 				.as_secs()
 				.to_i64()
 				.unwrap();
-		let grant_subject = match &self.context.principal {
+		let permission_subject = match &self.context.principal {
 			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
 			tg::Principal::Root => None,
 			principal => Some(principal.try_to_subject()?),
 		};
-		let put_grant = grant_subject.map(|grant_subject| tangram_index::grant::put::Arg {
-			created_at: now,
-			creator: Some(self.context.principal.clone()),
-			implicit: Some(Some(grant_expires_at)),
-			permissions: tg::authorization::Permission::Process(
-				tg::authorization::permission::process::Permission::Node,
-			)
-			.into(),
-			subject: grant_subject,
-			resource: id.clone().into(),
-			time_to_touch: Some(self.server.config.process.grant_time_to_touch),
-		});
+		let put_permission =
+			permission_subject.map(|permission_subject| tangram_index::permission::put::Arg {
+				created_at: now,
+				creator: Some(self.context.principal.clone()),
+				permissions: tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::Node,
+				)
+				.into(),
+				resource: id.clone().into(),
+				source: tangram_index::permission::Source::Direct {
+					expires_at: Some(permission_expires_at),
+				},
+				subject: permission_subject,
+				time_to_touch: Some(self.server.config.process.permission_time_to_touch),
+			});
 		let account = self.usage_account(&self.context.principal).await?;
 
 		// Put the process in the index.
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
-				.chain(put_object_grants)
-				.chain(put_grant.map(tangram_index::batch::Item::PutGrant))
+				.chain(put_object_permissions)
+				.chain(put_permission.map(tangram_index::batch::Item::PutPermission))
 				.chain(
 					enqueue_log_compaction
 						.then(|| tangram_index::batch::Item::EnqueueLogCompaction(id.clone())),
@@ -423,7 +437,7 @@ impl Session {
 					.iter()
 					.map(tg::authorization::Permission::Process)
 					.collect(),
-				grant_expires_at,
+				permission_expires_at,
 			)?,
 		);
 

@@ -40,7 +40,7 @@ impl Arg {
 			&& self.principal != tg::Principal::Process(self.process.clone())
 		{
 			return Err(tg::error!(
-				"non-expiring process object grants must be authorized by the process"
+				"non-expiring process object permissions must be authorized by the process"
 			));
 		}
 		if self.roots.iter().any(|root| {
@@ -49,7 +49,7 @@ impl Arg {
 			})
 		}) {
 			return Err(tg::error!(
-				"process object grant roots must contain object permissions"
+				"process object permission roots must contain object permissions"
 			));
 		}
 

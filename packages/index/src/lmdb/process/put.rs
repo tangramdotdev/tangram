@@ -333,7 +333,9 @@ impl Index {
 				subspace,
 				transaction,
 				tg::Either::Left(object),
-				crate::lmdb::update::Kind::Grant(tg::authorization::Subject::Process(id.clone())),
+				crate::lmdb::update::Kind::Permission(tg::authorization::Subject::Process(
+					id.clone(),
+				)),
 				crate::lmdb::update::Source::Put,
 				None,
 			)?;

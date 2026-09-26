@@ -30,8 +30,8 @@ impl Index {
 				crate::batch::Item::DeleteCheckout(id) => {
 					Self::delete_checkout(db, subspace, transaction, id)?;
 				},
-				crate::batch::Item::DeleteGrant(arg) => {
-					Self::delete_grants_with_transaction(
+				crate::batch::Item::DeletePermission(arg) => {
+					Self::delete_permissions_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -110,8 +110,8 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				crate::batch::Item::PutGrant(arg) => {
-					Self::put_grants_with_transaction(
+				crate::batch::Item::PutPermission(arg) => {
+					Self::put_permissions_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -188,8 +188,8 @@ impl Index {
 						std::slice::from_ref(arg),
 					)?;
 				},
-				crate::batch::Item::PutProcessObjectGrants(arg) => {
-					Self::put_process_object_grants_with_transaction(
+				crate::batch::Item::PutProcessObjectPermissions(arg) => {
+					Self::put_process_object_permissions_with_transaction(
 						db,
 						subspace,
 						transaction,

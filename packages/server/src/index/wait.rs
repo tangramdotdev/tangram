@@ -501,7 +501,7 @@ impl State {
 			return Ok(());
 		}
 		let oldests = future::try_join3(
-			read(tangram_index::update::Kind::Grant),
+			read(tangram_index::update::Kind::Permission),
 			read(tangram_index::update::Kind::StorageAndMetadata),
 			read(tangram_index::update::Kind::Usage),
 		)

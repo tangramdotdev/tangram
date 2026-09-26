@@ -48,18 +48,18 @@ impl Session {
 		arg: tg::object::batch::Arg,
 	) -> tg::Result<tg::object::batch::Output> {
 		let now = self.server.clock.unix_timestamp()?;
-		let grant_expires_at = now
+		let permission_expires_at = now
 			+ self
 				.server
 				.config
 				.object
-				.grant_time_to_live
+				.permission_time_to_live
 				.as_secs()
 				.to_i64()
 				.unwrap();
 
-		// Get the grant subject.
-		let grant_subject = match &self.context.principal {
+		// Get the permission subject.
+		let permission_subject = match &self.context.principal {
 			tg::Principal::Anonymous => Some(tg::authorization::Subject::Public),
 			tg::Principal::Root => None,
 			principal => Some(principal.try_to_subject()?),
@@ -121,7 +121,7 @@ impl Session {
 			put_object_args.push(arg);
 		}
 
-		// Determine which objects can receive subtree grants.
+		// Determine which objects can receive subtree permissions.
 		let mut subtree_objects = BTreeSet::new();
 		loop {
 			let mut changed = false;
@@ -149,22 +149,24 @@ impl Session {
 			}
 		}
 
-		let mut put_grant_args = Vec::with_capacity(arg.objects.len());
+		let mut put_permission_args = Vec::with_capacity(arg.objects.len());
 		for object in &arg.objects {
-			if let Some(grant_subject) = &grant_subject {
+			if let Some(permission_subject) = &permission_subject {
 				let permission = if subtree_objects.contains(&object.id) {
 					tg::authorization::permission::object::Permission::Subtree
 				} else {
 					tg::authorization::permission::object::Permission::Node
 				};
-				put_grant_args.push(tangram_index::grant::put::Arg {
+				put_permission_args.push(tangram_index::permission::put::Arg {
 					created_at: now,
 					creator: Some(self.context.principal.clone()),
-					implicit: Some(Some(grant_expires_at)),
 					permissions: tg::authorization::Permission::Object(permission).into(),
-					subject: grant_subject.clone(),
 					resource: object.id.clone().into(),
-					time_to_touch: Some(self.server.config.object.grant_time_to_touch),
+					source: tangram_index::permission::Source::Direct {
+						expires_at: Some(permission_expires_at),
+					},
+					subject: permission_subject.clone(),
+					time_to_touch: Some(self.server.config.object.permission_time_to_touch),
 				});
 			}
 		}
@@ -182,9 +184,9 @@ impl Session {
 				.into_iter()
 				.map(tangram_index::batch::Item::PutObject)
 				.chain(
-					put_grant_args
+					put_permission_args
 						.into_iter()
-						.map(tangram_index::batch::Item::PutGrant),
+						.map(tangram_index::batch::Item::PutPermission),
 				)
 				.chain(account.into_iter().flat_map(|account| {
 					account_objects.iter().cloned().map(move |object| {
@@ -215,7 +217,7 @@ impl Session {
 				let token = self.create_token(
 					object.id.clone().into(),
 					vec![tg::authorization::Permission::Object(permission)],
-					grant_expires_at,
+					permission_expires_at,
 				)?;
 				let object = tg::Referent::with_node_and_local_tokens(object.id, token);
 				Ok(object)

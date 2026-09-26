@@ -1,5 +1,5 @@
 use {
-	crate::lmdb::{Config, Index, Key, grant::Key as GrantKey, object::Key as ObjectKey},
+	crate::lmdb::{Config, Index, Key, object::Key as ObjectKey, permission::Key as PermissionKey},
 	heed as lmdb,
 	tangram_client::prelude::*,
 };
@@ -56,20 +56,20 @@ fn put_child(
 	put(index, txn, &key, &[]);
 }
 
-fn put_grant(
+fn put_permission(
 	index: &Index,
 	txn: &mut lmdb::RwTxn<'_>,
 	resource: &tg::object::Id,
 	user: &tg::user::Id,
 	permission: tg::authorization::permission::object::Permission,
 ) {
-	let value = crate::lmdb::grant::GrantValue {
-		explicit: true,
+	let value = crate::lmdb::permission::PermissionValue {
+		grant: true,
 		..Default::default()
 	}
 	.serialize()
 	.unwrap();
-	let key = Key::Grant(GrantKey::ResourceGrant {
+	let key = Key::Permission(PermissionKey::ResourcePermission {
 		creator: None,
 		permission: tg::authorization::Permission::Object(permission),
 		resource: resource.clone().into(),
@@ -82,7 +82,7 @@ fn put_grant(
 //
 //     p1 ... p1088        the decoy's parents, more numerous than the edge budget
 //        \   |   /
-//         decoy   proof   the proof carries a grant for the requester
+//         decoy   proof   the proof carries a permission for the requester
 //             \   /
 //             target      the resource being authorized
 //
@@ -118,7 +118,7 @@ async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 		put_child(&index, &mut txn, &object, &decoy);
 	}
 	let subtree = tg::authorization::permission::object::Permission::Subtree;
-	put_grant(&index, &mut txn, &proof, &user, subtree);
+	put_permission(&index, &mut txn, &proof, &user, subtree);
 	txn.commit().unwrap();
 
 	// Authorize the target.

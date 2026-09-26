@@ -1346,9 +1346,11 @@ impl Session {
 			};
 			batch.items.push(item);
 			if created.contains(&id)
-				&& let Some(arg) = self.sync_get_create_implicit_grant(&id, None)?
+				&& let Some(arg) = self.sync_get_create_permission(&id, None)?
 			{
-				batch.items.push(tangram_index::batch::Item::PutGrant(arg));
+				batch
+					.items
+					.push(tangram_index::batch::Item::PutPermission(arg));
 			}
 		}
 		for message in nodes.iter().filter_map(|node| {

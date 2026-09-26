@@ -4,10 +4,10 @@ use {
 	tangram_client::prelude::*,
 };
 
-async fn drain_grant_updates(index: &Index) {
+async fn drain_permission_updates(index: &Index) {
 	loop {
 		let output = index
-			.update_batch(crate::update::Kind::Grant, 100)
+			.update_batch(crate::update::Kind::Permission, 100)
 			.await
 			.unwrap();
 		if output.count == 0 {
@@ -17,7 +17,7 @@ async fn drain_grant_updates(index: &Index) {
 }
 
 #[tokio::test]
-async fn implicit_grants_become_non_expiring_when_a_process_relationship_is_added() {
+async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_added() {
 	let (_dir, index) = super::new_index();
 	let command = object_id(0);
 	let creator = tg::Principal::User(tg::user::Id::new());
@@ -27,18 +27,20 @@ async fn implicit_grants_become_non_expiring_when_a_process_relationship_is_adde
 		tg::authorization::permission::object::Permission::Subtree,
 	);
 	index
-		.put_grants(&[crate::grant::put::Arg {
+		.put_permissions(&[crate::permission::put::Arg {
 			created_at: 0,
 			creator: Some(creator),
-			implicit: Some(Some(10)),
 			permissions: subtree.into(),
 			resource: command.clone().into(),
+			source: crate::permission::Source::Direct {
+				expires_at: Some(10),
+			},
 			subject: subject.clone(),
 			time_to_touch: None,
 		}])
 		.await
 		.unwrap();
-	drain_grant_updates(&index).await;
+	drain_permission_updates(&index).await;
 
 	index
 		.batch(crate::batch::Arg {
@@ -64,24 +66,24 @@ async fn implicit_grants_become_non_expiring_when_a_process_relationship_is_adde
 		})
 		.await
 		.unwrap();
-	drain_grant_updates(&index).await;
+	drain_permission_updates(&index).await;
 
-	let value = process_implicit_value(&index, &command, &process, subtree);
-	assert_eq!(value.implicit, Some(None));
+	let value = process_direct_value(&index, &command, &process, subtree);
+	assert_eq!(value.direct, Some(None));
 }
 
 fn object_id(n: usize) -> tg::object::Id {
 	tg::object::Id::new(tg::object::Kind::Blob, &n.to_le_bytes().to_vec().into())
 }
 
-fn process_implicit_value(
+fn process_direct_value(
 	index: &Index,
 	object: &tg::object::Id,
 	process: &tg::process::Id,
 	permission: tg::authorization::Permission,
-) -> super::super::grant::GrantValue {
+) -> super::super::permission::PermissionValue {
 	let transaction = index.env.read_txn().unwrap();
-	let key = Key::Grant(super::super::grant::Key::ResourceGrant {
+	let key = Key::Permission(super::super::permission::Key::ResourcePermission {
 		creator: Some(tg::Principal::Process(process.clone())),
 		permission,
 		resource: object.clone().into(),
@@ -90,10 +92,10 @@ fn process_implicit_value(
 	let key = Index::pack(&index.subspace, &key);
 	let value = index.db.get(&transaction, &key).unwrap().unwrap();
 
-	super::super::grant::GrantValue::deserialize(value).unwrap()
+	super::super::permission::PermissionValue::deserialize(value).unwrap()
 }
 
-fn implicit_grant_expiration_exists(
+fn direct_permission_expiration_exists(
 	index: &Index,
 	object: &tg::object::Id,
 	process: &tg::process::Id,
@@ -101,12 +103,12 @@ fn implicit_grant_expiration_exists(
 	expires_at: i64,
 ) -> bool {
 	let transaction = index.env.read_txn().unwrap();
-	let key = Key::Grant(super::super::grant::Key::GrantExpiresAt {
+	let key = Key::Permission(super::super::permission::Key::PermissionExpiresAt {
 		creator: Some(tg::Principal::Process(process.clone())),
 		expires_at,
 		permission,
 		resource: object.clone().into(),
-		source: super::super::grant::GrantSource::Implicit,
+		source: super::super::permission::PermissionSource::Direct,
 		subject: tg::authorization::Subject::Process(process.clone()),
 	});
 	let key = Index::pack(&index.subspace, &key);
@@ -115,7 +117,7 @@ fn implicit_grant_expiration_exists(
 }
 
 #[tokio::test]
-async fn process_permissions_promote_to_non_expiring_implicit_grants() {
+async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 	let (_dir, index) = super::new_index();
 	let child = object_id(1);
 	let process = tg::process::Id::new();
@@ -166,12 +168,12 @@ async fn process_permissions_promote_to_non_expiring_implicit_grants() {
 					time_to_touch: std::time::Duration::ZERO,
 					touched_at: 0,
 				}),
-				crate::batch::Item::PutGrant(crate::grant::put::Arg {
+				crate::batch::Item::PutPermission(crate::permission::put::Arg {
 					created_at: 0,
 					creator: Some(creator.clone()),
-					implicit: Some(None),
 					permissions: node.into(),
 					resource: wrapper.clone().into(),
+					source: crate::permission::Source::Direct { expires_at: None },
 					subject: subject.clone(),
 					time_to_touch: None,
 				}),
@@ -179,60 +181,66 @@ async fn process_permissions_promote_to_non_expiring_implicit_grants() {
 		})
 		.await
 		.unwrap();
-	drain_grant_updates(&index).await;
+	drain_permission_updates(&index).await;
 
 	index
-		.put_grants(&[
-			crate::grant::put::Arg {
+		.put_permissions(&[
+			crate::permission::put::Arg {
 				created_at: 0,
 				creator: Some(creator.clone()),
-				implicit: Some(Some(10)),
 				permissions: subtree.into(),
 				resource: child.clone().into(),
+				source: crate::permission::Source::Direct {
+					expires_at: Some(10),
+				},
 				subject: subject.clone(),
 				time_to_touch: None,
 			},
-			crate::grant::put::Arg {
+			crate::permission::put::Arg {
 				created_at: 0,
 				creator: Some(creator.clone()),
-				implicit: Some(Some(10)),
 				permissions: subtree.into(),
 				resource: unrelated.clone().into(),
+				source: crate::permission::Source::Direct {
+					expires_at: Some(10),
+				},
 				subject: subject.clone(),
 				time_to_touch: None,
 			},
 		])
 		.await
 		.unwrap();
-	drain_grant_updates(&index).await;
+	drain_permission_updates(&index).await;
 
-	let child_value = process_implicit_value(&index, &child, &process, subtree);
-	assert_eq!(child_value.implicit, Some(None));
-	assert!(!implicit_grant_expiration_exists(
+	let child_value = process_direct_value(&index, &child, &process, subtree);
+	assert_eq!(child_value.direct, Some(None));
+	assert!(!direct_permission_expiration_exists(
 		&index, &child, &process, subtree, 10,
 	));
-	let wrapper_value = process_implicit_value(&index, &wrapper, &process, subtree);
-	assert_eq!(wrapper_value.implicit, Some(None));
-	let unrelated_value = process_implicit_value(&index, &unrelated, &process, subtree);
-	assert_eq!(unrelated_value.implicit, Some(Some(10)));
-	assert!(implicit_grant_expiration_exists(
+	let wrapper_value = process_direct_value(&index, &wrapper, &process, subtree);
+	assert_eq!(wrapper_value.direct, Some(None));
+	let unrelated_value = process_direct_value(&index, &unrelated, &process, subtree);
+	assert_eq!(unrelated_value.direct, Some(Some(10)));
+	assert!(direct_permission_expiration_exists(
 		&index, &unrelated, &process, subtree, 10,
 	));
 
 	index
-		.delete_grants(&[crate::grant::delete::Arg {
+		.delete_permissions(&[crate::permission::delete::Arg {
 			creator: Some(creator),
-			implicit: Some(Some(10)),
 			permissions: subtree.into(),
 			resource: child.clone().into(),
+			source: crate::permission::Source::Direct {
+				expires_at: Some(10),
+			},
 			subject,
 		}])
 		.await
 		.unwrap();
-	drain_grant_updates(&index).await;
+	drain_permission_updates(&index).await;
 
-	let child_value = process_implicit_value(&index, &child, &process, subtree);
-	assert_eq!(child_value.implicit, Some(None));
+	let child_value = process_direct_value(&index, &child, &process, subtree);
+	assert_eq!(child_value.direct, Some(None));
 }
 
 #[tokio::test]
@@ -248,7 +256,7 @@ async fn separates_update_queues() {
 		&index.subspace,
 		&mut transaction,
 		id.clone(),
-		super::super::update::Kind::Grant(tg::authorization::Subject::User(user.clone())),
+		super::super::update::Kind::Permission(tg::authorization::Subject::User(user.clone())),
 		super::super::update::Source::Put,
 		None,
 	)
@@ -279,7 +287,7 @@ async fn separates_update_queues() {
 	transaction.commit().unwrap();
 
 	for kind in [
-		crate::update::Kind::Grant,
+		crate::update::Kind::Permission,
 		crate::update::Kind::StorageAndMetadata,
 		crate::update::Kind::Usage,
 	] {
@@ -306,7 +314,7 @@ async fn separates_update_queues() {
 	);
 	assert!(
 		index
-			.try_get_oldest_update_transaction_id(crate::update::Kind::Grant)
+			.try_get_oldest_update_transaction_id(crate::update::Kind::Permission)
 			.await
 			.unwrap()
 			.is_some()
@@ -320,13 +328,13 @@ async fn separates_update_queues() {
 	);
 
 	let output = index
-		.update_batch(crate::update::Kind::Grant, 100)
+		.update_batch(crate::update::Kind::Permission, 100)
 		.await
 		.unwrap();
 	assert_eq!(output.count, 1);
 	assert_eq!(
 		index
-			.try_get_oldest_update_transaction_id(crate::update::Kind::Grant)
+			.try_get_oldest_update_transaction_id(crate::update::Kind::Permission)
 			.await
 			.unwrap(),
 		None

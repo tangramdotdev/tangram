@@ -338,12 +338,13 @@ impl Session {
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::authorization::Token>> {
 		let created_at = self.server.clock.unix_timestamp()?;
-		let time_to_live =
-			i64::try_from(self.server.config.process.grant_time_to_live.as_secs())
-				.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let time_to_live = i64::try_from(
+			self.server.config.process.permission_time_to_live.as_secs(),
+		)
+		.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
 		let expires_at = created_at
 			.checked_add(time_to_live)
-			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
 		let resource = tg::Id::from(id.clone());
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,

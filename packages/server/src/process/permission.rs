@@ -4,46 +4,48 @@ use {
 };
 
 impl Session {
-	pub(crate) fn create_process_sandbox_grant_arg(
+	pub(crate) fn create_process_sandbox_permission_arg(
 		&self,
 		process: &tg::process::Id,
 		sandbox: &tg::sandbox::Id,
 		created_at: i64,
-	) -> tg::Result<tangram_index::grant::put::Arg> {
+	) -> tg::Result<tangram_index::permission::put::Arg> {
 		let time_to_live = i64::try_from(
 			self.server
 				.config
 				.sandbox
-				.process_grant_time_to_live
+				.process_permission_time_to_live
 				.as_secs(),
 		)
-		.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
 		let expires_at = created_at
 			.checked_add(time_to_live)
-			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Parent,
 		);
-		let arg = tangram_index::grant::put::Arg {
+		let arg = tangram_index::permission::put::Arg {
 			created_at,
 			creator: Some(self.context.principal.clone()),
-			implicit: Some(Some(expires_at)),
 			permissions: permission.into(),
 			resource: process.clone().into(),
+			source: tangram_index::permission::Source::Direct {
+				expires_at: Some(expires_at),
+			},
 			subject: tg::authorization::Subject::Sandbox(sandbox.clone()),
-			time_to_touch: Some(self.server.config.sandbox.process_grant_time_to_touch),
+			time_to_touch: Some(self.server.config.sandbox.process_permission_time_to_touch),
 		};
 		Ok(arg)
 	}
 
-	pub(crate) async fn create_process_object_grant_arg(
+	pub(crate) async fn create_process_object_permission_arg(
 		&self,
 		process: &tg::process::Id,
 		roots: impl IntoIterator<Item = tg::Referent<tg::object::Id>>,
 		created_at: i64,
 		expires_at: Option<i64>,
-	) -> tg::Result<tangram_index::process::object::grant::Arg> {
-		self.create_process_object_grant_arg_with_root_permissions(
+	) -> tg::Result<tangram_index::process::object::permission::Arg> {
+		self.create_process_object_permission_arg_with_root_permissions(
 			process,
 			roots,
 			created_at,
@@ -53,24 +55,24 @@ impl Session {
 		.await
 	}
 
-	pub(crate) async fn create_process_object_grant_arg_with_root_permissions(
+	pub(crate) async fn create_process_object_permission_arg_with_root_permissions(
 		&self,
 		process: &tg::process::Id,
 		roots: impl IntoIterator<Item = tg::Referent<tg::object::Id>>,
 		created_at: i64,
 		expires_at: Option<i64>,
 		root_permissions: tg::authorization::permission::object::Set,
-	) -> tg::Result<tangram_index::process::object::grant::Arg> {
+	) -> tg::Result<tangram_index::process::object::permission::Arg> {
 		let roots = self
-			.prepare_process_object_grant_roots(roots, root_permissions)
+			.prepare_process_object_permission_roots(roots, root_permissions)
 			.await?;
 
 		let authorize =
 			crate::authorization_search_config(&self.server.config.authorization.final_);
 		let principal = self.context.principal.clone();
 		let process = process.clone();
-		let time_to_touch = expires_at.map(|_| self.server.config.object.grant_time_to_touch);
-		let arg = tangram_index::process::object::grant::Arg {
+		let time_to_touch = expires_at.map(|_| self.server.config.object.permission_time_to_touch);
+		let arg = tangram_index::process::object::permission::Arg {
 			authorize,
 			created_at,
 			expires_at,
@@ -83,11 +85,11 @@ impl Session {
 		Ok(arg)
 	}
 
-	pub(crate) async fn prepare_process_object_grant_roots(
+	pub(crate) async fn prepare_process_object_permission_roots(
 		&self,
 		roots: impl IntoIterator<Item = tg::Referent<tg::object::Id>>,
 		root_permissions: tg::authorization::permission::object::Set,
-	) -> tg::Result<Vec<tangram_index::process::object::grant::Root>> {
+	) -> tg::Result<Vec<tangram_index::process::object::permission::Root>> {
 		let node = tg::authorization::permission::object::Permission::Node;
 		let subtree = tg::authorization::permission::object::Permission::Subtree;
 		let subtree_permission = tg::authorization::Permission::Object(subtree);
@@ -131,7 +133,7 @@ impl Session {
 						tokens,
 					});
 				}
-				tangram_index::process::object::grant::Root {
+				tangram_index::process::object::permission::Root {
 					object: root.node,
 					permissions,
 				}
@@ -141,7 +143,7 @@ impl Session {
 		// Resolve authorization from the current index or wait for indexing.
 		if !index_args.is_empty() {
 			let required = vec![subtree_permission.into(); index_args.len()];
-			self.prepare_process_object_grant_authorization(index_args, required)
+			self.prepare_process_object_permission_authorization(index_args, required)
 				.boxed()
 				.await?;
 		}
@@ -149,7 +151,7 @@ impl Session {
 		Ok(roots)
 	}
 
-	async fn prepare_process_object_grant_authorization(
+	async fn prepare_process_object_permission_authorization(
 		&self,
 		args: Vec<tangram_index::authorize::Arg>,
 		required: Vec<tg::authorization::permission::Set>,
@@ -157,7 +159,7 @@ impl Session {
 		let authorization = &self.server.config.authorization;
 		let delay = authorization.index.delay;
 		let initial_config = crate::authorization_search_config(&authorization.initial);
-		let grants_required = |outcomes: &[tangram_index::authorize::Outcome]| {
+		let permissions_required = |outcomes: &[tangram_index::authorize::Outcome]| {
 			outcomes.len() == required.len()
 				&& std::iter::zip(outcomes, &required).all(|(outcome, required)| {
 					outcome
@@ -188,21 +190,21 @@ impl Session {
 			Ok(())
 		};
 		match initial_result {
-			Some(Ok(outcomes)) if grants_required(&outcomes) => {},
+			Some(Ok(outcomes)) if permissions_required(&outcomes) => {},
 			Some(Ok(_)) => index_wait.await?,
 			Some(Err(error)) => return Err(error),
 			None => {
 				tokio::pin!(index_wait);
 				tokio::select! {
 					result = &mut initial => match result {
-						Ok(outcomes) if grants_required(&outcomes) => {},
+						Ok(outcomes) if permissions_required(&outcomes) => {},
 						Ok(_) => index_wait.await?,
 						Err(error) => return Err(error),
 					},
 					result = &mut index_wait => match result {
 						Ok(()) => {},
 						Err(error) => match initial.await {
-							Ok(outcomes) if grants_required(&outcomes) => {},
+							Ok(outcomes) if permissions_required(&outcomes) => {},
 							Ok(_) | Err(_) => return Err(error),
 						},
 					},

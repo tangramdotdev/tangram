@@ -3,7 +3,7 @@ use {
 	std::collections::BTreeSet, tangram_client::prelude::*,
 };
 
-mod grant;
+mod permission;
 mod runner;
 
 pub(crate) use runner::Runner;
@@ -76,17 +76,17 @@ impl Session {
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE);
 		}
 		if self
-			.process_output_grants_subtree(data.output.as_ref())
+			.process_output_has_subtree_permission(data.output.as_ref())
 			.unwrap_or(true)
 		{
 			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
 		}
-		if self.process_error_grants_subtree(data.error.as_ref()) {
+		if self.process_error_has_subtree_permission(data.error.as_ref()) {
 			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR);
 		}
-		if self.process_log_grants_subtree(data.log.as_ref()) {
+		if self.process_log_has_subtree_permission(data.log.as_ref()) {
 			permissions.insert(tg::authorization::permission::process::Set::NODE_LOG);
 			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG);
 		}
@@ -110,11 +110,14 @@ impl Session {
 			.any(|token| self.authorize_token(&resource, permission.into(), token))
 	}
 
-	fn process_output_grants_subtree(&self, output: Option<&tg::value::Data>) -> Option<bool> {
+	fn process_output_has_subtree_permission(
+		&self,
+		output: Option<&tg::value::Data>,
+	) -> Option<bool> {
 		output.map(|output| self.value_data_tokens_grant_subtree(output))
 	}
 
-	fn process_error_grants_subtree(
+	fn process_error_has_subtree_permission(
 		&self,
 		error: Option<&tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
 	) -> bool {
@@ -131,7 +134,7 @@ impl Session {
 		}
 	}
 
-	fn process_log_grants_subtree(&self, log: Option<&tg::Referent<tg::blob::Id>>) -> bool {
+	fn process_log_has_subtree_permission(&self, log: Option<&tg::Referent<tg::blob::Id>>) -> bool {
 		log.is_none_or(|log| self.object_token_grants_subtree_for_process(log))
 	}
 

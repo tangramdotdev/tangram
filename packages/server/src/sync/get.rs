@@ -89,7 +89,7 @@ impl Session {
 			sender,
 		});
 
-		// Keep control alive until the grants are queued, including when the transfer is cancelled.
+		// Keep control alive until the permissions are queued, including when the transfer is cancelled.
 		let completion = Completion {
 			enqueued: false,
 			result: Err(tg::error!(
@@ -290,11 +290,11 @@ impl Session {
 		Ok(())
 	}
 
-	fn sync_get_create_implicit_grant(
+	fn sync_get_create_permission(
 		&self,
 		id: &tg::Id,
 		sync: Option<&tg::sync::Id>,
-	) -> tg::Result<Option<tangram_index::grant::put::Arg>> {
+	) -> tg::Result<Option<tangram_index::permission::put::Arg>> {
 		if sync.is_none()
 			&& id.kind() != tg::id::Kind::Sync
 			&& matches!(self.context.principal, tg::Principal::Root)
@@ -302,11 +302,11 @@ impl Session {
 			return Ok(None);
 		}
 		let created_at = self.server.clock.unix_timestamp()?;
-		let time_to_live = i64::try_from(self.server.config.sync.grant_time_to_live.as_secs())
-			.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let time_to_live = i64::try_from(self.server.config.sync.permission_time_to_live.as_secs())
+			.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
 		let expires_at = created_at
 			.checked_add(time_to_live)
-			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
 		let permission = match id.kind() {
 			tg::id::Kind::Sandbox if sync.is_some() => tg::authorization::Permission::Sandbox(
 				tg::authorization::permission::sandbox::Permission::Read,
@@ -324,14 +324,16 @@ impl Session {
 				principal => principal.try_to_subject()?,
 			},
 		};
-		let arg = tangram_index::grant::put::Arg {
+		let arg = tangram_index::permission::put::Arg {
 			created_at,
 			creator: Some(self.context.principal.clone()),
-			implicit: Some(Some(expires_at)),
 			permissions,
 			resource: id.clone(),
+			source: tangram_index::permission::Source::Direct {
+				expires_at: Some(expires_at),
+			},
 			subject,
-			time_to_touch: Some(self.server.config.sync.grant_time_to_touch),
+			time_to_touch: Some(self.server.config.sync.permission_time_to_touch),
 		};
 
 		Ok(Some(arg))

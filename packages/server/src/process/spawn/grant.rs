@@ -4,33 +4,36 @@ use {
 };
 
 impl Session {
-	pub(super) fn spawn_process_create_creator_grant_arg(
+	pub(super) fn spawn_process_create_creator_permission_arg(
 		&self,
 		id: &tg::process::Id,
 		created_at: i64,
-	) -> tg::Result<Option<tangram_index::grant::put::Arg>> {
+	) -> tg::Result<Option<tangram_index::permission::put::Arg>> {
 		let subject = match &self.context.principal {
 			tg::Principal::Anonymous => tg::authorization::Subject::Public,
 			tg::Principal::Root => return Ok(None),
 			principal => principal.try_to_subject()?,
 		};
-		let time_to_live =
-			i64::try_from(self.server.config.process.grant_time_to_live.as_secs())
-				.map_err(|error| tg::error!(!error, "failed to convert the grant time to live"))?;
+		let time_to_live = i64::try_from(
+			self.server.config.process.permission_time_to_live.as_secs(),
+		)
+		.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
 		let expires_at = created_at
 			.checked_add(time_to_live)
-			.ok_or_else(|| tg::error!("the grant expiration overflowed"))?;
+			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Parent,
 		);
-		let arg = tangram_index::grant::put::Arg {
+		let arg = tangram_index::permission::put::Arg {
 			created_at,
 			creator: Some(self.context.principal.clone()),
-			implicit: Some(Some(expires_at)),
 			permissions: permission.into(),
 			resource: id.clone().into(),
+			source: tangram_index::permission::Source::Direct {
+				expires_at: Some(expires_at),
+			},
 			subject,
-			time_to_touch: Some(self.server.config.process.grant_time_to_touch),
+			time_to_touch: Some(self.server.config.process.permission_time_to_touch),
 		};
 		Ok(Some(arg))
 	}

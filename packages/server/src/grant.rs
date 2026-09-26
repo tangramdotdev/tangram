@@ -322,14 +322,14 @@ impl Session {
 			crate::database::retry!(result, "failed to execute the statement");
 			(created_at, Some(creator.clone()), permissions, true)
 		};
-		batch.items.push(tangram_index::batch::Item::PutGrant(
-			tangram_index::grant::put::Arg {
+		batch.items.push(tangram_index::batch::Item::PutPermission(
+			tangram_index::permission::put::Arg {
 				created_at,
 				creator: output_creator.clone(),
-				implicit: None,
 				permissions,
-				subject: subject.clone(),
 				resource: resource.clone(),
+				source: tangram_index::permission::Source::Grant,
+				subject: subject.clone(),
 				time_to_touch: None,
 			},
 		));
@@ -452,15 +452,17 @@ impl Session {
 			}
 		}
 		if !deleted.is_empty() {
-			batch.items.push(tangram_index::batch::Item::DeleteGrant(
-				tangram_index::grant::delete::Arg {
-					creator: Some(creator),
-					implicit: None,
-					permissions: deleted,
-					subject,
-					resource,
-				},
-			));
+			batch
+				.items
+				.push(tangram_index::batch::Item::DeletePermission(
+					tangram_index::permission::delete::Arg {
+						creator: Some(creator),
+						permissions: deleted,
+						resource,
+						source: tangram_index::permission::Source::Grant,
+						subject,
+					},
+				));
 		}
 		Ok(ControlFlow::Break(Some(())))
 	}
@@ -667,15 +669,17 @@ impl Session {
 			.await;
 		let rows = crate::database::retry!(result, "failed to execute the statement");
 		for row in rows {
-			batch.items.push(tangram_index::batch::Item::DeleteGrant(
-				tangram_index::grant::delete::Arg {
-					creator: Some(row.creator),
-					implicit: None,
-					permissions: row.permissions,
-					subject: row.subject,
-					resource: row.resource,
-				},
-			));
+			batch
+				.items
+				.push(tangram_index::batch::Item::DeletePermission(
+					tangram_index::permission::delete::Arg {
+						creator: Some(row.creator),
+						permissions: row.permissions,
+						resource: row.resource,
+						source: tangram_index::permission::Source::Grant,
+						subject: row.subject,
+					},
+				));
 		}
 		let statement = formatdoc!(
 			"

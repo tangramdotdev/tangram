@@ -13,7 +13,7 @@ use {
 #[derive(
 	Clone, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
-pub(super) struct GrantUpdate {
+pub(super) struct PermissionUpdate {
 	#[tangram_serialize(id = 0)]
 	pub source: Source,
 	#[tangram_serialize(id = 1)]
@@ -49,19 +49,19 @@ pub(super) enum Source {
 	Propagate,
 }
 
-struct ProcessGrantInputs<'a> {
+struct ProcessPermissionInputs<'a> {
 	resource: &'a tg::Id,
-	entries: &'a [crate::lmdb::grant::GrantEntry],
-	child_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
-	command_object_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
-	error_object_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
-	log_object_entries: Option<&'a [crate::lmdb::grant::GrantEntry]>,
-	output_object_entries: &'a [Vec<crate::lmdb::grant::GrantEntry>],
-	set: ProcessGrantSet,
+	entries: &'a [crate::lmdb::permission::PermissionEntry],
+	child_entries: &'a [Vec<crate::lmdb::permission::PermissionEntry>],
+	command_object_entries: &'a [Vec<crate::lmdb::permission::PermissionEntry>],
+	error_object_entries: &'a [Vec<crate::lmdb::permission::PermissionEntry>],
+	log_object_entries: Option<&'a [crate::lmdb::permission::PermissionEntry]>,
+	output_object_entries: &'a [Vec<crate::lmdb::permission::PermissionEntry>],
+	set: ProcessPermissionSet,
 }
 
 #[derive(Clone, Copy)]
-struct ProcessGrantSet {
+struct ProcessPermissionSet {
 	command: bool,
 	error: bool,
 	output: bool,
@@ -73,23 +73,23 @@ struct ProcessOutput {
 }
 
 #[derive(Clone, Copy)]
-struct GrantCover {
+struct PermissionCover {
 	expires_at: Option<i64>,
 }
 
-impl GrantUpdate {
+impl PermissionUpdate {
 	pub fn new(source: Source, version: u64) -> Self {
 		Self { source, version }
 	}
 
 	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		tangram_serialize::to_vec(self)
-			.map_err(|error| tg::error!(!error, "failed to serialize the grant update"))
+			.map_err(|error| tg::error!(!error, "failed to serialize the permission update"))
 	}
 
 	pub fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
 		tangram_serialize::from_slice(bytes)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the grant update"))
+			.map_err(|error| tg::error!(!error, "failed to deserialize the permission update"))
 	}
 }
 
@@ -233,7 +233,7 @@ impl Index {
 
 			// A preceding item can lower the pending version after this batch selected its queue entry.
 			let (source, version) = match &kind {
-				Kind::Grant(_) | Kind::StorageAndMetadata => {
+				Kind::Permission(_) | Kind::StorageAndMetadata => {
 					let (source, version) = deserialize_source_update(&kind, value)?;
 					(Some(source), version)
 				},
@@ -244,15 +244,15 @@ impl Index {
 			};
 
 			let changed = match &kind {
-				Kind::Grant(subject) => match &id {
-					tg::Either::Left(id) => Self::update_object_grants_for_subject(
+				Kind::Permission(subject) => match &id {
+					tg::Either::Left(id) => Self::update_object_permissions_for_subject(
 						db,
 						subspace,
 						transaction,
 						id,
 						subject,
 					)?,
-					tg::Either::Right(id) => Self::update_process_grants_for_subject(
+					tg::Either::Right(id) => Self::update_process_permissions_for_subject(
 						db,
 						subspace,
 						transaction,
@@ -332,7 +332,7 @@ impl Index {
 							"failed to deserialize the propagated update version"
 						)
 					})?;
-				// Propagate an older version even when the item's metadata or grants are unchanged.
+				// Propagate an older version even when the item's metadata or permissions are unchanged.
 				if source == Source::Put
 					|| changed || propagated_version
 					.is_some_and(|propagated_version| version < propagated_version)
@@ -530,7 +530,7 @@ impl Index {
 		Ok(changed)
 	}
 
-	fn update_object_grants_for_subject(
+	fn update_object_permissions_for_subject(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -539,7 +539,7 @@ impl Index {
 	) -> tg::Result<bool> {
 		let resource = tg::Id::from(id.clone());
 		let children = Self::get_object_children_with_transaction(db, subspace, transaction, id)?;
-		let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
+		let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
 			db,
 			subspace,
 			transaction,
@@ -550,7 +550,7 @@ impl Index {
 			.iter()
 			.map(|child| {
 				let resource = tg::Id::from(child.clone());
-				Self::get_resource_grant_entries_for_subject_with_transaction(
+				Self::get_resource_permission_entries_for_subject_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -573,7 +573,7 @@ impl Index {
 			let expires_at = child_entries
 				.iter()
 				.try_fold(entry_expires_at, |output, entries| {
-					Self::grant_entries_cover_expires_at(entries, &entry.subject, subtree)
+					Self::permission_entries_cover_expires_at(entries, &entry.subject, subtree)
 						.map(|cover| Self::min_expires_at(output, cover.expires_at))
 				});
 			if let Some(expires_at) = expires_at {
@@ -584,7 +584,7 @@ impl Index {
 			}
 		}
 		let managed = BTreeSet::from([subtree]);
-		let materialized_changed = Self::reconcile_materialized_grants(
+		let materialized_changed = Self::reconcile_materialized_permissions(
 			db,
 			subspace,
 			transaction,
@@ -593,14 +593,14 @@ impl Index {
 			&expected,
 			&managed,
 		)?;
-		let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
+		let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
 			db,
 			subspace,
 			transaction,
 			&resource,
 			subject,
 		)?;
-		let implicit_changed = Self::promote_process_implicit_grants_for_subject(
+		let direct_changed = Self::promote_process_direct_permissions_for_subject(
 			db,
 			subspace,
 			transaction,
@@ -609,16 +609,16 @@ impl Index {
 			&entries,
 		)?;
 
-		Ok(implicit_changed || materialized_changed)
+		Ok(direct_changed || materialized_changed)
 	}
 
-	fn promote_process_implicit_grants_for_subject(
+	fn promote_process_direct_permissions_for_subject(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		id: &tg::object::Id,
 		subject: &tg::authorization::Subject,
-		entries: &[crate::lmdb::grant::GrantEntry],
+		entries: &[crate::lmdb::permission::PermissionEntry],
 	) -> tg::Result<bool> {
 		let tg::authorization::Subject::Process(process) = subject else {
 			return Ok(false);
@@ -634,7 +634,7 @@ impl Index {
 			let parents = Self::get_object_parents_with_transaction(db, subspace, transaction, id)?;
 			for parent in parents {
 				let resource = tg::Id::from(parent);
-				let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
+				let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -642,7 +642,7 @@ impl Index {
 					subject,
 				)?;
 				if entries.iter().any(|entry| {
-					entry.is_non_expiring_process_implicit() && entry.permission.implies(node)
+					entry.is_non_expiring_process_direct() && entry.permission.implies(node)
 				}) {
 					anchored = true;
 					break;
@@ -655,28 +655,26 @@ impl Index {
 
 		let permissions = entries
 			.iter()
-			.filter(|entry| {
-				entry.explicit || entry.implicit.is_some() || entry.materialized.is_some()
-			})
+			.filter(|entry| entry.grant || entry.direct.is_some() || entry.materialized.is_some())
 			.map(|entry| entry.permission)
 			.collect::<BTreeSet<_>>();
 		let creator = tg::Principal::Process(process.clone());
 		let resource = tg::Id::from(id.clone());
 		let mut changed = false;
 		for permission in permissions {
-			let entry = crate::lmdb::grant::GrantIndexEntry {
+			let entry = crate::lmdb::permission::PermissionIndexEntry {
 				creator: Some(&creator),
 				expires_at: None,
 				permission,
 				resource: &resource,
 				subject,
 			};
-			if Self::put_grant_index_entry(
+			if Self::put_permission_index_entry(
 				db,
 				subspace,
 				transaction,
 				&entry,
-				crate::lmdb::grant::GrantSource::Implicit,
+				crate::lmdb::permission::PermissionSource::Direct,
 				None,
 			)? {
 				changed = true;
@@ -686,12 +684,12 @@ impl Index {
 		Ok(changed)
 	}
 
-	fn reconcile_materialized_grants(
+	fn reconcile_materialized_permissions(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		resource: &tg::Id,
-		entries: &[crate::lmdb::grant::GrantEntry],
+		entries: &[crate::lmdb::permission::PermissionEntry],
 		expected: &BTreeSet<(
 			tg::authorization::Subject,
 			tg::authorization::Permission,
@@ -710,37 +708,37 @@ impl Index {
 			})
 			.collect::<BTreeSet<_>>();
 		for (subject, permission, expires_at) in current.difference(expected) {
-			let entry = crate::lmdb::grant::GrantIndexEntry {
+			let entry = crate::lmdb::permission::PermissionIndexEntry {
 				creator: None,
 				expires_at: *expires_at,
 				permission: *permission,
 				subject,
 				resource,
 			};
-			if Self::delete_grant_index_entry(
+			if Self::delete_permission_index_entry(
 				db,
 				subspace,
 				transaction,
 				&entry,
-				crate::lmdb::grant::GrantSource::Materialized,
+				crate::lmdb::permission::PermissionSource::Materialized,
 			)? {
 				changed = true;
 			}
 		}
 		for (subject, permission, expires_at) in expected.difference(&current) {
-			let entry = crate::lmdb::grant::GrantIndexEntry {
+			let entry = crate::lmdb::permission::PermissionIndexEntry {
 				creator: None,
 				expires_at: *expires_at,
 				permission: *permission,
 				subject,
 				resource,
 			};
-			if Self::put_grant_index_entry(
+			if Self::put_permission_index_entry(
 				db,
 				subspace,
 				transaction,
 				&entry,
-				crate::lmdb::grant::GrantSource::Materialized,
+				crate::lmdb::permission::PermissionSource::Materialized,
 				None,
 			)? {
 				changed = true;
@@ -749,11 +747,11 @@ impl Index {
 		Ok(changed)
 	}
 
-	fn update_process_grants(
+	fn update_process_permissions(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
-		input: &ProcessGrantInputs<'_>,
+		input: &ProcessPermissionInputs<'_>,
 	) -> tg::Result<bool> {
 		let object_subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
@@ -787,7 +785,7 @@ impl Index {
 				.iter()
 				.map(Vec::as_slice)
 				.collect::<Vec<_>>();
-			Self::insert_object_aspect_grants(
+			Self::insert_object_aspect_permissions(
 				&mut expected,
 				input.entries,
 				command_object_entries.iter().flat_map(|entries| *entries),
@@ -802,7 +800,7 @@ impl Index {
 				.iter()
 				.map(Vec::as_slice)
 				.collect::<Vec<_>>();
-			Self::insert_object_aspect_grants(
+			Self::insert_object_aspect_permissions(
 				&mut expected,
 				input.entries,
 				error_object_entries.iter().flat_map(|entries| *entries),
@@ -812,7 +810,7 @@ impl Index {
 			);
 		}
 		if let Some(log_object_entries) = input.log_object_entries {
-			Self::insert_object_aspect_grants(
+			Self::insert_object_aspect_permissions(
 				&mut expected,
 				input.entries,
 				log_object_entries,
@@ -827,7 +825,7 @@ impl Index {
 				.iter()
 				.map(Vec::as_slice)
 				.collect::<Vec<_>>();
-			Self::insert_object_aspect_grants(
+			Self::insert_object_aspect_permissions(
 				&mut expected,
 				input.entries,
 				output_object_entries.iter().flat_map(|entries| *entries),
@@ -857,8 +855,12 @@ impl Index {
 						.child_entries
 						.iter()
 						.try_fold(entry_expires_at, |output, entries| {
-							Self::grant_entries_cover_expires_at(entries, &entry.subject, target)
-								.map(|cover| Self::min_expires_at(output, cover.expires_at))
+							Self::permission_entries_cover_expires_at(
+								entries,
+								&entry.subject,
+								target,
+							)
+							.map(|cover| Self::min_expires_at(output, cover.expires_at))
 						});
 				if let Some(expires_at) = expires_at {
 					if Self::has_non_materialized_cover(
@@ -885,7 +887,7 @@ impl Index {
 			subtree_log,
 			subtree_output,
 		]);
-		Self::reconcile_materialized_grants(
+		Self::reconcile_materialized_permissions(
 			db,
 			subspace,
 			transaction,
@@ -896,15 +898,15 @@ impl Index {
 		)
 	}
 
-	fn insert_object_aspect_grants<'a>(
+	fn insert_object_aspect_permissions<'a>(
 		expected: &mut BTreeSet<(
 			tg::authorization::Subject,
 			tg::authorization::Permission,
 			Option<i64>,
 		)>,
-		target_entries: &[crate::lmdb::grant::GrantEntry],
-		sources: impl IntoIterator<Item = &'a crate::lmdb::grant::GrantEntry>,
-		required: &[&[crate::lmdb::grant::GrantEntry]],
+		target_entries: &[crate::lmdb::permission::PermissionEntry],
+		sources: impl IntoIterator<Item = &'a crate::lmdb::permission::PermissionEntry>,
+		required: &[&[crate::lmdb::permission::PermissionEntry]],
 		source_permission: tg::authorization::Permission,
 		target_permission: tg::authorization::Permission,
 	) {
@@ -918,8 +920,12 @@ impl Index {
 			let expires_at = required
 				.iter()
 				.try_fold(entry_expires_at, |output, entries| {
-					Self::grant_entries_cover_expires_at(entries, &entry.subject, source_permission)
-						.map(|cover| Self::min_expires_at(output, cover.expires_at))
+					Self::permission_entries_cover_expires_at(
+						entries,
+						&entry.subject,
+						source_permission,
+					)
+					.map(|cover| Self::min_expires_at(output, cover.expires_at))
 				});
 			if let Some(expires_at) = expires_at {
 				if Self::has_non_materialized_cover(
@@ -936,7 +942,7 @@ impl Index {
 	}
 
 	fn has_non_materialized_cover(
-		entries: &[crate::lmdb::grant::GrantEntry],
+		entries: &[crate::lmdb::permission::PermissionEntry],
 		subject: &tg::authorization::Subject,
 		permission: tg::authorization::Permission,
 		expires_at: Option<i64>,
@@ -948,20 +954,20 @@ impl Index {
 		})
 	}
 
-	fn grant_entries_cover_expires_at(
-		entries: &[crate::lmdb::grant::GrantEntry],
+	fn permission_entries_cover_expires_at(
+		entries: &[crate::lmdb::permission::PermissionEntry],
 		subject: &tg::authorization::Subject,
 		permission: tg::authorization::Permission,
-	) -> Option<GrantCover> {
+	) -> Option<PermissionCover> {
 		entries
 			.iter()
 			.filter(|entry| entry.subject == *subject && entry.permission == permission)
 			.filter_map(|entry| {
 				entry
 					.effective_expires_at()
-					.map(|expires_at| GrantCover { expires_at })
+					.map(|expires_at| PermissionCover { expires_at })
 			})
-			.reduce(|left, right| GrantCover {
+			.reduce(|left, right| PermissionCover {
 				expires_at: Self::max_expires_at(left.expires_at, right.expires_at),
 			})
 	}
@@ -980,7 +986,7 @@ impl Index {
 		}
 	}
 
-	fn update_process_grants_for_subject(
+	fn update_process_permissions_for_subject(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
@@ -997,7 +1003,7 @@ impl Index {
 		};
 		let process = crate::process::Process::deserialize(bytes)?;
 		let resource = tg::Id::from(id.clone());
-		let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
+		let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
 			db,
 			subspace,
 			transaction,
@@ -1009,7 +1015,7 @@ impl Index {
 			.iter()
 			.map(|child| {
 				let resource = tg::Id::from(child.clone());
-				Self::get_resource_grant_entries_for_subject_with_transaction(
+				Self::get_resource_permission_entries_for_subject_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -1019,13 +1025,16 @@ impl Index {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 		let objects = Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
-		let mut command_object_entries: Vec<Vec<crate::lmdb::grant::GrantEntry>> = Vec::new();
-		let mut error_object_entries: Vec<Vec<crate::lmdb::grant::GrantEntry>> = Vec::new();
-		let mut log_object_entries: Option<Vec<crate::lmdb::grant::GrantEntry>> = None;
-		let mut output_object_entries: Vec<Vec<crate::lmdb::grant::GrantEntry>> = Vec::new();
+		let mut command_object_entries: Vec<Vec<crate::lmdb::permission::PermissionEntry>> =
+			Vec::new();
+		let mut error_object_entries: Vec<Vec<crate::lmdb::permission::PermissionEntry>> =
+			Vec::new();
+		let mut log_object_entries: Option<Vec<crate::lmdb::permission::PermissionEntry>> = None;
+		let mut output_object_entries: Vec<Vec<crate::lmdb::permission::PermissionEntry>> =
+			Vec::new();
 		for (object, kind) in objects {
 			let resource = tg::Id::from(object);
-			let entries = Self::get_resource_grant_entries_for_subject_with_transaction(
+			let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
 				db,
 				subspace,
 				transaction,
@@ -1047,7 +1056,7 @@ impl Index {
 				},
 			}
 		}
-		let entry = ProcessGrantInputs {
+		let entry = ProcessPermissionInputs {
 			resource: &resource,
 			entries: &entries,
 			child_entries: &child_entries,
@@ -1055,13 +1064,13 @@ impl Index {
 			error_object_entries: &error_object_entries,
 			log_object_entries: log_object_entries.as_deref(),
 			output_object_entries: &output_object_entries,
-			set: ProcessGrantSet {
+			set: ProcessPermissionSet {
 				command: process.set.command,
 				error: process.set.error,
 				output: process.set.output,
 			},
 		};
-		Self::update_process_grants(db, subspace, transaction, &entry)
+		Self::update_process_permissions(db, subspace, transaction, &entry)
 	}
 
 	fn update_process(
@@ -2005,7 +2014,7 @@ impl Index {
 			.map_err(|error| tg::error!(!error, "failed to get update key"))?
 		{
 			let (existing_source, existing_version) = match &kind {
-				Kind::Grant(_) | Kind::StorageAndMetadata => {
+				Kind::Permission(_) | Kind::StorageAndMetadata => {
 					deserialize_source_update(&kind, existing)?
 				},
 				Kind::Usage(_) => (source, UsageUpdate::deserialize(existing)?.version),
@@ -2098,7 +2107,7 @@ impl Index {
 		id: &[u8],
 	) -> tg::Result<()> {
 		for kind in [
-			KeyKind::GrantUpdatePropagatedVersion,
+			KeyKind::PermissionUpdatePropagatedVersion,
 			KeyKind::StorageAndMetadataUpdatePropagatedVersion,
 			KeyKind::UsageUpdatePutVersion,
 		] {
@@ -2118,7 +2127,7 @@ impl Index {
 
 fn update_version_key_kind(kind: crate::update::Kind) -> KeyKind {
 	match kind {
-		crate::update::Kind::Grant => KeyKind::GrantUpdateVersion,
+		crate::update::Kind::Permission => KeyKind::PermissionUpdateVersion,
 		crate::update::Kind::StorageAndMetadata => KeyKind::StorageAndMetadataUpdateVersion,
 		crate::update::Kind::Usage => KeyKind::UsageUpdateVersion,
 	}
@@ -2126,8 +2135,8 @@ fn update_version_key_kind(kind: crate::update::Kind) -> KeyKind {
 
 fn deserialize_source_update(kind: &Kind, bytes: &[u8]) -> tg::Result<(Source, u64)> {
 	let output = match kind {
-		Kind::Grant(_) => {
-			let update = GrantUpdate::deserialize(bytes)?;
+		Kind::Permission(_) => {
+			let update = PermissionUpdate::deserialize(bytes)?;
 			(update.source, update.version)
 		},
 		Kind::StorageAndMetadata => {
@@ -2142,7 +2151,7 @@ fn deserialize_source_update(kind: &Kind, bytes: &[u8]) -> tg::Result<(Source, u
 
 fn serialize_update(kind: &Kind, source: Source, version: u64) -> tg::Result<Vec<u8>> {
 	let value = match kind {
-		Kind::Grant(_) => GrantUpdate::new(source, version).serialize()?,
+		Kind::Permission(_) => PermissionUpdate::new(source, version).serialize()?,
 		Kind::StorageAndMetadata => StorageAndMetadataUpdate::new(source, version).serialize()?,
 		Kind::Usage(_) => UsageUpdate::new(version).serialize()?,
 	};
