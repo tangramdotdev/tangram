@@ -19,7 +19,7 @@ export def test [case: string] {
 		sync: {
 			control: {
 				heartbeat_interval: 0.1,
-				lease_ttl: 2,
+				attempt_ttl: 2,
 				recovery_timeout: 0.5,
 				request_timeout: 5,
 				retry_interval: (if $case == 'notification' { 2 } else { 0.05 }),

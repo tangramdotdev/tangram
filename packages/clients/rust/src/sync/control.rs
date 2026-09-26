@@ -46,11 +46,11 @@ pub enum ServerMessage {
 	tangram_serialize::Serialize,
 )]
 pub struct ClientAck {
+	#[tangram_serialize(id = 1)]
+	pub attempt: String,
+
 	#[tangram_serialize(id = 0)]
 	pub id: String,
-
-	#[tangram_serialize(id = 1)]
-	pub lease: String,
 }
 
 #[derive(
@@ -62,11 +62,11 @@ pub struct ClientAck {
 	tangram_serialize::Serialize,
 )]
 pub struct ClientCancel {
+	#[tangram_serialize(id = 1)]
+	pub attempt: String,
+
 	#[tangram_serialize(id = 0)]
 	pub id: String,
-
-	#[tangram_serialize(id = 1)]
-	pub lease: String,
 }
 
 #[derive(
@@ -81,17 +81,17 @@ pub struct ClientRequest {
 	#[tangram_serialize(id = 0)]
 	pub arg: ClientRequestArg,
 
+	#[tangram_serialize(id = 3)]
+	/// Absent for heartbeats, which start an attempt or keep the current attempt alive.
+	pub attempt: Option<String>,
+
 	#[tangram_serialize(id = 1)]
 	/// Identifies the requesting sync and its stable reply subject.
 	pub client: String,
 
 	#[tangram_serialize(id = 2)]
-	/// Remains the same when the request is registered under a replacement lease.
+	/// Remains the same when the request is registered under a replacement attempt.
 	pub id: String,
-
-	#[tangram_serialize(id = 3)]
-	/// Absent for heartbeats, which create or renew the requesting sync's lease.
-	pub lease: Option<String>,
 }
 
 #[derive(
@@ -120,11 +120,11 @@ pub enum ClientRequestArg {
 	tangram_serialize::Serialize,
 )]
 pub struct ServerAck {
+	#[tangram_serialize(id = 1)]
+	pub attempt: String,
+
 	#[tangram_serialize(id = 0)]
 	pub id: String,
-
-	#[tangram_serialize(id = 1)]
-	pub lease: String,
 }
 
 #[derive(
@@ -136,14 +136,14 @@ pub struct ServerAck {
 	tangram_serialize::Serialize,
 )]
 pub struct ServerResponse {
+	#[tangram_serialize(id = 2)]
+	pub attempt: String,
+
 	#[tangram_serialize(id = 0)]
 	pub error: Option<tg::error::Data>,
 
 	#[tangram_serialize(id = 1)]
 	pub id: String,
-
-	#[tangram_serialize(id = 2)]
-	pub lease: String,
 
 	#[tangram_serialize(id = 3)]
 	pub output: Option<ServerResponseOutput>,

@@ -59,7 +59,7 @@ for kind in [object process] {
 	let endpoint = if $kind == object { 'objects' } else { 'processes' }
 	let uri = $'http://localhost/($endpoint)/($node)?($query)'
 
-	# Each read has its own client lease and must receive an acknowledgement before storage resumes.
+	# Each read has its own client attempt and must receive an acknowledgement before storage resumes.
 	let reads = 0..3 | each {
 		job spawn {
 			let job_id = job id
@@ -67,10 +67,10 @@ for kind in [object process] {
 			$output | job send --tag $job_id 0
 		}
 	}
-	let leases = 0..3 | each {|index|
-		timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $ack_watch $index | from json | get params.lease
+	let attempts = 0..3 | each {|index|
+		timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $ack_watch $index | from json | get params.attempt
 	}
-	assert equal ($leases | uniq | length) 4 'the reads should use separate client leases'
+	assert equal ($attempts | uniq | length) 4 'the reads should use separate client attempts'
 	let blocked_read = job spawn {
 		let job_id = job id
 		let output = http get --max-time 30sec --unix-socket $socket --headers $headers $'http://localhost/objects/($blocker)?($query)'

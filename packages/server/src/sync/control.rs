@@ -23,15 +23,15 @@ pub(super) struct Control {
 }
 
 struct State {
+	attempts: BTreeMap<String, Attempt>,
 	clients: BTreeMap<String, String>,
 	finished: Option<(Instant, tg::Result<()>)>,
 	graph: Arc<Mutex<Graph>>,
-	leases: BTreeMap<String, Lease>,
 	nodes: BTreeMap<tg::Id, BTreeSet<(String, String)>>,
 	response_cursor: Option<(String, String)>,
 }
 
-struct Lease {
+struct Attempt {
 	cancelled: BTreeSet<String>,
 	client: String,
 	expires_at: Instant,
@@ -75,10 +75,10 @@ impl Session {
 			.set_control(control.sender.downgrade());
 		let subject = subject(id);
 		let state = State {
+			attempts: BTreeMap::new(),
 			clients: BTreeMap::new(),
 			finished: None,
 			graph,
-			leases: BTreeMap::new(),
 			nodes: BTreeMap::new(),
 			response_cursor: None,
 		};
@@ -118,15 +118,15 @@ impl Server {
 		.await
 		.map_err(|error| tg::error!(!error, "timed out subscribing to the sync heartbeats"))?
 		.map_err(|error| tg::error!(!error, "failed to subscribe to the sync heartbeats"))?;
-		let lease_messages = tokio::time::timeout(
+		let attempt_messages = tokio::time::timeout(
 			self.config.sync.control.request_timeout,
 			self.messenger
-				.subscribe::<ClientMessage>(lease_subject(&subject, "*")),
+				.subscribe::<ClientMessage>(attempt_subject(&subject, "*")),
 		)
 		.await
-		.map_err(|error| tg::error!(!error, "timed out subscribing to the sync lease messages"))?
-		.map_err(|error| tg::error!(!error, "failed to subscribe to the sync lease messages"))?;
-		let messages = stream::select(heartbeat_messages, lease_messages);
+		.map_err(|error| tg::error!(!error, "timed out subscribing to the sync attempt messages"))?
+		.map_err(|error| tg::error!(!error, "failed to subscribe to the sync attempt messages"))?;
+		let messages = stream::select(heartbeat_messages, attempt_messages);
 		let mut messages = std::pin::pin!(messages);
 		let config = &self.config.sync.control;
 		let mut retry = tokio::time::interval(config.retry_interval);
@@ -137,7 +137,7 @@ impl Server {
 		loop {
 			tokio::select! {
 				() = stopper.wait(), if stopping_at.is_none() => {
-					stopping_at = Some(Instant::now() + config.lease_ttl);
+					stopping_at = Some(Instant::now() + config.attempt_ttl);
 					self.sync_control_finish(&subject, &mut state, Err(tg::error!(code = tg::error::Code::Cancellation, "the server is stopping"))).await;
 				},
 				event = events.recv(), if !events_closed => {
@@ -147,11 +147,11 @@ impl Server {
 							let mut responses = Vec::new();
 							for id in ids {
 								if let Some(requests) = state.nodes.remove(&id) {
-									for (lease, request) in requests {
-										if Self::sync_control_create_response(&mut state, &lease, &request) {
-											responses.push((lease, request));
+									for (attempt, request) in requests {
+										if Self::sync_control_create_response(&mut state, &attempt, &request) {
+											responses.push((attempt, request));
 										} else {
-											state.nodes.entry(id.clone()).or_default().insert((lease, request));
+											state.nodes.entry(id.clone()).or_default().insert((attempt, request));
 										}
 									}
 								}
@@ -179,15 +179,15 @@ impl Server {
 
 			// A stopping server only needs to retain responses that have not been acknowledged.
 			let drained = stopping_at.is_some()
-				&& state.leases.values().all(|lease| {
-					lease
+				&& state.attempts.values().all(|attempt| {
+					attempt
 						.requests
 						.values()
 						.all(|request| request.acknowledged_at.is_some())
 				});
 			if stopping_at.is_some_and(|deadline| drained || now >= deadline)
 				|| state.finished.as_ref().is_some_and(|(finished_at, _)| {
-					now >= *finished_at + config.lease_ttl && state.leases.is_empty()
+					now >= *finished_at + config.attempt_ttl && state.attempts.is_empty()
 				}) {
 				break;
 			}
@@ -208,12 +208,12 @@ impl Server {
 			protocol::ClientMessage::Ack(ack) => {
 				if !self
 					.messenger
-					.matches_subject(&message.subject, lease_subject(subject, &ack.lease))
+					.matches_subject(&message.subject, attempt_subject(subject, &ack.attempt))
 				{
 					return Ok(());
 				}
-				if let Some(lease) = state.leases.get_mut(&ack.lease)
-					&& let Some(request) = lease.requests.get_mut(&ack.id)
+				if let Some(attempt) = state.attempts.get_mut(&ack.attempt)
+					&& let Some(request) = attempt.requests.get_mut(&ack.id)
 					&& request.response.is_some()
 				{
 					request.acknowledged_at.get_or_insert_with(Instant::now);
@@ -221,7 +221,7 @@ impl Server {
 						self,
 						"sync.control.response_ack",
 						id = %ack.id,
-						lease = %ack.lease
+						attempt = %ack.attempt
 					)
 					.await;
 				}
@@ -229,38 +229,39 @@ impl Server {
 			protocol::ClientMessage::Cancel(cancel) => {
 				if !self
 					.messenger
-					.matches_subject(&message.subject, lease_subject(subject, &cancel.lease))
+					.matches_subject(&message.subject, attempt_subject(subject, &cancel.attempt))
 				{
 					return Ok(());
 				}
-				let Some(lease) = state.leases.get_mut(&cancel.lease) else {
+				let Some(attempt) = state.attempts.get_mut(&cancel.attempt) else {
 					return Ok(());
 				};
-				lease.cancelled.insert(cancel.id.clone());
-				if let Some(request) = lease.requests.remove(&cancel.id)
+				attempt.cancelled.insert(cancel.id.clone());
+				if let Some(request) = attempt.requests.remove(&cancel.id)
 					&& let Some(node) = request.arg.node()
 					&& let Some(requests) = state.nodes.get_mut(&node)
 				{
-					requests.remove(&(cancel.lease.clone(), cancel.id.clone()));
+					requests.remove(&(cancel.attempt.clone(), cancel.id.clone()));
 					if requests.is_empty() {
 						state.nodes.remove(&node);
 					}
 				}
-				crate::checkpoint!(self, "sync.control.cancel", id = %cancel.id, lease = %cancel.lease).await;
+				crate::checkpoint!(self, "sync.control.cancel", id = %cancel.id, attempt = %cancel.attempt).await;
 			},
 			protocol::ClientMessage::Request(request) => {
 				match &request.arg {
 					protocol::ClientRequestArg::Get(_) => {
-						let Some(lease) = request.lease.as_ref() else {
+						let Some(attempt) = request.attempt.as_ref() else {
 							return Ok(());
 						};
 						if !self
 							.messenger
-							.matches_subject(&message.subject, lease_subject(subject, lease))
-							|| state.leases.get(lease).is_none_or(|lease| {
-								lease.client != request.client || Instant::now() >= lease.expires_at
+							.matches_subject(&message.subject, attempt_subject(subject, attempt))
+							|| state.attempts.get(attempt).is_none_or(|attempt| {
+								attempt.client != request.client
+									|| Instant::now() >= attempt.expires_at
 							}) {
-							// Only a heartbeat may establish a lease. The next heartbeat recovers a lost registration.
+							// Only a heartbeat may establish an attempt. The next heartbeat recovers a lost registration.
 							return Ok(());
 						}
 						self.sync_control_get(subject, state, request).await;
@@ -269,7 +270,7 @@ impl Server {
 						if !self
 							.messenger
 							.matches_subject(&message.subject, heartbeat_subject(subject))
-							|| request.lease.is_some()
+							|| request.attempt.is_some()
 						{
 							return Ok(());
 						}
@@ -288,16 +289,16 @@ impl Server {
 		state: &mut State,
 		request: protocol::ClientRequest,
 	) -> tg::Result<()> {
-		let ttl = self.config.sync.control.lease_ttl;
+		let ttl = self.config.sync.control.attempt_ttl;
 		if state
 			.clients
 			.get(&request.client)
-			.is_some_and(|lease| Instant::now() >= state.leases[lease].expires_at)
+			.is_some_and(|attempt| Instant::now() >= state.attempts[attempt].expires_at)
 		{
 			self.sync_control_expire(state);
 		}
-		let lease = if let Some(lease) = state.clients.get(&request.client) {
-			lease.clone()
+		let attempt = if let Some(attempt) = state.clients.get(&request.client) {
+			attempt.clone()
 		} else {
 			// Leave a bounded window for callers racing with the end of the transfer.
 			if state
@@ -309,19 +310,19 @@ impl Server {
 			}
 			let mut bytes = [0; 16];
 			aws_lc_rs::rand::fill(&mut bytes)
-				.map_err(|error| tg::error!(!error, "failed to generate a sync lease"))?;
+				.map_err(|error| tg::error!(!error, "failed to generate a sync attempt"))?;
 			let id = tg::id::ENCODING.encode(&bytes);
-			let lease = Lease {
+			let attempt = Attempt {
 				cancelled: BTreeSet::new(),
 				client: request.client.clone(),
 				expires_at: Instant::now() + ttl,
 				requests: BTreeMap::new(),
 			};
-			state.leases.insert(id.clone(), lease);
+			state.attempts.insert(id.clone(), attempt);
 			state.clients.insert(request.client.clone(), id.clone());
 			id
 		};
-		let entry = state.leases.get_mut(&lease).unwrap();
+		let entry = state.attempts.get_mut(&attempt).unwrap();
 		if let Some(previous) = entry.requests.get(&request.id) {
 			if let Some(response) = &previous.response {
 				self.sync_control_publish(
@@ -334,13 +335,13 @@ impl Server {
 			return Ok(());
 		}
 
-		// A retransmitted heartbeat must not renew the lease again.
+		// A retransmitted heartbeat must not extend the attempt lifetime again.
 		entry.expires_at = Instant::now() + ttl;
 		let output = protocol::HeartbeatServerResponseOutput { ttl };
 		let response = protocol::ServerResponse {
+			attempt: attempt.clone(),
 			error: None,
 			id: request.id.clone(),
-			lease: lease.clone(),
 			output: Some(protocol::ServerResponseOutput::Heartbeat(output)),
 		};
 		let client = request.client.clone();
@@ -350,8 +351,8 @@ impl Server {
 			response: Some(response.clone()),
 		};
 		state
-			.leases
-			.get_mut(&lease)
+			.attempts
+			.get_mut(&attempt)
 			.unwrap()
 			.requests
 			.insert(response.id.clone(), entry);
@@ -360,7 +361,7 @@ impl Server {
 			"sync.control.heartbeat.response",
 			client = %client,
 			id = %response.id,
-			lease = %lease
+			attempt = %attempt
 		)
 		.await;
 		self.sync_control_publish(
@@ -379,16 +380,16 @@ impl Server {
 		state: &mut State,
 		request: protocol::ClientRequest,
 	) {
-		let lease = request.lease.clone().unwrap();
+		let attempt = request.attempt.clone().unwrap();
 		let id = request.id.clone();
 		let client = request.client.clone();
-		if state.leases[&lease].cancelled.contains(&id) {
+		if state.attempts[&attempt].cancelled.contains(&id) {
 			return;
 		}
-		if let Some(previous) = state.leases[&lease].requests.get(&id) {
+		if let Some(previous) = state.attempts[&attempt].requests.get(&id) {
 			let message = match &previous.response {
 				Some(response) => protocol::ServerMessage::Response(response.clone()),
-				None => protocol::ServerMessage::Ack(protocol::ServerAck { id, lease }),
+				None => protocol::ServerMessage::Ack(protocol::ServerAck { attempt, id }),
 			};
 			self.sync_control_publish(subject, &client, message).await;
 			return;
@@ -401,22 +402,22 @@ impl Server {
 			response: None,
 		};
 		state
-			.leases
-			.get_mut(&lease)
+			.attempts
+			.get_mut(&attempt)
 			.unwrap()
 			.requests
 			.insert(id.clone(), entry);
-		if Self::sync_control_create_response(state, &lease, &id) {
-			self.sync_control_send_responses_inner(subject, state, vec![(lease, id)])
+		if Self::sync_control_create_response(state, &attempt, &id) {
+			self.sync_control_send_responses_inner(subject, state, vec![(attempt, id)])
 				.await;
 		} else {
 			state
 				.nodes
 				.entry(node)
 				.or_default()
-				.insert((lease.clone(), id.clone()));
-			crate::checkpoint!(self, "sync.control.request.retain", id = %id, lease = %lease, node = %state.leases[&lease].requests[&id].arg.node().unwrap()).await;
-			let ack = protocol::ServerAck { id, lease };
+				.insert((attempt.clone(), id.clone()));
+			crate::checkpoint!(self, "sync.control.request.retain", id = %id, attempt = %attempt, node = %state.attempts[&attempt].requests[&id].arg.node().unwrap()).await;
+			let ack = protocol::ServerAck { attempt, id };
 			self.sync_control_publish(subject, &client, protocol::ServerMessage::Ack(ack))
 				.await;
 		}
@@ -429,19 +430,19 @@ impl Server {
 		state.finished = Some((Instant::now(), result.clone()));
 		let requests = std::mem::take(&mut state.nodes);
 		for requests in requests.into_values() {
-			for (lease, id) in requests {
-				Self::sync_control_create_response(state, &lease, &id);
+			for (attempt, id) in requests {
+				Self::sync_control_create_response(state, &attempt, &id);
 			}
 		}
 		self.sync_control_send_responses(subject, state).await;
 		crate::checkpoint!(self, "sync.control.finish").await;
 	}
 
-	fn sync_control_create_response(state: &mut State, lease: &str, id: &str) -> bool {
+	fn sync_control_create_response(state: &mut State, attempt: &str, id: &str) -> bool {
 		let Some(request) = state
-			.leases
-			.get(lease)
-			.and_then(|lease| lease.requests.get(id))
+			.attempts
+			.get(attempt)
+			.and_then(|attempt| attempt.requests.get(id))
 		else {
 			return false;
 		};
@@ -466,8 +467,8 @@ impl Server {
 			result => result,
 		};
 		let request = state
-			.leases
-			.get_mut(lease)
+			.attempts
+			.get_mut(attempt)
 			.unwrap()
 			.requests
 			.get_mut(id)
@@ -483,9 +484,9 @@ impl Server {
 			},
 		};
 		let response = protocol::ServerResponse {
+			attempt: attempt.to_owned(),
 			error,
 			id: id.to_owned(),
-			lease: lease.to_owned(),
 			output,
 		};
 		request.response = Some(response);
@@ -494,12 +495,12 @@ impl Server {
 
 	async fn sync_control_send_responses(&self, subject: &str, state: &mut State) {
 		let responses = state
-			.leases
+			.attempts
 			.iter()
-			.flat_map(|(lease_id, lease)| {
-				lease.requests.iter().filter_map(|(id, request)| {
+			.flat_map(|(attempt_id, attempt)| {
+				attempt.requests.iter().filter_map(|(id, request)| {
 					(request.acknowledged_at.is_none() && request.response.is_some())
-						.then_some((lease_id.clone(), id.clone()))
+						.then_some((attempt_id.clone(), id.clone()))
 				})
 			})
 			.collect::<Vec<_>>();
@@ -521,9 +522,9 @@ impl Server {
 
 		// Resume at the next response if a slow messenger exhausts this batch's time.
 		let future = async {
-			for (lease, id) in responses {
-				state.response_cursor = Some((lease.clone(), id.clone()));
-				let entry = &state.leases[&lease];
+			for (attempt, id) in responses {
+				state.response_cursor = Some((attempt.clone(), id.clone()));
+				let entry = &state.attempts[&attempt];
 				let response = entry.requests[&id].response.as_ref().unwrap().clone();
 				self.sync_control_publish(
 					subject,
@@ -540,18 +541,18 @@ impl Server {
 
 	fn sync_control_expire(&self, state: &mut State) {
 		let now = Instant::now();
-		let ttl = self.config.sync.control.lease_ttl;
-		state.leases.retain(|_, lease| {
-			lease
+		let ttl = self.config.sync.control.attempt_ttl;
+		state.attempts.retain(|_, attempt| {
+			attempt
 				.requests
 				.retain(|_, request| request.acknowledged_at.is_none_or(|time| now < time + ttl));
-			now < lease.expires_at
+			now < attempt.expires_at
 		});
 		state
 			.clients
-			.retain(|_, lease| state.leases.contains_key(lease));
+			.retain(|_, attempt| state.attempts.contains_key(attempt));
 		state.nodes.retain(|_, requests| {
-			requests.retain(|(lease, _)| state.leases.contains_key(lease));
+			requests.retain(|(attempt, _)| state.attempts.contains_key(attempt));
 			!requests.is_empty()
 		});
 	}
@@ -613,8 +614,8 @@ fn client_subject(subject: &str, client: &str) -> String {
 	format!("{subject}.client.{client}")
 }
 
-fn lease_subject(subject: &str, lease: &str) -> String {
-	format!("{subject}.leases.{lease}.server")
+fn attempt_subject(subject: &str, attempt: &str) -> String {
+	format!("{subject}.attempts.{attempt}.server")
 }
 
 fn heartbeat_subject(subject: &str) -> String {

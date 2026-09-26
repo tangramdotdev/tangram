@@ -288,11 +288,11 @@ class Peer:
         self.messenger = messenger
         self.subject = subject(token)
 
-    def request(self, heartbeat=False, lease=None, timeout=10):
+    def request(self, heartbeat=False, attempt=None, timeout=10):
         return self.messenger.receive(lambda path, message:
             path.startswith(self.subject + ".") and path.endswith(".server") and message.id == 1
             and (message.value[0].id == 0) == heartbeat
-            and (lease is None or message.value[3] == lease), timeout)
+            and (attempt is None or message.value[3] == attempt), timeout)
 
     def ack(self, request):
         self.reply(request, Variant(0, {0: request[2], 1: request[3]}))
@@ -300,8 +300,8 @@ class Peer:
     def reply(self, request, message):
         self.messenger.publish(f"{self.subject}.client.{request[1]}", message)
 
-    def heartbeat(self, request, lease):
-        self.reply(request, Variant(1, {0: None, 1: request[2], 2: lease, 3: Variant(0, {0: (TTL, 0)})}))
+    def heartbeat(self, request, attempt):
+        self.reply(request, Variant(1, {0: None, 1: request[2], 2: attempt, 3: Variant(0, {0: (TTL, 0)})}))
 
     def respond(self, request, error=None, stored=True):
         storage = {0: True} if stored else None
@@ -310,22 +310,22 @@ class Peer:
         output = None if error else Variant(1, Variant(kind, {0: storage, 1: permissions}) if stored else None)
         self.reply(request, Variant(1, {0: {3: error} if error else None, 1: request[2], 2: request[3], 3: output}))
 
-    def cancel(self, id, lease):
-        self.messenger.publish(f"{self.subject}.leases.{lease}.server", Variant(2, {0: id, 1: lease}))
+    def cancel(self, id, attempt):
+        self.messenger.publish(f"{self.subject}.attempts.{attempt}.server", Variant(2, {0: id, 1: attempt}))
 
     def cancelled(self, request):
         return self.messenger.receive(lambda path, message:
-            path == f"{self.subject}.leases.{request[3]}.server"
+            path == f"{self.subject}.attempts.{request[3]}.server"
             and message == Variant(2, {0: request[2], 1: request[3]}))
 
-    def acknowledged(self, id, lease):
+    def acknowledged(self, id, attempt):
         return self.messenger.receive(lambda path, message:
-            path == f"{self.subject}.leases.{lease}.server" and message == Variant(0, {0: id, 1: lease}))
+            path == f"{self.subject}.attempts.{attempt}.server" and message == Variant(0, {0: id, 1: attempt}))
 
-    def send(self, id, node=None, lease=None, client="client", permissions=Variant(1, [Variant(0)]), storage=Variant(0, {})):
+    def send(self, id, node=None, attempt=None, client="client", permissions=Variant(1, [Variant(0)]), storage=Variant(0, {})):
         arg = Variant(0, {}) if node is None else Variant(1, {0: node_bytes(node), 1: permissions, 2: storage})
-        request = {0: arg, 1: client, 2: id, 3: lease}
-        path = f"{self.subject}.server" if lease is None else f"{self.subject}.leases.{lease}.server"
+        request = {0: arg, 1: client, 2: id, 3: attempt}
+        path = f"{self.subject}.server" if attempt is None else f"{self.subject}.attempts.{attempt}.server"
         self.messenger.publish(path, Variant(1, request))
         return request
 
@@ -338,7 +338,7 @@ class Peer:
             path == f"{self.subject}.client.{client}" and message.id == 0 and message.value[0] == id)
 
     def acknowledge(self, response):
-        self.messenger.publish(f"{self.subject}.leases.{response[2]}.server", Variant(0, {0: response[1], 1: response[2]}))
+        self.messenger.publish(f"{self.subject}.attempts.{response[2]}.server", Variant(0, {0: response[1], 1: response[2]}))
 
     def connect(self, id="heartbeat", client="client"):
         deadline = time.monotonic() + 10
@@ -404,16 +404,16 @@ def test_output(messenger):
         sync.close()
 
 
-def recover_lease(messenger, fail):
+def recover_attempt(messenger, fail):
     sync, peer, subscribe = fake_peer(messenger)
-    id = missing_id(1) if fail else source_blob("old lease")
+    id = missing_id(1) if fail else source_blob("old attempt")
     with concurrent.futures.ThreadPoolExecutor() as executor:
         read = executor.submit(read_object, id, sync.token)
         heartbeat = peer.request(True)
         assert peer.request(True)[2] == heartbeat[2], "heartbeat retries must preserve their ID"
         peer.heartbeat(heartbeat, "old")
         request = peer.request()
-        assert peer.request() == request, "node retries must preserve their ID and lease"
+        assert peer.request() == request, "node retries must preserve their ID and attempt"
         ack_watch = watch("sync.control.ack", node=id)
         peer.ack(request)
         reached("sync.control.ack", ack_watch)
@@ -423,13 +423,13 @@ def recover_lease(messenger, fail):
         while heartbeat[2] == old_heartbeat[2]:
             heartbeat = peer.request(True)
         peer.heartbeat(heartbeat, "new")
-        replacement = peer.request(lease="new", timeout=1)
-        assert replacement[2] == request[2], "lease replacement must replay the outstanding request"
+        replacement = peer.request(attempt="new", timeout=1)
+        assert replacement[2] == request[2], "attempt replacement must replay the outstanding request"
         peer.ack(request)
-        assert peer.request(lease="new")[2] == request[2], "an old ACK must not stop retries on the new lease"
+        assert peer.request(attempt="new")[2] == request[2], "an old ACK must not stop retries on the new attempt"
         peer.ack(replacement)
         if not fail:
-            assert command("put", 'tg.blob("old lease")') == id
+            assert command("put", 'tg.blob("old attempt")') == id
         error = "the replacement was cancelled" if fail else None
         response_request = replacement if fail else request
         peer.respond(response_request, error)
@@ -438,7 +438,7 @@ def recover_lease(messenger, fail):
             assert status == 404, (status, body)
         else:
             assert status == 200, (status, body)
-            assert base64.b64decode(json.loads(body)["data"]["value"]["bytes"]) == b"old lease"
+            assert base64.b64decode(json.loads(body)["data"]["value"]["bytes"]) == b"old attempt"
         peer.acknowledged(request[2], response_request[3])
         peer.respond(request, error)
         peer.acknowledged(request[2], "old")
@@ -448,9 +448,9 @@ def recover_lease(messenger, fail):
     release("sync.control.subscribe", subscribe)
 
 
-def test_leases(messenger):
-    recover_lease(messenger, False)
-    recover_lease(messenger, True)
+def test_attempts(messenger):
+    recover_attempt(messenger, False)
+    recover_attempt(messenger, True)
 
 
 def test_stale_heartbeats(messenger):
@@ -467,7 +467,7 @@ def test_stale_heartbeats(messenger):
         peer.heartbeat(old, "old")
         peer.acknowledged(old[2], "old")
         messenger.absent(lambda path, message:
-            path == f"{peer.subject}.leases.old.server" and message.id == 1)
+            path == f"{peer.subject}.attempts.old.server" and message.id == 1)
         deadline = time.monotonic() + TTL + 1
         while time.monotonic() < deadline:
             peer.heartbeat(new, "new")
@@ -483,7 +483,7 @@ def test_final_read(messenger):
     id = source_blob("final read")
     with concurrent.futures.ThreadPoolExecutor() as executor:
         read = executor.submit(read_object, id, sync.token)
-        peer.heartbeat(peer.request(True), "lease")
+        peer.heartbeat(peer.request(True), "attempt")
         request = peer.request()
         ack_watch = watch("sync.control.ack", node=id)
         peer.ack(request)
@@ -694,7 +694,7 @@ def test_failed_wait(messenger):
     id = source_blob("polling after failure")
     with concurrent.futures.ThreadPoolExecutor() as executor:
         read = executor.submit(read_object, id, sync.token)
-        peer.heartbeat(peer.request(True), "lease")
+        peer.heartbeat(peer.request(True), "attempt")
         request = peer.request()
         peer.ack(request)
         peer.respond(request, "the transfer failed")
@@ -713,7 +713,7 @@ def test_notification(messenger):
     id = source_blob("immediate notification")
     with concurrent.futures.ThreadPoolExecutor() as executor:
         read = executor.submit(read_object, id, sync.token)
-        peer.heartbeat(peer.request(True), "lease")
+        peer.heartbeat(peer.request(True), "attempt")
         request = peer.request()
         ack = watch("sync.control.ack", id=request[2])
         peer.ack(request)
@@ -733,13 +733,13 @@ def test_live_wait(messenger):
     with concurrent.futures.ThreadPoolExecutor() as executor:
         started = time.monotonic()
         read = executor.submit(read_object, missing_id(98), sync.token)
-        peer.heartbeat(peer.request(True), "lease")
+        peer.heartbeat(peer.request(True), "attempt")
         request = peer.request()
         peer.ack(request)
         while time.monotonic() - started < 1.5:
             assert not read.done(), "a live sync must outlast the former polling deadline"
             try:
-                peer.heartbeat(peer.request(True, timeout=0.1), "lease")
+                peer.heartbeat(peer.request(True, timeout=0.1), "attempt")
             except TimeoutError:
                 pass
         peer.respond(request, "the transfer failed")
@@ -913,18 +913,18 @@ def test_cancel(messenger):
         id = source_blob("cancelled")
         sync = Sync({"get": id})
         peer = Peer(messenger, sync.token)
-        lease = peer.connect()
-        peer.send("other", missing_id(1), lease)
+        attempt = peer.connect()
+        peer.send("other", missing_id(1), attempt)
         peer.retained("other")
         if mode != "before":
-            peer.send("cancelled", id, lease)
+            peer.send("cancelled", id, attempt)
             peer.retained("cancelled")
         if mode == "response":
             sync.requested(id)
             sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(id), 1: b"\x00cancelled"}))))
             peer.response("cancelled")
-        cancel = watch("sync.control.cancel", id="cancelled", lease=lease)
-        peer.cancel("cancelled", lease)
+        cancel = watch("sync.control.cancel", id="cancelled", attempt=attempt)
+        peer.cancel("cancelled", attempt)
         reached("sync.control.cancel", cancel)
         release("sync.control.cancel", cancel)
         while True:
@@ -932,8 +932,8 @@ def test_cancel(messenger):
                 peer.response("cancelled", 0.01)
             except TimeoutError:
                 break
-        peer.cancel("cancelled", lease)
-        peer.send("cancelled", id, lease)
+        peer.cancel("cancelled", attempt)
+        peer.send("cancelled", id, attempt)
         messenger.absent(lambda path, message:
             path == f"{peer.subject}.client.client" and
             ((message.id == 0 and message.value[0] == "cancelled") or
@@ -946,8 +946,8 @@ def test_finish(messenger):
     for cancel in (False, True):
         sync = Sync()
         peer = Peer(messenger, sync.token)
-        lease = peer.connect()
-        peer.send("missing", missing_id(1), lease)
+        attempt = peer.connect()
+        peer.send("missing", missing_id(1), attempt)
         peer.retained("missing")
         if cancel:
             sync.close()
@@ -959,7 +959,7 @@ def test_finish(messenger):
             assert first[0] is not None and first[3] is None, first
         else:
             assert first[0] is None and first[3] == Variant(1, None), first
-        ack_watch = watch("sync.control.response_ack", id="missing", lease=lease)
+        ack_watch = watch("sync.control.response_ack", id="missing", attempt=attempt)
         peer.acknowledge(first)
         reached("sync.control.response_ack", ack_watch)
         # Drain messages already published before the acknowledgement was consumed.
@@ -988,8 +988,8 @@ def test_index_handoff(messenger):
         nodes = f"{id},{filler}" if interruption == "enqueue" else f"{id},{filler},{missing}"
         sync = Sync({"get": nodes})
         peer = Peer(messenger, sync.token)
-        lease = peer.connect()
-        peer.send("stored", id, lease)
+        attempt = peer.connect()
+        peer.send("stored", id, attempt)
         peer.retained("stored")
         sync.requested(id)
         sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(id), 1: b"\x00" + text.encode()}))))
@@ -997,7 +997,7 @@ def test_index_handoff(messenger):
         stored = peer.response("stored")
         assert stored[0] is None, stored
         peer.acknowledge(stored)
-        peer.send("missing", missing, lease)
+        peer.send("missing", missing, attempt)
         peer.retained("missing")
         enqueue = watch("sync.get.index.enqueue")
         if interruption == "enqueue":
@@ -1015,8 +1015,8 @@ def test_index_handoff(messenger):
         messenger.absent(lambda path, message:
             path == f"{peer.subject}.client.client" and message.id == 1 and message.value[1] == "missing")
         # Control must still accept new readers while the partial grant batch is blocked.
-        fresh_lease = peer.connect("fresh", client="fresh")
-        peer.send("read", id, fresh_lease, client="fresh")
+        fresh_attempt = peer.connect("fresh", client="fresh")
+        peer.send("read", id, fresh_attempt, client="fresh")
         response = peer.response("read", client="fresh")
         assert response[0] is None and response[3] == stored[3], response
         peer.acknowledge(response)
@@ -1043,11 +1043,11 @@ def test_requirements(messenger):
     blocker = missing_id(77)
     sync = Sync({"get": f"{parent},{blocker}"})
     peer = Peer(messenger, sync.token)
-    lease = peer.connect()
-    peer.send("node", parent, lease)
-    peer.send("permissions", parent, lease, permissions=Variant(1, [Variant(1)]), storage=None)
-    peer.send("storage", parent, lease, permissions=Variant(1, []))
-    peer.send("subtree", parent, lease, permissions=Variant(1, [Variant(1)]), storage=Variant(0, {0: True}))
+    attempt = peer.connect()
+    peer.send("node", parent, attempt)
+    peer.send("permissions", parent, attempt, permissions=Variant(1, [Variant(1)]), storage=None)
+    peer.send("storage", parent, attempt, permissions=Variant(1, []))
+    peer.send("subtree", parent, attempt, permissions=Variant(1, [Variant(1)]), storage=Variant(0, {0: True}))
     for id in ("node", "storage", "subtree"):
         peer.retained(id)
     response = peer.response("permissions")
@@ -1068,7 +1068,7 @@ def test_requirements(messenger):
     response = peer.response("subtree")
     assert response[0] is None and response[3].value.value[0] == {0: True}, response
     peer.acknowledge(response)
-    peer.send("late", parent, lease, permissions=Variant(1, [Variant(1)]), storage=Variant(0, {0: True}))
+    peer.send("late", parent, attempt, permissions=Variant(1, [Variant(1)]), storage=Variant(0, {0: True}))
     response = peer.response("late")
     assert response[0] is None and response[3].value.value[0] == {0: True}, response
     peer.acknowledge(response)
@@ -1078,8 +1078,8 @@ def test_requirements(messenger):
 def test_shutdown(messenger):
     sync = Sync()
     peer = Peer(messenger, sync.token)
-    lease = peer.connect()
-    peer.send("missing", missing_id(1), lease)
+    attempt = peer.connect()
+    peer.send("missing", missing_id(1), attempt)
     peer.retained("missing")
     sync.finish()
     response = peer.response("missing")
@@ -1092,7 +1092,7 @@ def test_shutdown(messenger):
         assert stop.poll() is None, "shutdown must retain an unacknowledged response"
         assert peer.response("missing") == response
         peer.acknowledge(response)
-        # Once the response is acknowledged, shutdown must not wait for the two-second lease.
+        # Once the response is acknowledged, shutdown must not wait for the two-second attempt.
         assert stop.wait(timeout=1) == 0
     finally:
         if stop.poll() is None:
@@ -1103,18 +1103,18 @@ def test_shutdown(messenger):
 def test_expiration(messenger):
     sync = Sync({"get": missing_id()})
     peer = Peer(messenger, sync.token)
-    lease = peer.connect()
-    # Retransmit an already acknowledged heartbeat until the original lease expires.
+    attempt = peer.connect()
+    # Retransmit an already acknowledged heartbeat until the original attempt expires.
     deadline = time.monotonic() + TTL + 1
     while True:
         peer.send("heartbeat")
         response = peer.response("heartbeat")
         peer.acknowledge(response)
-        if response[2] != lease:
+        if response[2] != attempt:
             break
-        assert time.monotonic() < deadline, "heartbeat retries renewed the original lease"
+        assert time.monotonic() < deadline, "heartbeat retries renewed the original attempt"
         time.sleep(0.05)
-    peer.send("expired", missing_id(1), lease)
+    peer.send("expired", missing_id(1), attempt)
     messenger.absent(lambda path, message:
         path == f"{peer.subject}.client.client" and
         ((message.id == 0 and message.value[0] == "expired") or (message.id == 1 and message.value[1] == "expired")))
@@ -1130,10 +1130,10 @@ def test_failed_transfer(messenger):
     missing = missing_id(1)
     sync = Sync({"get": f"{id},{filler},{missing}"})
     peer = Peer(messenger, sync.token)
-    lease = peer.connect()
-    peer.send("stored", id, lease)
+    attempt = peer.connect()
+    peer.send("stored", id, attempt)
     peer.retained("stored")
-    peer.send("missing", missing, lease)
+    peer.send("missing", missing, attempt)
     peer.retained("missing")
     sync.requested(id)
     sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(id), 1: b"\x00stored"}))))
@@ -1151,7 +1151,7 @@ def test_failed_transfer(messenger):
     assert peer.response("stored") == stored
     peer.acknowledge(stored)
     peer.acknowledge(failure)
-    peer.send("late", id, lease)
+    peer.send("late", id, attempt)
     late = peer.response("late")
     assert late[0] is None and late[3] == stored[3], late
     peer.acknowledge(late)

@@ -1092,9 +1092,9 @@ pub struct Sync {
 
 #[derive(Clone, Debug)]
 pub struct SyncControl {
-	pub heartbeat_interval: Duration,
+	pub attempt_ttl: Duration,
 
-	pub lease_ttl: Duration,
+	pub heartbeat_interval: Duration,
 
 	pub recovery_timeout: Duration,
 
@@ -2011,8 +2011,8 @@ impl Default for Sync {
 impl SyncControl {
 	pub fn validate(&self) -> tg::Result<()> {
 		for (name, interval) in [
+			("attempt_ttl", self.attempt_ttl),
 			("heartbeat_interval", self.heartbeat_interval),
-			("lease_ttl", self.lease_ttl),
 			("retry_interval", self.retry_interval),
 		] {
 			if interval.is_zero() {
@@ -2028,8 +2028,8 @@ impl SyncControl {
 impl Default for SyncControl {
 	fn default() -> Self {
 		Self {
+			attempt_ttl: Duration::from_secs(10),
 			heartbeat_interval: Duration::from_secs(1),
-			lease_ttl: Duration::from_secs(10),
 			recovery_timeout: Duration::from_secs(60),
 			request_timeout: Duration::from_secs(60),
 			retry_interval: Duration::from_secs(1),

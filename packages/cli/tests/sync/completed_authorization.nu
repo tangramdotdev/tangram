@@ -5,7 +5,7 @@ let root_token = random chars
 let destination = server spawn --name destination --config {
 	advanced: { checkpoints: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	sync: { control: { lease_ttl: 0.1, recovery_timeout: 0.1, request_timeout: 0.1 } },
+	sync: { control: { attempt_ttl: 0.1, recovery_timeout: 0.1, request_timeout: 0.1 } },
 }
 let alice = tg --url $destination.url login --verbose --name alice | from json
 let bob = tg --url $destination.url login --verbose --name bob | from json

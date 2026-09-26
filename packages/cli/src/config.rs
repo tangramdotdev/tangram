@@ -1672,11 +1672,11 @@ pub struct SyncOptions {
 pub struct SyncControl {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub heartbeat_interval: Option<Duration>,
+	pub attempt_ttl: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub lease_ttl: Option<Duration>,
+	pub heartbeat_interval: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3969,11 +3969,11 @@ fn resolve_sync(source: &SyncOptions) -> server::Sync {
 
 fn resolve_sync_control(source: SyncControl) -> server::SyncControl {
 	let mut target = server::SyncControl::default();
+	if let Some(value) = source.attempt_ttl {
+		target.attempt_ttl = value;
+	}
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;
-	}
-	if let Some(value) = source.lease_ttl {
-		target.lease_ttl = value;
 	}
 	if let Some(value) = source.recovery_timeout {
 		target.recovery_timeout = value;

@@ -1,5 +1,5 @@
 use {
-	super::{Event, Lease, Request, State},
+	super::{Attempt, Event, Request, State},
 	crate::{
 		Server,
 		sync::graph::{Graph, UpdateObjectLocalArg},
@@ -86,11 +86,11 @@ fn requests_wait_for_their_own_requirements() {
 	);
 	assert!(!Server::sync_control_create_response(
 		&mut state,
-		"lease",
+		"attempt",
 		"permissions"
 	));
 	assert!(!Server::sync_control_create_response(
-		&mut state, "lease", "storage"
+		&mut state, "attempt", "storage"
 	));
 	state.graph.lock().unwrap().update_object_local_permissions(
 		&id,
@@ -98,13 +98,13 @@ fn requests_wait_for_their_own_requirements() {
 	);
 	assert!(Server::sync_control_create_response(
 		&mut state,
-		"lease",
+		"attempt",
 		"permissions"
 	));
 	assert!(!Server::sync_control_create_response(
-		&mut state, "lease", "storage"
+		&mut state, "attempt", "storage"
 	));
-	let response = state.leases["lease"].requests["permissions"]
+	let response = state.attempts["attempt"].requests["permissions"]
 		.response
 		.as_ref()
 		.unwrap();
@@ -123,7 +123,7 @@ fn requests_wait_for_their_own_requirements() {
 	};
 	state.graph.lock().unwrap().update_object_local(update);
 	assert!(Server::sync_control_create_response(
-		&mut state, "lease", "storage"
+		&mut state, "attempt", "storage"
 	));
 }
 
@@ -159,13 +159,13 @@ fn finished_sync_distinguishes_missing_from_permission_only_success() {
 		state.finished = Some((Instant::now(), result));
 		assert!(Server::sync_control_create_response(
 			&mut state,
-			"lease",
+			"attempt",
 			"permissions"
 		));
 		assert!(Server::sync_control_create_response(
-			&mut state, "lease", "storage"
+			&mut state, "attempt", "storage"
 		));
-		let permissions = state.leases["lease"].requests["permissions"]
+		let permissions = state.attempts["attempt"].requests["permissions"]
 			.response
 			.as_ref()
 			.unwrap();
@@ -174,7 +174,7 @@ fn finished_sync_distinguishes_missing_from_permission_only_success() {
 			&permissions.output,
 			Some(protocol::ServerResponseOutput::Get(Some(_)))
 		));
-		let storage = state.leases["lease"].requests["storage"]
+		let storage = state.attempts["attempt"].requests["storage"]
 			.response
 			.as_ref()
 			.unwrap();
@@ -256,20 +256,20 @@ fn graph_notifies_ancestors_and_inherited_children_without_retaining_control() {
 fn state() -> State {
 	let arg = tg::sync::Arg::default();
 	State {
+		attempts: BTreeMap::new(),
 		clients: BTreeMap::new(),
 		finished: None,
 		graph: Arc::new(Mutex::new(Graph::new(&arg, false))),
-		leases: BTreeMap::new(),
 		nodes: BTreeMap::new(),
 		response_cursor: None,
 	}
 }
 
 fn request(state: &mut State, id: &str, arg: protocol::ClientRequestArg) {
-	let lease = state
-		.leases
-		.entry("lease".to_owned())
-		.or_insert_with(|| Lease {
+	let attempt = state
+		.attempts
+		.entry("attempt".to_owned())
+		.or_insert_with(|| Attempt {
 			cancelled: BTreeSet::new(),
 			client: "client".to_owned(),
 			expires_at: Instant::now(),
@@ -280,5 +280,5 @@ fn request(state: &mut State, id: &str, arg: protocol::ClientRequestArg) {
 		arg,
 		response: None,
 	};
-	lease.requests.insert(id.to_owned(), request);
+	attempt.requests.insert(id.to_owned(), request);
 }
