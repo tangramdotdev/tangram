@@ -23,7 +23,13 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
-		self.try_wait_process_future_with_cancel(id, arg, Arc::new(AtomicBool::new(true)))
+		// A leased wait must survive graceful shutdown until completion or client disconnect.
+		let mut session = self.clone();
+		if arg.lease.is_some() {
+			session.context.stopper = None;
+		}
+		session
+			.try_wait_process_future_with_cancel(id, arg, Arc::new(AtomicBool::new(true)))
 			.await
 	}
 
@@ -790,8 +796,9 @@ impl Session {
 			}
 			.boxed();
 
-			// Cancel the process if the client drops the wait before it ends.
-			let session = self.clone();
+			// Release the lease even if the request's server is shutting down.
+			let mut session = self.clone();
+			session.context.stopper = None;
 			let checkpoint_id = id.clone();
 			let id = id.clone();
 			let guard = scopeguard::guard((), move |()| {

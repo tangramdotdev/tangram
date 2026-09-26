@@ -15,6 +15,7 @@ async fn responses_are_acknowledged_when_the_request_queue_is_full() {
 		acks,
 		closed: AtomicBool::new(false),
 		confirmed: AtomicBool::new(true),
+		credit: Notify::new(),
 		error: Mutex::new(None),
 		initial: Mutex::new(Vec::new()),
 		next_id: AtomicU64::new(3),
@@ -22,6 +23,7 @@ async fn responses_are_acknowledged_when_the_request_queue_is_full() {
 		reads: Mutex::new(BTreeMap::new()),
 		requests: Mutex::new(BTreeMap::from([(1, response)])),
 		sender,
+		unacknowledged: Mutex::new(BTreeSet::new()),
 		wait,
 	};
 	let response = ServerResponse {
@@ -67,6 +69,7 @@ async fn read_reports_disconnect_after_yielding_a_chunk() {
 		acks,
 		closed: AtomicBool::new(false),
 		confirmed: AtomicBool::new(true),
+		credit: Notify::new(),
 		error: Mutex::new(None),
 		initial: Mutex::new(vec![(1, arg.clone(), read_receiver)]),
 		next_id: AtomicU64::new(2),
@@ -74,6 +77,7 @@ async fn read_reports_disconnect_after_yielding_a_chunk() {
 		reads: Mutex::new(BTreeMap::from([(1, read_sender.clone())])),
 		requests: Mutex::new(BTreeMap::new()),
 		sender,
+		unacknowledged: Mutex::new(BTreeSet::new()),
 		wait,
 	};
 	let state = Arc::new(state);
@@ -126,6 +130,7 @@ async fn writes_fill_the_window_without_waiting_for_receipt_or_completion() {
 		acks,
 		closed: AtomicBool::new(false),
 		confirmed: AtomicBool::new(true),
+		credit: Notify::new(),
 		error: Mutex::new(None),
 		initial: Mutex::new(Vec::new()),
 		next_id: AtomicU64::new(1),
@@ -133,6 +138,7 @@ async fn writes_fill_the_window_without_waiting_for_receipt_or_completion() {
 		reads: Mutex::new(BTreeMap::new()),
 		requests: Mutex::new(BTreeMap::new()),
 		sender,
+		unacknowledged: Mutex::new(BTreeSet::new()),
 		wait,
 	});
 	let connection = Session {
@@ -210,4 +216,71 @@ async fn writes_fill_the_window_without_waiting_for_receipt_or_completion() {
 			..
 		})
 	));
+}
+
+#[tokio::test]
+async fn receipt_acknowledgments_replenish_the_request_window() {
+	let (acks, _ack_receiver) = mpsc::channel(1);
+	let (sender, mut receiver) = mpsc::channel(1);
+	let (wait, _) = watch::channel(None);
+	let state = State {
+		acks,
+		closed: AtomicBool::new(false),
+		confirmed: AtomicBool::new(true),
+		credit: Notify::new(),
+		error: Mutex::new(None),
+		initial: Mutex::new(Vec::new()),
+		next_id: AtomicU64::new(1),
+		output: Mutex::new(None),
+		reads: Mutex::new(BTreeMap::new()),
+		requests: Mutex::new(BTreeMap::new()),
+		sender,
+		unacknowledged: Mutex::new(BTreeSet::new()),
+		wait,
+	};
+	// Close requests also consume credit even though callers do not await their responses.
+	for id in 1..=REQUEST_WINDOW as u64 {
+		let request = ClientRequest {
+			arg: ClientRequestArg::Close(0),
+			id,
+		};
+		state.send_request(request).await.unwrap();
+		receiver.recv().await.unwrap().unwrap();
+	}
+	let request = ClientRequest {
+		arg: ClientRequestArg::Read(tg::process::stdio::read::Arg::default()),
+		id: 1000,
+	};
+	let sending = state.send_request(request);
+	tokio::pin!(sending);
+	assert!(futures::poll!(&mut sending).is_pending());
+
+	// A receipt acknowledgment restores credit without requiring operation completion.
+	let output = stream::iter([Ok(ServerMessage::Ack(Ack { id: 1 }))]).boxed();
+	Session::task(&state, output, &mut None).await.unwrap();
+	sending.await.unwrap();
+	receiver.recv().await.unwrap().unwrap();
+
+	// Reserve one additional request for detachment, even with a full ordinary window.
+	let request = ClientRequest {
+		arg: ClientRequestArg::Detach,
+		id: 1001,
+	};
+	state.send_request(request).await.unwrap();
+	receiver.recv().await.unwrap().unwrap();
+	let request = ClientRequest {
+		arg: ClientRequestArg::Detach,
+		id: 1002,
+	};
+	let sending = state.send_request(request);
+	tokio::pin!(sending);
+	assert!(futures::poll!(&mut sending).is_pending());
+	state.fail(Some(tg::error!("the transport failed")));
+	assert!(
+		sending
+			.await
+			.unwrap_err()
+			.to_string()
+			.contains("transport failed")
+	);
 }

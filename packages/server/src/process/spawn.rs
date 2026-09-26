@@ -15,6 +15,7 @@ mod child;
 mod grant;
 mod local;
 mod sandbox;
+mod sync;
 mod wait;
 
 pub(super) mod lease;
@@ -442,7 +443,7 @@ impl Session {
 
 	async fn try_spawn_process_region(
 		&self,
-		arg: tg::process::spawn::Arg,
+		mut arg: tg::process::spawn::Arg,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 		region: String,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
@@ -452,7 +453,7 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.clone()),
 		});
-		self.spawn_process_push_command(&arg.command, Some(location.clone()), progress)
+		self.spawn_process_push_command(&mut arg.command, &location, progress)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to push the command"))?;
 		let mut arg = tg::process::spawn::Arg {
@@ -489,7 +490,7 @@ impl Session {
 
 	async fn try_spawn_process_remote(
 		&self,
-		arg: tg::process::spawn::Arg,
+		mut arg: tg::process::spawn::Arg,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 		remote: String,
 		region: Option<String>,
@@ -502,7 +503,7 @@ impl Session {
 			name: remote.clone(),
 			region: region.clone(),
 		});
-		self.spawn_process_push_command(&arg.command, Some(destination.clone()), progress)
+		self.spawn_process_push_command(&mut arg.command, &destination, progress)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to push the command"))?;
 		let mut arg = tg::process::spawn::Arg {
@@ -554,16 +555,20 @@ impl Session {
 
 	pub(super) async fn spawn_process_push_command(
 		&self,
-		command: &tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
-		location: Option<tg::Location>,
+		command: &mut tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
+		location: &tg::Location,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<()> {
+		if !self.server.config.process.await_push {
+			self.spawn_process_sync_command(command, location).await?;
+			return Ok(());
+		}
 		let nodes = Self::spawn_process_command_nodes(command)?;
 		if nodes.is_empty() {
 			return Ok(());
 		}
 		let push_arg = tg::push::Arg {
-			destination: location,
+			destination: Some(location.clone()),
 			nodes,
 			process_commands: true,
 			..Default::default()

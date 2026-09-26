@@ -95,28 +95,36 @@ for order in [process sandbox] {
 	assert equal (try { job recv --tag $status --timeout 1sec } catch { null }) null "the status stream must remain open while the process is running"
 	tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
 	success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait index.batch $finish_write 0 | complete)
-	success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait index.batch $destroy_write 0 | complete)
 
-	# Keep the control stream available and read terminal state before its index writes commit.
-	success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.destroyed $destroyed 0 | complete)
-	let output = job recv --tag $status --timeout 10sec
-	success $output "the status stream should finish before indexing commits"
-	assert ($output.stdout | str contains finished)
-	let data = timeout 10s tg --url $remote.url --token $root_token process get $process | from json
-	assert equal $data.status finished
-	let data = timeout 10s tg --url $remote.url --token $root_token sandbox get $sandbox | from json
-	assert equal $data.data.status destroyed
+	# Indexing must wait for the process write, but process control may already have closed.
 	let index = job spawn {
 		let job_id = job id
 		let output = tg --url $remote.url --token $root_token index | complete
 		$output | job send --tag $job_id 0
 	}
-	assert equal (try { job recv --tag $index --timeout 1sec } catch { null }) null "tg index must wait for the submitted terminal writes"
+	assert equal (try { job recv --tag $index --timeout 1sec } catch { null }) null "tg index must wait for the submitted process write"
 	tg --url $remote.url --token $root_token checkpoint unwatch index.batch $finish_write
+
+	# Allow process indexing to complete before waiting for sandbox teardown.
+	success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait index.batch $destroy_write 0 | complete)
+	success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.destroyed $destroyed 0 | complete)
+	let data = timeout 10s tg --url $remote.url --token $root_token sandbox get $sandbox | from json
+	assert equal $data.data.status destroyed
+	let sandbox_index = job spawn {
+		let job_id = job id
+		let output = tg --url $remote.url --token $root_token index | complete
+		$output | job send --tag $job_id 0
+	}
+	assert equal (try { job recv --tag $sandbox_index --timeout 1sec } catch { null }) null "tg index must wait for the submitted sandbox write"
 	tg --url $remote.url --token $root_token checkpoint unwatch index.batch $destroy_write
 	success (job recv --tag $index --timeout 30sec)
+	success (job recv --tag $sandbox_index --timeout 30sec)
 	tg --url $runner.url checkpoint unwatch runner.sandbox.destroyed $destroyed
 
+	# Process control may close after Finish is acknowledged, so observe completion after indexing commits.
+	let output = job recv --tag $status --timeout 10sec
+	success $output "the status stream should finish after indexing commits"
+	assert ($output.stdout | str contains finished)
 	let data = tg --url $remote.url --token $root_token process get $process | from json
 	assert equal $data.status finished
 	assert equal $data.sandbox $sandbox

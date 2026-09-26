@@ -237,12 +237,14 @@ impl Session {
 		let receiver = finish
 			.await
 			.map_err(|_| tg::error!("failed to receive the process finish response receiver"))?;
+		let started = std::time::Instant::now();
 		let output = Self::receive_process_control_client_response(receiver)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to receive the finish process response"))?;
 		output
 			.try_unwrap_finish()
 			.map_err(|_| tg::error!("expected a finish process response"))?;
+		tracing::debug!(elapsed = ?started.elapsed(), "received the process finish response");
 		let log_result = if let Some(log_task) = log_task {
 			match log_task.wait().await {
 				Ok(result) => result,
@@ -253,7 +255,9 @@ impl Session {
 		};
 
 		// Retain control so waits can obtain the result sync token while its objects are in transit.
-		push.await.ok();
+		if !self.server.config.process.await_push {
+			push.await.ok();
+		}
 
 		let stdio_task = async {
 			output_task.wait().await.map_err(|error| {

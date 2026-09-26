@@ -1,8 +1,6 @@
 use ../lib/test.nu *
 
-# A routed run schedules its process before the command push finishes, and the runner uses the
-# command's sync token to read its graph while it is still in flight.
-
+# Spawn returns before the command transfer completes when awaiting pushes is disabled.
 let root_token = random chars
 
 # Spawn a scheduler with checkpoints enabled and no local runner.
@@ -28,6 +26,7 @@ let runner = server spawn --name runner --config {
 # Create a user and a local server that routes runs through the scheduler.
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let local = server spawn --name local --config {
+	advanced: { checkpoints: true },
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 
 }
@@ -56,46 +55,32 @@ let store_watch = (
 	| from json
 	| get watch
 )
-let retain_watch = (
-	tg --url $remote.url --token $root_token checkpoint watch sync.control.request.retain --params ({ node: $blob } | to json --raw)
-	| from json
-	| get watch
-)
 let state_watch = (
 	tg --url $runner.url checkpoint watch runner.process.state.inserted
 	| from json
 	| get watch
 )
 
+# Hold execution to isolate spawn ordering from concurrent artifact checkout.
+let run_watch = tg --url $runner.url checkpoint watch runner.process.run | from json | get watch
+let push_watch = tg --url $local.url checkpoint watch process.connect.command.push.finished | from json | get watch
+
 let run = job spawn {
 	let job_id = job id
-	let output = tg --url $local.url run --cached=false --no-tty --remote --user $alice.user.id $command | complete
+	let output = tg --url $local.url process spawn --cached=false --sandbox --no-tty --remote --user $alice.user.id $command | complete
 	$output | job send --tag $job_id 0
 }
-
-# The command transfer reaches the scheduler but remains blocked before the executable is complete.
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | complete
-success $output "the command push should reach the executable blob"
-
-# The scheduler assigns the process while the command transfer is still blocked.
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete
-success $output "the process should be scheduled before the command push finishes"
-tg --url $runner.url checkpoint continue runner.process.state.inserted $state_watch 0
+success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | complete) "the command transfer should reach the executable blob"
+success (timeout 30s tg --url $runner.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete) "the process should be scheduled while the command transfer is blocked"
 tg --url $runner.url checkpoint unwatch runner.process.state.inserted $state_watch
-
-# The runner uses the transient command sync token to request the executable from the in-flight push.
-let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.control.request.retain $retain_watch 0 | complete
-success $output "the runner should request the in-flight executable with its sync token"
-tg --url $remote.url --token $root_token checkpoint continue sync.control.request.retain $retain_watch 0
-tg --url $remote.url --token $root_token checkpoint unwatch sync.control.request.retain $retain_watch
-
-# The process cannot finish until the held command graph is stored.
-let output = try { job recv --tag $run --timeout 1sec } catch { null }
-assert equal $output null "the run should wait for the held command"
-
-# Release the command transfer and verify that the process completes.
-tg --url $remote.url --token $root_token checkpoint continue sync.get.store.object $store_watch 0
-tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store_watch
 let output = job recv --tag $run --timeout 30sec
-success $output "the run should complete after the command push finishes"
-assert ($output.stdout | str contains 'hello') "the process should produce its output"
+success $output "spawn should return while the command transfer is blocked"
+let process = $output.stdout | str trim
+
+# The client has exited, but the command transfer must continue in the background.
+tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store_watch
+success (timeout 30s tg --url $local.url checkpoint wait process.connect.command.push.finished $push_watch 0 | complete) "the command transfer should finish after the spawn client exits"
+tg --url $local.url checkpoint unwatch process.connect.command.push.finished $push_watch
+tg --url $runner.url checkpoint unwatch runner.process.run $run_watch
+let output = tg --url $local.url process wait $process | from json
+assert equal $output.exit 0

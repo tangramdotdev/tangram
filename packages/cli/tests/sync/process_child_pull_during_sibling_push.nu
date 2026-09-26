@@ -22,6 +22,7 @@ let runners = 1..3 | each {|index|
 	let created = tg --url $remote.url --token $root_token runner create | from json
 	let runner = server spawn --name $"runner-($index)" --config {
 		advanced: { checkpoints: true },
+		process: { await_push: false },
 		remotes: { default: { token: $created.token.token, url: $remote.url } },
 		roles: [api indexer runner],
 

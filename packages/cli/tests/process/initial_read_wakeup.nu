@@ -16,7 +16,8 @@ let runner = server spawn --name runner --config {
 }
 for method in [status wait] {
 	let finish = tg --url $runner.url checkpoint watch runner.process.finish | from json | get watch
-	let path = artifact { tangram.ts: $'export default () => "($method)";' }
+	let source = ['export default () => ' ($method | to json) ';'] | str join
+	let path = artifact { tangram.ts: $source }
 	let process = tg --url $owner.url spawn $path | str trim
 	timeout 10s tg --url $runner.url checkpoint wait runner.process.finish $finish 0 | ignore
 	tg --url $owner.url index
@@ -30,6 +31,12 @@ for method in [status wait] {
 	tg --url $runner.url checkpoint unwatch runner.process.finish $finish
 	let output = job recv --tag $reader --timeout 15sec
 	success $output
-	if $method == status { assert ($output.stdout | str contains 'finished') }
+	if $method == status {
+		assert ($output.stdout | str contains 'finished')
+	} else {
+		let output = $output.stdout | from json
+		assert equal $output.exit 0
+		assert equal $output.output $method
+	}
 	tg --url $owner.url checkpoint unwatch process.get.control $watch
 }

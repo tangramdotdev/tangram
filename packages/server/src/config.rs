@@ -818,6 +818,9 @@ pub struct ScyllaCacheSimpleSpeculativeExecution {
 
 #[derive(Clone, Debug)]
 pub struct Process {
+	/// Await command pushes before spawn and result pushes before Finish while concurrent transfer has known bugs.
+	pub await_push: bool,
+
 	pub children_wakeup_interval: Duration,
 
 	pub permission_time_to_live: Duration,
@@ -1851,6 +1854,7 @@ impl LmdbCache {
 impl Default for Process {
 	fn default() -> Self {
 		Self {
+			await_push: true,
 			children_wakeup_interval: Duration::from_mins(1),
 			permission_time_to_live: default_process_permission_time_to_live(),
 			permission_time_to_touch: default_time_to_touch(),

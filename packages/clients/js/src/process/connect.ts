@@ -109,7 +109,7 @@ export class Connection {
 		let session = this.#initial.hasInitial(arg)
 			? this.#initial
 			: await this.#ensureSession(arg);
-		let connection = session.read(arg);
+		let connection = await session.read(arg);
 		connection.reconnect = (arg) => this.#read(arg);
 		return connection;
 	}

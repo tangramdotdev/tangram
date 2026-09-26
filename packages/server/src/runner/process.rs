@@ -93,6 +93,7 @@ struct FinishProcessRunArg {
 	run_task: Task<tg::Result<RunProcessOutput>>,
 	sandbox: tangram_sandbox::Sandbox,
 	state: tg::process::State,
+	sync_receiver: tokio::sync::oneshot::Receiver<Option<tg::authorization::Token>>,
 }
 
 struct FinishProcessRunOutput {
@@ -119,8 +120,8 @@ struct FinishProcessTaskArg {
 	control_task: Task<tg::Result<()>>,
 	data: tg::process::Data,
 	id: tg::process::Id,
+	location: tg::Location,
 	log_task: Option<Task<tg::Result<()>>>,
-	process: tg::Process,
 	processes: Arc<crate::process::Processes>,
 	push: tokio::sync::oneshot::Sender<()>,
 }
@@ -419,7 +420,11 @@ impl Session {
 				let process_id = id.clone();
 				let mut start_task = Task::spawn(move |_| async move {
 					let result = async {
+						// Push the command and wait for the push to complete before sending the start request.
+						let started = std::time::Instant::now();
 						Self::push_process_command(&push_session, &command, &location).await?;
+						tracing::debug!(process = %process_id, elapsed = ?started.elapsed(), "pushed the process command before start");
+						let started = std::time::Instant::now();
 						let response = Self::send_process_control_client_request_inner(
 							&control_sender,
 							tg::process::control::ClientRequestArg::Start(start),
@@ -428,13 +433,16 @@ impl Session {
 						.await?;
 						sender.send(()).ok();
 						crate::checkpoint!(server, "runner.process.control.start.sent", process = %process_id).await;
-						Self::receive_process_control_client_response(response)
+						tracing::debug!(process = %process_id, "sent the process start request");
+						let output = Self::receive_process_control_client_response(response)
 							.await
 							.and_then(|output| {
 								output.try_unwrap_start().map_err(|_| {
 									tg::error!("expected a process control start response")
 								})
-							})
+							})?;
+						tracing::debug!(process = %process_id, elapsed = ?started.elapsed(), "received the process start response");
+						Ok::<_, tg::Error>(output)
 					}
 					.boxed()
 					.await;
@@ -762,6 +770,7 @@ impl Session {
 			let token = token.clone();
 			move |_| async move {
 				let command = command.await?;
+				crate::checkpoint!(session.server, "runner.process.run", process = %id).await;
 				let arg = RunProcessArg {
 					command,
 					guest_url,
@@ -782,6 +791,7 @@ impl Session {
 		let (finish_sender, finish_receiver) = tokio::sync::oneshot::channel();
 		let (index_sender, index_receiver) = tokio::sync::oneshot::channel();
 		let (ready_sender, ready_receiver) = tokio::sync::oneshot::channel();
+		let (sync_sender, sync_receiver) = tokio::sync::oneshot::channel();
 
 		// Collect and store the output concurrently with the control connection.
 		let exited = Stopper::new();
@@ -798,6 +808,7 @@ impl Session {
 			run_task,
 			sandbox: sandbox.clone(),
 			state: state.clone(),
+			sync_receiver,
 		};
 		let finish_task = Task::spawn({
 			let session = session.clone();
@@ -919,6 +930,8 @@ impl Session {
 			Err(error) => {
 				process_stopper.stop();
 				drop(index_sender);
+				// Unblock the finish task if it is waiting for the connection's sync token.
+				drop(sync_sender);
 				finish_task.wait().await.ok();
 
 				return Err(error);
@@ -928,13 +941,8 @@ impl Session {
 		processes
 			.get_mut(&id)
 			.expect("the process state was not found")
-			.sync = sync;
-		let entry = tg::process::Options {
-			location: Some(location.clone().into()),
-			state: Some(state.clone()),
-			..Default::default()
-		};
-		let process = tg::Process::new(id.clone(), entry);
+			.sync = sync.clone();
+		sync_sender.send(sync).ok();
 		session
 			.server
 			.notifications
@@ -1036,8 +1044,8 @@ impl Session {
 			control_task,
 			data,
 			id,
+			location,
 			log_task,
-			process,
 			processes: processes.clone(),
 			push: push_sender,
 		};
@@ -1139,6 +1147,7 @@ impl Session {
 			run_task,
 			sandbox,
 			state,
+			sync_receiver,
 		} = arg;
 		let result = run_task
 			.wait()
@@ -1288,7 +1297,7 @@ impl Session {
 					authorization,
 					data: data.clone(),
 					id: id.clone(),
-					location,
+					location: location.clone(),
 				};
 				let session = self.clone();
 				let index_task = crate::process::IndexTask::spawn(move |_| async move {
@@ -1328,6 +1337,18 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "the process initialization failed"))?;
 		}
 
+		// Await the result transfer by default until concurrent push and finish are reliable.
+		if self.server.config.process.await_push && location.is_remote() {
+			let sync = sync_receiver
+				.await
+				.map_err(|_| tg::error!("the process connection failed before the output push"))?;
+			let started = std::time::Instant::now();
+			if let Err(error) = self.push_process_output(&id, &location, &data, sync).await {
+				tracing::error!(error = %error.trace(), process = %id, "failed to push the process output");
+			}
+			tracing::debug!(process = %id, elapsed = ?started.elapsed(), "pushed the process output before finish");
+		}
+
 		// Retain the finish request across retries and reconnects without waiting for its response.
 		crate::checkpoint!(self.server, "runner.process.control.finish.request").await;
 		let arg = tg::process::control::ClientRequestArg::Finish(
@@ -1343,6 +1364,7 @@ impl Session {
 			.send(response)
 			.map_err(|_| tg::error!("failed to send the process finish response receiver"))?;
 		crate::checkpoint!(self.server, "runner.process.control.finish.sent", process = %id).await;
+		tracing::debug!(process = %id, "sent the process finish request");
 		let output = FinishProcessRunOutput { data, index_task };
 
 		Ok(output)
@@ -1673,12 +1695,11 @@ impl Session {
 			control_task,
 			data,
 			id,
+			location,
 			log_task,
-			process,
 			processes,
 			push,
 		} = arg;
-		let session = self;
 		let sync = processes.get(&id).and_then(|state| state.sync.clone());
 		let log_result = if let Some(log_task) = log_task {
 			match log_task.wait().await {
@@ -1695,11 +1716,14 @@ impl Session {
 			Err(error) => Err(tg::error!(!error, %id, "the process buffered task panicked")),
 		};
 
-		// Push the output and error. The process has finished, so a failure is logged.
-		if let Err(error) = session.push_process_output(&process, &data, sync).await {
+		// Retain the original concurrent finish behavior when awaiting pushes is disabled.
+		if !self.server.config.process.await_push
+			&& let Err(error) = self.push_process_output(&id, &location, &data, sync).await
+		{
 			tracing::error!(error = %error.trace(), process = %id, "failed to push the process output");
 		}
 		push.send(()).ok();
+
 		let control_result = match control_task.wait().await {
 			Ok(result) => result,
 			Err(error) => Err(tg::error!(!error, %id, "the process control task panicked")),
@@ -1713,14 +1737,12 @@ impl Session {
 
 	async fn push_process_output(
 		&self,
-		process: &tg::Process,
+		id: &tg::process::Id,
+		location: &tg::Location,
 		data: &tg::process::Data,
 		sync: Option<tg::Referent<tg::sync::Id>>,
 	) -> tg::Result<()> {
-		let Some(tg::Location::Remote(remote)) = process
-			.location()
-			.and_then(|location| location.to_location())
-		else {
+		let tg::Location::Remote(remote) = location else {
 			return Ok(());
 		};
 
@@ -1741,7 +1763,7 @@ impl Session {
 		crate::checkpoint!(
 			self.server,
 			"runner.process.output.push.started",
-			process = %process.id(),
+			process = %id,
 		)
 		.await;
 		let destination = tg::Location::Remote(tg::location::Remote {
@@ -1771,6 +1793,12 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to push the output"))?;
 		let mut stream = std::pin::pin!(stream);
 		while stream.try_next().await?.is_some() {}
+		crate::checkpoint!(
+			self.server,
+			"runner.process.output.push.finished",
+			process = %id,
+		)
+		.await;
 
 		Ok(())
 	}
