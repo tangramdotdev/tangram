@@ -222,7 +222,7 @@ impl Session {
 		Ok(output)
 	}
 
-	fn create_sandbox_status_stream_local_with_wakeups(
+	pub(crate) fn create_sandbox_status_stream_local_with_wakeups(
 		&self,
 		id: &tg::sandbox::Id,
 		initial: Option<tg::sandbox::Data>,
@@ -279,7 +279,7 @@ impl Session {
 		ReceiverStream::new(receiver).attach(task).boxed()
 	}
 
-	pub(super) async fn create_sandbox_status_wakeup_stream(
+	pub(crate) async fn create_sandbox_status_wakeup_stream(
 		&self,
 		id: &tg::sandbox::Id,
 		stopper: Option<Stopper>,
