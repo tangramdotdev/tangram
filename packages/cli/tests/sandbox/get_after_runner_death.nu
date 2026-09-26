@@ -30,7 +30,11 @@ assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | fr
 
 let runner_pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $runner_pid
-^tail --pid $runner_pid -f /dev/null
+if $nu.os-info.name == "linux" {
+	^tail --pid $runner_pid -f /dev/null
+} else {
+	while (ps | where pid == $runner_pid | is-not-empty) { sleep 10ms }
+}
 
 let output = timeout 5s tg --url $remote.url --token $root_token sandbox get $sandbox | complete
 success $output "the sandbox get must return promptly after the runner dies"
