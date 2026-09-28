@@ -559,26 +559,31 @@ impl Session {
 			.is_none()
 			.then(|| spawn::lease::LeaseGuard::new(self, &output))
 			.flatten();
-		let wait_arg = tg::process::wait::Arg {
-			lease: output.lease.clone(),
-			location: location.clone(),
-			source: tg::process::Source::Auto,
-			tokens: tokens.clone(),
-		};
 		let wait = if let Some(output) = output.wait.clone() {
 			futures::future::ready(Ok(Some(output))).boxed()
 		} else {
-			let future = match wait {
-				Some((wait, _)) => wait,
-				None => self
-					.try_wait_process_local(
-						&id,
-						wait_arg.tokens.local_authorization().to_vec(),
-						tg::process::Source::Auto,
-					)
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the process"))?,
+			let mut wait_arg = tg::process::wait::Arg {
+				lease: None,
+				location: location.clone(),
+				source: tg::process::Source::Auto,
+				tokens: tokens.clone(),
 			};
+
+			// Prefer the runner over the local wait because the runner's output retains the result tokens.
+			let future = if let Some((future, _)) = wait {
+				future
+			} else if let Some((future, _)) = self.try_wait_process_runner(&id, &wait_arg).await? {
+				future
+			} else {
+				self.try_wait_process_local(
+					&id,
+					wait_arg.tokens.local_authorization().to_vec(),
+					tg::process::Source::Auto,
+				)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))?
+			};
+			wait_arg.lease = output.lease.clone();
 			self.attach_wait_process_guard(&id, &wait_arg, location.clone(), cancel.clone(), future)
 		};
 		if let Some(guard) = &mut lease_guard {
