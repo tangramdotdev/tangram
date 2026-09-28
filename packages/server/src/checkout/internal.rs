@@ -517,6 +517,22 @@ impl Session {
 		artifacts: &[tg::Referent<tg::artifact::Id>],
 		progress: &crate::progress::Handle<()>,
 	) -> tg::Result<()> {
+		let mut tokens = BTreeMap::<tg::artifact::Id, tg::authorization::Tokens>::new();
+		for artifact in artifacts {
+			tokens
+				.entry(artifact.node.clone())
+				.or_default()
+				.inherit(&artifact.options.tokens);
+		}
+		let artifacts = artifacts
+			.iter()
+			.cloned()
+			.map(|mut artifact| {
+				artifact.options.tokens = tokens[&artifact.node].clone();
+				artifact
+			})
+			.collect::<Vec<_>>();
+
 		let ids = artifacts
 			.iter()
 			.map(|artifact| artifact.node.clone().into())
