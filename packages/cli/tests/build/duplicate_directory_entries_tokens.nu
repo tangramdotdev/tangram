@@ -1,7 +1,5 @@
 use ../lib/test.nu *
 
-# A directory with repeated entries retains a subtree token for a child process to check it out without authorization searches.
-
 let server = server spawn --config {
 	authorization: {
 		final: false

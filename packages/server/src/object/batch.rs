@@ -232,7 +232,6 @@ impl Session {
 		batch_subtrees: &BTreeSet<tg::object::Id>,
 		batch_objects: &BTreeSet<tg::object::Id>,
 	) -> tg::Result<bool> {
-		// Merge the tokens of a child that appears more than once, such as a file under two directory entries.
 		let mut children_map = BTreeMap::<tg::object::Id, tg::Referent<tg::object::Id>>::new();
 		for child in children {
 			if !actual_children.contains(&child.node) {
