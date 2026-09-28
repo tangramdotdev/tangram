@@ -44,7 +44,9 @@ pub struct ClientRequest {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ClientRequestArg {}
+pub enum ClientRequestArg {
+	DestroySandbox(DestroySandboxClientRequestArg),
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct ClientResponse {
@@ -85,7 +87,9 @@ pub struct ServerResponse {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerResponseOutput {}
+pub enum ServerResponseOutput {
+	DestroySandbox(DestroySandboxServerResponseOutput),
+}
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct HeartbeatClientNotification {
@@ -144,6 +148,16 @@ pub struct CreateSandboxClientResponseOutput {
 	pub created: bool,
 }
 
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct DestroySandboxClientRequestArg {
+	pub sandbox: tg::sandbox::Id,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+pub struct DestroySandboxServerResponseOutput {
+	pub destroyed: bool,
+}
+
 #[serde_as]
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
@@ -162,6 +176,8 @@ pub struct Arg {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
+	pub sandboxes: Vec<tg::sandbox::Id>,
+
 	pub scheduler: tg::scheduler::Id,
 }
 
@@ -263,21 +279,30 @@ impl TryFrom<ClientMessage> for tangram_http::sse::Event {
 					..Default::default()
 				}
 			},
-			ClientMessage::Response(response) => {
-				let data = serde_json::to_string(&response)
-					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
-				tangram_http::sse::Event {
-					data,
-					event: Some("response".to_owned()),
-					..Default::default()
-				}
-			},
 			ClientMessage::Notification(notification) => {
 				let data = serde_json::to_string(&notification)
 					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
 				tangram_http::sse::Event {
 					data,
 					event: Some("notification".to_owned()),
+					..Default::default()
+				}
+			},
+			ClientMessage::Request(request) => {
+				let data = serde_json::to_string(&request)
+					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
+				tangram_http::sse::Event {
+					data,
+					event: Some("request".to_owned()),
+					..Default::default()
+				}
+			},
+			ClientMessage::Response(response) => {
+				let data = serde_json::to_string(&response)
+					.map_err(|error| tg::error!(!error, "failed to serialize the message"))?;
+				tangram_http::sse::Event {
+					data,
+					event: Some("response".to_owned()),
 					..Default::default()
 				}
 			},

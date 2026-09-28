@@ -10,7 +10,9 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
+	tokio::task::JoinSet,
 };
 
 #[derive(Clone)]
@@ -76,6 +78,7 @@ impl Session {
 	)> {
 		let id = arg.id.clone();
 		let scheduler_ttl = arg.scheduler_ttl;
+		let sandboxes = self.server.index.get_runner_sandboxes(&id).await?;
 		let server_messages = self
 			.server
 			.messenger
@@ -108,6 +111,7 @@ impl Session {
 			));
 		}
 		let output = tg::runner::control::Output {
+			sandboxes,
 			scheduler: scheduler.clone(),
 		};
 		let heartbeat_subject = crate::scheduler::runner_heartbeat_subject(&scheduler, &id);
@@ -251,7 +255,16 @@ impl Session {
 			let scheduler_unavailable = scheduler_unavailable.clone();
 			move |_| async move {
 				let mut control = control;
-				while let Some(message) = control.recv_without_ack().await? {
+				let mut requests = JoinSet::<tg::Result<()>>::new();
+				loop {
+					let message = tokio::select! {
+						message = control.recv_without_ack() => message?,
+						result = requests.join_next(), if !requests.is_empty() => {
+							result.unwrap().map_err(|error| tg::error!(!error, "the runner control request task panicked"))??;
+							continue;
+						},
+					};
+					let Some(message) = message else { break };
 					match message {
 						tg::runner::control::ClientMessage::Ack(ack) => {
 							if forwarded_requests.contains(&ack.id) {
@@ -272,7 +285,17 @@ impl Session {
 							})?;
 						},
 						tg::runner::control::ClientMessage::Request(request) => {
-							match request.arg {}
+							control.acknowledge(request.id.clone()).await?;
+							let sender = control.sender();
+							let session = session.clone();
+							let runner = runner.clone();
+							requests.spawn(async move {
+								let response = session
+									.handle_runner_control_request(&runner, request)
+									.await;
+								sender.send(response).await?;
+								Ok(())
+							});
 						},
 						tg::runner::control::ClientMessage::Response(response) => {
 							session
@@ -309,6 +332,61 @@ impl Session {
 			.boxed();
 
 		Ok((output, stream))
+	}
+
+	async fn handle_runner_control_request(
+		&self,
+		runner: &tg::runner::Id,
+		request: tg::runner::control::ClientRequest,
+	) -> tg::runner::control::ServerMessage {
+		let result = match request.arg {
+			tg::runner::control::ClientRequestArg::DestroySandbox(arg) => self
+				.destroy_runner_sandbox(runner, &arg.sandbox)
+				.await
+				.map(tg::runner::control::ServerResponseOutput::DestroySandbox),
+		};
+		let (error, output) = match result {
+			Ok(output) => (None, Some(output)),
+			Err(error) => (
+				Some(tg::error::Data {
+					message: Some(error.to_string()),
+					..Default::default()
+				}),
+				None,
+			),
+		};
+		let response = tg::runner::control::ServerResponse {
+			error,
+			id: request.id,
+			output,
+		};
+		tg::runner::control::ServerMessage::Response(response)
+	}
+
+	async fn destroy_runner_sandbox(
+		&self,
+		runner: &tg::runner::Id,
+		sandbox: &tg::sandbox::Id,
+	) -> tg::Result<tg::runner::control::DestroySandboxServerResponseOutput> {
+		let indexed = self.server.index.try_get_sandbox(sandbox).await?;
+		let destroyed = if indexed.as_ref().is_some_and(|indexed| {
+			indexed.runner.as_ref() == Some(runner)
+				&& indexed
+					.data
+					.as_ref()
+					.is_some_and(|data| data.data.status.is_started())
+		}) {
+			crate::checkpoint!(self.server, "runner.control.destroy_sandbox", %runner, %sandbox)
+				.await;
+			self.server
+				.destroy_runner_sandbox(sandbox, "runner restarted")
+				.await?;
+			true
+		} else {
+			false
+		};
+		let output = tg::runner::control::DestroySandboxServerResponseOutput { destroyed };
+		Ok(output)
 	}
 
 	async fn publish_runner_control_ack(
@@ -612,7 +690,8 @@ impl crate::control::Output for tg::runner::control::ClientMessage {
 
 	fn id(&self) -> Option<&str> {
 		match self {
-			Self::Ack(_) | Self::Notification(_) | Self::Request(_) => None,
+			Self::Ack(_) | Self::Notification(_) => None,
+			Self::Request(request) => Some(&request.id),
 			Self::Response(response) => Some(&response.id),
 		}
 	}
@@ -644,8 +723,9 @@ impl crate::control::Output for tg::runner::control::ServerMessage {
 
 	fn id(&self) -> Option<&str> {
 		match self {
-			Self::Ack(_) | Self::Response(_) => None,
+			Self::Ack(_) => None,
 			Self::Request(request) => Some(&request.id),
+			Self::Response(response) => Some(&response.id),
 		}
 	}
 }
@@ -659,7 +739,7 @@ impl crate::control::Input<tg::runner::control::ClientMessage>
 			Self::Request(request) => crate::control::InputKind::Message {
 				id: Some(&request.id),
 			},
-			Self::Response(_) => crate::control::InputKind::Message { id: None },
+			Self::Response(response) => crate::control::InputKind::Response { id: &response.id },
 		}
 	}
 

@@ -377,10 +377,11 @@ impl Session {
 			.replace(id.clone());
 		self.start_control_connection_pools();
 		self.start_sandbox_pool();
+		let mut cleanup = true;
 		loop {
 			let stop_future = stopper.wait();
 			let stop_future = pin!(stop_future);
-			let run_future = self.runner_task_inner(&id, stopper.clone());
+			let run_future = self.runner_task_inner(&id, &mut cleanup, stopper.clone());
 			let run_future = pin!(run_future);
 			let future::Either::Right((result, _)) = future::select(stop_future, run_future).await
 			else {
@@ -508,7 +509,12 @@ impl Session {
 		self.shutdown_sandbox_pool(Shutdown::Interrupt).await;
 	}
 
-	async fn runner_task_inner(&self, id: &tg::runner::Id, stopper: Stopper) -> tg::Result<()> {
+	async fn runner_task_inner(
+		&self,
+		id: &tg::runner::Id,
+		cleanup: &mut bool,
+		stopper: Stopper,
+	) -> tg::Result<()> {
 		// Get the location.
 		let location = self.server.config.runner.remote.as_ref().map_or_else(
 			|| tg::Location::Local(tg::location::Local::default()),
@@ -521,19 +527,124 @@ impl Session {
 		);
 
 		// Get the runner control stream.
-		let (output, control) = self
-			.run_get_runner_control_stream(id, &location)
+		let (output, mut control) = self
+			.run_get_runner_control_stream(id, &location, *cleanup)
 			.boxed()
 			.await?;
+
+		// Destroy the previous sandboxes before accepting work.
+		let mut index = 1;
+		if *cleanup {
+			self.cleanup_runner_sandboxes(output.sandboxes, &mut control, &mut index)
+				.boxed()
+				.await?;
+			*cleanup = false;
+		}
 		self.server
 			.runner
 			.state
 			.set_scheduler(Some(output.scheduler));
 
-		// Handle the runner control stream.
-		self.run_handle_runner_control_stream(id, location, control, stopper)
+		// Handle new sandbox requests.
+		self.run_handle_runner_control_stream(location, control, index, stopper)
 			.boxed()
 			.await?;
+
+		Ok(())
+	}
+
+	async fn cleanup_runner_sandboxes(
+		&self,
+		sandboxes: Vec<tg::sandbox::Id>,
+		control: &mut crate::control::Stream<
+			tg::runner::control::ServerMessage,
+			tg::runner::control::ClientMessage,
+		>,
+		index: &mut u64,
+	) -> tg::Result<()> {
+		let sender = control.sender();
+		let destroy = self.destroy_runner_sandboxes(sandboxes, sender.clone());
+		let mut destroy = pin!(destroy);
+		let mut interval = tokio::time::interval(self.server.config.runner.heartbeat_interval);
+		loop {
+			let message = tokio::select! {
+				result = &mut destroy => {
+					result?;
+					break;
+				},
+				_ = interval.tick() => {
+					let heartbeat = self.create_runner_heartbeat(*index, true);
+					let message = tg::runner::control::ClientMessage::Notification(
+						tg::runner::control::ClientNotification::Heartbeat(heartbeat),
+					);
+					*index = index.wrapping_add(1);
+					sender.send(message).await?;
+					continue;
+				},
+				message = control.recv_with_ack() => message?,
+			};
+			let Some(message) = message else {
+				return Err(tg::error!(
+					"the runner control stream ended during startup cleanup"
+				));
+			};
+			let request = match message {
+				tg::runner::control::ServerMessage::Ack(_) => unreachable!(),
+				tg::runner::control::ServerMessage::Request(request) => request,
+				// The control stream has already acknowledged duplicate responses.
+				tg::runner::control::ServerMessage::Response(_) => continue,
+			};
+			let tg::runner::control::ServerRequestArg::CreateSandbox(_) = request.arg;
+			let output = tg::runner::control::CreateSandboxClientResponseOutput { created: false };
+			let message = Self::create_runner_control_response(
+				request.id,
+				Ok(tg::runner::control::ClientResponseOutput::CreateSandbox(
+					output,
+				)),
+			);
+			sender.send(message).await?;
+		}
+
+		Ok(())
+	}
+
+	async fn destroy_runner_sandboxes(
+		&self,
+		sandboxes: Vec<tg::sandbox::Id>,
+		sender: RunnerSender,
+	) -> tg::Result<()> {
+		for sandbox in sandboxes {
+			let arg = tg::runner::control::DestroySandboxClientRequestArg { sandbox };
+			let request = tg::runner::control::ClientRequest {
+				arg: tg::runner::control::ClientRequestArg::DestroySandbox(arg),
+				id: crate::control::id(),
+			};
+			let response = sender
+				.request(
+					tg::runner::control::ClientMessage::Request(request),
+					crate::control::Priority::High,
+				)
+				.await?
+				.await
+				.map_err(|_| tg::error!("the runner control response stream ended"))?;
+			let tg::runner::control::ServerMessage::Response(response) = response else {
+				return Err(tg::error!("expected a runner control response"));
+			};
+			if let Some(error) = response.error {
+				let error = tg::Error::try_from(error).map_err(|error| {
+					tg::error!(!error, "failed to deserialize the runner control error")
+				})?;
+				return Err(tg::error!(
+					!error,
+					"failed to destroy the previous runner sandbox"
+				));
+			}
+			let Some(tg::runner::control::ServerResponseOutput::DestroySandbox(_)) =
+				response.output
+			else {
+				return Err(tg::error!("expected a destroy sandbox response"));
+			};
+		}
 
 		Ok(())
 	}
@@ -542,6 +653,7 @@ impl Session {
 		&self,
 		id: &tg::runner::Id,
 		location: &tg::Location,
+		cleanup: bool,
 	) -> tg::Result<(
 		tg::runner::control::Output,
 		crate::control::Stream<
@@ -554,7 +666,7 @@ impl Session {
 		let input_stream = tokio_stream::wrappers::ReceiverStream::new(input_receiver)
 			.map(Ok)
 			.boxed();
-		let heartbeat = self.create_runner_heartbeat(0);
+		let heartbeat = self.create_runner_heartbeat(0, cleanup);
 		let host = tg::host::current().to_owned();
 		let location = Some(location.clone().into());
 		let scheduler_ttl = self.server.config.runner.scheduler_ttl;
@@ -578,52 +690,62 @@ impl Session {
 
 	async fn run_handle_runner_control_stream(
 		&self,
-		_runner: &tg::runner::Id,
 		location: tg::Location,
 		mut control: crate::control::Stream<
 			tg::runner::control::ServerMessage,
 			tg::runner::control::ClientMessage,
 		>,
+		mut index: u64,
 		stopper: Stopper,
 	) -> tg::Result<()> {
 		let sender = control.sender();
 
-		// Spawn the heartbeat task.
-		let _heartbeat_task = self.spawn_runner_heartbeat_task(sender.clone());
+		let mut interval = tokio::time::interval(self.server.config.runner.heartbeat_interval);
 
 		// Process the messages the scheduler sends to this runner.
 		loop {
-			let receive_future = control.recv_with_ack();
-			let receive_future = pin!(receive_future);
-			let stop_future = stopper.wait();
-			let stop_future = pin!(stop_future);
-			let result = future::select(receive_future, stop_future).await;
-			let message = match result {
-				future::Either::Left((result, _)) => result.map_err(|source| {
+			let message = tokio::select! {
+				() = async {
+					tokio::select! {
+						_ = interval.tick() => {},
+						() = self.server.runner.state.capacity.wait_for_change() => {},
+					}
+				} => {
+					let heartbeat = self.create_runner_heartbeat(index, false);
+					let message = tg::runner::control::ClientMessage::Notification(
+						tg::runner::control::ClientNotification::Heartbeat(heartbeat),
+					);
+					index = index.wrapping_add(1);
+					sender.send(message).await?;
+					continue;
+				},
+				message = control.recv_with_ack() => message.map_err(|source| {
 					tg::error!(!source, "failed to receive a runner control message")
 				})?,
-				future::Either::Right(_) => break,
+				() = stopper.wait() => break,
 			};
 			let Some(message) = message else {
 				break;
 			};
 
 			let message = match message {
+				tg::runner::control::ServerMessage::Ack(_) => unreachable!(),
 				tg::runner::control::ServerMessage::Request(message) => message,
-				tg::runner::control::ServerMessage::Ack(_)
-				| tg::runner::control::ServerMessage::Response(_) => unreachable!(),
+				// The control stream has already acknowledged duplicate responses.
+				tg::runner::control::ServerMessage::Response(_) => continue,
 			};
 			let id = message.id;
 			let tg::runner::control::ServerRequestArg::CreateSandbox(request) = message.arg;
 
 			let requested = request.capacity;
 
-			// Attempt to immediately acquire capacity. If none is available, respond indicating that the sandbox was not created.
-			let Some(allocation) = self.try_acquire_scheduled_sandbox_capacity(
+			// Decline work if capacity is unavailable.
+			let allocation = self.try_acquire_scheduled_sandbox_capacity(
 				request.borrowed,
 				request.parent.as_ref(),
 				requested,
-			) else {
+			);
+			let Some(allocation) = allocation else {
 				let output =
 					tg::runner::control::CreateSandboxClientResponseOutput { created: false };
 				let message = Self::create_runner_control_response(
@@ -671,45 +793,17 @@ impl Session {
 		Ok(())
 	}
 
-	fn spawn_runner_heartbeat_task(&self, sender: RunnerSender) -> Task<()> {
-		let heartbeat_interval = self.server.config.runner.heartbeat_interval;
-		Task::spawn({
-			let session = self.clone();
-			move |_| async move {
-				session
-					.runner_heartbeat_task(sender, heartbeat_interval)
-					.await;
-			}
-		})
-	}
-
-	async fn runner_heartbeat_task(&self, sender: RunnerSender, interval: Duration) {
-		let mut interval = tokio::time::interval(interval);
-		let mut index = 1;
-		loop {
-			tokio::select! {
-				_ = interval.tick() => {},
-				() = self.server.runner.state.capacity.wait_for_change() => {},
-			}
-			let message = tg::runner::control::ClientMessage::Notification(
-				tg::runner::control::ClientNotification::Heartbeat(
-					self.create_runner_heartbeat(index),
-				),
-			);
-			index = index.wrapping_add(1);
-			let result = sender.send(message).await;
-			if result.is_err() {
-				break;
-			}
-		}
-	}
-
 	#[must_use]
 	fn create_runner_heartbeat(
 		&self,
 		index: u64,
+		cleanup: bool,
 	) -> tg::runner::control::HeartbeatClientNotification {
-		let capacity = self.server.runner.state.capacity.get();
+		let capacity = if cleanup {
+			tg::runner::control::Capacity::default()
+		} else {
+			self.server.runner.state.capacity.get()
+		};
 		tg::runner::control::HeartbeatClientNotification { capacity, index }
 	}
 

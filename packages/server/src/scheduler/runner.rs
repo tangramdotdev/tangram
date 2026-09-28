@@ -216,20 +216,22 @@ impl Server {
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
 			)?;
 		for sandbox in sandboxes {
-			self.destroy_expired_runner_sandbox(&sandbox).await?;
+			self.destroy_runner_sandbox(&sandbox, "heartbeat expired")
+				.await?;
 		}
 
 		Ok(())
 	}
 
-	pub(crate) async fn destroy_expired_runner_sandbox(
+	pub(crate) async fn destroy_runner_sandbox(
 		&self,
 		id: &tg::sandbox::Id,
+		reason: &str,
 	) -> tg::Result<()> {
 		let now = self.clock.unix_timestamp()?;
 		let error = tg::error::Data {
-			code: Some(tg::error::Code::HeartbeatExpiration),
-			message: Some("heartbeat expired".to_owned()),
+			code: Some(tg::error::Code::Internal),
+			message: Some(reason.to_owned()),
 			..Default::default()
 		};
 		let length = self

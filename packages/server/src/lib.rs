@@ -1761,7 +1761,7 @@ impl Server {
 			.into_iter()
 			.map(|output| async move {
 				let result = self
-					.destroy_expired_runner_sandbox(&output.id)
+					.destroy_runner_sandbox(&output.id, "server restarted")
 					.boxed()
 					.await;
 				if let Err(error) = result {
