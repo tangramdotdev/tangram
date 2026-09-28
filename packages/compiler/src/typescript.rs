@@ -93,11 +93,12 @@ fn run(compiler: &Compiler, mut request_receiver: RequestReceiver) {
 }
 
 fn run_inner(compiler: &Compiler, request_receiver: &mut RequestReceiver) -> ControlFlow<()> {
-	// Create the isolate. Declare the handle first so that it outlives the isolate.
-	let isolate_handle;
-	let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT.into());
-	let mut isolate = v8::Isolate::new(params);
-	isolate_handle = isolate.thread_safe_handle();
+	// Create the isolate with the handle bound first so that it outlives the isolate.
+	let (isolate_handle, mut isolate) = {
+		let params = v8::CreateParams::default().snapshot_blob(SNAPSHOT.into());
+		let isolate = v8::Isolate::new(params);
+		(isolate.thread_safe_handle(), isolate)
+	};
 
 	// Terminate execution rather than abort the process when the heap nears its limit.
 	let data = (&raw const isolate_handle).cast_mut().cast();
