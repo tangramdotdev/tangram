@@ -8,7 +8,7 @@ if $nu.os-info.name != 'linux' {
 
 let transports = if (fuse_io_uring_available) { [read_write io_uring] } else { [read_write] }
 for io in $transports {
-	let server = server spawn --config {
+	let local = server spawn --name local --config {
 		authorization: { final: false, initial: false }
 		object: { permission_time_to_live: 5 }
 		vfs: { io: $io, kind: fuse, passthrough: disabled }
@@ -52,5 +52,5 @@ for io in $transports {
 	let output = tg run $'--sandbox=($sandbox)' $command | complete
 	success $output 'renewed tokens must authorize cached graph descendants'
 	assert equal ($output.stdout | str trim) 'ok'
-	server stop $server
+	server stop $local
 }

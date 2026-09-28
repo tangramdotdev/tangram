@@ -9,15 +9,15 @@ let config = {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	indexer: { id: 'idx_0000000000000000000000000000' },
 }
-let producer = server spawn --name producer --directory $directory --config $config
-let watch = tg --url $producer.url --token $root_token checkpoint watch index.batch | from json | get watch
+let local_producer = server spawn --name local-producer --directory $directory --config $config
+let watch = tg --url $local_producer.url --token $root_token checkpoint watch index.batch | from json | get watch
 
-let nested_id = tg --url $producer.url --token $root_token put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
-let directory_id = tg --url $producer.url --token $root_token put ('tg.directory({ "sub": ' + $nested_id + ' })') | str trim
-tg --url $producer.url --token $root_token grant public object_subtree $nested_id | ignore
-tg --url $producer.url --token $root_token checkpoint wait index.batch $watch 0 | ignore
+let nested_id = tg --url $local_producer.url --token $root_token put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
+let directory_id = tg --url $local_producer.url --token $root_token put ('tg.directory({ "sub": ' + $nested_id + ' })') | str trim
+tg --url $local_producer.url --token $root_token grant public object_subtree $nested_id | ignore
+tg --url $local_producer.url --token $root_token checkpoint wait index.batch $watch 0 | ignore
 
-let pid = open ($producer.directory | path join 'lock') | into int
+let pid = open ($local_producer.directory | path join 'lock') | into int
 kill --signal 9 $pid
 if $nu.os-info.name == "linux" {
 	^tail --pid $pid -f /dev/null
@@ -25,7 +25,7 @@ if $nu.os-info.name == "linux" {
 	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
 }
 
-let indexer = server start $producer
+let indexer = server start $local_producer
 tg --url $indexer.url --token $root_token index
 let local = server spawn --name local --config {
 	remotes: { default: { url: $indexer.url } },

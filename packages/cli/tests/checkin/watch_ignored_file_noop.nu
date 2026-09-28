@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Editing a default-ignored file under a watched directory leaves the id unchanged even after the directory is invalidated and re-read.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: ''

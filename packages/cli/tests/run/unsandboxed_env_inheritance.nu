@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An unsandboxed process inherits an environment variable from the client's environment and can read it through tg.process.env.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

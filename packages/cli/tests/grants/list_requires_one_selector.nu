@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Listing grants requires exactly one of a resource or a subject.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

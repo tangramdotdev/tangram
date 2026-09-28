@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A child's output is readable through the tokens its wait returns when authorization searches are disabled.
 
-let server = server spawn --config {
+let local = server spawn --name local --config {
 	authorization: {
 		final: false
 		initial: false

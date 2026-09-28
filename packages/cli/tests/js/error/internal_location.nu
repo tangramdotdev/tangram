@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Errors thrown by the embedded runtime include source-mapped internal stack locations when enabled.
 
-let server = server spawn --config { advanced: { internal_error_locations: true } }
+let local = server spawn --config { advanced: { internal_error_locations: true } }
 
 let path = artifact {
 	tangram.ts: '

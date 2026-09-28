@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # The builder's cwd method sets the working directory.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

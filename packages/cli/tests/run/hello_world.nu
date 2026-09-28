@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Running a basic default export that logs to the console succeeds and returns the logged output.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

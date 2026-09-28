@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An --env-string value overrides an inherited environment variable of the same name as a string and no TANGRAM_ENV_ prefixed variant leaks through.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

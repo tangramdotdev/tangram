@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The default lock mode reuses an existing lockattr for a file dependency lock.
 
-let server = server spawn
+let local = server spawn
 
 let a_path = artifact {
 	tangram.ts: '// a 1.0.0'

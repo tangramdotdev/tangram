@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Loading an object attaches the returned exact tokens to each child handle.
 
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {

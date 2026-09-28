@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A destructive checkin of a directory containing chained relative symlinks produces the expected object and writes no lockfile.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	directory: {

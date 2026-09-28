@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A symlink with an artifact and no path resolves to that artifact.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

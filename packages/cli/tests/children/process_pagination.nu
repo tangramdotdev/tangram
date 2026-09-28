@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The position and length flags window a process's children list.
 
-let server = server spawn --config { advanced: { checkpoints: true } }
+let local = server spawn --name local --config { advanced: { checkpoints: true } }
 
 let path = artifact {
 	tangram.ts: '
@@ -43,7 +43,7 @@ assert equal ($tail | child_names) [b c] "end-relative positions should work acr
 # End-relative reads report absolute positions for every source.
 tg wait --source=index $build.process | ignore
 let process = $build.process | split row '?' | first
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 for source in [auto runner index] {
 	let output = http get --raw --max-time 10sec --unix-socket $socket $'http://localhost/processes/($process)/children?source=($source)&position=end.-2&size=1'
 	let chunks = $output | lines | where { $in starts-with 'data: ' } | each { str substring 6.. | from json }

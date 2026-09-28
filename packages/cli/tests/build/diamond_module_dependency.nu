@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A build whose module graph forms a diamond must authorize the shared
 # dependency without hanging.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

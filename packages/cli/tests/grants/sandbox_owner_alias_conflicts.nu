@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # At most one of the owner, user, group, and organization options may be provided.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

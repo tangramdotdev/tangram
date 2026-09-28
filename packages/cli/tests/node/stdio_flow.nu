@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+# Node standard input and output flow through the process streams.
+
 const js_path = path self '../../../js'
 cd $js_path
 

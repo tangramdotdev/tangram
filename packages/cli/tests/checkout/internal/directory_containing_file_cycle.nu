@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Checking out a directory containing a file that participates in a dependency cycle writes the directory into the checkouts directory.
 
-let server = server spawn --config { write: { checkout_pointers: false } }
+let local = server spawn --config { write: { checkout_pointers: false } }
 
 let path = artifact {
 	tangram.ts: r#'
@@ -25,11 +25,11 @@ let path = artifact {
 	'#
 }
 let id = tg build --no-checkout-pointers $path
-rm --recursive --force $server.checkout_directory
-mkdir $server.checkout_directory
+rm --recursive --force $local.checkout_directory
+mkdir $local.checkout_directory
 
 # Check out.
 tg checkout $id
 
 # Snapshot.
-snapshot --path $server.checkout_directory
+snapshot --path $local.checkout_directory

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Cleaning deletes a process while a storage and metadata update for it is still queued, because the two run independently. The indexer must tolerate the missing process. Failing the update instead leaves the entry at the head of the update queue, which blocks every later update and logs the failure on every retry, including after a restart.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},
@@ -58,5 +58,5 @@ tg checkpoint unwatch indexer.update.storage_and_metadata.batch $batch_watch
 let index = timeout 15 tg index | complete
 success $index "the update queue must drain after a storage and metadata update for a cleaned process"
 
-let errors = server_errors $server | where { $in | str starts-with 'tangram_server::indexer' }
+let errors = server_errors $local | where { $in | str starts-with 'tangram_server::indexer' }
 snapshot $errors ''

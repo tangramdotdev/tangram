@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Value.toData converts each element of an array.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.Value.toData([1, "x", true]); }'

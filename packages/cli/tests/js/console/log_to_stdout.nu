@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # console.log writes its message to the process's stdout stream.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

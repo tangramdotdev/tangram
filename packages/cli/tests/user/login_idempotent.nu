@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Logging in twice as the same user returns the same user, and each login issues a fresh token.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let first = tg login --verbose --name alice | from json
 let second = tg login --verbose --name alice | from json

@@ -20,22 +20,22 @@ let alice = tg --url $remote.url login --verbose --name alice | from json
 
 # Alice builds a process on the remote whose stdout holds a secret.
 let path = artifact { tangram.ts: 'export default function () { console.log("alicesecret"); }' }
-let source = server spawn --name source --config {
+let local_source = server spawn --name local-source --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 let watch = tg --url $remote.url --token $root_token checkpoint watch process.log.compact.read | from json | get watch
-let process = tg --url $source.url build --remote --detach $path | str trim
-tg --url $source.url wait $process
+let process = tg --url $local_source.url build --remote --detach $path | str trim
+tg --url $local_source.url wait $process
 let hit = tg --url $remote.url --token $root_token checkpoint wait process.log.compact.read $watch 0 | from json
 assert equal $hit.params.process $process
 
 # The runner sends its indexed process data without fetching or compacting the remote log.
 for mode in [--eager --lazy] {
-	let destination = server spawn --name destination
-	tg --url $runner.url remote put destination $destination.url
+	let remote_destination = server spawn --name remote-destination
+	tg --url $runner.url remote put destination $remote_destination.url
 	let pushed = tg --url $runner.url push $process --remote=destination --process-logs $mode | complete
 	success $pushed
-	assert equal (tg --url $destination.url get $process | from json | get log?) null
+	assert equal (tg --url $remote_destination.url get $process | from json | get log?) null
 	assert equal (tg --url $runner.url get $process | from json | get log?) null
 }
 

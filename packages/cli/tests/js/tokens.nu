@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # Cached descendants inherit sync context even when they already carry authorization.
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

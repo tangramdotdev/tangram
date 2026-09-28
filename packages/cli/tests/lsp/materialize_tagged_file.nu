@@ -3,7 +3,7 @@ use ../lib/lsp.nu
 
 # A tagged file module uses the explicit @module suffix so literal tags ending in module-like suffixes remain unambiguous.
 
-let server = server spawn
+let local = server spawn
 
 let dep_path = artifact {
 	dep.tg.ts: '
@@ -11,7 +11,7 @@ let dep_path = artifact {
 	'
 }
 tg tag dep.tg.ts ($dep_path | path join dep.tg.ts)
-let tag_path = $server.directory | path join store dep.tg.ts
+let tag_path = $local.directory | path join store dep.tg.ts
 assert (not ($tag_path | path exists --no-symlink)) "expected putting the tag not to create its store entry"
 
 let path = artifact {
@@ -38,7 +38,7 @@ $client = $output.session
 let links = $output.result
 assert (($links | length) == 1) "expected one document link"
 let uri = $links.0.target
-snapshot --normalize-ids --redact $server.directory $uri 'file://<redacted>/store/dep.tg.ts@module.tg.ts'
+snapshot --normalize-ids --redact $local.directory $uri 'file://<redacted>/store/dep.tg.ts@module.tg.ts'
 
 let module_path = lsp path_for_uri $uri
 assert ($module_path | path exists) "expected the tagged file module to be materialized"

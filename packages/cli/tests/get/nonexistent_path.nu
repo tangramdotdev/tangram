@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Getting a path whose parent does not exist fails to canonicalize, and getting a missing file in an existing directory fails to check in.
 
-let server = server spawn
+let local = server spawn
 
 let output = tg get /nonexistent/deeply/nested | complete
 failure $output

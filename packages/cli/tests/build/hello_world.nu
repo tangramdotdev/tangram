@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A build of a default export returning a string produces the expected output.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return "Hello, World!"; }'

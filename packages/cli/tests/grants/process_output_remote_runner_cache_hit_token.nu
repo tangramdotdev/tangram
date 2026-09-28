@@ -24,7 +24,7 @@ let runner_config = {
 
 # Alice is an ordinary authenticated user driving her own server.
 let alice = tg --url $remote.url login --verbose --name alice | from json
-let local = server spawn --name alice-local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 
@@ -43,14 +43,14 @@ let path = artifact {
 }
 
 # start runner 1
-let runner1 = server spawn --name runner1 --config $runner_config
+let runner_one = server spawn --name runner-one --config $runner_config
 
 # run foo, guaranteeing that it lands on runner1.
 let foo = tg --url $local.url build --remote $"($path)#foo" | complete
 success $foo "the foo build must populate the remote's process cache."
 
 # Kill runner1 to force runner 2 to pick up the next build.
-let pid = open ($runner1.directory | path join 'lock') | into int
+let pid = open ($runner_one.directory | path join 'lock') | into int
 kill --signal 2 $pid
 if $nu.os-info.name == 'linux' {
 	^tail --pid $pid -f /dev/null
@@ -59,7 +59,7 @@ if $nu.os-info.name == 'linux' {
 }
 
 # start runner2.
-let runner2 = server spawn --name runner2 --config $runner_config
+let runner_two = server spawn --name runner-two --config $runner_config
 
 # build bar, guaranteeing it lands on runner2.
 let bar = tg --url $local.url build --remote $"($path)#bar" | complete

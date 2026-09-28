@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # A built file retains its subtree token without redundant process authorization.
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
 let alice = tg login --verbose --name alice | from json

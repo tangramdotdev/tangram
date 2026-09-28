@@ -4,19 +4,19 @@ use ../lib/test.nu *
 
 let remote = server spawn --cloud --name remote --config { authentication: { users: { providers: { insecure: true } } } }
 
-let source = server spawn --name source --config {
+let local_source = server spawn --name local-source --config {
 	remotes: { default: { url: $remote.url } },
 }
-let directory_source = server spawn --name directory-source --config {
+let local_directory_source = server spawn --name local-directory-source --config {
 	remotes: { default: { url: $remote.url } },
 }
 
 # An anonymous push stores a public file and blob on the remote.
-let directory = tg --url $source.url put 'tg.directory({ "public.txt": tg.file("public") })' | str trim
-tg --url $source.url index
-let file = tg --url $source.url children $directory | from json | get 0
+let directory = tg --url $local_source.url put 'tg.directory({ "public.txt": tg.file("public") })' | str trim
+tg --url $local_source.url index
+let file = tg --url $local_source.url children $directory | from json | get 0
 
-let output = tg --url $source.url --no-quiet push --lazy $file | complete
+let output = tg --url $local_source.url --no-quiet push --lazy $file | complete
 success $output "An anonymous push should succeed."
 snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped)'} | sort | str join "\n") '
 	info transferred 2 objects, 51 B
@@ -25,10 +25,10 @@ snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped)'} | s
 tg --url $remote.url index
 
 # A second anonymous client has only the directory structure, not the file or blob.
-tg --url $source.url get --bytes $directory | tg --url $directory_source.url put --bytes --kind dir
+tg --url $local_source.url get --bytes $directory | tg --url $local_directory_source.url put --bytes --kind dir
 
 # The later anonymous push relies on the public file subtree and transfers only the directory.
-let output = tg --url $directory_source.url --no-quiet push --lazy $directory | complete
+let output = tg --url $local_directory_source.url --no-quiet push --lazy $directory | complete
 success $output "A later anonymous push should rely on the public file subtree."
 snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped)'} | sort | str join "\n") '
 	info skipped 2 objects, 51 B

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.template merges adjacent string arguments into a single component.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return (await tg.template("a", "b", "c")).components; }'

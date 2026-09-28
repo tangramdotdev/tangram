@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A directory node whose entry edge points to itself resolves back to the same directory.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

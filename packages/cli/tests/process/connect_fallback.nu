@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+# Process connection falls back to an available location when the preferred one is unavailable.
+
 const proxy_path = path self ../lib/process_connect_proxy.mjs
 let remote = server spawn --name remote
 let port = port

@@ -5,7 +5,7 @@ use ../lib/test.nu *
 for preserve_keys in [true false] {
 	# A zero-edge budget makes a tiny fixture reproduce the fallback search exhaustion.
 	let root_token = random chars
-	let server = server spawn --preserve-keys=$preserve_keys --config {
+	let local = server spawn --preserve-keys=$preserve_keys --config {
 		authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 		authorization: {
 			final: {
@@ -43,7 +43,7 @@ for preserve_keys in [true false] {
 	let output = tg --token $bob.token put $source | complete
 	success $output 'the checkout dependency token should authorize the object batch before restart'
 
-	let server = server restart $server
+	let server = server restart $local
 	let warm_path = tg --token $root_token checkout $wrapper | str trim
 	assert equal $warm_path $path
 	let warm_reference = xattr_read user.tangram.dependencies $warm_path | from json | first
@@ -65,6 +65,6 @@ for preserve_keys in [true false] {
 	let output = tg --token $bob.token put $source | complete
 	success $output 'a fresh token should authorize the same object batch without changing the search budget'
 
-	server stop $server
+	server stop $local
 	success $warm_output 'a dependency token recovered from the reused checkout should authorize the object batch after restart'
 }

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Bundling a symlink with no dependencies returns the symlink unchanged.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.symlink("target"); }'

@@ -4,7 +4,7 @@ use ../lib/test.nu *
 # error, whether the process is canceled explicitly with `tg cancel` or by killing
 # the client that started the build.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

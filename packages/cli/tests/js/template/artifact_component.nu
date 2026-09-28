@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.template keeps an artifact as its own component, separating the surrounding string components.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return await tg.template("cat ", await tg.file("hi"), " end"); }'

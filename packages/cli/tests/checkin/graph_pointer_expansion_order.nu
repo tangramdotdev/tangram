@@ -3,7 +3,7 @@ use ../lib/checkin.nu checkin-output
 
 # An opaque permission-only graph pointer does not prevent a later normal reference from expanding the same node.
 
-let server = server spawn
+let local = server spawn
 let dependency = tg put 'tg.file("old dependency")' | str trim
 let graph_module = r#'
 	export default async function () {
@@ -57,7 +57,7 @@ let permission_only_first = artifact {
 	a: (file --xattrs { "user.tangram.dependencies": $dependencies } explicit)
 	b.tg.ts: 'import "pointer/^1";'
 }
-let output = checkin-output $server $permission_only_first
+let output = checkin-output $local $permission_only_first
 let object = tg get --blobs --depth=inf --no-tokens --pretty $output.reference
 assert ($object | str contains "new dependency") "the later normal reference should expand and solve the graph node"
 
@@ -65,6 +65,6 @@ let normal_first = artifact {
 	a.tg.ts: 'import "pointer/^1";'
 	b: (file --xattrs { "user.tangram.dependencies": $dependencies } explicit)
 }
-let output = checkin-output $server $normal_first
+let output = checkin-output $local $normal_first
 let object = tg get --blobs --depth=inf --no-tokens --pretty $output.reference
 assert ($object | str contains "new dependency") "the earlier normal reference should expand and solve the graph node"

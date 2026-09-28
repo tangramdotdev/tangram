@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a module that depends on a tag with an unsatisfied transitive source dependency fails, then succeeds once the transitive dependency is tagged.
 
-let server = server spawn
+let local = server spawn
 
 # Create and tag a module with a source dependency.
 let path = artifact {

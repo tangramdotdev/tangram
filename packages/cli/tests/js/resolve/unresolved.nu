@@ -1,5 +1,7 @@
 use ../../lib/test.nu *
 
+# An unresolved promise does not keep a completed JavaScript result pending.
+
 def assert_idle_error [source: string] {
 	let path = artifact {
 		tangram.ts: $source,
@@ -12,7 +14,7 @@ def assert_idle_error [source: string] {
 	) "an unresolved result promise should fail when the runtime becomes idle"
 }
 
-let server = server spawn
+let local = server spawn
 
 # An unawaited unresolved promise does not keep the process result pending.
 let path = artifact {

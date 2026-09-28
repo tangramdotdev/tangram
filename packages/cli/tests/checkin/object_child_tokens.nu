@@ -4,7 +4,7 @@ use ../lib/checkin.nu checkin-output
 # Both solver reads and prefetches use exact child tokens through branches, graphs, symlinks, and dependencies.
 
 let root_token = random chars
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 }
@@ -65,7 +65,7 @@ let directory = artifact {
 let path = $directory | path join input
 let job = job spawn {
 	let job_id = job id
-	let output = checkin-output $server $path --token $alice.token
+	let output = checkin-output $local $path --token $alice.token
 	$output | job send --tag $job_id 0
 }
 let output = job recv --tag $job --timeout 15sec

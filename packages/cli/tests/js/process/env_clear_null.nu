@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A null env override clears the inherited command env.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Each lookup retains its own subtree token, so descending does not search the authorization index for parents.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	tracing: {
 		filter: 'tangram=info,tangram_index::authorize::facts=debug'
 		stderr_format: 'json'
@@ -34,8 +34,8 @@ let path = artifact {
 
 let directories = tg build $path | from json
 assert equal ($directories | length) 7
-server stop $server
-let reads = open $server.log
+server stop $local
+let reads = open $local.log
 	| lines
 	| where ($it | str starts-with '{')
 	| each { |line| $line | from json }

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A user specifier must be a single component, so a multi-component login is rejected.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let output = tg login --name "alice/bob" | complete
 failure $output "a multi-component user specifier should be rejected"

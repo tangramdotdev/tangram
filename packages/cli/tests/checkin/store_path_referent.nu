@@ -8,7 +8,7 @@ def token-body [token: string] {
 }
 
 let root_token = random chars
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 	object: { permission_time_to_live: 60 }
@@ -17,7 +17,7 @@ let server = server spawn --config {
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 let directory = tg --token $alice.token put 'tg.directory({
 	"artifact_link": tg.symlink({ "artifact": tg.directory({ "program": tg.file("contents") }) }),
 	"artifact_path_link": tg.symlink({
@@ -52,7 +52,7 @@ for case in [
 	{ input: $'($alias)/root/bin/program', path: 'bin/program' },
 	{ input: $'($root)/final_link', path: 'final_link' },
 ] {
-	let output = checkin-output $server $case.input --token $bob.token
+	let output = checkin-output $local $case.input --token $bob.token
 	let uri = $'http://localhost/($output.reference)' | url parse
 	assert equal ($uri.params | where key == id | first | get value) $directory
 	assert equal ($uri.params | where key == path | first | get value) $case.path
@@ -74,7 +74,7 @@ for case in [
 
 # The root itself has no containing root or subpath and needs only one token.
 for path in [$root $'($root).tg.ts'] {
-	let output = checkin-output $server $path --token $bob.token
+	let output = checkin-output $local $path --token $bob.token
 	assert equal $output.artifact $directory
 	let params = $'http://localhost/($output.reference)' | url parse | get params
 	assert ($params | where key in [id path] | is-empty)
@@ -89,7 +89,7 @@ for case in [
 	{ input: 'artifact_link/program', id: $target, path: 'program' },
 	{ input: 'artifact_path_link/program', id: $target_parent, path: 'bin/program' },
 ] {
-	let output = checkin-output $server $'($root)/($case.input)' --token $alice.token
+	let output = checkin-output $local $'($root)/($case.input)' --token $alice.token
 	let params = $'http://localhost/($output.reference)' | url parse | get params
 	assert equal $output.artifact $resolved
 	assert equal ($params | where key == id | first | get value) $case.id

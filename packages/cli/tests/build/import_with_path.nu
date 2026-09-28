@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A module can import a specific file from a tagged package using the "get" import attribute and read its contents.
 
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	"subdirectory": {
 		file.txt: "hello, world!\n"

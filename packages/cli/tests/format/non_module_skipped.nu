@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Formatting a path to a file that is not a module succeeds without changing the file.
 
-let server = server spawn
+let local = server spawn
 
 let dir = mktemp --directory
 let contents = 'export default   "plain"'

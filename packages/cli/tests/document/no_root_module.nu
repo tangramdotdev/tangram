@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Documenting a directory without a root module fails.
 
-let server = server spawn
+let local = server spawn
 
 let dir = mktemp --directory
 "hello" | save ($dir | path join readme.txt)

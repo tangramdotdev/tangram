@@ -1,12 +1,14 @@
 use ../lib/test.nu *
 use ../lib/vfs.nu
 
+# Reading a tagged directory through the VFS returns its entries.
+
 vfs skip_unless_supported
 
 # Listing the VFS exposes the immediate components of visible tags and reflects deletions.
 
 let server_path = mktemp --directory
-let server = server spawn --directory $server_path --config { vfs: true }
+let local = server spawn --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
 
 let artifact = artifact {

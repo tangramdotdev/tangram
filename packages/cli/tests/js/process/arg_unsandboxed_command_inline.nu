@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Unsandboxed process arguments keep the command inline instead of storing it.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

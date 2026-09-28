@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A package whose modules import each other in a cycle builds successfully.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

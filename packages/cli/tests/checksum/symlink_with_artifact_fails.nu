@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A directory cannot be checksummed.
 
-let server = server spawn
+let local = server spawn
 
 let dir = tg put 'tg.directory({ "link": tg.symlink({ "artifact": tg.file("target") }) })' | str trim
 

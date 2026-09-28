@@ -2,15 +2,15 @@ use ../lib/test.nu *
 
 # A process authenticated client lists its creator's remotes but may not put a remote.
 
-let root_remote = server spawn --name root-remote
-let alice_remote = server spawn --name alice-remote
-let server = server spawn --config {
+let remote_root = server spawn --name remote-root
+let remote_alice = server spawn --name remote-alice
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
-	remotes: { root: { url: $root_remote.url } },
+	remotes: { root: { url: $remote_root.url } },
 }
 
 let alice = tg login --verbose --name alice | from json
-tg --token $alice.token remote put alice $alice_remote.url
+tg --token $alice.token remote put alice $remote_alice.url
 
 # Run a command that logs its process token and stays alive.
 let path = artifact {
@@ -28,11 +28,11 @@ let token = tg log $parent.process | str trim
 # Listing remotes with a process token uses the creator's remotes.
 let remotes = tg --token $token remote list | from json
 assert equal ($remotes | get name) [alice]
-assert equal ($remotes | get url) [$alice_remote.url]
+assert equal ($remotes | get url) [$remote_alice.url]
 
 # Getting a remote with a process token uses the creator's remotes.
 let remote = tg --token $token remote get alice | from json
-assert equal $remote.url $alice_remote.url
+assert equal $remote.url $remote_alice.url
 
 # Putting a remote with a process token is unauthorized.
 let output = tg --token $token remote put upstream "http://localhost:9999" | complete
@@ -55,7 +55,7 @@ failure $output
 
 # The creator's remote is unchanged.
 let remote = tg --token $token remote get alice | from json
-assert equal $remote.url $alice_remote.url
+assert equal $remote.url $remote_alice.url
 
 tg cancel $parent.process $parent.lease
 tg wait $parent.process

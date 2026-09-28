@@ -2,10 +2,10 @@ use ../../lib/test.nu *
 
 # Cleaning a tag checkout removes its tag and ancestor entries, and a later checkout recreates them.
 
-let server = server spawn
+let local = server spawn
 let artifact = artifact 'contents'
 let specifier = 'foo/bar/baz'
-let store = $server.directory | path join store
+let store = $local.directory | path join store
 let tag_path = $store | path join $specifier
 
 tg tag -p $specifier $artifact

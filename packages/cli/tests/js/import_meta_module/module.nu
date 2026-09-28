@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # import.meta.module refers to the module's own source; empty referent options are omitted.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return import.meta.module; }'

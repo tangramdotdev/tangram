@@ -17,7 +17,7 @@ tg --url $bob_local.url push $bob_build.process
 tg --url $remote.url --token $bob.token grant $alice.user.id process_node $bob_build.process | ignore
 
 # Alice has a local server that uses the remote.
-let local = server spawn --name alice-local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 

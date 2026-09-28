@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Clients retain complementary proofs and prune covered permissions regardless of expiration.
 
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: r#'
 		export default async function () {

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The depth flag limits the tree to the given number of levels below the root.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return 42; }'

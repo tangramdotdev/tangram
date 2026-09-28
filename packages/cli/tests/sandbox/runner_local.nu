@@ -2,12 +2,12 @@ use ../lib/test.nu *
 
 # Sandbox status comes from the runner even while its destroy index update is delayed.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true },
 	sandbox: { status_wakeup_interval: 3600.0 },
 }
 let sandbox = tg sandbox create | str trim
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 let query = { location: 'local(hint)' } | url build-query
 let output = http get --max-time 10sec --unix-socket $socket $'http://localhost/sandboxes/($sandbox)?($query)'
 assert equal $output.data.status started

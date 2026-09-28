@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A child sandbox cannot widen its parent's network or mount access.
 
-let server = server spawn
+let local = server spawn
 
 let exact_path = artifact {
 	tangram.ts: 'export default function () { return tg.build`echo hello`.network(); }',

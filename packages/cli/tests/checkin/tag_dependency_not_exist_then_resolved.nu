@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A watched package whose tag dependency does not yet exist checks in unsolved, then resolves the dependency once the tag is created.
 
-let server = server spawn
+let local = server spawn
 
 # Create a package that depends on a/^1 which does not exist yet.
 let path = artifact {

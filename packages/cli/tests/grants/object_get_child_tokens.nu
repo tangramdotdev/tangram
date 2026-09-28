@@ -12,13 +12,13 @@ def token-body [token: string] {
 }
 
 let root_token = random chars
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 let directory = tg --token $alice.token put 'tg.directory({ "nested": tg.directory({ "a": tg.file("hello"), "b": tg.file("hello") }) })' | str trim
 tg --token $alice.token index
 

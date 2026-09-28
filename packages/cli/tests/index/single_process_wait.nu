@@ -1,11 +1,11 @@
 use ../lib/test.nu *
 
 # The memory messenger must keep an acknowledged request alive past its acknowledgment timeout.
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true, single_process: true },
 	indexer: { request: { timeout: 0.05 } },
 }
-let url = $server.url
+let url = $local.url
 let receive_watch = tg --url $url checkpoint watch indexer.request.receive | from json | get watch
 let wait_watch = tg --url $url checkpoint watch indexer.request.wait | from json | get watch
 let request = job spawn {

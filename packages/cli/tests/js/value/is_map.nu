@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Value.isMap accepts a plain object and rejects an array or a byte string.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return [tg.Value.isMap({ a: 1 }), tg.Value.isMap([1]), tg.Value.isMap(tg.encoding.utf8.encode("x"))]; }'

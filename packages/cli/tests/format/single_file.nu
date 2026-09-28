@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Formatting a path to a single module file rewrites it in place.
 
-let server = server spawn
+let local = server spawn
 
 let dir = mktemp --directory
 'export default   "single"' | save ($dir | path join tangram.ts)

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A group can be added as a member of an organization.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.assert throws the provided message when the condition is falsy.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

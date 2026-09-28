@@ -6,7 +6,7 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true },
 	tracing: { stderr_format: 'json' },
 }
@@ -32,12 +32,12 @@ let output = job recv --tag $build --timeout 10sec
 assert equal $output.exit_code 130 'the build should exit after Ctrl-C'
 
 # A terminal sends Ctrl-C to the foreground process group. Signalling only the server PID misses the sandbox launchers that share its group on Linux.
-let pid = open --raw ($server.directory | path join lock) | str trim | into int
+let pid = open --raw ($local.directory | path join lock) | str trim | into int
 assert equal (^ps -o pgid= -p $pid | str trim | into int) $pid
 ^kill --signal INT -- $'-($pid)'
 
 # Wait for the graceful shutdown to finish before inspecting the complete server log.
-wait_until { (open --raw $server.exit | str trim) != '' } 'the server should shut down gracefully' --timeout 30sec
-assert equal (open --raw $server.exit | str trim | into int) 0 'the server should exit successfully'
-let errors = open --raw $server.log | lines | each { from json } | where level == 'ERROR'
+wait_until { (open --raw $local.exit | str trim) != '' } 'the server should shut down gracefully' --timeout 30sec
+assert equal (open --raw $local.exit | str trim | into int) 0 'the server should exit successfully'
+let errors = open --raw $local.log | lines | each { from json } | where level == 'ERROR'
 assert ($errors | is-empty) ($errors | to json)

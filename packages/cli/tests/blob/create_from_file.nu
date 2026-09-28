@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Writing a file through standard input creates a blob whose retrieved contents match the snapshot.
 
-let server = server spawn
+let local = server spawn
 
 let temp_file = mktemp --tmpdir
 "hello, world!\n" | save --force $temp_file

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a process output preserves authorization for dependencies inherited from an input file.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authorization: {
 		initial: { ancestor: { max_edges: 3 }, descendant: { max_edges: 3 } }
 		final: { ancestor: { max_edges: 3 }, descendant: { max_edges: 3 } }

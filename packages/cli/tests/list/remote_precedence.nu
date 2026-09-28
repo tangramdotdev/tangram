@@ -2,17 +2,17 @@ use ../lib/test.nu *
 
 # Remotes are queried concurrently and conflicting results prefer the alphabetically first remote.
 
-let alpha = server spawn --cloud --name alpha
-let zeta = server spawn --cloud --name zeta
+let remote_alpha = server spawn --cloud --name remote-alpha
+let remote_zeta = server spawn --cloud --name remote-zeta
 let local = server spawn --name local --config {
 	remotes: {
-		zeta: { url: $zeta.url }
-		alpha: { url: $alpha.url }
+		zeta: { url: $remote_zeta.url }
+		alpha: { url: $remote_alpha.url }
 	}
 }
 
-let alpha_group = tg --url $alpha.url group create foo | from json
-tg --url $zeta.url group create foo | ignore
+let alpha_group = tg --url $remote_alpha.url group create foo | from json
+tg --url $remote_zeta.url group create foo | ignore
 
 let output = with-env { TANGRAM_QUIET: "false" } { tg --url $local.url get foo | complete }
 success $output

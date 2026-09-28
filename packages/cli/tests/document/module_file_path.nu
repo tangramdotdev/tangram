@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Documenting a module file path directly produces documentation for its exports.
 
-let server = server spawn
+let local = server spawn
 
 let dir = mktemp --directory
 'export let x = 1;' | save ($dir | path join tangram.ts)

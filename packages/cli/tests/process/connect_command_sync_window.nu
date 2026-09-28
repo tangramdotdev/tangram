@@ -1,8 +1,8 @@
 use ../lib/test.nu *
 
-const script = path self ../lib/process_connect_window.mjs
-
 # Command sync must progress while the entire fixed process request window is buffered.
+
+const script = path self ../lib/process_connect_window.mjs
 for await_push in [true false] {
 	let root_token = random chars
 

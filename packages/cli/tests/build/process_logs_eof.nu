@@ -1,7 +1,9 @@
 use ../lib/test.nu *
 
+# Process log reads return the requested bytes at the end of a stream.
+
 for compaction in [false true] {
-	let server = server spawn --config { indexer: { log_compaction: $compaction } }
+	let local = server spawn --config { indexer: { log_compaction: $compaction } }
 	let path = artifact {
 		tangram.ts: '
 			export default function () {
@@ -19,12 +21,12 @@ for compaction in [false true] {
 	}
 
 	# Forward the resolved window through another server as well.
-	let reader = server spawn --name reader --config { remotes: { default: { url: $server.url } } }
-	let output = timeout 10 tg --url $reader.url log --no-timeout --stream stdout --position end.96 --length=-98 $id | complete
+	let local_reader = server spawn --name local-reader --config { remotes: { default: { url: $local.url } } }
+	let output = timeout 10 tg --url $local_reader.url log --no-timeout --stream stdout --position end.96 --length=-98 $id | complete
 	success $output
 	assert equal $output.stdout "c\n"
 	assert equal $output.stderr ""
-	$env.TANGRAM_URL = $server.url
+	$env.TANGRAM_URL = $local.url
 
 	# Intersect the requested window with EOF for combined and individual streams.
 	for case in [

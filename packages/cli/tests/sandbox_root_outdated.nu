@@ -10,7 +10,7 @@ let directory = mktemp --directory
 let container = $directory | path join 'container'
 let root = $directory | path join 'container' 'root'
 
-let server = server spawn --directory $directory
+let local = server spawn --directory $directory
 
 let path = artifact {
 	tangram.ts: '
@@ -34,19 +34,19 @@ if $vm {
 }
 
 # A current root is reused.
-server stop $server
+server stop $local
 ^touch --date 'now + 1 hour' $root
 let preserved = $root | path join 'tmp' 'preserved'
 touch $preserved
-let server = server start $server
+let server = server start $local
 assert ($preserved | path exists) 'expected the current root to be reused'
 
 # A failed rebuild leaves the installed root untouched.
-server stop $server
+server stop $local
 ^touch --date '1970-01-01 UTC' $root
 ^chmod 0555 $container
 let error = try {
-	server start $server | ignore
+	server start $local | ignore
 	null
 } catch { |error| $error }
 ^chmod 0755 $container
@@ -54,7 +54,7 @@ assert ($error != null) 'expected the rebuild to fail'
 assert ($preserved | path exists) 'expected the failed rebuild to preserve the installed root'
 
 # A subsequent successful start replaces the invalid root.
-let server = server start $server
+let server = server start $local
 assert not ($preserved | path exists) 'expected the invalid root to be replaced'
 if $vm {
 	^touch --reference $root $image

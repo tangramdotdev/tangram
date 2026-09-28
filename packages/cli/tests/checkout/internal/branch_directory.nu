@@ -3,7 +3,7 @@ use ../../lib/test.nu *
 # Checking out a directory whose entry count exceeds the configured max_leaf_entries, forcing it into a branch directory, writes all of the entries into the checkouts directory.
 
 # Spawn a server with a small max_leaf_entries to trigger branch directories with few files.
-let server = server spawn --config {
+let local = server spawn --config {
 	checkin: {
 		directory: {
 			max_leaf_entries: 4
@@ -28,4 +28,4 @@ let id = tg checkin $path
 tg checkout $id
 
 # Snapshot the store directory.
-snapshot --path $server.checkout_directory
+snapshot --path $local.checkout_directory

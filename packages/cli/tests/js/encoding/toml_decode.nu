@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.encoding.toml.decode parses a TOML string into a value.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.encoding.toml.decode("name = \"tangram\"\nversion = 1\n"); }'

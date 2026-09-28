@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Compressing a blob and then decompressing it returns the original blob across each supported format.
 
-let server = server spawn
+let local = server spawn
 
 let blob = "hello, world!\n" | tg write --no-tokens
 

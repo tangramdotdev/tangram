@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A file's children are its contents blob, and the blob itself has no children.
 
-let server = server spawn
+let local = server spawn
 
 let file_id = tg put 'tg.file("hello")' | str trim
 let children = tg object children $file_id | from json

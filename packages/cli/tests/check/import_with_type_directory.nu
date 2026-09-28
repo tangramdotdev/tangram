@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The check command succeeds for a module that imports the current package with the directory type assertion.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

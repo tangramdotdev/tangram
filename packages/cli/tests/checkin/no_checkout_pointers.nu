@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A file checked in with --no-checkout-pointers can still be read back by its object ID.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact 'Hello, World!'
 

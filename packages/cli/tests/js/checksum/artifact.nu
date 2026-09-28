@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.checksum checksums a file's contents bytes.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.checksum(await tg.file("hello"), "sha256"); }'

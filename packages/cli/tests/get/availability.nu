@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The availability flag prints availability alongside object and process get output.
 
-let server = server spawn
+let local = server spawn
 
 let file = tg put 'tg.file("available")' | str trim
 let path = artifact {

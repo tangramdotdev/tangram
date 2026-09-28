@@ -1,6 +1,8 @@
 use ../lib/test.nu *
 use ../lib/vfs.nu
 
+# Every VFS directory entry reports a nonzero inode number.
+
 vfs skip_unless_supported
 
 # Every entry returned by readdir must report a nonzero inode number. GNU make ignores
@@ -23,7 +25,7 @@ for index in 0..<$count {
 }
 
 let server_path = mktemp --directory
-let server = server spawn --directory $server_path --config { vfs: true }
+let local = server spawn --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
 
 let id = tg checkin $source | str trim

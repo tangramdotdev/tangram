@@ -3,7 +3,7 @@ use ../lib/checkin.nu checkin-output
 
 # A dependency grant that is not embedded in its reference is not observed with solving disabled.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	remotes: {}
 }
@@ -19,5 +19,5 @@ let directory = artifact {
 	input: (file --xattrs { "user.tangram.dependencies": $dependencies } no-solve)
 }
 let path = $directory | path join input
-let output = checkin-output $server $path --no-solve --token $bob.token
+let output = checkin-output $local $path --no-solve --token $bob.token
 assert equal $output.permissions [object_node] "the checkin token should confer only node permission"

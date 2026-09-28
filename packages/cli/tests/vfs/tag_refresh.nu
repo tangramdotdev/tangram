@@ -1,6 +1,8 @@
 use ../lib/test.nu *
 use ../lib/vfs.nu
 
+# Refreshing a tag updates the corresponding VFS view.
+
 if $nu.os-info.name == 'macos' {
 	skip_test 'FSKit does not support invalidating externally changed items'
 }
@@ -9,7 +11,7 @@ vfs skip_unless_supported
 # Tag paths resolve their current target and disappear after deletion without remounting the VFS.
 
 let server_path = mktemp --directory
-let server = server spawn --directory $server_path --config { vfs: true }
+let local = server spawn --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
 
 let path = vfs store_path $server_path | path join 'dep/tangram.ts'

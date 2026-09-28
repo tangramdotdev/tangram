@@ -3,7 +3,7 @@ use ../lib/lsp.nu
 
 # Document-link and go-to-definition requests against a tagged dependency resolve to the materialized tag path and opening the materialized definition reports no diagnostics.
 
-let server = server spawn
+let local = server spawn
 
 let dep_path = artifact {
 	tangram.ts: '
@@ -11,7 +11,7 @@ let dep_path = artifact {
 	'
 }
 tg tag dep $dep_path
-let tag_path = $server.directory | path join store dep
+let tag_path = $local.directory | path join store dep
 assert (not ($tag_path | path exists --no-symlink)) "expected putting the tag not to create its store entry"
 
 let path = artifact {
@@ -39,14 +39,14 @@ $client = $links_output.session
 let links = $links_output.result
 assert (($links | length) == 1) "expected one document link"
 let link_uri = $links.0.target
-snapshot --normalize-ids --redact $server.directory $link_uri 'file://<redacted>/store/dep/tangram.ts'
+snapshot --normalize-ids --redact $local.directory $link_uri 'file://<redacted>/store/dep/tangram.ts'
 
 let locations_output = lsp wait_result $client 11
 $client = $locations_output.session
 let locations = $locations_output.result
 assert (($locations | length) > 0) "expected a definition location"
 let definition_uri = $locations.0.uri
-snapshot --normalize-ids --redact $server.directory $definition_uri 'file://<redacted>/store/dep/tangram.ts'
+snapshot --normalize-ids --redact $local.directory $definition_uri 'file://<redacted>/store/dep/tangram.ts'
 
 let definition_path = lsp path_for_uri $definition_uri
 assert ($definition_path | path exists) "expected the definition path to be materialized"

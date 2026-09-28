@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The --executable flag selects the executable to invoke across the run, exec, process exec, build, and spawn commands, including overriding the executable of a directory or builder artifact.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	hello: (file --executable '

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A module file checked in by its identifier can be built directly and returns its default export value.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
     file.tg.ts: r#'export default function () { return "hello, world!"; }'#

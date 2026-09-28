@@ -4,7 +4,7 @@ use ../lib/command.nu
 # Pulling a process with the commands flag brings the process command present locally.
 
 let remote = server spawn --cloud --name remote
-let source = server spawn --name source --config {
+let local_source = server spawn --name local-source --config {
 	remotes: { default: { url: $remote.url } },
 }
 let local = server spawn --name local
@@ -13,9 +13,9 @@ tg remote put default $remote.url
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.file("from remote build"); }',
 }
-let process = tg --url $source.url build --detach $path | str trim
-tg --url $source.url wait $process
-tg --url $source.url push --process-commands $process
+let process = tg --url $local_source.url build --detach $path | str trim
+tg --url $local_source.url wait $process
+tg --url $local_source.url push --process-commands $process
 tg --url $remote.url wait $process
 let command = tg --url $remote.url get $process | from json | get command | command module-input $in
 

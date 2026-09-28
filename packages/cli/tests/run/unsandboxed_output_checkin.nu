@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The output directory written by an unsandboxed process is checked in as a directory artifact containing the expected file contents.
 
-let server = server spawn --busybox
+let local = server spawn --busybox
 
 let path = artifact {
 	tangram.ts: '

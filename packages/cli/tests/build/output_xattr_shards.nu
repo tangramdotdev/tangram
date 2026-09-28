@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An environment composed from child build outputs preserves its artifact references through all three process output readers.
 
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {

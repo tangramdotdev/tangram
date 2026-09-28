@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Cancellation rechecks completion when runner control retires after the initial status check.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true },
 	runner: { process_state_ttl: 0 },
 }

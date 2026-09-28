@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Value.print renders a command whose cwd, stdin, and user are absent without crashing and omits those fields.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

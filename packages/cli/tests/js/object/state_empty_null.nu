@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # An object state without a loaded object represents it with null.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

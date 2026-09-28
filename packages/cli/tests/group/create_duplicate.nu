@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A group cannot be created with a specifier that is already in use.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Cancelling one of two leases on a deduplicated process leaves it running, and cancelling the last lease cancels it.
 
-let server = server spawn --config { advanced: { checkpoints: true } }
+let local = server spawn --config { advanced: { checkpoints: true } }
 
 let path = artifact {
 	tangram.ts: '

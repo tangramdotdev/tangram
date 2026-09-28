@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # The ambient tg.process.module carries the module that is being built.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

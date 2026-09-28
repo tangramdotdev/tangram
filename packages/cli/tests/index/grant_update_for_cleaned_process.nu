@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Cleaning a process deletes it from the index but leaves its grants, so a grant update enqueued for the process afterward finds no process. The indexer must tolerate that. Failing the update instead leaves the entry at the head of the update queue, which blocks every later update and logs the failure on every retry, including after a restart.
 
-let server = server spawn --config { tracing: { stderr_format: 'json' } }
+let local = server spawn --config { tracing: { stderr_format: 'json' } }
 
 let path = artifact {
 	tangram.ts: '
@@ -25,5 +25,5 @@ tg grants delete public subtree $process
 let index = timeout 15 tg index | complete
 success $index "the update queue must drain after a grant update for a cleaned process"
 
-let errors = server_errors $server | where { $in | str starts-with 'tangram_server::indexer' }
+let errors = server_errors $local | where { $in | str starts-with 'tangram_server::indexer' }
 snapshot $errors ''

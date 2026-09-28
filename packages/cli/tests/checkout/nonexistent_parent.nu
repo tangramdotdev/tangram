@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking out to a path under a nonexistent parent directory fails.
 
-let server = server spawn
+let local = server spawn
 
 let artifact = artifact {
 	tangram.ts: 'export default function () { return tg.file("Hello, World!"); }',

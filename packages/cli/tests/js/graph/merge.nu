@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.graph concatenates multiple graphs, offsetting the second graph's node indices.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

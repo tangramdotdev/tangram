@@ -2,15 +2,15 @@ use ../lib/test.nu *
 
 # Remote management requires authentication and each authenticated user manages their own isolated set of remotes.
 
-let root_remote = server spawn --name root-remote
-let alice_server = server spawn --name alice-remote
-let bob_server = server spawn --name bob-remote
-let auth_enabled = server spawn --config {
+let remote_root = server spawn --name remote-root
+let remote_alice = server spawn --name remote-alice
+let remote_bob = server spawn --name remote-bob
+let local_auth_enabled = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
-	remotes: { default: { url: $root_remote.url } },
-} --name auth-enabled
+	remotes: { default: { url: $remote_root.url } },
+} --name local-auth-enabled
 
-let output = tg remote put default $alice_server.url | complete
+let output = tg remote put default $remote_alice.url | complete
 failure $output "An unauthenticated request should not be able to manage remotes."
 snapshot --normalize $output.stderr '
 	error an error occurred
@@ -30,23 +30,23 @@ let bob = tg login --verbose --name bob | from json
 let alice_remotes = tg --token $alice.token remote list | from json
 assert equal $alice_remotes []
 
-tg --token $alice.token remote put default $alice_server.url
-tg --token $bob.token remote put default $bob_server.url
+tg --token $alice.token remote put default $remote_alice.url
+tg --token $bob.token remote put default $remote_bob.url
 
 let alice_remote = tg --token $alice.token remote get default | from json
-assert equal $alice_remote.url $alice_server.url
+assert equal $alice_remote.url $remote_alice.url
 
 let bob_remote = tg --token $bob.token remote get default | from json
-assert equal $bob_remote.url $bob_server.url
+assert equal $bob_remote.url $remote_bob.url
 
 tg --token $alice.token remote delete default
 let alice_remotes = tg --token $alice.token remote list | from json
 assert equal $alice_remotes []
 
 let bob_remote = tg --token $bob.token remote get default | from json
-assert equal $bob_remote.url $bob_server.url
+assert equal $bob_remote.url $remote_bob.url
 
-let auth_disabled = server spawn --name auth-disabled
+let local_auth_disabled = server spawn --name local-auth-disabled
 
-tg remote put default $root_remote.url
+tg remote put default $remote_root.url
 tg remote delete default

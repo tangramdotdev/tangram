@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A null artifact override clears the inherited symlink artifact via the fluent builder.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

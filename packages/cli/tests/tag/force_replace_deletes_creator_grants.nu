@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # Force replacing a user deletes grants created by that user.
 
 let root_token = random chars
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 }
 let alice = tg login --verbose --name alice | from json

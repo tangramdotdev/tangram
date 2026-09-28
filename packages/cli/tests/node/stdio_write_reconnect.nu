@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+# A standard input write succeeds after the stream reconnects.
+
 const js_path = path self '../../../js'
 cd $js_path
 

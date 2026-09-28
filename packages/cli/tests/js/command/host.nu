@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A command's host accessor returns its host.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

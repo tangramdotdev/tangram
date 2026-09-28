@@ -6,10 +6,10 @@ let directory = mktemp -d
 let output = tg -d $directory server stop | complete
 success $output 'stopping a server that has never started should succeed'
 
-let server = server spawn
+let local = server spawn
 
-let output = tg -d $server.directory server stop | complete
+let output = tg -d $local.directory server stop | complete
 success $output
 
-let output = tg -d $server.directory server stop | complete
+let output = tg -d $local.directory server stop | complete
 success $output 'stopping an already stopped server should succeed'

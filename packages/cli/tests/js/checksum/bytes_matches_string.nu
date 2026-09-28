@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.checksum produces the same digest for a string and for its UTF-8 byte array.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

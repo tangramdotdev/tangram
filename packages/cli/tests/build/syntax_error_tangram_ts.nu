@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Building a package whose root module has a syntax error fails with a diagnostic instead of succeeding or hanging.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

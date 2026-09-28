@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A graph's get method returns the file at the given node index.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

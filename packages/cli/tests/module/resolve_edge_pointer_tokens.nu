@@ -4,7 +4,7 @@ use ../lib/module.nu *
 # Resolving Edge::Pointer modules returns a token for their graph ID, so subsequent resolutions use exact-token authorization.
 
 let root_token = random chars
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 }
@@ -60,7 +60,7 @@ let case = tg --token $alice.token build $path | from json
 tg --token $alice.token index
 assert equal $case.module.referent.node $'graph=($case.graph)&index=0&kind=file'
 
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 let watch = (
 	tg --token $root_token checkpoint watch authorization.index
 	| from json

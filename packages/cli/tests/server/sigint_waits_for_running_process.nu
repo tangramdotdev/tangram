@@ -13,14 +13,14 @@ let path = artifact {
 }
 
 for single_process in [true false] {
-	let server = server spawn --config { advanced: { single_process: $single_process } }
+	let local = server spawn --config { advanced: { single_process: $single_process } }
 
 	# Wait until the process is running, so that the server is signaled with work in flight.
-	let process = tg --url $server.url build --detach $path | str trim
-	wait_until { (tg --url $server.url log $process | complete).stdout | str contains 'started' } "the process must start"
+	let process = tg --url $local.url build --detach $path | str trim
+	wait_until { (tg --url $local.url log $process | complete).stdout | str contains 'started' } "the process must start"
 
 	# Send SIGINT to the server.
-	let pid = open ($server.directory | path join 'lock') | into int
+	let pid = open ($local.directory | path join 'lock') | into int
 	kill --signal 2 $pid
 
 	# The server must keep running while the process runs.
@@ -31,10 +31,10 @@ for single_process in [true false] {
 	wait_until --timeout 30sec { ps | where pid == $pid | is-empty } "the server must exit after the process finishes"
 
 	# The process must have successfully stored its output after shutdown began.
-	let server = server start $server
-	let outcome = tg --url $server.url wait $process | from json
+	let server = server start $local
+	let outcome = tg --url $local.url wait $process | from json
 	assert equal $outcome.exit 0 "the process must finish successfully during shutdown"
-	let output = tg --url $server.url cat $outcome.output.value
+	let output = tg --url $local.url cat $outcome.output.value
 	assert equal $output 'late output' "the output must survive shutdown"
-	server stop $server
+	server stop $local
 }

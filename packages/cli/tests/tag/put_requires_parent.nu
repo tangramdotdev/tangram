@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Tagging a nested specifier requires its parent by default, while -p creates missing parent groups.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

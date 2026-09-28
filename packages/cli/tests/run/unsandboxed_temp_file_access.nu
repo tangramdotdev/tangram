@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An unsandboxed process can read an arbitrary host temp file whose path is passed as an argument.
 
-let server = server spawn
+let local = server spawn
 
 let temp_path = mktemp --tmpdir tangram_temp.XXXXXX
 "hello from temp file\n" | save --force $temp_path

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A log write failure fails the process instead of leaving the child blocked on stdout.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	indexer: { log_compaction: false }
 	cache: {
 		map_size: 20_971_520,

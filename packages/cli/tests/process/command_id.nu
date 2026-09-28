@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A command ID stays an ID in process data and resolves to the same execution interface.
 
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export const child = () => "done";

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Checking out a directory whose graph forms a cycle fails with an error reporting a detected directory cycle.
 
-let server = server spawn --config { write: { checkout_pointers: false } }
+let local = server spawn --config { write: { checkout_pointers: false } }
 
 let path = artifact {
 	tangram.ts: r#'

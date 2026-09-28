@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A process may not list watches from its sandbox.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

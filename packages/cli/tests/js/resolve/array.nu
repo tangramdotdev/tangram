@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.resolve resolves each promise contained in an array.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.resolve([Promise.resolve("a"), "b"]); }'

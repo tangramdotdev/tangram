@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Building a target symlink, checking it out with dependencies, cleaning, and checking it back in yields the same artifact ID.
 
-let server = server spawn
+let local = server spawn
 
 let artifact = artifact {
 	tangram.ts: '

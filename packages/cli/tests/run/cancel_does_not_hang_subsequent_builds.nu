@@ -5,7 +5,7 @@ use ../lib/test.nu *
 #
 # Regression test added in cd5bbb68.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

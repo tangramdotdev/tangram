@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Indexing computes the expected process metadata locally and the metadata matches after pushing the process to a remote and indexing there.
 
-let remote = server spawn --cloud --name push
+let remote = server spawn --cloud --name remote
 let local = server spawn --name local
 tg remote put default $remote.url
 

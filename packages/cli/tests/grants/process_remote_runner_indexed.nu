@@ -54,8 +54,8 @@ let indexed = $indexed.stdout | from json
 assert equal $indexed.status finished "the runner should index the finished process data."
 assert equal ($indexed.output.value | split row '?' | first) $output "the runner should index the process output relationship."
 
-let user = tg --url $runner.url login --verbose --name user | from json
-tg --url $runner.url --token $runner_root_token grant $user.user.id process_parent $process | ignore
-let contents = tg --url $runner.url --token $user.token cat $output | complete
+let alice = tg --url $runner.url login --verbose --name alice | from json
+tg --url $runner.url --token $runner_root_token grant $alice.user.id process_parent $process | ignore
+let contents = tg --url $runner.url --token $alice.token cat $output | complete
 success $contents "process_parent should confer the process's durable output grant."
 assert equal ($contents.stdout | str trim) hello "the runner should serve the process output locally."

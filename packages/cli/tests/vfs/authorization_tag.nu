@@ -8,7 +8,7 @@ if $nu.os-info.name != 'linux' {
 
 let transports = if (fuse_io_uring_available) { [read_write io_uring] } else { [read_write] }
 for io in $transports {
-	let server = server spawn --config {
+	let local = server spawn --name local --config {
 		advanced: { checkpoints: true }
 		vfs: { io: $io, kind: fuse, passthrough: disabled }
 	}
@@ -42,5 +42,5 @@ for io in $transports {
 	success $output 'the tag target must be readable through the VFS authorization fallback'
 	assert equal ($output.stdout | str trim) 'ok'
 	tg checkpoint unwatch tag.get.read $watch
-	server stop $server
+	server stop $local
 }

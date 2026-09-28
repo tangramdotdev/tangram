@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A tag batch can repeat a specifier without treating its own earlier write as a snapshot mismatch.
 
-let server = server spawn
+let local = server spawn
 let target = tg put 'tg.file("target")' | str trim
 let body = {
 	force: false,
@@ -24,7 +24,7 @@ let body = {
 		},
 	],
 } | to json --raw
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 let status = (
 	$body
 	| into binary

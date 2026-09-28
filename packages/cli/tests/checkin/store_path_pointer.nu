@@ -3,7 +3,7 @@ use ../lib/checkin.nu checkin-output
 
 # A store subpath backed by a graph pointer returns a stored artifact with its own usable token.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	remotes: {}
 }
@@ -25,7 +25,7 @@ let directory_id = $directory | split row "?" | first
 tg --token $alice.token index
 let root = tg --token $alice.token checkout $directory | str trim
 let path = $root | path join program
-let output = checkin-output $server $path --token $alice.token
+let output = checkin-output $local $path --token $alice.token
 let params = $'http://localhost/($output.reference)' | url parse | get params
 assert equal ($params | where key == id | first | get value) $directory_id
 assert equal ($params | where key == path | first | get value) program

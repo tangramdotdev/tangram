@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Renaming a file in a watched directory invalidates the directory so the next watched checkin reflects the new name and matches a cold checkin.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	"a.txt": 'alpha'

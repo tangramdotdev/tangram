@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Two different builds that depend on the same child reuse the cached child process rather than re-running it.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

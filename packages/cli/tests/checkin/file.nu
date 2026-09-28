@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a single file produces the expected object and writes no lockfile.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	README.md: 'Hello, World!'

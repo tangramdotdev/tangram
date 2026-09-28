@@ -7,7 +7,7 @@ if $nu.os-info.name != 'linux' {
 }
 
 $env.TANGRAM_SANDBOX_TEST_SECRET = 'the runner environment must remain private'
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

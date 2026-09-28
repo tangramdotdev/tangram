@@ -10,11 +10,11 @@ let foo_path = artifact {
 tg --url $remote.url tag foo ($foo_path | path join 'contents')
 
 # Create two local servers, both configured with the remote.
-let local1 = server spawn --name local1 --config {
+let local_one = server spawn --name local-one --config {
 	remotes: { default: { url: $remote.url } }
 }
 
-let local2 = server spawn --name local2 --config {
+let local_two = server spawn --name local-two --config {
 	remotes: { default: { url: $remote.url } }
 }
 
@@ -26,13 +26,13 @@ let path = artifact {
 }
 
 # Check in on the first local server.
-let id1 = tg --url $local1.url checkin $path
-tg --url $local1.url index
-let output1 = tg --url $local1.url object get --blobs --depth=inf --no-tokens --pretty $id1
+let id1 = tg --url $local_one.url checkin $path
+tg --url $local_one.url index
+let output1 = tg --url $local_one.url object get --blobs --depth=inf --no-tokens --pretty $id1
 
 # Check in on the second local server.
-let id2 = tg --url $local2.url checkin $path
-tg --url $local2.url index
-let output2 = tg --url $local2.url object get --blobs --depth=inf --no-tokens --pretty $id2
+let id2 = tg --url $local_two.url checkin $path
+tg --url $local_two.url index
+let output2 = tg --url $local_two.url object get --blobs --depth=inf --no-tokens --pretty $id2
 
 assert ($output1 == $output2) "the checkout should be reproducible across different servers."

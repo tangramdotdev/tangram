@@ -1,12 +1,14 @@
 use ../lib/test.nu *
 use ../lib/vfs.nu
 
+# Writing a file through the VFS updates its contents.
+
 vfs skip_unless_supported
 
 # Creating a file in the mounted VFS and writing to an existing one both fail because it is read-only.
 
 let server_path = mktemp --directory
-let server = server spawn --directory $server_path --config { vfs: true }
+let local = server spawn --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
 
 let id = tg build (artifact {

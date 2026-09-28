@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A directory is an async iterator over its top-level entries.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

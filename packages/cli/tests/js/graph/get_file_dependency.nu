@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A file node's dependency edge resolves to the node at that index.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

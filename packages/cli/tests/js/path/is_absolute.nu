@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.path.isAbsolute reports whether a path begins with a separator.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return [tg.path.isAbsolute("/a"), tg.path.isAbsolute("a")]; }'

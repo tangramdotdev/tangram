@@ -5,7 +5,7 @@ use ../lib/stripe.nu *
 
 let webhook_secret = 'whsec_mock'
 let stripe = spawn_stripe
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: $webhook_secret } },
 }
@@ -28,7 +28,7 @@ let event = {
 	id: 'evt_organization_ready',
 	type: 'customer.updated',
 }
-assert equal (send_stripe_webhook $server $webhook_secret $event) 200 "a valid webhook should be accepted"
+assert equal (send_stripe_webhook $local $webhook_secret $event) 200 "a valid webhook should be accepted"
 
 let created = tg --token $alice.token sandbox create --group acme/team --no-network | complete
 success $created "a group should inherit its organization's billing status"

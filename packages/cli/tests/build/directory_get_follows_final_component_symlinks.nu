@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Directory.get follows a symlink in the final path component and returns the file it points to.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Applying a prepend mutation inserts its values before an existing array.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

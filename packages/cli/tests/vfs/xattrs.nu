@@ -1,12 +1,14 @@
 use ../lib/test.nu *
 use ../lib/vfs.nu
 
+# The VFS preserves extended attributes on files.
+
 vfs skip_unless_supported
 
 # Listing and reading a file's Tangram xattrs through the mounted VFS returns its metadata.
 
 let server_path = mktemp --directory
-let server = server spawn --directory $server_path --config { vfs: true }
+let local = server spawn --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
 
 let id = tg build (artifact {

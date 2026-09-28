@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A module can import a text file and read its contents.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

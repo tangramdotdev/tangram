@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Applying a merge mutation combines its entries into an existing map, keeping existing keys.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

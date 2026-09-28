@@ -2,5 +2,5 @@ use ../lib/test.nu *
 
 # The indexer handles an empty queue gracefully.
 
-let server = server spawn
+let local = server spawn
 timeout 1s tg index

@@ -1,6 +1,8 @@
 use ../lib/test.nu *
 
-let server = server spawn --config { advanced: { checkpoints: true } }
+# A completed process log can be read before its final state reaches the index.
+
+let local = server spawn --config { advanced: { checkpoints: true } }
 
 # Hold the child’s initialization and completion so EOF cannot find it in the index.
 let batch = tg checkpoint watch index.batch --params '{"child_process":true,"started_process":true}' | from json | get watch

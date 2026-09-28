@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A user may explicitly name themselves as the owner of a sandbox they create.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

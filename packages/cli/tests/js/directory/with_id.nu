@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Directory.withId returns a directory that preserves the given id.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

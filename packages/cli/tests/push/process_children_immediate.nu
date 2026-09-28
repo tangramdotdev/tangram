@@ -5,16 +5,16 @@ use ../lib/test.nu *
 let remote = server spawn --cloud --name remote --config {
 	advanced: { checkpoints: true },
 }
-let source = server spawn --name source --config {
+let local_source = server spawn --name local-source --config {
 	remotes: { default: { url: $remote.url } },
 }
 
 let path = artifact {
 	tangram.ts: 'export default () => "hello"',
 }
-let process = tg --url $source.url build --detach $path | str trim
-tg --url $source.url wait $process
-let source_process = tg --url $source.url process get --local $process | from json
+let process = tg --url $local_source.url build --detach $path | str trim
+tg --url $local_source.url wait $process
+let source_process = tg --url $local_source.url process get --local $process | from json
 assert equal $source_process.children [] "the source leaf process should have an empty children list"
 
 # Hold the asynchronous final index batch so only the awaited sync store write is visible.
@@ -24,7 +24,7 @@ let watch = (
 	| from json
 	| get watch
 )
-tg --url $source.url push $process
+tg --url $local_source.url push $process
 tg --url $remote.url checkpoint wait index.batch $watch 0 | ignore
 
 let output = tg --url $remote.url process get --local $process | complete

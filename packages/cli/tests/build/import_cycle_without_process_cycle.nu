@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Two packages with a cyclic import graph build successfully as long as their processes do not form a cycle.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	foo: {

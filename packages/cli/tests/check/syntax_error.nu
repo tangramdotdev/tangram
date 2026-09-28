@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking a module with a syntax error fails type checking.
 
-let server = server spawn
+let local = server spawn
 
 let dir = mktemp --directory
 'export default ((((' | save ($dir | path join tangram.ts)

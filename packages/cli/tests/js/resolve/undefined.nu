@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.resolve rejects undefined at runtime when the type checker is bypassed.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

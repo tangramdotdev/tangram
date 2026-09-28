@@ -2,14 +2,14 @@ use ../lib/test.nu *
 
 # The serve command can define a remote while the global options mark it as trusted.
 
-let upstream = server spawn --name upstream
-let server = server spawn --name server
-server stop $server
+let remote_upstream = server spawn --name remote-upstream
+let local = server spawn --name local
+server stop $local
 
-let config_path = $server.config_path
-let directory = $server.directory
-let url = $server.url
-let remote = $'default=($upstream.url)'
+let config_path = $local.config_path
+let directory = $local.directory
+let url = $local.url
+let remote = $'default=($remote_upstream.url)'
 let job = job spawn -d server {
 	tangram -c $config_path -d $directory -u $url --trusted-remotes default serve --remotes $remote
 }

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Checking out an object that is not an artifact fails.
 
-let server = server spawn
+let local = server spawn
 
 # Build a command object, which is not an artifact.
 let path = artifact {

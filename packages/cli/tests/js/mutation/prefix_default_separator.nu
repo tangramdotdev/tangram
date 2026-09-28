@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Applying a prefix mutation without a separator concatenates the template directly onto the value.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

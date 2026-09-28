@@ -11,8 +11,8 @@ let config = {
 		users: { providers: { insecure: true } },
 	},
 }
-let server = server spawn --preserve-keys --directory $directory --config $config
-let alice = tg --url $server.url login --verbose --name alice | from json
+let local = server spawn --preserve-keys --directory $directory --config $config
+let alice = tg --url $local.url login --verbose --name alice | from json
 let path = artifact {
 	tangram.ts: '
 		export function run() {
@@ -24,33 +24,33 @@ let path = artifact {
 		}
 	',
 }
-let build = tg --url $server.url --token $alice.token build --detach --verbose $path | from json
-let command = tg --url $server.url --token $alice.token wait $build.process | from json | get output.value
-tg --url $server.url --token $alice.token grant $alice.user.id object_subtree $command | ignore
-tg --url $server.url --token $alice.token index
+let build = tg --url $local.url --token $alice.token build --detach --verbose $path | from json
+let command = tg --url $local.url --token $alice.token wait $build.process | from json | get output.value
+tg --url $local.url --token $alice.token grant $alice.user.id object_subtree $command | ignore
+tg --url $local.url --token $alice.token index
 let config = (
-	$server.config
+	$local.config
 	| upsert advanced.single_process true
 	| upsert authorization.tokens null
 	| upsert roles [api runner scheduler]
 )
 
 # Restart without an indexer so attempting to await indexing fails.
-let pid = open ($server.directory | path join 'lock') | into int
+let pid = open ($local.directory | path join 'lock') | into int
 kill --signal 2 $pid
 if $nu.os-info.name == "linux" {
 	^tail --pid $pid -f /dev/null
 } else {
 	while (ps | where pid == $pid | is-not-empty) { sleep 10ms }
 }
-let server = server spawn --directory $directory --config $config
-failure (tg --url $server.url --token $alice.token index | complete)
+let local = server spawn --directory $directory --config $config
+failure (tg --url $local.url --token $alice.token index | complete)
 
 let output = (
-	tg --url $server.url --token $alice.token run --cached=false --detach --local --stderr null --stdout null --verbose $command
+	tg --url $local.url --token $alice.token run --cached=false --detach --local --stderr null --stdout null --verbose $command
 	| complete
 )
 success $output "a current subtree authorization should avoid awaiting indexing."
 let process = $output.stdout | from json | get process
-let output = tg --url $server.url --token $root_token wait $process | complete
+let output = tg --url $local.url --token $root_token wait $process | complete
 success $output "finishing with a current subtree authorization should avoid awaiting indexing."

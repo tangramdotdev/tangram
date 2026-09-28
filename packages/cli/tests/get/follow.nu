@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Get preserves named nodes by default and follows them only when requested.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	file: "hello"

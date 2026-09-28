@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # A retained connection carries stdin, independent output readers, and repeated waits in one HTTP request.
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {

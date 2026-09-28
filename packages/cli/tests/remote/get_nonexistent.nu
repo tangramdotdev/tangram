@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Getting a remote that does not exist fails with a missing-remote error.
 
-let server = server spawn
+let local = server spawn
 
 let output = tg remote get nonexistent | complete
 failure $output

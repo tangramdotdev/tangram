@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Checking out a graph pointer reference fails with an error reporting that an object was expected.
 
-let server = server spawn
+let local = server spawn
 
 # Put a graph and capture its id.
 let value = '

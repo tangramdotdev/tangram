@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 # Writing bytes returns subtree authorization for the blob.
 
-let server = server spawn
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let local = server spawn
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 
 let output = (
 	'hello'

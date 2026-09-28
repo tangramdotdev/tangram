@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A module imported along two paths is checked once, regardless of the import order.
 
-let server = server spawn
+let local = server spawn --name local
 
 for imports in [
 	'

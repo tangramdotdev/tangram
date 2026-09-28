@@ -6,13 +6,13 @@ let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-let source = server spawn --name source --config {
+let local_source = server spawn --name local-source --config {
 	remotes: { default: { url: $remote.url } }
 }
 
 let path = artifact 'Hello, World!'
-let id = tg --url $source.url checkin $path
-tg --url $source.url push $id
+let id = tg --url $local_source.url checkin $path
+tg --url $local_source.url push $id
 let old = tg --url $remote.url get --no-tokens $id | str trim
 tg --url $remote.url tag put -p "a/c/d" $id
 
@@ -22,8 +22,8 @@ assert equal $c1 $old "the branch should resolve to its only child"
 
 # Add a newer child on the remote.
 let path2 = artifact 'Goodbye, World!'
-let id2 = tg --url $source.url checkin $path2
-tg --url $source.url push $id2
+let id2 = tg --url $local_source.url checkin $path2
+tg --url $local_source.url push $id2
 let new = tg --url $remote.url get --no-tokens $id2 | str trim
 tg --url $remote.url tag put -p "a/c/h" $id2
 

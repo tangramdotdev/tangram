@@ -1,10 +1,12 @@
 use ../lib/test.nu *
 
+# The node client reads and writes its protocol messages using the expected framing.
+
 const js_path = path self '../../../js'
 
 # The compiled Node.js client uses the default host and connects to the server using the inherited Tangram URL.
 
-let server = server spawn
+let local = server spawn
 let xattrs = artifact (file --xattrs {
 	"user.example": ''
 	"user.tangram.output.0": '{"PATH":'

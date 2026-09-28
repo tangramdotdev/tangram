@@ -1,5 +1,7 @@
 use lib/test.nu *
 
+# A remote runner renews its heartbeat while it is connected.
+
 let root_token = random chars
 let config = {
 	advanced: {

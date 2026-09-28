@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Builds requiring non-reproducible features such as network access, mounts, pipes, inherited stdio, or a tty fail unless a checksum is provided, and the CLI build command enforces the same cacheability guard.
 
-let server = server spawn
+let local = server spawn
 
 def assert_cacheable_error [source: string] {
 	let path = artifact {

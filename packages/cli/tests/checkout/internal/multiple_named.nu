@@ -2,10 +2,10 @@ use ../../lib/test.nu *
 
 # An internal checkout materializes multiple tags with a shared ancestor.
 
-let server = server spawn
+let local = server spawn
 let first = artifact 'first'
 let second = artifact 'second'
-let store = $server.directory | path join store
+let store = $local.directory | path join store
 
 tg tag -p foo/first $first
 tg tag -p foo/second $second

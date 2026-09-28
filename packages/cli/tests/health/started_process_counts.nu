@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The processes health reflects a started process in the started count and the available capacity.
 
-let server = server spawn
+let local = server spawn
 
 let idle = tg health --fields processes | from json | get processes
 

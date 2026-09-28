@@ -3,7 +3,7 @@ use ../../lib/test.nu *
 # A command created from a function delivers a structured argument to that function
 # unchanged, whether it is invoked through the builder or through the awaited command.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

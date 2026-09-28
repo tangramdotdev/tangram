@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The default lock mode writes a lockattr for a file with a tag dependency.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	foo.tg.ts: ''

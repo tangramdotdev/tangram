@@ -3,7 +3,7 @@ use ../lib/checkin.nu checkin-output
 
 # Solving fails when an explicit dependency is inaccessible. Without solving, it remains opaque.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	remotes: {}
 }
@@ -19,11 +19,11 @@ let directory = artifact {
 }
 let path = $directory | path join input
 let failed = try {
-	checkin-output $server $path --token $bob.token | ignore
+	checkin-output $local $path --token $bob.token | ignore
 	false
 } catch {
 	true
 }
 assert $failed "the checkin should fail when the dependency is inaccessible"
-let output = checkin-output $server $path --no-solve --token $bob.token
+let output = checkin-output $local $path --no-solve --token $bob.token
 assert equal $output.permissions [object_node] "the checkin token should confer only node permission"

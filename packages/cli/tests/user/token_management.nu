@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A user can create, list, use, and delete API tokens.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let created = tg --token $alice.token user token create | from json

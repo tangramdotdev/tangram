@@ -1,7 +1,7 @@
 use ../../lib/test.nu *
 
 # Assignment, inheritance, loading, storing, and collection use the same coverage rules.
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {

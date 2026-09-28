@@ -12,7 +12,7 @@ if not (fuse_io_uring_available) {
 	skip_test 'this test requires FUSE io_uring support'
 }
 
-let server = server spawn --config {
+let local = server spawn --config {
 	# Allow room for the process records and grants from 256 concurrent sandboxes.
 	index: { map_size: 67_108_864 }
 	vfs: {

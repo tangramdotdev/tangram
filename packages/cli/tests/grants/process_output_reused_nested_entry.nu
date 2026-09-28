@@ -4,7 +4,7 @@ use ../lib/test.nu *
 # another directory. The reused entry is external and carries only an ancestor token whose resource
 # is the original directory, not the entry. Building this output must authorize it as a subtree.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

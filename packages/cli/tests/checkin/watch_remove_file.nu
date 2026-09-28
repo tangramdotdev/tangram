@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Removing a file from a watched directory invalidates the directory so the next watched checkin drops it and matches a cold checkin.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	"a.txt": 'alpha'

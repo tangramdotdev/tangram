@@ -3,7 +3,7 @@ use ../lib/checkin.nu checkin-output
 
 # An embedded graph token proves subtree permission for a pointer with solving disabled.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	remotes: {}
 }
@@ -26,7 +26,7 @@ let graph = (
 tg --token $alice.token index
 tg --token $alice.token grant $bob.user.id object_subtree $graph | ignore
 
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 let response = (
 	http get
 		--headers { Accept: 'application/json', Authorization: $'Bearer ($bob.token)' }
@@ -41,5 +41,5 @@ let directory = artifact {
 	input: (file --xattrs { "user.tangram.dependencies": $dependencies } pointer)
 }
 let path = $directory | path join input
-let output = checkin-output $server $path --no-solve --token $bob.token
+let output = checkin-output $local $path --no-solve --token $bob.token
 assert equal $output.permissions [object_subtree] "the embedded graph token should prove subtree permission"

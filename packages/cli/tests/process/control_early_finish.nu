@@ -7,7 +7,7 @@ if (which python3 | is-empty) {
 }
 let tangram = which tg | where type == external | get path | first
 for source in ['export default () => tg.file("control output");' 'export default () => { throw new Error("control error"); }'] {
-	let server = server spawn --config { advanced: { checkpoints: true } }
+	let local = server spawn --config { advanced: { checkpoints: true } }
 	let path = artifact { tangram.ts: $source }
 	let id = tg build --detach $path | str trim
 	tg wait $id | complete | ignore
@@ -23,6 +23,6 @@ for source in ['export default () => tg.file("control output");' 'export default
 		sleep 100ms
 	}
 	assert ((open --raw $data | from json | get status) == 'finished')
-	let output = python3 $driver early_finish ($server.directory | path join socket) $tangram $server.url $id $data false | complete
+	let output = python3 $driver early_finish ($local.directory | path join socket) $tangram $local.url $id $data false | complete
 	success $output
 }

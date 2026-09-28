@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Cancelling a finished process with its lease succeeds.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

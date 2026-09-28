@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A module can import a directory with a type attribute and read a file from within it.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -7,7 +7,7 @@ let remote = server spawn --cloud --name remote --config {
 		checkpoints: true,
 	},
 }
-let source = server spawn --name source --config {
+let local_source = server spawn --name local-source --config {
 	remotes: { default: { url: $remote.url } },
 }
 let local = server spawn --name local --config {
@@ -22,9 +22,9 @@ let child = tg --url $remote.url group create ancestor/child | from json
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("trigger"); }',
 }
-let process = tg --url $source.url build --detach $path | str trim
-tg --url $source.url wait $process
-tg --url $source.url push $process
+let process = tg --url $local_source.url build --detach $path | str trim
+tg --url $local_source.url wait $process
+tg --url $local_source.url push $process
 tg --url $remote.url wait $process
 
 let send_watch = (

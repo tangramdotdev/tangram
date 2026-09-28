@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+# A DAX sandbox can read an artifact through its mounted path.
+
 if $nu.os-info.name != 'linux' {
 	return
 }
@@ -9,7 +11,7 @@ if (($env.TANGRAM_TEST_VM? | default "") | str length) == 0 {
 }
 
 for dax in [true false] {
-	let server = server spawn --busybox --config {
+	let local = server spawn --busybox --config {
 		sandbox: {
 			isolation: {
 				vm: {

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Archiving the output of a build as gzip-compressed tar and extracting it roundtrips to the original build output.
 
-let server = server spawn
+let local = server spawn
 
 # Build a target that returns a directory.
 let path = artifact {

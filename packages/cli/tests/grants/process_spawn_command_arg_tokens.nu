@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An inline spawn command authorizes its private executable and stdin directly from their referent tokens without traversing the authorization graph.
 
-let server = server spawn --preserve-keys --config {
+let local = server spawn --preserve-keys --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
 
@@ -29,19 +29,19 @@ let stdin_referent = $inputs.stdin
 failure (tg --token $bob.token get $executable_referent.node | complete) 'Bob must not have a direct grant for the executable'
 
 # Disable authorization graph searches.
-let config = $server.config | merge deep {
+let config = $local.config | merge deep {
 	authorization: {
 		final: false
 		index: { delay: null }
 		initial: false
 	}
 }
-$config | to json | save --force $server.config_path
-let server = $server | upsert config $config
-let server = server restart $server
+$config | to json | save --force $local.config_path
+let server = $local | upsert config $config
+let server = server restart $local
 
 # Spawn inline commands directly so this authorization test does not depend on the Node.js client.
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 let headers = { Authorization: $'Bearer ($bob.token)', 'Content-Type': 'application/json' }
 
 for mode in [none stdin executable both] {

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The view command renders the expected process tree for a process that builds a command which itself builds another command.
 
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	a.tg.ts: 'export default function () { return 42; }',
 	b.tg.ts: '

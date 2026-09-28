@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Building with the tag flag tags the resulting process.
 
-let server = server spawn
+let local = server spawn
 tg group create built
 
 let path = artifact {

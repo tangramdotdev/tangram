@@ -2,20 +2,20 @@ use ../lib/test.nu *
 
 # The tree stays on the exact remote selected by the initial get.
 
-let zeta = server spawn --cloud --name zeta
-let alpha = server spawn --cloud --name alpha --config {
-	remotes: { zeta: { url: $zeta.url } }
+let remote_zeta = server spawn --cloud --name remote-zeta
+let remote_alpha = server spawn --cloud --name remote-alpha --config {
+	remotes: { zeta: { url: $remote_zeta.url } }
 }
 
-tg --url $alpha.url group create foo
-tg --url $alpha.url push --remote=zeta foo
-tg --url $alpha.url group create foo/alpha
-tg --url $zeta.url group create foo/zeta
+tg --url $remote_alpha.url group create foo
+tg --url $remote_alpha.url push --remote=zeta foo
+tg --url $remote_alpha.url group create foo/alpha
+tg --url $remote_zeta.url group create foo/zeta
 
 let local = server spawn --name local --config {
 	remotes: {
-		zeta: { url: $zeta.url }
-		alpha: { url: $alpha.url }
+		zeta: { url: $remote_zeta.url }
+		alpha: { url: $remote_alpha.url }
 	}
 }
 

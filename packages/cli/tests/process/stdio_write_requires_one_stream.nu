@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Writing process stdio without exactly one stream selected fails.
 
-let server = server spawn
+let local = server spawn
 
 let output = "data" | tg process stdio write pcs_010000000000000000000000000000000000000000000000000000 | complete
 failure $output

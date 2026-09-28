@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A null user override clears the inherited user via the object form.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

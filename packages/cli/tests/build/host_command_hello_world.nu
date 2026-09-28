@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A build running a host shell command in a busybox environment writes to the output file and the resulting object matches the snapshot.
 
-let server = server spawn --busybox
+let local = server spawn --busybox
 
 let path = artifact {
 	tangram.ts: '

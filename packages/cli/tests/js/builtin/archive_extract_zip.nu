@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.archive and tg.extract round-trip a directory through the zip format.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

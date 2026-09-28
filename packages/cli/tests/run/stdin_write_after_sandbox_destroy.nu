@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A stdin write that is in flight when a cancelled process's sandbox is destroyed returns EOF instead of repeatedly retrying at the same position.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true },
 	runner: { process_state_ttl: 1 },
 	tracing: { stderr_format: 'json' },
@@ -110,4 +110,4 @@ if $output == null {
 }
 assert equal $output.exit_code (-15) "the client should be terminated by SIGTERM"
 
-snapshot (server_errors $server) ''
+snapshot (server_errors $local) ''

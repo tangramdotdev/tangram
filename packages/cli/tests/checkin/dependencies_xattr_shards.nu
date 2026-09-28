@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a file reads dependency metadata split across numbered xattr shards.
 
-let server = server spawn
+let local = server spawn
 let directory = artifact {
 	dependency: dependency
 	input: (file --xattrs {

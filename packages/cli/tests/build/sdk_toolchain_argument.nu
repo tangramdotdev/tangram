@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # Reading a tool through an SDK symlink overlay must not prevent passing the overlay to another build.
 # Reduced from std buildSdk: its bootstrap bin directory contained 85 distinct tool files.
 
-let server = server spawn
+let local = server spawn
 let tools = 0..<85 | reduce --fold {} { |i, entries| $entries | insert $'tool($i)' $'tool($i)' }
 let path = artifact {
 	tools: $tools

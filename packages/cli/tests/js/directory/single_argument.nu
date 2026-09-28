@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.directory preserves a directory passed as its sole argument.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

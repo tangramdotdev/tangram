@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Granting several permissions in a single command confers all of them at once.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

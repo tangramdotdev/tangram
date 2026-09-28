@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package that imports a tagged package whose modules form a cycle resolves and writes the expected lockfile.
 
-let server = server spawn
+let local = server spawn
 
 # Tag the a dependency.
 let a_path = artifact {

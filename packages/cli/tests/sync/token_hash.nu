@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A sync token embedded in a referent must not affect a content-addressed command's ID.
 
 let remote = server spawn --name remote
-let server = server spawn --config { remotes: { default: { url: $remote.url } } }
+let local = server spawn --config { remotes: { default: { url: $remote.url } } }
 let object = tg put 'tg.file("input")' | str trim
 let referent = tg push $object | str trim
 let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value

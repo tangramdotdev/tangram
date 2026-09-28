@@ -10,7 +10,7 @@ def test [...args] {
 	let local = server spawn --name local
 
 	# Create a source server.
-	let source = server spawn --name source
+	let local_source = server spawn --name local-source
 
 	let path = artifact {
 		tangram.ts: '
@@ -23,15 +23,15 @@ def test [...args] {
 	}
 
 	# Build the module.
-	let id = tg --url $source.url build $path
+	let id = tg --url $local_source.url build $path
 	let dir_id = $id
 
 	# Get the file id.
-	let output = tg --url $source.url children $id
+	let output = tg --url $local_source.url children $id
 	let fil_id = $output | from json | get 0
 
 	# Get the blob id.
-	let output = tg --url $source.url children $fil_id
+	let output = tg --url $local_source.url children $fil_id
 	let blb_id = $output | from json | get 0
 
 	# Put the directory to the local server.
@@ -65,16 +65,16 @@ def test [...args] {
 	failure $output
 
 	# Confirm the object is on the remote and the same.
-	let source_object = tg --url $source.url get $dir_id --blobs --depth=inf --no-tokens --pretty
+	let source_object = tg --url $local_source.url get $dir_id --blobs --depth=inf --no-tokens --pretty
 	let remote_object = tg --url $remote.url get $dir_id --blobs --depth=inf --no-tokens --pretty
 	assert equal $source_object $remote_object
 
 	# Index.
-	tg --url $source.url index
+	tg --url $local_source.url index
 	tg --url $remote.url index
 
 	# Confirm the metadata matches.
-	let source_metadata = tg --url $source.url object metadata $id --pretty
+	let source_metadata = tg --url $local_source.url object metadata $id --pretty
 	let remote_metadata = tg --url $remote.url object metadata $id --pretty
 	assert equal $source_metadata $remote_metadata
 }

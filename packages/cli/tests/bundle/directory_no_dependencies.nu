@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Bundling a checked-in directory with no dependencies produces a bundled object that matches the snapshot.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	file: 'hello'

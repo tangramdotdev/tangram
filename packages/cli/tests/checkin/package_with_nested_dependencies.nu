@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package with nested sibling path dependencies produces the expected object and writes no lockfile.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	bar: {

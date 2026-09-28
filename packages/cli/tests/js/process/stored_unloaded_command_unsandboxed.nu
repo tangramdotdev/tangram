@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # An existing stored but unloaded command can be run unsandboxed.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -1,12 +1,12 @@
 use ../lib/test.nu *
 
 # Arrival order, rather than ID order, defines positions and survives final indexing.
-let server = server spawn --config {
+let local = server spawn --name local --config {
 	advanced: { checkpoints: true },
 	runner: { sandbox_state_ttl: 60 },
 }
 let sandbox = tg sandbox create | str trim
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 let path = artifact { tangram.ts: 'export default () => "done";' }
 let watch = tg checkpoint watch runner.process.state.insert | from json | get watch
 let first = job spawn {

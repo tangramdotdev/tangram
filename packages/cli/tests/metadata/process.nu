@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Process metadata after a build and indexing reports subtrees for the command, error, log, and output.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("metadata"); }'

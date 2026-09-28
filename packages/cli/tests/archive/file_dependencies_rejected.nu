@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Archiving a directory that contains a file with dependencies fails instead of producing a truncated archive.
 
-let server = server spawn
+let local = server spawn
 
 let dir = tg put 'tg.directory({ "a": tg.file("first"), "z": tg.file({ "contents": tg.blob("x"), "dependencies": { "dep": { "node": tg.file("d") } } }) })' | str trim
 

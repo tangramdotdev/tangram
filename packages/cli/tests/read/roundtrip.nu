@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Writing a blob and reading it back returns the original contents.
 
-let server = server spawn
+let local = server spawn
 
 let blob = "hello, world!\n" | tg write | str trim
 

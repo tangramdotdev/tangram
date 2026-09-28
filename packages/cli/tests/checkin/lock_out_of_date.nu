@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package whose existing lockfile is out of date discards the stale lockfile and removes it.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'import "./b.tg.ts";'

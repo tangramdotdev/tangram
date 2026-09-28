@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # A reader opened after the close notifications still reaches the stored end.
-let server = server spawn --config { advanced: { checkpoints: true }, indexer: { log_compaction: false }, runner: { process_state_ttl: 0.01 } }
+let local = server spawn --config { advanced: { checkpoints: true }, indexer: { log_compaction: false }, runner: { process_state_ttl: 0.01 } }
 let watch = tg checkpoint watch runner.process.control.finished | from json | get watch
 let path = artifact {
 	tangram.ts: '
@@ -18,7 +18,7 @@ tg checkpoint continue runner.process.control.finished $watch 0
 tg checkpoint unwatch runner.process.control.finished $watch
 
 # Restart to discard every in-memory close notification.
-let server = server restart $server
+let server = server restart $local
 let output = timeout 10 tg log --no-timeout $id | complete
 success $output
 assert equal $output.stdout "stdout\n"

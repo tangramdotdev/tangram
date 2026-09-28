@@ -6,13 +6,13 @@ let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-let source = server spawn --name source --config {
+let local_source = server spawn --name local-source --config {
 	remotes: { default: { url: $remote.url } }
 }
 
 let path = artifact 'Hello, World!'
-let id = tg --url $source.url checkin $path
-tg --url $source.url push $id
+let id = tg --url $local_source.url checkin $path
+tg --url $local_source.url push $id
 tg --url $remote.url tag put -p "a/b" $id
 
 # Cache the parent's children, including a/b.
@@ -20,8 +20,8 @@ tg --url $local.url get --ttl 0 "a?follow=true" | ignore
 
 # Update the child on the remote.
 let path2 = artifact 'Final version'
-let id2 = tg --url $source.url checkin $path2
-tg --url $source.url push $id2
+let id2 = tg --url $local_source.url checkin $path2
+tg --url $local_source.url push $id2
 let new = tg --url $remote.url get --no-tokens $id2 | str trim
 tg --url $remote.url tag put --force -p "a/b" $id2
 

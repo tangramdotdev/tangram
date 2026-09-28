@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Value.objects collects the objects nested anywhere within a value.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.Value.objects({ a: await tg.file("hi"), b: 1 }); }'

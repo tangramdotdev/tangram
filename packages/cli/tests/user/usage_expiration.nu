@@ -12,7 +12,7 @@ def --wrapped unavailable [token: string, ...period: string] {
 	assert ($output.stderr | str contains "usage is unavailable for the requested period")
 }
 
-let server = server spawn --now '2025-12-29T00:00:00Z' --config {
+let local = server spawn --now '2025-12-29T00:00:00Z' --config {
 	authentication: { users: { providers: { insecure: true } } },
 	roles: [api indexer runner scheduler],
 	usage: {
@@ -23,10 +23,10 @@ let server = server spawn --now '2025-12-29T00:00:00Z' --config {
 		week_time_to_live: 3456000,
 	},
 }
-set_time $server '2026-01-01T00:00:00Z'
+set_time $local '2026-01-01T00:00:00Z'
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
-let charlie = tg login --verbose --name charlie | from json
+let carol = tg login --verbose --name carol | from json
 
 # Alice owns one retained object and one transient object. Bob owns one transient object.
 let kept = tg --token $alice.token put 'tg.file("keep")' | str trim
@@ -36,7 +36,7 @@ tg --token $bob.token put 'tg.file("remove")'
 tg --token $alice.token index
 
 # Expiration in the next hour preserves the completed hour and records the new storage gauges.
-advance_time $server 1hr
+advance_time $local 1hr
 tg --token $alice.token clean
 let alice_hour_0 = usage $alice.token --hour 2026-01-01T00:00:00Z
 let alice_hour_1 = usage $alice.token --hour 2026-01-01T01:00:00Z
@@ -53,46 +53,46 @@ assert equal (usage $alice.token --hour 2026-01-01T01:00:00Z) $alice_hour_1
 assert equal (usage $bob.token --hour 2026-01-01T01:00:00Z) $bob_hour_1
 
 # An hourly aggregate expires at the exact TTL boundary, while the next hour remains available.
-set_time $server '2026-01-02T01:00:00Z'
+set_time $local '2026-01-02T01:00:00Z'
 tg --token $alice.token clean
 unavailable $alice.token --hour 2026-01-01T00:00:00Z
 unavailable $bob.token --hour 2026-01-01T00:00:00Z
-assert equal (usage $charlie.token --hour 2026-01-01T00:00:00Z).object_count 0
+assert equal (usage $carol.token --hour 2026-01-01T00:00:00Z).object_count 0
 assert equal (usage $alice.token --hour 2026-01-01T01:00:00Z).object_count 2
 assert equal (usage $bob.token --hour 2026-01-01T01:00:00Z).object_count 0
 
 # The next boundary expires the following hour and retains the zero storage checkpoint.
-advance_time $server 1hr
+advance_time $local 1hr
 tg --token $alice.token clean
 unavailable $alice.token --hour 2026-01-01T01:00:00Z
 unavailable $bob.token --hour 2026-01-01T01:00:00Z
-assert equal (usage $charlie.token --hour 2026-01-01T01:00:00Z).object_count 0
+assert equal (usage $carol.token --hour 2026-01-01T01:00:00Z).object_count 0
 assert equal (usage $alice.token --day 2026-01-01).object_count 50
 assert equal (usage $bob.token --day 2026-01-01).object_count 2
 assert equal (usage $bob.token --hour 2026-01-02T02:00:00Z).object_count 0
 
 # Daily aggregates expire after preserving the containing week and month.
-set_time $server '2026-02-02T02:15:00Z'
+set_time $local '2026-02-02T02:15:00Z'
 tg --token $alice.token clean
 unavailable $alice.token --day 2026-01-01
 unavailable $bob.token --day 2026-01-01
-assert equal (usage $charlie.token --day 2026-01-01).object_count 0
+assert equal (usage $carol.token --day 2026-01-01).object_count 0
 assert equal (usage $alice.token --week 2026-W01).object_count 194
 assert equal (usage $bob.token --week 2026-W01).object_count 2
 assert equal (usage $alice.token --month 2026-01).object_count 1490
 assert equal (usage $bob.token --month 2026-01).object_count 2
 
 # Weekly and monthly aggregates expire according to their own retention periods.
-set_time $server '2026-02-20T02:15:00Z'
+set_time $local '2026-02-20T02:15:00Z'
 tg --token $alice.token clean
 unavailable $alice.token --week 2026-W01
 unavailable $bob.token --week 2026-W01
-assert equal (usage $charlie.token --week 2026-W01).object_count 0
+assert equal (usage $carol.token --week 2026-W01).object_count 0
 assert equal (usage $alice.token --month 2026-01).object_count 1490
 assert equal (usage $bob.token --month 2026-01).object_count 2
 
-set_time $server '2026-04-03T02:15:00Z'
+set_time $local '2026-04-03T02:15:00Z'
 tg --token $alice.token clean
 unavailable $alice.token --month 2026-01
 unavailable $bob.token --month 2026-01
-assert equal (usage $charlie.token --month 2026-01).object_count 0
+assert equal (usage $carol.token --month 2026-01).object_count 0

@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+# A node process reconnects to its control stream without losing pending events.
+
 const js_path = path self '../../../js'
 cd $js_path
 

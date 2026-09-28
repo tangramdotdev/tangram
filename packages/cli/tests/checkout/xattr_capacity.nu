@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Increasing dependency counts must not let optional tokens crowd out required module and lock xattrs.
 
-let server = server spawn
+let local = server spawn
 let tmp = mktemp --directory
 
 for count in 1..8 {

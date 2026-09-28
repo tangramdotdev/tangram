@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # tg.host.parallelism reports a positive value to an unsandboxed process.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

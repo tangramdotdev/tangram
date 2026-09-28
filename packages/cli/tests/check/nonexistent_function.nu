@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The check command fails when a module calls a function that is not defined.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

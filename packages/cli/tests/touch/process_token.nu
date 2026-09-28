@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A process may touch an object it created but may not touch another process.
 
-let server = server spawn
+let local = server spawn
 
 let target_path = artifact {
 	tangram.ts: '

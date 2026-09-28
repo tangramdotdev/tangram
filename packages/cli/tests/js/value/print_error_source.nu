@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Value.print renders an error whose source is another error, recursing into the nested error without crashing.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

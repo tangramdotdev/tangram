@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Background cleaning collects an untouched object after its time to live while a continuously touched object survives.
 
-let server = server spawn --config { indexer: { cleaning: {} }, object: { ttl: 2, ttt: 0 } }
+let local = server spawn --config { indexer: { cleaning: {} }, object: { ttl: 2, ttt: 0 } }
 
 let touched = tg put 'tg.file("keep me alive")' | str trim
 let untouched = tg put 'tg.file("let me die")' | str trim

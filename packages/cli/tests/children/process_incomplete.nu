@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A process's complete direct children list is available before its child processes are pulled.
 
 let remote = server spawn --cloud --name remote
-let source = server spawn --name source --config {
+let local_source = server spawn --name local-source --config {
 	remotes: { default: { url: $remote.url } },
 }
 let local = server spawn --name local --config {
@@ -20,9 +20,9 @@ let path = artifact {
 		export function child() { return "child"; }
 	',
 }
-let process = tg --url $source.url build --detach $path | str trim
-tg --url $source.url wait $process
-tg --url $source.url push --process-children $process
+let process = tg --url $local_source.url build --detach $path | str trim
+tg --url $local_source.url wait $process
+tg --url $local_source.url push --process-children $process
 tg --url $remote.url wait $process
 let remote_children = tg --url $remote.url process children --local $process | from json
 assert equal ($remote_children | length) 1 "the remote process should have a child"

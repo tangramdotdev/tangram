@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Archiving and extracting a directory with an executable file as zip preserves the executable bit.
 
-let server = server spawn
+let local = server spawn
 
 let dir = tg put --no-tokens 'tg.directory({ "tool": tg.file({ "contents": tg.blob("#!/bin/sh"), "executable": true }) })' | str trim
 

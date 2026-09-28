@@ -1,7 +1,7 @@
 use ../../lib/test.nu *
 
 # Token pruning ignores expiration and preserves the merge laws.
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default function () {

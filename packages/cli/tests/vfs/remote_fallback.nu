@@ -1,11 +1,13 @@
 use ../lib/test.nu *
 use ../lib/vfs.nu
 
+# The VFS reads an object from a remote when it is absent locally.
+
 vfs skip_unless_supported
 
 let server_path = mktemp --directory
 let remote = server spawn --name remote
-let server = server spawn --directory $server_path --name local --config {
+let local = server spawn --directory $server_path --name local --config {
 	vfs: true
 	remotes: { default: { url: $remote.url } }
 }

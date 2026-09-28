@@ -17,9 +17,9 @@ let runner = server spawn --name runner --config {
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }
-let reader = tg --url $runner.url login --verbose --name reader | from json
-let remote_reader = tg --url $remote.url login --verbose --name reader | from json
-tg --url $runner.url --token $reader.token remote put default $remote.url
+let alice = tg --url $runner.url login --verbose --name alice | from json
+let remote_alice = tg --url $remote.url login --verbose --name alice | from json
+tg --url $runner.url --token $alice.token remote put default $remote.url
 let finish_watch = tg --url $runner.url --token $runner_root checkpoint watch runner.process.finish | from json | get watch
 let path = artifact { tangram.ts: 'export default () => tg.file("private output");' }
 let spawned = tg --url $remote.url --token $remote_root build --detach --no-tokens --verbose $path | from json
@@ -42,11 +42,11 @@ for response in [$remote_response $local_response] {
 let params = { resource: $process } | to json --raw
 let index_watch = tg --url $remote.url --token $remote_root checkpoint watch authorization.index --params $params | from json | get watch
 let query = { 'tokens[local][0]': $remote_response.tokens.local.0 } | url build-query
-let output = http get --max-time 10sec --unix-socket $remote_socket --headers { Authorization: $'Bearer ($remote_reader.token)' } $'http://localhost/processes/($process)?($query)'
+let output = http get --max-time 10sec --unix-socket $remote_socket --headers { Authorization: $'Bearer ($remote_alice.token)' } $'http://localhost/processes/($process)?($query)'
 assert equal $output.data.status started
 tg --url $remote.url --token $remote_root checkpoint unwatch authorization.index $index_watch
 
-let headers = { Authorization: $'Bearer ($reader.token)' }
+let headers = { Authorization: $'Bearer ($alice.token)' }
 let query = { location: remote } | url build-query
 let denied = http get --allow-errors --full --unix-socket $runner_socket --headers $headers $'http://localhost/processes/($process)?($query)'
 assert equal $denied.status 404 "the runner's own remote credentials must not authorize the reader"
@@ -89,8 +89,8 @@ assert equal $denied.status 404
 
 # A node capability must be sufficient to wait through either the runner or local path.
 let targets = [
-	{ location: remote, reader: $reader.token, root: $runner_root, server: $runner, token: $local_response.tokens.local.0 },
-	{ location: local, reader: $remote_reader.token, root: $remote_root, server: $remote, token: $remote_response.tokens.local.0 },
+	{ location: remote, reader: $alice.token, root: $runner_root, server: $runner, token: $local_response.tokens.local.0 },
+	{ location: local, reader: $remote_alice.token, root: $remote_root, server: $remote, token: $remote_response.tokens.local.0 },
 ]
 let waits = $targets | each { |target|
 	let params = { resource: $process, token_resource: $process } | to json --raw

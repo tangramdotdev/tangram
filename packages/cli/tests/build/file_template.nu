@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The tg.file template literal strips the leading indentation from a multiline file and the text matches the snapshot.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

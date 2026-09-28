@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A failing tg.assert in a process spawned via tg.run from an out-of-tree dependency causes the run to fail and produces the expected diagnostic on stderr.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	foo: {

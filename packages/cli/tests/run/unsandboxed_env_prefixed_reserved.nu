@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Passing a TANGRAM_ENV_ prefixed environment variable via --env-string fails because the prefix is reserved.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

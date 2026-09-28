@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A sandbox mount target cannot traverse above the guest root.
 
-let server = server spawn
+let local = server spawn
 
 let source = mktemp --directory | str trim
 let path = artifact {

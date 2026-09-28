@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # The process creator receives parent authority independently of the sandbox creator.
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --name local --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 let sandbox = tg --token $alice.token sandbox create | str trim

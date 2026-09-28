@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Getting an object by a well-formed id that does not exist fails.
 
-let server = server spawn
+let local = server spawn
 
 let output = tg get fil_0000000000000000000000000000 | complete
 failure $output

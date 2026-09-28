@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Capacity cleaning removes an unreferenced object before its time to live expires.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	indexer: {
 		cleaning: {
 			capacity: {

@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # Spawn mode accepts a finite request body and returns without waiting for process completion.
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {

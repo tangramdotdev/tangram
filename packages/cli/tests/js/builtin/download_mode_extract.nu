@@ -4,7 +4,7 @@ use ../../lib/test.nu *
 
 skip_if_offline
 
-let server = server spawn
+let local = server spawn
 
 let arch = $nu.os-info.arch
 let archive = if $nu.os-info.name == "macos" {

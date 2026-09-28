@@ -83,7 +83,7 @@ if $nu.os-info.name == "linux" {
 }
 
 let remote = server start $remote
-let replacement_runner = server spawn --name replacement_runner --config {
+let runner_replacement = server spawn --name runner-replacement --config {
 	remotes: {
 		default: {
 			token: $replacement_created.token.token

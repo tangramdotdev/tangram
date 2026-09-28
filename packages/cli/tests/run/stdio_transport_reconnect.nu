@@ -1,7 +1,9 @@
 use ../lib/test.nu *
 
+# Standard input and output remain available after the process transport reconnects.
+
 const driver = path self ../lib/stdio_transport.mjs
-let server = server spawn
+let local = server spawn
 let tangram = which tg | where type == external | get path | first
 let path = artifact {
 	tangram.ts: '
@@ -15,6 +17,6 @@ let path = artifact {
 let parent = tg build --detach $path | str trim
 wait_until { (tg log $parent | str trim) != "" }
 let id = tg log $parent | str trim
-let output = node $driver $tangram ($server.directory | path join socket) $id | complete
+let output = node $driver $tangram ($local.directory | path join socket) $id | complete
 success $output
 tg wait $parent | ignore

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # --watch with --locked prevents updating a stale lock.
 
-let server = server spawn
+let local = server spawn
 
 let a_path = artifact {
 	tangram.ts: '// a 1.0.0'

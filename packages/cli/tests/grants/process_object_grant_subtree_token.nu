@@ -3,13 +3,13 @@ use ../lib/test.nu *
 # An exact subtree token must authorize a process command grant without another authorization search.
 
 let root = random chars
-let server = server spawn --preserve-keys --config {
+let local = server spawn --preserve-keys --config {
 	authentication: { root: { token: $root }, users: { providers: { insecure: true } } }
 	authorization: { index: { delay: null } }
 	tracing: { filter: 'tangram=info,tangram_index::authorize::engine=debug', stderr_format: json }
 }
 let bob = tg login --verbose --name bob | from json
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 let host = $'((^uname -m | str trim | str replace arm64 aarch64))-((^uname -s | str trim | str lowercase))'
 
 def command-id [root: string, host: string, executable: string] {
@@ -33,9 +33,9 @@ let denied = http get --allow-errors --full --headers $headers --unix-socket $so
 assert equal $denied.status 404 'Bob must not reach the command without the token'
 
 # Restart to exclude the setup's searches, which requires preserved keys so the token still verifies.
-server stop $server
-let offset = open --raw $server.log | lines | length
-let server = server start $server
+server stop $local
+let offset = open --raw $local.log | lines | length
+let server = server start $local
 
 def spawn [socket: string, headers: record, command: record] {
 	let arg = { command: $command, sandbox: {}, stderr: 'null', stdin: 'null', stdout: 'null' } | to json --raw
@@ -48,8 +48,8 @@ spawn $socket $headers { node: $proven, options: { tokens: { local: [$token] } }
 spawn $socket $headers { node: $granted, options: {} }
 
 # Stopping the server drains the asynchronous grant writes.
-server stop $server
-let searches = open --raw $server.log
+server stop $local
+let searches = open --raw $local.log
 	| lines
 	| skip $offset
 	| where ($it | str starts-with '{')

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package that imports by object ID a dependency which itself imports a sibling by relative path with a get path option resolves the full transitive graph.
 
-let server = server spawn
+let local = server spawn
 
 # Create a directory with nested structure where inner package imports sibling by path with path option.
 let inner_root = artifact {

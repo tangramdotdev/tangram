@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A process reference can carry a provenance path, but a get option cannot traverse into a process.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("contents"); }',

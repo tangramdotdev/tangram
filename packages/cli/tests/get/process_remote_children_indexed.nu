@@ -3,10 +3,10 @@ use ../lib/test.nu *
 # Getting a finished process from a remote indexes its complete child list locally.
 
 let remote = server spawn --name remote
-let sink = server spawn --name sink
+let remote_sink = server spawn --name remote-sink
 let local = server spawn --name local
 tg remote put default $remote.url
-tg --url $remote.url remote put default $sink.url
+tg --url $remote.url remote put default $remote_sink.url
 
 let path = artifact {
 	tangram.ts: '

@@ -1,8 +1,8 @@
 use ../lib/test.nu *
 
-const driver = path self ../lib/runner_control_destroy_sandbox.py
-
 # DestroySandbox control requests enforce runner ownership and are idempotent.
+
+const driver = path self ../lib/runner_control_destroy_sandbox.py
 let root_token = random chars
 let remote = server spawn --name remote --config {
 	advanced: { single_process: false },

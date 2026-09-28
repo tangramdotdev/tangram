@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A build invoking a checksummed sandboxed tg.run command fails when its caller throws but succeeds when the caller returns normally.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

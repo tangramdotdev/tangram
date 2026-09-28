@@ -2,7 +2,7 @@ use lib/test.nu *
 
 # Updating a package against an existing lockfile reports added, updated, and removed dependencies, including transitive changes, matching the snapshot.
 
-let server = server spawn
+let local = server spawn
 
 # Create the transitive dependency (version 1).
 let transitive_1_0_0 = artifact {

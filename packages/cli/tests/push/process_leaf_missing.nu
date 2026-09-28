@@ -11,7 +11,7 @@ def test [...args] {
 	let local = server spawn --name local
 
 	# Create a source server.
-	let source = server spawn --name source
+	let local_source = server spawn --name local-source
 
 	let path = artifact {
 		tangram.ts: '
@@ -22,19 +22,19 @@ def test [...args] {
 	}
 
 	# Build the module.
-	let process_id = tg --url $source.url build --detach $path | str trim
+	let process_id = tg --url $local_source.url build --detach $path | str trim
 
 	# Wait for the process to finish.
-	tg --url $source.url wait $process_id
-	tg --url $source.url index
+	tg --url $local_source.url wait $process_id
+	tg --url $local_source.url index
 
 	# Get the process data.
-	let process_data = tg --url $source.url get $process_id | from json
+	let process_data = tg --url $local_source.url get $process_id | from json
 	let module_id = (command module-input $process_data.command)
 	let output_id = $process_data.output.value
 
 	# Get the output's children (the blob).
-	let output_children = tg --url $source.url children $output_id | from json
+	let output_children = tg --url $local_source.url children $output_id | from json
 	let blb_id = $output_children | get 0
 
 	# Get all the module's descendants recursively by manually traversing the tree.
@@ -43,7 +43,7 @@ def test [...args] {
 	while ($to_visit | length) > 0 {
 		let current = $to_visit | first
 		$to_visit = ($to_visit | skip 1)
-		let children = tg --url $source.url children $current | from json
+		let children = tg --url $local_source.url children $current | from json
 		for child in $children {
 			if $child not-in $all_descendants {
 				$all_descendants = ($all_descendants | append $child)
@@ -53,30 +53,30 @@ def test [...args] {
 	}
 
 	# Put the process to the local server.
-	tg --url $source.url get $process_id | tg --url $local.url put --id $process_id
+	tg --url $local_source.url get $process_id | tg --url $local.url put --id $process_id
 
 	# Put the module to the local server.
-	tg --url $source.url get --bytes $module_id | tg --url $local.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $module_id | tg --url $local.url put --bytes --kind fil
 
 	# Put the module's descendants to the local server.
 	for child_id in $all_descendants {
 		let kind = $child_id | str substring 0..<3
-		tg --url $source.url get --bytes $child_id | tg --url $local.url put --bytes --kind $kind
+		tg --url $local_source.url get --bytes $child_id | tg --url $local.url put --bytes --kind $kind
 	}
 
 	# Put the output to the local server.
-	tg --url $source.url get --bytes $output_id | tg --url $local.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $output_id | tg --url $local.url put --bytes --kind fil
 
 	# Put the output's blob to the remote server.
-	tg --url $source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
+	tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
 
 	# Confirm the blob is not on the local server.
 	let output = tg --url $local.url get $blb_id --blobs | complete
 	failure $output
 
 	# Put the log to the remote server.
-	let log_id = tg --url $source.url get $process_id | from json | get log
-	tg --url $source.url get --bytes $log_id | tg --url $remote.url put --bytes --kind blob
+	let log_id = tg --url $local_source.url get $process_id | from json | get log
+	tg --url $local_source.url get --bytes $log_id | tg --url $remote.url put --bytes --kind blob
 
 	# Index.
 	tg --url $local.url index
@@ -89,16 +89,16 @@ def test [...args] {
 	tg --url $local.url push $process_id --process-commands --process-logs ...$args
 
 	# Confirm the process is on the remote and the same.
-	let source_process = tg --url $source.url get $process_id --no-tokens --pretty
+	let source_process = tg --url $local_source.url get $process_id --no-tokens --pretty
 	let remote_process = tg --url $remote.url get $process_id --no-tokens --pretty
 	assert equal $source_process $remote_process
 
 	# Index.
-	tg --url $source.url index
+	tg --url $local_source.url index
 	tg --url $remote.url index
 
 	# Confirm metadata matches.
-	let source_metadata = tg --url $source.url process metadata $process_id --pretty
+	let source_metadata = tg --url $local_source.url process metadata $process_id --pretty
 	let remote_metadata = tg --url $remote.url process metadata $process_id --pretty
 	assert equal $source_metadata $remote_metadata
 }

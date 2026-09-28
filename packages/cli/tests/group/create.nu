@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Creating a group returns its record, makes it retrievable, and grants the creator admin.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

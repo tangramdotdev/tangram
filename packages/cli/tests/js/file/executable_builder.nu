@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # The builder's executable method sets the executable bit, defaulting to true and accepting false.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

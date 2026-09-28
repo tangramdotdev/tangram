@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A spawned process exposes its command's args through the args getter.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

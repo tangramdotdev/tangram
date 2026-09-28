@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A checkin replacing a watch with incompatible options rejects a concurrent filesystem change.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: {
 		checkpoints: true
 	}

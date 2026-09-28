@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Error children enumerate module objects reachable through the error's location, stack, and diagnostics, not only its source.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

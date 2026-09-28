@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An organization can be retrieved by its id and by its specifier.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

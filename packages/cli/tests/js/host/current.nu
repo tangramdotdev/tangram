@@ -5,7 +5,7 @@ use ../../lib/test.nu *
 let architecture = (^uname -m | str trim | str replace arm64 aarch64)
 let operating_system = if $nu.os-info.name == 'macos' { 'darwin' } else { $nu.os-info.name }
 let host = $"($architecture)-($operating_system)"
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

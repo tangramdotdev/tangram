@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A stdin close held until the process control task exits observes the finished process instead of retrying forever against the retired control connection.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true },
 	runner: { process_state_ttl: 1 },
 	tracing: { stderr_format: 'json' },
@@ -106,4 +106,4 @@ if $output == null {
 }
 assert equal $output.exit_code (-15) "the client should be terminated by SIGTERM"
 
-snapshot (server_errors $server) ''
+snapshot (server_errors $local) ''

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Two packages whose builds invoke each other fail because they form a process cycle.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	foo: {

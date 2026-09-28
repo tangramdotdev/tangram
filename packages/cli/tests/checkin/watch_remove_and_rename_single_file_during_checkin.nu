@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Extra remove and rename notifications are accepted, but real changes invalidate a snapshotted checkin.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: {
 		checkpoints: true
 	}

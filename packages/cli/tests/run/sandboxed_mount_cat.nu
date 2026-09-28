@@ -1,10 +1,12 @@
 use ../lib/test.nu *
 
+# A sandbox can read a mounted artifact through its mount path.
+
 if $nu.os-info.name != 'linux' {
 	return
 }
 
-let server = server spawn --busybox
+let local = server spawn --busybox
 
 let mount = mktemp -d | str trim
 "hello from the mount\n" | save -f ($mount | path join "file")

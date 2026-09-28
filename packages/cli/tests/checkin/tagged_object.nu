@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package that imports a tagged non-package object resolves the object and writes the expected lockfile.
 
-let server = server spawn
+let local = server spawn
 
 # Tag the hello dependency.
 let hello_path = artifact {

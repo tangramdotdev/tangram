@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Requesting the output of a running process blocks until the process finishes and then returns its output.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { await tg.sleep(1); return 42; }',

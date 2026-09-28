@@ -3,7 +3,7 @@ use ../lib/checkin.nu checkin-output
 
 # Solving fails when node permission does not reveal whether an artifact's subtree needs solving.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	remotes: {}
 }
@@ -20,7 +20,7 @@ let directory = artifact {
 }
 let path = $directory | path join input
 let failed = try {
-	checkin-output $server $path --token $bob.token | ignore
+	checkin-output $local $path --token $bob.token | ignore
 	false
 } catch {
 	true

@@ -2,8 +2,8 @@ use ../../lib/test.nu *
 
 # An internal checkout creates a tag checkout entry, while tag mutations only invalidate it.
 
-let server = server spawn
-let tag_path = $server.directory | path join store dep
+let local = server spawn
+let tag_path = $local.directory | path join store dep
 
 let first = artifact 'first'
 tg tag dep $first

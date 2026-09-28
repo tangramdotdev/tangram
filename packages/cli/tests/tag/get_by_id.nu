@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A tag can be retrieved by its tag id, not just by its specifier.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact 'test'
 let id = tg checkin $path

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A null contents override clears the inherited file contents, and the object and fluent forms are equivalent.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

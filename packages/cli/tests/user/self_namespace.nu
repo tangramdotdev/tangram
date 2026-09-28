@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A user inherently has permission over their own namespace, so they can tag and create groups directly under their username.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

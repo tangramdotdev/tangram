@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Requesting compression with the zip format fails, because zip archives have their own internal compression.
 
-let server = server spawn
+let local = server spawn
 
 let dir = tg put 'tg.directory({ "hello.txt": tg.file("hello") })' | str trim
 

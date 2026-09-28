@@ -3,7 +3,7 @@ use ../lib/lsp.nu
 
 # An LSP session can check an edited document after exhausting the compiler's heap.
 
-let server = server spawn
+let local = server spawn --name local
 
 # Each alias expands to 90,000 distinct strings to exhaust the default V8 heap.
 let aliases = 0..999 | each { |i| $'type A($i) = `($i)${T}`;' }

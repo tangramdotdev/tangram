@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package with a single tagged dependency produces the expected object and writes the expected lockfile.
 
-let server = server spawn
+let local = server spawn
 
 # Tag the a dependency.
 let a_path = artifact {

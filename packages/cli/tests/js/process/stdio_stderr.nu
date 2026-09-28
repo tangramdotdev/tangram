@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A process stderr reader reads the standard error stream, configured independently with the per-stream stderr setter.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

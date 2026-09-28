@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The insecure login provider is selected implicitly when it is configured.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let user = tg login --verbose --name alice | from json
 assert equal $user.user.name alice

@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # Detaching disarms cancellation before the stream closes, and connecting by ID does not spawn again.
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {

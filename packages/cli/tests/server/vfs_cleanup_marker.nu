@@ -43,9 +43,9 @@ with-env { PATH: ($env.PATH | prepend $bin_path) } {
 
 	let configured_path = $path | path join 'configured'
 	mkdir $configured_path
-	let server = server_record $configured_path { vfs: false }
-	{ vfs: { kind: 'fuse' } } | to json | save --force $server.config_path
-	server restart $server | ignore
+	let configured_server = server_record $configured_path { vfs: false }
+	{ vfs: { kind: 'fuse' } } | to json | save --force $configured_server.config_path
+	server restart $configured_server | ignore
 	assert ($marker_path | path exists) 'expected a restart config file to mark cleanup intent'
 	rm $marker_path
 

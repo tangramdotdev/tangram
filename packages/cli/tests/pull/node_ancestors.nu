@@ -10,16 +10,16 @@ let remote = server spawn --cloud --name remote --config {
 let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
-let empty = server spawn --name empty --config {
+let local_empty = server spawn --name local-empty --config {
 	remotes: { default: { url: $remote.url } }
 }
-let coalesced = server spawn --name coalesced --config {
+let local_coalesced = server spawn --name local-coalesced --config {
 	remotes: { default: { url: $remote.url } }
 }
-let recursive = server spawn --name recursive --config {
+let local_recursive = server spawn --name local-recursive --config {
 	remotes: { default: { url: $remote.url } }
 }
-let scoped = server spawn --name scoped --config {
+let local_scoped = server spawn --name local-scoped --config {
 	remotes: { default: { url: $remote.url } }
 }
 
@@ -33,7 +33,7 @@ tg --url $remote.url group create coalesced/child/grandchild | ignore
 let remote_coalesced_other = tg --url $remote.url group create coalesced/child/other | from json
 
 # Never rejects a missing parent.
-failure (tg --url $empty.url pull --ancestors=never parent/child | complete)
+failure (tg --url $local_empty.url pull --ancestors=never parent/child | complete)
 
 # Missing rejects a conflicting parent.
 let local_parent = tg --url $local.url group create parent | from json
@@ -97,7 +97,7 @@ let end_watch = (
 let pull = job spawn {
 	let job_id = job id
 	let output = (
-		tg --url $coalesced.url pull --group-children coalesced/child/grandchild coalesced
+		tg --url $local_coalesced.url pull --group-children coalesced/child/grandchild coalesced
 		| complete
 	)
 	$output | job send --tag $job_id 0
@@ -119,18 +119,18 @@ tg --url $remote.url checkpoint unwatch sync.put.queue.database $ancestor_queue_
 tg --url $remote.url checkpoint unwatch sync.put.queue.database $descendants_queue_watch
 success (job recv --tag $pull --timeout 10sec)
 assert equal (
-	tg --url $coalesced.url group get --local coalesced/child/other | from json | get id
+	tg --url $local_coalesced.url group get --local coalesced/child/other | from json | get id
 ) $remote_coalesced_other.id
 
 # Pulling children rejects a conflicting descendant when the requested root already matches.
-tg --url $recursive.url pull parent
-let local_child = tg --url $recursive.url group create parent/child | from json
+tg --url $local_recursive.url pull parent
+let local_child = tg --url $local_recursive.url group create parent/child | from json
 assert not equal $local_child.id $remote_child.id
-let output = tg --url $recursive.url pull --group-children parent | complete
+let output = tg --url $local_recursive.url pull --group-children parent | complete
 failure $output "pulling children should reject a conflicting descendant"
 assert ($output.stderr | str contains "the specifier is already in use")
-assert equal (tg --url $recursive.url group get parent/child | from json | get id) $local_child.id
+assert equal (tg --url $local_recursive.url group get parent/child | from json | get id) $local_child.id
 
 # Pulling a subtree does not pull siblings through a dynamically requested ancestor.
-tg --url $scoped.url pull --group-children parent/child
-failure (tg --url $scoped.url group get --local parent/sibling | complete)
+tg --url $local_scoped.url pull --group-children parent/child
+failure (tg --url $local_scoped.url group get --local parent/sibling | complete)

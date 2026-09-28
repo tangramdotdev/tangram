@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A spawned process exposes its inline command data through the command getter.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

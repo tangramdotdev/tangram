@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in with --update for a single tag updates only that dependency while preserving a source-path override on another dependency.
 
-let server = server spawn
+let local = server spawn
 
 # Tag the a dependency.
 let a_path = artifact {

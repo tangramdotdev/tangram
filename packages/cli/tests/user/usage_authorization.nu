@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Usage requires account administration and missing selectors fail cleanly.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	usage: true,
 }

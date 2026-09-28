@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A process_parent grant permits signaling a running non-cacheable process.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 

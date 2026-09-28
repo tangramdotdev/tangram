@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A group member loses get, list, and destroy on a group-owned sandbox once their membership is revoked.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

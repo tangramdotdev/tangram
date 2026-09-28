@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Putting input that does not parse as a value fails with a parse error.
 
-let server = server spawn
+let local = server spawn
 
 let output = tg put 'tg.bogus(((' | complete
 failure $output

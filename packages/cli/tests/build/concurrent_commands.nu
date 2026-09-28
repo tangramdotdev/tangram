@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # The results of commands run concurrently with `Promise.all` are
 # all returned and can be aggregated correctly.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

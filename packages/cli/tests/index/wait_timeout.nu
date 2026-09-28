@@ -1,13 +1,13 @@
 use ../lib/test.nu *
 
 # An acknowledged request to await indexing must survive its acknowledgment timeout without being replaced.
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true, single_process: false },
 	indexer: { request: { timeout: 0.05 } },
 }
 let receive_watch = tg checkpoint watch indexer.request.receive | from json | get watch
 let wait_watch = tg checkpoint watch indexer.request.wait | from json | get watch
-let url = $server.url
+let url = $local.url
 let request = job spawn {
 	let id = job id
 	let output = tg --url $url index | complete

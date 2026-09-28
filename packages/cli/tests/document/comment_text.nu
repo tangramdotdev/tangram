@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Documenting a module surfaces doc comment text for an export.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -3,7 +3,7 @@ use ../lib/command.nu
 
 # The top-level children command gets the direct graph children of any node.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("dispatch"); }'

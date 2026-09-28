@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 const repository_path = path self '../../../..'
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	remotes: {}
 	vfs: false

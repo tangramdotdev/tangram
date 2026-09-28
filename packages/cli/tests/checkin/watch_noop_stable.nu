@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A watched checkin with no intervening change is a pure cache hit that returns the same id as the first and as a cold checkin.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	"a.txt": 'alpha'

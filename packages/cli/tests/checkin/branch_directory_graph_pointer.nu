@@ -3,7 +3,7 @@ use ../lib/checkin.nu checkin-output
 
 # Solving a branch directory preserves the graph context of an internal pointer in a child.
 
-let server = server spawn
+let local = server spawn
 let dependency_path = artifact {
 	tangram.ts: '
 		export default async function () {
@@ -42,7 +42,7 @@ let directory = artifact {
 	input: (file --xattrs { "user.tangram.dependencies": $dependencies } branch)
 }
 let path = $directory | path join input
-let output = checkin-output $server $path
+let output = checkin-output $local $path
 assert equal $output.permissions [object_subtree] "the branch permissions should propagate"
 let object = tg get --blobs --depth=inf --no-tokens --pretty $output.reference
 assert ($object | str contains "replacement") "the internal graph pointer should be solved"

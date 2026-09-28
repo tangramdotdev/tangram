@@ -5,7 +5,7 @@ use ../lib/stripe.nu *
 
 let webhook_secret = 'whsec_mock'
 let stripe = spawn_stripe
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: $webhook_secret } },
 }
@@ -30,9 +30,9 @@ let event = {
 	id: 'evt_user_ready',
 	type: 'customer.updated',
 }
-assert equal (send_invalid_stripe_webhook $server $event) 400 "an invalid webhook signature should be rejected"
-assert equal (send_stripe_webhook $server $webhook_secret $event) 200 "a valid webhook should be accepted"
-assert equal (send_stripe_webhook $server $webhook_secret $event) 200 "a duplicate webhook should be accepted"
+assert equal (send_invalid_stripe_webhook $local $event) 400 "an invalid webhook signature should be rejected"
+assert equal (send_stripe_webhook $local $webhook_secret $event) 200 "a valid webhook should be accepted"
+assert equal (send_stripe_webhook $local $webhook_secret $event) 200 "a duplicate webhook should be accepted"
 
 let requests = stripe_requests $stripe
 assert equal ($requests | length) 3 "the duplicate webhook should not retrieve the customer twice"
@@ -45,7 +45,7 @@ let deleted_event = {
 	id: 'evt_user_deleted',
 	type: 'customer.deleted',
 }
-assert equal (send_stripe_webhook $server $webhook_secret $deleted_event) 200 "a customer deletion webhook should be ignored"
+assert equal (send_stripe_webhook $local $webhook_secret $deleted_event) 200 "a customer deletion webhook should be ignored"
 let requests = stripe_requests $stripe
 assert equal ($requests | length) 3 "an ignored webhook should not retrieve the customer"
 

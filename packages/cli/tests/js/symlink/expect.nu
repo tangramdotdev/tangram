@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Symlink.expect returns the value unchanged when it is a symlink.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.Symlink.expect(await tg.symlink("a/b")) instanceof tg.Symlink; }'

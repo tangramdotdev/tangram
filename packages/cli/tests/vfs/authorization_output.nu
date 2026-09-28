@@ -8,7 +8,7 @@ if $nu.os-info.name != 'linux' {
 
 let transports = if (fuse_io_uring_available) { [read_write io_uring] } else { [read_write] }
 for io in $transports {
-	let server = server spawn --config {
+	let local = server spawn --name local --config {
 		vfs: { io: $io, kind: fuse, passthrough: disabled }
 	}
 
@@ -38,5 +38,5 @@ for io in $transports {
 		success $output 'the VFS must fall back to authorization for the build output'
 		assert equal ($output.stdout | str trim) 'ok'
 	}
-	server stop $server
+	server stop $local
 }

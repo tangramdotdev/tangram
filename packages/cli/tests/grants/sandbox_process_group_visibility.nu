@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Sandbox access does not confer process access; a process grant is required.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

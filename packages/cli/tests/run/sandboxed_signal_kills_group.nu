@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Signaling a sandboxed process also kills a child that inherited its process group and log pipe.
 
-let server = server spawn
+let local = server spawn
 let mount = artifact {}
 let output = tg spawn --sandbox --mount $"($mount):/target" --verbose --executable /bin/sh -- -c '/bin/sh -c "echo ready; while :; do :; done"; :' | from json
 let process = $output.process

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Revoking a grant immediately removes the principal's access, not just the grant record.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

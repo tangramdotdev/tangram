@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A command's stdin accessor returns the blob set as standard input.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

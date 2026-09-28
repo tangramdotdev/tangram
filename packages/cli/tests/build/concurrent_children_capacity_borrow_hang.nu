@@ -7,7 +7,7 @@ use ../lib/test.nu *
 # the freed capacity, so the parent's remaining children are never scheduled and it
 # hangs forever.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},

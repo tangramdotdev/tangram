@@ -2,14 +2,14 @@ use ../lib/test.nu *
 
 # A pull uses the remote session it resolved even if the remote is replaced while the pull is in progress.
 
-let source = server spawn --name source
-let replacement = server spawn --name replacement
+let local_source = server spawn --name local-source
+let local_replacement = server spawn --name local-replacement
 let local = server spawn --name local --config {
 	advanced: { checkpoints: true },
 }
 
-let object = tg --url $source.url put 'tg.file("contents")' | str trim
-tg --url $local.url remote put default $source.url --trusted
+let object = tg --url $local_source.url put 'tg.file("contents")' | str trim
+tg --url $local.url remote put default $local_source.url --trusted
 
 let watch = (
 	tg --url $local.url checkpoint watch push.source.remote.resolved
@@ -25,7 +25,7 @@ let pull = job spawn {
 let output = timeout 30s tg --url $local.url checkpoint wait push.source.remote.resolved $watch 0 | complete
 success $output "the pull should resolve the source remote"
 
-tg --url $local.url remote put default $replacement.url
+tg --url $local.url remote put default $local_replacement.url
 tg --url $local.url checkpoint continue push.source.remote.resolved $watch 0
 tg --url $local.url checkpoint unwatch push.source.remote.resolved $watch
 

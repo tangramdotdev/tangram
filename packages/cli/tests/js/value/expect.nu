@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Value.expect returns the value unchanged when it is a valid value.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.Value.expect({ a: 1 }); }'

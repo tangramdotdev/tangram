@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A missing stdin blob fails the process, including when the child exits without reading stdin.
 
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function (script: string) {

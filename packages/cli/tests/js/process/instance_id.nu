@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A spawned sandboxed process has a string id.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

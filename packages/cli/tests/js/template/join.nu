@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Template.join joins string templates with a separator.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return await tg.Template.join(":", "a", "b", "c"); }'

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.encoding.toml.encode serializes a table to a TOML string.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.encoding.toml.encode({ name: "tangram", version: 1 }); }'

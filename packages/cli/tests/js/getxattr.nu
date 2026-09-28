@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The host reads exactly one xattr without interpreting Tangram shards.
 
-let server = server spawn
+let local = server spawn
 let input = artifact (file --xattrs {
 	"user.tangram.output.0": first
 	"user.tangram.output.1": second

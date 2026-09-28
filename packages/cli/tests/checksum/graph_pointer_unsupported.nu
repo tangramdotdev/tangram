@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checksumming a graph file pointer fails with an error indicating that checksumming graph pointers is unsupported.
 
-let server = server spawn
+let local = server spawn
 
 # Create a graph with a single file node.
 let graph = '

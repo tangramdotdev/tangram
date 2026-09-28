@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The check command succeeds when a mutation produced by tg.Mutation.setIfUnset is assigned to a field typed as tg.MaybeMutation.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

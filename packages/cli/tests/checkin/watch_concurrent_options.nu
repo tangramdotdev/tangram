@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A checkin cannot update a watcher that was replaced by a concurrent checkin with different options.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: {
 		checkpoints: true
 	}

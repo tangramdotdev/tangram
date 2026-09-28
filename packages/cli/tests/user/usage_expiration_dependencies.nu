@@ -12,7 +12,7 @@ def --wrapped unavailable [token: string, ...period: string] {
 	assert ($output.stderr | str contains "usage is unavailable for the requested period")
 }
 
-let server = server spawn --now '2026-01-01T00:00:00Z' --config {
+let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	authentication: { users: { providers: { insecure: true } } },
 	roles: [api indexer runner scheduler],
 	usage: {
@@ -29,12 +29,12 @@ tg --token $alice.token tag keep $object
 tg --token $alice.token index
 
 # The first hour remains available immediately before the day closes.
-set_time $server '2026-01-01T23:59:59Z'
+set_time $local '2026-01-01T23:59:59Z'
 tg --token $alice.token clean
 assert equal (usage $alice.token --hour 2026-01-01T00:00:00Z).object_count 2
 
 # After the day is aggregated and the hourly TTL elapses, expiration can remove the first hour.
-set_time $server '2026-01-02T01:00:00Z'
+set_time $local '2026-01-02T01:00:00Z'
 tg --token $alice.token clean
 unavailable $alice.token --hour 2026-01-01T00:00:00Z
 assert equal (usage $alice.token --day 2026-01-01).object_count 48

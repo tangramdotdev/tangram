@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Reading a symlink with only a path target fails because it cannot be resolved.
 
-let server = server spawn
+let local = server spawn
 
 let link = tg put 'tg.symlink({ "path": "nowhere" })' | str trim
 

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Concurrent requests share the server waiter and keep their own cutoffs.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},
@@ -15,7 +15,7 @@ let path = artifact {
 		export default function () { return "hello"; }
 	'
 }
-let id = tg --url $server.url checkin $path
+let id = tg --url $local.url checkin $path
 
 def index_background [url: string] {
 	job spawn {
@@ -26,37 +26,37 @@ def index_background [url: string] {
 }
 
 let wait_watch = (
-	tg --url $server.url checkpoint watch indexer.request.wait
+	tg --url $local.url checkpoint watch indexer.request.wait
 	| from json
 	| get watch
 )
 
 # Hold the first request while it waits for tasks.
-let first = index_background $server.url
-tg --url $server.url checkpoint wait indexer.request.wait $wait_watch 0 | ignore
+let first = index_background $local.url
+tg --url $local.url checkpoint wait indexer.request.wait $wait_watch 0 | ignore
 
 # Queue a later request while the first batch is waiting for local tasks.
 let receive_watch = (
-	tg --url $server.url checkpoint watch indexer.request.receive
+	tg --url $local.url checkpoint watch indexer.request.receive
 	| from json
 	| get watch
 )
-let second = index_background $server.url
-tg --url $server.url checkpoint continue indexer.request.wait $wait_watch 0
+let second = index_background $local.url
+tg --url $local.url checkpoint continue indexer.request.wait $wait_watch 0
 
 # The later request starts its own local wait after the first batch finishes.
-tg --url $server.url checkpoint wait indexer.request.receive $receive_watch 0 | ignore
+tg --url $local.url checkpoint wait indexer.request.receive $receive_watch 0 | ignore
 
-tg --url $server.url checkpoint continue indexer.request.receive $receive_watch 0
-tg --url $server.url checkpoint unwatch indexer.request.receive $receive_watch
-tg --url $server.url checkpoint wait indexer.request.wait $wait_watch 1 | ignore
+tg --url $local.url checkpoint continue indexer.request.receive $receive_watch 0
+tg --url $local.url checkpoint unwatch indexer.request.receive $receive_watch
+tg --url $local.url checkpoint wait indexer.request.wait $wait_watch 1 | ignore
 
 # The first request must finish even while the later local wait remains blocked.
 let output = job recv --tag $first --timeout 10sec
 success $output
-tg --url $server.url checkpoint unwatch indexer.request.wait $wait_watch
+tg --url $local.url checkpoint unwatch indexer.request.wait $wait_watch
 let output = job recv --tag $second --timeout 10sec
 success $output
 
-let metadata = tg --url $server.url object metadata $id | from json
+let metadata = tg --url $local.url object metadata $id | from json
 assert ($metadata.subtree.count > 0)

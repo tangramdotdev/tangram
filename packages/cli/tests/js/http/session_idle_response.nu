@@ -1,7 +1,7 @@
 use ../../lib/test.nu *
 
 # A server closing an idle HTTP/2 connection must not discard a buffered response.
-let server = server spawn --config { http: { idle_timeout: 0.01 } }
+let local = server spawn --config { http: { idle_timeout: 0.01 } }
 
 let path = artifact {
 	tangram.ts: '

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A directory's get method throws when the path does not exist.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

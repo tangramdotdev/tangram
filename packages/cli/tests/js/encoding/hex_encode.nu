@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.encoding.hex.encode encodes a byte array to a lowercase hexadecimal string.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.encoding.hex.encode(tg.encoding.utf8.encode("Hello")); }'

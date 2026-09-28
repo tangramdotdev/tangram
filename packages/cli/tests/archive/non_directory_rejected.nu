@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Archiving an artifact that is not a directory fails instead of producing an unusable archive.
 
-let server = server spawn
+let local = server spawn
 
 let file_id = tg put 'tg.file("contents")' | str trim
 

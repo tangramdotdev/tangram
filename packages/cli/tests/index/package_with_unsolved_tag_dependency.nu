@@ -11,7 +11,7 @@ let local = server spawn --name local
 let remote = server spawn --cloud --name remote
 
 # Create another server (receives a full push for comparison).
-let other = server spawn --cloud --name other
+let local_other = server spawn --cloud --name local-other
 
 # Create a package that imports the tagged dependency.
 let path = artifact {
@@ -103,12 +103,12 @@ snapshot --name complete_metadata $complete_metadata '
 assert equal $complete_metadata $expected_metadata
 
 # Now test push: add the other server as a remote and push the directory.
-tg --url $local.url remote put push $other.url
+tg --url $local.url remote put push $local_other.url
 tg --url $local.url push --remote=push $dir_id
 
 # Index the other server and verify metadata matches.
-tg --url $other.url index
-let other_metadata = tg --url $other.url object metadata $dir_id --pretty
+tg --url $local_other.url index
+let other_metadata = tg --url $local_other.url object metadata $dir_id --pretty
 
 # All three servers should have identical metadata.
 assert equal $other_metadata $expected_metadata

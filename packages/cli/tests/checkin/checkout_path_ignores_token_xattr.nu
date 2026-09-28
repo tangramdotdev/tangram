@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Reproduce checkin ignoring a valid token xattr on a path in the checkouts directory.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	remotes: {}
 	vfs: false
@@ -13,7 +13,7 @@ let bob = tg login --verbose --name bob | from json
 let id = tg --token $alice.token put 'tg.file("contents")' | str trim
 tg index
 let path = tg --token $alice.token checkout $id | str trim
-assert equal $path ($server.checkout_directory | path join $id)
+assert equal $path ($local.checkout_directory | path join $id)
 
 # Bob needs the token to read Alice's private file.
 let output = tg --token $bob.token get --bytes $id | complete

@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A server that is killed while a process is running must be able to start again. It currently hangs before it signals readiness, so the server directory is unusable until the index is deleted.
 
 print -e 'spawning the server'
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '
@@ -25,17 +25,17 @@ wait_until { (tg log $process | complete).stdout | str contains 'started' } "the
 print -e 'the process is running'
 
 # Kill the server.
-let pid = open ($server.directory | path join 'lock') | into int
+let pid = open ($local.directory | path join 'lock') | into int
 print -e $'killing the server ($pid)'
 kill --signal 9 $pid
 wait_until { ps | where pid == $pid | is-empty } "the server must stop"
-wait_until { open --raw $server.exit | str trim | is-not-empty } "the server supervisor must report completion"
-assert equal (open --raw $server.exit | str trim | into int) 137 "the supervisor must report the killed server's status"
+wait_until { open --raw $local.exit | str trim | is-not-empty } "the server supervisor must report completion"
+assert equal (open --raw $local.exit | str trim | into int) 137 "the supervisor must report the killed server's status"
 print -e 'the server stopped'
 
 # The server must start again and be usable.
 print -e 'spawning the server again'
-let server = server start $server
+let server = server start $local
 print -e 'the server started again'
 let output = tg health | complete
 success $output "the server must be usable after being killed"
@@ -44,6 +44,6 @@ let output = tg index | complete
 success $output "awaiting indexing must work after restarting without an indexer ID"
 
 # Repeated stops must observe the persisted completion without waiting for another notification.
-server stop $server
-assert equal (open --raw $server.exit | str trim | into int) 0 "the supervisor must report a clean shutdown"
-server stop $server
+server stop $local
+assert equal (open --raw $local.exit | str trim | into int) 0 "the supervisor must report a clean shutdown"
+server stop $local

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Object metadata for an indexed directory aggregates the subtree over its entries.
 
-let server = server spawn
+let local = server spawn
 
 let id = tg put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
 tg index

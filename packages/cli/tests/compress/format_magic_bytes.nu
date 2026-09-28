@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The format flag selects the compression encoding, as evidenced by each format's magic bytes.
 
-let server = server spawn
+let local = server spawn
 
 let blob = "hello, world!\n" | tg write
 

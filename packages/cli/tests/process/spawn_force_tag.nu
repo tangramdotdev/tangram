@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Spawning with force-tag replaces an existing tag, while the default preserves it.
 
-let server = server spawn
+let local = server spawn
 let first_path = artifact {
 	tangram.ts: 'export default async function () { return "first"; }'
 }

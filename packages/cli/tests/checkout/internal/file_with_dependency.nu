@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Checking out a file with a dependency on another file writes the file into the checkouts directory.
 
-let server = server spawn
+let local = server spawn
 
 # Create the artifact.
 let artifact = '
@@ -21,4 +21,4 @@ let id = tg put $artifact
 tg checkout $id
 
 # Snapshot.
-snapshot --path $server.checkout_directory
+snapshot --path $local.checkout_directory

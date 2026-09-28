@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Concurrent loads share one promise per object state.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

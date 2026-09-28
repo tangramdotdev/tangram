@@ -25,7 +25,7 @@ let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 # Compute the blob IDs without making their contents available to checkout.
-let source = server spawn --name source
+let local_source = server spawn --name local-source
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
@@ -40,7 +40,7 @@ let path = artifact {
 }
 let watches = [first second] | each {|text|
 	let value = ['tg.blob(' ($text | to json) ')'] | str join
-	let blob = tg --url $source.url put $value | str trim
+	let blob = tg --url $local_source.url put $value | str trim
 	let params = { id: $blob } | to json --raw
 	let store = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params $params | from json | get watch
 	{ store: $store }

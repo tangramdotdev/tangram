@@ -11,13 +11,13 @@ let regions = [
 let instance = instance --cloud --primary-region a --regions $regions --config {
 	authentication: { users: { providers: { insecure: true } } },
 }
-let region_a = server spawn --instance $instance --region a --preserve-keys --name region-a --url (instance region url $instance a)
-let region_b = server spawn --instance $instance --region b --preserve-keys --name region-b --url (instance region url $instance b)
+let remote_region_a = server spawn --instance $instance --region a --preserve-keys --name remote-region-a --url (instance region url $instance a)
+let remote_region_b = server spawn --instance $instance --region b --preserve-keys --name remote-region-b --url (instance region url $instance b)
 assert ($instance.directory? == null) 'a cloud instance must not own a directory'
-assert ($region_a.directory != $region_b.directory) 'cloud servers must own separate directories'
-let alice = tg --url $region_a.url login --verbose --name alice | from json
+assert ($remote_region_a.directory != $remote_region_b.directory) 'cloud servers must own separate directories'
+let alice = tg --url $remote_region_a.url login --verbose --name alice | from json
 let local = server spawn --name local --config {
-	remotes: { default: { token: $alice.token, url: $region_b.url } },
+	remotes: { default: { token: $alice.token, url: $remote_region_b.url } },
 }
 
 # Create enough distinct files to exercise backpressure in both directions.
@@ -46,6 +46,6 @@ if $output == null {
 }
 success $output
 
-tg --url $region_b.url index
-let availability = tg --url $region_b.url --token $alice.token object availability $directory --local | from json
+tg --url $remote_region_b.url index
+let availability = tg --url $remote_region_b.url --token $alice.token object availability $directory --local | from json
 assert equal $availability.subtree true

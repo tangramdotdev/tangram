@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Creating an organization whose specifier is already in use fails with a clear error.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

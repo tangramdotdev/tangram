@@ -3,18 +3,18 @@ use ../lib/test.nu *
 # Pulling through a secondary region writes database nodes in the primary region while keeping
 # objects, processes, and sandboxes in the secondary region.
 
-let source = server spawn --name source --config { advanced: { checkpoints: true } }
+let local_source = server spawn --name local-source --config { advanced: { checkpoints: true } }
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("regional output"); }'
 }
-let process = tg --url $source.url build --detach $path | str trim
-let result = tg --url $source.url wait --no-tokens $process | from json
+let process = tg --url $local_source.url build --detach $path | str trim
+let result = tg --url $local_source.url wait --no-tokens $process | from json
 let output = $result.output.value
-let sandbox = tg --url $source.url process get $process | from json | get sandbox
-tg --url $source.url wait $sandbox | ignore
-tg --url $source.url index
-tg --url $source.url tag put -p routed/process $process
-let tag = tg --url $source.url tag get routed/process | from json
+let sandbox = tg --url $local_source.url process get $process | from json | get sandbox
+tg --url $local_source.url wait $sandbox | ignore
+tg --url $local_source.url index
+tg --url $local_source.url tag put -p routed/process $process
+let tag = tg --url $local_source.url tag get routed/process | from json
 
 let database_directory = mktemp -d
 let database_path = $database_directory | path join 'database'
@@ -34,52 +34,52 @@ let common = {
 	database: { kind: 'sqlite', path: $database_path },
 }
 let instance = instance --primary-region primary --regions $regions --config $common
-let primary = server spawn --instance $instance --region primary --preserve-keys --name primary --directory $primary_directory --url (instance region url $instance primary)
-let secondary = server spawn --instance $instance --region secondary --preserve-keys --name secondary --directory $secondary_directory --url (instance region url $instance secondary)
-tg --url $secondary.url remote put default $source.url
-tg --url $secondary.url pull $sandbox
+let remote_primary = server spawn --instance $instance --region primary --preserve-keys --name remote-primary --directory $primary_directory --url (instance region url $instance primary)
+let remote_secondary = server spawn --instance $instance --region secondary --preserve-keys --name remote-secondary --directory $secondary_directory --url (instance region url $instance secondary)
+tg --url $remote_secondary.url remote put default $local_source.url
+tg --url $remote_secondary.url pull $sandbox
 
 let source_watch = (
-	tg --url $source.url checkpoint watch sync.put.database.node.send --params ({ id: $tag.id } | to json)
+	tg --url $local_source.url checkpoint watch sync.put.database.node.send --params ({ id: $tag.id } | to json)
 	| from json
 	| get watch
 )
 let secondary_watch = (
-	tg --url $secondary.url checkpoint watch sync.get.input.node.ancestor --params ({ id: $tag.id } | to json)
+	tg --url $remote_secondary.url checkpoint watch sync.get.input.node.ancestor --params ({ id: $tag.id } | to json)
 	| from json
 	| get watch
 )
 let primary_response_watch = (
-	tg --url $primary.url checkpoint watch sync.request.response
+	tg --url $remote_primary.url checkpoint watch sync.request.response
 	| from json
 	| get watch
 )
 let primary_watch = (
-	tg --url $primary.url checkpoint watch sync.get.input.node.ancestor --params ({ id: $tag.id } | to json)
+	tg --url $remote_primary.url checkpoint watch sync.get.input.node.ancestor --params ({ id: $tag.id } | to json)
 	| from json
 	| get watch
 )
 let pull = job spawn {
 	let job_id = job id
-	let output = tg --url $secondary.url pull --group-children --process-outputs routed | complete
+	let output = tg --url $remote_secondary.url pull --group-children --process-outputs routed | complete
 	$output | job send --tag $job_id 0
 }
-tg --url $source.url checkpoint wait sync.put.database.node.send $source_watch 0 | ignore
-tg --url $source.url checkpoint continue sync.put.database.node.send $source_watch 0
-tg --url $source.url checkpoint unwatch sync.put.database.node.send $source_watch
-tg --url $secondary.url checkpoint wait sync.get.input.node.ancestor $secondary_watch 0 | ignore
-tg --url $secondary.url checkpoint continue sync.get.input.node.ancestor $secondary_watch 0
-tg --url $secondary.url checkpoint unwatch sync.get.input.node.ancestor $secondary_watch
-tg --url $primary.url checkpoint wait sync.request.response $primary_response_watch 0 | ignore
-tg --url $primary.url checkpoint wait sync.get.input.node.ancestor $primary_watch 0 | ignore
-tg --url $primary.url checkpoint continue sync.get.input.node.ancestor $primary_watch 0
-tg --url $primary.url checkpoint unwatch sync.get.input.node.ancestor $primary_watch
-tg --url $primary.url checkpoint continue sync.request.response $primary_response_watch 0
-tg --url $primary.url checkpoint unwatch sync.request.response $primary_response_watch
+tg --url $local_source.url checkpoint wait sync.put.database.node.send $source_watch 0 | ignore
+tg --url $local_source.url checkpoint continue sync.put.database.node.send $source_watch 0
+tg --url $local_source.url checkpoint unwatch sync.put.database.node.send $source_watch
+tg --url $remote_secondary.url checkpoint wait sync.get.input.node.ancestor $secondary_watch 0 | ignore
+tg --url $remote_secondary.url checkpoint continue sync.get.input.node.ancestor $secondary_watch 0
+tg --url $remote_secondary.url checkpoint unwatch sync.get.input.node.ancestor $secondary_watch
+tg --url $remote_primary.url checkpoint wait sync.request.response $primary_response_watch 0 | ignore
+tg --url $remote_primary.url checkpoint wait sync.get.input.node.ancestor $primary_watch 0 | ignore
+tg --url $remote_primary.url checkpoint continue sync.get.input.node.ancestor $primary_watch 0
+tg --url $remote_primary.url checkpoint unwatch sync.get.input.node.ancestor $primary_watch
+tg --url $remote_primary.url checkpoint continue sync.request.response $primary_response_watch 0
+tg --url $remote_primary.url checkpoint unwatch sync.request.response $primary_response_watch
 success (job recv --tag $pull)
 
 # The primary region records the tag and its permissions from the secondary region's token.
-let primary_tag = tg --url $primary.url tag get routed/process | from json
+let primary_tag = tg --url $remote_primary.url tag get routed/process | from json
 assert equal $primary_tag.id $tag.id
 assert equal $primary_tag.target.id $process
 assert (
@@ -88,9 +88,9 @@ assert (
 ) "the forwarded tag should retain permission to its process output"
 
 # The process graph remains in the secondary region.
-success (tg --url $secondary.url sandbox get --location='local(secondary)' $sandbox | complete)
-failure (tg --url $secondary.url sandbox get --location='local(primary)' $sandbox | complete)
-success (tg --url $secondary.url process get --location='local(secondary)' $process | complete)
-failure (tg --url $secondary.url process get --location='local(primary)' $process | complete)
-success (tg --url $secondary.url object get --bytes --location='local(secondary)' $output | complete)
-failure (tg --url $secondary.url object get --bytes --location='local(primary)' $output | complete)
+success (tg --url $remote_secondary.url sandbox get --location='local(secondary)' $sandbox | complete)
+failure (tg --url $remote_secondary.url sandbox get --location='local(primary)' $sandbox | complete)
+success (tg --url $remote_secondary.url process get --location='local(secondary)' $process | complete)
+failure (tg --url $remote_secondary.url process get --location='local(primary)' $process | complete)
+success (tg --url $remote_secondary.url object get --bytes --location='local(secondary)' $output | complete)
+failure (tg --url $remote_secondary.url object get --bytes --location='local(primary)' $output | complete)

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Artifact.expect returns the value unchanged when it is an artifact.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

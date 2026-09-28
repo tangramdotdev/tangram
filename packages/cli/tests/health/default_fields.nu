@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The default health reports the database, diagnostics, processes, and version fields.
 
-let server = server spawn
+let local = server spawn
 
 let health = tg health | from json
 assert equal ($health | columns) [database diagnostics processes version] "the health should contain all of the fields"

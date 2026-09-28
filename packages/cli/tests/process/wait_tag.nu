@@ -2,17 +2,17 @@ use ../lib/test.nu *
 
 # Waiting for a process through a tag preserves the resolved location.
 
-let origin = server spawn --name origin
-let sink = server spawn --name sink
+let local_origin = server spawn --name local-origin
+let remote_sink = server spawn --name remote-sink
 let local = server spawn --name local
-tg --url $local.url remote put default $sink.url
-tg --url $local.url remote put origin $origin.url
+tg --url $local.url remote put default $remote_sink.url
+tg --url $local.url remote put origin $local_origin.url
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return 42; }',
 }
-let process = tg --url $origin.url build --detach $path | str trim
-tg --url $origin.url tag put wait_process $process
+let process = tg --url $local_origin.url build --detach $path | str trim
+tg --url $local_origin.url tag put wait_process $process
 
 let output = tg --url $local.url wait 'wait_process?location=remote:origin' | from json
 assert equal $output.exit 0 "waiting through the tag should succeed"

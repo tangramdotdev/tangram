@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # --watch with --no-solve skips dependency resolution.
 
-let server = server spawn
+let local = server spawn
 
 # Tag the a dependency.
 let a_path = artifact {

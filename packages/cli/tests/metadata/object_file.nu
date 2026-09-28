@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Object metadata for an indexed file reports the node and the aggregated subtree.
 
-let server = server spawn
+let local = server spawn
 
 let id = tg put 'tg.file("hello")' | str trim
 tg index

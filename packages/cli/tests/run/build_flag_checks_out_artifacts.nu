@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # `tg run --build .` checks out artifacts referenced in the command before executing.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

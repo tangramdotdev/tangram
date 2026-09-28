@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Putting raw bytes without an id requires the kind flag to compute the id.
 
-let server = server spawn
+let local = server spawn
 
 let output = tg put --bytes "hello" | complete
 failure $output

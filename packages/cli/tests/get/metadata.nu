@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The metadata flag prints the object's metadata as an info message alongside the value.
 
-let server = server spawn
+let local = server spawn
 
 let file = tg put 'tg.file("metadata")' | str trim
 tg index

@@ -2,9 +2,9 @@ use ../lib/test.nu *
 
 # A sync get by specifier works when ancestor transfer is disabled.
 
-let source = server spawn --name source
-let destination = server spawn --name destination
-let group = tg --url $source.url group create foo | from json
+let local_source = server spawn --name local-source
+let remote_destination = server spawn --name remote-destination
+let group = tg --url $local_source.url group create foo | from json
 
 # Encode a put node, put end, and sync end for the destination sync stream.
 let id = tg id $group.id | into binary
@@ -18,7 +18,7 @@ let input = (
 	++ $put_node
 	++ 0x[05 0b 01 0b 03 00 05 0b 00 0b 03 00 03 0b 02 00]
 )
-let socket = $destination.directory | path join socket
+let socket = $remote_destination.directory | path join socket
 let args = [
 	'--silent'
 	'--show-error'
@@ -31,5 +31,5 @@ let args = [
 ]
 $input | ^curl ...$args
 
-let actual = tg --url $destination.url group get foo | from json
+let actual = tg --url $remote_destination.url group get foo | from json
 assert equal $actual.id $group.id

@@ -2,14 +2,14 @@ use ../lib/test.nu *
 
 # A user cannot log in with a specifier already claimed by a group.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 tg --token $alice.token group create shared
 
 let output = tg login --name shared | complete
-failure $output "logging in with a specifier claimed by a group should be rejected"
-snapshot --normalize $output.stderr '
+failure $bob "logging in with a specifier claimed by a group should be rejected"
+snapshot --normalize $bob.stderr '
 	error an error occurred
 	-> failed to start the login
 	-> the request failed

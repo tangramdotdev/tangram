@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # SIGTERM terminates a process that starts before its process control stream connects.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true },
 }
 
@@ -40,7 +40,7 @@ tg checkpoint unwatch runner.process.start $start_watch
 sleep 1sec
 
 # Send SIGTERM to the server while process control remains blocked.
-let pid = open ($server.directory | path join 'lock') | into int
+let pid = open ($local.directory | path join 'lock') | into int
 kill --signal 15 $pid
 
 # The server and build request must exit without process control connecting.

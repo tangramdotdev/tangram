@@ -8,11 +8,11 @@ let scheduler = {
 }
 
 # A server without a runner has nothing to schedule on.
-let server = server spawn --name server --config {
+let local = server spawn --name local --config {
 	roles: [api indexer scheduler],
 	scheduler: $scheduler,
 }
-let output = tg --url $server.url sandbox create | complete
+let output = tg --url $local.url sandbox create | complete
 failure $output "creating a sandbox with no runners should fail"
 assert ($output.stderr | str contains 'no runners available')
 
@@ -24,7 +24,7 @@ let path = artifact {
 		}
 	',
 }
-let output = tg --url $server.url build $path | complete
+let output = tg --url $local.url build $path | complete
 failure $output "building with no runners should fail"
 assert ($output.stderr | str contains 'no runners available')
 

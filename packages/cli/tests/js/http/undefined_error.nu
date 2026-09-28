@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # An HTTP response body propagates an undefined stream error.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -6,7 +6,7 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
-let server = server spawn
+let local = server spawn
 let mount = artifact {
 	file: "mounted"
 }

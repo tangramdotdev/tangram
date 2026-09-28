@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package with conflicting tag version constraints succeeds under --unsolved-dependencies, leaving the conflict unresolved in the lockfile.
 
-let server = server spawn
+let local = server spawn
 
 let c1 = artifact {
 	tangram.ts: ''

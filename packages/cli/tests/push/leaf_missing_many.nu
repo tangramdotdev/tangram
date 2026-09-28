@@ -9,7 +9,7 @@ let remote = server spawn --cloud --name remote
 let local = server spawn --name local
 
 # Create a source server.
-let source = server spawn --name source
+let local_source = server spawn --name local-source
 
 # Create a directory with many files to increase object count.
 let path = artifact {
@@ -25,28 +25,28 @@ let path = artifact {
 }
 
 # Build the module.
-let id = tg --url $source.url build $path
+let id = tg --url $local_source.url build $path
 let dir_id = $id
 
 # Get immediate children (files) from the directory.
-let files = tg --url $source.url children $id | from json
+let files = tg --url $local_source.url children $id | from json
 
 # Get the blob children from each file.
 let blobs = $files | each { |fil_id|
-	tg --url $source.url children $fil_id | from json
+	tg --url $local_source.url children $fil_id | from json
 } | flatten | uniq
 
 # Put the directory to the local server.
-tg --url $source.url get --bytes $dir_id | tg --url $local.url put --bytes --kind dir
+tg --url $local_source.url get --bytes $dir_id | tg --url $local.url put --bytes --kind dir
 
 # Put all files to the local server.
 for fil_id in $files {
-	tg --url $source.url get --bytes $fil_id | tg --url $local.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $fil_id | tg --url $local.url put --bytes --kind fil
 }
 
 # Put all blobs to the remote server.
 for blb_id in $blobs {
-	tg --url $source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
+	tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
 }
 
 # Index.
@@ -60,11 +60,11 @@ tg --url $local.url remote put default $remote.url
 tg --url $local.url push $dir_id --eager
 
 # Index on both servers.
-tg --url $source.url index
+tg --url $local_source.url index
 tg --url $remote.url index
 
 # Confirm the metadata matches.
-let source_metadata = tg --url $source.url object metadata $id --pretty
+let source_metadata = tg --url $local_source.url object metadata $id --pretty
 let remote_metadata = tg --url $remote.url object metadata $id --pretty
 assert equal $source_metadata $remote_metadata
 snapshot $remote_metadata

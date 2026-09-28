@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+# A process connection can reach a process located on a remote server.
+
 const driver = path self ../lib/process_connect.mjs
 let remote = server spawn --name remote
 let local = server spawn --name local --config { remotes: { default: { url: $remote.url } } }

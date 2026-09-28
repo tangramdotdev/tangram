@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A template's objects method returns the artifact components and omits string components.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return (await tg.template("x", await tg.file("hi"), "y")).objects(); }'

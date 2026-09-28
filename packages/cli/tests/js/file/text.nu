@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A file's text accessor returns its contents decoded as a string.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return await (await tg.file("hello")).text; }'

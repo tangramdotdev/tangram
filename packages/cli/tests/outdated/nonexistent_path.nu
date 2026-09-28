@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Outdated fails for a path that does not exist.
 
-let server = server spawn
+let local = server spawn
 
 let output = tg outdated /nonexistent/path/nowhere | complete
 failure $output

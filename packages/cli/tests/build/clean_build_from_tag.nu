@@ -4,10 +4,10 @@ use ../lib/test.nu *
 
 # Create remote and local servers.
 let remote = server spawn --cloud --name remote
-let local1 = server spawn --name local_one --config {
+let local_one = server spawn --name local-one --config {
 	remotes: { default: { url: $remote.url } }
 }
-let local2 = server spawn --name local_two --config {
+let local_two = server spawn --name local-two --config {
 	remotes: { default: { url: $remote.url } }
 }
 
@@ -23,16 +23,16 @@ let path = artifact {
 }
 
 # Build.
-let id = tg --url $local1.url checkin $path
-let output_id = tg --url $local1.url build --no-tokens $id
+let id = tg --url $local_one.url checkin $path
+let output_id = tg --url $local_one.url build --no-tokens $id
 print 'first build succeeded'
 
 # Push the tag.
-tg --url $local1.url tag -p test-pkg/1.0.0 $id
-tg --url $local1.url push --group-children test-pkg
+tg --url $local_one.url tag -p test-pkg/1.0.0 $id
+tg --url $local_one.url push --group-children test-pkg
 
 # Build from the tag. This should pull the artifact from the remote.
-let output_two_id = tg --url $local2.url build --no-tokens test-pkg/1.0.0
+let output_two_id = tg --url $local_two.url build --no-tokens test-pkg/1.0.0
 
 # Verify the objects are the same.
 let output_id = $output_id | str trim

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The check command succeeds when a package imports a named export from a tagged dependency using the get attribute to select a nested file.
 
-let server = server spawn
+let local = server spawn
 
 # Create a directory with nested structure and tag it.
 let dep_path = artifact {

@@ -12,7 +12,7 @@ if not (fuse_io_uring_available) {
 	skip_test 'this test requires FUSE io_uring support'
 }
 
-let server = server spawn --config {
+let local = server spawn --config {
 	# Allow room for the process records and grants from 256 concurrent sandboxes.
 	index: { map_size: 67_108_864 }
 	runner: {
@@ -43,7 +43,7 @@ let path = artifact {
 let output = tg run $path | complete
 success $output 'every concurrent sandboxed process should spawn'
 assert (
-	open --raw $server.log
+	open --raw $local.log
 	| lines
 	| any { $in =~ 'starting the FUSE io_uring transport.*sqpoll=false' }
 ) 'an automatic per-sandbox VFS should use the io_uring transport without SQPOLL'

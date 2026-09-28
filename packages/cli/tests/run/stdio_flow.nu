@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # Piped writes exceed one flow window while an idle stdout reader leaves stderr usable.
-let server = server spawn
+let local = server spawn
 let path = artifact {
     tangram.ts: '
         export default async function () {

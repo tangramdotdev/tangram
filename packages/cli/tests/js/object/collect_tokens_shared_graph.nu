@@ -1,7 +1,7 @@
 use ../../lib/test.nu *
 
 # Shared descendants are visited a bounded number of times and their tokens are normalized together.
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default function () {

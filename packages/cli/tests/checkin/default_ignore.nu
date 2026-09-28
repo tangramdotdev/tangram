@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package ignores the default-ignored entries such as the .DS_Store, .git, and .tangram entries.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	.DS_Store: ''

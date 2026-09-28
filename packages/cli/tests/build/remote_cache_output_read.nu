@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A sandbox can read an artifact returned by a remote process cache lookup without network access.
 
 let remote = server spawn --name remote
-let primary = server spawn --name primary
+let remote_primary = server spawn --name remote-primary
 tg remote put default $remote.url
 
 let shared = artifact {
@@ -27,7 +27,7 @@ let wrapper_ts = [
 ] | str join "\n"
 let wrapper = artifact { tangram.ts: $wrapper_ts }
 
-let fresh = server spawn --name fresh
+let local_fresh = server spawn --name local-fresh
 tg remote put default $remote.url
 
 let output = tg build $wrapper | from json

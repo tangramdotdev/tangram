@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # A pending process connection must not block sandbox destruction or subsequent control requests.
-let server = server spawn --config { advanced: { checkpoints: true } }
+let local = server spawn --config { advanced: { checkpoints: true } }
 let sandbox = tg sandbox create | str trim
 let watch = tg checkpoint watch runner.process.control.connect | from json | get watch
 let path = artifact { tangram.ts: 'export default () => tg.sleep(60);' }

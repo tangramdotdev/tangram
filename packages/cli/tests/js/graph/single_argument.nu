@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.graph preserves an unloaded graph passed as its sole argument without loading it.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

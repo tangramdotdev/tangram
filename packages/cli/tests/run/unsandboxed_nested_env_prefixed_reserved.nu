@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Setting a TANGRAM_ENV_ prefixed environment variable on a nested unsandboxed tg.run call fails because the prefix is reserved.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

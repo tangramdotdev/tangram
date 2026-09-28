@@ -10,13 +10,13 @@ def get-object [socket: string, bearer: string, id: string, tokens: list<string>
 }
 
 let root_token = random chars
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true }
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 let directory = tg --token $alice.token put 'tg.directory({ "file": tg.file("hello") })' | str trim
 let unrelated = tg --token $alice.token put 'tg.file("unrelated")' | str trim
 tg --token $alice.token index

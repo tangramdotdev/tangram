@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A destructive checkin resolves a tag dependency that exists only on the remote by fetching it into the local cache.
 
 let remote = server spawn --name 'remote'
-let server = server spawn --name 'local' --config {
+let local = server spawn --name 'local' --config {
 	remotes: {
 		default: {
 			url: $remote.url

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Checking out a symlink defined through a graph node writes the symlink into the checkouts directory.
 
-let server = server spawn
+let local = server spawn
 
 # Create the artifact.
 let artifact = '
@@ -25,7 +25,7 @@ let id = tg put $artifact
 tg checkout $id
 
 # Snapshot.
-snapshot --path $server.checkout_directory '
+snapshot --path $local.checkout_directory '
 	{
 	  "kind": "directory",
 	  "entries": {

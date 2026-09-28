@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Requesting the children of a graph directory pointer fails with an error indicating that a pointer was found instead of an object.
 
-let server = server spawn
+let local = server spawn
 let artifact = '
 	tg.graph({
 		"nodes": [

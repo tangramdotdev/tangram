@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package that depends on a nonexistent tag fails with the expected output.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+# A node process connects to its control stream and receives its result.
+
 const js_path = path self '../../../js'
 cd $js_path
 

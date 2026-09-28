@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # --watch with --update selectively updates dependencies.
 
-let server = server spawn
+let local = server spawn
 
 # Tag the a dependency versions.
 let a_path = artifact {

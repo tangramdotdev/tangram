@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A failing tg.assert in a tagged dependency causes the run to fail and produces the expected diagnostic on stderr.
 
-let server = server spawn
+let local = server spawn
 
 # Create and tag the foo dependency.
 let foo_path = artifact {

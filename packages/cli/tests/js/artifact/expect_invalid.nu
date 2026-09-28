@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Artifact.expect throws when the value is an object that is not an artifact.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

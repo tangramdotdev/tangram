@@ -2,14 +2,14 @@ use ../../lib/test.nu *
 
 # A tag mutation racing a checkout removes the stale entry after the checkout releases the lock.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: {
 		checkpoints: true,
 	},
 }
 let first = artifact 'first'
 let second = artifact 'second'
-let tag_path = $server.directory | path join store dep
+let tag_path = $local.directory | path join store dep
 
 tg tag dep $first
 

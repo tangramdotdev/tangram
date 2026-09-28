@@ -4,7 +4,7 @@ use ../lib/test.nu *
 # Each parent process waits for a sandboxed child, so the child must be able
 # to borrow the parent's capacity.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	runner: {
 		cpus: 1,
 		memory: 1_073_741_824,

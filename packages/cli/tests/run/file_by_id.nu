@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A module file checked in and referenced by its object id can be run directly after indexing.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
     file.tg.ts: r#'export default function () { return "hello, world!"; }'#

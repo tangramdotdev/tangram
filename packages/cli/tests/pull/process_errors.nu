@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # Pulling a process includes its error by default.
 
 let remote = server spawn --cloud --name remote
-let source = server spawn --name source --config {
+let local_source = server spawn --name local-source --config {
 	remotes: { default: { url: $remote.url } },
 }
 let local = server spawn --name local
@@ -16,9 +16,9 @@ let path = artifact {
 		}
 	'#
 }
-let process = tg --url $source.url build --detach $path | str trim
-tg --url $source.url wait $process
-tg --url $source.url push $process
+let process = tg --url $local_source.url build --detach $path | str trim
+tg --url $local_source.url wait $process
+tg --url $local_source.url push $process
 tg --url $remote.url wait $process
 let error = tg --url $remote.url get $process | from json | get error
 

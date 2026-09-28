@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # tg tag get fails when no tag matches the requested pattern.
 
-let server = server spawn
+let local = server spawn
 
 let pattern = "test"
 let output = tg tag get $pattern | complete

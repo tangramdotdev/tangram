@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Reading a graph directory pointer directly fails with an error indicating that a directory cannot be read.
 
-let server = server spawn
+let local = server spawn
 
 # Create a graph with a single directory node.
 let graph = '

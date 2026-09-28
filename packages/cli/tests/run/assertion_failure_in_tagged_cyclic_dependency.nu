@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A failing tg.assert reached through a tagged, cyclic dependency causes the run to fail and produces the expected diagnostic on stderr.
 
-let server = server spawn
+let local = server spawn
 
 let foo = artifact {
 	foo: {

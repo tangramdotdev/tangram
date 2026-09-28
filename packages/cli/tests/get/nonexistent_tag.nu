@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Getting a tag that does not exist fails.
 
-let server = server spawn
+let local = server spawn
 
 let output = tg get nonexistent-tag | complete
 failure $output

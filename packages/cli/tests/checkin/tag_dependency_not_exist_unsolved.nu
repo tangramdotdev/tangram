@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package that depends on a nonexistent tag succeeds under --unsolved-dependencies, leaving the dependency unresolved.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

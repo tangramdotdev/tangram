@@ -92,41 +92,36 @@ To assert on what the server itself logged, spawn it with
 which stops the server so its output is complete and returns the distinct
 errors it logged. An empty snapshot asserts that it logged none.
 
-### 3. Assert with inline snapshots, not `str contains`
+### 3. Match the assertion to the behavior
 
-Assert on output with an exact inline `snapshot`, never with `str contains`. A
-substring check only confirms a fragment appears somewhere; it silently passes
-over everything around it, so a regression that mangles the rest of the message
-goes unnoticed. A snapshot captures the whole normalized output, so it both
-documents the exact behavior and fails when anything drifts:
+Use an inline `snapshot` when the exact, deterministic CLI output is the
+behavior being specified. This documents the full message and catches changes
+to its wording or formatting. Use snapshot normalization and redaction flags
+(see the next convention) to keep it stable:
 
 ```nushell
-# Not this:
-assert ($output.stderr | str contains 'the process is already finished') "…"
-
-# This — run with --accept to fill the body:
 snapshot --normalize --redact $path $output.stderr '
 	-> the process is already finished
 '
 ```
 
-Use the snapshot normalization and redaction flags (see the next convention) so
-the snapshot is stable. A check for the _absence_ of a string becomes a snapshot
-of the whole output, which verifies the absence implicitly: if the output no
-longer contains the string, the snapshot will not either.
+Use `assert` for a focused property: for example, that a protocol event occurs,
+a streamed value reaches the client, or sensitive data is absent. A substring
+check is appropriate when presence or absence of that value is the property
+under test. Do not use it as a stand-in for checking an entire diagnostic when
+the full deterministic message matters.
 
-When the output is genuinely non-deterministic in ordering or volume — for
-example the fan-out lines a parallel `publish` prints — do not fall back to
-`str contains`. Extract the lines that matter and sort them into a deterministic
-subset, then snapshot that:
+When output varies in ordering or volume — for example the fan-out lines a
+parallel `publish` prints — select the lines that matter and sort them into a
+deterministic subset, then snapshot that:
 
 ```nushell
 let tagged = $output.stderr | lines | where {|l| $l =~ 'info tagged'} | sort
 snapshot $tagged '…'
 ```
 
-`str contains` is fine for non-assertion control flow, such as a `where` filter
-that selects lines. It is the _assertion_ that must be a snapshot.
+`str contains` can also be used in non-assertion control flow, such as a
+`where` filter that selects lines.
 
 ### 4. Normalize nondeterministic output before snapshotting
 

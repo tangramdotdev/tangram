@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Getting an object succeeds when its required node permission is authorized but its optional subtree permission exhausts the authorization search.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	authorization: {
 		final: {
@@ -38,8 +38,8 @@ success $availability "Bob should read the directory availability even when its 
 let availability = $availability.stdout | from json
 assert equal ($availability | columns) [] "Bob should not see the directory subtree availability."
 
-server stop $server
-let event = open --raw $server.log
+server stop $local
+let event = open --raw $local.log
 	| lines
 	| where ($it | str starts-with '{')
 	| each { from json }

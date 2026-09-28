@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # Disposing a connected handle cancels its process and closes the connection.
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {

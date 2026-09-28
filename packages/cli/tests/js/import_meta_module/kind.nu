@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # import.meta.module reports the kind of the entry point module.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return import.meta.module.kind; }'

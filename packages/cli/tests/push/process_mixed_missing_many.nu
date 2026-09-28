@@ -11,7 +11,7 @@ def test [...args] {
 	let local = server spawn --name local
 
 	# Create a source server.
-	let source = server spawn --name source
+	let local_source = server spawn --name local-source
 
 	# Create a module that spawns multiple child processes.
 	let path = artifact {
@@ -32,24 +32,24 @@ def test [...args] {
 	}
 
 	# Build the module.
-	let process_id = tg --url $source.url build --detach $path | str trim
+	let process_id = tg --url $local_source.url build --detach $path | str trim
 
 	# Wait for the process to finish.
-	tg --url $source.url wait $process_id
-	tg --url $source.url index
+	tg --url $local_source.url wait $process_id
+	tg --url $local_source.url index
 
 	# Get the process data.
-	let process_data = tg --url $source.url get $process_id | from json
+	let process_data = tg --url $local_source.url get $process_id | from json
 	let main_module_id = (command module-input $process_data.command)
 	let main_output_id = $process_data.output.value
 	let children = $process_data.children
-	tg --url $source.url index
+	tg --url $local_source.url index
 
 	# Put the main process to the local server.
-	tg --url $source.url get $process_id | tg --url $local.url put --id $process_id
+	tg --url $local_source.url get $process_id | tg --url $local.url put --id $process_id
 
 	# Put the main module to the local server.
-	tg --url $source.url get --bytes $main_module_id | tg --url $local.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $main_module_id | tg --url $local.url put --bytes --kind fil
 
 	# Get all the main module's descendants recursively and put to local.
 	mut main_cmd_descendants = []
@@ -57,7 +57,7 @@ def test [...args] {
 	while ($to_visit | length) > 0 {
 		let current = $to_visit | first
 		$to_visit = ($to_visit | skip 1)
-		let cmd_children = tg --url $source.url children $current | from json
+		let cmd_children = tg --url $local_source.url children $current | from json
 		for child in $cmd_children {
 			if $child not-in $main_cmd_descendants {
 				$main_cmd_descendants = ($main_cmd_descendants | append $child)
@@ -67,27 +67,27 @@ def test [...args] {
 	}
 	for child_id in $main_cmd_descendants {
 		let kind = $child_id | str substring 0..<3
-		tg --url $source.url get --bytes $child_id | tg --url $local.url put --bytes --kind $kind
+		tg --url $local_source.url get --bytes $child_id | tg --url $local.url put --bytes --kind $kind
 	}
 
 	# Put the log to the local server.
-	let log_id = tg --url $source.url get $process_id | from json | get log
-	tg --url $source.url get --bytes $log_id | tg --url $local.url put --bytes --kind blob
+	let log_id = tg --url $local_source.url get $process_id | from json | get log
+	tg --url $local_source.url get --bytes $log_id | tg --url $local.url put --bytes --kind blob
 
 	# Put the main output to the local server.
-	tg --url $source.url get --bytes $main_output_id | tg --url $local.url put --bytes --kind dir
+	tg --url $local_source.url get --bytes $main_output_id | tg --url $local.url put --bytes --kind dir
 
 	# Get all file children from the output directory.
-	let output_files = tg --url $source.url children $main_output_id | from json
+	let output_files = tg --url $local_source.url children $main_output_id | from json
 
 	# Put output files to the local server.
 	for fil_id in $output_files {
-		tg --url $source.url get --bytes $fil_id | tg --url $local.url put --bytes --kind fil
+		tg --url $local_source.url get --bytes $fil_id | tg --url $local.url put --bytes --kind fil
 	}
 
 	# Get blobs from the output files.
 	let output_blobs = $output_files | each { |fil_id|
-		tg --url $source.url children $fil_id | from json
+		tg --url $local_source.url children $fil_id | from json
 	} | flatten | uniq
 
 	# Put half of the output blobs to local, half to remote (leaf missing).
@@ -96,9 +96,9 @@ def test [...args] {
 	for i in 0..<$blob_count {
 		let blb_id = $output_blobs | get $i
 		if $i < $half_blobs {
-			tg --url $source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
+			tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
 		} else {
-			tg --url $source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
+			tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
 		}
 	}
 
@@ -107,21 +107,21 @@ def test [...args] {
 	for i in 0..<$child_count {
 		let child = $children | get $i
 		let child_id = $child.process | split row '?' | first
-		let child_data = tg --url $source.url get $child_id | from json
+		let child_data = tg --url $local_source.url get $child_id | from json
 		let child_module_id = (command module-input $child_data.command)
 		let child_output_id = $child_data.output.value
 		let child_log_id = $child_data.log
 
 		# Put the child's log to the local server.
-		tg --url $source.url get --bytes $child_log_id | tg --url $local.url put --bytes --kind blob
+		tg --url $local_source.url get --bytes $child_log_id | tg --url $local.url put --bytes --kind blob
 
 		# Put some child processes to local, some to remote (process root missing).
 		if ($i mod 4) == 0 {
 			# Put to remote only (root missing locally).
-			tg --url $source.url get $child_id | tg --url $remote.url put --id $child_id
+			tg --url $local_source.url get $child_id | tg --url $remote.url put --id $child_id
 		} else {
 			# Put to local.
-			tg --url $source.url get $child_id | tg --url $local.url put --id $child_id
+			tg --url $local_source.url get $child_id | tg --url $local.url put --id $child_id
 		}
 
 		# Get all the child module's descendants recursively.
@@ -130,7 +130,7 @@ def test [...args] {
 		while ($child_to_visit | length) > 0 {
 			let current = $child_to_visit | first
 			$child_to_visit = ($child_to_visit | skip 1)
-			let cmd_children = tg --url $source.url children $current | from json
+			let cmd_children = tg --url $local_source.url children $current | from json
 			for child in $cmd_children {
 				if $child not-in $child_cmd_descendants {
 					$child_cmd_descendants = ($child_cmd_descendants | append $child)
@@ -142,45 +142,45 @@ def test [...args] {
 		# Alternate between missing command inputs and missing outputs.
 		if ($i mod 3) == 0 {
 			# Put module to remote (intermediate missing), output to local.
-			tg --url $source.url get --bytes $child_module_id | tg --url $remote.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_module_id | tg --url $remote.url put --bytes --kind fil
 			for desc_id in $child_cmd_descendants {
 				let kind = $desc_id | str substring 0..<3
-				tg --url $source.url get --bytes $desc_id | tg --url $remote.url put --bytes --kind $kind
+				tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --bytes --kind $kind
 			}
-			tg --url $source.url get --bytes $child_output_id | tg --url $local.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_output_id | tg --url $local.url put --bytes --kind fil
 
 			# Put the blob for this output to local.
-			let child_blob_ids = tg --url $source.url children $child_output_id | from json
+			let child_blob_ids = tg --url $local_source.url children $child_output_id | from json
 			for blb_id in $child_blob_ids {
-				tg --url $source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
+				tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
 			}
 		} else if ($i mod 3) == 1 {
 			# Put module to local, output to remote (leaf missing).
-			tg --url $source.url get --bytes $child_module_id | tg --url $local.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_module_id | tg --url $local.url put --bytes --kind fil
 			for desc_id in $child_cmd_descendants {
 				let kind = $desc_id | str substring 0..<3
-				tg --url $source.url get --bytes $desc_id | tg --url $local.url put --bytes --kind $kind
+				tg --url $local_source.url get --bytes $desc_id | tg --url $local.url put --bytes --kind $kind
 			}
-			tg --url $source.url get --bytes $child_output_id | tg --url $remote.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_output_id | tg --url $remote.url put --bytes --kind fil
 
 			# Put the blob for this output to remote.
-			let child_blob_ids = tg --url $source.url children $child_output_id | from json
+			let child_blob_ids = tg --url $local_source.url children $child_output_id | from json
 			for blb_id in $child_blob_ids {
-				tg --url $source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
+				tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
 			}
 		} else {
 			# Put both command and output to local.
-			tg --url $source.url get --bytes $child_module_id | tg --url $local.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_module_id | tg --url $local.url put --bytes --kind fil
 			for desc_id in $child_cmd_descendants {
 				let kind = $desc_id | str substring 0..<3
-				tg --url $source.url get --bytes $desc_id | tg --url $local.url put --bytes --kind $kind
+				tg --url $local_source.url get --bytes $desc_id | tg --url $local.url put --bytes --kind $kind
 			}
-			tg --url $source.url get --bytes $child_output_id | tg --url $local.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_output_id | tg --url $local.url put --bytes --kind fil
 
 			# Put the blob for this output to local.
-			let child_blob_ids = tg --url $source.url children $child_output_id | from json
+			let child_blob_ids = tg --url $local_source.url children $child_output_id | from json
 			for blb_id in $child_blob_ids {
-				tg --url $source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
+				tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
 			}
 		}
 	}
@@ -196,11 +196,11 @@ def test [...args] {
 	tg --url $local.url push $process_id ...$args --process-children --process-commands --process-logs
 
 	# Index on both servers.
-	tg --url $source.url index
+	tg --url $local_source.url index
 	tg --url $remote.url index
 
 	# Confirm metadata matches.
-	let source_metadata = tg --url $source.url process metadata $process_id --pretty
+	let source_metadata = tg --url $local_source.url process metadata $process_id --pretty
 	let remote_metadata = tg --url $remote.url process metadata $process_id --pretty
 	assert equal $source_metadata $remote_metadata
 }

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking a file that is not a module fails.
 
-let server = server spawn
+let local = server spawn
 
 let dir = mktemp --directory
 let notes = $dir | path join notes.txt

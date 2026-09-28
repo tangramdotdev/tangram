@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Graph.withId returns a graph that preserves the given id.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

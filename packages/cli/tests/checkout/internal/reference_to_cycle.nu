@@ -4,7 +4,7 @@ use ../../lib/test.nu *
 
 let tmp = mktemp --directory
 
-let server = server spawn --config { write: { checkout_pointers: false } }
+let local = server spawn --config { write: { checkout_pointers: false } }
 
 let artifact = artifact {
 	tangram.ts: '
@@ -21,9 +21,9 @@ let artifact = artifact {
 	'
 }
 let id = tg build --no-checkout-pointers $artifact
-rm --recursive --force $server.checkout_directory
-mkdir $server.checkout_directory
+rm --recursive --force $local.checkout_directory
+mkdir $local.checkout_directory
 
 let output = tg checkout $id
 
-snapshot --path $server.checkout_directory
+snapshot --path $local.checkout_directory

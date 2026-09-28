@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Updating a watched dependency rebuilds its referrers and removes the previous solution.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: {
 		checkpoints: true
 	}

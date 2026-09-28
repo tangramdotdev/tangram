@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # With authentication disabled, the root principal may create a sandbox owned by root.
 
-let server = server spawn
+let local = server spawn
 
 let sandbox = tg sandbox create --owner root --no-network | str trim
 let data = tg sandbox get $sandbox | from json | get data

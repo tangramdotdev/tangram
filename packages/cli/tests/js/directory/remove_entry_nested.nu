@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A nested directory entry is removed by setting a path value to null, leaving sibling entries intact.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

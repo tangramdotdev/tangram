@@ -1,10 +1,12 @@
 use ../lib/test.nu *
 
+# Command argument tokens remain scoped to the user who received them.
+
 const js_path = path self '../../../js'
 
 # An unsandboxed inline spawn command authorizes its private executable from its referent tokens without traversing the authorization graph.
 
-let server = server spawn --preserve-keys --config {
+let local = server spawn --preserve-keys --config {
 	authentication: { users: { providers: { insecure: true } } }
 }
 
@@ -28,16 +30,16 @@ let executable_referent = $inputs.executable
 failure (tg --token $bob.token get $executable_referent.node | complete) 'Bob must not have a direct grant for the executable'
 
 # Disable authorization graph searches.
-let config = $server.config | merge deep {
+let config = $local.config | merge deep {
 	authorization: {
 		final: false
 		index: { delay: null }
 		initial: false
 	}
 }
-$config | to json | save --force $server.config_path
-let server = $server | upsert config $config
-let server = server restart $server
+$config | to json | save --force $local.config_path
+let server = $local | upsert config $config
+let server = server restart $local
 
 # Unsandboxed spawning happens in the client, not on the server.
 cd $js_path

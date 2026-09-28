@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Applying a set mutation returns its value.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

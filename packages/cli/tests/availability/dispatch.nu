@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The availability commands report local object and process availability and dispatch by reference kind.
 
-let server = server spawn
+let local = server spawn
 
 let file = tg put 'tg.file("available")' | str trim
 let path = artifact {

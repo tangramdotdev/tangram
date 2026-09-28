@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Touching an object by a well formed id that does not exist fails.
 
-let server = server spawn
+let local = server spawn
 
 let output = tg object touch fil_010000000000000000000000000000000000000000000000000000 | complete
 failure $output

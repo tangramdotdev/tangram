@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Loading state merges the returned tokens without dropping existing tokens or locations.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

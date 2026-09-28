@@ -17,8 +17,8 @@ let runner = server spawn --name runner --config {
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }
-let reader = tg --url $runner.url login --verbose --name reader | from json
-tg --url $runner.url --token $reader.token remote put default $remote.url
+let alice = tg --url $runner.url login --verbose --name alice | from json
+tg --url $runner.url --token $alice.token remote put default $remote.url
 let remote_socket = $remote.url | str replace 'http+unix://' '' | url decode
 let socket = $runner.url | str replace 'http+unix://' '' | url decode
 let script = '#!/bin/sh
@@ -57,19 +57,19 @@ for authority in [remote local] {
 
 		# Node authority alone must not permit signaling or accessing pipes.
 		if $protocol == standalone {
-			let denied = timeout 10s tg --url $runner.url --token $reader.token process signal $reference --signal TERM | complete
+			let denied = timeout 10s tg --url $runner.url --token $alice.token process signal $reference --signal TERM | complete
 			failure $denied
 			assert ($denied.exit_code != 124) "an unauthorized signal must fail, not block"
-			let denied = "hello\n" | timeout 10s tg --url $runner.url --token $reader.token process stdio write $reference --stream stdin | complete
+			let denied = "hello\n" | timeout 10s tg --url $runner.url --token $alice.token process stdio write $reference --stream stdin | complete
 			failure $denied
 			assert ($denied.exit_code != 124) "an unauthorized write must fail, not block"
 			for stream in [stdout stderr] {
-				let output = timeout 10s tg --url $runner.url --token $reader.token process stdio read $reference --stream $stream --length 6 --no-timeout | complete
+				let output = timeout 10s tg --url $runner.url --token $alice.token process stdio read $reference --stream $stream --length 6 --no-timeout | complete
 				failure $output
 				assert ($output.exit_code != 124) "an unauthorized read must fail, not block"
 			}
 		} else {
-			let options = { authorization: $reader.token, tokens: $tokens } | to json --raw
+			let options = { authorization: $alice.token, tokens: $tokens } | to json --raw
 			success (node $connect_helper $socket $process none control_denied remote $options | complete)
 		}
 
@@ -77,7 +77,7 @@ for authority in [remote local] {
 		let tokens = if $authority == remote {
 			$tokens | insert remote $spawned.tokens.local
 		} else {
-			tg --url $runner.url --token $runner_root grant $reader.user.id process_parent $process
+			tg --url $runner.url --token $runner_root grant $alice.user.id process_parent $process
 			tg --url $runner.url --token $runner_root index
 			$tokens
 		}
@@ -86,27 +86,27 @@ for authority in [remote local] {
 				$'($query)&tokens[remote][0]=($tokens.remote.0 | url encode --all)'
 			} else { $query }
 			let reference = $'($process)?($query)'
-			let ready = timeout 10s tg --url $runner.url --token $reader.token process stdio read $reference --stream stdout --length 6 --no-timeout | complete
+			let ready = timeout 10s tg --url $runner.url --token $alice.token process stdio read $reference --stream stdout --length 6 --no-timeout | complete
 			success $ready
 			assert equal $ready.stdout "ready\n"
-			success (timeout 10s tg --url $runner.url --token $reader.token process signal $reference --signal TERM | complete)
+			success (timeout 10s tg --url $runner.url --token $alice.token process signal $reference --signal TERM | complete)
 			let reads = [stdout stderr] | each { |stream|
 				let position = if $stream == stdout { 6 } else { 0 }
 				let job = job spawn {
 					let job_id = job id
-					let output = timeout 10s tg --url $runner.url --token $reader.token process stdio read $reference --stream $stream --position $position --length 6 --no-timeout | complete
+					let output = timeout 10s tg --url $runner.url --token $alice.token process stdio read $reference --stream $stream --position $position --length 6 --no-timeout | complete
 					$output | job send --tag $job_id 0
 				}
 				{ job: $job, stream: $stream }
 			}
-			success ("hello\n" | timeout 10s tg --url $runner.url --token $reader.token process stdio write $reference --stream stdin | complete)
+			success ("hello\n" | timeout 10s tg --url $runner.url --token $alice.token process stdio write $reference --stream stdin | complete)
 			for read in $reads {
 				let output = job recv --tag $read.job --timeout 15sec
 				success $output
 				assert equal ($output | get $read.stream) "hello\n"
 			}
 		} else {
-			let options = { authorization: $reader.token, tokens: $tokens } | to json --raw
+			let options = { authorization: $alice.token, tokens: $tokens } | to json --raw
 			success (node $connect_helper $socket $process none control remote $options | complete)
 		}
 		tg --url $remote.url --token $remote_root cancel $process $spawned.lease

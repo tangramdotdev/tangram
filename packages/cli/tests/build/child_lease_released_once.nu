@@ -4,7 +4,7 @@ use ../lib/test.nu *
 # before parent completion, the parent's cleanup release is a no-op and logs no
 # error.
 
-let server = server spawn --config { tracing: { stderr_format: 'json' } }
+let local = server spawn --config { tracing: { stderr_format: 'json' } }
 
 # The two spawns deduplicate to one child holding two leases, so cancelling the
 # first leaves the child running until the parent finishes.
@@ -26,4 +26,4 @@ let path = artifact {
 
 tg build $path | ignore
 
-snapshot (server_errors $server) ''
+snapshot (server_errors $local) ''

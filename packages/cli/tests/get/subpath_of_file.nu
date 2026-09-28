@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A reference with a get option on a file fails because only directories support subpaths.
 
-let server = server spawn
+let local = server spawn
 
 let file = tg put 'tg.file("solo")' | str trim
 

@@ -7,14 +7,14 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
-def stop [server: record] {
-	let pid = open ($server.directory | path join 'lock') | into int
+def stop [instance: record] {
+	let pid = open ($instance.directory | path join 'lock') | into int
 	kill --signal 2 $pid
 	wait_until { ps | where pid == $pid | is-empty } 'the server should stop'
 }
 
 let server_path = mktemp --directory
-let server = server spawn --directory $server_path
+let local = server spawn --directory $server_path
 
 let dep_path = artifact {
 	tangram.ts: 'export const foo = () => "foo";'
@@ -40,12 +40,12 @@ lsp result $responses 10 | ignore
 
 let tag_path = $server_path | path join 'store/dep'
 assert ($tag_path | path exists) 'expected the physical tag alias'
-stop $server
+stop $local
 
-let server = server spawn --directory $server_path --config { vfs: true }
+let local = server spawn --directory $server_path --config { vfs: true }
 tg tag delete dep | ignore
 assert (($server_path | path join 'checkouts/dep') | path exists --no-symlink) 'expected the VFS not to maintain the backing tag checkout'
-stop $server
+stop $local
 
 server spawn --directory $server_path | ignore
 assert (not ($tag_path | path exists)) 'expected the deleted tag alias to stay absent without the VFS'

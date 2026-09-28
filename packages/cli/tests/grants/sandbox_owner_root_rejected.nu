@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A non-root user must not create a sandbox owned by root.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

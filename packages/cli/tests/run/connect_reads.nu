@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # Existing processes support a combined initial log read without a separate read request.
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {

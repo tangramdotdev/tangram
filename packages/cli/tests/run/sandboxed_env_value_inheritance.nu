@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A numeric environment variable set on a sandboxed process is preserved with its original type and value when read back through tg.process.env.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

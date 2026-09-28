@@ -1,6 +1,8 @@
 use ../lib/test.nu *
 
-let server = server spawn --config {
+# Building through a graph pointer preserves the tokens needed to authorize its imports.
+
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	tracing: {
 		filter: 'tangram=info,tangram_index::authorize::engine=debug'
@@ -28,10 +30,10 @@ let path = artifact {
 }
 let output = tg --token $alice.token build $path | from json
 assert equal $output.entries ['tangram.ts']
-server stop $server
+server stop $local
 
 # Reading the graph should use the available token without searching the authorization index.
-let searches = open --raw $server.log
+let searches = open --raw $local.log
 	| lines
 	| where ($it | str starts-with '{')
 	| each { from json }

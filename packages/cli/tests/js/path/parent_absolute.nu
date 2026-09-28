@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.path.parent removes the last component of an absolute path without doubling the leading slash.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.path.parent("/a/b"); }'

@@ -14,7 +14,7 @@ tg --url $remote.url --token $alice.token organization create tangram
 tg --url $remote.url --token $alice.token group create tangram/engineering
 let created = tg --url $remote.url --token $alice.token runner create --owner tangram | from json
 
-let organization_runner = server spawn --name runner --config {
+let runner_organization = server spawn --name runner-organization --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
@@ -40,16 +40,16 @@ let bob_local = server spawn --name bob-local --config {
 }
 let unrelated_path = artifact { tangram.ts: 'export default () => tg.file("unrelated")' }
 let start_watch = (
-	tg --url $organization_runner.url checkpoint watch runner.process.start
+	tg --url $runner_organization.url checkpoint watch runner.process.start
 	| from json
 	| get watch
 )
 let build = build_background $bob_local.url $bob.user.id $unrelated_path
-let output = timeout 1s tg --url $organization_runner.url checkpoint wait runner.process.start $start_watch 0 | complete
+let output = timeout 1s tg --url $runner_organization.url checkpoint wait runner.process.start $start_watch 0 | complete
 failure $output "the organization runner should not start an unrelated user's process"
 
 let created = tg --url $remote.url --token $bob.token runner create --owner $bob.user.id | from json
-let user_runner = server spawn --name bob_runner --config {
+let runner_user = server spawn --name runner-user --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
 }

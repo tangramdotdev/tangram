@@ -3,7 +3,7 @@ use ../lib/lsp.nu
 
 # Document-link and go-to-definition requests against a nested tagged dependency resolve to the materialized tag path, including a re-export through a nested module, and the materialized definition reports no diagnostics.
 
-let server = server spawn
+let local = server spawn
 
 let dep_path = artifact {
 	lib: {
@@ -39,12 +39,12 @@ let responses = lsp exchange [
 let links = lsp result $responses 10
 assert (($links | length) == 1) "expected one document link"
 let link_uri = $links.0.target
-snapshot --normalize-ids --redact $server.directory $link_uri 'file://<redacted>/store/nested/tangram.ts'
+snapshot --normalize-ids --redact $local.directory $link_uri 'file://<redacted>/store/nested/tangram.ts'
 
 let locations = lsp result $responses 11
 assert (($locations | length) > 0) "expected a definition location"
 let definition_uri = $locations.0.uri
-snapshot --normalize-ids --redact $server.directory $definition_uri 'file://<redacted>/store/nested/lib/utils.tg.ts'
+snapshot --normalize-ids --redact $local.directory $definition_uri 'file://<redacted>/store/nested/lib/utils.tg.ts'
 
 let definition_path = lsp path_for_uri $definition_uri
 assert ($definition_path | path exists) "expected the nested definition path to be materialized"

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # The builder's env method sets environment variables.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

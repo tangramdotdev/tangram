@@ -1,12 +1,14 @@
 use ../lib/test.nu *
 use ../lib/vfs.nu
 
+# Reading a directory through the VFS returns its entries.
+
 vfs skip_unless_supported
 
 # Listing a directory through the mounted VFS returns its entries, including nested ones.
 
 let server_path = mktemp --directory
-let server = server spawn --directory $server_path --config { vfs: true }
+let local = server spawn --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
 
 let id = tg build (artifact {

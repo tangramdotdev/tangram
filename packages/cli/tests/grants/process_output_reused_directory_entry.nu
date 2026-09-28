@@ -1,6 +1,8 @@
 use ../lib/test.nu *
 
-let server = server spawn
+# Reusing a child entry in a process output preserves the required authorization.
+
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

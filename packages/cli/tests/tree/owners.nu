@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Users and organizations render their direct child groups and tags.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let id = tg --token $alice.token checkin (artifact "hello")

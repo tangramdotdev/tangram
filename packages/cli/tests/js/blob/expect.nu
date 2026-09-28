@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Blob.expect returns the value unchanged when it is a blob.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.Blob.expect(await tg.blob("hello")) instanceof tg.Blob; }'

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # SIGTERM shuts the server down immediately, so it does not wait for a running process to finish.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '
@@ -18,7 +18,7 @@ let process = tg build --detach $path | str trim
 wait_until { (tg log $process | complete).stdout | str contains 'started' } "the process must start"
 
 # Send SIGTERM to the server.
-let pid = open ($server.directory | path join 'lock') | into int
+let pid = open ($local.directory | path join 'lock') | into int
 kill --signal 15 $pid
 
 # The server must exit rather than wait for the process to finish.

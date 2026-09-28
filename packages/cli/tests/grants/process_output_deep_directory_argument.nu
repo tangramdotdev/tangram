@@ -1,6 +1,8 @@
 use ../lib/test.nu *
 
-let server = server spawn
+# Passing a deeply nested directory as a child build argument is authorized.
+
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

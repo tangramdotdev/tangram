@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The top level touch command dispatches a reference to an object touch or a process touch.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("dispatch"); }'

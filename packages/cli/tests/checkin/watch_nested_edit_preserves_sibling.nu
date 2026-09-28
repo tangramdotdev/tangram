@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Editing a nested file invalidates only its subtree, so a sibling is preserved and the watched checkin matches a cold checkin.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	"a.txt": 'alpha'

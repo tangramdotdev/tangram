@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A file's executable bit does not affect the checksum of its contents bytes.
 
-let server = server spawn
+let local = server spawn
 
 let file_id = tg put 'tg.file({ "contents": tg.blob("hello"), "executable": false })' | str trim
 let executable_id = tg put 'tg.file({ "contents": tg.blob("hello"), "executable": true })' | str trim

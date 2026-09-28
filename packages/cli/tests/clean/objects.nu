@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Cleaning removes objects unreachable from any tag while retaining tagged objects and their transitive children.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

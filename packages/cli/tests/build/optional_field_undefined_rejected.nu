@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Optional fields may be omitted or set to null, but they may not be set to undefined.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

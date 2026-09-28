@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The top level metadata command dispatches a reference to object metadata or process metadata.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("dispatch"); }'

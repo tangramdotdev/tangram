@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+# Node requests preserve their arguments when dispatched to the process.
+
 const js_path = path self '../../../js'
 cd $js_path
 

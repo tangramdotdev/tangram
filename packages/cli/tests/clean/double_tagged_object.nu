@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Cleaning removes an object whose tag was applied twice and then deleted, leaving the object no longer retained.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export function a() { return tg.file("a"); }'

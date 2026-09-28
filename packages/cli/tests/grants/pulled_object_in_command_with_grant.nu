@@ -26,16 +26,16 @@ let tool = tg --url $remote.url build --detach $"($path)#tool" | str trim
 tg --url $remote.url wait $tool
 let output = tg --url $remote.url output $tool | from json | get value | split row '?' | get 0
 
-let cold = server spawn --busybox --name cold --config {
+let local_cold = server spawn --busybox --name local-cold --config {
 	remotes: { default: { url: $remote.url } }
 }
-tg --url $cold.url pull $output
-tg --url $cold.url index
+tg --url $local_cold.url pull $output
+tg --url $local_cold.url index
 
 # With the object stored, the only way to fail below is the authorization check.
-assert equal (tg --url $cold.url availability --local $output | from json) { subtree: true } "the pulled object should be available on the cold client."
-tg --url $cold.url grant public object_subtree $output
+assert equal (tg --url $local_cold.url availability --local $output | from json) { subtree: true } "the pulled object should be available on the cold client."
+tg --url $local_cold.url grant public object_subtree $output
 
-let result = tg --url $cold.url build $path | complete
+let result = tg --url $local_cold.url build $path | complete
 success $result "a process should be able to use a locally granted object from its cache-hit child."
-assert equal (tg --url $cold.url cat ($result.stdout | str trim) | str trim) "hello" "the process should read the pulled file."
+assert equal (tg --url $local_cold.url cat ($result.stdout | str trim) | str trim) "hello" "the process should read the pulled file."

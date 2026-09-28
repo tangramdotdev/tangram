@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+# A missing local object is fetched from a configured remote.
+
 let remote = server spawn --name remote
 let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },

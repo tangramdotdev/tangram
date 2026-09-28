@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Authorizing a directly granted resource should not get more expensive as the principal gains descendants.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	tracing: {
 		filter: 'tangram=info,tangram_index::authorize=debug'
@@ -32,7 +32,7 @@ for _ in 0..<8 {
 	tg --token $bob.token group get $target.id | ignore
 }
 
-let reads = open $server.log
+let reads = open $local.log
 	| lines
 	| where ($it | str starts-with '{')
 	| each { from json }

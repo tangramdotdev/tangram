@@ -19,16 +19,16 @@ export default async function () { return tg.build(dep); }'
 tg --url $remote.url --token $alice.token build --public $"($path)#dep" | ignore
 
 # The client accesses the remote as Eve, who can reuse Alice's process only because it is public.
-let client = server spawn --name client --config {
+let local_client = server spawn --name local-client --config {
 	remotes: { default: { token: $eve.token, url: $remote.url } },
 }
 
 # The premise of the test is that the dependency is reused rather than built.
-let process = tg --url $client.url build --detach $path | str trim
-tg --url $client.url wait $process | ignore
-let children = tg --url $client.url process children $process | from json
+let process = tg --url $local_client.url build --detach $path | str trim
+tg --url $local_client.url wait $process | ignore
+let children = tg --url $local_client.url process children $process | from json
 assert equal ($children | length) 1 "the build should have spawned the dependency"
 assert ($children | first | get cached) "the dependency should have been reused from the remote"
 
-let output = tg --url $client.url build $path | complete
+let output = tg --url $local_client.url build $path | complete
 success $output "returning the output of a reused process should be authorized"

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Displaying a tree with depth zero renders only the root.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return 42; }'

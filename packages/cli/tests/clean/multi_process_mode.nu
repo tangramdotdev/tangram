@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Cleaning fails when the server is not in single process mode.
 
-let server = server spawn --config { advanced: { single_process: false } }
+let local = server spawn --config { advanced: { single_process: false } }
 
 let output = tg clean | complete
 failure $output

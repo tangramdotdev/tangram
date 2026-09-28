@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A build whose default export throws fails rather than succeeding.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { throw new error("not so fast!"); }'

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # The builder's artifact and path methods accept null to clear the symlink fields.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

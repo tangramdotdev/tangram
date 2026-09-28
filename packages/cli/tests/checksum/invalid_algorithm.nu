@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An unsupported algorithm is rejected by the command line parser.
 
-let server = server spawn
+let local = server spawn
 
 let blob = "hello, world!\n" | tg write
 

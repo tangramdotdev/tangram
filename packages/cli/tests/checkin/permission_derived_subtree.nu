@@ -3,7 +3,7 @@ use ../lib/checkin.nu checkin-output
 
 # Permissions proven across a dependency's direct children make a checked-in file subtree-readable.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	remotes: {}
 }
@@ -21,5 +21,5 @@ let directory = artifact {
 	input: (file --xattrs { "user.tangram.dependencies": $dependencies } subtree)
 }
 let path = $directory | path join input
-let output = checkin-output $server $path --token $bob.token
+let output = checkin-output $local $path --token $bob.token
 assert equal $output.permissions [object_subtree] "the checkin token should confer subtree permission"

@@ -3,12 +3,12 @@ use ../lib/test.nu *
 # A runner wait returns when the process finishes, before the error object or finished process is indexed.
 
 let root_token = random chars
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true, single_process: true },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 }
-let reader = tg login --verbose --name reader | from json
-let node_reader = tg login --verbose --name node-reader | from json
+let alice = tg login --verbose --name alice | from json
+let bob = tg login --verbose --name bob | from json
 let finish_watch = tg --token $root_token checkpoint watch runner.process.finish | from json | get watch
 let control_watch = tg --token $root_token checkpoint watch process.control.finish | from json | get watch
 let path = artifact {
@@ -17,8 +17,8 @@ let path = artifact {
 let spawned = tg --token $root_token spawn --no-tokens --verbose $path | from json
 let process = $spawned.process
 timeout 30s tg --token $root_token process log --no-timeout --length 6 $process | ignore
-tg --token $root_token grant $reader.user.id process_node_error $process | ignore
-tg --token $root_token grant $node_reader.user.id process_node $process | ignore
+tg --token $root_token grant $alice.user.id process_node_error $process | ignore
+tg --token $root_token grant $bob.user.id process_node $process | ignore
 tg --token $root_token index
 
 # Hold the error object's index batch before the runner stores the error.
@@ -29,11 +29,11 @@ timeout 10s tg --token $root_token checkpoint wait runner.process.finish $finish
 # Attach the wait before preparing the finished-process grants.
 let params = { process: $process } | to json --raw
 let attach_watch = tg --token $root_token checkpoint watch process.wait.attach --params $params | from json | get watch
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 let query = { lease: $spawned.lease } | url build-query
 let wait_job = job spawn {
 	let job_id = job id
-	let output = http post --raw --max-time 30sec --unix-socket $socket --headers { Accept: 'text/event-stream', Authorization: $'Bearer ($node_reader.token)' } $'http://localhost/processes/($process)/wait?($query)' ''
+	let output = http post --raw --max-time 30sec --unix-socket $socket --headers { Accept: 'text/event-stream', Authorization: $'Bearer ($bob.token)' } $'http://localhost/processes/($process)/wait?($query)' ''
 	$output | job send --tag $job_id 0
 }
 timeout 10s tg --token $root_token checkpoint wait process.wait.attach $attach_watch 0 | ignore
@@ -52,7 +52,7 @@ timeout 10s tg --token $root_token checkpoint wait process.control.finish $contr
 # Authorization must wait for the finished-process batch.
 let read_job = job spawn {
 	let job_id = job id
-	let output = tg --token $reader.token get $output.error | complete
+	let output = tg --token $alice.token get $output.error | complete
 	$output | job send --tag $job_id 0
 }
 let premature = try { job recv --tag $read_job --timeout 1sec } catch { null }
@@ -61,6 +61,6 @@ tg --token $root_token checkpoint unwatch index.batch $process_watch
 let read = job recv --tag $read_job --timeout 10sec
 success $read "error authorization must succeed after indexing without waiting for the control finish handler"
 assert ($read.stdout | str contains 'cancellation')
-failure (tg --token $node_reader.token get $output.error | complete) "node permission must not grant access to the error"
+failure (tg --token $bob.token get $output.error | complete) "node permission must not grant access to the error"
 tg --token $root_token checkpoint unwatch process.control.finish $control_watch
 tg --token $root_token index

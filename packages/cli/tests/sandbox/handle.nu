@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A sandbox handle can create a sandbox and run a command in it.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

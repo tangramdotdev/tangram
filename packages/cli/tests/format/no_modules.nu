@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Formatting a directory that contains no modules succeeds as a no-op.
 
-let server = server spawn
+let local = server spawn
 
 let dir = mktemp --directory
 'just text' | save ($dir | path join readme.txt)

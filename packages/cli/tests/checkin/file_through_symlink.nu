@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package whose import resolves a file path through a symlinked directory produces the expected object and writes no lockfile.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	a: {

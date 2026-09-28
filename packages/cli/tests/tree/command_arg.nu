@@ -1,6 +1,8 @@
 use ../lib/test.nu *
 
-let server = server spawn
+# A command argument appears in the process tree with its expected value.
+
+let local = server spawn
 
 let root = artifact {
 	tangram.ts: r#'

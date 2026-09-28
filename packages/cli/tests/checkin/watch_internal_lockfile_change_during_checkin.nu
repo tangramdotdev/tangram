@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A watched checkin ignores the lockfile event caused by its own lock write.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: {
 		checkpoints: true
 	}

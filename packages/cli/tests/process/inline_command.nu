@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An inline command executes without storing its canonical command object.
 
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export const child = () => "done";

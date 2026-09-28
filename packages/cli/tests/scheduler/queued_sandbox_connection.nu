@@ -1,6 +1,8 @@
 use ../lib/test.nu *
 
-let server = server spawn --config {
+# A queued sandbox connects after a runner becomes available.
+
+let local = server spawn --config {
 	runner: { cpus: 1 },
 }
 

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Archiving and extracting a directory roundtrips to the original artifact across each supported tar compression format and the zip format.
 
-let server = server spawn
+let local = server spawn
 
 # Create a directory with files, a subdirectory, and symlinks.
 let path = artifact {

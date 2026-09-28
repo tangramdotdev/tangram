@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Unsupported archive format and compression values are rejected by the command line parser.
 
-let server = server spawn
+let local = server spawn
 
 let dir = tg put 'tg.directory({ "hello.txt": tg.file("hello") })' | str trim
 

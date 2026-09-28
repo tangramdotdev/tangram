@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Logging in with an email associates the email with the user, and re-logging in with the same email is idempotent.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice --email alice@example.com | from json
 assert ($alice.user.emails == ["alice@example.com"]) "the email should be associated with the user"

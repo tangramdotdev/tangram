@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Console.log output from a sandboxed run is captured on stdout.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

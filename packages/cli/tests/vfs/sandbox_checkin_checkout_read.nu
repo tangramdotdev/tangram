@@ -9,7 +9,7 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
-let server = server spawn --busybox --config { vfs: true }
+let local = server spawn --busybox --config { vfs: true }
 
 let path = artifact {
 	tangram.ts: '

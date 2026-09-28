@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A build whose command requests a checksum of "none" fails.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

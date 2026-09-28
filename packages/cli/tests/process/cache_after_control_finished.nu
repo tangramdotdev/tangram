@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A cache lookup uses finished runner state when the index is stale and process control has retired.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: { checkpoints: true },
 	runner: { process_state_ttl: 0 },
 }

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Touching a watch injects a synthetic file system event so a subsequent checkin reflects the modified file.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return "one"; }'

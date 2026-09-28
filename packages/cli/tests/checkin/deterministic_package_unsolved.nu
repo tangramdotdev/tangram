@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A deterministic checkin of a package with an unresolved tag dependency fails unless --unsolved-dependencies is also passed.
 
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		import a from "a/^1";

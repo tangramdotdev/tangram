@@ -1,6 +1,8 @@
 use ../lib/test.nu *
 
-let server = server spawn
+# A sandboxed command runs and returns its output.
+
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

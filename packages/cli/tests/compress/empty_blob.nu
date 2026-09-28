@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An empty blob compresses and decompresses back to itself.
 
-let server = server spawn
+let local = server spawn
 
 let blob = "" | tg write --no-tokens
 

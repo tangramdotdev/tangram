@@ -6,7 +6,7 @@ if $nu.os-info.name != 'linux' {
 	return
 }
 
-let server = server spawn --busybox --config { vfs: true }
+let local = server spawn --busybox --config { vfs: true }
 
 let path = artifact {
 	tangram.ts: '

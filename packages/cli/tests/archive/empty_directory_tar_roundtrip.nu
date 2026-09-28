@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Archiving and extracting an empty directory as tar roundtrips to the original directory.
 
-let server = server spawn
+let local = server spawn
 
 let dir = tg put --no-tokens 'tg.directory({})' | str trim
 

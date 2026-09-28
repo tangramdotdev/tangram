@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Waiting for a sandbox blocks until it is destroyed and is idempotent.
 
-let server = server spawn
+let local_default = server spawn
 
 let sandbox = tg sandbox create | str trim
 let wait = job spawn {
@@ -28,16 +28,16 @@ let output = tg sandbox wait $sandbox | from json
 assert equal $output destroyed "waiting for a destroyed sandbox should return immediately"
 
 # A sandbox can be waited on through a remote reference.
-let origin = server spawn --name origin
+let local_origin = server spawn --name local-origin
 let local = server spawn --name local
-tg --url $local.url remote put origin $origin.url
-let sandbox = tg --url $origin.url sandbox create | str trim
+tg --url $local.url remote put origin $local_origin.url
+let sandbox = tg --url $local_origin.url sandbox create | str trim
 let wait = job spawn {
 	let job_id = job id
 	let output = tg --url $local.url wait $'($sandbox)?location=remote:origin' | complete
 	$output | job send --tag $job_id 0
 }
-tg --url $origin.url sandbox destroy $sandbox
+tg --url $local_origin.url sandbox destroy $sandbox
 let output = job recv --tag $wait --timeout 10sec
 success $output
 assert equal ($output.stdout | from json) destroyed "waiting through a remote reference should succeed"

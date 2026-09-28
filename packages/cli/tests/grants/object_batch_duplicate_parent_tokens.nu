@@ -1,6 +1,8 @@
 use ../lib/test.nu *
 
-let server = server spawn --config {
+# Object batches merge tokens for duplicate parent entries without authorizing incomplete entries.
+
+let local = server spawn --name local --config {
 	authorization: { final: false, initial: false }
 }
 let path = artifact {

@@ -1,7 +1,7 @@
 use ../../lib/test.nu *
 
 # Rejections handled within the microtask checkpoint do not fail the process.
-let server = server spawn
+let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async function () {

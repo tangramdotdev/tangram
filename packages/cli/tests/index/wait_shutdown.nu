@@ -29,7 +29,7 @@ let config = {
 		posix_sem_prefix: $'/tg-((random chars) | str lowercase | str substring 0..7)',
 	},
 }
-let a = server spawn --name a --config ($config | merge deep {
+let local_a = server spawn --name local-a --config ($config | merge deep {
 	indexer: {
 		log_compaction: { partitions: { start: 0, end: 0 } },
 		updates: {
@@ -39,19 +39,19 @@ let a = server spawn --name a --config ($config | merge deep {
 		},
 	},
 })
-let batch_watch = tg --url $a.url checkpoint watch index.batch | from json | get watch
-let a_wait_watch = tg --url $a.url checkpoint watch indexer.request.receive | from json | get watch
+let batch_watch = tg --url $local_a.url checkpoint watch index.batch | from json | get watch
+let a_wait_watch = tg --url $local_a.url checkpoint watch indexer.request.receive | from json | get watch
 
 # Only A exists when the batch is submitted, so its private queue owns the work.
-let object = tg --url $a.url put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
-tg --url $a.url checkpoint wait index.batch $batch_watch 0 | ignore
-let b = server spawn --name b --config $config
-let update_watch = tg --url $b.url checkpoint watch indexer.update.storage_and_metadata.batch | from json | get watch
-tg --url $b.url checkpoint wait indexer.update.storage_and_metadata.batch $update_watch 0 | ignore
-let api = server spawn --name api --config ($config | upsert roles [api])
-let params = { indexer: $b.config.indexer.id } | to json --raw
-let complete_watch = tg --url $api.url checkpoint watch indexer.wait.complete --params $params | from json | get watch
-let url = $api.url
+let object = tg --url $local_a.url put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
+tg --url $local_a.url checkpoint wait index.batch $batch_watch 0 | ignore
+let local_b = server spawn --name local-b --config $config
+let update_watch = tg --url $local_b.url checkpoint watch indexer.update.storage_and_metadata.batch | from json | get watch
+tg --url $local_b.url checkpoint wait indexer.update.storage_and_metadata.batch $update_watch 0 | ignore
+let local_api = server spawn --name local-api --config ($config | upsert roles [api])
+let params = { indexer: $local_b.config.indexer.id } | to json --raw
+let complete_watch = tg --url $local_api.url checkpoint watch indexer.wait.complete --params $params | from json | get watch
+let url = $local_api.url
 let request = job spawn {
 	let id = job id
 	let output = tg --url $url index | complete
@@ -59,25 +59,25 @@ let request = job spawn {
 }
 
 # B responds while A still has its input queued and its wait request is held.
-tg --url $a.url checkpoint wait indexer.request.receive $a_wait_watch 0 | ignore
-tg --url $api.url checkpoint wait indexer.wait.complete $complete_watch 0 | ignore
-tg --url $api.url checkpoint unwatch indexer.wait.complete $complete_watch
-let b_wait_watch = tg --url $b.url checkpoint watch indexer.request.receive | from json | get watch
+tg --url $local_a.url checkpoint wait indexer.request.receive $a_wait_watch 0 | ignore
+tg --url $local_api.url checkpoint wait indexer.wait.complete $complete_watch 0 | ignore
+tg --url $local_api.url checkpoint unwatch indexer.wait.complete $complete_watch
+let b_wait_watch = tg --url $local_b.url checkpoint watch indexer.request.receive | from json | get watch
 
 # A must shut down after applying its private batch, although B is holding the shared updates.
-tg --url $a.url checkpoint unwatch index.batch $batch_watch
-let pid = open ($a.directory | path join lock) | into int
+tg --url $local_a.url checkpoint unwatch index.batch $batch_watch
+let pid = open ($local_a.directory | path join lock) | into int
 kill --signal 2 $pid
 wait_until { ps | where pid == $pid | is-empty } 'A must shut down without draining shared work'
 
 # The caller must send B another wait instead of treating A's deletion as completion.
-tg --url $b.url checkpoint wait indexer.request.receive $b_wait_watch 0 | ignore
-let complete_watch = tg --url $api.url checkpoint watch indexer.wait.complete --params $params | from json | get watch
-tg --url $b.url checkpoint continue indexer.request.receive $b_wait_watch 0
+tg --url $local_b.url checkpoint wait indexer.request.receive $b_wait_watch 0 | ignore
+let complete_watch = tg --url $local_api.url checkpoint watch indexer.wait.complete --params $params | from json | get watch
+tg --url $local_b.url checkpoint continue indexer.request.receive $b_wait_watch 0
 
 # B must finish its local wait while the API continues waiting for the shared updates.
-tg --url $api.url checkpoint wait indexer.wait.complete $complete_watch 0 | ignore
-tg --url $api.url checkpoint unwatch indexer.wait.complete $complete_watch
+tg --url $local_api.url checkpoint wait indexer.wait.complete $complete_watch 0 | ignore
+tg --url $local_api.url checkpoint unwatch indexer.wait.complete $complete_watch
 let pending = try {
 	job recv --tag $request --timeout 200ms | ignore
 	false
@@ -85,10 +85,10 @@ let pending = try {
 	true
 }
 assert $pending 'the server wait must include the shared updates after the local wait finishes'
-tg --url $b.url checkpoint unwatch indexer.update.storage_and_metadata.batch $update_watch
+tg --url $local_b.url checkpoint unwatch indexer.update.storage_and_metadata.batch $update_watch
 let output = job recv --tag $request --timeout 10sec
 success $output 'the replacement wait must finish after the shared updates'
-let metadata = tg --url $api.url object metadata $object | from json
+let metadata = tg --url $local_api.url object metadata $object | from json
 assert equal $metadata.subtree.count 5 'the departed indexer must preserve all of its input'
 
 # Losing the last indexer while a local wait is outstanding must return an error.
@@ -97,8 +97,8 @@ let request = job spawn {
 	let output = tg --url $url index | complete
 	$output | job send --tag $id 0
 }
-tg --url $b.url checkpoint wait indexer.request.receive $b_wait_watch 1 | ignore
-let pid = open ($b.directory | path join lock) | into int
+tg --url $local_b.url checkpoint wait indexer.request.receive $b_wait_watch 1 | ignore
+let pid = open ($local_b.directory | path join lock) | into int
 kill --signal 2 $pid
 wait_until { ps | where pid == $pid | is-empty } 'B must shut down with an outstanding wait'
 let output = job recv --tag $request --timeout 10sec
@@ -110,24 +110,24 @@ snapshot --normalize $output.stderr '
 '
 
 # Losing the last indexer after its local wait finishes must fail the pending shared wait.
-let c = server spawn --name c --config ($config | merge deep {
+let local_c = server spawn --name local-c --config ($config | merge deep {
 	indexer: { updates: { storage_and_metadata: { partitions: { start: 0, end: 0 } } } },
 })
-tg --url $api.url put 'tg.directory({ "x.txt": tg.file("xxx"), "y.txt": tg.file("yyy") })' | ignore
-let shared_watch = tg --url $api.url checkpoint watch index.wait.updates | from json | get watch
+tg --url $local_api.url put 'tg.directory({ "x.txt": tg.file("xxx"), "y.txt": tg.file("yyy") })' | ignore
+let shared_watch = tg --url $local_api.url checkpoint watch index.wait.updates | from json | get watch
 let request = job spawn {
 	let id = job id
 	let output = tg --url $url index | complete
 	$output | job send --tag $id 0
 }
-tg --url $api.url checkpoint wait index.wait.updates $shared_watch 0 | ignore
-let pid = open ($c.directory | path join lock) | into int
+tg --url $local_api.url checkpoint wait index.wait.updates $shared_watch 0 | ignore
+let pid = open ($local_c.directory | path join lock) | into int
 kill --signal 2 $pid
 wait_until { ps | where pid == $pid | is-empty } 'C must shut down after completing its local wait'
-tg --url $api.url checkpoint unwatch index.wait.updates $shared_watch
+tg --url $local_api.url checkpoint unwatch index.wait.updates $shared_watch
 let output = job recv --tag $request --timeout 10sec
 failure $output 'shared work must not be abandoned when the last indexer disappears'
 assert ($output.stderr | str contains 'no indexers are available')
 
-server stop $api
+server stop $local_api
 job kill $messenger

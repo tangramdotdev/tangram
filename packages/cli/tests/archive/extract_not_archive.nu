@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Extracting a blob that is not an archive fails.
 
-let server = server spawn
+let local = server spawn
 
 let blob = "hello, world! this is not an archive at all, just text." | tg write
 

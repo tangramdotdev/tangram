@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.checksum computes a sha512 checksum of a string.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.checksum("hello", "sha512"); }'

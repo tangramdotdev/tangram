@@ -6,7 +6,7 @@ use ../lib/vfs.nu
 vfs skip_unless_supported
 
 let server_path = mktemp --directory
-let server = server spawn --directory $server_path --config { vfs: true }
+let local = server spawn --name local --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
 
 let module = artifact {

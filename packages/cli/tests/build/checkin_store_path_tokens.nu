@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checkin reuses the command's artifact tokens inside a process, including without the VFS.
 
-let server = server spawn --busybox --config { advanced: { checkpoints: true } }
+let local = server spawn --busybox --config { advanced: { checkpoints: true } }
 let file = tg put 'tg.file("checkin-store-path")' | str trim
 let bin = tg put 'tg.directory({ "program": tg.file("checkin-store-path") })' | str trim
 let directory = tg put 'tg.directory({ "bin": tg.directory({ "program": tg.file("checkin-store-path") }) })' | str trim

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Deleting a remote that does not exist fails with a missing-remote error.
 
-let server = server spawn
+let local = server spawn
 
 let output = tg remote delete nonexistent | complete
 failure $output

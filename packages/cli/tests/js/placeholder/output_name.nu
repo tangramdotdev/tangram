@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # The built-in output placeholder is named output.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.output.name; }'

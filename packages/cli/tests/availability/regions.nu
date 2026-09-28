@@ -14,14 +14,14 @@ let common = {
 	database: { kind: 'sqlite', path: $database_path },
 }
 let instance = instance --primary-region a --regions $regions --config $common
-let region_a = server spawn --instance $instance --region a --name region-a --directory $region_a_directory --url (instance region url $instance a)
-let region_b = server spawn --instance $instance --region b --name region-b --directory $region_b_directory --url (instance region url $instance b)
+let remote_region_a = server spawn --instance $instance --region a --name remote-region-a --directory $region_a_directory --url (instance region url $instance a)
+let remote_region_b = server spawn --instance $instance --region b --name remote-region-b --directory $region_b_directory --url (instance region url $instance b)
 
-let directory = tg --url $region_a.url put 'tg.directory({ "file": tg.file("contents") })' | str trim
-tg --url $region_a.url index
+let directory = tg --url $remote_region_a.url put 'tg.directory({ "file": tg.file("contents") })' | str trim
+tg --url $remote_region_a.url index
 
-let availability = tg --url $region_b.url object availability $directory --location='local(a)' | from json
+let availability = tg --url $remote_region_b.url object availability $directory --location='local(a)' | from json
 assert equal $availability.subtree true "the peer region should report that the object subtree is available"
 
-let local = tg --url $region_b.url object availability $directory --location='local(b)' | complete
+let local = tg --url $remote_region_b.url object availability $directory --location='local(b)' | complete
 failure $local "the object's availability should be absent from the current region"

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.checksum computes a blake3 checksum of a string.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.checksum("hello", "blake3"); }'

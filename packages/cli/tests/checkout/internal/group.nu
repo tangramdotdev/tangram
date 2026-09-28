@@ -2,10 +2,10 @@ use ../../lib/test.nu *
 
 # A group checkout materializes its visible subtree and participates in checkout cleaning.
 
-let server = server spawn
+let local = server spawn
 let root = tg group create foo | from json
 let group = tg group create foo/bar | from json
-let store = $server.directory | path join store
+let store = $local.directory | path join store
 let group_path = $store | path join foo/bar
 
 let artifact = artifact 'test'

@@ -4,13 +4,13 @@ use ../lib/archive.nu *
 # Single-process indexing waits for background archiving to succeed, including retries after an upload failure.
 skip_if_no_cloud
 let archive = spawn_archive
-let server = server spawn --cloud --config {
+let local = server spawn --cloud --config {
 	advanced: { checkpoints: true, single_directory: false, single_process: true },
 	archive: $archive.config,
 	object: { put_timeout: 5 },
 	roles: [api indexer],
 }
-assert ($server.config.indexer?.id? == null)
+assert ($local.config.indexer?.id? == null)
 
 # The put must return while the archive holds its upload response.
 let output = 0x[00 68 65 6c 6c 6f] | timeout 10 tg object put --bytes --kind blob | complete
@@ -40,5 +40,5 @@ assert ($output == null) 'indexing must wait for the retried upload'
 http post $'($archive.url)/respond' '200' | ignore
 let output = job recv --tag $request --timeout 10sec
 success $output
-server stop $server
+server stop $local
 job kill $archive.job

@@ -1,12 +1,14 @@
 use ../lib/test.nu *
 
+# Putting duplicate parent references preserves authorization for the stored directory.
+
 let root_token = random chars
-let server = server spawn --config {
+let local = server spawn --name local --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 	authorization: { final: false }
 }
 let alice = tg login --verbose --name alice | from json
-let socket = $server.url | str replace 'http+unix://' '' | url decode
+let socket = $local.url | str replace 'http+unix://' '' | url decode
 for reverse in [false true] {
 	let file = tg --token $root_token put (['tg.file("duplicate parent ' ($reverse | into string) '")'] | str join) | str trim
 	let output = http get --headers { Accept: application/json, Authorization: $'Bearer ($root_token)' } --unix-socket $socket $'http://localhost/objects/($file)'

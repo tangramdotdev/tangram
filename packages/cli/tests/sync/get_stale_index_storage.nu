@@ -8,7 +8,7 @@ use ../lib/test.nu *
 # object arrived and nothing failed.
 
 let remote = server spawn --cloud --name remote
-let client = server spawn --name client --config {
+let local_client = server spawn --name local-client --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { url: $remote.url } },
 }
@@ -33,66 +33,66 @@ tg --url $remote.url index
 
 # Get the file. This stores the file's own data but not the blob it points to, and it writes the
 # index entry that the pull later reads.
-tg --url $client.url get $file | ignore
-tg --url $client.url index
-assert equal (tg --url $client.url availability --local $file | from json) {} "the index must report that the file's subtree is unavailable"
+tg --url $local_client.url get $file | ignore
+tg --url $local_client.url index
+assert equal (tg --url $local_client.url availability --local $file | from json) {} "the index must report that the file's subtree is unavailable"
 
 # Hold the file's blob so that the index task selects the stale lookup before the graph computes the
 # file as available.
 let file_blob_input_watch = (
-	tg --url $client.url checkpoint watch sync.get.input.object --params ({ id: $file_blob } | to json)
+	tg --url $local_client.url checkpoint watch sync.get.input.object --params ({ id: $file_blob } | to json)
 	| from json
 	| get watch
 )
 
 # Hold the last object to arrive so that the root cannot finish before the stale value lands.
 let deep_blob_input_watch = (
-	tg --url $client.url checkpoint watch sync.get.input.object --params ({ id: $deep_blob } | to json)
+	tg --url $local_client.url checkpoint watch sync.get.input.object --params ({ id: $deep_blob } | to json)
 	| from json
 	| get watch
 )
 
 # Hold the index task immediately before it checks the graph.
 let filter_watch = (
-	tg --url $client.url checkpoint watch sync.get.index.object.filter --params ({ id: $file } | to json)
+	tg --url $local_client.url checkpoint watch sync.get.index.object.filter --params ({ id: $file } | to json)
 	| from json
 	| get watch
 )
 
 # Hold the stale index request until the file has become available in the graph.
 let index_watch = (
-	tg --url $client.url checkpoint watch sync.get.index.object --params ({ id: $file } | to json)
+	tg --url $local_client.url checkpoint watch sync.get.index.object --params ({ id: $file } | to json)
 	| from json
 	| get watch
 )
 
 let pull = job spawn {
 	let job_id = job id
-	let output = tg --url $client.url pull $directory | complete
+	let output = tg --url $local_client.url pull $directory | complete
 	$output | job send --tag $job_id 0
 }
 
 # Wait until the file's blob and the index task are both held, then let the index task select the
 # lookup while the file is not yet available.
-tg --url $client.url checkpoint wait sync.get.input.object $file_blob_input_watch 0 | ignore
-tg --url $client.url checkpoint wait sync.get.index.object.filter $filter_watch 0 | ignore
-tg --url $client.url checkpoint continue sync.get.index.object.filter $filter_watch 0
-tg --url $client.url checkpoint unwatch sync.get.index.object.filter $filter_watch
-tg --url $client.url checkpoint wait sync.get.index.object $index_watch 0 | ignore
+tg --url $local_client.url checkpoint wait sync.get.input.object $file_blob_input_watch 0 | ignore
+tg --url $local_client.url checkpoint wait sync.get.index.object.filter $filter_watch 0 | ignore
+tg --url $local_client.url checkpoint continue sync.get.index.object.filter $filter_watch 0
+tg --url $local_client.url checkpoint unwatch sync.get.index.object.filter $filter_watch
+tg --url $local_client.url checkpoint wait sync.get.index.object $index_watch 0 | ignore
 
 # Let the file's blob arrive, then wait until every object except the deeper branch's blob has
 # arrived. The graph has now computed that the file is available.
-tg --url $client.url checkpoint continue sync.get.input.object $file_blob_input_watch 0
-tg --url $client.url checkpoint unwatch sync.get.input.object $file_blob_input_watch
-tg --url $client.url checkpoint wait sync.get.input.object $deep_blob_input_watch 0 | ignore
+tg --url $local_client.url checkpoint continue sync.get.input.object $file_blob_input_watch 0
+tg --url $local_client.url checkpoint unwatch sync.get.input.object $file_blob_input_watch
+tg --url $local_client.url checkpoint wait sync.get.input.object $deep_blob_input_watch 0 | ignore
 
 # Let the index task write the stale value over the computed one.
-tg --url $client.url checkpoint continue sync.get.index.object $index_watch 0
-tg --url $client.url checkpoint unwatch sync.get.index.object $index_watch
+tg --url $local_client.url checkpoint continue sync.get.index.object $index_watch 0
+tg --url $local_client.url checkpoint unwatch sync.get.index.object $index_watch
 
 # Release the last object. Nothing is missing and nothing errors.
-tg --url $client.url checkpoint continue sync.get.input.object $deep_blob_input_watch 0
-tg --url $client.url checkpoint unwatch sync.get.input.object $deep_blob_input_watch
+tg --url $local_client.url checkpoint continue sync.get.input.object $deep_blob_input_watch 0
+tg --url $local_client.url checkpoint unwatch sync.get.input.object $deep_blob_input_watch
 
 let output = job recv --tag $pull --timeout 10sec
 success $output "the pull must end once every object has been transferred"

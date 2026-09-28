@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # The indexer fails a build whose process tree exceeds the configured maximum depth and reports a maximum depth exceeded error.
 
 # Configure the indexer with a low maximum depth.
-let server = server spawn --config {
+let local = server spawn --config {
 	indexer: {
 		updates: { max_process_depth: 2 }
 	},

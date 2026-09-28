@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An error thrown in a child process spawned via tg.run propagates to the parent, causing the run to fail with the expected diagnostic on stderr.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

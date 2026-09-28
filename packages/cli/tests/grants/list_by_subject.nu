@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A user can list their own grants but not another user's grants.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A build whose command sets an explicit sha256 checksum fails when the command is not eligible for a checksum.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

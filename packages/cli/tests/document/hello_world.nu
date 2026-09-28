@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Documenting a package with a default export produces documentation JSON that matches the snapshot.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

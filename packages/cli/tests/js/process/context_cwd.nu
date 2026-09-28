@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # The ambient tg.process.cwd is the root directory for a sandboxed build on Linux, and the scratch directory on macOS.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

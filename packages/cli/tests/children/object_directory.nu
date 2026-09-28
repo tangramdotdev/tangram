@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A directory's children are the files of its entries.
 
-let server = server spawn
+let local = server spawn
 
 let dir_id = tg put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
 let a_id = tg put 'tg.file("aaa")' | str trim

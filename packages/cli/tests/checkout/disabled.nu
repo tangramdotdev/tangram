@@ -2,11 +2,11 @@ use ../lib/test.nu *
 
 # Disabling checkouts avoids creating or using the local checkout directory while preserving object I/O.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	checkouts: false,
 	roles: [api],
 }
-let store_path = $server.directory | path join store
+let store_path = $local.directory | path join store
 
 assert (not ($store_path | path exists)) "expected the store directory to remain absent"
 

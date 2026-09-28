@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # An admin can add a user to a group; the member is listed and gains write on the group.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json

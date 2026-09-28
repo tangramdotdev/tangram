@@ -17,8 +17,8 @@ let runner = server spawn --name runner --config {
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }
-let reader = tg --url $runner.url login --verbose --name reader | from json
-tg --url $runner.url --token $reader.token remote put default $remote.url
+let alice = tg --url $runner.url login --verbose --name alice | from json
+tg --url $runner.url --token $alice.token remote put default $remote.url
 let finish_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.finish | from json | get watch
 let path = artifact { tangram.ts: 'export default () => "output";' }
 let process = tg --url $remote.url --token $root_token build --detach $path | str trim
@@ -35,7 +35,7 @@ let availability_watch = tg --url $remote.url --token $root_token checkpoint wat
 let query = { availability: true, location: 'remote(a)', metadata: true, 'tokens[local][0]': $local.tokens.local.0, 'tokens[remote][0]': $owned.tokens.local.0 } | url build-query
 let read_job = job spawn {
 	let job_id = job id
-	let output = http get --max-time 30sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)?($query)'
+	let output = http get --max-time 30sec --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/processes/($process)?($query)'
 	$output | job send --tag $job_id 0
 }
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait process.metadata $metadata_watch 0 | ignore
@@ -50,6 +50,6 @@ assert ('availability' in ($output | columns))
 
 # A nonexistent region is ignored for the runner data, but still fails when an index-only field needs routing.
 let query = { location: 'remote(missing)', metadata: true, 'tokens[local][0]': $local.tokens.local.0, 'tokens[remote][0]': $owned.tokens.local.0 } | url build-query
-let output = http get --allow-errors --full --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($reader.token)' } $'http://localhost/processes/($process)?($query)'
+let output = http get --allow-errors --full --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/processes/($process)?($query)'
 assert equal $output.status 500
 tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch

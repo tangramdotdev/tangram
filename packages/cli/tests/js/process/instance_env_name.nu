@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A spawned process's env getter returns a single value when given a name.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

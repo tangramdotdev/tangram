@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Getting an organization that does not exist fails.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 

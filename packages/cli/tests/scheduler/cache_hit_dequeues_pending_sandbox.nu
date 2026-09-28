@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+# A cache hit removes the process from the pending sandbox queue.
+
 let remote = server spawn --name remote
 let local = server spawn --name local --config {
 	remotes: {

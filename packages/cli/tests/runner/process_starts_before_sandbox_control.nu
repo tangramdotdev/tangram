@@ -16,7 +16,7 @@ let runner = server spawn --name runner --config {
 	runner: { id: $created.data.id, remote: default, sandbox_pool_size: 1, token: $created.token.token },
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
-let local = server spawn --name alice-local --config {
+let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 

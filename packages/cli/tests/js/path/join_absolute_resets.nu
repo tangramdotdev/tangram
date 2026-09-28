@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.path.join discards earlier components when a later argument is absolute.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.path.join("a", "/b"); }'

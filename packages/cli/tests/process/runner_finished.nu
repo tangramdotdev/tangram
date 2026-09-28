@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 for location in [local remote] {
 	let root_token = random chars
-	let owner = server spawn --name $'owner-($location)' --config {
+	let local_owner = server spawn --name $'owner-($location)' --config {
 		advanced: { checkpoints: true, single_process: false },
 		authentication: { root: { token: $root_token } },
 		indexer: { cleaning: {} },
@@ -14,30 +14,30 @@ for location in [local remote] {
 		runner: { process_state_ttl: 0 },
 	}
 	let runner = if $location == remote {
-		let created = tg --url $owner.url --token $root_token runner create | from json
+		let created = tg --url $local_owner.url --token $root_token runner create | from json
 		server spawn --name runner --config {
 			advanced: { checkpoints: true },
 			authentication: { root: { token: $root_token } },
-			remotes: { default: { token: $root_token, url: $owner.url } },
+			remotes: { default: { token: $root_token, url: $local_owner.url } },
 			roles: [api indexer runner],
 			runner: { id: $created.data.id, process_state_ttl: 0, remote: default, token: $created.token.token },
 		}
 	} else {
-		$owner
+		$local_owner
 	}
 	let finish_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.finish | from json | get watch
 	let retention_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.control.retention.finished | from json | get watch
 	let path = artifact { tangram.ts: 'export default () => "done";' }
-	let process = tg --url $owner.url --token $root_token build --detach $path | str trim
+	let process = tg --url $local_owner.url --token $root_token build --detach $path | str trim
 	success (timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | complete) "the runner must reach the finish checkpoint"
 	let params = { process: $process } | to json --raw
-	let delete_watch = tg --url $owner.url --token $root_token checkpoint watch cleaning.process.delete --params $params | from json | get watch
+	let delete_watch = tg --url $local_owner.url --token $root_token checkpoint watch cleaning.process.delete --params $params | from json | get watch
 	tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch
 
 	# Hold the runner state after completion has been published, then wait for index expiry.
 	success (timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.control.retention.finished $retention_watch 0 | complete) "the runner must finish retention"
-	success (timeout 30s tg --url $owner.url --token $root_token checkpoint wait cleaning.process.delete $delete_watch 0 | complete) "cleaning must delete the process"
-	let owner_socket = $owner.url | str replace 'http+unix://' '' | url decode
+	success (timeout 30s tg --url $local_owner.url --token $root_token checkpoint wait cleaning.process.delete $delete_watch 0 | complete) "cleaning must delete the process"
+	let owner_socket = $local_owner.url | str replace 'http+unix://' '' | url decode
 	let socket = $runner.url | str replace 'http+unix://' '' | url decode
 	let headers = { Authorization: $'Bearer ($root_token)' }
 	if $location == remote {
@@ -58,7 +58,7 @@ for location in [local remote] {
 	let response = http post --allow-errors --full --max-time 10sec --unix-socket $socket --headers ($headers | insert Accept 'text/event-stream') $'http://localhost/processes/($process)/wait?location=($location)' ''
 	assert equal $response.status 404 $'($location) process wait must not return the cleaned process'
 
-	tg --url $owner.url --token $root_token checkpoint unwatch cleaning.process.delete $delete_watch
+	tg --url $local_owner.url --token $root_token checkpoint unwatch cleaning.process.delete $delete_watch
 	if $location == local {
 		tg --url $runner.url --token $root_token checkpoint unwatch runner.process.control.retention.finished $retention_watch
 	}

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.todo throws a fixed message.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

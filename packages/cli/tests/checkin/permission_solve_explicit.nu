@@ -3,7 +3,7 @@ use ../lib/checkin.nu checkin-output
 
 # Solving an explicit unsolved artifact retrieves its permissions as part of the normal solve traversal.
 
-let server = server spawn
+let local = server spawn
 
 let target = artifact {
 	tangram.ts: 'export default 1;'
@@ -23,7 +23,7 @@ let directory = artifact {
 	input: (file --xattrs { "user.tangram.dependencies": $dependencies } explicit)
 }
 let path = $directory | path join input
-let output = checkin-output $server $path
+let output = checkin-output $local $path
 assert equal $output.permissions [object_subtree] "the solved artifact should have subtree permission"
 let object = tg get --depth=inf --no-tokens --pretty $output.reference
 assert ($object | str contains '"tag": "dependency/1.0.0"') "the explicit dependency should be solved"

@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # --lock=file writes a sibling lockfile for a file with a tag dependency.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	foo.tg.ts: ''

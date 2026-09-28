@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.file preserves an unloaded file passed as its sole argument and does not load a sole blob contents argument.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

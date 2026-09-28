@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A process_node grant confers the node but not its child processes, so a node grantee reads the parent while its children stay masked.
 
-let server = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
+let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json

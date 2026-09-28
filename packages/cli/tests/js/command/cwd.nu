@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A command's cwd accessor returns its working directory.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

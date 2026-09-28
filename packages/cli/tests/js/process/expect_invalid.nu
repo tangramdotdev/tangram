@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Process.expect throws a failed assertion when the value is not a process.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

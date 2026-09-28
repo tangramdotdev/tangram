@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Formatting a module with a syntax error fails and leaves the module unchanged.
 
-let server = server spawn
+let local = server spawn
 
 let dir = mktemp --directory
 let contents = 'export default (((('

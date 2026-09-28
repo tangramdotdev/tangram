@@ -4,7 +4,7 @@ use ../lib/stripe.nu *
 # Managing user billing creates one Stripe customer and reuses it for subsequent portal sessions.
 
 let stripe = spawn_stripe
-let server = server spawn --config {
+let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } },
 	billing: { stripe: { secret_key: 'sk_test_mock', url: $stripe.url, webhook_secret: 'whsec_mock' } },
 }

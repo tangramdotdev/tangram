@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A process that spawns no children has an empty children list.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default function () { return "leaf"; }'

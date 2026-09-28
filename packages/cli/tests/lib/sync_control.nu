@@ -13,7 +13,7 @@ export def test [case: string] {
 	}
 	wait_until { open --raw $log | str contains 'Server is ready' } 'NATS must start'
 	let store = { object_concurrency: 8, object_max_batch: 1 }
-	let server = server spawn --config {
+	let local = server spawn --config {
 		advanced: { checkpoints: true },
 		messenger: { kind: 'nats', url: $'nats://127.0.0.1:($port)' },
 		sync: {
@@ -31,11 +31,11 @@ export def test [case: string] {
 			put: { store: { object_batch_size: 1024 } },
 		},
 	}
-	let socket = $server.url | str replace 'http+unix://' '' | url decode
-	let source = server spawn --name source
-	let output = python3 $helper $case $socket (which tg | first | get path) $server.url $port $source.url $server.directory | complete
-	server stop $source
-	server stop $server
+	let socket = $local.url | str replace 'http+unix://' '' | url decode
+	let local_source = server spawn --name local-source
+	let output = python3 $helper $case $socket (which tg | first | get path) $local.url $port $local_source.url $local.directory | complete
+	server stop $local_source
+	server stop $local
 	job kill $messenger
 	success $output $'the sync control ($case) case should pass'
 }

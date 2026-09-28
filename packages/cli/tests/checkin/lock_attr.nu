@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # --lock=attr writes an xattr for a file with a tag dependency.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	foo.tg.ts: ''

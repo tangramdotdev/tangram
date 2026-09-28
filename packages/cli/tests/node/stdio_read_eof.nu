@@ -1,5 +1,7 @@
 use ../lib/test.nu *
 
+# A reverse stdout read resumes from the clipped position after losing its connection.
+
 const js_path = path self '../../../js'
 cd $js_path
 

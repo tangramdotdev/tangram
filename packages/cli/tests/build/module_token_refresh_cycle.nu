@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A broad cyclic module graph builds successfully when module resolution refreshes authorization tokens.
 
-let server = server spawn
+let local = server spawn
 
 let path = mktemp -d
 let modules = 0..<200

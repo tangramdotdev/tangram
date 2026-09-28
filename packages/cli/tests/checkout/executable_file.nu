@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let tmp = mktemp --directory
 
 # Keep the server and destinations on the same filesystem so internal checkouts can be reflinked.
-let server = server spawn --directory ($tmp | path join 'server')
+let local = server spawn --directory ($tmp | path join 'server')
 
 let artifact = artifact {
 	tangram.ts: '

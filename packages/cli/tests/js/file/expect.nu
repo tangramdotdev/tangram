@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.File.expect returns the value unchanged when it is a file.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.File.expect(await tg.file("hello")) instanceof tg.File; }'

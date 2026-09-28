@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Re-tagging the same node is idempotent, and forcing a new target preserves the tag ID.
 
-let server = server spawn
+let local = server spawn
 
 # Create two different artifacts.
 let path1 = artifact 'one'

@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # Concurrent stores share one promise, update every state, and batch each ID once.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

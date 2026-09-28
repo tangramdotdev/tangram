@@ -9,16 +9,16 @@ let remote = server spawn --cloud --name remote
 let local = server spawn --name local
 
 # Create a source server.
-let source = server spawn --name source
+let local_source = server spawn --name local-source
 
 # Create and build a simple artifact on the source server.
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("test content"); }'
 }
-let id = tg --url $source.url build $path
+let id = tg --url $local_source.url build $path
 
 # Put the object only on the remote server.
-tg --url $source.url get --bytes $id | tg --url $remote.url put --bytes --kind fil
+tg --url $local_source.url get --bytes $id | tg --url $remote.url put --bytes --kind fil
 
 # Index the remote server.
 tg --url $remote.url index

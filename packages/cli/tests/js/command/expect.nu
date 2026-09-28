@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # tg.Command.expect returns the value unchanged when it is a command.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return tg.Command.expect(await tg.command({ host: tg.host.current, executable: "echo" })) instanceof tg.Command; }'

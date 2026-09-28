@@ -2,7 +2,7 @@ use ../../lib/test.nu *
 
 # A directory's entries accessor returns its child names mapped to artifacts.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

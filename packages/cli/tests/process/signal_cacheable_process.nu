@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Signalling a cacheable process fails because cacheable processes cannot receive signals.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: 'export default async function () { return 42; }',

@@ -19,7 +19,7 @@ let remote = server spawn --instance $instance --region a --preserve-keys --name
 }
 
 # Start a separate indexer server that shares the remote's databases, as the cloud does.
-let indexer = server spawn --instance $instance --region a --preserve-keys --name indexer --directory $indexer_directory --config {
+let local_indexer = server spawn --instance $instance --region a --preserve-keys --name local-indexer --directory $indexer_directory --config {
 	roles: [indexer],
 }
 

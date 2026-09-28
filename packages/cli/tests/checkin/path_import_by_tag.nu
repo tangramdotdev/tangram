@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Checking in a package that imports a tagged dependency with a get path option resolves to the artifact at that path.
 
-let server = server spawn
+let local = server spawn
 
 # Create a directory with nested structure and tag it.
 let dep_path = artifact {

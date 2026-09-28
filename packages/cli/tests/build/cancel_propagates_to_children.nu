@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Cancelling a process also cancels its running children.
 
-let server = server spawn
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

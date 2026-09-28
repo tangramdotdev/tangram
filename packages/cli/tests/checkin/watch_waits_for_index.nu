@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # A checkin reusing a watcher waits for the checkin that published its graph to finish indexing.
 
-let server = server spawn --config {
+let local = server spawn --config {
 	advanced: {
 		checkpoints: true
 	}

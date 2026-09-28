@@ -1,6 +1,8 @@
 use ../lib/test.nu *
 
-let server = server spawn --config {
+# A queued process connects after the scheduler makes it runnable.
+
+let local = server spawn --config {
 	runner: { cpus: 1 },
 }
 
