@@ -5,7 +5,7 @@ pub struct Arg {
 	#[tangram_serialize(id = 0)]
 	pub account: Option<crate::usage::Account>,
 	/// The runner attempt, or `None` to preserve the indexed attempt.
-	#[tangram_serialize(id = 7)]
+	#[tangram_serialize(id = 8)]
 	pub attempt: Option<String>,
 	#[tangram_serialize(id = 1)]
 	pub created_at: i64,
