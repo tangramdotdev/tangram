@@ -28,10 +28,7 @@ pub(super) struct Request {
 #[derive(Clone, Copy)]
 pub(super) enum RequestState {
 	Queues,
-	QueuesPending {
-		archive_sequence: u64,
-		index_sequence: u64,
-	},
+	QueuesPending { index_sequence: u64 },
 	Tasks,
 	TasksPending,
 }
@@ -89,8 +86,8 @@ impl Indexer {
 				let (read, target) = {
 					let state = queues.lock().unwrap();
 					(
-						state.queues.read_sequences(),
-						state.queues.target_sequences(),
+						state.queues.read_sequences().1,
+						state.queues.target_sequences().1,
 					)
 				};
 				state.poll_queues(self.server.config.advanced.single_process, read, target);
@@ -121,31 +118,25 @@ impl State {
 		}
 	}
 
-	fn poll_queues(&mut self, single_process: bool, read: (u64, u64), target: (u64, u64)) {
-		// Capture both private queue cutoffs for the next batch of requests.
+	fn poll_queues(&mut self, single_process: bool, read: u64, target: u64) {
+		// Capture the private index queue cutoff for the next batch of requests.
 		for request in self.waits.values_mut() {
 			if matches!(request.state, RequestState::Queues) {
 				request.state = RequestState::QueuesPending {
-					archive_sequence: target.0,
-					index_sequence: target.1,
+					index_sequence: target,
 				};
 			}
 		}
 
-		// Finish each request once both queues have passed its cutoffs.
+		// Finish each request once the index queue has passed its cutoff.
 		let ids = self
 			.waits
 			.iter()
 			.filter_map(|(id, request)| {
-				let RequestState::QueuesPending {
-					archive_sequence,
-					index_sequence,
-				} = request.state
-				else {
+				let RequestState::QueuesPending { index_sequence } = request.state else {
 					return None;
 				};
-				(single_process || (read.0 >= archive_sequence && read.1 >= index_sequence))
-					.then(|| id.clone())
+				(single_process || read >= index_sequence).then(|| id.clone())
 			})
 			.collect::<Vec<_>>();
 		for id in ids {
@@ -180,7 +171,6 @@ impl State {
 				crate::checkpoint!(server, "indexer.request.wait", request,).await;
 				server.remote_object_put_tasks.wait().await;
 				server.index_tasks.wait().await;
-				server.archive_tasks.wait().await;
 
 				ids
 			}
