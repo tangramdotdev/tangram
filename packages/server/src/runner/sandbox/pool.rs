@@ -113,8 +113,6 @@ async fn destroy(output: CreateSandboxOutput) -> tg::Result<()> {
 		mut temp,
 		#[cfg(target_os = "linux")]
 		vfs,
-		#[cfg(target_os = "linux")]
-			vfs_principal: _,
 	} = output;
 
 	// Stop the VFS while the sandbox still owns its mount namespace.

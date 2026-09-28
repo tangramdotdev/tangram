@@ -1321,7 +1321,7 @@ impl Server {
 					&store_path,
 					options,
 					Origin::Host,
-					Arc::new(std::sync::Mutex::new(Some(tg::Principal::Root))),
+					Some(tg::Principal::Root),
 					None,
 				)
 				.await

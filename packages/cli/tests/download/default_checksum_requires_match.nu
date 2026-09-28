@@ -13,7 +13,7 @@ snapshot --normalize $output.stderr '
 	-> the process failed
 	   id = pcs_0000000000000000000000000000
 	-> checksum mismatch
-	   actual = sha512:356a71a6fd7862385ab9884781f11be233c4ee6b9d380b4dffd428e75d2cc6d4d49139080f039f5a4792d20e558e1931b594b94a8efe4d2c2d0f6d147ee6f134
+	   actual = sha512:e2f3e5ba74cf7c6074d4080fdb3af0d65b75fe1628734c0cb6a9f8e4bf4fe682b40522c943285fcb051461457730182dd5452f24de701588df2b876be5f010ee
 	   expected = sha512:none
 
 '

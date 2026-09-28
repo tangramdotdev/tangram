@@ -2468,6 +2468,20 @@ impl Session {
 			})
 			.collect::<Vec<tg::Referent<tg::artifact::Id>>>();
 
+		// Seed the VFS with the tokens already carried by the command's artifact inputs.
+		let vfs = self
+			.server
+			.runner
+			.state
+			.sandboxes
+			.get_by_id(sandbox)
+			.and_then(|state| state.vfs.as_ref()?.upgrade());
+		if let Some(vfs) = vfs {
+			for artifact in &artifacts {
+				vfs.seed_tokens(self, &artifact.options.tokens)?;
+			}
+		}
+
 		// Track each artifact's verified subtree token for store path checkin and the VFS.
 		let permissions =
 			tg::authorization::permission::Set::from(tg::authorization::Permission::Object(

@@ -1,10 +1,6 @@
 use {
 	provider::Provider,
-	std::{
-		os::fd::OwnedFd,
-		path::Path,
-		sync::{Arc, Mutex},
-	},
+	std::{os::fd::OwnedFd, path::Path},
 	tangram_client::prelude::*,
 	tangram_vfs as vfs,
 };
@@ -12,7 +8,7 @@ use {
 #[cfg(target_os = "macos")]
 mod fskit;
 
-mod provider;
+pub mod provider;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Kind {
@@ -21,7 +17,12 @@ pub enum Kind {
 	Nfs,
 }
 
-pub enum Server {
+pub struct Server {
+	inner: Inner,
+	provider: provider::Weak,
+}
+
+enum Inner {
 	#[cfg(target_os = "macos")]
 	Fskit(fskit::Server),
 
@@ -41,7 +42,7 @@ impl Server {
 		path: &Path,
 		options: crate::config::Vfs,
 		origin: crate::Origin,
-		principal: Arc<Mutex<Option<tg::Principal>>>,
+		principal: Option<tg::Principal>,
 		recvfd: Option<OwnedFd>,
 	) -> tg::Result<Self> {
 		// Remove a file at the path if one exists.
@@ -55,17 +56,14 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
 
-		let vfs = match kind {
+		let weak = provider.downgrade();
+		let inner = match kind {
 			Kind::Fskit => {
 				#[cfg(target_os = "macos")]
 				{
-					let principal = principal
-						.lock()
-						.unwrap()
-						.clone()
-						.unwrap_or(tg::Principal::Anonymous);
+					let principal = principal.unwrap_or(tg::Principal::Anonymous);
 					let fskit = fskit::Server::start(server, path, principal).await?;
-					Server::Fskit(fskit)
+					Inner::Fskit(fskit)
 				}
 				#[cfg(not(target_os = "macos"))]
 				{
@@ -106,7 +104,7 @@ impl Server {
 					let fuse = vfs::fuse::Server::start(provider, path, options, recvfd)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to start the FUSE server"))?;
-					Server::Fuse(fuse)
+					Inner::Fuse(fuse)
 				}
 				#[cfg(not(target_os = "linux"))]
 				{
@@ -124,11 +122,15 @@ impl Server {
 				let nfs = vfs::nfs::Server::start(provider, path, host, port)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to start the NFS server"))?;
-				Self::Nfs(nfs)
+				Inner::Nfs(nfs)
 			},
 		};
 
-		Ok(vfs)
+		let server = Self {
+			inner,
+			provider: weak,
+		};
+		Ok(server)
 	}
 
 	#[cfg(target_os = "linux")]
@@ -137,16 +139,21 @@ impl Server {
 		socket: &Path,
 		dax: Option<u64>,
 		origin: crate::Origin,
-		principal: Arc<Mutex<Option<tg::Principal>>>,
+		principal: Option<tg::Principal>,
 	) -> tg::Result<Self> {
 		let provider = Provider::new(server, origin, principal)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
+		let weak = provider.downgrade();
 		let dax_window_size = dax.unwrap_or(0);
 		let server = vfs::virtiofs::Server::start(provider, socket, dax_window_size)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the virtiofsd server"))?;
-		Ok(Self::Virtiofs(server))
+		let server = Self {
+			inner: Inner::Virtiofs(server),
+			provider: weak,
+		};
+		Ok(server)
 	}
 
 	pub async fn unmount(kind: Kind, path: &Path) -> tg::Result<()> {
@@ -182,35 +189,40 @@ impl Server {
 		Ok(())
 	}
 
+	#[must_use]
+	pub fn provider(&self) -> &provider::Weak {
+		&self.provider
+	}
+
 	pub fn stop(&self) {
-		match self {
+		match &self.inner {
 			#[cfg(target_os = "macos")]
-			Server::Fskit(_) => {},
+			Inner::Fskit(_) => {},
 			#[cfg(target_os = "linux")]
-			Server::Fuse(server) => server.stop(),
-			Server::Nfs(server) => server.stop(),
+			Inner::Fuse(server) => server.stop(),
+			Inner::Nfs(server) => server.stop(),
 			#[cfg(target_os = "linux")]
-			Server::Virtiofs(server) => server.stop(),
+			Inner::Virtiofs(server) => server.stop(),
 		}
 	}
 
 	pub async fn wait(self) {
-		match self {
+		match self.inner {
 			#[cfg(target_os = "macos")]
-			Server::Fskit(server) => {
+			Inner::Fskit(server) => {
 				if let Err(error) = fskit::Server::unmount(server.path()).await {
 					tracing::error!(?error, "failed to unmount the fskit vfs");
 				}
 			},
 			#[cfg(target_os = "linux")]
-			Server::Fuse(server) => {
+			Inner::Fuse(server) => {
 				server.wait().await;
 			},
-			Server::Nfs(server) => {
+			Inner::Nfs(server) => {
 				server.wait().await;
 			},
 			#[cfg(target_os = "linux")]
-			Server::Virtiofs(server) => {
+			Inner::Virtiofs(server) => {
 				server.wait().await;
 			},
 		}

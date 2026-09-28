@@ -1,6 +1,5 @@
 use {
 	crate::{Server, Session, temp::Temp},
-	std::sync::{Arc, Mutex},
 	tangram_client::prelude::*,
 };
 
@@ -72,7 +71,7 @@ impl Server {
 		let _vfs = {
 			let socket = temp.path().join("vfs.sock");
 			// Run the shared VM snapshot mount as root; per-sandbox mounts enforce permissions after resume.
-			let principal = Arc::new(Mutex::new(Some(tg::Principal::Root)));
+			let principal = Some(tg::Principal::Root);
 			crate::vfs::Server::start_virtiofs(
 				self,
 				&socket,

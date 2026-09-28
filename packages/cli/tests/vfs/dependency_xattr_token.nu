@@ -30,7 +30,7 @@ assert equal ($dependencies | normalize) '["dependency?tokens[local][0]=<token>"
 let file_token = xattr_read 'user.tangram.token' $path
 assert (not ($file_token | is-empty)) 'missing file token xattr'
 
-# The in-server VFS provider issues a permanent, exact token for the dependency.
+# The in-server VFS provider passes on the exact dependency token with the file token’s expiration.
 if $nu.os-info.name == 'linux' {
 	let reference = $dependencies | from json | first
 	let token = (
@@ -49,7 +49,6 @@ if $nu.os-info.name == 'linux' {
 		| decode utf-8
 		| from json
 	)
-	assert equal $body.expires_at 9223372036854775807
 	assert equal $body.resource $artifacts.dependency
 	let file_body = (
 		$file_token
@@ -59,6 +58,7 @@ if $nu.os-info.name == 'linux' {
 		| decode utf-8
 		| from json
 	)
-	assert equal $file_body.expires_at 9223372036854775807
+	assert equal $body.expires_at $file_body.expires_at
+	assert ($file_body.expires_at < 9223372036854775807)
 	assert equal $file_body.resource $artifacts.file
 }

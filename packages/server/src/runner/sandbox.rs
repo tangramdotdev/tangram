@@ -77,8 +77,6 @@ struct CreateSandboxOutput {
 	temp: Temp,
 	#[cfg(target_os = "linux")]
 	vfs: Option<crate::vfs::Server>,
-	#[cfg(target_os = "linux")]
-	vfs_principal: Option<Arc<std::sync::Mutex<Option<tg::Principal>>>>,
 }
 
 struct ConnectedSandboxControl {
@@ -436,6 +434,10 @@ impl Session {
 			token,
 			tokens: BTreeMap::new(),
 			usage: None,
+			#[cfg(target_os = "linux")]
+			vfs: create_output.vfs.as_ref().map(|vfs| vfs.provider().clone()),
+			#[cfg(not(target_os = "linux"))]
+			vfs: None,
 		};
 		self.server.runner.state.sandboxes.insert(index, entry);
 		let server = self.server.clone();
@@ -447,11 +449,12 @@ impl Session {
 
 		// Bind the pooled VFS to this sandbox before starting any processes.
 		#[cfg(target_os = "linux")]
-		if let Some(principal) = &create_output.vfs_principal {
-			principal
-				.lock()
-				.unwrap()
-				.replace(tg::Principal::Sandbox(id.clone()));
+		if let Some(provider) = create_output
+			.vfs
+			.as_ref()
+			.and_then(|vfs| vfs.provider().upgrade())
+		{
+			provider.set_principal(tg::Principal::Sandbox(id.clone()));
 		}
 
 		// Spawn the process before waiting for the control stream.
@@ -693,8 +696,6 @@ impl Session {
 
 		// Start an unbound per-sandbox VFS that denies access until its principal is set.
 		#[cfg(target_os = "linux")]
-		let principal = Arc::new(std::sync::Mutex::new(None));
-		#[cfg(target_os = "linux")]
 		let (vfs, vfs_task, vfs_mount, fuse_sendfd) = match &isolation {
 			tangram_sandbox::Isolation::Vm(vm) => {
 				let socket = temp.path().join("vfs.sock");
@@ -703,7 +704,7 @@ impl Session {
 					&socket,
 					vm.dax,
 					Origin::Sandbox(index),
-					principal.clone(),
+					None,
 				)
 				.await
 				.map_err(|error| tg::error!(!error, %index, "failed to start the store VFS"))?;
@@ -733,7 +734,6 @@ impl Session {
 				options.sqpoll = false;
 				let vfs_task = Task::spawn({
 					let server = self.server.clone();
-					let principal = principal.clone();
 					let mount_path = mount_path.clone();
 					move |_| async move {
 						crate::vfs::Server::start(
@@ -742,7 +742,7 @@ impl Session {
 							&mount_path,
 							options,
 							Origin::Sandbox(index),
-							principal,
+							None,
 							Some(recvfd),
 						)
 						.await
@@ -828,8 +828,6 @@ impl Session {
 				Some(vfs)
 			},
 		};
-		#[cfg(target_os = "linux")]
-		let vfs_principal = vfs.is_some().then_some(principal);
 
 		// Spawn the serve task.
 		let serve_task = Task::spawn({
@@ -851,8 +849,6 @@ impl Session {
 			temp,
 			#[cfg(target_os = "linux")]
 			vfs,
-			#[cfg(target_os = "linux")]
-			vfs_principal,
 		};
 
 		Ok(output)
@@ -880,8 +876,6 @@ impl Session {
 			temp,
 			#[cfg(target_os = "linux")]
 			mut vfs,
-			#[cfg(target_os = "linux")]
-				vfs_principal: _,
 		} = create_output;
 
 		let started_at = Instant::now();

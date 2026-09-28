@@ -43,6 +43,7 @@ pub struct State {
 	pub token: String,
 	pub tokens: BTreeMap<tg::artifact::Id, tg::authorization::Token>,
 	pub usage: Option<tg::sandbox::Usage>,
+	pub(crate) vfs: Option<crate::vfs::provider::Weak>,
 }
 
 pub type Tasks = tangram_futures::task::Map<String, ()>;
