@@ -45,8 +45,8 @@ impl Session {
 
 	pub(crate) async fn store_process_error(
 		&self,
-		error: tg::Either<tg::error::Data, tg::error::Id>,
-	) -> tg::Either<tg::error::Data, tg::error::Id> {
+		error: tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>,
+	) -> tg::Either<tg::error::Data, tg::Referent<tg::error::Id>> {
 		let tg::Either::Left(mut data) = error else {
 			return error;
 		};
@@ -66,7 +66,7 @@ impl Session {
 		let error = tg::Error::with_object(object);
 		let result = error.store_with_handle(self).await;
 		match result {
-			Ok(id) => tg::Either::Right(id),
+			Ok(_) => tg::Either::Right(error.to_referent()),
 			Err(error) => {
 				tracing::error!(error = %error.trace(), "failed to store the process error");
 				tg::Either::Left(data)
