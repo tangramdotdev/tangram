@@ -42,11 +42,11 @@ let server = server start $local
 assert ($preserved | path exists) 'expected the current root to be reused'
 
 # A failed rebuild leaves the installed root untouched.
-server stop $local
+server stop $server
 ^touch --date '1970-01-01 UTC' $root
 ^chmod 0555 $container
 let error = try {
-	server start $local | ignore
+	server start $server | ignore
 	null
 } catch { |error| $error }
 ^chmod 0755 $container
@@ -54,7 +54,7 @@ assert ($error != null) 'expected the rebuild to fail'
 assert ($preserved | path exists) 'expected the failed rebuild to preserve the installed root'
 
 # A subsequent successful start replaces the invalid root.
-let server = server start $local
+let server = server start $server
 assert not ($preserved | path exists) 'expected the invalid root to be replaced'
 if $vm {
 	^touch --reference $root $image

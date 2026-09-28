@@ -12,7 +12,7 @@ let remote_destination = server spawn --name remote-destination --config {
 tg --url $remote_destination.url pull $alice.user.id $source_organization.id
 tg --url $remote_destination.url index
 
-let destination_user = tg --url $remote_destination.url user get source-user | from json
+let destination_user = tg --url $remote_destination.url user get alice | from json
 let destination_organization = tg --url $remote_destination.url organization get source-organization | from json
 assert equal $destination_user.id $alice.user.id
 assert equal $destination_user.emails $alice.user.emails

@@ -44,6 +44,6 @@ let output = tg index | complete
 success $output "awaiting indexing must work after restarting without an indexer ID"
 
 # Repeated stops must observe the persisted completion without waiting for another notification.
-server stop $local
-assert equal (open --raw $local.exit | str trim | into int) 0 "the supervisor must report a clean shutdown"
-server stop $local
+server stop $server
+assert equal (open --raw $server.exit | str trim | into int) 0 "the supervisor must report a clean shutdown"
+server stop $server

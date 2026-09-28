@@ -38,6 +38,8 @@ for kind in [sandbox process] {
 	tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
 	let claimed = timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.pool.take $pool_watch 1 | from json
 	let sandbox_path = $claimed.params.path
+	# The sandbox can still be replacing its launcher when the process list is read.
+	wait_until { ps --long | any { |process| $process.command | str contains $sandbox_path } } "the claimed physical sandbox should be running"
 	let pids = ps --long | where { |process| $process.command | str contains $sandbox_path } | get pid
 	assert ($pids | is-not-empty) "the claimed physical sandbox should be running"
 	tg --url $runner.url checkpoint unwatch runner.sandbox.pool.take $pool_watch

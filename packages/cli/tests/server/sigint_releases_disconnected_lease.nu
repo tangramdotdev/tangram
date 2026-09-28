@@ -22,7 +22,7 @@ wait_until { (tg log $hit.params.process | complete).stdout | str contains 'read
 
 # Stop accepting requests while the build client remains connected.
 let server_pid = open --raw ($local.directory | path join lock) | str trim | into int
-kill --signal 2 $local_pid
+kill --signal 2 $server_pid
 wait_until { (timeout 1s tg health | complete).exit_code != 0 } 'the server must stop accepting requests'
 
 # Disconnect the build only after the listener stops, so the wait guard sees a stopped server.
