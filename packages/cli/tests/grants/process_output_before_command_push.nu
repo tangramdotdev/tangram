@@ -17,6 +17,7 @@ let created = tg --url $remote.url --token $root_token runner create | from json
 # Spawn the runner with checkpoints enabled.
 let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
+	process: { await_push: false },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: 'default', token: $created.token.token },
@@ -34,6 +35,9 @@ let push_watch = (
 	| from json
 	| get watch
 )
+
+# Keep the output unavailable on the remote so the wait must confer sync authorization.
+let output_watch = tg --url $runner.url checkpoint watch runner.process.output.push.started | from json | get watch
 
 # The child spawn takes the runner shortcut, so the runner must push its command.
 let path = artifact {
@@ -73,6 +77,7 @@ assert ($params | where {|param| $param.key starts-with 'tokens[' } | any {|para
 # Release the command push.
 tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.command.push.started $push_watch
+tg --url $runner.url checkpoint unwatch runner.process.output.push.started $output_watch
 
 # The returned referent must allow the user to read the output.
 let read = tg --url $local.url cat $file | complete

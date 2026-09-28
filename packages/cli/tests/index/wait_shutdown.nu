@@ -33,7 +33,7 @@ let a = server spawn --name a --config ($config | merge deep {
 	indexer: {
 		log_compaction: { partitions: { start: 0, end: 0 } },
 		updates: {
-			grants: { partitions: { start: 0, end: 0 } },
+			permissions: { partitions: { start: 0, end: 0 } },
 			storage_and_metadata: { partitions: { start: 0, end: 0 } },
 			usage: { partitions: { start: 0, end: 0 } },
 		},
