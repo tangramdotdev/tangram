@@ -1226,13 +1226,13 @@ impl Session {
 
 		// Store the error.
 		let (mut error, error_code) = if let Some(error) = &output.error {
-			let error = error.to_data_or_id();
+			let error = error.to_data_or_id().map_right(|_| error.to_referent());
 			let error_code = match &error {
 				tg::Either::Left(data) => data.code,
 				tg::Either::Right(_) => None,
 			};
 			let error = self.store_process_error(error).await;
-			(Some(error.map_right(tg::Referent::with_node)), error_code)
+			(Some(error), error_code)
 		} else {
 			(None, None)
 		};
