@@ -22,9 +22,9 @@ fn insert(
 async fn later_requests_keep_their_own_queue_targets() {
 	let mut state = State::new();
 	let first = insert(&mut state, "first", RequestState::Queues);
-	state.poll_queues(false, (0, 0), (5, 10));
+	state.poll_queues(false, 0, 10);
 	let mut second = insert(&mut state, "second", RequestState::Queues);
-	state.poll_queues(false, (5, 10), (6, 20));
+	state.poll_queues(false, 10, 20);
 	first.await.unwrap().unwrap();
 	assert!(matches!(
 		second.try_recv(),
@@ -32,35 +32,30 @@ async fn later_requests_keep_their_own_queue_targets() {
 	));
 	assert!(matches!(
 		state.waits["second"].state,
-		RequestState::QueuesPending {
-			archive_sequence: 6,
-			index_sequence: 20
-		}
+		RequestState::QueuesPending { index_sequence: 20 }
 	));
-	state.poll_queues(false, (6, 20), (7, 30));
+	state.poll_queues(false, 20, 30);
 	second.await.unwrap().unwrap();
 }
 
 #[tokio::test]
-async fn waits_include_both_private_queues() {
-	for read in [(4, 10), (5, 9)] {
-		let mut state = State::new();
-		let mut receiver = insert(&mut state, "client", RequestState::Queues);
-		state.poll_queues(false, read, (5, 10));
-		assert!(matches!(
-			receiver.try_recv(),
-			Err(tokio::sync::oneshot::error::TryRecvError::Empty)
-		));
-		state.poll_queues(false, (5, 10), (50, 100));
-		receiver.await.unwrap().unwrap();
-	}
+async fn waits_include_the_index_queue() {
+	let mut state = State::new();
+	let mut receiver = insert(&mut state, "client", RequestState::Queues);
+	state.poll_queues(false, 9, 10);
+	assert!(matches!(
+		receiver.try_recv(),
+		Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+	));
+	state.poll_queues(false, 10, 100);
+	receiver.await.unwrap().unwrap();
 }
 
 #[tokio::test]
 async fn single_process_waits_finish_after_the_tasks() {
 	let mut state = State::new();
 	let receiver = insert(&mut state, "client", RequestState::Queues);
-	state.poll_queues(true, (0, 0), (5, 10));
+	state.poll_queues(true, 0, 10);
 	receiver.await.unwrap().unwrap();
 }
 
