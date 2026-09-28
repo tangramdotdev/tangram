@@ -579,10 +579,21 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to push the command"))?;
 		let mut stream = pin!(stream);
 		while let Some(event) = stream.try_next().await? {
-			if event.is_output() {
-				return Ok(());
+			let tg::progress::Event::Output(output) = event else {
+				progress.forward(Ok(event));
+				continue;
+			};
+
+			// Add the destination's authorization tokens from the push to the command.
+			let mut tokens = tg::authorization::Tokens::default();
+			for node in &output.nodes {
+				for token in node.options.tokens.authorization(location) {
+					tokens.insert_authorization(location.clone(), token.clone());
+				}
 			}
-			progress.forward(Ok(event));
+			Self::inherit_spawn_process_command_tokens(command, &tokens)?;
+
+			return Ok(());
 		}
 		Err(tg::error!("expected an output"))
 	}

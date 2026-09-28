@@ -134,6 +134,9 @@ pub enum GetMessage {
 	#[tangram_serialize(id = 0)]
 	Node(GetNodeMessage),
 
+	#[tangram_serialize(id = 4)]
+	Output(GetOutputMessage),
+
 	#[tangram_serialize(id = 2)]
 	Progress(ProgressMessage),
 }
@@ -203,6 +206,12 @@ pub struct GetAvailableProcessMessage {
 
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
 	pub subtree_output_available: bool,
+}
+
+#[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
+pub struct GetOutputMessage {
+	#[tangram_serialize(id = 0)]
+	pub nodes: Vec<tg::Referent<tg::Id>>,
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]

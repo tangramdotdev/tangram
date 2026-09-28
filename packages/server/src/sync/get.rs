@@ -16,6 +16,7 @@ mod checkout;
 mod database;
 mod index;
 mod input;
+mod output;
 mod pending;
 mod queue;
 mod store;
@@ -236,6 +237,9 @@ impl Session {
 					queue_future,
 					store_future
 				)?;
+
+				// Send the get output before indexing.
+				self.sync_get_output(&state).await?;
 
 				// Index the objects, processes, and sandboxes and update the graph permissions.
 				self.sync_get_index_put(state.graph.clone(), &state.id)
