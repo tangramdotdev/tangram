@@ -95,7 +95,10 @@ impl Session {
 			let mut children = BTreeSet::new();
 			data.children(&mut children);
 			object_children.insert(object.id.clone(), children.clone());
-			object_children_with_tokens.insert(object.id.clone(), object.children.clone());
+			object_children_with_tokens
+				.entry(object.id.clone())
+				.or_insert_with(Vec::new)
+				.extend(object.children.iter().cloned());
 
 			// Create the metadata.
 			let metadata = tg::object::Metadata {

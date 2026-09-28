@@ -195,7 +195,7 @@ impl Value {
 		H: tg::Handle,
 	{
 		// Create the batch.
-		let mut objects = Vec::with_capacity(states.len());
+		let mut objects = Vec::<tg::object::batch::Object>::with_capacity(states.len());
 		let mut state_group_indices = BTreeMap::<tg::object::Id, usize>::new();
 		let mut state_groups = Vec::<Vec<tg::object::State>>::new();
 		for state in &states {
@@ -219,7 +219,9 @@ impl Value {
 				id: id.clone(),
 			};
 			let state_group_index = if let Some(&state_group_index) = state_group_indices.get(&id) {
-				objects[state_group_index] = batch_object;
+				objects[state_group_index]
+					.children
+					.extend(batch_object.children);
 				state_group_index
 			} else {
 				let state_group_index = state_groups.len();

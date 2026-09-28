@@ -294,7 +294,11 @@ export namespace Value {
 				stateGroupIndices.set(id, stateGroupIndex);
 				stateGroups.push([]);
 			} else {
-				objects[stateGroupIndex] = object;
+				let existing = objects[stateGroupIndex]!;
+				existing.children ??= [];
+				for (let child of children) {
+					existing.children.push(child);
+				}
 			}
 			stateGroups[stateGroupIndex]!.push(state);
 		}
