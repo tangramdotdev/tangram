@@ -13,6 +13,7 @@ use {
 };
 
 mod checkout;
+mod complete;
 mod database;
 mod index;
 mod input;
@@ -236,6 +237,9 @@ impl Session {
 					queue_future,
 					store_future
 				)?;
+
+				// Send the complete message before indexing.
+				self.sync_get_complete(&state).await?;
 
 				// Index the objects, processes, and sandboxes and update the graph permissions.
 				self.sync_get_index_put(state.graph.clone(), &state.id)

@@ -87,13 +87,23 @@ impl Session {
 		location: &tg::Location,
 		sync: &tg::Referent<tg::sync::Id>,
 	) -> tg::Result<()> {
-		let mut options = tg::referent::Options::default();
+		let mut tokens = tg::authorization::Tokens::default();
 		for token in sync.options.tokens.local_authorization() {
-			options
-				.tokens
-				.insert_authorization(location.clone(), token.clone());
+			tokens.insert_authorization(location.clone(), token.clone());
 		}
-		command.options.tokens.inherit(&options.tokens);
+		Self::inherit_spawn_process_command_tokens(command, &tokens)?;
+		Ok(())
+	}
+
+	pub(super) fn inherit_spawn_process_command_tokens(
+		command: &mut tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<()> {
+		let options = tg::referent::Options {
+			tokens: tokens.clone(),
+			..Default::default()
+		};
+		command.options.tokens.inherit(tokens);
 		if let tg::Either::Left(command) = &mut command.node {
 			let host = command
 				.host

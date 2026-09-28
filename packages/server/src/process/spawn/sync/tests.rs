@@ -71,3 +71,64 @@ fn spawn_command_sync_tokens_survive_forwarding() {
 		}
 	}
 }
+
+#[test]
+fn spawn_command_uses_push_complete_tokens() {
+	let key =
+		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+			.unwrap();
+	let file = tg::file::Id::new(b"file");
+	let blob = tg::blob::Id::new(b"input");
+	let executable = tg::command::data::Executable {
+		artifact: Some(file.into()),
+		path: None,
+	};
+	let inline = tg::process::spawn::CommandArg {
+		args: Vec::new(),
+		cwd: None,
+		env: std::collections::BTreeMap::new(),
+		executable: tg::Referent::with_node(executable),
+		host: Some("aarch64-darwin".into()),
+		stdin: Some(tg::Referent::with_node(blob)),
+		user: None,
+	};
+	let location = tg::Location::Remote(tg::location::Remote {
+		name: "remote".into(),
+		region: None,
+	});
+	for node in [
+		tg::Either::Left(inline),
+		tg::Either::Right(tg::command::Id::new(b"command")),
+	] {
+		// Create the push output nodes with the destination's proofs from the complete message.
+		let mut command = tg::Referent::with_node(node);
+		let mut expected = std::collections::BTreeMap::new();
+		let mut tokens = tg::authorization::Tokens::default();
+		for object in Session::spawn_process_command_nodes(&command).unwrap() {
+			let body = tg::authorization::Body {
+				expires_at: i64::MAX,
+				permissions: vec![tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				)],
+				resource: object.node.clone(),
+			};
+			let token = tg::authorization::Token::sign(body, &key).unwrap();
+			tokens.insert_authorization(location.clone(), token.clone());
+			expected.insert(object.node, token);
+		}
+
+		// Inherit the proofs and rebase the command for the destination.
+		Session::inherit_spawn_process_command_tokens(&mut command, &tokens).unwrap();
+		Session::update_spawn_process_command_for_location(&mut command, &location).unwrap();
+
+		// Verify that each command object carries its proof from the push.
+		let objects = Session::spawn_process_command_nodes(&command).unwrap();
+		assert_eq!(objects.len(), expected.len());
+		for object in objects {
+			assert_eq!(
+				object.options.tokens.local_authorization(),
+				std::slice::from_ref(&expected[&object.node])
+			);
+		}
+	}
+}
