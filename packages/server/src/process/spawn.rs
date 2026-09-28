@@ -584,7 +584,7 @@ impl Session {
 				continue;
 			};
 
-			// Add the destination's proofs from the push to the command.
+			// Add the destination's authorization tokens from the push to the command.
 			let mut tokens = tg::authorization::Tokens::default();
 			for node in &output.nodes {
 				for token in node.options.tokens.authorization(location) {

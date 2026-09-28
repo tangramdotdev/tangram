@@ -73,7 +73,7 @@ fn spawn_command_sync_tokens_survive_forwarding() {
 }
 
 #[test]
-fn spawn_command_uses_push_complete_tokens() {
+fn spawn_command_uses_push_output_tokens() {
 	let key =
 		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
 			.unwrap();
@@ -100,7 +100,7 @@ fn spawn_command_uses_push_complete_tokens() {
 		tg::Either::Left(inline),
 		tg::Either::Right(tg::command::Id::new(b"command")),
 	] {
-		// Create the push output nodes with the destination's proofs from the complete message.
+		// Create the push output nodes with the destination's authorization tokens from the get output.
 		let mut command = tg::Referent::with_node(node);
 		let mut expected = std::collections::BTreeMap::new();
 		let mut tokens = tg::authorization::Tokens::default();
@@ -117,11 +117,11 @@ fn spawn_command_uses_push_complete_tokens() {
 			expected.insert(object.node, token);
 		}
 
-		// Inherit the proofs and rebase the command for the destination.
+		// Inherit the authorization tokens and rebase the command for the destination.
 		Session::inherit_spawn_process_command_tokens(&mut command, &tokens).unwrap();
 		Session::update_spawn_process_command_for_location(&mut command, &location).unwrap();
 
-		// Verify that each command object carries its proof from the push.
+		// Verify that each command object carries its authorization token from the push.
 		let objects = Session::spawn_process_command_nodes(&command).unwrap();
 		assert_eq!(objects.len(), expected.len());
 		for object in objects {

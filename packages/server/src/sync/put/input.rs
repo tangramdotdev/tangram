@@ -79,7 +79,7 @@ impl Session {
 					state.queue.close_if_end();
 				},
 
-				tg::sync::GetMessage::Complete(_) | tg::sync::GetMessage::Progress(_) => (),
+				tg::sync::GetMessage::Output(_) | tg::sync::GetMessage::Progress(_) => (),
 
 				tg::sync::GetMessage::End => {
 					tracing::trace!("received end");

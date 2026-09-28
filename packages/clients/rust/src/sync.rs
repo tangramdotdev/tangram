@@ -128,14 +128,14 @@ pub enum GetMessage {
 	#[tangram_serialize(id = 1)]
 	Available(GetAvailableMessage),
 
-	#[tangram_serialize(id = 4)]
-	Complete(GetCompleteMessage),
-
 	#[tangram_serialize(id = 3)]
 	End,
 
 	#[tangram_serialize(id = 0)]
 	Node(GetNodeMessage),
+
+	#[tangram_serialize(id = 4)]
+	Output(GetOutputMessage),
 
 	#[tangram_serialize(id = 2)]
 	Progress(ProgressMessage),
@@ -209,7 +209,7 @@ pub struct GetAvailableProcessMessage {
 }
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
-pub struct GetCompleteMessage {
+pub struct GetOutputMessage {
 	#[tangram_serialize(id = 0)]
 	pub nodes: Vec<tg::Referent<tg::Id>>,
 }

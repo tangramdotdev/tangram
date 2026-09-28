@@ -198,7 +198,7 @@ impl Session {
 					get_end_received = true;
 				},
 				tg::sync::Message::Get(
-					tg::sync::GetMessage::Complete(_) | tg::sync::GetMessage::Progress(_),
+					tg::sync::GetMessage::Output(_) | tg::sync::GetMessage::Progress(_),
 				)
 				| tg::sync::Message::Put(
 					tg::sync::PutMessage::End | tg::sync::PutMessage::Progress(_),

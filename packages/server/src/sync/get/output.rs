@@ -11,12 +11,12 @@ use {
 };
 
 impl Session {
-	pub(super) async fn sync_get_complete(&self, state: &State) -> tg::Result<()> {
+	pub(super) async fn sync_get_output(&self, state: &State) -> tg::Result<()> {
 		if state.arg.get.is_empty() {
 			return Ok(());
 		}
 
-		// Create the nodes with tokens that prove the permissions derived from the graph.
+		// Create the nodes with authorization tokens for permissions derived from the graph.
 		let expires_at = self.server.clock.unix_timestamp()?
 			+ self
 				.server
@@ -36,22 +36,22 @@ impl Session {
 					tg::Selector::Id(id) => Some(id),
 					tg::Selector::Specifier(_) => None,
 				})
-				.map(|id| self.sync_get_complete_node(&graph, id, expires_at))
+				.map(|id| self.sync_get_output_node(&graph, id, expires_at))
 				.collect::<tg::Result<Vec<_>>>()?
 		};
 
-		// Send the complete message.
-		let message = tg::sync::GetCompleteMessage { nodes };
+		// Send the get output.
+		let message = tg::sync::GetOutputMessage { nodes };
 		state
 			.sender
-			.send(Ok(tg::sync::GetMessage::Complete(message)))
+			.send(Ok(tg::sync::GetMessage::Output(message)))
 			.await
-			.map_err(|error| tg::error!(!error, "failed to send the complete message"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the get output"))?;
 
 		Ok(())
 	}
 
-	fn sync_get_complete_node(
+	fn sync_get_output_node(
 		&self,
 		graph: &Graph,
 		id: &tg::Id,

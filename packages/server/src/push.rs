@@ -633,19 +633,19 @@ impl Session {
 						}
 					}
 
-					let mut complete = None;
+					let mut get_output = None;
 					let mut destination_output_stream = pin!(destination_output_stream);
 					while let Some(message) = destination_output_stream.try_next().await? {
 						match message {
-							tg::sync::Message::Get(tg::sync::GetMessage::Complete(message)) => {
-								complete = Some(message);
+							tg::sync::Message::Get(tg::sync::GetMessage::Output(message)) => {
+								get_output = Some(message);
 							},
 							tg::sync::Message::Get(tg::sync::GetMessage::Progress(message)) => {
 								Self::push_or_pull_increment_progress(&progress, &message);
 								*output.lock().unwrap() += &message;
 							},
 							tg::sync::Message::End => {
-								return Ok::<_, tg::Error>((true, sync_output, complete));
+								return Ok::<_, tg::Error>((true, sync_output, get_output));
 							},
 							_ => {
 								destination_output_sender
@@ -655,10 +655,10 @@ impl Session {
 							},
 						}
 					}
-					Ok((false, sync_output, complete))
+					Ok((false, sync_output, get_output))
 				};
 
-				let (source_completed, (destination_completed, sync_output, complete)) =
+				let (source_completed, (destination_completed, sync_output, get_output)) =
 					future::try_join(source_future, destination_future)
 						.boxed()
 						.await?;
@@ -676,20 +676,18 @@ impl Session {
 						}
 					}
 
-					// Add the destination's proofs from the complete message to the output nodes.
-					if !get_empty && complete.is_none() {
-						return Err(tg::error!(
-							"the destination did not send the complete message"
-						));
+					// Add the destination's authorization tokens from the get output to the push output nodes.
+					if !get_empty && get_output.is_none() {
+						return Err(tg::error!("the destination did not send the get output"));
 					}
-					let complete_nodes = complete.into_iter().flat_map(|complete| complete.nodes);
-					for complete_node in complete_nodes {
+					let get_output_nodes = get_output.into_iter().flat_map(|output| output.nodes);
+					for get_output_node in get_output_nodes {
 						let mut tokens = tg::authorization::Tokens::default();
-						for token in complete_node.options.tokens.local_authorization() {
+						for token in get_output_node.options.tokens.local_authorization() {
 							tokens.insert_authorization(destination.clone(), token.clone());
 						}
 						for node in &mut output.nodes {
-							if node.node == complete_node.node {
+							if node.node == get_output_node.node {
 								node.options.tokens.inherit(&tokens);
 							}
 						}
@@ -763,7 +761,7 @@ impl Session {
 				},
 				tg::sync::Message::Get(
 					tg::sync::GetMessage::Available(_)
-					| tg::sync::GetMessage::Complete(_)
+					| tg::sync::GetMessage::Output(_)
 					| tg::sync::GetMessage::Progress(_),
 				)
 				| tg::sync::Message::Put(_) => continue,
