@@ -1,5 +1,4 @@
 pub mod object;
-pub mod s3;
 
 pub trait Archive {
 	fn delete_object(

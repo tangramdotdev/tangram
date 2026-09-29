@@ -2,7 +2,6 @@ use {
 	futures::{SinkExt as _, StreamExt as _, channel::mpsc, channel::oneshot},
 	std::{
 		collections::HashMap,
-		convert::Infallible,
 		future::Future,
 		ops::ControlFlow,
 		sync::{
@@ -13,12 +12,11 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub(crate) type LmdbError = Infallible;
-pub(crate) type Receiver<E> = mpsc::Receiver<Message<E>>;
-type Response<E> = Result<ControlFlow<Output, E>, tg::Error>;
+pub type Receiver<E> = mpsc::Receiver<Message<E>>;
+pub type Response<E> = Result<ControlFlow<Output, E>, tg::Error>;
 
 #[derive(Clone, Debug)]
-pub(crate) enum Request {
+pub enum Request {
 	Group {
 		group: tg::group::Id,
 	},
@@ -127,7 +125,7 @@ pub(crate) enum Request {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) enum Output {
+pub enum Output {
 	Bool(bool),
 	Permissions {
 		after: Option<Vec<u8>>,
@@ -165,7 +163,7 @@ pub(crate) enum Output {
 	},
 }
 
-pub(crate) struct Message<E> {
+pub struct Message<E> {
 	pub request: Request,
 	pub sender: oneshot::Sender<Result<ControlFlow<Output, E>, tg::Error>>,
 }
@@ -242,7 +240,7 @@ enum CacheEntry<E> {
 	Ready(Response<E>),
 }
 
-pub(crate) struct Cache<E> {
+pub struct Cache<E> {
 	entries: Arc<Mutex<HashMap<CacheKey, CacheEntry<E>>>>,
 }
 
@@ -251,7 +249,7 @@ struct CacheMissGuard<E> {
 	key: Option<CacheKey>,
 }
 
-pub(crate) struct Client<E> {
+pub struct Client<E> {
 	cache: Cache<E>,
 	concurrency: usize,
 	reads: Arc<AtomicUsize>,
@@ -260,15 +258,12 @@ pub(crate) struct Client<E> {
 
 #[cfg(test)]
 #[must_use]
-pub(crate) fn channel<E>(concurrency: usize) -> (Client<E>, Receiver<E>) {
+pub fn channel<E>(concurrency: usize) -> (Client<E>, Receiver<E>) {
 	channel_with_cache(concurrency, Cache::new())
 }
 
 #[must_use]
-pub(crate) fn channel_with_cache<E>(
-	concurrency: usize,
-	cache: Cache<E>,
-) -> (Client<E>, Receiver<E>) {
+pub fn channel_with_cache<E>(concurrency: usize, cache: Cache<E>) -> (Client<E>, Receiver<E>) {
 	let concurrency = concurrency.max(1);
 	let (sender, receiver) = mpsc::channel(concurrency);
 	let client = Client {
@@ -281,7 +276,7 @@ pub(crate) fn channel_with_cache<E>(
 	(client, receiver)
 }
 
-pub(crate) async fn serve<E, F, Fut>(receiver: Receiver<E>, concurrency: usize, handler: F)
+pub async fn serve<E, F, Fut>(receiver: Receiver<E>, concurrency: usize, handler: F)
 where
 	F: Clone + Fn(Request) -> Fut,
 	Fut: Future<Output = Response<E>>,
@@ -557,10 +552,16 @@ impl Output {
 
 impl<E> Cache<E> {
 	#[must_use]
-	pub(crate) fn new() -> Self {
+	pub fn new() -> Self {
 		Self {
 			entries: Arc::new(Mutex::new(HashMap::new())),
 		}
+	}
+}
+
+impl<E> Default for Cache<E> {
+	fn default() -> Self {
+		Self::new()
 	}
 }
 
@@ -733,7 +734,7 @@ mod tests {
 	async fn cancellation_does_not_retain_the_channel() {
 		let requests = Arc::new(AtomicUsize::new(0));
 		let cache = Cache::new();
-		let (client, receiver) = channel_with_cache::<LmdbError>(1, cache.clone());
+		let (client, receiver) = channel_with_cache::<std::convert::Infallible>(1, cache.clone());
 		let provide = serve(receiver, 1, {
 			let requests = requests.clone();
 			move |_| {
@@ -778,7 +779,7 @@ mod tests {
 		let active = Arc::new(AtomicUsize::new(0));
 		let barrier = Arc::new(Barrier::new(CONCURRENCY));
 		let maximum = Arc::new(AtomicUsize::new(0));
-		let (client, receiver) = channel::<LmdbError>(CONCURRENCY);
+		let (client, receiver) = channel::<std::convert::Infallible>(CONCURRENCY);
 		let provide = serve(receiver, CONCURRENCY, {
 			let active = active.clone();
 			let barrier = barrier.clone();
@@ -818,7 +819,7 @@ mod tests {
 	#[tokio::test]
 	async fn direct_fact_requests_are_deduplicated() {
 		let requests = Arc::new(AtomicUsize::new(0));
-		let (client, receiver) = channel::<LmdbError>(2);
+		let (client, receiver) = channel::<std::convert::Infallible>(2);
 		let provide = serve(receiver, 2, {
 			let requests = requests.clone();
 			move |_| {
@@ -849,7 +850,7 @@ mod tests {
 	#[tokio::test]
 	async fn fact_cache_is_shared_across_channels() {
 		let requests = Arc::new(AtomicUsize::new(0));
-		let cache = Cache::<LmdbError>::new();
+		let cache = Cache::<std::convert::Infallible>::new();
 		let (first_client, first_receiver) = channel_with_cache(1, cache.clone());
 		let (second_client, second_receiver) = channel_with_cache(1, cache);
 		let first_provider = serve(first_receiver, 1, {
@@ -894,7 +895,7 @@ mod tests {
 	#[tokio::test]
 	async fn parent_pages_are_cached() {
 		let requests = Arc::new(AtomicUsize::new(0));
-		let (client, receiver) = channel::<LmdbError>(2);
+		let (client, receiver) = channel::<std::convert::Infallible>(2);
 		let provide = serve(receiver, 2, {
 			let requests = requests.clone();
 			move |_| {
@@ -939,7 +940,7 @@ mod tests {
 	#[tokio::test]
 	async fn object_child_pages_are_not_cached() {
 		let requests = Arc::new(AtomicUsize::new(0));
-		let (client, receiver) = channel::<LmdbError>(2);
+		let (client, receiver) = channel::<std::convert::Infallible>(2);
 		let provide = serve(receiver, 2, {
 			let requests = requests.clone();
 			move |_| {

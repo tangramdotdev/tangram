@@ -1,0 +1,207 @@
+use {
+	super::super::{Index, Kind},
+	num_traits::ToPrimitive as _,
+	std::collections::BTreeSet,
+	tangram_client::prelude::*,
+};
+
+fn count_clean_keys(index: &Index) -> usize {
+	let transaction = index.env.read_txn().unwrap();
+	let prefix = Index::pack(&index.subspace, &(Kind::Clean.to_i32().unwrap(),));
+	index
+		.db
+		.prefix_iter(&transaction, &prefix)
+		.unwrap()
+		.map(Result::unwrap)
+		.count()
+}
+
+fn count_subject_permissions(index: &Index, subject: &tg::authorization::Subject) -> usize {
+	let transaction = index.env.read_txn().unwrap();
+	let prefix = Index::pack(
+		&index.subspace,
+		&(
+			Kind::SubjectPermission.to_i32().unwrap(),
+			subject.to_string(),
+		),
+	);
+	index
+		.db
+		.prefix_iter(&transaction, &prefix)
+		.unwrap()
+		.map(Result::unwrap)
+		.count()
+}
+
+#[tokio::test]
+async fn object_output_includes_the_deleted_put_and_touched_at() {
+	let (_dir, index) = super::new_index();
+	let id = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
+	let object = tangram_index::object::put::Arg {
+		checkout: None,
+		children: BTreeSet::new(),
+		id: id.clone(),
+		metadata: tg::object::Metadata::default(),
+		put: [1; 16],
+		storage: tangram_index::object::Storage::default(),
+		time_to_touch: std::time::Duration::ZERO,
+		touched_at: 7,
+	};
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutObject(object)],
+	};
+	index.batch(arg).await.unwrap();
+	let arg = tangram_index::clean::Arg {
+		batch_size: 1,
+		max_object_touched_at: 7,
+		max_process_touched_at: i64::MIN,
+		max_sandbox_touched_at: i64::MIN,
+		now: 7,
+		partition_end: 1,
+		partition_start: 0,
+	};
+	let output = index.clean(arg).await.unwrap();
+	assert_eq!(output.objects.len(), 1);
+	assert_eq!(output.objects[0].id, id);
+	assert_eq!(output.objects[0].put, [1; 16]);
+	assert_eq!(output.objects[0].touched_at, 7);
+}
+
+#[tokio::test]
+async fn deleting_a_process_deletes_all_permissions_it_holds() {
+	let (_dir, index) = super::new_index();
+	let command = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
+	let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![1].into());
+	let process = tg::process::Id::new();
+	let creator = tg::Principal::Process(process.clone());
+	let subject = tg::authorization::Subject::Process(process.clone());
+	let subtree = tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	let put_object = |id| {
+		tangram_index::batch::Item::PutObject(tangram_index::object::put::Arg {
+			checkout: None,
+			children: BTreeSet::new(),
+			id,
+			metadata: tg::object::Metadata::default(),
+			put: [1; 16],
+			storage: tangram_index::object::Storage::default(),
+			time_to_touch: std::time::Duration::ZERO,
+			touched_at: 0,
+		})
+	};
+	index
+		.batch(tangram_index::batch::Arg {
+			items: vec![
+				put_object(command.clone()),
+				put_object(object.clone()),
+				tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
+					cached: false,
+					children: None,
+					command: Some(vec![command.clone()]),
+					command_id: command.clone(),
+					data: None,
+					error: None,
+					id: process.clone(),
+					location: None,
+					log: None,
+					metadata: tg::process::Metadata::default(),
+					options: tg::referent::Options::default(),
+					output: None,
+					parent: None,
+					sandbox: None,
+					storage: tangram_index::process::Storage::default(),
+					time_to_touch: std::time::Duration::ZERO,
+					touched_at: 0,
+				}),
+				tangram_index::batch::Item::PutPermission(tangram_index::permission::put::Arg {
+					created_at: 0,
+					creator: Some(creator.clone()),
+					permissions: subtree.into(),
+					resource: command.into(),
+					source: tangram_index::permission::Source::Direct { expires_at: None },
+					subject: subject.clone(),
+					time_to_touch: None,
+				}),
+				tangram_index::batch::Item::PutPermission(tangram_index::permission::put::Arg {
+					created_at: 0,
+					creator: Some(creator),
+					permissions: subtree.into(),
+					resource: object.into(),
+					source: tangram_index::permission::Source::Direct {
+						expires_at: Some(10),
+					},
+					subject: subject.clone(),
+					time_to_touch: None,
+				}),
+			],
+		})
+		.await
+		.unwrap();
+	assert_eq!(count_subject_permissions(&index, &subject), 2);
+
+	loop {
+		let output = index
+			.clean(tangram_index::clean::Arg {
+				batch_size: 100,
+				max_object_touched_at: i64::MAX,
+				max_process_touched_at: i64::MAX,
+				max_sandbox_touched_at: i64::MAX,
+				now: i64::MAX,
+				partition_end: 1,
+				partition_start: 0,
+			})
+			.await
+			.unwrap();
+		if output.done {
+			break;
+		}
+	}
+
+	assert_eq!(count_subject_permissions(&index, &subject), 0);
+}
+
+#[tokio::test]
+async fn account_and_entity_candidates_share_the_clean_batch() {
+	let (_dir, index) = super::new_index();
+	let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let arg = tangram_index::batch::Arg {
+		items: vec![
+			tangram_index::batch::Item::PutObject(tangram_index::object::put::Arg {
+				checkout: None,
+				children: BTreeSet::new(),
+				id: object.clone(),
+				metadata: tg::object::Metadata::default(),
+				put: [1; 16],
+				storage: tangram_index::object::Storage::default(),
+				time_to_touch: std::time::Duration::ZERO,
+				touched_at: 1,
+			}),
+			tangram_index::batch::Item::PutAccountObject(
+				tangram_index::usage::storage::put::ObjectArg {
+					account,
+					object,
+					touched_at: 1,
+				},
+			),
+		],
+	};
+	index.batch(arg).await.unwrap();
+	assert_eq!(count_clean_keys(&index), 2);
+
+	let output = index
+		.clean(tangram_index::clean::Arg {
+			batch_size: 1,
+			max_object_touched_at: i64::MAX,
+			max_process_touched_at: i64::MAX,
+			max_sandbox_touched_at: i64::MAX,
+			now: i64::MAX,
+			partition_end: 1,
+			partition_start: 0,
+		})
+		.await
+		.unwrap();
+	assert!(!output.done);
+	assert_eq!(count_clean_keys(&index), 1);
+}

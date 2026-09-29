@@ -1,8 +1,9 @@
 use tangram_client::prelude::*;
 
 mod engine;
-pub(crate) use engine::Batch;
-pub(crate) mod facts;
+pub use engine::Batch;
+#[doc(hidden)]
+pub mod facts;
 pub(crate) mod search;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -211,7 +212,7 @@ impl Default for SubtreeConfig {
 }
 
 #[must_use]
-pub(crate) fn search_exhausted_error(message: &str) -> tg::Error {
+pub fn search_exhausted_error(message: &str) -> tg::Error {
 	let authorization_search_exhausted = true;
 
 	tg::error!(?authorization_search_exhausted, "{message}")

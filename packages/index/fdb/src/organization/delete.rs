@@ -1,0 +1,82 @@
+#![allow(clippy::unnecessary_wraps)]
+
+use {
+	crate::{Index, Key, Request, Response},
+	foundationdb as fdb, foundationdb_tuple as fdbt,
+	std::ops::ControlFlow,
+	tangram_client::prelude::*,
+};
+
+impl Index {
+	pub async fn delete_organizations(&self, ids: &[tg::organization::Id]) -> tg::Result<()> {
+		if ids.is_empty() {
+			return Ok(());
+		}
+		let request = Request::DeleteOrganizations(ids.to_vec());
+		let response = self.send_write_request(request).await?;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected write response"));
+		};
+		Ok(())
+	}
+
+	pub async fn delete_organization_members(
+		&self,
+		args: &[tangram_index::organization::member::delete::Arg],
+	) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let request = Request::DeleteOrganizationMembers(args.to_vec());
+		let response = self.send_write_request(request).await?;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected write response"));
+		};
+		Ok(())
+	}
+
+	pub(crate) async fn delete_organizations_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &fdbt::Subspace,
+		ids: &[tg::organization::Id],
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		for id in ids {
+			let key = Key::Organization(crate::organization::Key::Organization(id.clone()));
+			let key = Self::pack(subspace, &key);
+			let result = txn.get(&key, false).await;
+			let organization = crate::retry!(result)
+				.map(|bytes| tangram_index::organization::Organization::deserialize(&bytes))
+				.transpose()?;
+			if let Some(organization) = organization {
+				let node_key = Key::Node(crate::node::Key::Node(organization.specifier));
+				let node_key = Self::pack(subspace, &node_key);
+				txn.clear(&node_key);
+			}
+			txn.clear(&key);
+		}
+		Ok(ControlFlow::Break(()))
+	}
+
+	pub(crate) fn delete_organization_members_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &fdbt::Subspace,
+		args: &[tangram_index::organization::member::delete::Arg],
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		for arg in args {
+			let key = Key::Organization(crate::organization::Key::OrganizationMember {
+				organization: arg.organization.clone(),
+				member: arg.member.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+
+			let key = Key::Organization(crate::organization::Key::MemberOrganization {
+				member: arg.member.clone(),
+				organization: arg.organization.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			txn.clear(&key);
+		}
+		Ok(ControlFlow::Break(()))
+	}
+}

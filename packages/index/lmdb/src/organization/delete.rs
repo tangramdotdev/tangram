@@ -1,0 +1,88 @@
+use {
+	crate::{Db, Index, Key, Request, Response},
+	foundationdb_tuple as fdbt, heed as lmdb,
+	tangram_client::prelude::*,
+};
+
+impl Index {
+	pub async fn delete_organizations(&self, ids: &[tg::organization::Id]) -> tg::Result<()> {
+		if ids.is_empty() {
+			return Ok(());
+		}
+		let request = Request::DeleteOrganizations(ids.to_vec());
+		let response = self.send_write_request(request).await?;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected write response"));
+		};
+
+		Ok(())
+	}
+
+	pub async fn delete_organization_members(
+		&self,
+		args: &[tangram_index::organization::member::delete::Arg],
+	) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let request = Request::DeleteOrganizationMembers(args.to_vec());
+		let response = self.send_write_request(request).await?;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected write response"));
+		};
+
+		Ok(())
+	}
+
+	pub(crate) fn delete_organizations_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		ids: &[tg::organization::Id],
+	) -> tg::Result<()> {
+		for id in ids {
+			let key = Key::Organization(crate::organization::Key::Organization(id.clone()));
+			let key = Self::pack(subspace, &key);
+			let organization = db
+				.get(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to get the organization"))?
+				.map(tangram_index::organization::Organization::deserialize)
+				.transpose()?;
+			if let Some(organization) = organization {
+				let key = Key::Node(crate::node::Key::Node(organization.specifier));
+				let key = Self::pack(subspace, &key);
+				db.delete(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to delete the node"))?;
+			}
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the organization"))?;
+		}
+		Ok(())
+	}
+
+	pub(crate) fn delete_organization_members_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		args: &[tangram_index::organization::member::delete::Arg],
+	) -> tg::Result<()> {
+		for arg in args {
+			let key = Key::Organization(crate::organization::Key::OrganizationMember {
+				organization: arg.organization.clone(),
+				member: arg.member.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the organization member"))?;
+
+			let key = Key::Organization(crate::organization::Key::MemberOrganization {
+				member: arg.member.clone(),
+				organization: arg.organization.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the member organization"))?;
+		}
+		Ok(())
+	}
+}

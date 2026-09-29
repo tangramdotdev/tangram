@@ -4,9 +4,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[cfg(test)]
-mod tests;
-
 /// Read at most `length` contiguous bytes from `position` in the selected streams, stopping at the first gap.
 #[derive(Clone, Debug)]
 pub struct Arg {
@@ -16,7 +13,7 @@ pub struct Arg {
 	pub streams: BTreeSet<tg::process::stdio::Stream>,
 }
 
-pub(crate) struct Builder<'a> {
+pub struct Builder<'a> {
 	arg: &'a Arg,
 	entries: Vec<Entry<'static>>,
 	position: u64,
@@ -43,7 +40,7 @@ pub struct Entry<'a> {
 
 impl<'a> Builder<'a> {
 	#[must_use]
-	pub(crate) fn new(arg: &'a Arg) -> Self {
+	pub fn new(arg: &'a Arg) -> Self {
 		Self {
 			arg,
 			entries: Vec::new(),
@@ -53,7 +50,7 @@ impl<'a> Builder<'a> {
 	}
 
 	// Return only a contiguous prefix so a reader can resume at a gap when a delayed write arrives.
-	pub(crate) fn push(&mut self, entry: &Entry<'_>) -> bool {
+	pub fn push(&mut self, entry: &Entry<'_>) -> bool {
 		if self.remaining == 0 {
 			return false;
 		}
@@ -93,7 +90,7 @@ impl<'a> Builder<'a> {
 	}
 
 	#[must_use]
-	pub(crate) fn finish(self) -> Vec<Entry<'static>> {
+	pub fn finish(self) -> Vec<Entry<'static>> {
 		self.entries
 	}
 }

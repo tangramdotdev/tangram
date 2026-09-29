@@ -13,7 +13,7 @@ pub use archive::object;
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Archive {
-	S3(archive::s3::Archive),
+	S3(tangram_archive_s3::Archive),
 }
 
 impl Archive {
@@ -31,7 +31,7 @@ impl Archive {
 			max_delay: config.reconnect.max_delay,
 			max_retries: config.reconnect.max_retries,
 		};
-		let config = archive::s3::Config {
+		let config = tangram_archive_s3::Config {
 			access_key: config.access_key.clone(),
 			bucket: config.bucket.clone(),
 			endpoint: config.endpoint.clone(),
@@ -41,7 +41,7 @@ impl Archive {
 			region: config.region.clone(),
 			secret_key: config.secret_key.clone(),
 		};
-		let archive = archive::s3::Archive::new(&config)?;
+		let archive = tangram_archive_s3::Archive::new(&config)?;
 
 		Ok(Self::S3(archive))
 	}

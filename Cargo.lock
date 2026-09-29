@@ -7920,6 +7920,14 @@ dependencies = [
 name = "tangram_archive"
 version = "0.0.0"
 dependencies = [
+ "bytes",
+ "tangram_client",
+]
+
+[[package]]
+name = "tangram_archive_s3"
+version = "0.0.0"
+dependencies = [
  "aws-credential-types",
  "aws-sigv4",
  "bytes",
@@ -7931,6 +7939,7 @@ dependencies = [
  "rustls",
  "rustls-platform-verifier",
  "serde",
+ "tangram_archive",
  "tangram_client",
  "tangram_futures",
  "tangram_http",
@@ -7947,20 +7956,56 @@ name = "tangram_cache"
 version = "0.0.0"
 dependencies = [
  "bytes",
- "foundationdb-tuple",
- "futures",
- "heed",
- "indoc",
  "num",
- "num-derive 0.5.1",
  "num-traits",
- "reqwest 0.13.5",
- "scylla",
  "serde",
  "serde_json",
  "tangram_client",
  "tangram_serialize",
+]
+
+[[package]]
+name = "tangram_cache_lmdb"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "foundationdb-tuple",
+ "heed",
+ "num",
+ "num-derive 0.5.1",
+ "num-traits",
+ "tangram_cache",
+ "tangram_client",
+ "tangram_serialize",
  "tangram_util",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cache_memory"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "num",
+ "tangram_cache",
+ "tangram_client",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_cache_scylla"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "indoc",
+ "num",
+ "reqwest 0.13.5",
+ "scylla",
+ "serde",
+ "tangram_cache",
+ "tangram_client",
+ "tangram_serialize",
  "tokio",
 ]
 
@@ -8147,27 +8192,16 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "derive_more",
- "fnv",
  "futures",
  "indexmap 2.14.2",
  "itertools 0.15.0",
  "num",
- "postgres-protocol",
- "rusqlite",
- "rustls",
- "rustls-platform-verifier",
  "serde",
  "serde_json",
  "tangram_database_macro",
  "tangram_either",
  "tangram_futures",
  "tangram_pool",
- "tangram_uri",
- "tokio",
- "tokio-postgres",
- "tokio-postgres-rustls",
- "tracing",
- "turso",
 ]
 
 [[package]]
@@ -8177,6 +8211,71 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.6",
+]
+
+[[package]]
+name = "tangram_database_postgres"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "derive_more",
+ "fnv",
+ "futures",
+ "indexmap 2.14.2",
+ "postgres-protocol",
+ "rustls",
+ "rustls-platform-verifier",
+ "serde",
+ "serde_json",
+ "tangram_database",
+ "tangram_database_macro",
+ "tangram_futures",
+ "tangram_pool",
+ "tangram_uri",
+ "tokio",
+ "tokio-postgres",
+ "tokio-postgres-rustls",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_database_sqlite"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "derive_more",
+ "fnv",
+ "futures",
+ "indexmap 2.14.2",
+ "itertools 0.15.0",
+ "num",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "tangram_database",
+ "tangram_database_macro",
+ "tangram_futures",
+ "tangram_pool",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_database_turso"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "derive_more",
+ "fnv",
+ "futures",
+ "indexmap 2.14.2",
+ "serde",
+ "serde_json",
+ "tangram_database",
+ "tangram_database_macro",
+ "tangram_futures",
+ "tangram_pool",
+ "tokio",
+ "turso",
 ]
 
 [[package]]
@@ -8249,9 +8348,48 @@ dependencies = [
 name = "tangram_index"
 version = "0.0.0"
 dependencies = [
- "crossbeam-channel",
  "derive_more",
+ "foundationdb-tuple",
+ "futures",
+ "jiff",
+ "num-derive 0.5.1",
+ "num-traits",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tangram_client",
+ "tangram_serialize",
+ "tangram_util",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "tangram_index_fdb"
+version = "0.0.0"
+dependencies = [
  "foundationdb",
+ "foundationdb-tuple",
+ "futures",
+ "jiff",
+ "num",
+ "num-derive 0.5.1",
+ "num-traits",
+ "opentelemetry",
+ "rand 0.10.3",
+ "serde_json",
+ "tangram_client",
+ "tangram_index",
+ "tangram_serialize",
+ "tangram_util",
+ "tokio",
+]
+
+[[package]]
+name = "tangram_index_lmdb"
+version = "0.0.0"
+dependencies = [
+ "crossbeam-channel",
  "foundationdb-tuple",
  "futures",
  "heed",
@@ -8259,17 +8397,14 @@ dependencies = [
  "num",
  "num-derive 0.5.1",
  "num-traits",
- "opentelemetry",
  "rand 0.10.3",
- "serde",
  "serde_json",
- "serde_with",
  "tangram_client",
+ "tangram_index",
  "tangram_serialize",
  "tangram_util",
  "tempfile",
  "tokio",
- "tracing",
 ]
 
 [[package]]
@@ -8320,15 +8455,32 @@ dependencies = [
 name = "tangram_messenger"
 version = "0.0.0"
 dependencies = [
- "async-nats",
  "bytes",
  "derive_more",
  "futures",
- "rand 0.10.3",
  "serde",
  "serde_json",
  "tangram_either",
+]
+
+[[package]]
+name = "tangram_messenger_memory"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "futures",
+ "rand 0.10.3",
+ "tangram_messenger",
  "tokio",
+]
+
+[[package]]
+name = "tangram_messenger_nats"
+version = "0.0.0"
+dependencies = [
+ "async-nats",
+ "futures",
+ "tangram_messenger",
 ]
 
 [[package]]
@@ -8472,16 +8624,27 @@ dependencies = [
  "smallvec",
  "sync_wrapper",
  "tangram_archive",
+ "tangram_archive_s3",
  "tangram_cache",
+ "tangram_cache_lmdb",
+ "tangram_cache_memory",
+ "tangram_cache_scylla",
  "tangram_client",
  "tangram_compiler",
  "tangram_database",
+ "tangram_database_postgres",
+ "tangram_database_sqlite",
+ "tangram_database_turso",
  "tangram_futures",
  "tangram_http",
  "tangram_ignore",
  "tangram_index",
+ "tangram_index_fdb",
+ "tangram_index_lmdb",
  "tangram_js",
  "tangram_messenger",
+ "tangram_messenger_memory",
+ "tangram_messenger_nats",
  "tangram_pool",
  "tangram_sandbox",
  "tangram_serialize",
@@ -8594,6 +8757,7 @@ dependencies = [
  "num",
  "serde_json",
  "tangram_cache",
+ "tangram_cache_lmdb",
  "tangram_client",
  "tangram_uri",
  "tangram_util",

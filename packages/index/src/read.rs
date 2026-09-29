@@ -1,12 +1,12 @@
 use tangram_client::prelude::*;
 
-pub(crate) const CHANNEL_CAPACITY: usize = 256;
+pub const CHANNEL_CAPACITY: usize = 256;
 
-pub(crate) type Receiver = tokio::sync::mpsc::Receiver<(Request, ResponseSender)>;
-pub(crate) type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
-pub(crate) type Sender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
+pub type Receiver = tokio::sync::mpsc::Receiver<(Request, ResponseSender)>;
+pub type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
+pub type Sender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
 
-pub(crate) enum Request {
+pub enum Request {
 	AuthorizeBatch {
 		args: Vec<crate::authorize::Arg>,
 		config: crate::authorize::Config,
@@ -109,7 +109,7 @@ pub(crate) enum Request {
 	},
 }
 
-pub(crate) enum Response {
+pub enum Response {
 	AuthorizeBatch(Vec<crate::authorize::Outcome>),
 	ContainsIds(Vec<bool>),
 	GetIndexers(Vec<crate::indexer::Indexer>),

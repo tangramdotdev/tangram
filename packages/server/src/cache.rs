@@ -9,19 +9,19 @@ pub use cache::{archive, index, log, object};
 #[unwrap(ref)]
 pub enum Cache {
 	#[cfg(feature = "lmdb")]
-	Lmdb(cache::lmdb::Cache),
+	Lmdb(tangram_cache_lmdb::Cache),
 
-	Memory(cache::memory::Cache),
+	Memory(tangram_cache_memory::Cache),
 
 	#[cfg(feature = "scylla")]
-	Scylla(cache::scylla::Cache),
+	Scylla(tangram_cache_scylla::Cache),
 }
 
 impl Cache {
 	#[cfg(feature = "lmdb")]
 	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbCache) -> tg::Result<Self> {
 		let path = directory.join(&config.path);
-		let config = cache::lmdb::Config {
+		let config = tangram_cache_lmdb::Config {
 			map_size: config.map_size,
 			path: path.clone(),
 			posix_sem_prefix: config.resolved_posix_sem_prefix(),
@@ -29,7 +29,7 @@ impl Cache {
 			read_concurrency: config.read_concurrency,
 			write_batch_size: config.write_batch_size,
 		};
-		let lmdb = cache::lmdb::Cache::new(&config).map_err(
+		let lmdb = tangram_cache_lmdb::Cache::new(&config).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to create the lmdb cache"),
 		)?;
 
@@ -38,14 +38,14 @@ impl Cache {
 
 	#[must_use]
 	pub fn new_memory() -> Self {
-		Self::Memory(cache::memory::Cache::new())
+		Self::Memory(tangram_cache_memory::Cache::new())
 	}
 
 	#[cfg(feature = "scylla")]
 	pub async fn new_scylla(config: &crate::config::ScyllaCache) -> tg::Result<Self> {
 		let capacity = config.capacity.as_ref().map(|capacity| match capacity {
 			crate::config::ScyllaCacheCapacity::Prometheus(capacity) => {
-				cache::scylla::CapacityConfig {
+				tangram_cache_scylla::CapacityConfig {
 					available_query: capacity.available_query.clone(),
 					total_query: capacity.total_query.clone(),
 					ttl: capacity.ttl,
@@ -59,19 +59,19 @@ impl Cache {
 				.as_ref()
 				.map(|value| match value {
 					crate::config::ScyllaCacheSpeculativeExecution::Percentile(value) => {
-						cache::scylla::SpeculativeExecution::Percentile {
+						tangram_cache_scylla::SpeculativeExecution::Percentile {
 							max_retry_count: value.max_retry_count,
 							percentile: value.percentile,
 						}
 					},
 					crate::config::ScyllaCacheSpeculativeExecution::Simple(value) => {
-						cache::scylla::SpeculativeExecution::Simple {
+						tangram_cache_scylla::SpeculativeExecution::Simple {
 							max_retry_count: value.max_retry_count,
 							retry_interval: std::time::Duration::from_millis(value.retry_interval),
 						}
 					},
 				});
-		let config = cache::scylla::Config {
+		let config = tangram_cache_scylla::Config {
 			addr: config.addr.clone(),
 			capacity,
 			connections: config.connections,
@@ -82,7 +82,7 @@ impl Cache {
 			speculative_execution,
 			username: config.username.clone(),
 		};
-		let scylla = cache::scylla::Cache::new(&config)
+		let scylla = tangram_cache_scylla::Cache::new(&config)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the scylla cache"))?;
 

@@ -1,0 +1,166 @@
+use {
+	crate::{Db, Index, Key, Request, Response},
+	foundationdb_tuple as fdbt, heed as lmdb,
+	tangram_client::prelude::*,
+};
+
+impl Index {
+	pub async fn put_tags(&self, args: &[tangram_index::tag::put::Arg]) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let request = Request::PutTags(args.to_vec());
+		let response = self.send_write_request(request).await?;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected write response"));
+		};
+
+		Ok(())
+	}
+
+	pub(crate) fn put_tags_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		args: &[tangram_index::tag::put::Arg],
+	) -> tg::Result<()> {
+		for arg in args {
+			Self::put_tag(db, subspace, transaction, arg)?;
+		}
+		Ok(())
+	}
+
+	fn put_tag(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		arg: &tangram_index::tag::put::Arg,
+	) -> tg::Result<()> {
+		let key = Key::Tag(crate::tag::Key::Tag(arg.id.clone()));
+		let key = Self::pack(subspace, &key);
+		let tag = db
+			.get(transaction, &key)
+			.map_err(|error| tg::error!(!error, "failed to get the tag"))?
+			.map(tangram_index::tag::Tag::deserialize)
+			.transpose()?;
+		if let Some(tag) = tag.as_ref()
+			&& (tag.account != arg.account
+				|| tag.specifier != arg.specifier
+				|| tag.target != arg.target)
+		{
+			match &tag.target {
+				tg::Either::Left(id) => {
+					Self::schedule_object_accounts_for_cleaning(db, subspace, transaction, id)?;
+				},
+				tg::Either::Right(id) => {
+					Self::schedule_process_accounts_for_cleaning(db, subspace, transaction, id)?;
+				},
+			}
+		}
+		if let Some(tag) = tag.as_ref()
+			&& tag.target != arg.target
+		{
+			let target = match &tag.target {
+				tg::Either::Left(id) => id.to_bytes().to_vec(),
+				tg::Either::Right(id) => id.to_bytes().to_vec(),
+			};
+			let key = Key::Tag(crate::tag::Key::TargetTag {
+				target,
+				tag: arg.id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the old target tag"))?;
+
+			match &tag.target {
+				tg::Either::Left(id) => {
+					Self::decrement_object_reference_count(db, subspace, transaction, id)?;
+				},
+				tg::Either::Right(id) => {
+					Self::decrement_process_reference_count(db, subspace, transaction, id)?;
+				},
+			}
+		}
+		if let Some(tag) = tag.as_ref()
+			&& (tag.parent != arg.parent || tag.name != arg.name)
+		{
+			let key = Key::Tag(crate::tag::Key::ParentTag {
+				parent: tag.parent.clone(),
+				name: tag.name.clone(),
+				tag: arg.id.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the old parent tag"))?;
+
+			let key = Key::Tag(crate::tag::Key::TagParent {
+				tag: arg.id.clone(),
+				parent: tag.parent.clone(),
+				name: tag.name.clone(),
+			});
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the old tag parent"))?;
+		}
+		if let Some(tag) = tag.as_ref()
+			&& tag.specifier != arg.specifier
+		{
+			let key = Key::Node(crate::node::Key::Node(tag.specifier.clone()));
+			let key = Self::pack(subspace, &key);
+			db.delete(transaction, &key)
+				.map_err(|error| tg::error!(!error, "failed to delete the old node"))?;
+		}
+
+		let key = Key::Tag(crate::tag::Key::Tag(arg.id.clone()));
+		let key = Self::pack(subspace, &key);
+		let value = tangram_index::tag::Tag {
+			account: arg.account.clone(),
+			name: arg.name.clone(),
+			parent: arg.parent.clone(),
+			permissions: arg.permissions.clone(),
+			specifier: arg.specifier.clone(),
+			target: arg.target.clone(),
+		}
+		.serialize()?;
+		db.put(transaction, &key, &value)
+			.map_err(|error| tg::error!(!error, "failed to put the tag"))?;
+
+		let key = Key::Node(crate::node::Key::Node(arg.specifier.clone()));
+		let key = Self::pack(subspace, &key);
+		let value = tg::Id::from(arg.id.clone()).to_bytes();
+		db.put(transaction, &key, value.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to put the node"))?;
+
+		let target = match &arg.target {
+			tg::Either::Left(id) => id.to_bytes().to_vec(),
+			tg::Either::Right(id) => id.to_bytes().to_vec(),
+		};
+		let key = Key::Tag(crate::tag::Key::TargetTag {
+			target,
+			tag: arg.id.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		db.put(transaction, &key, &[])
+			.map_err(|error| tg::error!(!error, "failed to put the target tag"))?;
+
+		let key = Key::Tag(crate::tag::Key::ParentTag {
+			parent: arg.parent.clone(),
+			name: arg.name.clone(),
+			tag: arg.id.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		db.put(transaction, &key, &[])
+			.map_err(|error| tg::error!(!error, "failed to put the parent tag"))?;
+
+		let key = Key::Tag(crate::tag::Key::TagParent {
+			tag: arg.id.clone(),
+			parent: arg.parent.clone(),
+			name: arg.name.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		db.put(transaction, &key, &[])
+			.map_err(|error| tg::error!(!error, "failed to put the tag parent"))?;
+
+		Ok(())
+	}
+}

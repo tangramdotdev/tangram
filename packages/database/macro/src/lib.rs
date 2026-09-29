@@ -124,22 +124,22 @@ pub fn postgres_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::T
 				quote! {
 					#name: {
 						#deserialize_with(row, #name_str)
-							.map_err(|error| tangram_database::postgres::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
+							.map_err(|error| tangram_database_postgres::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
 					}
 				}
 			} else if let Some(as_type) = attrs.as_type {
 				quote! {
 					#name: {
-						let raw = row.get::<_, tangram_database::postgres::value::Raw>(#name_str);
-						<#as_type as tangram_database::postgres::value::DeserializeAs<#field_type>>::deserialize_as(raw.ty(), raw.raw())
-							.map_err(|error| tangram_database::postgres::Error::other(format!(r#"failed to deserialize column "{}" (type {}): {error}"#, #name_str, raw.ty())))?
+						let raw = row.get::<_, tangram_database_postgres::value::Raw>(#name_str);
+						<#as_type as tangram_database_postgres::value::DeserializeAs<#field_type>>::deserialize_as(raw.ty(), raw.raw())
+							.map_err(|error| tangram_database_postgres::Error::other(format!(r#"failed to deserialize column "{}" (type {}): {error}"#, #name_str, raw.ty())))?
 					}
 				}
 			} else if let Some(try_from) = attrs.try_from {
 				quote! {
 					#name: {
 						row.get::<_, #try_from>(#name_str).try_into()
-							.map_err(|error| tangram_database::postgres::Error::other(format!(r#"failed to convert column "{}": {error}"#, #name_str)))?
+							.map_err(|error| tangram_database_postgres::Error::other(format!(r#"failed to convert column "{}": {error}"#, #name_str)))?
 					}
 				}
 			} else {
@@ -151,8 +151,8 @@ pub fn postgres_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::T
 		.collect();
 
 	let code = quote! {
-		impl tangram_database::postgres::row::Deserialize for #name {
-			fn deserialize(row: &tokio_postgres::Row) -> Result<Self, tangram_database::postgres::Error> {
+		impl tangram_database_postgres::row::Deserialize for #name {
+			fn deserialize(row: &tokio_postgres::Row) -> Result<Self, tangram_database_postgres::Error> {
 				Ok(Self {
 					#( #field_exprs, )*
 				})
@@ -196,34 +196,34 @@ pub fn sqlite_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Tok
 				quote! {
 					#name: {
 						#deserialize_with(row, #name_str)
-							.map_err(|error| tangram_database::sqlite::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
+							.map_err(|error| tangram_database_sqlite::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
 					}
 				}
 			} else if let Some(as_type) = attrs.as_type {
 				quote! {
 					#name: {
 						let value = row.get_ref(#name_str)
-							.map_err(|error| tangram_database::sqlite::Error::other(format!(r#"failed to get column "{}": {error}"#, #name_str)))?;
+							.map_err(|error| tangram_database_sqlite::Error::other(format!(r#"failed to get column "{}": {error}"#, #name_str)))?;
 						let value = std::convert::TryInto::<rusqlite::types::Value>::try_into(value)
-							.map_err(|error| tangram_database::sqlite::Error::other(format!(r#"failed to convert column "{}": {error}"#, #name_str)))?;
-						<#as_type as tangram_database::sqlite::value::DeserializeAs<#field_type>>::deserialize_as(value)
-							.map_err(|error| tangram_database::sqlite::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
+							.map_err(|error| tangram_database_sqlite::Error::other(format!(r#"failed to convert column "{}": {error}"#, #name_str)))?;
+						<#as_type as tangram_database_sqlite::value::DeserializeAs<#field_type>>::deserialize_as(value)
+							.map_err(|error| tangram_database_sqlite::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
 					}
 				}
 			} else if let Some(try_from) = attrs.try_from {
 				quote! {
 					#name: {
 						let value = row.get::<_, #try_from>(#name_str)
-							.map_err(|error| tangram_database::sqlite::Error::other(format!(r#"failed to get column "{}": {error}"#, #name_str)))?;
+							.map_err(|error| tangram_database_sqlite::Error::other(format!(r#"failed to get column "{}": {error}"#, #name_str)))?;
 						value.try_into()
-							.map_err(|error| tangram_database::sqlite::Error::other(format!(r#"failed to convert column "{}": {error}"#, #name_str)))?
+							.map_err(|error| tangram_database_sqlite::Error::other(format!(r#"failed to convert column "{}": {error}"#, #name_str)))?
 					}
 				}
 			} else {
 				quote! {
 					#name: {
 						row.get(#name_str)
-							.map_err(|error| tangram_database::sqlite::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
+							.map_err(|error| tangram_database_sqlite::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
 					}
 				}
 			}
@@ -231,8 +231,8 @@ pub fn sqlite_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Tok
 		.collect();
 
 	let code = quote! {
-		impl tangram_database::sqlite::row::Deserialize for #name {
-			fn deserialize(row: &rusqlite::Row) -> Result<Self, tangram_database::sqlite::Error> {
+		impl tangram_database_sqlite::row::Deserialize for #name {
+			fn deserialize(row: &rusqlite::Row) -> Result<Self, tangram_database_sqlite::Error> {
 				Ok(Self {
 					#( #field_exprs, )*
 				})
@@ -274,7 +274,7 @@ pub fn turso_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Toke
 
 			let index_expr = quote! {
 				let index = columns.iter().position(|c| c == #name_str)
-						.ok_or_else(|| tangram_database::turso::Error::other(
+						.ok_or_else(|| tangram_database_turso::Error::other(
 						format!(r#"missing column "{}""#, #name_str)))?
 			};
 
@@ -282,7 +282,7 @@ pub fn turso_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Toke
 				quote! {
 					#name: {
 						#deserialize_with(row, columns, #name_str)
-							.map_err(|error| tangram_database::turso::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
+							.map_err(|error| tangram_database_turso::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
 					}
 				}
 			} else if let Some(as_type) = attrs.as_type {
@@ -290,9 +290,9 @@ pub fn turso_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Toke
 					#name: {
 						#index_expr;
 						let value = row.get_value(index)
-							.map_err(|error| tangram_database::turso::Error::other(format!(r#"failed to get column "{}": {error}"#, #name_str)))?;
-						<#as_type as tangram_database::turso::value::DeserializeAs<#field_type>>::deserialize_as(value)
-							.map_err(|error| tangram_database::turso::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
+							.map_err(|error| tangram_database_turso::Error::other(format!(r#"failed to get column "{}": {error}"#, #name_str)))?;
+						<#as_type as tangram_database_turso::value::DeserializeAs<#field_type>>::deserialize_as(value)
+							.map_err(|error| tangram_database_turso::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
 					}
 				}
 			} else if let Some(try_from) = attrs.try_from {
@@ -300,9 +300,9 @@ pub fn turso_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Toke
 					#name: {
 						#index_expr;
 						let value = row.get::<#try_from>(index)
-							.map_err(|error| tangram_database::turso::Error::other(format!(r#"failed to get column "{}": {error}"#, #name_str)))?;
+							.map_err(|error| tangram_database_turso::Error::other(format!(r#"failed to get column "{}": {error}"#, #name_str)))?;
 						value.try_into()
-							.map_err(|error| tangram_database::turso::Error::other(format!(r#"failed to convert column "{}": {error}"#, #name_str)))?
+							.map_err(|error| tangram_database_turso::Error::other(format!(r#"failed to convert column "{}": {error}"#, #name_str)))?
 					}
 				}
 			} else {
@@ -310,7 +310,7 @@ pub fn turso_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Toke
 					#name: {
 						#index_expr;
 						row.get::<#field_type>(index)
-							.map_err(|error| tangram_database::turso::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
+							.map_err(|error| tangram_database_turso::Error::other(format!(r#"failed to deserialize column "{}": {error}"#, #name_str)))?
 					}
 				}
 			}
@@ -318,8 +318,8 @@ pub fn turso_row_deserialize(input: proc_macro::TokenStream) -> proc_macro::Toke
 		.collect();
 
 	let code = quote! {
-		impl tangram_database::turso::row::Deserialize for #name {
-			fn deserialize(row: &turso::Row, columns: &[String]) -> Result<Self, tangram_database::turso::Error> {
+		impl tangram_database_turso::row::Deserialize for #name {
+			fn deserialize(row: &turso::Row, columns: &[String]) -> Result<Self, tangram_database_turso::Error> {
 				Ok(Self {
 					#( #field_exprs, )*
 				})

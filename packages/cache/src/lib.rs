@@ -1,17 +1,9 @@
-#[cfg(feature = "lmdb")]
-mod read;
-
 pub mod archive;
 pub mod capacity;
 pub mod index;
-#[cfg(feature = "lmdb")]
-pub mod lmdb;
 pub mod log;
-pub mod memory;
 pub mod object;
 pub mod prelude;
-#[cfg(feature = "scylla")]
-pub mod scylla;
 
 pub trait Cache {
 	fn contains_object(

@@ -46,7 +46,7 @@ impl Indexer {
 		}
 	}
 
-	pub(crate) fn deserialize(id: tg::indexer::Id, bytes: &[u8]) -> tg::Result<Self> {
+	pub fn deserialize(id: tg::indexer::Id, bytes: &[u8]) -> tg::Result<Self> {
 		let data: Data = tangram_serialize::from_slice(bytes)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the indexer"))?;
 		let indexer = Self {
@@ -61,7 +61,7 @@ impl Indexer {
 		Ok(indexer)
 	}
 
-	pub(crate) fn serialize(&self) -> tg::Result<Vec<u8>> {
+	pub fn serialize(&self) -> tg::Result<Vec<u8>> {
 		let data = Data {
 			archive_read_sequence: self.archive_read_sequence,
 			archive_write_sequence: self.archive_write_sequence,

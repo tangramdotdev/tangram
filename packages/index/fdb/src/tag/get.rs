@@ -1,0 +1,98 @@
+use {
+	crate::{Index, Key, Kind},
+	foundationdb as fdb,
+	foundationdb_tuple::Subspace,
+	num_traits::ToPrimitive as _,
+	std::ops::ControlFlow,
+	tangram_client::prelude::*,
+};
+
+impl Index {
+	pub async fn try_get_tags(
+		&self,
+		ids: &[tg::tag::Id],
+	) -> tg::Result<Vec<Option<tangram_index::tag::Tag>>> {
+		if ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let request = tangram_index::read::Request::TryGetTags {
+			ids: ids.to_owned(),
+		};
+		let response = self.send_read_request(request).await?;
+		let tangram_index::read::Response::TryGetTags(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn try_get_tags_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		ids: &[tg::tag::Id],
+	) -> tg::Result<ControlFlow<Vec<Option<tangram_index::tag::Tag>>, fdb::FdbError>> {
+		let result = futures::future::try_join_all(
+			ids.iter()
+				.map(|id| Self::try_get_tag_with_transaction(txn, subspace, id)),
+		)
+		.await;
+		let results = result?;
+		let mut tags = Vec::with_capacity(results.len());
+		for result in results {
+			let tag = match result {
+				ControlFlow::Break(tag) => tag,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			tags.push(tag);
+		}
+
+		Ok(ControlFlow::Break(tags))
+	}
+
+	pub(crate) async fn try_get_tag_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		id: &tg::tag::Id,
+	) -> tg::Result<ControlFlow<Option<tangram_index::tag::Tag>, fdb::FdbError>> {
+		let key = Key::Tag(crate::tag::Key::Tag(id.clone()));
+		let key = Self::pack(subspace, &key);
+		let result = txn.get(&key, false).await;
+		let bytes = crate::retry!(result);
+		let Some(bytes) = bytes else {
+			return Ok(ControlFlow::Break(None));
+		};
+		let tag = Some(tangram_index::tag::Tag::deserialize(&bytes)?);
+
+		Ok(ControlFlow::Break(tag))
+	}
+
+	pub(crate) async fn get_target_tags_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		target: &[u8],
+	) -> tg::Result<ControlFlow<Vec<tg::tag::Id>, fdb::FdbError>> {
+		let key = (Kind::TargetTag.to_i32().unwrap(), target);
+		let prefix = Self::pack(subspace, &key);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption {
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&range_subspace)
+		};
+
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::retry!(result);
+
+		let tags = entries
+			.iter()
+			.map(|entry| {
+				let key = Self::unpack(subspace, entry.key())?;
+				let Key::Tag(crate::tag::Key::TargetTag { tag, .. }) = key else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				Ok(tag)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(ControlFlow::Break(tags))
+	}
+}

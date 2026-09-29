@@ -7,4 +7,4 @@ psql -U postgres -h localhost -d database -v ON_ERROR_STOP=1 -f packages/server/
 createdb -U postgres -h localhost processes
 
 ^$scylla_client_path -e r#'create keyspace cache with replication = { 'class': 'NetworkTopologyStrategy', 'replication_factor': 1 };'#
-^$scylla_client_path -k cache -f packages/cache/src/scylla.cql
+^$scylla_client_path -k cache -f packages/cache/scylla/schema.cql

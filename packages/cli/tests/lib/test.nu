@@ -10,7 +10,7 @@ export const vfs_cleanup_marker_name = '.tangram_test_vfs_cleanup'
 
 def acquire_database_instance [pool_path: string] {
 	let postgres_schema_path = $repository_path | path join packages/server/src/database/postgres.sql
-	let scylla_schema_path = $repository_path | path join packages/cache/src/scylla.cql
+	let scylla_schema_path = $repository_path | path join packages/cache/scylla/schema.cql
 	let result = (^bash -c (database_pool_acquire) _ $pool_path $postgres_schema_path $scylla_schema_path | complete)
 	if $result.exit_code != 0 {
 		error make {

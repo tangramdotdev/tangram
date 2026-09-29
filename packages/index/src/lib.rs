@@ -1,10 +1,5 @@
 use {futures::FutureExt as _, std::time::Duration, tangram_client::prelude::*};
 
-#[cfg(feature = "foundationdb")]
-pub mod fdb;
-#[cfg(feature = "lmdb")]
-pub mod lmdb;
-
 pub mod authorize;
 pub mod batch;
 pub mod checkout;
@@ -16,7 +11,8 @@ pub mod object;
 pub mod organization;
 pub mod permission;
 pub mod process;
-mod read;
+#[doc(hidden)]
+pub mod read;
 pub mod sandbox;
 pub mod tag;
 pub mod update;

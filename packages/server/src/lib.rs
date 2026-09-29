@@ -819,22 +819,22 @@ impl Server {
 				}
 				#[cfg(feature = "postgres")]
 				{
-					let options = db::postgres::DatabaseOptions {
-						read: db::postgres::PoolOptions {
+					let options = tangram_database_postgres::DatabaseOptions {
+						read: tangram_database_postgres::PoolOptions {
 							max: options.read.pool.max.unwrap_or(parallelism),
 							min: options.read.pool.min.unwrap_or(0),
 							ttl: options.read.pool.ttl,
 							url: options.read.url.clone(),
 						},
 						retry: options.retry.clone().into(),
-						write: db::postgres::PoolOptions {
+						write: tangram_database_postgres::PoolOptions {
 							max: options.write.pool.max.unwrap_or(parallelism),
 							min: options.write.pool.min.unwrap_or(0),
 							ttl: options.write.pool.ttl,
 							url: options.write.url.clone(),
 						},
 					};
-					let database = db::postgres::Database::new(options)
+					let database = tangram_database_postgres::Database::new(options)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to create the database"))?;
 					Database::Postgres(database)
@@ -851,7 +851,7 @@ impl Server {
 				#[cfg(feature = "sqlite")]
 				{
 					let initialize = Arc::new(self::database::sqlite::initialize);
-					let options = db::sqlite::DatabaseOptions {
+					let options = tangram_database_sqlite::DatabaseOptions {
 						initialize,
 						max: config.pool.max.unwrap_or(parallelism),
 						min: config.pool.min.unwrap_or(0),
@@ -859,7 +859,7 @@ impl Server {
 						retry: config.retry.clone().into(),
 						ttl: config.pool.ttl,
 					};
-					let database = db::sqlite::Database::new(options)
+					let database = tangram_database_sqlite::Database::new(options)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to create the database"))?;
 					Database::Sqlite(database)
@@ -875,10 +875,10 @@ impl Server {
 				}
 				#[cfg(feature = "turso")]
 				{
-					let initialize: db::turso::Initialize = Arc::new(|connection| {
+					let initialize: tangram_database_turso::Initialize = Arc::new(|connection| {
 						Box::pin(self::database::turso::initialize(connection))
 					});
-					let options = db::turso::DatabaseOptions {
+					let options = tangram_database_turso::DatabaseOptions {
 						initialize,
 						max: config.pool.max.unwrap_or(parallelism),
 						min: config.pool.min.unwrap_or(0),
@@ -886,7 +886,7 @@ impl Server {
 						retry: config.retry.clone().into(),
 						ttl: config.pool.ttl,
 					};
-					let database = db::turso::Database::new(options)
+					let database = tangram_database_turso::Database::new(options)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to create the database"))?;
 					Database::Turso(database)
@@ -913,10 +913,10 @@ impl Server {
 				}
 				#[cfg(feature = "foundationdb")]
 				{
-					let authorize = tangram_index::fdb::AuthorizeConfig {
+					let authorize = tangram_index_fdb::AuthorizeConfig {
 						concurrency: options.authorize.concurrency,
 					};
-					let options = tangram_index::fdb::Options {
+					let options = tangram_index_fdb::Options {
 						authorize,
 						cleaning_partition_total: options.cleaning_partition_total,
 						cluster: options.cluster.clone(),
@@ -954,7 +954,7 @@ impl Server {
 				#[cfg(feature = "lmdb")]
 				{
 					let path = directory.join(&options.path);
-					let config = tangram_index::lmdb::Config {
+					let config = tangram_index_lmdb::Config {
 						map_size: options.map_size,
 						max_process_depth: config
 							.roles

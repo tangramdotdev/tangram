@@ -1,0 +1,839 @@
+use {
+	crate::{Index, Key, Kind},
+	foundationdb as fdb,
+	foundationdb_tuple::Subspace,
+	num_traits::ToPrimitive as _,
+	std::{ops::ControlFlow, sync::Arc},
+	tangram_client::prelude::*,
+	tangram_index::authorize::{
+		Batch,
+		facts::{self, Output, Request},
+	},
+};
+
+struct FactContext {
+	subspace: Subspace,
+	txn: crate::Transaction,
+}
+
+impl Index {
+	pub async fn authorize_batch(
+		&self,
+		args: &[tangram_index::authorize::Arg],
+		config: tangram_index::authorize::Config,
+		principal: &tg::Principal,
+	) -> tg::Result<Vec<tangram_index::authorize::Outcome>> {
+		let request = tangram_index::read::Request::AuthorizeBatch {
+			args: args.to_owned(),
+			config,
+			principal: principal.clone(),
+		};
+		let response = self.send_read_request(request).await?;
+		let tangram_index::read::Response::AuthorizeBatch(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(crate) async fn authorize_batch_with_transaction(
+		cache: facts::Cache<fdb::FdbError>,
+		concurrency: usize,
+		config: tangram_index::authorize::Config,
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		args: &[tangram_index::authorize::Arg],
+		principal: &tg::Principal,
+	) -> tg::Result<ControlFlow<Vec<tangram_index::authorize::Outcome>, fdb::FdbError>> {
+		let concurrency = concurrency.max(1);
+		let (client, receiver) = facts::channel_with_cache(concurrency, cache);
+		let authorize = Batch::authorize(args, client, config, principal);
+		let context = FactContext {
+			subspace: subspace.clone(),
+			txn: txn.clone(),
+		};
+		let context = Arc::new(context);
+		let provide = facts::serve(receiver, concurrency, move |request| {
+			let context = context.clone();
+			async move {
+				Self::execute_authorization_fact_with_transaction(
+					&context.txn,
+					&context.subspace,
+					&request,
+				)
+				.await
+			}
+		});
+		let (outcome, ()) = futures::future::join(authorize, provide).await;
+
+		outcome
+	}
+
+	async fn execute_authorization_fact_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		request: &Request,
+	) -> tg::Result<ControlFlow<Output, fdb::FdbError>> {
+		let output = match request {
+			Request::Group { group } => {
+				let group = crate::propagate!(
+					Self::try_get_group_with_transaction(txn, subspace, group).await
+				);
+
+				Output::Group(group)
+			},
+			Request::GroupMembers {
+				after,
+				group,
+				limit,
+			} => {
+				let group = tg::Id::from(group.clone()).to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::GroupMember.to_i32().unwrap(), group.as_ref()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Group(crate::group::Key::GroupMember { member, .. }) = key else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(member))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
+			},
+			Request::Id { id } => {
+				let mut resolved = crate::propagate!(
+					Self::try_resolve_id_with_transaction(txn, subspace, id).await
+				);
+				// A parent or sandbox can reference a process whose record is stored elsewhere.
+				if resolved.is_none() && id.kind() == tg::id::Kind::Process {
+					for kind in [crate::Kind::ChildProcess, crate::Kind::ProcessSandbox] {
+						let prefix =
+							Self::pack(subspace, &(kind.to_i32().unwrap(), id.to_bytes().as_ref()));
+						let (keys, _) = crate::propagate!(
+							Self::get_authorization_key_page_with_transaction(
+								txn, subspace, &prefix, None, 1
+							)
+							.await
+						);
+						if !keys.is_empty() {
+							resolved = Some(id.clone());
+							break;
+						}
+					}
+				}
+
+				Output::Id(resolved)
+			},
+			Request::MemberGroups {
+				after,
+				limit,
+				member,
+			} => {
+				let member = member.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::MemberGroup.to_i32().unwrap(), member.as_ref()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let groups = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Group(crate::group::Key::MemberGroup { group, .. }) = key else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(group)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::MemberGroups { after, groups }
+			},
+			Request::MemberOrganizations {
+				after,
+				limit,
+				member,
+			} => {
+				let member = member.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::MemberOrganization.to_i32().unwrap(), member.as_ref()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let organizations = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Organization(crate::organization::Key::MemberOrganization {
+							organization,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(organization)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::MemberOrganizations {
+					after,
+					organizations,
+				}
+			},
+			Request::ObjectChild { child, parent } => {
+				let key = Key::Object(crate::object::Key::ObjectChild {
+					child: child.clone(),
+					object: parent.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				let result = txn.get(&key, false).await;
+				let value = crate::retry!(result);
+
+				Output::Bool(value.is_some())
+			},
+			Request::ObjectChildren {
+				after,
+				limit,
+				object,
+			} => {
+				let object = object.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::ObjectChild.to_i32().unwrap(), object.as_ref()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Object(crate::object::Key::ObjectChild { child, .. }) = key else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(child))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
+			},
+			Request::ObjectParents {
+				after,
+				limit,
+				object,
+			} => {
+				let object = object.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::ChildObject.to_i32().unwrap(), object.as_ref()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Object(crate::object::Key::ChildObject { object, .. }) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(object))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
+			},
+			Request::ObjectProcesses {
+				after,
+				limit,
+				object,
+			} => {
+				let object = object.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::ObjectProcess.to_i32().unwrap(), object.as_ref()),
+				);
+				let (entries, after) = crate::propagate!(
+					Self::get_authorization_entry_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let processes = entries
+					.into_iter()
+					.map(|(key, _)| {
+						let Key::Object(crate::object::Key::ObjectProcess {
+							kind, process, ..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok((process, kind))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::ObjectProcesses { after, processes }
+			},
+			Request::OrganizationMembers {
+				after,
+				limit,
+				organization,
+			} => {
+				let organization = tg::Id::from(organization.clone()).to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(
+						Kind::OrganizationMember.to_i32().unwrap(),
+						organization.as_ref(),
+					),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Organization(crate::organization::Key::OrganizationMember {
+							member,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(member))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
+			},
+			Request::OwnerSandboxes {
+				after,
+				limit,
+				owner,
+			} => {
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::OwnerSandbox.to_i32().unwrap(), owner.to_string()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Sandbox(crate::sandbox::Key::OwnerSandbox { sandbox, .. }) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(sandbox))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
+			},
+			Request::Process { process } => {
+				let process = crate::propagate!(
+					Self::try_get_process_with_transaction(txn, subspace, process).await
+				);
+
+				Output::Process(process)
+			},
+			Request::ProcessChild { child, parent } => {
+				let key = Key::Process(crate::process::Key::ChildProcess {
+					child: child.clone(),
+					parent: parent.clone(),
+				});
+				let key = Self::pack(subspace, &key);
+				let result = txn.get(&key, false).await;
+				let value = crate::retry!(result);
+
+				Output::Bool(value.is_some())
+			},
+			Request::ProcessChildren {
+				after,
+				limit,
+				process,
+			} => {
+				let process = process.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::ProcessChild.to_i32().unwrap(), process.as_ref()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Process(crate::process::Key::ProcessChild { child, .. }) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(child))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
+			},
+			Request::ProcessObject { object, process } => {
+				let mut kinds = Vec::new();
+				for kind in [
+					tangram_index::process::object::Kind::Command,
+					tangram_index::process::object::Kind::Error,
+					tangram_index::process::object::Kind::Log,
+					tangram_index::process::object::Kind::Output,
+				] {
+					let key = Key::Process(crate::process::Key::ProcessObject {
+						kind,
+						object: object.clone(),
+						process: process.clone(),
+					});
+					let key = Self::pack(subspace, &key);
+					let result = txn.get(&key, false).await;
+					let value = crate::retry!(result);
+					if value.is_some() {
+						kinds.push(kind);
+					}
+				}
+
+				Output::ProcessObjectKinds(kinds)
+			},
+			Request::ProcessObjectPermission {
+				object,
+				permission,
+				process,
+			} => {
+				let value = {
+					let creator = Some(tg::Principal::Process(process.clone()));
+					let permission = tg::authorization::Permission::Object(*permission);
+					let resource = object.clone().into();
+					let subject = tg::authorization::Subject::Process(process.clone());
+					let permission = crate::propagate!(
+						Self::get_authorization_permission_with_transaction(
+							txn,
+							subspace,
+							creator.as_ref(),
+							permission,
+							&resource,
+							&subject
+						)
+						.await
+					);
+					permission.is_some_and(|permission| permission.is_process_direct())
+				};
+				Output::Bool(value)
+			},
+			Request::ProcessObjects {
+				after,
+				limit,
+				process,
+			} => {
+				let process = process.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::ProcessObject.to_i32().unwrap(), process.as_ref()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let objects = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Process(crate::process::Key::ProcessObject {
+							kind, object, ..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok((object, kind))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::ProcessObjects { after, objects }
+			},
+			Request::ProcessParents {
+				after,
+				limit,
+				process,
+			} => {
+				let process = process.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::ChildProcess.to_i32().unwrap(), process.as_ref()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let ids = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Process(crate::process::Key::ChildProcess { parent, .. }) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tg::Id::from(parent))
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Ids { after, ids }
+			},
+			Request::ResourcePermissions {
+				after,
+				limit,
+				resource,
+			} => {
+				let resource_bytes = resource.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(
+						Kind::ResourcePermission.to_i32().unwrap(),
+						resource_bytes.as_ref(),
+					),
+				);
+				let (entries, after) = crate::propagate!(
+					Self::get_authorization_entry_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let permissions = entries
+					.into_iter()
+					.map(|(key, value)| {
+						let Key::Permission(crate::permission::Key::ResourcePermission {
+							creator,
+							permission,
+							subject,
+							..
+						}) = key
+						else {
+							return Err(tg::error!("unexpected key type"));
+						};
+						let value = crate::permission::PermissionValue::deserialize(&value)?;
+						let permission = tangram_index::permission::Fact {
+							creator,
+							direct: value.direct.is_some(),
+							permission,
+							resource: resource.clone(),
+							subject,
+						};
+
+						Ok(permission)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Permissions { after, permissions }
+			},
+			Request::SandboxOwner { sandbox } => {
+				let owner = crate::propagate!(
+					Self::try_get_sandbox_with_transaction(txn, subspace, sandbox).await
+				)
+				.and_then(|sandbox| sandbox.data)
+				.and_then(|data| data.data.owner);
+
+				Output::SandboxOwner(owner)
+			},
+			Request::Specifier { specifier } => {
+				let id = crate::propagate!(
+					Self::try_get_node_with_transaction(txn, subspace, specifier).await
+				);
+
+				Output::Id(id)
+			},
+			Request::SubjectPermissions {
+				after,
+				limit,
+				subject,
+			} => {
+				let (after, permissions) = crate::propagate!(
+					Self::get_authorization_subject_permissions_with_transaction(
+						txn,
+						subspace,
+						subject,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+
+				Output::Permissions { after, permissions }
+			},
+			Request::Tag { tag } => {
+				let tag =
+					crate::propagate!(Self::try_get_tag_with_transaction(txn, subspace, tag).await);
+
+				Output::Tag(tag)
+			},
+			Request::TargetTags {
+				after,
+				limit,
+				target,
+			} => {
+				let target = target.to_bytes();
+				let prefix = Self::pack(
+					subspace,
+					&(Kind::TargetTag.to_i32().unwrap(), target.as_ref()),
+				);
+				let (keys, after) = crate::propagate!(
+					Self::get_authorization_key_page_with_transaction(
+						txn,
+						subspace,
+						&prefix,
+						after.as_deref(),
+						*limit,
+					)
+					.await
+				);
+				let tags = keys
+					.into_iter()
+					.map(|key| {
+						let Key::Tag(crate::tag::Key::TargetTag { tag, .. }) = key else {
+							return Err(tg::error!("unexpected key type"));
+						};
+
+						Ok(tag)
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+
+				Output::Tags { after, tags }
+			},
+		};
+
+		Ok(ControlFlow::Break(output))
+	}
+
+	async fn get_authorization_permission_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		creator: Option<&tg::Principal>,
+		permission: tg::authorization::Permission,
+		resource: &tg::Id,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<ControlFlow<Option<tangram_index::permission::Fact>, fdb::FdbError>> {
+		let key = Key::Permission(crate::permission::Key::ResourcePermission {
+			creator: creator.cloned(),
+			permission,
+			resource: resource.clone(),
+			subject: subject.clone(),
+		});
+		let key = Self::pack(subspace, &key);
+		let result = txn.get(&key, false).await;
+		let value = crate::retry!(result);
+		let permission = match value {
+			Some(value) => {
+				let value = crate::permission::PermissionValue::deserialize(&value)?;
+				let permission = tangram_index::permission::Fact {
+					creator: creator.cloned(),
+					direct: value.direct.is_some(),
+					permission,
+					resource: resource.clone(),
+					subject: subject.clone(),
+				};
+
+				Some(permission)
+			},
+			None => None,
+		};
+
+		Ok(ControlFlow::Break(permission))
+	}
+
+	async fn get_authorization_key_page_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		prefix: &[u8],
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<ControlFlow<(Vec<crate::Key>, Option<Vec<u8>>), fdb::FdbError>> {
+		let (entries, after) = crate::propagate!(
+			Self::get_authorization_entry_page_with_transaction(
+				txn, subspace, prefix, after, limit,
+			)
+			.await
+		);
+		let keys = entries.into_iter().map(|(key, _)| key).collect();
+
+		Ok(ControlFlow::Break((keys, after)))
+	}
+
+	async fn get_authorization_entry_page_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		prefix: &[u8],
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<ControlFlow<(Vec<(crate::Key, Vec<u8>)>, Option<Vec<u8>>), fdb::FdbError>> {
+		let range_subspace = Subspace::from_bytes(prefix.to_vec());
+		let mut range = fdb::RangeOption {
+			limit: Some(limit),
+			mode: fdb::options::StreamingMode::WantAll,
+			..fdb::RangeOption::from(&range_subspace)
+		};
+		if let Some(after) = after {
+			let mut begin = after.to_vec();
+			begin.push(0);
+			range.begin = fdb::KeySelector::first_greater_or_equal(begin);
+		}
+		let result = txn.get_range(&range, 1, false).await;
+		let entries = crate::retry!(result);
+		let after = (entries.len() == limit)
+			.then(|| entries.last().map(|entry| entry.key().to_vec()))
+			.flatten();
+		let entries = entries
+			.iter()
+			.map(|entry| {
+				let key = Self::unpack(subspace, entry.key())?;
+				let value = entry.value().to_vec();
+
+				Ok((key, value))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(ControlFlow::Break((entries, after)))
+	}
+
+	async fn get_authorization_subject_permissions_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		subject: &tg::authorization::Subject,
+		after: Option<&[u8]>,
+		limit: usize,
+	) -> tg::Result<
+		ControlFlow<(Option<Vec<u8>>, Vec<tangram_index::permission::Fact>), fdb::FdbError>,
+	> {
+		let prefix = Self::pack(
+			subspace,
+			&(
+				Kind::SubjectPermission.to_i32().unwrap(),
+				subject.to_string(),
+			),
+		);
+		let (entries, after) = crate::propagate!(
+			Self::get_authorization_entry_page_with_transaction(
+				txn, subspace, &prefix, after, limit,
+			)
+			.await
+		);
+		let permissions = entries
+			.into_iter()
+			.map(|(key, value)| {
+				let Key::Permission(crate::permission::Key::SubjectPermission {
+					creator,
+					permission,
+					resource,
+					subject,
+				}) = key
+				else {
+					return Err(tg::error!("unexpected key type"));
+				};
+				let value = crate::permission::PermissionValue::deserialize(&value)?;
+				let permission = tangram_index::permission::Fact {
+					creator,
+					direct: value.direct.is_some(),
+					permission,
+					resource,
+					subject,
+				};
+
+				Ok(permission)
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+
+		Ok(ControlFlow::Break((after, permissions)))
+	}
+}

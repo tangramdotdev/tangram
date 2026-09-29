@@ -15,18 +15,18 @@ ignored = ["tangram_js", "tokio-postgres"]
 
 [features]
 foundationdb = [
-	"tangram_index/foundationdb",
+	"dep:tangram_index_fdb",
 	"tangram_sandbox/foundationdb",
 ]
 js = ["dep:tangram_js"]
-lmdb = ["dep:heed", "tangram_index/lmdb", "tangram_cache/lmdb"]
-nats = ["dep:async-nats", "tangram_messenger/nats"]
-postgres = ["dep:tokio-postgres", "tangram_database/postgres"]
+lmdb = ["dep:heed", "dep:tangram_cache_lmdb", "dep:tangram_index_lmdb"]
+nats = ["dep:async-nats", "dep:tangram_messenger_nats"]
+postgres = ["dep:tokio-postgres", "dep:tangram_database_postgres"]
 quickjs = ["tangram_js/quickjs"]
-scylla = ["tangram_cache/scylla"]
-sqlite = ["dep:rusqlite", "tangram_database/sqlite"]
-tls = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls", "tangram_database/tls"]
-turso = ["dep:turso", "tangram_database/turso"]
+scylla = ["dep:tangram_cache_scylla"]
+sqlite = ["dep:rusqlite", "dep:tangram_database_sqlite"]
+tls = ["dep:rustls", "dep:rustls-pemfile", "dep:tokio-rustls", "tangram_database_postgres?/tls"]
+turso = ["dep:turso", "dep:tangram_database_turso"]
 typescript = ["tangram_compiler/typescript"]
 v8 = ["tangram_js/v8"]
 vsock = ["dep:tokio-vsock", "tangram_client/vsock", "tangram_sandbox/vsock"]
@@ -85,16 +85,27 @@ serde_with = { workspace = true }
 smallvec = { workspace = true }
 sync_wrapper = { workspace = true }
 tangram_archive = { workspace = true }
+tangram_archive_s3 = { workspace = true }
 tangram_cache = { workspace = true }
+tangram_cache_lmdb = { workspace = true, optional = true }
+tangram_cache_memory = { workspace = true }
+tangram_cache_scylla = { workspace = true, optional = true }
 tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_database = { workspace = true }
+tangram_database_postgres = { workspace = true, optional = true }
+tangram_database_sqlite = { workspace = true, optional = true }
+tangram_database_turso = { workspace = true, optional = true }
 tangram_futures = { workspace = true }
 tangram_http = { workspace = true }
 tangram_ignore = { workspace = true }
 tangram_index = { workspace = true }
+tangram_index_fdb = { workspace = true, optional = true }
+tangram_index_lmdb = { workspace = true, optional = true }
 tangram_js = { workspace = true, optional = true }
 tangram_messenger = { workspace = true }
+tangram_messenger_memory = { workspace = true }
+tangram_messenger_nats = { workspace = true, optional = true }
 tangram_pool = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_serialize = { workspace = true }

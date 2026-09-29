@@ -1,0 +1,348 @@
+use {
+	super::super::{
+		Index, Key,
+		update::{Kind, Source},
+	},
+	std::collections::BTreeSet,
+	tangram_client::prelude::*,
+};
+
+mod clean;
+
+#[tokio::test]
+async fn a_batch_preserves_an_older_propagation_when_combining_updates() {
+	let (_dir, index) = super::new_index();
+	let leaf = object(0, []);
+	let middle = object(1, [leaf.id.clone()]);
+	let top = object(2, [middle.id.clone()]);
+	put(&index, vec![middle.clone(), top.clone()]).await;
+	drain(&index, tangram_index::update::Kind::StorageAndMetadata).await;
+	put(&index, vec![leaf.clone()]).await;
+	let cutoff = index.get_transaction_id().await.unwrap();
+	let mut middle = middle;
+	middle.metadata.subtree = tg::object::metadata::Subtree {
+		count: Some(2),
+		depth: Some(2),
+		size: Some(0),
+		solvable: Some(false),
+		solved: Some(true),
+	};
+	put(&index, vec![middle]).await;
+
+	// Select both entries before the leaf lowers the middle's pending version.
+	{
+		let mut transaction = index.env.write_txn().unwrap();
+		let output = Index::update_batch_with_transaction(
+			&index.db,
+			&index.subspace,
+			&mut transaction,
+			2,
+			tangram_index::update::Kind::StorageAndMetadata,
+			None,
+			1,
+		)
+		.unwrap();
+		assert_eq!(output.count, 2);
+		transaction.commit().unwrap();
+	}
+	let oldest = index
+		.try_get_oldest_update_transaction_id(tangram_index::update::Kind::StorageAndMetadata)
+		.await
+		.unwrap();
+	assert!(oldest.is_some_and(|version| version <= cutoff));
+	let objects = index
+		.try_get_objects(std::slice::from_ref(&top.id))
+		.await
+		.unwrap();
+	assert_eq!(objects[0].as_ref().unwrap().metadata.subtree.count, None);
+	drain(&index, tangram_index::update::Kind::StorageAndMetadata).await;
+	let objects = index.try_get_objects(&[top.id]).await.unwrap();
+	assert_eq!(objects[0].as_ref().unwrap().metadata.subtree.count, Some(3));
+}
+
+#[tokio::test]
+async fn a_batch_preserves_an_older_storage_propagation_when_combining_updates() {
+	let (_dir, index) = super::new_index();
+	let bottom = object(0, []);
+	let leaf = object(1, [bottom.id.clone()]);
+	let middle = object(2, [leaf.id.clone()]);
+	let first = object(3, [middle.id.clone()]);
+	let second = object(4, [leaf.id.clone()]);
+	put(
+		&index,
+		vec![bottom.clone(), leaf, middle, first.clone(), second.clone()],
+	)
+	.await;
+	drain(&index, tangram_index::update::Kind::StorageAndMetadata).await;
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	associate(&index, &account, &first.id).await;
+	let cutoff = index.get_transaction_id().await.unwrap();
+	associate(&index, &account, &second.id).await;
+	assert_eq!(
+		index
+			.update_batch(tangram_index::update::Kind::Usage, 2)
+			.await
+			.unwrap()
+			.count,
+		2
+	);
+	let oldest = index
+		.try_get_oldest_update_transaction_id(tangram_index::update::Kind::Usage)
+		.await
+		.unwrap();
+	assert!(
+		oldest.is_some_and(|version| version <= cutoff),
+		"the storage wait lost its pending descendants: {oldest:?} > {cutoff}"
+	);
+	assert!(!associated(&index, &account, &bottom.id));
+	drain(&index, tangram_index::update::Kind::Usage).await;
+	assert!(associated(&index, &account, &bottom.id));
+}
+
+#[tokio::test]
+async fn late_storage_puts_preserve_the_oldest_version() {
+	let (_dir, index) = super::new_index();
+	let leaf = object(0, []);
+	let middle = object(1, [leaf.id.clone()]);
+	let top = object(2, [middle.id.clone()]);
+	put(&index, vec![leaf.clone(), middle.clone(), top.clone()]).await;
+	drain(&index, tangram_index::update::Kind::StorageAndMetadata).await;
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	associate(&index, &account, &top.id).await;
+	let cutoff = index.get_transaction_id().await.unwrap();
+	associate(&index, &account, &middle.id).await;
+	assert_eq!(
+		index
+			.update_batch(tangram_index::update::Kind::Usage, 1)
+			.await
+			.unwrap()
+			.count,
+		1
+	);
+	let oldest = index
+		.try_get_oldest_update_transaction_id(tangram_index::update::Kind::Usage)
+		.await
+		.unwrap();
+	assert!(
+		oldest.is_some_and(|version| version <= cutoff),
+		"the late storage put lost its pending descendants: {oldest:?} > {cutoff}"
+	);
+	assert!(!associated(&index, &account, &leaf.id));
+	drain(&index, tangram_index::update::Kind::Usage).await;
+	assert!(associated(&index, &account, &leaf.id));
+
+	// Collection removes the retained versions without evicting the cached objects.
+	let ids = [leaf.id.clone(), middle.id, top.id.clone()];
+	index
+		.touch_objects_with_account(&ids, None, 100, std::time::Duration::ZERO)
+		.await
+		.unwrap();
+	let arg = tangram_index::clean::Arg {
+		batch_size: 100,
+		max_object_touched_at: 0,
+		max_process_touched_at: 0,
+		max_sandbox_touched_at: 0,
+		now: 1,
+		partition_end: 1,
+		partition_start: 0,
+	};
+	for _ in 0..20 {
+		if index.clean(arg.clone()).await.unwrap().done {
+			break;
+		}
+	}
+	assert!(
+		index
+			.try_get_objects(&ids)
+			.await
+			.unwrap()
+			.iter()
+			.all(Option::is_some)
+	);
+	for id in &ids {
+		assert!(!associated(&index, &account, id));
+		let transaction = index.env.read_txn().unwrap();
+		let key = Key::Update(super::super::update::Key::UsageUpdatePutVersion {
+			account: account.clone(),
+			id: tg::Either::Left(id.clone()),
+		});
+		assert!(
+			index
+				.db
+				.get(&transaction, &Index::pack(&index.subspace, &key))
+				.unwrap()
+				.is_none()
+		);
+	}
+	associate(&index, &account, &top.id).await;
+	drain(&index, tangram_index::update::Kind::Usage).await;
+	assert!(associated(&index, &account, &leaf.id));
+}
+
+#[tokio::test]
+async fn propagation_versions_reset_and_repeated_updates_stop() {
+	let (_dir, index) = super::new_index();
+	let child = object(0, []);
+	let parent = object(1, [child.id.clone()]);
+	put(&index, vec![child.clone(), parent.clone()]).await;
+	drain(&index, tangram_index::update::Kind::StorageAndMetadata).await;
+	let subject = tg::authorization::Subject::User(tg::user::Id::new());
+	for (kind, queue) in [
+		(
+			Kind::StorageAndMetadata,
+			tangram_index::update::Kind::StorageAndMetadata,
+		),
+		(
+			Kind::Permission(subject.clone()),
+			tangram_index::update::Kind::Permission,
+		),
+	] {
+		for (source, version, propagated) in [
+			(Source::Put, 100, true),
+			(Source::Propagate, 90, true),
+			(Source::Propagate, 90, false),
+			(Source::Propagate, 110, false),
+			(Source::Put, 200, true),
+			(Source::Propagate, 150, true),
+		] {
+			{
+				let mut transaction = index.env.write_txn().unwrap();
+				Index::enqueue_update_with_kind(
+					&index.db,
+					&index.subspace,
+					&mut transaction,
+					tg::Either::Left(child.id.clone()),
+					kind.clone(),
+					source,
+					Some(version),
+				)
+				.unwrap();
+				transaction.commit().unwrap();
+			}
+			assert_eq!(index.update_batch(queue, 1).await.unwrap().count, 1);
+			let oldest = index
+				.try_get_oldest_update_transaction_id(queue)
+				.await
+				.unwrap();
+			assert_eq!(
+				oldest,
+				propagated.then_some(version),
+				"{kind:?}, {source:?}, {version}"
+			);
+			drain(&index, queue).await;
+		}
+	}
+
+	// Retained propagation versions must neither prevent collection nor survive the objects.
+	let arg = tangram_index::clean::Arg {
+		batch_size: 100,
+		max_object_touched_at: 0,
+		max_process_touched_at: 0,
+		max_sandbox_touched_at: 0,
+		now: 0,
+		partition_end: 1,
+		partition_start: 0,
+	};
+	let mut done = false;
+	for _ in 0..10 {
+		if index.clean(arg.clone()).await.unwrap().done {
+			done = true;
+			break;
+		}
+	}
+	assert!(done);
+	let ids = [child.id, parent.id];
+	assert!(
+		index
+			.try_get_objects(&ids)
+			.await
+			.unwrap()
+			.iter()
+			.all(Option::is_none)
+	);
+	let transaction = index.env.read_txn().unwrap();
+	for id in ids {
+		for kind in [Kind::StorageAndMetadata, Kind::Permission(subject.clone())] {
+			let key = Key::Update(super::super::update::Key::PropagatedVersion {
+				id: tg::Either::Left(id.clone()),
+				kind,
+			});
+			assert!(
+				index
+					.db
+					.get(&transaction, &Index::pack(&index.subspace, &key))
+					.unwrap()
+					.is_none()
+			);
+		}
+	}
+}
+
+fn object(
+	id: u8,
+	children: impl IntoIterator<Item = tg::object::Id>,
+) -> tangram_index::object::put::Arg {
+	let id = tg::object::Id::new(tg::object::Kind::Directory, &vec![id].into());
+	let children = children.into_iter().collect::<BTreeSet<_>>();
+	tangram_index::object::put::Arg {
+		checkout: None,
+		children,
+		id,
+		metadata: tg::object::Metadata::default(),
+		put: [1; 16],
+		storage: tangram_index::object::Storage::default(),
+		time_to_touch: std::time::Duration::ZERO,
+		touched_at: 0,
+	}
+}
+
+async fn put(index: &Index, objects: Vec<tangram_index::object::put::Arg>) {
+	let items = objects
+		.into_iter()
+		.map(tangram_index::batch::Item::PutObject)
+		.collect();
+	let arg = tangram_index::batch::Arg { items };
+	index.batch(arg).await.unwrap();
+}
+
+async fn associate(
+	index: &Index,
+	account: &tangram_index::usage::Account,
+	object: &tg::object::Id,
+) {
+	let arg = tangram_index::usage::storage::put::ObjectArg {
+		account: account.clone(),
+		object: object.clone(),
+		touched_at: 0,
+	};
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutAccountObject(arg)],
+	};
+	index.batch(arg).await.unwrap();
+}
+
+fn associated(
+	index: &Index,
+	account: &tangram_index::usage::Account,
+	object: &tg::object::Id,
+) -> bool {
+	let transaction = index.env.read_txn().unwrap();
+	let key = Key::Usage(super::super::usage::Key::AccountObject {
+		account: account.clone(),
+		object: object.clone(),
+	});
+	index
+		.db
+		.get(&transaction, &Index::pack(&index.subspace, &key))
+		.unwrap()
+		.is_some()
+}
+
+async fn drain(index: &Index, kind: tangram_index::update::Kind) {
+	for _ in 0..100 {
+		if index.update_batch(kind, 100).await.unwrap().count == 0 {
+			return;
+		}
+	}
+	panic!("the updates did not drain");
+}

@@ -13,7 +13,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-pub(crate) struct Batch {
+pub struct Batch {
 	args: Vec<super::Arg>,
 	config: super::Config,
 	outcomes: Option<Vec<super::Outcome>>,
@@ -121,7 +121,7 @@ enum ProcessPhase {
 }
 
 impl Batch {
-	pub(crate) async fn authorize<E>(
+	pub async fn authorize<E>(
 		args: &[super::Arg],
 		client: facts::Client<E>,
 		config: super::Config,
@@ -1801,7 +1801,7 @@ mod tests {
 		let active = Arc::new(AtomicUsize::new(0));
 		let barrier = Arc::new(Barrier::new(2));
 		let maximum = Arc::new(AtomicUsize::new(0));
-		let (client, receiver) = facts::channel::<facts::LmdbError>(2);
+		let (client, receiver) = facts::channel::<std::convert::Infallible>(2);
 		let authorize = Batch::authorize(
 			&args,
 			client,

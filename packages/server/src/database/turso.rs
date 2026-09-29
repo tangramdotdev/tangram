@@ -6,7 +6,9 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
-pub async fn initialize(connection: &::turso::Connection) -> Result<(), db::turso::Error> {
+pub async fn initialize(
+	connection: &::turso::Connection,
+) -> Result<(), tangram_database_turso::Error> {
 	connection.busy_timeout(Duration::from_secs(5))?;
 	for sql in [
 		"pragma cache_size = -20000",
@@ -22,7 +24,7 @@ pub async fn initialize(connection: &::turso::Connection) -> Result<(), db::turs
 	Ok(())
 }
 
-pub async fn migrate(database: &db::turso::Database) -> tg::Result<()> {
+pub async fn migrate(database: &tangram_database_turso::Database) -> tg::Result<()> {
 	let schema_version = 1;
 
 	let version = database
@@ -58,8 +60,8 @@ pub async fn migrate(database: &db::turso::Database) -> tg::Result<()> {
 }
 
 async fn get_database_version_with_transaction(
-	transaction: &db::turso::Transaction<'_>,
-) -> tg::Result<ControlFlow<usize, db::turso::Error>> {
+	transaction: &tangram_database_turso::Transaction<'_>,
+) -> tg::Result<ControlFlow<usize, tangram_database_turso::Error>> {
 	let result = transaction
 		.query_one_value_into::<i64>("pragma user_version".into(), db::params![])
 		.await;
@@ -71,16 +73,16 @@ async fn get_database_version_with_transaction(
 }
 
 async fn migration_0000_with_transaction(
-	transaction: &db::turso::Transaction<'_>,
+	transaction: &tangram_database_turso::Transaction<'_>,
 	schema_version: usize,
-) -> tg::Result<ControlFlow<(), db::turso::Error>> {
+) -> tg::Result<ControlFlow<(), tangram_database_turso::Error>> {
 	let sql = include_str!("./sqlite.sql");
 	let result = transaction
 		.inner()
 		.deref()
 		.execute_batch(sql)
 		.await
-		.map_err(db::turso::Error::from);
+		.map_err(tangram_database_turso::Error::from);
 	crate::database::retry!(result, "failed to execute the statements");
 	let result = transaction
 		.inner()
@@ -89,7 +91,7 @@ async fn migration_0000_with_transaction(
 			"insert into remotes (name, trusted, url) values ('default', 1, 'https://cloud.tangram.dev');",
 		)
 		.await
-		.map_err(db::turso::Error::from);
+		.map_err(tangram_database_turso::Error::from);
 	crate::database::retry!(result, "failed to execute the statements");
 	let result = transaction
 		.execute(

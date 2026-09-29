@@ -43,7 +43,7 @@ pub enum DeltaKind {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub(crate) struct PartitionAggregate {
+pub struct PartitionAggregate {
 	pub object_count: i128,
 	pub object_size: i128,
 	pub process_count: i128,
@@ -53,7 +53,7 @@ pub(crate) struct PartitionAggregate {
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct DeltaArg<'a> {
+pub struct DeltaArg<'a> {
 	pub account: &'a Account,
 	pub at: i64,
 	pub delta: i64,
@@ -61,7 +61,7 @@ pub(crate) struct DeltaArg<'a> {
 	pub partition: u64,
 }
 
-pub(crate) fn deserialize_timestamp(bytes: &[u8]) -> tg::Result<i64> {
+pub fn deserialize_timestamp(bytes: &[u8]) -> tg::Result<i64> {
 	let bytes = bytes
 		.try_into()
 		.map_err(|_| tg::error!("invalid usage timestamp"))?;
@@ -71,7 +71,8 @@ pub(crate) fn deserialize_timestamp(bytes: &[u8]) -> tg::Result<i64> {
 	Ok(timestamp)
 }
 
-pub(crate) fn serialize_timestamp(timestamp: i64) -> [u8; 8] {
+#[must_use]
+pub fn serialize_timestamp(timestamp: i64) -> [u8; 8] {
 	(timestamp.cast_unsigned() ^ (1 << 63)).to_le_bytes()
 }
 
@@ -127,7 +128,7 @@ impl PartitionAggregate {
 	}
 }
 
-pub(crate) fn children(period: Period) -> tg::Result<Vec<Period>> {
+pub fn children(period: Period) -> tg::Result<Vec<Period>> {
 	let (kind, step) = match period {
 		Period::Day(_) => (PeriodKind::Hour, 60 * 60),
 		Period::Hour(_) => return Ok(Vec::new()),
@@ -146,7 +147,7 @@ pub(crate) fn children(period: Period) -> tg::Result<Vec<Period>> {
 	Ok(children)
 }
 
-pub(crate) fn closing_hour(period: Period) -> tg::Result<i64> {
+pub fn closing_hour(period: Period) -> tg::Result<i64> {
 	period
 		.end()
 		.as_second()
@@ -154,7 +155,7 @@ pub(crate) fn closing_hour(period: Period) -> tg::Result<i64> {
 		.ok_or_else(|| tg::error!("the usage period overflowed"))
 }
 
-pub(crate) fn deserialize_aggregate(bytes: &[u8]) -> tg::Result<PartitionAggregate> {
+pub fn deserialize_aggregate(bytes: &[u8]) -> tg::Result<PartitionAggregate> {
 	let bytes: &[u8; 96] = bytes
 		.try_into()
 		.map_err(|_| tg::error!("invalid usage aggregate"))?;
@@ -176,7 +177,8 @@ pub(crate) fn deserialize_aggregate(bytes: &[u8]) -> tg::Result<PartitionAggrega
 	Ok(aggregate)
 }
 
-pub(crate) fn serialize_aggregate(aggregate: &PartitionAggregate) -> Vec<u8> {
+#[must_use]
+pub fn serialize_aggregate(aggregate: &PartitionAggregate) -> Vec<u8> {
 	let mut bytes = Vec::with_capacity(96);
 	bytes.extend(aggregate.sandbox_cpu.to_le_bytes());
 	bytes.extend(aggregate.sandbox_memory.to_le_bytes());

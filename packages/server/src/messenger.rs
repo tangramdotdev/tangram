@@ -5,9 +5,9 @@ mod tests;
 
 #[derive(Clone)]
 enum Inner {
-	Memory(messenger::memory::Messenger),
+	Memory(tangram_messenger_memory::Messenger),
 	#[cfg(feature = "nats")]
-	Nats(messenger::nats::Messenger),
+	Nats(tangram_messenger_nats::Messenger),
 }
 
 #[derive(Clone)]
@@ -20,7 +20,7 @@ pub struct Messenger {
 impl Messenger {
 	#[must_use]
 	pub fn memory(instance: Option<String>, region: Option<String>) -> Self {
-		let inner = Inner::Memory(messenger::memory::Messenger::new());
+		let inner = Inner::Memory(tangram_messenger_memory::Messenger::new());
 		Self {
 			inner,
 			instance,
@@ -35,7 +35,7 @@ impl Messenger {
 		instance: Option<String>,
 		region: Option<String>,
 	) -> Self {
-		let inner = Inner::Nats(messenger::nats::Messenger::new(client));
+		let inner = Inner::Nats(tangram_messenger_nats::Messenger::new(client));
 		Self {
 			inner,
 			instance,

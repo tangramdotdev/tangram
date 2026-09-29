@@ -17,7 +17,7 @@ pub enum Source {
 }
 
 #[derive(Clone, Debug)]
-pub(crate) struct Fact {
+pub struct Fact {
 	pub creator: Option<tg::Principal>,
 	pub direct: bool,
 	pub permission: tg::authorization::Permission,
@@ -26,7 +26,7 @@ pub(crate) struct Fact {
 }
 
 #[must_use]
-pub(crate) fn is_process_direct(
+pub fn is_process_direct(
 	creator: Option<&tg::Principal>,
 	direct: bool,
 	subject: &tg::authorization::Subject,
@@ -43,7 +43,7 @@ pub(crate) fn is_process_direct(
 
 impl Fact {
 	#[must_use]
-	pub(crate) fn is_process_direct(&self) -> bool {
+	pub fn is_process_direct(&self) -> bool {
 		is_process_direct(self.creator.as_ref(), self.direct, &self.subject)
 	}
 }

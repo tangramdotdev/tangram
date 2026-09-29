@@ -86,7 +86,7 @@ struct Inner {
 
 /// The state the fast path requires. It reads the cache and the checkouts directory directly instead of sending a request to the server.
 struct Fast {
-	cache: cache::lmdb::Cache,
+	cache: tangram_cache_lmdb::Cache,
 	checkout_path: PathBuf,
 }
 
@@ -1289,7 +1289,7 @@ impl Fast {
 	fn new(data_directory: &Path, config: &Config) -> Option<Self> {
 		// Open the cache.
 		let path = data_directory.join(&config.cache_path);
-		let config = cache::lmdb::Config {
+		let config = tangram_cache_lmdb::Config {
 			map_size: config.cache_map_size,
 			path,
 			posix_sem_prefix: config.cache_posix_sem_prefix.clone(),
@@ -1297,7 +1297,7 @@ impl Fast {
 			read_concurrency: 1,
 			write_batch_size: 8_000,
 		};
-		let cache = match cache::lmdb::Cache::new_readonly(&config) {
+		let cache = match tangram_cache_lmdb::Cache::new_readonly(&config) {
 			Err(error) => {
 				tracing::warn!(
 					error = %error.trace(),
@@ -2383,7 +2383,7 @@ mod tests {
 		let bytes = data.serialize().unwrap();
 		let directory: tg::artifact::Id = tg::directory::Id::new(&bytes).into();
 		let cache_path = PathBuf::from("cache.lmdb");
-		let cache = cache::lmdb::Cache::new(&cache::lmdb::Config {
+		let cache = tangram_cache_lmdb::Cache::new(&tangram_cache_lmdb::Config {
 			map_size: 10 * 1024 * 1024,
 			path: temp.path().join(&cache_path),
 			posix_sem_prefix: None,

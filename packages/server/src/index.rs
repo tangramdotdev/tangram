@@ -17,20 +17,20 @@ pub(crate) use self::wait::Sender as WaitSender;
 #[unwrap(ref)]
 pub enum Index {
 	#[cfg(feature = "foundationdb")]
-	Fdb(index::fdb::Index),
+	Fdb(tangram_index_fdb::Index),
 	#[cfg(feature = "lmdb")]
-	Lmdb(index::lmdb::Index),
+	Lmdb(tangram_index_lmdb::Index),
 }
 
 impl Index {
 	#[cfg(feature = "foundationdb")]
-	pub fn new_fdb(options: &index::fdb::Options) -> tg::Result<Self> {
-		Ok(Self::Fdb(index::fdb::Index::new(options)?))
+	pub fn new_fdb(options: &tangram_index_fdb::Options) -> tg::Result<Self> {
+		Ok(Self::Fdb(tangram_index_fdb::Index::new(options)?))
 	}
 
 	#[cfg(feature = "lmdb")]
-	pub fn new_lmdb(config: &index::lmdb::Config) -> tg::Result<Self> {
-		Ok(Self::Lmdb(index::lmdb::Index::new(config)?))
+	pub fn new_lmdb(config: &tangram_index_lmdb::Config) -> tg::Result<Self> {
+		Ok(Self::Lmdb(tangram_index_lmdb::Index::new(config)?))
 	}
 }
 

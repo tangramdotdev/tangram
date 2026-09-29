@@ -10,12 +10,6 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-[features]
-postgres = ["dep:postgres-protocol", "dep:tokio-postgres"]
-sqlite = ["dep:rusqlite"]
-tls = ["dep:rustls", "dep:rustls-platform-verifier", "dep:tokio-postgres-rustls"]
-turso = ["dep:turso"]
-
 [lib]
 doctest = false
 test = false
@@ -26,24 +20,13 @@ workspace = true
 [dependencies]
 bytes = { workspace = true }
 derive_more = { workspace = true }
-fnv = { workspace = true }
 futures = { workspace = true }
 indexmap = { workspace = true }
 itertools = { workspace = true }
 num = { workspace = true }
-postgres-protocol = { workspace = true, optional = true }
-rusqlite = { workspace = true, optional = true }
-rustls = { workspace = true, optional = true }
-rustls-platform-verifier = { workspace = true, optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_database_macro = { path = "macro" }
 tangram_either = { workspace = true }
 tangram_futures = { workspace = true }
 tangram_pool = { workspace = true }
-tangram_uri = { workspace = true }
-tokio = { workspace = true }
-tokio-postgres = { workspace = true, optional = true }
-tokio-postgres-rustls = { workspace = true, optional = true }
-turso = { workspace = true, optional = true }
-tracing = { workspace = true }

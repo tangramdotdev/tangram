@@ -1,10 +1,8 @@
-use {
-	num::ToPrimitive as _, rusqlite as sqlite, tangram_client::prelude::*, tangram_database as db,
-};
+use {num::ToPrimitive as _, rusqlite as sqlite, tangram_client::prelude::*};
 
 pub fn initialize(
 	connection: &sqlite::Connection,
-	options: &db::sqlite::ConnectionOptions,
+	options: &tangram_database_sqlite::ConnectionOptions,
 ) -> sqlite::Result<()> {
 	if !options
 		.flags
@@ -42,7 +40,7 @@ pub fn initialize(
 	Ok(())
 }
 
-pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
+pub async fn migrate(database: &tangram_database_sqlite::Database) -> tg::Result<()> {
 	let schema_version = 1;
 
 	let version = database
@@ -77,13 +75,13 @@ pub async fn migrate(database: &db::sqlite::Database) -> tg::Result<()> {
 
 fn get_database_version_with_transaction(
 	transaction: &sqlite::Transaction<'_>,
-	_cache: &db::sqlite::Cache,
-) -> tg::Result<std::ops::ControlFlow<usize, db::sqlite::Error>> {
+	_cache: &tangram_database_sqlite::Cache,
+) -> tg::Result<std::ops::ControlFlow<usize, tangram_database_sqlite::Error>> {
 	let result = transaction
 		.pragma_query_value(None, "user_version", |row| {
 			Ok(row.get_unwrap::<_, i64>(0).to_usize().unwrap())
 		})
-		.map_err(db::sqlite::Error::from);
+		.map_err(tangram_database_sqlite::Error::from);
 	let version = crate::database::retry!(result, "failed to get the version");
 
 	Ok(std::ops::ControlFlow::Break(version))
@@ -92,20 +90,20 @@ fn get_database_version_with_transaction(
 fn migration_0000_with_transaction(
 	transaction: &sqlite::Transaction<'_>,
 	schema_version: usize,
-) -> tg::Result<std::ops::ControlFlow<(), db::sqlite::Error>> {
+) -> tg::Result<std::ops::ControlFlow<(), tangram_database_sqlite::Error>> {
 	let sql = include_str!("./sqlite.sql");
 	let result = transaction
 		.execute_batch(sql)
-		.map_err(db::sqlite::Error::from);
+		.map_err(tangram_database_sqlite::Error::from);
 	crate::database::retry!(result, "failed to execute the statements");
 	let sql = "insert into remotes (name, trusted, url) values ('default', 1, 'https://cloud.tangram.dev');";
 	let result = transaction
 		.execute_batch(sql)
-		.map_err(db::sqlite::Error::from);
+		.map_err(tangram_database_sqlite::Error::from);
 	crate::database::retry!(result, "failed to execute the statements");
 	let result = transaction
 		.pragma_update(None, "user_version", schema_version.to_i64().unwrap())
-		.map_err(db::sqlite::Error::from);
+		.map_err(tangram_database_sqlite::Error::from);
 	crate::database::retry!(result, "failed to set the version");
 
 	Ok(std::ops::ControlFlow::Break(()))

@@ -27,13 +27,13 @@ pub mod turso;
 #[unwrap(ref)]
 pub enum Error {
 	#[cfg(feature = "postgres")]
-	Postgres(db::postgres::Error),
+	Postgres(tangram_database_postgres::Error),
 
 	#[cfg(feature = "sqlite")]
-	Sqlite(db::sqlite::Error),
+	Sqlite(tangram_database_sqlite::Error),
 
 	#[cfg(feature = "turso")]
-	Turso(db::turso::Error),
+	Turso(tangram_database_turso::Error),
 
 	Other(Box<dyn std::error::Error + Send + Sync>),
 }
@@ -43,13 +43,13 @@ pub enum Error {
 #[unwrap(ref)]
 pub enum Database {
 	#[cfg(feature = "postgres")]
-	Postgres(db::postgres::Database),
+	Postgres(tangram_database_postgres::Database),
 
 	#[cfg(feature = "sqlite")]
-	Sqlite(db::sqlite::Database),
+	Sqlite(tangram_database_sqlite::Database),
 
 	#[cfg(feature = "turso")]
-	Turso(db::turso::Database),
+	Turso(tangram_database_turso::Database),
 }
 
 #[expect(dead_code)]
@@ -58,13 +58,13 @@ pub enum Database {
 #[unwrap(ref)]
 pub enum DatabaseOptions {
 	#[cfg(feature = "postgres")]
-	Postgres(db::postgres::DatabaseOptions),
+	Postgres(tangram_database_postgres::DatabaseOptions),
 
 	#[cfg(feature = "sqlite")]
-	Sqlite(db::sqlite::DatabaseOptions),
+	Sqlite(tangram_database_sqlite::DatabaseOptions),
 
 	#[cfg(feature = "turso")]
-	Turso(db::turso::DatabaseOptions),
+	Turso(tangram_database_turso::DatabaseOptions),
 }
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -72,13 +72,13 @@ pub enum DatabaseOptions {
 #[unwrap(ref)]
 pub enum Connection {
 	#[cfg(feature = "postgres")]
-	Postgres(tangram_pool::ExclusiveGuard<db::postgres::Connection, db::postgres::Error>),
+	Postgres(tangram_database_postgres::Guard),
 
 	#[cfg(feature = "sqlite")]
-	Sqlite(tangram_pool::ExclusiveGuard<db::sqlite::Connection, db::sqlite::Error>),
+	Sqlite(tangram_database_sqlite::Guard),
 
 	#[cfg(feature = "turso")]
-	Turso(tangram_pool::ExclusiveGuard<db::turso::Connection, db::turso::Error>),
+	Turso(tangram_database_turso::Guard),
 }
 
 #[expect(dead_code)]
@@ -87,10 +87,10 @@ pub enum Connection {
 #[unwrap(ref)]
 pub enum ConnectionOptions {
 	#[cfg(feature = "postgres")]
-	Postgres(db::postgres::ConnectionOptions),
+	Postgres(tangram_database_postgres::ConnectionOptions),
 
 	#[cfg(feature = "sqlite")]
-	Sqlite(db::sqlite::ConnectionOptions),
+	Sqlite(tangram_database_sqlite::ConnectionOptions),
 }
 
 #[derive(derive_more::IsVariant, derive_more::TryUnwrap, derive_more::Unwrap)]
@@ -98,13 +98,13 @@ pub enum ConnectionOptions {
 #[unwrap(ref)]
 pub enum Transaction<'a> {
 	#[cfg(feature = "postgres")]
-	Postgres(db::postgres::Transaction<'a>),
+	Postgres(tangram_database_postgres::Transaction<'a>),
 
 	#[cfg(feature = "sqlite")]
-	Sqlite(db::sqlite::Transaction<'a>),
+	Sqlite(tangram_database_sqlite::Transaction<'a>),
 
 	#[cfg(feature = "turso")]
-	Turso(db::turso::Transaction<'a>),
+	Turso(tangram_database_turso::Transaction<'a>),
 }
 
 impl db::Error for Error {
