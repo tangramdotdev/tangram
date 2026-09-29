@@ -208,18 +208,46 @@ impl Session {
 		source: tg::process::Source,
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Option<tg::process::Data>> {
-		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
-		let permission = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Node,
-		);
-		let authorize_future = self.authorize(resource, permission);
-		let get_future = self.try_get_process_data_local(id, source, deadline);
-		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
+		let requested = tg::authorization::permission::process::Set::NODE;
+		let output = self
+			.try_get_process_observation_local_with_permissions(
+				id, tokens, source, deadline, requested,
+			)
+			.await?;
+		Ok(output.map(|(data, _)| data))
+	}
 
-		if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
+	pub(super) async fn try_get_process_observation_local_with_permissions(
+		&self,
+		id: &tg::process::Id,
+		tokens: &[tg::authorization::Token],
+		source: tg::process::Source,
+		deadline: tokio::time::Instant,
+		requested: tg::authorization::permission::process::Set,
+	) -> tg::Result<
+		Option<(
+			tg::process::Data,
+			tg::authorization::permission::process::Set,
+		)>,
+	> {
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
+		let required = tg::authorization::permission::Set::Process(
+			tg::authorization::permission::process::Set::NODE,
+		);
+		let requested = tg::authorization::permission::Set::Process(requested);
+		let authorize_future =
+			self.authorize_batch_with_required([(resource, requested)], required);
+		let get_future = self.try_get_process_data_local(id, source, deadline);
+		let (mut permissions, output) = future::try_join(authorize_future, get_future).await?;
+		let Some(tg::authorization::permission::Set::Process(permissions)) =
+			permissions.pop().flatten()
+		else {
+			return Ok(None);
+		};
+		if !permissions.contains(tg::authorization::permission::process::Set::NODE) {
 			return Ok(None);
 		}
-		Ok(output)
+		Ok(output.map(|data| (data, permissions)))
 	}
 
 	fn create_process_status_stream_local_with_wakeups(
@@ -372,7 +400,7 @@ impl Session {
 			.boxed()
 			.await?;
 		if let Some(data) = output.control {
-			return Ok(Some(data.without_location_and_tokens()));
+			return Ok(Some(data));
 		}
 		let Some(process) = output.indexed else {
 			return Ok(None);
@@ -388,7 +416,6 @@ impl Session {
 		{
 			return Ok(None);
 		}
-		let data = data.without_location_and_tokens();
 		Ok(Some(data))
 	}
 

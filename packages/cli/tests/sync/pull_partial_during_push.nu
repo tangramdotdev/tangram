@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A client that already has an object but not its child pulls the object with a sync token while a push of it is held. The pull requests the missing child and waits for the push instead of failing.
+# A client that already has an object but not its child pulls the object with an authorization token for a sync while a push of it is held. The pull requests the missing child and waits for the push instead of failing.
 
 let root_token = random chars
 
@@ -45,7 +45,7 @@ let watch = (
 	| get watch
 )
 
-# Start alice's push and take the referent with the sync token from its log.
+# Start alice's push and take the referent with the authorization token for the sync from its log.
 let push_log = $env.TMPDIR | path join push.log
 let push = job spawn {
 	let job_id = job id
@@ -54,7 +54,7 @@ let push = job spawn {
 }
 let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $watch 0 | complete
 success $output "alice's push should reach the blob"
-wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should log the referent with the sync token'
+wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should log the referent with the authorization token for the sync'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[' }
 let referent = $push_lines | first | str trim
 

@@ -587,7 +587,11 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<tg::process::Data> {
-		let output = self.get_process_control_output(id).await?;
+		let mut output = self.get_process_control_output(id).await?;
+		output.data = output.data.without_location_and_tokens();
+		if let Some(sync) = &output.sync {
+			Self::inherit_process_authorization_tokens_for_sync(&mut output.data, sync);
+		}
 		Ok(output.data)
 	}
 
@@ -822,6 +826,7 @@ impl Session {
 			enqueue_log_compaction: false,
 			location: location.and_then(|location| location.to_location()),
 			store_data: true,
+			sync: None,
 		};
 		self.put_process_local(id, arg, options).boxed().await?;
 

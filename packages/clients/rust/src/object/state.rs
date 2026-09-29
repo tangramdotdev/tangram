@@ -264,7 +264,7 @@ impl State {
 			true
 		});
 
-		// Collect uncovered authorization proofs and sync tokens for pending transfers.
+		// Collect uncovered authorization proofs and authorization tokens for pending syncs.
 		let mut tokens = tg::authorization::Tokens::default();
 		for location in locations {
 			let mut entry = tg::authorization::tokens::Entry::default();

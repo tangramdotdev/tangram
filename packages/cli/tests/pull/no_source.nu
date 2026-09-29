@@ -25,7 +25,7 @@ let push = job spawn {
 	$output | job send --tag $job_id 0
 }
 timeout 10s tg --url $remote_destination.url --token $root_token checkpoint wait sync.get.store.object $file_watch 0 | ignore
-wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log its sync token'
+wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log its authorization token for the sync'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
 let referent = $referent | str replace --all 'tokens[remote]' 'tokens[local]'
 let socket = $remote_destination.url | str replace 'http+unix://' '' | url decode
@@ -40,7 +40,7 @@ tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.get
 let response = job recv --tag $pull --timeout 15sec
 assert ($response | str contains 'event: output') 'the source-less pull should complete'
 assert not ($response | str contains 'event: error') 'the source-less pull should not fail'
-success (tg --url $remote_destination.url --token $bob.token read $file | complete) 'the pull should persist access without requiring the sync token again'
+success (tg --url $remote_destination.url --token $bob.token read $file | complete) 'the pull should persist access without requiring the authorization token for the sync again'
 success (job recv --tag $push --timeout 10sec) 'the push should complete'
 
 # Stored bytes alone are not proof, and no source must not silently select a remote.

@@ -21,7 +21,7 @@ assert ($response | str contains 'event: error') "the pull from the empty source
 let logs = $response | split row "\n\n" | where {|event| $event starts-with 'event: log' } | each {|event|
 	$event | lines | where {|line| $line starts-with 'data:' } | first | str substring 5.. | from json
 }
-assert not ($logs | is-empty) "the pull should publish its sync token"
+assert not ($logs | is-empty) "the pull should publish its authorization token for the sync"
 for log in $logs {
 	let referent = $log.message
 	let params = $'http://localhost/($referent)' | url parse | get params
@@ -31,6 +31,6 @@ for log in $logs {
 		assert ($body.resource | str starts-with 'syn_') "starting a sync must not grant access directly to an object"
 		assert equal $body.permissions [sync_read]
 	}
-	failure (tg --url $remote_destination.url --token $bob.token read $referent | complete) "the sync token must not authorize Bob"
+	failure (tg --url $remote_destination.url --token $bob.token read $referent | complete) "the authorization token for the sync must not authorize Bob"
 }
 failure (tg --url $remote_destination.url --token $bob.token get --local $private | complete) "the failed pull must not grant access"

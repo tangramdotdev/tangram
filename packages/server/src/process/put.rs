@@ -26,6 +26,7 @@ pub(crate) struct Options {
 	pub enqueue_log_compaction: bool,
 	pub location: Option<tg::Location>,
 	pub store_data: bool,
+	pub sync: Option<tg::Referent<tg::sync::Id>>,
 }
 
 impl Session {
@@ -43,6 +44,7 @@ impl Session {
 					enqueue_log_compaction: false,
 					location: None,
 					store_data: true,
+					sync: None,
 				};
 				(self.put_process_local(id, arg, options).await?, false)
 			},
@@ -241,11 +243,15 @@ impl Session {
 			enqueue_log_compaction,
 			location,
 			store_data,
+			sync,
 		} = options;
 		let now = self.server.clock.unix_timestamp()?;
 		let token_data = arg.data.clone();
 
 		arg.data = arg.data.without_location_and_tokens();
+		if let Some(sync) = &sync {
+			Self::inherit_process_authorization_tokens_for_sync(&mut arg.data, sync);
+		}
 
 		// Create the index arguments.
 		let children = arg.data.children.clone();

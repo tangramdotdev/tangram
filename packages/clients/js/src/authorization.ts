@@ -221,7 +221,7 @@ export namespace Authorization {
 						authorization.push(token);
 					}
 				}
-				// Keep sync tokens so readers can wait for objects that are still being transferred.
+				// Keep authorization tokens for syncs so readers can wait for objects that are still being transferred.
 				if (
 					resource !== undefined &&
 					authorization.some((token) =>

@@ -935,7 +935,7 @@ impl Session {
 			Err(error) => {
 				process_stopper.stop();
 				drop(index_sender);
-				// Unblock the finish task if it is waiting for the connection's sync token.
+				// Unblock the finish task if it is waiting for the authorization token for the connection's sync.
 				drop(sync_sender);
 				finish_task.wait().await.ok();
 
@@ -1390,6 +1390,7 @@ impl Session {
 			enqueue_log_compaction: false,
 			location: Some(location.clone()),
 			store_data: location.is_remote(),
+			sync: None,
 		};
 		let arg = tg::process::put::Arg {
 			data,
@@ -1441,6 +1442,7 @@ impl Session {
 			enqueue_log_compaction: false,
 			location: Some(location.clone()),
 			store_data: remote,
+			sync: None,
 		};
 		self.put_finished_process_local(id, data.clone(), options)
 			.await
@@ -1776,12 +1778,12 @@ impl Session {
 			region: remote.region.clone(),
 		});
 		if let Some(sync) = &sync {
-			let mut sync_tokens = tg::authorization::Tokens::default();
+			let mut authorization_tokens = tg::authorization::Tokens::default();
 			for token in sync.options.tokens.local_authorization() {
-				sync_tokens.insert_authorization(destination.clone(), token.clone());
+				authorization_tokens.insert_authorization(destination.clone(), token.clone());
 			}
 			for object in &mut objects {
-				object.options.tokens.inherit(&sync_tokens);
+				object.options.tokens.inherit(&authorization_tokens);
 			}
 		}
 		let arg = tg::push::Arg {

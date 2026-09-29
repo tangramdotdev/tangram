@@ -606,6 +606,7 @@ impl Session {
 			enqueue_log_compaction: false,
 			location: Some(location),
 			store_data: true,
+			sync: None,
 		};
 		let output = self
 			.put_process_local(&id, entry, options)

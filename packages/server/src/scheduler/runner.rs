@@ -281,6 +281,7 @@ impl Server {
 					enqueue_log_compaction: true,
 					location: None,
 					store_data: true,
+					sync: None,
 				};
 				session
 					.put_process_local(&process, entry, options)

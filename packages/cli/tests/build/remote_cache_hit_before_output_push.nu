@@ -71,7 +71,7 @@ if $output != null {
 	error make { msg: $"the output read should wait while the push is held: ($output)" }
 }
 
-# Release the push. The read carries the output's sync token, so it retries until the contents land.
+# Release the push. The read carries the authorization token for the output sync, so it retries until the contents land.
 tg --url $runner.url checkpoint continue runner.process.output.push.started $push_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.output.push.started $push_watch
 

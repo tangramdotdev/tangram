@@ -221,7 +221,7 @@ export namespace Object {
 				return true;
 			});
 
-			// Collect uncovered authorization proofs and sync tokens for pending transfers.
+			// Collect uncovered authorization proofs and authorization tokens for pending syncs.
 			let tokens: tg.Authorization.Tokens = {};
 			for (let location of locations) {
 				let visited = new Map<tg.Object.State, Set<boolean>>();

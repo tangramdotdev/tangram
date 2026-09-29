@@ -550,14 +550,6 @@ pub(crate) fn stream_options() -> StreamOptions {
 }
 
 impl Server {
-	pub(crate) async fn read_control_response<T>(
-		&self,
-		future: impl Future<Output = tg::Result<T>>,
-	) -> tg::Result<T> {
-		self.read_control_response_until(self.control_read_deadline(), future)
-			.await
-	}
-
 	#[must_use]
 	pub(crate) fn control_read_deadline(&self) -> tokio::time::Instant {
 		tokio::time::Instant::now() + self.config.control.read_timeout

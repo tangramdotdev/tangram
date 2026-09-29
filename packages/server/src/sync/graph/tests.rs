@@ -93,7 +93,7 @@ fn received_object_is_not_stored_until_written() {
 }
 
 #[test]
-fn lifted_sync_tokens_follow_attachment_ancestors() {
+fn lifted_authorization_tokens_for_sync_follow_attachment_ancestors() {
 	let ids = [
 		b"directory".as_slice(),
 		b"first",

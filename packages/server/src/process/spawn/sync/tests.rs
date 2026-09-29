@@ -1,7 +1,7 @@
 use {crate::Session, tangram_client::prelude::*};
 
 #[test]
-fn spawn_command_sync_tokens_survive_forwarding() {
+fn spawn_command_authorization_tokens_for_sync_survive_forwarding() {
 	let key =
 		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
 			.unwrap();

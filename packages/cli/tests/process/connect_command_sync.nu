@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # A routed run schedules its process before the command push finishes, and the runner uses the
-# command's sync token to read its graph while it is still in flight.
+# authorization token for the command sync to read its graph while it is still in flight.
 
 let root_token = random chars
 
@@ -83,9 +83,9 @@ success $output "the process should be scheduled before the command push finishe
 tg --url $runner.url checkpoint continue runner.process.state.inserted $state_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.state.inserted $state_watch
 
-# The runner uses the transient command sync token to request the executable from the in-flight push.
+# The runner uses the authorization token for the command sync to request the executable from the in-flight push.
 let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.control.request.retain $retain_watch 0 | complete
-success $output "the runner should request the in-flight executable with its sync token"
+success $output "the runner should request the in-flight executable with its authorization token for the sync"
 tg --url $remote.url --token $root_token checkpoint continue sync.control.request.retain $retain_watch 0
 tg --url $remote.url --token $root_token checkpoint unwatch sync.control.request.retain $retain_watch
 

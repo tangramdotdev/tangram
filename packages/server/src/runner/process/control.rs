@@ -254,7 +254,7 @@ impl Session {
 			Ok(())
 		};
 
-		// Retain control so waits can obtain the result sync token while its objects are in transit.
+		// Retain control so waits can obtain the authorization token for the output sync while its objects are in transit.
 		if !self.server.config.process.await_push {
 			push.await.ok();
 		}

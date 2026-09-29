@@ -622,13 +622,14 @@ impl Session {
 
 					// Log the sync proofs so callers can request nodes before the transfer ends.
 					if let Some(sync) = &sync_output.sync {
-						let mut sync_tokens = tg::authorization::Tokens::default();
+						let mut authorization_tokens = tg::authorization::Tokens::default();
 						for token in sync.options.tokens.local_authorization() {
-							sync_tokens.insert_authorization(destination.clone(), token.clone());
+							authorization_tokens
+								.insert_authorization(destination.clone(), token.clone());
 						}
 						for node in &arg.nodes {
 							let mut node = node.clone();
-							node.options.tokens.inherit(&sync_tokens);
+							node.options.tokens.inherit(&authorization_tokens);
 							progress.log(None, node.to_string());
 						}
 					}
@@ -667,12 +668,13 @@ impl Session {
 					let mut output = output.lock().unwrap().clone();
 					output.nodes = session.create_sync_output_nodes(&arg)?;
 					if let Some(sync) = sync_output.sync {
-						let mut sync_tokens = tg::authorization::Tokens::default();
+						let mut authorization_tokens = tg::authorization::Tokens::default();
 						for token in sync.options.tokens.local_authorization() {
-							sync_tokens.insert_authorization(destination.clone(), token.clone());
+							authorization_tokens
+								.insert_authorization(destination.clone(), token.clone());
 						}
 						for node in &mut output.nodes {
-							node.options.tokens.inherit(&sync_tokens);
+							node.options.tokens.inherit(&authorization_tokens);
 						}
 					}
 

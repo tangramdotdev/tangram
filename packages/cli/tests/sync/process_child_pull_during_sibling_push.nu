@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A child process consumes a sibling's output while the runner that produced it is still pushing it.
 # The parent runs on one runner and a first child borrows its capacity there, so the producer and the
 # consumer run on the other two runners. The consumer's command references the producer's output by
-# a referent that carries the producer's sync token, so the parent's runner pushes the command without
+# a referent that carries the authorization token for the producer's sync, so the parent's runner pushes the command without
 # the output, and the consumer waits for the producer's push to complete instead of failing.
 
 let root_token = random chars

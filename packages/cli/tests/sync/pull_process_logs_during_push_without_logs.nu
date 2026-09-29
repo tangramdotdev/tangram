@@ -42,7 +42,7 @@ let watch = (
 	| get watch
 )
 
-# Alice pushes the process without its logs and takes the referent with the sync token from the log.
+# Alice pushes the process without its logs and takes the referent with the authorization token for the sync from the log.
 let push_log = $env.TMPDIR | path join push.log
 let push = job spawn {
 	let job_id = job id
@@ -51,7 +51,7 @@ let push = job spawn {
 }
 let output = timeout 30s tg --url $alice_local.url checkpoint wait sync.put.store.process $watch 0 | complete
 success $output "alice's push should reach the process"
-wait_until { ($push_log | path exists) and ((open --raw $push_log) | str contains 'tokens[remote][0]') } 'the push should log the referent with the sync token'
+wait_until { ($push_log | path exists) and ((open --raw $push_log) | str contains 'tokens[remote][0]') } 'the push should log the referent with the authorization token for the sync'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[' }
 let referent = $push_lines | first | str trim
 

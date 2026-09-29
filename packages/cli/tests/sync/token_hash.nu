@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A sync token embedded in a referent must not affect a content-addressed command's ID.
+# An authorization token for a sync embedded in a referent must not affect a content-addressed command's ID.
 
 let remote = server spawn --name remote
 let local = server spawn --config { remotes: { default: { url: $remote.url } } }

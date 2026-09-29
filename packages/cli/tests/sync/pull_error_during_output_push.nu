@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A process error carries the receiving sync token while its object is still being pushed.
+# A process error carries the authorization token for the receiving sync while its object is still being pushed.
 
 let root_token = random chars
 
@@ -48,10 +48,10 @@ let process = tg --url $alice_local.url build --detach --remote --user $alice.us
 let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.output.push.started $push_watch 0 | complete
 success $output "the build should reach its output push"
 
-# The process finishes before its push, and its wait names the error with the sync token.
+# The process finishes before its push, and its wait names the error with the authorization token for the sync.
 let output = timeout 30s tg --url $alice_local.url wait $process | from json
 let error = $output.error
-assert ($error =~ 'tokens\[') "the error referent should carry the sync token"
+assert ($error =~ 'tokens\[') "the error referent should carry the authorization token for the sync"
 
 # Alice grants Bob the process's error, and Bob pulls it while the push is held.
 tg --url $remote.url --token $alice.token grant $bob.user.id process_node_error $process

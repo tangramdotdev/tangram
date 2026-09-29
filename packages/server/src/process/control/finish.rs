@@ -12,20 +12,7 @@ impl Session {
 
 		// Associate the output with the incoming sync before publishing the finished process.
 		if let Some(sync) = sync {
-			let location = tg::Location::Local(tg::location::Local::default());
-			let sync_tokens = sync.options.tokens.for_location(&location);
-			if let Some(data) = arg.data.output.take() {
-				let value = tg::Value::try_from_data(data)?;
-				for object in value.objects() {
-					let mut tokens = object.state().tokens();
-					tokens.inherit(&sync_tokens);
-					object.state().set_tokens(tokens);
-				}
-				arg.data.output = Some(value.to_data());
-			}
-			if let Some(tg::Either::Right(error)) = &mut arg.data.error {
-				error.options.tokens.inherit(&sync_tokens);
-			}
+			Self::inherit_process_authorization_tokens_for_sync(&mut arg.data, sync);
 		}
 
 		let options = crate::process::put::Options {
@@ -33,6 +20,7 @@ impl Session {
 			enqueue_log_compaction: true,
 			location: None,
 			store_data: true,
+			sync: sync.cloned(),
 		};
 		self.put_finished_process_local(id, arg.data, options)
 			.await?;
@@ -41,6 +29,22 @@ impl Session {
 		crate::checkpoint!(self.server, "process.control.finish.submitted", process = %id).await;
 
 		Ok(tg::process::control::FinishServerResponseOutput {})
+	}
+
+	pub(crate) fn inherit_process_authorization_tokens_for_sync(
+		data: &mut tg::process::Data,
+		sync: &tg::Referent<tg::sync::Id>,
+	) {
+		let location = tg::Location::Local(tg::location::Local::default());
+		let authorization_tokens = sync.options.tokens.for_location(&location);
+		if let Some(output) = &mut data.output {
+			Self::update_process_value_tokens(output, &mut |tokens, _| {
+				tokens.inherit(&authorization_tokens);
+			});
+		}
+		if let Some(tg::Either::Right(error)) = &mut data.error {
+			error.options.tokens.inherit(&authorization_tokens);
+		}
 	}
 
 	pub(crate) async fn store_process_error(

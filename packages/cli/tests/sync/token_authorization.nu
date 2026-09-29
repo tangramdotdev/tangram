@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A sync token authorizes only the nodes and permissions proven by its sync graph.
+# An authorization token for a sync authorizes only the nodes and permissions proven by its sync graph.
 let root_token = random chars
 let store = { object_concurrency: 8, object_max_batch: 1 }
 let remote = server spawn --cloud --name remote --config {
@@ -34,7 +34,7 @@ let push = job spawn {
 	$output | job send --tag $job_id 0
 }
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $private_watch 0 | ignore
-wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log its complete sync token'
+wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log its complete authorization token for the sync'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
 let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
 
@@ -60,7 +60,7 @@ success (job recv --tag $push --timeout 10sec) "Alice's push must finish"
 # Polling must not expose stored bytes without authorization.
 failure (tg --url $remote.url --token $bob.token get --local $private | complete) "storage alone must not authorize Bob's read"
 
-# A sync token and authorization proofs for unrelated nodes do not authorize Alice's object.
+# An authorization token for a sync and authorization proofs for unrelated nodes do not authorize Alice's object.
 let unrelated_object = tg --url $bob_local.url put 'tg.file("unrelated")' | str trim
 let unrelated_referent = tg --url $bob_local.url push $unrelated_object | str trim
 let unrelated_uri = $'http://localhost/($unrelated_referent)' | url parse

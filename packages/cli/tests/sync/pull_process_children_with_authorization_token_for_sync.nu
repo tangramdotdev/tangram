@@ -43,7 +43,7 @@ let push = job spawn {
 }
 success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.process $stored_watch 0 | complete) 'the process should be stored'
 success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blocker_watch 0 | complete) 'the unrelated object should keep the push open'
-wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log its complete sync token'
+wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log its complete authorization token for the sync'
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
 
 # Bob cannot read the stored process's children using his ordinary authorization.
@@ -51,7 +51,7 @@ let output = timeout 10s tg --url $remote.url --token $bob.token process childre
 assert ($output.exit_code != 124) 'the unauthorized read should finish'
 failure $output 'Bob should lack indexed authorization for the process'
 
-# Bob pulls using only the sync token before the incoming sync finishes.
+# Bob pulls using only the authorization token for the sync before the incoming sync finishes.
 let pull = job spawn {
 	let job_id = job id
 	let output = tg --url $bob_local.url pull --no-process-errors --no-process-outputs $referent | complete

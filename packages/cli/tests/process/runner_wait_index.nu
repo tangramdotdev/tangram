@@ -108,7 +108,7 @@ for location in [local remote] {
 			}
 		}
 		if $location == remote and ($field == output or $case.both) {
-			assert ($params | any {|param| $param.key == 'tokens[remote][0]' }) $"the result sync token must be associated with its issuer: ($field) ($params | get key | to json --raw)"
+			assert ($params | any {|param| $param.key == 'tokens[remote][0]' }) $"the authorization token for the output sync must be associated with its issuer: ($field) ($params | get key | to json --raw)"
 		} else if $location == remote {
 			assert ($params | where {|param| $param.key =~ '^tokens\[' } | all {|param|
 				let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
