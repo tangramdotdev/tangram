@@ -74,7 +74,15 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_> {
 			self.deserialize_bool(visitor)
 		} else if self.value.is_int() {
 			self.deserialize_i32(visitor)
-		} else if self.value.is_float() {
+		} else if let Some(value) = self.value.as_float() {
+			if value.fract() == 0.0 && (value != 0.0 || !value.is_sign_negative()) {
+				if let Some(value) = value.to_i64() {
+					return visitor.visit_i64(value);
+				}
+				if let Some(value) = value.to_u64() {
+					return visitor.visit_u64(value);
+				}
+			}
 			self.deserialize_f64(visitor)
 		} else if is_string(&self.value) {
 			self.deserialize_string(visitor)

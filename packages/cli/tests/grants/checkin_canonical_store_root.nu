@@ -12,6 +12,14 @@ let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 let secret = tg --token $alice.token put 'tg.directory({ "program": tg.file("secret") })' | str trim
 tg --token $alice.token checkout $secret | ignore
+
+let secret_path = $local.checkout_directory | path join $secret
+chmod u+w $secret_path
+match $nu.os-info.name {
+	'macos' => { xattr -d user.tangram.token $secret_path }
+	'linux' => { setfattr -x user.tangram.token $secret_path }
+}
+chmod u-w $secret_path
 let path = $'../($secret)' | to json --raw
 let value = ['tg.directory({ "link": tg.symlink({ "path": ' $path ' }) })'] | str join
 let source = tg --token $bob.token put $value | str trim
