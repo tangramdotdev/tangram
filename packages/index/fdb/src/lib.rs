@@ -66,6 +66,7 @@ pub struct Options {
 	pub read_transaction_concurrency: usize,
 	pub usage_update_partition_total: u64,
 	pub usage_partition_total: u64,
+	pub max_write_operation_batch_size: usize,
 	pub write_operation_batch_size: usize,
 	pub write_transaction_concurrency: usize,
 }
@@ -150,6 +151,7 @@ impl Index {
 		// Spawn the writer task.
 		let authorize = options.authorize;
 		let max_process_depth = options.max_process_depth;
+		let max_write_operation_batch_size = options.max_write_operation_batch_size;
 		let write_operation_batch_size = options.write_operation_batch_size;
 		let write_transaction_concurrency = options.write_transaction_concurrency;
 		tokio::spawn({
@@ -161,6 +163,7 @@ impl Index {
 					authorize,
 					database,
 					max_process_depth,
+					max_write_operation_batch_size,
 					metrics,
 					partition_totals,
 					receiver_high: writer_receiver_high,
@@ -221,6 +224,11 @@ impl Index {
 		if options.read_transaction_concurrency == 0 {
 			return Err(tg::error!(
 				"the FDB index read transaction concurrency must be greater than zero"
+			));
+		}
+		if options.max_write_operation_batch_size == 0 {
+			return Err(tg::error!(
+				"the FDB index max write operation batch size must be greater than zero"
 			));
 		}
 		if options.write_operation_batch_size == 0 {

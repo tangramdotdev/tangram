@@ -29,6 +29,7 @@ pub(super) struct Arg {
 	pub authorize: crate::AuthorizeConfig,
 	pub database: Arc<fdb::Database>,
 	pub max_process_depth: Option<u64>,
+	pub max_write_operation_batch_size: usize,
 	pub metrics: Metrics,
 	pub partition_totals: crate::PartitionTotals,
 	pub receiver_high: RequestReceiver,
@@ -54,9 +55,9 @@ struct Batch {
 struct ExecutionConfig<'a> {
 	authorize: crate::AuthorizeConfig,
 	max_process_depth: Option<u64>,
+	max_write_operation_batch_size: usize,
 	metrics: &'a Metrics,
 	partition_totals: crate::PartitionTotals,
-	write_operation_batch_size: usize,
 }
 
 enum TransactionError {
@@ -70,6 +71,7 @@ impl Index {
 			authorize,
 			database,
 			max_process_depth,
+			max_write_operation_batch_size,
 			metrics,
 			partition_totals,
 			mut receiver_high,
@@ -155,9 +157,9 @@ impl Index {
 				let config = ExecutionConfig {
 					authorize,
 					max_process_depth,
+					max_write_operation_batch_size,
 					metrics: &metrics,
 					partition_totals,
-					write_operation_batch_size,
 				};
 				Self::execute_batch(&database, &subspace, batch, config).await;
 			}
@@ -891,7 +893,7 @@ impl Index {
 		config: ExecutionConfig<'_>,
 	) {
 		if let [Request::Batch(arg)] = batch.requests.as_slice()
-			&& arg.items.len() > config.write_operation_batch_size
+			&& arg.items.len() > config.max_write_operation_batch_size
 		{
 			let request = batch.requests.into_iter().next().unwrap();
 			let tracker = batch.trackers.into_iter().next().unwrap();
@@ -914,11 +916,6 @@ impl Index {
 				}
 			},
 			Err(TransactionError::FoundationDb(error)) if Self::is_split_error(error) => {
-				tracing::info!(
-					code = error.code(),
-					requests = batch.requests.len(),
-					"splitting an index transaction"
-				);
 				if batch.requests.len() > 1 {
 					let mid = batch.requests.len() / 2;
 					let mut requests = batch.requests;
@@ -968,7 +965,7 @@ impl Index {
 		arg: tangram_index::batch::Arg,
 		config: ExecutionConfig<'_>,
 	) -> tg::Result<()> {
-		let size = config.write_operation_batch_size.max(1);
+		let size = config.max_write_operation_batch_size;
 		let mut pending = if arg.items.len() > size {
 			Self::chunk_batch_arg(arg, size)
 		} else {
@@ -1000,12 +997,6 @@ impl Index {
 					let Request::Batch(arg) = request else {
 						unreachable!();
 					};
-					tracing::info!(
-						code = error.code(),
-						items = arg.items.len(),
-						pending = pending.len(),
-						"splitting an index batch"
-					);
 					let Some((left, right)) = Self::try_split_batch_arg(arg) else {
 						return Err(tg::error!(!error, "failed to execute an index batch item"));
 					};
@@ -1084,14 +1075,6 @@ impl Index {
 							if Self::is_transaction_too_old(error) {
 								break Err(TransactionError::FoundationDb(error));
 							}
-							tracing::warn!(
-								attempt = attempt_count,
-								code = error.code(),
-								error = %error,
-								requests = requests.len(),
-								elapsed = ?start.elapsed(),
-								"retrying an index transaction after a read error"
-							);
 							let inner = match transaction.take() {
 								Err(error) => break Err(TransactionError::Tangram(error)),
 								Ok(transaction) => transaction,
@@ -1115,14 +1098,6 @@ impl Index {
 							if Self::is_transaction_too_old(*error) {
 								break Err(TransactionError::FoundationDb(error.into()));
 							}
-							tracing::warn!(
-								attempt = attempt_count,
-								code = error.code(),
-								error = %error,
-								requests = requests.len(),
-								elapsed = ?start.elapsed(),
-								"retrying an index transaction after a commit error"
-							);
 							match error.on_error().await {
 								Ok(value) => {
 									transaction = crate::Transaction::new(value);
@@ -1136,15 +1111,6 @@ impl Index {
 		};
 
 		let duration = start.elapsed().as_secs_f64();
-		if duration > 1.0 {
-			tracing::info!(
-				attempts = attempt_count,
-				requests = requests.len(),
-				ok = result.is_ok(),
-				elapsed = ?start.elapsed(),
-				"completed a slow index transaction"
-			);
-		}
 		config.metrics.commit_duration.record(duration, &[]);
 		config.metrics.transactions.add(1, &[]);
 
