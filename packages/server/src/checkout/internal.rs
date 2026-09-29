@@ -1180,6 +1180,11 @@ impl Session {
 		// Remove from the visiting set.
 		state.visiting.remove(id);
 
+		// Retain the exact directory proof on the physical checkout.
+		if let Some(token) = self.create_permanent_object_token(id)? {
+			tg::file::xattrs::write_token(path, &token)?;
+		}
+
 		// Set the permissions.
 		let permissions = std::fs::Permissions::from_mode(0o555);
 		std::fs::set_permissions(path, permissions).map_err(
