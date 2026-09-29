@@ -154,6 +154,12 @@ impl Session {
 				if location.name != remote {
 					return Ok(None);
 				}
+				if let Some(mut started) = self.server.runner.state().try_get_process_started(id) {
+					started
+						.wait_for(|started| *started)
+						.await
+						.map_err(|_| tg::error!(%id, "the process failed to start"))?;
+				}
 				Ok(process.inner_token)
 			},
 			tg::Principal::Runner(id) => {
