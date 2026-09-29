@@ -375,6 +375,7 @@ impl Session {
 
 		// Obtain the shortcut process identity before starting execution.
 		let mut initialization = None;
+		let mut started = tokio::sync::watch::channel(true).1;
 		let (id, inner_token, command_session, connection_output) = match (id, inner_token) {
 			(Some(id), Some(token)) => (id, token, None, None),
 			(None, None) => {
@@ -411,6 +412,8 @@ impl Session {
 				};
 				let (sender, receiver) = tokio::sync::oneshot::channel();
 				initialization = Some(receiver);
+				let (started_sender, started_receiver) = tokio::sync::watch::channel(false);
+				started = started_receiver;
 				let control_sender = connection.control.sender();
 				let command = state.command.clone();
 				let location = location.clone();
@@ -447,6 +450,7 @@ impl Session {
 					.boxed()
 					.await;
 					if result.is_ok() {
+						started_sender.send_replace(true);
 						crate::checkpoint!(server, "runner.process.control.start.succeeded", process = %process_id).await;
 					}
 					if let Err(error) = result {
@@ -513,6 +517,7 @@ impl Session {
 			inner_token: inner_token.clone(),
 			leases: BTreeSet::from([lease.clone()]),
 			process: None,
+			started,
 			stopper: process_stopper.clone(),
 			sync,
 		};

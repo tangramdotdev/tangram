@@ -933,6 +933,17 @@ impl State {
 	}
 
 	#[must_use]
+	pub fn try_get_process_started(
+		&self,
+		id: &tg::process::Id,
+	) -> Option<tokio::sync::watch::Receiver<bool>> {
+		let sandbox = self.try_get_process_sandbox(id)?;
+		let sandbox = self.sandboxes.get_by_id(&sandbox)?;
+		let process = sandbox.processes.get(id)?;
+		Some(process.started.clone())
+	}
+
+	#[must_use]
 	pub fn try_get_process_children(
 		&self,
 		id: &tg::process::Id,
