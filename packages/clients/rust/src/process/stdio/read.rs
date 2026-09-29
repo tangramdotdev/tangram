@@ -201,23 +201,23 @@ impl<O> tg::Process<O> {
 		&self,
 		options: tg::process::stdio::read::Options,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>> {
-		let handle = tg::handle()?;
-		self.try_read_stdio_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.try_read_stdio_with_instance(instance, options).await
 	}
 
-	pub async fn try_read_stdio_with_handle<H>(
+	pub async fn try_read_stdio_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::stdio::read::Options,
 	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		if options.streams.is_empty() {
 			return Err(tg::error!("expected at least one stdio stream"));
 		}
-		let handle = self.handle_with_handle(handle);
-		let handle = &handle;
+		let instance = self.instance_with_instance(instance);
+		let instance = &instance;
 		if self.id().is_left() {
 			let mut streams = Vec::<
 				BoxStream<'static, tg::Result<(Bytes, tg::process::stdio::Stream, u64)>>,
@@ -228,12 +228,13 @@ impl<O> tg::Process<O> {
 						return Err(tg::error!("reading stdin is invalid"));
 					},
 					tg::process::stdio::Stream::Stdout => {
-						let handle = handle.clone();
+						let instance = instance.clone();
 						let stdout = self.stdout();
 						let stream = stream::try_unfold(
-							(handle, stdout, 0),
-							|(handle, mut stdout, stream_position)| async move {
-								let Some(bytes) = stdout.read_with_handle(&handle).await? else {
+							(instance, stdout, 0),
+							|(instance, mut stdout, stream_position)| async move {
+								let Some(bytes) = stdout.read_with_instance(&instance).await?
+								else {
 									return Ok(None);
 								};
 								let length = bytes.len().to_u64().unwrap();
@@ -241,18 +242,19 @@ impl<O> tg::Process<O> {
 									(bytes, tg::process::stdio::Stream::Stdout, stream_position);
 								let stream_position = stream_position + length;
 
-								Ok(Some((item, (handle, stdout, stream_position))))
+								Ok(Some((item, (instance, stdout, stream_position))))
 							},
 						);
 						streams.push(stream.boxed());
 					},
 					tg::process::stdio::Stream::Stderr => {
-						let handle = handle.clone();
+						let instance = instance.clone();
 						let stderr = self.stderr();
 						let stream = stream::try_unfold(
-							(handle, stderr, 0),
-							|(handle, mut stderr, stream_position)| async move {
-								let Some(bytes) = stderr.read_with_handle(&handle).await? else {
+							(instance, stderr, 0),
+							|(instance, mut stderr, stream_position)| async move {
+								let Some(bytes) = stderr.read_with_instance(&instance).await?
+								else {
 									return Ok(None);
 								};
 								let length = bytes.len().to_u64().unwrap();
@@ -260,7 +262,7 @@ impl<O> tg::Process<O> {
 									(bytes, tg::process::stdio::Stream::Stderr, stream_position);
 								let stream_position = stream_position + length;
 
-								Ok(Some((item, (handle, stderr, stream_position))))
+								Ok(Some((item, (instance, stderr, stream_position))))
 							},
 						);
 						streams.push(stream.boxed());
@@ -300,7 +302,7 @@ impl<O> tg::Process<O> {
 			timeout: options.timeout,
 			tokens: self.tokens(),
 		};
-		let Some(stream) = handle.try_read_process_stdio_all(id, arg).await? else {
+		let Some(stream) = instance.try_read_process_stdio_all(id, arg).await? else {
 			return Ok(None);
 		};
 

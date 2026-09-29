@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-impl tg::handle::Remote for tg::Session {
+impl tg::instance::Remote for tg::Session {
 	fn list_remotes(
 		&self,
 		arg: tg::remote::list::Arg,

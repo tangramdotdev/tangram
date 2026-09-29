@@ -42,7 +42,7 @@ impl Cli {
 			ttl: args.ttl.get(),
 		};
 		let output = sandbox
-			.try_get_with_handle(&client, options)
+			.try_get_with_instance(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, sandbox = %id, "failed to get the sandbox"))?
 			.ok_or_else(|| tg::error!(sandbox = %id, "failed to find the sandbox"))?;

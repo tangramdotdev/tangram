@@ -79,17 +79,20 @@ async fn handles_preserve_not_found() {
 		};
 		futures::stream::iter([Ok(ClientMessage::Request(request))]).boxed()
 	};
-	for handle in handles {
-		let handle = tg::handle::dynamic::Handle::new(handle);
-		let output =
-			tokio::time::timeout(Duration::from_secs(5), handle.try_connect_process(input()))
-				.await
-				.unwrap()
-				.unwrap();
+	for instance in handles {
+		let instance = tg::instance::dynamic::Instance::new(instance);
+		let output = tokio::time::timeout(
+			Duration::from_secs(5),
+			instance.try_connect_process(input()),
+		)
+		.await
+		.unwrap()
+		.unwrap();
 		assert!(output.is_none());
-		let result = tokio::time::timeout(Duration::from_secs(5), handle.connect_process(input()))
-			.await
-			.unwrap();
+		let result =
+			tokio::time::timeout(Duration::from_secs(5), instance.connect_process(input()))
+				.await
+				.unwrap();
 		assert!(result.is_err());
 	}
 }
@@ -167,13 +170,13 @@ async fn reconnect_preserves_the_process_and_read_cursor() {
 			}],
 			..Default::default()
 		};
-		let process = tg::Process::<tg::Value>::connect_with_handle(&client, id, options)
+		let process = tg::Process::<tg::Value>::connect_with_instance(&client, id, options)
 			.await
 			.unwrap();
 		process.stderr().close().await.unwrap();
 		assert_eq!(
 			process
-				.wait_with_handle(&client, tg::process::wait::Options::default())
+				.wait_with_instance(&client, tg::process::wait::Options::default())
 				.await
 				.unwrap()
 				.exit,
@@ -184,7 +187,7 @@ async fn reconnect_preserves_the_process_and_read_cursor() {
 			..Default::default()
 		};
 		let chunks = process
-			.try_read_stdio_with_handle(&client, options)
+			.try_read_stdio_with_instance(&client, options)
 			.await
 			.unwrap()
 			.unwrap()
@@ -260,12 +263,12 @@ async fn reconnect_resends_only_unconfirmed_writes() {
 			}
 		});
 		let process =
-			tg::Process::<tg::Value>::connect_with_handle(&client, id, Options::default())
+			tg::Process::<tg::Value>::connect_with_instance(&client, id, Options::default())
 				.await
 				.unwrap();
 		let mut stdin = process.stdin();
-		assert_eq!(stdin.write_with_handle(&client, b"abc").await.unwrap(), 3);
-		stdin.close_with_handle(&client).await.unwrap();
+		assert_eq!(stdin.write_with_instance(&client, b"abc").await.unwrap(), 3);
+		stdin.close_with_instance(&client).await.unwrap();
 		driver.await.unwrap();
 	})
 	.await

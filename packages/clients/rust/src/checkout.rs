@@ -50,15 +50,15 @@ pub struct Options {
 }
 
 pub async fn checkout(arg: Arg) -> tg::Result<Vec<PathBuf>> {
-	let handle = tg::handle()?;
-	checkout_with_handle(handle, arg).await
+	let instance = tg::instance()?;
+	checkout_with_instance(instance, arg).await
 }
 
-pub async fn checkout_with_handle<H>(handle: &H, arg: Arg) -> tg::Result<Vec<PathBuf>>
+pub async fn checkout_with_instance<I>(instance: &I, arg: Arg) -> tg::Result<Vec<PathBuf>>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
-	let stream = handle.checkout(arg).await?.boxed();
+	let stream = instance.checkout(arg).await?.boxed();
 	let output = stream
 		.try_last()
 		.await?
@@ -67,11 +67,11 @@ where
 	Ok(output.paths)
 }
 
-pub async fn checkout_one_with_handle<H>(handle: &H, arg: Arg) -> tg::Result<PathBuf>
+pub async fn checkout_one_with_instance<I>(instance: &I, arg: Arg) -> tg::Result<PathBuf>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
-	let mut paths = checkout_with_handle(handle, arg).await?;
+	let mut paths = checkout_with_instance(instance, arg).await?;
 	if paths.len() != 1 {
 		return Err(tg::error!("expected exactly one checkout path"));
 	}
@@ -83,17 +83,17 @@ impl tg::Artifact {
 		&self,
 		options: tg::checkout::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>> {
-		let handle = tg::handle()?;
-		self.checkout_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.checkout_with_instance(instance, options).await
 	}
 
-	pub async fn checkout_with_handle<H>(
+	pub async fn checkout_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::checkout::Options,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::checkout::Output>>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let arg = tg::checkout::Arg {
 			dependencies: options.dependencies,
@@ -103,7 +103,7 @@ impl tg::Artifact {
 			nodes: vec![self.to_referent().map(Into::into)],
 			path: options.path,
 		};
-		let stream = handle.checkout(arg).await?.boxed();
+		let stream = instance.checkout(arg).await?.boxed();
 
 		Ok(stream)
 	}

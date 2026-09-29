@@ -45,7 +45,7 @@ impl crate::Cli {
 		};
 		let client = self.client().await?;
 		let http = client.http();
-		let client = tg::handle::dynamic::Handle::new(client);
+		let instance = tg::instance::dynamic::Instance::new(client);
 		let main_runtime_handle = tokio::runtime::Handle::current();
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
 		let arg = tangram_js::Arg {
@@ -53,9 +53,9 @@ impl crate::Cli {
 			cwd,
 			env,
 			export,
-			handle: client,
 			http,
 			inspect: None,
+			instance,
 			main_runtime_handle,
 			module,
 			repl: Some(receiver),

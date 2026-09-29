@@ -1,28 +1,28 @@
 use {crate::prelude::*, std::os::unix::process::CommandExt as _};
 
 pub async fn exec(arg: tg::process::Arg) -> tg::Result<()> {
-	let handle = tg::handle()?;
-	exec_with_handle(handle, arg).await
+	let instance = tg::instance()?;
+	exec_with_instance(instance, arg).await
 }
 
-pub async fn exec_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<()>
+pub async fn exec_with_instance<I>(instance: &I, arg: tg::process::Arg) -> tg::Result<()>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
-	tg::Process::<tg::Value>::exec_with_handle(handle, arg).await
+	tg::Process::<tg::Value>::exec_with_instance(instance, arg).await
 }
 
 impl<O> tg::Process<O> {
 	pub async fn exec(arg: tg::process::Arg) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		Self::exec_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		Self::exec_with_instance(instance, arg).await
 	}
 
-	pub async fn exec_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<()>
+	pub async fn exec_with_instance<I>(instance: &I, arg: tg::process::Arg) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let arg = super::spawn::spawn_arg_with_handle(handle, arg).await?;
+		let arg = super::spawn::spawn_arg_with_instance(instance, arg).await?;
 		if arg.sandbox.is_some() {
 			return Err(tg::error!("an exec must not be sandboxed"));
 		}
@@ -32,7 +32,7 @@ impl<O> tg::Process<O> {
 
 		let output_path = std::env::var_os("TANGRAM_OUTPUT").map(Into::into);
 		let prepared =
-			tg::Process::<tg::Value>::prepare_unsandboxed_command(handle, &arg, output_path)
+			tg::Process::<tg::Value>::prepare_unsandboxed_command(instance, &arg, output_path)
 				.await?;
 
 		let executable = super::spawn::resolve_executable(&prepared.executable, &prepared.env)?;

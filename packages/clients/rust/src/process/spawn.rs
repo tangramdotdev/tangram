@@ -178,27 +178,27 @@ pub struct Options {
 }
 
 pub async fn spawn(arg: tg::process::Arg, options: Options) -> tg::Result<tg::Process> {
-	let handle = tg::handle()?;
-	spawn_with_handle(handle, arg, options).await
+	let instance = tg::instance()?;
+	spawn_with_instance(instance, arg, options).await
 }
 
-pub async fn spawn_with_handle<H>(
-	handle: &H,
+pub async fn spawn_with_instance<I>(
+	instance: &I,
 	arg: tg::process::Arg,
 	options: Options,
 ) -> tg::Result<tg::Process>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
-	tg::Process::<tg::Value>::spawn_with_handle(handle, arg, options).await
+	tg::Process::<tg::Value>::spawn_with_instance(instance, arg, options).await
 }
 
-pub(crate) async fn spawn_arg_with_handle<H>(
-	handle: &H,
+pub(crate) async fn spawn_arg_with_instance<I>(
+	instance: &I,
 	arg: tg::process::Arg,
 ) -> tg::Result<tg::process::spawn::Arg>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let sandbox = normalize_sandbox(&arg)?;
 	let sandboxed = sandbox.is_some();
@@ -255,7 +255,7 @@ where
 			.collect::<tg::Result<_>>()?;
 		tg::command::Builder::try_with_spawn_arg(command_arg_)?
 	} else if let Some(command_) = command_ {
-		let object = command_.object_with_handle(handle).await?;
+		let object = command_.object_with_instance(instance).await?;
 		command_has_cwd = object.cwd.is_some();
 		env = object.env.clone();
 		tg::command::Builder::with_object(&object)
@@ -327,7 +327,7 @@ where
 		.map(tg::Value::Object)
 		.collect();
 	let objects = tg::Value::Array(objects);
-	objects.store_with_handle(handle).await?;
+	objects.store_with_instance(instance).await?;
 	let command_arg = builder.build_spawn_arg()?;
 	let command = tg::Referent::new(tg::Either::Left(command_arg), options);
 
@@ -357,19 +357,19 @@ impl<O: 'static> tg::Process<O> {
 	where
 		O: 'static,
 	{
-		let handle = tg::handle()?;
-		Self::spawn_with_handle(handle, arg, options).await
+		let instance = tg::instance()?;
+		Self::spawn_with_instance(instance, arg, options).await
 	}
 
-	pub async fn spawn_with_handle<H>(
-		handle: &H,
+	pub async fn spawn_with_instance<I>(
+		instance: &I,
 		arg: tg::process::Arg,
 		options: Options,
 	) -> tg::Result<tg::Process<O>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		Self::spawn_with_progress_with_handle(handle, arg, options, |stream| async move {
+		Self::spawn_with_progress_with_instance(instance, arg, options, |stream| async move {
 			stream
 				.try_last()
 				.await?
@@ -390,43 +390,43 @@ impl<O: 'static> tg::Process<O> {
 		) -> Fut,
 		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
 	{
-		let handle = tg::handle()?;
-		Self::spawn_with_progress_with_handle(handle, arg, options, progress).await
+		let instance = tg::instance()?;
+		Self::spawn_with_progress_with_instance(instance, arg, options, progress).await
 	}
 
-	pub async fn spawn_with_progress_with_handle<H, F, Fut>(
-		handle: &H,
+	pub async fn spawn_with_progress_with_instance<I, F, Fut>(
+		instance: &I,
 		arg: tg::process::Arg,
 		options: Options,
 		progress: F,
 	) -> tg::Result<tg::Process<O>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 		F: FnOnce(
 			BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
 		) -> Fut,
 		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
 	{
-		Self::connect_spawn_with_progress_with_handle(handle, arg, options.mode, progress).await
+		Self::connect_spawn_with_progress_with_instance(instance, arg, options.mode, progress).await
 	}
 
-	pub(super) async fn spawn_inner_with_handle<H, F, Fut>(
-		handle: &H,
+	pub(super) async fn spawn_inner_with_instance<I, F, Fut>(
+		instance: &I,
 		mut arg: tg::process::spawn::Arg,
 		options: Options,
 		progress: F,
 	) -> tg::Result<tg::Process<O>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 		F: FnOnce(
 			BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
 		) -> Fut,
 		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
 	{
-		let handle = handle.clone();
+		let instance = instance.clone();
 		let sandboxed = arg.sandbox.is_some();
 		if !sandboxed {
-			let process = Self::spawn_unsandboxed(&handle, arg).await?;
+			let process = Self::spawn_unsandboxed(&instance, arg).await?;
 			let output = tg::process::spawn::Output {
 				cached: process.cached().unwrap_or(false),
 				lease: process.lease().cloned(),
@@ -536,7 +536,7 @@ impl<O: 'static> tg::Process<O> {
 					let referent = tg::Referent::new(id.clone(), arg.command.options.clone());
 					let command = tg::Command::with_referent(referent);
 					let mut object = command
-						.object_with_handle(&handle)
+						.object_with_instance(&instance)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to load the command"))?
 						.as_ref()
@@ -544,7 +544,7 @@ impl<O: 'static> tg::Process<O> {
 					if add_tty_env(&mut object.env) {
 						let command = tg::Command::with_object(object);
 						*id = command
-							.store_with_handle(&handle)
+							.store_with_instance(&instance)
 							.await
 							.map_err(|error| tg::error!(!error, "failed to store the command"))?;
 						arg.command.options.location = command.state().location();
@@ -591,7 +591,7 @@ impl<O: 'static> tg::Process<O> {
 			reads,
 			tokens: tg::authorization::Tokens::default(),
 		};
-		let (connection, stream) = tg::process::connect::Connection::open(&handle, arg).await?;
+		let (connection, stream) = tg::process::connect::Connection::open(&instance, arg).await?;
 		let output = progress(stream).await?;
 		let connection = (options.mode == tg::process::connect::Mode::Run).then_some(connection);
 		let wait = output
@@ -605,16 +605,16 @@ impl<O: 'static> tg::Process<O> {
 			.cloned()
 			.ok_or_else(|| tg::error!("expected a sandboxed process id"))?;
 		let location = output.location.clone();
-		let stdio_handle = match &connection {
-			Some(connection) => tg::handle::dynamic::Handle::with_connection(
-				handle.clone(),
+		let stdio_instance = match &connection {
+			Some(connection) => tg::instance::dynamic::Instance::with_connection(
+				instance.clone(),
 				id.clone(),
 				connection.clone(),
 			),
-			None => tg::handle::dynamic::Handle::new(handle.clone()),
+			None => tg::instance::dynamic::Instance::new(instance.clone()),
 		};
 		let stdio_task = if stdin.is_some() || stdout.is_some() || stderr.is_some() || local_tty {
-			let handle = stdio_handle;
+			let instance = stdio_instance;
 			let id = id.clone();
 			let location = location.clone();
 			let stdin = stdin.clone();
@@ -623,7 +623,7 @@ impl<O: 'static> tg::Process<O> {
 			let tokens = output.tokens.clone();
 			Some(tangram_futures::task::Shared::spawn(move |_| async move {
 				let arg = super::stdio::StdioTaskArg {
-					handle,
+					instance,
 					id,
 					location,
 					raw,
@@ -653,16 +653,16 @@ impl<O: 'static> tg::Process<O> {
 		} else {
 			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stdout)
 		};
-		let handle = (output.lease.is_some() && wait.is_none())
-			.then(|| tg::handle::dynamic::Handle::new(handle.clone()));
-		let owned = std::sync::atomic::AtomicBool::new(handle.is_some());
+		let instance = (output.lease.is_some() && wait.is_none())
+			.then(|| tg::instance::dynamic::Instance::new(instance.clone()));
+		let owned = std::sync::atomic::AtomicBool::new(instance.is_some());
 		let mut tokens = output.tokens;
 		tokens.normalize(None);
 		let inner = Arc::new(super::handle::Inner {
 			cached: Some(output.cached),
 			connection,
-			handle,
 			id: tg::Either::Right(id),
+			instance,
 			lease: output.lease,
 			location: Arc::new(RwLock::new(location.map(Into::into))),
 			owned,
@@ -682,13 +682,13 @@ impl<O: 'static> tg::Process<O> {
 		Ok(process)
 	}
 
-	pub(super) async fn prepare_unsandboxed_command<H>(
-		handle: &H,
+	pub(super) async fn prepare_unsandboxed_command<I>(
+		instance: &I,
 		arg: &tg::process::spawn::Arg,
 		output_path: Option<PathBuf>,
 	) -> tg::Result<PrepareUnsandboxedCommandOutput>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		if arg.tty.is_some() {
 			return Err(tg::error!("tty is not supported for unsandboxed processes"));
@@ -713,7 +713,7 @@ impl<O: 'static> tg::Process<O> {
 				let referent = tg::Referent::new(id.clone(), arg.command.options.clone());
 				let command = tg::Command::with_referent(referent);
 				let data = command
-					.data_with_handle(handle)
+					.data_with_instance(instance)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to load the command"))?;
 				tg::process::data::Command::with_command_data(data, &command.to_referent().options)
@@ -736,8 +736,8 @@ impl<O: 'static> tg::Process<O> {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create a temp directory"))?;
 		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
-		let artifacts = checkout_artifacts(handle, &command).await?;
-		let mut env = render_env(handle, &command.env, &artifacts, &output_path)?;
+		let artifacts = checkout_artifacts(instance, &command).await?;
+		let mut env = render_env(instance, &command.env, &artifacts, &output_path)?;
 		let engine = std::env::var("TANGRAM_JS_ENGINE").unwrap_or_else(|_| "auto".to_owned());
 		env.insert("TANGRAM_JS_ENGINE".to_owned(), engine);
 		if let Some(debug) = arg.debug.as_ref() {
@@ -764,14 +764,14 @@ impl<O: 'static> tg::Process<O> {
 		Ok(output)
 	}
 
-	async fn spawn_unsandboxed<H>(
-		handle: &H,
+	async fn spawn_unsandboxed<I>(
+		instance: &I,
 		arg: tg::process::spawn::Arg,
 	) -> tg::Result<tg::Process<O>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let prepared = Self::prepare_unsandboxed_command(handle, &arg, None).await?;
+		let prepared = Self::prepare_unsandboxed_command(instance, &arg, None).await?;
 
 		let executable = resolve_executable(&prepared.executable, &prepared.env)?;
 		let mut command_ = tokio::process::Command::new(&executable);
@@ -831,17 +831,17 @@ impl<O: 'static> tg::Process<O> {
 		};
 
 		let task = tangram_futures::task::Shared::spawn({
-			let handle = handle.clone();
+			let instance = instance.clone();
 			let output_path = prepared.output_path;
 			let temp = prepared.temp;
-			move |_| async move { Self::wait_unsandboxed(handle, child, output_path, temp).await }
+			move |_| async move { Self::wait_unsandboxed(instance, child, output_path, temp).await }
 		});
 
 		let inner = Arc::new(super::handle::Inner {
 			cached: Some(false),
 			connection: None,
-			handle: None,
 			id: tg::Either::Left(pid),
+			instance: None,
 			lease: None,
 			location: Arc::new(RwLock::new(None)),
 			owned: std::sync::atomic::AtomicBool::new(true),
@@ -861,14 +861,14 @@ impl<O: 'static> tg::Process<O> {
 		Ok(process)
 	}
 
-	async fn wait_unsandboxed<H>(
-		handle: H,
+	async fn wait_unsandboxed<I>(
+		instance: I,
 		mut child: tokio::process::Child,
 		output_path: PathBuf,
 		_temp: tangram_util::fs::Temp,
 	) -> tg::Result<tg::process::wait::Output>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let status = child
 			.wait()
@@ -936,7 +936,7 @@ impl<O: 'static> tg::Process<O> {
 				path: output_path.clone(),
 				updates: Vec::new(),
 			};
-			let checkin = tg::checkin::checkin_with_handle(&handle, entry)
+			let checkin = tg::checkin::checkin_with_instance(&instance, entry)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check in the output"))?;
 			let artifact = tg::Artifact::with_referent(checkin.artifact);
@@ -1001,12 +1001,12 @@ impl tg::Session {
 	}
 }
 
-async fn checkout_artifacts<H>(
-	handle: &H,
+async fn checkout_artifacts<I>(
+	instance: &I,
 	command: &tg::process::data::Command,
 ) -> tg::Result<BTreeMap<tg::artifact::Id, PathBuf>>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let mut artifacts: BTreeMap<tg::artifact::Id, tg::Referent<tg::Id>> = BTreeMap::new();
 	for object in command.objects() {
@@ -1037,7 +1037,7 @@ where
 		nodes,
 		path: None,
 	};
-	let paths = tg::checkout::checkout_with_handle(handle, entry)
+	let paths = tg::checkout::checkout_with_instance(instance, entry)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to check out the artifacts"))?;
 	if paths.len() != artifacts.len() {
@@ -1134,14 +1134,14 @@ fn render_args(
 		.collect()
 }
 
-fn render_env<H>(
-	handle: &H,
+fn render_env<I>(
+	instance: &I,
 	env: &BTreeMap<String, tg::command::data::Value>,
 	artifacts: &BTreeMap<tg::artifact::Id, PathBuf>,
 	output_path: &Path,
 ) -> tg::Result<BTreeMap<String, String>>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	for key in env.keys() {
 		if key.starts_with(tg::process::env::PREFIX) {
@@ -1195,7 +1195,7 @@ where
 		"TANGRAM_OUTPUT".to_owned(),
 		output_path.to_string_lossy().into_owned(),
 	);
-	let arg = handle.arg();
+	let arg = instance.arg();
 	if let Some(token) = arg.token {
 		output.insert("TANGRAM_TOKEN".to_owned(), token);
 	}

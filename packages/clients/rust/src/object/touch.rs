@@ -19,35 +19,35 @@ pub struct Options {
 
 impl tg::Object {
 	pub async fn touch(&self, options: tg::object::touch::Options) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		self.touch_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.touch_with_instance(instance, options).await
 	}
 
-	pub async fn touch_with_handle<H>(
+	pub async fn touch_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::object::touch::Options,
 	) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_touch_with_handle(handle, options)
+		self.try_touch_with_instance(instance, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to touch the object"))
 	}
 
 	pub async fn try_touch(&self, options: tg::object::touch::Options) -> tg::Result<Option<()>> {
-		let handle = tg::handle()?;
-		self.try_touch_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.try_touch_with_instance(instance, options).await
 	}
 
-	pub async fn try_touch_with_handle<H>(
+	pub async fn try_touch_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::object::touch::Options,
 	) -> tg::Result<Option<()>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let state = self.state();
 		let arg = tg::object::touch::Arg {
@@ -56,7 +56,7 @@ impl tg::Object {
 				.or_else(|| state.location().map(Into::into)),
 			tokens: state.tokens(),
 		};
-		handle.try_touch_object(&self.id(), arg).await
+		instance.try_touch_object(&self.id(), arg).await
 	}
 }
 

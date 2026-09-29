@@ -4,7 +4,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Sandbox for Session {
+impl tg::instance::Sandbox for Session {
 	async fn create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,

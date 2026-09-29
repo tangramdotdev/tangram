@@ -74,7 +74,7 @@ impl Session {
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
 				let text = file
-					.text_with_handle(self)
+					.text_with_instance(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the file text"))?;
 				Ok(tg::module::load::Output { text })

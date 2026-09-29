@@ -73,16 +73,16 @@ pub struct Options {
 }
 
 pub async fn list(options: tg::sandbox::list::Options) -> tg::Result<tg::sandbox::list::Output> {
-	let handle = tg::handle()?;
-	list_with_handle(handle, options).await
+	let instance = tg::instance()?;
+	list_with_instance(instance, options).await
 }
 
-pub async fn list_with_handle<H>(
-	handle: &H,
+pub async fn list_with_instance<I>(
+	instance: &I,
 	options: tg::sandbox::list::Options,
 ) -> tg::Result<tg::sandbox::list::Output>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let arg = tg::sandbox::list::Arg {
 		cursor: options.cursor,
@@ -90,7 +90,7 @@ where
 		location: options.location,
 		owner: options.owner,
 	};
-	handle.list_sandboxes(arg).await
+	instance.list_sandboxes(arg).await
 }
 
 impl tg::Session {

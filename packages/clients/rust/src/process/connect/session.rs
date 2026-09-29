@@ -52,8 +52,8 @@ struct ReadGuard {
 }
 
 impl Session {
-	pub(crate) async fn open<H: tg::Handle>(
-		handle: &H,
+	pub(crate) async fn open<I: tg::Instance>(
+		instance: &I,
 		arg: Arg,
 	) -> tg::Result<(
 		Self,
@@ -86,7 +86,7 @@ impl Session {
 			ReceiverStream::new(ack_receiver),
 			ReceiverStream::new(receiver),
 		);
-		let output = handle.connect_process(input.boxed()).await?;
+		let output = instance.connect_process(input.boxed()).await?;
 
 		// Receive the process responses and notifications.
 		let state = State {

@@ -64,7 +64,7 @@ impl Session {
 		};
 
 		let error = tg::Error::with_object(object);
-		let result = error.store_with_handle(self).await;
+		let result = error.store_with_instance(self).await;
 		match result {
 			Ok(_) => tg::Either::Right(error.to_referent()),
 			Err(error) => {

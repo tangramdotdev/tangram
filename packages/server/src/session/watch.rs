@@ -1,6 +1,6 @@
 use {crate::Session, tangram_client::prelude::*};
 
-impl tg::handle::Watch for Session {
+impl tg::instance::Watch for Session {
 	async fn list_watches(&self, arg: tg::watch::list::Arg) -> tg::Result<tg::watch::list::Output> {
 		self.list_watches(arg).await
 	}

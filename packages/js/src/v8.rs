@@ -40,9 +40,9 @@ pub struct Runtime {
 struct State {
 	arg: crate::Arg,
 	global_source_map: OnceCell<SourceMap>,
-	handle: tg::handle::dynamic::Handle,
 	host: crate::host::Host,
 	http2: crate::http2::Http2,
+	instance: tg::instance::dynamic::Instance,
 	main_runtime_handle: tokio::runtime::Handle,
 	modules: RefCell<Vec<Module>>,
 	promises: RefCell<FuturesUnordered<LocalBoxFuture<'static, self::promise::Output>>>,
@@ -124,7 +124,7 @@ impl Runtime {
 
 		// Create the state.
 		let global_source_map = OnceCell::new();
-		let handle = arg.handle.clone();
+		let instance = arg.instance.clone();
 		let host = crate::host::Host::default();
 		let http2 = crate::http2::Http2::new(arg.http.coalescing_target_size);
 		let main_runtime_handle = arg.main_runtime_handle.clone();
@@ -134,9 +134,9 @@ impl Runtime {
 		let state = Rc::new(State {
 			arg,
 			global_source_map,
-			handle,
 			host,
 			http2,
+			instance,
 			main_runtime_handle,
 			modules,
 			promises,

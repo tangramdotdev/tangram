@@ -57,7 +57,7 @@ impl Cli {
 			.network(network)
 			.owner(owner)
 			.ttl(args.ttl.get())
-			.build_with_handle(&client)
+			.build_with_instance(&client)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
 		Self::print_id(sandbox.id());

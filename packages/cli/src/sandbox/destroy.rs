@@ -14,7 +14,7 @@ impl Cli {
 		let sandbox = tg::Sandbox::with_id(args.sandbox);
 		let id = sandbox.id().clone();
 		sandbox
-			.destroy_with_handle(&client)
+			.destroy_with_instance(&client)
 			.await
 			.map_err(|error| tg::error!(!error, sandbox = %id, "failed to destroy the sandbox"))?;
 		Ok(())

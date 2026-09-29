@@ -61,7 +61,7 @@ impl Cli {
 			timeout: args.timeout.get(),
 		};
 		let stream = process
-			.status_with_handle(&client, options)
+			.status_with_instance(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process status"))?;
 		self.print_serde_stream(stream.boxed(), args.print).await?;

@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-impl tg::handle::Watch for tg::Session {
+impl tg::instance::Watch for tg::Session {
 	fn list_watches(
 		&self,
 		arg: tg::watch::list::Arg,

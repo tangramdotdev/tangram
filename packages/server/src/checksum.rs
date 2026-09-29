@@ -11,7 +11,7 @@ impl Session {
 	) -> tg::Result<tg::Checksum> {
 		let mut writer = tg::checksum::Writer::new(algorithm);
 		let mut reader = blob
-			.read_with_handle(self, tg::read::Options::default())
+			.read_with_instance(self, tg::read::Options::default())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read the blob"))?;
 		tokio::io::copy(&mut reader, &mut writer)
@@ -46,7 +46,7 @@ impl Session {
 		match artifact {
 			tg::Artifact::Directory(directory) => {
 				let entries = directory
-					.entries_with_handle(self)
+					.entries_with_instance(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get directory entries"))?;
 				writer
@@ -74,22 +74,22 @@ impl Session {
 			},
 			tg::Artifact::File(file) => {
 				let dependencies = file
-					.dependencies_with_handle(self)
+					.dependencies_with_instance(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get file dependencies"))?;
 				if !dependencies.is_empty() {
 					return Err(tg::error!("cannot checksum a file with dependencies"));
 				}
 				let executable = file
-					.executable_with_handle(self)
+					.executable_with_instance(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get executable bit"))?;
 				let length = file
-					.length_with_handle(self)
+					.length_with_instance(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get file length"))?;
 				let mut reader = file
-					.read_with_handle(self, tg::read::Options::default())
+					.read_with_instance(self, tg::read::Options::default())
 					.await
 					.map_err(|error| tg::error!(!error, "failed to read the file"))?;
 				writer
@@ -110,14 +110,14 @@ impl Session {
 			},
 			tg::Artifact::Symlink(symlink) => {
 				let artifact = symlink
-					.artifact_with_handle(self)
+					.artifact_with_instance(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get symlink artifact"))?;
 				if artifact.is_some() {
 					return Err(tg::error!("cannot checksum a symlink with an artifact"));
 				}
 				let path = symlink
-					.path_with_handle(self)
+					.path_with_instance(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get symlink path"))?
 					.ok_or_else(|| tg::error!("cannot checksum a symlink without a path"))?;

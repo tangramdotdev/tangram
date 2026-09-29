@@ -62,19 +62,19 @@ impl<O> tg::Process<O> {
 		&self,
 		options: tg::process::children::get::Options,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static> {
-		let handle = tg::handle()?;
-		self.children_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.children_with_instance(instance, options).await
 	}
 
-	pub async fn children_with_handle<H>(
+	pub async fn children_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::children::get::Options,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_get_children_with_handle(handle, options)
+		self.try_get_children_with_instance(instance, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process"))
 	}
@@ -85,19 +85,19 @@ impl<O> tg::Process<O> {
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static>,
 	> {
-		let handle = tg::handle()?;
-		self.try_get_children_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.try_get_children_with_instance(instance, options).await
 	}
 
-	pub async fn try_get_children_with_handle<H>(
+	pub async fn try_get_children_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::children::get::Options,
 	) -> tg::Result<
 		Option<impl Stream<Item = tg::Result<tg::process::state::Child>> + Send + 'static>,
 	>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let location = options.location.or_else(|| self.location());
 		let tokens = self.tokens();
@@ -115,7 +115,7 @@ impl<O> tg::Process<O> {
 				"getting the process children is not supported for unsandboxed processes"
 			));
 		};
-		Ok(handle
+		Ok(instance
 			.try_get_process_children(id, arg)
 			.await?
 			.map(move |stream| {

@@ -44,7 +44,7 @@ impl Cli {
 		let object = tg::Object::with_referent(object);
 		let options_ = tg::object::get::Options { location };
 		let children = object
-			.children_with_handle(&client, options_)
+			.children_with_instance(&client, options_)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object's children"))?;
 		let output = children

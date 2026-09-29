@@ -71,13 +71,13 @@ impl Reader {
 	}
 
 	pub async fn read(&mut self) -> tg::Result<Option<Bytes>> {
-		let handle = tg::handle()?;
-		self.read_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.read_with_instance(instance).await
 	}
 
-	pub async fn read_with_handle<H>(&mut self, handle: &H) -> tg::Result<Option<Bytes>>
+	pub async fn read_with_instance<I>(&mut self, instance: &I) -> tg::Result<Option<Bytes>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let mut state = self.0.lock().await;
 		if let Some(fd) = state.fd.as_mut() {
@@ -113,7 +113,7 @@ impl Reader {
 				process.clone(),
 				std::marker::PhantomData,
 			);
-			let handle = handle_process.handle_with_handle(handle);
+			let instance = handle_process.instance_with_instance(instance);
 			let location = process.location.read().unwrap().clone();
 			let tokens = process.tokens.read().unwrap().clone();
 			let process = process
@@ -129,7 +129,7 @@ impl Reader {
 				tokens,
 				..Default::default()
 			};
-			let Some(input) = handle.try_read_process_stdio_all(&process, arg).await? else {
+			let Some(input) = instance.try_read_process_stdio_all(&process, arg).await? else {
 				return Err(tg::error!("{} is not available", stream));
 			};
 			state.input = Some(input.boxed());
@@ -156,17 +156,17 @@ impl Reader {
 	}
 
 	pub async fn read_all(&mut self) -> tg::Result<Bytes> {
-		let handle = tg::handle()?;
-		self.read_all_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.read_all_with_instance(instance).await
 	}
 
-	pub async fn read_all_with_handle<H>(&mut self, handle: &H) -> tg::Result<Bytes>
+	pub async fn read_all_with_instance<I>(&mut self, instance: &I) -> tg::Result<Bytes>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let mut chunks = Vec::new();
 		let mut length = 0;
-		while let Some(bytes) = self.read_with_handle(handle).await? {
+		while let Some(bytes) = self.read_with_instance(instance).await? {
 			length += bytes.len();
 			chunks.push(bytes);
 		}
@@ -178,15 +178,15 @@ impl Reader {
 	}
 
 	pub async fn text(&mut self) -> tg::Result<String> {
-		let handle = tg::handle()?;
-		self.text_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.text_with_instance(instance).await
 	}
 
-	pub async fn text_with_handle<H>(&mut self, handle: &H) -> tg::Result<String>
+	pub async fn text_with_instance<I>(&mut self, instance: &I) -> tg::Result<String>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		String::from_utf8(self.read_all_with_handle(handle).await?.to_vec())
+		String::from_utf8(self.read_all_with_instance(instance).await?.to_vec())
 			.map_err(|error| tg::error!(!error, "failed to decode the output as UTF-8"))
 	}
 }

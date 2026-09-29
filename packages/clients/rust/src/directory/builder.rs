@@ -35,18 +35,18 @@ impl Builder {
 	}
 
 	pub async fn add(self, path: &Path, artifact: tg::Artifact) -> tg::Result<Self> {
-		let handle = tg::handle()?;
-		self.add_with_handle(handle, path, artifact).await
+		let instance = tg::instance()?;
+		self.add_with_instance(instance, path, artifact).await
 	}
 
-	pub async fn add_with_handle<H>(
+	pub async fn add_with_instance<I>(
 		mut self,
-		handle: &H,
+		instance: &I,
 		path: &Path,
 		artifact: tg::Artifact,
 	) -> tg::Result<Self>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		// Get the first normal component, passing over current directory components.
 		let mut components = path.components();
@@ -85,14 +85,14 @@ impl Builder {
 					.try_unwrap_directory_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected the artifact to be a directory"))?
-					.to_builder_with_handle(handle)
+					.to_builder_with_instance(instance)
 					.await?
 			} else {
 				Self::default()
 			};
 
 			// Recurse.
-			Box::pin(builder.add_with_handle(handle, &trailing_path, artifact))
+			Box::pin(builder.add_with_instance(instance, &trailing_path, artifact))
 				.await?
 				.build()
 				.into()
@@ -105,13 +105,13 @@ impl Builder {
 	}
 
 	pub async fn remove(self, path: &Path) -> tg::Result<Self> {
-		let handle = tg::handle()?;
-		self.remove_with_handle(handle, path).await
+		let instance = tg::instance()?;
+		self.remove_with_instance(instance, path).await
 	}
 
-	pub async fn remove_with_handle<H>(mut self, handle: &H, path: &Path) -> tg::Result<Self>
+	pub async fn remove_with_instance<I>(mut self, instance: &I, path: &Path) -> tg::Result<Self>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		// Get the first component.
 		let mut components = path.components();
@@ -143,14 +143,14 @@ impl Builder {
 					.try_unwrap_directory_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected the artifact to be a directory"))?
-					.to_builder_with_handle(handle)
+					.to_builder_with_instance(instance)
 					.await?
 			} else {
 				return Err(tg::error!(path = %path.display(), "the path does not exist"));
 			};
 
 			// Recurse.
-			let artifact = Box::pin(builder.remove_with_handle(handle, &trailing_path))
+			let artifact = Box::pin(builder.remove_with_instance(instance, &trailing_path))
 				.await?
 				.build()
 				.into();

@@ -61,7 +61,7 @@ impl Cli {
 			source: options.source,
 		};
 		let output = process
-			.get_with_handle(&client, options_)
+			.get_with_instance(&client, options_)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
 		if let Some(metadata) = output.metadata {

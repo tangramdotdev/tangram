@@ -34,7 +34,7 @@ impl Cli {
 			source: args.source,
 		};
 		let output = process
-			.output_with_handle(&client, options)
+			.output_with_instance(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process output"))?;
 		self.print_serde(output.to_data(), args.print).await?;

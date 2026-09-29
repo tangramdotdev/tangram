@@ -1,6 +1,6 @@
 use {crate::Session, tangram_client::prelude::*};
 
-impl tg::handle::Object for Session {
+impl tg::instance::Object for Session {
 	async fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,

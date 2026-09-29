@@ -92,33 +92,36 @@ impl tg::Referent<Node> {
 
 impl tg::Reference {
 	pub async fn get(&self) -> tg::Result<tg::Referent<tg::get::Node>> {
-		let handle = tg::handle()?;
-		self.get_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.get_with_instance(instance).await
 	}
 
-	pub async fn get_with_handle<H>(&self, handle: &H) -> tg::Result<tg::Referent<tg::get::Node>>
+	pub async fn get_with_instance<I>(
+		&self,
+		instance: &I,
+	) -> tg::Result<tg::Referent<tg::get::Node>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_get_with_handle(handle)
+		self.try_get_with_instance(instance)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the reference"))
 	}
 
 	pub async fn try_get(&self) -> tg::Result<Option<tg::Referent<tg::get::Node>>> {
-		let handle = tg::handle()?;
-		self.try_get_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.try_get_with_instance(instance).await
 	}
 
-	pub async fn try_get_with_handle<H>(
+	pub async fn try_get_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 	) -> tg::Result<Option<tg::Referent<tg::get::Node>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let arg = tg::get::Arg::default();
-		let stream = handle
+		let stream = instance
 			.try_get(self, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the reference stream"))?;

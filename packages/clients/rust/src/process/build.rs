@@ -1,15 +1,15 @@
 use {crate::prelude::*, futures::FutureExt as _};
 
 pub async fn build(arg: tg::process::Arg) -> tg::Result<tg::Value> {
-	let handle = tg::handle()?;
-	build_with_handle(handle, arg).boxed_local().await
+	let instance = tg::instance()?;
+	build_with_instance(instance, arg).boxed_local().await
 }
 
-pub async fn build_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Value>
+pub async fn build_with_instance<I>(instance: &I, arg: tg::process::Arg) -> tg::Result<tg::Value>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
-	tg::Process::<tg::Value>::build_with_handle(handle, arg).await
+	tg::Process::<tg::Value>::build_with_instance(instance, arg).await
 }
 
 impl<O> tg::Process<O> {
@@ -18,13 +18,13 @@ impl<O> tg::Process<O> {
 		O: TryFrom<tg::Value> + 'static,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let handle = tg::handle()?;
-		Self::build_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		Self::build_with_instance(instance, arg).await
 	}
 
-	pub async fn build_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<O>
+	pub async fn build_with_instance<I>(instance: &I, arg: tg::process::Arg) -> tg::Result<O>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 		O: TryFrom<tg::Value> + 'static,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
@@ -56,6 +56,6 @@ impl<O> tg::Process<O> {
 			sandbox: Some(sandbox),
 			..arg
 		};
-		tg::Process::<O>::run_with_handle(handle, arg).await
+		tg::Process::<O>::run_with_instance(instance, arg).await
 	}
 }

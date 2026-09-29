@@ -69,8 +69,8 @@ pub struct State {
 	/// The documents.
 	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
 
-	/// The server.
-	handle: tg::handle::dynamic::Handle,
+	/// The Tangram instance.
+	instance: tg::instance::dynamic::Instance,
 
 	/// The library path.
 	library_path: PathBuf,
@@ -186,7 +186,7 @@ impl Shared {
 impl Compiler {
 	#[must_use]
 	pub fn start(
-		handle: tg::handle::dynamic::Handle,
+		instance: tg::instance::dynamic::Instance,
 		store_path: PathBuf,
 		library_path: PathBuf,
 		main_runtime_handle: tokio::runtime::Handle,
@@ -204,7 +204,7 @@ impl Compiler {
 		// Create the compiler.
 		let compiler = Self(Arc::new(State {
 			documents,
-			handle,
+			instance,
 			library_path,
 			main_runtime_handle,
 			position_encoding: RwLock::new(tg::position::Encoding::Utf8),
@@ -920,7 +920,7 @@ impl Compiler {
 				.ok()
 				.ok_or_else(|| tg::error!("expected a directory"))?;
 			directory
-				.get_edge_with_handle(&self.handle, &path)
+				.get_edge_with_instance(&self.instance, &path)
 				.await?
 				.to_data_artifact()
 				.into()
@@ -1018,7 +1018,7 @@ impl Compiler {
 				.ok()
 				.ok_or_else(|| tg::error!("expected a directory"))?;
 			directory
-				.get_edge_with_handle(&self.handle, &relative_path)
+				.get_edge_with_instance(&self.instance, &relative_path)
 				.await?
 				.to_data_artifact()
 				.into()
@@ -1130,7 +1130,7 @@ impl Compiler {
 					tg::graph::data::Edge::Pointer(pointer) => {
 						let pointer = tg::graph::Pointer::try_from_data(pointer.clone())?;
 						let artifact = tg::Artifact::with_pointer(pointer);
-						artifact.store_with_handle(&self.handle).await?
+						artifact.store_with_instance(&self.instance).await?
 					},
 					tg::graph::data::Edge::Object(object) => object
 						.clone()
@@ -1162,7 +1162,7 @@ impl Compiler {
 					);
 					let mut node =
 						reference
-							.get_with_handle(&self.handle)
+							.get_with_instance(&self.instance)
 							.await?
 							.try_map(|node| {
 								node.try_unwrap_id()
@@ -1178,7 +1178,8 @@ impl Compiler {
 						nodes: vec![node],
 						path: None,
 					};
-					let path = tg::checkout::checkout_one_with_handle(&self.handle, arg).await?;
+					let path =
+						tg::checkout::checkout_one_with_instance(&self.instance, arg).await?;
 
 					if let Some(path_) = &options.path {
 						path.join(path_)
@@ -1201,7 +1202,8 @@ impl Compiler {
 						nodes: vec![artifact.map(Into::into)],
 						path: None,
 					};
-					let output = tg::checkout::checkout_one_with_handle(&self.handle, arg).await?;
+					let output =
+						tg::checkout::checkout_one_with_instance(&self.instance, arg).await?;
 					output.join(path)
 				} else {
 					let extension = match kind {
@@ -1223,7 +1225,7 @@ impl Compiler {
 						nodes: vec![artifact.map(Into::into)],
 						path: None,
 					};
-					tg::checkout::checkout_one_with_handle(&self.handle, arg).await?
+					tg::checkout::checkout_one_with_instance(&self.instance, arg).await?
 				};
 
 				let uri = format!("file://{}", path.display()).parse().unwrap();
@@ -1259,7 +1261,7 @@ impl Compiler {
 		let arg = tg::module::load::Arg {
 			module: module.clone(),
 		};
-		let output = self.handle.load_module(arg).await?;
+		let output = self.instance.load_module(arg).await?;
 
 		Ok(output.text)
 	}

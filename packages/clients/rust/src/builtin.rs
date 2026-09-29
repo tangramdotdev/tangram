@@ -74,22 +74,22 @@ pub async fn archive(
 	format: tg::ArchiveFormat,
 	compression: Option<tg::CompressionFormat>,
 ) -> tg::Result<tg::Blob> {
-	let handle = tg::handle()?;
-	archive_with_handle(artifact, handle, format, compression)
+	let instance = tg::instance()?;
+	archive_with_instance(artifact, instance, format, compression)
 		.boxed_local()
 		.await
 }
 
-pub async fn archive_with_handle<H>(
+pub async fn archive_with_instance<I>(
 	artifact: &tg::Artifact,
-	handle: &H,
+	instance: &I,
 	format: tg::ArchiveFormat,
 	compression: Option<tg::CompressionFormat>,
 ) -> tg::Result<tg::Blob>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
-	validate_archive_artifact_with_handle(artifact, handle).await?;
+	validate_archive_artifact_with_instance(artifact, instance).await?;
 	let mut args = vec![tg::Value::from("builtin"), "archive".into()];
 	if let Some(compression) = compression {
 		args.extend(["--compression".into(), compression.to_string().into()]);
@@ -112,36 +112,36 @@ where
 		name: Some("archive".into()),
 		..Default::default()
 	};
-	let output = tg::process::build_with_handle(handle, arg).await?;
+	let output = tg::process::build_with_instance(instance, arg).await?;
 	let file: tg::File = output.try_into()?;
-	let blob = file.contents_with_handle(handle).await?;
+	let blob = file.contents_with_instance(instance).await?;
 
 	Ok(blob)
 }
 
-pub async fn validate_archive_artifact_with_handle<H>(
+pub async fn validate_archive_artifact_with_instance<I>(
 	artifact: &tg::Artifact,
-	handle: &H,
+	instance: &I,
 ) -> tg::Result<()>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	match artifact {
 		tg::Artifact::Directory(directory) => {
-			for artifact in directory.entries_with_handle(handle).await?.values() {
-				Box::pin(validate_archive_artifact_with_handle(artifact, handle)).await?;
+			for artifact in directory.entries_with_instance(instance).await?.values() {
+				Box::pin(validate_archive_artifact_with_instance(artifact, instance)).await?;
 			}
 		},
 		tg::Artifact::File(file) => {
-			if !file.dependencies_with_handle(handle).await?.is_empty() {
+			if !file.dependencies_with_instance(instance).await?.is_empty() {
 				return Err(tg::error!("cannot archive a file with dependencies"));
 			}
 		},
 		tg::Artifact::Symlink(symlink) => {
-			if symlink.artifact_with_handle(handle).await?.is_some() {
+			if symlink.artifact_with_instance(instance).await?.is_some() {
 				return Err(tg::error!("cannot archive a symlink with an artifact"));
 			}
-			if symlink.path_with_handle(handle).await?.is_none() {
+			if symlink.path_with_instance(instance).await?.is_none() {
 				return Err(tg::error!("cannot archive a symlink without a path"));
 			}
 		},
@@ -182,15 +182,18 @@ pub fn archive_command(
 }
 
 pub async fn bundle(artifact: &tg::Artifact) -> tg::Result<tg::Artifact> {
-	let handle = tg::handle()?;
-	bundle_with_handle(artifact, handle).await
+	let instance = tg::instance()?;
+	bundle_with_instance(artifact, instance).await
 }
 
-pub async fn bundle_with_handle<H>(artifact: &tg::Artifact, handle: &H) -> tg::Result<tg::Artifact>
+pub async fn bundle_with_instance<I>(
+	artifact: &tg::Artifact,
+	instance: &I,
+) -> tg::Result<tg::Artifact>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
-	let dependencies = Box::pin(artifact.recursive_dependencies_with_handle(handle)).await?;
+	let dependencies = Box::pin(artifact.recursive_dependencies_with_instance(instance)).await?;
 	if dependencies.is_empty() {
 		return Ok(artifact.clone());
 	}
@@ -198,7 +201,7 @@ where
 		.into_iter()
 		.map(|id| async move {
 			let artifact = tg::Artifact::with_id(id.clone());
-			let artifact = remove_dependencies(handle, &artifact, 3).await?;
+			let artifact = remove_dependencies(instance, &artifact, 3).await?;
 			Ok::<_, tg::Error>((id.to_string(), artifact))
 		})
 		.collect::<FuturesOrdered<_>>()
@@ -209,14 +212,14 @@ where
 		.clone()
 		.try_unwrap_directory()
 		.map_err(|_| tg::error!("the artifact must be a directory"))?;
-	let directory = remove_dependencies(handle, &directory.into(), 0)
+	let directory = remove_dependencies(instance, &directory.into(), 0)
 		.await?
 		.try_unwrap_directory()
 		.map_err(|_| tg::error!("the artifact must be a directory"))?;
 	let directory = directory
-		.to_builder_with_handle(handle)
+		.to_builder_with_instance(instance)
 		.await?
-		.add_with_handle(handle, TANGRAM_STORE_PATH.as_ref(), artifacts.into())
+		.add_with_instance(instance, TANGRAM_STORE_PATH.as_ref(), artifacts.into())
 		.await?
 		.build();
 
@@ -227,19 +230,19 @@ pub async fn checksum(
 	input: tg::Either<&tg::Blob, &tg::File>,
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Result<tg::Checksum> {
-	let handle = tg::handle()?;
-	checksum_with_handle(input, handle, algorithm)
+	let instance = tg::instance()?;
+	checksum_with_instance(input, instance, algorithm)
 		.boxed_local()
 		.await
 }
 
-pub async fn checksum_with_handle<H>(
+pub async fn checksum_with_instance<I>(
 	input: tg::Either<&tg::Blob, &tg::File>,
-	handle: &H,
+	instance: &I,
 	algorithm: tg::checksum::Algorithm,
 ) -> tg::Result<tg::Checksum>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let input = match input {
 		tg::Either::Left(blob) => tg::File::with_contents(blob.clone()),
@@ -265,10 +268,10 @@ where
 		name: Some("checksum".into()),
 		..Default::default()
 	};
-	let output = tg::process::build_with_handle(handle, arg).await?;
+	let output = tg::process::build_with_instance(instance, arg).await?;
 	let output: tg::File = output.try_into()?;
 	let checksum = output
-		.text_with_handle(handle)
+		.text_with_instance(instance)
 		.await?
 		.parse()
 		.map_err(|error| tg::error!(!error, "failed to parse the checksum"))?;
@@ -309,19 +312,19 @@ pub fn checksum_command(
 }
 
 pub async fn compress(input: &tg::Blob, format: tg::CompressionFormat) -> tg::Result<tg::Blob> {
-	let handle = tg::handle()?;
-	compress_with_handle(input, handle, format)
+	let instance = tg::instance()?;
+	compress_with_instance(input, instance, format)
 		.boxed_local()
 		.await
 }
 
-pub async fn compress_with_handle<H>(
+pub async fn compress_with_instance<I>(
 	input: &tg::Blob,
-	handle: &H,
+	instance: &I,
 	format: tg::CompressionFormat,
 ) -> tg::Result<tg::Blob>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let input = tg::File::with_contents(input.clone());
 	let args = vec![
@@ -344,9 +347,9 @@ where
 		name: Some("compress".into()),
 		..Default::default()
 	};
-	let output = tg::process::build_with_handle(handle, arg).await?;
+	let output = tg::process::build_with_instance(instance, arg).await?;
 	let file: tg::File = output.try_into()?;
-	let blob = file.contents_with_handle(handle).await?;
+	let blob = file.contents_with_instance(instance).await?;
 
 	Ok(blob)
 }
@@ -384,13 +387,15 @@ pub fn compress_command(
 }
 
 pub async fn decompress(input: &tg::Blob) -> tg::Result<tg::Blob> {
-	let handle = tg::handle()?;
-	decompress_with_handle(input, handle).boxed_local().await
+	let instance = tg::instance()?;
+	decompress_with_instance(input, instance)
+		.boxed_local()
+		.await
 }
 
-pub async fn decompress_with_handle<H>(input: &tg::Blob, handle: &H) -> tg::Result<tg::Blob>
+pub async fn decompress_with_instance<I>(input: &tg::Blob, instance: &I) -> tg::Result<tg::Blob>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let input = tg::File::with_contents(input.clone());
 	let args = vec![
@@ -411,9 +416,9 @@ where
 		name: Some("decompress".into()),
 		..Default::default()
 	};
-	let output = tg::process::build_with_handle(handle, arg).await?;
+	let output = tg::process::build_with_instance(instance, arg).await?;
 	let file: tg::File = output.try_into()?;
-	let blob = file.contents_with_handle(handle).await?;
+	let blob = file.contents_with_instance(instance).await?;
 
 	Ok(blob)
 }
@@ -450,20 +455,20 @@ pub async fn download(
 	checksum: Option<&tg::Checksum>,
 	options: Option<DownloadOptions>,
 ) -> tg::Result<tg::Either<tg::Blob, tg::Artifact>> {
-	let handle = tg::handle()?;
-	download_with_handle(handle, url, checksum, options)
+	let instance = tg::instance()?;
+	download_with_instance(instance, url, checksum, options)
 		.boxed_local()
 		.await
 }
 
-pub async fn download_with_handle<H>(
-	handle: &H,
+pub async fn download_with_instance<I>(
+	instance: &I,
 	url: &Uri,
 	checksum: Option<&tg::Checksum>,
 	options: Option<DownloadOptions>,
 ) -> tg::Result<tg::Either<tg::Blob, tg::Artifact>>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let checksum = checksum.cloned().unwrap_or_default();
 	let mut options = options.unwrap_or_default();
@@ -491,11 +496,11 @@ where
 		name: Some("download".into()),
 		..Default::default()
 	};
-	let output = tg::process::build_with_handle(handle, arg).await?;
+	let output = tg::process::build_with_instance(instance, arg).await?;
 	let output = match mode {
 		tg::DownloadMode::Raw => {
 			let file: tg::File = output.try_into()?;
-			let blob = file.contents_with_handle(handle).await?;
+			let blob = file.contents_with_instance(instance).await?;
 			tg::Either::Left(blob)
 		},
 		tg::DownloadMode::Decompress | tg::DownloadMode::Extract => {
@@ -534,13 +539,13 @@ pub fn download_command(url: &Uri, options: Option<DownloadOptions>) -> tg::Comm
 }
 
 pub async fn extract(input: &tg::Blob) -> tg::Result<tg::Artifact> {
-	let handle = tg::handle()?;
-	extract_with_handle(handle, input).boxed_local().await
+	let instance = tg::instance()?;
+	extract_with_instance(instance, input).boxed_local().await
 }
 
-pub async fn extract_with_handle<H>(handle: &H, input: &tg::Blob) -> tg::Result<tg::Artifact>
+pub async fn extract_with_instance<I>(instance: &I, input: &tg::Blob) -> tg::Result<tg::Artifact>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let input = tg::File::with_contents(input.clone());
 	let args = vec![
@@ -561,7 +566,7 @@ where
 		name: Some("extract".into()),
 		..Default::default()
 	};
-	let output = tg::process::build_with_handle(handle, arg).await?;
+	let output = tg::process::build_with_instance(instance, arg).await?;
 	let artifact = output.try_into()?;
 	Ok(artifact)
 }
@@ -590,23 +595,23 @@ pub fn extract_command(input: &tg::Blob) -> tg::Command {
 		.expect("the command builder should be complete")
 }
 
-async fn remove_dependencies<H>(
-	handle: &H,
+async fn remove_dependencies<I>(
+	instance: &I,
 	artifact: &tg::Artifact,
 	depth: usize,
 ) -> tg::Result<tg::Artifact>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	match artifact {
 		tg::Artifact::Directory(directory) => {
 			let entries = Box::pin(async move {
 				directory
-					.entries_with_handle(handle)
+					.entries_with_instance(instance)
 					.await?
 					.iter()
 					.map(|(name, artifact)| async move {
-						let artifact = remove_dependencies(handle, artifact, depth + 1).await?;
+						let artifact = remove_dependencies(instance, artifact, depth + 1).await?;
 						Ok::<_, tg::Error>((name.clone(), artifact))
 					})
 					.collect::<FuturesOrdered<_>>()
@@ -618,8 +623,8 @@ where
 			Ok(directory.into())
 		},
 		tg::Artifact::File(file) => {
-			let contents = file.contents_with_handle(handle).await?;
-			let executable = file.executable_with_handle(handle).await?;
+			let contents = file.contents_with_instance(instance).await?;
+			let executable = file.executable_with_instance(instance).await?;
 			let file = tg::File::builder()
 				.contents(contents)
 				.executable(executable)
@@ -627,8 +632,8 @@ where
 			Ok(file.into())
 		},
 		tg::Artifact::Symlink(symlink) => {
-			let artifact = symlink.artifact_with_handle(handle).await?;
-			let path = symlink.path_with_handle(handle).await?;
+			let artifact = symlink.artifact_with_instance(instance).await?;
+			let path = symlink.path_with_instance(instance).await?;
 			let mut target = PathBuf::new();
 			if let Some(artifact) = artifact {
 				for _ in 0..depth.saturating_sub(1) {

@@ -198,16 +198,16 @@ impl tg::Referent<tg::Either<Box<Command>, tg::command::Id>> {
 		}
 	}
 
-	pub async fn resolve_with_handle<H>(&self, handle: &H) -> tg::Result<Command>
+	pub async fn resolve_with_instance<I>(&self, instance: &I) -> tg::Result<Command>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let mut command = match &self.node {
 			tg::Either::Left(command) => command.as_ref().clone(),
 			tg::Either::Right(id) => {
 				let referent = tg::Referent::new(id.clone(), self.options.clone());
 				let command = tg::Command::with_referent(referent);
-				let data = command.data_with_handle(handle).await?;
+				let data = command.data_with_instance(instance).await?;
 				Command::with_command_data(data, &command.to_referent().options)
 			},
 		};

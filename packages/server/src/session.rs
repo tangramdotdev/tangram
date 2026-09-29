@@ -135,7 +135,7 @@ impl Session {
 	}
 }
 
-impl tg::Handle for Session {
+impl tg::Instance for Session {
 	fn arg(&self) -> tg::Arg {
 		self.server.arg()
 	}

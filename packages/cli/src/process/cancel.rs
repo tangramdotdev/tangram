@@ -28,9 +28,12 @@ impl Cli {
 			lease: Some(args.lease),
 			location,
 		};
-		process.cancel_with_handle(&client, options).await.map_err(
-			|error| tg::error!(!error, id = %process.id(), "failed to cancel the process"),
-		)?;
+		process
+			.cancel_with_instance(&client, options)
+			.await
+			.map_err(
+				|error| tg::error!(!error, id = %process.id(), "failed to cancel the process"),
+			)?;
 		Ok(())
 	}
 }

@@ -1,0 +1,54 @@
+use {super::Instance, crate::prelude::*, futures::future::BoxFuture};
+
+impl tg::instance::Object for Instance {
+	fn try_get_object_metadata(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::metadata::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Metadata>>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_object_metadata(id, arg))
+		}
+	}
+
+	fn try_get_object_availability(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::availability::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::object::Availability>>> {
+		unsafe {
+			std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_object_availability(id, arg))
+		}
+	}
+
+	fn try_get_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::object::get::Output>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_get_object(id, arg)) }
+	}
+
+	fn put_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::put::Arg,
+	) -> impl Future<Output = tg::Result<tg::object::put::Output>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.put_object(id, arg)) }
+	}
+
+	fn post_object_batch(
+		&self,
+		arg: tg::object::batch::Arg,
+	) -> impl Future<Output = tg::Result<tg::object::batch::Output>> {
+		self.0.post_object_batch(arg)
+	}
+
+	fn try_touch_object(
+		&self,
+		id: &tg::object::Id,
+		arg: tg::object::touch::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> {
+		unsafe { std::mem::transmute::<_, BoxFuture<'_, _>>(self.0.try_touch_object(id, arg)) }
+	}
+}

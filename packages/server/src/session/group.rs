@@ -1,6 +1,6 @@
 use {crate::Session, tangram_client::prelude::*};
 
-impl tg::handle::Group for Session {
+impl tg::instance::Group for Session {
 	async fn create_group(
 		&self,
 		arg: tg::group::create::Arg,

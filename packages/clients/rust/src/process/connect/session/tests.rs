@@ -88,8 +88,8 @@ async fn read_reports_disconnect_after_yielding_a_chunk() {
 	let id = tg::process::Id::new();
 	let client = tg::Client::new(tg::Arg::default()).unwrap();
 	let connection = super::super::Connection::with_session(&client, connection);
-	let handle = tg::handle::dynamic::Handle::with_connection(client, id.clone(), connection);
-	let mut output = handle
+	let instance = tg::instance::dynamic::Instance::with_connection(client, id.clone(), connection);
+	let mut output = instance
 		.try_read_process_stdio_all(&id, arg)
 		.await
 		.unwrap()

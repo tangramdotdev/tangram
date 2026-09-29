@@ -1,6 +1,6 @@
 use {crate::Session, tangram_client::prelude::*};
 
-impl tg::handle::Checkpoint for Session {
+impl tg::instance::Checkpoint for Session {
 	async fn try_watch_checkpoint(
 		&self,
 		checkpoint: &str,

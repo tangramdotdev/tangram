@@ -611,7 +611,7 @@ impl State {
 		// Read the log.
 		let stream = self
 			.process
-			.try_read_stdio_with_handle(&self.client, options)
+			.try_read_stdio_with_instance(&self.client, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the log stream"))?;
 

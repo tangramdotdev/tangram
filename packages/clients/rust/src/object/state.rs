@@ -340,49 +340,49 @@ impl State {
 	}
 
 	pub async fn load(&self) -> tg::Result<tg::object::Object> {
-		let handle = tg::handle()?;
-		self.load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.load_with_instance(instance).await
 	}
 
-	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<tg::object::Object>
+	pub async fn load_with_instance<I>(&self, instance: &I) -> tg::Result<tg::object::Object>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.load_with_arg_with_handle(handle, tg::object::get::Arg::default())
+		self.load_with_arg_with_instance(instance, tg::object::get::Arg::default())
 			.await
 	}
 
 	pub async fn load_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<tg::object::Object> {
-		let handle = tg::handle()?;
-		self.load_with_arg_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		self.load_with_arg_with_instance(instance, arg).await
 	}
 
-	pub async fn load_with_arg_with_handle<H>(
+	pub async fn load_with_arg_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<tg::object::Object>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_arg_with_handle(handle, arg)
+		self.try_load_with_arg_with_instance(instance, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
 	pub async fn try_load(&self) -> tg::Result<Option<tg::object::Object>> {
-		let handle = tg::handle()?;
-		self.try_load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.try_load_with_instance(instance).await
 	}
 
-	pub async fn try_load_with_handle<H>(
+	pub async fn try_load_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 	) -> tg::Result<Option<tg::object::Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_arg_with_handle(handle, tg::object::get::Arg::default())
+		self.try_load_with_arg_with_instance(instance, tg::object::get::Arg::default())
 			.await
 	}
 
@@ -390,17 +390,17 @@ impl State {
 		&self,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::Object>> {
-		let handle = tg::handle()?;
-		self.try_load_with_arg_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		self.try_load_with_arg_with_instance(instance, arg).await
 	}
 
-	pub async fn try_load_with_arg_with_handle<H>(
+	pub async fn try_load_with_arg_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		mut arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		// Get or start the load task.
 		let (spawned, task) = {
@@ -418,10 +418,10 @@ impl State {
 				if arg.tokens.is_empty() {
 					arg.tokens = inner.tokens.clone();
 				}
-				let handle = handle.clone();
+				let instance = instance.clone();
 				let state = self.clone();
 				let task =
-					Shared::spawn(move |_| async move { state.load_task(handle, id, arg).await });
+					Shared::spawn(move |_| async move { state.load_task(instance, id, arg).await });
 				inner.load.replace(task.clone());
 				(true, task)
 			}
@@ -442,17 +442,17 @@ impl State {
 		result
 	}
 
-	async fn load_task<H>(
+	async fn load_task<I>(
 		&self,
-		handle: H,
+		instance: I,
 		id: tg::object::Id,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		// Load the object.
-		let Some(mut output) = handle.try_get_object(&id, arg).await? else {
+		let Some(mut output) = instance.try_get_object(&id, arg).await? else {
 			return Ok(None);
 		};
 
@@ -497,15 +497,15 @@ impl State {
 	}
 
 	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
-		let handle = tg::handle()?;
-		self.children_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.children_with_instance(instance).await
 	}
 
-	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	pub async fn children_with_instance<I>(&self, instance: &I) -> tg::Result<Vec<tg::Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let object = self.load_with_handle(handle).await?;
+		let object = self.load_with_instance(instance).await?;
 		let children = object.children();
 		let tokens = self.tokens();
 		let location = self.location();

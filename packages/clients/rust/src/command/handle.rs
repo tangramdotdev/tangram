@@ -71,58 +71,58 @@ impl Command {
 	}
 
 	pub async fn object(&self) -> tg::Result<Arc<Object>> {
-		let handle = tg::handle()?;
-		self.object_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.object_with_instance(instance).await
 	}
 
-	pub async fn object_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	pub async fn object_with_instance<I>(&self, instance: &I) -> tg::Result<Arc<Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.load_with_handle(handle).await
+		self.load_with_instance(instance).await
 	}
 
 	pub async fn load(&self) -> tg::Result<Arc<Object>> {
-		let handle = tg::handle()?;
-		self.load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.load_with_instance(instance).await
 	}
 
-	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	pub async fn load_with_instance<I>(&self, instance: &I) -> tg::Result<Arc<Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_handle(handle)
+		self.try_load_with_instance(instance)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
 	pub async fn try_load(&self) -> tg::Result<Option<Arc<Object>>> {
-		let handle = tg::handle()?;
-		self.try_load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.try_load_with_instance(instance).await
 	}
 
-	pub async fn try_load_with_handle<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	pub async fn try_load_with_instance<I>(&self, instance: &I) -> tg::Result<Option<Arc<Object>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_arg_with_handle(handle, tg::object::get::Arg::default())
+		self.try_load_with_arg_with_instance(instance, tg::object::get::Arg::default())
 			.await
 	}
 
 	pub async fn load_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<Arc<Object>> {
-		let handle = tg::handle()?;
-		self.load_with_arg_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		self.load_with_arg_with_instance(instance, arg).await
 	}
 
-	pub async fn load_with_arg_with_handle<H>(
+	pub async fn load_with_arg_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Arc<Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_arg_with_handle(handle, arg)
+		self.try_load_with_arg_with_instance(instance, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
@@ -131,21 +131,21 @@ impl Command {
 		&self,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<Arc<Object>>> {
-		let handle = tg::handle()?;
-		self.try_load_with_arg_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		self.try_load_with_arg_with_instance(instance, arg).await
 	}
 
-	pub async fn try_load_with_arg_with_handle<H>(
+	pub async fn try_load_with_arg_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<Arc<Object>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let object = self
 			.state
-			.try_load_with_arg_with_handle(handle, arg)
+			.try_load_with_arg_with_instance(instance, arg)
 			.await?;
 		let Some(object) = object else {
 			return Ok(None);
@@ -159,78 +159,78 @@ impl Command {
 	}
 
 	pub async fn store(&self) -> tg::Result<Id> {
-		let handle = tg::handle()?;
-		self.store_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.store_with_instance(instance).await
 	}
 
-	pub async fn store_with_handle<H>(&self, handle: &H) -> tg::Result<Id>
+	pub async fn store_with_instance<I>(&self, instance: &I) -> tg::Result<Id>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		tg::Value::from(self.clone())
-			.store_with_handle(handle)
+			.store_with_instance(instance)
 			.await?;
 		Ok(self.id())
 	}
 
 	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
-		let handle = tg::handle()?;
-		self.children_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.children_with_instance(instance).await
 	}
 
-	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	pub async fn children_with_instance<I>(&self, instance: &I) -> tg::Result<Vec<tg::Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.state.children_with_handle(handle).await
+		self.state.children_with_instance(instance).await
 	}
 
 	pub async fn data(&self) -> tg::Result<Data> {
-		let handle = tg::handle()?;
-		self.data_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.data_with_instance(instance).await
 	}
 
-	pub async fn data_with_handle<H>(&self, handle: &H) -> tg::Result<Data>
+	pub async fn data_with_instance<I>(&self, instance: &I) -> tg::Result<Data>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		Ok(self.object_with_handle(handle).await?.to_data())
+		Ok(self.object_with_instance(instance).await?.to_data())
 	}
 }
 
 impl Command {
 	pub async fn args(&self) -> tg::Result<impl Deref<Target = Vec<tg::command::Value>>> {
-		let handle = tg::handle()?;
-		self.args_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.args_with_instance(instance).await
 	}
 
-	pub async fn args_with_handle<H>(
+	pub async fn args_with_instance<I>(
 		&self,
-		handle: &H,
-	) -> tg::Result<impl Deref<Target = Vec<tg::command::Value>> + use<H>>
+		instance: &I,
+	) -> tg::Result<impl Deref<Target = Vec<tg::command::Value>> + use<I>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		Ok(self
-			.object_with_handle(handle)
+			.object_with_instance(instance)
 			.await?
 			.map(|object| &object.args))
 	}
 
 	pub async fn cwd(&self) -> tg::Result<impl Deref<Target = Option<PathBuf>>> {
-		let handle = tg::handle()?;
-		self.cwd_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.cwd_with_instance(instance).await
 	}
 
-	pub async fn cwd_with_handle<H>(
+	pub async fn cwd_with_instance<I>(
 		&self,
-		handle: &H,
-	) -> tg::Result<impl Deref<Target = Option<PathBuf>> + use<H>>
+		instance: &I,
+	) -> tg::Result<impl Deref<Target = Option<PathBuf>> + use<I>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		Ok(self
-			.object_with_handle(handle)
+			.object_with_instance(instance)
 			.await?
 			.map(|object| &object.cwd))
 	}
@@ -238,88 +238,91 @@ impl Command {
 	pub async fn env(
 		&self,
 	) -> tg::Result<impl Deref<Target = BTreeMap<String, tg::command::Value>>> {
-		let handle = tg::handle()?;
-		self.env_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.env_with_instance(instance).await
 	}
 
-	pub async fn env_with_handle<H>(
+	pub async fn env_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 	) -> tg::Result<impl Deref<Target = BTreeMap<String, tg::command::Value>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		Ok(self
-			.object_with_handle(handle)
+			.object_with_instance(instance)
 			.await?
 			.map(|object| &object.env))
 	}
 
 	pub async fn executable(&self) -> tg::Result<impl Deref<Target = tg::command::Executable>> {
-		let handle = tg::handle()?;
-		self.executable_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.executable_with_instance(instance).await
 	}
 
-	pub async fn executable_with_handle<H>(
+	pub async fn executable_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 	) -> tg::Result<impl Deref<Target = tg::command::Executable>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		Ok(self
-			.object_with_handle(handle)
+			.object_with_instance(instance)
 			.await?
 			.map(|object| &object.executable))
 	}
 
 	pub async fn host(&self) -> tg::Result<impl Deref<Target = String>> {
-		let handle = tg::handle()?;
-		self.host_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.host_with_instance(instance).await
 	}
 
-	pub async fn host_with_handle<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = String>>
+	pub async fn host_with_instance<I>(
+		&self,
+		instance: &I,
+	) -> tg::Result<impl Deref<Target = String>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		Ok(self
-			.object_with_handle(handle)
+			.object_with_instance(instance)
 			.await?
 			.map(|object| &object.host))
 	}
 
 	pub async fn stdin(&self) -> tg::Result<impl Deref<Target = Option<tg::Blob>>> {
-		let handle = tg::handle()?;
-		self.stdin_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.stdin_with_instance(instance).await
 	}
 
-	pub async fn stdin_with_handle<H>(
+	pub async fn stdin_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 	) -> tg::Result<impl Deref<Target = Option<tg::Blob>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		Ok(self
-			.object_with_handle(handle)
+			.object_with_instance(instance)
 			.await?
 			.map(|object| &object.stdin))
 	}
 
 	pub async fn user(&self) -> tg::Result<impl Deref<Target = Option<String>>> {
-		let handle = tg::handle()?;
-		self.user_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.user_with_instance(instance).await
 	}
 
-	pub async fn user_with_handle<H>(
+	pub async fn user_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 	) -> tg::Result<impl Deref<Target = Option<String>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		Ok(self
-			.object_with_handle(handle)
+			.object_with_instance(instance)
 			.await?
 			.map(|object| &object.user))
 	}

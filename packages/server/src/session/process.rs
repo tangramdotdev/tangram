@@ -4,7 +4,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Process for Session {
+impl tg::instance::Process for Session {
 	async fn try_connect_process(
 		&self,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,

@@ -80,7 +80,7 @@ impl Cli {
 			path: absolute_path.clone(),
 			updates: Vec::new(),
 		};
-		let output = tg::checkin::checkin_with_handle(&client, arg).await.map_err(
+		let output = tg::checkin::checkin_with_instance(&client, arg).await.map_err(
 			|error| tg::error!(!error, path = %absolute_path.display(), "failed to check in the root package"),
 		)?;
 		let artifact = tg::Artifact::with_referent(output.artifact.clone());
@@ -361,18 +361,18 @@ impl Cli {
 
 /// Given an object, get the tag from its internal metadata by statically parsing the module.
 async fn try_get_package_tag(
-	client: &impl tg::Handle,
+	client: &impl tg::Instance,
 	object: &tg::Object,
 	package_path: Option<&Path>,
 ) -> tg::Result<Option<tg::Specifier>> {
 	// Get the file text and module file name from the object.
 	let (text, module_name) = match object {
 		tg::Object::File(file) => {
-			let text = file.text_with_handle(client).await?;
+			let text = file.text_with_instance(client).await?;
 			(text, None)
 		},
 		tg::Object::Directory(directory) => {
-			let Some(name) = tg::module::try_get_root_module_file_name_with_handle(
+			let Some(name) = tg::module::try_get_root_module_file_name_with_instance(
 				client,
 				tg::Either::Left(directory),
 			)
@@ -381,11 +381,11 @@ async fn try_get_package_tag(
 				return Ok(None);
 			};
 			let file = directory
-				.get_with_handle(client, name)
+				.get_with_instance(client, name)
 				.await?
 				.try_unwrap_file()
 				.map_err(|_| tg::error!("expected a file"))?;
-			let text = file.text_with_handle(client).await?;
+			let text = file.text_with_instance(client).await?;
 			(text, Some(name.to_owned()))
 		},
 		_ => return Ok(None),
@@ -442,7 +442,7 @@ async fn try_get_package_tag(
 impl State {
 	async fn visit_objects(
 		&mut self,
-		client: &impl tg::Handle,
+		client: &impl tg::Instance,
 		root: &tg::Referent<tg::Object>,
 	) -> tg::Result<()> {
 		// Make sure the root is added if it is on the local file system.
@@ -455,7 +455,7 @@ impl State {
 		tg::object::visit(client, self, root, false).await
 	}
 
-	async fn create_graph(&mut self, client: &impl tg::Handle) -> tg::Result<()> {
+	async fn create_graph(&mut self, client: &impl tg::Instance) -> tg::Result<()> {
 		for package in self.all_packages.clone() {
 			let Self {
 				all_packages,
@@ -475,7 +475,7 @@ impl State {
 			while let Some(subtrie) = stack.pop() {
 				if let Some(tg::Artifact::File(file)) = subtrie.value() {
 					let dependencies = file
-						.dependencies_with_handle(client)
+						.dependencies_with_instance(client)
 						.await?
 						.values()
 						.filter_map(|option| {
@@ -499,7 +499,7 @@ impl State {
 
 	async fn create_plan(
 		&mut self,
-		client: &impl tg::Handle,
+		client: &impl tg::Instance,
 		mut tag: Option<tg::Specifier>,
 	) -> tg::Result<Vec<Step>> {
 		// Fetch all package tags in parallel with limited concurrency.
@@ -613,13 +613,13 @@ impl State {
 	}
 }
 
-impl<H> tg::object::Visitor<H> for State
+impl<I> tg::object::Visitor<I> for State
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	async fn visit_blob(
 		&mut self,
-		_handle: &H,
+		_instance: &I,
 		blob: tangram_client::Referent<&tangram_client::Blob>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = blob.tag() {
@@ -631,7 +631,7 @@ where
 
 	async fn visit_directory(
 		&mut self,
-		client: &H,
+		client: &I,
 		directory: tg::Referent<&tg::Directory>,
 	) -> tg::Result<bool> {
 		if directory
@@ -656,7 +656,7 @@ where
 			.insert(path.to_owned(), directory.node.clone().into());
 
 		// Keep track of files.
-		if tg::module::try_get_root_module_file_name_with_handle(
+		if tg::module::try_get_root_module_file_name_with_instance(
 			client,
 			tg::Either::Left(directory.node()),
 		)
@@ -669,7 +669,7 @@ where
 		Ok(true)
 	}
 
-	async fn visit_file(&mut self, client: &H, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
+	async fn visit_file(&mut self, client: &I, file: tg::Referent<&tg::File>) -> tg::Result<bool> {
 		if file
 			.options
 			.path
@@ -693,7 +693,7 @@ where
 			.insert(path.to_owned(), file.node.clone().into());
 
 		// Mark the packages that come from source overrides.
-		for (reference, option) in file.node.dependencies_with_handle(client).await? {
+		for (reference, option) in file.node.dependencies_with_instance(client).await? {
 			let Some(mut dependency) = option else {
 				continue;
 			};
@@ -717,7 +717,7 @@ where
 
 	async fn visit_symlink(
 		&mut self,
-		_handle: &H,
+		_instance: &I,
 		symlink: tg::Referent<&tg::Symlink>,
 	) -> tg::Result<bool> {
 		if symlink
@@ -737,7 +737,7 @@ where
 
 	async fn visit_command(
 		&mut self,
-		_handle: &H,
+		_instance: &I,
 		command: tangram_client::Referent<&tangram_client::Command>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = command.tag() {
@@ -749,7 +749,7 @@ where
 
 	async fn visit_graph(
 		&mut self,
-		_handle: &H,
+		_instance: &I,
 		graph: tangram_client::Referent<&tangram_client::Graph>,
 	) -> tangram_client::Result<bool> {
 		if let Some(tag) = graph.tag() {
@@ -796,7 +796,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Graph {
 }
 
 async fn publish_path(
-	client: &impl tg::Handle,
+	client: &impl tg::Instance,
 	options: &tg::referent::Options,
 ) -> tg::Result<PathBuf> {
 	// Resolve the artifact-relative path through its root, retaining the authorization tokens.
@@ -815,7 +815,7 @@ async fn publish_path(
 			nodes: vec![node],
 			path: None,
 		};
-		let root = tg::checkout::checkout_one_with_handle(client, arg)
+		let root = tg::checkout::checkout_one_with_instance(client, arg)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to check out the package root"))?;
 		root.join(options.path.as_deref().unwrap_or(Path::new("")))
@@ -835,7 +835,7 @@ async fn publish_path(
 }
 
 async fn publish_checkin(
-	client: &impl tg::Handle,
+	client: &impl tg::Instance,
 	path: PathBuf,
 	solve: bool,
 ) -> tg::Result<tg::Referent<tg::object::Id>> {
@@ -851,7 +851,7 @@ async fn publish_checkin(
 		options,
 		updates: Vec::new(),
 	};
-	let output = tg::checkin::checkin_with_handle(client, args)
+	let output = tg::checkin::checkin_with_instance(client, args)
 		.await
 		.map_err(|error| tg::error!(!error, path = %path_display, "failed to checkin"))?;
 	let node = output.artifact.map(Into::into);

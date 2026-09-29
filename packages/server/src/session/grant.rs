@@ -1,6 +1,6 @@
 use {crate::Session, tangram_client::prelude::*};
 
-impl tg::handle::Grant for Session {
+impl tg::instance::Grant for Session {
 	async fn create_grant(
 		&self,
 		arg: tg::grant::create::Arg,

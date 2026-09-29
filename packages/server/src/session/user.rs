@@ -1,6 +1,6 @@
 use {crate::Session, tangram_client::prelude::*};
 
-impl tg::handle::User for Session {
+impl tg::instance::User for Session {
 	async fn create_user_token(
 		&self,
 		arg: tg::user::token::create::Arg,

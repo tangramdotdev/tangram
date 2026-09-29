@@ -104,15 +104,15 @@ pub struct Output {
 }
 
 pub async fn checkin(arg: tg::checkin::Arg) -> tg::Result<Output> {
-	let handle = tg::handle()?;
-	checkin_with_handle(handle, arg).await
+	let instance = tg::instance()?;
+	checkin_with_instance(instance, arg).await
 }
 
-pub async fn checkin_with_handle<H>(handle: &H, arg: tg::checkin::Arg) -> tg::Result<Output>
+pub async fn checkin_with_instance<I>(instance: &I, arg: tg::checkin::Arg) -> tg::Result<Output>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
-	let stream = handle.checkin(arg).await?;
+	let stream = instance.checkin(arg).await?;
 	let output = pin!(stream)
 		.try_last()
 		.await?

@@ -88,29 +88,29 @@ impl tg::Sandbox {
 		Self::builder().build().await
 	}
 
-	pub async fn create_with_handle<H>(handle: &H) -> tg::Result<Self>
+	pub async fn create_with_instance<I>(instance: &I) -> tg::Result<Self>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		Self::builder().build_with_handle(handle).await
+		Self::builder().build_with_instance(instance).await
 	}
 
 	pub async fn create_with_arg(arg: tg::sandbox::create::Arg) -> tg::Result<Self> {
-		let handle = tg::handle()?;
-		Self::create_with_arg_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		Self::create_with_arg_with_instance(instance, arg).await
 	}
 
-	pub async fn create_with_arg_with_handle<H>(
-		handle: &H,
+	pub async fn create_with_arg_with_instance<I>(
+		instance: &I,
 		mut arg: tg::sandbox::create::Arg,
 	) -> tg::Result<Self>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		arg.host
 			.get_or_insert_with(|| tg::host::current().to_owned());
-		let output = handle.create_sandbox(arg).await?;
-		let handle = tg::handle::dynamic::Handle::new(handle.clone());
+		let output = instance.create_sandbox(arg).await?;
+		let instance = tg::instance::dynamic::Instance::new(instance.clone());
 		let options = tg::sandbox::Options {
 			location: output.location.clone().map(Into::into),
 			state: Some(tg::sandbox::get::Output {
@@ -120,7 +120,7 @@ impl tg::Sandbox {
 			}),
 			tokens: tg::authorization::Tokens::default(),
 		};
-		let sandbox = Self::new_inner(output.data.id.clone(), options, Some(handle));
+		let sandbox = Self::new_inner(output.data.id.clone(), options, Some(instance));
 
 		Ok(sandbox)
 	}

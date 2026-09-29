@@ -108,14 +108,13 @@ impl Cli {
 
 		// Create the arg.
 		let http = client.http();
-		let handle = tg::handle::dynamic::Handle::new(client);
+		let instance = tg::instance::dynamic::Instance::new(client);
 		let main_runtime_handle = tokio::runtime::Handle::current();
 		let arg = tangram_js::Arg {
 			args: args_,
 			cwd,
 			env,
 			export: args.export,
-			handle,
 			http,
 			inspect: args.debug.get().map(|debug| tangram_js::inspect::Options {
 				addr: debug.addr,
@@ -125,6 +124,7 @@ impl Cli {
 					tg::process::debug::Mode::Wait => tangram_js::inspect::Mode::Wait,
 				},
 			}),
+			instance,
 			main_runtime_handle,
 			module,
 			repl: None,

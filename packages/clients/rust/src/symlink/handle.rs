@@ -70,58 +70,58 @@ impl Symlink {
 	}
 
 	pub async fn object(&self) -> tg::Result<Arc<Object>> {
-		let handle = tg::handle()?;
-		self.object_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.object_with_instance(instance).await
 	}
 
-	pub async fn object_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	pub async fn object_with_instance<I>(&self, instance: &I) -> tg::Result<Arc<Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.load_with_handle(handle).await
+		self.load_with_instance(instance).await
 	}
 
 	pub async fn load(&self) -> tg::Result<Arc<Object>> {
-		let handle = tg::handle()?;
-		self.load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.load_with_instance(instance).await
 	}
 
-	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	pub async fn load_with_instance<I>(&self, instance: &I) -> tg::Result<Arc<Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_handle(handle)
+		self.try_load_with_instance(instance)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
 	pub async fn try_load(&self) -> tg::Result<Option<Arc<Object>>> {
-		let handle = tg::handle()?;
-		self.try_load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.try_load_with_instance(instance).await
 	}
 
-	pub async fn try_load_with_handle<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	pub async fn try_load_with_instance<I>(&self, instance: &I) -> tg::Result<Option<Arc<Object>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_arg_with_handle(handle, tg::object::get::Arg::default())
+		self.try_load_with_arg_with_instance(instance, tg::object::get::Arg::default())
 			.await
 	}
 
 	pub async fn load_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<Arc<Object>> {
-		let handle = tg::handle()?;
-		self.load_with_arg_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		self.load_with_arg_with_instance(instance, arg).await
 	}
 
-	pub async fn load_with_arg_with_handle<H>(
+	pub async fn load_with_arg_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Arc<Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_arg_with_handle(handle, arg)
+		self.try_load_with_arg_with_instance(instance, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
@@ -130,21 +130,21 @@ impl Symlink {
 		&self,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<Arc<Object>>> {
-		let handle = tg::handle()?;
-		self.try_load_with_arg_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		self.try_load_with_arg_with_instance(instance, arg).await
 	}
 
-	pub async fn try_load_with_arg_with_handle<H>(
+	pub async fn try_load_with_arg_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<Arc<Object>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let object = self
 			.state
-			.try_load_with_arg_with_handle(handle, arg)
+			.try_load_with_arg_with_instance(instance, arg)
 			.await?;
 		let Some(object) = object else {
 			return Ok(None);
@@ -158,42 +158,42 @@ impl Symlink {
 	}
 
 	pub async fn store(&self) -> tg::Result<Id> {
-		let handle = tg::handle()?;
-		self.store_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.store_with_instance(instance).await
 	}
 
-	pub async fn store_with_handle<H>(&self, handle: &H) -> tg::Result<Id>
+	pub async fn store_with_instance<I>(&self, instance: &I) -> tg::Result<Id>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		tg::Value::from(self.clone())
-			.store_with_handle(handle)
+			.store_with_instance(instance)
 			.await?;
 		Ok(self.id())
 	}
 
 	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
-		let handle = tg::handle()?;
-		self.children_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.children_with_instance(instance).await
 	}
 
-	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	pub async fn children_with_instance<I>(&self, instance: &I) -> tg::Result<Vec<tg::Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.state.children_with_handle(handle).await
+		self.state.children_with_instance(instance).await
 	}
 
 	pub async fn data(&self) -> tg::Result<Data> {
-		let handle = tg::handle()?;
-		self.data_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.data_with_instance(instance).await
 	}
 
-	pub async fn data_with_handle<H>(&self, handle: &H) -> tg::Result<Data>
+	pub async fn data_with_instance<I>(&self, instance: &I) -> tg::Result<Data>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		Ok(self.object_with_handle(handle).await?.to_data())
+		Ok(self.object_with_instance(instance).await?.to_data())
 	}
 }
 
@@ -231,20 +231,20 @@ impl Symlink {
 	}
 
 	pub async fn artifact(&self) -> tg::Result<Option<tg::Artifact>> {
-		let handle = tg::handle()?;
-		self.artifact_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.artifact_with_instance(instance).await
 	}
 
-	pub async fn artifact_with_handle<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
+	pub async fn artifact_with_instance<I>(&self, instance: &I) -> tg::Result<Option<tg::Artifact>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let object = self.object_with_handle(handle).await?;
+		let object = self.object_with_instance(instance).await?;
 		let artifact = match object.as_ref() {
 			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
-				let object = graph.object_with_handle(handle).await?;
+				let object = graph.object_with_instance(instance).await?;
 				let node = object
 					.nodes
 					.get(index)
@@ -295,20 +295,20 @@ impl Symlink {
 	}
 
 	pub async fn path(&self) -> tg::Result<Option<PathBuf>> {
-		let handle = tg::handle()?;
-		self.path_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.path_with_instance(instance).await
 	}
 
-	pub async fn path_with_handle<H>(&self, handle: &H) -> tg::Result<Option<PathBuf>>
+	pub async fn path_with_instance<I>(&self, instance: &I) -> tg::Result<Option<PathBuf>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let object = self.object_with_handle(handle).await?;
+		let object = self.object_with_instance(instance).await?;
 		match object.as_ref() {
 			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
-				let object = graph.object_with_handle(handle).await?;
+				let object = graph.object_with_instance(instance).await?;
 				let node = object
 					.nodes
 					.get(index)
@@ -324,38 +324,41 @@ impl Symlink {
 	}
 
 	pub async fn resolve(&self) -> tg::Result<tg::Artifact> {
-		let handle = tg::handle()?;
-		self.resolve_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.resolve_with_instance(instance).await
 	}
 
-	pub async fn resolve_with_handle<H>(&self, handle: &H) -> tg::Result<tg::Artifact>
+	pub async fn resolve_with_instance<I>(&self, instance: &I) -> tg::Result<tg::Artifact>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_resolve_with_handle(handle)
+		self.try_resolve_with_instance(instance)
 			.await?
 			.ok_or_else(|| tg::error!("broken symlink"))
 	}
 
 	pub async fn try_resolve(&self) -> tg::Result<Option<tg::Artifact>> {
-		let handle = tg::handle()?;
-		self.try_resolve_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.try_resolve_with_instance(instance).await
 	}
 
-	pub async fn try_resolve_with_handle<H>(&self, handle: &H) -> tg::Result<Option<tg::Artifact>>
+	pub async fn try_resolve_with_instance<I>(
+		&self,
+		instance: &I,
+	) -> tg::Result<Option<tg::Artifact>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let mut artifact = self.artifact_with_handle(handle).await?.clone();
+		let mut artifact = self.artifact_with_instance(instance).await?.clone();
 		if let Some(tg::Artifact::Symlink(symlink)) = artifact {
-			artifact = Box::pin(symlink.try_resolve_with_handle(handle)).await?;
+			artifact = Box::pin(symlink.try_resolve_with_instance(instance)).await?;
 		}
-		let path = self.path_with_handle(handle).await?.clone();
+		let path = self.path_with_instance(instance).await?.clone();
 		match (artifact, path) {
 			(None, Some(_)) => Err(tg::error!("cannot resolve a symlink with no artifact")),
 			(Some(artifact), None) => Ok(Some(artifact)),
 			(Some(tg::Artifact::Directory(directory)), Some(path)) => {
-				directory.try_get_with_handle(handle, path).await
+				directory.try_get_with_instance(instance, path).await
 			},
 			_ => Err(tg::error!("invalid symlink")),
 		}

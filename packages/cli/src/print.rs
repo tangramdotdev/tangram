@@ -206,7 +206,7 @@ impl Cli {
 			depth,
 			location,
 		};
-		value.load_with_handle(&client, options).await?;
+		value.load_with_instance(&client, options).await?;
 		Ok(())
 	}
 

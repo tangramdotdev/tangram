@@ -618,7 +618,7 @@ impl Object {
 		let position = 0;
 		let read = None;
 		let size = blob
-			.length_with_handle(session)
+			.length_with_instance(session)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the blob length"))?;
 		let session = session.clone();

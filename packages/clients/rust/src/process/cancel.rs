@@ -42,23 +42,23 @@ pub struct Options {
 
 impl<O> tg::Process<O> {
 	pub async fn cancel(&self, options: tg::process::cancel::Options) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		self.cancel_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.cancel_with_instance(instance, options).await
 	}
 
-	pub async fn cancel_with_handle<H>(
+	pub async fn cancel_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::cancel::Options,
 	) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let handle = self.handle_with_handle(handle);
-		let handle = &handle;
+		let instance = self.instance_with_instance(instance);
+		let instance = &instance;
 		if self.id().is_left() {
 			let options = tg::process::signal::Options::default();
-			self.signal_with_handle(handle, tg::process::Signal::SIGTERM, options)
+			self.signal_with_instance(instance, tg::process::Signal::SIGTERM, options)
 				.await?;
 			self.disarm();
 			return Ok(());
@@ -72,7 +72,7 @@ impl<O> tg::Process<O> {
 			&& location.is_none()
 			&& self.location().is_none()
 		{
-			self.ensure_location_with_handle(handle).await?;
+			self.ensure_location_with_instance(instance).await?;
 		}
 		let id = self.id().unwrap_right();
 		let location = location.or_else(|| self.location());
@@ -80,7 +80,7 @@ impl<O> tg::Process<O> {
 			.or_else(|| self.lease().cloned())
 			.ok_or_else(|| tg::error!("missing lease"))?;
 		let arg = Arg { lease, location };
-		handle.cancel_process(id, arg).await?;
+		instance.cancel_process(id, arg).await?;
 		self.disarm();
 
 		Ok(())

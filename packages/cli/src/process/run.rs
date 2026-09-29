@@ -236,7 +236,7 @@ impl Cli {
 		let mut wait_future = Box::pin(
 			process
 				.node()
-				.wait_with_handle(&client, tg::process::wait::Options::default()),
+				.wait_with_instance(&client, tg::process::wait::Options::default()),
 		);
 		let wait = if let Some(mut view_receiver) = view_receiver {
 			tokio::select! {
@@ -350,7 +350,7 @@ impl Cli {
 				path,
 			};
 			let stream = artifact
-				.checkout_with_handle(&client, options)
+				.checkout_with_instance(&client, options)
 				.await
 				.map_err(
 					|error| tg::error!(!error, artifact = %id, "failed to create the checkout stream"),

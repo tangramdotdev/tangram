@@ -13,17 +13,17 @@ pub struct Options {
 
 impl tg::Value {
 	pub async fn load(&self, options: tg::value::load::Options) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		self.load_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.load_with_instance(instance, options).await
 	}
 
-	pub async fn load_with_handle<H>(
+	pub async fn load_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::value::load::Options,
 	) -> tg::Result<()>
 	where
-		H: tg::Handle + Clone + Send + Sync + 'static,
+		I: tg::Instance + Clone + Send + Sync + 'static,
 	{
 		let tg::value::load::Options {
 			blobs,
@@ -51,11 +51,13 @@ impl tg::Value {
 					continue;
 				}
 				let permit = semaphore.clone().acquire_owned().await.unwrap();
-				let handle = handle.clone();
+				let instance = instance.clone();
 				let arg = arg.clone();
 				join_set.spawn(async move {
 					let _permit = permit;
-					let children = value.children_with_arg_with_handle(&handle, arg).await?;
+					let children = value
+						.children_with_arg_with_instance(&instance, arg)
+						.await?;
 					Ok((children, depth))
 				});
 			}

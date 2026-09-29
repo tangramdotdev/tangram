@@ -41,7 +41,7 @@ impl Cli {
 		let process = tg::Process::<tg::Value>::with_referent(process);
 		let options = tg::process::touch::Options { location };
 		process
-			.touch_with_handle(&client, options)
+			.touch_with_instance(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the process"))?;
 		Ok(())

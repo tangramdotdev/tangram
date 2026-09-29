@@ -67,58 +67,58 @@ impl File {
 	}
 
 	pub async fn object(&self) -> tg::Result<Arc<Object>> {
-		let handle = tg::handle()?;
-		self.object_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.object_with_instance(instance).await
 	}
 
-	pub async fn object_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	pub async fn object_with_instance<I>(&self, instance: &I) -> tg::Result<Arc<Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.load_with_handle(handle).await
+		self.load_with_instance(instance).await
 	}
 
 	pub async fn load(&self) -> tg::Result<Arc<Object>> {
-		let handle = tg::handle()?;
-		self.load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.load_with_instance(instance).await
 	}
 
-	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<Object>>
+	pub async fn load_with_instance<I>(&self, instance: &I) -> tg::Result<Arc<Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_handle(handle)
+		self.try_load_with_instance(instance)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
 
 	pub async fn try_load(&self) -> tg::Result<Option<Arc<Object>>> {
-		let handle = tg::handle()?;
-		self.try_load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.try_load_with_instance(instance).await
 	}
 
-	pub async fn try_load_with_handle<H>(&self, handle: &H) -> tg::Result<Option<Arc<Object>>>
+	pub async fn try_load_with_instance<I>(&self, instance: &I) -> tg::Result<Option<Arc<Object>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_arg_with_handle(handle, tg::object::get::Arg::default())
+		self.try_load_with_arg_with_instance(instance, tg::object::get::Arg::default())
 			.await
 	}
 
 	pub async fn load_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<Arc<Object>> {
-		let handle = tg::handle()?;
-		self.load_with_arg_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		self.load_with_arg_with_instance(instance, arg).await
 	}
 
-	pub async fn load_with_arg_with_handle<H>(
+	pub async fn load_with_arg_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Arc<Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_arg_with_handle(handle, arg)
+		self.try_load_with_arg_with_instance(instance, arg)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the object"))
 	}
@@ -127,21 +127,21 @@ impl File {
 		&self,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<Arc<Object>>> {
-		let handle = tg::handle()?;
-		self.try_load_with_arg_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		self.try_load_with_arg_with_instance(instance, arg).await
 	}
 
-	pub async fn try_load_with_arg_with_handle<H>(
+	pub async fn try_load_with_arg_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Option<Arc<Object>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let object = self
 			.state
-			.try_load_with_arg_with_handle(handle, arg)
+			.try_load_with_arg_with_instance(instance, arg)
 			.await?;
 		let Some(object) = object else {
 			return Ok(None);
@@ -155,42 +155,42 @@ impl File {
 	}
 
 	pub async fn store(&self) -> tg::Result<Id> {
-		let handle = tg::handle()?;
-		self.store_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.store_with_instance(instance).await
 	}
 
-	pub async fn store_with_handle<H>(&self, handle: &H) -> tg::Result<Id>
+	pub async fn store_with_instance<I>(&self, instance: &I) -> tg::Result<Id>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		tg::Value::from(self.clone())
-			.store_with_handle(handle)
+			.store_with_instance(instance)
 			.await?;
 		Ok(self.id())
 	}
 
 	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
-		let handle = tg::handle()?;
-		self.children_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.children_with_instance(instance).await
 	}
 
-	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	pub async fn children_with_instance<I>(&self, instance: &I) -> tg::Result<Vec<tg::Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.state.children_with_handle(handle).await
+		self.state.children_with_instance(instance).await
 	}
 
 	pub async fn data(&self) -> tg::Result<Data> {
-		let handle = tg::handle()?;
-		self.data_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.data_with_instance(instance).await
 	}
 
-	pub async fn data_with_handle<H>(&self, handle: &H) -> tg::Result<Data>
+	pub async fn data_with_instance<I>(&self, instance: &I) -> tg::Result<Data>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		Ok(self.object_with_handle(handle).await?.to_data())
+		Ok(self.object_with_instance(instance).await?.to_data())
 	}
 }
 
@@ -219,20 +219,20 @@ impl File {
 	}
 
 	pub async fn contents(&self) -> tg::Result<tg::Blob> {
-		let handle = tg::handle()?;
-		self.contents_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.contents_with_instance(instance).await
 	}
 
-	pub async fn contents_with_handle<H>(&self, handle: &H) -> tg::Result<tg::Blob>
+	pub async fn contents_with_instance<I>(&self, instance: &I) -> tg::Result<tg::Blob>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let object = self.object_with_handle(handle).await?;
+		let object = self.object_with_instance(instance).await?;
 		let contents = match object.as_ref() {
 			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
-				let object = graph.object_with_handle(handle).await?;
+				let object = graph.object_with_instance(instance).await?;
 				let node = object
 					.nodes
 					.get(index)
@@ -257,25 +257,25 @@ impl File {
 	pub async fn dependencies(
 		&self,
 	) -> tg::Result<BTreeMap<tg::Reference, Option<tg::file::Dependency>>> {
-		let handle = tg::handle()?;
-		self.dependencies_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.dependencies_with_instance(instance).await
 	}
 
-	pub async fn dependencies_with_handle<H>(
+	pub async fn dependencies_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 	) -> tg::Result<BTreeMap<tg::Reference, Option<tg::file::Dependency>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let object = self.object_with_handle(handle).await?;
+		let object = self.object_with_instance(instance).await?;
 		let location = self.state.location();
 		let tokens = self.state.tokens();
 		let dependencies = match object.as_ref() {
 			Object::Pointer(pointer) => {
 				let graph = pointer.graph.as_ref().unwrap();
 				let index = pointer.index;
-				let object = graph.object_with_handle(handle).await?;
+				let object = graph.object_with_instance(instance).await?;
 				let node = object
 					.nodes
 					.get(index)
@@ -375,19 +375,19 @@ impl File {
 		&self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::file::Dependency> {
-		let handle = tg::handle()?;
-		self.get_dependency_with_handle(handle, reference).await
+		let instance = tg::instance()?;
+		self.get_dependency_with_instance(instance, reference).await
 	}
 
-	pub async fn get_dependency_with_handle<H>(
+	pub async fn get_dependency_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::file::Dependency>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_get_dependency_with_handle(handle, reference)
+		self.try_get_dependency_with_instance(instance, reference)
 			.await?
 			.ok_or_else(|| tg::error!("expected the dependency to exist"))
 	}
@@ -396,20 +396,21 @@ impl File {
 		&self,
 		reference: &tg::Reference,
 	) -> tg::Result<Option<tg::file::Dependency>> {
-		let handle = tg::handle()?;
-		self.try_get_dependency_with_handle(handle, reference).await
+		let instance = tg::instance()?;
+		self.try_get_dependency_with_instance(instance, reference)
+			.await
 	}
 
-	pub async fn try_get_dependency_with_handle<H>(
+	pub async fn try_get_dependency_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		reference: &tg::Reference,
 	) -> tg::Result<Option<tg::file::Dependency>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let Some(dependency) = self
-			.try_get_dependency_edge_with_handle(handle, reference)
+			.try_get_dependency_edge_with_instance(instance, reference)
 			.await?
 		else {
 			return Ok(None);
@@ -454,20 +455,20 @@ impl File {
 		&self,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::graph::Dependency> {
-		let handle = tg::handle()?;
-		self.get_dependency_edge_with_handle(handle, reference)
+		let instance = tg::instance()?;
+		self.get_dependency_edge_with_instance(instance, reference)
 			.await
 	}
 
-	pub async fn get_dependency_edge_with_handle<H>(
+	pub async fn get_dependency_edge_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		reference: &tg::Reference,
 	) -> tg::Result<tg::graph::Dependency>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_get_dependency_edge_with_handle(handle, reference)
+		self.try_get_dependency_edge_with_instance(instance, reference)
 			.await?
 			.ok_or_else(|| tg::error!("expected the dependency to exist"))
 	}
@@ -476,25 +477,25 @@ impl File {
 		&self,
 		reference: &tg::Reference,
 	) -> tg::Result<Option<tg::graph::Dependency>> {
-		let handle = tg::handle()?;
-		self.try_get_dependency_edge_with_handle(handle, reference)
+		let instance = tg::instance()?;
+		self.try_get_dependency_edge_with_instance(instance, reference)
 			.await
 	}
 
-	pub async fn try_get_dependency_edge_with_handle<H>(
+	pub async fn try_get_dependency_edge_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		reference: &tg::Reference,
 	) -> tg::Result<Option<tg::graph::Dependency>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let object = self.object_with_handle(handle).await?;
+		let object = self.object_with_instance(instance).await?;
 		let dependency = match object.as_ref() {
 			Object::Pointer(pointer) => {
 				let graph = pointer.graph.as_ref().unwrap();
 				let index = pointer.index;
-				let object = graph.object_with_handle(handle).await?;
+				let object = graph.object_with_instance(instance).await?;
 				let node = object
 					.nodes
 					.get(index)
@@ -555,20 +556,20 @@ impl File {
 	}
 
 	pub async fn executable(&self) -> tg::Result<bool> {
-		let handle = tg::handle()?;
-		self.executable_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.executable_with_instance(instance).await
 	}
 
-	pub async fn executable_with_handle<H>(&self, handle: &H) -> tg::Result<bool>
+	pub async fn executable_with_instance<I>(&self, instance: &I) -> tg::Result<bool>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let object = self.object_with_handle(handle).await?;
+		let object = self.object_with_instance(instance).await?;
 		match object.as_ref() {
 			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
-				let object = graph.object_with_handle(handle).await?;
+				let object = graph.object_with_instance(instance).await?;
 				let node = object
 					.nodes
 					.get(index)
@@ -584,20 +585,23 @@ impl File {
 	}
 
 	pub async fn module(&self) -> tg::Result<Option<tg::module::Kind>> {
-		let handle = tg::handle()?;
-		self.module_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.module_with_instance(instance).await
 	}
 
-	pub async fn module_with_handle<H>(&self, handle: &H) -> tg::Result<Option<tg::module::Kind>>
+	pub async fn module_with_instance<I>(
+		&self,
+		instance: &I,
+	) -> tg::Result<Option<tg::module::Kind>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let object = self.object_with_handle(handle).await?;
+		let object = self.object_with_instance(instance).await?;
 		match object.as_ref() {
 			Object::Pointer(object) => {
 				let graph = object.graph.as_ref().unwrap();
 				let index = object.index;
-				let object = graph.object_with_handle(handle).await?;
+				let object = graph.object_with_instance(instance).await?;
 				let node = object
 					.nodes
 					.get(index)
@@ -613,66 +617,66 @@ impl File {
 	}
 
 	pub async fn length(&self) -> tg::Result<u64> {
-		let handle = tg::handle()?;
-		self.length_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.length_with_instance(instance).await
 	}
 
-	pub async fn length_with_handle<H>(&self, handle: &H) -> tg::Result<u64>
+	pub async fn length_with_instance<I>(&self, instance: &I) -> tg::Result<u64>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.contents_with_handle(handle)
+		self.contents_with_instance(instance)
 			.await?
-			.length_with_handle(handle)
+			.length_with_instance(instance)
 			.await
 	}
 
 	pub async fn read(&self, options: tg::read::Options) -> tg::Result<impl AsyncBufRead + Send> {
-		let handle = tg::handle()?;
-		self.read_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.read_with_instance(instance, options).await
 	}
 
-	pub async fn read_with_handle<H>(
+	pub async fn read_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::read::Options,
-	) -> tg::Result<impl AsyncBufRead + Send + use<H>>
+	) -> tg::Result<impl AsyncBufRead + Send + use<I>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.contents_with_handle(handle)
+		self.contents_with_instance(instance)
 			.await?
-			.read_with_handle(handle, options)
+			.read_with_instance(instance, options)
 			.await
 	}
 
 	pub async fn bytes(&self) -> tg::Result<Vec<u8>> {
-		let handle = tg::handle()?;
-		self.bytes_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.bytes_with_instance(instance).await
 	}
 
-	pub async fn bytes_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<u8>>
+	pub async fn bytes_with_instance<I>(&self, instance: &I) -> tg::Result<Vec<u8>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.contents_with_handle(handle)
+		self.contents_with_instance(instance)
 			.await?
-			.bytes_with_handle(handle)
+			.bytes_with_instance(instance)
 			.await
 	}
 
 	pub async fn text(&self) -> tg::Result<String> {
-		let handle = tg::handle()?;
-		self.text_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.text_with_instance(instance).await
 	}
 
-	pub async fn text_with_handle<H>(&self, handle: &H) -> tg::Result<String>
+	pub async fn text_with_instance<I>(&self, instance: &I) -> tg::Result<String>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.contents_with_handle(handle)
+		self.contents_with_instance(instance)
 			.await?
-			.text_with_handle(handle)
+			.text_with_instance(instance)
 			.await
 	}
 }

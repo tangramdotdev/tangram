@@ -343,8 +343,8 @@ fn split_body(
 	(reader, trailer_receiver, task)
 }
 
-pub(super) struct StdioTaskArg<H> {
-	pub handle: H,
+pub(super) struct StdioTaskArg<I> {
+	pub instance: I,
 	pub id: tg::process::Id,
 	pub location: Option<tg::Location>,
 	pub raw: bool,
@@ -355,12 +355,12 @@ pub(super) struct StdioTaskArg<H> {
 	pub tty: bool,
 }
 
-pub(super) async fn stdio_task<H>(arg: StdioTaskArg<H>) -> tg::Result<()>
+pub(super) async fn stdio_task<I>(arg: StdioTaskArg<I>) -> tg::Result<()>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let StdioTaskArg {
-		handle,
+		instance,
 		id,
 		location,
 		raw,
@@ -371,32 +371,32 @@ where
 		tty,
 	} = arg;
 	let mut stdin_task = stdin.map(|stdin| {
-		let handle = handle.clone();
+		let instance = instance.clone();
 		let id = id.clone();
 		let location = location.clone();
 		let tokens = tokens.clone();
-		Task::spawn(
-			move |_| async move { stdin_task(&handle, id, location, stdin, raw, tokens).await },
-		)
+		Task::spawn(move |_| async move {
+			stdin_task(&instance, id, location, stdin, raw, tokens).await
+		})
 	});
 
 	let sigwinch_task = if tty {
-		let handle = handle.clone();
+		let instance = instance.clone();
 		let id = id.clone();
 		let location = location.clone();
 		let tokens = tokens.clone();
 		let task =
-			Task::spawn(|_| async move { sigwinch_task(&handle, id, location, tokens).await });
+			Task::spawn(|_| async move { sigwinch_task(&instance, id, location, tokens).await });
 		Some(task)
 	} else {
 		None
 	};
 
 	let output = if stdout.is_some() || stderr.is_some() {
-		let handle = handle.clone();
+		let instance = instance.clone();
 		let id = id.clone();
 		let location = location.clone();
-		stdout_stderr_task(&handle, id, location, stdout, stderr, tokens).await
+		stdout_stderr_task(&instance, id, location, stdout, stderr, tokens).await
 	} else {
 		Ok(())
 	};
@@ -421,8 +421,8 @@ where
 	Ok(())
 }
 
-async fn stdin_task<H>(
-	handle: &H,
+async fn stdin_task<I>(
+	instance: &I,
 	id: tg::process::Id,
 	location: Option<tg::Location>,
 	stdin: tg::process::Stdio,
@@ -430,7 +430,7 @@ async fn stdin_task<H>(
 	tokens: tg::authorization::Tokens,
 ) -> tg::Result<()>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	if !matches!(stdin, tg::process::Stdio::Pipe | tg::process::Stdio::Tty) {
 		return Ok(());
@@ -499,11 +499,11 @@ where
 			future::ready(Some(result))
 		})
 		.boxed();
-	handle.write_process_stdio_all(&id, arg, input).await
+	instance.write_process_stdio_all(&id, arg, input).await
 }
 
-async fn stdout_stderr_task<H>(
-	handle: &H,
+async fn stdout_stderr_task<I>(
+	instance: &I,
 	id: tg::process::Id,
 	location: Option<tg::Location>,
 	stdout: Option<tg::process::Stdio>,
@@ -511,7 +511,7 @@ async fn stdout_stderr_task<H>(
 	tokens: tg::authorization::Tokens,
 ) -> tg::Result<()>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let stdout = stdout
 		.filter(|stdout| matches!(stdout, tg::process::Stdio::Pipe | tg::process::Stdio::Tty));
@@ -533,7 +533,7 @@ where
 		tokens,
 		..Default::default()
 	};
-	let Some(stream) = handle.try_read_process_stdio_all(&id, arg).await? else {
+	let Some(stream) = instance.try_read_process_stdio_all(&id, arg).await? else {
 		return Ok(());
 	};
 	let mut stdout_writer = tokio::io::BufWriter::new(tokio::io::stdout());
@@ -572,14 +572,14 @@ where
 	Ok(())
 }
 
-async fn sigwinch_task<H>(
-	handle: &H,
+async fn sigwinch_task<I>(
+	instance: &I,
 	id: tg::process::Id,
 	location: Option<tg::Location>,
 	tokens: tg::authorization::Tokens,
 ) -> tg::Result<()>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let mut signal = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::window_change())
 		.map_err(|error| tg::error!(!error, "failed to create signal handler"))?;
@@ -597,7 +597,7 @@ where
 			size,
 			tokens: tokens.clone(),
 		};
-		handle
+		instance
 			.set_process_tty_size(&id, arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to put the tty"))?;

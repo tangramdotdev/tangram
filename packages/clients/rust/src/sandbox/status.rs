@@ -65,19 +65,19 @@ impl tg::Sandbox {
 		&self,
 		options: tg::sandbox::status::Options,
 	) -> tg::Result<tg::sandbox::Status> {
-		let handle = tg::handle()?;
-		self.wait_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.wait_with_instance(instance, options).await
 	}
 
-	pub async fn wait_with_handle<H>(
+	pub async fn wait_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::sandbox::status::Options,
 	) -> tg::Result<tg::sandbox::Status>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		use tg::handle::Ext as _;
+		use tg::instance::Ext as _;
 
 		let arg = tg::sandbox::status::Arg {
 			location: self.location(),
@@ -85,7 +85,7 @@ impl tg::Sandbox {
 			tokens: self.tokens(),
 			timeout: options.timeout,
 		};
-		let stream = handle.get_sandbox_status(self.id(), arg).await?;
+		let stream = instance.get_sandbox_status(self.id(), arg).await?;
 		let stream = std::pin::pin!(stream);
 		let status = stream
 			.try_filter(|status| futures::future::ready(status.is_destroyed()))

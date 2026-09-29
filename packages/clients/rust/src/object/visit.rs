@@ -4,15 +4,15 @@ use {
 	std::{collections::HashSet, future::Future},
 };
 
-pub async fn visit<H, V>(
-	handle: &H,
+pub async fn visit<I, V>(
+	instance: &I,
 	visitor: &mut V,
 	object: &tg::Referent<tg::Object>,
 	inherit: bool,
 ) -> tg::Result<()>
 where
-	H: tg::Handle,
-	V: tg::object::Visitor<H>,
+	I: tg::Instance,
+	V: tg::object::Visitor<I>,
 {
 	let mut stack: Vec<tg::Referent<tg::Object>> = vec![object.clone()];
 	let mut visited = HashSet::new();
@@ -29,31 +29,31 @@ where
 		let recurse = match &object {
 			tg::Object::Blob(blob) => {
 				let referent = referent.clone().map(|_| blob);
-				visitor.visit_blob(handle, referent).await?
+				visitor.visit_blob(instance, referent).await?
 			},
 			tg::Object::Directory(directory) => {
 				let referent = referent.clone().map(|_| directory);
-				visitor.visit_directory(handle, referent).await?
+				visitor.visit_directory(instance, referent).await?
 			},
 			tg::Object::File(file) => {
 				let referent = referent.clone().map(|_| file);
-				visitor.visit_file(handle, referent).await?
+				visitor.visit_file(instance, referent).await?
 			},
 			tg::Object::Symlink(symlink) => {
 				let referent = referent.clone().map(|_| symlink);
-				visitor.visit_symlink(handle, referent).await?
+				visitor.visit_symlink(instance, referent).await?
 			},
 			tg::Object::Graph(graph) => {
 				let referent = referent.clone().map(|_| graph);
-				visitor.visit_graph(handle, referent).await?
+				visitor.visit_graph(instance, referent).await?
 			},
 			tg::Object::Command(command) => {
 				let referent = referent.clone().map(|_| command);
-				visitor.visit_command(handle, referent).await?
+				visitor.visit_command(instance, referent).await?
 			},
 			tg::Object::Error(error) => {
 				let referent = referent.clone().map(|_| error);
-				visitor.visit_error(handle, referent).await?
+				visitor.visit_error(instance, referent).await?
 			},
 		};
 
@@ -65,7 +65,7 @@ where
 		// Get the children.
 		let children = match object {
 			tg::Object::Graph(graph) => graph
-				.nodes_with_handle(handle)
+				.nodes_with_instance(instance)
 				.await?
 				.into_iter()
 				.enumerate()
@@ -82,7 +82,7 @@ where
 				})
 				.collect::<Vec<_>>(),
 			tg::Object::Directory(directory) => directory
-				.entries_with_handle(handle)
+				.entries_with_instance(instance)
 				.await?
 				.into_iter()
 				.map(|(name, object)| {
@@ -107,7 +107,7 @@ where
 				})
 				.collect::<Vec<_>>(),
 			tg::Object::File(file) => file
-				.dependencies_with_handle(handle)
+				.dependencies_with_instance(instance)
 				.await?
 				.into_values()
 				.filter_map(|option| {
@@ -122,7 +122,7 @@ where
 				})
 				.collect::<Vec<_>>(),
 			object => object
-				.children_with_handle(handle, tg::object::get::Options::default())
+				.children_with_instance(instance, tg::object::get::Options::default())
 				.await?
 				.into_iter()
 				.map(tg::Referent::with_node)
@@ -137,13 +137,13 @@ where
 }
 
 #[expect(unused_variables)]
-pub trait Visitor<H>
+pub trait Visitor<I>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	fn visit_blob(
 		&mut self,
-		handle: &H,
+		instance: &I,
 		blob: tg::Referent<&tg::Blob>,
 	) -> impl Future<Output = tg::Result<bool>> {
 		future::ok(false)
@@ -151,7 +151,7 @@ where
 
 	fn visit_directory(
 		&mut self,
-		handle: &H,
+		instance: &I,
 		directory: tg::Referent<&tg::Directory>,
 	) -> impl Future<Output = tg::Result<bool>> {
 		future::ok(false)
@@ -159,7 +159,7 @@ where
 
 	fn visit_file(
 		&mut self,
-		handle: &H,
+		instance: &I,
 		file: tg::Referent<&tg::File>,
 	) -> impl Future<Output = tg::Result<bool>> {
 		future::ok(false)
@@ -167,7 +167,7 @@ where
 
 	fn visit_symlink(
 		&mut self,
-		handle: &H,
+		instance: &I,
 		symlink: tg::Referent<&tg::Symlink>,
 	) -> impl Future<Output = tg::Result<bool>> {
 		future::ok(false)
@@ -175,7 +175,7 @@ where
 
 	fn visit_graph(
 		&mut self,
-		handle: &H,
+		instance: &I,
 		graph: tg::Referent<&tg::Graph>,
 	) -> impl Future<Output = tg::Result<bool>> {
 		future::ok(false)
@@ -183,7 +183,7 @@ where
 
 	fn visit_command(
 		&mut self,
-		handle: &H,
+		instance: &I,
 		command: tg::Referent<&tg::Command>,
 	) -> impl Future<Output = tg::Result<bool>> {
 		future::ok(false)
@@ -191,7 +191,7 @@ where
 
 	fn visit_error(
 		&mut self,
-		handle: &H,
+		instance: &I,
 		error: tg::Referent<&tg::Error>,
 	) -> impl Future<Output = tg::Result<bool>> {
 		future::ok(false)

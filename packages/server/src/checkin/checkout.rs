@@ -637,7 +637,7 @@ impl Session {
 			data.clone()
 		} else {
 			tg::Graph::with_id(graph.clone())
-				.data_with_handle(self)
+				.data_with_instance(self)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
 		};

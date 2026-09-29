@@ -4,7 +4,7 @@ use {
 	tangram_client::prelude::*,
 };
 
-impl tg::handle::Runner for Session {
+impl tg::instance::Runner for Session {
 	async fn create_runner(
 		&self,
 		arg: tg::runner::create::Arg,

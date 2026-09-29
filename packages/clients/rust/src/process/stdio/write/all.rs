@@ -11,8 +11,8 @@ struct Pending {
 	sent: bool,
 }
 
-pub(crate) async fn all<H: tg::Handle>(
-	handle: &H,
+pub(crate) async fn all<I: tg::Instance>(
+	instance: &I,
 	id: &tg::process::Id,
 	arg: Arg,
 	mut input: BoxStream<'static, tg::Result<Input>>,
@@ -37,7 +37,7 @@ pub(crate) async fn all<H: tg::Handle>(
 				retries.next().await;
 			}
 			let (new_sender, receiver) = async_channel::bounded(flow::CHANNEL_CAPACITY);
-			match handle
+			match instance
 				.try_write_process_stdio(id, arg.clone(), receiver.boxed())
 				.await
 			{

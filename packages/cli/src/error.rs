@@ -168,7 +168,7 @@ impl Cli {
 			{
 				error
 			} else if let Some(error) = match self.client().await {
-				Ok(client) => error_referent.node().load_with_handle(&client).await.ok(),
+				Ok(client) => error_referent.node().load_with_instance(&client).await.ok(),
 				Err(_) => None,
 			} {
 				error
@@ -337,7 +337,7 @@ impl Cli {
 		};
 		let file = match edge {
 			tg::graph::Edge::Pointer(pointer) => {
-				let Ok(artifact) = pointer.get_with_handle(&client).await else {
+				let Ok(artifact) = pointer.get_with_instance(&client).await else {
 					return;
 				};
 				let Ok(file) = artifact.try_unwrap_file() else {
@@ -352,7 +352,7 @@ impl Cli {
 				file
 			},
 		};
-		let Ok(text) = file.text_with_handle(&client).await else {
+		let Ok(text) = file.text_with_instance(&client).await else {
 			return;
 		};
 		Self::print_code(title, range, message, text);

@@ -274,23 +274,23 @@ where
 	}
 }
 
-struct State<H, T, W> {
-	handle: H,
+struct State<I, T, W> {
 	indicators: IndexMap<String, tg::progress::Indicator>,
+	instance: I,
 	is_tty: bool,
 	lines: Option<u16>,
 	output: Option<T>,
 	writer: W,
 }
 
-pub async fn write_progress_stream<H, T>(
-	handle: &H,
+pub async fn write_progress_stream<I, T>(
+	instance: &I,
 	stream: impl Stream<Item = tg::Result<tg::progress::Event<T>>>,
 	writer: impl std::io::Write,
 	is_tty: bool,
 ) -> tg::Result<T>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	if std::env::var("TANGRAM_QUIET")
 		.ok()
@@ -307,12 +307,12 @@ where
 	}
 
 	let mut state = State {
-		handle: handle.clone(),
 		indicators: IndexMap::new(),
+		instance: instance.clone(),
 		is_tty,
 		lines: None,
-		writer,
 		output: None,
+		writer,
 	};
 
 	let interval = Duration::from_millis(100);
@@ -351,9 +351,9 @@ where
 	Ok(output)
 }
 
-impl<H, T, W> State<H, T, W>
+impl<I, T, W> State<I, T, W>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 	W: std::io::Write,
 {
 	async fn render_progress_stream_update(&mut self, event: tg::progress::Event<T>) {
@@ -522,7 +522,7 @@ where
 	) {
 		let file = match edge {
 			tg::graph::Edge::Pointer(pointer) => {
-				let Ok(artifact) = pointer.get_with_handle(&self.handle).await else {
+				let Ok(artifact) = pointer.get_with_instance(&self.instance).await else {
 					return;
 				};
 				let Ok(file) = artifact.try_unwrap_file() else {
@@ -537,7 +537,7 @@ where
 				file
 			},
 		};
-		let Ok(text) = file.text_with_handle(&self.handle).await else {
+		let Ok(text) = file.text_with_instance(&self.instance).await else {
 			return;
 		};
 		self.print_code(title, range, message, text);

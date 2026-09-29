@@ -27,9 +27,9 @@ pub use {
 		error::{Handle as Error, Result, ok},
 		file::Handle as File,
 		graph::Handle as Graph,
-		handle::{HANDLE, Handle, init, init_with, try_handle},
 		health::Health,
 		id::Id,
+		instance::{INSTANCE, Instance, init, init_with, try_instance},
 		location::Location,
 		module::Handle as Module,
 		mutation::Handle as Mutation,
@@ -54,7 +54,7 @@ pub use {
 	tangram_either::Either,
 };
 
-pub(crate) use self::handle::handle;
+pub(crate) use self::instance::instance;
 
 pub mod artifact;
 pub mod authorization;
@@ -82,12 +82,12 @@ pub mod get;
 pub mod grant;
 pub mod graph;
 pub mod group;
-pub mod handle;
 pub mod health;
 pub mod host;
 pub mod id;
 pub mod index;
 pub mod indexer;
+pub mod instance;
 pub mod list;
 pub mod location;
 pub mod match_;
@@ -128,8 +128,8 @@ pub mod write;
 
 pub mod prelude {
 	pub use {
-		super::handle::{
-			Checkpoint as _, Ext as _, Grant as _, Group as _, Handle as _, Module as _,
+		super::instance::{
+			Checkpoint as _, Ext as _, Grant as _, Group as _, Instance as _, Module as _,
 			Object as _, Organization as _, Process as _, Remote as _, Runner as _, Sandbox as _,
 			Tag as _, User as _, Watch as _,
 		},

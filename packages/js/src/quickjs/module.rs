@@ -59,7 +59,7 @@ impl qjs::loader::Resolver for Resolver {
 		// Resolve the module.
 		let (sender, receiver) = std::sync::mpsc::channel();
 		state.main_runtime_handle.spawn({
-			let handle = state.handle.clone();
+			let instance = state.instance.clone();
 			let referrer = referrer.clone();
 			let import = import.clone();
 			async move {
@@ -67,7 +67,10 @@ impl qjs::loader::Resolver for Resolver {
 					referrer: referrer.clone(),
 					import,
 				};
-				let result = handle.resolve_module(arg).await.map(|output| output.module);
+				let result = instance
+					.resolve_module(arg)
+					.await
+					.map(|output| output.module);
 				sender.send(result).unwrap();
 			}
 		});
@@ -123,11 +126,11 @@ impl qjs::loader::Loader for Loader {
 		// Load the module.
 		let (sender, receiver) = std::sync::mpsc::channel();
 		state.main_runtime_handle.spawn({
-			let handle = state.handle.clone();
+			let instance = state.instance.clone();
 			let module = module_data.clone();
 			async move {
 				let arg = tg::module::load::Arg { module };
-				let result = handle.load_module(arg).await.map(|output| output.text);
+				let result = instance.load_module(arg).await.map(|output| output.text);
 				sender.send(result).unwrap();
 			}
 		});

@@ -1,0 +1,466 @@
+use {
+	crate::prelude::*,
+	futures::{Stream, StreamExt as _, stream::BoxStream},
+};
+
+pub trait Process: Clone + Unpin + Send + Sync + 'static {
+	fn connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+	> + Send {
+		async move {
+			self.try_connect_process(input)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))
+		}
+	}
+
+	fn try_connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+		>,
+	> + Send;
+
+	fn spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<tg::process::spawn::Output>>>
+			+ Send
+			+ 'static,
+		>,
+	> {
+		async move {
+			let stream = self.try_spawn_process(arg).await?;
+			let stream = stream.map(|event_result| {
+				event_result.and_then(|event| {
+					event
+						.try_map_output(|item| item.ok_or_else(|| tg::error!("expected a process")))
+				})
+			});
+			Ok(stream)
+		}
+	}
+
+	fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+			+ Send
+			+ 'static,
+		>,
+	> + Send;
+
+	fn get_process_metadata(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<tg::process::Metadata>> + Send {
+		let arg = tg::process::metadata::Arg::default();
+		async move {
+			self.try_get_process_metadata(id, arg)
+				.await?
+				.ok_or_else(|| tg::error!(?id, "failed to find the process"))
+		}
+	}
+
+	fn try_get_process_metadata(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::metadata::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::Metadata>>> + Send;
+
+	fn try_get_process_availability(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::availability::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::Availability>>> + Send;
+
+	fn get_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<tg::process::get::Output>> + Send {
+		let arg = tg::process::get::Arg::default();
+		async move {
+			self.try_get_process(id, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))
+		}
+	}
+
+	fn try_get_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::get::Output>>> + Send;
+
+	fn put_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::put::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::put::Output>> + Send;
+
+	fn cancel_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> impl Future<Output = tg::Result<tg::process::cancel::Output>> + Send {
+		async move {
+			self.try_cancel_process(id, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))
+		}
+	}
+
+	fn try_cancel_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::process::cancel::Output>>> + Send;
+
+	fn try_get_process_control_stream(
+		&self,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<(
+				tg::process::control::Output,
+				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+			)>,
+		>,
+	> + Send;
+
+	fn signal_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		async move {
+			self.try_signal_process(id, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))
+		}
+	}
+
+	fn try_signal_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+
+	fn try_get_process_status_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
+		>,
+	> + Send;
+
+	fn try_get_process_children_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static,
+			>,
+		>,
+	> + Send;
+
+	fn set_process_tty_size(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::tty::size::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		async move {
+			self.try_set_process_tty_size(id, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))
+		}
+	}
+
+	fn try_set_process_tty_size(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::tty::size::put::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+
+	fn try_read_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+			>,
+		>,
+	> + Send;
+
+	fn write_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::write::stream::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>> + Send + 'static,
+		>,
+	> + Send {
+		async move {
+			self.try_write_process_stdio(id, arg, input)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))
+		}
+	}
+
+	fn try_write_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::write::stream::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>>
+				+ Send
+				+ 'static,
+			>,
+		>,
+	> + Send;
+
+	fn touch_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		async move {
+			self.try_touch_process(id, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))
+		}
+	}
+
+	fn try_touch_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+
+	fn wait_process_future(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		>,
+	> + Send {
+		async move {
+			self.try_wait_process_future(id, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the process"))
+		}
+	}
+
+	fn try_wait_process_future(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
+	) -> impl Future<
+		Output = tg::Result<
+			Option<
+				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			>,
+		>,
+	> + Send;
+}
+
+impl tg::instance::Process for tg::Client {
+	async fn try_connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>> {
+		self.session(&self.context).try_connect_process(input).await
+	}
+
+	async fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+		+ Send
+		+ 'static,
+	> {
+		self.session(&self.context).try_spawn_process(arg).await
+	}
+
+	async fn try_get_process_metadata(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::metadata::Arg,
+	) -> tg::Result<Option<tg::process::Metadata>> {
+		self.session(&self.context)
+			.try_get_process_metadata(id, arg)
+			.await
+	}
+
+	async fn try_get_process_availability(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::availability::Arg,
+	) -> tg::Result<Option<tg::process::Availability>> {
+		self.session(&self.context)
+			.try_get_process_availability(id, arg)
+			.await
+	}
+
+	async fn try_get_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::get::Arg,
+	) -> tg::Result<Option<tg::process::get::Output>> {
+		self.session(&self.context).try_get_process(id, arg).await
+	}
+
+	async fn put_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::put::Arg,
+	) -> tg::Result<tg::process::put::Output> {
+		self.session(&self.context).put_process(id, arg).await
+	}
+
+	async fn try_cancel_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
+		self.session(&self.context)
+			.try_cancel_process(id, arg)
+			.await
+	}
+
+	async fn try_get_process_control_stream(
+		&self,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
+	) -> tg::Result<
+		Option<(
+			tg::process::control::Output,
+			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+		)>,
+	> {
+		self.session(&self.context)
+			.try_get_process_control_stream(arg, stream)
+			.await
+	}
+
+	async fn try_signal_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.try_post_process_signal(id, arg)
+			.await
+	}
+
+	async fn try_get_process_status_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
+	> {
+		self.session(&self.context)
+			.try_get_process_status_stream(id, arg)
+			.await
+	}
+
+	async fn try_get_process_children_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static>,
+	> {
+		self.session(&self.context)
+			.try_get_process_children_stream(id, arg)
+			.await
+	}
+
+	async fn try_set_process_tty_size(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::tty::size::put::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.try_set_process_tty_size(id, arg)
+			.await
+	}
+
+	async fn try_read_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
+	) -> tg::Result<
+		Option<
+			impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+		>,
+	> {
+		self.session(&self.context)
+			.try_read_process_stdio(id, arg, input)
+			.await
+	}
+
+	async fn try_write_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::write::stream::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+	) -> tg::Result<
+		Option<
+			impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>> + Send + 'static,
+		>,
+	> {
+		self.session(&self.context)
+			.try_write_process_stdio(id, arg, input)
+			.await
+	}
+
+	async fn try_touch_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context).try_touch_process(id, arg).await
+	}
+
+	async fn try_wait_process_future(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
+	) -> tg::Result<
+		Option<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		>,
+	> {
+		self.session(&self.context)
+			.try_wait_process_future(id, arg)
+			.await
+	}
+}

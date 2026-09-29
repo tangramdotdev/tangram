@@ -938,7 +938,10 @@ impl Index {
 					Request::Batch(arg) if arg.items.len() > 1 => {
 						Self::execute_ordered_batch(database, subspace, arg, config).await
 					},
-					_ => Err(tg::error!(!error, "failed to execute a request that cannot be split")),
+					_ => Err(tg::error!(
+						!error,
+						"failed to execute a request that cannot be split"
+					)),
 				};
 				match result {
 					Ok(()) => Self::complete_tracker(&tracker, Ok(Response::Unit)),

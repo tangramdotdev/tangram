@@ -128,7 +128,7 @@ impl Session {
 		let error = match error {
 			Some(tg::Either::Left(data)) => data,
 			Some(tg::Either::Right(id)) => tg::Error::with_id(id)
-				.data_with_handle(self)
+				.data_with_instance(self)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to get the sandbox error"))?,
 			None => tg::error::Data {

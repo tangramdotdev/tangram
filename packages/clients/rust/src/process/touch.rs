@@ -19,35 +19,35 @@ pub struct Options {
 
 impl<O> tg::Process<O> {
 	pub async fn touch(&self, options: tg::process::touch::Options) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		self.touch_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.touch_with_instance(instance, options).await
 	}
 
-	pub async fn touch_with_handle<H>(
+	pub async fn touch_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::touch::Options,
 	) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_touch_with_handle(handle, options)
+		self.try_touch_with_instance(instance, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to touch the process"))
 	}
 
 	pub async fn try_touch(&self, options: tg::process::touch::Options) -> tg::Result<Option<()>> {
-		let handle = tg::handle()?;
-		self.try_touch_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.try_touch_with_instance(instance, options).await
 	}
 
-	pub async fn try_touch_with_handle<H>(
+	pub async fn try_touch_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::touch::Options,
 	) -> tg::Result<Option<()>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
@@ -58,7 +58,7 @@ impl<O> tg::Process<O> {
 			location: options.location.or_else(|| self.location()),
 			tokens: self.tokens(),
 		};
-		handle.try_touch_process(id, arg).await
+		instance.try_touch_process(id, arg).await
 	}
 }
 

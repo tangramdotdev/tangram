@@ -60,7 +60,7 @@ impl Session {
 	}
 }
 
-impl tg::Handle for tg::Session {
+impl tg::Instance for tg::Session {
 	fn arg(&self) -> tg::Arg {
 		self.arg()
 	}

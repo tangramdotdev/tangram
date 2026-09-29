@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-impl tg::handle::Grant for tg::Session {
+impl tg::instance::Grant for tg::Session {
 	fn create_grant(
 		&self,
 		arg: tg::grant::create::Arg,

@@ -99,11 +99,11 @@ impl Session {
 				.ok()
 				.ok_or_else(|| tg::error!("the root artifact is not a directory"))?;
 			let artifact = directory
-				.get_with_handle(self, path)
+				.get_with_instance(self, path)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to resolve the artifact path"))?;
 			let node = artifact
-				.store_with_handle(self)
+				.store_with_instance(self)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to store the resolved artifact"))?;
 			referent = tg::Referent::with_node(node);

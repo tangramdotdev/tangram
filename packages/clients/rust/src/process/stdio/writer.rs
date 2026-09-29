@@ -56,13 +56,13 @@ impl Writer {
 	}
 
 	pub async fn close(&mut self) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		self.close_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.close_with_instance(instance).await
 	}
 
-	pub async fn close_with_handle<H>(&mut self, handle: &H) -> tg::Result<()>
+	pub async fn close_with_instance<I>(&mut self, instance: &I) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let mut state = self.0.lock().await;
 		let fd = state.fd.take();
@@ -73,7 +73,7 @@ impl Writer {
 		}
 		drop(fd);
 		if state.input.is_none() && state.process.is_some() {
-			Self::start_with_handle(&mut state, handle).await?;
+			Self::start_with_instance(&mut state, instance).await?;
 		}
 		state.input.take();
 		let Some(task) = state.task.take() else {
@@ -92,13 +92,13 @@ impl Writer {
 	}
 
 	pub async fn write(&mut self, input: &[u8]) -> tg::Result<usize> {
-		let handle = tg::handle()?;
-		self.write_with_handle(handle, input).await
+		let instance = tg::instance()?;
+		self.write_with_instance(instance, input).await
 	}
 
-	pub async fn write_with_handle<H>(&mut self, handle: &H, input: &[u8]) -> tg::Result<usize>
+	pub async fn write_with_instance<I>(&mut self, instance: &I, input: &[u8]) -> tg::Result<usize>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let mut state = self.0.lock().await;
 		if input.is_empty() {
@@ -113,7 +113,7 @@ impl Writer {
 			return Ok(input.len());
 		}
 		if state.input.is_none() {
-			Self::start_with_handle(&mut state, handle).await?;
+			Self::start_with_instance(&mut state, instance).await?;
 		}
 		let input_length = input.len();
 		let length = input_length.to_u64().unwrap();
@@ -144,28 +144,30 @@ impl Writer {
 	}
 
 	pub async fn write_all(&mut self, input: &[u8]) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		self.write_all_with_handle(handle, input).await
+		let instance = tg::instance()?;
+		self.write_all_with_instance(instance, input).await
 	}
 
-	pub async fn write_all_with_handle<H>(&mut self, handle: &H, input: &[u8]) -> tg::Result<()>
+	pub async fn write_all_with_instance<I>(&mut self, instance: &I, input: &[u8]) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let mut position = 0;
 		while position < input.len() {
-			let count = self.write_with_handle(handle, &input[position..]).await?;
+			let count = self
+				.write_with_instance(instance, &input[position..])
+				.await?;
 			if count == 0 {
 				return Err(tg::error!("failed to write stdin"));
 			}
 			position += count;
 		}
-		self.close_with_handle(handle).await
+		self.close_with_instance(instance).await
 	}
 
-	async fn start_with_handle<H>(state: &mut State, handle: &H) -> tg::Result<()>
+	async fn start_with_instance<I>(state: &mut State, instance: &I) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let process = state
 			.process
@@ -173,9 +175,9 @@ impl Writer {
 			.and_then(Weak::upgrade)
 			.ok_or_else(|| tg::error!("the process is not available"))?;
 		let handle_process = crate::process::handle::Process::<tg::Value>(process, PhantomData);
-		let handle = handle_process.handle_with_handle(handle);
+		let instance = handle_process.instance_with_instance(instance);
 		let (location, process, tokens) =
-			ensure_process_with_handle(state.process.clone(), &handle).await?;
+			ensure_process_with_instance(state.process.clone(), &instance).await?;
 		let arg = tg::process::stdio::write::stream::Arg {
 			location,
 			streams: vec![state.stream],
@@ -183,9 +185,9 @@ impl Writer {
 		};
 		let (sender, receiver) = async_channel::bounded::<tg::process::stdio::write::Input>(1);
 		let input = receiver.map(Ok).boxed();
-		let handle = handle.clone();
+		let instance = instance.clone();
 		let task = Task::spawn(move |_| async move {
-			tg::process::stdio::write::all(&handle, &process, arg, input).await
+			tg::process::stdio::write::all(&instance, &process, arg, input).await
 		});
 		state.input = Some(sender);
 		state.task = Some(task);
@@ -216,16 +218,16 @@ impl std::fmt::Debug for Writer {
 	}
 }
 
-async fn ensure_process_with_handle<H>(
+async fn ensure_process_with_instance<I>(
 	process: Option<Weak<tg::process::handle::Inner>>,
-	handle: &H,
+	instance: &I,
 ) -> tg::Result<(
 	Option<tg::location::Arg>,
 	tg::process::Id,
 	tg::authorization::Tokens,
 )>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
 	let process = process
 		.and_then(|process| process.upgrade())
@@ -236,7 +238,9 @@ where
 		.as_ref()
 		.is_none_or(tg::process::connect::Connection::detached)
 	{
-		handle_process.ensure_location_with_handle(handle).await?;
+		handle_process
+			.ensure_location_with_instance(instance)
+			.await?;
 	}
 	let location = process.location.read().unwrap().clone();
 	let tokens = process.tokens.read().unwrap().clone();

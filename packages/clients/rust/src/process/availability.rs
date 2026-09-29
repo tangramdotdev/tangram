@@ -96,19 +96,19 @@ impl<O> tg::Process<O> {
 		&self,
 		options: tg::process::availability::Options,
 	) -> tg::Result<tg::process::Availability> {
-		let handle = tg::handle()?;
-		self.availability_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.availability_with_instance(instance, options).await
 	}
 
-	pub async fn availability_with_handle<H>(
+	pub async fn availability_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::availability::Options,
 	) -> tg::Result<tg::process::Availability>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_get_availability_with_handle(handle, options)
+		self.try_get_availability_with_instance(instance, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process availability"))
 	}
@@ -117,17 +117,18 @@ impl<O> tg::Process<O> {
 		&self,
 		options: tg::process::availability::Options,
 	) -> tg::Result<Option<tg::process::Availability>> {
-		let handle = tg::handle()?;
-		self.try_get_availability_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.try_get_availability_with_instance(instance, options)
+			.await
 	}
 
-	pub async fn try_get_availability_with_handle<H>(
+	pub async fn try_get_availability_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::availability::Options,
 	) -> tg::Result<Option<tg::process::Availability>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
@@ -138,7 +139,7 @@ impl<O> tg::Process<O> {
 			location: options.location.or_else(|| self.location()),
 			tokens: self.tokens(),
 		};
-		handle.try_get_process_availability(id, arg).await
+		instance.try_get_process_availability(id, arg).await
 	}
 }
 

@@ -1,0 +1,127 @@
+use crate::prelude::*;
+
+pub trait Group: Clone + Unpin + Send + Sync + 'static {
+	fn create_group(
+		&self,
+		arg: tg::group::create::Arg,
+	) -> impl Future<Output = tg::Result<tg::group::create::Output>> + Send;
+
+	fn try_get_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::group::get::Output>>> + Send;
+
+	fn delete_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send {
+		async move {
+			self.try_delete_group(group, arg)
+				.await?
+				.ok_or_else(|| tg::error!("failed to find the group"))
+		}
+	}
+
+	fn try_delete_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::delete::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn list_all_group_members(
+		&self,
+		group: &tg::group::Selector,
+		mut arg: tg::group::members::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::group::members::list::Output>> + Send {
+		async move {
+			let mut output = self.list_group_members(group, arg.clone()).await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self.list_group_members(group, arg.clone()).await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
+
+	fn list_group_members(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::members::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::group::members::list::Output>> + Send;
+
+	fn add_group_member(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::members::add::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn remove_group_member(
+		&self,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
+		arg: tg::group::members::remove::Arg,
+	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
+}
+
+impl tg::instance::Group for tg::Client {
+	async fn create_group(
+		&self,
+		arg: tg::group::create::Arg,
+	) -> tg::Result<tg::group::create::Output> {
+		self.session(&self.context).create_group(arg).await
+	}
+
+	async fn try_get_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::get::Arg,
+	) -> tg::Result<Option<tg::group::get::Output>> {
+		self.session(&self.context).try_get_group(group, arg).await
+	}
+
+	async fn try_delete_group(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::delete::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.try_delete_group(group, arg)
+			.await
+	}
+
+	async fn list_group_members(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::members::list::Arg,
+	) -> tg::Result<tg::group::members::list::Output> {
+		self.session(&self.context)
+			.list_group_members(group, arg)
+			.await
+	}
+
+	async fn add_group_member(
+		&self,
+		group: &tg::group::Selector,
+		arg: tg::group::members::add::Arg,
+	) -> tg::Result<()> {
+		self.session(&self.context)
+			.add_group_member(group, arg)
+			.await
+	}
+
+	async fn remove_group_member(
+		&self,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
+		arg: tg::group::members::remove::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.remove_group_member(group, member, arg)
+			.await
+	}
+}

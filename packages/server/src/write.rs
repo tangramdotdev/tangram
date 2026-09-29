@@ -148,7 +148,7 @@ impl Session {
 		let destination = Destination::Cache;
 		let concurrency = self.server.config.object.archive_queue.concurrency;
 		let blob = self
-			.write_inner_with_handle(reader, Some(&destination), concurrency, |arg| {
+			.write_inner_with_instance(reader, Some(&destination), concurrency, |arg| {
 				self.server.put_object_batch_local(vec![arg])
 			})
 			.await
@@ -185,11 +185,11 @@ impl Session {
 		reader: impl AsyncRead,
 		destination: Option<&Destination>,
 	) -> tg::Result<Output> {
-		self.write_inner_with_handle(reader, destination, 1, |arg| self.server.put_object(arg))
+		self.write_inner_with_instance(reader, destination, 1, |arg| self.server.put_object(arg))
 			.await
 	}
 
-	async fn write_inner_with_handle<F>(
+	async fn write_inner_with_instance<F>(
 		&self,
 		reader: impl AsyncRead,
 		destination: Option<&Destination>,

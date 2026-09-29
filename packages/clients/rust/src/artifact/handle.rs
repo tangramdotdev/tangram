@@ -115,54 +115,54 @@ impl Artifact {
 	}
 
 	pub async fn object(&self) -> tg::Result<Object> {
-		let handle = tg::handle()?;
-		self.object_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.object_with_instance(instance).await
 	}
 
-	pub async fn object_with_handle<H>(&self, handle: &H) -> tg::Result<Object>
+	pub async fn object_with_instance<I>(&self, instance: &I) -> tg::Result<Object>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.load_with_handle(handle).await
+		self.load_with_instance(instance).await
 	}
 
 	pub async fn load(&self) -> tg::Result<Object> {
-		let handle = tg::handle()?;
-		self.load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.load_with_instance(instance).await
 	}
 
-	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Object>
+	pub async fn load_with_instance<I>(&self, instance: &I) -> tg::Result<Object>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.load_with_arg_with_handle(handle, tg::object::get::Arg::default())
+		self.load_with_arg_with_instance(instance, tg::object::get::Arg::default())
 			.await
 	}
 
 	pub async fn load_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<Object> {
-		let handle = tg::handle()?;
-		self.load_with_arg_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		self.load_with_arg_with_instance(instance, arg).await
 	}
 
-	pub async fn load_with_arg_with_handle<H>(
+	pub async fn load_with_arg_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Object>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		match self {
 			Self::Directory(directory) => directory
-				.load_with_arg_with_handle(handle, arg)
+				.load_with_arg_with_instance(instance, arg)
 				.await
 				.map(Into::into),
 			Self::File(file) => file
-				.load_with_arg_with_handle(handle, arg)
+				.load_with_arg_with_instance(instance, arg)
 				.await
 				.map(Into::into),
 			Self::Symlink(symlink) => symlink
-				.load_with_arg_with_handle(handle, arg)
+				.load_with_arg_with_instance(instance, arg)
 				.await
 				.map(Into::into),
 		}
@@ -177,31 +177,34 @@ impl Artifact {
 	}
 
 	pub async fn store(&self) -> tg::Result<Id> {
-		let handle = tg::handle()?;
-		self.store_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.store_with_instance(instance).await
 	}
 
-	pub async fn store_with_handle<H>(&self, handle: &H) -> tg::Result<Id>
+	pub async fn store_with_instance<I>(&self, instance: &I) -> tg::Result<Id>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		match self {
-			Self::Directory(directory) => directory.store_with_handle(handle).await.map(Into::into),
-			Self::File(file) => file.store_with_handle(handle).await.map(Into::into),
-			Self::Symlink(symlink) => symlink.store_with_handle(handle).await.map(Into::into),
+			Self::Directory(directory) => directory
+				.store_with_instance(instance)
+				.await
+				.map(Into::into),
+			Self::File(file) => file.store_with_instance(instance).await.map(Into::into),
+			Self::Symlink(symlink) => symlink.store_with_instance(instance).await.map(Into::into),
 		}
 	}
 
 	pub async fn children(&self) -> tg::Result<Vec<tg::Object>> {
-		let handle = tg::handle()?;
-		self.children_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.children_with_instance(instance).await
 	}
 
-	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<tg::Object>>
+	pub async fn children_with_instance<I>(&self, instance: &I) -> tg::Result<Vec<tg::Object>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let object = self.load_with_handle(handle).await?;
+		let object = self.load_with_instance(instance).await?;
 		let children = object.children();
 		let location = self.state().location();
 		let tokens = self.state().tokens();
@@ -227,20 +230,20 @@ impl Artifact {
 impl Artifact {
 	/// Collect an artifact's dependencies.
 	pub async fn dependencies(&self) -> tg::Result<Vec<Self>> {
-		let handle = tg::handle()?;
-		self.dependencies_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.dependencies_with_instance(instance).await
 	}
 
-	pub async fn dependencies_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
+	pub async fn dependencies_with_instance<I>(&self, instance: &I) -> tg::Result<Vec<Self>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		match self {
 			Self::Directory(directory) => Ok(directory
-				.entries_with_handle(handle)
+				.entries_with_instance(instance)
 				.await?
 				.values()
-				.map(|artifact| artifact.dependencies_with_handle(handle))
+				.map(|artifact| artifact.dependencies_with_instance(instance))
 				.collect::<FuturesOrdered<_>>()
 				.try_collect::<Vec<_>>()
 				.await?
@@ -249,14 +252,14 @@ impl Artifact {
 				.collect()),
 
 			Self::File(file) => Ok(file
-				.dependencies_with_handle(handle)
+				.dependencies_with_instance(instance)
 				.await?
 				.into_values()
 				.filter_map(|option| option?.0.node?.try_into().ok())
 				.collect()),
 
 			Self::Symlink(symlink) => Ok(symlink
-				.artifact_with_handle(handle)
+				.artifact_with_instance(instance)
 				.await?
 				.clone()
 				.into_iter()
@@ -266,36 +269,36 @@ impl Artifact {
 
 	/// Collect an artifact's recursive dependencies.
 	pub async fn recursive_dependencies(&self) -> tg::Result<HashSet<Id, tg::id::BuildHasher>> {
-		let handle = tg::handle()?;
-		self.recursive_dependencies_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.recursive_dependencies_with_instance(instance).await
 	}
 
-	pub async fn recursive_dependencies_with_handle<H>(
+	pub async fn recursive_dependencies_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 	) -> tg::Result<HashSet<Id, tg::id::BuildHasher>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let output = Arc::new(Mutex::new(HashSet::default()));
-		self.recursive_dependencies_inner(handle, output.clone())
+		self.recursive_dependencies_inner(instance, output.clone())
 			.await?;
 		let output = Arc::into_inner(output).unwrap().into_inner().unwrap();
 		Ok(output)
 	}
 
-	async fn recursive_dependencies_inner<H>(
+	async fn recursive_dependencies_inner<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		output: Arc<Mutex<HashSet<Id, tg::id::BuildHasher>>>,
 	) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let dependencies = self.dependencies_with_handle(handle).await?;
+		let dependencies = self.dependencies_with_instance(instance).await?;
 		dependencies
 			.iter()
-			.map(|artifact| artifact.recursive_dependencies_inner(handle, output.clone()))
+			.map(|artifact| artifact.recursive_dependencies_inner(instance, output.clone()))
 			.collect::<FuturesUnordered<_>>()
 			.try_collect::<()>()
 			.await?;

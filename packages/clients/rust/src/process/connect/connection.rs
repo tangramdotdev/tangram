@@ -16,21 +16,21 @@ pub struct Connection {
 
 struct Inner {
 	detached: AtomicBool,
-	handle: tg::handle::dynamic::Handle,
 	initial: Session,
+	instance: tg::instance::dynamic::Instance,
 	session: Mutex<Session>,
 }
 
 impl Connection {
-	pub(crate) async fn open<H: tg::Handle>(
-		handle: &H,
+	pub(crate) async fn open<I: tg::Instance>(
+		instance: &I,
 		arg: Arg,
 	) -> tg::Result<(
 		Self,
 		BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
 	)> {
-		let (session, progress) = Session::open(handle, arg).await?;
-		let connection = Self::with_session(handle, session.clone());
+		let (session, progress) = Session::open(instance, arg).await?;
+		let connection = Self::with_session(instance, session.clone());
 		let progress = progress
 			.then(move |event| {
 				let session = session.clone();
@@ -46,11 +46,11 @@ impl Connection {
 	}
 
 	#[must_use]
-	pub(super) fn with_session<H: tg::Handle>(handle: &H, session: Session) -> Self {
+	pub(super) fn with_session<I: tg::Instance>(instance: &I, session: Session) -> Self {
 		let inner = Inner {
 			detached: AtomicBool::new(false),
-			handle: tg::handle::dynamic::Handle::new(handle.clone()),
 			initial: session.clone(),
+			instance: tg::instance::dynamic::Instance::new(instance.clone()),
 			session: Mutex::new(session),
 		};
 		Self {
@@ -84,7 +84,7 @@ impl Connection {
 		// Reopen the selected process, and include the read that requires this connection.
 		let mut arg = session.arg()?;
 		arg.reads = read.into_iter().map(|arg| (1, arg)).collect();
-		let (next, progress) = Session::open(&self.inner.handle, arg).await?;
+		let (next, progress) = Session::open(&self.inner.instance, arg).await?;
 		progress
 			.try_last()
 			.await?

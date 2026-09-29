@@ -95,11 +95,11 @@ impl Builder {
 		tg::Sandbox::create_with_arg(self.arg).await
 	}
 
-	pub async fn build_with_handle<H>(self, handle: &H) -> tg::Result<tg::Sandbox>
+	pub async fn build_with_instance<I>(self, instance: &I) -> tg::Result<tg::Sandbox>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		tg::Sandbox::create_with_arg_with_handle(handle, self.arg).await
+		tg::Sandbox::create_with_arg_with_instance(instance, self.arg).await
 	}
 }
 

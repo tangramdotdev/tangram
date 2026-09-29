@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-impl tg::handle::Group for tg::Session {
+impl tg::instance::Group for tg::Session {
 	fn create_group(
 		&self,
 		arg: tg::group::create::Arg,

@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-impl tg::handle::Object for tg::Session {
+impl tg::instance::Object for tg::Session {
 	fn try_get_object_metadata(
 		&self,
 		id: &tg::object::Id,

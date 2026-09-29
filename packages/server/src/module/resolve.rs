@@ -73,7 +73,7 @@ impl Session {
 							.try_unwrap_file()
 							.ok()
 							.ok_or_else(|| tg::error!("expected a file"))?;
-						file.module_with_handle(self)
+						file.module_with_instance(self)
 							.await?
 							.unwrap_or(tg::module::Kind::File)
 					},
@@ -171,7 +171,7 @@ impl Session {
 
 		// Get the dependency edge and the refreshed authorization token.
 		let mut dependency = file
-			.get_dependency_edge_with_handle(self, &import.reference)
+			.get_dependency_edge_with_instance(self, &import.reference)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the dependency edge"))?;
 		let authorization = authorization.to_referent();
@@ -223,7 +223,7 @@ impl Session {
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
 				tg::Object::Directory(directory),
 			) => {
-				let path = tg::module::try_get_root_module_file_name_with_handle(
+				let path = tg::module::try_get_root_module_file_name_with_instance(
 					self,
 					tg::Either::Left(directory),
 				)
@@ -231,7 +231,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to get the root module file name"))?;
 				if let Some(path) = path {
 					let edge = directory
-						.get_entry_edge_with_handle(self, path)
+						.get_entry_edge_with_instance(self, path)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the entry edge"))?;
 					let edge: tg::graph::Edge<tg::Object> = match edge {
@@ -436,7 +436,7 @@ impl Session {
 					import.kind,
 					None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
 				) && let Some(root_module_name) =
-				tg::module::try_get_root_module_file_name_with_handle(
+				tg::module::try_get_root_module_file_name_with_instance(
 					self,
 					tg::Either::Right(&path),
 				)
@@ -474,7 +474,7 @@ impl Session {
 				path,
 				updates,
 			};
-			tg::checkin::checkin_with_handle(self, arg)
+			tg::checkin::checkin_with_instance(self, arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check in the path"))?;
 
@@ -516,7 +516,7 @@ impl Session {
 	) -> tg::Result<tg::Referent<tg::module::data::Source>> {
 		let output = import
 			.reference
-			.get_with_handle(self)
+			.get_with_instance(self)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the reference"))?;
 		let tg::Referent { node, options } = output;
@@ -556,7 +556,7 @@ impl Session {
 				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
 				tg::Object::Directory(directory),
 			) => {
-				let path = tg::module::try_get_root_module_file_name_with_handle(
+				let path = tg::module::try_get_root_module_file_name_with_instance(
 					self,
 					tg::Either::Left(directory),
 				)
@@ -564,7 +564,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to get the root module file name"))?;
 				if let Some(path) = path {
 					let edge = directory
-						.get_entry_edge_with_handle(self, path)
+						.get_entry_edge_with_instance(self, path)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the entry edge"))?;
 					let edge = match edge {

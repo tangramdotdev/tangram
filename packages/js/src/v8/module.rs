@@ -82,14 +82,14 @@ pub fn host_import_module_dynamically_callback<'s>(
 
 	// Resolve the module.
 	let promise = state.create_promise(scope, {
-		let handle = state.handle.clone();
+		let instance = state.instance.clone();
 		let import = import.clone();
 		async move {
 			let arg = tg::module::resolve::Arg {
 				referrer: referrer.clone(),
 				import: import.clone(),
 			};
-			let output = handle.resolve_module(arg).await.map_err(|error| {
+			let output = instance.resolve_module(arg).await.map_err(|error| {
 				tg::error!(
 					!error,
 					import = ?import.without_token(),
@@ -132,12 +132,12 @@ pub fn host_import_module_dynamically_callback<'s>(
 				return_value.set(index.into());
 			} else {
 				let promise = state.create_promise(scope, {
-					let handle = state.handle.clone();
+					let instance = state.instance.clone();
 					async move {
 						let arg = tg::module::load::Arg {
 							module: module.clone(),
 						};
-						let output = handle.load_module(arg).await.map_err(|error| {
+						let output = instance.load_module(arg).await.map_err(|error| {
 							tg::error!(
 								!error,
 								module = ?module.without_token(),
@@ -317,7 +317,7 @@ fn resolve_module_sync(
 	let state = context.get_slot::<State>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
-		let handle = state.handle.clone();
+		let instance = state.instance.clone();
 		let referrer = referrer.clone();
 		let import = import.clone();
 		async move {
@@ -325,7 +325,10 @@ fn resolve_module_sync(
 				referrer: Some(referrer),
 				import,
 			};
-			let result = handle.resolve_module(arg).await.map(|output| output.module);
+			let result = instance
+				.resolve_module(arg)
+				.await
+				.map(|output| output.module);
 			sender.send(result).unwrap();
 		}
 	});
@@ -354,11 +357,11 @@ fn load_module_sync(scope: &mut v8::PinScope, module: &tg::module::Data) -> Opti
 	let state = context.get_slot::<State>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
 	state.main_runtime_handle.spawn({
-		let handle = state.handle.clone();
+		let instance = state.instance.clone();
 		let module = module.clone();
 		async move {
 			let arg = tg::module::load::Arg { module };
-			let result = handle.load_module(arg).await.map(|output| output.text);
+			let result = instance.load_module(arg).await.map(|output| output.text);
 			sender.send(result).unwrap();
 		}
 	});

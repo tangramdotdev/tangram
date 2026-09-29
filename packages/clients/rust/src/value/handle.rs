@@ -91,29 +91,30 @@ impl Value {
 	}
 
 	pub async fn store(&self) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		self.store_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.store_with_instance(instance).await
 	}
 
 	pub async fn store_with_location(&self, location: Option<tg::Location>) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		self.store_with_location_with_handle(handle, location).await
+		let instance = tg::instance()?;
+		self.store_with_location_with_instance(instance, location)
+			.await
 	}
 
-	pub async fn store_with_handle<H>(&self, handle: &H) -> tg::Result<()>
+	pub async fn store_with_instance<I>(&self, instance: &I) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.store_with_location_with_handle(handle, None).await
+		self.store_with_location_with_instance(instance, None).await
 	}
 
-	pub async fn store_with_location_with_handle<H>(
+	pub async fn store_with_location_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		location: Option<tg::Location>,
 	) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		loop {
 			// Collect all unstored states with children before parents.
@@ -164,11 +165,11 @@ impl Value {
 			}
 
 			// Claim the states and start the store task.
-			let handle = handle.clone();
+			let instance = instance.clone();
 			let location = location.clone();
 			let status = tg::object::State::start_store_task(states, move |states| {
 				tg::object::state::StoreTask::spawn(states, move |states| async move {
-					Self::store_task(handle, location, states).await
+					Self::store_task(instance, location, states).await
 				})
 			});
 			match status {
@@ -186,13 +187,13 @@ impl Value {
 		}
 	}
 
-	async fn store_task<H>(
-		handle: H,
+	async fn store_task<I>(
+		instance: I,
 		location: Option<tg::Location>,
 		states: Vec<tg::object::State>,
 	) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		// Create the batch.
 		let mut objects = Vec::<tg::object::batch::Object>::with_capacity(states.len());
@@ -238,7 +239,7 @@ impl Value {
 			location: location.map(Into::into),
 			objects,
 		};
-		let output = handle.post_object_batch(arg).await?;
+		let output = instance.post_object_batch(arg).await?;
 
 		// Update the states.
 		Self::apply_object_batch_output(&state_groups, output)?;
@@ -337,35 +338,38 @@ impl Value {
 	}
 
 	pub async fn children(&self) -> tg::Result<Vec<Self>> {
-		let handle = tg::handle()?;
-		self.children_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.children_with_instance(instance).await
 	}
 
-	pub async fn children_with_handle<H>(&self, handle: &H) -> tg::Result<Vec<Self>>
+	pub async fn children_with_instance<I>(&self, instance: &I) -> tg::Result<Vec<Self>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.children_with_arg_with_handle(handle, tg::object::get::Arg::default())
+		self.children_with_arg_with_instance(instance, tg::object::get::Arg::default())
 			.await
 	}
 
 	pub async fn children_with_arg(&self, arg: tg::object::get::Arg) -> tg::Result<Vec<Self>> {
-		let handle = tg::handle()?;
-		self.children_with_arg_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		self.children_with_arg_with_instance(instance, arg).await
 	}
 
-	pub async fn children_with_arg_with_handle<H>(
+	pub async fn children_with_arg_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		arg: tg::object::get::Arg,
 	) -> tg::Result<Vec<Self>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let mut children = Vec::new();
 		match self {
 			Self::Object(object) => {
-				for child in object.children_with_arg_with_handle(handle, arg).await? {
+				for child in object
+					.children_with_arg_with_instance(instance, arg)
+					.await?
+				{
 					children.push(tg::Value::Object(child));
 				}
 			},

@@ -3,7 +3,7 @@ use {
 	futures::{Stream, stream::BoxStream},
 };
 
-impl tg::handle::Process for tg::Session {
+impl tg::instance::Process for tg::Session {
 	async fn try_connect_process(
 		&self,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,

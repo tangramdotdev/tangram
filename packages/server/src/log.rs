@@ -11,7 +11,7 @@ use {
 		io::{Cursor, SeekFrom},
 	},
 	tangram_cache::{Cache as _, log},
-	tangram_client::{self as tg, handle::Ext as _},
+	tangram_client::{self as tg, instance::Ext as _},
 	tangram_futures::{read::Ext as _, write::Ext as _},
 	tangram_index::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},

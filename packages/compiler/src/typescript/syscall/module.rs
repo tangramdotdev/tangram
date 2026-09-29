@@ -91,14 +91,18 @@ pub fn resolve(
 			referrer: Some(referrer.clone()),
 			import: import.clone(),
 		};
-		let output = compiler.handle.resolve_module(arg).await.map_err(|error| {
-			tg::error!(
-				source = error,
-				import = ?import.without_token(),
-				referrer = ?referrer.without_token(),
-				"failed to resolve specifier relative to the module"
-			)
-		})?;
+		let output = compiler
+			.instance
+			.resolve_module(arg)
+			.await
+			.map_err(|error| {
+				tg::error!(
+					source = error,
+					import = ?import.without_token(),
+					referrer = ?referrer.without_token(),
+					"failed to resolve specifier relative to the module"
+				)
+			})?;
 		Ok(Serde(output.module))
 	})
 }

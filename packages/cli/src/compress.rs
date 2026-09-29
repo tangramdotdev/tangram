@@ -26,7 +26,7 @@ impl Cli {
 		let format = args.format;
 		let command = tg::builtin::compress_command(input, format);
 		let command = command
-			.store_with_handle(&client)
+			.store_with_instance(&client)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());
@@ -40,7 +40,7 @@ impl Cli {
 		let output = self.build(args).await?;
 		let output = if transform && blob && !output.is_null() {
 			let file: tg::File = output.try_into()?;
-			file.contents_with_handle(&client).await?.into()
+			file.contents_with_instance(&client).await?.into()
 		} else {
 			output
 		};

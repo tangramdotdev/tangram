@@ -317,7 +317,7 @@ impl Cli {
 		specifier: tg::Specifier,
 	) -> tg::Result<Option<tg::id::Kind>> {
 		let reference = tg::Reference::with_node(tg::reference::Node::Specifier(specifier.into()));
-		let Some(referent) = reference.try_get_with_handle(client).await? else {
+		let Some(referent) = reference.try_get_with_instance(client).await? else {
 			return Ok(None);
 		};
 		let id = referent

@@ -228,11 +228,11 @@ impl Session {
 				let directory = tg::directory::Id::try_from(id.clone())?;
 				let referent = output.referent.clone().map(|_| directory);
 				let directory = tg::Directory::with_referent(referent);
-				let Some(artifact) = directory.try_get_with_handle(self, get).await? else {
+				let Some(artifact) = directory.try_get_with_instance(self, get).await? else {
 					return Ok(None);
 				};
 				let id = artifact
-					.store_with_handle(self)
+					.store_with_instance(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to store the artifact"))?;
 				output.referent.node = tg::get::Node::Id(id.into());
@@ -257,7 +257,7 @@ impl Session {
 					index: pointer.index,
 					kind: pointer.kind,
 				});
-				let Some(edge) = directory.try_get_edge_with_handle(self, get).await? else {
+				let Some(edge) = directory.try_get_edge_with_instance(self, get).await? else {
 					return Ok(None);
 				};
 				let edge = match edge {

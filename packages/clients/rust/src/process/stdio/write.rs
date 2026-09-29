@@ -162,21 +162,22 @@ impl<O> tg::Process<O> {
 		options: tg::process::stdio::write::Options,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>,
 	) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		self.write_stdio_with_handle(handle, options, input).await
+		let instance = tg::instance()?;
+		self.write_stdio_with_instance(instance, options, input)
+			.await
 	}
 
-	pub async fn write_stdio_with_handle<H>(
+	pub async fn write_stdio_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::stdio::write::Options,
 		input: BoxStream<'static, tg::Result<tg::process::stdio::Chunk>>,
 	) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let handle = self.handle_with_handle(handle);
-		let handle = &handle;
+		let instance = self.instance_with_instance(instance);
+		let instance = &instance;
 		if self.id().is_left() {
 			if options.streams.as_slice() != [tg::process::stdio::Stream::Stdin] {
 				return Err(tg::error!("writing stdout or stderr is invalid"));
@@ -187,15 +188,15 @@ impl<O> tg::Process<O> {
 				if chunk.stream != tg::process::stdio::Stream::Stdin {
 					return Err(tg::error!("invalid process stdio stream"));
 				}
-				stdin.write_with_handle(handle, &chunk.bytes).await?;
+				stdin.write_with_instance(instance, &chunk.bytes).await?;
 			}
-			stdin.close_with_handle(handle).await?;
+			stdin.close_with_instance(instance).await?;
 
 			return Ok(());
 		}
 
 		if options.location.is_none() && self.location().is_none() {
-			self.ensure_location_with_handle(handle).await?;
+			self.ensure_location_with_instance(instance).await?;
 		}
 		let id = self.id().unwrap_right();
 		let arg = tg::process::stdio::write::stream::Arg {
@@ -203,7 +204,7 @@ impl<O> tg::Process<O> {
 			streams: options.streams,
 			tokens: self.tokens(),
 		};
-		handle.write_process_stdio_all(id, arg, input).await
+		instance.write_process_stdio_all(id, arg, input).await
 	}
 }
 

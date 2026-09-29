@@ -445,7 +445,7 @@ impl Cli {
 
 		let options = tg::process::spawn::Options { mode };
 		let process =
-			tg::Process::spawn_with_progress_with_handle(&client, arg, options, |stream| {
+			tg::Process::spawn_with_progress_with_instance(&client, arg, options, |stream| {
 				self.render_progress_stream_with_output(stream, |cli, output| {
 					if print && sandboxed {
 						let mut message = output.process.to_string();
@@ -640,7 +640,7 @@ impl Cli {
 			},
 
 			tg::graph::Edge::Object(tg::Object::Command(command)) => {
-				let object = command.object_with_handle(&client).await?;
+				let object = command.object_with_instance(&client).await?;
 				command_env = Some(object.env.clone());
 				command_options = Some(referent.options.clone());
 				tg::Command::builder()
@@ -674,7 +674,7 @@ impl Cli {
 					match artifact {
 						tg::Artifact::Directory(directory) => {
 							let root_module_file_name =
-								tg::module::try_get_root_module_file_name_with_handle(
+								tg::module::try_get_root_module_file_name_with_instance(
 									&client,
 									tg::Either::Left(&directory),
 								)
@@ -693,7 +693,7 @@ impl Cli {
 							let kind =
 								tg::module::module_kind_for_path(root_module_file_name).unwrap();
 							let edge = directory
-								.get_entry_edge_with_handle(&client, root_module_file_name)
+								.get_entry_edge_with_instance(&client, root_module_file_name)
 								.await
 								.map_err(|error| {
 									tg::error!(!error, "failed to get the root module")
@@ -741,7 +741,7 @@ impl Cli {
 							let kind = if kind.is_some() {
 								kind
 							} else {
-								file.module_with_handle(&client).await.map_err(|error| {
+								file.module_with_instance(&client).await.map_err(|error| {
 									tg::error!(!error, "failed to get the module kind")
 								})?
 							};
@@ -861,13 +861,15 @@ impl Cli {
 				.into_iter()
 				.map(tg::Value::Object)
 				.collect();
-			tg::Value::Array(objects).store_with_handle(&client).await?;
+			tg::Value::Array(objects)
+				.store_with_instance(&client)
+				.await?;
 			let command = command.build_spawn_arg()?;
 			let stdin = command.stdin.as_ref().map(|stdin| stdin.node.clone());
 			(tg::Either::Left(command), stdin)
 		} else {
 			let command = command.build()?;
-			let object = command.object_with_handle(&client).await?;
+			let object = command.object_with_instance(&client).await?;
 			let stdin = object.stdin.as_ref().map(tg::Blob::id);
 			(tg::Either::Right(command), stdin)
 		};

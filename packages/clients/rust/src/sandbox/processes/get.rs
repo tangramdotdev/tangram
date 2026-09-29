@@ -61,19 +61,19 @@ impl tg::Sandbox {
 		&self,
 		options: tg::sandbox::processes::get::Options,
 	) -> tg::Result<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static> {
-		let handle = tg::handle()?;
-		self.processes_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.processes_with_instance(instance, options).await
 	}
 
-	pub async fn processes_with_handle<H>(
+	pub async fn processes_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::sandbox::processes::get::Options,
 	) -> tg::Result<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_get_processes_with_handle(handle, options)
+		self.try_get_processes_with_instance(instance, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the sandbox"))
 	}
@@ -83,19 +83,20 @@ impl tg::Sandbox {
 		options: tg::sandbox::processes::get::Options,
 	) -> tg::Result<Option<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static>>
 	{
-		let handle = tg::handle()?;
-		self.try_get_processes_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.try_get_processes_with_instance(instance, options)
+			.await
 	}
 
-	pub async fn try_get_processes_with_handle<H>(
+	pub async fn try_get_processes_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::sandbox::processes::get::Options,
 	) -> tg::Result<Option<impl futures::Stream<Item = tg::Result<tg::Process>> + Send + 'static>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		use tg::handle::Ext as _;
+		use tg::instance::Ext as _;
 
 		let location = self.location();
 		let tokens = self.tokens();
@@ -108,7 +109,7 @@ impl tg::Sandbox {
 			timeout: options.timeout,
 			tokens: tokens.clone(),
 		};
-		let Some(stream) = handle.try_get_sandbox_processes(self.id(), arg).await? else {
+		let Some(stream) = instance.try_get_sandbox_processes(self.id(), arg).await? else {
 			return Ok(None);
 		};
 		let stream = stream

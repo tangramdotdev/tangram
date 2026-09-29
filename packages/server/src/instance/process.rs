@@ -1,0 +1,183 @@
+use {
+	crate::Server,
+	futures::{FutureExt as _, Stream, stream::BoxStream},
+	tangram_client::prelude::*,
+};
+
+impl tg::instance::Process for Server {
+	async fn try_connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>> {
+		self.session(&self.context).try_connect_process(input).await
+	}
+
+	async fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> tg::Result<
+		impl Stream<Item = tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>
+		+ Send
+		+ 'static,
+	> {
+		self.session(&self.context).try_spawn_process(arg).await
+	}
+
+	async fn try_get_process_metadata(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::metadata::Arg,
+	) -> tg::Result<Option<tg::process::Metadata>> {
+		self.session(&self.context)
+			.try_get_process_metadata(id, arg)
+			.await
+	}
+
+	async fn try_get_process_availability(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::availability::Arg,
+	) -> tg::Result<Option<tg::process::Availability>> {
+		self.session(&self.context)
+			.try_get_process_availability(id, arg)
+			.await
+	}
+
+	async fn try_get_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::get::Arg,
+	) -> tg::Result<Option<tg::process::get::Output>> {
+		self.session(&self.context).try_get_process(id, arg).await
+	}
+
+	async fn put_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::put::Arg,
+	) -> tg::Result<tg::process::put::Output> {
+		Box::pin(self.session(&self.context).put_process(id, arg)).await
+	}
+
+	async fn try_cancel_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> tg::Result<Option<tg::process::cancel::Output>> {
+		self.session(&self.context)
+			.try_cancel_process(id, arg)
+			.await
+	}
+
+	async fn try_get_process_control_stream(
+		&self,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
+	) -> tg::Result<
+		Option<(
+			tg::process::control::Output,
+			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
+		)>,
+	> {
+		self.session(&self.context)
+			.try_get_process_control_stream_with_context(arg, stream)
+			.boxed()
+			.await
+	}
+
+	async fn try_signal_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.try_post_process_signal(id, arg)
+			.await
+	}
+
+	async fn try_get_process_status_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::status::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::status::Event>> + Send + 'static>,
+	> {
+		self.session(&self.context)
+			.try_get_process_status_stream(id, arg)
+			.await
+	}
+
+	async fn try_get_process_children_stream(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::children::get::Arg,
+	) -> tg::Result<
+		Option<impl Stream<Item = tg::Result<tg::process::children::get::Event>> + Send + 'static>,
+	> {
+		self.session(&self.context)
+			.try_get_process_children_stream(id, arg)
+			.await
+	}
+
+	async fn try_set_process_tty_size(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::tty::size::put::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context)
+			.try_set_process_tty_size(id, arg)
+			.await
+	}
+
+	async fn try_read_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
+	) -> tg::Result<
+		Option<
+			impl Stream<Item = tg::Result<tg::process::stdio::read::ServerMessage>> + Send + 'static,
+		>,
+	> {
+		self.session(&self.context)
+			.try_read_process_stdio(id, arg, input)
+			.await
+	}
+
+	async fn try_write_process_stdio(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::stdio::write::stream::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+	) -> tg::Result<
+		Option<
+			impl Stream<Item = tg::Result<tg::process::stdio::write::ServerMessage>> + Send + 'static,
+		>,
+	> {
+		self.session(&self.context)
+			.try_write_process_stdio(id, arg, input)
+			.await
+	}
+
+	async fn try_touch_process(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> tg::Result<Option<()>> {
+		self.session(&self.context).try_touch_process(id, arg).await
+	}
+
+	async fn try_wait_process_future(
+		&self,
+		id: &tg::process::Id,
+		arg: tg::process::wait::Arg,
+	) -> tg::Result<
+		Option<
+			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+		>,
+	> {
+		self.session(&self.context)
+			.try_wait_process_future(id, arg)
+			.await
+	}
+}

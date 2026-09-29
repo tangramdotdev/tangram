@@ -531,7 +531,7 @@ impl Tree {
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let children = match blob.load_with_handle(client).await?.as_ref() {
+		let children = match blob.load_with_instance(client).await?.as_ref() {
 			tg::blob::Object::Leaf(_) => {
 				return Ok(());
 			},
@@ -572,7 +572,7 @@ impl Tree {
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = command.object_with_handle(client).await?;
+		let object = command.object_with_instance(client).await?;
 		let mut children = Vec::new();
 		let args = object
 			.args
@@ -658,7 +658,7 @@ impl Tree {
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = error.object_with_handle(client).await?;
+		let object = error.object_with_instance(client).await?;
 		let mut children = Vec::new();
 
 		// Add message if present.
@@ -699,7 +699,7 @@ impl Tree {
 						tg::module::Source::Edge(edge) => {
 							let object = match edge {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get_with_handle(client).await?.into()
+									pointer.get_with_instance(client).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object,
 							};
@@ -857,7 +857,7 @@ impl Tree {
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = directory.object_with_handle(client).await?;
+		let object = directory.object_with_instance(client).await?;
 		let children: Vec<_> = match object.as_ref() {
 			tg::directory::Object::Pointer(pointer) => [
 				(
@@ -884,7 +884,7 @@ impl Tree {
 						.map(async |(name, artifact)| {
 							let artifact = match artifact {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get_with_handle(client).await?
+									pointer.get_with_instance(client).await?
 								},
 								tg::graph::Edge::Object(artifact) => artifact,
 							};
@@ -906,7 +906,7 @@ impl Tree {
 						.map(async |(i, child)| {
 							let directory: tg::Object = match child.directory {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get_with_handle(client).await?.into()
+									pointer.get_with_instance(client).await?.into()
 								},
 								tg::graph::Edge::Object(directory) => directory.into(),
 							};
@@ -963,7 +963,7 @@ impl Tree {
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = file.object_with_handle(client).await?;
+		let object = file.object_with_instance(client).await?;
 
 		let children = match object.as_ref() {
 			tg::file::Object::Pointer(pointer) => [
@@ -1006,7 +1006,7 @@ impl Tree {
 						if let Some(edge) = dependency.0.node() {
 							let node = match edge {
 								tg::graph::Edge::Pointer(pointer) => {
-									pointer.get_with_handle(client).await?.into()
+									pointer.get_with_instance(client).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object.clone(),
 							};
@@ -1082,7 +1082,7 @@ impl Tree {
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
 		// Get the graph nodes and metadata, then unload the object immediately.
-		let nodes = graph.nodes_with_handle(client).await?;
+		let nodes = graph.nodes_with_instance(client).await?;
 		let metadata = get_object_metadata_as_value(client, graph.clone()).await?;
 		graph.unload();
 
@@ -1107,7 +1107,7 @@ impl Tree {
 											if pointer.graph.is_none() {
 												pointer.graph.replace(graph.clone());
 											}
-											pointer.get_with_handle(client).await?.into()
+											pointer.get_with_instance(client).await?.into()
 										},
 										tg::graph::Edge::Object(artifact) => artifact.into(),
 									};
@@ -1129,7 +1129,7 @@ impl Tree {
 											if pointer.graph.is_none() {
 												pointer.graph.replace(graph.clone());
 											}
-											pointer.get_with_handle(client).await?.into()
+											pointer.get_with_instance(client).await?.into()
 										},
 										tg::graph::Edge::Object(directory) => directory.into(),
 									};
@@ -1174,7 +1174,7 @@ impl Tree {
 											if pointer.graph.is_none() {
 												pointer.graph.replace(graph.clone());
 											}
-											pointer.get_with_handle(client).await?.into()
+											pointer.get_with_instance(client).await?.into()
 										},
 										tg::graph::Edge::Object(object) => object.clone(),
 									};
@@ -1225,7 +1225,7 @@ impl Tree {
 									if pointer.graph.is_none() {
 										pointer.graph.replace(graph.clone());
 									}
-									pointer.get_with_handle(client).await?.into()
+									pointer.get_with_instance(client).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object.into(),
 							};
@@ -1504,7 +1504,7 @@ impl Tree {
 		update_sender: NodeUpdateSender,
 	) -> tg::Result<()> {
 		let options = tg::sandbox::processes::get::Options::default();
-		let processes = sandbox.processes_with_handle(client, options).await?;
+		let processes = sandbox.processes_with_instance(client, options).await?;
 		let mut processes = pin!(processes);
 		while let Some(process) = processes.try_next().await? {
 			let guard = counter.guard();
@@ -1542,7 +1542,7 @@ impl Tree {
 			options,
 			None,
 		);
-		let referent = reference.get_with_handle(client).await?;
+		let referent = reference.get_with_instance(client).await?;
 		let tg::Referent {
 			node: item,
 			options,
@@ -1601,7 +1601,7 @@ impl Tree {
 		// the attached root process. Reading a piped or tty stream of a descendant
 		// process would destructively consume it, stealing the data from the
 		// process that spawned it and is reading it through a pipe.
-		let streams = process.load_with_handle(client).await.map_or_else(
+		let streams = process.load_with_instance(client).await.map_or_else(
 			|_| Vec::new(),
 			|state| Self::process_log_streams(&state.stderr, &state.stdout, force_log),
 		);
@@ -1624,7 +1624,7 @@ impl Tree {
 			update_sender.send(Box::new(update)).ok();
 		}
 
-		let command = process.command_with_handle(client).await?;
+		let command = process.command_with_instance(client).await?;
 		let value = match &command {
 			tg::Either::Left(command) => tg::Value::from(
 				serde_json::to_value(command)
@@ -1670,7 +1670,7 @@ impl Tree {
 			async move {
 				let _guard = guard;
 				let Ok(wait) = process
-					.wait_with_handle(&client, tg::process::wait::Options::default())
+					.wait_with_instance(&client, tg::process::wait::Options::default())
 					.await
 				else {
 					return;
@@ -1693,10 +1693,10 @@ impl Tree {
 
 		// Create the children stream.
 		let options = tg::process::children::get::Options::default();
-		let mut children = process.children_with_handle(client, options).await?;
-		let command = process.load_with_handle(client).await?.command.clone();
+		let mut children = process.children_with_instance(client, options).await?;
+		let command = process.load_with_instance(client).await?.command.clone();
 		let referent_module = command
-			.resolve_with_handle(client)
+			.resolve_with_instance(client)
 			.await
 			.ok()
 			.and_then(|object| {
@@ -1711,10 +1711,10 @@ impl Tree {
 		while let Some(child) = children.try_next().await? {
 			let mut child = tg::Referent::new(child.process, child.options);
 
-			let child_module = match child.node.load_with_handle(client).await {
+			let child_module = match child.node.load_with_instance(client).await {
 				Ok(state) => state
 					.command
-					.resolve_with_handle(client)
+					.resolve_with_instance(client)
 					.await
 					.ok()
 					.and_then(|object| {
@@ -1740,7 +1740,7 @@ impl Tree {
 			// Check the status of the process.
 			let status = match child
 				.node
-				.status_with_handle(client, tg::process::status::Options::default())
+				.status_with_instance(client, tg::process::status::Options::default())
 				.await
 			{
 				Ok(mut status) => status.try_next().await.ok().flatten(),
@@ -1793,7 +1793,7 @@ impl Tree {
 		update_sender: NodeUpdateSender,
 		guard: UpdateGuard,
 	) -> tg::Result<()> {
-		let object = symlink.object_with_handle(client).await?;
+		let object = symlink.object_with_instance(client).await?;
 		let children = match object.as_ref() {
 			tg::symlink::Object::Pointer(pointer) => [
 				(
@@ -1816,7 +1816,7 @@ impl Tree {
 				if let Some(artifact) = &node.artifact {
 					let artifact = match artifact {
 						tg::graph::Edge::Pointer(pointer) => {
-							pointer.get_with_handle(client).await?.into()
+							pointer.get_with_instance(client).await?.into()
 						},
 						tg::graph::Edge::Object(artifact) => artifact.clone().into(),
 					};
@@ -2289,7 +2289,7 @@ impl Tree {
 			..Default::default()
 		};
 		let mut log = process
-			.try_read_stdio_with_handle(client, options)
+			.try_read_stdio_with_instance(client, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process log"))?;
 		let mut line = Vec::new();
@@ -2394,8 +2394,8 @@ impl Tree {
 		}
 
 		// Get the original commands' executable.
-		let state = process.node.load_with_handle(client).await.ok()?;
-		let object = state.command.resolve_with_handle(client).await.ok()?;
+		let state = process.node.load_with_instance(client).await.ok()?;
+		let object = state.command.resolve_with_instance(client).await.ok()?;
 		let executable = &object.executable.node;
 
 		// Get the module.
@@ -2474,7 +2474,7 @@ impl Tree {
 		// Create the status stream.
 		let mut status = process
 			.node
-			.status_with_handle(client, tg::process::status::Options::default())
+			.status_with_instance(client, tg::process::status::Options::default())
 			.await?;
 		while let Some(status) = status.try_next().await? {
 			let guard = counter.guard();
@@ -2512,7 +2512,7 @@ impl Tree {
 						return Ok(());
 					}
 
-					let state = process.node.load_with_handle(client).await?;
+					let state = process.node.load_with_instance(client).await?;
 					let failed =
 						state.error.is_some() || state.exit.as_ref().is_some_and(|code| *code != 0);
 					if failed {
@@ -2532,7 +2532,7 @@ impl Tree {
 		let options = tg::process::get::Options::default();
 		if process
 			.node
-			.try_get_with_handle(client, options)
+			.try_get_with_instance(client, options)
 			.await?
 			.and_then(|output| output.data.error)
 			.is_some_and(|error| match error {
@@ -2721,7 +2721,7 @@ impl Tree {
 							_ => None,
 						});
 				if let Some(process) = process.clone()
-					&& let Ok(state) = process.load_with_handle(&client).await
+					&& let Ok(state) = process.load_with_instance(&client).await
 					&& let streams = Self::process_log_streams(&state.stderr, &state.stdout, false)
 					&& !streams.is_empty()
 				{
@@ -2753,7 +2753,7 @@ impl Tree {
 									source: tg::process::Source::Auto,
 								};
 								process
-									.try_get_with_handle(&client, options)
+									.try_get_with_instance(&client, options)
 									.await
 									.and_then(|output| {
 										let output = output.ok_or_else(|| {
@@ -2765,7 +2765,7 @@ impl Tree {
 									.unwrap_or_else(|error| error.to_string())
 							},
 							Item::Sandbox(sandbox) => {
-								sandbox.load_with_handle(&client).await.map_or_else(
+								sandbox.load_with_instance(&client).await.map_or_else(
 									|error| error.to_string(),
 									|output| serde_json::to_string_pretty(output.as_ref()).unwrap(),
 								)
@@ -2797,7 +2797,7 @@ impl Tree {
 							Item::Value(value) => {
 								let value = match value {
 									tg::Value::Object(object) => {
-										object.load_with_handle(&client).await.ok();
+										object.load_with_instance(&client).await.ok();
 										let metadata =
 											get_object_metadata_as_value(&client, object.clone())
 												.await
@@ -3065,11 +3065,11 @@ fn extend_process_log_line(line: &mut Vec<u8>, segment: &[u8]) {
 }
 
 async fn get_process_metadata_as_value(
-	client: &impl tg::Handle,
+	client: &impl tg::Instance,
 	process: &tg::Process,
 ) -> tg::Result<tg::Value> {
 	let Some(metadata) = process
-		.try_get_metadata_with_handle(client, tg::process::metadata::Options::default())
+		.try_get_metadata_with_instance(client, tg::process::metadata::Options::default())
 		.await?
 	else {
 		return Ok(tg::Value::Null);
@@ -3109,12 +3109,12 @@ async fn get_process_metadata_as_value(
 }
 
 async fn get_object_metadata_as_value(
-	client: &impl tg::Handle,
+	client: &impl tg::Instance,
 	object: impl Into<tg::Object>,
 ) -> tg::Result<tg::Value> {
 	let object = object.into();
 	let Some(metadata) = object
-		.try_get_metadata_with_handle(client, tg::object::metadata::Options::default())
+		.try_get_metadata_with_instance(client, tg::object::metadata::Options::default())
 		.await?
 	else {
 		return Ok(tg::Value::Null);

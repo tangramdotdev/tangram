@@ -27,11 +27,11 @@ async fn checkout_metadata() {
 	// Verify that the recovered token authorizes the private object.
 	let client = tg::Client::with_env(tg::Arg::default()).unwrap();
 	let artifact = tg::Artifact::with_id(fixture.id.clone());
-	assert!(artifact.load_with_handle(&client).await.is_err());
+	assert!(artifact.load_with_instance(&client).await.is_err());
 	let referent =
 		tg::Referent::with_node_and_local_tokens(fixture.id.clone(), Some(token.clone()));
 	tg::Artifact::with_referent(referent)
-		.load_with_handle(&client)
+		.load_with_instance(&client)
 		.await
 		.unwrap();
 
@@ -71,7 +71,7 @@ async fn checkout_metadata() {
 	let client = tg::Client::with_env(tg::Arg::default()).unwrap();
 	assert!(
 		tg::Artifact::with_id(fixture.dependency)
-			.load_with_handle(&client)
+			.load_with_instance(&client)
 			.await
 			.is_err()
 	);
@@ -84,7 +84,7 @@ async fn checkout_metadata() {
 		path: fixture.copy,
 		updates: Vec::new(),
 	};
-	let output = tg::checkin::checkin_with_handle(&client, arg)
+	let output = tg::checkin::checkin_with_instance(&client, arg)
 		.await
 		.unwrap();
 	assert_eq!(output.artifact.node, fixture.id);

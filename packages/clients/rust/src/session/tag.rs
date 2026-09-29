@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-impl tg::handle::Tag for tg::Session {
+impl tg::instance::Tag for tg::Session {
 	fn put_tag(&self, arg: tg::tag::put::Arg) -> impl Future<Output = tg::Result<()>> {
 		self.put_tag(arg)
 	}

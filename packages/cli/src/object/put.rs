@@ -83,7 +83,7 @@ impl Cli {
 
 			// Store the value.
 			value
-				.store_with_location_with_handle(&client, location_)
+				.store_with_location_with_instance(&client, location_)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to store the value"))?;
 

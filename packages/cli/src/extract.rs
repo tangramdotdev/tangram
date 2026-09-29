@@ -20,7 +20,7 @@ impl Cli {
 			.map_err(|_| tg::error!("expected a blob"))?;
 		let command = tg::builtin::extract_command(&blob);
 		let command = command
-			.store_with_handle(&client)
+			.store_with_instance(&client)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the command"))?;
 		let reference = tg::Reference::with_object(command.into());

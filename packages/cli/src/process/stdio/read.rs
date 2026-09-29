@@ -88,7 +88,7 @@ impl Cli {
 			timeout: args.timeout.get(),
 		};
 		let mut stdio = process
-			.try_read_stdio_with_handle(&client, options)
+			.try_read_stdio_with_instance(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process stdio"))?
 			.ok_or_else(|| tg::error!(%id, "failed to get the process stdio"))?;

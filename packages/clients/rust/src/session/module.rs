@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-impl tg::handle::Module for tg::Session {
+impl tg::instance::Module for tg::Session {
 	fn resolve_module(
 		&self,
 		arg: tg::module::resolve::Arg,

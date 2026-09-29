@@ -187,7 +187,7 @@ impl Session {
 			},
 			tg::Either::Right(id) => {
 				let command = tg::Command::with_referent(command.clone());
-				let data = command.data_with_handle(self).await?;
+				let data = command.data_with_instance(self).await?;
 				(data.host, tg::Either::Right(id.clone()))
 			},
 		};

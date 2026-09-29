@@ -308,40 +308,40 @@ pub async fn connect(id: tg::process::Id, options: Options) -> tg::Result<tg::Pr
 	tg::Process::connect(id, options).await
 }
 
-pub async fn connect_with_handle<H: tg::Handle>(
-	handle: &H,
+pub async fn connect_with_instance<I: tg::Instance>(
+	instance: &I,
 	id: tg::process::Id,
 	options: Options,
 ) -> tg::Result<tg::Process> {
-	tg::Process::connect_with_handle(handle, id, options).await
+	tg::Process::connect_with_instance(instance, id, options).await
 }
 
 impl<O: 'static> tg::Process<O> {
-	pub(super) async fn connect_spawn_with_progress_with_handle<H, F, Fut>(
-		handle: &H,
+	pub(super) async fn connect_spawn_with_progress_with_instance<I, F, Fut>(
+		instance: &I,
 		arg: tg::process::Arg,
 		mode: Mode,
 		progress: F,
 	) -> tg::Result<Self>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 		F: FnOnce(
 			BoxStream<'static, tg::Result<tg::progress::Event<tg::process::spawn::Output>>>,
 		) -> Fut,
 		Fut: Future<Output = tg::Result<tg::process::spawn::Output>>,
 	{
-		let arg = super::spawn::spawn_arg_with_handle(handle, arg).await?;
+		let arg = super::spawn::spawn_arg_with_instance(instance, arg).await?;
 		let options = tg::process::spawn::Options { mode };
-		Self::spawn_inner_with_handle(handle, arg, options, progress).await
+		Self::spawn_inner_with_instance(instance, arg, options, progress).await
 	}
 
 	pub async fn connect(id: tg::process::Id, options: Options) -> tg::Result<Self> {
-		let handle = tg::handle()?;
-		Self::connect_with_handle(handle, id, options).await
+		let instance = tg::instance()?;
+		Self::connect_with_instance(instance, id, options).await
 	}
 
-	pub async fn connect_with_handle<H: tg::Handle>(
-		handle: &H,
+	pub async fn connect_with_instance<I: tg::Instance>(
+		instance: &I,
 		id: tg::process::Id,
 		options: Options,
 	) -> tg::Result<Self> {
@@ -371,7 +371,7 @@ impl<O: 'static> tg::Process<O> {
 			reads,
 			tokens: options.tokens,
 		};
-		let (connection, progress) = Connection::open(handle, arg).await?;
+		let (connection, progress) = Connection::open(instance, arg).await?;
 		let output = progress
 			.try_last()
 			.await?
@@ -383,8 +383,8 @@ impl<O: 'static> tg::Process<O> {
 			tokens: output.tokens,
 			..Default::default()
 		};
-		let handle = tg::handle::dynamic::Handle::new(handle.clone());
-		let process = Self::new_inner(id, options, Some(handle), Some(connection));
+		let instance = tg::instance::dynamic::Instance::new(instance.clone());
+		let process = Self::new_inner(id, options, Some(instance), Some(connection));
 		Ok(process)
 	}
 }

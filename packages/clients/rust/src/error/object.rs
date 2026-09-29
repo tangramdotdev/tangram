@@ -37,8 +37,8 @@ impl Error {
 					let data = object.to_data();
 					tg::Either::Left(Box::new(data))
 				},
-				tg::Either::Right(handle) => {
-					let id = handle.id();
+				tg::Either::Right(instance) => {
+					let id = instance.id();
 					tg::Either::Right(id)
 				},
 			})

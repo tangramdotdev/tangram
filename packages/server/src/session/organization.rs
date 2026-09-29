@@ -1,6 +1,6 @@
 use {crate::Session, tangram_client::prelude::*};
 
-impl tg::handle::Organization for Session {
+impl tg::instance::Organization for Session {
 	async fn create_organization(
 		&self,
 		arg: tg::organization::create::Arg,

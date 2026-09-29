@@ -44,7 +44,7 @@ impl Cli {
 		let process = tg::Process::<tg::Value>::with_referent(process);
 		let options_ = tg::process::metadata::Options { location };
 		let output = process
-			.metadata_with_handle(&client, options_)
+			.metadata_with_instance(&client, options_)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process metadata"))?;
 		self.print_serde(output, options.print).await?;

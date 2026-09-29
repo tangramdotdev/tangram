@@ -44,7 +44,7 @@ impl Cli {
 		let object = tg::Object::with_referent(object);
 		let options_ = tg::object::metadata::Options { location };
 		let output = object
-			.metadata_with_handle(&client, options_)
+			.metadata_with_instance(&client, options_)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the object metadata"))?;
 		self.print_serde(output, options.print).await?;

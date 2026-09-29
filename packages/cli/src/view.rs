@@ -228,7 +228,7 @@ async fn get_node(
 				let referent = tg::Referent::new(id, options.clone());
 				let process = tg::Process::with_referent(referent);
 				process
-					.try_load_with_handle(client)
+					.try_load_with_instance(client)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the process"))?;
 				crate::viewer::Item::Process(process)
@@ -238,7 +238,7 @@ async fn get_node(
 				let referent = tg::Referent::new(id, options.clone());
 				let sandbox = tg::Sandbox::with_referent(referent);
 				sandbox
-					.try_load_with_handle(client)
+					.try_load_with_instance(client)
 					.await?
 					.ok_or_else(|| tg::error!("failed to find the sandbox"))?;
 				crate::viewer::Item::Sandbox(sandbox)

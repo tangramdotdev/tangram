@@ -968,7 +968,7 @@ impl Provider {
 				options,
 			);
 			let node = reference
-				.get_with_handle(&session)
+				.get_with_instance(&session)
 				.await
 				.map_err(|error| named_node_error(&error))?;
 			let node = node

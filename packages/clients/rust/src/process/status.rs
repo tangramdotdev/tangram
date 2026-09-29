@@ -68,19 +68,19 @@ impl<O> tg::Process<O> {
 		&self,
 		options: tg::process::status::Options,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static> {
-		let handle = tg::handle()?;
-		self.status_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.status_with_instance(instance, options).await
 	}
 
-	pub async fn status_with_handle<H>(
+	pub async fn status_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::status::Options,
 	) -> tg::Result<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_get_status_with_handle(handle, options)
+		self.try_get_status_with_instance(instance, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process"))
 	}
@@ -89,17 +89,17 @@ impl<O> tg::Process<O> {
 		&self,
 		options: tg::process::status::Options,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>> {
-		let handle = tg::handle()?;
-		self.try_get_status_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.try_get_status_with_instance(instance, options).await
 	}
 
-	pub async fn try_get_status_with_handle<H>(
+	pub async fn try_get_status_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::status::Options,
 	) -> tg::Result<Option<impl Stream<Item = tg::Result<tg::process::Status>> + Send + 'static>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let arg = tg::process::status::Arg {
 			location: options.location.or_else(|| self.location()),
@@ -112,7 +112,7 @@ impl<O> tg::Process<O> {
 				"getting the process status is not supported for unsandboxed processes"
 			));
 		};
-		handle
+		instance
 			.try_get_process_status(id, arg)
 			.await
 			.map(|option| option.map(futures::StreamExt::boxed))

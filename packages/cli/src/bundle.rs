@@ -13,9 +13,9 @@ impl Cli {
 		let client = self.client().await?;
 		let artifact = self.get_artifact(&args.reference).await?;
 		let artifact = tg::Artifact::with_referent(artifact);
-		let artifact = tg::builtin::bundle_with_handle(&artifact, &client).await?;
+		let artifact = tg::builtin::bundle_with_instance(&artifact, &client).await?;
 		let id = artifact
-			.store_with_handle(&client)
+			.store_with_instance(&client)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to store the artifact"))?;
 		Self::print_display(id);

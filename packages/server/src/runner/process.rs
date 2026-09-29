@@ -626,7 +626,7 @@ impl Session {
 				let data = match data {
 					Some(data) => data,
 					None => command
-						.data_with_handle(&session)
+						.data_with_instance(&session)
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the command data"))?,
 				};
@@ -1219,7 +1219,7 @@ impl Session {
 		// Store the output.
 		if let Some(value) = &output.value {
 			value
-				.store_with_handle(self)
+				.store_with_instance(self)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to store the output"))?;
 		}
@@ -2266,7 +2266,7 @@ impl Session {
 		};
 		let blob = tg::Blob::with_referent(blob.clone());
 		let reader = blob
-			.read_with_handle(self, tg::read::Options::default())
+			.read_with_instance(self, tg::read::Options::default())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to read process stdin blob"))?;
 		let stream = tokio_util::io::ReaderStream::new(reader)

@@ -104,7 +104,7 @@ impl Cli {
 			timeout: options.timeout.get(),
 		};
 		let stream = process
-			.children_with_handle(&client, options_)
+			.children_with_instance(&client, options_)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process children"))?
 			.map_ok(|child| child.to_data());

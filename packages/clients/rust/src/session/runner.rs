@@ -3,7 +3,7 @@ use {
 	futures::{Stream, stream::BoxStream},
 };
 
-impl tg::handle::Runner for tg::Session {
+impl tg::instance::Runner for tg::Session {
 	fn create_runner(
 		&self,
 		arg: tg::runner::create::Arg,

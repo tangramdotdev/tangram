@@ -431,7 +431,7 @@ impl Cli {
 		let mut referent = referent.into_graph_edge()?;
 		let module = match referent.node.clone() {
 			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {
-				let root_module_name = tg::module::try_get_root_module_file_name_with_handle(
+				let root_module_name = tg::module::try_get_root_module_file_name_with_instance(
 					&client,
 					tg::Either::Left(&directory),
 				)
@@ -446,7 +446,7 @@ impl Cli {
 				}
 				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
 				let edge = directory
-					.get_entry_edge_with_handle(&client, root_module_name)
+					.get_entry_edge_with_instance(&client, root_module_name)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
 				let source = tg::module::Source::Edge(edge.into());
@@ -475,7 +475,7 @@ impl Cli {
 
 			tg::graph::Edge::Pointer(pointer) if pointer.kind == tg::artifact::Kind::Directory => {
 				let directory = tg::Directory::with_object(tg::directory::Object::Pointer(pointer));
-				let root_module_name = tg::module::try_get_root_module_file_name_with_handle(
+				let root_module_name = tg::module::try_get_root_module_file_name_with_instance(
 					&client,
 					tg::Either::Left(&directory),
 				)
@@ -490,7 +490,7 @@ impl Cli {
 				}
 				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
 				let edge = directory
-					.get_entry_edge_with_handle(&client, root_module_name)
+					.get_entry_edge_with_instance(&client, root_module_name)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the root module"))?;
 				let source = tg::module::Source::Edge(edge.into());

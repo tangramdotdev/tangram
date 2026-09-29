@@ -1,0 +1,310 @@
+use {
+	crate::prelude::*,
+	futures::{future::BoxFuture, prelude::*, stream::BoxStream},
+};
+
+pub trait Process: Send + Sync + 'static {
+	fn try_connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> BoxFuture<
+		'_,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>>,
+	>;
+
+	fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> BoxFuture<
+		'_,
+		tg::Result<
+			BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
+		>,
+	>;
+
+	fn try_get_process_metadata<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::metadata::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::Metadata>>>;
+
+	fn try_get_process_availability<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::availability::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::Availability>>>;
+
+	fn try_get_process<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>>;
+
+	fn put_process<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::put::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::process::put::Output>>;
+
+	fn try_cancel_process<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::cancel::Output>>>;
+
+	fn try_get_process_control_stream<'a>(
+		&'a self,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<
+			Option<(
+				tg::process::control::Output,
+				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+			)>,
+		>,
+	>;
+
+	fn try_signal_process<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+
+	fn try_get_process_status_stream<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::status::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>>>;
+
+	fn try_get_process_children_stream<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::children::get::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>>,
+	>;
+
+	fn try_set_process_tty_size<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::tty::size::put::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+
+	fn try_read_process_stdio<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>,
+	>;
+
+	fn try_write_process_stdio<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::write::stream::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<
+			Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>,
+		>,
+	>;
+
+	fn try_touch_process<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>>;
+
+	fn try_wait_process_future<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::wait::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>>,
+	>;
+}
+
+impl<T> Process for T
+where
+	T: tg::instance::Process,
+{
+	fn try_connect_process(
+		&self,
+		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
+	) -> BoxFuture<
+		'_,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>>,
+	> {
+		self.try_connect_process(input).boxed()
+	}
+
+	fn try_spawn_process(
+		&self,
+		arg: tg::process::spawn::Arg,
+	) -> BoxFuture<
+		'_,
+		tg::Result<
+			BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
+		>,
+	> {
+		self.try_spawn_process(arg)
+			.map_ok(futures::StreamExt::boxed)
+			.boxed()
+	}
+
+	fn try_get_process_metadata<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::metadata::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::Metadata>>> {
+		self.try_get_process_metadata(id, arg).boxed()
+	}
+
+	fn try_get_process_availability<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::availability::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::Availability>>> {
+		self.try_get_process_availability(id, arg).boxed()
+	}
+
+	fn try_get_process<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::get::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::get::Output>>> {
+		self.try_get_process(id, arg).boxed()
+	}
+
+	fn put_process<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::put::Arg,
+	) -> BoxFuture<'a, tg::Result<tg::process::put::Output>> {
+		self.put_process(id, arg).boxed()
+	}
+
+	fn try_cancel_process<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::cancel::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::cancel::Output>>> {
+		self.try_cancel_process(id, arg).boxed()
+	}
+
+	fn try_get_process_control_stream<'a>(
+		&'a self,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<
+			Option<(
+				tg::process::control::Output,
+				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+			)>,
+		>,
+	> {
+		self.try_get_process_control_stream(arg, stream)
+			.map_ok(|option| option.map(|(output, stream)| (output, stream.boxed())))
+			.boxed()
+	}
+
+	fn try_signal_process<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::signal::post::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_signal_process(id, arg).boxed()
+	}
+
+	fn try_get_process_status_stream<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::status::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<BoxStream<'static, tg::Result<tg::process::status::Event>>>>>
+	{
+		self.try_get_process_status_stream(id, arg)
+			.map_ok(|option| option.map(futures::StreamExt::boxed))
+			.boxed()
+	}
+
+	fn try_get_process_children_stream<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::children::get::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::children::get::Event>>>>,
+	> {
+		self.try_get_process_children_stream(id, arg)
+			.map_ok(|option| option.map(futures::StreamExt::boxed))
+			.boxed()
+	}
+
+	fn try_set_process_tty_size<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::tty::size::put::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_set_process_tty_size(id, arg).boxed()
+	}
+
+	fn try_read_process_stdio<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::read::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::read::ClientMessage>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxStream<'static, tg::Result<tg::process::stdio::read::ServerMessage>>>>,
+	> {
+		self.try_read_process_stdio(id, arg, input)
+			.map_ok(|option| option.map(futures::StreamExt::boxed))
+			.boxed()
+	}
+
+	fn try_write_process_stdio<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::stdio::write::stream::Arg,
+		input: BoxStream<'static, tg::Result<tg::process::stdio::write::ClientMessage>>,
+	) -> BoxFuture<
+		'a,
+		tg::Result<
+			Option<BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>>,
+		>,
+	> {
+		self.try_write_process_stdio(id, arg, input)
+			.map_ok(|option| option.map(futures::StreamExt::boxed))
+			.boxed()
+	}
+
+	fn try_touch_process<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::touch::Arg,
+	) -> BoxFuture<'a, tg::Result<Option<()>>> {
+		self.try_touch_process(id, arg).boxed()
+	}
+
+	fn try_wait_process_future<'a>(
+		&'a self,
+		id: &'a tg::process::Id,
+		arg: tg::process::wait::Arg,
+	) -> BoxFuture<
+		'a,
+		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>>,
+	> {
+		self.try_wait_process_future(id, arg)
+			.map_ok(|option| option.map(futures::FutureExt::boxed))
+			.boxed()
+	}
+}

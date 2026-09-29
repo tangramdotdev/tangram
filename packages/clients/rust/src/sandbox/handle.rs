@@ -12,9 +12,9 @@ pub struct Sandbox(pub(super) Arc<Inner>);
 
 #[derive(derive_more::Debug)]
 pub(super) struct Inner {
-	#[debug(ignore)]
-	handle: Option<tg::handle::dynamic::Handle>,
 	id: Id,
+	#[debug(ignore)]
+	instance: Option<tg::instance::dynamic::Instance>,
 	pub(super) location: RwLock<Option<tg::location::Arg>>,
 	owned: AtomicBool,
 	pub(super) state: RwLock<Option<Arc<tg::sandbox::get::Output>>>,
@@ -59,7 +59,7 @@ impl Sandbox {
 	pub(super) fn new_inner(
 		id: Id,
 		options: tg::sandbox::Options,
-		handle: Option<tg::handle::dynamic::Handle>,
+		instance: Option<tg::instance::dynamic::Instance>,
 	) -> Self {
 		let tg::sandbox::Options {
 			location,
@@ -67,7 +67,7 @@ impl Sandbox {
 			tokens,
 		} = options;
 		let location = RwLock::new(location);
-		let owned = AtomicBool::new(handle.is_some());
+		let owned = AtomicBool::new(instance.is_some());
 		let mut tokens = tokens;
 		tokens.normalize(None);
 		if let Some(state) = &state {
@@ -76,8 +76,8 @@ impl Sandbox {
 		let state = RwLock::new(state.map(Arc::new));
 		let tokens = RwLock::new(tokens);
 		let inner = Inner {
-			handle,
 			id,
+			instance,
 			location,
 			owned,
 			state,
@@ -112,22 +112,22 @@ impl Sandbox {
 	}
 
 	pub async fn run(&self, arg: tg::process::Arg) -> tg::Result<tg::Value> {
-		let handle = tg::handle()?;
-		self.run_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		self.run_with_instance(instance, arg).await
 	}
 
-	pub async fn run_with_handle<H>(
+	pub async fn run_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		mut arg: tg::process::Arg,
 	) -> tg::Result<tg::Value>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		arg.location = self.location().or(arg.location);
 		arg.sandbox = Some(tg::process::SandboxArg::Id(self.id().clone()));
 
-		tg::Process::<tg::Value>::run_with_handle(handle, arg).await
+		tg::Process::<tg::Value>::run_with_instance(instance, arg).await
 	}
 }
 
@@ -142,7 +142,7 @@ impl Drop for Inner {
 		if !self.owned.swap(false, Ordering::SeqCst) {
 			return;
 		}
-		let Some(handle) = self.handle.take() else {
+		let Some(instance) = self.instance.take() else {
 			return;
 		};
 		let id = self.id.clone();
@@ -155,7 +155,7 @@ impl Drop for Inner {
 				error: None,
 				location,
 			};
-			handle.try_destroy_sandbox(&id, arg).await.ok();
+			instance.try_destroy_sandbox(&id, arg).await.ok();
 		});
 	}
 }

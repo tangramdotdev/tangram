@@ -68,7 +68,7 @@ impl Cli {
 			})
 			.boxed();
 		process
-			.write_stdio_with_handle(&client, options, input)
+			.write_stdio_with_instance(&client, options, input)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to write process stdio"))?;
 		Ok(())

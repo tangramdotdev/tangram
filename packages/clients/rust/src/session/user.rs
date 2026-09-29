@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-impl tg::handle::User for tg::Session {
+impl tg::instance::User for tg::Session {
 	fn create_user_token(
 		&self,
 		arg: tg::user::token::create::Arg,

@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-impl tg::handle::Checkpoint for tg::Session {
+impl tg::instance::Checkpoint for tg::Session {
 	fn try_watch_checkpoint(
 		&self,
 		checkpoint: &str,

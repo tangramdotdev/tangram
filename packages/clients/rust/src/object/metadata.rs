@@ -141,19 +141,19 @@ impl tg::Object {
 		&self,
 		options: tg::object::metadata::Options,
 	) -> tg::Result<tg::object::Metadata> {
-		let handle = tg::handle()?;
-		self.metadata_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.metadata_with_instance(instance, options).await
 	}
 
-	pub async fn metadata_with_handle<H>(
+	pub async fn metadata_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::object::metadata::Options,
 	) -> tg::Result<tg::object::Metadata>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_get_metadata_with_handle(handle, options)
+		self.try_get_metadata_with_instance(instance, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the object metadata"))
 	}
@@ -162,17 +162,17 @@ impl tg::Object {
 		&self,
 		options: tg::object::metadata::Options,
 	) -> tg::Result<Option<tg::object::Metadata>> {
-		let handle = tg::handle()?;
-		self.try_get_metadata_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.try_get_metadata_with_instance(instance, options).await
 	}
 
-	pub async fn try_get_metadata_with_handle<H>(
+	pub async fn try_get_metadata_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::object::metadata::Options,
 	) -> tg::Result<Option<tg::object::Metadata>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let state = self.state();
 		let arg = tg::object::metadata::Arg {
@@ -181,7 +181,7 @@ impl tg::Object {
 				.or_else(|| state.location().map(Into::into)),
 			tokens: state.tokens(),
 		};
-		handle.try_get_object_metadata(&self.id(), arg).await
+		instance.try_get_object_metadata(&self.id(), arg).await
 	}
 }
 

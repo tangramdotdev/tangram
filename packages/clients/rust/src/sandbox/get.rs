@@ -61,19 +61,19 @@ impl tg::Sandbox {
 		&self,
 		options: tg::sandbox::get::Options,
 	) -> tg::Result<Arc<tg::sandbox::get::Output>> {
-		let handle = tg::handle()?;
-		self.get_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.get_with_instance(instance, options).await
 	}
 
-	pub async fn get_with_handle<H>(
+	pub async fn get_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::sandbox::get::Options,
 	) -> tg::Result<Arc<tg::sandbox::get::Output>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_get_with_handle(handle, options)
+		self.try_get_with_instance(instance, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the sandbox"))
 	}
@@ -82,17 +82,17 @@ impl tg::Sandbox {
 		&self,
 		options: tg::sandbox::get::Options,
 	) -> tg::Result<Option<Arc<tg::sandbox::get::Output>>> {
-		let handle = tg::handle()?;
-		self.try_get_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.try_get_with_instance(instance, options).await
 	}
 
-	pub async fn try_get_with_handle<H>(
+	pub async fn try_get_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::sandbox::get::Options,
 	) -> tg::Result<Option<Arc<tg::sandbox::get::Output>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let arg = tg::sandbox::get::Arg {
 			cached: options.cached,
@@ -101,7 +101,7 @@ impl tg::Sandbox {
 			tokens: self.tokens(),
 			ttl: options.ttl,
 		};
-		let Some(output) = handle.try_get_sandbox(self.id(), arg).await? else {
+		let Some(output) = instance.try_get_sandbox(self.id(), arg).await? else {
 			return Ok(None);
 		};
 		if let Some(location) = &output.location {
@@ -121,35 +121,38 @@ impl tg::Sandbox {
 	}
 
 	pub async fn load(&self) -> tg::Result<Arc<tg::sandbox::get::Output>> {
-		let handle = tg::handle()?;
-		self.load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.load_with_instance(instance).await
 	}
 
-	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<tg::sandbox::get::Output>>
+	pub async fn load_with_instance<I>(
+		&self,
+		instance: &I,
+	) -> tg::Result<Arc<tg::sandbox::get::Output>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_handle(handle)
+		self.try_load_with_instance(instance)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the sandbox"))
 	}
 
 	pub async fn try_load(&self) -> tg::Result<Option<Arc<tg::sandbox::get::Output>>> {
-		let handle = tg::handle()?;
-		self.try_load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.try_load_with_instance(instance).await
 	}
 
-	pub async fn try_load_with_handle<H>(
+	pub async fn try_load_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 	) -> tg::Result<Option<Arc<tg::sandbox::get::Output>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		if let Some(state) = self.0.state.read().unwrap().clone() {
 			return Ok(Some(state));
 		}
-		self.try_get_with_handle(handle, tg::sandbox::get::Options::default())
+		self.try_get_with_instance(instance, tg::sandbox::get::Options::default())
 			.await
 	}
 }

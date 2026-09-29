@@ -96,20 +96,20 @@ struct Error;
 
 impl<O> tg::Process<O> {
 	pub async fn wait(&self, options: tg::process::wait::Options) -> tg::Result<tg::process::Wait> {
-		let handle = tg::handle()?;
-		self.wait_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.wait_with_instance(instance, options).await
 	}
 
-	pub async fn wait_with_handle<H>(
+	pub async fn wait_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::wait::Options,
 	) -> tg::Result<tg::process::Wait>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let handle = self.handle_with_handle(handle);
-		let handle = &handle;
+		let instance = self.instance_with_instance(instance);
+		let instance = &instance;
 		if options.source.is_auto()
 			&& let Some(task) = &self.0.task
 		{
@@ -152,13 +152,13 @@ impl<O> tg::Process<O> {
 			source: options.source,
 			tokens: self.tokens(),
 		};
-		let mut future = handle.wait_process_future(id, arg.clone()).await?;
+		let mut future = instance.wait_process_future(id, arg.clone()).await?;
 		self.wait_stdio().await?;
 		let output = loop {
 			if let Some(output) = future.await? {
 				break output;
 			}
-			future = handle.wait_process_future(id, arg.clone()).await?;
+			future = instance.wait_process_future(id, arg.clone()).await?;
 		};
 		let wait: tg::process::Wait = output.try_into()?;
 		let location = location.and_then(|location| location.to_location());

@@ -41,7 +41,7 @@ impl Cli {
 		let object = tg::Object::with_referent(object);
 		let options = tg::object::touch::Options { location };
 		object
-			.touch_with_handle(&client, options)
+			.touch_with_instance(&client, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to touch the object"))?;
 		Ok(())

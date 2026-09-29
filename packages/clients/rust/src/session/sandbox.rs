@@ -3,7 +3,7 @@ use {
 	futures::{Stream, stream::BoxStream},
 };
 
-impl tg::handle::Sandbox for tg::Session {
+impl tg::instance::Sandbox for tg::Session {
 	fn create_sandbox(
 		&self,
 		arg: tg::sandbox::create::Arg,

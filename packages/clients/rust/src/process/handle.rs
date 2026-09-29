@@ -20,9 +20,9 @@ pub(super) struct Inner {
 	pub(super) cached: Option<bool>,
 	#[debug(ignore)]
 	pub(super) connection: Option<tg::process::connect::Connection>,
-	#[debug(ignore)]
-	pub(super) handle: Option<tg::handle::dynamic::Handle>,
 	pub(super) id: tg::Either<u32, Id>,
+	#[debug(ignore)]
+	pub(super) instance: Option<tg::instance::dynamic::Instance>,
 	pub(super) lease: Option<String>,
 	pub(super) location: Arc<RwLock<Option<tg::location::Arg>>>,
 	pub(super) owned: AtomicBool,
@@ -77,7 +77,7 @@ impl<O> Process<O> {
 	pub(super) fn new_inner(
 		id: Id,
 		options: tg::process::Options,
-		handle: Option<tg::handle::dynamic::Handle>,
+		instance: Option<tg::instance::dynamic::Instance>,
 		connection: Option<tg::process::connect::Connection>,
 	) -> Self {
 		let tg::process::Options {
@@ -94,12 +94,12 @@ impl<O> Process<O> {
 		let stderr = tg::process::stdio::Reader::from_process(tg::process::stdio::Stream::Stderr);
 		let stdin = tg::process::stdio::Writer::from_process(tg::process::stdio::Stream::Stdin);
 		let stdout = tg::process::stdio::Reader::from_process(tg::process::stdio::Stream::Stdout);
-		let owned = AtomicBool::new(handle.is_some() && lease.is_some());
+		let owned = AtomicBool::new(instance.is_some() && lease.is_some());
 		let inner = Arc::new(Inner {
 			cached,
 			connection,
-			handle,
 			id: tg::Either::Right(id),
+			instance,
 			lease,
 			location: location.clone(),
 			owned,
@@ -187,17 +187,17 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub(super) fn handle_with_handle<H: tg::Handle>(
+	pub(super) fn instance_with_instance<I: tg::Instance>(
 		&self,
-		handle: &H,
-	) -> tg::handle::dynamic::Handle {
+		instance: &I,
+	) -> tg::instance::dynamic::Instance {
 		match (&self.0.connection, self.id().right()) {
-			(Some(connection), Some(id)) => tg::handle::dynamic::Handle::with_connection(
-				handle.clone(),
+			(Some(connection), Some(id)) => tg::instance::dynamic::Instance::with_connection(
+				instance.clone(),
 				id.clone(),
 				connection.clone(),
 			),
-			_ => tg::handle::dynamic::Handle::new(handle.clone()),
+			_ => tg::instance::dynamic::Instance::new(instance.clone()),
 		}
 	}
 
@@ -220,42 +220,42 @@ impl<O> Process<O> {
 		self.0.stderr.clone()
 	}
 
-	pub(crate) async fn ensure_location_with_handle<H>(&self, handle: &H) -> tg::Result<()>
+	pub(crate) async fn ensure_location_with_instance<I>(&self, instance: &I) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		if self.id().is_left() || self.location().is_some() {
 			return Ok(());
 		}
-		self.try_load_with_handle(handle).await?;
+		self.try_load_with_instance(instance).await?;
 		Ok(())
 	}
 
 	pub async fn load(&self) -> tg::Result<Arc<tg::process::State>> {
-		let handle = tg::handle()?;
-		self.load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.load_with_instance(instance).await
 	}
 
-	pub async fn load_with_handle<H>(&self, handle: &H) -> tg::Result<Arc<tg::process::State>>
+	pub async fn load_with_instance<I>(&self, instance: &I) -> tg::Result<Arc<tg::process::State>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_load_with_handle(handle)
+		self.try_load_with_instance(instance)
 			.await?
 			.ok_or_else(|| tg::error!("failed to load the process"))
 	}
 
 	pub async fn try_load(&self) -> tg::Result<Option<Arc<tg::process::State>>> {
-		let handle = tg::handle()?;
-		self.try_load_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.try_load_with_instance(instance).await
 	}
 
-	pub async fn try_load_with_handle<H>(
+	pub async fn try_load_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 	) -> tg::Result<Option<Arc<tg::process::State>>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		if let Some(mut state) = self.0.state.read().unwrap().clone() {
 			let location = self.location().and_then(|location| location.to_location());
@@ -276,7 +276,7 @@ impl<O> Process<O> {
 			source: tg::process::Source::Auto,
 			tokens: self.tokens(),
 		};
-		let Some(mut output) = handle.try_get_process(id, arg).await? else {
+		let Some(mut output) = instance.try_get_process(id, arg).await? else {
 			return Ok(None);
 		};
 		if !output.tokens.is_empty() {
@@ -302,18 +302,18 @@ impl<O> Process<O> {
 	}
 
 	pub async fn command(&self) -> tg::Result<tg::Either<tg::process::data::Command, tg::Command>> {
-		let handle = tg::handle()?;
-		self.command_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.command_with_instance(instance).await
 	}
 
-	pub async fn command_with_handle<H>(
+	pub async fn command_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 	) -> tg::Result<tg::Either<tg::process::data::Command, tg::Command>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let state = self.load_with_handle(handle).await?;
+		let state = self.load_with_instance(instance).await?;
 		let command = match &state.command.node {
 			tg::Either::Left(command) => {
 				let mut command = command.as_ref().clone();
@@ -329,16 +329,19 @@ impl<O> Process<O> {
 	}
 
 	pub async fn retry(&self) -> tg::Result<impl Deref<Target = bool>> {
-		let handle = tg::handle()?;
-		self.retry_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.retry_with_instance(instance).await
 	}
 
-	pub async fn retry_with_handle<H>(&self, handle: &H) -> tg::Result<impl Deref<Target = bool>>
+	pub async fn retry_with_instance<I>(
+		&self,
+		instance: &I,
+	) -> tg::Result<impl Deref<Target = bool>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		Ok(self
-			.load_with_handle(handle)
+			.load_with_instance(instance)
 			.await?
 			.map(|state| &state.retry))
 	}
@@ -348,21 +351,21 @@ impl<O> Process<O> {
 		signal: tg::process::Signal,
 		options: tg::process::signal::Options,
 	) -> tg::Result<()> {
-		let handle = tg::handle()?;
-		self.signal_with_handle(handle, signal, options).await
+		let instance = tg::instance()?;
+		self.signal_with_instance(instance, signal, options).await
 	}
 
-	pub async fn signal_with_handle<H>(
+	pub async fn signal_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		signal: tg::process::Signal,
 		options: tg::process::signal::Options,
 	) -> tg::Result<()>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		let handle = self.handle_with_handle(handle);
-		let handle = &handle;
+		let instance = self.instance_with_instance(instance);
+		let instance = &instance;
 		if let Some(pid) = self.id().left() {
 			let pid = i32::try_from(*pid)
 				.map_err(|error| tg::error!(!error, "failed to convert the process id"))?;
@@ -386,7 +389,7 @@ impl<O> Process<O> {
 			&& options.location.is_none()
 			&& self.location().is_none()
 		{
-			self.ensure_location_with_handle(handle).await?;
+			self.ensure_location_with_instance(instance).await?;
 		}
 		let arg = tg::process::signal::post::Arg {
 			location: options.location.or_else(|| self.location()),
@@ -394,7 +397,7 @@ impl<O> Process<O> {
 			tokens: self.tokens(),
 		};
 		let id = self.id().unwrap_right();
-		handle.signal_process(id, arg).await?;
+		instance.signal_process(id, arg).await?;
 
 		Ok(())
 	}
@@ -404,21 +407,21 @@ impl<O> Process<O> {
 		O: TryFrom<tg::Value>,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let handle = tg::handle()?;
-		self.output_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.output_with_instance(instance, options).await
 	}
 
-	pub async fn output_with_handle<H>(
+	pub async fn output_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::wait::Options,
 	) -> tg::Result<O>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 		O: TryFrom<tg::Value>,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let wait = self.wait_with_handle(handle, options).await?;
+		let wait = self.wait_with_instance(instance, options).await?;
 		let output = wait.into_output()?;
 		let tokens = self.tokens();
 		output.inherit_tokens(&tokens);
@@ -440,7 +443,7 @@ impl Drop for Inner {
 		if !owned {
 			return;
 		}
-		let Some(handle) = self.handle.take() else {
+		let Some(instance) = self.instance.take() else {
 			return;
 		};
 		let Some(lease) = self.lease.clone() else {
@@ -453,7 +456,7 @@ impl Drop for Inner {
 		};
 		runtime.spawn(async move {
 			let arg = tg::process::cancel::Arg { lease, location };
-			handle.try_cancel_process(&id, arg).await.ok();
+			instance.try_cancel_process(&id, arg).await.ok();
 		});
 	}
 }

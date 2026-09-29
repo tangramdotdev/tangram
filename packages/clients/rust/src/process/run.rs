@@ -1,15 +1,15 @@
 use crate::prelude::*;
 
 pub async fn run(arg: tg::process::Arg) -> tg::Result<tg::Value> {
-	let handle = tg::handle()?;
-	run_with_handle(handle, arg).await
+	let instance = tg::instance()?;
+	run_with_instance(instance, arg).await
 }
 
-pub async fn run_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<tg::Value>
+pub async fn run_with_instance<I>(instance: &I, arg: tg::process::Arg) -> tg::Result<tg::Value>
 where
-	H: tg::Handle,
+	I: tg::Instance,
 {
-	tg::Process::<tg::Value>::run_with_handle(handle, arg).await
+	tg::Process::<tg::Value>::run_with_instance(instance, arg).await
 }
 
 impl<O> tg::Process<O> {
@@ -18,30 +18,30 @@ impl<O> tg::Process<O> {
 		O: TryFrom<tg::Value> + 'static,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let handle = tg::handle()?;
-		Self::run_with_handle(handle, arg).await
+		let instance = tg::instance()?;
+		Self::run_with_instance(instance, arg).await
 	}
 
-	pub async fn run_with_handle<H>(handle: &H, arg: tg::process::Arg) -> tg::Result<O>
+	pub async fn run_with_instance<I>(instance: &I, arg: tg::process::Arg) -> tg::Result<O>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 		O: TryFrom<tg::Value> + 'static,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let process = tg::Process::<O>::connect_spawn_with_progress_with_handle(
-			handle,
+		let process = tg::Process::<O>::connect_spawn_with_progress_with_instance(
+			instance,
 			arg,
 			tg::process::connect::Mode::Run,
 			|stream| {
 				let writer = std::io::stderr();
-				tg::progress::write_progress_stream(handle, stream, writer, false)
+				tg::progress::write_progress_stream(instance, stream, writer, false)
 			},
 		)
 		.await
 		.map_err(|error| tg::error!(!error, "failed to spawn the process"))?;
 
 		let output = process
-			.output_with_handle(handle, tg::process::wait::Options::default())
+			.output_with_instance(instance, tg::process::wait::Options::default())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the process output"))?;
 

@@ -45,7 +45,7 @@ impl Cli {
 		let process = tg::Process::<tg::Value>::with_referent(process);
 		let options_ = tg::process::availability::Options { location };
 		let output = process
-			.availability_with_handle(&client, options_)
+			.availability_with_instance(&client, options_)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process's availability"))?;
 		self.print_serde(output, options.print).await?;

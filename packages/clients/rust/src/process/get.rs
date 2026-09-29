@@ -62,19 +62,19 @@ impl<O> tg::Process<O> {
 		&self,
 		options: tg::process::get::Options,
 	) -> tg::Result<tg::process::get::Output> {
-		let handle = tg::handle()?;
-		self.get_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.get_with_instance(instance, options).await
 	}
 
-	pub async fn get_with_handle<H>(
+	pub async fn get_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::get::Options,
 	) -> tg::Result<tg::process::get::Output>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
-		self.try_get_with_handle(handle, options)
+		self.try_get_with_instance(instance, options)
 			.await?
 			.ok_or_else(|| tg::error!("failed to get the process"))
 	}
@@ -83,17 +83,17 @@ impl<O> tg::Process<O> {
 		&self,
 		options: tg::process::get::Options,
 	) -> tg::Result<Option<tg::process::get::Output>> {
-		let handle = tg::handle()?;
-		self.try_get_with_handle(handle, options).await
+		let instance = tg::instance()?;
+		self.try_get_with_instance(instance, options).await
 	}
 
-	pub async fn try_get_with_handle<H>(
+	pub async fn try_get_with_instance<I>(
 		&self,
-		handle: &H,
+		instance: &I,
 		options: tg::process::get::Options,
 	) -> tg::Result<Option<tg::process::get::Output>>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
@@ -107,7 +107,7 @@ impl<O> tg::Process<O> {
 			source: options.source,
 			tokens: self.tokens(),
 		};
-		let Some(output) = handle.try_get_process(id, arg).await? else {
+		let Some(output) = instance.try_get_process(id, arg).await? else {
 			return Ok(None);
 		};
 		if let Some(location) = &output.location {

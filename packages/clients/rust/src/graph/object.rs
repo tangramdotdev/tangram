@@ -468,18 +468,18 @@ impl Pointer {
 	}
 
 	pub async fn get(&self) -> tg::Result<tg::Artifact> {
-		let handle = tg::handle()?;
-		self.get_with_handle(handle).await
+		let instance = tg::instance()?;
+		self.get_with_instance(instance).await
 	}
 
-	pub async fn get_with_handle<H>(&self, handle: &H) -> tg::Result<tg::Artifact>
+	pub async fn get_with_instance<I>(&self, instance: &I) -> tg::Result<tg::Artifact>
 	where
-		H: tg::Handle,
+		I: tg::Instance,
 	{
 		self.graph
 			.as_ref()
 			.ok_or_else(|| tg::error!("missing graph"))?
-			.get_with_handle(handle, self.index)
+			.get_with_instance(instance, self.index)
 			.await
 	}
 }

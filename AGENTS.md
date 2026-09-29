@@ -57,8 +57,8 @@ For one-time signing setup, copy `packages/macos/Local.xcconfig.example` to `pac
 - Use bare nouns for builder setters.
 - Prefix mutating setters with `set_*`.
 - Prefix a method with `try_*` when absence is returned rather than reported as an error.
-- In `tangram_client` and `tangram_server`, use consistent method suffixes: `_with_handle`, `_with_arg`, `_local`, `_region` or `_regions`, `_remote` or `_remotes`, `_task`, `_inner`, `_request`, and `_with_transaction`.
-- Order combined suffixes from operation modifiers to injected dependencies, for example `_with_arg_with_handle` and `_local_with_transaction`.
+- In `tangram_client` and `tangram_server`, use consistent method suffixes: `_with_instance`, `_with_arg`, `_local`, `_region` or `_regions`, `_remote` or `_remotes`, `_task`, `_inner`, `_request`, and `_with_transaction`.
+- Order combined suffixes from operation modifiers to injected dependencies, for example `_with_arg_with_instance` and `_local_with_transaction`.
 - Name variables with precise domain nouns.
 - Use singular names for individual values and plural names for collections.
 - Use conventional names for pairs, such as `sender` and `receiver`.

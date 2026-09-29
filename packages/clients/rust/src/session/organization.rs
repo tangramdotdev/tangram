@@ -1,6 +1,6 @@
 use crate::prelude::*;
 
-impl tg::handle::Organization for tg::Session {
+impl tg::instance::Organization for tg::Session {
 	fn create_organization(
 		&self,
 		arg: tg::organization::create::Arg,

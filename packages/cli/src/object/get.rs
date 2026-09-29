@@ -99,7 +99,7 @@ impl Cli {
 				location: location.clone(),
 			};
 			let metadata = object
-				.metadata_with_handle(&client, options_)
+				.metadata_with_instance(&client, options_)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to get the object metadata"))?;
 			let metadata = serde_json::to_string(&metadata)
@@ -111,7 +111,7 @@ impl Cli {
 				location: location.clone(),
 			};
 			let availability = object
-				.availability_with_handle(&client, options_)
+				.availability_with_instance(&client, options_)
 				.await
 				.map_err(
 					|error| tg::error!(!error, %id, "failed to get the object's availability"),

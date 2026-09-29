@@ -588,7 +588,10 @@ impl Inner {
 		};
 		let reference =
 			tg::Reference::with_node_and_options(tg::reference::Node::Specifier(pattern), entry);
-		let output = reference.try_get_with_handle(&session).await.map_err(eio)?;
+		let output = reference
+			.try_get_with_instance(&session)
+			.await
+			.map_err(eio)?;
 		let Some(output) = output else {
 			return Ok(None);
 		};
@@ -645,7 +648,7 @@ impl Inner {
 				tg::reference::Node::Specifier(parent.into()),
 				options,
 			);
-			let node = reference.get_with_handle(&session).await.map_err(eio)?;
+			let node = reference.get_with_instance(&session).await.map_err(eio)?;
 			let node = node
 				.try_map(|node| match node {
 					tg::get::Node::Id(id) => Ok(id),
@@ -796,7 +799,7 @@ impl Inner {
 			let tg::Artifact::File(file) = tg::Artifact::with_id(artifact) else {
 				return Err(std::io::Error::other("expected a file"));
 			};
-			file.contents_with_handle(&self.client)
+			file.contents_with_instance(&self.client)
 				.await
 				.map_err(eio)?
 				.id()
@@ -1123,11 +1126,14 @@ impl Inner {
 			return Err(std::io::Error::other("expected a symlink"));
 		};
 		let artifact = symlink
-			.artifact_with_handle(&self.client)
+			.artifact_with_instance(&self.client)
 			.await
 			.map_err(eio)?
 			.map(|artifact| artifact.id());
-		let path = symlink.path_with_handle(&self.client).await.map_err(eio)?;
+		let path = symlink
+			.path_with_instance(&self.client)
+			.await
+			.map_err(eio)?;
 		render_symlink(depth, artifact, path)
 	}
 
@@ -1146,10 +1152,10 @@ impl Inner {
 			return Ok(Vec::new());
 		};
 		let dependencies = file
-			.dependencies_with_handle(&self.client)
+			.dependencies_with_instance(&self.client)
 			.await
 			.map_err(eio)?;
-		let module = file.module_with_handle(&self.client).await.map_err(eio)?;
+		let module = file.module_with_instance(&self.client).await.map_err(eio)?;
 		let mut names = Vec::new();
 		if !dependencies.is_empty() {
 			let references = dependencies.into_keys().collect::<Vec<_>>();
@@ -1215,7 +1221,7 @@ impl Inner {
 			return Ok(value);
 		}
 		if name == tg::file::xattrs::MODULE_NAME {
-			let Some(module) = file.module_with_handle(&self.client).await.map_err(eio)? else {
+			let Some(module) = file.module_with_instance(&self.client).await.map_err(eio)? else {
 				return Ok(None);
 			};
 			return Ok(Some(module.to_string().as_bytes().to_vec().into()));
@@ -1228,7 +1234,7 @@ impl Inner {
 		file: &tg::File,
 	) -> std::io::Result<Vec<tg::Reference>> {
 		let dependencies = file
-			.dependencies_with_handle(&self.client)
+			.dependencies_with_instance(&self.client)
 			.await
 			.map_err(eio)?;
 		let mut references = Vec::with_capacity(dependencies.len());
@@ -1255,9 +1261,9 @@ impl Inner {
 				let tg::Artifact::File(file) = tg::Artifact::with_id(artifact.clone()) else {
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
 				};
-				let size = file.length_with_handle(&self.client).await.map_err(eio)?;
+				let size = file.length_with_instance(&self.client).await.map_err(eio)?;
 				let executable = file
-					.executable_with_handle(&self.client)
+					.executable_with_instance(&self.client)
 					.await
 					.map_err(eio)?;
 				Ok(vfs::Attrs::new(vfs::AttrsInner::File { executable, size }))
@@ -1278,7 +1284,7 @@ impl Inner {
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
 		directory
-			.entries_with_handle(&self.client)
+			.entries_with_instance(&self.client)
 			.await
 			.map_err(eio)
 	}
