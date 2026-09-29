@@ -233,8 +233,14 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
-		let group = group.replace(':', "/").parse()?;
-		let member = member.replace(':', "/").parse()?;
+		let group = group
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the group"))?;
+		let member = member
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the member"))?;
 		let Some(()) = self.remove_group_member(&group, &member, arg).await? else {
 			let response = http::Response::builder()
 				.not_found()

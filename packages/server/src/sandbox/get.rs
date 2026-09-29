@@ -567,12 +567,12 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Parse the sandbox id.
 		let id = id
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the sandbox id"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the sandbox id"))?;
 
 		// Get the arg.
 		let (arg, _) = request
@@ -601,7 +601,7 @@ impl Session {
 				(Some(content_type), BoxBody::with_bytes(body))
 			},
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		};
 

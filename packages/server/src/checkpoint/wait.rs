@@ -30,10 +30,10 @@ impl Session {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let watch = watch
 			.parse()
-			.map_err(|error| tg::error!(!error, "invalid checkpoint watch"))?;
+			.map_err(|error| tg::error!(argument, !error, "invalid checkpoint watch"))?;
 		let hit = hit
 			.parse()
-			.map_err(|error| tg::error!(!error, "invalid checkpoint hit"))?;
+			.map_err(|error| tg::error!(argument, !error, "invalid checkpoint hit"))?;
 		let Some(output) = self
 			.try_wait_checkpoint_hit(checkpoint, watch, hit)
 			.await

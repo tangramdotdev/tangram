@@ -849,7 +849,7 @@ impl Session {
 		// Parse the ID.
 		let id = id
 			.parse::<tg::process::Id>()
-			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
 
 		// Parse the arg.
 		let (arg, request) = request
@@ -862,7 +862,7 @@ impl Session {
 		let accept: Option<mime::Mime> = request
 			.parse_header(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Get the stream.
 		let Some(stream) = self.try_wait_process_stream(&id, arg).await? else {
@@ -888,7 +888,7 @@ impl Session {
 			},
 
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		};
 

@@ -97,7 +97,10 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
-		let organization = organization.replace(':', "/").parse()?;
+		let organization = organization
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the organization"))?;
 		let Some(output) = self.try_get_organization_usage(&organization, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()

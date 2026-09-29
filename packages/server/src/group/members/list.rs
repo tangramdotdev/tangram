@@ -186,13 +186,16 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 		let (arg, _) = request
 			.arg()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
-		let group = group.replace(':', "/").parse()?;
+		let group = group
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the group"))?;
 		let output = self.list_group_members(&group, arg).await?;
 		let (content_type, body) = match accept
 			.as_ref()
@@ -204,7 +207,7 @@ impl Session {
 				(Some(content_type), BoxBody::with_bytes(body))
 			},
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		};
 		let mut response = http::Response::builder();

@@ -237,7 +237,10 @@ impl Session {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		let group = group.replace(':', "/").parse()?;
+		let group = group
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the group"))?;
 		self.add_group_member(&group, arg).await?;
 		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)

@@ -63,6 +63,7 @@ impl Session {
 			.is_none_or(|value| value != "upgrade")
 		{
 			return Err(tg::error!(
+				argument,
 				"expected the connection header to be set to upgrade"
 			));
 		}
@@ -73,7 +74,10 @@ impl Session {
 			.get(http::header::UPGRADE)
 			.is_none_or(|value| value != "lsp")
 		{
-			return Err(tg::error!("expected the upgrade header to be set to lsp"));
+			return Err(tg::error!(
+				argument,
+				"expected the upgrade header to be set to lsp"
+			));
 		}
 
 		// Spawn the LSP.

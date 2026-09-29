@@ -1084,7 +1084,7 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 		let (arg, _) = request
 			.arg()
 			.await
@@ -1108,7 +1108,7 @@ impl Session {
 				(Some(content_type), BoxBody::with_bytes(body))
 			},
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		};
 		let mut response = http::Response::builder();
@@ -1220,7 +1220,7 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 		let arg = request
 			.json()
 			.await
@@ -1236,7 +1236,7 @@ impl Session {
 				(Some(content_type), BoxBody::with_bytes(body))
 			},
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		};
 		let mut response = http::Response::builder();

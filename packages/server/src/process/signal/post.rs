@@ -274,12 +274,12 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Parse the process id.
 		let id = id
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
 
 		// Get the arg.
 		let arg = request
@@ -307,7 +307,7 @@ impl Session {
 		{
 			None | Some((mime::STAR, mime::STAR)) => (),
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		}
 

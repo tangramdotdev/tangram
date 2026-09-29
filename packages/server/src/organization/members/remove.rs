@@ -246,8 +246,14 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
-		let organization = organization.replace(':', "/").parse()?;
-		let member = member.replace(':', "/").parse()?;
+		let organization = organization
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the organization"))?;
+		let member = member
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the member"))?;
 		let Some(()) = self
 			.remove_organization_member(&organization, &member, arg)
 			.await?

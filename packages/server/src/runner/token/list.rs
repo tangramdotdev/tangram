@@ -130,7 +130,7 @@ impl Session {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let runner = runner
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the runner ID"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the runner ID"))?;
 		let (arg, _) = request
 			.arg()
 			.await

@@ -87,7 +87,7 @@ impl Session {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let token = token
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the token ID"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the token ID"))?;
 		let output = self
 			.try_delete_user_token(&token, tg::user::token::delete::Arg::default())
 			.await?;

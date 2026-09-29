@@ -27,7 +27,7 @@ impl Session {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let watch = watch
 			.parse()
-			.map_err(|error| tg::error!(!error, "invalid checkpoint watch"))?;
+			.map_err(|error| tg::error!(argument, !error, "invalid checkpoint watch"))?;
 		let Some(()) = self
 			.try_unwatch_checkpoint(checkpoint, watch)
 			.await

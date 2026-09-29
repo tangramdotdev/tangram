@@ -242,7 +242,10 @@ impl Session {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		let organization = organization.replace(':', "/").parse()?;
+		let organization = organization
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the organization"))?;
 		self.add_organization_member(&organization, arg).await?;
 		let response = http::Response::builder().empty().unwrap().boxed_body();
 		Ok(response)

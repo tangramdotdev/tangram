@@ -390,7 +390,7 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Create the request body.
 		let reader = request.reader();
@@ -405,21 +405,23 @@ impl Session {
 			};
 			if len > max_frame_size {
 				return Err(tg::error!(
+					argument,
 					len = %len,
 					max = %max_frame_size,
 					"sync frame too large"
 				));
 			}
 			let len = usize::try_from(len).map_err(
-				|error| tg::error!(!error, len = %len, "sync frame length out of range"),
+				|error| tg::error!(argument, !error, len = %len, "sync frame length out of range"),
 			)?;
 			let mut bytes = vec![0; len];
 			reader
 				.read_exact(&mut bytes)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to read the message"))?;
-			let message = tangram_serialize::from_slice(&bytes)
-				.map_err(|error| tg::error!(!error, "failed to deserialize the message"))?;
+			let message = tangram_serialize::from_slice(&bytes).map_err(|error| {
+				tg::error!(argument, !error, "failed to deserialize the message")
+			})?;
 			Ok(Some((message, reader)))
 		})
 		.boxed();
@@ -439,7 +441,7 @@ impl Session {
 			Some(accept) => {
 				let type_ = accept.type_();
 				let subtype = accept.subtype();
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		}
 

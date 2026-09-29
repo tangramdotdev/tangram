@@ -225,7 +225,7 @@ impl Session {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let id = id
 			.parse::<tg::object::Id>()
-			.map_err(|error| tg::error!(!error, "failed to parse the object id"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the object id"))?;
 		let (arg, request) = request
 			.arg::<tg::object::put::Arg>()
 			.await
@@ -234,7 +234,9 @@ impl Session {
 		let content_type = request
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the content type header"))?;
+			.map_err(|error| {
+				tg::error!(argument, !error, "failed to parse the content type header")
+			})?;
 		let body = request
 			.bytes()
 			.await
@@ -244,10 +246,12 @@ impl Session {
 			.map(|content_type| (content_type.type_(), content_type.subtype()))
 		{
 			Some((mime::APPLICATION, mime::JSON)) => {
-				let data = serde_json::from_slice::<tg::object::Data>(&body)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the request"))?;
+				let data = serde_json::from_slice::<tg::object::Data>(&body).map_err(|error| {
+					tg::error!(argument, !error, "failed to deserialize the request")
+				})?;
 				if data.kind() != id.kind() {
 					return Err(tg::error!(
+						argument,
 						expected = %id.kind(),
 						actual = %data.kind(),
 						"invalid object kind"
@@ -258,7 +262,7 @@ impl Session {
 			},
 			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::OCTET_STREAM)) => body,
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid content type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid content type"));
 			},
 		};
 

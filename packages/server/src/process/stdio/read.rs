@@ -635,22 +635,27 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 		let content_type = request
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the content type header"))?;
+			.map_err(|error| {
+				tg::error!(argument, !error, "failed to parse the content type header")
+			})?;
 		let tangram_content_type = tg::process::stdio::TANGRAM_CONTENT_TYPE;
-		let output_encoding = super::Encoding::from_accept(accept.as_ref(), tangram_content_type)?;
+		let output_encoding =
+			super::Encoding::from_accept(accept.as_ref(), tangram_content_type)
+				.map_err(|error| tg::error!(argument, !error, "invalid accept type"))?;
 		let input_encoding = super::Encoding::from_content_type(
 			content_type
 				.as_ref()
-				.ok_or_else(|| tg::error!("missing the content type"))?,
+				.ok_or_else(|| tg::error!(argument, "missing the content type"))?,
 			tangram_content_type,
-		)?;
+		)
+		.map_err(|error| tg::error!(argument, !error, "invalid content type"))?;
 		let id = id
 			.parse::<tg::process::Id>()
-			.map_err(|error| tg::error!(!error, "failed to parse the process id"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
 		let (arg, request) = request
 			.arg::<tg::process::stdio::read::Arg>()
 			.await

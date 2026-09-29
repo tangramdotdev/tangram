@@ -94,7 +94,10 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
-		let user = user.replace(':', "/").parse()?;
+		let user = user
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the user"))?;
 		let Some(output) = self.try_get_user_usage(&user, arg).await? else {
 			return Ok(http::Response::builder()
 				.not_found()

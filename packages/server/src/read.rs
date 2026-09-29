@@ -167,14 +167,14 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Get the query.
 		let (arg, _) = request
 			.arg()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
-		let arg = arg.ok_or_else(|| tg::error!("missing the arg"))?;
+		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
 
 		// Get the stream.
 		let Some(stream) = self.try_read_stream(arg).await? else {
@@ -192,7 +192,7 @@ impl Session {
 		{
 			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::OCTET_STREAM)) => (),
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		}
 

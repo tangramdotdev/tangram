@@ -197,13 +197,17 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 		let (arg, _) = request
 			.arg()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
-		let tag = path.join("/").replace(':', "/").parse()?;
+		let tag = path
+			.join("/")
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the tag"))?;
 		let Some(output) = self.try_get_tag(&tag, arg).await? else {
 			let response = http::Response::builder()
 				.not_found()
@@ -221,7 +225,7 @@ impl Session {
 				(Some(mime::APPLICATION_JSON), BoxBody::with_bytes(body))
 			},
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		};
 		let mut response = http::Response::builder();

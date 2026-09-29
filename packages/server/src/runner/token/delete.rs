@@ -93,10 +93,10 @@ impl Session {
 	) -> tg::Result<http::Response<BoxBody>> {
 		let runner = runner
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the runner ID"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the runner ID"))?;
 		let token = token
 			.parse()
-			.map_err(|error| tg::error!(!error, "failed to parse the token ID"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the token ID"))?;
 		let output = self
 			.try_delete_runner_token(&runner, &token, tg::runner::token::delete::Arg::default())
 			.await?;

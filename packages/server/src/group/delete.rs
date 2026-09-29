@@ -302,7 +302,10 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
-		let group = group.replace(':', "/").parse()?;
+		let group = group
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the group"))?;
 		let Some(()) = self.try_delete_group(&group, arg).await? else {
 			let response = http::Response::builder()
 				.not_found()

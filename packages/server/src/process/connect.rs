@@ -1545,21 +1545,25 @@ impl Session {
 		let content_type = request
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the content type header"))?;
+			.map_err(|error| {
+				tg::error!(argument, !error, "failed to parse the content type header")
+			})?;
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 		let input_encoding = super::stdio::Encoding::from_content_type(
 			content_type
 				.as_ref()
-				.ok_or_else(|| tg::error!("missing the content type"))?,
+				.ok_or_else(|| tg::error!(argument, "missing the content type"))?,
 			tg::process::connect::TANGRAM_CONTENT_TYPE,
-		)?;
+		)
+		.map_err(|error| tg::error!(argument, !error, "invalid content type"))?;
 		let output_encoding = super::stdio::Encoding::from_accept(
 			accept.as_ref(),
 			tg::process::connect::TANGRAM_CONTENT_TYPE,
-		)?;
+		)
+		.map_err(|error| tg::error!(argument, !error, "invalid accept type"))?;
 
 		// Connect the process.
 		let max_frame_size = self.server.config.sync.max_frame_size;

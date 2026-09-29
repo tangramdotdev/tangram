@@ -40,8 +40,13 @@ impl Session {
 		let github = self.github_config()?;
 
 		// Get the query params.
-		let query = parse_query(request.uri().query().unwrap_or(""))?;
-		let code = required_form_value(&query, "code")?.to_owned();
+		let query = parse_query(request.uri().query().unwrap_or(""))
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the query"))?;
+		let code = required_form_value(&query, "code")
+			.map_err(|error| {
+				tg::error!(argument, !error, "failed to parse the code query parameter")
+			})?
+			.to_owned();
 
 		// Create the state.
 		let state = crate::user::login::create_token();
@@ -139,9 +144,22 @@ impl Session {
 		let github = self.github_config()?.clone();
 
 		// Get the query params.
-		let query = parse_query(request.uri().query().unwrap_or(""))?;
-		let authorization_code = required_form_value(&query, "code")?.to_owned();
-		let state = required_form_value(&query, "state")?.to_owned();
+		let query = parse_query(request.uri().query().unwrap_or(""))
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the query"))?;
+		let authorization_code = required_form_value(&query, "code")
+			.map_err(|error| {
+				tg::error!(argument, !error, "failed to parse the code query parameter")
+			})?
+			.to_owned();
+		let state = required_form_value(&query, "state")
+			.map_err(|error| {
+				tg::error!(
+					argument,
+					!error,
+					"failed to parse the state query parameter"
+				)
+			})?
+			.to_owned();
 
 		// Claim the login state.
 		let (code, claimed) = self.claim_github_login_state(&state).await?;

@@ -158,14 +158,14 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Get the arg.
 		let (arg, _) = request
 			.arg()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
-		let arg = arg.ok_or_else(|| tg::error!("missing query params"))?;
+		let arg = arg.ok_or_else(|| tg::error!(argument, "missing query params"))?;
 
 		// Await the login.
 		let output = self.wait_login(arg).await?;
@@ -181,7 +181,7 @@ impl Session {
 				(Some(content_type), BoxBody::with_bytes(body))
 			},
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		};
 		let mut response = http::Response::builder();

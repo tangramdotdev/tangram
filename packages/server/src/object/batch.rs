@@ -342,13 +342,15 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
 		// Get the content type header.
 		let content_type = request
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the content type header"))?;
+			.map_err(|error| {
+				tg::error!(argument, !error, "failed to parse the content type header")
+			})?;
 
 		// Read the body.
 		let bytes = request
@@ -361,14 +363,18 @@ impl Session {
 			.as_ref()
 			.map(|content_type| (content_type.type_(), content_type.subtype()))
 		{
-			Some((mime::APPLICATION, mime::JSON)) => serde_json::from_slice(&bytes)
-				.map_err(|error| tg::error!(!error, "failed to deserialize the request"))?,
+			Some((mime::APPLICATION, mime::JSON)) => {
+				serde_json::from_slice(&bytes).map_err(|error| {
+					tg::error!(argument, !error, "failed to deserialize the request")
+				})?
+			},
 			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::OCTET_STREAM)) => {
-				tg::object::batch::Arg::deserialize(bytes)
-					.map_err(|error| tg::error!(!error, "failed to deserialize the request"))?
+				tg::object::batch::Arg::deserialize(bytes).map_err(|error| {
+					tg::error!(argument, !error, "failed to deserialize the request")
+				})?
 			},
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid content type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid content type"));
 			},
 		};
 
@@ -377,6 +383,7 @@ impl Session {
 			let actual = tg::object::Id::new(object.id.kind(), &object.bytes);
 			if object.id != actual {
 				return Err(tg::error!(
+					argument,
 					expected = %object.id,
 					actual = %actual,
 					"invalid object id"
@@ -397,7 +404,7 @@ impl Session {
 		{
 			None | Some((mime::STAR, mime::STAR) | (mime::APPLICATION, mime::JSON)) => (),
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		}
 

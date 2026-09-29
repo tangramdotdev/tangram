@@ -288,7 +288,10 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
-		let organization = organization.replace(':', "/").parse()?;
+		let organization = organization
+			.replace(':', "/")
+			.parse()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the organization"))?;
 		let output = self.manage_organization_billing(&organization, arg).await?;
 		let body = serde_json::to_vec(&output).unwrap();
 		let response = http::Response::builder()

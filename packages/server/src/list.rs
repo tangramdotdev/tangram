@@ -753,7 +753,7 @@ impl Session {
 		let accept = request
 			.parse_header::<mime::Mime, _>(http::header::ACCEPT)
 			.transpose()
-			.map_err(|error| tg::error!(!error, "failed to parse the accept header"))?;
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 		let (arg, _) = request
 			.arg::<Arg>()
 			.await
@@ -766,7 +766,7 @@ impl Session {
 			let id = path
 				.join("/")
 				.parse()
-				.map_err(|error| tg::error!(!error, "failed to parse the list node"))?;
+				.map_err(|error| tg::error!(argument, !error, "failed to parse the list node"))?;
 			// The location applies to both the list and its node.
 			options.location = arg
 				.location
@@ -774,7 +774,7 @@ impl Session {
 				.map(|location| {
 					location
 						.to_location()
-						.ok_or_else(|| tg::error!("expected a single node location"))
+						.ok_or_else(|| tg::error!(argument, "expected a single node location"))
 				})
 				.transpose()?;
 			arg.node = Some(tg::Referent::new(id, options));
@@ -790,7 +790,7 @@ impl Session {
 				(Some(content_type), BoxBody::with_bytes(body))
 			},
 			Some((type_, subtype)) => {
-				return Err(tg::error!(%type_, %subtype, "invalid accept type"));
+				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		};
 		let mut response = http::Response::builder();
