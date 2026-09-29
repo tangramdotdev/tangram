@@ -90,7 +90,9 @@ impl Session {
 					remotes: Vec::new(),
 				});
 			}
-			let output = self.list_remotes(tg::remote::list::Arg::default()).await?;
+			let output = self
+				.list_all_remotes(tg::remote::list::Arg::default())
+				.await?;
 			let remotes = output
 				.data
 				.into_iter()

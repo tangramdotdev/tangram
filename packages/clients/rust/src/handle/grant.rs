@@ -11,6 +11,27 @@ pub trait Grant: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::grant::delete::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn list_all_grants(
+		&self,
+		mut arg: tg::grant::list::Arg,
+	) -> impl Future<Output = tg::Result<Option<tg::grant::list::Output>>> + Send {
+		async move {
+			let Some(mut output) = self.list_grants(arg.clone()).await? else {
+				return Ok(None);
+			};
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let Some(page) = self.list_grants(arg.clone()).await? else {
+					return Ok(None);
+				};
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(Some(output))
+		}
+	}
+
 	fn list_grants(
 		&self,
 		arg: tg::grant::list::Arg,

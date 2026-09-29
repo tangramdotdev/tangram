@@ -28,10 +28,45 @@ pub trait Runner: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::runner::token::delete::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn list_all_runners(
+		&self,
+		mut arg: tg::runner::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::runner::list::Output>> + Send {
+		async move {
+			let mut output = self.list_runners(arg.clone()).await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self.list_runners(arg.clone()).await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
+
 	fn list_runners(
 		&self,
 		arg: tg::runner::list::Arg,
 	) -> impl Future<Output = tg::Result<tg::runner::list::Output>> + Send;
+
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn list_all_runner_tokens(
+		&self,
+		runner: &tg::runner::Id,
+		mut arg: tg::runner::token::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::runner::token::list::Output>> + Send {
+		async move {
+			let mut output = self.list_runner_tokens(runner, arg.clone()).await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self.list_runner_tokens(runner, arg.clone()).await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
 
 	fn list_runner_tokens(
 		&self,

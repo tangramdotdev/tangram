@@ -103,6 +103,6 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		resource: &tg::Id,
 	) -> tg::Result<ControlFlow<Vec<tg::grant::Data>, crate::database::Error>> {
-		Self::list_resource_grants_with_transaction(transaction, resource).await
+		Self::list_resource_grants_with_transaction(transaction, resource, None, None).await
 	}
 }

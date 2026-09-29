@@ -1,5 +1,8 @@
 use {
-	crate::Session,
+	crate::{
+		Session,
+		cursor::{DEFAULT_LIMIT, MAX_LIMIT},
+	},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -9,6 +12,12 @@ use {
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
 };
+
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[serde(tag = "version")]
+enum Cursor {
+	V0 { after: (String, String) },
+}
 
 impl Session {
 	pub(crate) async fn create_grant(
@@ -713,9 +722,32 @@ impl Session {
 		&self,
 		arg: tg::grant::list::Arg,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
+		// Parse the pagination arguments.
+		let limit = arg.limit.unwrap_or(DEFAULT_LIMIT);
+		if !(1..=MAX_LIMIT).contains(&limit) {
+			return Err(tg::error!(
+				"the page limit must be between 1 and {MAX_LIMIT}"
+			));
+		}
+		let cursor = arg
+			.cursor
+			.as_deref()
+			.map(crate::cursor::deserialize::<Cursor>)
+			.transpose()?;
+		let after = cursor.map(|cursor| match cursor {
+			Cursor::V0 { after } => after,
+		});
+
+		// List the grants for the requested scope.
 		match (arg.resource, arg.subject) {
-			(Some(resource), None) => self.list_resource_grants_local(resource).await,
-			(None, Some(subject)) => self.list_subject_grants_local(subject).await,
+			(Some(resource), None) => {
+				self.list_resource_grants_local(resource, after.as_ref(), limit)
+					.await
+			},
+			(None, Some(subject)) => {
+				self.list_subject_grants_local(subject, after.as_ref(), limit)
+					.await
+			},
 			_ => Err(tg::error!(
 				"expected exactly one of a resource or a subject"
 			)),
@@ -725,6 +757,8 @@ impl Session {
 	async fn list_resource_grants_local(
 		&self,
 		resource: tg::Selector<tg::Id>,
+		after: Option<&(String, String)>,
+		limit: u64,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
 		// Listing the grants on an object, process, or sync requires the root principal.
 		if let tg::Selector::Id(id) = &resource
@@ -734,8 +768,8 @@ impl Session {
 			if !matches!(self.context.principal, tg::Principal::Root) {
 				return Err(tg::error!("unauthorized"));
 			}
-			let data = self.list_resource_grants(id).await?;
-			return Ok(Some(tg::grant::list::Output { cursor: None, data }));
+			let output = self.list_resource_grants(id, after, limit).await?;
+			return Ok(Some(output));
 		}
 		// Listing the grants on a node requires admin permission, and the node is not found without read permission.
 		let id = self.resolve_resource(&resource).await?;
@@ -755,27 +789,112 @@ impl Session {
 		{
 			return Err(tg::error!("unauthorized"));
 		}
-		let data = self.list_resource_grants(&id).await?;
-		Ok(Some(tg::grant::list::Output { cursor: None, data }))
+		let output = self.list_resource_grants(&id, after, limit).await?;
+		Ok(Some(output))
 	}
 
-	async fn list_resource_grants(&self, resource: &tg::Id) -> tg::Result<Vec<tg::grant::Data>> {
-		let resource = resource.clone();
-		self.server
+	async fn list_resource_grants(
+		&self,
+		resource: &tg::Id,
+		after: Option<&(String, String)>,
+		limit: u64,
+	) -> tg::Result<tg::grant::list::Output> {
+		// Read an extra row to determine whether another page exists.
+		let mut data = self
+			.server
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let after = after.cloned();
 				let resource = resource.clone();
 				async move {
-					Self::list_resource_grants_with_transaction(transaction, &resource).await
+					Self::list_resource_grants_with_transaction(
+						transaction,
+						&resource,
+						after.as_ref(),
+						Some(limit + 1),
+					)
+					.await
 				}
 				.boxed()
 			})
-			.await
+			.await?;
+
+		// Create the continuation cursor.
+		let cursor = if u64::try_from(data.len()).unwrap() > limit {
+			data.pop();
+			let grant = data.last().unwrap();
+			let cursor = Cursor::V0 {
+				after: (
+					grant.subject.to_string(),
+					grant.creator.as_ref().unwrap().to_string(),
+				),
+			};
+			Some(crate::cursor::serialize(&cursor)?)
+		} else {
+			None
+		};
+		let output = tg::grant::list::Output { cursor, data };
+
+		Ok(output)
+	}
+
+	pub(crate) async fn list_resource_grants_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		resource: &tg::Id,
+		after: Option<&(String, String)>,
+		limit: Option<u64>,
+	) -> tg::Result<ControlFlow<Vec<tg::grant::Data>, crate::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			created_at: i64,
+			#[tangram_database(as = "db::value::FromStr")]
+			creator: tg::Principal,
+			#[tangram_database(as = "db::value::FromStr")]
+			permissions: tg::authorization::permission::Set,
+			#[tangram_database(as = "db::value::FromStr")]
+			subject: tg::authorization::Subject,
+		}
+		let p = transaction.p();
+		let (after, creator) = after
+			.map(|(after, creator)| (after.as_str(), creator.as_str()))
+			.unwrap_or_default();
+		let limit = limit.map_or(i64::MAX, |limit| i64::try_from(limit).unwrap());
+		let statement = formatdoc!(
+			"
+				select created_at, creator, permissions, subject
+				from grants
+				where resource = {p}1
+				and (subject, creator) > ({p}2, {p}3)
+				order by subject, creator
+				limit {p}4;
+			"
+		);
+		let result = transaction
+			.query_all_into::<Row>(
+				statement.into(),
+				db::params![resource.to_string(), after, creator, limit],
+			)
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
+		let grants = rows
+			.into_iter()
+			.map(|row| tg::grant::Data {
+				created_at: row.created_at,
+				creator: Some(row.creator),
+				permissions: row.permissions,
+				resource: resource.clone(),
+				subject: row.subject,
+			})
+			.collect();
+
+		Ok(ControlFlow::Break(grants))
 	}
 
 	async fn list_subject_grants_local(
 		&self,
 		subject: tg::authorization::subject::Selector,
+		after: Option<&(String, String)>,
+		limit: u64,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
 		// Resolve the subject.
 		let subject = self.try_resolve_subject(&subject).await?;
@@ -826,9 +945,9 @@ impl Session {
 		}
 
 		// List the grants.
-		let data = self.list_subject_grants(&subject).await?;
+		let output = self.list_subject_grants(&subject, after, limit).await?;
 
-		Ok(Some(tg::grant::list::Output { cursor: None, data }))
+		Ok(Some(output))
 	}
 
 	async fn try_resolve_subject(
@@ -849,18 +968,98 @@ impl Session {
 	async fn list_subject_grants(
 		&self,
 		subject: &tg::authorization::Subject,
-	) -> tg::Result<Vec<tg::grant::Data>> {
-		let subject = subject.clone();
-		self.server
+		after: Option<&(String, String)>,
+		limit: u64,
+	) -> tg::Result<tg::grant::list::Output> {
+		// Read an extra row to determine whether another page exists.
+		let mut data = self
+			.server
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let after = after.cloned();
 				let subject = subject.clone();
 				async move {
-					Self::list_subject_grants_with_transaction(transaction, &subject).await
+					Self::list_subject_grants_with_transaction(
+						transaction,
+						&subject,
+						after.as_ref(),
+						Some(limit + 1),
+					)
+					.await
 				}
 				.boxed()
 			})
-			.await
+			.await?;
+
+		// Create the continuation cursor.
+		let cursor = if u64::try_from(data.len()).unwrap() > limit {
+			data.pop();
+			let grant = data.last().unwrap();
+			let cursor = Cursor::V0 {
+				after: (
+					grant.resource.to_string(),
+					grant.creator.as_ref().unwrap().to_string(),
+				),
+			};
+			Some(crate::cursor::serialize(&cursor)?)
+		} else {
+			None
+		};
+		let output = tg::grant::list::Output { cursor, data };
+
+		Ok(output)
+	}
+
+	async fn list_subject_grants_with_transaction(
+		transaction: &crate::database::Transaction<'_>,
+		subject: &tg::authorization::Subject,
+		after: Option<&(String, String)>,
+		limit: Option<u64>,
+	) -> tg::Result<ControlFlow<Vec<tg::grant::Data>, crate::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			created_at: i64,
+			#[tangram_database(as = "db::value::FromStr")]
+			creator: tg::Principal,
+			#[tangram_database(as = "db::value::FromStr")]
+			permissions: tg::authorization::permission::Set,
+			#[tangram_database(as = "db::value::FromStr")]
+			resource: tg::Id,
+		}
+		let p = transaction.p();
+		let (after, creator) = after
+			.map(|(after, creator)| (after.as_str(), creator.as_str()))
+			.unwrap_or_default();
+		let limit = limit.map_or(i64::MAX, |limit| i64::try_from(limit).unwrap());
+		let statement = formatdoc!(
+			"
+				select created_at, creator, permissions, resource
+				from grants
+				where subject = {p}1
+				and (resource, creator) > ({p}2, {p}3)
+				order by resource, creator
+				limit {p}4;
+			"
+		);
+		let result = transaction
+			.query_all_into::<Row>(
+				statement.into(),
+				db::params![subject.to_string(), after, creator, limit],
+			)
+			.await;
+		let rows = crate::database::retry!(result, "failed to execute the statement");
+		let grants = rows
+			.into_iter()
+			.map(|row| tg::grant::Data {
+				created_at: row.created_at,
+				creator: Some(row.creator),
+				permissions: row.permissions,
+				resource: row.resource,
+				subject: subject.clone(),
+			})
+			.collect();
+
+		Ok(ControlFlow::Break(grants))
 	}
 
 	async fn list_grants_remote(
@@ -918,88 +1117,6 @@ impl Session {
 		}
 		let response = response.body(body).unwrap().boxed_body();
 		Ok(response)
-	}
-
-	pub(crate) async fn list_resource_grants_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		resource: &tg::Id,
-	) -> tg::Result<ControlFlow<Vec<tg::grant::Data>, crate::database::Error>> {
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			created_at: i64,
-			#[tangram_database(as = "db::value::FromStr")]
-			creator: tg::Principal,
-			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::authorization::permission::Set,
-			#[tangram_database(as = "db::value::FromStr")]
-			subject: tg::authorization::Subject,
-		}
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				select created_at, creator, permissions, subject
-				from grants
-				where resource = {p}1
-				order by subject, creator, permissions;
-			"
-		);
-		let result = transaction
-			.query_all_into::<Row>(statement.into(), db::params![resource.to_string()])
-			.await;
-		let rows = crate::database::retry!(result, "failed to execute the statement");
-		let grants = rows
-			.into_iter()
-			.map(|row| tg::grant::Data {
-				created_at: row.created_at,
-				creator: Some(row.creator),
-				permissions: row.permissions,
-				subject: row.subject,
-				resource: resource.clone(),
-			})
-			.collect();
-
-		Ok(ControlFlow::Break(grants))
-	}
-
-	async fn list_subject_grants_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		subject: &tg::authorization::Subject,
-	) -> tg::Result<ControlFlow<Vec<tg::grant::Data>, crate::database::Error>> {
-		#[derive(db::row::Deserialize)]
-		struct Row {
-			created_at: i64,
-			#[tangram_database(as = "db::value::FromStr")]
-			creator: tg::Principal,
-			#[tangram_database(as = "db::value::FromStr")]
-			permissions: tg::authorization::permission::Set,
-			#[tangram_database(as = "db::value::FromStr")]
-			resource: tg::Id,
-		}
-		let p = transaction.p();
-		let statement = formatdoc!(
-			"
-				select created_at, creator, permissions, resource
-				from grants
-				where subject = {p}1
-				order by resource, creator, permissions;
-			"
-		);
-		let result = transaction
-			.query_all_into::<Row>(statement.into(), db::params![subject.to_string()])
-			.await;
-		let rows = crate::database::retry!(result, "failed to execute the statement");
-		let grants = rows
-			.into_iter()
-			.map(|row| tg::grant::Data {
-				created_at: row.created_at,
-				creator: Some(row.creator),
-				permissions: row.permissions,
-				subject: subject.clone(),
-				resource: row.resource,
-			})
-			.collect();
-
-		Ok(ControlFlow::Break(grants))
 	}
 
 	pub(crate) async fn resolve_subject_with_transaction(

@@ -1,6 +1,23 @@
 use crate::prelude::*;
 
 pub trait Remote: Clone + Unpin + Send + Sync + 'static {
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn list_all_remotes(
+		&self,
+		mut arg: tg::remote::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::remote::list::Output>> + Send {
+		async move {
+			let mut output = self.list_remotes(arg.clone()).await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self.list_remotes(arg.clone()).await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
+
 	fn list_remotes(
 		&self,
 		arg: tg::remote::list::Arg,

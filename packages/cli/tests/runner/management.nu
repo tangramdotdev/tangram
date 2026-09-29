@@ -32,7 +32,7 @@ let global_runner = tg --token $root_token runner create | from json
 let runners = tg --token $root_token runner list | from json
 assert equal ($runners | length) 1
 assert equal $runners.0.id $global_runner.data.id
-let runners = tg --token $root_token runner list --all | from json
+let runners = tg --token $root_token runner list --all-owners | from json
 assert equal ($runners | length) 3
 
 let created_token = tg --token $alice.token runner token create $alice_runner.data.id | from json

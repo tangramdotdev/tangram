@@ -4,6 +4,18 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Fetch all pages.
+	#[arg(long)]
+	pub all: bool,
+
+	/// Continue from this cursor.
+	#[arg(long)]
+	pub cursor: Option<String>,
+
+	/// The maximum number of entries per page (default: 100, maximum: 1000).
+	#[arg(long)]
+	pub limit: Option<u64>,
+
 	#[command(flatten)]
 	pub output: crate::print::OutputOptions,
 
@@ -13,15 +25,27 @@ pub struct Args {
 
 impl Cli {
 	pub async fn command_user_token_list(&mut self, args: Args) -> tg::Result<()> {
+		// List the user tokens.
 		let client = self.client().await?;
-		let output = client
-			.list_user_tokens(tg::user::token::list::Arg::default())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to list the user tokens"))?;
+		let arg = tg::user::token::list::Arg {
+			cursor: args.cursor,
+			limit: args.limit,
+		};
+		let output = if args.all {
+			client.list_all_user_tokens(arg).await
+		} else {
+			client.list_user_tokens(arg).await
+		}
+		.map_err(|error| tg::error!(!error, "failed to list the user tokens"))?;
+
+		// Print the output.
 		if args.output.verbose {
 			self.print_serde(output, args.print).await?;
 		} else {
 			self.print_serde(output.data, args.print).await?;
+			if let Some(cursor) = output.cursor {
+				self.print_info_message(&format!("Next cursor: {cursor}"));
+			}
 		}
 
 		Ok(())

@@ -1,13 +1,22 @@
 use {
-	crate::Session,
+	crate::{
+		Session,
+		cursor::{DEFAULT_LIMIT, MAX_LIMIT},
+	},
 	futures::FutureExt as _,
-	indoc::{formatdoc, indoc},
+	indoc::formatdoc,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_uri::Uri,
 };
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "version")]
+enum Cursor {
+	V0 { after: String },
+}
 
 #[derive(db::row::Deserialize)]
 struct Row {
@@ -22,50 +31,84 @@ impl Session {
 		&self,
 		arg: tg::remote::list::Arg,
 	) -> tg::Result<tg::remote::list::Output> {
-		if arg.principal.is_none() && matches!(self.context.principal, tg::Principal::Runner(_)) {
-			return self.list_remotes_runner().await;
+		// Parse the arg.
+		let limit = arg.limit.unwrap_or(DEFAULT_LIMIT);
+		if !(1..=MAX_LIMIT).contains(&limit) {
+			return Err(tg::error!(
+				"the page limit must be between 1 and {MAX_LIMIT}"
+			));
 		}
-		if arg.principal.is_none()
-			&& matches!(
-				self.context.principal,
-				tg::Principal::Process(_) | tg::Principal::Sandbox(_)
-			) && self
+		let cursor = arg
+			.cursor
+			.as_deref()
+			.map(crate::cursor::deserialize::<Cursor>)
+			.transpose()?;
+		let after = cursor.map(|cursor| match cursor {
+			Cursor::V0 { after } => after,
+		});
+
+		// Resolve the principal and any runner-specific restriction.
+		let remote = self
 			.server
 			.config
 			.roles
 			.contains(&crate::config::Role::Runner)
 			.then(|| self.server.config.runner.remote.as_deref())
-			.flatten()
-			.is_some()
-		{
-			return self.list_remotes_runner().await;
-		}
-		let principal = self
-			.resolve_remote_arg_principal(arg.principal.clone())
-			.await?;
-		self.list_remotes_for_principal(principal.as_ref()).await
-	}
+			.flatten();
+		let restricted = arg.principal.is_none()
+			&& (matches!(self.context.principal, tg::Principal::Runner(_))
+				|| (matches!(
+					self.context.principal,
+					tg::Principal::Process(_) | tg::Principal::Sandbox(_)
+				) && remote.is_some()));
+		let (principal, name) = if restricted {
+			let Some(remote) = remote else {
+				let output = tg::remote::list::Output {
+					cursor: None,
+					data: Vec::new(),
+				};
+				return Ok(output);
+			};
+			(None, Some(remote.to_owned()))
+		} else {
+			let principal = self.resolve_remote_arg_principal(arg.principal).await?;
+			(principal.map(|principal| principal.to_string()), None)
+		};
 
-	async fn list_remotes_for_principal(
-		&self,
-		principal: Option<&tg::Principal>,
-	) -> tg::Result<tg::remote::list::Output> {
-		let principal = principal.map(ToString::to_string);
-		let rows = self
+		// Read an extra row to determine whether another page exists.
+		let mut rows = self
 			.server
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let after = after.clone();
+				let name = name.clone();
 				let principal = principal.clone();
 				async move {
-					Self::list_remotes_for_principal_with_transaction(
+					Self::list_remotes_with_transaction(
 						transaction,
 						principal.as_deref(),
+						name.as_deref(),
+						after.as_deref(),
+						limit + 1,
 					)
 					.await
 				}
 				.boxed()
 			})
 			.await?;
+
+		// Create the continuation cursor.
+		let cursor = if u64::try_from(rows.len()).unwrap() > limit {
+			rows.pop();
+			let cursor = Cursor::V0 {
+				after: rows.last().unwrap().name.clone(),
+			};
+			Some(crate::cursor::serialize(&cursor)?)
+		} else {
+			None
+		};
+
+		// Create the output.
 		let data = rows
 			.into_iter()
 			.map(|row| tg::remote::Data {
@@ -75,84 +118,39 @@ impl Session {
 				url: row.url,
 			})
 			.collect();
-		let output = tg::remote::list::Output { cursor: None, data };
+		let output = tg::remote::list::Output { cursor, data };
+
 		Ok(output)
 	}
 
-	async fn list_remotes_for_principal_with_transaction(
+	async fn list_remotes_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		principal: Option<&str>,
+		name: Option<&str>,
+		after: Option<&str>,
+		limit: u64,
 	) -> tg::Result<ControlFlow<Vec<Row>, crate::database::Error>> {
 		let p = transaction.p();
-		let statement = indoc!(
-			r"
-				select name, trusted, url
-				from remotes
-				where (principal is null and cast({p}1 as text) is null) or principal = {p}1
-				order by name;
-			",
-		);
-		let statement = statement.replace("{p}", p);
-		let result = transaction
-			.query_all_into::<Row>(statement.into(), db::params![principal])
-			.await;
-		let rows = crate::database::retry!(result, "failed to execute the statement");
-
-		Ok(ControlFlow::Break(rows))
-	}
-
-	async fn list_remotes_runner(&self) -> tg::Result<tg::remote::list::Output> {
-		let Some(remote) = self
-			.server
-			.config
-			.roles
-			.contains(&crate::config::Role::Runner)
-			.then(|| self.server.config.runner.remote.as_deref())
-			.flatten()
-		else {
-			return Ok(tg::remote::list::Output {
-				cursor: None,
-				data: Vec::new(),
-			});
-		};
-		let remote = remote.to_owned();
-		let rows = self
-			.server
-			.database
-			.run_with_options(db::ConnectionOptions::default(), |transaction| {
-				let remote = remote.clone();
-				async move { Self::list_remotes_runner_with_transaction(transaction, &remote).await }
-					.boxed()
-			})
-			.await?;
-		let data = rows
-			.into_iter()
-			.map(|row| tg::remote::Data {
-				name: row.name,
-				token: None,
-				trusted: row.trusted,
-				url: row.url,
-			})
-			.collect();
-		let output = tg::remote::list::Output { cursor: None, data };
-		Ok(output)
-	}
-
-	async fn list_remotes_runner_with_transaction(
-		transaction: &crate::database::Transaction<'_>,
-		remote: &str,
-	) -> tg::Result<ControlFlow<Vec<Row>, crate::database::Error>> {
-		let p = transaction.p();
+		let comparison = if after.is_some() { ">" } else { ">=" };
 		let statement = formatdoc!(
-			r"
-				select name, trusted, url
-				from remotes
-				where name = {p}1 and principal is null
-				order by name;
-			",
+			"
+			select name, trusted, url from remotes
+			where coalesce(principal, '') = {p}1
+				and name {comparison} {p}2
+				and (cast({p}4 as text) is null or name = {p}4)
+			order by name limit {p}3;
+		"
 		);
 		let result = transaction
-			.query_all_into::<Row>(statement.into(), db::params![remote])
+			.query_all_into::<Row>(
+				statement.into(),
+				db::params![
+					principal.unwrap_or_default(),
+					after.unwrap_or_default(),
+					i64::try_from(limit).unwrap(),
+					name
+				],
+			)
 			.await;
 		let rows = crate::database::retry!(result, "failed to execute the statement");
 

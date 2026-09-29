@@ -12,6 +12,23 @@ pub trait User: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::user::token::delete::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn list_all_user_tokens(
+		&self,
+		mut arg: tg::user::token::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::user::token::list::Output>> + Send {
+		async move {
+			let mut output = self.list_user_tokens(arg.clone()).await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self.list_user_tokens(arg.clone()).await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
+
 	fn list_user_tokens(
 		&self,
 		arg: tg::user::token::list::Arg,

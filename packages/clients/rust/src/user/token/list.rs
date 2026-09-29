@@ -1,10 +1,19 @@
 use {
 	crate::prelude::*,
+	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 };
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Arg {}
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cursor: Option<String>,
+
+	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub limit: Option<u64>,
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {
@@ -17,13 +26,14 @@ pub struct Output {
 impl tg::Session {
 	pub async fn list_user_tokens(
 		&self,
-		_arg: tg::user::token::list::Arg,
+		arg: tg::user::token::list::Arg,
 	) -> tg::Result<tg::user::token::list::Output> {
 		let request = http::request::Builder::default()
 			.method(http::Method::GET)
 			.uri("/user/tokens")
 			.header(http::header::ACCEPT, mime::APPLICATION_JSON.to_string())
-			.empty()
+			.arg(&arg, tangram_http::body::Empty::new())
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
 			.send_with_retry(request)

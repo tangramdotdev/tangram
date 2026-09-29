@@ -1,5 +1,8 @@
 use {
-	crate::Session,
+	crate::{
+		Session,
+		cursor::{DEFAULT_LIMIT, MAX_LIMIT},
+	},
 	futures::FutureExt as _,
 	indoc::formatdoc,
 	std::ops::ControlFlow,
@@ -7,6 +10,12 @@ use {
 	tangram_database::{self as db, prelude::*},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _, response::Ext as _},
 };
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "version")]
+enum Cursor {
+	V0 { after: tg::Id },
+}
 
 impl Session {
 	pub(crate) async fn list_organization_members(
@@ -19,7 +28,10 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) => self.list_organization_members_local(organization).await,
+			tg::Location::Local(_) => {
+				self.list_organization_members_local(organization, arg)
+					.await
+			},
 			tg::Location::Remote(remote) => {
 				self.list_organization_members_remote(organization, arg, remote)
 					.await
@@ -30,7 +42,9 @@ impl Session {
 	async fn list_organization_members_local(
 		&self,
 		organization: &tg::organization::Selector,
+		arg: tg::organization::members::list::Arg,
 	) -> tg::Result<tg::organization::members::list::Output> {
+		// Authorize the organization.
 		let permission = tg::authorization::Permission::Organization(
 			tg::authorization::permission::organization::Permission::Read,
 		);
@@ -38,15 +52,36 @@ impl Session {
 		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
 			return Err(tg::error!("failed to find the organization"));
 		}
+
+		// Parse the pagination arguments.
+		let limit = arg.limit.unwrap_or(DEFAULT_LIMIT);
+		if !(1..=MAX_LIMIT).contains(&limit) {
+			return Err(tg::error!(
+				"the page limit must be between 1 and {MAX_LIMIT}"
+			));
+		}
+		let cursor = arg
+			.cursor
+			.as_deref()
+			.map(crate::cursor::deserialize::<Cursor>)
+			.transpose()?;
+		let after = cursor.map(|cursor| match cursor {
+			Cursor::V0 { after } => after,
+		});
+
+		// List the members.
 		let organization = organization.clone();
 		self.server
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
+				let after = after.clone();
 				let organization = organization.clone();
 				async move {
 					Self::list_organization_members_local_with_transaction(
 						transaction,
 						&organization,
+						after.as_ref(),
+						limit,
 					)
 					.await
 				}
@@ -58,6 +93,8 @@ impl Session {
 	async fn list_organization_members_local_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		organization: &tg::organization::Selector,
+		after: Option<&tg::Id>,
+		limit: u64,
 	) -> tg::Result<ControlFlow<tg::organization::members::list::Output, crate::database::Error>> {
 		let id = match organization {
 			tg::Selector::Id(id) => Some(id.clone()),
@@ -92,20 +129,42 @@ impl Session {
 				select member
 				from organization_members
 				where organization = {p}1
-				order by member;
+				and member > {p}2
+				order by member
+				limit {p}3;
 			"
 		);
 		let result = transaction
-			.query_all_into::<Row>(statement.into(), db::params![id.to_string()])
+			.query_all_into::<Row>(
+				statement.into(),
+				db::params![
+					id.to_string(),
+					after.map(ToString::to_string).unwrap_or_default(),
+					i64::try_from(limit + 1).unwrap()
+				],
+			)
 			.await;
-		let rows = crate::database::retry!(result, "failed to execute the statement");
+		let mut rows = crate::database::retry!(result, "failed to execute the statement");
+
+		// Create the continuation cursor.
+		let cursor = if u64::try_from(rows.len()).unwrap() > limit {
+			rows.pop();
+			let cursor = Cursor::V0 {
+				after: rows.last().unwrap().member.clone(),
+			};
+			Some(crate::cursor::serialize(&cursor)?)
+		} else {
+			None
+		};
+
+		// Create the output.
 		let data = rows
 			.into_iter()
 			.map(|row| row.member.try_into())
 			.collect::<tg::Result<_>>()?;
 
 		Ok(ControlFlow::Break(
-			tg::organization::members::list::Output { cursor: None, data },
+			tg::organization::members::list::Output { cursor, data },
 		))
 	}
 

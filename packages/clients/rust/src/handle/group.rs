@@ -30,6 +30,24 @@ pub trait Group: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::group::delete::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn list_all_group_members(
+		&self,
+		group: &tg::group::Selector,
+		mut arg: tg::group::members::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::group::members::list::Output>> + Send {
+		async move {
+			let mut output = self.list_group_members(group, arg.clone()).await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self.list_group_members(group, arg.clone()).await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
+
 	fn list_group_members(
 		&self,
 		group: &tg::group::Selector,

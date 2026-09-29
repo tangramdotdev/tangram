@@ -46,7 +46,7 @@ create table user_tokens (
 	foreign key ("user") references users (id)
 );
 
-create index user_tokens_user_index on user_tokens ("user");
+create index user_tokens_user_index on user_tokens ("user", id);
 
 create table user_identities (
 	provider text not null,
@@ -99,7 +99,7 @@ create table runners (
 	foreign key (owner) references specifiers (id)
 );
 
-create index runners_owner_index on runners (owner);
+create index runners_owner_index on runners (owner, id);
 
 create table runner_tokens (
 	id text primary key,
@@ -109,7 +109,7 @@ create table runner_tokens (
 	foreign key (runner) references runners (id)
 );
 
-create index runner_tokens_runner_index on runner_tokens (runner);
+create index runner_tokens_runner_index on runner_tokens (runner, id);
 
 create table stripe_webhooks (
 	id text primary key,
@@ -149,7 +149,7 @@ create table grants (
 
 create index grants_resource_index on grants (resource);
 
-create index grants_subject_index on grants (subject);
+create index grants_subject_index on grants (subject, resource, creator);
 
 create table tags (
 	id text primary key,

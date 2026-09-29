@@ -91,6 +91,7 @@ mod write;
 pub use self::config::Config;
 
 pub mod config;
+pub mod cursor;
 pub mod progress;
 
 #[derive(Clone)]

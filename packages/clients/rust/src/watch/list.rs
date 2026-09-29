@@ -1,12 +1,21 @@
 use {
 	crate::prelude::*,
+	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	std::path::PathBuf,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 };
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Arg {}
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cursor: Option<String>,
+
+	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub limit: Option<u64>,
+}
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Output {

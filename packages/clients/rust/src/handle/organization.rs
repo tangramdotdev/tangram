@@ -36,6 +36,28 @@ pub trait Organization: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::organization::delete::Arg,
 	) -> impl Future<Output = tg::Result<Option<()>>> + Send;
 
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn list_all_organization_members(
+		&self,
+		organization: &tg::organization::Selector,
+		mut arg: tg::organization::members::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::organization::members::list::Output>> + Send {
+		async move {
+			let mut output = self
+				.list_organization_members(organization, arg.clone())
+				.await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self
+					.list_organization_members(organization, arg.clone())
+					.await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
+
 	fn list_organization_members(
 		&self,
 		organization: &tg::organization::Selector,

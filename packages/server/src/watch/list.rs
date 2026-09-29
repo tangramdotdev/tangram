@@ -1,26 +1,76 @@
 use {
-	crate::Session,
+	crate::{
+		Session,
+		cursor::{DEFAULT_LIMIT, MAX_LIMIT},
+	},
+	std::path::PathBuf,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "version")]
+enum Cursor {
+	V0 { after: PathBuf },
+}
+
 impl Session {
 	pub(crate) async fn list_watches(
 		&self,
-		_arg: tg::watch::list::Arg,
+		arg: tg::watch::list::Arg,
 	) -> tg::Result<tg::watch::list::Output> {
 		self.verify_request_from_host()?;
-		let data = self
+
+		// Parse the arg.
+		let limit = arg.limit.unwrap_or(DEFAULT_LIMIT);
+		if !(1..=MAX_LIMIT).contains(&limit) {
+			return Err(tg::error!(
+				"the page limit must be between 1 and {MAX_LIMIT}"
+			));
+		}
+		let cursor = arg
+			.cursor
+			.as_deref()
+			.map(crate::cursor::deserialize::<Cursor>)
+			.transpose()?;
+		let after = cursor.map(|cursor| match cursor {
+			Cursor::V0 { after } => after,
+		});
+
+		// Sort the paths for the current principal.
+		let mut paths = self
 			.server
 			.watches
 			.iter()
 			.filter_map(|entry| {
-				(entry.key().principal == self.context.principal).then(|| tg::watch::list::Item {
-					path: entry.key().path.clone(),
-				})
+				(entry.key().principal == self.context.principal).then(|| entry.key().path.clone())
 			})
+			.collect::<Vec<_>>();
+		paths.sort();
+		let mut paths = paths
+			.into_iter()
+			.filter(|path| after.as_ref().is_none_or(|after| path > after))
+			.take(usize::try_from(limit + 1).unwrap())
+			.collect::<Vec<_>>();
+
+		// Create the continuation cursor.
+		let cursor = if u64::try_from(paths.len()).unwrap() > limit {
+			paths.pop();
+			let cursor = Cursor::V0 {
+				after: paths.last().unwrap().clone(),
+			};
+			Some(crate::cursor::serialize(&cursor)?)
+		} else {
+			None
+		};
+
+		// Create the output.
+		let data = paths
+			.into_iter()
+			.map(|path| tg::watch::list::Item { path })
 			.collect();
-		let output = tg::watch::list::Output { cursor: None, data };
+		let output = tg::watch::list::Output { cursor, data };
+
 		Ok(output)
 	}
 
