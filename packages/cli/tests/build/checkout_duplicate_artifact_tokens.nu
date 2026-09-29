@@ -13,7 +13,7 @@ let path = artifact {
 			const directory = await tg.directory({});
 			await directory.store();
 			tg.assert(directory.state.tokens.local?.some((token) =>
-				tg.Authorization.Token.grantsObjectSubtree(token, directory.id)
+				tg.Authorization.Token.authorizesObjectSubtree(token, directory.id)
 			));
 			await tg.build`tg --version`.env({ AUTHORIZED: directory });
 			const bare = tg.Directory.withId(directory.id);

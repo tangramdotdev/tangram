@@ -290,7 +290,7 @@ impl State {
 					covered |= state_entry
 						.authorization
 						.iter()
-						.any(|token| token.grants_object_subtree(&id));
+						.any(|token| token.authorizes_object_subtree(&id));
 				}
 				if let Some(object) = state.object() {
 					stack.extend(

@@ -227,7 +227,7 @@ impl Session {
 		command: &tg::Referent<tg::command::Id>,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
-		grant_command: bool,
+		write_command_permissions: bool,
 	) -> tg::Result<Option<Output>> {
 		if !matches!(arg.cached, Some(true)) {
 			let (host, command) = self.spawn_process_get_command(arg, command).await?;
@@ -237,7 +237,7 @@ impl Session {
 					&command,
 					parent_sandbox,
 					cacheable,
-					grant_command,
+					write_command_permissions,
 					&host,
 				)
 				.boxed()
@@ -256,7 +256,7 @@ impl Session {
 		command: &tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 		cacheable: bool,
-		grant_command: bool,
+		write_command_permissions: bool,
 		host: &str,
 	) -> tg::Result<Output> {
 		let requested_owner = match &arg.sandbox {
@@ -399,12 +399,12 @@ impl Session {
 			scheduler: arg.scheduler.clone(),
 			tokens: token.into_iter().collect(),
 		};
-		// Grant the creator authority independently of the sandbox and prepare command access.
+		// Write the creator permissions independently of the sandbox and prepare command access.
 		let mut items = Vec::new();
 		if let Some(permission) = self.spawn_process_create_creator_permission_arg(&id, now)? {
 			items.push(tangram_index::batch::Item::PutPermission(permission));
 		}
-		if grant_command {
+		if write_command_permissions {
 			let permission_expires_at = now
 				+ self
 					.server
@@ -429,10 +429,9 @@ impl Session {
 		}
 		if !items.is_empty() {
 			let arg = tangram_index::batch::Arg { items };
-			self.server
-				.index_batch(arg)
-				.await
-				.map_err(|error| tg::error!(!error, %id, "failed to grant process access"))?;
+			self.server.index_batch(arg).await.map_err(
+				|error| tg::error!(!error, %id, "failed to write the process permissions"),
+			)?;
 		}
 
 		Ok(output)

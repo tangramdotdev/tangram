@@ -26,7 +26,7 @@ let object_watch = tg --token $root_token checkpoint watch index.batch --params 
 tg --token $root_token cancel $process $spawned.lease
 timeout 10s tg --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | ignore
 
-# Attach the wait before preparing the finished-process grants.
+# Attach the wait before preparing the finished-process permissions.
 let params = { process: $process } | to json --raw
 let attach_watch = tg --token $root_token checkpoint watch process.wait.attach --params $params | from json | get watch
 let socket = $local.url | str replace 'http+unix://' '' | url decode
@@ -43,7 +43,7 @@ tg --token $root_token checkpoint unwatch runner.process.finish $finish_watch
 timeout 10s tg --token $root_token checkpoint wait index.batch $object_watch 0 | ignore
 let output = job recv --tag $wait_job --timeout 10sec
 let output = $output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
-assert equal $output.exit 1 "the runner wait must return before grant preparation completes"
+assert equal $output.exit 1 "the runner wait must return before permission preparation completes"
 tg --token $root_token checkpoint unwatch index.batch $object_watch
 timeout 10s tg --token $root_token checkpoint wait index.batch $process_watch 0 | ignore
 assert (not ($output.error | str contains 'tokens')) "waiting must not mint error capabilities"

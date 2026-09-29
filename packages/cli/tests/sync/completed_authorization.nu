@@ -42,8 +42,8 @@ assert equal (try { job recv --tag $read --timeout 0sec } catch { null }) null '
 tg --url $remote_destination.url --token $root_token checkpoint unwatch authorization.index.wait $wait_watch
 tg --url $remote_destination.url --token $root_token checkpoint unwatch index.batch $batch_watch
 let output = job recv --tag $read --timeout 10sec
-success $output 'authorization should wait for the queued sync grants'
+success $output 'authorization should wait for the queued sync permissions'
 assert equal $output.stdout 'private'
-success (tg --url $remote_destination.url --token $alice.token read $file | complete) 'the caller should retain access through the sync grant'
+success (tg --url $remote_destination.url --token $alice.token read $file | complete) 'the caller should retain access through the sync permissions'
 failure (tg --url $remote_destination.url --token $bob.token read $file | complete) 'storage alone should not authorize another user'
 assert equal (tg --url $remote_destination.url --token $bob.token read $referent) 'private'

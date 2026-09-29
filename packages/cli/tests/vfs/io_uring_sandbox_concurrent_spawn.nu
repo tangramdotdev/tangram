@@ -13,7 +13,7 @@ if not (fuse_io_uring_available) {
 }
 
 let local = server spawn --config {
-	# Allow room for the process records and grants from 256 concurrent sandboxes.
+	# Allow room for the process records and permissions from 256 concurrent sandboxes.
 	index: { map_size: 67_108_864 }
 	vfs: {
 		io: 'io_uring'

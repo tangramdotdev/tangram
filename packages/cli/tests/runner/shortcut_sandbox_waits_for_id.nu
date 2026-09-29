@@ -71,7 +71,7 @@ let started = timeout 30s tg --url $runner.url checkpoint wait runner.process.st
 assert ($started.params.process | str starts-with 'pcs_') "the child should start with its assigned process ID"
 tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
 let output = job recv --tag $build --timeout 30sec
-success $output "the child should complete with its own sandbox and output grants"
+success $output "the child should complete with its own sandbox and output permissions"
 let read = tg --url $local.url read ($output.stdout | str trim) | complete
 success $read
 assert equal $read.stdout hello

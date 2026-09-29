@@ -129,7 +129,7 @@ impl Session {
 				.any(|token| {
 					token.body.resource == resource
 						&& self.verify_local_token(token)
-						&& token.body.grants(permission)
+						&& token.body.authorizes(permission)
 				})
 		};
 		let objects = Self::finished_process_objects(data);

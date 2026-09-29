@@ -131,7 +131,7 @@ for order in [process sandbox] {
 	let data = tg --url $remote.url --token $root_token sandbox get $sandbox | from json
 	assert equal $data.data.status destroyed
 	let output = job recv --tag $build --timeout 30sec
-	success $output "the process should complete with its output grants"
+	success $output "the process should complete with its output permissions"
 	let read = tg --url $local.url read ($output.stdout | str trim) | complete
 	success $read
 	assert equal $read.stdout hello

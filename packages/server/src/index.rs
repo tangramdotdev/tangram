@@ -881,7 +881,7 @@ impl Server {
 
 			return Ok(());
 		}
-		let command_object_grant = arg.items.iter().any(|item| {
+		let command_object_permission = arg.items.iter().any(|item| {
 			matches!(
 				item,
 				index::batch::Item::PutObject(arg)
@@ -925,7 +925,7 @@ impl Server {
 						server,
 						"index.batch",
 						child_process,
-						command_object_grant,
+						command_object_permission,
 						destroyed_sandbox,
 						finished_process,
 						started_process
@@ -941,7 +941,8 @@ impl Server {
 					if result.is_ok() && log_compaction {
 						server.spawn_publish_log_compaction_notification_task();
 					}
-					crate::checkpoint!(server, "index.batch.finished", command_object_grant).await;
+					crate::checkpoint!(server, "index.batch.finished", command_object_permission)
+						.await;
 
 					result
 				}

@@ -30,13 +30,13 @@ export namespace Authorization {
 				b !== null &&
 				a.body.resource === b.body.resource &&
 				b.body.permissions.every((needed) =>
-					grants(token, b.body.resource, needed),
+					authorizes(token, b.body.resource, needed),
 				)
 			);
 		};
 
 		// Check the resource and implied permission without verifying the signature or expiration.
-		export let grants = (
+		export let authorizes = (
 			token: Token,
 			resource: string,
 			permission: string,
@@ -50,10 +50,10 @@ export namespace Authorization {
 		};
 
 		// Check object containment coverage through the same permission rules as other resource kinds.
-		export let grantsObjectSubtree = (
+		export let authorizesObjectSubtree = (
 			token: Token,
 			resource: string,
-		): boolean => grants(token, resource, "object_subtree");
+		): boolean => authorizes(token, resource, "object_subtree");
 
 		export let resource = (token: Token): string | null =>
 			parse(token)?.body.resource ?? null;
@@ -225,13 +225,13 @@ export namespace Authorization {
 				if (
 					resource !== undefined &&
 					authorization.some((token) =>
-						Authorization.Token.grantsObjectSubtree(token, resource),
+						Authorization.Token.authorizesObjectSubtree(token, resource),
 					)
 				) {
 					authorization = authorization.filter(
 						(token) =>
 							Authorization.Token.resource(token)?.startsWith("syn_") ||
-							Authorization.Token.grantsObjectSubtree(token, resource),
+							Authorization.Token.authorizesObjectSubtree(token, resource),
 					);
 				}
 				authorization.sort();

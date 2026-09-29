@@ -137,22 +137,22 @@ impl Token {
 					.body
 					.permissions
 					.iter()
-					.all(|permission| self.grants(&other.body.resource, *permission)))
+					.all(|permission| self.authorizes(&other.body.resource, *permission)))
 	}
 
 	/// Check the resource and implied permission without verifying the signature or expiration.
 	#[must_use]
-	pub fn grants(&self, resource: &tg::Id, permission: tg::authorization::Permission) -> bool {
-		self.body.resource == *resource && self.body.grants(permission)
+	pub fn authorizes(&self, resource: &tg::Id, permission: tg::authorization::Permission) -> bool {
+		self.body.resource == *resource && self.body.authorizes(permission)
 	}
 
 	/// Check object containment coverage through the same permission rules as other resource kinds.
 	#[must_use]
-	pub fn grants_object_subtree(&self, resource: &tg::Id) -> bool {
+	pub fn authorizes_object_subtree(&self, resource: &tg::Id) -> bool {
 		let subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
-		self.grants(resource, subtree)
+		self.authorizes(resource, subtree)
 	}
 
 	pub fn sign(body: Body, private_key: &PrivateKey) -> tg::Result<Self> {
@@ -251,7 +251,7 @@ impl Body {
 	}
 
 	#[must_use]
-	pub fn grants(&self, permission: tg::authorization::Permission) -> bool {
+	pub fn authorizes(&self, permission: tg::authorization::Permission) -> bool {
 		self.permissions
 			.iter()
 			.any(|granted| granted.implies(permission))
@@ -403,7 +403,7 @@ mod tests {
 	}
 
 	#[test]
-	fn grants_checks_resources_and_permission_implications() {
+	fn authorizes_checks_resources_and_permission_implications() {
 		use tg::authorization::permission::{object, process};
 		let key =
 			tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
@@ -436,12 +436,12 @@ mod tests {
 				resource: resource.clone(),
 			};
 			let token = tg::authorization::Token::sign(body, &key).unwrap();
-			assert!(token.grants(&resource, granted));
-			assert!(token.grants(&resource, needed));
-			assert!(!token.grants(&other, needed));
-			assert!(!token.grants(&resource, unrelated));
+			assert!(token.authorizes(&resource, granted));
+			assert!(token.authorizes(&resource, needed));
+			assert!(!token.authorizes(&other, needed));
+			assert!(!token.authorizes(&resource, unrelated));
 			assert_eq!(
-				token.grants_object_subtree(&resource),
+				token.authorizes_object_subtree(&resource),
 				kind == tg::id::Kind::File
 			);
 		}

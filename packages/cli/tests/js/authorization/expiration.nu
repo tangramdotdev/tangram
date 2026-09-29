@@ -30,11 +30,11 @@ let path = artifact {
 			const processId = "pcs_010000000000000000000000000000000000000000000000000000";
 			for (const [resource, granted, needed, unrelated] of [[id, "object_subtree", "object_node", "process_node"], [processId, "process_subtree", "process_node", "process_node_output"]]) {
 				const token = proof(resource, 120, granted);
-				tg.assert(tg.Authorization.Token.grants(token, resource, granted));
-				tg.assert(tg.Authorization.Token.grants(token, resource, needed));
-				tg.assert(!tg.Authorization.Token.grants(token, other, needed));
-				tg.assert(!tg.Authorization.Token.grants(token, resource, unrelated));
-				tg.assert(tg.Authorization.Token.grantsObjectSubtree(token, resource) === (resource === id));
+				tg.assert(tg.Authorization.Token.authorizes(token, resource, granted));
+				tg.assert(tg.Authorization.Token.authorizes(token, resource, needed));
+				tg.assert(!tg.Authorization.Token.authorizes(token, other, needed));
+				tg.assert(!tg.Authorization.Token.authorizes(token, resource, unrelated));
+				tg.assert(tg.Authorization.Token.authorizesObjectSubtree(token, resource) === (resource === id));
 			}
 			const chain = [proof(processId, 120, "process_parent"), proof(processId, 179, "process_subtree"), proof(processId, 238, "process_node")];
 			for (const order of [[0, 1, 2], [0, 2, 1], [1, 0, 2], [1, 2, 0], [2, 0, 1], [2, 1, 0]]) {

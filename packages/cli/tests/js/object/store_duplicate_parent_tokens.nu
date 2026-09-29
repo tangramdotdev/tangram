@@ -18,7 +18,7 @@ let path = artifact {
 				await tg.Value.store(reverse ? [right, left] : [left, right]);
 				for (const directory of [left, right]) {
 					tg.assert(directory.state.stored);
-					tg.assert(directory.state.tokens.local.some((token) => tg.Authorization.Token.grantsObjectSubtree(token, directory.id)));
+					tg.assert(directory.state.tokens.local.some((token) => tg.Authorization.Token.authorizesObjectSubtree(token, directory.id)));
 				}
 				await tg.build`true ${left}`;
 			}

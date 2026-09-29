@@ -754,7 +754,7 @@ impl Inner {
 		let authorized = self.tokens.get(artifact).is_some_and(|tokens| {
 			tokens
 				.iter()
-				.any(|token| token.body.expires_at >= now && token.body.grants(permission))
+				.any(|token| token.body.expires_at >= now && token.body.authorizes(permission))
 		});
 		if authorized {
 			return true;
@@ -779,7 +779,7 @@ impl Inner {
 		output.tokens.local_authorization().iter().any(|token| {
 			token.body.resource == tg::Id::from(id.clone())
 				&& token.body.expires_at >= now
-				&& token.body.grants(permission)
+				&& token.body.authorizes(permission)
 		})
 	}
 
@@ -1203,7 +1203,7 @@ impl Inner {
 					.local_authorization()
 					.iter()
 					.filter(|token| {
-						token.body.resource == resource && token.body.grants(permission)
+						token.body.resource == resource && token.body.authorizes(permission)
 					})
 					.max_by_key(|token| token.body.expires_at)
 					.map(ToString::to_string)

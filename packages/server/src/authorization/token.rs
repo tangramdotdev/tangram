@@ -9,7 +9,7 @@ impl Session {
 		let permission = tg::authorization::Permission::Sync(
 			tg::authorization::permission::sync::Permission::Read,
 		);
-		(self.verify_token(token) && token.body.grants(permission)).then_some(id)
+		(self.verify_token(token) && token.body.authorizes(permission)).then_some(id)
 	}
 
 	pub(crate) fn create_read_token(

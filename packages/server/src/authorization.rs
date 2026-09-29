@@ -182,7 +182,7 @@ impl Session {
 				for (index, token) in tokens.iter().enumerate() {
 					if &token.body.resource != id
 						|| !permissions.iter().any(|permission| {
-							!proven.contains(permission) && token.body.grants(permission)
+							!proven.contains(permission) && token.body.authorizes(permission)
 						}) {
 						continue;
 					}
@@ -193,7 +193,7 @@ impl Session {
 					}
 					for permission in permissions
 						.iter()
-						.filter(|permission| token.body.grants(*permission))
+						.filter(|permission| token.body.authorizes(*permission))
 					{
 						proven.insert(tg::authorization::permission::Set::from_permission(
 							permission,
@@ -435,7 +435,7 @@ impl Session {
 		}
 		permissions
 			.iter()
-			.all(|permission| token.body.grants(permission))
+			.all(|permission| token.body.authorizes(permission))
 	}
 
 	pub(crate) fn verify_local_token(&self, token: &tg::authorization::Token) -> bool {

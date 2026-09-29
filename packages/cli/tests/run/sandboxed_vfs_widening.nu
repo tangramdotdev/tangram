@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Running a command in the current sandbox (no .sandbox()) widens the sandbox's grants to the referenced artifact.
+# Running a command in the current sandbox (no .sandbox()) widens the sandbox's permissions to the referenced artifact.
 
 if $nu.os-info.name != 'linux' {
 	return

@@ -76,7 +76,7 @@ let status = tg --url $runner.url --token $root_token process get $child | from 
 assert equal $status finished "the finished write should be indexed once initial indexing is released"
 
 let output = job recv --tag $build --timeout 30sec
-success $output "the shortcut child should complete with its own output grants"
+success $output "the shortcut child should complete with its own output permissions"
 let file = $output.stdout | str trim
 let read = tg --url $local.url read $file | complete
 success $read

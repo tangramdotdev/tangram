@@ -225,11 +225,11 @@ impl Entry {
 			&& self
 				.authorization
 				.iter()
-				.any(|token| token.grants_object_subtree(resource))
+				.any(|token| token.authorizes_object_subtree(resource))
 		{
 			self.authorization.retain(|token| {
 				token.body.resource.kind() == tg::id::Kind::Sync
-					|| token.grants_object_subtree(resource)
+					|| token.authorizes_object_subtree(resource)
 			});
 		}
 		self.authorization.sort_by_cached_key(ToString::to_string);

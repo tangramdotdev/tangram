@@ -110,11 +110,11 @@ impl Session {
 					.cloned()
 					.collect::<Vec<_>>();
 				for token in &tokens {
-					if token.body.grants(subtree_permission) {
+					if token.body.authorizes(subtree_permission) {
 						permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
 					} else if token
 						.body
-						.grants(tg::authorization::Permission::Object(node))
+						.authorizes(tg::authorization::Permission::Object(node))
 					{
 						permissions.insert(tg::authorization::permission::object::Set::NODE);
 					}

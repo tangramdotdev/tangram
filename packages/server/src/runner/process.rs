@@ -888,7 +888,7 @@ impl Session {
 
 		// Prepare command authorization before tracked finish writes can wait for initialization.
 		let command_roots = session
-			.prepare_process_command_grants(&state.command, &location, parent.as_ref())
+			.prepare_process_command_permissions(&state.command, &location, parent.as_ref())
 			.await;
 		let command_roots = match command_roots {
 			Ok(roots) => roots,
@@ -901,7 +901,7 @@ impl Session {
 			},
 		};
 
-		// Complete command grant preparation before a tracked finish write can wait for indexing.
+		// Complete command permission preparation before a tracked finish write can wait for indexing.
 		ready_sender.send(()).ok();
 
 		let data = state.to_data();
@@ -1295,7 +1295,7 @@ impl Session {
 			.await
 			.map_err(|_| tg::error!("the process connection failed before initialization"))?;
 
-		// The initial write establishes command grants; the finished write only needs proofs for the result objects.
+		// The initial write establishes command permissions; the finished write only needs proofs for the result objects.
 		let index_task =
 			if let Some(authorization) = self.try_prepare_finished_process_authorization(&data) {
 				let arg = IndexFinishedProcessTaskArg {
@@ -1323,7 +1323,7 @@ impl Session {
 				Some(index_task)
 			} else {
 				index_receiver.await.map_err(|_| {
-					tg::error!("the process connection failed before grant preparation")
+					tg::error!("the process connection failed before permission preparation")
 				})?;
 				let arg = RecordFinishedProcessArg {
 					data: &data,
@@ -1398,7 +1398,7 @@ impl Session {
 		crate::checkpoint!(
 			self.server,
 			"index.batch",
-			command_object_grant = false,
+			command_object_permission = false,
 			finished_process = true,
 			runner = true
 		)
@@ -1430,10 +1430,10 @@ impl Session {
 			processes,
 		} = arg;
 
-		// Publish completion before waiting for indexing to prepare the process grants.
+		// Publish completion before waiting for indexing to prepare the process permissions.
 		self.publish_finished_process(id, &processes, data).await?;
 
-		// Grant preparation can call index(), so this work must remain outside server.index_tasks.
+		// Permission preparation can call index(), so this work must remain outside server.index_tasks.
 		// The control finish handler queues local log compaction, and the log writer records EOF.
 		let remote = location.is_remote();
 		let options = crate::process::put::Options {
@@ -1907,7 +1907,7 @@ impl Session {
 		))
 	}
 
-	async fn prepare_process_command_grants(
+	async fn prepare_process_command_permissions(
 		&self,
 		command: &tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 		location: &tg::Location,

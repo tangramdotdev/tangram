@@ -520,7 +520,7 @@ impl Session {
 			return Ok(());
 		}
 
-		// The shared result sync can confer both fields before their grants reach the index.
+		// The shared result sync can confer both fields before their permissions reach the index.
 		requested.insert(tg::authorization::permission::process::Set::NODE);
 		let requested = tg::authorization::permission::Set::Process(requested);
 		let required = tg::authorization::permission::Set::Process(

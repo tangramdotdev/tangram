@@ -1231,7 +1231,7 @@ impl Provider {
 			.find(|token| {
 				token.body.resource == resource
 					&& token.body.expires_at >= now
-					&& token.body.grants(subtree)
+					&& token.body.authorizes(subtree)
 			})
 			.map(|token| token.body.expires_at);
 		if expires_at.is_none() && !matches!(principal, tg::Principal::Root) {
@@ -3893,7 +3893,7 @@ impl Nodes {
 			tg::authorization::permission::object::Permission::Subtree,
 		);
 		let mut pending = Vec::new();
-		for token in tokens.iter().filter(|token| token.body.grants(subtree)) {
+		for token in tokens.iter().filter(|token| token.body.authorizes(subtree)) {
 			let name = token.body.resource.to_string();
 			for (component, id) in state.nodes[&vfs::ROOT_NODE_ID]
 				.children

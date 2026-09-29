@@ -197,13 +197,13 @@ impl Session {
 					"a deferred process control connection must not have data, a lease, or a parent"
 				));
 			}
-			let grant = if assign {
+			let wait_token = if assign {
 				let now = session.server.clock.unix_timestamp()?;
 				session.create_process_wait_token(&id, now)?
 			} else {
 				None
 			};
-			let process = tg::Referent::with_node_and_local_tokens(id.clone(), grant);
+			let process = tg::Referent::with_node_and_local_tokens(id.clone(), wait_token);
 			let output = tg::process::control::Output {
 				process,
 				sync: sync.clone(),
@@ -482,13 +482,13 @@ impl Session {
 				tg::error!(!error, "failed to publish the process control connection")
 			})?;
 
-		let grant = if assign {
+		let wait_token = if assign {
 			let now = session.server.clock.unix_timestamp()?;
 			session.create_process_wait_token(&id, now)?
 		} else {
 			None
 		};
-		let process = tg::Referent::with_node_and_local_tokens(id, grant);
+		let process = tg::Referent::with_node_and_local_tokens(id, wait_token);
 		let output = tg::process::control::Output {
 			process,
 			sync,

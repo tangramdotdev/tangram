@@ -32,7 +32,7 @@ let data = {
 tg --url $alice_local.url process put $process ($data | to json)
 let blocker = tg --url $alice_local.url put 'tg.blob("later")' | str trim
 
-# Keep the push open after the process is stored, before its grants can be indexed.
+# Keep the push open after the process is stored, before its permissions can be indexed.
 let stored_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.process --params ({ id: $process } | to json --raw) | from json | get watch
 let blocker_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blocker } | to json --raw) | from json | get watch
 let push_log = $env.TMPDIR | path join push.log

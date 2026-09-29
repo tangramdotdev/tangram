@@ -376,7 +376,7 @@ impl Session {
 			.iter()
 			.filter(|token| {
 				token.body.resource == authorization_resource
-					&& token.body.grants(permission)
+					&& token.body.authorizes(permission)
 					&& self.verify_token(token)
 			})
 			.max_by_key(|token| token.body.expires_at)

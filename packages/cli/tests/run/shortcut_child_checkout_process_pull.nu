@@ -59,9 +59,9 @@ let path = artifact {
 
 let module = $"($path)/example.tg.ts"
 
-# Run once and wait for the child command grant to be indexed.
+# Run once and wait for the child command permissions to be indexed.
 let initial_index_watch = (
-	tg --url $runner.url checkpoint watch index.batch.finished --params '{"command_object_grant":true}'
+	tg --url $runner.url checkpoint watch index.batch.finished --params '{"command_object_permission":true}'
 	| from json
 	| get watch
 )
@@ -71,7 +71,7 @@ let initial_run = job spawn {
 	$output | job send --tag $job_id 0
 }
 let output = timeout 30s tg --url $runner.url checkpoint wait index.batch.finished $initial_index_watch 0 | complete
-success $output "the initial child command grant should finish indexing"
+success $output "the initial child command permissions should finish indexing"
 tg --url $runner.url checkpoint continue index.batch.finished $initial_index_watch 0
 tg --url $runner.url checkpoint unwatch index.batch.finished $initial_index_watch
 let output = try { job recv --tag $initial_run --timeout 30sec } catch { null }
@@ -80,14 +80,14 @@ if $output == null {
 }
 success $output "the initial process should succeed"
 
-# Hold the reused child command until its grant is indexed.
+# Hold the reused child command until its permissions are indexed.
 let command_push_watch = (
 	tg --url $runner.url checkpoint watch runner.process.command.push.finished
 	| from json
 	| get watch
 )
 let index_batch_watch = (
-	tg --url $runner.url checkpoint watch index.batch.finished --params '{"command_object_grant":true}'
+	tg --url $runner.url checkpoint watch index.batch.finished --params '{"command_object_permission":true}'
 	| from json
 	| get watch
 )
@@ -97,7 +97,7 @@ let run = job spawn {
 	$output | job send --tag $job_id 0
 }
 let output = timeout 30s tg --url $runner.url checkpoint wait index.batch.finished $index_batch_watch 0 | complete
-success $output "the child command grant should finish indexing"
+success $output "the child command permissions should finish indexing"
 tg --url $runner.url checkpoint continue index.batch.finished $index_batch_watch 0
 tg --url $runner.url checkpoint unwatch index.batch.finished $index_batch_watch
 let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.push.finished $command_push_watch 0 | complete
@@ -109,4 +109,4 @@ let output = try { job recv --tag $run --timeout 30sec } catch { null }
 if $output == null {
 	error make { msg: "the run did not complete after the checkpoints continued" }
 }
-success $output "the sandboxed child process should succeed after its command grant is indexed"
+success $output "the sandboxed child process should succeed after its command permissions are indexed"

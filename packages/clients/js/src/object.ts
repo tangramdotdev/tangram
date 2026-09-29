@@ -245,7 +245,7 @@ export namespace Object {
 							) {
 								collected.push(token);
 							}
-							covered ||= tg.Authorization.Token.grantsObjectSubtree(
+							covered ||= tg.Authorization.Token.authorizesObjectSubtree(
 								token,
 								state.id,
 							);

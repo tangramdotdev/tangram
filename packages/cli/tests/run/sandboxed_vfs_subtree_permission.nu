@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A grant on a referenced directory covers its whole subtree, so a deeply nested file is readable.
+# A permission on a referenced directory covers its whole subtree, so a deeply nested file is readable.
 
 if $nu.os-info.name != 'linux' {
 	return
@@ -23,4 +23,4 @@ let path = artifact {
 }
 
 let output = tg run $path | str trim
-assert ($output == 'nested contents') $'expected the nested descendant to inherit the subtree grant, got: ($output)'
+assert ($output == 'nested contents') $'expected the nested descendant to inherit the subtree permission, got: ($output)'

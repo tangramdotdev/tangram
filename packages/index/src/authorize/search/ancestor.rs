@@ -528,7 +528,7 @@ impl Search {
 					let Ok(parent) = tg::object::Id::try_from(body.resource.clone()) else {
 						continue;
 					};
-					if !body.grants(parent_permission) || parent == object {
+					if !body.authorizes(parent_permission) || parent == object {
 						continue;
 					}
 					let dependency = (tg::Id::from(parent.clone()), parent_permission);
@@ -860,7 +860,7 @@ impl Search {
 		let token_permissions = self
 			.tokens
 			.iter()
-			.any(|body| &body.resource == resource && body.grants(*permission));
+			.any(|body| &body.resource == resource && body.authorizes(*permission));
 		if matches!(
 			permission,
 			tg::authorization::Permission::Sandbox(
@@ -1188,7 +1188,7 @@ impl Search {
 		}
 		self.tokens
 			.iter()
-			.filter(|body| body.resource == key.0 && body.grants(key.1))
+			.filter(|body| body.resource == key.0 && body.authorizes(key.1))
 			.map(|body| body.expires_at)
 			.max()
 	}

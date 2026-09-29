@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Metadata is masked by the indexed grants for the authenticated principal.
+# Metadata is masked by the indexed permissions for the authenticated principal.
 
 let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
@@ -15,7 +15,7 @@ assert equal $alice_object_metadata.subtree.count 5 "Alice should see the object
 assert ($alice_object_metadata.subtree.size > $alice_object_metadata.node.size) "Alice should see the full object subtree metadata."
 
 let output = tg --token $bob.token metadata $directory | complete
-failure $output "Bob should not be able to get Alice's object metadata without a grant."
+failure $output "Bob should not be able to get Alice's object metadata without permission."
 snapshot --normalize-ids $output.stderr '
 	error an error occurred
 	-> failed to get the object metadata
