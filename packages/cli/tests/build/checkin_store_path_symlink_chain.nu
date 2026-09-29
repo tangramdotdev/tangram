@@ -58,7 +58,7 @@ let command = tg build $'($path)#reuse' | str trim
 for _ in 1..2 {
 	let sandbox = tg sandbox create --no-network | str trim
 	let output = tg run $'--sandbox=($sandbox)' $command | complete
-	success $output "a reused checkout must retain the target proof in each sandbox"
+	success $output "a reused checkout must retain the target authorization token in each sandbox"
 	tg sandbox destroy $sandbox
 }
 

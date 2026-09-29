@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A symlink proof does not authorize an unmaterialized artifact or an ID mentioned only in its path.
+# A symlink authorization token does not authorize an unmaterialized artifact or an ID mentioned only in its path.
 
 let server = server spawn --config {
 	authorization: { final: false, initial: false }
@@ -26,4 +26,4 @@ let path = artifact {
 }
 
 let output = tg build $path --arg-string $secret | complete
-success $output "the process must not check in an unrelated directory through a symlink proof"
+success $output "the process must not check in an unrelated directory through a symlink authorization token"

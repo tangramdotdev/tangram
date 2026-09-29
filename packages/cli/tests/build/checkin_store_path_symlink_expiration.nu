@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Physical directory checkout tokens remain valid after the input proof expires, including graph symlink targets.
+# Physical directory checkout tokens remain valid after the input authorization token expires, including graph symlink targets.
 
 for case in [
 	{ time: '2026-01-01T00:01:01Z', reuse: false },
@@ -39,14 +39,14 @@ for case in [
 	let reference = $'($command)?tokens[local][0]=($token | url encode --all)'
 	let sandbox = tg --token $root_token sandbox create --no-network | str trim
 
-	# Materialize the target before reusing the checkout with the older input proof.
+	# Materialize the target before reusing the checkout with the older input authorization token.
 	if $case.reuse {
 		advance_time $server 20sec
 		let output = http get --headers { Authorization: $'Bearer ($root_token)', Accept: 'application/json' } --unix-socket $socket $'http://localhost/objects/($command)'
 		let token = $output.tokens.local.0
 		let reference = $'($command)?tokens[local][0]=($token | url encode --all)'
 		let output = tg --token $root_token run $'--sandbox=($sandbox)' $reference | complete
-		success $output "the newer proof should seed the shared sandbox"
+		success $output "the newer authorization token should seed the shared sandbox"
 	}
 
 	set_time $server '2026-01-01T00:00:40Z'

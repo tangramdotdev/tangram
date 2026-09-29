@@ -584,7 +584,7 @@ impl Session {
 		// Remove from visiting set.
 		state.visiting.remove(id);
 
-		// Retain the exact directory proof on the physical checkout.
+		// Retain the exact directory authorization token on the physical checkout.
 		if let Some(token) = self.create_permanent_object_token(id)? {
 			tg::file::xattrs::write_token(path, &token)?;
 		}
