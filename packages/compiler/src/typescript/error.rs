@@ -64,12 +64,13 @@ pub(super) fn from_exception<'s>(
 
 	tg::Error::with_object(tg::error::Object {
 		code: None,
-		message,
-		location,
-		stack,
-		source,
-		values,
 		diagnostics: None,
+		kind: None,
+		location,
+		message,
+		source,
+		stack,
+		values,
 	})
 }
 

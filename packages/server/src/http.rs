@@ -543,12 +543,22 @@ impl Server {
 		let authentication = match result {
 			Ok(authentication) => authentication,
 			Err(error) => {
+				let status = match error.kind() {
+					Some(tg::error::Kind::Argument) => http::StatusCode::BAD_REQUEST,
+					Some(tg::error::Kind::Internal) | None => {
+						http::StatusCode::INTERNAL_SERVER_ERROR
+					},
+					Some(tg::error::Kind::Missing) => http::StatusCode::NOT_FOUND,
+					Some(tg::error::Kind::Unauthenticated) => http::StatusCode::UNAUTHORIZED,
+					Some(tg::error::Kind::Unauthorized) => http::StatusCode::FORBIDDEN,
+					Some(tg::error::Kind::Unavailable) => http::StatusCode::SERVICE_UNAVAILABLE,
+				};
 				let bytes = match error.to_data_or_id() {
 					tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
 					tg::Either::Right(id) => id.to_string(),
 				};
 				let response = http::Response::builder()
-					.status(http::StatusCode::INTERNAL_SERVER_ERROR)
+					.status(status)
 					.bytes(bytes)
 					.unwrap()
 					.boxed_body();
@@ -872,12 +882,20 @@ impl Server {
 		// Handle an error.
 		let mut response = response.unwrap_or_else(|error| {
 			tracing::error!(error = %error.trace());
+			let status = match error.kind() {
+				Some(tg::error::Kind::Argument) => http::StatusCode::BAD_REQUEST,
+				Some(tg::error::Kind::Internal) | None => http::StatusCode::INTERNAL_SERVER_ERROR,
+				Some(tg::error::Kind::Missing) => http::StatusCode::NOT_FOUND,
+				Some(tg::error::Kind::Unauthenticated) => http::StatusCode::UNAUTHORIZED,
+				Some(tg::error::Kind::Unauthorized) => http::StatusCode::FORBIDDEN,
+				Some(tg::error::Kind::Unavailable) => http::StatusCode::SERVICE_UNAVAILABLE,
+			};
 			let bytes = match error.to_data_or_id() {
 				tg::Either::Left(data) => serde_json::to_string(&data).unwrap(),
 				tg::Either::Right(id) => id.to_string(),
 			};
 			http::Response::builder()
-				.status(http::StatusCode::INTERNAL_SERVER_ERROR)
+				.status(status)
 				.bytes(bytes)
 				.unwrap()
 				.boxed_body()

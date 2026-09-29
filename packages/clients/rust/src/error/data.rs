@@ -29,6 +29,11 @@ pub struct Error {
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub diagnostics: Option<Vec<tg::diagnostic::Data>>,
 
+	/// The error kind, inherited from the source when unspecified.
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 7, skip_serializing_if = "Option::is_none")]
+	pub kind: Option<tg::error::Kind>,
+
 	/// The location where the error occurred.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]

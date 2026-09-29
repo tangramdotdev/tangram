@@ -789,6 +789,7 @@ fn error_inner(input: &mut Input) -> ModalResult<tg::Object> {
 	.try_map(|entries: Vec<(String, tg::Value)>| {
 		let mut code = None;
 		let mut diagnostics = None;
+		let mut kind = None;
 		let mut location = None;
 		let mut message = None;
 		let mut source = None;
@@ -815,6 +816,15 @@ fn error_inner(input: &mut Input) -> ModalResult<tg::Object> {
 						.map(parse_diagnostic)
 						.collect::<tg::Result<Vec<_>>>()?;
 					diagnostics = Some(diagnostics_);
+				},
+				"kind" => {
+					let value = value
+						.try_unwrap_string_ref()
+						.map_err(|_| tg::error!("expected a string for the kind"))?;
+					kind = Some(
+						serde_json::from_value(serde_json::Value::String(value.clone()))
+							.map_err(|error| tg::error!(!error, "failed to parse the kind"))?,
+					);
 				},
 				"location" => {
 					location = Some(parse_error_location(&value)?);
@@ -857,6 +867,7 @@ fn error_inner(input: &mut Input) -> ModalResult<tg::Object> {
 		let object = tg::error::Object {
 			code,
 			diagnostics,
+			kind,
 			location,
 			message,
 			source,

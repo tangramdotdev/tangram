@@ -4,6 +4,7 @@ use {super::Data, crate::prelude::*, std::collections::BTreeMap};
 pub struct Error {
 	pub code: Option<tg::error::Code>,
 	pub diagnostics: Option<Vec<tg::Diagnostic>>,
+	pub kind: Option<tg::error::Kind>,
 	pub location: Option<tg::error::Location>,
 	pub message: Option<String>,
 	pub source: Option<tg::Referent<tg::Either<Box<tg::error::Object>, Box<tg::Error>>>>,
@@ -12,12 +13,22 @@ pub struct Error {
 }
 
 impl Error {
+	/// Get the kind without loading source objects.
+	#[must_use]
+	pub fn kind(&self) -> Option<tg::error::Kind> {
+		self.kind.or_else(|| match &self.source.as_ref()?.node {
+			tg::Either::Left(object) => object.kind(),
+			tg::Either::Right(error) => error.kind(),
+		})
+	}
+
 	pub fn to_data(&self) -> Data {
 		let code = self.code;
 		let diagnostics = self
 			.diagnostics
 			.as_ref()
 			.map(|data| data.iter().map(tg::Diagnostic::to_data).collect());
+		let kind = self.kind;
 		let location = self.location.as_ref().map(tg::error::Location::to_data);
 		let message = self.message.clone();
 		let source = self.source.as_ref().map(|source| {
@@ -40,6 +51,7 @@ impl Error {
 		Data {
 			code,
 			diagnostics,
+			kind,
 			location,
 			message,
 			source,
@@ -58,6 +70,7 @@ impl Error {
 					.collect()
 			})
 			.transpose()?;
+		let kind = data.kind;
 		let location = data
 			.location
 			.map(tg::error::Location::try_from_data)
@@ -94,6 +107,7 @@ impl Error {
 		Ok(Self {
 			code,
 			diagnostics,
+			kind,
 			location,
 			message,
 			source,

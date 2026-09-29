@@ -213,6 +213,15 @@ impl Error {
 		Ok(self.object_with_handle(handle).await?.to_data())
 	}
 
+	/// Get the kind without loading the error or its sources.
+	#[must_use]
+	pub fn kind(&self) -> Option<tg::error::Kind> {
+		self.state.object().and_then(|object| {
+			let object = object.try_unwrap_error_ref().ok()?;
+			object.kind()
+		})
+	}
+
 	#[must_use]
 	pub fn message(&self) -> Option<String> {
 		self.state.object().and_then(|object| {
@@ -306,15 +315,18 @@ impl From<Box<dyn std::error::Error + Send + Sync + 'static>> for Error {
 						.map_right(|id| Box::new(tg::Error::with_id(id)));
 					tg::Referent::new(node, options)
 				});
-				Self::with_object(Object {
+				let mut object = Object {
 					code: None,
+					kind: None,
 					message: Some(error.to_string()),
 					location: None,
 					stack: None,
 					source,
 					values: BTreeMap::new(),
 					diagnostics: None,
-				})
+				};
+				object.kind = object.kind();
+				Self::with_object(object)
 			},
 		}
 	}
@@ -338,14 +350,17 @@ impl From<&(dyn std::error::Error + 'static)> for Error {
 				.map_right(|id| Box::new(tg::Error::with_id(id)));
 			tg::Referent::new(node, options)
 		});
-		Self::with_object(Object {
+		let mut object = Object {
 			code: None,
+			kind: value.downcast_ref::<Self>().and_then(Self::kind),
 			message: Some(value.to_string()),
 			location: None,
 			stack: None,
 			source,
 			values: BTreeMap::new(),
 			diagnostics: None,
-		})
+		};
+		object.kind = object.kind();
+		Self::with_object(object)
 	}
 }

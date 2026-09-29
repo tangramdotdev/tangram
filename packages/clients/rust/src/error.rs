@@ -40,6 +40,34 @@ pub enum Code {
 	Internal,
 }
 
+/// A transport-independent error classification.
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Kind {
+	#[tangram_serialize(id = 0)]
+	Argument,
+	#[tangram_serialize(id = 1)]
+	Internal,
+	#[tangram_serialize(id = 2)]
+	Missing,
+	#[tangram_serialize(id = 3)]
+	Unauthenticated,
+	#[tangram_serialize(id = 4)]
+	Unauthorized,
+	#[tangram_serialize(id = 5)]
+	Unavailable,
+}
+
 /// An error location.
 #[derive(Clone, Debug)]
 pub struct Location {
@@ -263,6 +291,10 @@ macro_rules! error {
 		$object.source.replace(source);
 		$crate::error!({ $object }, $($arg)*)
 	};
+	({ $object:ident }, kind = $kind:expr, $($arg:tt)*) => {
+		$object.kind.replace($kind);
+		$crate::error!({ $object }, $($arg)*)
+	};
 	({ $object:ident }, code = $code:expr, $($arg:tt)*) => {
 		$object.code.replace($code);
 		$crate::error!({ $object }, $($arg)*)
@@ -278,10 +310,29 @@ macro_rules! error {
 	({ $object:ident }, $($arg:tt)*) => {
 		$object.message = Some(format!($($arg)*));
 	};
+	(argument, $($arg:tt)*) => {
+		$crate::error!(kind = $crate::error::Kind::Argument, $($arg)*)
+	};
+	(internal, $($arg:tt)*) => {
+		$crate::error!(kind = $crate::error::Kind::Internal, $($arg)*)
+	};
+	(missing, $($arg:tt)*) => {
+		$crate::error!(kind = $crate::error::Kind::Missing, $($arg)*)
+	};
+	(unauthenticated, $($arg:tt)*) => {
+		$crate::error!(kind = $crate::error::Kind::Unauthenticated, $($arg)*)
+	};
+	(unauthorized, $($arg:tt)*) => {
+		$crate::error!(kind = $crate::error::Kind::Unauthorized, $($arg)*)
+	};
+	(unavailable, $($arg:tt)*) => {
+		$crate::error!(kind = $crate::error::Kind::Unavailable, $($arg)*)
+	};
 	($($arg:tt)*) => {{
 		let mut object = $crate::error::Object {
 			code: None,
 			diagnostics: None,
+			kind: None,
 			location: Some($crate::error::Location {
 				symbol: Some($crate::function!().to_owned()),
 				file: $crate::error::File::Internal(format!("{}", ::std::file!()).parse().unwrap()),
@@ -296,6 +347,7 @@ macro_rules! error {
 			values: ::std::collections::BTreeMap::new(),
 		};
 		$crate::error!({ object }, $($arg)*);
+		object.kind = object.kind();
 		$crate::Error::with_object(object)
 	}};
 }

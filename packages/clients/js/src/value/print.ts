@@ -464,6 +464,10 @@ export class Printer {
 					),
 				);
 		}
+		let kind = object.kind;
+		if (kind !== null) {
+			entries.kind = () => this.value(kind);
+		}
 		if (object.location !== null) {
 			entries.location = () => this.errorLocation(object.location!);
 		}

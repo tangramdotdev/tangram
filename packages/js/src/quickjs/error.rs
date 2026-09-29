@@ -127,12 +127,13 @@ pub fn from_exception<'js>(
 
 		return Some(tg::Error::with_object(tg::error::Object {
 			code: None,
-			message,
-			location,
-			stack,
-			source: None,
-			values: BTreeMap::new(),
 			diagnostics: None,
+			kind: None,
+			location,
+			message,
+			source: None,
+			stack,
+			values: BTreeMap::new(),
 		}));
 	}
 
@@ -194,12 +195,13 @@ pub fn from_exception<'js>(
 
 	Some(tg::Error::with_object(tg::error::Object {
 		code: None,
-		message,
-		location,
-		stack,
-		source,
-		values: BTreeMap::new(),
 		diagnostics: None,
+		kind: None,
+		location,
+		message,
+		source,
+		stack,
+		values: BTreeMap::new(),
 	}))
 }
 

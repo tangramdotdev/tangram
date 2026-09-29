@@ -630,6 +630,10 @@ where
 				s.finish_array()
 			})?;
 		}
+		if let Some(kind) = object.kind {
+			let kind = serde_json::to_value(kind).unwrap();
+			self.map_entry("kind", |s| s.string(kind.as_str().unwrap()))?;
+		}
 		if let Some(location) = &object.location {
 			self.map_entry("location", |s| s.error_location(location))?;
 		}

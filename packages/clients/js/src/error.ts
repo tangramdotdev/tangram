@@ -36,6 +36,7 @@ export namespace error {
 		let object: tg.Error.Object = {
 			code: null,
 			diagnostics: null,
+			kind: null,
 			location: null,
 			message: null,
 			source: null,
@@ -56,6 +57,9 @@ export namespace error {
 			if (arg.diagnostics !== undefined) {
 				object.diagnostics = arg.diagnostics;
 			}
+			if (arg.kind !== undefined) {
+				object.kind = arg.kind;
+			}
 			if (arg.location !== undefined) {
 				object.location = arg.location;
 			}
@@ -72,6 +76,7 @@ export namespace error {
 				object.values = arg.values ?? {};
 			}
 		}
+		object.kind = tg.Error.Object.kind(object);
 		return tg.Error.withObject(object);
 	}
 }
@@ -149,12 +154,14 @@ export class Error {
 		let object: tg.Error.Object = {
 			code: arg.code ?? null,
 			diagnostics: arg.diagnostics ?? null,
+			kind: arg.kind ?? null,
 			location: arg.location ?? null,
 			message: arg.message ?? null,
 			source: arg.source ?? null,
 			stack: arg.stack ?? null,
 			values: arg.values ?? {},
 		};
+		object.kind = tg.Error.Object.kind(object);
 		return tg.Error.withObject(object);
 	}
 
@@ -187,6 +194,7 @@ export class Error {
 			reduce: {
 				code: "set",
 				diagnostics: "set",
+				kind: "set",
 				location: "set",
 				message: "set",
 				source: "set",
@@ -275,6 +283,11 @@ export class Error {
 		})();
 	}
 
+	/** Get this error's kind without loading its sources. */
+	get kind(): Promise<tg.Error.Kind | null> {
+		return (async () => tg.Error.Object.kind(await this.object()))();
+	}
+
 	/** Get this error's location. */
 	get location(): Promise<tg.Error.Location | null> {
 		return (async () => {
@@ -327,6 +340,14 @@ export class Error {
 }
 
 export namespace Error {
+	export type Kind =
+		| "argument"
+		| "internal"
+		| "missing"
+		| "unauthenticated"
+		| "unauthorized"
+		| "unavailable";
+
 	export type Id = string;
 	export type ConstructorArg = {
 		id?: tg.Error.Id;
@@ -387,6 +408,11 @@ export namespace Error {
 			return this;
 		}
 
+		kind(kind: tg.Unresolved<tg.MaybeMutation<tg.Error.Kind> | null>): this {
+			this.#args.push({ kind });
+			return this;
+		}
+
 		location(
 			location: tg.Unresolved<tg.MaybeMutation<tg.Error.Location> | null>,
 		): this {
@@ -442,6 +468,7 @@ export namespace Error {
 		export type Object = {
 			code?: string | null;
 			diagnostics?: Array<tg.Diagnostic> | null;
+			kind?: tg.Error.Kind | null;
 			location?: tg.Error.Location | null;
 			message?: string | null;
 			source?: tg.Referent<tg.Error.Object | tg.Error> | null;
@@ -453,6 +480,7 @@ export namespace Error {
 	export type Object = {
 		code: string | null;
 		diagnostics: Array<tg.Diagnostic> | null;
+		kind: tg.Error.Kind | null;
 		location: tg.Error.Location | null;
 		message: string | null;
 		source: tg.Referent<tg.Error.Object | tg.Error> | null;
@@ -461,6 +489,22 @@ export namespace Error {
 	};
 
 	export namespace Object {
+		/** Get the kind using only source objects already in memory. */
+		export let kind = (object: tg.Error.Object): tg.Error.Kind | null => {
+			if (object.kind !== null) {
+				return object.kind;
+			}
+			let source = object.source?.node;
+			if (source === undefined) {
+				return null;
+			}
+			if (source instanceof tg.Error) {
+				let object = source.state.object;
+				return object?.kind === "error" ? kind(object.value) : null;
+			}
+			return kind(source);
+		};
+
 		export let toData = (object: tg.Error.Object): tg.Error.Data => {
 			let data: tg.Error.Data = {};
 			if (object.code !== null) {
@@ -468,6 +512,9 @@ export namespace Error {
 			}
 			if (object.diagnostics !== null) {
 				data.diagnostics = object.diagnostics.map(tg.Diagnostic.toData);
+			}
+			if (object.kind !== null) {
+				data.kind = object.kind;
 			}
 			if (object.location !== null) {
 				data.location = tg.Error.Location.toData(object.location);
@@ -506,6 +553,7 @@ export namespace Error {
 					data.diagnostics !== undefined && data.diagnostics !== null
 						? data.diagnostics.map(tg.Diagnostic.fromData)
 						: null,
+				kind: data.kind ?? null,
 				location:
 					data.location !== undefined && data.location !== null
 						? tg.Error.Location.fromData(data.location)
@@ -564,6 +612,7 @@ export namespace Error {
 	export type Data = {
 		code?: string | null;
 		diagnostics?: Array<tg.Diagnostic.Data> | null;
+		kind?: tg.Error.Kind | null;
 		location?: tg.Error.Data.Location | null;
 		message?: string | null;
 		source?: tg.Referent.Data<tg.Error.Data | tg.Error.Id> | null;
