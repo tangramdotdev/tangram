@@ -211,9 +211,7 @@ export class Symlink {
 					typeof node.artifact === "object" &&
 					"index" in node.artifact
 				) {
-					artifact = await (node.artifact.graph ?? graph).get(
-						node.artifact.index,
-					);
+					artifact = await node.artifact.graph.get(node.artifact.index);
 				} else {
 					artifact = node.artifact;
 				}
@@ -225,7 +223,6 @@ export class Symlink {
 					typeof object.artifact === "object" &&
 					"index" in object.artifact
 				) {
-					tg.assert(object.artifact.graph !== null);
 					artifact = await object.artifact.graph.get(object.artifact.index);
 				} else {
 					artifact = object.artifact;

@@ -11,7 +11,7 @@ let graph = '
 			{
 				"kind": "directory",
 				"entries": {
-					"hello.txt": { "index": 1, "kind": "file" }
+					"hello.txt": 1
 				}
 			},
 			{

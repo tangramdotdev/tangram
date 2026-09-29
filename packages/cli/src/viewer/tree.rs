@@ -698,6 +698,9 @@ impl Tree {
 					let source = match referent.node.clone() {
 						tg::module::Source::Edge(edge) => {
 							let object = match edge {
+								tg::graph::Edge::Index(_) => {
+									return Err(tg::error!("missing graph"));
+								},
 								tg::graph::Edge::Pointer(pointer) => {
 									pointer.get_with_instance(client).await?.into()
 								},
@@ -862,7 +865,7 @@ impl Tree {
 			tg::directory::Object::Pointer(pointer) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(pointer.graph.clone().unwrap().into()),
+					tg::Value::Object(pointer.graph.clone().into()),
 				),
 				(
 					"index".to_owned(),
@@ -883,6 +886,9 @@ impl Tree {
 						.into_iter()
 						.map(async |(name, artifact)| {
 							let artifact = match artifact {
+								tg::graph::Edge::Index(_) => {
+									return Err(tg::error!("missing graph"));
+								},
 								tg::graph::Edge::Pointer(pointer) => {
 									pointer.get_with_instance(client).await?
 								},
@@ -905,6 +911,9 @@ impl Tree {
 						.enumerate()
 						.map(async |(i, child)| {
 							let directory: tg::Object = match child.directory {
+								tg::graph::Edge::Index(_) => {
+									return Err(tg::error!("missing graph"));
+								},
 								tg::graph::Edge::Pointer(pointer) => {
 									pointer.get_with_instance(client).await?.into()
 								},
@@ -969,7 +978,7 @@ impl Tree {
 			tg::file::Object::Pointer(pointer) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(pointer.graph.clone().unwrap().into()),
+					tg::Value::Object(pointer.graph.clone().into()),
 				),
 				(
 					"index".to_owned(),
@@ -1005,6 +1014,9 @@ impl Tree {
 						};
 						if let Some(edge) = dependency.0.node() {
 							let node = match edge {
+								tg::graph::Edge::Index(_) => {
+									return Err(tg::error!("missing graph"));
+								},
 								tg::graph::Edge::Pointer(pointer) => {
 									pointer.get_with_instance(client).await?.into()
 								},
@@ -1103,10 +1115,10 @@ impl Tree {
 								.into_iter()
 								.map(async |(name, edge)| {
 									let value: tg::Object = match edge {
-										tg::graph::Edge::Pointer(mut pointer) => {
-											if pointer.graph.is_none() {
-												pointer.graph.replace(graph.clone());
-											}
+										tg::graph::Edge::Index(index) => {
+											graph.get_with_instance(client, index).await?.into()
+										},
+										tg::graph::Edge::Pointer(pointer) => {
 											pointer.get_with_instance(client).await?.into()
 										},
 										tg::graph::Edge::Object(artifact) => artifact.into(),
@@ -1125,10 +1137,10 @@ impl Tree {
 								.enumerate()
 								.map(async |(i, child)| {
 									let directory: tg::Object = match child.directory {
-										tg::graph::Edge::Pointer(mut pointer) => {
-											if pointer.graph.is_none() {
-												pointer.graph.replace(graph.clone());
-											}
+										tg::graph::Edge::Index(index) => {
+											graph.get_with_instance(client, index).await?.into()
+										},
+										tg::graph::Edge::Pointer(pointer) => {
 											pointer.get_with_instance(client).await?.into()
 										},
 										tg::graph::Edge::Object(directory) => directory.into(),
@@ -1169,12 +1181,11 @@ impl Tree {
 								let mut map = BTreeMap::new();
 								if let Some(edge) = dependency.0.node() {
 									let node = match edge {
+										tg::graph::Edge::Index(index) => {
+											graph.get_with_instance(client, *index).await?.into()
+										},
 										tg::graph::Edge::Pointer(pointer) => {
-											let mut pointer = pointer.clone();
-											if pointer.graph.is_none() {
-												pointer.graph.replace(graph.clone());
-											}
-											pointer.get_with_instance(client).await?.into()
+											pointer.clone().get_with_instance(client).await?.into()
 										},
 										tg::graph::Edge::Object(object) => object.clone(),
 									};
@@ -1221,10 +1232,10 @@ impl Tree {
 					tg::graph::Node::Symlink(symlink) => {
 						if let Some(artifact) = symlink.artifact {
 							let artifact = match artifact {
-								tg::graph::Edge::Pointer(mut pointer) => {
-									if pointer.graph.is_none() {
-										pointer.graph.replace(graph.clone());
-									}
+								tg::graph::Edge::Index(index) => {
+									graph.get_with_instance(client, index).await?.into()
+								},
+								tg::graph::Edge::Pointer(pointer) => {
 									pointer.get_with_instance(client).await?.into()
 								},
 								tg::graph::Edge::Object(object) => object.into(),
@@ -1563,10 +1574,7 @@ impl Tree {
 				return Err(tg::error!(%id, "expected an object or a process"));
 			},
 			tg::get::Node::Pointer(pointer) => {
-				let graph = pointer
-					.graph
-					.clone()
-					.ok_or_else(|| tg::error!("expected a graph"))?;
+				let graph = pointer.graph.clone();
 				let graph = tg::Graph::with_referent(tg::Referent::new(graph, options.clone()));
 				Item::Value(tg::Object::from(graph).into())
 			},
@@ -1798,7 +1806,7 @@ impl Tree {
 			tg::symlink::Object::Pointer(pointer) => [
 				(
 					"graph".to_owned(),
-					tg::Value::Object(pointer.graph.clone().unwrap().into()),
+					tg::Value::Object(pointer.graph.clone().into()),
 				),
 				(
 					"index".to_owned(),
@@ -1815,6 +1823,7 @@ impl Tree {
 				let mut children = Vec::new();
 				if let Some(artifact) = &node.artifact {
 					let artifact = match artifact {
+						tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 						tg::graph::Edge::Pointer(pointer) => {
 							pointer.get_with_instance(client).await?.into()
 						},

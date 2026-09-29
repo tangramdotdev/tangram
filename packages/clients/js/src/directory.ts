@@ -331,7 +331,7 @@ export class Directory {
 						tg.Object.inheritTokens(artifact, this.#state.tokens);
 						yield [name, artifact];
 					} else if ("index" in edge) {
-						let artifact = await (edge.graph ?? graph).get(edge.index);
+						let artifact = await edge.graph.get(edge.index);
 						tg.Object.inheritLocation(artifact, this.#state.location);
 						tg.Object.inheritTokens(artifact, this.#state.tokens);
 						yield [name, artifact];
@@ -358,10 +358,6 @@ export class Directory {
 			for (let [name, edge] of Object.entries(object.entries)) {
 				tg.assert(typeof edge === "object", "expected an object");
 				if (tg.Graph.Pointer.is(edge)) {
-					tg.assert(
-						edge.graph !== undefined && edge.graph !== null,
-						"missing graph",
-					);
 					let artifact = await edge.graph.get(edge.index);
 					tg.Object.inheritLocation(artifact, this.#state.location);
 					tg.Object.inheritTokens(artifact, this.#state.tokens);
@@ -387,11 +383,8 @@ export class Directory {
 	static async resolveEdge(
 		edge: tg.Graph.Edge<tg.Directory>,
 	): Promise<tg.Directory> {
+		tg.assert(typeof edge !== "number", "missing graph");
 		if (tg.Graph.Pointer.is(edge)) {
-			tg.assert(
-				edge.graph !== undefined && edge.graph !== null,
-				"missing graph for directory edge",
-			);
 			let artifact = await edge.graph.get(edge.index);
 			tg.assert(artifact instanceof tg.Directory, "expected a directory");
 			return artifact;
@@ -404,8 +397,12 @@ export class Directory {
 		edge: tg.Graph.Edge<tg.Directory>,
 		graph: tg.Graph,
 	): Promise<tg.Directory> {
-		if (tg.Graph.Pointer.is(edge)) {
-			let g = edge.graph ?? graph;
+		if (typeof edge === "number") {
+			let artifact = await graph.get(edge);
+			tg.assert(artifact instanceof tg.Directory, "expected a directory");
+			return artifact;
+		} else if (tg.Graph.Pointer.is(edge)) {
+			let g = edge.graph;
 			let artifact = await g.get(edge.index);
 			tg.assert(artifact instanceof tg.Directory, "expected a directory");
 			return artifact;

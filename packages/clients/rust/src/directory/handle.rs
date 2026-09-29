@@ -207,11 +207,11 @@ impl Directory {
 		Self::with_object(Object::Pointer(pointer))
 	}
 
-	#[must_use]
-	pub fn with_edge(edge: tg::graph::Edge<Self>) -> Self {
+	pub fn with_edge(edge: tg::graph::Edge<Self>) -> tg::Result<Self> {
 		match edge {
-			tg::graph::Edge::Pointer(pointer) => Self::with_pointer(pointer),
-			tg::graph::Edge::Object(directory) => directory,
+			tg::graph::Edge::Index(_) => Err(tg::error!("missing graph")),
+			tg::graph::Edge::Pointer(pointer) => Ok(Self::with_pointer(pointer)),
+			tg::graph::Edge::Object(directory) => Ok(directory),
 		}
 	}
 
@@ -246,7 +246,7 @@ impl Directory {
 		let tokens = self.state.tokens();
 		let entries = match object.as_ref() {
 			Object::Pointer(object) => {
-				let graph = object.graph.as_ref().unwrap();
+				let graph = &object.graph;
 				let index = object.index;
 				let object = graph.object_with_instance(instance).await?;
 				let node = object
@@ -291,30 +291,28 @@ impl Directory {
 		I: tg::Instance,
 	{
 		match directory {
-			tg::graph::Directory::Leaf(leaf) => leaf
-				.entries
-				.iter()
-				.map(|(name, edge)| {
+			tg::graph::Directory::Leaf(leaf) => {
+				let mut entries = BTreeMap::new();
+				for (name, edge) in &leaf.entries {
 					let artifact = match edge {
+						tg::graph::Edge::Index(index) => {
+							graph
+								.as_ref()
+								.ok_or_else(|| tg::error!("missing graph"))?
+								.get_with_instance(instance, *index)
+								.await?
+						},
 						tg::graph::Edge::Pointer(pointer) => {
-							let graph = pointer
-								.graph
-								.clone()
-								.or_else(|| graph.clone())
-								.ok_or_else(|| tg::error!("missing graph"))?;
-							tg::Artifact::with_pointer(tg::graph::Pointer {
-								graph: Some(graph),
-								index: pointer.index,
-								kind: pointer.kind,
-							})
+							tg::Artifact::with_pointer(pointer.clone())
 						},
 						tg::graph::Edge::Object(object) => object.clone(),
 					};
 					artifact.inherit_location(location.as_ref());
 					artifact.inherit_tokens(&tokens);
-					Ok::<_, tg::Error>((name.clone(), artifact))
-				})
-				.collect::<tg::Result<_>>(),
+					entries.insert(name.clone(), artifact);
+				}
+				Ok(entries)
+			},
 			tg::graph::Directory::Branch(branch) => {
 				let mut entries = BTreeMap::new();
 				for child in &branch.children {
@@ -332,7 +330,7 @@ impl Directory {
 	}
 
 	async fn resolve_directory_edge<I>(
-		_handle: &I,
+		instance: &I,
 		edge: &tg::graph::Edge<tg::Directory>,
 		graph: Option<tg::Graph>,
 	) -> tg::Result<tg::Directory>
@@ -340,18 +338,15 @@ impl Directory {
 		I: tg::Instance,
 	{
 		match edge {
-			tg::graph::Edge::Pointer(pointer) => {
-				let graph = pointer
-					.graph
-					.clone()
-					.or(graph)
-					.ok_or_else(|| tg::error!("missing graph"))?;
-				Ok(tg::Directory::with_pointer(tg::graph::Pointer {
-					graph: Some(graph),
-					index: pointer.index,
-					kind: tg::artifact::Kind::Directory,
-				}))
+			tg::graph::Edge::Index(index) => {
+				let graph = graph.ok_or_else(|| tg::error!("missing graph"))?;
+				graph
+					.get_with_instance(instance, *index)
+					.await?
+					.try_into()
+					.map_err(|error| tg::error!(!error, "expected a directory"))
 			},
+			tg::graph::Edge::Pointer(pointer) => Ok(tg::Directory::with_pointer(pointer.clone())),
 			tg::graph::Edge::Object(directory) => Ok(directory.clone()),
 		}
 	}
@@ -393,7 +388,7 @@ impl Directory {
 		else {
 			return Ok(None);
 		};
-		let artifact = tg::Artifact::with_edge(edge);
+		let artifact = tg::Artifact::with_edge(edge)?;
 		artifact.inherit_location(self.state.location().as_ref());
 		artifact.inherit_tokens(&self.state.tokens());
 		Ok(Some(artifact))
@@ -436,7 +431,7 @@ impl Directory {
 		let object = self.object_with_instance(instance).await?;
 		let edge = match object.as_ref() {
 			Object::Pointer(object) => {
-				let graph = object.graph.as_ref().unwrap();
+				let graph = &object.graph;
 				let index = object.index;
 				let object = graph.object_with_instance(instance).await?;
 				let node = object
@@ -490,19 +485,16 @@ impl Directory {
 		match directory {
 			tg::graph::Directory::Leaf(leaf) => match leaf.entries.get(name) {
 				None => Ok(None),
-				Some(tg::graph::Edge::Pointer(pointer)) => {
-					let graph = pointer
-						.graph
-						.clone()
-						.or(graph)
-						.ok_or_else(|| tg::error!("missing graph"))?;
+				Some(tg::graph::Edge::Index(index)) => {
+					let graph = graph.ok_or_else(|| tg::error!("missing graph"))?;
 					graph.state().inherit_location(location);
 					graph.state().inherit_tokens(tokens);
-					Ok(Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
-						graph: Some(graph),
-						index: pointer.index,
-						kind: pointer.kind,
-					})))
+					Ok(Some(graph.get_edge_with_instance(instance, *index).await?))
+				},
+				Some(tg::graph::Edge::Pointer(pointer)) => {
+					pointer.graph.state().inherit_location(location);
+					pointer.graph.state().inherit_tokens(tokens);
+					Ok(Some(tg::graph::Edge::Pointer(pointer.clone())))
 				},
 				Some(tg::graph::Edge::Object(object)) => {
 					object.inherit_location(location);
@@ -544,7 +536,7 @@ impl Directory {
 		I: tg::Instance,
 	{
 		let edge = self.get_edge_with_instance(instance, path).await?;
-		let artifact = tg::Artifact::with_edge(edge);
+		let artifact = tg::Artifact::with_edge(edge)?;
 		artifact.inherit_location(self.state.location().as_ref());
 		artifact.inherit_tokens(&self.state.tokens());
 		Ok(artifact)
@@ -564,7 +556,7 @@ impl Directory {
 		I: tg::Instance,
 	{
 		let edge = self.try_get_edge_with_instance(instance, path).await?;
-		let artifact = edge.map(tg::Artifact::with_edge);
+		let artifact = edge.map(tg::Artifact::with_edge).transpose()?;
 		if let Some(artifact) = &artifact {
 			artifact.inherit_location(self.state.location().as_ref());
 			artifact.inherit_tokens(&self.state.tokens());
@@ -668,7 +660,7 @@ impl Directory {
 			};
 			parents.push(directory.clone());
 			edge = entry_edge.clone();
-			artifact = tg::Artifact::with_edge(entry_edge);
+			artifact = tg::Artifact::with_edge(entry_edge)?;
 			artifact.inherit_location(directory.state().location().as_ref());
 			artifact.inherit_tokens(&directory.state().tokens());
 

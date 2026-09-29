@@ -10,7 +10,7 @@ let graph = '
 		"nodes": [
 			{
 				"kind": "symlink",
-				"artifact": { "index": 1, "kind": "file" }
+				"artifact": 1
 			},
 			{
 				"kind": "file",

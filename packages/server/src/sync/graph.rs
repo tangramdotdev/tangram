@@ -801,7 +801,7 @@ impl Graph {
 						continue;
 					};
 					let pointer = tg::graph::data::Pointer {
-						graph: Some(graph_id.clone()),
+						graph: graph_id.clone(),
 						index,
 						kind: tg::artifact::Kind::File,
 					};
@@ -810,7 +810,8 @@ impl Graph {
 						continue;
 					};
 					let id = tg::file::Id::new(&bytes);
-					let dependencies = Self::checkout_file_dependencies(file, Some(&graph_id));
+					let dependencies =
+						Self::checkout_file_dependencies(file, Some((&graph_id, graph)));
 					self.insert_checkout_file(contents.clone(), dependencies, id, file.executable);
 				}
 			},
@@ -820,36 +821,39 @@ impl Graph {
 
 	fn checkout_file_dependencies(
 		file: &tg::graph::data::File,
-		graph: Option<&tg::graph::Id>,
+		graph: Option<(&tg::graph::Id, &tg::graph::Data)>,
 	) -> Vec<tg::Id> {
 		file.dependencies
 			.values()
 			.flatten()
 			.filter_map(|dependency| dependency.node.as_ref())
-			.filter_map(|edge| match edge {
-				tg::graph::data::Edge::Object(id) => {
-					tg::artifact::Id::try_from(id.clone()).ok().map(Into::into)
-				},
-				tg::graph::data::Edge::Pointer(pointer) => {
-					let mut pointer = pointer.clone();
-					if pointer.graph.is_none() {
-						pointer.graph = graph.cloned();
-					}
-					pointer.graph.as_ref()?;
-					let kind = pointer.kind;
-					let bytes = match kind {
-						tg::artifact::Kind::Directory => {
-							tg::directory::Data::Pointer(pointer).serialize().ok()?
-						},
-						tg::artifact::Kind::File => {
-							tg::file::Data::Pointer(pointer).serialize().ok()?
-						},
-						tg::artifact::Kind::Symlink => {
-							tg::symlink::Data::Pointer(pointer).serialize().ok()?
-						},
-					};
-					Some(tg::Id::from(tg::artifact::Id::new(kind, &bytes)))
-				},
+			.filter_map(|edge| {
+				let edge = match graph {
+					Some((id, graph)) => edge.clone().resolve(id, graph).ok()?,
+					None => edge.clone(),
+				};
+				match edge {
+					tg::graph::data::Edge::Index(_) => None,
+					tg::graph::data::Edge::Object(id) => {
+						tg::artifact::Id::try_from(id.clone()).ok().map(Into::into)
+					},
+					tg::graph::data::Edge::Pointer(pointer) => {
+						let pointer = pointer.clone();
+						let kind = pointer.kind;
+						let bytes = match kind {
+							tg::artifact::Kind::Directory => {
+								tg::directory::Data::Pointer(pointer).serialize().ok()?
+							},
+							tg::artifact::Kind::File => {
+								tg::file::Data::Pointer(pointer).serialize().ok()?
+							},
+							tg::artifact::Kind::Symlink => {
+								tg::symlink::Data::Pointer(pointer).serialize().ok()?
+							},
+						};
+						Some(tg::Id::from(tg::artifact::Id::new(kind, &bytes)))
+					},
+				}
 			})
 			.collect()
 	}

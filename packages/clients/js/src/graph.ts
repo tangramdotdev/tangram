@@ -172,13 +172,6 @@ export class Graph {
 								let entry = argNode.entries[name];
 								if (typeof entry === "number") {
 									node.entries[name] = entry + offset;
-								} else if (
-									typeof entry === "object" &&
-									"index" in entry &&
-									(entry.graph === undefined || entry.graph === null)
-								) {
-									entry.index += offset;
-									node.entries[name] = entry;
 								} else if (entry) {
 									node.entries[name] = entry;
 								}
@@ -224,15 +217,7 @@ export class Graph {
 										node: dependency.node + offset,
 										options: dependency.options ?? {},
 									};
-								} else if ("index" in dependency.node) {
-									node.dependencies[reference] = {
-										node: {
-											...dependency.node,
-											index: dependency.node.index + offset,
-										},
-										options: dependency.options ?? {},
-									};
-								} else if (tg.Object.is(dependency.node)) {
+								} else {
 									node.dependencies[reference] = dependency;
 								}
 							}
@@ -251,15 +236,6 @@ export class Graph {
 					let artifact: tg.Graph.Arg.Edge<tg.Artifact> | null | undefined;
 					if (typeof argNode.artifact === "number") {
 						artifact = argNode.artifact + offset;
-					} else if (
-						argNode.artifact !== undefined &&
-						argNode.artifact !== null &&
-						"index" in argNode.artifact
-					) {
-						artifact = {
-							...argNode.artifact,
-							index: argNode.artifact.index + offset,
-						};
 					} else {
 						artifact = argNode.artifact;
 					}
@@ -439,24 +415,21 @@ export namespace Graph {
 			path?: string | null;
 		};
 
-		export type Edge<T> = tg.Graph.Arg.Pointer | T;
+		export type Edge<T> = number | tg.Graph.Arg.Pointer | T;
 
-		export type Pointer =
-			| number
-			| {
-					graph?: tg.Graph | null;
-					index: number;
-					kind?: tg.Artifact.Kind | null;
-			  };
+		export type Pointer = {
+			graph: tg.Graph;
+			index: number;
+			kind: tg.Artifact.Kind;
+		};
 
 		export namespace Pointer {
 			export let is = (value: unknown): value is tg.Graph.Arg.Pointer => {
 				return (
-					typeof value === "number" ||
-					(typeof value === "object" &&
-						value !== null &&
-						"index" in value &&
-						typeof value.index === "number")
+					typeof value === "object" &&
+					value !== null &&
+					"index" in value &&
+					typeof value.index === "number"
 				);
 			};
 		}
@@ -860,7 +833,7 @@ export namespace Graph {
 		};
 	}
 
-	export type Edge<T> = tg.Graph.Pointer | T;
+	export type Edge<T> = number | tg.Graph.Pointer | T;
 
 	export namespace Edge {
 		export let fromArg = <T>(
@@ -868,42 +841,13 @@ export namespace Graph {
 			nodes?: Array<tg.Graph.Arg.Node>,
 		): tg.Graph.Edge<T> => {
 			if (typeof arg === "number") {
-				if (nodes === undefined) {
-					throw new Error(
-						"cannot convert number to edge without nodes context",
-					);
-				}
-				let kind = nodes[arg]?.kind;
-				if (!kind) {
-					throw new Error(`invalid node index: ${arg}`);
-				}
-				return { graph: null, index: arg, kind };
-			} else if (
-				typeof arg === "object" &&
-				arg !== null &&
-				"index" in arg &&
-				typeof arg.index === "number"
-			) {
-				let reference = arg as {
-					graph?: tg.Graph | null;
-					index: number;
-					kind?: tg.Artifact.Kind | null;
-				};
-				if (reference.kind !== undefined && reference.kind !== null) {
-					return {
-						graph: reference.graph ?? null,
-						index: reference.index,
-						kind: reference.kind,
-					};
-				}
-				if (nodes === undefined) {
-					throw new Error("cannot infer kind without nodes context");
-				}
-				let kind = nodes[reference.index]?.kind;
-				if (!kind) {
-					throw new Error(`invalid node index: ${reference.index}`);
-				}
-				return { graph: reference.graph ?? null, index: reference.index, kind };
+				tg.assert(
+					Number.isSafeInteger(arg) && arg >= 0 && nodes?.[arg] !== undefined,
+					"invalid node index",
+				);
+				return arg;
+			} else if (tg.Graph.Arg.Pointer.is(arg)) {
+				return tg.Graph.Pointer.fromArg(arg);
 			} else {
 				return arg as T;
 			}
@@ -913,7 +857,9 @@ export namespace Graph {
 			object: tg.Graph.Edge<T>,
 			f: (node: T) => U,
 		): tg.Graph.Data.Edge<U> => {
-			if (tg.Graph.Pointer.is(object)) {
+			if (typeof object === "number") {
+				return object;
+			} else if (tg.Graph.Pointer.is(object)) {
 				return tg.Graph.Pointer.toData(object);
 			} else {
 				return f(object);
@@ -924,6 +870,16 @@ export namespace Graph {
 			data: tg.Graph.Data.Edge<T>,
 			f: (node: T) => U,
 		): tg.Graph.Edge<U> => {
+			if (typeof data === "number") {
+				tg.assert(
+					Number.isSafeInteger(data) && data >= 0,
+					"invalid node index",
+				);
+				return data;
+			}
+			if (typeof data === "string") {
+				return tg.Graph.Edge.fromDataString(data, (node) => f(node as T));
+			}
 			if (tg.Graph.Data.Pointer.is(data)) {
 				try {
 					return tg.Graph.Pointer.fromData(data);
@@ -936,7 +892,9 @@ export namespace Graph {
 			object: tg.Graph.Edge<T>,
 			f: (node: T) => U,
 		): string => {
-			if (tg.Graph.Pointer.is(object)) {
+			if (typeof object === "number") {
+				return String(object);
+			} else if (tg.Graph.Pointer.is(object)) {
 				return tg.Graph.Pointer.toDataString(object);
 			} else {
 				return f(object);
@@ -947,7 +905,11 @@ export namespace Graph {
 			data: string,
 			f: (node: string) => T,
 		): tg.Graph.Edge<T> => {
-			if (data.includes("index=")) {
+			if (/^\d+$/.test(data)) {
+				let index = Number(data);
+				tg.assert(Number.isSafeInteger(index), "invalid node index");
+				return index;
+			} else if (data.includes("index=")) {
 				return tg.Graph.Pointer.fromDataString(data);
 			} else {
 				return f(data);
@@ -966,7 +928,7 @@ export namespace Graph {
 	}
 
 	export type Pointer = {
-		graph: tg.Graph | null;
+		graph: tg.Graph;
 		index: number;
 		kind: tg.Artifact.Kind;
 	};
@@ -984,43 +946,34 @@ export namespace Graph {
 		};
 
 		export let fromArg = (arg: tg.Graph.Arg.Pointer): tg.Graph.Pointer => {
-			if (
-				typeof arg === "number" ||
-				arg.kind === undefined ||
-				arg.kind === null
-			) {
-				throw new Error("expected the kind field to be set");
-			}
-			return {
-				graph: arg.graph ?? null,
-				index: arg.index,
-				kind: arg.kind,
-			};
+			tg.assert(arg.graph instanceof tg.Graph, "missing graph");
+			tg.assert(
+				Number.isSafeInteger(arg.index) && arg.index >= 0,
+				"invalid node index",
+			);
+			tg.assert(arg.kind !== undefined && arg.kind !== null, "missing kind");
+			return { graph: arg.graph, index: arg.index, kind: arg.kind };
 		};
 
 		export let toData = (object: tg.Graph.Pointer): tg.Graph.Data.Pointer => {
-			let data: { graph?: tg.Graph.Id; index: number; kind: tg.Artifact.Kind };
-			if (object.graph !== null) {
-				data = {
-					graph: object.graph.id,
-					index: object.index,
-					kind: object.kind,
-				};
-			} else {
-				data = { index: object.index, kind: object.kind };
-			}
-			return data;
+			return { graph: object.graph.id, index: object.index, kind: object.kind };
 		};
 
 		export let fromData = (data: tg.Graph.Data.Pointer): tg.Graph.Pointer => {
 			if (typeof data === "string") {
 				return tg.Graph.Pointer.fromDataString(data);
 			} else {
+				tg.assert(typeof data.graph === "string", "missing graph");
+				tg.assert(
+					data.kind !== undefined && data.kind !== null,
+					"missing kind",
+				);
+				tg.assert(
+					Number.isSafeInteger(data.index) && data.index >= 0,
+					"invalid node index",
+				);
 				return {
-					graph:
-						data.graph !== undefined && data.graph !== null
-							? tg.Graph.withId(data.graph)
-							: null,
+					graph: tg.Graph.withId(data.graph),
 					index: data.index,
 					kind: data.kind,
 				};
@@ -1028,10 +981,7 @@ export namespace Graph {
 		};
 
 		export let toDataString = (object: tg.Graph.Pointer): string => {
-			let string = "";
-			if (object.graph !== null) {
-				string += `graph=${object.graph.id}&`;
-			}
+			let string = `graph=${object.graph.id}&`;
 			string += `index=${object.index}`;
 			string += `&kind=${object.kind}`;
 			return string;
@@ -1052,7 +1002,7 @@ export namespace Graph {
 						break;
 					}
 					case "index": {
-						index = Number.parseInt(decodeURIComponent(value), 10);
+						index = Number(decodeURIComponent(value));
 						break;
 					}
 					case "kind": {
@@ -1066,15 +1016,16 @@ export namespace Graph {
 			}
 			tg.assert(index !== undefined, "missing index");
 			tg.assert(kind !== undefined, "missing kind");
-			return { graph: graph ?? null, index, kind };
+			tg.assert(graph !== undefined, "missing graph");
+			tg.assert(
+				Number.isSafeInteger(index) && index >= 0,
+				"invalid node index",
+			);
+			return { graph, index, kind };
 		};
 
 		export let children = (object: tg.Graph.Pointer): Array<tg.Object> => {
-			if (object.graph !== null) {
-				return [object.graph];
-			} else {
-				return [];
-			}
+			return [object.graph];
 		};
 	}
 
@@ -1249,13 +1200,18 @@ export namespace Graph {
 			};
 		}
 
-		export type Edge<T> = tg.Graph.Data.Pointer | T;
+		export type Edge<T> = number | tg.Graph.Data.Pointer | T;
 
 		export namespace Edge {
 			export let children = <T extends string>(
 				data: tg.Graph.Data.Edge<T>,
 			): Array<tg.Object.Id> => {
-				if (typeof data === "string") {
+				if (
+					typeof data === "number" ||
+					(typeof data === "string" && /^\d+$/.test(data))
+				) {
+					return [];
+				} else if (typeof data === "string") {
 					if (data.includes("index=")) {
 						return tg.Graph.Data.Pointer.children(data);
 					} else {
@@ -1270,7 +1226,7 @@ export namespace Graph {
 		export type Pointer =
 			| string
 			| {
-					graph?: tg.Graph.Id | null;
+					graph: tg.Graph.Id;
 					index: number;
 					kind: tg.Artifact.Kind;
 			  };
@@ -1278,7 +1234,6 @@ export namespace Graph {
 		export namespace Pointer {
 			export let is = (value: unknown): value is tg.Graph.Data.Pointer => {
 				return (
-					typeof value === "number" ||
 					typeof value === "string" ||
 					(typeof value === "object" &&
 						value !== null &&
@@ -1298,10 +1253,8 @@ export namespace Graph {
 						}
 					}
 					return [];
-				} else if (data.graph !== undefined && data.graph !== null) {
-					return [data.graph];
 				} else {
-					return [];
+					return [data.graph];
 				}
 			};
 		}

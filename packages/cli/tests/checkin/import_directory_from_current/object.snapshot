@@ -7,10 +7,7 @@ tg.directory({
           "contents": tg.blob("import a from \".\";"),
           "dependencies": {
             ".": {
-              "node": {
-                "index": 1,
-                "kind": "directory",
-              },
+              "node": 1,
               "options": {
                 "path": ".",
               },
@@ -21,10 +18,7 @@ tg.directory({
         {
           "kind": "directory",
           "entries": {
-            "mod.tg.ts": {
-              "index": 0,
-              "kind": "file",
-            },
+            "mod.tg.ts": 0,
           },
         },
       ],

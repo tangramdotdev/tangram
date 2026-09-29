@@ -2504,13 +2504,31 @@ impl Provider {
 		default_graph: Option<&tg::graph::Id>,
 	) -> std::io::Result<ArtifactInfo> {
 		match edge {
+			tg::graph::data::Edge::Index(index) => {
+				let graph =
+					default_graph.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOSYS))?;
+				let data = self.graph_data_sync_inner(tokens, graph, None)?;
+				let node = data
+					.nodes
+					.get(index)
+					.ok_or_else(|| std::io::Error::from_raw_os_error(libc::EIO))?;
+				let pointer = tg::graph::data::Pointer {
+					graph: graph.clone(),
+					index,
+					kind: node.kind(),
+				};
+				self.artifact_from_pointer_inner(
+					tokens,
+					&pointer,
+					Some(tg::artifact::Kind::Directory),
+				)
+			},
 			tg::graph::data::Edge::Object(directory) => {
 				Ok(Self::artifact(directory.into(), tokens))
 			},
 			tg::graph::data::Edge::Pointer(pointer) => self.artifact_from_pointer_inner(
 				tokens,
 				&pointer,
-				default_graph,
 				Some(tg::artifact::Kind::Directory),
 			),
 		}
@@ -2523,9 +2541,24 @@ impl Provider {
 		default_graph: Option<&tg::graph::Id>,
 	) -> std::io::Result<ArtifactInfo> {
 		match edge {
+			tg::graph::data::Edge::Index(index) => {
+				let graph =
+					default_graph.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOSYS))?;
+				let data = self.graph_data_sync_inner(tokens, graph, None)?;
+				let node = data
+					.nodes
+					.get(index)
+					.ok_or_else(|| std::io::Error::from_raw_os_error(libc::EIO))?;
+				let pointer = tg::graph::data::Pointer {
+					graph: graph.clone(),
+					index,
+					kind: node.kind(),
+				};
+				self.artifact_from_pointer_inner(tokens, &pointer, None)
+			},
 			tg::graph::data::Edge::Object(id) => Ok(Self::artifact(id, tokens)),
 			tg::graph::data::Edge::Pointer(pointer) => {
-				self.artifact_from_pointer_inner(tokens, &pointer, default_graph, None)
+				self.artifact_from_pointer_inner(tokens, &pointer, None)
 			},
 		}
 	}
@@ -2534,7 +2567,6 @@ impl Provider {
 		&self,
 		tokens: &Mutex<Vec<tg::authorization::Token>>,
 		pointer: &tg::graph::data::Pointer,
-		default_graph: Option<&tg::graph::Id>,
 		expected_kind: Option<tg::artifact::Kind>,
 	) -> std::io::Result<ArtifactInfo> {
 		if let Some(expected_kind) = expected_kind
@@ -2543,8 +2575,8 @@ impl Provider {
 			tracing::error!(kind = ?pointer.kind, expected = ?expected_kind, "invalid pointer kind");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		}
-		let graph = Self::graph_id_from_pointer_inner(pointer, default_graph)?;
-		let pointer = Self::pointer_with_graph_inner(pointer, default_graph)?;
+		let graph = pointer.graph.clone();
+		let pointer = pointer.clone();
 		let kind = pointer.kind;
 		let data: tg::artifact::data::Artifact = match kind {
 			tg::artifact::Kind::Directory => tg::directory::Data::Pointer(pointer).into(),
@@ -2743,9 +2775,7 @@ impl Provider {
 		match directory {
 			tg::directory::Data::Node(node) => Ok((node, None)),
 			tg::directory::Data::Pointer(pointer) => {
-				let (node, graph) = self
-					.resolve_graph_node_inner(&tokens, &pointer, None)
-					.await?;
+				let (node, graph) = self.resolve_graph_node_inner(&tokens, &pointer).await?;
 				let tg::graph::data::Node::Directory(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected directory node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -2768,9 +2798,7 @@ impl Provider {
 		match file {
 			tg::file::Data::Node(node) => Ok((node, None)),
 			tg::file::Data::Pointer(pointer) => {
-				let (node, graph) = self
-					.resolve_graph_node_inner(&tokens, &pointer, None)
-					.await?;
+				let (node, graph) = self.resolve_graph_node_inner(&tokens, &pointer).await?;
 				let tg::graph::data::Node::File(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected file node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -2795,46 +2823,12 @@ impl Provider {
 		})
 	}
 
-	fn graph_id_from_pointer_inner(
-		pointer: &tg::graph::data::Pointer,
-		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<tg::graph::Id> {
-		pointer
-			.graph
-			.clone()
-			.or_else(|| default_graph.cloned())
-			.ok_or_else(|| {
-				tracing::error!(pointer = ?pointer, "missing pointer graph");
-				std::io::Error::from_raw_os_error(libc::ENOSYS)
-			})
-	}
-
-	fn pointer_with_graph_inner(
-		pointer: &tg::graph::data::Pointer,
-		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<tg::graph::data::Pointer> {
-		let graph = pointer
-			.graph
-			.clone()
-			.or_else(|| default_graph.cloned())
-			.ok_or_else(|| {
-				tracing::error!(pointer = ?pointer, "missing pointer graph");
-				std::io::Error::from_raw_os_error(libc::ENOSYS)
-			})?;
-		Ok(tg::graph::data::Pointer {
-			graph: Some(graph),
-			index: pointer.index,
-			kind: pointer.kind,
-		})
-	}
-
 	async fn resolve_graph_node_inner(
 		&self,
 		tokens: &Mutex<Vec<tg::authorization::Token>>,
 		pointer: &tg::graph::data::Pointer,
-		default_graph: Option<&tg::graph::Id>,
 	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
-		let graph = Self::graph_id_from_pointer_inner(pointer, default_graph)?;
+		let graph = pointer.graph.clone();
 		let graph_data = self.graph_data_inner(tokens, &graph).await?;
 		let node = graph_data
 			.nodes
@@ -2869,9 +2863,7 @@ impl Provider {
 		match symlink {
 			tg::symlink::Data::Node(node) => Ok((node, None)),
 			tg::symlink::Data::Pointer(pointer) => {
-				let (node, graph) = self
-					.resolve_graph_node_inner(&tokens, &pointer, None)
-					.await?;
+				let (node, graph) = self.resolve_graph_node_inner(&tokens, &pointer).await?;
 				let tg::graph::data::Node::Symlink(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected symlink node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -3146,10 +3138,9 @@ impl Provider {
 		&self,
 		tokens: &Mutex<Vec<tg::authorization::Token>>,
 		pointer: &tg::graph::data::Pointer,
-		default_graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
-		let graph = Self::graph_id_from_pointer_inner(pointer, default_graph)?;
+		let graph = pointer.graph.clone();
 		let graph_data = self.graph_data_sync_inner(tokens, &graph, transaction)?;
 		let node = graph_data
 			.nodes
@@ -3212,7 +3203,7 @@ impl Provider {
 			tg::directory::Data::Node(node) => Ok((node, None)),
 			tg::directory::Data::Pointer(pointer) => {
 				let (node, graph) =
-					self.resolve_graph_node_sync_inner(&tokens, &pointer, None, transaction)?;
+					self.resolve_graph_node_sync_inner(&tokens, &pointer, transaction)?;
 				let tg::graph::data::Node::Directory(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected directory node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -3359,7 +3350,7 @@ impl Provider {
 			tg::file::Data::Node(node) => Ok((node, None)),
 			tg::file::Data::Pointer(pointer) => {
 				let (node, graph) =
-					self.resolve_graph_node_sync_inner(&tokens, &pointer, None, transaction)?;
+					self.resolve_graph_node_sync_inner(&tokens, &pointer, transaction)?;
 				let tg::graph::data::Node::File(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected file node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -3384,7 +3375,7 @@ impl Provider {
 			tg::symlink::Data::Node(node) => Ok((node, None)),
 			tg::symlink::Data::Pointer(pointer) => {
 				let (node, graph) =
-					self.resolve_graph_node_sync_inner(&tokens, &pointer, None, transaction)?;
+					self.resolve_graph_node_sync_inner(&tokens, &pointer, transaction)?;
 				let tg::graph::data::Node::Symlink(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected symlink node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));

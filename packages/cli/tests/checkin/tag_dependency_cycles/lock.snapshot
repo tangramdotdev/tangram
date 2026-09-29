@@ -3,32 +3,23 @@
     {
       "kind": "directory",
       "entries": {
-        "tangram.ts": {
-          "index": 1,
-          "kind": "file"
-        }
+        "tangram.ts": 1
       }
     },
     {
       "kind": "file",
       "dependencies": {
         "a/*": {
-          "node": {
-            "index": 2,
-            "kind": "directory"
-          },
+          "node": 2,
           "options": {
-            "id": "dir_0135kbamcghazyna7xheanjvnys7k329hr1vfzgqz8hn5j6syek7ag",
+            "id": "dir_01gs8dswq2tzf9ttdt1jnr056shd411ffj50arcd8hh7z1z9tkz5f0",
             "tag": "a/1.1.0"
           }
         },
         "b/*": {
-          "node": {
-            "index": 3,
-            "kind": "directory"
-          },
+          "node": 3,
           "options": {
-            "id": "dir_01360th8eeataam6zepbwmpy36bt1rjxwt1wky6d1n61qg1jb3mc90",
+            "id": "dir_01p1z3xw3cs0d43qx3efwgnsecnq1txxswnac9yy1gjzcccddqav70",
             "tag": "b/1.0.0"
           }
         }
@@ -38,35 +29,23 @@
     {
       "kind": "directory",
       "entries": {
-        "tangram.ts": {
-          "index": 4,
-          "kind": "file"
-        }
+        "tangram.ts": 4
       }
     },
     {
       "kind": "directory",
       "entries": {
-        "foo.tg.ts": {
-          "index": 5,
-          "kind": "file"
-        },
-        "tangram.ts": {
-          "index": 6,
-          "kind": "file"
-        }
+        "foo.tg.ts": 5,
+        "tangram.ts": 6
       }
     },
     {
       "kind": "file",
       "dependencies": {
         "b/*": {
-          "node": {
-            "index": 3,
-            "kind": "directory"
-          },
+          "node": 3,
           "options": {
-            "id": "dir_01360th8eeataam6zepbwmpy36bt1rjxwt1wky6d1n61qg1jb3mc90",
+            "id": "dir_01p1z3xw3cs0d43qx3efwgnsecnq1txxswnac9yy1gjzcccddqav70",
             "tag": "b/1.0.0"
           }
         }
@@ -77,10 +56,7 @@
       "kind": "file",
       "dependencies": {
         "./tangram.ts": {
-          "node": {
-            "index": 6,
-            "kind": "file"
-          },
+          "node": 6,
           "options": {
             "path": "tangram.ts"
           }
@@ -92,21 +68,15 @@
       "kind": "file",
       "dependencies": {
         "./foo.tg.ts": {
-          "node": {
-            "index": 5,
-            "kind": "file"
-          },
+          "node": 5,
           "options": {
             "path": "foo.tg.ts"
           }
         },
         "a/*": {
-          "node": {
-            "index": 2,
-            "kind": "directory"
-          },
+          "node": 2,
           "options": {
-            "id": "dir_0135kbamcghazyna7xheanjvnys7k329hr1vfzgqz8hn5j6syek7ag",
+            "id": "dir_01gs8dswq2tzf9ttdt1jnr056shd411ffj50arcd8hh7z1z9tkz5f0",
             "tag": "a/1.1.0"
           }
         }

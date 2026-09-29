@@ -495,25 +495,25 @@ impl Session {
 								}
 								artifacts.push(id.clone());
 							},
+							tg::graph::data::Edge::Index(target_index) => {
+								stack.push(*target_index);
+							},
 							tg::graph::data::Edge::Pointer(pointer) => {
-								if let Some(id) = &pointer.graph {
-									let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
-										graph: Some(tg::Graph::with_id(id.clone())),
-										index: pointer.index,
-										kind: pointer.kind,
-									})
-									.id();
-									if will_checkout.contains(&artifact) {
-										continue;
-									}
-									let data = graph_data.get(id);
-									let ids = self.graph_ids(id, data).await.map_err(|error| {
-										tg::error!(!error, "failed to get the graph ids")
-									})?;
-									artifacts.extend(ids);
-								} else {
-									stack.push(pointer.index);
+								let id = &pointer.graph;
+								let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
+									graph: tg::Graph::with_id(id.clone()),
+									index: pointer.index,
+									kind: pointer.kind,
+								})
+								.id();
+								if will_checkout.contains(&artifact) {
+									continue;
 								}
+								let data = graph_data.get(id);
+								let ids = self.graph_ids(id, data).await.map_err(|error| {
+									tg::error!(!error, "failed to get the graph ids")
+								})?;
+								artifacts.extend(ids);
 							},
 						}
 					}
@@ -534,27 +534,25 @@ impl Session {
 									}
 									artifacts.push(id.clone());
 								},
+								tg::graph::data::Edge::Index(target_index) => {
+									stack.push(*target_index);
+								},
 								tg::graph::data::Edge::Pointer(pointer) => {
-									if let Some(id) = &pointer.graph {
-										let artifact =
-											tg::Artifact::with_pointer(tg::graph::Pointer {
-												graph: Some(tg::Graph::with_id(id.clone())),
-												index: pointer.index,
-												kind: pointer.kind,
-											})
-											.id();
-										if will_checkout.contains(&artifact) {
-											continue;
-										}
-										let data = graph_data.get(id);
-										let ids =
-											self.graph_ids(id, data).await.map_err(|error| {
-												tg::error!(!error, "failed to get the graph ids")
-											})?;
-										artifacts.extend(ids);
-									} else {
-										stack.push(pointer.index);
+									let id = &pointer.graph;
+									let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
+										graph: tg::Graph::with_id(id.clone()),
+										index: pointer.index,
+										kind: pointer.kind,
+									})
+									.id();
+									if will_checkout.contains(&artifact) {
+										continue;
 									}
+									let data = graph_data.get(id);
+									let ids = self.graph_ids(id, data).await.map_err(|error| {
+										tg::error!(!error, "failed to get the graph ids")
+									})?;
+									artifacts.extend(ids);
 								},
 							}
 						}
@@ -573,25 +571,25 @@ impl Session {
 								}
 								artifacts.push(id.clone());
 							},
+							tg::graph::data::Edge::Index(target_index) => {
+								stack.push(*target_index);
+							},
 							tg::graph::data::Edge::Pointer(pointer) => {
-								if let Some(id) = &pointer.graph {
-									let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
-										graph: Some(tg::Graph::with_id(id.clone())),
-										index: pointer.index,
-										kind: pointer.kind,
-									})
-									.id();
-									if will_checkout.contains(&artifact) {
-										continue;
-									}
-									let data = graph_data.get(id);
-									let ids = self.graph_ids(id, data).await.map_err(|error| {
-										tg::error!(!error, "failed to get the graph ids")
-									})?;
-									artifacts.extend(ids);
-								} else {
-									stack.push(pointer.index);
+								let id = &pointer.graph;
+								let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
+									graph: tg::Graph::with_id(id.clone()),
+									index: pointer.index,
+									kind: pointer.kind,
+								})
+								.id();
+								if will_checkout.contains(&artifact) {
+									continue;
 								}
+								let data = graph_data.get(id);
+								let ids = self.graph_ids(id, data).await.map_err(|error| {
+									tg::error!(!error, "failed to get the graph ids")
+								})?;
+								artifacts.extend(ids);
 							},
 						}
 					}
@@ -645,7 +643,7 @@ impl Session {
 		let mut nodes = Vec::with_capacity(data.nodes.len());
 		for (index, node) in data.nodes.into_iter().enumerate() {
 			let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
-				graph: Some(graph.clone()),
+				graph: graph.clone(),
 				index,
 				kind: node.kind(),
 			});

@@ -210,11 +210,11 @@ impl File {
 		Self::with_object(Object::Pointer(pointer))
 	}
 
-	#[must_use]
-	pub fn with_edge(edge: tg::graph::Edge<Self>) -> Self {
+	pub fn with_edge(edge: tg::graph::Edge<Self>) -> tg::Result<Self> {
 		match edge {
-			tg::graph::Edge::Pointer(pointer) => Self::with_pointer(pointer),
-			tg::graph::Edge::Object(file) => file,
+			tg::graph::Edge::Index(_) => Err(tg::error!("missing graph")),
+			tg::graph::Edge::Pointer(pointer) => Ok(Self::with_pointer(pointer)),
+			tg::graph::Edge::Object(file) => Ok(file),
 		}
 	}
 
@@ -230,7 +230,7 @@ impl File {
 		let object = self.object_with_instance(instance).await?;
 		let contents = match object.as_ref() {
 			Object::Pointer(object) => {
-				let graph = object.graph.as_ref().unwrap();
+				let graph = &object.graph;
 				let index = object.index;
 				let object = graph.object_with_instance(instance).await?;
 				let node = object
@@ -273,7 +273,7 @@ impl File {
 		let tokens = self.state.tokens();
 		let dependencies = match object.as_ref() {
 			Object::Pointer(pointer) => {
-				let graph = pointer.graph.as_ref().unwrap();
+				let graph = &pointer.graph;
 				let index = pointer.index;
 				let object = graph.object_with_instance(instance).await?;
 				let node = object
@@ -293,14 +293,11 @@ impl File {
 								break 'a None;
 							};
 							let object = match dependency.0.node.clone() {
+								Some(tg::graph::Edge::Index(index)) => {
+									graph.get_with_instance(instance, index).await?.into()
+								},
 								Some(tg::graph::Edge::Pointer(pointer)) => {
-									let graph = pointer.graph.unwrap_or_else(|| graph.clone());
-									tg::Artifact::with_pointer(tg::graph::Pointer {
-										graph: Some(graph),
-										index: pointer.index,
-										kind: pointer.kind,
-									})
-									.into()
+									tg::Artifact::with_pointer(pointer).into()
 								},
 								Some(tg::graph::Edge::Object(object)) => object,
 								None => {
@@ -334,16 +331,11 @@ impl File {
 								break 'a None;
 							};
 							let object: tg::Object = match dependency.0.node.clone() {
+								Some(tg::graph::Edge::Index(_index)) => {
+									return Err(tg::error!("missing graph"));
+								},
 								Some(tg::graph::Edge::Pointer(pointer)) => {
-									let graph = pointer
-										.graph
-										.ok_or_else(|| tg::error!("expected a graph"))?;
-									tg::Artifact::with_pointer(tg::graph::Pointer {
-										graph: Some(graph),
-										index: pointer.index,
-										kind: pointer.kind,
-									})
-									.into()
+									tg::Artifact::with_pointer(pointer).into()
 								},
 								Some(tg::graph::Edge::Object(object)) => object,
 								None => {
@@ -416,6 +408,7 @@ impl File {
 			return Ok(None);
 		};
 		let node = match dependency.0.node {
+			Some(tg::graph::Edge::Index(_)) => return Err(tg::error!("missing graph")),
 			Some(tg::graph::Edge::Pointer(pointer)) => {
 				let object: tg::Object = tg::Artifact::with_pointer(pointer).into();
 				object.inherit_location(
@@ -490,10 +483,11 @@ impl File {
 	where
 		I: tg::Instance,
 	{
+		let reference = reference.without_token();
 		let object = self.object_with_instance(instance).await?;
 		let dependency = match object.as_ref() {
 			Object::Pointer(pointer) => {
-				let graph = pointer.graph.as_ref().unwrap();
+				let graph = &pointer.graph;
 				let index = pointer.index;
 				let object = graph.object_with_instance(instance).await?;
 				let node = object
@@ -504,20 +498,18 @@ impl File {
 					.try_unwrap_file_ref()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				let Some(dependency) = file.dependencies.get(reference).ok_or_else(
+				let Some(dependency) = file.dependencies.get(&reference).ok_or_else(
 					|| tg::error!(file = %self.id(), node = %reference.node(), "expected a dependency"),
 				)?
 				else {
 					return Ok(None);
 				};
 				let node = match dependency.0.node.clone() {
+					Some(tg::graph::Edge::Index(index)) => {
+						Some(graph.get_edge_with_instance(instance, index).await?.into())
+					},
 					Some(tg::graph::Edge::Pointer(pointer)) => {
-						let graph = pointer.graph.unwrap_or_else(|| graph.clone());
-						Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
-							graph: Some(graph),
-							index: pointer.index,
-							kind: pointer.kind,
-						}))
+						Some(tg::graph::Edge::Pointer(pointer))
 					},
 					Some(tg::graph::Edge::Object(object)) => Some(tg::graph::Edge::Object(object)),
 					None => None,
@@ -528,20 +520,18 @@ impl File {
 				})
 			},
 			Object::Node(node) => {
-				let Some(dependency) = node.dependencies.get(reference).ok_or_else(
+				let Some(dependency) = node.dependencies.get(&reference).ok_or_else(
 					|| tg::error!(file = %self.id(), node = %reference.node(), "expected a dependency"),
 				)?
 				else {
 					return Ok(None);
 				};
 				let node = match dependency.0.node.clone() {
+					Some(tg::graph::Edge::Index(_index)) => {
+						return Err(tg::error!("missing graph"));
+					},
 					Some(tg::graph::Edge::Pointer(pointer)) => {
-						let graph = pointer.graph.ok_or_else(|| tg::error!("missing graph"))?;
-						Some(tg::graph::Edge::Pointer(tg::graph::Pointer {
-							graph: Some(graph),
-							index: pointer.index,
-							kind: pointer.kind,
-						}))
+						Some(tg::graph::Edge::Pointer(pointer))
 					},
 					Some(tg::graph::Edge::Object(object)) => Some(tg::graph::Edge::Object(object)),
 					None => None,
@@ -567,7 +557,7 @@ impl File {
 		let object = self.object_with_instance(instance).await?;
 		match object.as_ref() {
 			Object::Pointer(object) => {
-				let graph = object.graph.as_ref().unwrap();
+				let graph = &object.graph;
 				let index = object.index;
 				let object = graph.object_with_instance(instance).await?;
 				let node = object
@@ -599,7 +589,7 @@ impl File {
 		let object = self.object_with_instance(instance).await?;
 		match object.as_ref() {
 			Object::Pointer(object) => {
-				let graph = object.graph.as_ref().unwrap();
+				let graph = &object.graph;
 				let index = object.index;
 				let object = graph.object_with_instance(instance).await?;
 				let node = object

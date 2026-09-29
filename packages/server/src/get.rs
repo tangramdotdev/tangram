@@ -241,10 +241,7 @@ impl Session {
 				Ok(Some(output))
 			},
 			tg::get::Node::Pointer(pointer) if pointer.kind == tg::artifact::Kind::Directory => {
-				let graph = pointer
-					.graph
-					.clone()
-					.ok_or_else(|| tg::error!("missing graph"))?;
+				let graph = pointer.graph.clone();
 				let options = tg::referent::Options {
 					location: output.referent.options.location.clone(),
 					tokens: output.referent.options.tokens.clone(),
@@ -253,7 +250,7 @@ impl Session {
 				let graph = tg::Referent::new(graph, options);
 				let graph = tg::Graph::with_referent(graph);
 				let directory = tg::Directory::with_pointer(tg::graph::Pointer {
-					graph: Some(graph),
+					graph,
 					index: pointer.index,
 					kind: pointer.kind,
 				});
@@ -261,10 +258,11 @@ impl Session {
 					return Ok(None);
 				};
 				let edge = match edge {
+					tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 					tg::graph::Edge::Object(artifact) => tg::get::Node::Id(artifact.id().into()),
 					tg::graph::Edge::Pointer(pointer) => {
 						tg::get::Node::Pointer(tg::graph::data::Pointer {
-							graph: pointer.graph.as_ref().map(tg::Graph::id),
+							graph: pointer.graph.id(),
 							index: pointer.index,
 							kind: pointer.kind,
 						})

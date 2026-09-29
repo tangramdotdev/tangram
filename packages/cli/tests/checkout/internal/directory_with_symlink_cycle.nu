@@ -13,12 +13,12 @@ let artifact = artifact {
 					{
 						kind: "directory",
 						entries: {
-							link: { index: 1, kind: "symlink" }
+							link: 1
 						}
 					},
 					{
 						kind: "symlink",
-						artifact: { index: 0, kind: "directory" },
+						artifact: 0,
 						path: "link"
 					}
 				]

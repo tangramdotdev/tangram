@@ -71,11 +71,11 @@ impl Artifact {
 		}
 	}
 
-	#[must_use]
-	pub fn with_edge(edge: tg::graph::Edge<tg::Artifact>) -> Self {
+	pub fn with_edge(edge: tg::graph::Edge<tg::Artifact>) -> tg::Result<Self> {
 		match edge {
-			tg::graph::Edge::Pointer(pointer) => Self::with_pointer(pointer),
-			tg::graph::Edge::Object(artifact) => artifact,
+			tg::graph::Edge::Index(_) => Err(tg::error!("missing graph")),
+			tg::graph::Edge::Pointer(pointer) => Ok(Self::with_pointer(pointer)),
+			tg::graph::Edge::Object(artifact) => Ok(artifact),
 		}
 	}
 

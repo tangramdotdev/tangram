@@ -204,6 +204,9 @@ pub struct Symlink {
 #[try_unwrap(ref, ref_mut)]
 #[unwrap(ref, ref_mut)]
 pub enum Edge<T> {
+	#[tangram_serialize(id = 2)]
+	Index(usize),
+
 	#[tangram_serialize(id = 0)]
 	Pointer(Pointer),
 
@@ -214,6 +217,7 @@ pub enum Edge<T> {
 impl From<Edge<tg::artifact::Id>> for Edge<tg::object::Id> {
 	fn from(value: Edge<tg::artifact::Id>) -> Self {
 		match value {
+			Edge::Index(index) => Self::Index(index),
 			Edge::Pointer(pointer) => Self::Pointer(pointer),
 			Edge::Object(id) => Self::Object(id.into()),
 		}
@@ -225,6 +229,7 @@ impl TryFrom<Edge<tg::object::Id>> for Edge<tg::artifact::Id> {
 
 	fn try_from(value: Edge<tg::object::Id>) -> tg::Result<Self> {
 		match value {
+			Edge::Index(index) => Ok(Self::Index(index)),
 			Edge::Pointer(pointer) => Ok(Self::Pointer(pointer)),
 			Edge::Object(id) => Ok(Self::Object(id.try_into()?)),
 		}
@@ -246,9 +251,8 @@ impl TryFrom<Edge<tg::object::Id>> for Edge<tg::artifact::Id> {
 )]
 #[serde(deny_unknown_fields)]
 pub struct Pointer {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub graph: Option<tg::graph::Id>,
+	#[tangram_serialize(id = 0)]
+	pub graph: tg::graph::Id,
 
 	#[tangram_serialize(id = 1)]
 	pub index: usize,
@@ -578,22 +582,53 @@ impl Symlink {
 }
 
 impl Edge<tg::object::Id> {
-	#[must_use]
-	pub fn kind(&self) -> tg::object::Kind {
-		match self {
+	pub fn kind(&self, graph: Option<&Graph>) -> tg::Result<tg::object::Kind> {
+		let kind = match self {
+			Edge::Index(index) => graph
+				.ok_or_else(|| tg::error!("missing graph"))?
+				.nodes
+				.get(*index)
+				.ok_or_else(|| tg::error!("invalid node index"))?
+				.kind()
+				.into(),
 			Edge::Pointer(pointer) => pointer.kind.into(),
 			Edge::Object(object) => object.kind(),
-		}
+		};
+		Ok(kind)
 	}
 }
 
 impl Edge<tg::artifact::Id> {
-	#[must_use]
-	pub fn artifact_kind(&self) -> tg::artifact::Kind {
-		match self {
+	pub fn artifact_kind(&self, graph: Option<&Graph>) -> tg::Result<tg::artifact::Kind> {
+		let kind = match self {
+			Edge::Index(index) => graph
+				.ok_or_else(|| tg::error!("missing graph"))?
+				.nodes
+				.get(*index)
+				.ok_or_else(|| tg::error!("invalid node index"))?
+				.kind(),
 			Edge::Pointer(pointer) => pointer.kind,
 			Edge::Object(object) => object.kind(),
-		}
+		};
+		Ok(kind)
+	}
+}
+
+impl<T> Edge<T> {
+	pub fn resolve(self, graph_id: &tg::graph::Id, graph: &Graph) -> tg::Result<Self> {
+		let Self::Index(index) = self else {
+			return Ok(self);
+		};
+		let node = graph
+			.nodes
+			.get(index)
+			.ok_or_else(|| tg::error!("invalid node index"))?;
+		let pointer = Pointer {
+			graph: graph_id.clone(),
+			index,
+			kind: node.kind(),
+		};
+		Ok(Self::Pointer(pointer))
 	}
 }
 
@@ -603,6 +638,7 @@ where
 {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
 		match self {
+			Self::Index(_) => {},
 			Self::Pointer(pointer) => {
 				pointer.children(children);
 			},
@@ -615,9 +651,7 @@ where
 
 impl Pointer {
 	pub fn children(&self, children: &mut BTreeSet<tg::object::Id>) {
-		if let Some(graph) = &self.graph {
-			children.insert(graph.clone().into());
-		}
+		children.insert(self.graph.clone().into());
 	}
 }
 
@@ -627,6 +661,7 @@ where
 {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
+			Self::Index(index) => write!(f, "{index}"),
 			Self::Pointer(pointer) => write!(f, "{pointer}"),
 			Self::Object(object) => write!(f, "{object}"),
 		}
@@ -639,7 +674,9 @@ where
 {
 	type Err = tg::Error;
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
-		if let Ok(pointer) = s.parse() {
+		if let Ok(index) = s.parse::<usize>() {
+			Ok(Self::Index(index))
+		} else if let Ok(pointer) = s.parse() {
 			Ok(Self::Pointer(pointer))
 		} else if let Ok(object) = s.parse() {
 			Ok(Self::Object(object))
@@ -651,9 +688,7 @@ where
 
 impl std::fmt::Display for Pointer {
 	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		if let Some(graph) = &self.graph {
-			write!(f, "graph={graph}&")?;
-		}
+		write!(f, "graph={}&", self.graph)?;
 		write!(f, "index={}&kind={}", self.index, self.kind)?;
 		Ok(())
 	}
@@ -665,7 +700,10 @@ impl std::str::FromStr for Pointer {
 	fn from_str(s: &str) -> Result<Self, Self::Err> {
 		let value = serde_qs::from_str::<BTreeMap<String, String>>(s)
 			.map_err(|_| tg::error!("failed to deserialize edge"))?;
-		let graph = value.get("graph").map(|s| s.parse()).transpose()?;
+		let graph = value
+			.get("graph")
+			.ok_or_else(|| tg::error!("missing graph"))?
+			.parse()?;
 		let index = value
 			.get("index")
 			.ok_or_else(|| tg::error!("missing index"))?
@@ -685,7 +723,7 @@ impl std::str::FromStr for Pointer {
 enum PointerSerde {
 	String(String),
 	Object {
-		graph: Option<tg::graph::Id>,
+		graph: tg::graph::Id,
 		index: usize,
 		kind: tg::artifact::Kind,
 	},

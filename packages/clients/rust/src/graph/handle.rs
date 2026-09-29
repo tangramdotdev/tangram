@@ -223,19 +223,34 @@ impl Graph {
 	where
 		I: tg::Instance,
 	{
-		let nodes = self.nodes_with_instance(instance).await?;
-		let node = nodes
-			.get(index)
-			.ok_or_else(|| tg::error!("invalid node index"))?;
-		let artifact = tg::Artifact::with_pointer(tg::graph::Pointer {
-			graph: Some(self.clone()),
-			index,
-			kind: node.kind(),
-		});
+		let edge = self.get_edge_with_instance(instance, index).await?;
+		let artifact = tg::Artifact::with_edge(edge)?;
 		artifact.inherit_location(self.state.location().as_ref());
 		artifact.inherit_tokens(&self.state.tokens());
 
 		Ok(artifact)
+	}
+
+	pub async fn get_edge_with_instance<I>(
+		&self,
+		instance: &I,
+		index: usize,
+	) -> tg::Result<tg::graph::Edge<tg::Artifact>>
+	where
+		I: tg::Instance,
+	{
+		let object = self.object_with_instance(instance).await?;
+		let node = object
+			.nodes
+			.get(index)
+			.ok_or_else(|| tg::error!("invalid node index"))?;
+		let edge = tg::graph::Edge::Pointer(tg::graph::Pointer {
+			graph: self.clone(),
+			index,
+			kind: node.kind(),
+		});
+
+		Ok(edge)
 	}
 }
 

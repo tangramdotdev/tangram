@@ -160,7 +160,7 @@ impl Session {
 				graph,
 				cache_args,
 				index_object_args,
-				graph_id: pointer.graph.as_ref().unwrap(),
+				graph_id: &pointer.graph,
 				local: pointer.index,
 				global: index,
 				time_to_touch,
@@ -354,24 +354,26 @@ impl Session {
 					.map(|(name, edge)| {
 						let name = name.clone();
 						let edge = match edge {
-							tg::graph::data::Edge::Pointer(pointer) => {
-								if pointer.graph.is_none() {
-									let node = graph.nodes.get(&pointer.index).unwrap();
-									let edge = node.edge.as_ref().unwrap().clone();
-									match edge {
-										tg::graph::data::Edge::Pointer(pointer) => {
-											tg::graph::data::Edge::Pointer(pointer)
-										},
-										tg::graph::data::Edge::Object(id) => {
-											let id = id
-												.try_into()
-												.map_err(|_| tg::error!("expected an artifact"))?;
-											tg::graph::data::Edge::Object(id)
-										},
-									}
-								} else {
-									tg::graph::data::Edge::Pointer(pointer.clone())
+							tg::graph::data::Edge::Index(target_index) => {
+								let node = graph.nodes.get(target_index).unwrap();
+								let edge = node.edge.as_ref().unwrap().clone();
+								match edge {
+									tg::graph::data::Edge::Index(index) => {
+										tg::graph::data::Edge::Index(index)
+									},
+									tg::graph::data::Edge::Pointer(pointer) => {
+										tg::graph::data::Edge::Pointer(pointer)
+									},
+									tg::graph::data::Edge::Object(id) => {
+										let id = id
+											.try_into()
+											.map_err(|_| tg::error!("expected an artifact"))?;
+										tg::graph::data::Edge::Object(id)
+									},
 								}
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								tg::graph::data::Edge::Pointer(pointer.clone())
 							},
 							tg::graph::data::Edge::Object(id) => {
 								let id = id.clone();
@@ -414,10 +416,8 @@ impl Session {
 							dependency.node().clone()
 						};
 						let edge = match edge {
-							Some(tg::graph::data::Edge::Pointer(pointer))
-								if pointer.graph.is_none() =>
-							{
-								let node = graph.nodes.get(&pointer.index).unwrap();
+							Some(tg::graph::data::Edge::Index(target_index)) => {
+								let node = graph.nodes.get(&target_index).unwrap();
 								Some(node.edge.as_ref().unwrap().clone())
 							},
 							Some(edge) => Some(edge),
@@ -443,24 +443,26 @@ impl Session {
 				let artifact = match &symlink.artifact {
 					Some(edge) => {
 						let edge = match edge {
-							tg::graph::data::Edge::Pointer(pointer) => {
-								if pointer.graph.is_none() {
-									let node = graph.nodes.get(&pointer.index).unwrap();
-									let edge = node.edge.as_ref().unwrap().clone();
-									match edge {
-										tg::graph::data::Edge::Pointer(pointer) => {
-											tg::graph::data::Edge::Pointer(pointer)
-										},
-										tg::graph::data::Edge::Object(id) => {
-											let id = id
-												.try_into()
-												.map_err(|_| tg::error!("expected an artifact"))?;
-											tg::graph::data::Edge::Object(id)
-										},
-									}
-								} else {
-									tg::graph::data::Edge::Pointer(pointer.clone())
+							tg::graph::data::Edge::Index(target_index) => {
+								let node = graph.nodes.get(target_index).unwrap();
+								let edge = node.edge.as_ref().unwrap().clone();
+								match edge {
+									tg::graph::data::Edge::Index(index) => {
+										tg::graph::data::Edge::Index(index)
+									},
+									tg::graph::data::Edge::Pointer(pointer) => {
+										tg::graph::data::Edge::Pointer(pointer)
+									},
+									tg::graph::data::Edge::Object(id) => {
+										let id = id
+											.try_into()
+											.map_err(|_| tg::error!("expected an artifact"))?;
+										tg::graph::data::Edge::Object(id)
+									},
 								}
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								tg::graph::data::Edge::Pointer(pointer.clone())
 							},
 							tg::graph::data::Edge::Object(id) => {
 								let id = id.clone();
@@ -566,7 +568,7 @@ impl Session {
 				let data = match &node.variant {
 					Variant::Directory(_) => {
 						let pointer = tg::graph::data::Pointer {
-							graph: Some(graph_id.clone()),
+							graph: graph_id.clone(),
 							index: local,
 							kind: artifact_kind,
 						};
@@ -574,7 +576,7 @@ impl Session {
 					},
 					Variant::File(_) => {
 						let pointer = tg::graph::data::Pointer {
-							graph: Some(graph_id.clone()),
+							graph: graph_id.clone(),
 							index: local,
 							kind: artifact_kind,
 						};
@@ -583,7 +585,7 @@ impl Session {
 					Variant::Object => unreachable!(),
 					Variant::Symlink(_) => {
 						let pointer = tg::graph::data::Pointer {
-							graph: Some(graph_id.clone()),
+							graph: graph_id.clone(),
 							index: local,
 							kind: artifact_kind,
 						};
@@ -598,7 +600,7 @@ impl Session {
 				let id = tg::object::Id::new(kind, &bytes);
 				node.edge
 					.replace(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-						graph: Some(graph_id.clone()),
+						graph: graph_id.clone(),
 						index: local,
 						kind: artifact_kind,
 					}));
@@ -630,32 +632,30 @@ impl Session {
 					.map(|(name, edge)| {
 						let name = name.clone();
 						let edge = match edge {
-							tg::graph::data::Edge::Pointer(pointer) => {
-								if pointer.graph.is_none() {
-									if let Some(&scc_index) = scc_positions.get(&pointer.index) {
-										tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-											graph: None,
-											index: scc_index,
-											kind: pointer.kind,
-										})
-									} else {
-										let node = graph.nodes.get(&pointer.index).unwrap();
-										let edge = node.edge.as_ref().unwrap().clone();
-										match edge {
-											tg::graph::data::Edge::Pointer(pointer) => {
-												tg::graph::data::Edge::Pointer(pointer)
-											},
-											tg::graph::data::Edge::Object(id) => {
-												let id = id.try_into().map_err(|_| {
-													tg::error!("expected an artifact")
-												})?;
-												tg::graph::data::Edge::Object(id)
-											},
-										}
-									}
+							tg::graph::data::Edge::Index(target_index) => {
+								if let Some(&scc_index) = scc_positions.get(target_index) {
+									tg::graph::data::Edge::Index(scc_index)
 								} else {
-									tg::graph::data::Edge::Pointer(pointer.clone())
+									let node = graph.nodes.get(target_index).unwrap();
+									let edge = node.edge.as_ref().unwrap().clone();
+									match edge {
+										tg::graph::data::Edge::Index(index) => {
+											tg::graph::data::Edge::Index(index)
+										},
+										tg::graph::data::Edge::Pointer(pointer) => {
+											tg::graph::data::Edge::Pointer(pointer)
+										},
+										tg::graph::data::Edge::Object(id) => {
+											let id = id
+												.try_into()
+												.map_err(|_| tg::error!("expected an artifact"))?;
+											tg::graph::data::Edge::Object(id)
+										},
+									}
 								}
+							},
+							tg::graph::data::Edge::Pointer(pointer) => {
+								tg::graph::data::Edge::Pointer(pointer.clone())
 							},
 							tg::graph::data::Edge::Object(id) => {
 								let id = id.clone();
@@ -689,19 +689,13 @@ impl Session {
 							dependency.node().clone()
 						};
 						let edge = match edge {
-							Some(tg::graph::data::Edge::Pointer(pointer))
-								if pointer.graph.is_none() =>
-							{
-								if let Some(&scc_index) = scc_positions.get(&pointer.index) {
-									let kind =
-										graph.nodes.get(&pointer.index).unwrap().variant.kind();
-									Some(tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-										graph: None,
-										index: scc_index,
-										kind,
-									}))
+							Some(tg::graph::data::Edge::Index(target_index)) => {
+								if let Some(&scc_index) = scc_positions.get(&target_index) {
+									let _kind =
+										graph.nodes.get(&target_index).unwrap().variant.kind();
+									Some(tg::graph::data::Edge::Index(scc_index))
 								} else {
-									let node = graph.nodes.get(&pointer.index).unwrap();
+									let node = graph.nodes.get(&target_index).unwrap();
 									Some(node.edge.as_ref().unwrap().clone())
 								}
 							},
@@ -732,32 +726,30 @@ impl Session {
 			Variant::Symlink(symlink) => {
 				let artifact = if let Some(edge) = &symlink.artifact {
 					let edge = match edge {
-						tg::graph::data::Edge::Pointer(pointer) => {
-							if pointer.graph.is_none() {
-								if let Some(&scc_index) = scc_positions.get(&pointer.index) {
-									tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-										graph: None,
-										index: scc_index,
-										kind: pointer.kind,
-									})
-								} else {
-									let node = graph.nodes.get(&pointer.index).unwrap();
-									let edge = node.edge.as_ref().unwrap().clone();
-									match edge {
-										tg::graph::data::Edge::Pointer(pointer) => {
-											tg::graph::data::Edge::Pointer(pointer)
-										},
-										tg::graph::data::Edge::Object(id) => {
-											let id = id
-												.try_into()
-												.map_err(|_| tg::error!("expected an artifact"))?;
-											tg::graph::data::Edge::Object(id)
-										},
-									}
-								}
+						tg::graph::data::Edge::Index(target_index) => {
+							if let Some(&scc_index) = scc_positions.get(target_index) {
+								tg::graph::data::Edge::Index(scc_index)
 							} else {
-								tg::graph::data::Edge::Pointer(pointer.clone())
+								let node = graph.nodes.get(target_index).unwrap();
+								let edge = node.edge.as_ref().unwrap().clone();
+								match edge {
+									tg::graph::data::Edge::Index(index) => {
+										tg::graph::data::Edge::Index(index)
+									},
+									tg::graph::data::Edge::Pointer(pointer) => {
+										tg::graph::data::Edge::Pointer(pointer)
+									},
+									tg::graph::data::Edge::Object(id) => {
+										let id = id
+											.try_into()
+											.map_err(|_| tg::error!("expected an artifact"))?;
+										tg::graph::data::Edge::Object(id)
+									},
+								}
 							}
+						},
+						tg::graph::data::Edge::Pointer(pointer) => {
+							tg::graph::data::Edge::Pointer(pointer.clone())
 						},
 						tg::graph::data::Edge::Object(id) => {
 							let id = id.clone();
@@ -793,7 +785,7 @@ impl Session {
 		let data = match &node.variant {
 			Variant::Directory(_) => {
 				let pointer = tg::graph::data::Pointer {
-					graph: Some(graph_id.clone()),
+					graph: graph_id.clone(),
 					index: local,
 					kind: artifact_kind,
 				};
@@ -801,7 +793,7 @@ impl Session {
 			},
 			Variant::File(_) => {
 				let pointer = tg::graph::data::Pointer {
-					graph: Some(graph_id.clone()),
+					graph: graph_id.clone(),
 					index: local,
 					kind: artifact_kind,
 				};
@@ -810,7 +802,7 @@ impl Session {
 			Variant::Object => unreachable!(),
 			Variant::Symlink(_) => {
 				let pointer = tg::graph::data::Pointer {
-					graph: Some(graph_id.clone()),
+					graph: graph_id.clone(),
 					index: local,
 					kind: artifact_kind,
 				};
@@ -1189,15 +1181,13 @@ impl Session {
 								.cloned()
 								.or_else(|| dependency.node().clone());
 							let edge = match edge {
-								Some(tg::graph::data::Edge::Pointer(pointer))
-									if pointer.graph.is_none() && scc.contains(&pointer.index) =>
+								Some(tg::graph::data::Edge::Index(target_index))
+									if scc.contains(&target_index) =>
 								{
 									None
 								},
-								Some(tg::graph::data::Edge::Pointer(pointer))
-									if pointer.graph.is_none() =>
-								{
-									let node = graph.nodes.get(&pointer.index).unwrap();
+								Some(tg::graph::data::Edge::Index(target_index)) => {
+									let node = graph.nodes.get(&target_index).unwrap();
 									let id = node.id.as_ref().unwrap();
 									Some(tg::graph::data::Edge::Object(id.clone()))
 								},
@@ -1224,17 +1214,13 @@ impl Session {
 					.iter()
 					.map(|(name, edge)| {
 						let edge = match edge {
-							tg::graph::data::Edge::Pointer(pointer)
-								if pointer.graph.is_none() && scc.contains(&pointer.index) =>
+							tg::graph::data::Edge::Index(target_index)
+								if scc.contains(target_index) =>
 							{
-								tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-									graph: None,
-									index: 0,
-									kind: pointer.kind,
-								})
+								tg::graph::data::Edge::Index(0)
 							},
-							tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
-								let node = graph.nodes.get(&pointer.index).unwrap();
+							tg::graph::data::Edge::Index(target_index) => {
+								let node = graph.nodes.get(target_index).unwrap();
 								let id = node.id.as_ref().unwrap().clone().try_into().unwrap();
 								tg::graph::data::Edge::Object(id)
 							},
@@ -1251,17 +1237,13 @@ impl Session {
 			Variant::Symlink(symlink) => {
 				let artifact = symlink.artifact.as_ref().map(|edge| {
 					let edge: tg::graph::data::Edge<tg::artifact::Id> = match edge {
-						tg::graph::data::Edge::Pointer(pointer)
-							if pointer.graph.is_none() && scc.contains(&pointer.index) =>
+						tg::graph::data::Edge::Index(target_index)
+							if scc.contains(target_index) =>
 						{
-							tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-								graph: None,
-								index: 0,
-								kind: pointer.kind,
-							})
+							tg::graph::data::Edge::Index(0)
 						},
-						tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
-							let node = graph.nodes.get(&pointer.index).unwrap();
+						tg::graph::data::Edge::Index(target_index) => {
+							let node = graph.nodes.get(target_index).unwrap();
 							let id = node.id.as_ref().unwrap().clone().try_into().unwrap();
 							tg::graph::data::Edge::Object(id)
 						},
@@ -1316,31 +1298,28 @@ impl Session {
 							.get(&(index, reference.clone()))
 							.cloned()
 							.or_else(|| option.as_ref().and_then(|d| d.node().clone()));
-						if let Some(tg::graph::data::Edge::Pointer(pointer)) = edge
-							&& pointer.graph.is_none()
-							&& scc_set.contains(&pointer.index)
+						if let Some(tg::graph::data::Edge::Index(target_index)) = edge
+							&& scc_set.contains(&target_index)
 						{
-							node_neighbors.push(pointer.index);
+							node_neighbors.push(target_index);
 						}
 					}
 				},
 				Variant::Directory(directory) => {
 					for edge in directory.entries.values() {
-						if let tg::graph::data::Edge::Pointer(pointer) = edge
-							&& pointer.graph.is_none()
-							&& scc_set.contains(&pointer.index)
+						if let tg::graph::data::Edge::Index(target_index) = edge
+							&& scc_set.contains(target_index)
 						{
-							node_neighbors.push(pointer.index);
+							node_neighbors.push(*target_index);
 						}
 					}
 				},
 				Variant::Object => unreachable!(),
 				Variant::Symlink(symlink) => {
-					if let Some(tg::graph::data::Edge::Pointer(pointer)) = &symlink.artifact
-						&& pointer.graph.is_none()
-						&& scc_set.contains(&pointer.index)
+					if let Some(tg::graph::data::Edge::Index(target_index)) = &symlink.artifact
+						&& scc_set.contains(target_index)
 					{
-						node_neighbors.push(pointer.index);
+						node_neighbors.push(*target_index);
 					}
 				},
 			}
@@ -1613,8 +1592,8 @@ impl Session {
 									stack.push(*index);
 								}
 							},
-							tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
-								stack.push(pointer.index);
+							tg::graph::data::Edge::Index(target_index) => {
+								stack.push(*target_index);
 							},
 							tg::graph::data::Edge::Pointer(_) => {},
 						}
@@ -1630,10 +1609,8 @@ impl Session {
 										dependencies.push(artifact_id.into());
 									}
 								},
-								tg::graph::data::Edge::Pointer(pointer)
-									if pointer.graph.is_none() =>
-								{
-									if let Some(dependency_node) = graph.nodes.get(&pointer.index)
+								tg::graph::data::Edge::Index(target_index) => {
+									if let Some(dependency_node) = graph.nodes.get(target_index)
 										&& let Some(id) = &dependency_node.artifact
 									{
 										dependencies.push(id.clone().into());
@@ -1651,8 +1628,8 @@ impl Session {
 							tg::graph::data::Edge::Object(id) => {
 								dependencies.push(id.clone().into());
 							},
-							tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
-								if let Some(dependency_node) = graph.nodes.get(&pointer.index)
+							tg::graph::data::Edge::Index(target_index) => {
+								if let Some(dependency_node) = graph.nodes.get(target_index)
 									&& let Some(id) = &dependency_node.artifact
 								{
 									dependencies.push(id.clone().into());

@@ -244,22 +244,18 @@ fn create_graph(lock: &tg::graph::Data, path: PathBuf) -> Graph {
 						continue;
 					};
 					match (dependency.node(), dependency.tag()) {
-						(Some(tg::graph::data::Edge::Pointer(pointer)), tag) => {
-							if pointer.graph.is_none() {
-								let reference = reference
-									.node()
-									.try_unwrap_specifier_ref()
-									.ok()
-									.and_then(|pattern| pattern.to_string().parse().ok());
-								node.edges.push((reference, Edge::Node(pointer.index)));
-								let mut child_options = dependency.options.clone();
-								let mut path = node.path.clone();
-								path.push(index);
-								child_options.inherit(&node.options);
-								stack.push((pointer.index, child_options, path));
-							} else if let Some(tag) = tag {
-								node.edges.push((pattern, Edge::Tag(tag.clone())));
-							}
+						(Some(tg::graph::data::Edge::Index(target_index)), _) => {
+							let reference = reference
+								.node()
+								.try_unwrap_specifier_ref()
+								.ok()
+								.and_then(|pattern| pattern.to_string().parse().ok());
+							node.edges.push((reference, Edge::Node(*target_index)));
+							let mut child_options = dependency.options.clone();
+							let mut path = node.path.clone();
+							path.push(index);
+							child_options.inherit(&node.options);
+							stack.push((*target_index, child_options, path));
 						},
 						(_, Some(tag)) => node.edges.push((pattern, Edge::Tag(tag.clone()))),
 						_ => (),
@@ -267,17 +263,14 @@ fn create_graph(lock: &tg::graph::Data, path: PathBuf) -> Graph {
 				}
 			},
 			tg::graph::data::Node::Symlink(symlink) => {
-				let Some(tg::graph::data::Edge::Pointer(pointer)) = &symlink.artifact else {
+				let Some(tg::graph::data::Edge::Index(target_index)) = &symlink.artifact else {
 					continue;
 				};
-				if pointer.graph.is_some() {
-					continue;
-				}
-				node.edges.push((None, Edge::Node(pointer.index)));
+				node.edges.push((None, Edge::Node(*target_index)));
 				let child_options = tg::referent::Options::default();
 				let mut path = node.path.clone();
 				path.push(index);
-				stack.push((pointer.index, child_options, path));
+				stack.push((*target_index, child_options, path));
 			},
 		}
 		nodes[index].replace(node);

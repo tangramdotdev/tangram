@@ -424,9 +424,7 @@ impl Session {
 					});
 					dependencies.insert(reference, None);
 				} else if let Some(edge) = reference_node_to_object_edge(reference.node()) {
-					if let tg::graph::data::Edge::Pointer(p) = &edge
-						&& p.graph.is_none()
-					{
+					if let tg::graph::data::Edge::Index(_) = &edge {
 						return Err(tg::error!(node = %reference.node(), "expected a graph"));
 					}
 					if let Some(id) = object_edge_root(&edge) {
@@ -438,7 +436,9 @@ impl Session {
 					let options = if get.is_some() {
 						let id = match &edge {
 							tg::graph::data::Edge::Object(id) => Some(id.clone()),
-							tg::graph::data::Edge::Pointer(_) => None,
+							tg::graph::data::Edge::Index(_) | tg::graph::data::Edge::Pointer(_) => {
+								None
+							},
 						};
 						tg::referent::Options {
 							id,
@@ -532,9 +532,7 @@ impl Session {
 						parent: Some(parent),
 					});
 				} else if let Some(edge) = reference_node_to_object_edge(reference.node()) {
-					if let tg::graph::data::Edge::Pointer(p) = &edge
-						&& p.graph.is_none()
-					{
+					if let tg::graph::data::Edge::Index(_) = &edge {
 						return Err(tg::error!(node = %reference.node(), "expected a graph"));
 					}
 					if let Some(id) = object_edge_root(&edge) {
@@ -546,7 +544,9 @@ impl Session {
 					let options = if get.is_some() {
 						let id = match &edge {
 							tg::graph::data::Edge::Object(id) => Some(id.clone()),
-							tg::graph::data::Edge::Pointer(_) => None,
+							tg::graph::data::Edge::Index(_) | tg::graph::data::Edge::Pointer(_) => {
+								None
+							},
 						};
 						tg::referent::Options {
 							id,
@@ -826,15 +826,10 @@ impl Session {
 	) -> tg::Result<()> {
 		let child_node = state.graph.nodes.get_mut(&child_index).unwrap();
 		child_node.referrers.insert(parent.index);
-		let kind = child_node.variant.kind();
 		match parent.variant {
 			ParentVariant::DirectoryEntry(name) => {
 				let edge: tg::graph::data::Edge<tg::artifact::Id> =
-					tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-						graph: None,
-						index: child_index,
-						kind,
-					});
+					tg::graph::data::Edge::Index(child_index);
 				state
 					.graph
 					.nodes
@@ -848,11 +843,7 @@ impl Session {
 
 			ParentVariant::FileDependency(reference) => {
 				let edge: tg::graph::data::Edge<tg::object::Id> =
-					tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-						graph: None,
-						index: child_index,
-						kind,
-					});
+					tg::graph::data::Edge::Index(child_index);
 				let path = state
 					.graph
 					.nodes
@@ -897,11 +888,7 @@ impl Session {
 
 			ParentVariant::SymlinkArtifact => {
 				let edge: tg::graph::data::Edge<tg::artifact::Id> =
-					tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-						graph: None,
-						index: child_index,
-						kind,
-					});
+					tg::graph::data::Edge::Index(child_index);
 				state
 					.graph
 					.nodes
@@ -931,10 +918,10 @@ impl Session {
 				let leaf = directory
 					.try_unwrap_leaf_ref()
 					.expect("lock directories must be leaves");
-				Some(leaf.entries.get(name)?.try_unwrap_pointer_ref().ok()?.index)
+				Some(*leaf.entries.get(name)?.try_unwrap_index_ref().ok()?)
 			},
 			ParentVariant::FileDependency(reference) => Some(
-				parent_node
+				*parent_node
 					.try_unwrap_file_ref()
 					.ok()?
 					.dependencies
@@ -942,19 +929,17 @@ impl Session {
 					.as_ref()?
 					.node()
 					.as_ref()?
-					.try_unwrap_pointer_ref()
-					.ok()?
-					.index,
+					.try_unwrap_index_ref()
+					.ok()?,
 			),
 			ParentVariant::SymlinkArtifact => Some(
-				parent_node
+				*parent_node
 					.try_unwrap_symlink_ref()
 					.ok()?
 					.artifact
 					.as_ref()?
-					.try_unwrap_pointer_ref()
-					.ok()?
-					.index,
+					.try_unwrap_index_ref()
+					.ok()?,
 			),
 		}
 	}
@@ -990,6 +975,7 @@ fn reference_node_to_object_edge(
 fn object_edge_root(edge: &tg::graph::data::Edge<tg::object::Id>) -> Option<tg::object::Id> {
 	match edge {
 		tg::graph::data::Edge::Object(id) => Some(id.clone()),
-		tg::graph::data::Edge::Pointer(pointer) => pointer.graph.clone().map(Into::into),
+		tg::graph::data::Edge::Index(_) => None,
+		tg::graph::data::Edge::Pointer(pointer) => Some(pointer.graph.clone().into()),
 	}
 }

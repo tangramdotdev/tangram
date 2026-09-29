@@ -369,21 +369,27 @@ export class Printer {
 	}
 
 	private graphEdgeObject(edge: tg.Graph.Edge<tg.Object>): string {
-		if (tg.Graph.Pointer.is(edge)) {
+		if (typeof edge === "number") {
+			return this.value(edge);
+		} else if (tg.Graph.Pointer.is(edge)) {
 			return this.graphPointer(edge);
 		}
 		return this.objectHandle(edge);
 	}
 
 	private graphEdgeArtifact(edge: tg.Graph.Edge<tg.Artifact>): string {
-		if (tg.Graph.Pointer.is(edge)) {
+		if (typeof edge === "number") {
+			return this.value(edge);
+		} else if (tg.Graph.Pointer.is(edge)) {
 			return this.graphPointer(edge);
 		}
 		return this.artifact(edge);
 	}
 
 	private graphEdgeDirectory(edge: tg.Graph.Edge<tg.Directory>): string {
-		if (tg.Graph.Pointer.is(edge)) {
+		if (typeof edge === "number") {
+			return this.value(edge);
+		} else if (tg.Graph.Pointer.is(edge)) {
 			return this.graphPointer(edge);
 		}
 		return this.directory(edge);
@@ -391,10 +397,7 @@ export class Printer {
 
 	private graphPointer(pointer: tg.Graph.Pointer): string {
 		let entries: { [key: string]: Print } = {};
-		if (pointer.graph !== null) {
-			let graph = pointer.graph;
-			entries.graph = () => this.graph(graph);
-		}
+		entries.graph = () => this.graph(pointer.graph);
 		entries.index = () => this.value(pointer.index);
 		entries.kind = () => this.value(pointer.kind);
 		return this.map(entries);

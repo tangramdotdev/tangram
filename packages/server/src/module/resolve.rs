@@ -52,17 +52,16 @@ impl Session {
 			kind
 		} else {
 			match referent.node() {
-				tg::module::data::Source::Edge(edge) => match edge.kind() {
+				tg::module::data::Source::Edge(edge) => match edge.kind(None)? {
 					tg::object::Kind::Blob => tg::module::Kind::Blob,
 					tg::object::Kind::Directory => tg::module::Kind::Directory,
 					tg::object::Kind::File => {
 						let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(edge.clone())?;
 						let artifact = match edge {
+							tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 							tg::graph::Edge::Object(artifact) => artifact,
 							tg::graph::Edge::Pointer(pointer) => {
-								let graph = pointer.graph.as_ref().ok_or_else(|| {
-									tg::error!("the module pointer is missing a graph")
-								})?;
+								let graph = &pointer.graph;
 								graph.state().set_tokens(referent.options.tokens.clone());
 								tg::Artifact::with_pointer(pointer)
 							},
@@ -146,16 +145,13 @@ impl Session {
 		// Create the referrer file and its authorization object.
 		let edge = tg::graph::Edge::<tg::Artifact>::try_from_data(referrer.node.clone())?;
 		let (artifact, authorization): (tg::Artifact, tg::Object) = match edge {
+			tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 			tg::graph::Edge::Object(artifact) => {
 				let authorization = artifact.clone().into();
 				(artifact, authorization)
 			},
 			tg::graph::Edge::Pointer(pointer) => {
-				let authorization = pointer
-					.graph
-					.clone()
-					.map(Into::into)
-					.ok_or_else(|| tg::error!("the module pointer is missing a graph"))?;
+				let authorization = pointer.graph.clone().into();
 				let artifact = tg::Artifact::with_pointer(pointer);
 				(artifact, authorization)
 			},
@@ -183,13 +179,9 @@ impl Session {
 			.clone()
 			.ok_or_else(|| tg::error!("dependency has no resolved node"))?;
 		let resource = match &edge {
+			tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 			tg::graph::Edge::Object(object) => object.id().into(),
-			tg::graph::Edge::Pointer(pointer) => pointer
-				.graph
-				.as_ref()
-				.map(tg::Graph::id)
-				.map(Into::into)
-				.ok_or_else(|| tg::error!("the dependency pointer is missing a graph"))?,
+			tg::graph::Edge::Pointer(pointer) => pointer.graph.id().into(),
 		};
 		if let Some(token) = self.create_module_resolution_token(resource, &authorization)? {
 			dependency
@@ -199,15 +191,13 @@ impl Session {
 				.insert_local_authorization(token);
 		}
 		let object = match edge {
+			tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 			tg::graph::Edge::Object(object) => {
 				object.state().inherit_tokens(&dependency.0.options.tokens);
 				object
 			},
 			tg::graph::Edge::Pointer(pointer) => {
-				let graph = pointer
-					.graph
-					.as_ref()
-					.ok_or_else(|| tg::error!("the dependency pointer is missing a graph"))?;
+				let graph = &pointer.graph;
 				graph.state().inherit_tokens(&dependency.0.options.tokens);
 				let artifact = tg::Artifact::with_pointer(pointer);
 				artifact
@@ -235,6 +225,7 @@ impl Session {
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the entry edge"))?;
 					let edge: tg::graph::Edge<tg::Object> = match edge {
+						tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 						tg::graph::Edge::Pointer(pointer) => {
 							if pointer.kind != tg::artifact::Kind::File {
 								return Err(tg::error!("expected a file"));
@@ -358,12 +349,9 @@ impl Session {
 			return Ok(());
 		};
 		let resource = match edge {
+			tg::graph::data::Edge::Index(_) => return Err(tg::error!("missing graph")),
 			tg::graph::data::Edge::Object(object) => object.clone().into(),
-			tg::graph::data::Edge::Pointer(pointer) => pointer
-				.graph
-				.clone()
-				.map(Into::into)
-				.ok_or_else(|| tg::error!("the resolved module pointer is missing a graph"))?,
+			tg::graph::data::Edge::Pointer(pointer) => pointer.graph.clone().into(),
 		};
 		let token = self.create_module_resolution_token(resource, authorization)?;
 		if let Some(token) = token {
@@ -526,13 +514,9 @@ impl Session {
 				tg::Object::with_id(id)
 			},
 			tg::get::Node::Pointer(pointer) => {
-				let graph = pointer
-					.graph
-					.clone()
-					.map(tg::Graph::with_id)
-					.ok_or_else(|| tg::error!("missing graph"))?;
+				let graph = tg::Graph::with_id(pointer.graph.clone());
 				tg::Artifact::with_pointer(tg::graph::Pointer {
-					graph: Some(graph),
+					graph,
 					index: pointer.index,
 					kind: pointer.kind,
 				})
@@ -568,12 +552,13 @@ impl Session {
 						.await
 						.map_err(|error| tg::error!(!error, "failed to get the entry edge"))?;
 					let edge = match edge {
+						tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 						tg::graph::Edge::Pointer(pointer) => {
 							if pointer.kind != tg::artifact::Kind::File {
 								return Err(tg::error!("expected a file"));
 							}
 							tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
-								graph: pointer.graph.as_ref().map(tg::Graph::id),
+								graph: pointer.graph.id(),
 								index: pointer.index,
 								kind: pointer.kind,
 							})

@@ -29,7 +29,7 @@ assert equal (tg --url $remote.url --token $root_token get $id | from json | get
 
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
-^tail --pid $pid -f /dev/null
+wait_until { ps | where pid == $pid | is-empty } "the runner must exit"
 let runner = server start $runner
 let trivial = artifact { tangram.ts: 'export default () => 42' }
 success (timeout 60s tg --url $local.url build --remote $trivial | complete) "the restarted runner must accept work after cleanup"

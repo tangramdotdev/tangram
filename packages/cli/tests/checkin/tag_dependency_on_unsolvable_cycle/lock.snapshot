@@ -3,10 +3,7 @@
     {
       "kind": "directory",
       "entries": {
-        "tangram.ts": {
-          "index": 1,
-          "kind": "file"
-        }
+        "tangram.ts": 1
       }
     },
     {
@@ -14,12 +11,12 @@
       "dependencies": {
         "cycle": {
           "node": {
-            "graph": "gph_01ts8n8g9y30h7sertqyaz72e8fvcphnsa6kcn8zjt94qgb80h9eag",
+            "graph": "gph_01r65eqv4vx840xg2wre8nc628sc3yf9vrfnppd1192qwwn70x04mg",
             "index": 0,
             "kind": "file"
           },
           "options": {
-            "id": "fil_01b976y1b3ycm0men9db9sse0sm19bdxwp45vk5m6d8tg9rktczexg",
+            "id": "fil_010hc7eadrcn3bxmygmp9gp4xhp1zah2f2de9kg9mnmhvb6bxgzkag",
             "tag": "cycle"
           }
         }

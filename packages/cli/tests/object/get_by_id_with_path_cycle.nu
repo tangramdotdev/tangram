@@ -20,10 +20,7 @@ snapshot $output.stdout '
 	        "contents": blb_01b7ka1dzz1k7n5fh52av0vxtkycf3z2kntyvnvv549x2xdy36mm9g,
 	        "dependencies": {
 	          "./file.tg.ts": {
-	            "node": {
-	              "index": 1,
-	              "kind": "file",
-	            },
+	            "node": 1,
 	            "options": {
 	              "path": "file.tg.ts",
 	            },
@@ -36,10 +33,7 @@ snapshot $output.stdout '
 	        "contents": blb_010pwqd32ehjhaj9eswh61x95cgqby7x5w0fybj56a34cmbehs3mhg,
 	        "dependencies": {
 	          "./tangram.ts": {
-	            "node": {
-	              "index": 0,
-	              "kind": "file",
-	            },
+	            "node": 0,
 	            "options": {
 	              "path": "tangram.ts",
 	            },

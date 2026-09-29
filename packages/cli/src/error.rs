@@ -336,6 +336,7 @@ impl Cli {
 			return;
 		};
 		let file = match edge {
+			tg::graph::Edge::Index(_) => return,
 			tg::graph::Edge::Pointer(pointer) => {
 				let Ok(artifact) = pointer.get_with_instance(&client).await else {
 					return;

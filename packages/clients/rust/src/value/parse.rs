@@ -1363,6 +1363,7 @@ fn graph_pointer(input: &mut Input) -> ModalResult<tg::graph::Pointer> {
 				},
 			}
 		}
+		let graph = graph.ok_or_else(|| tg::error!("missing graph field"))?;
 		let index = index.ok_or_else(|| tg::error!("missing index field"))?;
 		let kind = kind.ok_or_else(|| tg::error!("missing kind field"))?;
 		Ok(tg::graph::Pointer { graph, index, kind })
@@ -1372,6 +1373,13 @@ fn graph_pointer(input: &mut Input) -> ModalResult<tg::graph::Pointer> {
 
 fn graph_edge_artifact(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Artifact>> {
 	alt((
+		number
+			.verify_map(|index| {
+				index
+					.to_usize()
+					.filter(|_| index >= 0.0 && index.fract() == 0.0)
+			})
+			.map(tg::graph::Edge::Index),
 		graph_pointer.map(tg::graph::Edge::Pointer),
 		value.verify_map(|value| {
 			if let tg::Value::Object(value) = value {
@@ -1388,6 +1396,13 @@ fn graph_edge_artifact(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Art
 
 fn graph_edge_directory(input: &mut Input) -> ModalResult<tg::graph::Edge<tg::Directory>> {
 	alt((
+		number
+			.verify_map(|index| {
+				index
+					.to_usize()
+					.filter(|_| index >= 0.0 && index.fract() == 0.0)
+			})
+			.map(tg::graph::Edge::Index),
 		graph_pointer.map(tg::graph::Edge::Pointer),
 		value.verify_map(|value| {
 			if let tg::Value::Object(tg::Object::Directory(directory)) = value {
@@ -1407,10 +1422,18 @@ fn parse_dependency(map: &tg::value::Map) -> tg::Result<tg::graph::Dependency> {
 		match key.as_str() {
 			"node" => {
 				if !value.is_null() {
-					let value = value
-						.try_unwrap_object_ref()
-						.map_err(|_| tg::error!("expected object for node"))?;
-					node = Some(Some(tg::graph::Edge::Object(value.clone())));
+					let edge = match value {
+						tg::Value::Number(index) if *index >= 0.0 && index.fract() == 0.0 => {
+							let index = index
+								.to_usize()
+								.ok_or_else(|| tg::error!("invalid node index"))?;
+							tg::graph::Edge::Index(index)
+						},
+						tg::Value::Map(map) => tg::graph::Edge::Pointer(parse_graph_pointer(map)?),
+						tg::Value::Object(object) => tg::graph::Edge::Object(object.clone()),
+						_ => return Err(tg::error!("expected a graph edge")),
+					};
+					node = Some(Some(edge));
 				}
 			},
 			"options" => {
@@ -1613,6 +1636,12 @@ fn parse_graph_node(map: &tg::value::Map) -> tg::Result<tg::graph::Node> {
 
 fn parse_graph_edge_artifact(value: &tg::Value) -> tg::Result<tg::graph::Edge<tg::Artifact>> {
 	match value {
+		tg::Value::Number(index) if *index >= 0.0 && index.fract() == 0.0 => {
+			let index = index
+				.to_usize()
+				.ok_or_else(|| tg::error!("invalid node index"))?;
+			Ok(tg::graph::Edge::Index(index))
+		},
 		tg::Value::Object(object) => {
 			let artifact = tg::Artifact::try_from(object.clone())
 				.map_err(|error| tg::error!(!error, "expected artifact object"))?;
@@ -1663,6 +1692,7 @@ fn parse_graph_pointer(map: &tg::value::Map) -> tg::Result<tg::graph::Pointer> {
 			},
 		}
 	}
+	let graph = graph.ok_or_else(|| tg::error!("missing graph field"))?;
 	let index = index.ok_or_else(|| tg::error!("missing index field"))?;
 	let kind = kind.ok_or_else(|| tg::error!("missing kind field"))?;
 	Ok(tg::graph::Pointer { graph, index, kind })

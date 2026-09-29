@@ -52,6 +52,7 @@ mod document;
 mod format;
 mod get;
 mod grant;
+mod graph;
 mod group;
 mod health;
 mod http;

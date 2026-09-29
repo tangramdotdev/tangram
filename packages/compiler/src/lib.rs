@@ -1127,6 +1127,7 @@ impl Compiler {
 					},
 			} => {
 				let artifact = match edge {
+					tg::graph::data::Edge::Index(_) => return Err(tg::error!("missing graph")),
 					tg::graph::data::Edge::Pointer(pointer) => {
 						let pointer = tg::graph::Pointer::try_from_data(pointer.clone())?;
 						let artifact = tg::Artifact::with_pointer(pointer);

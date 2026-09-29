@@ -267,7 +267,7 @@ export class File {
 								} else if (typeof dependency.node === "number") {
 									object = await graph.get(dependency.node);
 								} else if ("index" in dependency.node) {
-									object = await (dependency.node.graph ?? graph).get(
+									object = await dependency.node.graph.get(
 										dependency.node.index,
 									);
 								} else {
@@ -308,10 +308,6 @@ export class File {
 								} else {
 									tg.assert(typeof dependency.node === "object");
 									if ("index" in dependency.node) {
-										tg.assert(
-											dependency.node.graph !== undefined &&
-												dependency.node.graph !== null,
-										);
 										object = await dependency.node.graph.get(
 											dependency.node.index,
 										);

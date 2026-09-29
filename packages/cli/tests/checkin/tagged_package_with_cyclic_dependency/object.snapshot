@@ -12,10 +12,7 @@ tg.directory({
                   "contents": tg.blob("import foo from \"./foo.tg.ts\";"),
                   "dependencies": {
                     "./foo.tg.ts": {
-                      "node": {
-                        "index": 1,
-                        "kind": "file",
-                      },
+                      "node": 1,
                       "options": {
                         "path": "foo.tg.ts",
                       },
@@ -28,10 +25,7 @@ tg.directory({
                   "contents": tg.blob("import * as a from \"./tangram.ts\";"),
                   "dependencies": {
                     "./tangram.ts": {
-                      "node": {
-                        "index": 0,
-                        "kind": "file",
-                      },
+                      "node": 0,
                       "options": {
                         "path": "tangram.ts",
                       },
@@ -52,10 +46,7 @@ tg.directory({
                   "contents": tg.blob("import foo from \"./foo.tg.ts\";"),
                   "dependencies": {
                     "./foo.tg.ts": {
-                      "node": {
-                        "index": 1,
-                        "kind": "file",
-                      },
+                      "node": 1,
                       "options": {
                         "path": "foo.tg.ts",
                       },
@@ -68,10 +59,7 @@ tg.directory({
                   "contents": tg.blob("import * as a from \"./tangram.ts\";"),
                   "dependencies": {
                     "./tangram.ts": {
-                      "node": {
-                        "index": 0,
-                        "kind": "file",
-                      },
+                      "node": 0,
                       "options": {
                         "path": "tangram.ts",
                       },
@@ -86,7 +74,7 @@ tg.directory({
           },
         }),
         "options": {
-          "id": "dir_01eqz3av8bnqxrx7dmk0h710x3310rfehzh7pm5sykkxhy6k526ebg",
+          "id": "dir_017jf622328p25b83wytej8bfwzvczz1hq4k02ptfa6f02p7g356eg",
           "tag": "a",
         },
       },

@@ -337,7 +337,8 @@ impl Session {
 				tg::object::Data::Directory(tg::directory::Data::Pointer(pointer))
 				| tg::object::Data::File(tg::file::Data::Pointer(pointer))
 				| tg::object::Data::Symlink(tg::symlink::Data::Pointer(pointer)) => {
-					if let Some(graph_id) = &pointer.graph {
+					let graph_id = &pointer.graph;
+					{
 						self.checkin_solve_get_or_spawn_object_task(
 							prefetch,
 							&graph_id.clone().into(),
@@ -416,11 +417,13 @@ impl Session {
 		options: ObjectOptions,
 	) {
 		match edge {
+			tg::graph::data::Edge::Index(_) => {},
 			tg::graph::data::Edge::Object(id) => {
 				self.checkin_solve_get_or_spawn_object_task(prefetch, &id.clone().into(), options);
 			},
 			tg::graph::data::Edge::Pointer(pointer) => {
-				if let Some(graph_id) = &pointer.graph {
+				let graph_id = &pointer.graph;
+				{
 					self.checkin_solve_get_or_spawn_object_task(
 						prefetch,
 						&graph_id.clone().into(),
@@ -438,11 +441,13 @@ impl Session {
 		options: ObjectOptions,
 	) {
 		match edge {
+			tg::graph::data::Edge::Index(_) => {},
 			tg::graph::data::Edge::Object(id) => {
 				self.checkin_solve_get_or_spawn_object_task(prefetch, id, options);
 			},
 			tg::graph::data::Edge::Pointer(pointer) => {
-				if let Some(graph_id) = &pointer.graph {
+				let graph_id = &pointer.graph;
+				{
 					self.checkin_solve_get_or_spawn_object_task(
 						prefetch,
 						&graph_id.clone().into(),
@@ -484,11 +489,13 @@ impl Session {
 		options: ObjectOptions,
 	) {
 		match edge {
+			tg::graph::data::Edge::Index(_) => {},
 			tg::graph::data::Edge::Object(id) => {
 				self.checkin_solve_get_or_spawn_object_task(prefetch, &id.clone().into(), options);
 			},
 			tg::graph::data::Edge::Pointer(pointer) => {
-				if let Some(graph_id) = &pointer.graph {
+				let graph_id = &pointer.graph;
+				{
 					self.checkin_solve_get_or_spawn_object_task(
 						prefetch,
 						&graph_id.clone().into(),

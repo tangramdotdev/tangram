@@ -12,8 +12,8 @@ let path = artifact {
 			{
 				"kind": "directory",
 				"entries": {
-					"a.tg.ts": { "index": 1, "kind": "file" },
-					"tangram.ts": { "index": 2, "kind": "file" }
+					"a.tg.ts": 1,
+					"tangram.ts": 2
 				}
 			},
 			{
@@ -23,7 +23,7 @@ let path = artifact {
 				"kind": "file",
 				"dependencies": {
 					"./a.tg.ts": {
-						"node": { "index": 0, "kind": "directory" },
+						"node": 0,
 						"path": "./a.tg.ts"
 					}
 				}

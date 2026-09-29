@@ -11,9 +11,19 @@ pub fn collect_directory_entries(
 		tg::graph::data::Directory::Branch(branch) => {
 			let mut all_entries = BTreeMap::new();
 			for child in &branch.children {
-				let child_dir = resolve_directory_child(cache, &child.directory, graph)?;
-				let child_entries = collect_directory_entries(cache, &child_dir, graph)?;
-				all_entries.extend(child_entries);
+				let (child_dir, child_graph) =
+					resolve_directory_child(cache, &child.directory, graph)?;
+				let child_entries =
+					collect_directory_entries(cache, &child_dir, child_graph.as_ref())?;
+				// Make edges explicit when moving entries out of their graph.
+				for (name, edge) in child_entries {
+					let edge = if child_graph.as_ref() != graph {
+						crate::graph::resolve_edge(cache, edge, child_graph.as_ref())?
+					} else {
+						edge
+					};
+					all_entries.insert(name, edge);
+				}
 			}
 			Ok(all_entries)
 		},
@@ -25,8 +35,13 @@ fn resolve_directory_child(
 	cache: &crate::cache::Cache,
 	edge: &tg::graph::data::Edge<tg::directory::Id>,
 	graph: Option<&tg::graph::Id>,
-) -> tg::Result<tg::graph::data::Directory> {
-	match edge {
+) -> tg::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
+	let (graph, index) = match edge {
+		tg::graph::data::Edge::Index(index) => {
+			let graph = graph.ok_or_else(|| tg::error!("missing graph"))?;
+			(graph, *index)
+		},
+		tg::graph::data::Edge::Pointer(pointer) => (&pointer.graph, pointer.index),
 		tg::graph::data::Edge::Object(id) => {
 			// Load the directory data from the cache.
 			let (_size, data) = cache
@@ -37,34 +52,16 @@ fn resolve_directory_child(
 				.try_into()
 				.map_err(|_| tg::error!(%id, "expected directory data"))?;
 			match dir_data {
-				tg::directory::Data::Node(dir) => Ok(dir),
+				tg::directory::Data::Node(dir) => return Ok((dir, None)),
 				tg::directory::Data::Pointer(_) => {
-					Err(tg::error!("unexpected pointer in directory branch child"))
+					return Err(tg::error!("unexpected pointer in directory branch child"));
 				},
 			}
 		},
-		tg::graph::data::Edge::Pointer(pointer) => {
-			// Get the directory from the graph.
-			let child_graph_id = pointer
-				.graph
-				.as_ref()
-				.or(graph)
-				.ok_or_else(|| tg::error!("missing graph id for pointer"))?;
-			let (_size, data) = cache
-				.try_get_object_data_sync(&child_graph_id.clone().into())
-				.map_err(|error| tg::error!(!error, %child_graph_id, "failed to get graph object"))?
-				.ok_or_else(|| tg::error!(%child_graph_id, "failed to find graph"))?;
-			let graph_data: tg::graph::Data = data
-				.try_into()
-				.map_err(|_| tg::error!(%child_graph_id, "expected graph data"))?;
-			let node = graph_data
-				.nodes
-				.get(pointer.index)
-				.ok_or_else(|| tg::error!("graph node index out of bounds"))?;
-			match node {
-				tg::graph::data::Node::Directory(dir) => Ok(dir.clone()),
-				_ => Err(tg::error!("expected directory node in branch child")),
-			}
-		},
-	}
+	};
+	let node = crate::graph::get_node(cache, graph, index)?;
+	let directory = node
+		.try_unwrap_directory()
+		.map_err(|_| tg::error!("expected directory node in branch child"))?;
+	Ok((directory, Some(graph.clone())))
 }

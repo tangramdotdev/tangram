@@ -345,11 +345,10 @@ impl Session {
 					let mut children = Vec::new();
 					for (name, edge) in &directory.entries {
 						entries.insert(name.clone(), edge.clone());
-						if let Ok(pointer) = edge.try_unwrap_pointer_ref()
-							&& pointer.graph.is_none()
-							&& !visited.contains(&pointer.index)
+						if let Ok(target_index) = edge.try_unwrap_index_ref()
+							&& !visited.contains(target_index)
 						{
-							children.push(pointer.index);
+							children.push(*target_index);
 						}
 					}
 					let leaf = tg::graph::data::DirectoryLeaf { entries };
@@ -363,11 +362,10 @@ impl Session {
 					for (reference, option) in &file.dependencies {
 						if let Some(dependency) = option
 							&& let Some(edge) = &dependency.0.node
-							&& let Ok(edge_pointer) = edge.try_unwrap_pointer_ref()
-							&& edge_pointer.graph.is_none()
-							&& !visited.contains(&edge_pointer.index)
+							&& let Ok(target_index) = edge.try_unwrap_index_ref()
+							&& !visited.contains(target_index)
 						{
-							children.push(edge_pointer.index);
+							children.push(*target_index);
 						}
 						let reference = reference_without_location_and_tokens(reference.clone());
 						let dependency = option
@@ -389,11 +387,10 @@ impl Session {
 				Variant::Symlink(symlink) => {
 					let mut children = Vec::new();
 					if let Some(edge) = &symlink.artifact
-						&& let Ok(pointer) = edge.try_unwrap_pointer_ref()
-						&& pointer.graph.is_none()
-						&& !visited.contains(&pointer.index)
+						&& let Ok(target_index) = edge.try_unwrap_index_ref()
+						&& !visited.contains(target_index)
 					{
-						children.push(pointer.index);
+						children.push(*target_index);
 					}
 					let data = tg::graph::data::Symlink {
 						artifact: symlink.artifact.clone(),
@@ -418,31 +415,29 @@ impl Session {
 				tg::graph::data::Node::Directory(directory) => {
 					if let tg::graph::data::Directory::Leaf(leaf) = directory {
 						for edge in leaf.entries.values_mut() {
-							if let tg::graph::data::Edge::Pointer(pointer) = edge
-								&& pointer.graph.is_none()
-								&& let Some(lock_index) = mapping.get(&pointer.index)
+							if let tg::graph::data::Edge::Index(target_index) = edge
+								&& let Some(lock_index) = mapping.get(&*target_index)
 							{
-								pointer.index = *lock_index;
+								*target_index = *lock_index;
 							}
 						}
 					}
 				},
 				tg::graph::data::Node::File(file) => {
 					for dependency in file.dependencies.values_mut().flatten() {
-						if let Some(tg::graph::data::Edge::Pointer(pointer)) = &mut dependency.node
-							&& pointer.graph.is_none()
-							&& let Some(lock_index) = mapping.get(&pointer.index)
+						if let Some(tg::graph::data::Edge::Index(target_index)) =
+							&mut dependency.node && let Some(lock_index) =
+							mapping.get(&*target_index)
 						{
-							pointer.index = *lock_index;
+							*target_index = *lock_index;
 						}
 					}
 				},
 				tg::graph::data::Node::Symlink(symlink) => {
-					if let Some(tg::graph::data::Edge::Pointer(pointer)) = &mut symlink.artifact
-						&& pointer.graph.is_none()
-						&& let Some(lock_index) = mapping.get(&pointer.index)
+					if let Some(tg::graph::data::Edge::Index(target_index)) = &mut symlink.artifact
+						&& let Some(lock_index) = mapping.get(&*target_index)
 					{
-						pointer.index = *lock_index;
+						*target_index = *lock_index;
 					}
 				},
 			}
@@ -470,10 +465,9 @@ impl Session {
 								leaf.entries
 									.values()
 									.filter_map(|edge: &tg::graph::data::Edge<tg::artifact::Id>| {
-										edge.try_unwrap_pointer_ref().ok()
+										edge.try_unwrap_index_ref().ok()
 									})
-									.filter(|pointer| pointer.graph.is_none())
-									.any(|pointer| marks[pointer.index])
+									.any(|index| marks[*index])
 							} else {
 								false
 							}
@@ -489,26 +483,22 @@ impl Session {
 								let Some(edge) = dependency.node() else {
 									return false;
 								};
-								let Ok(pointer) = edge.try_unwrap_pointer_ref() else {
-									return false;
-								};
-								if pointer.graph.is_some() {
-									return reference.is_solvable()
-										&& (dependency.id().is_some()
-											|| dependency.tag().is_some());
+								let solvable = reference.is_solvable()
+									&& (dependency.id().is_some() || dependency.tag().is_some());
+								match edge {
+									tg::graph::data::Edge::Index(index) => {
+										marks[*index] || solvable
+									},
+									tg::graph::data::Edge::Pointer(_) => solvable,
+									tg::graph::data::Edge::Object(_) => false,
 								}
-								marks[pointer.index]
-									|| (reference.is_solvable()
-										&& (dependency.id().is_some()
-											|| dependency.tag().is_some()))
 							})
 						},
 						tg::graph::data::Node::Symlink(symlink) => symlink
 							.artifact
 							.as_ref()
-							.and_then(|edge| edge.try_unwrap_pointer_ref().ok())
-							.filter(|pointer| pointer.graph.is_none())
-							.is_some_and(|pointer| marks[pointer.index]),
+							.and_then(|edge| edge.try_unwrap_index_ref().ok())
+							.is_some_and(|index| marks[*index]),
 					}
 			});
 			if marked {
@@ -535,18 +525,14 @@ impl Session {
 					if let tg::graph::data::Directory::Leaf(leaf) = directory {
 						// Remove unmarked entries.
 						leaf.entries.retain(|_name, edge| match edge {
-							tg::graph::data::Edge::Pointer(pointer) => {
-								// Keep references to external graphs.
-								pointer.graph.is_some() || marks[pointer.index]
-							},
-							tg::graph::data::Edge::Object(_) => true,
+							tg::graph::data::Edge::Index(index) => marks[*index],
+							tg::graph::data::Edge::Pointer(_)
+							| tg::graph::data::Edge::Object(_) => true,
 						});
 
 						for edge in leaf.entries.values_mut() {
-							if let tg::graph::data::Edge::Pointer(pointer) = edge
-								&& pointer.graph.is_none()
-							{
-								pointer.index = map.get(&pointer.index).copied().unwrap();
+							if let tg::graph::data::Edge::Index(target_index) = edge {
+								*target_index = map.get(&*target_index).copied().unwrap();
 							}
 						}
 					}
@@ -563,19 +549,13 @@ impl Session {
 						let Some(edge) = dependency.node() else {
 							return false;
 						};
-						let Ok(pointer) = edge.try_unwrap_pointer_ref() else {
-							return false;
-						};
-
-						// Keep references to external graphs.
-						if pointer.graph.is_some() {
-							return reference.is_solvable()
-								&& (dependency.id().is_some() || dependency.tag().is_some());
+						let solvable = reference.is_solvable()
+							&& (dependency.id().is_some() || dependency.tag().is_some());
+						match edge {
+							tg::graph::data::Edge::Index(index) => marks[*index] || solvable,
+							tg::graph::data::Edge::Pointer(_) => solvable,
+							tg::graph::data::Edge::Object(_) => false,
 						}
-
-						marks[pointer.index]
-							|| (reference.is_solvable()
-								&& (dependency.id().is_some() || dependency.tag().is_some()))
 					});
 
 					// Update indexes.
@@ -583,28 +563,22 @@ impl Session {
 						let Some(dependency) = dependency else {
 							continue;
 						};
-						let Some(tg::graph::data::Edge::Pointer(pointer)) = &mut dependency.node
+						let Some(tg::graph::data::Edge::Index(target_index)) = &mut dependency.node
 						else {
 							continue;
 						};
 
-						// Skip references to external graphs.
-						if pointer.graph.is_some() {
-							continue;
-						}
-
-						if marks[pointer.index] {
-							pointer.index = map.get(&pointer.index).copied().unwrap();
+						if marks[*target_index] {
+							*target_index = map.get(&*target_index).copied().unwrap();
 						} else {
 							dependency.node = None;
 						}
 					}
 				},
 				tg::graph::data::Node::Symlink(symlink) => {
-					if let Some(tg::graph::data::Edge::Pointer(pointer)) = &mut symlink.artifact
-						&& pointer.graph.is_none()
+					if let Some(tg::graph::data::Edge::Index(target_index)) = &mut symlink.artifact
 					{
-						pointer.index = map.get(&pointer.index).copied().unwrap();
+						*target_index = map.get(&*target_index).copied().unwrap();
 					}
 				},
 			}
@@ -654,9 +628,9 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 					leaf.entries
 						.values()
 						.filter_map(|edge: &tg::graph::data::Edge<tg::artifact::Id>| {
-							let pointer = edge.try_unwrap_pointer_ref().ok()?;
-							// Only return indices for pointers to the current graph.
-							pointer.graph.is_none().then_some(pointer.index)
+							let target_index = edge.try_unwrap_index_ref().ok()?;
+							// Return the internal node index.
+							Some(*target_index)
 						})
 						.boxed()
 				} else {
@@ -667,22 +641,22 @@ impl<'a> petgraph::visit::IntoNeighbors for &Petgraph<'a> {
 				.dependencies
 				.values()
 				.filter_map(|option| {
-					let pointer = option
+					let target_index = option
 						.as_ref()?
 						.node
 						.as_ref()?
-						.try_unwrap_pointer_ref()
+						.try_unwrap_index_ref()
 						.ok()?;
-					// Only return indices for pointers to the current graph.
-					pointer.graph.is_none().then_some(pointer.index)
+					// Return the internal node index.
+					Some(*target_index)
 				})
 				.boxed(),
 			tg::graph::data::Node::Symlink(tg::graph::data::Symlink { artifact, .. }) => artifact
 				.iter()
 				.filter_map(|edge| {
-					let pointer = edge.try_unwrap_pointer_ref().ok()?;
-					// Only return indices for pointers to the current graph.
-					pointer.graph.is_none().then_some(pointer.index)
+					let target_index = edge.try_unwrap_index_ref().ok()?;
+					// Return the internal node index.
+					Some(*target_index)
 				})
 				.boxed(),
 		}

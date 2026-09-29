@@ -6,7 +6,7 @@ fn rendering_preserves_module_tokens() {
 		panic!("expected an object argument");
 	};
 	let pointer = tg::graph::data::Pointer {
-		graph: Some(tg::graph::Id::new(b"graph")),
+		graph: tg::graph::Id::new(b"graph"),
 		index: 0,
 		kind: tg::artifact::Kind::File,
 	};

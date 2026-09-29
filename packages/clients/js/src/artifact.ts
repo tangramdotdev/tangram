@@ -66,6 +66,7 @@ export namespace Artifact {
 					value.artifact === undefined ||
 					value.artifact === null ||
 					typeof value.artifact === "string" ||
+					typeof value.artifact === "number" ||
 					tg.Graph.Data.Pointer.is(value.artifact)
 				);
 			}

@@ -521,6 +521,7 @@ where
 		edge: &tg::graph::Edge<tg::Object>,
 	) {
 		let file = match edge {
+			tg::graph::Edge::Index(_) => return,
 			tg::graph::Edge::Pointer(pointer) => {
 				let Ok(artifact) = pointer.get_with_instance(&self.instance).await else {
 					return;

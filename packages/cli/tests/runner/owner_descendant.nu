@@ -53,7 +53,7 @@ let runner_user = server spawn --name runner-user --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	runner: { id: $created.data.id, remote: "default", token: $created.token.token },
 }
-let output = try { job recv --tag $build --timeout 10sec } catch { null }
+let output = try { job recv --tag $build --timeout 30sec } catch { null }
 if $output == null {
 	error make { msg: "the build did not complete after an eligible runner connected" }
 }

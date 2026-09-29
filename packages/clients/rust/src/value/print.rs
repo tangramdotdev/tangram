@@ -525,6 +525,7 @@ where
 
 	fn graph_edge_object(&mut self, edge: &tg::graph::Edge<tg::Object>) -> Result {
 		match edge {
+			tg::graph::Edge::Index(index) => write!(self.writer, "{index}")?,
 			tg::graph::Edge::Pointer(pointer) => {
 				self.graph_pointer(pointer)?;
 			},
@@ -537,6 +538,7 @@ where
 
 	fn graph_edge_artifact(&mut self, edge: &tg::graph::Edge<tg::Artifact>) -> Result {
 		match edge {
+			tg::graph::Edge::Index(index) => write!(self.writer, "{index}")?,
 			tg::graph::Edge::Pointer(pointer) => {
 				self.graph_pointer(pointer)?;
 			},
@@ -549,6 +551,7 @@ where
 
 	fn graph_edge_directory(&mut self, edge: &tg::graph::Edge<tg::Directory>) -> Result {
 		match edge {
+			tg::graph::Edge::Index(index) => write!(self.writer, "{index}")?,
 			tg::graph::Edge::Pointer(pointer) => {
 				self.graph_pointer(pointer)?;
 			},
@@ -561,9 +564,7 @@ where
 
 	fn graph_pointer(&mut self, pointer: &tg::graph::Pointer) -> Result {
 		self.start_map()?;
-		if let Some(graph) = &pointer.graph {
-			self.map_entry("graph", |s| s.graph(graph))?;
-		}
+		self.map_entry("graph", |s| s.graph(&pointer.graph))?;
 		self.map_entry("index", |s| s.number(pointer.index.to_f64().unwrap()))?;
 		self.map_entry("kind", |s| s.string(&pointer.kind.to_string()))?;
 		self.finish_map()?;

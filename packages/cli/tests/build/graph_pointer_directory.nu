@@ -9,7 +9,7 @@ let artifact = '
 			{
 				"kind": "directory",
 				"entries": {
-					"tangram.ts": { "index": 1, "kind": "file" },
+					"tangram.ts": 1,
 				}
 			},
 			{

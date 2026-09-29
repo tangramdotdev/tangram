@@ -221,30 +221,26 @@ impl Node {
 		match &self.variant {
 			Variant::Directory(directory) => {
 				for edge in directory.entries.values() {
-					if let Ok(pointer) = edge.try_unwrap_pointer_ref()
-						&& pointer.graph.is_none()
-					{
-						children.push(pointer.index);
+					if let Ok(target_index) = edge.try_unwrap_index_ref() {
+						children.push(*target_index);
 					}
 				}
 			},
 			Variant::File(file) => {
 				for referent in file.dependencies.values().flatten() {
 					if let Some(edge) = &referent.node
-						&& let Ok(pointer) = edge.try_unwrap_pointer_ref()
-						&& pointer.graph.is_none()
+						&& let Ok(target_index) = edge.try_unwrap_index_ref()
 					{
-						children.push(pointer.index);
+						children.push(*target_index);
 					}
 				}
 			},
 			Variant::Object => {},
 			Variant::Symlink(symlink) => {
 				if let Some(edge) = &symlink.artifact
-					&& let Ok(pointer) = edge.try_unwrap_pointer_ref()
-					&& pointer.graph.is_none()
+					&& let Ok(target_index) = edge.try_unwrap_index_ref()
 				{
-					children.push(pointer.index);
+					children.push(*target_index);
 				}
 			},
 		}
@@ -341,9 +337,9 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
 				.entries
 				.values()
 				.filter_map(move |edge| {
-					edge.try_unwrap_pointer_ref()
+					edge.try_unwrap_index_ref()
 						.ok()
-						.and_then(|pointer| pointer.graph.is_none().then_some(pointer.index))
+						.copied()
 						.filter(|&index| index >= next)
 				})
 				.boxed(),
@@ -354,11 +350,7 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
 					option
 						.as_ref()
 						.and_then(|referent| referent.node.as_ref())
-						.and_then(|edge| {
-							edge.try_unwrap_pointer_ref().ok().and_then(|pointer| {
-								pointer.graph.is_none().then_some(pointer.index)
-							})
-						})
+						.and_then(|edge| edge.try_unwrap_index_ref().ok().copied())
 						.filter(|&index| index >= next)
 				})
 				.boxed(),
@@ -367,9 +359,9 @@ impl<'a> petgraph::visit::IntoNeighbors for &'a Petgraph<'a> {
 				.artifact
 				.iter()
 				.filter_map(move |edge| {
-					edge.try_unwrap_pointer_ref()
+					edge.try_unwrap_index_ref()
 						.ok()
-						.and_then(|pointer| pointer.graph.is_none().then_some(pointer.index))
+						.copied()
 						.filter(|&index| index >= next)
 				})
 				.boxed(),

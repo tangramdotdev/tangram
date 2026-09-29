@@ -1,6 +1,6 @@
 use ../../lib/test.nu *
 
-# tg.Value.print renders a graph whose file node has no module and whose pointer edge has no graph, without crashing and omitting those fields.
+# tg.Value.print renders internal graph edges as indices.
 
 let local = server spawn
 
@@ -14,7 +14,7 @@ let path = artifact {
 				],
 			});
 			let output = tg.Value.print(graph);
-			return !output.includes(`"module":`) && !output.includes(`"graph":`);
+			return !output.includes(`"module":`) && !output.includes(`"graph":`) && /"artifact":\s*0/.test(output);
 		}
 	'
 }

@@ -635,6 +635,7 @@ impl Cli {
 		let mut command_env = None;
 		let mut command_options = None;
 		let mut command = match referent.node.clone() {
+			tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 			tg::graph::Edge::Object(tg::Object::Command(_)) if executable_path.is_some() => {
 				return Err(tg::error!("expected an artifact for the executable path"));
 			},
@@ -655,6 +656,7 @@ impl Cli {
 
 			edge => {
 				let artifact = match edge.clone() {
+					tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 					tg::graph::Edge::Pointer(pointer) => tg::Artifact::with_pointer(pointer),
 					tg::graph::Edge::Object(tg::Object::Directory(directory)) => directory.into(),
 					tg::graph::Edge::Object(tg::Object::File(file)) => file.into(),

@@ -701,7 +701,7 @@ impl Session {
 		let edge = tg::graph::data::Edge::Object(id.clone());
 		let item = tokio::task::spawn_blocking({
 			let session = self.clone();
-			move || session.checkout_internal_get_item(edge)
+			move || session.checkout_internal_get_item(edge, None)
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
@@ -1150,15 +1150,10 @@ impl Session {
 		// Recurse into the entries.
 		let mut dependencies = Vec::new();
 		let mut visited = HashSet::<tg::artifact::Id, tg::id::BuildHasher>::default();
-		for (name, mut edge) in entries {
-			if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
-				&& pointer.graph.is_none()
-			{
-				pointer.graph = graph.clone();
-			}
+		for (name, edge) in entries {
 			let path = path.join(&name);
 			let item = self
-				.checkout_internal_get_item(edge)
+				.checkout_internal_get_item(edge, graph.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 			// Check for a cycle.
@@ -1217,7 +1212,8 @@ impl Session {
 			};
 
 			// Get the edge.
-			let mut edge = match dependency.node.clone() {
+			let edge = match dependency.node.clone() {
+				Some(tg::graph::data::Edge::Index(index)) => tg::graph::data::Edge::Index(index),
 				Some(tg::graph::data::Edge::Pointer(graph)) => {
 					tg::graph::data::Edge::Pointer(graph)
 				},
@@ -1234,16 +1230,9 @@ impl Session {
 				},
 			};
 
-			// Update the graph if necessary.
-			if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
-				&& pointer.graph.is_none()
-			{
-				pointer.graph = graph.clone();
-			}
-
 			// Get the node.
 			let item = self
-				.checkout_internal_get_item(edge)
+				.checkout_internal_get_item(edge, graph.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 			self.add_permanent_token_to_object_reference(&mut reference, &item.id)?;
 			references.push(reference);
@@ -1340,19 +1329,12 @@ impl Session {
 		let mut dependencies = Vec::new();
 
 		// Render the target.
-		let target = if let Some(mut edge) = node.artifact.clone() {
+		let target = if let Some(edge) = node.artifact.clone() {
 			let mut target = PathBuf::new();
-
-			// Update the graph if necessary.
-			if let tg::graph::data::Edge::Pointer(pointer) = &mut edge
-				&& pointer.graph.is_none()
-			{
-				pointer.graph = graph.clone();
-			}
 
 			// Get the dependency node.
 			let item = self
-				.checkout_internal_get_item(edge)
+				.checkout_internal_get_item(edge, graph.as_ref())
 				.map_err(|error| tg::error!(!error, "failed to get the item"))?;
 
 			if item.id == state.artifact {
@@ -1464,52 +1446,23 @@ impl Session {
 	fn checkout_internal_get_item(
 		&self,
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
+		graph: Option<&tg::graph::Id>,
 	) -> tg::Result<Item> {
 		match edge {
+			tg::graph::data::Edge::Index(index) => {
+				let graph = graph.ok_or_else(|| tg::error!("missing graph"))?;
+				let node = crate::graph::get_node(&self.server.cache, graph, index)?;
+				let pointer = tg::graph::data::Pointer {
+					graph: graph.clone(),
+					index,
+					kind: node.kind(),
+				};
+				Self::checkout_internal_get_item_with_pointer(pointer, node)
+			},
 			tg::graph::data::Edge::Pointer(pointer) => {
-				// Load the graph.
-				let graph_id = pointer
-					.graph
-					.as_ref()
-					.ok_or_else(|| tg::error!("missing graph"))?
-					.clone();
-				let (_size, data) = self
-					.server
-					.cache
-					.try_get_object_data_sync(&graph_id.clone().into())
-					.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
-					.ok_or_else(|| tg::error!("failed to load the graph"))?;
-				let graph_data: tg::graph::Data = data
-					.try_into()
-					.map_err(|_| tg::error!("expected graph data"))?;
-
-				// Get the node.
-				let node = graph_data
-					.nodes
-					.get(pointer.index)
-					.ok_or_else(|| tg::error!("invalid graph node"))?
-					.clone();
-
-				// Compute the id.
-				let data: tg::artifact::data::Artifact = match node.kind() {
-					tg::artifact::Kind::Directory => {
-						tg::directory::Data::Pointer(pointer.clone()).into()
-					},
-					tg::artifact::Kind::File => tg::file::Data::Pointer(pointer.clone()).into(),
-					tg::artifact::Kind::Symlink => {
-						tg::symlink::Data::Pointer(pointer.clone()).into()
-					},
-				};
-				let bytes = data.serialize()?;
-				let id = tg::artifact::Id::new(node.kind(), &bytes);
-
-				let item = Item {
-					graph: Some(graph_id),
-					id,
-					node,
-				};
-
-				Ok(item)
+				let node =
+					crate::graph::get_node(&self.server.cache, &pointer.graph, pointer.index)?;
+				Self::checkout_internal_get_item_with_pointer(pointer, node)
 			},
 
 			tg::graph::data::Edge::Object(object_id) => {
@@ -1530,28 +1483,9 @@ impl Session {
 					))
 					| tg::artifact::data::Artifact::File(tg::file::Data::Pointer(pointer))
 					| tg::artifact::data::Artifact::Symlink(tg::symlink::Data::Pointer(pointer)) => {
-						// Load the graph.
-						let graph_id = pointer
-							.graph
-							.as_ref()
-							.ok_or_else(|| tg::error!("missing graph"))?
-							.clone();
-						let (_size, data) = self
-							.server
-							.cache
-							.try_get_object_data_sync(&graph_id.clone().into())
-							.map_err(|error| tg::error!(!error, "failed to get the graph data"))?
-							.ok_or_else(|| tg::error!("failed to load the graph"))?;
-						let graph_data: tg::graph::Data = data
-							.try_into()
-							.map_err(|_| tg::error!("expected graph data"))?;
-
-						// Get the node.
-						let node = graph_data
-							.nodes
-							.get(pointer.index)
-							.ok_or_else(|| tg::error!("invalid graph node"))?
-							.clone();
+						let graph_id = pointer.graph;
+						let node =
+							crate::graph::get_node(&self.server.cache, &graph_id, pointer.index)?;
 
 						let item = Item {
 							graph: Some(graph_id),
@@ -1591,6 +1525,23 @@ impl Session {
 		}
 	}
 
+	fn checkout_internal_get_item_with_pointer(
+		pointer: tg::graph::data::Pointer,
+		node: tg::graph::data::Node,
+	) -> tg::Result<Item> {
+		let kind = node.kind();
+		let graph = Some(pointer.graph.clone());
+		let data: tg::artifact::Data = match kind {
+			tg::artifact::Kind::Directory => tg::directory::Data::Pointer(pointer).into(),
+			tg::artifact::Kind::File => tg::file::Data::Pointer(pointer).into(),
+			tg::artifact::Kind::Symlink => tg::symlink::Data::Pointer(pointer).into(),
+		};
+		let bytes = data.serialize()?;
+		let id = tg::artifact::Id::new(kind, &bytes);
+		let item = Item { graph, id, node };
+		Ok(item)
+	}
+
 	fn checkout_internal_items_for_graph(
 		graph_id: &tg::graph::Id,
 		graph_data: &tg::graph::Data,
@@ -1601,18 +1552,14 @@ impl Session {
 			match node {
 				tg::graph::data::Node::File(file) => {
 					for dependency in file.dependencies.values().flatten() {
-						if let Some(tg::graph::data::Edge::Pointer(pointer)) = &dependency.node
-							&& pointer.graph.is_none()
-						{
-							marks.insert(pointer.index);
+						if let Some(tg::graph::data::Edge::Index(target_index)) = &dependency.node {
+							marks.insert(*target_index);
 						}
 					}
 				},
 				tg::graph::data::Node::Symlink(symlink) => {
-					if let Some(tg::graph::data::Edge::Pointer(pointer)) = &symlink.artifact
-						&& pointer.graph.is_none()
-					{
-						marks.insert(pointer.index);
+					if let Some(tg::graph::data::Edge::Index(target_index)) = &symlink.artifact {
+						marks.insert(*target_index);
 					}
 				},
 				tg::graph::data::Node::Directory(_) => {},
@@ -1629,7 +1576,7 @@ impl Session {
 				.clone();
 
 			let pointer = tg::graph::data::Pointer {
-				graph: Some(graph_id.clone()),
+				graph: graph_id.clone(),
 				index,
 				kind: node.kind(),
 			};

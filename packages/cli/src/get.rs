@@ -430,6 +430,7 @@ impl Cli {
 		let referent = self.get_with_follow(reference).await?;
 		let mut referent = referent.into_graph_edge()?;
 		let module = match referent.node.clone() {
+			tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 			tg::graph::Edge::Object(tg::Object::Directory(directory)) => {
 				let root_module_name = tg::module::try_get_root_module_file_name_with_instance(
 					&client,

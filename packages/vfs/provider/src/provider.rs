@@ -1380,7 +1380,7 @@ impl Fast {
 		let (symlink, graph) = self.symlink_node_with_transaction(&transaction, artifact)?;
 		let artifact = match symlink.artifact {
 			None => None,
-			Some(edge) => Some(Self::artifact_id_from_edge(edge, graph.as_ref())?),
+			Some(edge) => Some(self.artifact_id_from_edge(&transaction, edge, graph.as_ref())?),
 		};
 		render_symlink(depth, artifact, symlink.path)
 	}
@@ -1498,9 +1498,8 @@ impl Fast {
 		&self,
 		transaction: &lmdb::RoTxn<'_>,
 		pointer: &tg::graph::data::Pointer,
-		default_graph: Option<&tg::graph::Id>,
 	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
-		let graph = Self::graph_id_from_pointer(pointer, default_graph)?;
+		let graph = pointer.graph.clone();
 		let graph_data = self.graph_data_with_transaction(transaction, &graph)?;
 		let node = graph_data
 			.nodes
@@ -1536,7 +1535,7 @@ impl Fast {
 			tg::directory::Data::Node(node) => Ok((node, None)),
 			tg::directory::Data::Pointer(pointer) => {
 				let (node, graph) =
-					self.resolve_graph_node_with_transaction(transaction, &pointer, None)?;
+					self.resolve_graph_node_with_transaction(transaction, &pointer)?;
 				let tg::graph::data::Node::Directory(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected a directory node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -1560,7 +1559,7 @@ impl Fast {
 			tg::file::Data::Node(node) => Ok((node, None)),
 			tg::file::Data::Pointer(pointer) => {
 				let (node, graph) =
-					self.resolve_graph_node_with_transaction(transaction, &pointer, None)?;
+					self.resolve_graph_node_with_transaction(transaction, &pointer)?;
 				let tg::graph::data::Node::File(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected a file node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -1584,7 +1583,7 @@ impl Fast {
 			tg::symlink::Data::Node(node) => Ok((node, None)),
 			tg::symlink::Data::Pointer(pointer) => {
 				let (node, graph) =
-					self.resolve_graph_node_with_transaction(transaction, &pointer, None)?;
+					self.resolve_graph_node_with_transaction(transaction, &pointer)?;
 				let tg::graph::data::Node::Symlink(node) = node else {
 					tracing::error!(pointer = ?pointer, "expected a symlink node in the graph");
 					return Err(std::io::Error::from_raw_os_error(libc::EIO));
@@ -1609,14 +1608,18 @@ impl Fast {
 			match directory {
 				tg::graph::data::Directory::Branch(branch) => {
 					for child in branch.children.into_iter().rev() {
-						let artifact =
-							Self::artifact_id_from_directory_edge(child.directory, graph.as_ref())?;
+						let artifact = self.artifact_id_from_directory_edge(
+							transaction,
+							child.directory,
+							graph.as_ref(),
+						)?;
 						stack.push((artifact, graph.clone()));
 					}
 				},
 				tg::graph::data::Directory::Leaf(leaf) => {
 					for (name, edge) in leaf.entries {
-						let artifact = Self::artifact_id_from_edge(edge, graph.as_ref())?;
+						let artifact =
+							self.artifact_id_from_edge(transaction, edge, graph.as_ref())?;
 						entries.insert(name, artifact);
 					}
 				},
@@ -1647,15 +1650,18 @@ impl Fast {
 					else {
 						return Ok(None);
 					};
-					directory =
-						Self::artifact_id_from_directory_edge(child.directory, graph.as_ref())?;
+					directory = self.artifact_id_from_directory_edge(
+						transaction,
+						child.directory,
+						graph.as_ref(),
+					)?;
 					default_graph = graph;
 				},
 				tg::graph::data::Directory::Leaf(leaf) => {
 					let Some(edge) = leaf.entries.get(name).cloned() else {
 						return Ok(None);
 					};
-					let artifact = Self::artifact_id_from_edge(edge, graph.as_ref())?;
+					let artifact = self.artifact_id_from_edge(transaction, edge, graph.as_ref())?;
 					return Ok(Some(artifact));
 				},
 			}
@@ -1813,49 +1819,65 @@ impl Fast {
 		Ok(())
 	}
 
-	fn graph_id_from_pointer(
-		pointer: &tg::graph::data::Pointer,
-		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<tg::graph::Id> {
-		pointer
-			.graph
-			.clone()
-			.or_else(|| default_graph.cloned())
-			.ok_or_else(|| {
-				tracing::error!(pointer = ?pointer, "missing the pointer graph");
-				fallback()
-			})
-	}
-
 	fn artifact_id_from_edge(
+		&self,
+		transaction: &lmdb::RoTxn<'_>,
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		default_graph: Option<&tg::graph::Id>,
 	) -> std::io::Result<tg::artifact::Id> {
 		match edge {
+			tg::graph::data::Edge::Index(index) => self.artifact_id_from_index_with_transaction(
+				transaction,
+				index,
+				default_graph,
+				None,
+			),
 			tg::graph::data::Edge::Object(artifact) => Ok(artifact),
 			tg::graph::data::Edge::Pointer(pointer) => {
-				Self::artifact_id_from_pointer(&pointer, default_graph, None)
+				Self::artifact_id_from_pointer(&pointer, None)
 			},
 		}
 	}
 
 	fn artifact_id_from_directory_edge(
+		&self,
+		transaction: &lmdb::RoTxn<'_>,
 		edge: tg::graph::data::Edge<tg::directory::Id>,
 		default_graph: Option<&tg::graph::Id>,
 	) -> std::io::Result<tg::artifact::Id> {
 		match edge {
-			tg::graph::data::Edge::Object(directory) => Ok(directory.into()),
-			tg::graph::data::Edge::Pointer(pointer) => Self::artifact_id_from_pointer(
-				&pointer,
+			tg::graph::data::Edge::Index(index) => self.artifact_id_from_index_with_transaction(
+				transaction,
+				index,
 				default_graph,
 				Some(tg::artifact::Kind::Directory),
 			),
+			tg::graph::data::Edge::Object(directory) => Ok(directory.into()),
+			tg::graph::data::Edge::Pointer(pointer) => {
+				Self::artifact_id_from_pointer(&pointer, Some(tg::artifact::Kind::Directory))
+			},
 		}
+	}
+	fn artifact_id_from_index_with_transaction(
+		&self,
+		transaction: &lmdb::RoTxn<'_>,
+		index: usize,
+		graph: Option<&tg::graph::Id>,
+		expected_kind: Option<tg::artifact::Kind>,
+	) -> std::io::Result<tg::artifact::Id> {
+		let graph = graph.ok_or_else(fallback)?;
+		let data = self.graph_data_with_transaction(transaction, graph)?;
+		let node = data.nodes.get(index).ok_or_else(fallback)?;
+		let pointer = tg::graph::data::Pointer {
+			graph: graph.clone(),
+			index,
+			kind: node.kind(),
+		};
+		Self::artifact_id_from_pointer(&pointer, expected_kind)
 	}
 
 	fn artifact_id_from_pointer(
 		pointer: &tg::graph::data::Pointer,
-		default_graph: Option<&tg::graph::Id>,
 		expected_kind: Option<tg::artifact::Kind>,
 	) -> std::io::Result<tg::artifact::Id> {
 		if let Some(expected_kind) = expected_kind
@@ -1864,9 +1886,9 @@ impl Fast {
 			tracing::error!(kind = ?pointer.kind, expected = ?expected_kind, "invalid pointer kind");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		}
-		let graph = Self::graph_id_from_pointer(pointer, default_graph)?;
+		let graph = pointer.graph.clone();
 		let pointer = tg::graph::data::Pointer {
-			graph: Some(graph),
+			graph,
 			index: pointer.index,
 			kind: pointer.kind,
 		};

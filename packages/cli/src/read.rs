@@ -19,6 +19,7 @@ impl Cli {
 			let edge = referent.into_graph_edge()?.node;
 
 			let blob = match &edge {
+				tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 				tg::graph::Edge::Object(tg::Object::Blob(blob)) => blob.clone(),
 				tg::graph::Edge::Object(tg::Object::File(file)) => file
 					.contents_with_instance(&client)

@@ -283,10 +283,7 @@ async fn get_node(
 			},
 		},
 		tg::get::Node::Pointer(pointer) => {
-			let graph = pointer
-				.graph
-				.clone()
-				.ok_or_else(|| tg::error!("expected a graph"))?;
+			let graph = pointer.graph.clone();
 			let referent = tg::Referent::new(graph, options.clone());
 			let graph = tg::Graph::with_referent(referent);
 			crate::viewer::Item::Value(tg::Object::from(graph).into())

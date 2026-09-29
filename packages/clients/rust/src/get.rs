@@ -60,7 +60,7 @@ impl Node {
 				Ok(tg::graph::Edge::Object(tg::Object::with_id(id.try_into()?)))
 			},
 			tg::get::Node::Pointer(pointer) => Ok(tg::graph::Edge::Pointer(tg::graph::Pointer {
-				graph: pointer.graph.map(tg::Graph::with_id),
+				graph: tg::Graph::with_id(pointer.graph),
 				index: pointer.index,
 				kind: pointer.kind,
 			})),
@@ -74,12 +74,14 @@ impl tg::Referent<Node> {
 		let tokens = self.options.tokens.clone();
 		let referent = self.try_map(Node::to_graph_edge)?;
 		match &referent.node {
+			tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 			tg::graph::Edge::Object(object) => {
 				object.inherit_location(location.as_ref());
 				object.inherit_tokens(&tokens);
 			},
 			tg::graph::Edge::Pointer(pointer) => {
-				if let Some(graph) = &pointer.graph {
+				let graph = &pointer.graph;
+				{
 					graph.state().inherit_location(location.as_ref());
 					graph.state().inherit_tokens(&tokens);
 				}

@@ -3,10 +3,7 @@
     {
       "kind": "directory",
       "entries": {
-        "tangram.ts": {
-          "index": 1,
-          "kind": "file"
-        }
+        "tangram.ts": 1
       }
     },
     {
@@ -15,7 +12,7 @@
         "a": {
           "node": null,
           "options": {
-            "id": "dir_01eqz3av8bnqxrx7dmk0h710x3310rfehzh7pm5sykkxhy6k526ebg",
+            "id": "dir_017jf622328p25b83wytej8bfwzvczz1hq4k02ptfa6f02p7g356eg",
             "tag": "a"
           }
         }

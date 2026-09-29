@@ -123,7 +123,7 @@ fn module_serialization_preserves_graph_tokens() {
 	let tokens = tokens();
 	graph.state().set_tokens(tokens.clone());
 	let pointer = tg::graph::Pointer {
-		graph: Some(graph),
+		graph,
 		index: 0,
 		kind: tg::artifact::Kind::File,
 	};

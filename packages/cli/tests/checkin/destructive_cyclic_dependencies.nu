@@ -23,14 +23,17 @@ snapshot $object '
 	    "graph": tg.graph({
 	      "nodes": [
 	        {
+	          "kind": "directory",
+	          "entries": {
+	            "tangram.ts": 2,
+	          },
+	        },
+	        {
 	          "kind": "file",
 	          "contents": tg.blob("import * as bar from \"../bar\";"),
 	          "dependencies": {
 	            "../bar": {
-	              "node": {
-	                "index": 1,
-	                "kind": "directory",
-	              },
+	              "node": 0,
 	              "options": {
 	                "path": "../bar",
 	              },
@@ -39,32 +42,11 @@ snapshot $object '
 	          "module": "ts",
 	        },
 	        {
-	          "kind": "directory",
-	          "entries": {
-	            "tangram.ts": {
-	              "index": 3,
-	              "kind": "file",
-	            },
-	          },
-	        },
-	        {
-	          "kind": "directory",
-	          "entries": {
-	            "tangram.ts": {
-	              "index": 0,
-	              "kind": "file",
-	            },
-	          },
-	        },
-	        {
 	          "kind": "file",
 	          "contents": tg.blob("import * as foo from \"../foo\";"),
 	          "dependencies": {
 	            "../foo": {
-	              "node": {
-	                "index": 2,
-	                "kind": "directory",
-	              },
+	              "node": 3,
 	              "options": {
 	                "path": "../foo",
 	              },
@@ -72,23 +54,32 @@ snapshot $object '
 	          },
 	          "module": "ts",
 	        },
+	        {
+	          "kind": "directory",
+	          "entries": {
+	            "tangram.ts": 1,
+	          },
+	        },
 	      ],
 	    }),
-	    "index": 1,
+	    "index": 0,
 	    "kind": "directory",
 	  },
 	  "foo": {
 	    "graph": tg.graph({
 	      "nodes": [
 	        {
+	          "kind": "directory",
+	          "entries": {
+	            "tangram.ts": 2,
+	          },
+	        },
+	        {
 	          "kind": "file",
 	          "contents": tg.blob("import * as bar from \"../bar\";"),
 	          "dependencies": {
 	            "../bar": {
-	              "node": {
-	                "index": 1,
-	                "kind": "directory",
-	              },
+	              "node": 0,
 	              "options": {
 	                "path": "../bar",
 	              },
@@ -97,32 +88,11 @@ snapshot $object '
 	          "module": "ts",
 	        },
 	        {
-	          "kind": "directory",
-	          "entries": {
-	            "tangram.ts": {
-	              "index": 3,
-	              "kind": "file",
-	            },
-	          },
-	        },
-	        {
-	          "kind": "directory",
-	          "entries": {
-	            "tangram.ts": {
-	              "index": 0,
-	              "kind": "file",
-	            },
-	          },
-	        },
-	        {
 	          "kind": "file",
 	          "contents": tg.blob("import * as foo from \"../foo\";"),
 	          "dependencies": {
 	            "../foo": {
-	              "node": {
-	                "index": 2,
-	                "kind": "directory",
-	              },
+	              "node": 3,
 	              "options": {
 	                "path": "../foo",
 	              },
@@ -130,9 +100,15 @@ snapshot $object '
 	          },
 	          "module": "ts",
 	        },
+	        {
+	          "kind": "directory",
+	          "entries": {
+	            "tangram.ts": 1,
+	          },
+	        },
 	      ],
 	    }),
-	    "index": 2,
+	    "index": 3,
 	    "kind": "directory",
 	  },
 	})

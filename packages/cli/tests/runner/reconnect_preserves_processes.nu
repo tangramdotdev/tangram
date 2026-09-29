@@ -35,7 +35,7 @@ tg --url $runner.url checkpoint unwatch runner.process.start $start_watch
 
 let remote_pid = open ($remote.directory | path join 'lock') | into int
 kill --signal 9 $remote_pid
-^tail --pid $remote_pid -f /dev/null
+wait_until { ps | where pid == $remote_pid | is-empty } "the remote server must exit"
 let remote = server start $remote
 
 let output = timeout 60s tg --url $local.url process wait $id | complete

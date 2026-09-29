@@ -11,10 +11,7 @@ tg.directory({
                 "contents": tg.blob("import \"./tangram.ts\";"),
                 "dependencies": {
                   "./tangram.ts": {
-                    "node": {
-                      "index": 1,
-                      "kind": "file",
-                    },
+                    "node": 1,
                     "options": {
                       "path": "tangram.ts",
                     },
@@ -27,10 +24,7 @@ tg.directory({
                 "contents": tg.blob("import \"./foo.tg.ts\";"),
                 "dependencies": {
                   "./foo.tg.ts": {
-                    "node": {
-                      "index": 0,
-                      "kind": "file",
-                    },
+                    "node": 0,
                     "options": {
                       "path": "foo.tg.ts",
                     },
@@ -44,7 +38,7 @@ tg.directory({
           "kind": "file",
         },
         "options": {
-          "id": "fil_01b976y1b3ycm0men9db9sse0sm19bdxwp45vk5m6d8tg9rktczexg",
+          "id": "fil_010hc7eadrcn3bxmygmp9gp4xhp1zah2f2de9kg9mnmhvb6bxgzkag",
           "tag": "cycle",
         },
       },

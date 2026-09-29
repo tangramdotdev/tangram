@@ -200,9 +200,10 @@ impl Session {
 		id: &tg::object::Id,
 	) -> bool {
 		let (is_directory, node_id) = match edge {
-			tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
-				let node = graph.nodes.get(&pointer.index);
-				let is_directory = matches!(pointer.kind, tg::artifact::Kind::Directory);
+			tg::graph::data::Edge::Index(target_index) => {
+				let node = graph.nodes.get(target_index);
+				let is_directory =
+					node.is_some_and(|node| matches!(&node.variant, Variant::Directory(_)));
 				let node_id = node.and_then(|node| node.id.clone());
 				(is_directory, node_id)
 			},
@@ -223,9 +224,9 @@ impl Session {
 		edge: &tg::graph::data::Edge<tg::object::Id>,
 	) -> bool {
 		match edge {
-			tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => graph
+			tg::graph::data::Edge::Index(target_index) => graph
 				.nodes
-				.get(&pointer.index)
+				.get(target_index)
 				.is_some_and(|n| matches!(&n.variant, Variant::Directory(_))),
 			tg::graph::data::Edge::Pointer(pointer) => {
 				matches!(pointer.kind, tg::artifact::Kind::Directory)
@@ -262,10 +263,10 @@ impl Session {
 		name: &str,
 	) -> tg::Result<tg::graph::data::Edge<tg::object::Id>> {
 		match edge {
-			tg::graph::data::Edge::Pointer(pointer) if pointer.graph.is_none() => {
+			tg::graph::data::Edge::Index(target_index) => {
 				let node = graph
 					.nodes
-					.get(&pointer.index)
+					.get(target_index)
 					.ok_or_else(|| tg::error!("node not found"))?;
 				let directory = node
 					.variant
@@ -278,10 +279,7 @@ impl Session {
 				Ok(Self::checkin_path_convert_artifact_edge(entry))
 			},
 			tg::graph::data::Edge::Pointer(pointer) => {
-				let graph_id = pointer
-					.graph
-					.as_ref()
-					.ok_or_else(|| tg::error!("expected graph id"))?;
+				let graph_id = &pointer.graph;
 				let data = self.checkin_path_load_graph(graph_id).await?;
 				let node = data
 					.nodes
@@ -297,14 +295,14 @@ impl Session {
 					.entries
 					.get(name)
 					.ok_or_else(|| tg::error!(%name, "entry not found"))?;
-				Ok(Self::checkin_path_convert_entry_with_graph(entry, graph_id))
+				Self::checkin_path_convert_entry_with_graph(entry, graph_id, &data)
 			},
 			tg::graph::data::Edge::Object(id) => {
 				let artifact_id: tg::artifact::Id = id
 					.clone()
 					.try_into()
 					.map_err(|_| tg::error!("expected artifact"))?;
-				let data = self.checkin_path_load_directory(&artifact_id).await?;
+				let (data, context) = self.checkin_path_load_directory(&artifact_id).await?;
 				let leaf = data
 					.try_unwrap_leaf_ref()
 					.map_err(|_| tg::error!("expected a leaf directory"))?;
@@ -312,7 +310,12 @@ impl Session {
 					.entries
 					.get(name)
 					.ok_or_else(|| tg::error!(%name, "entry not found"))?;
-				Ok(Self::checkin_path_convert_artifact_edge(entry))
+				match context {
+					Some((graph_id, graph)) => {
+						Self::checkin_path_convert_entry_with_graph(entry, &graph_id, &graph)
+					},
+					None => Ok(Self::checkin_path_convert_artifact_edge(entry)),
+				}
 			},
 		}
 	}
@@ -329,7 +332,10 @@ impl Session {
 	async fn checkin_path_load_directory(
 		&self,
 		id: &tg::artifact::Id,
-	) -> tg::Result<tg::graph::data::Directory> {
+	) -> tg::Result<(
+		tg::graph::data::Directory,
+		Option<(tg::graph::Id, tg::graph::Data)>,
+	)> {
 		let output = self
 			.try_get_object_local(&id.clone().into(), false, false, &[])
 			.await?
@@ -337,20 +343,19 @@ impl Session {
 		let data = tg::directory::Data::deserialize(output.bytes)
 			.map_err(|e| tg::error!(!e, "failed to deserialize"))?;
 		match data {
-			tg::directory::Data::Node(node) => Ok(node),
+			tg::directory::Data::Node(node) => Ok((node, None)),
 			tg::directory::Data::Pointer(pointer) => {
-				let graph_id = pointer
-					.graph
-					.as_ref()
-					.ok_or_else(|| tg::error!("expected graph"))?;
+				let graph_id = &pointer.graph;
 				let graph = self.checkin_path_load_graph(graph_id).await?;
 				let node = graph
 					.nodes
 					.get(pointer.index)
 					.ok_or_else(|| tg::error!("invalid index"))?;
-				node.try_unwrap_directory_ref()
+				let directory = node
+					.try_unwrap_directory_ref()
 					.cloned()
-					.map_err(|_| tg::error!("expected a directory"))
+					.map_err(|_| tg::error!("expected a directory"))?;
+				Ok((directory, Some((pointer.graph, graph))))
 			},
 		}
 	}
@@ -359,6 +364,7 @@ impl Session {
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 	) -> tg::graph::data::Edge<tg::object::Id> {
 		match edge {
+			tg::graph::data::Edge::Index(index) => tg::graph::data::Edge::Index(*index),
 			tg::graph::data::Edge::Pointer(pointer) => {
 				tg::graph::data::Edge::Pointer(pointer.clone())
 			},
@@ -369,10 +375,22 @@ impl Session {
 	fn checkin_path_convert_entry_with_graph(
 		edge: &tg::graph::data::Edge<tg::artifact::Id>,
 		graph_id: &tg::graph::Id,
-	) -> tg::graph::data::Edge<tg::object::Id> {
-		match edge {
+		graph: &tg::graph::Data,
+	) -> tg::Result<tg::graph::data::Edge<tg::object::Id>> {
+		let edge = match edge {
+			tg::graph::data::Edge::Index(index) => {
+				let node = graph
+					.nodes
+					.get(*index)
+					.ok_or_else(|| tg::error!("invalid node index"))?;
+				tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
+					graph: graph_id.clone(),
+					index: *index,
+					kind: node.kind(),
+				})
+			},
 			tg::graph::data::Edge::Pointer(pointer) => {
-				let graph = pointer.graph.clone().or_else(|| Some(graph_id.clone()));
+				let graph = pointer.graph.clone();
 				tg::graph::data::Edge::Pointer(tg::graph::data::Pointer {
 					graph,
 					index: pointer.index,
@@ -380,6 +398,7 @@ impl Session {
 				})
 			},
 			tg::graph::data::Edge::Object(id) => tg::graph::data::Edge::Object(id.clone().into()),
-		}
+		};
+		Ok(edge)
 	}
 }

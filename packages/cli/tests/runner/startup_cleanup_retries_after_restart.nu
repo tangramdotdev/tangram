@@ -32,7 +32,7 @@ let params = { sandbox: $sandbox } | to json --raw
 let watch = tg --url $remote.url --token $root_token checkpoint watch runner.control.destroy_sandbox --params $params | from json | get watch
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
-^tail --pid $pid -f /dev/null
+wait_until { ps | where pid == $pid | is-empty } "the runner must exit"
 let runner = server start $runner
 success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait runner.control.destroy_sandbox $watch 0 | complete) "startup must clean up the old sandbox"
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
@@ -40,7 +40,7 @@ assert equal (tg --url $remote.url --token $root_token get $id | from json | get
 # Interrupt the runner before cleanup is acknowledged, so startup must retry using the index.
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
-^tail --pid $pid -f /dev/null
+wait_until { ps | where pid == $pid | is-empty } "the runner must exit"
 tg --url $remote.url --token $root_token checkpoint continue runner.control.destroy_sandbox $watch 0
 tg --url $remote.url --token $root_token checkpoint unwatch runner.control.destroy_sandbox $watch
 let runner = server start $runner
