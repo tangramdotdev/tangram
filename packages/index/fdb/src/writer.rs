@@ -29,6 +29,7 @@ pub(super) struct Arg {
 	pub authorize: crate::AuthorizeConfig,
 	pub database: Arc<fdb::Database>,
 	pub max_process_depth: Option<u64>,
+	pub max_write_operation_batch_size: usize,
 	pub metrics: Metrics,
 	pub partition_totals: crate::PartitionTotals,
 	pub receiver_high: RequestReceiver,
@@ -54,6 +55,7 @@ struct Batch {
 struct ExecutionConfig<'a> {
 	authorize: crate::AuthorizeConfig,
 	max_process_depth: Option<u64>,
+	max_write_operation_batch_size: usize,
 	metrics: &'a Metrics,
 	partition_totals: crate::PartitionTotals,
 }
@@ -69,6 +71,7 @@ impl Index {
 			authorize,
 			database,
 			max_process_depth,
+			max_write_operation_batch_size,
 			metrics,
 			partition_totals,
 			mut receiver_high,
@@ -154,6 +157,7 @@ impl Index {
 				let config = ExecutionConfig {
 					authorize,
 					max_process_depth,
+					max_write_operation_batch_size,
 					metrics: &metrics,
 					partition_totals,
 				};
@@ -888,6 +892,21 @@ impl Index {
 		batch: Batch,
 		config: ExecutionConfig<'_>,
 	) {
+		if let [Request::Batch(arg)] = batch.requests.as_slice()
+			&& arg.items.len() > config.max_write_operation_batch_size
+		{
+			let request = batch.requests.into_iter().next().unwrap();
+			let tracker = batch.trackers.into_iter().next().unwrap();
+			let Request::Batch(arg) = request else {
+				unreachable!();
+			};
+			match Self::execute_ordered_batch(database, subspace, arg, config).await {
+				Ok(()) => Self::complete_tracker(&tracker, Ok(Response::Unit)),
+				Err(error) => Self::fail_tracker(&tracker, &error),
+			}
+			return;
+		}
+
 		let result = Self::execute_transaction(database, subspace, &batch.requests, config).await;
 
 		match result {
@@ -896,7 +915,7 @@ impl Index {
 					Self::complete_tracker(tracker, Ok(response));
 				}
 			},
-			Err(TransactionError::FoundationDb(error)) if Self::is_transaction_too_large(error) => {
+			Err(TransactionError::FoundationDb(error)) if Self::is_split_error(error) => {
 				if batch.requests.len() > 1 {
 					let mid = batch.requests.len() / 2;
 					let mut requests = batch.requests;
@@ -919,7 +938,7 @@ impl Index {
 					Request::Batch(arg) if arg.items.len() > 1 => {
 						Self::execute_ordered_batch(database, subspace, arg, config).await
 					},
-					_ => Err(tg::error!(!error, "transaction too large")),
+					_ => Err(tg::error!(!error, "failed to execute a request that cannot be split")),
 				};
 				match result {
 					Ok(()) => Self::complete_tracker(&tracker, Ok(Response::Unit)),
@@ -946,13 +965,19 @@ impl Index {
 		arg: tangram_index::batch::Arg,
 		config: ExecutionConfig<'_>,
 	) -> tg::Result<()> {
-		let Some((left, right)) = Self::try_split_batch_arg(arg) else {
-			return Err(tg::error!(
-				"cannot split an index batch with fewer than two items"
-			));
+		let size = config.max_write_operation_batch_size;
+		let mut pending = if arg.items.len() > size {
+			Self::chunk_batch_arg(arg, size)
+		} else {
+			let Some((left, right)) = Self::try_split_batch_arg(arg) else {
+				return Err(tg::error!(
+					"cannot split an index batch with fewer than two items"
+				));
+			};
+			vec![left, right]
 		};
-		// Push the right half first so every left half commits before its right half.
-		let mut pending = vec![right, left];
+		// Reverse the chunks so they are popped, and therefore committed, in order.
+		pending.reverse();
 		while let Some(arg) = pending.pop() {
 			let request = Request::Batch(arg);
 			let result = Self::execute_transaction(
@@ -968,14 +993,12 @@ impl Index {
 						return Err(tg::error!("unexpected write response"));
 					};
 				},
-				Err(TransactionError::FoundationDb(error))
-					if Self::is_transaction_too_large(error) =>
-				{
+				Err(TransactionError::FoundationDb(error)) if Self::is_split_error(error) => {
 					let Request::Batch(arg) = request else {
 						unreachable!();
 					};
 					let Some((left, right)) = Self::try_split_batch_arg(arg) else {
-						return Err(tg::error!(!error, "transaction too large"));
+						return Err(tg::error!(!error, "failed to execute an index batch item"));
 					};
 					// Preserve the order when another adaptive split is required.
 					pending.push(right);
@@ -1049,6 +1072,9 @@ impl Index {
 						Err(error) => break Err(TransactionError::Tangram(error)),
 						Ok(ControlFlow::Break(responses)) => responses,
 						Ok(ControlFlow::Continue(error)) => {
+							if Self::is_transaction_too_old(error) {
+								break Err(TransactionError::FoundationDb(error));
+							}
 							let inner = match transaction.take() {
 								Err(error) => break Err(TransactionError::Tangram(error)),
 								Ok(transaction) => transaction,
@@ -1068,11 +1094,16 @@ impl Index {
 					};
 					match inner.commit().await {
 						Ok(_) => break Ok(responses),
-						Err(error) => match error.on_error().await {
-							Ok(value) => {
-								transaction = crate::Transaction::new(value);
-							},
-							Err(error) => break Err(TransactionError::FoundationDb(error)),
+						Err(error) => {
+							if Self::is_transaction_too_old(*error) {
+								break Err(TransactionError::FoundationDb(error.into()));
+							}
+							match error.on_error().await {
+								Ok(value) => {
+									transaction = crate::Transaction::new(value);
+								},
+								Err(error) => break Err(TransactionError::FoundationDb(error)),
+							}
 						},
 					}
 				}
@@ -1437,6 +1468,29 @@ impl Index {
 
 	fn is_transaction_too_large(error: fdb::FdbError) -> bool {
 		error.code() == 2101
+	}
+
+	fn is_transaction_too_old(error: fdb::FdbError) -> bool {
+		error.code() == 1007
+	}
+
+	fn is_split_error(error: fdb::FdbError) -> bool {
+		Self::is_transaction_too_large(error) || Self::is_transaction_too_old(error)
+	}
+
+	fn chunk_batch_arg(
+		mut arg: tangram_index::batch::Arg,
+		size: usize,
+	) -> Vec<tangram_index::batch::Arg> {
+		let mut chunks = Vec::new();
+		while arg.items.len() > size {
+			let rest = arg.items.split_off(size);
+			chunks.push(tangram_index::batch::Arg {
+				items: std::mem::replace(&mut arg.items, rest),
+			});
+		}
+		chunks.push(arg);
+		chunks
 	}
 
 	fn complete_tracker(tracker: &Arc<Mutex<RequestTracker>>, result: tg::Result<Response>) {

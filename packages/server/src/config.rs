@@ -499,6 +499,8 @@ pub struct FdbIndex {
 
 	pub usage_partition_total: u64,
 
+	pub max_write_operation_batch_size: usize,
+
 	pub write_operation_batch_size: usize,
 
 	pub write_transaction_concurrency: usize,
@@ -1628,6 +1630,7 @@ impl Default for FdbIndex {
 			read_transaction_concurrency: 64,
 			usage_update_partition_total: 1,
 			usage_partition_total: 1,
+			max_write_operation_batch_size: 1_000,
 			write_operation_batch_size: 8_000,
 			write_transaction_concurrency: 256,
 		}

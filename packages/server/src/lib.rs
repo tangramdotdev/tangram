@@ -937,6 +937,7 @@ impl Server {
 						read_transaction_concurrency: options.read_transaction_concurrency,
 						usage_update_partition_total: options.usage_update_partition_total,
 						usage_partition_total: options.usage_partition_total,
+						max_write_operation_batch_size: options.max_write_operation_batch_size,
 						write_operation_batch_size: options.write_operation_batch_size,
 						write_transaction_concurrency: options.write_transaction_concurrency,
 					};

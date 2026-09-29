@@ -752,6 +752,9 @@ pub struct FdbIndex {
 	pub usage_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_write_operation_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_operation_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3005,6 +3008,9 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	}
 	if let Some(value) = source.usage_partition_total {
 		target.usage_partition_total = value;
+	}
+	if let Some(value) = source.max_write_operation_batch_size {
+		target.max_write_operation_batch_size = value;
 	}
 	if let Some(value) = source.write_operation_batch_size {
 		target.write_operation_batch_size = value;
