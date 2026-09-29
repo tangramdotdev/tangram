@@ -83,6 +83,7 @@ mod sync;
 mod tag;
 mod temp;
 mod token;
+mod usage;
 mod user;
 mod vfs;
 mod watch;
