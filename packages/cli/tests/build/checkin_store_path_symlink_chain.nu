@@ -26,6 +26,15 @@ let path = artifact {
 				tg.assert((await output.text).trim().split("?")[0] === directory.id);
 			}
 		}
+		export async function intermediate() {
+			const directory = await tg.directory({});
+			const symlink = await tg.symlink({ artifact: directory });
+			const chain = await tg.symlink({ artifact: symlink });
+			const output = await tg.build`
+				tg checkin "\${INPUT%/*}/${symlink.id}" > ${tg.output}
+			`.env({ INPUT: chain }).then(tg.File.expect);
+			tg.assert((await output.text).trim().split("?")[0] === symlink.id);
+		}
 		export async function reuse() {
 			const directory = await tg.directory({});
 			return tg.command({
@@ -52,6 +61,12 @@ let path = artifact {
 
 let output = tg build $path | complete
 success $output "the process should check in symlink targets without searching or looping"
+
+# macOS also retains an authorization token on the intermediate symlink itself.
+if $nu.os-info.name == 'macos' {
+	let output = tg build $'($path)#intermediate' | complete
+	success $output "the process should check in the intermediate symlink using its authorization token"
+}
 
 # Reuse the checkout in a new sandbox that recovers the directory token from disk.
 let command = tg build $'($path)#reuse' | str trim

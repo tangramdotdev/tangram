@@ -1391,6 +1391,12 @@ impl Session {
 		std::os::unix::fs::symlink(target, path)
 			.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
 
+		// Retain the symlink authorization token on macOS, where symlink xattrs are supported.
+		#[cfg(target_os = "macos")]
+		if let Some(token) = self.create_permanent_object_token(&item.id)? {
+			tg::file::xattrs::write_token(path, &token)?;
+		}
+
 		// Increment the progress.
 		state.progress.increment("artifacts", 1);
 
