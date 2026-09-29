@@ -215,6 +215,25 @@ impl Session {
 		location: Option<&tg::Location>,
 		exclude: Option<&tg::process::Id>,
 	) -> tg::Result<Option<cached::Output>> {
+		let Ok(output) = self
+			.try_spawn_process_get_cached_process(arg, command, location, exclude)
+			.await
+			.inspect_err(|error| {
+				tracing::error!(error = %error.trace(), "failed to get a cached process");
+			})
+		else {
+			return Ok(None);
+		};
+		Ok(output)
+	}
+
+	async fn try_spawn_process_get_cached_process(
+		&self,
+		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
+		location: Option<&tg::Location>,
+		exclude: Option<&tg::process::Id>,
+	) -> tg::Result<Option<cached::Output>> {
 		let output = if let Some(location) = location
 			&& !matches!(
 				location,
@@ -251,20 +270,9 @@ impl Session {
 		{
 			return Ok(Some(output));
 		}
-		let output = match self
+		let output = self
 			.spawn_process_get_cached_process_region_or_remote(arg, true, false)
-			.await
-		{
-			Ok(output) => output,
-			Err(error) if exclude.is_some() => {
-				tracing::debug!(
-					error = %error.trace(),
-					"failed to get a cached process from another region or remote"
-				);
-				None
-			},
-			Err(error) => return Err(error),
-		};
+			.await?;
 		let output = output.filter(|output| {
 			output
 				.process()
@@ -385,25 +393,33 @@ impl Session {
 			return Ok(None);
 		}
 		if cacheable && matches!(arg.cached, None | Some(true)) {
-			let locations = self
+			let Ok(locations) = self
 				.locations(arg.cache_location.as_ref())
 				.await
-				.map_err(|error| tg::error!(!error, "failed to resolve the cache locations"))?;
+				.inspect_err(|error| {
+					tracing::error!(error = %error.trace(), "failed to resolve the cache locations");
+				})
+			else {
+				return Ok(None);
+			};
 			let regions = locations.local.map_or_else(Vec::new, |local| local.regions);
-			if let Some(output) = self
+			if let Ok(Some(output)) = self
 				.try_get_cached_process_regions(arg, &regions)
 				.await
-				.map_err(|error| {
-					tg::error!(!error, "failed to get a cached process from another region")
-				})? {
+				.inspect_err(|error| {
+					tracing::error!(error = %error.trace(), "failed to get a cached process from another region");
+				}) {
 				return Ok(Some(output));
 			}
-			let output = self
+			let Ok(output) = self
 				.try_get_cached_process_remotes(arg, &locations.remotes)
 				.await
-				.map_err(|error| {
-					tg::error!(!error, "failed to get a cached process from a remote")
-				})?;
+				.inspect_err(|error| {
+					tracing::error!(error = %error.trace(), "failed to get a cached process from a remote");
+				})
+			else {
+				return Ok(None);
+			};
 			Ok(output)
 		} else {
 			Ok(None)
