@@ -12,10 +12,11 @@ impl Session {
 		location: Option<tg::location::Arg>,
 	) -> tg::Result<()> {
 		let list = self
-			.match_(tg::match_::Arg {
+			.match_all(tg::match_::Arg {
 				cached: false,
+				cursor: None,
 				groups: false,
-				length: None,
+				limit: None,
 				location,
 				organizations: false,
 				pattern: pattern.clone(),

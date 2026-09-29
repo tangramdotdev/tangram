@@ -1,13 +1,21 @@
 use {
 	crate::prelude::*,
-	serde_with::{DurationSecondsWithFrac, serde_as},
+	serde_with::{DisplayFromStr, DurationSecondsWithFrac, PickFirst, serde_as},
 	std::time::Duration,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 };
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cursor: Option<String>,
+
+	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub limit: Option<u64>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
@@ -58,6 +66,8 @@ pub struct Item {
 
 #[derive(Clone, Debug, Default)]
 pub struct Options {
+	pub cursor: Option<String>,
+	pub limit: Option<u64>,
 	pub location: Option<tg::location::Arg>,
 	pub owner: Option<tg::Principal>,
 }
@@ -75,6 +85,8 @@ where
 	H: tg::Handle,
 {
 	let arg = tg::sandbox::list::Arg {
+		cursor: options.cursor,
+		limit: options.limit,
 		location: options.location,
 		owner: options.owner,
 	};

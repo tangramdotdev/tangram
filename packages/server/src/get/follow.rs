@@ -386,8 +386,9 @@ impl Session {
 		let pattern_for_error = pattern.clone();
 		let arg = tg::match_::Arg {
 			cached,
+			cursor: None,
 			groups: true,
-			length: Some(1),
+			limit: Some(1),
 			location: options.location.clone(),
 			organizations: true,
 			pattern: pattern.clone(),
@@ -441,12 +442,12 @@ impl Session {
 		let node = tg::Referent::new(node.id, options);
 		let arg = tg::list::Arg {
 			cached,
+			cursor: None,
 			groups: false,
-			length: Some(1),
+			limit: Some(1),
 			location: Some(location.clone().into()),
 			node: Some(node),
 			organizations: false,
-			position: None,
 			recursive: false,
 			reverse: true,
 			tags: true,
@@ -847,8 +848,9 @@ impl Session {
 		let pattern_for_error = pattern.clone();
 		let arg = tg::match_::Arg {
 			cached,
+			cursor: None,
 			groups: false,
-			length,
+			limit: None,
 			location: location.cloned(),
 			organizations: false,
 			pattern,
@@ -858,9 +860,15 @@ impl Session {
 			ttl,
 			users: false,
 		};
-		let output = self.match_(arg).await.map_err(
+		let mut output = self.match_all(arg).await.map_err(
 			|error| tg::error!(!error, pattern = %pattern_for_error, "failed to match entries"),
 		)?;
+
+		if let Some(length) = length {
+			output
+				.data
+				.truncate(usize::try_from(length).unwrap_or(usize::MAX));
+		}
 
 		Ok(output)
 	}

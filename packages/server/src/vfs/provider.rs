@@ -983,12 +983,12 @@ impl Provider {
 		};
 		let arg = tg::list::Arg {
 			cached: false,
+			cursor: None,
 			groups: true,
-			length: Some(length),
+			limit: None,
 			location: Some(location.into()),
 			node,
 			organizations: root,
-			position: Some(position),
 			recursive: false,
 			reverse: false,
 			tags: true,
@@ -996,10 +996,15 @@ impl Provider {
 			users: root,
 		};
 		let output = session
-			.list(arg)
+			.list_all(arg)
 			.await
 			.map_err(|error| named_node_error(&error))?;
-		let entries = output.data;
+		let entries = output
+			.data
+			.into_iter()
+			.skip(usize::try_from(position).unwrap_or(usize::MAX))
+			.take(usize::try_from(length).unwrap_or(usize::MAX))
+			.collect::<Vec<_>>();
 		let children = entries
 			.into_iter()
 			.filter_map(|entry| {

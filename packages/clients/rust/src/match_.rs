@@ -1,20 +1,26 @@
 use {
 	crate::prelude::*,
+	serde_with::{DisplayFromStr, PickFirst, serde_as},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::{is_default, is_false, is_true, return_true},
 };
 
+#[serde_as]
 #[derive(Clone, Debug, Eq, Hash, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub cached: bool,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cursor: Option<String>,
+
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub groups: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub length: Option<u64>,
+	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
+	pub limit: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
@@ -47,8 +53,9 @@ impl Default for Arg {
 	fn default() -> Self {
 		Self {
 			cached: false,
+			cursor: None,
 			groups: true,
-			length: None,
+			limit: None,
 			location: None,
 			organizations: true,
 			pattern: tg::specifier::Pattern::default(),

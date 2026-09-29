@@ -1,13 +1,42 @@
 use {
-	crate::Session,
+	crate::{
+		Session,
+		cursor::{DEFAULT_LIMIT, MAX_LIMIT},
+	},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 };
 
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "version")]
+enum Cursor {
+	V0 { position: u64 },
+}
+
 impl Session {
 	#[tracing::instrument(fields(pattern = %arg.pattern), level = "trace", name = "match", skip_all)]
-	pub(crate) async fn match_(&self, arg: tg::match_::Arg) -> tg::Result<tg::match_::Output> {
+	pub(crate) async fn match_(&self, mut arg: tg::match_::Arg) -> tg::Result<tg::match_::Output> {
 		self.verify_request_with_network_access()?;
+
+		// Parse the pagination arguments.
+		let limit = arg.limit.unwrap_or(DEFAULT_LIMIT);
+		if !(1..=MAX_LIMIT).contains(&limit) {
+			return Err(tg::error!(
+				"the page limit must be between 1 and {MAX_LIMIT}"
+			));
+		}
+		let cursor = arg
+			.cursor
+			.as_deref()
+			.map(crate::cursor::deserialize::<Cursor>)
+			.transpose()?;
+		let position = cursor.map_or(0, |cursor| match cursor {
+			Cursor::V0 { position } => position,
+		});
+
+		// Collect the complete result before selecting the page.
+		arg.cursor = None;
+		arg.limit = None;
 		let local_arg = arg.clone();
 		let entries = self
 			.query_specifier_entries(
@@ -18,14 +47,33 @@ impl Session {
 				crate::list::remote::Query::Match(arg.clone()),
 				move |entries| {
 					let data = filter_entries(entries, &local_arg);
-					crate::list::sort_and_truncate(data, local_arg.reverse, None, local_arg.length)
+					crate::list::sort_entries(data, local_arg.reverse)
 				},
 			)
 			.await?;
 		let data = filter_entries(entries, &arg);
-		let data = crate::list::sort_and_truncate(data, arg.reverse, None, arg.length);
+		let mut data = crate::list::sort_entries(data, arg.reverse);
 
-		Ok(tg::match_::Output { cursor: None, data })
+		// Select the page and create the continuation cursor.
+		let position = usize::try_from(position)
+			.unwrap_or(usize::MAX)
+			.min(data.len());
+		let end = position
+			.saturating_add(usize::try_from(limit).unwrap())
+			.min(data.len());
+		let cursor = if end < data.len() {
+			let cursor = Cursor::V0 {
+				position: u64::try_from(end).unwrap(),
+			};
+			Some(crate::cursor::serialize(&cursor)?)
+		} else {
+			None
+		};
+		let data = data.drain(position..end).collect();
+
+		let output = tg::match_::Output { cursor, data };
+
+		Ok(output)
 	}
 
 	pub(crate) async fn match_request(

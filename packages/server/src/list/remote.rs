@@ -191,14 +191,14 @@ impl Session {
 		let data = match query {
 			Query::List(arg) => {
 				client
-					.list(arg)
+					.list_all(arg)
 					.await
 					.map_err(|error| tg::error!(!error, %remote, "failed to list entries"))?
 					.data
 			},
 			Query::Match(arg) => {
 				client
-					.match_(arg)
+					.match_all(arg)
 					.await
 					.map_err(|error| tg::error!(!error, %remote, "failed to match entries"))?
 					.data

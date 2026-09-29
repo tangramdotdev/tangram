@@ -14,13 +14,16 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub cached: bool,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cursor: Option<String>,
+
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub groups: bool,
 
 	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub length: Option<u64>,
+	pub limit: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
@@ -31,10 +34,6 @@ pub struct Arg {
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default = "return_true", skip_serializing_if = "is_true")]
 	pub organizations: bool,
-
-	#[serde_as(as = "Option<PickFirst<(_, DisplayFromStr)>>")]
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub position: Option<u64>,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -81,12 +80,12 @@ impl Default for Arg {
 	fn default() -> Self {
 		Self {
 			cached: false,
+			cursor: None,
 			groups: true,
-			length: None,
+			limit: None,
 			location: None,
 			node: None,
 			organizations: true,
-			position: None,
 			recursive: false,
 			reverse: false,
 			tags: true,

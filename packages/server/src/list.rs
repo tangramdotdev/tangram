@@ -1,5 +1,8 @@
 use {
-	crate::Session,
+	crate::{
+		Session,
+		cursor::{DEFAULT_LIMIT, MAX_LIMIT},
+	},
 	futures::{FutureExt as _, TryStreamExt as _, stream::FuturesUnordered},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, ops::ControlFlow},
@@ -25,6 +28,12 @@ struct Arg {
 	options: tg::referent::Options,
 }
 
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "version")]
+enum Cursor {
+	V0 { position: u64 },
+}
+
 pub(crate) struct Kinds {
 	pub groups: bool,
 	pub organizations: bool,
@@ -42,6 +51,52 @@ enum Parent {
 impl Session {
 	#[tracing::instrument(level = "trace", name = "list", skip_all)]
 	pub(crate) async fn list(&self, mut arg: tg::list::Arg) -> tg::Result<tg::list::Output> {
+		// Parse the pagination arguments.
+		let limit = arg.limit.unwrap_or(DEFAULT_LIMIT);
+		if !(1..=MAX_LIMIT).contains(&limit) {
+			return Err(tg::error!(
+				"the page limit must be between 1 and {MAX_LIMIT}"
+			));
+		}
+		let cursor = arg
+			.cursor
+			.as_deref()
+			.map(crate::cursor::deserialize::<Cursor>)
+			.transpose()?;
+		let position = cursor.map_or(0, |cursor| match cursor {
+			Cursor::V0 { position } => position,
+		});
+
+		// Collect the complete result before selecting the page.
+		arg.cursor = None;
+		arg.limit = None;
+		let mut data = self.list_inner(arg).await?;
+
+		// Select the page and create the continuation cursor.
+		let position = usize::try_from(position)
+			.unwrap_or(usize::MAX)
+			.min(data.len());
+		let end = position
+			.saturating_add(usize::try_from(limit).unwrap())
+			.min(data.len());
+		let cursor = if end < data.len() {
+			let cursor = Cursor::V0 {
+				position: u64::try_from(end).unwrap(),
+			};
+			Some(crate::cursor::serialize(&cursor)?)
+		} else {
+			None
+		};
+		let data = data.drain(position..end).collect();
+		let output = tg::list::Output { cursor, data };
+
+		Ok(output)
+	}
+
+	pub(crate) async fn list_inner(
+		&self,
+		mut arg: tg::list::Arg,
+	) -> tg::Result<Vec<tg::list::Entry>> {
 		self.verify_request_with_network_access()?;
 		if let Some(location) = arg
 			.node
@@ -64,15 +119,9 @@ impl Session {
 		if local_only && !arg.recursive {
 			let data = self.list_local_entries_for_list(&arg).await?;
 
-			return Ok(tg::list::Output { cursor: None, data });
+			return Ok(sort_entries(data, arg.reverse));
 		}
-		let mut source_arg = arg.clone();
-		source_arg.length = match (arg.position, arg.length) {
-			(Some(position), Some(length)) => Some(position.saturating_add(length)),
-			_ => arg.length,
-		};
-		source_arg.position = None;
-		let local_arg = source_arg.clone();
+		let local_arg = arg.clone();
 		let tokens = arg
 			.node
 			.as_ref()
@@ -85,16 +134,16 @@ impl Session {
 				&tokens,
 				arg.cached,
 				arg.ttl,
-				remote::Query::List(source_arg),
+				remote::Query::List(arg.clone()),
 				move |entries| {
 					let data = filter_list_entries(entries, &local_arg);
-					sort_and_truncate(data, local_arg.reverse, None, local_arg.length)
+					sort_entries(data, local_arg.reverse)
 				},
 			)
 			.await?;
-		let data = sort_and_truncate(entries, arg.reverse, arg.position, arg.length);
+		let data = sort_entries(entries, arg.reverse);
 
-		Ok(tg::list::Output { cursor: None, data })
+		Ok(data)
 	}
 
 	pub(crate) async fn list_local_entries(&self) -> tg::Result<Vec<tg::list::Entry>> {
@@ -125,10 +174,6 @@ impl Session {
 		&self,
 		arg: &tg::list::Arg,
 	) -> tg::Result<Vec<tg::list::Entry>> {
-		if arg.length == Some(0) {
-			return Ok(Vec::new());
-		}
-
 		// Resolve the parent.
 		let parent = match &arg.node {
 			None => Parent::Root,
@@ -136,18 +181,8 @@ impl Session {
 		};
 
 		// Page through the database entries.
-		let root = matches!(&self.context.principal, tg::Principal::Root);
-		let mut database_position = if root {
-			arg.position.unwrap_or_default()
-		} else {
-			0
-		};
+		let mut database_position = 0;
 		let mut output = Vec::new();
-		let mut output_position = if root {
-			0
-		} else {
-			arg.position.unwrap_or_default()
-		};
 		let tokens = arg
 			.node
 			.as_ref()
@@ -155,15 +190,7 @@ impl Session {
 			.map(|options| options.tokens.clone())
 			.unwrap_or_default();
 		loop {
-			let database_length = if root {
-				arg.length
-					.map_or(DATABASE_PAGE_LENGTH, |length| {
-						length.saturating_sub(output.len().to_u64().unwrap())
-					})
-					.clamp(1, DATABASE_PAGE_LENGTH)
-			} else {
-				DATABASE_PAGE_LENGTH
-			};
+			let database_length = DATABASE_PAGE_LENGTH;
 			let arg = arg.clone();
 			let parent = parent.clone();
 			let entries = self
@@ -187,19 +214,7 @@ impl Session {
 				.await?;
 			let input_length = entries.len().to_u64().unwrap();
 			let entries = self.filter_visible_entries(entries, &tokens).await?;
-			for entry in entries {
-				if output_position > 0 {
-					output_position -= 1;
-					continue;
-				}
-				output.push(entry);
-				if arg
-					.length
-					.is_some_and(|length| output.len().to_u64().unwrap() >= length)
-				{
-					return Ok(output);
-				}
-			}
+			output.extend(entries);
 			if input_length < database_length {
 				break;
 			}
@@ -798,22 +813,8 @@ pub(crate) fn entry_kind_enabled(entry: &tg::list::Entry, kinds: &Kinds) -> bool
 	}
 }
 
-pub(crate) fn sort_and_truncate(
-	mut data: Vec<tg::list::Entry>,
-	reverse: bool,
-	position: Option<u64>,
-	length: Option<u64>,
-) -> Vec<tg::list::Entry> {
+pub(crate) fn sort_entries(mut data: Vec<tg::list::Entry>, reverse: bool) -> Vec<tg::list::Entry> {
 	data.sort_by(|a, b| compare_entries(a, b, reverse));
-	let position = position
-		.map(|position| position.to_usize().unwrap_or(usize::MAX))
-		.unwrap_or_default()
-		.min(data.len());
-	data.drain(..position);
-	if let Some(length) = length {
-		data.truncate(length.to_usize().unwrap());
-	}
-
 	data
 }
 
@@ -881,7 +882,12 @@ fn merge_entries(sources: Vec<Vec<tg::list::Entry>>) -> Vec<tg::list::Entry> {
 fn compare_entries(a: &tg::list::Entry, b: &tg::list::Entry, reverse: bool) -> std::cmp::Ordering {
 	let order = tg::list::compare(&a.specifier().to_string(), &b.specifier().to_string());
 	let order = if reverse { order.reverse() } else { order };
-	order.then_with(|| entry_kind(a).cmp(&entry_kind(b)))
+	order
+		.then_with(|| entry_kind(a).cmp(&entry_kind(b)))
+		.then_with(|| {
+			let order = a.specifier().to_string().cmp(&b.specifier().to_string());
+			if reverse { order.reverse() } else { order }
+		})
 }
 
 fn entry_kind(entry: &tg::list::Entry) -> tg::id::Kind {

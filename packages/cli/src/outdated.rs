@@ -88,8 +88,9 @@ impl Cli {
 				};
 				let arg = tg::match_::Arg {
 					cached: false,
+					cursor: None,
 					groups: false,
-					length: Some(1),
+					limit: Some(1),
 					location: None,
 					organizations: false,
 					pattern: pattern.clone(),
@@ -111,8 +112,9 @@ impl Cli {
 				let pattern = tg::specifier::Pattern::any_in_parent(pattern.parent.clone());
 				let arg = tg::match_::Arg {
 					cached: false,
+					cursor: None,
 					groups: false,
-					length: Some(1),
+					limit: Some(1),
 					location: None,
 					organizations: false,
 					pattern,

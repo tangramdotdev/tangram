@@ -13,10 +13,12 @@ assert equal ($root | get specifier) [foo]
 let children = tg list --local foo | from json
 assert equal ($children | get specifier) [foo/bar foo/baz]
 
-let child = tg list --length 1 --local --position 1 foo | from json
+let first = tg list --limit 1 --local foo --verbose | from json
+let child = tg list --limit 1 --local --cursor $first.cursor foo | from json
 assert equal ($child | get specifier) [foo/baz]
 
-let child = tg list --length 1 --local --position 1 --reverse foo | from json
+let first = tg list --limit 1 --local --reverse foo --verbose | from json
+let child = tg list --limit 1 --local --cursor $first.cursor --reverse foo | from json
 assert equal ($child | get specifier) [foo/bar]
 
 let nested = tg list --local foo/baz | from json
@@ -40,8 +42,9 @@ tg --url $local_auth.url --token $alice.token group create c-visible | ignore
 tg --url $local_auth.url --token $alice.token grant $bob.user.id read b-visible | ignore
 tg --url $local_auth.url --token $alice.token grant $bob.user.id read c-visible | ignore
 tg --url $local_auth.url index
+let first = tg --url $local_auth.url --token $bob.token list --limit 1 --local --no-organizations --no-tags --no-users --verbose | from json
 let visible = (
-	tg --url $local_auth.url --token $bob.token list --length 1 --local --no-organizations --no-tags --no-users --position 1
+	tg --url $local_auth.url --token $bob.token list --limit 1 --local --no-organizations --no-tags --no-users --cursor $first.cursor
 	| from json
 )
 assert equal ($visible | get specifier) [c-visible]

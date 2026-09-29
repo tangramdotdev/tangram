@@ -39,6 +39,23 @@ pub trait Sandbox: Clone + Unpin + Send + Sync + 'static {
 		>,
 	> + Send;
 
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn list_all_sandboxes(
+		&self,
+		mut arg: tg::sandbox::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::sandbox::list::Output>> + Send {
+		async move {
+			let mut output = self.list_sandboxes(arg.clone()).await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self.list_sandboxes(arg.clone()).await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
+
 	fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,

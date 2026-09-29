@@ -1408,12 +1408,12 @@ impl Tree {
 		// List the direct child groups and tags.
 		let arg = tg::list::Arg {
 			cached: false,
+			cursor: None,
 			groups: true,
-			length: None,
+			limit: None,
 			location,
 			node: Some(tg::Referent::with_node(parent.clone())),
 			organizations: false,
-			position: None,
 			recursive: false,
 			reverse: false,
 			tags: true,
@@ -1421,7 +1421,7 @@ impl Tree {
 			users: false,
 		};
 		let output = client
-			.list(arg)
+			.list_all(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %parent, "failed to list entries"))?;
 

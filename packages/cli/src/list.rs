@@ -4,26 +4,30 @@ use {crate::Cli, std::time::Duration, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	/// Fetch all pages.
+	#[arg(long)]
+	pub all: bool,
+
 	/// Only use cached remote results. Do not fetch from remotes.
 	#[arg(long)]
 	pub cached: bool,
 
+	/// Continue from this cursor.
+	#[arg(long)]
+	pub cursor: Option<String>,
+
 	#[command(flatten)]
 	pub entries: Entries,
 
-	/// The maximum number of entries to return.
+	/// The maximum number of entries per page (default: 100, maximum: 1000).
 	#[arg(long)]
-	pub length: Option<u64>,
+	pub limit: Option<u64>,
 
 	#[command(flatten)]
 	pub locations: crate::location::Args,
 
 	#[command(flatten)]
 	pub output: crate::print::OutputOptions,
-
-	/// The position of the first entry to return.
-	#[arg(long)]
-	pub position: Option<u64>,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
@@ -207,25 +211,33 @@ impl Cli {
 			.or_else(|| args.locations.get());
 		let arg = tg::list::Arg {
 			cached: args.cached,
+			cursor: args.cursor,
 			groups: args.entries.groups(),
-			length: args.length,
+			limit: args.limit,
 			location,
 			node,
 			organizations: args.entries.organizations(),
-			position: args.position,
 			recursive: args.recursive,
 			reverse: args.reverse,
 			tags: args.entries.tags(),
 			ttl: args.ttl.get(),
 			users: args.entries.users(),
 		};
-		let output = client.list(arg).await.map_err(
+		let output = if args.all {
+			client.list_all(arg).await
+		} else {
+			client.list(arg).await
+		}
+		.map_err(
 			|error| tg::error!(!error, reference = ?args.reference, "failed to list entries"),
 		)?;
 		if args.output.verbose {
 			self.print_serde(output, args.print).await?;
 		} else {
 			self.print_serde(output.data, args.print).await?;
+			if let Some(cursor) = output.cursor {
+				self.print_info_message(&format!("Next cursor: {cursor}"));
+			}
 		}
 		Ok(())
 	}

@@ -658,22 +658,24 @@ impl Inner {
 		};
 		let arg = tg::list::Arg {
 			cached: false,
+			cursor: None,
 			groups: true,
-			length: Some(length),
+			limit: None,
 			location: Some(location.into()),
 			node,
 			organizations: root,
-			position: Some(position),
 			recursive: false,
 			reverse: false,
 			tags: true,
 			ttl: tg::remote::cache::Ttl::default(),
 			users: root,
 		};
-		let output = session.list(arg).await.map_err(eio)?;
+		let output = session.list_all(arg).await.map_err(eio)?;
 		let children = output
 			.data
 			.into_iter()
+			.skip(usize::try_from(position).unwrap_or(usize::MAX))
+			.take(usize::try_from(length).unwrap_or(usize::MAX))
 			.filter_map(|entry| {
 				let name = entry.name().parse().ok()?;
 				let target = entry.target.map(|target| {

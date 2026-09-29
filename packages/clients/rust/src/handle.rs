@@ -100,6 +100,23 @@ pub trait Handle:
 		>,
 	> + Send;
 
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn children_all(
+		&self,
+		mut arg: tg::children::Arg,
+	) -> impl Future<Output = tg::Result<tg::children::Output>> + Send {
+		async move {
+			let mut output = self.children(arg.clone()).await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self.children(arg.clone()).await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
+
 	fn children(
 		&self,
 		arg: tg::children::Arg,
@@ -130,8 +147,42 @@ pub trait Handle:
 		>,
 	> + Send;
 
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn list_all(
+		&self,
+		mut arg: tg::list::Arg,
+	) -> impl Future<Output = tg::Result<tg::list::Output>> + Send {
+		async move {
+			let mut output = self.list(arg.clone()).await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self.list(arg.clone()).await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
+
 	fn list(&self, arg: tg::list::Arg)
 	-> impl Future<Output = tg::Result<tg::list::Output>> + Send;
+
+	/// Collect all pages, using the limit as the page size and the cursor as the starting point.
+	fn match_all(
+		&self,
+		mut arg: tg::match_::Arg,
+	) -> impl Future<Output = tg::Result<tg::match_::Output>> + Send {
+		async move {
+			let mut output = self.match_(arg.clone()).await?;
+			while let Some(cursor) = output.cursor.take() {
+				arg.cursor = Some(cursor);
+				let page = self.match_(arg.clone()).await?;
+				output.data.extend(page.data);
+				output.cursor = page.cursor;
+			}
+			Ok(output)
+		}
+	}
 
 	fn match_(
 		&self,

@@ -1,11 +1,30 @@
 use {
-	crate::Session,
+	crate::{
+		Session,
+		cursor::{DEFAULT_LIMIT, MAX_LIMIT},
+	},
 	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
 };
+
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "version")]
+enum Cursor {
+	V0 { position: u64 },
+}
+
+#[serde_with::serde_as]
+#[derive(Default, serde::Deserialize)]
+struct Arg {
+	cursor: Option<String>,
+	#[serde_as(as = "Option<serde_with::PickFirst<(_, serde_with::DisplayFromStr)>>")]
+	limit: Option<u64>,
+	#[serde(flatten)]
+	options: tg::referent::Options,
+}
 
 impl Session {
 	pub(crate) async fn children(
@@ -27,6 +46,22 @@ impl Session {
 	}
 
 	async fn children_local(&self, arg: tg::children::Arg) -> tg::Result<tg::children::Output> {
+		// Parse the pagination arguments.
+		let limit = arg.limit.unwrap_or(DEFAULT_LIMIT);
+		if !(1..=MAX_LIMIT).contains(&limit) {
+			return Err(tg::error!(
+				"the page limit must be between 1 and {MAX_LIMIT}"
+			));
+		}
+		let cursor = arg
+			.cursor
+			.as_deref()
+			.map(crate::cursor::deserialize::<Cursor>)
+			.transpose()?;
+		let position = cursor.map_or(0, |cursor| match cursor {
+			Cursor::V0 { position } => position,
+		});
+
 		// Revalidate the node and obtain a fresh token.
 		let id = arg.node.node;
 		let location = tg::Location::Local(tg::location::Local::default());
@@ -39,21 +74,20 @@ impl Session {
 			tg::id::Kind::Group | tg::id::Kind::Organization | tg::id::Kind::User => {
 				let arg = tg::list::Arg {
 					cached: false,
+					cursor: None,
 					groups: true,
-					length: None,
+					limit: None,
 					location: Some(location.into()),
 					node: Some(tg::Referent::new(id, parent_options)),
 					organizations: false,
-					position: None,
 					recursive: false,
 					reverse: false,
 					tags: true,
 					ttl: tg::remote::cache::Ttl::default(),
 					users: false,
 				};
-				self.list(arg)
+				self.list_inner(arg)
 					.await?
-					.data
 					.into_iter()
 					.map(|entry| entry.node)
 					.collect()
@@ -96,9 +130,27 @@ impl Session {
 				);
 			},
 		};
-		let nodes = merge_children(nodes);
+		let mut data = merge_children(nodes);
 
-		Ok(tg::children::Output { nodes })
+		// Select the page and create the continuation cursor.
+		let position = usize::try_from(position)
+			.unwrap_or(usize::MAX)
+			.min(data.len());
+		let end = position
+			.saturating_add(usize::try_from(limit).unwrap())
+			.min(data.len());
+		let cursor = if end < data.len() {
+			let cursor = Cursor::V0 {
+				position: u64::try_from(end).unwrap(),
+			};
+			Some(crate::cursor::serialize(&cursor)?)
+		} else {
+			None
+		};
+		let data = data.drain(position..end).collect();
+		let output = tg::children::Output { cursor, data };
+
+		Ok(output)
 	}
 
 	async fn revalidate_children_node_local(
@@ -245,7 +297,7 @@ impl Session {
 		arg.node.options.tokens = arg.node.options.tokens.for_location(&location);
 		let session = self.get_region_session(region).await?;
 		let mut output = session.children(arg).await?;
-		for node in &mut output.nodes {
+		for node in &mut output.data {
 			self.update_tokens_and_location(
 				&mut node.options.tokens,
 				Some(&mut node.options.location),
@@ -270,7 +322,7 @@ impl Session {
 		let session = self.get_remote_session(&remote.name).await?;
 		let trusted = session.trusted();
 		let mut output = session.children(arg).await?;
-		for node in &mut output.nodes {
+		for node in &mut output.data {
 			self.update_tokens_and_location(
 				&mut node.options.tokens,
 				Some(&mut node.options.location),
@@ -295,15 +347,17 @@ impl Session {
 		let id = id
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to parse the node ID"))?;
-		let (options, _) = request
+		let (arg, _) = request
 			.arg()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
-		let options = options.unwrap_or_default();
+		let arg: Arg = arg.unwrap_or_default();
 
 		// Get the children.
 		let arg = tg::children::Arg {
-			node: tg::Referent::new(id, options),
+			cursor: arg.cursor,
+			limit: arg.limit,
+			node: tg::Referent::new(id, arg.options),
 		};
 		let output = self.children(arg).await?;
 

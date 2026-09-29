@@ -1,17 +1,42 @@
 use {
-	crate::Session,
-	futures::{TryStreamExt as _, stream::FuturesUnordered},
+	crate::{
+		Session,
+		cursor::{DEFAULT_LIMIT, MAX_LIMIT},
+	},
+	futures::future::try_join_all,
 	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::prelude::*,
 };
 
+#[derive(serde::Deserialize, serde::Serialize)]
+#[serde(tag = "version")]
+enum Cursor {
+	V0 { position: u64 },
+}
+
 impl Session {
 	pub(crate) async fn list_sandboxes(
 		&self,
 		arg: tg::sandbox::list::Arg,
 	) -> tg::Result<tg::sandbox::list::Output> {
+		// Parse the pagination arguments.
+		let limit = arg.limit.unwrap_or(DEFAULT_LIMIT);
+		if !(1..=MAX_LIMIT).contains(&limit) {
+			return Err(tg::error!(
+				"the page limit must be between 1 and {MAX_LIMIT}"
+			));
+		}
+		let cursor = arg
+			.cursor
+			.as_deref()
+			.map(crate::cursor::deserialize::<Cursor>)
+			.transpose()?;
+		let position = cursor.map_or(0, |cursor| match cursor {
+			Cursor::V0 { position } => position,
+		});
+
 		let creator = self.context.principal.clone();
 
 		let mut output = tg::sandbox::list::Output {
@@ -46,6 +71,27 @@ impl Session {
 		output
 			.data
 			.extend(remote_outputs.into_iter().flat_map(|output| output.data));
+
+		let mut data = output.data;
+		data.sort_by(|a, b| a.id.cmp(&b.id));
+
+		// Select the page and create the continuation cursor.
+		let position = usize::try_from(position)
+			.unwrap_or(usize::MAX)
+			.min(data.len());
+		let end = position
+			.saturating_add(usize::try_from(limit).unwrap())
+			.min(data.len());
+		let cursor = if end < data.len() {
+			let cursor = Cursor::V0 {
+				position: u64::try_from(end).unwrap(),
+			};
+			Some(crate::cursor::serialize(&cursor)?)
+		} else {
+			None
+		};
+		let data = data.drain(position..end).collect();
+		let output = tg::sandbox::list::Output { cursor, data };
 
 		Ok(output)
 	}
@@ -172,12 +218,12 @@ impl Session {
 		regions: &[String],
 		owner: Option<&tg::Principal>,
 	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
-		let outputs = regions
-			.iter()
-			.map(|region| self.list_sandboxes_region(region, owner))
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
+		let outputs = try_join_all(
+			regions
+				.iter()
+				.map(|region| self.list_sandboxes_region(region, owner)),
+		)
+		.await?;
 		Ok(outputs)
 	}
 
@@ -193,10 +239,12 @@ impl Session {
 			region: Some(region.to_owned()),
 		});
 		let arg = tg::sandbox::list::Arg {
+			cursor: None,
+			limit: None,
 			location: Some(location.clone().into()),
 			owner: owner.cloned(),
 		};
-		let mut output = client.list_sandboxes(arg).await.map_err(
+		let mut output = client.list_all_sandboxes(arg).await.map_err(
 			|error| tg::error!(!error, region = %region, "failed to list the sandboxes"),
 		)?;
 		for item in &mut output.data {
@@ -210,12 +258,12 @@ impl Session {
 		remotes: &[crate::location::Remote],
 		owner: Option<&tg::Principal>,
 	) -> tg::Result<Vec<tg::sandbox::list::Output>> {
-		let outputs = remotes
-			.iter()
-			.map(|remote| self.list_sandboxes_remote(remote, owner))
-			.collect::<FuturesUnordered<_>>()
-			.try_collect::<Vec<_>>()
-			.await?;
+		let outputs = try_join_all(
+			remotes
+				.iter()
+				.map(|remote| self.list_sandboxes_remote(remote, owner)),
+		)
+		.await?;
 		Ok(outputs)
 	}
 
@@ -229,6 +277,8 @@ impl Session {
 		)?;
 		let trusted = client.trusted();
 		let arg = tg::sandbox::list::Arg {
+			cursor: None,
+			limit: None,
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
@@ -236,7 +286,7 @@ impl Session {
 			])),
 			owner: owner.cloned(),
 		};
-		let mut output = client.list_sandboxes(arg).await.map_err(
+		let mut output = client.list_all_sandboxes(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to list the sandboxes"),
 		)?;
 		let location = tg::Location::Remote(tg::location::Remote {

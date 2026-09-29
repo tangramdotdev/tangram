@@ -23,12 +23,12 @@ async fn request_arg_preserves_list_and_node_options() {
 		let value = serde_json::json!({
 			"cached": true,
 			"groups": false,
-			"length": 7,
+			"limit": 7,
 			"location": location,
 			"name": name,
 			"organizations": false,
 			"path": "child",
-			"position": 3,
+			"cursor": "opaque",
 			"recursive": true,
 			"reverse": true,
 			"tags": false,
@@ -45,9 +45,9 @@ async fn request_arg_preserves_list_and_node_options() {
 		let Arg { arg, options } = arg.unwrap();
 		assert!(arg.cached);
 		assert!(!arg.groups);
-		assert_eq!(arg.length, Some(7));
+		assert_eq!(arg.limit, Some(7));
 		assert_eq!(arg.location, Some(location.clone().into()));
-		assert_eq!(arg.position, Some(3));
+		assert_eq!(arg.cursor.as_deref(), Some("opaque"));
 		assert!(!arg.organizations);
 		assert!(arg.recursive);
 		assert!(arg.reverse);
@@ -61,27 +61,20 @@ async fn request_arg_preserves_list_and_node_options() {
 }
 
 #[test]
-fn sort_and_truncate_applies_position() {
-	let entries = vec![entry("c"), entry("a"), entry("b")];
-	let entries = sort_and_truncate(entries, false, Some(1), Some(1));
-	let specifiers = entries
-		.into_iter()
-		.map(|entry| entry.specifier().to_string())
-		.collect::<Vec<_>>();
-
-	assert_eq!(specifiers, ["b"]);
-}
-
-#[test]
-fn sort_and_truncate_defaults_position_to_zero() {
-	let entries = vec![entry("b"), entry("a")];
-	let entries = sort_and_truncate(entries, false, None, None);
-	let specifiers = entries
-		.into_iter()
-		.map(|entry| entry.specifier().to_string())
-		.collect::<Vec<_>>();
-
-	assert_eq!(specifiers, ["a", "b"]);
+fn sort_entries_breaks_version_ties() {
+	for reverse in [false, true] {
+		let entries = vec![entry("10"), entry("1"), entry("2"), entry("01")];
+		let entries = sort_entries(entries, reverse);
+		let specifiers = entries
+			.into_iter()
+			.map(|entry| entry.specifier().to_string())
+			.collect::<Vec<_>>();
+		let mut expected = vec!["01", "1", "2", "10"];
+		if reverse {
+			expected.reverse();
+		}
+		assert_eq!(specifiers, expected);
+	}
 }
 
 fn entry(specifier: &str) -> tg::list::Entry {
