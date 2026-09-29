@@ -17,10 +17,10 @@ pub fn collect_directory_entries(
 					collect_directory_entries(cache, &child_dir, child_graph.as_ref())?;
 				// Make edges explicit when moving entries out of their graph.
 				for (name, edge) in child_entries {
-					let edge = if child_graph.as_ref() != graph {
-						crate::graph::resolve_edge(cache, edge, child_graph.as_ref())?
-					} else {
+					let edge = if child_graph.as_ref() == graph {
 						edge
+					} else {
+						crate::graph::resolve_edge(cache, edge, child_graph.as_ref())?
 					};
 					all_entries.insert(name, edge);
 				}

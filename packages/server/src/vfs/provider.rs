@@ -521,7 +521,7 @@ impl Provider {
 				return Ok(None);
 			}
 			let references =
-				self.file_dependency_references(&artifact.tokens, &file, graph.as_ref())?;
+				self.file_dependency_references(&artifact.tokens, &file, graph.as_ref(), None)?;
 			let xattrs = tg::file::xattrs::encode_dependencies(
 				&references,
 				tg::file::xattrs::MAX_VALUE_SIZE,
@@ -568,8 +568,12 @@ impl Provider {
 			if file.dependencies.is_empty() {
 				return Ok(None);
 			}
-			let references =
-				self.file_dependency_references(&artifact.tokens, &file, graph.as_ref())?;
+			let references = self.file_dependency_references(
+				&artifact.tokens,
+				&file,
+				graph.as_ref(),
+				transaction,
+			)?;
 			let xattrs = tg::file::xattrs::encode_dependencies(
 				&references,
 				tg::file::xattrs::MAX_VALUE_SIZE,
@@ -615,6 +619,7 @@ impl Provider {
 		tokens: &Mutex<Vec<tg::authorization::Token>>,
 		file: &tg::graph::data::File,
 		graph: Option<&tg::graph::Id>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Vec<tg::Reference>> {
 		let mut references = Vec::with_capacity(file.dependencies.len());
 		for (reference, dependency) in &file.dependencies {
@@ -630,7 +635,7 @@ impl Provider {
 				references.push(reference);
 				continue;
 			};
-			let dependency = self.artifact_from_edge_inner(tokens, edge, graph)?;
+			let dependency = self.artifact_from_edge_inner(tokens, edge, graph, transaction)?;
 			let mut options = reference.options().clone();
 			options
 				.tokens
@@ -656,7 +661,7 @@ impl Provider {
 		let mut names = Vec::new();
 		if !file.dependencies.is_empty() {
 			let references =
-				self.file_dependency_references(&artifact.tokens, &file, graph.as_ref())?;
+				self.file_dependency_references(&artifact.tokens, &file, graph.as_ref(), None)?;
 			let xattrs = tg::file::xattrs::encode_dependencies(
 				&references,
 				tg::file::xattrs::MAX_VALUE_SIZE,
@@ -693,8 +698,12 @@ impl Provider {
 		let (file, graph) = self.file_node_sync_inner(&artifact, transaction)?;
 		let mut names = Vec::new();
 		if !file.dependencies.is_empty() {
-			let references =
-				self.file_dependency_references(&artifact.tokens, &file, graph.as_ref())?;
+			let references = self.file_dependency_references(
+				&artifact.tokens,
+				&file,
+				graph.as_ref(),
+				transaction,
+			)?;
 			let xattrs = tg::file::xattrs::encode_dependencies(
 				&references,
 				tg::file::xattrs::MAX_VALUE_SIZE,
@@ -2325,7 +2334,7 @@ impl Provider {
 		let artifact = match symlink.artifact {
 			Some(edge) => {
 				let target =
-					self.artifact_from_edge_inner(&artifact.tokens, edge, graph.as_ref())?;
+					self.artifact_from_edge_inner(&artifact.tokens, edge, graph.as_ref(), None)?;
 				self.register_symlink_target(id, &target)?;
 				Some(target.id)
 			},
@@ -2377,8 +2386,12 @@ impl Provider {
 		let (symlink, graph) = self.symlink_node_sync_inner(&artifact, transaction)?;
 		let artifact = match symlink.artifact {
 			Some(edge) => {
-				let target =
-					self.artifact_from_edge_inner(&artifact.tokens, edge, graph.as_ref())?;
+				let target = self.artifact_from_edge_inner(
+					&artifact.tokens,
+					edge,
+					graph.as_ref(),
+					transaction,
+				)?;
 				self.register_symlink_target(id, &target)?;
 				Some(target.id)
 			},
@@ -2483,8 +2496,13 @@ impl Provider {
 				let (symlink, graph) = self.symlink_node_inner(artifact).await?;
 				let artifact = match symlink.artifact {
 					Some(edge) => Some(
-						self.artifact_from_edge_inner(&artifact.tokens, edge, graph.as_ref())?
-							.id,
+						self.artifact_from_edge_inner(
+							&artifact.tokens,
+							edge,
+							graph.as_ref(),
+							None,
+						)?
+						.id,
 					),
 					None => None,
 				};
@@ -2502,12 +2520,13 @@ impl Provider {
 		tokens: &Mutex<Vec<tg::authorization::Token>>,
 		edge: tg::graph::data::Edge<tg::directory::Id>,
 		default_graph: Option<&tg::graph::Id>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<ArtifactInfo> {
 		match edge {
 			tg::graph::data::Edge::Index(index) => {
 				let graph =
 					default_graph.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOSYS))?;
-				let data = self.graph_data_sync_inner(tokens, graph, None)?;
+				let data = self.graph_data_sync_inner(tokens, graph, transaction)?;
 				let node = data
 					.nodes
 					.get(index)
@@ -2539,12 +2558,13 @@ impl Provider {
 		tokens: &Mutex<Vec<tg::authorization::Token>>,
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		default_graph: Option<&tg::graph::Id>,
+		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<ArtifactInfo> {
 		match edge {
 			tg::graph::data::Edge::Index(index) => {
 				let graph =
 					default_graph.ok_or_else(|| std::io::Error::from_raw_os_error(libc::ENOSYS))?;
-				let data = self.graph_data_sync_inner(tokens, graph, None)?;
+				let data = self.graph_data_sync_inner(tokens, graph, transaction)?;
 				let node = data
 					.nodes
 					.get(index)
@@ -2657,7 +2677,7 @@ impl Provider {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					for (name, edge) in leaf.entries {
 						let artifact =
-							self.artifact_from_edge_inner(&tokens, edge, graph.as_ref())?;
+							self.artifact_from_edge_inner(&tokens, edge, graph.as_ref(), None)?;
 						entries.insert(name, artifact);
 					}
 				},
@@ -2667,6 +2687,7 @@ impl Provider {
 							&tokens,
 							child.directory,
 							graph.as_ref(),
+							None,
 						)?;
 						stack.push((artifact, graph.clone()));
 					}
@@ -2698,7 +2719,7 @@ impl Provider {
 					let limit = limit.saturating_sub(entries.len());
 					for (name, edge) in leaf.entries.into_iter().skip(offset).take(limit) {
 						let artifact =
-							self.artifact_from_edge_inner(&tokens, edge, graph.as_ref())?;
+							self.artifact_from_edge_inner(&tokens, edge, graph.as_ref(), None)?;
 						entries.push((name, artifact));
 					}
 				},
@@ -2712,6 +2733,7 @@ impl Provider {
 							&tokens,
 							directory,
 							graph.as_ref(),
+							None,
 						)?;
 						children.push((artifact, graph.clone(), offset));
 					}
@@ -2740,7 +2762,8 @@ impl Provider {
 					let Some(edge) = leaf.entries.get(name).cloned() else {
 						return Ok(None);
 					};
-					let artifact = self.artifact_from_edge_inner(&tokens, edge, graph.as_ref())?;
+					let artifact =
+						self.artifact_from_edge_inner(&tokens, edge, graph.as_ref(), None)?;
 					return Ok(Some(artifact));
 				},
 				tg::graph::data::Directory::Branch(branch) => {
@@ -2755,6 +2778,7 @@ impl Provider {
 						&tokens,
 						child.directory,
 						graph.as_ref(),
+						None,
 					)?;
 					default_graph = graph;
 				},
@@ -3400,8 +3424,12 @@ impl Provider {
 			match directory {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					for (name, edge) in leaf.entries {
-						let artifact =
-							self.artifact_from_edge_inner(&tokens, edge, graph.as_ref())?;
+						let artifact = self.artifact_from_edge_inner(
+							&tokens,
+							edge,
+							graph.as_ref(),
+							transaction,
+						)?;
 						entries.insert(name, artifact);
 					}
 				},
@@ -3411,6 +3439,7 @@ impl Provider {
 							&tokens,
 							child.directory,
 							graph.as_ref(),
+							transaction,
 						)?;
 						stack.push((artifact, graph.clone()));
 					}
@@ -3442,8 +3471,12 @@ impl Provider {
 					let offset = offset.to_usize().unwrap_or(usize::MAX);
 					let limit = limit.saturating_sub(entries.len());
 					for (name, edge) in leaf.entries.into_iter().skip(offset).take(limit) {
-						let artifact =
-							self.artifact_from_edge_inner(&tokens, edge, graph.as_ref())?;
+						let artifact = self.artifact_from_edge_inner(
+							&tokens,
+							edge,
+							graph.as_ref(),
+							transaction,
+						)?;
 						entries.push((name, artifact));
 					}
 				},
@@ -3457,6 +3490,7 @@ impl Provider {
 							&tokens,
 							directory,
 							graph.as_ref(),
+							transaction,
 						)?;
 						children.push((artifact, graph.clone(), offset));
 					}
@@ -3487,7 +3521,8 @@ impl Provider {
 					let Some(edge) = leaf.entries.get(name).cloned() else {
 						return Ok(None);
 					};
-					let artifact = self.artifact_from_edge_inner(&tokens, edge, graph.as_ref())?;
+					let artifact =
+						self.artifact_from_edge_inner(&tokens, edge, graph.as_ref(), transaction)?;
 					return Ok(Some(artifact));
 				},
 				tg::graph::data::Directory::Branch(branch) => {
@@ -3502,6 +3537,7 @@ impl Provider {
 						&tokens,
 						child.directory,
 						graph.as_ref(),
+						transaction,
 					)?;
 					default_graph = graph;
 				},
@@ -3544,8 +3580,13 @@ impl Provider {
 				let (symlink, graph) = self.symlink_node_sync_inner(artifact, transaction)?;
 				let artifact = match symlink.artifact {
 					Some(edge) => Some(
-						self.artifact_from_edge_inner(&artifact.tokens, edge, graph.as_ref())?
-							.id,
+						self.artifact_from_edge_inner(
+							&artifact.tokens,
+							edge,
+							graph.as_ref(),
+							transaction,
+						)?
+						.id,
 					),
 					None => None,
 				};
