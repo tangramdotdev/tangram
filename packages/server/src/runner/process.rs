@@ -2468,7 +2468,13 @@ impl Session {
 			})
 			.collect::<Vec<tg::Referent<tg::artifact::Id>>>();
 
-		// Seed the VFS with the tokens already carried by the command's artifact inputs.
+		// Retain proofs for the inputs and their symlink targets even when the checkouts already exist.
+		let tokens = self
+			.checkout_process_artifact_tokens(&artifacts)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to collect the artifact tokens"))?;
+
+		// Seed the VFS with the input proofs and the derived target proofs.
 		let vfs = self
 			.server
 			.runner
@@ -2480,28 +2486,21 @@ impl Session {
 			for artifact in &artifacts {
 				vfs.seed_tokens(self, &artifact.options.tokens)?;
 			}
+			let tokens = tg::authorization::Tokens::with_authorization(tokens.values().cloned());
+			vfs.seed_tokens(self, &tokens)?;
 		}
 
-		// Track each artifact's verified subtree token for store path checkin and the VFS.
-		let permissions =
-			tg::authorization::permission::Set::from(tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			));
-		let tokens = artifacts.iter().flat_map(|artifact| {
-			artifact
-				.options
-				.tokens
-				.local_authorization()
-				.iter()
-				.filter_map(move |token| {
-					let resource =
-						tg::Selector::Id(tg::object::Id::from(artifact.node.clone()).into());
-					self.authorize_token(&resource, permissions, token)
-						.then(|| (artifact.node.clone(), token.clone()))
-				})
-		});
+		// Keep the longest-lived proof when processes share a sandbox.
 		if let Some(mut state) = self.server.runner.state.sandboxes.get_mut_by_id(sandbox) {
-			state.tokens.extend(tokens);
+			for (id, token) in tokens {
+				if state
+					.tokens
+					.get(&id)
+					.is_none_or(|existing| existing.body.expires_at < token.body.expires_at)
+				{
+					state.tokens.insert(id, token);
+				}
+			}
 		}
 		if self.server.vfs.lock().unwrap().is_some() {
 			return Ok(());
@@ -2519,6 +2518,68 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to log the progress stream"))?;
 
 		Ok(())
+	}
+
+	async fn checkout_process_artifact_tokens(
+		&self,
+		artifacts: &[tg::Referent<tg::artifact::Id>],
+	) -> tg::Result<BTreeMap<tg::artifact::Id, tg::authorization::Token>> {
+		// Combine the verified input proofs before following any symlinks.
+		let subtree = tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Subtree,
+		);
+		let mut tokens = BTreeMap::<tg::artifact::Id, tg::authorization::Token>::new();
+		for artifact in artifacts {
+			let resource = tg::Selector::Id(artifact.node.clone().into());
+			for token in artifact.options.tokens.local_authorization() {
+				if self.authorize_token(&resource, subtree.into(), token)
+					&& tokens
+						.get(&artifact.node)
+						.is_none_or(|existing| existing.body.expires_at < token.body.expires_at)
+				{
+					tokens.insert(artifact.node.clone(), token.clone());
+				}
+			}
+		}
+
+		// Follow artifact edges with the accepted proof, preserving its expiration through chains and cycles.
+		let mut pending = artifacts
+			.iter()
+			.filter(|artifact| artifact.node.is_symlink() && tokens.contains_key(&artifact.node))
+			.map(|artifact| (artifact.node.clone(), artifact.clone()))
+			.collect::<BTreeMap<_, _>>();
+		while let Some((id, mut referent)) = pending.pop_first() {
+			let token = &tokens[&id];
+			let expires_at = token.body.expires_at;
+			referent
+				.options
+				.tokens
+				.insert_local_authorization(token.clone());
+			let symlink = tg::Artifact::with_referent(referent)
+				.try_unwrap_symlink()
+				.unwrap();
+			let Some(artifact) = symlink.artifact_with_handle(self).await? else {
+				continue;
+			};
+			let id = artifact.store_with_handle(self).await?;
+			if tokens
+				.get(&id)
+				.is_some_and(|existing| existing.body.expires_at >= expires_at)
+			{
+				continue;
+			}
+			// Storing a graph pointer can mint a fresh token, so retain the source proof's expiration.
+			let Some(token) = self.create_token(id.clone().into(), vec![subtree], expires_at)?
+			else {
+				continue;
+			};
+			if id.is_symlink() {
+				pending.insert(id.clone(), artifact.to_referent());
+			}
+			tokens.insert(id, token);
+		}
+
+		Ok(tokens)
 	}
 }
 
