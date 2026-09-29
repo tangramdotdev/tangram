@@ -1180,6 +1180,11 @@ impl Session {
 		// Remove from the visiting set.
 		state.visiting.remove(id);
 
+		// Retain the exact directory authorization token on the physical checkout.
+		if let Some(token) = self.create_permanent_object_token(id)? {
+			tg::file::xattrs::write_token(path, &token)?;
+		}
+
 		// Set the permissions.
 		let permissions = std::fs::Permissions::from_mode(0o555);
 		std::fs::set_permissions(path, permissions).map_err(
@@ -1385,6 +1390,12 @@ impl Session {
 		// Create the symlink.
 		std::os::unix::fs::symlink(target, path)
 			.map_err(|error| tg::error!(!error, "failed to create the symlink"))?;
+
+		// Retain the symlink authorization token on macOS, where symlink xattrs are supported.
+		#[cfg(target_os = "macos")]
+		if let Some(token) = self.create_permanent_object_token(&item.id)? {
+			tg::file::xattrs::write_token(path, &token)?;
+		}
 
 		// Increment the progress.
 		state.progress.increment("artifacts", 1);
