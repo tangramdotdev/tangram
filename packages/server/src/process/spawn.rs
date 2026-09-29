@@ -215,11 +215,6 @@ impl Session {
 			&& runner_matches_location
 			&& arg.cached != Some(true)
 			&& (!new_sandbox || allocation.is_some());
-		let forwarded = !shortcut
-			&& !matches!(location, tg::Location::Local(tg::location::Local { region: None }));
-		if forwarded && let Some(parent) = &arg.parent {
-			self.spawn_process_await_parent_start(parent).await?;
-		}
 		let notify = if shortcut {
 			None
 		} else {
@@ -347,17 +342,6 @@ impl Session {
 			},
 		);
 		runner_location == *location
-	}
-
-	async fn spawn_process_await_parent_start(&self, parent: &tg::process::Id) -> tg::Result<()> {
-		let Some(mut started) = self.server.runner.state().try_get_process_started(parent) else {
-			return Ok(());
-		};
-		started
-			.wait_for(|started| *started)
-			.await
-			.map_err(|_| tg::error!(%parent, "the parent process failed to start"))?;
-		Ok(())
 	}
 
 	async fn try_spawn_process_local(
