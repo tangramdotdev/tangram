@@ -19,6 +19,7 @@ pub enum Kind {
 
 pub struct Server {
 	inner: Inner,
+	#[cfg(target_os = "linux")]
 	provider: provider::Weak,
 }
 
@@ -56,6 +57,7 @@ impl Server {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the vfs provider"))?;
 
+		#[cfg(target_os = "linux")]
 		let weak = provider.downgrade();
 		let inner = match kind {
 			Kind::Fskit => {
@@ -128,6 +130,7 @@ impl Server {
 
 		let server = Self {
 			inner,
+			#[cfg(target_os = "linux")]
 			provider: weak,
 		};
 		Ok(server)
@@ -189,6 +192,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[cfg(target_os = "linux")]
 	#[must_use]
 	pub fn provider(&self) -> &provider::Weak {
 		&self.provider

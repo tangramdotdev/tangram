@@ -146,10 +146,10 @@ octocrab = { version = "0.54", default-features = false, features = [
   "timeout",
   "tracing",
 ] }
-opentelemetry = "0.32"
-opentelemetry-appender-tracing = "0.32"
-opentelemetry-otlp = { version = "0.32", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }
-opentelemetry_sdk = { version = "0.32", features = ["rt-tokio"] }
+opentelemetry = "0.33"
+opentelemetry-appender-tracing = "0.33"
+opentelemetry-otlp = { version = "0.33", features = ["grpc-tonic", "zstd-tonic", "logs", "metrics"] }
+opentelemetry_sdk = { version = "0.33", features = ["rt-tokio"] }
 owo-colors = "4"
 oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
 oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
@@ -165,7 +165,7 @@ quote = "1"
 radix_trie = "0.3.0"
 rand = "0.10"
 ratatui = "0.30"
-reedline = "0.51"
+reedline = "0.52"
 reflink-copy = "0.1"
 rquickjs = { git = "https://github.com/tangramdotdev/rquickjs", features = ["full-async", "loader", "futures"] }
 regex = "1"
@@ -224,10 +224,10 @@ toml = { version = "1" }
 tower = { version = "0.5", features = ["timeout", "util"] }
 tower-http = { version = "0.7", features = ["add-extension", "compression-zstd", "decompression-zstd", "map-request-body", "map-response-body", "set-header", "timeout", "util"] }
 tracing = "0.1"
-tracing-opentelemetry = "0.33"
+tracing-opentelemetry = "0.34"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 tracing-tree = "0.4"
-turso = "0.7.0"
+turso = "0.8"
 unicode-segmentation = "1"
 unicode-width = "0.2"
 uuid = { version = "1", features = ["v7"] }

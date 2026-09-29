@@ -188,11 +188,13 @@ impl Provider {
 		Ok(provider)
 	}
 
+	#[cfg(target_os = "linux")]
 	#[must_use]
 	pub fn downgrade(&self) -> Weak {
 		Weak(Arc::downgrade(&self.0))
 	}
 
+	#[cfg(target_os = "linux")]
 	pub fn set_principal(&self, principal: tg::Principal) {
 		self.principal.lock().unwrap().replace(principal);
 	}
