@@ -18,7 +18,7 @@ async fn try_get_ancestors() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![
 			tangram_index::batch::Item::PutOrganization(tangram_index::organization::put::Arg {
-				billing: None,
+				billing_ready: None,
 				id: organization.clone(),
 				specifier: tg::Specifier::from_str("organization").unwrap(),
 			}),

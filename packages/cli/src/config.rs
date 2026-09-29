@@ -374,21 +374,7 @@ pub struct Github {
 #[serde(deny_unknown_fields)]
 pub struct Billing {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub stripe: Option<Stripe>,
-}
-
-#[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct Stripe {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub secret_key: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub url: Option<Uri>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub webhook_secret: Option<String>,
+	pub stripe: Option<tangram_billing_stripe::config::Options>,
 }
 
 #[serde_as]
@@ -2597,23 +2583,8 @@ fn resolve_github(source: Github) -> tg::Result<server::Github> {
 
 fn resolve_billing(source: Billing) -> tg::Result<server::Billing> {
 	let source = required(source.stripe, "billing.stripe")?;
-	let stripe = resolve_stripe(source)?;
+	let stripe = source.try_into()?;
 	let target = server::Billing { stripe };
-
-	Ok(target)
-}
-
-fn resolve_stripe(source: Stripe) -> tg::Result<server::Stripe> {
-	let secret_key = required(source.secret_key, "billing.stripe.secret_key")?;
-	let url = source
-		.url
-		.unwrap_or_else(|| "https://api.stripe.com".parse().unwrap());
-	let webhook_secret = required(source.webhook_secret, "billing.stripe.webhook_secret")?;
-	let target = server::Stripe {
-		secret_key,
-		url,
-		webhook_secret,
-	};
 
 	Ok(target)
 }

@@ -3,6 +3,8 @@ default-members = ["packages/cli"]
 members = [
   "packages/archive",
   "packages/archive/s3",
+  "packages/billing",
+  "packages/billing/stripe",
   "packages/cache",
   "packages/cache/lmdb",
   "packages/cache/memory",
@@ -203,6 +205,8 @@ syntect = "5"
 sync_wrapper = "1"
 tangram_archive = { path = "packages/archive" }
 tangram_archive_s3 = { path = "packages/archive/s3" }
+tangram_billing = { path = "packages/billing" }
+tangram_billing_stripe = { path = "packages/billing/stripe" }
 tangram_cache = { path = "packages/cache" }
 tangram_cache_lmdb = { path = "packages/cache/lmdb" }
 tangram_cache_memory = { path = "packages/cache/memory" }

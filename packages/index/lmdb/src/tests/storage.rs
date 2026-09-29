@@ -484,7 +484,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![
 			tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
-				billing: None,
+				billing_ready: None,
 				id: user.clone(),
 				specifier: "user".parse().unwrap(),
 			}),
@@ -638,7 +638,7 @@ async fn account_storage_is_retained_by_a_tag() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![
 			tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
-				billing: None,
+				billing_ready: None,
 				id: user.clone(),
 				specifier: "user".parse().unwrap(),
 			}),

@@ -356,7 +356,7 @@ impl Server {
 				let stopper = stopper.clone();
 				async move {
 					let context = Context {
-						billing: false,
+						billing_ready: false,
 						id: None,
 						origin,
 						principal: tg::Principal::Anonymous,
@@ -565,7 +565,7 @@ impl Server {
 				return response;
 			},
 		};
-		context.billing = authentication.billing;
+		context.billing_ready = authentication.billing_ready;
 		context.principal = authentication.principal;
 
 		let session = self.session(&context);
@@ -865,7 +865,7 @@ impl Server {
 
 			// Webhooks.
 			(http::Method::POST, ["webhooks", "stripe"]) => {
-				session.handle_stripe_webhook_request(request).boxed()
+				session.handle_billing_webhook_request(request).boxed()
 			},
 
 			(_, _) => future::ok(

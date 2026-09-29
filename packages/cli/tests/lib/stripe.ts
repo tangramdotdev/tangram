@@ -1,11 +1,16 @@
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 
 const portPath = process.argv[2];
 const requestsPath = process.argv[3];
 const customerDelay = Number(process.argv[4] ?? 0);
+const customerPath = process.argv[5];
 
-if (portPath === undefined || requestsPath === undefined) {
-	throw new Error("expected the port and requests paths");
+if (
+	portPath === undefined ||
+	requestsPath === undefined ||
+	customerPath === undefined
+) {
+	throw new Error("expected the port, requests, and customer paths");
 }
 
 const server = Bun.serve({
@@ -32,10 +37,7 @@ const server = Bun.serve({
 			return Response.json({ url: "https://example.invalid/stripe-portal" });
 		}
 		if (request.method === "GET" && url.pathname === "/v1/customers/cus_mock") {
-			return Response.json({
-				id: "cus_mock",
-				invoice_settings: { default_payment_method: "pm_mock" },
-			});
+			return Response.json(JSON.parse(readFileSync(customerPath, "utf8")));
 		}
 		return Response.json(
 			{ error: { message: `unexpected path: ${url.pathname}` } },

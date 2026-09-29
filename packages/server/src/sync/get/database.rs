@@ -1316,7 +1316,7 @@ impl Session {
 				tg::sync::PutNodeMessage::Organization(message) => {
 					tangram_index::batch::Item::PutOrganization(
 						tangram_index::organization::put::Arg {
-							billing: None,
+							billing_ready: None,
 							id: message.id.clone(),
 							specifier: message.specifier.clone(),
 						},
@@ -1340,7 +1340,7 @@ impl Session {
 				},
 				tg::sync::PutNodeMessage::User(message) => {
 					tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
-						billing: None,
+						billing_ready: None,
 						id: message.id.clone(),
 						specifier: message.specifier.clone(),
 					})

@@ -704,7 +704,7 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 		&index.subspace,
 		&mut txn,
 		&[tangram_index::user::put::Arg {
-			billing: Some(false),
+			billing_ready: Some(false),
 			id: alice.clone(),
 			specifier: "alice".parse().unwrap(),
 		}],

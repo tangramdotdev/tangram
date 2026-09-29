@@ -1033,7 +1033,7 @@ impl Provider {
 	fn session(&self) -> Session {
 		// Fetch as the mount principal with the tokens retained by its nodes.
 		let context = Context {
-			billing: false,
+			billing_ready: false,
 			id: None,
 			origin: self.origin,
 			principal: self
@@ -1053,7 +1053,7 @@ impl Provider {
 		let principal = self.principal.lock().unwrap().clone()?;
 		// The provider is a host service acting as the mount's principal.
 		let context = Context {
-			billing: false,
+			billing_ready: false,
 			id: None,
 			origin: crate::Origin::Host,
 			principal,

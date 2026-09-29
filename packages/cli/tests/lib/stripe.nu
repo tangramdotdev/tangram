@@ -15,6 +15,8 @@ process.stdout.write(`t=${timestamp},v1=${signature}`);
 const stripe_path = path self stripe.ts
 
 export def spawn_stripe [--customer-delay: duration = 0sec] {
+	let customer_path = mktemp
+	{ id: "cus_mock", invoice_settings: { default_payment_method: "pm_mock" } } | to json | save --force $customer_path
 	let port_path = mktemp
 	let requests_path = mktemp
 	let customer_delay_ms = $customer_delay / 1ms | into int
@@ -28,7 +30,7 @@ export def spawn_stripe [--customer-delay: duration = 0sec] {
 				done
 				kill -TERM -\$SELF_PID 2>/dev/null || true
 			\) &
-			exec bun run \"($stripe_path)\" \"($port_path)\" \"($requests_path)\" \"($customer_delay_ms)\"
+			exec bun run \"($stripe_path)\" \"($port_path)\" \"($requests_path)\" \"($customer_delay_ms)\" \"($customer_path)\"
 		"
 	}
 	wait_until {
@@ -36,6 +38,7 @@ export def spawn_stripe [--customer-delay: duration = 0sec] {
 	} "the mock Stripe server did not start"
 	let port = open --raw $port_path | str trim
 	{
+		customer_path: $customer_path,
 		job: $job,
 		requests_path: $requests_path,
 		url: $'http://127.0.0.1:($port)',

@@ -1,0 +1,28 @@
+[package]
+name = "tangram_billing_stripe"
+
+description = { workspace = true }
+edition = { workspace = true }
+homepage = { workspace = true }
+license = { workspace = true }
+publish = false
+repository = { workspace = true }
+rust-version = { workspace = true }
+version = { workspace = true }
+
+[lib]
+doctest = false
+
+[lints]
+workspace = true
+
+[dependencies]
+aws-lc-rs = { workspace = true }
+data-encoding = { workspace = true }
+http = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tangram_billing = { workspace = true }
+tangram_client = { workspace = true }
+tangram_uri = { workspace = true }

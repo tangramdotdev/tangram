@@ -118,22 +118,22 @@ async fn partial_account_updates_preserve_billing() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![
 			tangram_index::batch::Item::PutOrganization(tangram_index::organization::put::Arg {
-				billing: None,
+				billing_ready: None,
 				id: new_organization.clone(),
 				specifier: tg::Specifier::from_str("new_organization").unwrap(),
 			}),
 			tangram_index::batch::Item::PutOrganization(tangram_index::organization::put::Arg {
-				billing: Some(true),
+				billing_ready: Some(true),
 				id: organization.clone(),
 				specifier: tg::Specifier::from_str("organization").unwrap(),
 			}),
 			tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
-				billing: None,
+				billing_ready: None,
 				id: new_user.clone(),
 				specifier: tg::Specifier::from_str("new_user").unwrap(),
 			}),
 			tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
-				billing: Some(true),
+				billing_ready: Some(true),
 				id: user.clone(),
 				specifier: tg::Specifier::from_str("user").unwrap(),
 			}),
@@ -144,12 +144,12 @@ async fn partial_account_updates_preserve_billing() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![
 			tangram_index::batch::Item::PutOrganization(tangram_index::organization::put::Arg {
-				billing: None,
+				billing_ready: None,
 				id: organization.clone(),
 				specifier: tg::Specifier::from_str("organization").unwrap(),
 			}),
 			tangram_index::batch::Item::PutUser(tangram_index::user::put::Arg {
-				billing: None,
+				billing_ready: None,
 				id: user.clone(),
 				specifier: tg::Specifier::from_str("user").unwrap(),
 			}),
@@ -160,11 +160,15 @@ async fn partial_account_updates_preserve_billing() {
 	assert!(
 		!try_get_organization(&index, &new_organization)
 			.unwrap()
-			.billing
+			.billing_ready
 	);
-	assert!(try_get_organization(&index, &organization).unwrap().billing);
-	assert!(!try_get_user(&index, &new_user).unwrap().billing);
-	assert!(try_get_user(&index, &user).unwrap().billing);
+	assert!(
+		try_get_organization(&index, &organization)
+			.unwrap()
+			.billing_ready
+	);
+	assert!(!try_get_user(&index, &new_user).unwrap().billing_ready);
+	assert!(try_get_user(&index, &user).unwrap().billing_ready);
 }
 
 #[tokio::test]

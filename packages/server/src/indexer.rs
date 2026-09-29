@@ -10,6 +10,7 @@ use {
 	tangram_index::Index as _,
 };
 
+mod billing;
 mod cache;
 mod cleaning;
 mod compaction;
@@ -18,7 +19,6 @@ mod object;
 mod partition;
 mod queue;
 mod request;
-mod stripe;
 mod update;
 mod usage;
 mod wait;
@@ -63,6 +63,7 @@ struct Tasks {
 	archive_queue: SharedTask<tg::Result<()>>,
 	archive_sequence_reservations: SharedTask<tg::Result<()>>,
 	batch_expiration: SharedTask<tg::Result<()>>,
+	billing_cleanup: Task<tg::Result<()>>,
 	cleaning: Task<tg::Result<()>>,
 	database_index_queue: Task<tg::Result<()>>,
 	permission_update: Task<tg::Result<()>>,
@@ -75,7 +76,6 @@ struct Tasks {
 	queue_completions: SharedTask<tg::Result<()>>,
 	request: SharedTask<tg::Result<()>>,
 	usage_update: Task<tg::Result<()>>,
-	stripe_cleanup: Task<tg::Result<()>>,
 	usage_aggregation: Task<tg::Result<()>>,
 	usage_expiration: Task<tg::Result<()>>,
 	wait: SharedTask<tg::Result<()>>,
@@ -315,15 +315,15 @@ impl Server {
 			}
 		});
 
-		// Spawn the Stripe cleanup task.
-		let stripe_cleanup_task = Task::spawn({
+		// Spawn the billing cleanup task.
+		let billing_cleanup_task = Task::spawn({
 			let indexer = indexer.clone();
 			move |stopper| async move {
 				if !indexer.server.is_primary_region() {
 					stopper.wait().await;
 					return Ok(());
 				}
-				indexer.stripe_cleanup_task(&stopper).await
+				indexer.billing_cleanup_task(&stopper).await
 			}
 		});
 
@@ -472,6 +472,7 @@ impl Server {
 			archive_queue: archive_queue_task,
 			archive_sequence_reservations: archive_sequence_reservations_task,
 			batch_expiration: batch_expiration_task,
+			billing_cleanup: billing_cleanup_task,
 			cleaning: cleaning_task,
 			database_index_queue: database_index_queue_task,
 			permission_update: permission_update_task,
@@ -484,7 +485,6 @@ impl Server {
 			queue_completions: queue_completions_task,
 			request: request_task,
 			usage_update: usage_update_task,
-			stripe_cleanup: stripe_cleanup_task,
 			usage_aggregation: usage_aggregation_task,
 			usage_expiration: usage_expiration_task,
 			wait: wait_task,
@@ -576,6 +576,7 @@ impl Indexer {
 			archive_queue,
 			archive_sequence_reservations,
 			batch_expiration,
+			billing_cleanup,
 			cleaning,
 			database_index_queue,
 			permission_update,
@@ -588,7 +589,6 @@ impl Indexer {
 			queue_completions,
 			request,
 			usage_update,
-			stripe_cleanup,
 			usage_aggregation,
 			usage_expiration,
 			wait,
@@ -612,7 +612,7 @@ impl Indexer {
 		storage_and_metadata_update.stop();
 		object_cache.stop();
 		usage_update.stop();
-		stripe_cleanup.stop();
+		billing_cleanup.stop();
 		usage_aggregation.stop();
 		usage_expiration.stop();
 		for (name, task) in [
@@ -623,7 +623,7 @@ impl Indexer {
 			("storage and metadata update", storage_and_metadata_update),
 			("object cache", object_cache),
 			("usage update", usage_update),
-			("Stripe cleanup", stripe_cleanup),
+			("billing cleanup", billing_cleanup),
 			("usage aggregation", usage_aggregation),
 			("usage expiration", usage_expiration),
 		] {

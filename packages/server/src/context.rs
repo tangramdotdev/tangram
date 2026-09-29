@@ -2,7 +2,7 @@ use {tangram_client::prelude::*, tangram_futures::task::Stopper};
 
 #[derive(Clone, Debug)]
 pub struct Context {
-	pub billing: bool,
+	pub billing_ready: bool,
 	pub id: Option<String>,
 	pub origin: Origin,
 	pub principal: tg::Principal,
@@ -20,7 +20,7 @@ impl Context {
 	#[must_use]
 	pub fn root() -> Self {
 		Self {
-			billing: false,
+			billing_ready: false,
 			id: None,
 			origin: Origin::Host,
 			principal: tg::Principal::Root,

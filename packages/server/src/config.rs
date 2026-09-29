@@ -222,16 +222,7 @@ pub struct Github {
 
 #[derive(Clone, Debug)]
 pub struct Billing {
-	pub stripe: Stripe,
-}
-
-#[derive(Clone, Debug)]
-pub struct Stripe {
-	pub secret_key: String,
-
-	pub url: Uri,
-
-	pub webhook_secret: String,
+	pub stripe: tangram_billing_stripe::Config,
 }
 
 #[derive(Clone, Debug, PartialEq)]

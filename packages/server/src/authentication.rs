@@ -10,7 +10,7 @@ use {
 mod token;
 
 pub(crate) struct Authentication {
-	pub billing: bool,
+	pub billing_ready: bool,
 	pub principal: tg::Principal,
 }
 
@@ -37,13 +37,12 @@ struct UserEmailRow {
 
 #[derive(db::row::Deserialize)]
 struct UserRow {
+	billing_ready: bool,
 	#[tangram_database(as = "db::value::FromStr")]
 	id: tg::user::Id,
 	name: String,
 	#[tangram_database(as = "db::value::FromStr")]
 	specifier: tg::Specifier,
-	stripe_customer_id: Option<String>,
-	stripe_default_payment_method_id: Option<String>,
 }
 
 impl Session {
@@ -250,7 +249,7 @@ impl Server {
 		}
 
 		Ok(Authentication {
-			billing: false,
+			billing_ready: false,
 			principal: tg::Principal::Anonymous,
 		})
 	}
@@ -261,7 +260,7 @@ impl Server {
 			&& crate::token::matches(token, root_token)
 		{
 			return Ok(Authentication {
-				billing: false,
+				billing_ready: false,
 				principal: tg::Principal::Root,
 			});
 		}
@@ -271,7 +270,7 @@ impl Server {
 				.authenticate_token(value)
 				.unwrap_or(tg::Principal::Anonymous);
 			return Ok(Authentication {
-				billing: false,
+				billing_ready: false,
 				principal,
 			});
 		}
@@ -286,13 +285,13 @@ impl Server {
 			let state = self.runner.state();
 			let Some(sandbox) = state.sandboxes().get(sandbox_index) else {
 				return Ok(Authentication {
-					billing: false,
+					billing_ready: false,
 					principal: tg::Principal::Anonymous,
 				});
 			};
 			let Some(process) = sandbox.processes.get(&id) else {
 				return Ok(Authentication {
-					billing: false,
+					billing_ready: false,
 					principal: tg::Principal::Anonymous,
 				});
 			};
@@ -305,16 +304,16 @@ impl Server {
 				.map_err(|error| tg::error!(!error, "the process index task panicked"))?
 				.map_err(|error| tg::error!(!error, %id, "failed to index the process"))?;
 			return Ok(Authentication {
-				billing: false,
+				billing_ready: false,
 				principal: tg::Principal::Process(id),
 			});
 		}
 
 		if let Some(token) = token {
 			match self.authenticate_user(token).await {
-				Ok(Some((billing, user))) => {
+				Ok(Some((billing_ready, user))) => {
 					return Ok(Authentication {
-						billing,
+						billing_ready,
 						principal: tg::Principal::User(user.id),
 					});
 				},
@@ -325,7 +324,7 @@ impl Server {
 			}
 			if let Some(runner) = self.authenticate_runner(token).await? {
 				return Ok(Authentication {
-					billing: false,
+					billing_ready: false,
 					principal: tg::Principal::Runner(runner),
 				});
 			}
@@ -333,13 +332,13 @@ impl Server {
 
 		if self.config().authentication.users.is_none() {
 			return Ok(Authentication {
-				billing: false,
+				billing_ready: false,
 				principal: tg::Principal::Root,
 			});
 		}
 
 		Ok(Authentication {
-			billing: false,
+			billing_ready: false,
 			principal: tg::Principal::Anonymous,
 		})
 	}
@@ -455,8 +454,7 @@ impl Server {
 			return Ok(None);
 		};
 		let emails = rows.into_iter().map(|row| row.email).collect();
-		let billing =
-			user.stripe_customer_id.is_some() && user.stripe_default_payment_method_id.is_some();
+		let billing_ready = user.billing_ready;
 		let user = tg::user::Data {
 			emails,
 			id: user.id,
@@ -464,7 +462,7 @@ impl Server {
 			specifier: user.specifier,
 		};
 
-		Ok(Some((billing, user)))
+		Ok(Some((billing_ready, user)))
 	}
 
 	async fn authenticate_user_with_transaction(
@@ -474,8 +472,7 @@ impl Server {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			r#"
-				select users.id, users.name, specifiers.specifier, users.stripe_customer_id,
-					users.stripe_default_payment_method_id
+				select users.id, users.name, specifiers.specifier, users.billing_ready
 				from users
 				join specifiers on specifiers.id = users.id
 				join user_tokens on user_tokens."user" = users.id

@@ -305,7 +305,7 @@ impl Session {
 			crate::database::retry!(result, "failed to execute the statement");
 			batch.items.push(tangram_index::batch::Item::PutUser(
 				tangram_index::user::put::Arg {
-					billing: Some(false),
+					billing_ready: Some(false),
 					id: id.clone(),
 					specifier: specifier.clone(),
 				},

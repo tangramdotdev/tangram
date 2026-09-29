@@ -27,17 +27,17 @@ impl Index {
 		for arg in args {
 			let key = Key::User(crate::user::Key::User(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
-			let billing = match arg.billing {
-				Some(billing) => billing,
+			let billing_ready = match arg.billing_ready {
+				Some(billing_ready) => billing_ready,
 				None => db
 					.get(transaction, &key)
 					.map_err(|error| tg::error!(!error, "failed to get the user"))?
 					.map_or(Ok(false), |bytes| {
-						tangram_index::user::User::deserialize(bytes).map(|user| user.billing)
+						tangram_index::user::User::deserialize(bytes).map(|user| user.billing_ready)
 					})?,
 			};
 			let value = tangram_index::user::User {
-				billing,
+				billing_ready,
 				specifier: arg.specifier.clone(),
 			}
 			.serialize()?;

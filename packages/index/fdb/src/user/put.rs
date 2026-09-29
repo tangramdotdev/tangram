@@ -28,16 +28,16 @@ impl Index {
 		for arg in args {
 			let key = Key::User(crate::user::Key::User(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
-			let billing = if let Some(billing) = arg.billing {
-				billing
+			let billing_ready = if let Some(billing_ready) = arg.billing_ready {
+				billing_ready
 			} else {
 				let result = txn.get(&key, false).await;
 				crate::retry!(result).map_or(Ok(false), |bytes| {
-					tangram_index::user::User::deserialize(&bytes).map(|user| user.billing)
+					tangram_index::user::User::deserialize(&bytes).map(|user| user.billing_ready)
 				})?
 			};
 			let value = tangram_index::user::User {
-				billing,
+				billing_ready,
 				specifier: arg.specifier.clone(),
 			}
 			.serialize()?;

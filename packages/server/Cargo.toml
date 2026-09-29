@@ -86,6 +86,8 @@ smallvec = { workspace = true }
 sync_wrapper = { workspace = true }
 tangram_archive = { workspace = true }
 tangram_archive_s3 = { workspace = true }
+tangram_billing = { workspace = true }
+tangram_billing_stripe = { workspace = true }
 tangram_cache = { workspace = true }
 tangram_cache_lmdb = { workspace = true, optional = true }
 tangram_cache_memory = { workspace = true }

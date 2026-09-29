@@ -1,8 +1,18 @@
 use {crate::Session, tangram_client::prelude::*, tangram_index::prelude::*};
 
-mod stripe;
+mod webhook;
 
-pub(super) use stripe::{CreateCustomerArg, Stripe};
+#[derive(Clone)]
+pub(crate) enum Billing {
+	Stripe(tangram_billing_stripe::Billing),
+}
+
+impl Billing {
+	#[must_use]
+	pub fn new(config: &crate::config::Billing) -> Self {
+		Self::Stripe(tangram_billing_stripe::Billing::new(&config.stripe))
+	}
+}
 
 impl Session {
 	pub(crate) async fn verify_billing(&self, owner: Option<&tg::Principal>) -> tg::Result<()> {
@@ -16,8 +26,8 @@ impl Session {
 			return Ok(());
 		}
 
-		let (billing, command) = self.billing(owner.clone()).await?;
-		if !billing {
+		let (billing_ready, command) = self.billing_ready(owner.clone()).await?;
+		if !billing_ready {
 			return Err(tg::error!(
 				"billing is not ready for the sandbox owner; run `{command}`"
 			));
@@ -26,7 +36,7 @@ impl Session {
 		Ok(())
 	}
 
-	async fn billing(&self, mut owner: tg::Principal) -> tg::Result<(bool, String)> {
+	async fn billing_ready(&self, mut owner: tg::Principal) -> tg::Result<(bool, String)> {
 		loop {
 			match owner {
 				tg::Principal::Group(id) => {
@@ -68,21 +78,22 @@ impl Session {
 						.ok_or_else(|| tg::error!(%id, "failed to find the sandbox owner"))?;
 					let command = format!("tg organization billing manage {id}");
 
-					return Ok((organization.billing, command));
+					return Ok((organization.billing_ready, command));
 				},
 				tg::Principal::User(id) => {
-					let billing = if self.context.principal == tg::Principal::User(id.clone()) {
-						self.context.billing
+					let billing_ready = if self.context.principal == tg::Principal::User(id.clone())
+					{
+						self.context.billing_ready
 					} else {
 						self.server
 							.index
 							.try_get_user(&id)
 							.await?
 							.ok_or_else(|| tg::error!(%id, "failed to find the sandbox owner"))?
-							.billing
+							.billing_ready
 					};
 
-					return Ok((billing, "tg user billing manage".to_owned()));
+					return Ok((billing_ready, "tg user billing manage".to_owned()));
 				},
 				tg::Principal::Anonymous
 				| tg::Principal::Process(_)
@@ -94,6 +105,40 @@ impl Session {
 					));
 				},
 			}
+		}
+	}
+}
+
+impl tangram_billing::Billing for Billing {
+	async fn create_customer(
+		&self,
+		arg: tangram_billing::customer::create::Arg,
+	) -> tg::Result<String> {
+		match self {
+			Self::Stripe(billing) => billing.create_customer(arg).await,
+		}
+	}
+
+	async fn create_management_url(&self, customer: &str) -> tg::Result<String> {
+		match self {
+			Self::Stripe(billing) => billing.create_management_url(customer).await,
+		}
+	}
+
+	async fn customer_ready(&self, customer: &str) -> tg::Result<bool> {
+		match self {
+			Self::Stripe(billing) => billing.customer_ready(customer).await,
+		}
+	}
+
+	fn try_parse_webhook(
+		&self,
+		headers: &http::HeaderMap,
+		body: &[u8],
+		now: i64,
+	) -> tg::Result<Option<tangram_billing::webhook::Event>> {
+		match self {
+			Self::Stripe(billing) => billing.try_parse_webhook(headers, body, now),
 		}
 	}
 }

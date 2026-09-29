@@ -8,7 +8,7 @@ pub mod put;
 )]
 pub struct Organization {
 	#[tangram_serialize(id = 1)]
-	pub billing: bool,
+	pub billing_ready: bool,
 
 	#[tangram_serialize(id = 0)]
 	pub specifier: tg::Specifier,

@@ -117,7 +117,7 @@ pub struct State {
 	archive_tasks: tangram_futures::task::Set<tg::Result<()>>,
 	authentication_tokens: Tokens,
 	authorization_tokens: Tokens,
-	billing: Option<self::billing::Stripe>,
+	billing: Option<self::billing::Billing>,
 	cache: self::cache::Cache,
 	checkin_tasks: self::checkin::Tasks,
 	checkout_graph_tasks: self::checkout::internal::GraphTasks,
@@ -1158,10 +1158,7 @@ impl Server {
 		.await?;
 
 		// Create the billing provider.
-		let billing = config
-			.billing
-			.as_ref()
-			.map(|billing| self::billing::Stripe::new(&billing.stripe));
+		let billing = config.billing.as_ref().map(self::billing::Billing::new);
 
 		// Create the server.
 		let server = Self(Arc::new(State {
