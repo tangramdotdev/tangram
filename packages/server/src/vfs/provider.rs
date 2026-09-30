@@ -90,12 +90,12 @@ struct Node {
 	artifact: Option<ArtifactInfo>,
 	attrs: Option<vfs::Attrs>,
 	children: BTreeMap<String, u64>,
+	dependencies: Vec<ArtifactInfo>,
 	depth: u64,
 	lookup_count: u64,
 	name: Option<String>,
 	named: Option<NamedNodeInfo>,
 	parent: u64,
-	targets: Vec<ArtifactInfo>,
 	tokens: Vec<tg::authorization::Token>,
 }
 
@@ -2358,7 +2358,7 @@ impl Provider {
 			Some(edge) => {
 				let target =
 					self.artifact_from_edge_inner(&artifact.tokens, edge, graph.as_ref(), None)?;
-				self.register_target(id, &target)?;
+				self.register_dependency(id, &target)?;
 				Some(target.id)
 			},
 			None => None,
@@ -2415,7 +2415,7 @@ impl Provider {
 					graph.as_ref(),
 					transaction,
 				)?;
-				self.register_target(id, &target)?;
+				self.register_dependency(id, &target)?;
 				Some(target.id)
 			},
 			None => None,
@@ -2462,14 +2462,14 @@ impl Provider {
 			else {
 				continue;
 			};
-			self.register_target(source, &dependency)?;
+			self.register_dependency(source, &dependency)?;
 		}
 		Ok(())
 	}
 
-	fn register_target(&self, source: u64, target: &ArtifactInfo) -> std::io::Result<()> {
-		self.nodes.insert_target(source, target);
-		let tokens = target.tokens.lock().unwrap().clone();
+	fn register_dependency(&self, source: u64, dependency: &ArtifactInfo) -> std::io::Result<()> {
+		self.nodes.insert_dependency(source, dependency);
+		let tokens = dependency.tokens.lock().unwrap().clone();
 		self.nodes
 			.refresh_node_tokens(&self.session(), &tokens)
 			.map_err(|error| Self::map_cache_sync_error(&error))?;
@@ -3934,12 +3934,12 @@ impl Nodes {
 			artifact: None,
 			attrs: Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
 			children: BTreeMap::new(),
+			dependencies: Vec::new(),
 			depth: 0,
 			lookup_count: u64::MAX,
 			name: None,
 			named: None,
 			parent: vfs::ROOT_NODE_ID,
-			targets: Vec::new(),
 			tokens: Vec::new(),
 		};
 		nodes.insert(vfs::ROOT_NODE_ID, entry);
@@ -3999,9 +3999,9 @@ impl Nodes {
 		while let Some((id, token)) = pending.pop() {
 			let node = state.nodes.get(&id).unwrap();
 			let incoming = [token.clone()];
-			for target in &node.targets {
-				if token.body.resource == target.id.clone().into() {
-					let mut tokens = target.tokens.lock().unwrap();
+			for dependency in &node.dependencies {
+				if token.body.resource == dependency.id.clone().into() {
+					let mut tokens = dependency.tokens.lock().unwrap();
 					tokens.retain(|token| token.body.expires_at >= now);
 					Provider::insert_tokens(&mut tokens, &incoming);
 				}
@@ -4024,16 +4024,18 @@ impl Nodes {
 			if !improved {
 				continue;
 			}
-			for target in &node.targets {
-				Self::refresh_tokens(session, &mut target.tokens.lock().unwrap(), expires_at)?;
-				if let Some(target_id) = state.nodes[&vfs::ROOT_NODE_ID]
+			for dependency in &node.dependencies {
+				Self::refresh_tokens(session, &mut dependency.tokens.lock().unwrap(), expires_at)?;
+				if let Some(dependency_id) = state.nodes[&vfs::ROOT_NODE_ID]
 					.children
-					.get(&target.id.to_string())
-					&& *target_id != id
-					&& let Some(token) =
-						session.create_token(target.id.clone().into(), vec![subtree], expires_at)?
-				{
-					pending.push((*target_id, token));
+					.get(&dependency.id.to_string())
+					&& *dependency_id != id
+					&& let Some(token) = session.create_token(
+						dependency.id.clone().into(),
+						vec![subtree],
+						expires_at,
+					)? {
+					pending.push((*dependency_id, token));
 				}
 			}
 			for child in node.children.values() {
@@ -4090,7 +4092,11 @@ impl Nodes {
 			{
 				return artifact.clone();
 			}
-			if let Some(artifact) = source.targets.iter().find(|artifact| &artifact.id == id) {
+			if let Some(artifact) = source
+				.dependencies
+				.iter()
+				.find(|artifact| &artifact.id == id)
+			{
 				let artifact = artifact.snapshot();
 				let tokens = root
 					.tokens
@@ -4116,23 +4122,23 @@ impl Nodes {
 		}
 	}
 
-	fn insert_target(&self, source: u64, artifact: &ArtifactInfo) {
+	fn insert_dependency(&self, source: u64, artifact: &ArtifactInfo) {
 		let mut state = self.state.lock().unwrap();
 		let Some(node) = state.nodes.get_mut(&source) else {
 			return;
 		};
-		let target = artifact.snapshot();
+		let dependency = artifact.snapshot();
 		if let Some(existing) = node
-			.targets
+			.dependencies
 			.iter_mut()
-			.find(|target| target.id == artifact.id)
+			.find(|dependency| dependency.id == artifact.id)
 		{
 			Provider::insert_tokens(
 				&mut existing.tokens.lock().unwrap(),
-				&target.tokens.lock().unwrap(),
+				&dependency.tokens.lock().unwrap(),
 			);
 		} else {
-			node.targets.push(target);
+			node.dependencies.push(dependency);
 		}
 		state
 			.nodes
@@ -4282,22 +4288,22 @@ impl Nodes {
 			let name = node.name.clone();
 
 			let node = state.nodes.remove(&id).unwrap();
-			let mut targets = node.targets;
+			let mut dependencies = node.dependencies;
 			if parent == vfs::ROOT_NODE_ID
 				&& let Some(artifact) = node.artifact
 			{
-				targets.push(artifact);
+				dependencies.push(artifact);
 			}
-			for target in targets {
-				let name = target.id.to_string();
+			for dependency in dependencies {
+				let name = dependency.id.to_string();
 				if state.nodes[&vfs::ROOT_NODE_ID].children.get(&name) != Some(&id) {
 					continue;
 				}
-				// Preserve a shared target only while another existing inode supplies its tokens.
+				// Preserve a shared dependency only while another existing inode supplies its tokens.
 				let source = state.nodes.iter().find_map(|(id, node)| {
-					node.targets
+					node.dependencies
 						.iter()
-						.any(|other| other.id == target.id)
+						.any(|other| other.id == dependency.id)
 						.then_some(*id)
 				});
 				let root = state.nodes.get_mut(&vfs::ROOT_NODE_ID).unwrap();
@@ -4368,12 +4374,12 @@ impl Nodes {
 			artifact: Some(artifact),
 			attrs,
 			children: BTreeMap::new(),
+			dependencies: Vec::new(),
 			depth,
 			lookup_count: u64::from(remember),
 			name: Some(name.to_owned()),
 			named: None,
 			parent,
-			targets: Vec::new(),
 			tokens: Vec::new(),
 		};
 		state.nodes.insert(id, entry);
@@ -4420,12 +4426,12 @@ impl Nodes {
 			artifact: None,
 			attrs: Some(attrs),
 			children: BTreeMap::new(),
+			dependencies: Vec::new(),
 			depth,
 			lookup_count: u64::from(remember),
 			name: Some(name.to_owned()),
 			named: Some(named_node),
 			parent,
-			targets: Vec::new(),
 			tokens: Vec::new(),
 		};
 		state.nodes.insert(id, entry);
@@ -4654,7 +4660,7 @@ mod tests {
 	};
 
 	#[test]
-	fn forget_releases_tokens_and_targets() {
+	fn forget_releases_tokens_and_dependencies() {
 		let nodes = Nodes::new();
 		let source = artifact(b"source");
 		let source_id = source.id.clone();
@@ -4678,13 +4684,13 @@ mod tests {
 				true,
 			)
 			.unwrap();
-		let target = artifact(b"target");
-		let target_id = target.id.clone();
-		nodes.insert_target(inode, &target);
-		drop(target);
-		let target = nodes.root_artifact(&target_id);
-		assert!(!target.tokens.lock().unwrap().is_empty());
-		drop(target);
+		let dependency = artifact(b"target");
+		let dependency_id = dependency.id.clone();
+		nodes.insert_dependency(inode, &dependency);
+		drop(dependency);
+		let dependency = nodes.root_artifact(&dependency_id);
+		assert!(!dependency.tokens.lock().unwrap().is_empty());
+		drop(dependency);
 		assert_eq!(nodes.forget(inode, 1), vec![inode]);
 		assert!(source_tokens.upgrade().is_none());
 		assert_eq!(nodes.state.lock().unwrap().nodes.len(), 1);
@@ -4695,7 +4701,7 @@ mod tests {
 		);
 		assert!(
 			nodes
-				.root_artifact(&target_id)
+				.root_artifact(&dependency_id)
 				.tokens
 				.lock()
 				.unwrap()
@@ -4719,37 +4725,37 @@ mod tests {
 	}
 
 	#[test]
-	fn an_accessed_target_survives_forgetting_its_source() {
+	fn an_accessed_dependency_survives_forgetting_its_source() {
 		let nodes = Nodes::new();
 		let source = artifact(b"source");
 		let source_id = source.id.to_string();
 		let source = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &source_id, source, 1, None, true)
 			.unwrap();
-		let target = artifact(b"target");
-		let target_id = target.id.clone();
-		nodes.insert_target(source, &target);
-		drop(target);
-		let target = nodes.root_artifact(&target_id);
-		let tokens = Arc::downgrade(&target.tokens);
-		let target = nodes
+		let dependency = artifact(b"target");
+		let dependency_id = dependency.id.clone();
+		nodes.insert_dependency(source, &dependency);
+		drop(dependency);
+		let dependency = nodes.root_artifact(&dependency_id);
+		let tokens = Arc::downgrade(&dependency.tokens);
+		let dependency = nodes
 			.get_or_insert_child(
 				vfs::ROOT_NODE_ID,
-				&target_id.to_string(),
-				target,
+				&dependency_id.to_string(),
+				dependency,
 				1,
 				None,
 				true,
 			)
 			.unwrap();
-		assert_ne!(source, target);
+		assert_ne!(source, dependency);
 		nodes.forget(source, 1);
 		assert!(tokens.upgrade().is_some());
 		assert_eq!(
-			nodes.lookup_sync(vfs::ROOT_NODE_ID, &target_id.to_string()),
-			Some(target)
+			nodes.lookup_sync(vfs::ROOT_NODE_ID, &dependency_id.to_string()),
+			Some(dependency)
 		);
-		nodes.forget(target, 1);
+		nodes.forget(dependency, 1);
 		assert!(tokens.upgrade().is_none());
 		assert_eq!(nodes.state.lock().unwrap().nodes.len(), 1);
 	}
@@ -4782,7 +4788,7 @@ mod tests {
 	}
 
 	#[test]
-	fn forgetting_one_source_preserves_a_shared_target() {
+	fn forgetting_one_source_preserves_a_shared_dependency() {
 		let nodes = Nodes::new();
 		let first = artifact(b"first");
 		let name = first.id.to_string();
@@ -4794,11 +4800,11 @@ mod tests {
 		let second = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, second, 1, None, true)
 			.unwrap();
-		let target = artifact(b"shared");
-		let id = target.id.clone();
-		nodes.insert_target(first, &target);
-		nodes.insert_target(second, &target);
-		drop(target);
+		let dependency = artifact(b"shared");
+		let id = dependency.id.clone();
+		nodes.insert_dependency(first, &dependency);
+		nodes.insert_dependency(second, &dependency);
+		drop(dependency);
 		nodes.forget(first, 1);
 		assert!(!nodes.root_artifact(&id).tokens.lock().unwrap().is_empty());
 		nodes.forget(second, 1);
@@ -4811,23 +4817,30 @@ mod tests {
 	}
 
 	#[test]
-	fn a_forgotten_target_is_reloaded_from_its_live_source() {
+	fn a_forgotten_dependency_is_reloaded_from_its_live_source() {
 		let nodes = Nodes::new();
 		let source = artifact(b"source");
 		let name = source.id.to_string();
 		let source = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, source, 1, None, true)
 			.unwrap();
-		let target = artifact(b"target");
-		let id = target.id.clone();
-		nodes.insert_target(source, &target);
-		drop(target);
-		let target = nodes.root_artifact(&id);
-		let tokens = Arc::downgrade(&target.tokens);
-		let target = nodes
-			.get_or_insert_child(vfs::ROOT_NODE_ID, &id.to_string(), target, 1, None, true)
+		let dependency = artifact(b"target");
+		let id = dependency.id.clone();
+		nodes.insert_dependency(source, &dependency);
+		drop(dependency);
+		let dependency = nodes.root_artifact(&id);
+		let tokens = Arc::downgrade(&dependency.tokens);
+		let dependency = nodes
+			.get_or_insert_child(
+				vfs::ROOT_NODE_ID,
+				&id.to_string(),
+				dependency,
+				1,
+				None,
+				true,
+			)
 			.unwrap();
-		nodes.forget(target, 1);
+		nodes.forget(dependency, 1);
 		assert!(tokens.upgrade().is_none());
 		assert!(!nodes.root_artifact(&id).tokens.lock().unwrap().is_empty());
 		nodes.forget(source, 1);
