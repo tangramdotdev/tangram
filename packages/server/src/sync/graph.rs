@@ -1859,24 +1859,24 @@ impl Graph {
 							tg::authorization::permission::process::Permission::Node,
 						))
 					},
-					tg::authorization::permission::process::Permission::SubtreeCommand => {
+					tg::authorization::permission::process::Permission::SubtreeCommandObjects => {
 						Some(tg::authorization::Permission::Process(
-							tg::authorization::permission::process::Permission::NodeCommand,
+							tg::authorization::permission::process::Permission::NodeCommandObjects,
 						))
 					},
-					tg::authorization::permission::process::Permission::SubtreeError => {
+					tg::authorization::permission::process::Permission::SubtreeErrorObjects => {
 						Some(tg::authorization::Permission::Process(
-							tg::authorization::permission::process::Permission::NodeError,
+							tg::authorization::permission::process::Permission::NodeErrorObjects,
 						))
 					},
-					tg::authorization::permission::process::Permission::SubtreeLog => {
+					tg::authorization::permission::process::Permission::SubtreeLogObjects => {
 						Some(tg::authorization::Permission::Process(
-							tg::authorization::permission::process::Permission::NodeLog,
+							tg::authorization::permission::process::Permission::NodeLogObjects,
 						))
 					},
-					tg::authorization::permission::process::Permission::SubtreeOutput => {
+					tg::authorization::permission::process::Permission::SubtreeOutputObjects => {
 						Some(tg::authorization::Permission::Process(
-							tg::authorization::permission::process::Permission::NodeOutput,
+							tg::authorization::permission::process::Permission::NodeOutputObjects,
 						))
 					},
 					_ => None,
@@ -1963,50 +1963,50 @@ impl Graph {
 			return tg::process::Availability::default();
 		};
 		tg::process::Availability {
-			node_command: storage.node_command
+			node_command_objects: storage.node_command_objects
 				&& Self::contains_process_permission(
 					permissions,
-					tg::authorization::permission::process::Permission::NodeCommand,
+					tg::authorization::permission::process::Permission::NodeCommandObjects,
 				),
-			node_error: storage.node_error
+			node_error_objects: storage.node_error_objects
 				&& Self::contains_process_permission(
 					permissions,
-					tg::authorization::permission::process::Permission::NodeError,
+					tg::authorization::permission::process::Permission::NodeErrorObjects,
 				),
-			node_log: storage.node_log
+			node_log_objects: storage.node_log_objects
 				&& Self::contains_process_permission(
 					permissions,
-					tg::authorization::permission::process::Permission::NodeLog,
+					tg::authorization::permission::process::Permission::NodeLogObjects,
 				),
-			node_output: storage.node_output
+			node_output_objects: storage.node_output_objects
 				&& Self::contains_process_permission(
 					permissions,
-					tg::authorization::permission::process::Permission::NodeOutput,
+					tg::authorization::permission::process::Permission::NodeOutputObjects,
 				),
 			subtree: storage.subtree
 				&& Self::contains_process_permission(
 					permissions,
 					tg::authorization::permission::process::Permission::Subtree,
 				),
-			subtree_command: storage.subtree_command
+			subtree_command_objects: storage.subtree_command_objects
 				&& Self::contains_process_permission(
 					permissions,
-					tg::authorization::permission::process::Permission::SubtreeCommand,
+					tg::authorization::permission::process::Permission::SubtreeCommandObjects,
 				),
-			subtree_error: storage.subtree_error
+			subtree_error_objects: storage.subtree_error_objects
 				&& Self::contains_process_permission(
 					permissions,
-					tg::authorization::permission::process::Permission::SubtreeError,
+					tg::authorization::permission::process::Permission::SubtreeErrorObjects,
 				),
-			subtree_log: storage.subtree_log
+			subtree_log_objects: storage.subtree_log_objects
 				&& Self::contains_process_permission(
 					permissions,
-					tg::authorization::permission::process::Permission::SubtreeLog,
+					tg::authorization::permission::process::Permission::SubtreeLogObjects,
 				),
-			subtree_output: storage.subtree_output
+			subtree_output_objects: storage.subtree_output_objects
 				&& Self::contains_process_permission(
 					permissions,
-					tg::authorization::permission::process::Permission::SubtreeOutput,
+					tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 				),
 		}
 	}
@@ -2052,25 +2052,26 @@ impl Graph {
 		} else {
 			permissions.insert(tg::authorization::permission::process::Set::NODE);
 		}
-		if availability.subtree_command {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND);
-		} else if availability.node_command {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_COMMAND);
+		if availability.subtree_command_objects {
+			permissions
+				.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND_OBJECTS);
+		} else if availability.node_command_objects {
+			permissions.insert(tg::authorization::permission::process::Set::NODE_COMMAND_OBJECTS);
 		}
-		if availability.subtree_error {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR);
-		} else if availability.node_error {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
+		if availability.subtree_error_objects {
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS);
+		} else if availability.node_error_objects {
+			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
 		}
-		if availability.subtree_log {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG);
-		} else if availability.node_log {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_LOG);
+		if availability.subtree_log_objects {
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS);
+		} else if availability.node_log_objects {
+			permissions.insert(tg::authorization::permission::process::Set::NODE_LOG_OBJECTS);
 		}
-		if availability.subtree_output {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
-		} else if availability.node_output {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
+		if availability.subtree_output_objects {
+			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS);
+		} else if availability.node_output_objects {
+			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
 		}
 		permissions
 	}
@@ -2086,32 +2087,32 @@ impl Graph {
 				tg::authorization::Permission::Process(permission),
 			));
 		};
-		if storage.node_command {
-			insert(tg::authorization::permission::process::Permission::NodeCommand);
+		if storage.node_command_objects {
+			insert(tg::authorization::permission::process::Permission::NodeCommandObjects);
 		}
-		if storage.node_error {
-			insert(tg::authorization::permission::process::Permission::NodeError);
+		if storage.node_error_objects {
+			insert(tg::authorization::permission::process::Permission::NodeErrorObjects);
 		}
-		if storage.node_log {
-			insert(tg::authorization::permission::process::Permission::NodeLog);
+		if storage.node_log_objects {
+			insert(tg::authorization::permission::process::Permission::NodeLogObjects);
 		}
-		if storage.node_output {
-			insert(tg::authorization::permission::process::Permission::NodeOutput);
+		if storage.node_output_objects {
+			insert(tg::authorization::permission::process::Permission::NodeOutputObjects);
 		}
 		if storage.subtree {
 			insert(tg::authorization::permission::process::Permission::Subtree);
 		}
-		if storage.subtree_command {
-			insert(tg::authorization::permission::process::Permission::SubtreeCommand);
+		if storage.subtree_command_objects {
+			insert(tg::authorization::permission::process::Permission::SubtreeCommandObjects);
 		}
-		if storage.subtree_error {
-			insert(tg::authorization::permission::process::Permission::SubtreeError);
+		if storage.subtree_error_objects {
+			insert(tg::authorization::permission::process::Permission::SubtreeErrorObjects);
 		}
-		if storage.subtree_log {
-			insert(tg::authorization::permission::process::Permission::SubtreeLog);
+		if storage.subtree_log_objects {
+			insert(tg::authorization::permission::process::Permission::SubtreeLogObjects);
 		}
-		if storage.subtree_output {
-			insert(tg::authorization::permission::process::Permission::SubtreeOutput);
+		if storage.subtree_output_objects {
+			insert(tg::authorization::permission::process::Permission::SubtreeOutputObjects);
 		}
 		(!permissions.is_empty()).then_some(permissions)
 	}
@@ -2120,29 +2121,29 @@ impl Graph {
 	pub fn process_available(&self, availability: &tg::process::Availability) -> bool {
 		if self.process_children {
 			availability.subtree
-				&& (!self.process_command_objects || availability.subtree_command)
-				&& (!self.process_error_objects || availability.subtree_error)
-				&& (!self.process_log_objects || availability.subtree_log)
-				&& (!self.process_output_objects || availability.subtree_output)
+				&& (!self.process_command_objects || availability.subtree_command_objects)
+				&& (!self.process_error_objects || availability.subtree_error_objects)
+				&& (!self.process_log_objects || availability.subtree_log_objects)
+				&& (!self.process_output_objects || availability.subtree_output_objects)
 		} else {
-			(!self.process_command_objects || availability.node_command)
-				&& (!self.process_error_objects || availability.node_error)
-				&& (!self.process_log_objects || availability.node_log)
-				&& (!self.process_output_objects || availability.node_output)
+			(!self.process_command_objects || availability.node_command_objects)
+				&& (!self.process_error_objects || availability.node_error_objects)
+				&& (!self.process_log_objects || availability.node_log_objects)
+				&& (!self.process_output_objects || availability.node_output_objects)
 		}
 	}
 
 	#[must_use]
 	pub fn process_any_available(availability: &tg::process::Availability) -> bool {
-		availability.node_command
-			|| availability.node_error
-			|| availability.node_log
-			|| availability.node_output
+		availability.node_command_objects
+			|| availability.node_error_objects
+			|| availability.node_log_objects
+			|| availability.node_output_objects
 			|| availability.subtree
-			|| availability.subtree_command
-			|| availability.subtree_error
-			|| availability.subtree_log
-			|| availability.subtree_output
+			|| availability.subtree_command_objects
+			|| availability.subtree_error_objects
+			|| availability.subtree_log_objects
+			|| availability.subtree_output_objects
 	}
 
 	fn insert_process_remote_child(&mut self, parent: usize, child: usize) -> (bool, bool) {
@@ -2339,33 +2340,33 @@ impl Graph {
 					|| availability.subtree
 					|| node.remote_pending_children == Some(0);
 				let command_available = if self.process_children {
-					availability.subtree_command
+					availability.subtree_command_objects
 				} else {
-					availability.node_command
+					availability.node_command_objects
 				};
 				let command_end = !self.process_command_objects
 					|| command_available
 					|| node.remote_pending_command_objects == 0;
 				let error_available = if self.process_children {
-					availability.subtree_error
+					availability.subtree_error_objects
 				} else {
-					availability.node_error
+					availability.node_error_objects
 				};
 				let error_end = !self.process_error_objects
 					|| error_available
 					|| node.remote_pending_error_objects == 0;
 				let log_available = if self.process_children {
-					availability.subtree_log
+					availability.subtree_log_objects
 				} else {
-					availability.node_log
+					availability.node_log_objects
 				};
 				let log_end = !self.process_log_objects
 					|| log_available
 					|| node.remote_pending_log_objects == 0;
 				let output_available = if self.process_children {
-					availability.subtree_output
+					availability.subtree_output_objects
 				} else {
-					availability.node_output
+					availability.node_output_objects
 				};
 				let output_end = !self.process_output_objects
 					|| output_available
@@ -2561,23 +2562,27 @@ impl Graph {
 
 		// Compute the fields that have not been propagated.
 		let delta = tg::process::Availability {
-			node_command: false,
-			node_error: false,
-			node_log: false,
-			node_output: false,
+			node_command_objects: false,
+			node_error_objects: false,
+			node_log_objects: false,
+			node_output_objects: false,
 			subtree: availability.subtree && !propagated.subtree,
-			subtree_command: availability.subtree_command && !propagated.subtree_command,
-			subtree_error: availability.subtree_error && !propagated.subtree_error,
-			subtree_log: availability.subtree_log && !propagated.subtree_log,
-			subtree_output: availability.subtree_output && !propagated.subtree_output,
+			subtree_command_objects: availability.subtree_command_objects
+				&& !propagated.subtree_command_objects,
+			subtree_error_objects: availability.subtree_error_objects
+				&& !propagated.subtree_error_objects,
+			subtree_log_objects: availability.subtree_log_objects
+				&& !propagated.subtree_log_objects,
+			subtree_output_objects: availability.subtree_output_objects
+				&& !propagated.subtree_output_objects,
 		};
 
 		// Record the delta before walking the children so each available field crosses each edge once.
 		propagated.subtree |= delta.subtree;
-		propagated.subtree_command |= delta.subtree_command;
-		propagated.subtree_error |= delta.subtree_error;
-		propagated.subtree_log |= delta.subtree_log;
-		propagated.subtree_output |= delta.subtree_output;
+		propagated.subtree_command_objects |= delta.subtree_command_objects;
+		propagated.subtree_error_objects |= delta.subtree_error_objects;
+		propagated.subtree_log_objects |= delta.subtree_log_objects;
+		propagated.subtree_output_objects |= delta.subtree_output_objects;
 
 		// Derive the availability for the children.
 		let availability = Self::process_availability_for_child(&delta);
@@ -2590,23 +2595,23 @@ impl Graph {
 		availability: &tg::process::Availability,
 	) -> tg::process::Availability {
 		tg::process::Availability {
-			node_command: availability.subtree_command,
-			node_error: availability.subtree_error,
-			node_log: availability.subtree_log,
-			node_output: availability.subtree_output,
+			node_command_objects: availability.subtree_command_objects,
+			node_error_objects: availability.subtree_error_objects,
+			node_log_objects: availability.subtree_log_objects,
+			node_output_objects: availability.subtree_output_objects,
 			subtree: availability.subtree,
-			subtree_command: availability.subtree_command,
-			subtree_error: availability.subtree_error,
-			subtree_log: availability.subtree_log,
-			subtree_output: availability.subtree_output,
+			subtree_command_objects: availability.subtree_command_objects,
+			subtree_error_objects: availability.subtree_error_objects,
+			subtree_log_objects: availability.subtree_log_objects,
+			subtree_output_objects: availability.subtree_output_objects,
 		}
 	}
 
 	fn normalize_process_remote_availability(availability: &mut tg::process::Availability) {
-		availability.node_command |= availability.subtree_command;
-		availability.node_error |= availability.subtree_error;
-		availability.node_log |= availability.subtree_log;
-		availability.node_output |= availability.subtree_output;
+		availability.node_command_objects |= availability.subtree_command_objects;
+		availability.node_error_objects |= availability.subtree_error_objects;
+		availability.node_log_objects |= availability.subtree_log_objects;
+		availability.node_output_objects |= availability.subtree_output_objects;
 	}
 
 	fn should_propagate_process_availability(
@@ -2619,15 +2624,15 @@ impl Graph {
 		let Some(new) = new else {
 			return false;
 		};
-		(!old.node_command && new.node_command)
-			|| (!old.node_error && new.node_error)
-			|| (!old.node_log && new.node_log)
-			|| (!old.node_output && new.node_output)
+		(!old.node_command_objects && new.node_command_objects)
+			|| (!old.node_error_objects && new.node_error_objects)
+			|| (!old.node_log_objects && new.node_log_objects)
+			|| (!old.node_output_objects && new.node_output_objects)
 			|| (!old.subtree && new.subtree)
-			|| (!old.subtree_command && new.subtree_command)
-			|| (!old.subtree_error && new.subtree_error)
-			|| (!old.subtree_log && new.subtree_log)
-			|| (!old.subtree_output && new.subtree_output)
+			|| (!old.subtree_command_objects && new.subtree_command_objects)
+			|| (!old.subtree_error_objects && new.subtree_error_objects)
+			|| (!old.subtree_log_objects && new.subtree_log_objects)
+			|| (!old.subtree_output_objects && new.subtree_output_objects)
 	}
 
 	fn merge_process_availability(

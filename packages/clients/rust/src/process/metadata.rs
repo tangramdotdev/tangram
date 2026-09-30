@@ -56,19 +56,19 @@ pub struct Metadata {
 pub struct Node {
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
-	pub command: tg::object::metadata::Subtree,
+	pub command_objects: tg::object::metadata::Subtree,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
-	pub error: tg::object::metadata::Subtree,
+	pub error_objects: tg::object::metadata::Subtree,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
-	pub log: tg::object::metadata::Subtree,
+	pub log_objects: tg::object::metadata::Subtree,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_default")]
-	pub output: tg::object::metadata::Subtree,
+	pub output_objects: tg::object::metadata::Subtree,
 }
 
 #[derive(
@@ -85,7 +85,7 @@ pub struct Node {
 pub struct Subtree {
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_default")]
-	pub command: tg::object::metadata::Subtree,
+	pub command_objects: tg::object::metadata::Subtree,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
@@ -97,15 +97,15 @@ pub struct Subtree {
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
-	pub error: tg::object::metadata::Subtree,
+	pub error_objects: tg::object::metadata::Subtree,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_default")]
-	pub log: tg::object::metadata::Subtree,
+	pub log_objects: tg::object::metadata::Subtree,
 
 	#[serde(default, skip_serializing_if = "is_default")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_default")]
-	pub output: tg::object::metadata::Subtree,
+	pub output_objects: tg::object::metadata::Subtree,
 }
 
 impl Metadata {
@@ -117,10 +117,10 @@ impl Metadata {
 
 impl Node {
 	pub fn merge(&mut self, other: &Self) {
-		self.command.merge(&other.command);
-		self.error.merge(&other.error);
-		self.log.merge(&other.log);
-		self.output.merge(&other.output);
+		self.command_objects.merge(&other.command_objects);
+		self.error_objects.merge(&other.error_objects);
+		self.log_objects.merge(&other.log_objects);
+		self.output_objects.merge(&other.output_objects);
 	}
 }
 
@@ -132,10 +132,10 @@ impl Subtree {
 		if self.depth.is_none() {
 			self.depth = other.depth;
 		}
-		self.command.merge(&other.command);
-		self.error.merge(&other.error);
-		self.log.merge(&other.log);
-		self.output.merge(&other.output);
+		self.command_objects.merge(&other.command_objects);
+		self.error_objects.merge(&other.error_objects);
+		self.log_objects.merge(&other.log_objects);
+		self.output_objects.merge(&other.output_objects);
 	}
 }
 

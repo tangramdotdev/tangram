@@ -28,7 +28,7 @@ let path = artifact {
 				}
 			}
 			const processId = "pcs_010000000000000000000000000000000000000000000000000000";
-			for (const [resource, granted, needed, unrelated] of [[id, "object_subtree", "object_node", "process_node"], [processId, "process_subtree", "process_node", "process_node_output"]]) {
+			for (const [resource, granted, needed, unrelated] of [[id, "object_subtree", "object_node", "process_node"], [processId, "process_subtree", "process_node", "process_node_output_objects"]]) {
 				const token = proof(resource, 120, granted);
 				tg.assert(tg.Authorization.Token.authorizes(token, resource, granted));
 				tg.assert(tg.Authorization.Token.authorizes(token, resource, needed));

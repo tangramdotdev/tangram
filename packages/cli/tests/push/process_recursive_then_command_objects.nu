@@ -67,10 +67,10 @@ def test [path: string, ...args] {
 	# Confirm that all expected fields are present in the top-level metadata.
 	let remote_metadata = tg --url $remote.url metadata $process_id | from json
 	assert ($remote_metadata.subtree?.count? != null) "the metadata should contain the subtree.count field"
-	assert ($remote_metadata.subtree?.command? != null) "the metadata should contain the subtree.command field"
-	assert ($remote_metadata.subtree?.output? != null) "the metadata should contain the subtree.output field"
-	assert ($remote_metadata.node?.command? != null) "the metadata should contain the node.command field"
-	assert ($remote_metadata.node?.output? != null) "the metadata should contain the node.output field"
+	assert ($remote_metadata.subtree?.command_objects? != null) "the metadata should contain the subtree.command_objects field"
+	assert ($remote_metadata.subtree?.output_objects? != null) "the metadata should contain the subtree.output_objects field"
+	assert ($remote_metadata.node?.command_objects? != null) "the metadata should contain the node.command_objects field"
+	assert ($remote_metadata.node?.output_objects? != null) "the metadata should contain the node.output_objects field"
 
 	# For each of the commands, confirm that they are present.
 	for command in $commands {

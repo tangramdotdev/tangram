@@ -306,7 +306,7 @@ impl Session {
 		} else {
 			// Authorize.
 			let permission = tg::authorization::Permission::Process(
-				tg::authorization::permission::process::Permission::NodeLog,
+				tg::authorization::permission::process::Permission::NodeLogObjects,
 			);
 			let authorized = self.authorize(id.clone(), permission).await?;
 			if !authorized.is_some_and(|permissions| permissions.contains(permission)) {

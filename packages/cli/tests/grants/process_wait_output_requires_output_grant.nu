@@ -37,7 +37,7 @@ assert ($params | is-empty) "a process node grant must not expose output capabil
 failure (tg --token $eve.token cat $everesult.output.value | complete) "a node grant must not authorize reading the output"
 
 # Granting Eve the output permission authorizes the object.
-tg --token $alice.token grant $eve.user.id process_node_output $process
+tg --token $alice.token grant $eve.user.id process_node_output_objects $process
 let everesult2 = tg --token $eve.token wait $process | from json
 assert_output $everesult2.output
 assert equal (tg --token $eve.token cat $everesult2.output.value | str trim) secret

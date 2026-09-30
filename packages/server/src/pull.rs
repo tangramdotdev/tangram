@@ -98,15 +98,15 @@ impl Session {
 			let storage = process.storage;
 			if arg.process_children {
 				storage.subtree
-					&& (!arg.process_command_objects || storage.subtree_command)
-					&& (!arg.process_error_objects || storage.subtree_error)
-					&& (!arg.process_log_objects || storage.subtree_log)
-					&& (!arg.process_output_objects || storage.subtree_output)
+					&& (!arg.process_command_objects || storage.subtree_command_objects)
+					&& (!arg.process_error_objects || storage.subtree_error_objects)
+					&& (!arg.process_log_objects || storage.subtree_log_objects)
+					&& (!arg.process_output_objects || storage.subtree_output_objects)
 			} else {
-				(!arg.process_command_objects || storage.node_command)
-					&& (!arg.process_error_objects || storage.node_error)
-					&& (!arg.process_log_objects || storage.node_log)
-					&& (!arg.process_output_objects || storage.node_output)
+				(!arg.process_command_objects || storage.node_command_objects)
+					&& (!arg.process_error_objects || storage.node_error_objects)
+					&& (!arg.process_log_objects || storage.node_log_objects)
+					&& (!arg.process_output_objects || storage.node_output_objects)
 			}
 		});
 		let stored = objects_stored && processes_stored;
@@ -164,23 +164,23 @@ impl Session {
 		for (enabled, node, subtree) in [
 			(
 				arg.process_command_objects,
-				tg::authorization::permission::process::Permission::NodeCommand,
-				tg::authorization::permission::process::Permission::SubtreeCommand,
+				tg::authorization::permission::process::Permission::NodeCommandObjects,
+				tg::authorization::permission::process::Permission::SubtreeCommandObjects,
 			),
 			(
 				arg.process_error_objects,
-				tg::authorization::permission::process::Permission::NodeError,
-				tg::authorization::permission::process::Permission::SubtreeError,
+				tg::authorization::permission::process::Permission::NodeErrorObjects,
+				tg::authorization::permission::process::Permission::SubtreeErrorObjects,
 			),
 			(
 				arg.process_log_objects,
-				tg::authorization::permission::process::Permission::NodeLog,
-				tg::authorization::permission::process::Permission::SubtreeLog,
+				tg::authorization::permission::process::Permission::NodeLogObjects,
+				tg::authorization::permission::process::Permission::SubtreeLogObjects,
 			),
 			(
 				arg.process_output_objects,
-				tg::authorization::permission::process::Permission::NodeOutput,
-				tg::authorization::permission::process::Permission::SubtreeOutput,
+				tg::authorization::permission::process::Permission::NodeOutputObjects,
+				tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 			),
 		] {
 			if enabled {

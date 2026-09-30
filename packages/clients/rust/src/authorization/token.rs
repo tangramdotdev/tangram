@@ -412,7 +412,7 @@ mod tests {
 		let object_subtree = tg::authorization::Permission::Object(object::Permission::Subtree);
 		let process_node = tg::authorization::Permission::Process(process::Permission::Node);
 		let process_output =
-			tg::authorization::Permission::Process(process::Permission::NodeOutput);
+			tg::authorization::Permission::Process(process::Permission::NodeOutputObjects);
 		let process_subtree = tg::authorization::Permission::Process(process::Permission::Subtree);
 		for (kind, granted, needed, unrelated) in [
 			(
@@ -515,7 +515,7 @@ mod tests {
 		let body = tg::authorization::Body {
 			expires_at: 20,
 			permissions: vec![tg::authorization::Permission::Process(
-				tg::authorization::permission::process::Permission::SubtreeOutput,
+				tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 			)],
 			resource: tg::Id::new_uuidv7(tg::id::Kind::Process),
 		};
@@ -588,8 +588,8 @@ mod tests {
 			signature: vec![0; 64],
 		};
 		let node = token(vec![Permission::Node], 30);
-		let output = token(vec![Permission::NodeOutput], 20);
-		let log = token(vec![Permission::NodeLog], 20);
+		let output = token(vec![Permission::NodeOutputObjects], 20);
+		let log = token(vec![Permission::NodeLogObjects], 20);
 		let mut tokens =
 			tg::authorization::Tokens::with_authorization([node.clone(), output.clone()]);
 		tokens.inherit(&tg::authorization::Tokens::with_authorization([
@@ -602,8 +602,8 @@ mod tests {
 		let broad = token(
 			vec![
 				Permission::Subtree,
-				Permission::SubtreeOutput,
-				Permission::SubtreeLog,
+				Permission::SubtreeOutputObjects,
+				Permission::SubtreeLogObjects,
 			],
 			20,
 		);

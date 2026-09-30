@@ -54,11 +54,11 @@ tg --url $remote.url --token $alice.token grant $eve.user.id process_node $proce
 let node_only = tg --url $remote.url --token $eve.token log $process | complete
 snapshot --normalize $node_only.stdout ''
 
-# With process_subtree_log added, Eve can read the compacted log object.
-tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree_log $process | ignore
+# With process_subtree_log_objects added, Eve can read the compacted log object.
+tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree_log_objects $process | ignore
 let with_log = tg --url $remote.url --token $eve.token log $process | complete
 snapshot --normalize $with_log.stdout '
 	loghello
 
 '
-assert ($with_log.stderr | str contains 'logerror') "process_subtree_log must confer the compacted stderr."
+assert ($with_log.stderr | str contains 'logerror') "process_subtree_log_objects must confer the compacted stderr."

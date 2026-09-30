@@ -54,7 +54,7 @@ let file = $output.output.value
 assert ($file =~ 'tokens\[') "the output referent should carry the authorization token for the sync"
 
 # Alice grants Bob the process's output, and Bob pulls the conferred referent while the push is held.
-tg --url $remote.url --token $alice.token grant $bob.user.id process_node_output $process
+tg --url $remote.url --token $alice.token grant $bob.user.id process_node_output_objects $process
 let pull = job spawn {
 	let job_id = job id
 	let output = tg --url $bob_local.url pull $file | complete

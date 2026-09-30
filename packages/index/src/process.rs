@@ -66,22 +66,22 @@ pub struct Set {
 	/// Whether the complete command object list is set, including an empty list.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_false")]
-	pub command: bool,
+	pub command_objects: bool,
 
-	/// Whether this node's error is set.
+	/// Whether the complete error object list is set, including an empty list.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
-	pub error: bool,
+	pub error_objects: bool,
 
-	/// Whether this node's log is set.
+	/// Whether the complete log object list is set, including an empty list.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_false")]
-	pub log: bool,
+	pub log_objects: bool,
 
-	/// Whether this node's output is set.
+	/// Whether the complete output object list is set, including an empty list.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_false")]
-	pub output: bool,
+	pub output_objects: bool,
 }
 
 impl Process {
@@ -99,14 +99,18 @@ impl Process {
 impl Set {
 	#[must_use]
 	pub fn complete(&self) -> bool {
-		self.children && self.command && self.error && self.log && self.output
+		self.children
+			&& self.command_objects
+			&& self.error_objects
+			&& self.log_objects
+			&& self.output_objects
 	}
 
 	pub fn merge(&mut self, other: &Self) {
 		self.children = self.children || other.children;
-		self.command = self.command || other.command;
-		self.error = self.error || other.error;
-		self.log = self.log || other.log;
-		self.output = self.output || other.output;
+		self.command_objects = self.command_objects || other.command_objects;
+		self.error_objects = self.error_objects || other.error_objects;
+		self.log_objects = self.log_objects || other.log_objects;
+		self.output_objects = self.output_objects || other.output_objects;
 	}
 }

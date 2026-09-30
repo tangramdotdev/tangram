@@ -23,7 +23,7 @@ let data = tg --url $alice_local.url get $process | from json
 
 # Alice grants Eve the process subtree and its output, but not the command.
 tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree $process | ignore
-tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree_output $process | ignore
+tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree_output_objects $process | ignore
 
 # Sanity: Eve can get the output she was granted but not the command.
 let output = tg --url $remote.url --token $eve.token get $data.output.value | complete

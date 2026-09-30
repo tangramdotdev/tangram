@@ -29,7 +29,7 @@ for field in [output error] {
 	let spawned = tg --url $remote.url --token $root_token build --detach --verbose $path | from json
 	let process = $spawned.process | split row '?' | first
 	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.output.push.started $push_watch 0 | complete) "the result push must be held"
-	tg --url $remote.url --token $root_token grant $alice.user.id process_node,process_node_output,process_node_error $process | ignore
+	tg --url $remote.url --token $root_token grant $alice.user.id process_node,process_node_output_objects,process_node_error_objects $process | ignore
 	tg --url $remote.url --token $root_token grant $bob.user.id process_node $process | ignore
 	tg --url $remote.url --token $root_token index
 
@@ -48,12 +48,12 @@ for field in [output error] {
 	assert equal $automatic $output "an automatic wait must retain the indexed tokens"
 	tg --url $remote.url --token $root_token checkpoint unwatch process.get.control $control_watch
 
-	let node_output = timeout 10s tg --url $remote.url --token $bob.token wait --source=index $process | from json
-	let node_object = if $field == output { $node_output.output.value } else { $node_output.error }
+	let node_output_objects = timeout 10s tg --url $remote.url --token $bob.token wait --source=index $process | from json
+	let node_object = if $field == output { $node_output_objects.output.value } else { $node_output_objects.error }
 	assert (not ($node_object | str contains 'tokens')) "node permission must not expose authorization tokens for the output sync"
 
 	if $field == error {
-		tg --url $remote.url --token $root_token grant $bob.user.id process_node_error $process | ignore
+		tg --url $remote.url --token $root_token grant $bob.user.id process_node_error_objects $process | ignore
 		tg --url $remote.url --token $root_token index
 		let partial = timeout 10s tg --url $remote.url --token $bob.token wait --source=index $process | from json
 		assert (not ($partial.error | str contains 'tokens')) "error permission alone must not expose a sync covering both fields"

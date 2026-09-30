@@ -463,29 +463,29 @@ impl Session {
 		if arg.process_children {
 			insert(tg::authorization::permission::process::Permission::Subtree);
 			if arg.process_command_objects {
-				insert(tg::authorization::permission::process::Permission::SubtreeCommand);
+				insert(tg::authorization::permission::process::Permission::SubtreeCommandObjects);
 			}
 			if arg.process_error_objects {
-				insert(tg::authorization::permission::process::Permission::SubtreeError);
+				insert(tg::authorization::permission::process::Permission::SubtreeErrorObjects);
 			}
 			if arg.process_log_objects {
-				insert(tg::authorization::permission::process::Permission::SubtreeLog);
+				insert(tg::authorization::permission::process::Permission::SubtreeLogObjects);
 			}
 			if arg.process_output_objects {
-				insert(tg::authorization::permission::process::Permission::SubtreeOutput);
+				insert(tg::authorization::permission::process::Permission::SubtreeOutputObjects);
 			}
 		} else {
 			if arg.process_command_objects {
-				insert(tg::authorization::permission::process::Permission::NodeCommand);
+				insert(tg::authorization::permission::process::Permission::NodeCommandObjects);
 			}
 			if arg.process_error_objects {
-				insert(tg::authorization::permission::process::Permission::NodeError);
+				insert(tg::authorization::permission::process::Permission::NodeErrorObjects);
 			}
 			if arg.process_log_objects {
-				insert(tg::authorization::permission::process::Permission::NodeLog);
+				insert(tg::authorization::permission::process::Permission::NodeLogObjects);
 			}
 			if arg.process_output_objects {
-				insert(tg::authorization::permission::process::Permission::NodeOutput);
+				insert(tg::authorization::permission::process::Permission::NodeOutputObjects);
 			}
 		}
 		permissions

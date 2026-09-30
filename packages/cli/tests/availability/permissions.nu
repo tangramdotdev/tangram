@@ -50,7 +50,7 @@ tg --token $alice.token index
 let alice_process_availability = tg --token $alice.token availability $parent | from json
 assert equal $alice_process_availability.subtree true "the owner should see that the process subtree is available"
 
-let derived_fields = [node_error node_log node_output subtree_error subtree_log subtree_output]
+let derived_fields = [node_error_objects node_log_objects node_output_objects subtree_error_objects subtree_log_objects subtree_output_objects]
 let bob_derived_availability = tg --token $bob.token availability $parent | from json
 assert equal ($bob_derived_availability | columns) $derived_fields "complete process aspects with no objects should reveal their availability"
 

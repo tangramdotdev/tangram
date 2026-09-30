@@ -22,7 +22,7 @@ assert (($data.error | to json) | str starts-with '"err_') ("the failed process 
 let error = $data.error
 
 # Alice grants Eve only the error field of the process subtree.
-tg --token $alice.token grant $eve.user.id process_subtree_error $process | ignore
+tg --token $alice.token grant $eve.user.id process_subtree_error_objects $process | ignore
 
 # Eve can read the error object the grant covers.
 let error_read = tg --token $eve.token get $error | complete

@@ -635,10 +635,10 @@ impl Session {
 		);
 		for permission in [
 			tg::authorization::permission::process::Permission::Node,
-			tg::authorization::permission::process::Permission::NodeCommand,
-			tg::authorization::permission::process::Permission::NodeError,
-			tg::authorization::permission::process::Permission::NodeLog,
-			tg::authorization::permission::process::Permission::NodeOutput,
+			tg::authorization::permission::process::Permission::NodeCommandObjects,
+			tg::authorization::permission::process::Permission::NodeErrorObjects,
+			tg::authorization::permission::process::Permission::NodeLogObjects,
+			tg::authorization::permission::process::Permission::NodeOutputObjects,
 		] {
 			process_permissions.insert(tg::authorization::permission::Set::from_permission(
 				tg::authorization::Permission::Process(permission),
@@ -682,10 +682,10 @@ impl Session {
 				} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
 					let aspects = [
 						tg::authorization::permission::process::Permission::Node,
-						tg::authorization::permission::process::Permission::NodeCommand,
-						tg::authorization::permission::process::Permission::NodeError,
-						tg::authorization::permission::process::Permission::NodeLog,
-						tg::authorization::permission::process::Permission::NodeOutput,
+						tg::authorization::permission::process::Permission::NodeCommandObjects,
+						tg::authorization::permission::process::Permission::NodeErrorObjects,
+						tg::authorization::permission::process::Permission::NodeLogObjects,
+						tg::authorization::permission::process::Permission::NodeOutputObjects,
 					]
 					.into_iter()
 					.map(tg::authorization::Permission::Process)
@@ -738,15 +738,15 @@ impl Session {
 						permission,
 						tg::authorization::Permission::Process(
 							tg::authorization::permission::process::Permission::Node
-								| tg::authorization::permission::process::Permission::NodeCommand
-								| tg::authorization::permission::process::Permission::NodeError
-								| tg::authorization::permission::process::Permission::NodeLog
-								| tg::authorization::permission::process::Permission::NodeOutput
+								| tg::authorization::permission::process::Permission::NodeCommandObjects
+								| tg::authorization::permission::process::Permission::NodeErrorObjects
+								| tg::authorization::permission::process::Permission::NodeLogObjects
+								| tg::authorization::permission::process::Permission::NodeOutputObjects
 								| tg::authorization::permission::process::Permission::Subtree
-								| tg::authorization::permission::process::Permission::SubtreeCommand
-								| tg::authorization::permission::process::Permission::SubtreeError
-								| tg::authorization::permission::process::Permission::SubtreeLog
-								| tg::authorization::permission::process::Permission::SubtreeOutput
+								| tg::authorization::permission::process::Permission::SubtreeCommandObjects
+								| tg::authorization::permission::process::Permission::SubtreeErrorObjects
+								| tg::authorization::permission::process::Permission::SubtreeLogObjects
+								| tg::authorization::permission::process::Permission::SubtreeOutputObjects
 						)
 					)
 				})

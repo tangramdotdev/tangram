@@ -3084,10 +3084,19 @@ async fn get_process_metadata_as_value(
 		return Ok(tg::Value::Null);
 	};
 	let node = [
-		("command".into(), subtree_to_value(&metadata.node.command)),
-		("error".into(), subtree_to_value(&metadata.node.error)),
-		("log".into(), subtree_to_value(&metadata.node.log)),
-		("output".into(), subtree_to_value(&metadata.node.output)),
+		(
+			"command".into(),
+			subtree_to_value(&metadata.node.command_objects),
+		),
+		(
+			"error".into(),
+			subtree_to_value(&metadata.node.error_objects),
+		),
+		("log".into(), subtree_to_value(&metadata.node.log_objects)),
+		(
+			"output".into(),
+			subtree_to_value(&metadata.node.output_objects),
+		),
 	]
 	.into_iter()
 	.collect();
@@ -3095,7 +3104,7 @@ async fn get_process_metadata_as_value(
 	let subtree = [
 		(
 			"command".into(),
-			subtree_to_value(&metadata.subtree.command),
+			subtree_to_value(&metadata.subtree.command_objects),
 		),
 		(
 			"count".into(),
@@ -3104,9 +3113,18 @@ async fn get_process_metadata_as_value(
 				.count
 				.map_or(tg::Value::Null, |n| n.to_f64().unwrap().into()),
 		),
-		("error".into(), subtree_to_value(&metadata.subtree.error)),
-		("log".into(), subtree_to_value(&metadata.subtree.log)),
-		("output".into(), subtree_to_value(&metadata.subtree.output)),
+		(
+			"error".into(),
+			subtree_to_value(&metadata.subtree.error_objects),
+		),
+		(
+			"log".into(),
+			subtree_to_value(&metadata.subtree.log_objects),
+		),
+		(
+			"output".into(),
+			subtree_to_value(&metadata.subtree.output_objects),
+		),
 	]
 	.into_iter()
 	.collect();

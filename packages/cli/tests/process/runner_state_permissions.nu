@@ -54,7 +54,7 @@ assert (not ($result.output.value | str contains 'tokens[')) "a node reader must
 failure (tg --token $bob.token cat $result.output.value | complete) "a node reader must not read the output"
 
 # An output reader can receive the output capability and read the result before completion is indexed.
-tg --token $alice.token grant $bob.user.id process_node_output $process | ignore
+tg --token $alice.token grant $bob.user.id process_node_output_objects $process | ignore
 let result = timeout 10s tg --token $bob.token wait $process | from json
 assert equal $result.exit 0
 assert ($result.output.value | str contains 'tokens[') "an output reader should retain the output capability"

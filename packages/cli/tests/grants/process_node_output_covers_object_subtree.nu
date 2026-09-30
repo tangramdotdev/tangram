@@ -27,7 +27,7 @@ let child = $data.children.0.process | split row '?' | first
 let child_output = (tg --token $alice.token wait $child | from json).output.value | split row '?' | first
 
 # A node output grant allows checking out the parent's whole output subtree.
-tg --token $alice.token grant $eve.user.id process_node_output $parent
+tg --token $alice.token grant $eve.user.id process_node_output_objects $parent
 let directory = mktemp --directory
 let parent_path = $directory | path join parent
 success (tg --token $eve.token checkout $output --path $parent_path | complete) "a node output grant should authorize the output subtree."
@@ -39,7 +39,7 @@ failure (tg --token $eve.token get (command module-input $data.command) | comple
 failure (tg --token $eve.token get $child_output | complete) "a node output grant must not authorize a child process's output."
 
 # A subtree output grant also allows checking out the child's whole output subtree.
-tg --token $alice.token grant $eve.user.id process_subtree_output $parent
+tg --token $alice.token grant $eve.user.id process_subtree_output_objects $parent
 let child_path = $directory | path join child
 success (tg --token $eve.token checkout $child_output --path $child_path | complete) "a subtree output grant should authorize a child process's output subtree."
 assert equal (open --raw ($child_path | path join nested file)) "child output"

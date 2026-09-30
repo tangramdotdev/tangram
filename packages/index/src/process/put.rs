@@ -91,24 +91,24 @@ impl Arg {
 		self.set().complete()
 			&& self.metadata.subtree.count.is_some()
 			&& self.metadata.subtree.depth.is_some()
-			&& self.metadata.subtree.command.complete()
-			&& self.metadata.subtree.error.complete()
-			&& self.metadata.subtree.log.complete()
-			&& self.metadata.subtree.output.complete()
-			&& self.metadata.node.command.complete()
-			&& self.metadata.node.error.complete()
-			&& self.metadata.node.log.complete()
-			&& self.metadata.node.output.complete()
+			&& self.metadata.subtree.command_objects.complete()
+			&& self.metadata.subtree.error_objects.complete()
+			&& self.metadata.subtree.log_objects.complete()
+			&& self.metadata.subtree.output_objects.complete()
+			&& self.metadata.node.command_objects.complete()
+			&& self.metadata.node.error_objects.complete()
+			&& self.metadata.node.log_objects.complete()
+			&& self.metadata.node.output_objects.complete()
 	}
 
 	#[must_use]
 	pub fn set(&self) -> super::Set {
 		super::Set {
 			children: self.children.is_some(),
-			command: self.command.is_some(),
-			error: self.error.is_some(),
-			log: self.log.is_some(),
-			output: self.output.is_some(),
+			command_objects: self.command.is_some(),
+			error_objects: self.error.is_some(),
+			log_objects: self.log.is_some(),
+			output_objects: self.output.is_some(),
 		}
 	}
 }

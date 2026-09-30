@@ -310,16 +310,16 @@ pub(crate) fn process_object_permission(
 	// The node field permission covers the object's subtree; the subtree field permission additionally covers child processes.
 	match kind {
 		crate::process::object::Kind::Command => {
-			tg::authorization::permission::process::Permission::NodeCommand
+			tg::authorization::permission::process::Permission::NodeCommandObjects
 		},
 		crate::process::object::Kind::Error => {
-			tg::authorization::permission::process::Permission::NodeError
+			tg::authorization::permission::process::Permission::NodeErrorObjects
 		},
 		crate::process::object::Kind::Log => {
-			tg::authorization::permission::process::Permission::NodeLog
+			tg::authorization::permission::process::Permission::NodeLogObjects
 		},
 		crate::process::object::Kind::Output => {
-			tg::authorization::permission::process::Permission::NodeOutput
+			tg::authorization::permission::process::Permission::NodeOutputObjects
 		},
 	}
 }
@@ -364,16 +364,16 @@ pub(crate) fn permissions_implied_by(
 		],
 		tg::authorization::Permission::Process(_) => [
 			tg::authorization::permission::process::Permission::Node,
-			tg::authorization::permission::process::Permission::NodeCommand,
-			tg::authorization::permission::process::Permission::NodeError,
-			tg::authorization::permission::process::Permission::NodeLog,
-			tg::authorization::permission::process::Permission::NodeOutput,
+			tg::authorization::permission::process::Permission::NodeCommandObjects,
+			tg::authorization::permission::process::Permission::NodeErrorObjects,
+			tg::authorization::permission::process::Permission::NodeLogObjects,
+			tg::authorization::permission::process::Permission::NodeOutputObjects,
 			tg::authorization::permission::process::Permission::Parent,
 			tg::authorization::permission::process::Permission::Subtree,
-			tg::authorization::permission::process::Permission::SubtreeCommand,
-			tg::authorization::permission::process::Permission::SubtreeError,
-			tg::authorization::permission::process::Permission::SubtreeLog,
-			tg::authorization::permission::process::Permission::SubtreeOutput,
+			tg::authorization::permission::process::Permission::SubtreeCommandObjects,
+			tg::authorization::permission::process::Permission::SubtreeErrorObjects,
+			tg::authorization::permission::process::Permission::SubtreeLogObjects,
+			tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 		]
 		.into_iter()
 		.map(tg::authorization::Permission::Process)

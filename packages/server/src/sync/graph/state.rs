@@ -23,11 +23,15 @@ pub(super) struct Published {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[expect(
+	clippy::struct_field_names,
+	reason = "keep aspect names aligned with process metadata"
+)]
 pub(super) struct Aspects<T> {
-	pub command: T,
-	pub error: T,
-	pub log: T,
-	pub output: T,
+	pub command_objects: T,
+	pub error_objects: T,
+	pub log_objects: T,
+	pub output_objects: T,
 }
 
 /// The facts a dependency contributes to its parents.
@@ -61,25 +65,25 @@ struct Field {
 impl<T> Aspects<T> {
 	#[must_use]
 	pub fn map<U>(&self, map: impl Fn(&T) -> U) -> Aspects<U> {
-		let command = map(&self.command);
-		let error = map(&self.error);
-		let log = map(&self.log);
-		let output = map(&self.output);
+		let command_objects = map(&self.command_objects);
+		let error_objects = map(&self.error_objects);
+		let log_objects = map(&self.log_objects);
+		let output_objects = map(&self.output_objects);
 		Aspects {
-			command,
-			error,
-			log,
-			output,
+			command_objects,
+			error_objects,
+			log_objects,
+			output_objects,
 		}
 	}
 
 	#[must_use]
 	pub fn aspect_mut(&mut self, kind: crate::sync::queue::ObjectKind) -> &mut T {
 		match kind {
-			crate::sync::queue::ObjectKind::Command => &mut self.command,
-			crate::sync::queue::ObjectKind::Error => &mut self.error,
-			crate::sync::queue::ObjectKind::Log => &mut self.log,
-			crate::sync::queue::ObjectKind::Output => &mut self.output,
+			crate::sync::queue::ObjectKind::Command => &mut self.command_objects,
+			crate::sync::queue::ObjectKind::Error => &mut self.error_objects,
+			crate::sync::queue::ObjectKind::Log => &mut self.log_objects,
+			crate::sync::queue::ObjectKind::Output => &mut self.output_objects,
 		}
 	}
 }

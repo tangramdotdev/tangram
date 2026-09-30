@@ -29,22 +29,22 @@ pub struct Availability {
 	/// Whether this node's command's subtree is available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "is_false")]
-	pub node_command: bool,
+	pub node_command_objects: bool,
 
 	/// Whether this node's error's subtree is available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 7, skip_serializing_if = "is_false")]
-	pub node_error: bool,
+	pub node_error_objects: bool,
 
 	/// Whether this node's log's subtree is available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_false")]
-	pub node_log: bool,
+	pub node_log_objects: bool,
 
 	/// Whether this node's outputs' subtrees are available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_false")]
-	pub node_output: bool,
+	pub node_output_objects: bool,
 
 	/// Whether this node's subtree is available.
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -54,22 +54,22 @@ pub struct Availability {
 	/// Whether this node's subtree's commands' subtrees are available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "is_false")]
-	pub subtree_command: bool,
+	pub subtree_command_objects: bool,
 
 	/// Whether this node's subtree's errors' subtrees are available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 8, skip_serializing_if = "is_false")]
-	pub subtree_error: bool,
+	pub subtree_error_objects: bool,
 
 	/// Whether this node's subtree's logs' subtrees are available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 5, skip_serializing_if = "is_false")]
-	pub subtree_log: bool,
+	pub subtree_log_objects: bool,
 
 	/// Whether this node's subtree's outputs' subtrees are available.
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
-	pub subtree_output: bool,
+	pub subtree_output_objects: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -79,15 +79,16 @@ pub struct Options {
 
 impl Availability {
 	pub fn merge(&mut self, other: &Self) {
-		self.node_command = self.node_command || other.node_command;
-		self.node_error = self.node_error || other.node_error;
-		self.node_log = self.node_log || other.node_log;
-		self.node_output = self.node_output || other.node_output;
+		self.node_command_objects = self.node_command_objects || other.node_command_objects;
+		self.node_error_objects = self.node_error_objects || other.node_error_objects;
+		self.node_log_objects = self.node_log_objects || other.node_log_objects;
+		self.node_output_objects = self.node_output_objects || other.node_output_objects;
 		self.subtree = self.subtree || other.subtree;
-		self.subtree_command = self.subtree_command || other.subtree_command;
-		self.subtree_error = self.subtree_error || other.subtree_error;
-		self.subtree_log = self.subtree_log || other.subtree_log;
-		self.subtree_output = self.subtree_output || other.subtree_output;
+		self.subtree_command_objects =
+			self.subtree_command_objects || other.subtree_command_objects;
+		self.subtree_error_objects = self.subtree_error_objects || other.subtree_error_objects;
+		self.subtree_log_objects = self.subtree_log_objects || other.subtree_log_objects;
+		self.subtree_output_objects = self.subtree_output_objects || other.subtree_output_objects;
 	}
 }
 

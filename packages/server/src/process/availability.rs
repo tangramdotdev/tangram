@@ -109,54 +109,54 @@ impl Session {
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeCommand,
+			tg::authorization::permission::process::Permission::SubtreeCommandObjects,
 		)) {
-			output.node_command = storage.node_command;
-			output.subtree_command = storage.subtree_command;
+			output.node_command_objects = storage.node_command_objects;
+			output.subtree_command_objects = storage.subtree_command_objects;
 			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeCommand,
+			tg::authorization::permission::process::Permission::NodeCommandObjects,
 		)) {
-			output.node_command = storage.node_command;
+			output.node_command_objects = storage.node_command_objects;
 			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeError,
+			tg::authorization::permission::process::Permission::SubtreeErrorObjects,
 		)) {
-			output.node_error = storage.node_error;
-			output.subtree_error = storage.subtree_error;
+			output.node_error_objects = storage.node_error_objects;
+			output.subtree_error_objects = storage.subtree_error_objects;
 			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeError,
+			tg::authorization::permission::process::Permission::NodeErrorObjects,
 		)) {
-			output.node_error = storage.node_error;
+			output.node_error_objects = storage.node_error_objects;
 			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeLog,
+			tg::authorization::permission::process::Permission::SubtreeLogObjects,
 		)) {
-			output.node_log = storage.node_log;
-			output.subtree_log = storage.subtree_log;
+			output.node_log_objects = storage.node_log_objects;
+			output.subtree_log_objects = storage.subtree_log_objects;
 			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeLog,
+			tg::authorization::permission::process::Permission::NodeLogObjects,
 		)) {
-			output.node_log = storage.node_log;
+			output.node_log_objects = storage.node_log_objects;
 			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeOutput,
+			tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 		)) {
-			output.node_output = storage.node_output;
-			output.subtree_output = storage.subtree_output;
+			output.node_output_objects = storage.node_output_objects;
+			output.subtree_output_objects = storage.subtree_output_objects;
 			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeOutput,
+			tg::authorization::permission::process::Permission::NodeOutputObjects,
 		)) {
-			output.node_output = storage.node_output;
+			output.node_output_objects = storage.node_output_objects;
 			permitted = true;
 		}
 

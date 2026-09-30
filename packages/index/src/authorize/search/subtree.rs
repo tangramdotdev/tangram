@@ -74,17 +74,17 @@ impl Search {
 			tg::authorization::permission::process::Permission::Subtree => {
 				tg::authorization::permission::process::Permission::Node
 			},
-			tg::authorization::permission::process::Permission::SubtreeCommand => {
-				tg::authorization::permission::process::Permission::NodeCommand
+			tg::authorization::permission::process::Permission::SubtreeCommandObjects => {
+				tg::authorization::permission::process::Permission::NodeCommandObjects
 			},
-			tg::authorization::permission::process::Permission::SubtreeError => {
-				tg::authorization::permission::process::Permission::NodeError
+			tg::authorization::permission::process::Permission::SubtreeErrorObjects => {
+				tg::authorization::permission::process::Permission::NodeErrorObjects
 			},
-			tg::authorization::permission::process::Permission::SubtreeLog => {
-				tg::authorization::permission::process::Permission::NodeLog
+			tg::authorization::permission::process::Permission::SubtreeLogObjects => {
+				tg::authorization::permission::process::Permission::NodeLogObjects
 			},
-			tg::authorization::permission::process::Permission::SubtreeOutput => {
-				tg::authorization::permission::process::Permission::NodeOutput
+			tg::authorization::permission::process::Permission::SubtreeOutputObjects => {
+				tg::authorization::permission::process::Permission::NodeOutputObjects
 			},
 			_ => return Err(tg::error!("expected a process subtree permission")),
 		};
@@ -624,7 +624,7 @@ mod tests {
 	fn a_process_subtree_reuses_its_batched_ancestor_or_descendant_outcome() {
 		let process = tg::process::Id::new();
 		let resource = tg::Id::from(process);
-		let permission = tg::authorization::permission::process::Permission::SubtreeCommand;
+		let permission = tg::authorization::permission::process::Permission::SubtreeCommandObjects;
 		let mut search = Search::new_process(
 			crate::authorize::SubtreeConfig::default(),
 			permission,

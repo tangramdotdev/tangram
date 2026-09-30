@@ -577,18 +577,18 @@ impl PermissionSearch {
 				)?)),
 				tg::authorization::Permission::Process(
 					permission
-						@ (tg::authorization::permission::process::Permission::NodeCommand
-						| tg::authorization::permission::process::Permission::NodeError
-						| tg::authorization::permission::process::Permission::NodeLog
-						| tg::authorization::permission::process::Permission::NodeOutput),
+						@ (tg::authorization::permission::process::Permission::NodeCommandObjects
+						| tg::authorization::permission::process::Permission::NodeErrorObjects
+						| tg::authorization::permission::process::Permission::NodeLogObjects
+						| tg::authorization::permission::process::Permission::NodeOutputObjects),
 				) => PermissionPhase::Process(Box::new(ProcessSearch::new(key, permission, initial)?)),
 				tg::authorization::Permission::Process(
 					permission
 						@ (tg::authorization::permission::process::Permission::Subtree
-						| tg::authorization::permission::process::Permission::SubtreeCommand
-						| tg::authorization::permission::process::Permission::SubtreeError
-						| tg::authorization::permission::process::Permission::SubtreeLog
-						| tg::authorization::permission::process::Permission::SubtreeOutput),
+						| tg::authorization::permission::process::Permission::SubtreeCommandObjects
+						| tg::authorization::permission::process::Permission::SubtreeErrorObjects
+						| tg::authorization::permission::process::Permission::SubtreeLogObjects
+						| tg::authorization::permission::process::Permission::SubtreeOutputObjects),
 				) => PermissionPhase::Subtree(Box::new(SubtreeEvaluation::new_process(
 					config.subtree,
 					&key.0,
@@ -792,16 +792,16 @@ impl ProcessSearch {
 		initial: Outcome,
 	) -> tg::Result<Self> {
 		let kind = match permission {
-			tg::authorization::permission::process::Permission::NodeCommand => {
+			tg::authorization::permission::process::Permission::NodeCommandObjects => {
 				crate::process::object::Kind::Command
 			},
-			tg::authorization::permission::process::Permission::NodeError => {
+			tg::authorization::permission::process::Permission::NodeErrorObjects => {
 				crate::process::object::Kind::Error
 			},
-			tg::authorization::permission::process::Permission::NodeLog => {
+			tg::authorization::permission::process::Permission::NodeLogObjects => {
 				crate::process::object::Kind::Log
 			},
-			tg::authorization::permission::process::Permission::NodeOutput => {
+			tg::authorization::permission::process::Permission::NodeOutputObjects => {
 				crate::process::object::Kind::Output
 			},
 			_ => return Err(tg::error!("expected a process node aspect permission")),
@@ -1018,10 +1018,10 @@ impl ProcessSearch {
 			.process
 			.as_ref()
 			.is_some_and(|process| match self.kind {
-				crate::process::object::Kind::Command => process.set.command,
-				crate::process::object::Kind::Error => process.set.error,
-				crate::process::object::Kind::Log => process.set.log,
-				crate::process::object::Kind::Output => process.set.output,
+				crate::process::object::Kind::Command => process.set.command_objects,
+				crate::process::object::Kind::Error => process.set.error_objects,
+				crate::process::object::Kind::Log => process.set.log_objects,
+				crate::process::object::Kind::Output => process.set.output_objects,
 			});
 		if !aspect_is_set {
 			let outcome = finish_process(state, &self.root, false);

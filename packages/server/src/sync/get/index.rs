@@ -598,15 +598,15 @@ impl Session {
 		let message = tg::sync::GetMessage::Available(tg::sync::GetAvailableMessage::Process(
 			tg::sync::GetAvailableProcessMessage {
 				id: id.clone(),
-				node_command_available: availability.node_command,
-				node_error_available: availability.node_error,
-				node_log_available: availability.node_log,
-				node_output_available: availability.node_output,
+				node_command_available: availability.node_command_objects,
+				node_error_available: availability.node_error_objects,
+				node_log_available: availability.node_log_objects,
+				node_output_available: availability.node_output_objects,
 				subtree_available: availability.subtree,
-				subtree_command_available: availability.subtree_command,
-				subtree_error_available: availability.subtree_error,
-				subtree_log_available: availability.subtree_log,
-				subtree_output_available: availability.subtree_output,
+				subtree_command_available: availability.subtree_command_objects,
+				subtree_error_available: availability.subtree_error_objects,
+				subtree_log_available: availability.subtree_log_objects,
+				subtree_output_available: availability.subtree_output_objects,
 			},
 		));
 		state
@@ -1196,21 +1196,22 @@ impl Session {
 			permissions.remove(tg::authorization::permission::process::Set::NODE);
 			permissions.remove(tg::authorization::permission::process::Set::SUBTREE);
 		}
-		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_COMMAND) {
-			permissions.remove(tg::authorization::permission::process::Set::NODE_COMMAND);
-			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_COMMAND);
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_COMMAND_OBJECTS) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_COMMAND_OBJECTS);
+			permissions
+				.remove(tg::authorization::permission::process::Set::SUBTREE_COMMAND_OBJECTS);
 		}
-		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_ERROR) {
-			permissions.remove(tg::authorization::permission::process::Set::NODE_ERROR);
-			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_ERROR);
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS);
 		}
-		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_LOG) {
-			permissions.remove(tg::authorization::permission::process::Set::NODE_LOG);
-			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_LOG);
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_LOG_OBJECTS);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS);
 		}
-		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_OUTPUT) {
-			permissions.remove(tg::authorization::permission::process::Set::NODE_OUTPUT);
-			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
+		if covered.contains(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS) {
+			permissions.remove(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
+			permissions.remove(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS);
 		}
 	}
 
@@ -1221,18 +1222,25 @@ impl Session {
 		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE) {
 			subtree_permissions.insert(tg::authorization::permission::process::Set::SUBTREE);
 		}
-		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_COMMAND) {
+		if permissions
+			.contains(tg::authorization::permission::process::Set::SUBTREE_COMMAND_OBJECTS)
+		{
 			subtree_permissions
-				.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND);
+				.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND_OBJECTS);
 		}
-		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_ERROR) {
-			subtree_permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR);
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS)
+		{
+			subtree_permissions
+				.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS);
 		}
-		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_LOG) {
-			subtree_permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG);
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS) {
+			subtree_permissions
+				.insert(tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS);
 		}
-		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_OUTPUT) {
-			subtree_permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT);
+		if permissions.contains(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS)
+		{
+			subtree_permissions
+				.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS);
 		}
 		subtree_permissions
 	}

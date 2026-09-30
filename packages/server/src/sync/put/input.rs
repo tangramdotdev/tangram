@@ -60,15 +60,15 @@ impl Session {
 					tracing::trace!(id = %message.id, "received available process");
 					let id = message.id;
 					let availability = tg::process::Availability {
-						node_command: message.node_command_available,
-						node_error: message.node_error_available,
-						node_log: message.node_log_available,
-						node_output: message.node_output_available,
+						node_command_objects: message.node_command_available,
+						node_error_objects: message.node_error_available,
+						node_log_objects: message.node_log_available,
+						node_output_objects: message.node_output_available,
 						subtree: message.subtree_available,
-						subtree_command: message.subtree_command_available,
-						subtree_error: message.subtree_error_available,
-						subtree_log: message.subtree_log_available,
-						subtree_output: message.subtree_output_available,
+						subtree_command_objects: message.subtree_command_available,
+						subtree_error_objects: message.subtree_error_available,
+						subtree_log_objects: message.subtree_log_available,
+						subtree_output_objects: message.subtree_output_available,
 					};
 					state.graph.lock().unwrap().update_process_remote(
 						false,

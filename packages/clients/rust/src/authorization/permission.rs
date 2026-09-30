@@ -182,15 +182,15 @@ impl Permission {
 			| Self::Organization(organization::Permission::Read)
 			| Self::Process(
 				process::Permission::Node
-				| process::Permission::NodeCommand
-				| process::Permission::NodeError
-				| process::Permission::NodeLog
-				| process::Permission::NodeOutput
+				| process::Permission::NodeCommandObjects
+				| process::Permission::NodeErrorObjects
+				| process::Permission::NodeLogObjects
+				| process::Permission::NodeOutputObjects
 				| process::Permission::Subtree
-				| process::Permission::SubtreeCommand
-				| process::Permission::SubtreeError
-				| process::Permission::SubtreeLog
-				| process::Permission::SubtreeOutput,
+				| process::Permission::SubtreeCommandObjects
+				| process::Permission::SubtreeErrorObjects
+				| process::Permission::SubtreeLogObjects
+				| process::Permission::SubtreeOutputObjects,
 			)
 			| Self::Sandbox(sandbox::Permission::Read)
 			| Self::Sync(sync::Permission::Read)
@@ -382,16 +382,16 @@ impl Set {
 			Self::Organization(permissions) => Self::organization_entries(permissions),
 			Self::Process(permissions) => [
 				Self::process_entry(permissions, process::Permission::Node),
-				Self::process_entry(permissions, process::Permission::NodeCommand),
-				Self::process_entry(permissions, process::Permission::NodeError),
-				Self::process_entry(permissions, process::Permission::NodeLog),
-				Self::process_entry(permissions, process::Permission::NodeOutput),
+				Self::process_entry(permissions, process::Permission::NodeCommandObjects),
+				Self::process_entry(permissions, process::Permission::NodeErrorObjects),
+				Self::process_entry(permissions, process::Permission::NodeLogObjects),
+				Self::process_entry(permissions, process::Permission::NodeOutputObjects),
 				Self::process_entry(permissions, process::Permission::Parent),
 				Self::process_entry(permissions, process::Permission::Subtree),
-				Self::process_entry(permissions, process::Permission::SubtreeCommand),
-				Self::process_entry(permissions, process::Permission::SubtreeError),
-				Self::process_entry(permissions, process::Permission::SubtreeLog),
-				Self::process_entry(permissions, process::Permission::SubtreeOutput),
+				Self::process_entry(permissions, process::Permission::SubtreeCommandObjects),
+				Self::process_entry(permissions, process::Permission::SubtreeErrorObjects),
+				Self::process_entry(permissions, process::Permission::SubtreeLogObjects),
+				Self::process_entry(permissions, process::Permission::SubtreeOutputObjects),
 				None,
 			],
 			Self::Sandbox(permissions) => Self::sandbox_entries(permissions),
@@ -723,20 +723,20 @@ mod tests {
 				"process_node",
 			),
 			(
-				Permission::Process(process::Permission::NodeCommand),
-				"process_node_command",
+				Permission::Process(process::Permission::NodeCommandObjects),
+				"process_node_command_objects",
 			),
 			(
-				Permission::Process(process::Permission::NodeError),
-				"process_node_error",
+				Permission::Process(process::Permission::NodeErrorObjects),
+				"process_node_error_objects",
 			),
 			(
-				Permission::Process(process::Permission::NodeLog),
-				"process_node_log",
+				Permission::Process(process::Permission::NodeLogObjects),
+				"process_node_log_objects",
 			),
 			(
-				Permission::Process(process::Permission::NodeOutput),
-				"process_node_output",
+				Permission::Process(process::Permission::NodeOutputObjects),
+				"process_node_output_objects",
 			),
 			(
 				Permission::Process(process::Permission::Parent),
@@ -747,20 +747,20 @@ mod tests {
 				"process_subtree",
 			),
 			(
-				Permission::Process(process::Permission::SubtreeCommand),
-				"process_subtree_command",
+				Permission::Process(process::Permission::SubtreeCommandObjects),
+				"process_subtree_command_objects",
 			),
 			(
-				Permission::Process(process::Permission::SubtreeError),
-				"process_subtree_error",
+				Permission::Process(process::Permission::SubtreeErrorObjects),
+				"process_subtree_error_objects",
 			),
 			(
-				Permission::Process(process::Permission::SubtreeLog),
-				"process_subtree_log",
+				Permission::Process(process::Permission::SubtreeLogObjects),
+				"process_subtree_log_objects",
 			),
 			(
-				Permission::Process(process::Permission::SubtreeOutput),
-				"process_subtree_output",
+				Permission::Process(process::Permission::SubtreeOutputObjects),
+				"process_subtree_output_objects",
 			),
 			(
 				Permission::Sandbox(sandbox::Permission::Read),
@@ -815,24 +815,25 @@ mod tests {
 				.implies(Permission::Object(object::Permission::Subtree))
 		);
 		assert!(
-			Permission::Process(process::Permission::SubtreeOutput)
-				.implies(Permission::Process(process::Permission::NodeOutput))
+			Permission::Process(process::Permission::SubtreeOutputObjects)
+				.implies(Permission::Process(process::Permission::NodeOutputObjects))
 		);
 		assert!(
-			!Permission::Process(process::Permission::SubtreeOutput)
-				.implies(Permission::Process(process::Permission::NodeLog))
+			!Permission::Process(process::Permission::SubtreeOutputObjects)
+				.implies(Permission::Process(process::Permission::NodeLogObjects))
 		);
 		assert!(
 			!Permission::Process(process::Permission::Subtree)
-				.implies(Permission::Process(process::Permission::NodeOutput))
+				.implies(Permission::Process(process::Permission::NodeOutputObjects))
 		);
 		assert!(
 			Permission::Process(process::Permission::Parent)
-				.implies(Permission::Process(process::Permission::NodeOutput))
+				.implies(Permission::Process(process::Permission::NodeOutputObjects))
 		);
 		assert!(
-			Permission::Process(process::Permission::Parent)
-				.implies(Permission::Process(process::Permission::SubtreeOutput))
+			Permission::Process(process::Permission::Parent).implies(Permission::Process(
+				process::Permission::SubtreeOutputObjects
+			))
 		);
 		assert!(
 			Permission::Process(process::Permission::Parent)
@@ -860,15 +861,15 @@ mod tests {
 			Permission::Object(object::Permission::Subtree),
 			Permission::Organization(organization::Permission::Read),
 			Permission::Process(process::Permission::Node),
-			Permission::Process(process::Permission::NodeCommand),
-			Permission::Process(process::Permission::NodeError),
-			Permission::Process(process::Permission::NodeLog),
-			Permission::Process(process::Permission::NodeOutput),
+			Permission::Process(process::Permission::NodeCommandObjects),
+			Permission::Process(process::Permission::NodeErrorObjects),
+			Permission::Process(process::Permission::NodeLogObjects),
+			Permission::Process(process::Permission::NodeOutputObjects),
 			Permission::Process(process::Permission::Subtree),
-			Permission::Process(process::Permission::SubtreeCommand),
-			Permission::Process(process::Permission::SubtreeError),
-			Permission::Process(process::Permission::SubtreeLog),
-			Permission::Process(process::Permission::SubtreeOutput),
+			Permission::Process(process::Permission::SubtreeCommandObjects),
+			Permission::Process(process::Permission::SubtreeErrorObjects),
+			Permission::Process(process::Permission::SubtreeLogObjects),
+			Permission::Process(process::Permission::SubtreeOutputObjects),
 			Permission::Sandbox(sandbox::Permission::Read),
 			Permission::Sync(sync::Permission::Read),
 			Permission::Tag(tag::Permission::Read),

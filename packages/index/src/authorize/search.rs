@@ -341,17 +341,17 @@ pub(crate) fn process_node_permission(
 		tg::authorization::permission::process::Permission::Subtree => {
 			tg::authorization::permission::process::Permission::Node
 		},
-		tg::authorization::permission::process::Permission::SubtreeCommand => {
-			tg::authorization::permission::process::Permission::NodeCommand
+		tg::authorization::permission::process::Permission::SubtreeCommandObjects => {
+			tg::authorization::permission::process::Permission::NodeCommandObjects
 		},
-		tg::authorization::permission::process::Permission::SubtreeError => {
-			tg::authorization::permission::process::Permission::NodeError
+		tg::authorization::permission::process::Permission::SubtreeErrorObjects => {
+			tg::authorization::permission::process::Permission::NodeErrorObjects
 		},
-		tg::authorization::permission::process::Permission::SubtreeLog => {
-			tg::authorization::permission::process::Permission::NodeLog
+		tg::authorization::permission::process::Permission::SubtreeLogObjects => {
+			tg::authorization::permission::process::Permission::NodeLogObjects
 		},
-		tg::authorization::permission::process::Permission::SubtreeOutput => {
-			tg::authorization::permission::process::Permission::NodeOutput
+		tg::authorization::permission::process::Permission::SubtreeOutputObjects => {
+			tg::authorization::permission::process::Permission::NodeOutputObjects
 		},
 		_ => unreachable!(),
 	}
@@ -1363,15 +1363,15 @@ fn has_derived_proof(permission: tg::authorization::Permission) -> bool {
 		tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree
 		) | tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeCommand
-				| tg::authorization::permission::process::Permission::NodeError
-				| tg::authorization::permission::process::Permission::NodeLog
-				| tg::authorization::permission::process::Permission::NodeOutput
+			tg::authorization::permission::process::Permission::NodeCommandObjects
+				| tg::authorization::permission::process::Permission::NodeErrorObjects
+				| tg::authorization::permission::process::Permission::NodeLogObjects
+				| tg::authorization::permission::process::Permission::NodeOutputObjects
 				| tg::authorization::permission::process::Permission::Subtree
-				| tg::authorization::permission::process::Permission::SubtreeCommand
-				| tg::authorization::permission::process::Permission::SubtreeError
-				| tg::authorization::permission::process::Permission::SubtreeLog
-				| tg::authorization::permission::process::Permission::SubtreeOutput
+				| tg::authorization::permission::process::Permission::SubtreeCommandObjects
+				| tg::authorization::permission::process::Permission::SubtreeErrorObjects
+				| tg::authorization::permission::process::Permission::SubtreeLogObjects
+				| tg::authorization::permission::process::Permission::SubtreeOutputObjects
 		)
 	)
 }

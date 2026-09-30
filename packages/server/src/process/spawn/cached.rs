@@ -280,8 +280,8 @@ impl Session {
 		public: bool,
 	) -> tg::Result<Vec<bool>> {
 		let mut permissions = tg::authorization::permission::process::Set::NODE;
-		permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
-		permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
+		permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
+		permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
 		let permissions = tg::authorization::permission::Set::Process(permissions);
 		let args = candidate_indices
 			.iter()

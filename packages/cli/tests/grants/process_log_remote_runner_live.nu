@@ -50,7 +50,7 @@ let denied = tg --url $remote.url --token $eve.token log $process | complete
 failure $denied "a node-only reader must not read the live log of a process run by the runner."
 
 # Granting Eve the log permission restores access.
-tg --url $remote.url --token $alice.token grant $eve.user.id process_node_log $process | ignore
+tg --url $remote.url --token $alice.token grant $eve.user.id process_node_log_objects $process | ignore
 let allowed = tg --url $remote.url --token $eve.token log $process | complete
 snapshot --normalize $allowed.stdout '
 	loghello

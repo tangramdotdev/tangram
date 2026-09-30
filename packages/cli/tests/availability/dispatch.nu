@@ -20,8 +20,8 @@ assert equal $dispatched_object $object "the top-level availability command shou
 
 let process = tg process availability $build.process | from json
 assert equal $process.subtree true "the process availability command should report that the process subtree is available"
-assert equal $process.node_command true "the process availability command should report that the command subtree is available"
-assert equal $process.node_output true "the process availability command should report that the output subtree is available"
+assert equal $process.node_command_objects true "the process availability command should report that the command subtree is available"
+assert equal $process.node_output_objects true "the process availability command should report that the output subtree is available"
 
 let dispatched_process = tg availability $build.process | from json
 assert equal $dispatched_process $process "the top-level availability command should dispatch process ids"

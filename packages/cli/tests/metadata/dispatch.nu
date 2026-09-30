@@ -17,4 +17,4 @@ assert ($object.node.size > 0) "the path reference should resolve to object meta
 
 # A process id resolves to process metadata.
 let process = tg metadata $build.process | from json
-assert equal ($process.node | columns) [command error log output] "the process id should resolve to process metadata"
+assert equal ($process.node | columns) [command_objects error_objects log_objects output_objects] "the process id should resolve to process metadata"

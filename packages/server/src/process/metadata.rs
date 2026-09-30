@@ -106,54 +106,54 @@ impl Session {
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeCommand,
+			tg::authorization::permission::process::Permission::SubtreeCommandObjects,
 		)) {
-			output.node.command = metadata.node.command.clone();
-			output.subtree.command = metadata.subtree.command.clone();
+			output.node.command_objects = metadata.node.command_objects.clone();
+			output.subtree.command_objects = metadata.subtree.command_objects.clone();
 			authorized = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeCommand,
+			tg::authorization::permission::process::Permission::NodeCommandObjects,
 		)) {
-			output.node.command = metadata.node.command.clone();
+			output.node.command_objects = metadata.node.command_objects.clone();
 			authorized = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeError,
+			tg::authorization::permission::process::Permission::SubtreeErrorObjects,
 		)) {
-			output.node.error = metadata.node.error.clone();
-			output.subtree.error = metadata.subtree.error.clone();
+			output.node.error_objects = metadata.node.error_objects.clone();
+			output.subtree.error_objects = metadata.subtree.error_objects.clone();
 			authorized = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeError,
+			tg::authorization::permission::process::Permission::NodeErrorObjects,
 		)) {
-			output.node.error = metadata.node.error.clone();
+			output.node.error_objects = metadata.node.error_objects.clone();
 			authorized = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeLog,
+			tg::authorization::permission::process::Permission::SubtreeLogObjects,
 		)) {
-			output.node.log = metadata.node.log.clone();
-			output.subtree.log = metadata.subtree.log.clone();
+			output.node.log_objects = metadata.node.log_objects.clone();
+			output.subtree.log_objects = metadata.subtree.log_objects.clone();
 			authorized = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeLog,
+			tg::authorization::permission::process::Permission::NodeLogObjects,
 		)) {
-			output.node.log = metadata.node.log.clone();
+			output.node.log_objects = metadata.node.log_objects.clone();
 			authorized = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::SubtreeOutput,
+			tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 		)) {
-			output.node.output = metadata.node.output.clone();
-			output.subtree.output = metadata.subtree.output.clone();
+			output.node.output_objects = metadata.node.output_objects.clone();
+			output.subtree.output_objects = metadata.subtree.output_objects.clone();
 			authorized = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::NodeOutput,
+			tg::authorization::permission::process::Permission::NodeOutputObjects,
 		)) {
-			output.node.output = metadata.node.output.clone();
+			output.node.output_objects = metadata.node.output_objects.clone();
 			authorized = true;
 		}
 

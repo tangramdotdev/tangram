@@ -26,6 +26,6 @@ assert (($data.command.node | describe) | str starts-with record)
 for input in [$output.first $output.second] {
 	failure (tg --token $eve.token read $input | complete) "process node access must not confer input access"
 }
-tg --token $alice.token grant $eve.user.id process_node_command $output.process | ignore
+tg --token $alice.token grant $eve.user.id process_node_command_objects $output.process | ignore
 assert equal (tg --token $eve.token read $output.first | str trim) "first private input"
 assert equal (tg --token $eve.token read $output.second | str trim) "second private input"

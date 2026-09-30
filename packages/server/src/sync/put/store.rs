@@ -406,7 +406,7 @@ impl Session {
 				&& output.location.as_ref().is_none_or(tg::Location::is_local)
 			{
 				let permission = tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::NodeLog,
+					tg::authorization::permission::process::Permission::NodeLogObjects,
 				);
 				let permissions = state
 					.graph

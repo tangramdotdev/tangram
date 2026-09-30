@@ -54,7 +54,7 @@ let error = $output.error
 assert ($error =~ 'tokens\[') "the error referent should carry the authorization token for the sync"
 
 # Alice grants Bob the process's error, and Bob pulls it while the push is held.
-tg --url $remote.url --token $alice.token grant $bob.user.id process_node_error $process
+tg --url $remote.url --token $alice.token grant $bob.user.id process_node_error_objects $process
 let pull = job spawn {
 	let job_id = job id
 	let output = tg --url $bob_local.url pull $error | complete

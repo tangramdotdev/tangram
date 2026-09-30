@@ -212,8 +212,8 @@ impl Session {
 			return Ok(None);
 		};
 		let mut requested = tg::authorization::permission::process::Set::NODE;
-		requested.insert(tg::authorization::permission::process::Set::NODE_ERROR);
-		requested.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
+		requested.insert(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
+		requested.insert(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
 		let Some(tg::authorization::permission::Set::Process(permissions)) = self
 			.authorize_process_runner(id, &arg.tokens, requested)
 			.await?
@@ -307,7 +307,9 @@ impl Session {
 		output.error = output.error.map(|error| match error {
 			tg::Either::Left(error) => tg::Either::Left(error.without_location_and_tokens()),
 			tg::Either::Right(mut error) => {
-				if permissions.contains(tg::authorization::permission::process::Set::NODE_ERROR) {
+				if permissions
+					.contains(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS)
+				{
 					Self::retain_wait_object_tokens(
 						&mut error.options.tokens,
 						&error.node.clone().into(),
@@ -320,7 +322,9 @@ impl Session {
 			},
 		});
 		output.output = output.output.map(|mut output| {
-			if permissions.contains(tg::authorization::permission::process::Set::NODE_OUTPUT) {
+			if permissions
+				.contains(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS)
+			{
 				Self::update_process_value_tokens(&mut output, &mut |tokens, id| {
 					Self::retain_wait_object_tokens(tokens, id, retain_sync);
 				});
@@ -430,14 +434,14 @@ impl Session {
 	) -> tg::authorization::permission::process::Set {
 		let mut permissions = tg::authorization::permission::process::Set::empty();
 		if matches!(output.error, Some(tg::Either::Right(_))) {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR);
+			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
 		}
 		let mut objects = std::collections::BTreeSet::new();
 		if let Some(output) = &output.output {
 			output.children(&mut objects);
 		}
 		if !objects.is_empty() {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
+			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
 		}
 		permissions
 	}
@@ -471,8 +475,8 @@ impl Session {
 			.create_process_status_wakeup_stream(id, self.context.stopper.clone(), None)
 			.await?;
 		let mut requested = tg::authorization::permission::process::Set::NODE;
-		requested.insert(tg::authorization::permission::process::Set::NODE_ERROR);
-		requested.insert(tg::authorization::permission::process::Set::NODE_OUTPUT);
+		requested.insert(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
+		requested.insert(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
 		let deadline = self.server.control_read_deadline();
 		let process = loop {
 			tokio::select! {

@@ -128,10 +128,10 @@ impl Session {
 				id.clone().into(),
 				[
 					tg::authorization::permission::process::Permission::Node,
-					tg::authorization::permission::process::Permission::NodeCommand,
-					tg::authorization::permission::process::Permission::NodeError,
-					tg::authorization::permission::process::Permission::NodeLog,
-					tg::authorization::permission::process::Permission::NodeOutput,
+					tg::authorization::permission::process::Permission::NodeCommandObjects,
+					tg::authorization::permission::process::Permission::NodeErrorObjects,
+					tg::authorization::permission::process::Permission::NodeLogObjects,
+					tg::authorization::permission::process::Permission::NodeOutputObjects,
 				]
 				.into_iter()
 				.map(tg::authorization::Permission::Process)

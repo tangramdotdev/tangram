@@ -249,7 +249,7 @@ async fn process_object_permissions_require_permanent_permissions() {
 	for (reader, permission) in [
 		(
 			&reader,
-			tg::authorization::permission::process::Permission::NodeOutput,
+			tg::authorization::permission::process::Permission::NodeOutputObjects,
 		),
 		(
 			&node_reader,

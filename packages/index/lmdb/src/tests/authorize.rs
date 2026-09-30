@@ -948,11 +948,11 @@ async fn authorize_process_object_permissions_require_process_direct_permissions
 	let process = tg::process::Id::new();
 	let sandbox = tg::sandbox::Id::new();
 	let subtree = object_permission(tg::authorization::permission::object::Permission::Subtree);
-	let subtree_command = tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::SubtreeCommand,
+	let subtree_command_objects = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::SubtreeCommandObjects,
 	);
-	let subtree_output = tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::SubtreeOutput,
+	let subtree_output_objects = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 	);
 	let process_parent = tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::Parent,
@@ -973,14 +973,14 @@ async fn authorize_process_object_permissions_require_process_direct_permissions
 		&mut txn,
 		process.clone().into(),
 		tg::authorization::Subject::User(command_holder.clone()),
-		subtree_command,
+		subtree_command_objects,
 	);
 	put_resource_permission(
 		&index,
 		&mut txn,
 		process.clone().into(),
 		tg::authorization::Subject::User(output_holder.clone()),
-		subtree_output,
+		subtree_output_objects,
 	);
 	put_resource_permission(
 		&index,
@@ -1087,19 +1087,19 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 	for (kind, permission) in [
 		(
 			tangram_index::process::object::Kind::Command,
-			tg::authorization::permission::process::Permission::NodeCommand,
+			tg::authorization::permission::process::Permission::NodeCommandObjects,
 		),
 		(
 			tangram_index::process::object::Kind::Error,
-			tg::authorization::permission::process::Permission::NodeError,
+			tg::authorization::permission::process::Permission::NodeErrorObjects,
 		),
 		(
 			tangram_index::process::object::Kind::Log,
-			tg::authorization::permission::process::Permission::NodeLog,
+			tg::authorization::permission::process::Permission::NodeLogObjects,
 		),
 		(
 			tangram_index::process::object::Kind::Output,
-			tg::authorization::permission::process::Permission::NodeOutput,
+			tg::authorization::permission::process::Permission::NodeOutputObjects,
 		),
 	] {
 		let (_directory, index) = new_index();
@@ -1123,10 +1123,10 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 		for process in [&process, &child_process] {
 			let set = tangram_index::process::Set {
 				children: true,
-				command: true,
-				error: true,
-				log: true,
-				output: true,
+				command_objects: true,
+				error_objects: true,
+				log_objects: true,
+				output_objects: true,
 			};
 			put_process_with_set(&index, &mut transaction, process, &sandbox, set);
 		}
@@ -1392,16 +1392,16 @@ async fn authorize_sandbox_permissions_do_not_authorize_processes() {
 
 	for permission in [
 		tg::authorization::permission::process::Permission::Node,
-		tg::authorization::permission::process::Permission::NodeCommand,
-		tg::authorization::permission::process::Permission::NodeError,
-		tg::authorization::permission::process::Permission::NodeLog,
-		tg::authorization::permission::process::Permission::NodeOutput,
+		tg::authorization::permission::process::Permission::NodeCommandObjects,
+		tg::authorization::permission::process::Permission::NodeErrorObjects,
+		tg::authorization::permission::process::Permission::NodeLogObjects,
+		tg::authorization::permission::process::Permission::NodeOutputObjects,
 		tg::authorization::permission::process::Permission::Parent,
 		tg::authorization::permission::process::Permission::Subtree,
-		tg::authorization::permission::process::Permission::SubtreeCommand,
-		tg::authorization::permission::process::Permission::SubtreeError,
-		tg::authorization::permission::process::Permission::SubtreeLog,
-		tg::authorization::permission::process::Permission::SubtreeOutput,
+		tg::authorization::permission::process::Permission::SubtreeCommandObjects,
+		tg::authorization::permission::process::Permission::SubtreeErrorObjects,
+		tg::authorization::permission::process::Permission::SubtreeLogObjects,
+		tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 	] {
 		let permission = tg::authorization::Permission::Process(permission);
 		for user in [&reader, &writer] {
@@ -1446,10 +1446,10 @@ async fn authorize_derives_process_permissions_without_materialized_permissions(
 	for process in [&child, &parent] {
 		let entry = tangram_index::process::Set {
 			children: true,
-			command: true,
-			error: true,
-			log: true,
-			output: true,
+			command_objects: true,
+			error_objects: true,
+			log_objects: true,
+			output_objects: true,
 		};
 		put_process_with_set(&index, &mut txn, process, &sandbox, entry);
 	}
@@ -1486,7 +1486,7 @@ async fn authorize_derives_process_permissions_without_materialized_permissions(
 	txn.commit().unwrap();
 
 	let permission = tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::NodeCommand,
+		tg::authorization::permission::process::Permission::NodeCommandObjects,
 	);
 	let arg = tangram_index::authorize::Arg {
 		requested: permission.into(),
@@ -1504,15 +1504,15 @@ async fn authorize_derives_process_permissions_without_materialized_permissions(
 	));
 
 	for permission in [
-		tg::authorization::permission::process::Permission::NodeCommand,
-		tg::authorization::permission::process::Permission::NodeError,
-		tg::authorization::permission::process::Permission::NodeLog,
-		tg::authorization::permission::process::Permission::NodeOutput,
+		tg::authorization::permission::process::Permission::NodeCommandObjects,
+		tg::authorization::permission::process::Permission::NodeErrorObjects,
+		tg::authorization::permission::process::Permission::NodeLogObjects,
+		tg::authorization::permission::process::Permission::NodeOutputObjects,
 		tg::authorization::permission::process::Permission::Subtree,
-		tg::authorization::permission::process::Permission::SubtreeCommand,
-		tg::authorization::permission::process::Permission::SubtreeError,
-		tg::authorization::permission::process::Permission::SubtreeLog,
-		tg::authorization::permission::process::Permission::SubtreeOutput,
+		tg::authorization::permission::process::Permission::SubtreeCommandObjects,
+		tg::authorization::permission::process::Permission::SubtreeErrorObjects,
+		tg::authorization::permission::process::Permission::SubtreeLogObjects,
+		tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 	] {
 		let permission = tg::authorization::Permission::Process(permission);
 		assert!(
@@ -2305,7 +2305,7 @@ async fn authorize_process_aspect_denial_wins_over_an_exhausted_object() {
 	let mut transaction = index.env.write_txn().unwrap();
 	put_sandbox(&index, &mut transaction, &sandbox);
 	let set = tangram_index::process::Set {
-		output: true,
+		output_objects: true,
 		..Default::default()
 	};
 	put_process_with_set(&index, &mut transaction, &process, &sandbox, set);
@@ -2334,7 +2334,7 @@ async fn authorize_process_aspect_denial_wins_over_an_exhausted_object() {
 	transaction.commit().unwrap();
 
 	let permission = tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::NodeOutput,
+		tg::authorization::permission::process::Permission::NodeOutputObjects,
 	);
 	let permissions = permission.into();
 	let arg = tangram_index::authorize::Arg {

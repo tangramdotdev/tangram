@@ -50,7 +50,7 @@ for location in [local remote] {
 		tg --url $runner.url --token $root_token grant $alice.user.id process_node $process | ignore
 		tg --url $runner.url --token $root_token grant $alice.user.id $'process_node_($field)' $process | ignore
 		if $case.both {
-			tg --url $runner.url --token $root_token grant $alice.user.id process_node_output $process | ignore
+			tg --url $runner.url --token $root_token grant $alice.user.id process_node_output_objects $process | ignore
 		}
 		tg --url $runner.url --token $root_token grant $bob.user.id process_node $process | ignore
 
@@ -91,9 +91,9 @@ for location in [local remote] {
 		}
 		let object = if $field == output { $output.output.value } else { $output.error }
 		let object_id = $object | split row '?' | first
-		let node_output = job recv --tag $node_wait_job --timeout 10sec
-		let node_output = $node_output | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
-		let node_object = if $field == output { $node_output.output.value } else { $node_output.error }
+		let node_output_objects = job recv --tag $node_wait_job --timeout 10sec
+		let node_output_objects = $node_output_objects | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
+		let node_object = if $field == output { $node_output_objects.output.value } else { $node_output_objects.error }
 		assert equal ($node_object | split row '?' | first) $object_id
 		let node_params = $'http://localhost/($node_object)' | url parse | get params
 		assert ($node_params | all {|param| $param.key !~ '^tokens' }) "a live node reader must not receive output or error capabilities"

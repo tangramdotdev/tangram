@@ -558,15 +558,15 @@ impl Session {
 							tg::sync::GetAvailableMessage::Process(
 								tg::sync::GetAvailableProcessMessage {
 									id: node.id.clone(),
-									node_command_available: availability.node_command,
-									node_error_available: availability.node_error,
-									node_log_available: availability.node_log,
-									node_output_available: availability.node_output,
+									node_command_available: availability.node_command_objects,
+									node_error_available: availability.node_error_objects,
+									node_log_available: availability.node_log_objects,
+									node_output_available: availability.node_output_objects,
 									subtree_available: availability.subtree,
-									subtree_command_available: availability.subtree_command,
-									subtree_error_available: availability.subtree_error,
-									subtree_log_available: availability.subtree_log,
-									subtree_output_available: availability.subtree_output,
+									subtree_command_available: availability.subtree_command_objects,
+									subtree_error_available: availability.subtree_error_objects,
+									subtree_log_available: availability.subtree_log_objects,
+									subtree_output_available: availability.subtree_output_objects,
 								},
 							),
 						);
@@ -621,13 +621,16 @@ impl Session {
 		if state.arg.process_children
 			&& (!availability.is_some_and(|availability| availability.subtree)
 				|| (state.arg.process_command_objects
-					&& !availability.is_some_and(|availability| availability.subtree_command))
+					&& !availability
+						.is_some_and(|availability| availability.subtree_command_objects))
 				|| (state.arg.process_error_objects
-					&& !availability.is_some_and(|availability| availability.subtree_error))
+					&& !availability
+						.is_some_and(|availability| availability.subtree_error_objects))
 				|| (state.arg.process_log_objects
-					&& !availability.is_some_and(|availability| availability.subtree_log))
+					&& !availability.is_some_and(|availability| availability.subtree_log_objects))
 				|| (state.arg.process_output_objects
-					&& !availability.is_some_and(|availability| availability.subtree_output)))
+					&& !availability
+						.is_some_and(|availability| availability.subtree_output_objects)))
 			&& let Some(children) = &data.children
 		{
 			for child in children {
@@ -644,7 +647,7 @@ impl Session {
 
 		// Enqueue the command if necessary.
 		if state.arg.process_command_objects
-			&& !availability.is_some_and(|availability| availability.node_command)
+			&& !availability.is_some_and(|availability| availability.node_command_objects)
 		{
 			for command in data.command.objects() {
 				let node = ObjectNode {
@@ -662,7 +665,7 @@ impl Session {
 
 		// Enqueue the error if necessary.
 		if state.arg.process_error_objects
-			&& !availability.is_some_and(|availability| availability.node_error)
+			&& !availability.is_some_and(|availability| availability.node_error_objects)
 			&& let Some(error) = &data.error
 		{
 			match error {
@@ -698,7 +701,7 @@ impl Session {
 
 		// Enqueue the log if necessary.
 		if state.arg.process_log_objects
-			&& !availability.is_some_and(|availability| availability.node_log)
+			&& !availability.is_some_and(|availability| availability.node_log_objects)
 			&& let Some(log) = data.log.clone()
 		{
 			let node = ObjectNode {
@@ -715,7 +718,7 @@ impl Session {
 
 		// Enqueue the output if necessary.
 		if (state.arg.process_output_objects
-			&& !availability.is_some_and(|availability| availability.node_output))
+			&& !availability.is_some_and(|availability| availability.node_output_objects))
 			&& let Some(output) = &data.output
 		{
 			let mut children = BTreeSet::new();

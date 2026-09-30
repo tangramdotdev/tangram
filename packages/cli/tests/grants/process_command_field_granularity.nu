@@ -16,7 +16,7 @@ tg --token $alice.token index
 let data = tg --token $alice.token get $parent | from json
 
 # Alice grants Eve only the command field of the process subtree.
-tg --token $alice.token grant $eve.user.id process_subtree_command $parent | ignore
+tg --token $alice.token grant $eve.user.id process_subtree_command_objects $parent | ignore
 
 # Eve can read the command object the grant covers.
 let command = tg --token $eve.token get (command module-input $data.command) | complete

@@ -76,10 +76,10 @@ impl Session {
 		let mut missing = tg::authorization::permission::process::Set::empty();
 		for permission in [
 			tg::authorization::permission::process::Permission::Subtree,
-			tg::authorization::permission::process::Permission::SubtreeCommand,
-			tg::authorization::permission::process::Permission::SubtreeError,
-			tg::authorization::permission::process::Permission::SubtreeLog,
-			tg::authorization::permission::process::Permission::SubtreeOutput,
+			tg::authorization::permission::process::Permission::SubtreeCommandObjects,
+			tg::authorization::permission::process::Permission::SubtreeErrorObjects,
+			tg::authorization::permission::process::Permission::SubtreeLogObjects,
+			tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 		] {
 			let set = tg::authorization::permission::process::Set::from_permission(permission);
 			if !covered.contains(set) {

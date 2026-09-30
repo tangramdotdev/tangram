@@ -56,15 +56,19 @@ impl Index {
 		let command_changed = arg.command.is_some()
 			&& existing
 				.as_ref()
-				.is_none_or(|existing| !existing.set.command);
-		let error_changed =
-			arg.error.is_some() && existing.as_ref().is_none_or(|existing| !existing.set.error);
-		let log_changed =
-			arg.log.is_some() && existing.as_ref().is_none_or(|existing| !existing.set.log);
+				.is_none_or(|existing| !existing.set.command_objects);
+		let error_changed = arg.error.is_some()
+			&& existing
+				.as_ref()
+				.is_none_or(|existing| !existing.set.error_objects);
+		let log_changed = arg.log.is_some()
+			&& existing
+				.as_ref()
+				.is_none_or(|existing| !existing.set.log_objects);
 		let output_changed = arg.output.is_some()
 			&& existing
 				.as_ref()
-				.is_none_or(|existing| !existing.set.output);
+				.is_none_or(|existing| !existing.set.output_objects);
 		let parent_changed = arg.parent.is_some();
 		let sandbox_changed = arg.sandbox.is_some();
 		let mut set = arg.set();

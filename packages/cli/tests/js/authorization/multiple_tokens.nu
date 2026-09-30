@@ -11,9 +11,9 @@ let path = artifact {
 			const token = (permissions, expires_at, resource = id, key = "default", algorithm = "ed25519") =>
 				`0.${encode({ expires_at: expires_at * 60, permissions, resource })}.${encode({ algorithm, key })}.`;
 			const node = token(["process_node"], 30);
-			const output = token(["process_node_output"], 20);
-			const log = token(["process_node_log"], 20);
-			const broad = token(["process_subtree", "process_subtree_output", "process_subtree_log"], 20);
+			const output = token(["process_node_output_objects"], 20);
+			const log = token(["process_node_log_objects"], 20);
+			const broad = token(["process_subtree", "process_subtree_output_objects", "process_subtree_log_objects"], 20);
 			const parent = token(["process_parent"], 30);
 			const tokens = { local: [node, output] };
 			tg.Authorization.Tokens.inherit(tokens, { local: [log, output] });
@@ -46,7 +46,7 @@ let path = artifact {
 			tg.Authorization.Tokens.inherit(tokens, { local: [permanent] });
 			tg.assert(tokens.local.length === 1 && tokens.local[0] === [parent, differentKey, differentAlgorithm, permanent].sort()[0]);
 			tg.assert(!tg.Authorization.Token.covers(token(["process_node"], 40), output));
-			for (const aspect of ["", "_command", "_error", "_log", "_output"]) {
+			for (const aspect of ["", "_command_objects", "_error_objects", "_log_objects", "_output_objects"]) {
 				const node = token(["process_node" + aspect], 20);
 				const subtree = token(["process_subtree" + aspect], 20);
 				tg.assert(tg.Authorization.Token.covers(subtree, node));

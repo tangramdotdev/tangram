@@ -1223,10 +1223,10 @@ fn process_traverses_children(
 		permission,
 		tg::authorization::permission::process::Permission::Parent
 			| tg::authorization::permission::process::Permission::Subtree
-			| tg::authorization::permission::process::Permission::SubtreeCommand
-			| tg::authorization::permission::process::Permission::SubtreeError
-			| tg::authorization::permission::process::Permission::SubtreeLog
-			| tg::authorization::permission::process::Permission::SubtreeOutput
+			| tg::authorization::permission::process::Permission::SubtreeCommandObjects
+			| tg::authorization::permission::process::Permission::SubtreeErrorObjects
+			| tg::authorization::permission::process::Permission::SubtreeLogObjects
+			| tg::authorization::permission::process::Permission::SubtreeOutputObjects
 	)
 }
 

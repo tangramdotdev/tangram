@@ -84,7 +84,7 @@ assert equal $primary_tag.id $tag.id
 assert equal $primary_tag.target.id $process
 assert (
 	$primary_tag.permissions
-	| any {|permission| $permission == 'process_node_output' or $permission == 'process_subtree_output' }
+	| any {|permission| $permission == 'process_node_output_objects' or $permission == 'process_subtree_output_objects' }
 ) "the forwarded tag should retain permission to its process output"
 
 # The process graph remains in the secondary region.

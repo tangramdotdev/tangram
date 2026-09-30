@@ -70,24 +70,24 @@ impl Graph {
 				let state = &mut node.unwrap_process_mut().state;
 				update(&mut state.children, old.map(|facts| &facts.node), &new.node);
 				update(
-					&mut state.subtree_objects.command,
-					old.map(|facts| &facts.objects.command),
-					&new.objects.command,
+					&mut state.subtree_objects.command_objects,
+					old.map(|facts| &facts.objects.command_objects),
+					&new.objects.command_objects,
 				);
 				update(
-					&mut state.subtree_objects.error,
-					old.map(|facts| &facts.objects.error),
-					&new.objects.error,
+					&mut state.subtree_objects.error_objects,
+					old.map(|facts| &facts.objects.error_objects),
+					&new.objects.error_objects,
 				);
 				update(
-					&mut state.subtree_objects.log,
-					old.map(|facts| &facts.objects.log),
-					&new.objects.log,
+					&mut state.subtree_objects.log_objects,
+					old.map(|facts| &facts.objects.log_objects),
+					&new.objects.log_objects,
 				);
 				update(
-					&mut state.subtree_objects.output,
-					old.map(|facts| &facts.objects.output),
-					&new.objects.output,
+					&mut state.subtree_objects.output_objects,
+					old.map(|facts| &facts.objects.output_objects),
+					&new.objects.output_objects,
 				);
 			},
 			Parent::ProcessObject { kind, .. } => {
@@ -281,19 +281,23 @@ impl Graph {
 						.as_ref()
 						.is_some_and(crate::Session::process_log_needs_compaction)
 					{
-						objects.log.metadata = tg::object::metadata::Subtree::default();
-						subtree_objects.log.metadata = tg::object::metadata::Subtree::default();
+						objects.log_objects.metadata = tg::object::metadata::Subtree::default();
+						subtree_objects.log_objects.metadata =
+							tg::object::metadata::Subtree::default();
 					}
 					let storage = tangram_index::process::Storage {
-						node_command: objects.command.storage,
-						node_error: objects.error.storage,
-						node_log: objects.log.storage,
-						node_output: objects.output.storage,
+						node_command_objects: objects.command_objects.storage,
+						node_error_objects: objects.error_objects.storage,
+						node_log_objects: objects.log_objects.storage,
+						node_output_objects: objects.output_objects.storage,
 						subtree: children_known && children.storage,
-						subtree_command: children_known && subtree_objects.command.storage,
-						subtree_error: children_known && subtree_objects.error.storage,
-						subtree_log: children_known && subtree_objects.log.storage,
-						subtree_output: children_known && subtree_objects.output.storage,
+						subtree_command_objects: children_known
+							&& subtree_objects.command_objects.storage,
+						subtree_error_objects: children_known
+							&& subtree_objects.error_objects.storage,
+						subtree_log_objects: children_known && subtree_objects.log_objects.storage,
+						subtree_output_objects: children_known
+							&& subtree_objects.output_objects.storage,
 					};
 					if let Some(local_storage) = &mut node.local_storage {
 						local_storage.merge(&storage);
@@ -305,26 +309,29 @@ impl Graph {
 						use tg::authorization::permission::process::Set;
 						let mut permissions = Set::empty();
 						for (proven, permission) in [
-							(objects.command.permissions, Set::NODE_COMMAND),
-							(objects.error.permissions, Set::NODE_ERROR),
-							(objects.log.permissions, Set::NODE_LOG),
-							(objects.output.permissions, Set::NODE_OUTPUT),
+							(
+								objects.command_objects.permissions,
+								Set::NODE_COMMAND_OBJECTS,
+							),
+							(objects.error_objects.permissions, Set::NODE_ERROR_OBJECTS),
+							(objects.log_objects.permissions, Set::NODE_LOG_OBJECTS),
+							(objects.output_objects.permissions, Set::NODE_OUTPUT_OBJECTS),
 							(children_known && children.permissions, Set::SUBTREE),
 							(
-								children_known && subtree_objects.command.permissions,
-								Set::SUBTREE_COMMAND,
+								children_known && subtree_objects.command_objects.permissions,
+								Set::SUBTREE_COMMAND_OBJECTS,
 							),
 							(
-								children_known && subtree_objects.error.permissions,
-								Set::SUBTREE_ERROR,
+								children_known && subtree_objects.error_objects.permissions,
+								Set::SUBTREE_ERROR_OBJECTS,
 							),
 							(
-								children_known && subtree_objects.log.permissions,
-								Set::SUBTREE_LOG,
+								children_known && subtree_objects.log_objects.permissions,
+								Set::SUBTREE_LOG_OBJECTS,
 							),
 							(
-								children_known && subtree_objects.output.permissions,
-								Set::SUBTREE_OUTPUT,
+								children_known && subtree_objects.output_objects.permissions,
+								Set::SUBTREE_OUTPUT_OBJECTS,
 							),
 						] {
 							if proven {
@@ -346,19 +353,19 @@ impl Graph {
 					};
 					let metadata = tg::process::Metadata {
 						node: tg::process::metadata::Node {
-							command: metadata(&objects.command),
-							error: metadata(&objects.error),
-							log: metadata(&objects.log),
-							output: metadata(&objects.output),
+							command_objects: metadata(&objects.command_objects),
+							error_objects: metadata(&objects.error_objects),
+							log_objects: metadata(&objects.log_objects),
+							output_objects: metadata(&objects.output_objects),
 						},
 						subtree: if children_known {
 							tg::process::metadata::Subtree {
-								command: metadata(&subtree_objects.command),
+								command_objects: metadata(&subtree_objects.command_objects),
 								count: children.metadata.count.map(|count| count + 1),
 								depth: Some(1),
-								error: metadata(&subtree_objects.error),
-								log: metadata(&subtree_objects.log),
-								output: metadata(&subtree_objects.output),
+								error_objects: metadata(&subtree_objects.error_objects),
+								log_objects: metadata(&subtree_objects.log_objects),
+								output_objects: metadata(&subtree_objects.output_objects),
 							}
 						} else {
 							tg::process::metadata::Subtree::default()
@@ -413,37 +420,37 @@ impl Graph {
 					storage: storage.subtree,
 				};
 				let objects = Aspects {
-					command: Facts {
-						metadata: metadata.subtree.command,
+					command_objects: Facts {
+						metadata: metadata.subtree.command_objects,
 						permissions: Self::contains_process_permission(
 							node.local_permissions,
-							tg::authorization::permission::process::Permission::SubtreeCommand,
+							tg::authorization::permission::process::Permission::SubtreeCommandObjects,
 						),
-						storage: storage.subtree_command,
+						storage: storage.subtree_command_objects,
 					},
-					error: Facts {
-						metadata: metadata.subtree.error,
+					error_objects: Facts {
+						metadata: metadata.subtree.error_objects,
 						permissions: Self::contains_process_permission(
 							node.local_permissions,
-							tg::authorization::permission::process::Permission::SubtreeError,
+							tg::authorization::permission::process::Permission::SubtreeErrorObjects,
 						),
-						storage: storage.subtree_error,
+						storage: storage.subtree_error_objects,
 					},
-					log: Facts {
-						metadata: metadata.subtree.log,
+					log_objects: Facts {
+						metadata: metadata.subtree.log_objects,
 						permissions: Self::contains_process_permission(
 							node.local_permissions,
-							tg::authorization::permission::process::Permission::SubtreeLog,
+							tg::authorization::permission::process::Permission::SubtreeLogObjects,
 						),
-						storage: storage.subtree_log,
+						storage: storage.subtree_log_objects,
 					},
-					output: Facts {
-						metadata: metadata.subtree.output,
+					output_objects: Facts {
+						metadata: metadata.subtree.output_objects,
 						permissions: Self::contains_process_permission(
 							node.local_permissions,
-							tg::authorization::permission::process::Permission::SubtreeOutput,
+							tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 						),
-						storage: storage.subtree_output,
+						storage: storage.subtree_output_objects,
 					},
 				};
 				node.state.propagated = Published {

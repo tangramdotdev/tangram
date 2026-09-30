@@ -116,67 +116,67 @@ impl Session {
 					processes += count;
 				}
 				if state.arg.process_command_objects {
-					if let Some(commands_count) = metadata.subtree.command.count {
+					if let Some(commands_count) = metadata.subtree.command_objects.count {
 						objects += commands_count;
 					}
-					if let Some(commands_size) = metadata.subtree.command.size {
+					if let Some(commands_size) = metadata.subtree.command_objects.size {
 						bytes += commands_size;
 					}
 				}
 				if state.arg.process_error_objects {
-					if let Some(errors_count) = metadata.subtree.error.count {
+					if let Some(errors_count) = metadata.subtree.error_objects.count {
 						objects += errors_count;
 					}
-					if let Some(errors_size) = metadata.subtree.error.size {
+					if let Some(errors_size) = metadata.subtree.error_objects.size {
 						bytes += errors_size;
 					}
 				}
 				if state.arg.process_log_objects {
-					if let Some(logs_count) = metadata.subtree.log.count {
+					if let Some(logs_count) = metadata.subtree.log_objects.count {
 						objects += logs_count;
 					}
-					if let Some(logs_size) = metadata.subtree.log.size {
+					if let Some(logs_size) = metadata.subtree.log_objects.size {
 						bytes += logs_size;
 					}
 				}
 				if state.arg.process_output_objects {
-					if let Some(outputs_count) = metadata.subtree.output.count {
+					if let Some(outputs_count) = metadata.subtree.output_objects.count {
 						objects += outputs_count;
 					}
-					if let Some(outputs_size) = metadata.subtree.output.size {
+					if let Some(outputs_size) = metadata.subtree.output_objects.size {
 						bytes += outputs_size;
 					}
 				}
 			} else {
 				if state.arg.process_command_objects {
-					if let Some(command_count) = metadata.node.command.count {
+					if let Some(command_count) = metadata.node.command_objects.count {
 						objects += command_count;
 					}
-					if let Some(command_size) = metadata.node.command.size {
+					if let Some(command_size) = metadata.node.command_objects.size {
 						bytes += command_size;
 					}
 				}
 				if state.arg.process_error_objects {
-					if let Some(error_count) = metadata.node.error.count {
+					if let Some(error_count) = metadata.node.error_objects.count {
 						objects += error_count;
 					}
-					if let Some(error_size) = metadata.node.error.size {
+					if let Some(error_size) = metadata.node.error_objects.size {
 						bytes += error_size;
 					}
 				}
 				if state.arg.process_log_objects {
-					if let Some(log_count) = metadata.node.log.count {
+					if let Some(log_count) = metadata.node.log_objects.count {
 						objects += log_count;
 					}
-					if let Some(log_size) = metadata.node.log.size {
+					if let Some(log_size) = metadata.node.log_objects.size {
 						bytes += log_size;
 					}
 				}
 				if state.arg.process_output_objects {
-					if let Some(output_count) = metadata.node.output.count {
+					if let Some(output_count) = metadata.node.output_objects.count {
 						objects += output_count;
 					}
-					if let Some(output_size) = metadata.node.output.size {
+					if let Some(output_size) = metadata.node.output_objects.size {
 						bytes += output_size;
 					}
 				}

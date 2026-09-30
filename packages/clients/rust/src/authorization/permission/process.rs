@@ -21,16 +21,16 @@ pub enum Permission {
 	Node,
 
 	#[tangram_serialize(id = 1)]
-	NodeCommand,
+	NodeCommandObjects,
 
 	#[tangram_serialize(id = 2)]
-	NodeError,
+	NodeErrorObjects,
 
 	#[tangram_serialize(id = 3)]
-	NodeLog,
+	NodeLogObjects,
 
 	#[tangram_serialize(id = 4)]
-	NodeOutput,
+	NodeOutputObjects,
 
 	#[tangram_serialize(id = 5)]
 	Parent,
@@ -39,16 +39,16 @@ pub enum Permission {
 	Subtree,
 
 	#[tangram_serialize(id = 7)]
-	SubtreeCommand,
+	SubtreeCommandObjects,
 
 	#[tangram_serialize(id = 8)]
-	SubtreeError,
+	SubtreeErrorObjects,
 
 	#[tangram_serialize(id = 9)]
-	SubtreeLog,
+	SubtreeLogObjects,
 
 	#[tangram_serialize(id = 10)]
-	SubtreeOutput,
+	SubtreeOutputObjects,
 }
 
 #[derive(
@@ -70,16 +70,16 @@ pub struct Set(u16);
 
 impl Set {
 	pub const NODE: Self = Self(1 << 0);
-	pub const NODE_COMMAND: Self = Self(1 << 1);
-	pub const NODE_ERROR: Self = Self(1 << 2);
-	pub const NODE_LOG: Self = Self(1 << 3);
-	pub const NODE_OUTPUT: Self = Self(1 << 4);
+	pub const NODE_COMMAND_OBJECTS: Self = Self(1 << 1);
+	pub const NODE_ERROR_OBJECTS: Self = Self(1 << 2);
+	pub const NODE_LOG_OBJECTS: Self = Self(1 << 3);
+	pub const NODE_OUTPUT_OBJECTS: Self = Self(1 << 4);
 	pub const PARENT: Self = Self(1 << 10);
 	pub const SUBTREE: Self = Self(1 << 5);
-	pub const SUBTREE_COMMAND: Self = Self(1 << 6);
-	pub const SUBTREE_ERROR: Self = Self(1 << 7);
-	pub const SUBTREE_LOG: Self = Self(1 << 8);
-	pub const SUBTREE_OUTPUT: Self = Self(1 << 9);
+	pub const SUBTREE_COMMAND_OBJECTS: Self = Self(1 << 6);
+	pub const SUBTREE_ERROR_OBJECTS: Self = Self(1 << 7);
+	pub const SUBTREE_LOG_OBJECTS: Self = Self(1 << 8);
+	pub const SUBTREE_OUTPUT_OBJECTS: Self = Self(1 << 9);
 }
 
 impl Permission {
@@ -87,10 +87,10 @@ impl Permission {
 	pub fn to_subtree(self) -> Self {
 		match self {
 			Self::Node | Self::Subtree => Self::Subtree,
-			Self::NodeCommand | Self::SubtreeCommand => Self::SubtreeCommand,
-			Self::NodeError | Self::SubtreeError => Self::SubtreeError,
-			Self::NodeLog | Self::SubtreeLog => Self::SubtreeLog,
-			Self::NodeOutput | Self::SubtreeOutput => Self::SubtreeOutput,
+			Self::NodeCommandObjects | Self::SubtreeCommandObjects => Self::SubtreeCommandObjects,
+			Self::NodeErrorObjects | Self::SubtreeErrorObjects => Self::SubtreeErrorObjects,
+			Self::NodeLogObjects | Self::SubtreeLogObjects => Self::SubtreeLogObjects,
+			Self::NodeOutputObjects | Self::SubtreeOutputObjects => Self::SubtreeOutputObjects,
 			Self::Parent => Self::Parent,
 		}
 	}
@@ -106,16 +106,16 @@ impl Set {
 	pub fn all() -> Self {
 		Self(
 			Self::NODE.0
-				| Self::NODE_COMMAND.0
-				| Self::NODE_ERROR.0
-				| Self::NODE_LOG.0
-				| Self::NODE_OUTPUT.0
+				| Self::NODE_COMMAND_OBJECTS.0
+				| Self::NODE_ERROR_OBJECTS.0
+				| Self::NODE_LOG_OBJECTS.0
+				| Self::NODE_OUTPUT_OBJECTS.0
 				| Self::PARENT.0
 				| Self::SUBTREE.0
-				| Self::SUBTREE_COMMAND.0
-				| Self::SUBTREE_ERROR.0
-				| Self::SUBTREE_LOG.0
-				| Self::SUBTREE_OUTPUT.0,
+				| Self::SUBTREE_COMMAND_OBJECTS.0
+				| Self::SUBTREE_ERROR_OBJECTS.0
+				| Self::SUBTREE_LOG_OBJECTS.0
+				| Self::SUBTREE_OUTPUT_OBJECTS.0,
 		)
 	}
 
@@ -128,16 +128,16 @@ impl Set {
 	pub fn from_permission(permission: Permission) -> Self {
 		match permission {
 			Permission::Node => Self::NODE,
-			Permission::NodeCommand => Self::NODE_COMMAND,
-			Permission::NodeError => Self::NODE_ERROR,
-			Permission::NodeLog => Self::NODE_LOG,
-			Permission::NodeOutput => Self::NODE_OUTPUT,
+			Permission::NodeCommandObjects => Self::NODE_COMMAND_OBJECTS,
+			Permission::NodeErrorObjects => Self::NODE_ERROR_OBJECTS,
+			Permission::NodeLogObjects => Self::NODE_LOG_OBJECTS,
+			Permission::NodeOutputObjects => Self::NODE_OUTPUT_OBJECTS,
 			Permission::Parent => Self::PARENT,
 			Permission::Subtree => Self::SUBTREE,
-			Permission::SubtreeCommand => Self::SUBTREE_COMMAND,
-			Permission::SubtreeError => Self::SUBTREE_ERROR,
-			Permission::SubtreeLog => Self::SUBTREE_LOG,
-			Permission::SubtreeOutput => Self::SUBTREE_OUTPUT,
+			Permission::SubtreeCommandObjects => Self::SUBTREE_COMMAND_OBJECTS,
+			Permission::SubtreeErrorObjects => Self::SUBTREE_ERROR_OBJECTS,
+			Permission::SubtreeLogObjects => Self::SUBTREE_LOG_OBJECTS,
+			Permission::SubtreeOutputObjects => Self::SUBTREE_OUTPUT_OBJECTS,
 		}
 	}
 
@@ -158,23 +158,24 @@ impl Set {
 	pub fn iter(self) -> impl Iterator<Item = Permission> {
 		[
 			self.contains(Self::NODE).then_some(Permission::Node),
-			self.contains(Self::NODE_COMMAND)
-				.then_some(Permission::NodeCommand),
-			self.contains(Self::NODE_ERROR)
-				.then_some(Permission::NodeError),
-			self.contains(Self::NODE_LOG).then_some(Permission::NodeLog),
-			self.contains(Self::NODE_OUTPUT)
-				.then_some(Permission::NodeOutput),
+			self.contains(Self::NODE_COMMAND_OBJECTS)
+				.then_some(Permission::NodeCommandObjects),
+			self.contains(Self::NODE_ERROR_OBJECTS)
+				.then_some(Permission::NodeErrorObjects),
+			self.contains(Self::NODE_LOG_OBJECTS)
+				.then_some(Permission::NodeLogObjects),
+			self.contains(Self::NODE_OUTPUT_OBJECTS)
+				.then_some(Permission::NodeOutputObjects),
 			self.contains(Self::PARENT).then_some(Permission::Parent),
 			self.contains(Self::SUBTREE).then_some(Permission::Subtree),
-			self.contains(Self::SUBTREE_COMMAND)
-				.then_some(Permission::SubtreeCommand),
-			self.contains(Self::SUBTREE_ERROR)
-				.then_some(Permission::SubtreeError),
-			self.contains(Self::SUBTREE_LOG)
-				.then_some(Permission::SubtreeLog),
-			self.contains(Self::SUBTREE_OUTPUT)
-				.then_some(Permission::SubtreeOutput),
+			self.contains(Self::SUBTREE_COMMAND_OBJECTS)
+				.then_some(Permission::SubtreeCommandObjects),
+			self.contains(Self::SUBTREE_ERROR_OBJECTS)
+				.then_some(Permission::SubtreeErrorObjects),
+			self.contains(Self::SUBTREE_LOG_OBJECTS)
+				.then_some(Permission::SubtreeLogObjects),
+			self.contains(Self::SUBTREE_OUTPUT_OBJECTS)
+				.then_some(Permission::SubtreeOutputObjects),
 		]
 		.into_iter()
 		.flatten()

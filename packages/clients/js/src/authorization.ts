@@ -120,16 +120,16 @@ export namespace Authorization {
 			}
 			const process = [
 				"process_node",
-				"process_node_command",
-				"process_node_error",
-				"process_node_log",
-				"process_node_output",
+				"process_node_command_objects",
+				"process_node_error_objects",
+				"process_node_log_objects",
+				"process_node_output_objects",
 				"process_parent",
 				"process_subtree",
-				"process_subtree_command",
-				"process_subtree_error",
-				"process_subtree_log",
-				"process_subtree_output",
+				"process_subtree_command_objects",
+				"process_subtree_error_objects",
+				"process_subtree_log_objects",
+				"process_subtree_output_objects",
 			];
 			if (process.includes(needed)) {
 				return (

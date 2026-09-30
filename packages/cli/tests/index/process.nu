@@ -17,7 +17,7 @@ tg wait $id
 tg index
 
 let metadata = tg process metadata $id | from json
-let metadata = $metadata | update node.command { reject size } | update subtree.command { reject size }
+let metadata = $metadata | update node.command_objects { reject size } | update subtree.command_objects { reject size }
 let metadata = $metadata | to json --indent 2
 snapshot --name local_metadata $metadata '
 	{

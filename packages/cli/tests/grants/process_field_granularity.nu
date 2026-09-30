@@ -28,7 +28,7 @@ tg --url $remote.url index
 let data = tg --url $alice_local.url get $parent | from json
 
 # Alice grants Eve only the output field of the process subtree.
-tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree_output $parent | ignore
+tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree_output_objects $parent | ignore
 
 # Eve can read the output object the grant covers.
 let output = tg --url $remote.url --token $eve.token get $data.output.value | complete

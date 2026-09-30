@@ -349,24 +349,24 @@ impl Session {
 								stored = stored && metadata.subtree.count.is_some();
 								if arg.process_command_objects {
 									stored = stored
-										&& metadata.subtree.command.count.is_some()
-										&& metadata.subtree.command.size.is_some();
+										&& metadata.subtree.command_objects.count.is_some()
+										&& metadata.subtree.command_objects.size.is_some();
 								}
 								if arg.process_output_objects {
 									stored = stored
-										&& metadata.subtree.output.count.is_some()
-										&& metadata.subtree.output.size.is_some();
+										&& metadata.subtree.output_objects.count.is_some()
+										&& metadata.subtree.output_objects.size.is_some();
 								}
 							} else {
 								if arg.process_command_objects {
 									stored = stored
-										&& metadata.node.command.count.is_some()
-										&& metadata.node.command.size.is_some();
+										&& metadata.node.command_objects.count.is_some()
+										&& metadata.node.command_objects.size.is_some();
 								}
 								if arg.process_output_objects {
 									stored = stored
-										&& metadata.node.output.count.is_some()
-										&& metadata.node.output.size.is_some();
+										&& metadata.node.output_objects.count.is_some()
+										&& metadata.node.output_objects.size.is_some();
 								}
 							}
 							if stored {
@@ -397,35 +397,35 @@ impl Session {
 							*processes.get_or_insert(0) += count;
 						}
 						if arg.process_command_objects {
-							if let Some(commands_count) = metadata.subtree.command.count {
+							if let Some(commands_count) = metadata.subtree.command_objects.count {
 								*objects.get_or_insert(0) += commands_count;
 							}
-							if let Some(commands_size) = metadata.subtree.command.size {
+							if let Some(commands_size) = metadata.subtree.command_objects.size {
 								*bytes.get_or_insert(0) += commands_size;
 							}
 						}
 						if arg.process_output_objects {
-							if let Some(outputs_count) = metadata.subtree.output.count {
+							if let Some(outputs_count) = metadata.subtree.output_objects.count {
 								*objects.get_or_insert(0) += outputs_count;
 							}
-							if let Some(outputs_size) = metadata.subtree.output.size {
+							if let Some(outputs_size) = metadata.subtree.output_objects.size {
 								*bytes.get_or_insert(0) += outputs_size;
 							}
 						}
 					} else {
 						if arg.process_command_objects {
-							if let Some(command_count) = metadata.node.command.count {
+							if let Some(command_count) = metadata.node.command_objects.count {
 								*objects.get_or_insert(0) += command_count;
 							}
-							if let Some(command_size) = metadata.node.command.size {
+							if let Some(command_size) = metadata.node.command_objects.size {
 								*bytes.get_or_insert(0) += command_size;
 							}
 						}
 						if arg.process_output_objects {
-							if let Some(output_count) = metadata.node.output.count {
+							if let Some(output_count) = metadata.node.output_objects.count {
 								*objects.get_or_insert(0) += output_count;
 							}
-							if let Some(output_size) = metadata.node.output.size {
+							if let Some(output_size) = metadata.node.output_objects.size {
 								*bytes.get_or_insert(0) += output_size;
 							}
 						}
@@ -850,22 +850,22 @@ impl Session {
 					)];
 					if arg.process_command_objects {
 						permissions.push(tg::authorization::Permission::Process(
-							tg::authorization::permission::process::Permission::SubtreeCommand,
+							tg::authorization::permission::process::Permission::SubtreeCommandObjects,
 						));
 					}
 					if arg.process_error_objects {
 						permissions.push(tg::authorization::Permission::Process(
-							tg::authorization::permission::process::Permission::SubtreeError,
+							tg::authorization::permission::process::Permission::SubtreeErrorObjects,
 						));
 					}
 					if arg.process_log_objects {
 						permissions.push(tg::authorization::Permission::Process(
-							tg::authorization::permission::process::Permission::SubtreeLog,
+							tg::authorization::permission::process::Permission::SubtreeLogObjects,
 						));
 					}
 					if arg.process_output_objects {
 						permissions.push(tg::authorization::Permission::Process(
-							tg::authorization::permission::process::Permission::SubtreeOutput,
+							tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 						));
 					}
 					let expires_at = now

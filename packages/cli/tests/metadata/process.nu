@@ -13,7 +13,7 @@ tg wait $build.process
 tg index
 
 let metadata = tg process metadata $build.process | from json
-assert equal ($metadata.node | columns) [command error log output] "the node should report all of the component subtrees"
-assert equal $metadata.node.output.count 2 "the output subtree should count the file and its blob"
-assert equal $metadata.node.error.count 0 "a successful build should have no error objects"
+assert equal ($metadata.node | columns) [command_objects error_objects log_objects output_objects] "the node should report all of the component subtrees"
+assert equal $metadata.node.output_objects.count 2 "the output subtree should count the file and its blob"
+assert equal $metadata.node.error_objects.count 0 "a successful build should have no error objects"
 assert equal $metadata.subtree.count 1 "the process subtree should count only the process itself"

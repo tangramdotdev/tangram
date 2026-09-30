@@ -408,7 +408,7 @@ fn process_permissions_preserve_edge_and_aspect_boundaries() {
 	let child = tg::process::Id::new();
 	let command = tg::command::Id::new(b"command");
 	let permissions = tg::authorization::permission::Set::Process(
-		tg::authorization::permission::process::Set::SUBTREE_LOG,
+		tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS,
 	);
 	graph.update_process_local_permissions(&parent, permissions);
 	graph.update_process_remote(false, &child, Some(parent.clone().into()), None);
@@ -423,10 +423,10 @@ fn process_permissions_preserve_edge_and_aspect_boundaries() {
 	let inherited = graph.process_local_permissions(&child);
 	assert!(inherited.contains(permissions));
 	assert!(inherited.contains(tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::NodeLog
+		tg::authorization::permission::process::Permission::NodeLogObjects
 	)));
 	assert!(!inherited.contains(tg::authorization::Permission::Process(
-		tg::authorization::permission::process::Permission::NodeOutput
+		tg::authorization::permission::process::Permission::NodeOutputObjects
 	)));
 	assert!(graph.object_local_permissions(&command_object).is_empty());
 	let permissions = tg::authorization::permission::Set::Process(
@@ -471,8 +471,8 @@ fn process_metadata_and_availability_settle_without_finalization() {
 	);
 	update_object_data(&mut graph, &command.clone().into(), &command_data);
 	let availability = graph.get_process_local_availability(&child);
-	assert!(availability.node_command);
-	assert!(!availability.subtree_command);
+	assert!(availability.node_command_objects);
+	assert!(!availability.subtree_command_objects);
 	let child_data = process_data(&command, Some(&[]));
 	update_process(&mut graph, &child, &child_data);
 	update_object(&mut graph, &output, &[]);
@@ -484,13 +484,13 @@ fn process_metadata_and_availability_settle_without_finalization() {
 	let parent = graph.nodes()[&tg::Id::from(parent)].unwrap_process_ref();
 	let metadata = parent.metadata().unwrap();
 	assert_eq!(metadata.subtree.count, Some(2));
-	assert_eq!(metadata.node.command.count, Some(1));
-	assert_eq!(metadata.subtree.command.count, Some(2));
-	assert_eq!(metadata.subtree.command.depth, Some(1));
-	assert_eq!(metadata.subtree.output.size, Some(1));
-	assert!(parent.local_storage().unwrap().subtree_command);
-	assert!(parent.local_availability().unwrap().subtree_command);
-	assert!(parent.local_availability().unwrap().subtree_output);
+	assert_eq!(metadata.node.command_objects.count, Some(1));
+	assert_eq!(metadata.subtree.command_objects.count, Some(2));
+	assert_eq!(metadata.subtree.command_objects.depth, Some(1));
+	assert_eq!(metadata.subtree.output_objects.size, Some(1));
+	assert!(parent.local_storage().unwrap().subtree_command_objects);
+	assert!(parent.local_availability().unwrap().subtree_command_objects);
+	assert!(parent.local_availability().unwrap().subtree_output_objects);
 }
 
 #[test]
@@ -506,11 +506,11 @@ fn process_log_metadata_waits_for_compaction() {
 	child_data.stdout = tg::process::Stdio::Log;
 	update_process(&mut graph, &child, &child_data);
 	let node = graph.nodes()[&tg::Id::from(child.clone())].unwrap_process_ref();
-	assert_eq!(node.metadata().unwrap().node.log.count, None);
-	assert!(node.local_storage().unwrap().node_log);
+	assert_eq!(node.metadata().unwrap().node.log_objects.count, None);
+	assert!(node.local_storage().unwrap().node_log_objects);
 	let node = graph.nodes()[&tg::Id::from(parent.clone())].unwrap_process_ref();
-	assert_eq!(node.metadata().unwrap().subtree.log.count, None);
-	assert!(node.local_availability().unwrap().subtree_log);
+	assert_eq!(node.metadata().unwrap().subtree.log_objects.count, None);
+	assert!(node.local_availability().unwrap().subtree_log_objects);
 
 	let log = tg::blob::Id::new(b"log");
 	child_data.log = Some(tg::Referent::with_node(log.clone()));
@@ -521,8 +521,8 @@ fn process_log_metadata_waits_for_compaction() {
 	);
 	graph.update_object_local_permissions(&log.into(), permissions);
 	let node = graph.nodes()[&tg::Id::from(parent)].unwrap_process_ref();
-	assert_eq!(node.metadata().unwrap().subtree.log.count, Some(1));
-	assert!(node.local_availability().unwrap().subtree_log);
+	assert_eq!(node.metadata().unwrap().subtree.log_objects.count, Some(1));
+	assert!(node.local_availability().unwrap().subtree_log_objects);
 }
 
 #[test]
@@ -566,10 +566,10 @@ fn process_control_updates_merge_individual_fields() {
 	let mut graph = Graph::new(&arg, false);
 	let id = tg::process::Id::new();
 	let output = GetServerResponseOutput::Process(GetProcessServerResponseOutput {
-		permissions: tg::authorization::permission::process::Set::NODE_LOG,
+		permissions: tg::authorization::permission::process::Set::NODE_LOG_OBJECTS,
 		storage: Some(tg::process::Storage {
-			node_log: true,
-			node_output: true,
+			node_log_objects: true,
+			node_output_objects: true,
 			..Default::default()
 		}),
 	});
@@ -577,13 +577,13 @@ fn process_control_updates_merge_individual_fields() {
 		.update_node_local_control_output(&id.clone().into(), &output)
 		.unwrap();
 	let availability = graph.get_process_local_availability(&id);
-	assert!(availability.node_log);
-	assert!(!availability.node_output);
+	assert!(availability.node_log_objects);
+	assert!(!availability.node_output_objects);
 
 	let output = GetServerResponseOutput::Process(GetProcessServerResponseOutput {
-		permissions: tg::authorization::permission::process::Set::NODE_ERROR,
+		permissions: tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS,
 		storage: Some(tg::process::Storage {
-			node_error: true,
+			node_error_objects: true,
 			..Default::default()
 		}),
 	});
@@ -591,10 +591,15 @@ fn process_control_updates_merge_individual_fields() {
 		.update_node_local_control_output(&id.clone().into(), &output)
 		.unwrap();
 	let availability = graph.get_process_local_availability(&id);
-	assert!(availability.node_error);
-	assert!(availability.node_log);
-	assert!(!availability.node_output);
-	assert!(graph.get_process_local_storage(&id).unwrap().node_output);
+	assert!(availability.node_error_objects);
+	assert!(availability.node_log_objects);
+	assert!(!availability.node_output_objects);
+	assert!(
+		graph
+			.get_process_local_storage(&id)
+			.unwrap()
+			.node_output_objects
+	);
 }
 
 #[test]
@@ -614,10 +619,10 @@ fn control_responses_preserve_storage_and_permissions_on_the_wire() {
 		GetServerResponseOutput::Process(GetProcessServerResponseOutput {
 			permissions: tg::authorization::permission::process::Set::all(),
 			storage: Some(tg::process::Storage {
-				node_command: true,
-				node_error: true,
-				subtree_log: true,
-				subtree_output: true,
+				node_command_objects: true,
+				node_error_objects: true,
+				subtree_log_objects: true,
+				subtree_output_objects: true,
 				..Default::default()
 			}),
 		}),
@@ -780,7 +785,7 @@ fn process_data_and_permissions_do_not_prove_storage() {
 	);
 	let request = GetClientRequestArg {
 		storage: Some(tg::Storage::Process(tg::process::Storage {
-			node_command: true,
+			node_command_objects: true,
 			..Default::default()
 		})),
 		..request
@@ -875,7 +880,7 @@ fn process_command_permissions_aggregate_without_process_storage() {
 	};
 	graph.update_process_local(update);
 	graph.update_object_local_permissions(&command.into(), Set::Object(object::Set::SUBTREE));
-	let permissions = Set::Process(process::Set::SUBTREE_COMMAND);
+	let permissions = Set::Process(process::Set::SUBTREE_COMMAND_OBJECTS);
 	assert!(
 		!graph
 			.process_local_permissions(&parent)
@@ -1129,18 +1134,21 @@ fn reference_process(
 				let child_metadata = child_metadata.clone().unwrap_or_default();
 				let (child, stored) = match kind {
 					tangram_index::process::object::Kind::Command => (
-						&child_metadata.subtree.command,
-						child_storage.subtree_command,
+						&child_metadata.subtree.command_objects,
+						child_storage.subtree_command_objects,
 					),
-					tangram_index::process::object::Kind::Error => {
-						(&child_metadata.subtree.error, child_storage.subtree_error)
-					},
-					tangram_index::process::object::Kind::Log => {
-						(&child_metadata.subtree.log, child_storage.subtree_log)
-					},
-					tangram_index::process::object::Kind::Output => {
-						(&child_metadata.subtree.output, child_storage.subtree_output)
-					},
+					tangram_index::process::object::Kind::Error => (
+						&child_metadata.subtree.error_objects,
+						child_storage.subtree_error_objects,
+					),
+					tangram_index::process::object::Kind::Log => (
+						&child_metadata.subtree.log_objects,
+						child_storage.subtree_log_objects,
+					),
+					tangram_index::process::object::Kind::Output => (
+						&child_metadata.subtree.output_objects,
+						child_storage.subtree_output_objects,
+					),
 				};
 				add_reference_metadata(&mut subtree, child);
 				subtree_stored &= stored;
@@ -1151,28 +1159,28 @@ fn reference_process(
 		}
 		let (node_metadata, subtree_metadata, node_storage, subtree_storage) = match kind {
 			tangram_index::process::object::Kind::Command => (
-				&mut metadata.node.command,
-				&mut metadata.subtree.command,
-				&mut storage.node_command,
-				&mut storage.subtree_command,
+				&mut metadata.node.command_objects,
+				&mut metadata.subtree.command_objects,
+				&mut storage.node_command_objects,
+				&mut storage.subtree_command_objects,
 			),
 			tangram_index::process::object::Kind::Error => (
-				&mut metadata.node.error,
-				&mut metadata.subtree.error,
-				&mut storage.node_error,
-				&mut storage.subtree_error,
+				&mut metadata.node.error_objects,
+				&mut metadata.subtree.error_objects,
+				&mut storage.node_error_objects,
+				&mut storage.subtree_error_objects,
 			),
 			tangram_index::process::object::Kind::Log => (
-				&mut metadata.node.log,
-				&mut metadata.subtree.log,
-				&mut storage.node_log,
-				&mut storage.subtree_log,
+				&mut metadata.node.log_objects,
+				&mut metadata.subtree.log_objects,
+				&mut storage.node_log_objects,
+				&mut storage.subtree_log_objects,
 			),
 			tangram_index::process::object::Kind::Output => (
-				&mut metadata.node.output,
-				&mut metadata.subtree.output,
-				&mut storage.node_output,
-				&mut storage.subtree_output,
+				&mut metadata.node.output_objects,
+				&mut metadata.subtree.output_objects,
+				&mut storage.node_output_objects,
+				&mut storage.subtree_output_objects,
 			),
 		};
 		*node_metadata = direct;

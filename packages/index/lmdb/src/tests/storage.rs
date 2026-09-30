@@ -125,10 +125,10 @@ async fn command_objects_can_be_empty_or_multiple_without_a_stored_command() {
 			.flatten()
 			.unwrap();
 		assert_eq!(process.command_id, command_id);
-		assert!(process.set.command);
-		assert!(process.storage.node_command);
-		assert_eq!(process.metadata.node.command.count, Some(count));
-		assert_eq!(process.metadata.node.command.size, Some(count));
+		assert!(process.set.command_objects);
+		assert!(process.storage.node_command_objects);
+		assert_eq!(process.metadata.node.command_objects.count, Some(count));
+		assert_eq!(process.metadata.node.command_objects.size, Some(count));
 		assert!(index.try_get_object(&command_id).await.unwrap().is_none());
 		let transaction = index.env.read_txn().unwrap();
 		let relationships = Index::get_process_objects_with_transaction(

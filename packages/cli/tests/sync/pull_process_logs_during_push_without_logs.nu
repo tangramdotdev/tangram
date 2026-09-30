@@ -33,7 +33,7 @@ let process = tg --url $alice_local.url build --detach $path | str trim
 tg --url $alice_local.url wait $process | ignore
 
 # Grant Bob access independently of the incoming sync.
-tg --url $remote.url --token $root_token grant $bob.user.id process_subtree,process_subtree_log $process | ignore
+tg --url $remote.url --token $root_token grant $bob.user.id process_subtree,process_subtree_log_objects $process | ignore
 
 # Hold the process's store read on alice's server so that the push stays open before the process reaches the remote.
 let watch = (
