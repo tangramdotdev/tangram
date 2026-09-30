@@ -932,6 +932,13 @@ export namespace Process {
 			return this;
 		}
 
+		cached(
+			cached: tg.Unresolved<tg.MaybeMutation<boolean> | null> = true,
+		): this {
+			this.#args.push({ cached });
+			return this;
+		}
+
 		checksum(
 			checksum: tg.Unresolved<tg.MaybeMutation<tg.Checksum> | null>,
 		): this {
@@ -1276,6 +1283,9 @@ export namespace Process {
 	export type ArgObject = {
 		/** The command's arguments. */
 		args?: Array<tg.Command.Arg.Value> | null;
+
+		/** Require a cached process when true, or a new process when false. */
+		cached?: boolean | null;
 
 		/** The cache location arg. */
 		cache_location?: tg.Location.Arg | null;

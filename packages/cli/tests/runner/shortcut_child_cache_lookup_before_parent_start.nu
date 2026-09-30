@@ -34,7 +34,7 @@ let path = artifact {
 		}
 
 		export async function parent(name: string) {
-			return await tg.build(child).sandbox();
+			return await tg.build(child).cached(name === "second").sandbox();
 		}
 
 		export function child() {
@@ -43,7 +43,7 @@ let path = artifact {
 	',
 }
 
-# Cache the child on the remote.
+# Build the child once so the remote can reuse it.
 let output = timeout 60s tg --url $remote.url --token $root_token build $"($path)#first" | complete
 success $output "the first build should succeed"
 assert equal ($output.stdout | str trim) '42'
@@ -58,7 +58,7 @@ let spawned = tg --url $remote.url --token $root_token build --detach --verbose 
 let grandparent = $spawned.process | split row '?' | first
 success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 0 | complete) "the parent should reach its command push"
 
-# Let the child's push through while the parent's start is held.
+# Keep the parent's start pending while the child attempts its required cache lookup.
 let pushed = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 1 | complete
 if $pushed.exit_code == 0 {
 	tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 1
@@ -74,7 +74,7 @@ let wait = $output.stdout | from json
 assert equal $wait.exit 0 "the second build should succeed"
 assert equal $wait.output 42
 
-# The child should be the cached child from the first build.
+# The remote should record the child under the parent.
 let parents = tg --url $remote.url --token $root_token process children --no-tokens $grandparent | from json
 assert equal ($parents | length) 1
 let parent = $parents | get 0.process | split row '?' | first

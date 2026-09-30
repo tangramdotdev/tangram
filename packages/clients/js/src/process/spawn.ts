@@ -233,6 +233,9 @@ let spawnArgFromResolvedWithSandbox = async (
 		stdin: processStdin ?? "inherit",
 		stdout: stdout ?? "inherit",
 	};
+	if (arg.cached !== undefined && arg.cached !== null) {
+		spawnArg.cached = arg.cached;
+	}
 	if (arg.cache_location !== undefined) {
 		spawnArg.cacheLocation = arg.cache_location;
 	}
