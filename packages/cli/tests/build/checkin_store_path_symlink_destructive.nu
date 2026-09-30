@@ -7,6 +7,7 @@ let server = server spawn --config {
 	vfs: false
 }
 
+# Prepopulate the checkout for the same empty directory created below so checkout reuses the destructive check-in.
 let directory = mktemp -d
 tg checkin --destructive --no-ignore $directory
 

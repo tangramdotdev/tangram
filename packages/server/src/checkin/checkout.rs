@@ -126,7 +126,7 @@ impl Session {
 		let src = node.path.as_ref().unwrap();
 		let dst = self.server.checkout_path().join(id.to_string());
 
-		// Write the file tokens before publishing the checkout.
+		// Write the directory and file tokens before publishing the checkout.
 		tokio::task::spawn_blocking({
 			let session = self.clone();
 			let graph = graph.clone();
