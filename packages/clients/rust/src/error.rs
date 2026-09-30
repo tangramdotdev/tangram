@@ -33,6 +33,9 @@ pub enum Code {
 	#[tangram_serialize(id = 1)]
 	ChecksumMismatch,
 
+	#[tangram_serialize(id = 4)]
+	CycleDetection,
+
 	#[tangram_serialize(id = 2)]
 	HeartbeatExpiration,
 

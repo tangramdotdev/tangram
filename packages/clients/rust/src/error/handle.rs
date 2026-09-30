@@ -223,6 +223,14 @@ impl Error {
 	}
 
 	#[must_use]
+	pub fn code(&self) -> Option<tg::error::Code> {
+		self.state.object().and_then(|object| {
+			let object = object.try_unwrap_error_ref().ok()?;
+			object.code
+		})
+	}
+
+	#[must_use]
 	pub fn message(&self) -> Option<String> {
 		self.state.object().and_then(|object| {
 			let object = object.try_unwrap_error_ref().ok()?;
