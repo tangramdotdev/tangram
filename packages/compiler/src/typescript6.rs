@@ -17,12 +17,13 @@ type RequestSender = tokio::sync::mpsc::UnboundedSender<(Request, ResponseSender
 type RequestReceiver = tokio::sync::mpsc::UnboundedReceiver<(Request, ResponseSender)>;
 type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
 
-pub struct Typescript {
+pub struct Service {
 	request_sender: Mutex<Option<RequestSender>>,
 	thread: Mutex<Option<std::thread::JoinHandle<()>>>,
 }
 
-impl Typescript {
+impl Service {
+	#[must_use]
 	pub fn new() -> Self {
 		Self {
 			request_sender: Mutex::new(None),

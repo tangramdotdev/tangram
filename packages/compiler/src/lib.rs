@@ -19,7 +19,8 @@ use {
 };
 
 #[cfg(feature = "typescript")]
-mod typescript;
+mod typescript6;
+mod typescript7;
 mod util;
 
 pub mod analyze;
@@ -66,6 +67,8 @@ pub struct Owned {
 pub struct Compiler(Arc<State>);
 
 pub struct State {
+	check_backend: CheckBackend,
+
 	/// The documents.
 	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
 
@@ -99,13 +102,32 @@ pub struct State {
 
 	/// The typescript service.
 	#[cfg(feature = "typescript")]
-	typescript: self::typescript::Typescript,
+	typescript6: typescript6::Service,
+
+	typescript7: typescript7::Service,
 
 	/// The version.
 	version: String,
 
 	/// The workspaces.
 	workspaces: tokio::sync::RwLock<BTreeSet<PathBuf>>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Options {
+	#[serde(default)]
+	pub check_backend: CheckBackend,
+	#[serde(default = "default_typescript_executable")]
+	pub typescript_executable: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckBackend {
+	#[default]
+	Typescript6,
+	Typescript7,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -191,6 +213,7 @@ impl Compiler {
 		library_path: PathBuf,
 		main_runtime_handle: tokio::runtime::Handle,
 		version: String,
+		options: Options,
 	) -> Shared {
 		let documents = DashMap::default();
 		let requests = DashMap::new();
@@ -198,11 +221,13 @@ impl Compiler {
 		let sender = std::sync::RwLock::new(None);
 		let serve_task = Mutex::new(None);
 		#[cfg(feature = "typescript")]
-		let typescript = self::typescript::Typescript::new();
+		let typescript6 = typescript6::Service::new();
+		let typescript7 = typescript7::Service::new(options.typescript_executable);
 		let workspaces = tokio::sync::RwLock::new(BTreeSet::new());
 
 		// Create the compiler.
 		let compiler = Self(Arc::new(State {
+			check_backend: options.check_backend,
 			documents,
 			instance,
 			library_path,
@@ -214,7 +239,8 @@ impl Compiler {
 			serve_task,
 			store_path,
 			#[cfg(feature = "typescript")]
-			typescript,
+			typescript6,
+			typescript7,
 			version,
 			workspaces,
 		}));
@@ -229,11 +255,13 @@ impl Compiler {
 					serve_task.wait().await.unwrap();
 				}
 
+				compiler.typescript7.stop().await;
+
 				// Stop and await the typescript service.
 				#[cfg(feature = "typescript")]
 				{
-					compiler.typescript.stop();
-					compiler.typescript.join().await;
+					compiler.typescript6.stop();
+					compiler.typescript6.join().await;
 				}
 			}
 		};
@@ -852,9 +880,16 @@ impl Compiler {
 	}
 
 	async fn request(&self, request: Request) -> tg::Result<Response> {
+		if matches!(self.check_backend, CheckBackend::Typescript7)
+			&& let Request::Check(request) = request
+		{
+			let response = self.typescript7.check(self, request).await?;
+			return Ok(Response::Check(response));
+		}
+
 		#[cfg(feature = "typescript")]
 		{
-			self.typescript.request(self, request).await
+			self.typescript6.request(self, request).await
 		}
 		#[cfg(not(feature = "typescript"))]
 		{
@@ -1322,6 +1357,19 @@ impl Deref for Compiler {
 impl Drop for Owned {
 	fn drop(&mut self) {
 		#[cfg(feature = "typescript")]
-		self.compiler.typescript.stop();
+		self.compiler.typescript6.stop();
 	}
+}
+
+impl Default for Options {
+	fn default() -> Self {
+		Self {
+			check_backend: CheckBackend::default(),
+			typescript_executable: default_typescript_executable(),
+		}
+	}
+}
+
+fn default_typescript_executable() -> PathBuf {
+	"tsc".into()
 }

@@ -8202,6 +8202,7 @@ dependencies = [
  "sourcemap",
  "tangram_client",
  "tangram_futures",
+ "tangram_typescript_client",
  "tangram_v8",
  "tokio",
  "tokio-util",
@@ -8691,6 +8692,15 @@ dependencies = [
  "unicode-width 0.2.2",
  "uuid",
  "xattr",
+]
+
+[[package]]
+name = "tangram_typescript_client"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

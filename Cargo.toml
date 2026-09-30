@@ -35,6 +35,7 @@ members = [
   "packages/scylla/client",
   "packages/serialize",
   "packages/server",
+  "packages/typescript/client",
   "packages/uri",
   "packages/util",
   "packages/v8",
@@ -234,6 +235,7 @@ tangram_quickjs = { path = "packages/quickjs" }
 tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
 tangram_server = { path = "packages/server" }
+tangram_typescript_client = { path = "packages/typescript/client" }
 tangram_uri = { path = "packages/uri" }
 tangram_util = { path = "packages/util" }
 tangram_v8 = { path = "packages/v8" }

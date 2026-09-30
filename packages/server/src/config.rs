@@ -27,6 +27,8 @@ pub struct Config {
 
 	pub checkouts: bool,
 
+	pub compiler: tangram_compiler::Options,
+
 	pub control: Control,
 
 	pub database: Database,
@@ -1335,6 +1337,7 @@ impl Default for Config {
 			cache: Cache::default(),
 			checkin: Checkin::default(),
 			checkouts: true,
+			compiler: tangram_compiler::Options::default(),
 			control: Control::default(),
 			database: Database::default(),
 			directory: None,

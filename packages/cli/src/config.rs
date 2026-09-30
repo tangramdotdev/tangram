@@ -46,6 +46,9 @@ pub struct Config {
 	pub client: Option<Client>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub compiler: Option<tangram_compiler::Options>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub control: Option<Control>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2309,6 +2312,9 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	}
 	if let Some(checkouts) = source.checkouts {
 		target.checkouts = checkouts;
+	}
+	if let Some(source) = source.compiler {
+		target.compiler = source;
 	}
 	if let Some(source) = source.control {
 		target.control = resolve_control(source);

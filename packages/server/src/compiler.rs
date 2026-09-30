@@ -20,6 +20,7 @@ impl Session {
 			library_path,
 			main_runtime_handle,
 			version,
+			self.server.config.compiler.clone(),
 		)
 	}
 
