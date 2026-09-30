@@ -22,27 +22,27 @@ let metadata = $metadata | to json --indent 2
 snapshot --name local_metadata $metadata '
 	{
 	  "node": {
-	    "command": {
+	    "command_objects": {
 	      "count": 2,
 	      "depth": 2,
 	      "solvable": false,
 	      "solved": true
 	    },
-	    "error": {
+	    "error_objects": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
 	      "solvable": false,
 	      "solved": true
 	    },
-	    "log": {
+	    "log_objects": {
 	      "count": 1,
 	      "depth": 1,
 	      "size": 14,
 	      "solvable": false,
 	      "solved": true
 	    },
-	    "output": {
+	    "output_objects": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
@@ -51,28 +51,28 @@ snapshot --name local_metadata $metadata '
 	    }
 	  },
 	  "subtree": {
-	    "command": {
+	    "command_objects": {
 	      "count": 2,
 	      "depth": 2,
 	      "solvable": false,
 	      "solved": true
 	    },
 	    "count": 1,
-	    "error": {
+	    "error_objects": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
 	      "solvable": false,
 	      "solved": true
 	    },
-	    "log": {
+	    "log_objects": {
 	      "count": 1,
 	      "depth": 1,
 	      "size": 14,
 	      "solvable": false,
 	      "solved": true
 	    },
-	    "output": {
+	    "output_objects": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
@@ -91,14 +91,14 @@ let remote_metadata = tg --url $remote.url metadata --pretty $id
 snapshot --name remote_metadata $remote_metadata '
 	{
 	  "node": {
-	    "error": {
+	    "error_objects": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
 	      "solvable": false,
 	      "solved": true,
 	    },
-	    "output": {
+	    "output_objects": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
@@ -108,14 +108,14 @@ snapshot --name remote_metadata $remote_metadata '
 	  },
 	  "subtree": {
 	    "count": 1,
-	    "error": {
+	    "error_objects": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,
 	      "solvable": false,
 	      "solved": true,
 	    },
-	    "output": {
+	    "output_objects": {
 	      "count": 0,
 	      "depth": 0,
 	      "size": 0,

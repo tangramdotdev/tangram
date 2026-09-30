@@ -49,8 +49,8 @@ tg --token $alice.token index
 
 let alice_process_metadata = tg --token $alice.token metadata $parent | from json
 assert equal $alice_process_metadata.subtree.count 2 "Alice should see the process subtree metadata after indexing."
-assert equal ($alice_process_metadata.node | columns) [error log output] "Alice should see complete process aspects with no objects."
+assert equal ($alice_process_metadata.node | columns) [error_objects log_objects output_objects] "Alice should see complete process aspects with no objects."
 
 let bob_process_metadata = tg --token $bob.token metadata $parent | from json
-assert equal ($bob_process_metadata.node | columns) [error log output] "Bob should see complete process node aspects with no objects."
-assert equal ($bob_process_metadata.subtree | columns) [error log output] "Bob should see complete process subtree aspects with no objects."
+assert equal ($bob_process_metadata.node | columns) [error_objects log_objects output_objects] "Bob should see complete process node aspects with no objects."
+assert equal ($bob_process_metadata.subtree | columns) [error_objects log_objects output_objects] "Bob should see complete process subtree aspects with no objects."

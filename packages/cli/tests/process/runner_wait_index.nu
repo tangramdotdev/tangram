@@ -48,7 +48,7 @@ for location in [local remote] {
 		let process = $spawned.process | split row '?' | first
 		success (timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | complete) "the runner must reach the finish checkpoint"
 		tg --url $runner.url --token $root_token grant $alice.user.id process_node $process | ignore
-		tg --url $runner.url --token $root_token grant $alice.user.id $'process_node_($field)' $process | ignore
+		tg --url $runner.url --token $root_token grant $alice.user.id $'process_node_($field)_objects' $process | ignore
 		if $case.both {
 			tg --url $runner.url --token $root_token grant $alice.user.id process_node_output_objects $process | ignore
 		}
