@@ -55,7 +55,7 @@ struct ProcessPermissionInputs<'a> {
 	child_entries: &'a [Vec<crate::permission::PermissionEntry>],
 	command_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
 	error_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
-	log_object_entries: Option<&'a [crate::permission::PermissionEntry]>,
+	log_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
 	output_object_entries: &'a [Vec<crate::permission::PermissionEntry>],
 	set: ProcessPermissionSet,
 }
@@ -64,6 +64,7 @@ struct ProcessPermissionInputs<'a> {
 struct ProcessPermissionSet {
 	command: bool,
 	error: bool,
+	log: bool,
 	output: bool,
 }
 
@@ -807,12 +808,17 @@ impl Index {
 				node_error,
 			);
 		}
-		if let Some(log_object_entries) = input.log_object_entries {
+		if input.set.log {
+			let log_object_entries = input
+				.log_object_entries
+				.iter()
+				.map(Vec::as_slice)
+				.collect::<Vec<_>>();
 			Self::insert_object_aspect_permissions(
 				&mut expected,
 				input.entries,
-				log_object_entries,
-				&[log_object_entries],
+				log_object_entries.iter().flat_map(|entries| *entries),
+				&log_object_entries,
 				object_subtree,
 				node_log,
 			);
@@ -1025,7 +1031,7 @@ impl Index {
 		let objects = Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
 		let mut command_object_entries: Vec<Vec<crate::permission::PermissionEntry>> = Vec::new();
 		let mut error_object_entries: Vec<Vec<crate::permission::PermissionEntry>> = Vec::new();
-		let mut log_object_entries: Option<Vec<crate::permission::PermissionEntry>> = None;
+		let mut log_object_entries: Vec<Vec<crate::permission::PermissionEntry>> = Vec::new();
 		let mut output_object_entries: Vec<Vec<crate::permission::PermissionEntry>> = Vec::new();
 		for (object, kind) in objects {
 			let resource = tg::Id::from(object);
@@ -1044,7 +1050,7 @@ impl Index {
 					error_object_entries.push(entries);
 				},
 				tangram_index::process::object::Kind::Log => {
-					log_object_entries = Some(entries);
+					log_object_entries.push(entries);
 				},
 				tangram_index::process::object::Kind::Output => {
 					output_object_entries.push(entries);
@@ -1057,11 +1063,12 @@ impl Index {
 			child_entries: &child_entries,
 			command_object_entries: &command_object_entries,
 			error_object_entries: &error_object_entries,
-			log_object_entries: log_object_entries.as_deref(),
+			log_object_entries: &log_object_entries,
 			output_object_entries: &output_object_entries,
 			set: ProcessPermissionSet {
 				command: process.set.command,
 				error: process.set.error,
+				log: process.set.log,
 				output: process.set.output,
 			},
 		};
@@ -1098,7 +1105,7 @@ impl Index {
 		let objects = Self::get_process_objects_with_transaction(db, subspace, transaction, id)?;
 		let mut command_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
 		let mut error_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
-		let mut log_object: Option<Option<tangram_index::object::Object>> = None;
+		let mut log_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
 		let mut output_objects: Vec<Option<tangram_index::object::Object>> = Vec::new();
 		for (id, kind) in &objects {
 			let object = Self::try_get_object_with_transaction(db, subspace, transaction, id)?;
@@ -1110,7 +1117,7 @@ impl Index {
 					error_objects.push(object);
 				},
 				tangram_index::process::object::Kind::Log => {
-					log_object = Some(object);
+					log_objects.push(object);
 				},
 				tangram_index::process::object::Kind::Output => {
 					output_objects.push(object);
@@ -1307,56 +1314,77 @@ impl Index {
 		}
 
 		if process.set.log {
-			if let Some(Some(object)) = &log_object {
-				if process.metadata.node.log.count.is_none()
-					&& let Some(value) = object.metadata.subtree.count
-				{
+			if process.metadata.node.log.count.is_none() {
+				let value = log_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.count)
+					})
+					.sum::<Option<u64>>();
+				if let Some(value) = value {
 					process.metadata.node.log.count = Some(value);
 					changed = true;
 				}
-				if process.metadata.node.log.depth.is_none()
-					&& let Some(value) = object.metadata.subtree.depth
-				{
+			}
+
+			if process.metadata.node.log.depth.is_none() {
+				let value = log_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.depth)
+					})
+					.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
+				if let Some(value) = value {
 					process.metadata.node.log.depth = Some(value);
 					changed = true;
 				}
-				if process.metadata.node.log.size.is_none()
-					&& let Some(value) = object.metadata.subtree.size
-				{
+			}
+
+			if process.metadata.node.log.size.is_none() {
+				let value = log_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.size)
+					})
+					.sum::<Option<u64>>();
+				if let Some(value) = value {
 					process.metadata.node.log.size = Some(value);
 					changed = true;
 				}
-				if process.metadata.node.log.solvable.is_none()
-					&& let Some(value) = object.metadata.subtree.solvable
-				{
+			}
+
+			if process.metadata.node.log.solvable.is_none() {
+				let value = log_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.solvable)
+					})
+					.try_fold(false, |output, value| value.map(|value| output || value));
+				if let Some(value) = value {
 					process.metadata.node.log.solvable = Some(value);
 					changed = true;
 				}
-				if process.metadata.node.log.solved.is_none()
-					&& let Some(value) = object.metadata.subtree.solved
-				{
+			}
+
+			if process.metadata.node.log.solved.is_none() {
+				let value = log_objects
+					.iter()
+					.map(|option| {
+						option
+							.as_ref()
+							.and_then(|object| object.metadata.subtree.solved)
+					})
+					.try_fold(true, |output, value| value.map(|value| output && value));
+				if let Some(value) = value {
 					process.metadata.node.log.solved = Some(value);
-					changed = true;
-				}
-			} else if log_object.is_none() {
-				if process.metadata.node.log.count.is_none() {
-					process.metadata.node.log.count = Some(0);
-					changed = true;
-				}
-				if process.metadata.node.log.depth.is_none() {
-					process.metadata.node.log.depth = Some(0);
-					changed = true;
-				}
-				if process.metadata.node.log.size.is_none() {
-					process.metadata.node.log.size = Some(0);
-					changed = true;
-				}
-				if process.metadata.node.log.solvable.is_none() {
-					process.metadata.node.log.solvable = Some(false);
-					changed = true;
-				}
-				if process.metadata.node.log.solved.is_none() {
-					process.metadata.node.log.solved = Some(true);
 					changed = true;
 				}
 			}
@@ -1817,13 +1845,11 @@ impl Index {
 			}
 		}
 
-		if process.set.log {
-			if let Some(Some(object)) = &log_object {
-				if !process.storage.node_log && object.storage.subtree {
-					process.storage.node_log = true;
-					changed = true;
-				}
-			} else if log_object.is_none() && !process.storage.node_log {
+		if process.set.log && !process.storage.node_log {
+			let value = log_objects
+				.iter()
+				.all(|option| option.as_ref().is_some_and(|object| object.storage.subtree));
+			if value {
 				process.storage.node_log = true;
 				changed = true;
 			}
