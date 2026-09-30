@@ -46,6 +46,23 @@ impl Session {
 		arg: &tg::process::spawn::Arg,
 		command: &tg::Referent<tg::command::Id>,
 	) -> tg::Result<Option<super::local::Output>> {
+		match self.try_get_cached_process_local_inner(arg, command).await {
+			Ok(output) => Ok(output),
+			Err(error) if matches!(error.code(), Some(tg::error::Code::CycleDetection)) => {
+				Err(error)
+			},
+			Err(error) => {
+				tracing::error!(error = %error.trace(), "failed to get a cached process");
+				Ok(None)
+			},
+		}
+	}
+
+	async fn try_get_cached_process_local_inner(
+		&self,
+		arg: &tg::process::spawn::Arg,
+		command: &tg::Referent<tg::command::Id>,
+	) -> tg::Result<Option<super::local::Output>> {
 		let public = arg.public && arg.cached == Some(true);
 
 		// List the candidates.
@@ -109,7 +126,7 @@ impl Session {
 		if let Some(child) = cycle {
 			let parent = arg.parent.as_ref().unwrap();
 			return Err(tg::error!(
-				code = tg::error::Code::ProcessCycleDetected,
+				code = tg::error::Code::CycleDetection,
 				%child,
 				%parent,
 				"adding this child process creates a cycle"

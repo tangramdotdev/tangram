@@ -33,14 +33,14 @@ pub enum Code {
 	#[tangram_serialize(id = 1)]
 	ChecksumMismatch,
 
+	#[tangram_serialize(id = 4)]
+	CycleDetection,
+
 	#[tangram_serialize(id = 2)]
 	HeartbeatExpiration,
 
 	#[tangram_serialize(id = 3)]
 	Internal,
-
-	#[tangram_serialize(id = 4)]
-	ProcessCycleDetected,
 }
 
 /// A transport-independent error classification.

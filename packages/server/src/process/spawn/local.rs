@@ -244,21 +244,10 @@ impl Session {
 				.await
 				.map(Some);
 		}
-		let result = self
-			.try_get_cached_process_local(arg, command)
+		self.try_get_cached_process_local(arg, command)
 			.boxed()
-			.await;
-		if let Err(error) = &result
-			&& matches!(error.code(), Some(tg::error::Code::ProcessCycleDetected))
-		{
-			return result;
-		}
-		let Ok(output) = result.inspect_err(|error| {
-			tracing::error!(error = %error.trace(), "failed to get a cached process");
-		}) else {
-			return Ok(None);
-		};
-		Ok(output)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to get a cached process"))
 	}
 
 	async fn spawn_process_create_local_process(
