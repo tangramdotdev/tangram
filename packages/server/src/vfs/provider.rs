@@ -624,18 +624,12 @@ impl Provider {
 		let mut references = Vec::with_capacity(file.dependencies.len());
 		for (reference, dependency) in &file.dependencies {
 			let mut reference = reference.clone();
-			let Some(edge) = dependency
-				.as_ref()
-				.and_then(|dependency| dependency.0.node.as_ref())
+			let Some(dependency) =
+				self.file_dependency_artifact(tokens, dependency.as_ref(), graph, transaction)?
 			else {
 				references.push(reference);
 				continue;
 			};
-			let Ok(edge) = tg::graph::data::Edge::<tg::artifact::Id>::try_from(edge.clone()) else {
-				references.push(reference);
-				continue;
-			};
-			let dependency = self.artifact_from_edge_inner(tokens, edge, graph, transaction)?;
 			let mut options = reference.options().clone();
 			options
 				.tokens
@@ -647,6 +641,23 @@ impl Provider {
 		}
 
 		Ok(references)
+	}
+
+	fn file_dependency_artifact(
+		&self,
+		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		dependency: Option<&tg::graph::data::Dependency>,
+		graph: Option<&tg::graph::Id>,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Option<ArtifactInfo>> {
+		let Some(edge) = dependency.and_then(|dependency| dependency.0.node.as_ref()) else {
+			return Ok(None);
+		};
+		let Ok(edge) = tg::graph::data::Edge::<tg::artifact::Id>::try_from(edge.clone()) else {
+			return Ok(None);
+		};
+		let artifact = self.artifact_from_edge_inner(tokens, edge, graph, transaction)?;
+		Ok(Some(artifact))
 	}
 
 	pub async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
@@ -1350,11 +1361,14 @@ impl Provider {
 		}
 
 		// Get the blob id.
-		let (file, _) = self.file_node_inner(&artifact).await?;
+		let (file, graph) = self.file_node_inner(&artifact).await?;
 		let Some(blob) = file.contents else {
 			tracing::error!(%id, "file has no contents");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
+
+		// Register the file's dependencies so that a process can open them by store path.
+		self.register_file_dependencies(id, &artifact, &file.dependencies, graph.as_ref(), None)?;
 
 		// Create the file handle.
 		let file_handle = FileHandle {
@@ -1392,11 +1406,20 @@ impl Provider {
 		}
 
 		// Get the file object.
-		let (file, _) = self.file_node_sync_inner(&artifact, transaction)?;
+		let (file, graph) = self.file_node_sync_inner(&artifact, transaction)?;
 		let Some(blob) = file.contents else {
 			tracing::error!(%id, "file has no contents");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
+
+		// Register the file's dependencies so that a process can open them by store path.
+		self.register_file_dependencies(
+			id,
+			&artifact,
+			&file.dependencies,
+			graph.as_ref(),
+			transaction,
+		)?;
 
 		// Attempt to open a backing file for passthrough.
 		let backing_fd = self.try_open_backing_fd_sync_inner(&blob, transaction)?;
@@ -2419,6 +2442,29 @@ impl Provider {
 			self.authorize_sync(&artifact.tokens, &artifact.id.clone().into())?;
 		}
 		Ok(node)
+	}
+
+	fn register_file_dependencies(
+		&self,
+		source: u64,
+		artifact: &ArtifactInfo,
+		dependencies: &BTreeMap<tg::Reference, Option<tg::graph::data::Dependency>>,
+		graph: Option<&tg::graph::Id>,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<()> {
+		for dependency in dependencies.values() {
+			let Some(dependency) = self.file_dependency_artifact(
+				&artifact.tokens,
+				dependency.as_ref(),
+				graph,
+				transaction,
+			)?
+			else {
+				continue;
+			};
+			self.register_target(source, &dependency)?;
+		}
+		Ok(())
 	}
 
 	fn register_target(&self, source: u64, target: &ArtifactInfo) -> std::io::Result<()> {
