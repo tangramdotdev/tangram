@@ -133,14 +133,15 @@ impl Error {
 			}
 		}
 		if let Some(source) = &self.source {
-			match &source.node {
-				tg::Either::Left(object) => {
-					children.extend(object.children());
-				},
-				tg::Either::Right(error) => {
-					children.push((*error.clone()).into());
-				},
+			let source_children = match &source.node {
+				tg::Either::Left(object) => object.children(),
+				tg::Either::Right(error) => vec![(*error.clone()).into()],
+			};
+			for child in &source_children {
+				child.inherit_location(source.options.location.as_ref());
+				child.inherit_tokens(&source.options.tokens);
 			}
+			children.extend(source_children);
 		}
 		children
 	}

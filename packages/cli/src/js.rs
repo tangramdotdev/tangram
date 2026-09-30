@@ -133,6 +133,7 @@ impl Cli {
 		// Run.
 		let tangram_js::Output {
 			error,
+			error_children,
 			exit,
 			output,
 			..
@@ -182,7 +183,11 @@ impl Cli {
 					.object()
 					.map(|object| object.unwrap_error().to_data())
 				{
-					let json = serde_json::to_vec(&data)
+					let error = tg::file::xattrs::Error {
+						children: error_children,
+						data,
+					};
+					let json = serde_json::to_vec(&error)
 						.map_err(|error| tg::error!(!error, "failed to serialize the error"))?;
 					tg::file::xattrs::write_error(&output_path, &json)
 						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;

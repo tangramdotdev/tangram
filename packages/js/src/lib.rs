@@ -1,5 +1,6 @@
 use {std::path::PathBuf, tangram_client::prelude::*};
 
+mod error;
 mod host;
 mod http2;
 
@@ -33,6 +34,7 @@ pub struct MagicOutput {
 pub struct Output {
 	pub checksum: Option<tg::Checksum>,
 	pub error: Option<tg::Error>,
+	pub error_children: Vec<tg::Referent<tg::object::Id>>,
 	pub exit: u8,
 	pub output: Option<tg::Value>,
 }

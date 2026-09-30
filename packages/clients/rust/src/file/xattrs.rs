@@ -28,6 +28,16 @@ pub struct Arg<'a> {
 	pub token: Option<&'a tg::authorization::Token>,
 }
 
+/// An inline process error with authorization proofs stored separately from its frames.
+#[derive(serde::Deserialize, serde::Serialize)]
+pub struct Error {
+	#[serde(default, skip_serializing_if = "Vec::is_empty")]
+	pub children: Vec<tg::Referent<tg::object::Id>>,
+
+	#[serde(flatten)]
+	pub data: tg::error::Data,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Options {
 	/// The initial maximum dependency shard size, in bytes.

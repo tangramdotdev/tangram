@@ -68,14 +68,21 @@ pub async fn run(arg: crate::Arg) -> tg::Result<Output> {
 		Ok(output) => Output {
 			checksum: None,
 			error: None,
+			error_children: Vec::new(),
 			exit: 0,
 			output: Some(output),
 		},
-		Err(error) => Output {
-			checksum: None,
-			error: Some(error),
-			exit: 1,
-			output: None,
+		Err(error) => {
+			let modules = runtime.state.modules.borrow();
+			let error_children =
+				crate::error::children(&error, modules.iter().map(|module| &module.module));
+			Output {
+				checksum: None,
+				error: Some(error),
+				error_children,
+				exit: 1,
+				output: None,
+			}
 		},
 	};
 	Ok(output)

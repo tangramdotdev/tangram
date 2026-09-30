@@ -175,6 +175,7 @@ pub(crate) struct ConnectedEvent {
 struct Output {
 	checksum: Option<tg::Checksum>,
 	error: Option<tg::Error>,
+	error_children: Vec<tg::Referent<tg::object::Id>>,
 	exit: u8,
 	value: Option<tg::Value>,
 }
@@ -1198,6 +1199,7 @@ impl Session {
 			Output {
 				checksum: None,
 				error,
+				error_children: Vec::new(),
 				exit: finish.exit,
 				value: None,
 			}
@@ -1214,6 +1216,7 @@ impl Session {
 					Output {
 						checksum: None,
 						error: Some(error),
+						error_children: Vec::new(),
 						exit: 1,
 						value: None,
 					}
@@ -1236,7 +1239,7 @@ impl Session {
 				tg::Either::Left(data) => data.code,
 				tg::Either::Right(_) => None,
 			};
-			let error = self.store_process_error(error).await;
+			let error = self.store_process_error(error, output.error_children).await;
 			(Some(error), error_code)
 		} else {
 			(None, None)
@@ -2355,6 +2358,7 @@ impl Session {
 		let mut output = Output {
 			checksum: None,
 			error: None,
+			error_children: Vec::new(),
 			exit,
 			value: None,
 		};
@@ -2383,8 +2387,10 @@ impl Session {
 
 		// Try to read the user.tangram.error xattr.
 		if let Ok(Some(bytes)) = tg::file::xattrs::read_error(&path) {
-			let error = if let Ok(data) = serde_json::from_slice::<tg::error::Data>(&bytes) {
-				tg::Error::try_from(data)
+			let error = if let Ok(error) = serde_json::from_slice::<tg::file::xattrs::Error>(&bytes)
+			{
+				output.error_children = error.children;
+				tg::Error::try_from(error.data)
 					.map_err(|error| tg::error!(!error, "failed to convert the error data"))?
 			} else {
 				let string = String::from_utf8(bytes)
