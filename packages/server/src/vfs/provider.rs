@@ -95,7 +95,7 @@ struct Node {
 	name: Option<String>,
 	named: Option<NamedNodeInfo>,
 	parent: u64,
-	symlink_targets: Vec<ArtifactInfo>,
+	targets: Vec<ArtifactInfo>,
 	tokens: Vec<tg::authorization::Token>,
 }
 
@@ -2335,7 +2335,7 @@ impl Provider {
 			Some(edge) => {
 				let target =
 					self.artifact_from_edge_inner(&artifact.tokens, edge, graph.as_ref(), None)?;
-				self.register_symlink_target(id, &target)?;
+				self.register_target(id, &target)?;
 				Some(target.id)
 			},
 			None => None,
@@ -2392,7 +2392,7 @@ impl Provider {
 					graph.as_ref(),
 					transaction,
 				)?;
-				self.register_symlink_target(id, &target)?;
+				self.register_target(id, &target)?;
 				Some(target.id)
 			},
 			None => None,
@@ -2421,8 +2421,8 @@ impl Provider {
 		Ok(node)
 	}
 
-	fn register_symlink_target(&self, source: u64, target: &ArtifactInfo) -> std::io::Result<()> {
-		self.nodes.insert_symlink_target(source, target);
+	fn register_target(&self, source: u64, target: &ArtifactInfo) -> std::io::Result<()> {
+		self.nodes.insert_target(source, target);
 		let tokens = target.tokens.lock().unwrap().clone();
 		self.nodes
 			.refresh_node_tokens(&self.session(), &tokens)
@@ -3893,7 +3893,7 @@ impl Nodes {
 			name: None,
 			named: None,
 			parent: vfs::ROOT_NODE_ID,
-			symlink_targets: Vec::new(),
+			targets: Vec::new(),
 			tokens: Vec::new(),
 		};
 		nodes.insert(vfs::ROOT_NODE_ID, entry);
@@ -3953,9 +3953,9 @@ impl Nodes {
 		while let Some((id, token)) = pending.pop() {
 			let node = state.nodes.get(&id).unwrap();
 			let incoming = [token.clone()];
-			for symlink_target in &node.symlink_targets {
-				if token.body.resource == symlink_target.id.clone().into() {
-					let mut tokens = symlink_target.tokens.lock().unwrap();
+			for target in &node.targets {
+				if token.body.resource == target.id.clone().into() {
+					let mut tokens = target.tokens.lock().unwrap();
 					tokens.retain(|token| token.body.expires_at >= now);
 					Provider::insert_tokens(&mut tokens, &incoming);
 				}
@@ -3978,22 +3978,16 @@ impl Nodes {
 			if !improved {
 				continue;
 			}
-			for symlink_target in &node.symlink_targets {
-				Self::refresh_tokens(
-					session,
-					&mut symlink_target.tokens.lock().unwrap(),
-					expires_at,
-				)?;
-				if let Some(target) = state.nodes[&vfs::ROOT_NODE_ID]
+			for target in &node.targets {
+				Self::refresh_tokens(session, &mut target.tokens.lock().unwrap(), expires_at)?;
+				if let Some(target_id) = state.nodes[&vfs::ROOT_NODE_ID]
 					.children
-					.get(&symlink_target.id.to_string())
-					&& *target != id
-					&& let Some(token) = session.create_token(
-						symlink_target.id.clone().into(),
-						vec![subtree],
-						expires_at,
-					)? {
-					pending.push((*target, token));
+					.get(&target.id.to_string())
+					&& *target_id != id
+					&& let Some(token) =
+						session.create_token(target.id.clone().into(), vec![subtree], expires_at)?
+				{
+					pending.push((*target_id, token));
 				}
 			}
 			for child in node.children.values() {
@@ -4050,11 +4044,7 @@ impl Nodes {
 			{
 				return artifact.clone();
 			}
-			if let Some(artifact) = source
-				.symlink_targets
-				.iter()
-				.find(|artifact| &artifact.id == id)
-			{
+			if let Some(artifact) = source.targets.iter().find(|artifact| &artifact.id == id) {
 				let artifact = artifact.snapshot();
 				let tokens = root
 					.tokens
@@ -4080,23 +4070,23 @@ impl Nodes {
 		}
 	}
 
-	fn insert_symlink_target(&self, source: u64, artifact: &ArtifactInfo) {
+	fn insert_target(&self, source: u64, artifact: &ArtifactInfo) {
 		let mut state = self.state.lock().unwrap();
 		let Some(node) = state.nodes.get_mut(&source) else {
 			return;
 		};
-		let symlink_target = artifact.snapshot();
+		let target = artifact.snapshot();
 		if let Some(existing) = node
-			.symlink_targets
+			.targets
 			.iter_mut()
-			.find(|symlink_target| symlink_target.id == artifact.id)
+			.find(|target| target.id == artifact.id)
 		{
 			Provider::insert_tokens(
 				&mut existing.tokens.lock().unwrap(),
-				&symlink_target.tokens.lock().unwrap(),
+				&target.tokens.lock().unwrap(),
 			);
 		} else {
-			node.symlink_targets.push(symlink_target);
+			node.targets.push(target);
 		}
 		state
 			.nodes
@@ -4246,22 +4236,22 @@ impl Nodes {
 			let name = node.name.clone();
 
 			let node = state.nodes.remove(&id).unwrap();
-			let mut symlink_targets = node.symlink_targets;
+			let mut targets = node.targets;
 			if parent == vfs::ROOT_NODE_ID
 				&& let Some(artifact) = node.artifact
 			{
-				symlink_targets.push(artifact);
+				targets.push(artifact);
 			}
-			for symlink_target in symlink_targets {
-				let name = symlink_target.id.to_string();
+			for target in targets {
+				let name = target.id.to_string();
 				if state.nodes[&vfs::ROOT_NODE_ID].children.get(&name) != Some(&id) {
 					continue;
 				}
-				// Preserve a shared symlink target only while another existing inode supplies its tokens.
+				// Preserve a shared target only while another existing inode supplies its tokens.
 				let source = state.nodes.iter().find_map(|(id, node)| {
-					node.symlink_targets
+					node.targets
 						.iter()
-						.any(|other| other.id == symlink_target.id)
+						.any(|other| other.id == target.id)
 						.then_some(*id)
 				});
 				let root = state.nodes.get_mut(&vfs::ROOT_NODE_ID).unwrap();
@@ -4337,7 +4327,7 @@ impl Nodes {
 			name: Some(name.to_owned()),
 			named: None,
 			parent,
-			symlink_targets: Vec::new(),
+			targets: Vec::new(),
 			tokens: Vec::new(),
 		};
 		state.nodes.insert(id, entry);
@@ -4389,7 +4379,7 @@ impl Nodes {
 			name: Some(name.to_owned()),
 			named: Some(named_node),
 			parent,
-			symlink_targets: Vec::new(),
+			targets: Vec::new(),
 			tokens: Vec::new(),
 		};
 		state.nodes.insert(id, entry);
@@ -4618,7 +4608,7 @@ mod tests {
 	};
 
 	#[test]
-	fn forget_releases_tokens_and_symlink_targets() {
+	fn forget_releases_tokens_and_targets() {
 		let nodes = Nodes::new();
 		let source = artifact(b"source");
 		let source_id = source.id.clone();
@@ -4644,11 +4634,11 @@ mod tests {
 			.unwrap();
 		let target = artifact(b"target");
 		let target_id = target.id.clone();
-		nodes.insert_symlink_target(inode, &target);
+		nodes.insert_target(inode, &target);
 		drop(target);
-		let symlink_target = nodes.root_artifact(&target_id);
-		assert!(!symlink_target.tokens.lock().unwrap().is_empty());
-		drop(symlink_target);
+		let target = nodes.root_artifact(&target_id);
+		assert!(!target.tokens.lock().unwrap().is_empty());
+		drop(target);
 		assert_eq!(nodes.forget(inode, 1), vec![inode]);
 		assert!(source_tokens.upgrade().is_none());
 		assert_eq!(nodes.state.lock().unwrap().nodes.len(), 1);
@@ -4683,7 +4673,7 @@ mod tests {
 	}
 
 	#[test]
-	fn an_accessed_symlink_target_survives_forgetting_its_source() {
+	fn an_accessed_target_survives_forgetting_its_source() {
 		let nodes = Nodes::new();
 		let source = artifact(b"source");
 		let source_id = source.id.to_string();
@@ -4692,7 +4682,7 @@ mod tests {
 			.unwrap();
 		let target = artifact(b"target");
 		let target_id = target.id.clone();
-		nodes.insert_symlink_target(source, &target);
+		nodes.insert_target(source, &target);
 		drop(target);
 		let target = nodes.root_artifact(&target_id);
 		let tokens = Arc::downgrade(&target.tokens);
@@ -4746,7 +4736,7 @@ mod tests {
 	}
 
 	#[test]
-	fn forgetting_one_source_preserves_a_shared_symlink_target() {
+	fn forgetting_one_source_preserves_a_shared_target() {
 		let nodes = Nodes::new();
 		let first = artifact(b"first");
 		let name = first.id.to_string();
@@ -4760,8 +4750,8 @@ mod tests {
 			.unwrap();
 		let target = artifact(b"shared");
 		let id = target.id.clone();
-		nodes.insert_symlink_target(first, &target);
-		nodes.insert_symlink_target(second, &target);
+		nodes.insert_target(first, &target);
+		nodes.insert_target(second, &target);
 		drop(target);
 		nodes.forget(first, 1);
 		assert!(!nodes.root_artifact(&id).tokens.lock().unwrap().is_empty());
@@ -4784,7 +4774,7 @@ mod tests {
 			.unwrap();
 		let target = artifact(b"target");
 		let id = target.id.clone();
-		nodes.insert_symlink_target(source, &target);
+		nodes.insert_target(source, &target);
 		drop(target);
 		let target = nodes.root_artifact(&id);
 		let tokens = Arc::downgrade(&target.tokens);
