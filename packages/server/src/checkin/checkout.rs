@@ -200,8 +200,10 @@ impl Session {
 	) -> tg::Result<()> {
 		let capabilities = xattrs::internal_capabilities(&self.server)?;
 		for node in graph.nodes.values() {
-			let Variant::File(file) = &node.variant else {
-				continue;
+			let file = match &node.variant {
+				Variant::Directory(_) => None,
+				Variant::File(file) => Some(file),
+				Variant::Object | Variant::Symlink(_) => continue,
 			};
 			let Some(path) = &node.path else {
 				continue;
@@ -230,12 +232,6 @@ impl Session {
 				vec![tg::authorization::Permission::Object(permission)],
 				i64::MAX,
 			)?;
-			let references = file.dependencies.keys().cloned().collect::<Vec<_>>();
-			let arg = tg::file::xattrs::Arg {
-				dependencies: (!references.is_empty()).then_some(references.as_slice()),
-				required: &[],
-				token: token.as_ref(),
-			};
 
 			// Restore the read-only permissions even if writing the xattrs fails.
 			let metadata = std::fs::symlink_metadata(&path).map_err(
@@ -246,7 +242,19 @@ impl Session {
 			std::fs::set_permissions(&path, permissions).map_err(
 				|error| tg::error!(!error, path = %path.display(), "failed to set permissions"),
 			)?;
-			let result = tg::file::xattrs::write(&path, arg, capabilities);
+			let result = if let Some(file) = file {
+				let references = file.dependencies.keys().cloned().collect::<Vec<_>>();
+				let arg = tg::file::xattrs::Arg {
+					dependencies: (!references.is_empty()).then_some(references.as_slice()),
+					required: &[],
+					token: token.as_ref(),
+				};
+				tg::file::xattrs::write(&path, arg, capabilities)
+			} else if let Some(token) = &token {
+				tg::file::xattrs::write_token(&path, token)
+			} else {
+				Ok(())
+			};
 			std::fs::set_permissions(&path, metadata.permissions()).map_err(
 				|error| tg::error!(!error, path = %path.display(), "failed to restore permissions"),
 			)?;
