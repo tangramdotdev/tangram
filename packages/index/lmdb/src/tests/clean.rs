@@ -35,36 +35,38 @@ fn count_subject_permissions(index: &Index, subject: &tg::authorization::Subject
 
 #[tokio::test]
 async fn object_output_includes_the_deleted_put_and_touched_at() {
-	let (_dir, index) = super::new_index();
-	let id = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
-	let object = tangram_index::object::put::Arg {
-		checkout: None,
-		children: BTreeSet::new(),
-		id: id.clone(),
-		metadata: tg::object::Metadata::default(),
-		put: [1; 16],
-		storage: tg::object::storage::Set::NODE,
-		time_to_touch: std::time::Duration::ZERO,
-		touched_at: 7,
-	};
-	let arg = tangram_index::batch::Arg {
-		items: vec![tangram_index::batch::Item::PutObject(object)],
-	};
-	index.batch(arg).await.unwrap();
-	let arg = tangram_index::clean::Arg {
-		batch_size: 1,
-		max_object_touched_at: 7,
-		max_process_touched_at: i64::MIN,
-		max_sandbox_touched_at: i64::MIN,
-		now: 7,
-		partition_end: 1,
-		partition_start: 0,
-	};
-	let output = index.clean(arg).await.unwrap();
-	assert_eq!(output.objects.len(), 1);
-	assert_eq!(output.objects[0].id, id);
-	assert_eq!(output.objects[0].put, [1; 16]);
-	assert_eq!(output.objects[0].touched_at, 7);
+	for touched_at in [7, i64::MAX] {
+		let (_dir, index) = super::new_index();
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
+		let object = tangram_index::object::put::Arg {
+			checkout: None,
+			children: BTreeSet::new(),
+			id: id.clone(),
+			metadata: tg::object::Metadata::default(),
+			put: [1; 16],
+			storage: tg::object::storage::Set::NODE,
+			time_to_touch: std::time::Duration::ZERO,
+			touched_at,
+		};
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutObject(object)],
+		};
+		index.batch(arg).await.unwrap();
+		let arg = tangram_index::clean::Arg {
+			batch_size: 1,
+			max_object_touched_at: touched_at,
+			max_process_touched_at: i64::MIN,
+			max_sandbox_touched_at: i64::MIN,
+			now: touched_at,
+			partition_end: 1,
+			partition_start: 0,
+		};
+		let output = index.clean(arg).await.unwrap();
+		assert_eq!(output.objects.len(), 1);
+		assert_eq!(output.objects[0].id, id);
+		assert_eq!(output.objects[0].put, [1; 16]);
+		assert_eq!(output.objects[0].touched_at, touched_at);
+	}
 }
 
 #[tokio::test]
@@ -206,4 +208,69 @@ async fn account_and_entity_candidates_share_the_clean_batch() {
 		.unwrap();
 	assert!(!output.done);
 	assert_eq!(count_clean_keys(&index), 1);
+}
+
+#[tokio::test]
+async fn cleaning_does_not_decode_keys_newer_than_every_cutoff() {
+	let (_dir, index) = super::new_index();
+	// Leave the key incomplete so decoding it would fail if the scan reaches it.
+	let key = Index::pack(&index.subspace, &(Kind::Clean.to_i32().unwrap(), 14_i64));
+	let mut transaction = index.env.write_txn().unwrap();
+	index.db.put(&mut transaction, &key, &[]).unwrap();
+	transaction.commit().unwrap();
+	let arg = tangram_index::clean::Arg {
+		batch_size: 100,
+		max_object_touched_at: 7,
+		max_process_touched_at: 11,
+		max_sandbox_touched_at: 13,
+		now: 20,
+		partition_end: 1,
+		partition_start: 0,
+	};
+	let output = index.clean(arg).await.unwrap();
+	assert!(output.done);
+	assert_eq!(count_clean_keys(&index), 1);
+}
+
+#[tokio::test]
+async fn cleaning_respects_each_cutoff_within_the_scan_range() {
+	let (_dir, index) = super::new_index();
+	let items = [7, 8, 13, 14]
+		.into_iter()
+		.map(|touched_at| {
+			let id = tg::object::Id::new(
+				tg::object::Kind::Blob,
+				&vec![u8::try_from(touched_at).unwrap()].into(),
+			);
+			let arg = tangram_index::object::put::Arg {
+				checkout: None,
+				children: BTreeSet::new(),
+				id,
+				metadata: tg::object::Metadata::default(),
+				put: [1; 16],
+				storage: tg::object::storage::Set::NODE,
+				time_to_touch: std::time::Duration::ZERO,
+				touched_at,
+			};
+			tangram_index::batch::Item::PutObject(arg)
+		})
+		.collect();
+	let arg = tangram_index::batch::Arg { items };
+	index.batch(arg).await.unwrap();
+	let arg = tangram_index::clean::Arg {
+		batch_size: 100,
+		max_object_touched_at: 7,
+		max_process_touched_at: 11,
+		max_sandbox_touched_at: 13,
+		now: 20,
+		partition_end: 1,
+		partition_start: 0,
+	};
+	let output = index.clean(arg.clone()).await.unwrap();
+	assert_eq!(output.objects.len(), 1);
+	assert_eq!(output.objects[0].touched_at, 7);
+	assert_eq!(count_clean_keys(&index), 3);
+	let output = index.clean(arg).await.unwrap();
+	assert!(output.done);
+	assert_eq!(count_clean_keys(&index), 3);
 }

@@ -6,6 +6,7 @@ use {
 	super::{Db, Index, Kind, Request, Response},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	num_traits::ToPrimitive as _,
+	std::ops::Bound,
 	tangram_client::prelude::*,
 };
 
@@ -99,11 +100,21 @@ impl Index {
 		)?;
 		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations);
 
-		let prefix = &(Kind::Clean.to_i32().unwrap(),);
-		let prefix = Self::pack(subspace, prefix);
+		// Bound the scan so recent records do not hold the writer while updates wait.
+		let kind = Kind::Clean.to_i32().unwrap();
+		let begin = Self::pack(subspace, &(kind,));
+		let max_touched_at = max_object_touched_at
+			.max(max_process_touched_at)
+			.max(max_sandbox_touched_at);
+		let prefix = Self::pack(subspace, &(kind, max_touched_at));
+		let end = fdbt::Subspace::from_bytes(prefix).range().1;
+		let range = (
+			Bound::Included(begin.as_slice()),
+			Bound::Excluded(end.as_slice()),
+		);
 		let mut candidates: Vec<Candidate> = Vec::new();
 		let iter = db
-			.prefix_iter(transaction, &prefix)
+			.range(transaction, &range)
 			.map_err(|error| tg::error!(!error, "failed to iterate clean keys"))?;
 		for result in iter {
 			if candidates.len() >= remaining_batch_size {
