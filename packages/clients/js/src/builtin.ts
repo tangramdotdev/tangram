@@ -64,8 +64,7 @@ export let bundle = async (
 ): Promise<tg.Artifact> => {
 	artifact = await tg.resolve(artifact);
 	tg.assert(tg.Artifact.is(artifact));
-	let id = await artifact.store();
-	artifact = tg.Artifact.withId(id);
+	await artifact.store();
 	let dependencies = new Map<tg.Artifact.Id, tg.Artifact>();
 	await collectDependencies(artifact, dependencies);
 	if (dependencies.size === 0) {
