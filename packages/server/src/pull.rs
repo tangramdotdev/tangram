@@ -98,15 +98,15 @@ impl Session {
 			let storage = process.storage;
 			if arg.process_children {
 				storage.subtree
-					&& (!arg.process_commands || storage.subtree_command)
-					&& (!arg.process_errors || storage.subtree_error)
-					&& (!arg.process_logs || storage.subtree_log)
-					&& (!arg.process_outputs || storage.subtree_output)
+					&& (!arg.process_command_objects || storage.subtree_command)
+					&& (!arg.process_error_objects || storage.subtree_error)
+					&& (!arg.process_log_objects || storage.subtree_log)
+					&& (!arg.process_output_objects || storage.subtree_output)
 			} else {
-				(!arg.process_commands || storage.node_command)
-					&& (!arg.process_errors || storage.node_error)
-					&& (!arg.process_logs || storage.node_log)
-					&& (!arg.process_outputs || storage.node_output)
+				(!arg.process_command_objects || storage.node_command)
+					&& (!arg.process_error_objects || storage.node_error)
+					&& (!arg.process_log_objects || storage.node_log)
+					&& (!arg.process_output_objects || storage.node_output)
 			}
 		});
 		let stored = objects_stored && processes_stored;
@@ -163,22 +163,22 @@ impl Session {
 		}
 		for (enabled, node, subtree) in [
 			(
-				arg.process_commands,
+				arg.process_command_objects,
 				tg::authorization::permission::process::Permission::NodeCommand,
 				tg::authorization::permission::process::Permission::SubtreeCommand,
 			),
 			(
-				arg.process_errors,
+				arg.process_error_objects,
 				tg::authorization::permission::process::Permission::NodeError,
 				tg::authorization::permission::process::Permission::SubtreeError,
 			),
 			(
-				arg.process_logs,
+				arg.process_log_objects,
 				tg::authorization::permission::process::Permission::NodeLog,
 				tg::authorization::permission::process::Permission::SubtreeLog,
 			),
 			(
-				arg.process_outputs,
+				arg.process_output_objects,
 				tg::authorization::permission::process::Permission::NodeOutput,
 				tg::authorization::permission::process::Permission::SubtreeOutput,
 			),

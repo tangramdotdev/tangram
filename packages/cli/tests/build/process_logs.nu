@@ -55,7 +55,7 @@ snapshot $stdout_partial.stdout '
 
 # Push to remote and test log reading.
 tg remote put default $remote.url | complete
-tg push --process-logs $id
+tg push --process-log-objects $id
 
 # Read logs from remote.
 let remote_combined = tg --url $remote.url process log $id o+e>| complete

@@ -18,7 +18,7 @@ let source = tg --url $local.url tag get process | from json
 assert ($source.permissions | any {|permission| $permission == "process_subtree_output" })
 
 # The push transfers only the process node, so the destination tag must not confer access to its output.
-tg --url $local.url push --no-process-outputs process
+tg --url $local.url push --no-process-output-objects process
 tg --url $remote.url index
 let destination = tg --url $remote.url --token $alice.token tag get process | from json
 assert ($destination.permissions | any {|permission| $permission == "process_node" or $permission == "process_subtree" })

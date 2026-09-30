@@ -65,19 +65,19 @@ pub struct Arg {
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_commands: bool,
+	pub process_command_objects: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_errors: bool,
+	pub process_error_objects: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_logs: bool,
+	pub process_log_objects: bool,
 
 	#[serde_as(as = "PickFirst<(_, DisplayFromStr)>")]
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_outputs: bool,
+	pub process_output_objects: bool,
 
 	#[serde_as(as = "CommaSeparatedString")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]

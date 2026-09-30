@@ -255,7 +255,7 @@ impl Session {
 
 		// Create the index arguments.
 		let children = arg.data.children.clone();
-		let error = arg.data.error.as_ref().map(|error| match error {
+		let error_objects = arg.data.error.as_ref().map(|error| match error {
 			tg::Either::Left(data) => {
 				let mut children = BTreeSet::new();
 				data.children(&mut children);
@@ -266,17 +266,17 @@ impl Session {
 				vec![id]
 			},
 		});
-		let mut output = BTreeSet::new();
+		let mut output_objects = BTreeSet::new();
 		if let Some(data) = &arg.data.output {
-			data.children(&mut output);
+			data.children(&mut output_objects);
 		}
-		let output = arg
+		let output_objects = arg
 			.data
 			.output
 			.as_ref()
-			.map(|_| output.into_iter().collect::<Vec<_>>());
+			.map(|_| output_objects.into_iter().collect::<Vec<_>>());
 		let log_needs_compaction = Self::process_log_needs_compaction(&arg.data);
-		let log: Option<Option<tg::object::Id>> =
+		let log_object: Option<Option<tg::object::Id>> =
 			(!log_needs_compaction).then(|| arg.data.log.clone().map(|log| log.node.into()));
 		let enqueue_log_compaction = enqueue_log_compaction && log_needs_compaction;
 		let (subtree_objects, mut put_object_permissions) = match object_permissions {
@@ -297,14 +297,14 @@ impl Session {
 							.map(|object| object.node),
 					);
 				}
-				if error_has_subtree_permission && let Some(error) = &error {
-					objects.extend(error.iter().cloned());
+				if error_has_subtree_permission && let Some(error_objects) = &error_objects {
+					objects.extend(error_objects.iter().cloned());
 				}
-				if log_has_subtree_permission && let Some(Some(log)) = &log {
+				if log_has_subtree_permission && let Some(Some(log)) = &log_object {
 					objects.insert(log.clone());
 				}
-				if output_has_subtree_permission && let Some(output) = &output {
-					objects.extend(output.iter().cloned());
+				if output_has_subtree_permission && let Some(output_objects) = &output_objects {
+					objects.extend(output_objects.iter().cloned());
 				}
 				(objects, Vec::new())
 			},
@@ -361,13 +361,13 @@ impl Session {
 			),
 			command_id: arg.data.command.command_id()?.into(),
 			data,
-			error: Some(error),
+			error: Some(error_objects),
 			id: id.clone(),
 			location,
-			log,
+			log: log_object,
 			metadata: tg::process::Metadata::default(),
 			options: tg::referent::Options::default(),
-			output: Some(output),
+			output: Some(output_objects),
 			parent: None,
 			sandbox: None,
 			storage: tangram_index::process::Storage::default(),

@@ -401,7 +401,7 @@ impl Session {
 
 			// Wait for a local log to be compacted, leaving an uncompacted remote log unset.
 			if node.descendants
-				&& state.arg.process_logs
+				&& state.arg.process_log_objects
 				&& Self::process_log_needs_compaction(&output.data)
 				&& output.location.as_ref().is_none_or(tg::Location::is_local)
 			{
@@ -540,7 +540,7 @@ impl Session {
 			}
 
 			// Enqueue the command.
-			if node.descendants && node.eager && state.arg.process_commands {
+			if node.descendants && node.eager && state.arg.process_command_objects {
 				for command in output.data.command.objects() {
 					let node = crate::sync::queue::ObjectNode {
 						descendants: true,
@@ -558,7 +558,7 @@ impl Session {
 			// Enqueue the error.
 			if node.descendants
 				&& node.eager
-				&& state.arg.process_errors
+				&& state.arg.process_error_objects
 				&& let Some(error) = &output.data.error
 			{
 				match error {
@@ -597,7 +597,7 @@ impl Session {
 			// Enqueue the log.
 			if node.descendants
 				&& node.eager
-				&& state.arg.process_logs
+				&& state.arg.process_log_objects
 				&& let Some(log) = output.data.log.clone()
 			{
 				let node = crate::sync::queue::ObjectNode {
@@ -615,7 +615,7 @@ impl Session {
 			// Enqueue the outputs.
 			if node.descendants
 				&& node.eager
-				&& state.arg.process_outputs
+				&& state.arg.process_output_objects
 				&& let Some(output) = &output.data.output
 			{
 				let mut children = BTreeSet::new();

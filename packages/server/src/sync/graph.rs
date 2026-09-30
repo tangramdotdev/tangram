@@ -29,10 +29,10 @@ pub struct Graph {
 	local_selectors: HashSet<tg::Specifier, fnv::FnvBuildHasher>,
 	nodes: IndexMap<tg::Id, Node, fnv::FnvBuildHasher>,
 	process_children: bool,
-	process_commands: bool,
-	process_errors: bool,
-	process_logs: bool,
-	process_outputs: bool,
+	process_command_objects: bool,
+	process_error_objects: bool,
+	process_log_objects: bool,
+	process_output_objects: bool,
 	remote_pending_roots: usize,
 	remote_roots: HashSet<tg::Id, fnv::FnvBuildHasher>,
 	remote_selectors: HashMap<tg::Specifier, RemoteSelector, fnv::FnvBuildHasher>,
@@ -132,10 +132,10 @@ pub struct ProcessNode {
 	remote_missing: bool,
 	remote_objects: HashSet<(usize, crate::sync::queue::ObjectKind), fnv::FnvBuildHasher>,
 	remote_pending_children: Option<usize>,
-	remote_pending_commands: usize,
-	remote_pending_errors: usize,
-	remote_pending_logs: usize,
-	remote_pending_outputs: usize,
+	remote_pending_command_objects: usize,
+	remote_pending_error_objects: usize,
+	remote_pending_log_objects: usize,
+	remote_pending_output_objects: usize,
 	remote_propagated_availability: tg::process::Availability,
 	remote_requested: bool,
 	remote_sent: bool,
@@ -222,10 +222,10 @@ impl Graph {
 				.collect(),
 			nodes: IndexMap::default(),
 			process_children: arg.process_children,
-			process_commands: arg.process_commands,
-			process_errors: arg.process_errors,
-			process_logs: arg.process_logs,
-			process_outputs: arg.process_outputs,
+			process_command_objects: arg.process_command_objects,
+			process_error_objects: arg.process_error_objects,
+			process_log_objects: arg.process_log_objects,
+			process_output_objects: arg.process_output_objects,
 			remote_pending_roots: 0,
 			remote_roots: HashSet::default(),
 			remote_selectors: HashMap::default(),
@@ -915,82 +915,50 @@ impl Graph {
 		let objects = if let Some(data) = data {
 			let mut objects: Vec<(usize, tangram_index::process::object::Kind)> = Vec::new();
 
-			let commands = data
+			let command_objects = data
 				.command
 				.objects()
 				.into_iter()
 				.map(|command| command.node)
 				.collect::<BTreeSet<_>>();
-			for command in commands {
-				let command_entry = self.nodes.entry(command.into());
-				let command_index = command_entry.index();
-				command_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
-				let parent = Parent::ProcessObject {
-					index,
-					kind: crate::sync::queue::ObjectKind::Command,
-				};
-				self.insert_local_edge(parent, command_index);
-				objects.push((command_index, tangram_index::process::object::Kind::Command));
-			}
-
+			let mut error_objects = BTreeSet::new();
 			if let Some(error) = &data.error {
 				match error {
-					tg::Either::Left(error_data) => {
-						let mut error_children = BTreeSet::new();
-						error_data.children(&mut error_children);
-						for object_id in error_children {
-							let object_entry = self.nodes.entry(object_id.into());
-							let object_index = object_entry.index();
-							object_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
-							let parent = Parent::ProcessObject {
-								index,
-								kind: crate::sync::queue::ObjectKind::Error,
-							};
-							self.insert_local_edge(parent, object_index);
-							objects
-								.push((object_index, tangram_index::process::object::Kind::Error));
-						}
-					},
-					tg::Either::Right(error_id) => {
-						let error_id = error_id.node.clone();
-						let error_entry = self.nodes.entry(tg::object::Id::from(error_id).into());
-						let error_index = error_entry.index();
-						error_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
-						let parent = Parent::ProcessObject {
-							index,
-							kind: crate::sync::queue::ObjectKind::Error,
-						};
-						self.insert_local_edge(parent, error_index);
-						objects.push((error_index, tangram_index::process::object::Kind::Error));
+					tg::Either::Left(error) => error.children(&mut error_objects),
+					tg::Either::Right(error) => {
+						error_objects.insert(error.node.clone().into());
 					},
 				}
 			}
-
-			if let Some(log) = data.log.clone().map(|log| log.node) {
-				let log_entry = self.nodes.entry(tg::object::Id::from(log).into());
-				let log_index = log_entry.index();
-				log_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
-				let parent = Parent::ProcessObject {
-					index,
-					kind: crate::sync::queue::ObjectKind::Log,
-				};
-				self.insert_local_edge(parent, log_index);
-				objects.push((log_index, tangram_index::process::object::Kind::Log));
+			let log_objects = data
+				.log
+				.iter()
+				.map(|log| tg::object::Id::from(log.node.clone()))
+				.collect::<BTreeSet<_>>();
+			let mut output_objects = BTreeSet::new();
+			if let Some(output) = &data.output {
+				output.children(&mut output_objects);
 			}
 
-			if let Some(output) = &data.output {
-				let mut output_children = BTreeSet::new();
-				output.children(&mut output_children);
-				for object_id in output_children {
-					let object_entry = self.nodes.entry(object_id.into());
-					let object_index = object_entry.index();
-					object_entry.or_insert_with(|| Node::Object(ObjectNode::default()));
+			for (kind, ids) in [
+				(
+					tangram_index::process::object::Kind::Command,
+					command_objects,
+				),
+				(tangram_index::process::object::Kind::Error, error_objects),
+				(tangram_index::process::object::Kind::Log, log_objects),
+				(tangram_index::process::object::Kind::Output, output_objects),
+			] {
+				for id in ids {
+					let entry = self.nodes.entry(id.into());
+					let object_index = entry.index();
+					entry.or_insert_with(|| Node::Object(ObjectNode::default()));
 					let parent = Parent::ProcessObject {
 						index,
-						kind: crate::sync::queue::ObjectKind::Output,
+						kind: Self::process_object_remote_kind(kind),
 					};
 					self.insert_local_edge(parent, object_index);
-					objects.push((object_index, tangram_index::process::object::Kind::Output));
+					objects.push((object_index, kind));
 				}
 			}
 
@@ -1059,11 +1027,16 @@ impl Graph {
 						.map(|(index, kind)| (*index, Self::process_object_remote_kind(*kind))),
 				);
 				node.objects = Some(objects);
-				let (commands, errors, logs, outputs) = remote_pending_objects.unwrap();
-				node.remote_pending_commands = commands;
-				node.remote_pending_errors = errors;
-				node.remote_pending_logs = logs;
-				node.remote_pending_outputs = outputs;
+				let (
+					command_object_count,
+					error_object_count,
+					log_object_count,
+					output_object_count,
+				) = remote_pending_objects.unwrap();
+				node.remote_pending_command_objects = command_object_count;
+				node.remote_pending_error_objects = error_object_count;
+				node.remote_pending_log_objects = log_object_count;
+				node.remote_pending_output_objects = output_object_count;
 			}
 
 			if let Some(marked) = marked {
@@ -1202,19 +1175,19 @@ impl Graph {
 							Parent::ProcessObject {
 								kind: crate::sync::queue::ObjectKind::Command,
 								..
-							} => node.remote_pending_commands += 1,
+							} => node.remote_pending_command_objects += 1,
 							Parent::ProcessObject {
 								kind: crate::sync::queue::ObjectKind::Error,
 								..
-							} => node.remote_pending_errors += 1,
+							} => node.remote_pending_error_objects += 1,
 							Parent::ProcessObject {
 								kind: crate::sync::queue::ObjectKind::Log,
 								..
-							} => node.remote_pending_logs += 1,
+							} => node.remote_pending_log_objects += 1,
 							Parent::ProcessObject {
 								kind: crate::sync::queue::ObjectKind::Output,
 								..
-							} => node.remote_pending_outputs += 1,
+							} => node.remote_pending_output_objects += 1,
 							Parent::Node(_) | Parent::Object(_) | Parent::Process(_) => {
 								unreachable!()
 							},
@@ -2147,15 +2120,15 @@ impl Graph {
 	pub fn process_available(&self, availability: &tg::process::Availability) -> bool {
 		if self.process_children {
 			availability.subtree
-				&& (!self.process_commands || availability.subtree_command)
-				&& (!self.process_errors || availability.subtree_error)
-				&& (!self.process_logs || availability.subtree_log)
-				&& (!self.process_outputs || availability.subtree_output)
+				&& (!self.process_command_objects || availability.subtree_command)
+				&& (!self.process_error_objects || availability.subtree_error)
+				&& (!self.process_log_objects || availability.subtree_log)
+				&& (!self.process_output_objects || availability.subtree_output)
 		} else {
-			(!self.process_commands || availability.node_command)
-				&& (!self.process_errors || availability.node_error)
-				&& (!self.process_logs || availability.node_log)
-				&& (!self.process_outputs || availability.node_output)
+			(!self.process_command_objects || availability.node_command)
+				&& (!self.process_error_objects || availability.node_error)
+				&& (!self.process_log_objects || availability.node_log)
+				&& (!self.process_output_objects || availability.node_output)
 		}
 	}
 
@@ -2370,29 +2343,33 @@ impl Graph {
 				} else {
 					availability.node_command
 				};
-				let command_end = !self.process_commands
+				let command_end = !self.process_command_objects
 					|| command_available
-					|| node.remote_pending_commands == 0;
+					|| node.remote_pending_command_objects == 0;
 				let error_available = if self.process_children {
 					availability.subtree_error
 				} else {
 					availability.node_error
 				};
-				let error_end =
-					!self.process_errors || error_available || node.remote_pending_errors == 0;
+				let error_end = !self.process_error_objects
+					|| error_available
+					|| node.remote_pending_error_objects == 0;
 				let log_available = if self.process_children {
 					availability.subtree_log
 				} else {
 					availability.node_log
 				};
-				let log_end = !self.process_logs || log_available || node.remote_pending_logs == 0;
+				let log_end = !self.process_log_objects
+					|| log_available
+					|| node.remote_pending_log_objects == 0;
 				let output_available = if self.process_children {
 					availability.subtree_output
 				} else {
 					availability.node_output
 				};
-				let output_end =
-					!self.process_outputs || output_available || node.remote_pending_outputs == 0;
+				let output_end = !self.process_output_objects
+					|| output_available
+					|| node.remote_pending_output_objects == 0;
 
 				children_end && command_end && error_end && log_end && output_end
 			},
@@ -2419,28 +2396,28 @@ impl Graph {
 					..
 				},
 				Node::Process(node),
-			) if node.objects.is_some() => Some(&mut node.remote_pending_commands),
+			) if node.objects.is_some() => Some(&mut node.remote_pending_command_objects),
 			(
 				Parent::ProcessObject {
 					kind: crate::sync::queue::ObjectKind::Error,
 					..
 				},
 				Node::Process(node),
-			) if node.objects.is_some() => Some(&mut node.remote_pending_errors),
+			) if node.objects.is_some() => Some(&mut node.remote_pending_error_objects),
 			(
 				Parent::ProcessObject {
 					kind: crate::sync::queue::ObjectKind::Log,
 					..
 				},
 				Node::Process(node),
-			) if node.objects.is_some() => Some(&mut node.remote_pending_logs),
+			) if node.objects.is_some() => Some(&mut node.remote_pending_log_objects),
 			(
 				Parent::ProcessObject {
 					kind: crate::sync::queue::ObjectKind::Output,
 					..
 				},
 				Node::Process(node),
-			) if node.objects.is_some() => Some(&mut node.remote_pending_outputs),
+			) if node.objects.is_some() => Some(&mut node.remote_pending_output_objects),
 			(
 				Parent::Node(_)
 				| Parent::Object(_)

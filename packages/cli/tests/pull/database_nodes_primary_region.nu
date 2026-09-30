@@ -61,7 +61,7 @@ let primary_watch = (
 )
 let pull = job spawn {
 	let job_id = job id
-	let output = tg --url $remote_secondary.url pull --group-children --process-outputs routed | complete
+	let output = tg --url $remote_secondary.url pull --group-children --process-output-objects routed | complete
 	$output | job send --tag $job_id 0
 }
 tg --url $local_source.url checkpoint wait sync.put.database.node.send $source_watch 0 | ignore

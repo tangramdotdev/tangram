@@ -23,7 +23,7 @@ let path = artifact {
 let parent = tg --url $alice_local.url build --detach $path | str trim
 tg --url $alice_local.url wait $parent
 tg --url $alice_local.url index
-tg --url $alice_local.url push $parent --process-commands --process-logs
+tg --url $alice_local.url push $parent --process-command-objects --process-log-objects
 tg --url $remote.url index
 let data = tg --url $alice_local.url get $parent | from json
 

@@ -1892,7 +1892,7 @@ impl Session {
 		let arg = tg::push::Arg {
 			destination: Some(location.clone()),
 			nodes,
-			process_commands: true,
+			process_command_objects: true,
 			..Default::default()
 		};
 		let stream = session.push_for_process(arg, None).await?;

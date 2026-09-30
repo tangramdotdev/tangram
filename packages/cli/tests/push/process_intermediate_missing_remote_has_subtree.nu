@@ -180,7 +180,7 @@ def test [...args] {
 	tg --url $local.url remote put default $remote.url
 
 	# Push the process with recursive and command flags.
-	tg --url $local.url push $process_a_id --process-children --process-commands --process-logs ...$args
+	tg --url $local.url push $process_a_id --process-children --process-command-objects --process-log-objects ...$args
 
 	# Index.
 	tg --url $local_source.url index

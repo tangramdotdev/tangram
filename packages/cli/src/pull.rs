@@ -26,17 +26,17 @@ pub struct Args {
 	#[arg(long)]
 	pub process_children: bool,
 
-	#[arg(alias = "process-command", long)]
-	pub process_commands: bool,
+	#[arg(long)]
+	pub process_command_objects: bool,
 
 	#[command(flatten)]
-	pub process_errors: crate::push::ProcessErrors,
+	pub process_error_objects: crate::push::ProcessErrorObjects,
 
-	#[arg(alias = "process-log", long)]
-	pub process_logs: bool,
+	#[arg(long)]
+	pub process_log_objects: bool,
 
 	#[command(flatten)]
-	pub process_outputs: crate::push::ProcessOutputs,
+	pub process_output_objects: crate::push::ProcessOutputObjects,
 
 	#[arg(required = true)]
 	pub references: Vec<tg::Reference>,
@@ -106,10 +106,10 @@ impl Cli {
 			metadata: args.metadata,
 			organization_children: args.organization_children,
 			process_children: args.process_children,
-			process_commands: args.process_commands,
-			process_errors: args.process_errors.get(),
-			process_logs: args.process_logs,
-			process_outputs: args.process_outputs.get(),
+			process_command_objects: args.process_command_objects,
+			process_error_objects: args.process_error_objects.get(),
+			process_log_objects: args.process_log_objects,
+			process_output_objects: args.process_output_objects.get(),
 			sandbox_processes: args.sandbox_processes,
 			source,
 			tag_targets: args.tag_targets.get(),

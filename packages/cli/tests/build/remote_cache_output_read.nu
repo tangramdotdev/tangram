@@ -16,7 +16,7 @@ let shared = artifact {
 
 let process = tg build --detach $shared | str trim
 tg wait $process
-tg push --eager --process-outputs $process
+tg push --eager --process-output-objects $process
 
 let wrapper_ts = [
 	$'import shared from "shared" with { source: "($shared)" };'

@@ -599,7 +599,7 @@ impl Session {
 		let session = self;
 		crate::checkpoint!(self.server, "process.control.index.started", process = %id).await;
 		if let Some(data) = data {
-			let commands = data.command.objects();
+			let command_objects = data.command.objects();
 			let data = data.without_location_and_tokens();
 			let sandbox_id = data
 				.sandbox
@@ -697,7 +697,7 @@ impl Session {
 				let permission_arg = parent_session
 					.create_process_object_permission_arg(
 						&id,
-						commands,
+						command_objects,
 						touched_at,
 						Some(expires_at),
 					)

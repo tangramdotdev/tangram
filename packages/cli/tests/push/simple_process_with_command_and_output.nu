@@ -12,4 +12,4 @@ let path = artifact {
 	'#
 }
 
-test $path "--lazy" "--process-commands"
+test $path "--lazy" "--process-command-objects"

@@ -19,7 +19,7 @@ let id = tg --url $local.url build --detach $path | str trim
 tg --url $local.url wait --source=index $id
 tg --url $local.url index
 tg --url $local.url remote put default $remote.url | complete
-tg --url $local.url push --process-logs $id
+tg --url $local.url push --process-log-objects $id
 
 let log = tg --url $remote.url get $id | from json | get log?
 assert ($log != null) "The completed log should be compacted and sent"

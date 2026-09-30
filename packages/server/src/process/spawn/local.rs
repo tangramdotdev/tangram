@@ -414,11 +414,11 @@ impl Session {
 					.as_secs()
 					.to_i64()
 					.unwrap();
-			let commands = command.objects();
+			let command_objects = command.objects();
 			let permission_arg = self
 				.create_process_object_permission_arg(
 					&id,
-					commands,
+					command_objects,
 					now,
 					Some(permission_expires_at),
 				)

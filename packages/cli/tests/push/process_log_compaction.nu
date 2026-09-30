@@ -25,7 +25,7 @@ for mode in [--eager --lazy] {
 		# The process is finished, but sync must wait for the log compactor to see EOF.
 		let push_job = job spawn {
 			let job_id = job id
-			let output = tg --url $local.url push $process --process-logs $mode | complete
+			let output = tg --url $local.url push $process --process-log-objects $mode | complete
 			$output | job send --tag $job_id 0
 		}
 		let premature = try { job recv --tag $push_job --timeout 1sec } catch { null }
@@ -55,4 +55,4 @@ tg remote put default $remote.url
 let path = artifact { tangram.ts: 'export default function () { console.log("stdout"); }' }
 let process = tg build --detach $path | str trim
 tg wait $process | ignore
-failure (tg --url $local.url push $process --process-logs --eager | complete) "push must report an uncompacted log"
+failure (tg --url $local.url push $process --process-log-objects --eager | complete) "push must report an uncompacted log"

@@ -37,16 +37,16 @@ pub struct Arg {
 	pub process_children: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_commands: bool,
+	pub process_command_objects: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_errors: bool,
+	pub process_error_objects: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_logs: bool,
+	pub process_log_objects: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_outputs: bool,
+	pub process_output_objects: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub sandbox_processes: bool,
@@ -75,10 +75,10 @@ impl Default for Arg {
 			metadata: false,
 			organization_children: false,
 			process_children: false,
-			process_commands: false,
-			process_errors: true,
-			process_logs: false,
-			process_outputs: true,
+			process_command_objects: false,
+			process_error_objects: true,
+			process_log_objects: false,
+			process_output_objects: true,
 			sandbox_processes: false,
 			source: Some(tg::Location::Remote(tg::location::Remote {
 				name: "default".to_owned(),
@@ -102,10 +102,10 @@ impl From<tg::pull::Arg> for tg::push::Arg {
 			metadata: value.metadata,
 			organization_children: value.organization_children,
 			process_children: value.process_children,
-			process_commands: value.process_commands,
-			process_errors: value.process_errors,
-			process_logs: value.process_logs,
-			process_outputs: value.process_outputs,
+			process_command_objects: value.process_command_objects,
+			process_error_objects: value.process_error_objects,
+			process_log_objects: value.process_log_objects,
+			process_output_objects: value.process_output_objects,
 			sandbox_processes: value.sandbox_processes,
 			source: value.source,
 			tag_targets: value.tag_targets,

@@ -20,7 +20,7 @@ for mode in [--eager --lazy] {
 	# Sync must wait while the queued compactor is held before reading the cache.
 	let push_job = job spawn {
 		let job_id = job id
-		let output = tg --url $local.url push $process --process-logs $mode | complete
+		let output = tg --url $local.url push $process --process-log-objects $mode | complete
 		$output | job send --tag $job_id 0
 	}
 	let premature = try { job recv --tag $push_job --timeout 1sec } catch { null }

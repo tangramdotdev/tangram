@@ -33,7 +33,7 @@ assert equal $hit.params.process $process
 for mode in [--eager --lazy] {
 	let remote_destination = server spawn --name remote-destination
 	tg --url $runner.url remote put destination $remote_destination.url
-	let pushed = tg --url $runner.url push $process --remote=destination --process-logs $mode | complete
+	let pushed = tg --url $runner.url push $process --remote=destination --process-log-objects $mode | complete
 	success $pushed
 	assert equal (tg --url $remote_destination.url get $process | from json | get log?) null
 	assert equal (tg --url $runner.url get $process | from json | get log?) null
@@ -48,7 +48,7 @@ let alice_local = server spawn --name alice-local --config {
 }
 
 # Alice pulls her own process with its logs.
-let pulled = tg --url $alice_local.url pull $process --process-logs | complete
+let pulled = tg --url $alice_local.url pull $process --process-log-objects | complete
 success $pulled "the owner should pull their process"
 
 # The compacted log is transferred and readable locally.

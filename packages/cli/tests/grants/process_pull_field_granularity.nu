@@ -17,7 +17,7 @@ let path = artifact { tangram.ts: 'export default function () { return tg.file("
 let process = tg --url $alice_local.url build --detach $path | str trim
 tg --url $alice_local.url wait $process
 tg --url $alice_local.url index
-tg --url $alice_local.url push $process --process-commands --process-outputs
+tg --url $alice_local.url push $process --process-command-objects --process-output-objects
 tg --url $remote.url index
 let data = tg --url $alice_local.url get $process | from json
 
@@ -37,5 +37,5 @@ let eve_local = server spawn --name eve-local --config {
 }
 
 # Eve must not be able to pull the command field she was not granted.
-let pulled = tg --url $eve_local.url pull $process --process-commands | complete
+let pulled = tg --url $eve_local.url pull $process --process-command-objects | complete
 failure $pulled "Eve must not pull the command field of a process whose node and output she has but not its command."

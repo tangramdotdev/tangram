@@ -38,16 +38,16 @@ pub struct Arg {
 	pub process_children: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_commands: bool,
+	pub process_command_objects: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_errors: bool,
+	pub process_error_objects: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_logs: bool,
+	pub process_log_objects: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
-	pub process_outputs: bool,
+	pub process_output_objects: bool,
 
 	#[serde(default, skip_serializing_if = "is_false")]
 	pub sandbox_processes: bool,
@@ -163,10 +163,10 @@ impl Default for Arg {
 			metadata: false,
 			organization_children: false,
 			process_children: false,
-			process_commands: false,
-			process_errors: true,
-			process_logs: false,
-			process_outputs: true,
+			process_command_objects: false,
+			process_error_objects: true,
+			process_log_objects: false,
+			process_output_objects: true,
 			sandbox_processes: false,
 			source: Some(tg::Location::Local(tg::location::Local::default())),
 			tag_targets: true,

@@ -38,7 +38,7 @@ let eve_local = server spawn --name eve-local --config {
 }
 
 # Eve pulls the process with its logs. The remote must not compact and ship the log she cannot read.
-tg --url $eve_local.url pull $process --process-logs | complete
+tg --url $eve_local.url pull $process --process-log-objects | complete
 
 # Eve must not be able to read Alice's private live log content on her own server.
 let eve_log = tg --url $eve_local.url process log $process | complete

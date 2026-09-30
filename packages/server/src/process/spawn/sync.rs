@@ -34,7 +34,7 @@ impl Session {
 		let arg = tg::sync::Arg {
 			eager: true,
 			location: Some(local.into()),
-			process_commands: true,
+			process_command_objects: true,
 			put,
 			..Default::default()
 		};
@@ -54,7 +54,7 @@ impl Session {
 			eager: true,
 			get,
 			location: Some(location.clone().into()),
-			process_commands: true,
+			process_command_objects: true,
 			..Default::default()
 		};
 		let (output, stream) = self.sync_for_process(arg, stream.boxed()).await?;

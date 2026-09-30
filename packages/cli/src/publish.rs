@@ -240,8 +240,8 @@ impl Cli {
 			force: args.force,
 			nodes: items.into_iter().map(|node| node.map(Into::into)).collect(),
 			metadata: false,
-			process_errors: true,
-			process_outputs: true,
+			process_error_objects: true,
+			process_output_objects: true,
 			source: None,
 			..Default::default()
 		};

@@ -1183,7 +1183,7 @@ impl Index {
 							.as_ref()
 							.and_then(|object| object.metadata.subtree.depth)
 					})
-					.try_fold(0u64, |command, value| value.map(|value| command.max(value)));
+					.try_fold(0u64, |output, value| value.map(|value| output.max(value)));
 				if let Some(value) = value {
 					process.metadata.node.command.depth = Some(value);
 					changed = true;
@@ -1213,7 +1213,7 @@ impl Index {
 							.as_ref()
 							.and_then(|object| object.metadata.subtree.solvable)
 					})
-					.try_fold(false, |command, value| value.map(|value| command || value));
+					.try_fold(false, |output, value| value.map(|value| output || value));
 				if let Some(value) = value {
 					process.metadata.node.command.solvable = Some(value);
 					changed = true;
@@ -1228,7 +1228,7 @@ impl Index {
 							.as_ref()
 							.and_then(|object| object.metadata.subtree.solved)
 					})
-					.try_fold(true, |command, value| value.map(|value| command && value));
+					.try_fold(true, |output, value| value.map(|value| output && value));
 				if let Some(value) = value {
 					process.metadata.node.command.solved = Some(value);
 					changed = true;

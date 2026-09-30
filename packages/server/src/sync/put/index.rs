@@ -115,7 +115,7 @@ impl Session {
 				if let Some(count) = metadata.subtree.count {
 					processes += count;
 				}
-				if state.arg.process_commands {
+				if state.arg.process_command_objects {
 					if let Some(commands_count) = metadata.subtree.command.count {
 						objects += commands_count;
 					}
@@ -123,7 +123,7 @@ impl Session {
 						bytes += commands_size;
 					}
 				}
-				if state.arg.process_errors {
+				if state.arg.process_error_objects {
 					if let Some(errors_count) = metadata.subtree.error.count {
 						objects += errors_count;
 					}
@@ -131,7 +131,7 @@ impl Session {
 						bytes += errors_size;
 					}
 				}
-				if state.arg.process_logs {
+				if state.arg.process_log_objects {
 					if let Some(logs_count) = metadata.subtree.log.count {
 						objects += logs_count;
 					}
@@ -139,7 +139,7 @@ impl Session {
 						bytes += logs_size;
 					}
 				}
-				if state.arg.process_outputs {
+				if state.arg.process_output_objects {
 					if let Some(outputs_count) = metadata.subtree.output.count {
 						objects += outputs_count;
 					}
@@ -148,7 +148,7 @@ impl Session {
 					}
 				}
 			} else {
-				if state.arg.process_commands {
+				if state.arg.process_command_objects {
 					if let Some(command_count) = metadata.node.command.count {
 						objects += command_count;
 					}
@@ -156,7 +156,7 @@ impl Session {
 						bytes += command_size;
 					}
 				}
-				if state.arg.process_errors {
+				if state.arg.process_error_objects {
 					if let Some(error_count) = metadata.node.error.count {
 						objects += error_count;
 					}
@@ -164,7 +164,7 @@ impl Session {
 						bytes += error_size;
 					}
 				}
-				if state.arg.process_logs {
+				if state.arg.process_log_objects {
 					if let Some(log_count) = metadata.node.log.count {
 						objects += log_count;
 					}
@@ -172,7 +172,7 @@ impl Session {
 						bytes += log_size;
 					}
 				}
-				if state.arg.process_outputs {
+				if state.arg.process_output_objects {
 					if let Some(output_count) = metadata.node.output.count {
 						objects += output_count;
 					}

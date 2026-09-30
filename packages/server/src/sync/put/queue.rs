@@ -917,22 +917,22 @@ impl Session {
 		}
 		for (enabled, node, subtree) in [
 			(
-				arg.process_commands,
+				arg.process_command_objects,
 				tg::authorization::permission::process::Permission::NodeCommand,
 				tg::authorization::permission::process::Permission::SubtreeCommand,
 			),
 			(
-				arg.process_errors,
+				arg.process_error_objects,
 				tg::authorization::permission::process::Permission::NodeError,
 				tg::authorization::permission::process::Permission::SubtreeError,
 			),
 			(
-				arg.process_logs,
+				arg.process_log_objects,
 				tg::authorization::permission::process::Permission::NodeLog,
 				tg::authorization::permission::process::Permission::SubtreeLog,
 			),
 			(
-				arg.process_outputs,
+				arg.process_output_objects,
 				tg::authorization::permission::process::Permission::NodeOutput,
 				tg::authorization::permission::process::Permission::SubtreeOutput,
 			),

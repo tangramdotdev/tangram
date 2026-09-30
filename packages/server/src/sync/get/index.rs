@@ -1134,39 +1134,39 @@ impl Session {
 								Ok((id, kind))
 							})
 							.collect::<tg::Result<Vec<_>>>()?;
-						let mut command = Vec::new();
-						let mut error = Vec::new();
-						let mut log = None;
-						let mut output = Vec::new();
+						let mut command_objects = Vec::new();
+						let mut error_objects = Vec::new();
+						let mut log_object = None;
+						let mut output_objects = Vec::new();
 						for (object, kind) in objects {
 							match kind {
 								tangram_index::process::object::Kind::Command => {
-									command.push(object);
+									command_objects.push(object);
 								},
 								tangram_index::process::object::Kind::Error => {
-									error.push(object);
+									error_objects.push(object);
 								},
 								tangram_index::process::object::Kind::Log => {
-									log = Some(object);
+									log_object = Some(object);
 								},
 								tangram_index::process::object::Kind::Output => {
-									output.push(object);
+									output_objects.push(object);
 								},
 							}
 						}
 						let arg = tangram_index::process::put::Arg {
 							cached: false,
 							children: Some(children),
-							command: Some(command),
+							command: Some(command_objects),
 							command_id,
 							data: Some(data.clone().without_location_and_tokens()),
-							error: Some((!error.is_empty()).then_some(error)),
+							error: Some((!error_objects.is_empty()).then_some(error_objects)),
 							id,
 							location: None,
-							log: Some(log),
+							log: Some(log_object),
 							metadata,
 							options: tg::referent::Options::default(),
-							output: Some((!output.is_empty()).then_some(output)),
+							output: Some((!output_objects.is_empty()).then_some(output_objects)),
 							parent: None,
 							sandbox: None,
 							storage,

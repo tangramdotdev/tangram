@@ -507,7 +507,7 @@ impl Session {
 					// Update the graph with the storage, metadata, and data.
 					let (request, availability) = {
 						let mut graph = state.graph.lock().unwrap();
-						let request = state.arg.process_logs
+						let request = state.arg.process_log_objects
 							&& log_needs_compaction
 							&& graph.get_process_requested(&node.id).is_none();
 						let arg = UpdateProcessLocalArg {
@@ -620,13 +620,13 @@ impl Session {
 		// Enqueue the children if necessary.
 		if state.arg.process_children
 			&& (!availability.is_some_and(|availability| availability.subtree)
-				|| (state.arg.process_commands
+				|| (state.arg.process_command_objects
 					&& !availability.is_some_and(|availability| availability.subtree_command))
-				|| (state.arg.process_errors
+				|| (state.arg.process_error_objects
 					&& !availability.is_some_and(|availability| availability.subtree_error))
-				|| (state.arg.process_logs
+				|| (state.arg.process_log_objects
 					&& !availability.is_some_and(|availability| availability.subtree_log))
-				|| (state.arg.process_outputs
+				|| (state.arg.process_output_objects
 					&& !availability.is_some_and(|availability| availability.subtree_output)))
 			&& let Some(children) = &data.children
 		{
@@ -643,7 +643,7 @@ impl Session {
 		}
 
 		// Enqueue the command if necessary.
-		if state.arg.process_commands
+		if state.arg.process_command_objects
 			&& !availability.is_some_and(|availability| availability.node_command)
 		{
 			for command in data.command.objects() {
@@ -661,7 +661,7 @@ impl Session {
 		}
 
 		// Enqueue the error if necessary.
-		if state.arg.process_errors
+		if state.arg.process_error_objects
 			&& !availability.is_some_and(|availability| availability.node_error)
 			&& let Some(error) = &data.error
 		{
@@ -697,7 +697,7 @@ impl Session {
 		}
 
 		// Enqueue the log if necessary.
-		if state.arg.process_logs
+		if state.arg.process_log_objects
 			&& !availability.is_some_and(|availability| availability.node_log)
 			&& let Some(log) = data.log.clone()
 		{
@@ -714,7 +714,7 @@ impl Session {
 		}
 
 		// Enqueue the output if necessary.
-		if (state.arg.process_outputs
+		if (state.arg.process_output_objects
 			&& !availability.is_some_and(|availability| availability.node_output))
 			&& let Some(output) = &data.output
 		{

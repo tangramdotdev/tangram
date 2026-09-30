@@ -16,7 +16,7 @@ let path = artifact {
 let id = tg build --detach $path | str trim
 tg wait $id
 tg remote put default $remote.url | complete
-tg push --process-logs $id
+tg push --process-log-objects $id
 
 # Read from remote blob starting mid-entry. Should not hang or repeat.
 let output = tg --url $remote.url process log --position 5 $id o+e>| complete

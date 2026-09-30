@@ -102,11 +102,13 @@ impl Session {
 		parent_data: Option<(tg::process::Data, tg::Location)>,
 		wait: Option<&tg::process::wait::Output>,
 	) -> tg::Result<()> {
-		let (error, output) = if child.cached {
+		let (error_objects, output_objects) = if child.cached {
 			match wait {
 				Some(wait) => (
-					Some(Self::index_process_child_error(wait.error.as_ref())),
-					Some(Self::index_process_child_output(wait.output.as_ref())),
+					Some(Self::index_process_child_error_objects(wait.error.as_ref())),
+					Some(Self::index_process_child_output_objects(
+						wait.output.as_ref(),
+					)),
 				),
 				None => (None, None),
 			}
@@ -152,13 +154,13 @@ impl Session {
 			command: None,
 			command_id: command.clone().into(),
 			data: None,
-			error,
+			error: error_objects,
 			id: child_id.clone(),
 			location: child.process.options.location.clone(),
 			log: None,
 			metadata: tg::process::Metadata::default(),
 			options: child.process.options.clone(),
-			output,
+			output: output_objects,
 			parent: Some(parent.clone()),
 			sandbox: None,
 			storage: tangram_index::process::Storage::default(),
@@ -189,7 +191,7 @@ impl Session {
 		Ok(())
 	}
 
-	fn index_process_child_error(
+	fn index_process_child_error_objects(
 		error: Option<&tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
 	) -> Option<Vec<tg::object::Id>> {
 		error.map(|error| match error {
@@ -202,12 +204,14 @@ impl Session {
 		})
 	}
 
-	fn index_process_child_output(output: Option<&tg::value::Data>) -> Option<Vec<tg::object::Id>> {
+	fn index_process_child_output_objects(
+		output: Option<&tg::value::Data>,
+	) -> Option<Vec<tg::object::Id>> {
 		let output = output?;
 		let mut objects = BTreeSet::new();
 		output.children(&mut objects);
-		let output = objects.into_iter().collect();
+		let objects = objects.into_iter().collect();
 
-		Some(output)
+		Some(objects)
 	}
 }

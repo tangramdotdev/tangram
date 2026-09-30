@@ -46,7 +46,7 @@ export def test [path: string, ...args] {
 	}
 
 	# Confirm commands are present if --commmands.
-	if "--process-commands" in $args {
+	if "--process-command-objects" in $args {
 		tg --url $remote.url get (command module-input $output.command) --no-tokens --pretty
 	}
 
@@ -57,8 +57,8 @@ export def test [path: string, ...args] {
 		}
 	}
 
-	# Confirm children commands are present if --process-children and --process-commands.
-	if "--process-commands" in $args and "--process-children" in $args {
+	# Confirm children commands are present if --process-children and --process-command-objects.
+	if "--process-command-objects" in $args and "--process-children" in $args {
 		for child in $children {
 			let output = tg --url $remote.url get $child.process | from json
 			tg --url $remote.url get (command module-input $output.command) --no-tokens --pretty

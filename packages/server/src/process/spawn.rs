@@ -570,7 +570,7 @@ impl Session {
 		let push_arg = tg::push::Arg {
 			destination: Some(location.clone()),
 			nodes,
-			process_commands: true,
+			process_command_objects: true,
 			..Default::default()
 		};
 		let stream = self

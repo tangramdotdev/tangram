@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 use ../lib/command.nu
 
-# Recursively pushing a process without commands leaves the tree's commands absent on the remote, and a subsequent recursive push with commands makes every command present and records the expected metadata fields, under both eager and lazy push.
+# Recursively pushing a process without command objects leaves them absent on the remote, and a subsequent recursive push with command objects makes them present and records the expected metadata fields, under both eager and lazy push.
 
 # Recursively find all children commands and collect them into a list.
 def collect_commands [process_id: string] {
@@ -59,7 +59,7 @@ def test [path: string, ...args] {
 	}
 
 	# Push the process again now with commands.
-	tg push "--process-children" "--process-commands" ...$args $process_id
+	tg push "--process-children" "--process-command-objects" ...$args $process_id
 
 	# Index on the remote.
 	tg --url $remote.url index

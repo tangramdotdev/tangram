@@ -38,7 +38,7 @@ let blocker_watch = tg --url $remote.url --token $root_token checkpoint watch sy
 let push_log = $env.TMPDIR | path join push.log
 let push = job spawn {
 	let job_id = job id
-	let output = tg --no-quiet --url $alice_local.url push --no-process-errors --no-process-outputs $process $blocker o+e>| tee { save --force $push_log } | complete
+	let output = tg --no-quiet --url $alice_local.url push --no-process-error-objects --no-process-output-objects $process $blocker o+e>| tee { save --force $push_log } | complete
 	$output | job send --tag $job_id 0
 }
 success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.process $stored_watch 0 | complete) 'the process should be stored'
@@ -54,7 +54,7 @@ failure $output 'Bob should lack indexed authorization for the process'
 # Bob pulls using only the authorization token for the sync before the incoming sync finishes.
 let pull = job spawn {
 	let job_id = job id
-	let output = tg --url $bob_local.url pull --no-process-errors --no-process-outputs $referent | complete
+	let output = tg --url $bob_local.url pull --no-process-error-objects --no-process-output-objects $referent | complete
 	$output | job send --tag $job_id 0
 }
 let pull_output = job recv --tag $pull --timeout 10sec

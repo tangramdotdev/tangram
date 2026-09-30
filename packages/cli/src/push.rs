@@ -29,17 +29,17 @@ pub struct Args {
 	#[arg(long)]
 	pub process_children: bool,
 
-	#[arg(alias = "process-command", long)]
-	pub process_commands: bool,
+	#[arg(long)]
+	pub process_command_objects: bool,
 
 	#[command(flatten)]
-	pub process_errors: ProcessErrors,
+	pub process_error_objects: ProcessErrorObjects,
 
-	#[arg(alias = "process-log", long)]
-	pub process_logs: bool,
+	#[arg(long)]
+	pub process_log_objects: bool,
 
 	#[command(flatten)]
-	pub process_outputs: ProcessOutputs,
+	pub process_output_objects: ProcessOutputObjects,
 
 	#[arg(required = true)]
 	pub references: Vec<tg::Reference>,
@@ -84,67 +84,63 @@ impl Eager {
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct ProcessErrors {
+pub struct ProcessErrorObjects {
 	#[arg(
-		alias = "no-process-error",
 		default_missing_value = "true",
-		id = "push.process_errors.no_process_errors",
-		long = "no-process-errors",
+		id = "push.process_error_objects.no_process_error_objects",
+		long = "no-process-error-objects",
 		num_args = 0..=1,
-		overrides_with = "push.process_errors.process_errors",
+		overrides_with = "push.process_error_objects.process_error_objects",
 		require_equals = true,
 	)]
-	no_process_errors: Option<bool>,
+	no_process_error_objects: Option<bool>,
 
 	#[arg(
-		alias = "process-error",
 		default_missing_value = "true",
-		id = "push.process_errors.process_errors",
-		long = "process-errors",
+		id = "push.process_error_objects.process_error_objects",
+		long = "process-error-objects",
 		num_args = 0..=1,
-		overrides_with = "push.process_errors.no_process_errors",
+		overrides_with = "push.process_error_objects.no_process_error_objects",
 		require_equals = true,
 	)]
-	process_errors: Option<bool>,
+	process_error_objects: Option<bool>,
 }
 
-impl ProcessErrors {
+impl ProcessErrorObjects {
 	pub fn get(&self) -> bool {
-		self.process_errors
-			.or(self.no_process_errors.map(|value| !value))
+		self.process_error_objects
+			.or(self.no_process_error_objects.map(|value| !value))
 			.unwrap_or(true)
 	}
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
-pub struct ProcessOutputs {
+pub struct ProcessOutputObjects {
 	#[arg(
-		alias = "no-process-output",
 		default_missing_value = "true",
-		id = "push.process_outputs.no_process_outputs",
-		long = "no-process-outputs",
+		id = "push.process_output_objects.no_process_output_objects",
+		long = "no-process-output-objects",
 		num_args = 0..=1,
-		overrides_with = "push.process_outputs.process_outputs",
+		overrides_with = "push.process_output_objects.process_output_objects",
 		require_equals = true,
 	)]
-	no_process_outputs: Option<bool>,
+	no_process_output_objects: Option<bool>,
 
 	#[arg(
-		alias = "process-output",
 		default_missing_value = "true",
-		id = "push.process_outputs.process_outputs",
-		long = "process-outputs",
+		id = "push.process_output_objects.process_output_objects",
+		long = "process-output-objects",
 		num_args = 0..=1,
-		overrides_with = "push.process_outputs.no_process_outputs",
+		overrides_with = "push.process_output_objects.no_process_output_objects",
 		require_equals = true,
 	)]
-	process_outputs: Option<bool>,
+	process_output_objects: Option<bool>,
 }
 
-impl ProcessOutputs {
+impl ProcessOutputObjects {
 	pub fn get(&self) -> bool {
-		self.process_outputs
-			.or(self.no_process_outputs.map(|value| !value))
+		self.process_output_objects
+			.or(self.no_process_output_objects.map(|value| !value))
 			.unwrap_or(true)
 	}
 }
@@ -225,10 +221,10 @@ impl Cli {
 			metadata: args.metadata,
 			organization_children: args.organization_children,
 			process_children: args.process_children,
-			process_commands: args.process_commands,
-			process_errors: args.process_errors.get(),
-			process_logs: args.process_logs,
-			process_outputs: args.process_outputs.get(),
+			process_command_objects: args.process_command_objects,
+			process_error_objects: args.process_error_objects.get(),
+			process_log_objects: args.process_log_objects,
+			process_output_objects: args.process_output_objects.get(),
 			sandbox_processes: args.sandbox_processes,
 			source: Some(source),
 			tag_targets: args.tag_targets.get(),
