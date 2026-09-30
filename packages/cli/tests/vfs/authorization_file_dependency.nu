@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# An executable reads its file dependency by store path without authorization search.
+# An executable reads its file and symlink dependencies by store path without authorization search.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
@@ -15,8 +15,11 @@ for io in $transports {
 
 	let module = artifact {
 		tangram.ts: '
-			export default async function () {
-				const dependency = await tg.file("dependency\n");
+			export default async function (kind: "file" | "symlink") {
+				const file = await tg.file("dependency\n");
+				const dependency = kind === "symlink"
+					? await tg.symlink({ artifact: tg.directory({ value: file }), path: "value" })
+					: file;
 				const executable = await tg.file({
 					contents: `#!/bin/sh\nIFS= read -r value < "\${0%/*}/${dependency.id}" && printf "%s\\n" "$value"\n`,
 					dependencies: { [dependency.id]: dependency },
@@ -27,9 +30,11 @@ for io in $transports {
 		'
 	}
 
-	let command = tg build $module | str trim
-	let output = tg run --sandbox $command | complete
-	success $output 'the executable must read its file dependency through the VFS with authorization search disabled'
-	assert equal ($output.stdout | str trim) 'dependency'
+	for kind in [file symlink] {
+		let command = tg build $module --arg-string $kind | str trim
+		let output = tg run --sandbox $command | complete
+		success $output $'the executable must read its ($kind) dependency through the VFS over ($io) with authorization search disabled'
+		assert equal ($output.stdout | str trim) 'dependency'
+	}
 	server stop $local
 }
