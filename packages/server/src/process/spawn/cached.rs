@@ -109,6 +109,7 @@ impl Session {
 		if let Some(child) = cycle {
 			let parent = arg.parent.as_ref().unwrap();
 			return Err(tg::error!(
+				code = tg::error::Code::ProcessCycleDetected,
 				%child,
 				%parent,
 				"adding this child process creates a cycle"

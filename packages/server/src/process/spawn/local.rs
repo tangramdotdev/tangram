@@ -244,14 +244,18 @@ impl Session {
 				.await
 				.map(Some);
 		}
-		let Ok(output) = self
+		let result = self
 			.try_get_cached_process_local(arg, command)
 			.boxed()
-			.await
-			.inspect_err(|error| {
-				tracing::error!(error = %error.trace(), "failed to get a cached process");
-			})
-		else {
+			.await;
+		if let Err(error) = &result
+			&& matches!(error.code(), Some(tg::error::Code::ProcessCycleDetected))
+		{
+			return result;
+		}
+		let Ok(output) = result.inspect_err(|error| {
+			tracing::error!(error = %error.trace(), "failed to get a cached process");
+		}) else {
 			return Ok(None);
 		};
 		Ok(output)

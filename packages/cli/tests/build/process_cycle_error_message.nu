@@ -16,7 +16,6 @@ snapshot --normalize $output.stderr '
 	error an error occurred
 	-> the process failed
 	   id = pcs_0000000000000000000000000000
-	-> failed to get a cached process
 	-> adding this child process creates a cycle
 	   child = pcs_0000000000000000000000000000
 	   parent = pcs_0000000000000000000000000000

@@ -38,6 +38,9 @@ pub enum Code {
 
 	#[tangram_serialize(id = 3)]
 	Internal,
+
+	#[tangram_serialize(id = 4)]
+	ProcessCycleDetected,
 }
 
 /// A transport-independent error classification.
