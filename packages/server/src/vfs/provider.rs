@@ -90,12 +90,12 @@ struct Node {
 	artifact: Option<ArtifactInfo>,
 	attrs: Option<vfs::Attrs>,
 	children: BTreeMap<String, u64>,
+	dependencies: Vec<ArtifactInfo>,
 	depth: u64,
 	lookup_count: u64,
 	name: Option<String>,
 	named: Option<NamedNodeInfo>,
 	parent: u64,
-	symlink_targets: Vec<ArtifactInfo>,
 	tokens: Vec<tg::authorization::Token>,
 }
 
@@ -624,18 +624,12 @@ impl Provider {
 		let mut references = Vec::with_capacity(file.dependencies.len());
 		for (reference, dependency) in &file.dependencies {
 			let mut reference = reference.clone();
-			let Some(edge) = dependency
-				.as_ref()
-				.and_then(|dependency| dependency.0.node.as_ref())
+			let Some(dependency) =
+				self.file_dependency_artifact(tokens, dependency.as_ref(), graph, transaction)?
 			else {
 				references.push(reference);
 				continue;
 			};
-			let Ok(edge) = tg::graph::data::Edge::<tg::artifact::Id>::try_from(edge.clone()) else {
-				references.push(reference);
-				continue;
-			};
-			let dependency = self.artifact_from_edge_inner(tokens, edge, graph, transaction)?;
 			let mut options = reference.options().clone();
 			options
 				.tokens
@@ -647,6 +641,23 @@ impl Provider {
 		}
 
 		Ok(references)
+	}
+
+	fn file_dependency_artifact(
+		&self,
+		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		dependency: Option<&tg::graph::data::Dependency>,
+		graph: Option<&tg::graph::Id>,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<Option<ArtifactInfo>> {
+		let Some(edge) = dependency.and_then(|dependency| dependency.0.node.as_ref()) else {
+			return Ok(None);
+		};
+		let Ok(edge) = tg::graph::data::Edge::<tg::artifact::Id>::try_from(edge.clone()) else {
+			return Ok(None);
+		};
+		let artifact = self.artifact_from_edge_inner(tokens, edge, graph, transaction)?;
+		Ok(Some(artifact))
 	}
 
 	pub async fn listxattrs(&self, id: u64) -> std::io::Result<Vec<String>> {
@@ -1350,11 +1361,14 @@ impl Provider {
 		}
 
 		// Get the blob id.
-		let (file, _) = self.file_node_inner(&artifact).await?;
+		let (file, graph) = self.file_node_inner(&artifact).await?;
 		let Some(blob) = file.contents else {
 			tracing::error!(%id, "file has no contents");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
+
+		// Register the file's dependencies so that a process can open them by store path.
+		self.register_file_dependencies(id, &artifact, &file.dependencies, graph.as_ref(), None)?;
 
 		// Create the file handle.
 		let file_handle = FileHandle {
@@ -1392,11 +1406,20 @@ impl Provider {
 		}
 
 		// Get the file object.
-		let (file, _) = self.file_node_sync_inner(&artifact, transaction)?;
+		let (file, graph) = self.file_node_sync_inner(&artifact, transaction)?;
 		let Some(blob) = file.contents else {
 			tracing::error!(%id, "file has no contents");
 			return Err(std::io::Error::from_raw_os_error(libc::EIO));
 		};
+
+		// Register the file's dependencies so that a process can open them by store path.
+		self.register_file_dependencies(
+			id,
+			&artifact,
+			&file.dependencies,
+			graph.as_ref(),
+			transaction,
+		)?;
 
 		// Attempt to open a backing file for passthrough.
 		let backing_fd = self.try_open_backing_fd_sync_inner(&blob, transaction)?;
@@ -2335,7 +2358,7 @@ impl Provider {
 			Some(edge) => {
 				let target =
 					self.artifact_from_edge_inner(&artifact.tokens, edge, graph.as_ref(), None)?;
-				self.register_symlink_target(id, &target)?;
+				self.register_dependency(id, &target)?;
 				Some(target.id)
 			},
 			None => None,
@@ -2392,7 +2415,7 @@ impl Provider {
 					graph.as_ref(),
 					transaction,
 				)?;
-				self.register_symlink_target(id, &target)?;
+				self.register_dependency(id, &target)?;
 				Some(target.id)
 			},
 			None => None,
@@ -2421,9 +2444,32 @@ impl Provider {
 		Ok(node)
 	}
 
-	fn register_symlink_target(&self, source: u64, target: &ArtifactInfo) -> std::io::Result<()> {
-		self.nodes.insert_symlink_target(source, target);
-		let tokens = target.tokens.lock().unwrap().clone();
+	fn register_file_dependencies(
+		&self,
+		source: u64,
+		artifact: &ArtifactInfo,
+		dependencies: &BTreeMap<tg::Reference, Option<tg::graph::data::Dependency>>,
+		graph: Option<&tg::graph::Id>,
+		transaction: Option<&Transaction<'_>>,
+	) -> std::io::Result<()> {
+		for dependency in dependencies.values() {
+			let Some(dependency) = self.file_dependency_artifact(
+				&artifact.tokens,
+				dependency.as_ref(),
+				graph,
+				transaction,
+			)?
+			else {
+				continue;
+			};
+			self.register_dependency(source, &dependency)?;
+		}
+		Ok(())
+	}
+
+	fn register_dependency(&self, source: u64, dependency: &ArtifactInfo) -> std::io::Result<()> {
+		self.nodes.insert_dependency(source, dependency);
+		let tokens = dependency.tokens.lock().unwrap().clone();
 		self.nodes
 			.refresh_node_tokens(&self.session(), &tokens)
 			.map_err(|error| Self::map_cache_sync_error(&error))?;
@@ -3888,12 +3934,12 @@ impl Nodes {
 			artifact: None,
 			attrs: Some(vfs::Attrs::new(vfs::AttrsInner::Directory)),
 			children: BTreeMap::new(),
+			dependencies: Vec::new(),
 			depth: 0,
 			lookup_count: u64::MAX,
 			name: None,
 			named: None,
 			parent: vfs::ROOT_NODE_ID,
-			symlink_targets: Vec::new(),
 			tokens: Vec::new(),
 		};
 		nodes.insert(vfs::ROOT_NODE_ID, entry);
@@ -3953,9 +3999,9 @@ impl Nodes {
 		while let Some((id, token)) = pending.pop() {
 			let node = state.nodes.get(&id).unwrap();
 			let incoming = [token.clone()];
-			for symlink_target in &node.symlink_targets {
-				if token.body.resource == symlink_target.id.clone().into() {
-					let mut tokens = symlink_target.tokens.lock().unwrap();
+			for dependency in &node.dependencies {
+				if token.body.resource == dependency.id.clone().into() {
+					let mut tokens = dependency.tokens.lock().unwrap();
 					tokens.retain(|token| token.body.expires_at >= now);
 					Provider::insert_tokens(&mut tokens, &incoming);
 				}
@@ -3978,22 +4024,18 @@ impl Nodes {
 			if !improved {
 				continue;
 			}
-			for symlink_target in &node.symlink_targets {
-				Self::refresh_tokens(
-					session,
-					&mut symlink_target.tokens.lock().unwrap(),
-					expires_at,
-				)?;
-				if let Some(target) = state.nodes[&vfs::ROOT_NODE_ID]
+			for dependency in &node.dependencies {
+				Self::refresh_tokens(session, &mut dependency.tokens.lock().unwrap(), expires_at)?;
+				if let Some(dependency_id) = state.nodes[&vfs::ROOT_NODE_ID]
 					.children
-					.get(&symlink_target.id.to_string())
-					&& *target != id
+					.get(&dependency.id.to_string())
+					&& *dependency_id != id
 					&& let Some(token) = session.create_token(
-						symlink_target.id.clone().into(),
+						dependency.id.clone().into(),
 						vec![subtree],
 						expires_at,
 					)? {
-					pending.push((*target, token));
+					pending.push((*dependency_id, token));
 				}
 			}
 			for child in node.children.values() {
@@ -4051,7 +4093,7 @@ impl Nodes {
 				return artifact.clone();
 			}
 			if let Some(artifact) = source
-				.symlink_targets
+				.dependencies
 				.iter()
 				.find(|artifact| &artifact.id == id)
 			{
@@ -4080,23 +4122,23 @@ impl Nodes {
 		}
 	}
 
-	fn insert_symlink_target(&self, source: u64, artifact: &ArtifactInfo) {
+	fn insert_dependency(&self, source: u64, artifact: &ArtifactInfo) {
 		let mut state = self.state.lock().unwrap();
 		let Some(node) = state.nodes.get_mut(&source) else {
 			return;
 		};
-		let symlink_target = artifact.snapshot();
+		let dependency = artifact.snapshot();
 		if let Some(existing) = node
-			.symlink_targets
+			.dependencies
 			.iter_mut()
-			.find(|symlink_target| symlink_target.id == artifact.id)
+			.find(|dependency| dependency.id == artifact.id)
 		{
 			Provider::insert_tokens(
 				&mut existing.tokens.lock().unwrap(),
-				&symlink_target.tokens.lock().unwrap(),
+				&dependency.tokens.lock().unwrap(),
 			);
 		} else {
-			node.symlink_targets.push(symlink_target);
+			node.dependencies.push(dependency);
 		}
 		state
 			.nodes
@@ -4246,22 +4288,22 @@ impl Nodes {
 			let name = node.name.clone();
 
 			let node = state.nodes.remove(&id).unwrap();
-			let mut symlink_targets = node.symlink_targets;
+			let mut dependencies = node.dependencies;
 			if parent == vfs::ROOT_NODE_ID
 				&& let Some(artifact) = node.artifact
 			{
-				symlink_targets.push(artifact);
+				dependencies.push(artifact);
 			}
-			for symlink_target in symlink_targets {
-				let name = symlink_target.id.to_string();
+			for dependency in dependencies {
+				let name = dependency.id.to_string();
 				if state.nodes[&vfs::ROOT_NODE_ID].children.get(&name) != Some(&id) {
 					continue;
 				}
-				// Preserve a shared symlink target only while another existing inode supplies its tokens.
+				// Preserve a shared dependency only while another existing inode supplies its tokens.
 				let source = state.nodes.iter().find_map(|(id, node)| {
-					node.symlink_targets
+					node.dependencies
 						.iter()
-						.any(|other| other.id == symlink_target.id)
+						.any(|other| other.id == dependency.id)
 						.then_some(*id)
 				});
 				let root = state.nodes.get_mut(&vfs::ROOT_NODE_ID).unwrap();
@@ -4332,12 +4374,12 @@ impl Nodes {
 			artifact: Some(artifact),
 			attrs,
 			children: BTreeMap::new(),
+			dependencies: Vec::new(),
 			depth,
 			lookup_count: u64::from(remember),
 			name: Some(name.to_owned()),
 			named: None,
 			parent,
-			symlink_targets: Vec::new(),
 			tokens: Vec::new(),
 		};
 		state.nodes.insert(id, entry);
@@ -4384,12 +4426,12 @@ impl Nodes {
 			artifact: None,
 			attrs: Some(attrs),
 			children: BTreeMap::new(),
+			dependencies: Vec::new(),
 			depth,
 			lookup_count: u64::from(remember),
 			name: Some(name.to_owned()),
 			named: Some(named_node),
 			parent,
-			symlink_targets: Vec::new(),
 			tokens: Vec::new(),
 		};
 		state.nodes.insert(id, entry);
@@ -4618,7 +4660,7 @@ mod tests {
 	};
 
 	#[test]
-	fn forget_releases_tokens_and_symlink_targets() {
+	fn forget_releases_tokens_and_dependencies() {
 		let nodes = Nodes::new();
 		let source = artifact(b"source");
 		let source_id = source.id.clone();
@@ -4642,13 +4684,13 @@ mod tests {
 				true,
 			)
 			.unwrap();
-		let target = artifact(b"target");
-		let target_id = target.id.clone();
-		nodes.insert_symlink_target(inode, &target);
-		drop(target);
-		let symlink_target = nodes.root_artifact(&target_id);
-		assert!(!symlink_target.tokens.lock().unwrap().is_empty());
-		drop(symlink_target);
+		let dependency = artifact(b"target");
+		let dependency_id = dependency.id.clone();
+		nodes.insert_dependency(inode, &dependency);
+		drop(dependency);
+		let dependency = nodes.root_artifact(&dependency_id);
+		assert!(!dependency.tokens.lock().unwrap().is_empty());
+		drop(dependency);
 		assert_eq!(nodes.forget(inode, 1), vec![inode]);
 		assert!(source_tokens.upgrade().is_none());
 		assert_eq!(nodes.state.lock().unwrap().nodes.len(), 1);
@@ -4659,7 +4701,7 @@ mod tests {
 		);
 		assert!(
 			nodes
-				.root_artifact(&target_id)
+				.root_artifact(&dependency_id)
 				.tokens
 				.lock()
 				.unwrap()
@@ -4683,37 +4725,37 @@ mod tests {
 	}
 
 	#[test]
-	fn an_accessed_symlink_target_survives_forgetting_its_source() {
+	fn an_accessed_dependency_survives_forgetting_its_source() {
 		let nodes = Nodes::new();
 		let source = artifact(b"source");
 		let source_id = source.id.to_string();
 		let source = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &source_id, source, 1, None, true)
 			.unwrap();
-		let target = artifact(b"target");
-		let target_id = target.id.clone();
-		nodes.insert_symlink_target(source, &target);
-		drop(target);
-		let target = nodes.root_artifact(&target_id);
-		let tokens = Arc::downgrade(&target.tokens);
-		let target = nodes
+		let dependency = artifact(b"target");
+		let dependency_id = dependency.id.clone();
+		nodes.insert_dependency(source, &dependency);
+		drop(dependency);
+		let dependency = nodes.root_artifact(&dependency_id);
+		let tokens = Arc::downgrade(&dependency.tokens);
+		let dependency = nodes
 			.get_or_insert_child(
 				vfs::ROOT_NODE_ID,
-				&target_id.to_string(),
-				target,
+				&dependency_id.to_string(),
+				dependency,
 				1,
 				None,
 				true,
 			)
 			.unwrap();
-		assert_ne!(source, target);
+		assert_ne!(source, dependency);
 		nodes.forget(source, 1);
 		assert!(tokens.upgrade().is_some());
 		assert_eq!(
-			nodes.lookup_sync(vfs::ROOT_NODE_ID, &target_id.to_string()),
-			Some(target)
+			nodes.lookup_sync(vfs::ROOT_NODE_ID, &dependency_id.to_string()),
+			Some(dependency)
 		);
-		nodes.forget(target, 1);
+		nodes.forget(dependency, 1);
 		assert!(tokens.upgrade().is_none());
 		assert_eq!(nodes.state.lock().unwrap().nodes.len(), 1);
 	}
@@ -4746,7 +4788,7 @@ mod tests {
 	}
 
 	#[test]
-	fn forgetting_one_source_preserves_a_shared_symlink_target() {
+	fn forgetting_one_source_preserves_a_shared_dependency() {
 		let nodes = Nodes::new();
 		let first = artifact(b"first");
 		let name = first.id.to_string();
@@ -4758,11 +4800,11 @@ mod tests {
 		let second = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, second, 1, None, true)
 			.unwrap();
-		let target = artifact(b"shared");
-		let id = target.id.clone();
-		nodes.insert_symlink_target(first, &target);
-		nodes.insert_symlink_target(second, &target);
-		drop(target);
+		let dependency = artifact(b"shared");
+		let id = dependency.id.clone();
+		nodes.insert_dependency(first, &dependency);
+		nodes.insert_dependency(second, &dependency);
+		drop(dependency);
 		nodes.forget(first, 1);
 		assert!(!nodes.root_artifact(&id).tokens.lock().unwrap().is_empty());
 		nodes.forget(second, 1);
@@ -4775,23 +4817,30 @@ mod tests {
 	}
 
 	#[test]
-	fn a_forgotten_target_is_reloaded_from_its_live_source() {
+	fn a_forgotten_dependency_is_reloaded_from_its_live_source() {
 		let nodes = Nodes::new();
 		let source = artifact(b"source");
 		let name = source.id.to_string();
 		let source = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, source, 1, None, true)
 			.unwrap();
-		let target = artifact(b"target");
-		let id = target.id.clone();
-		nodes.insert_symlink_target(source, &target);
-		drop(target);
-		let target = nodes.root_artifact(&id);
-		let tokens = Arc::downgrade(&target.tokens);
-		let target = nodes
-			.get_or_insert_child(vfs::ROOT_NODE_ID, &id.to_string(), target, 1, None, true)
+		let dependency = artifact(b"target");
+		let id = dependency.id.clone();
+		nodes.insert_dependency(source, &dependency);
+		drop(dependency);
+		let dependency = nodes.root_artifact(&id);
+		let tokens = Arc::downgrade(&dependency.tokens);
+		let dependency = nodes
+			.get_or_insert_child(
+				vfs::ROOT_NODE_ID,
+				&id.to_string(),
+				dependency,
+				1,
+				None,
+				true,
+			)
 			.unwrap();
-		nodes.forget(target, 1);
+		nodes.forget(dependency, 1);
 		assert!(tokens.upgrade().is_none());
 		assert!(!nodes.root_artifact(&id).tokens.lock().unwrap().is_empty());
 		nodes.forget(source, 1);
