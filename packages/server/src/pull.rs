@@ -28,7 +28,12 @@ impl Session {
 			return Ok(stream.boxed());
 		}
 
-		let source = arg.source.clone();
+		let source = arg.source.clone().unwrap_or_else(|| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})
+		});
 		let destination = arg
 			.destination
 			.clone()

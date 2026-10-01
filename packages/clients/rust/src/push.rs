@@ -13,6 +13,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "is_default")]
 	pub ancestors: tg::node::AncestorsPull,
 
+	/// The destination location. An absent destination selects the default remote.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub destination: Option<tg::Location>,
 
@@ -53,6 +54,7 @@ pub struct Arg {
 	pub sandbox_processes: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	/// The source location. An absent source selects the default remote.
 	pub source: Option<tg::Location>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -152,10 +154,7 @@ impl Default for Arg {
 	fn default() -> Self {
 		Self {
 			ancestors: tg::node::AncestorsPull::default(),
-			destination: Some(tg::Location::Remote(tg::location::Remote {
-				name: "default".to_owned(),
-				region: None,
-			})),
+			destination: None,
 			eager: true,
 			force: false,
 			group_children: false,

@@ -247,7 +247,7 @@ impl Cli {
 			metadata: false,
 			process_error_objects: true,
 			process_output_objects: true,
-			source: None,
+			source: Some(tg::Location::Local(tg::location::Local::default())),
 			..Default::default()
 		};
 		let stream = client
