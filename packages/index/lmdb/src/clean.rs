@@ -90,7 +90,14 @@ impl Index {
 			permissions,
 			..Default::default()
 		};
-		let remaining_batch_size = batch_size.saturating_sub(permissions);
+		let delegations = Self::delete_expired_delegations(
+			db,
+			subspace,
+			transaction,
+			now,
+			batch_size.saturating_sub(permissions),
+		)?;
+		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations);
 
 		let prefix = &(Kind::Clean.to_i32().unwrap(),);
 		let prefix = Self::pack(subspace, prefix);
@@ -244,7 +251,10 @@ impl Index {
 			transaction,
 			remaining_batch_size,
 		)?;
-		output.done = permissions == 0 && candidates.is_empty() && propagated_versions == 0;
+		output.done = delegations == 0
+			&& permissions == 0
+			&& candidates.is_empty()
+			&& propagated_versions == 0;
 
 		Ok(output)
 	}

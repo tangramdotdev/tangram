@@ -2,10 +2,39 @@ use {
 	crate::{Db, Index, Key, Kind},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	num::ToPrimitive as _,
+	std::collections::BTreeSet,
 	tangram_client::prelude::*,
 };
 
 impl Index {
+	pub(crate) fn get_resource_permission_subjects_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RoTxn<'_>,
+		resource: &tg::Id,
+	) -> tg::Result<BTreeSet<tg::authorization::Subject>> {
+		let bytes = resource.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ResourcePermission.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let mut subjects = BTreeSet::new();
+		let entries = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get the resource permissions"))?;
+		for entry in entries {
+			let (key, _) = entry
+				.map_err(|error| tg::error!(!error, "failed to read the resource permission"))?;
+			let Key::Permission(crate::permission::Key::ResourcePermission { subject, .. }) =
+				Self::unpack(subspace, key)?
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			subjects.insert(subject);
+		}
+		Ok(subjects)
+	}
+
 	pub(crate) fn get_resource_permission_entries_for_subject_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

@@ -2,12 +2,42 @@ use {
 	crate::{Index, Key, Kind},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
+	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
-	std::ops::ControlFlow,
+	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_client::prelude::*,
 };
 
 impl Index {
+	pub(crate) async fn get_resource_permission_subjects_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		resource: &tg::Id,
+	) -> tg::Result<ControlFlow<BTreeSet<tg::authorization::Subject>, fdb::FdbError>> {
+		let bytes = resource.to_bytes();
+		let prefix = Self::pack(
+			subspace,
+			&(Kind::ResourcePermission.to_i32().unwrap(), bytes.as_ref()),
+		);
+		let range_subspace = Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption::from(&range_subspace);
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let entries = crate::retry!(result);
+		let mut subjects = BTreeSet::new();
+		for entry in entries {
+			let Key::Permission(crate::permission::Key::ResourcePermission { subject, .. }) =
+				Self::unpack(subspace, entry.key())?
+			else {
+				return Err(tg::error!("unexpected key type"));
+			};
+			subjects.insert(subject);
+		}
+		Ok(ControlFlow::Break(subjects))
+	}
+
 	pub(crate) async fn get_resource_permission_entries_for_subject_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,

@@ -17,7 +17,12 @@ pub(crate) use {
 	subtree::{Action as SubtreeAction, Search as SubtreeSearch},
 };
 
-pub(crate) type Key = (tg::Id, tg::authorization::Permission);
+// A missing subject uses the caller; delegation sources carry their own authorization context.
+pub(crate) type Key = (
+	tg::Id,
+	tg::authorization::Permission,
+	Option<tg::authorization::Subject>,
+);
 
 #[derive(Clone, Debug)]
 pub(crate) struct AncestorCandidate {
@@ -58,6 +63,7 @@ pub(crate) enum DescendantFallback {
 		permission: tg::authorization::permission::process::Permission,
 		process: tg::process::Id,
 	},
+
 	ProcessObjects {
 		after: Option<Vec<u8>>,
 		permission: tg::authorization::permission::process::Permission,
@@ -67,6 +73,7 @@ pub(crate) enum DescendantFallback {
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct AncestorNodeFacts {
+	pub delegations: Vec<crate::delegation::put::Arg>,
 	pub permissions: Vec<Permission>,
 	pub object_processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
 	pub parent: Option<tg::Id>,
@@ -82,6 +89,12 @@ pub(crate) struct ProcessFacts {
 
 #[derive(Clone, Debug)]
 pub(crate) enum AncestorNodeRead {
+	Delegations {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		resource: tg::Id,
+	},
+
 	Group {
 		group: tg::group::Id,
 	},
@@ -117,6 +130,14 @@ pub(crate) enum MemberRead {
 	Organizations { after: Option<Vec<u8>> },
 }
 
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum DelegationRead {
+	Delegations,
+	ObjectParents,
+	ObjectProcesses,
+	ProcessParents,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum Read {
 	AncestorChecks(AncestorChecks),
@@ -124,6 +145,14 @@ pub(crate) enum Read {
 		depth: usize,
 		key: Key,
 		read: AncestorNodeRead,
+	},
+	Delegation {
+		after: Option<Vec<u8>>,
+		dependent: Key,
+		depth: usize,
+		limit: usize,
+		read: DelegationRead,
+		resource: tg::Id,
 	},
 	DescendantChecks(DescendantChecks),
 	GroupMembers {
@@ -182,6 +211,13 @@ pub(crate) enum Read {
 		permission: tg::authorization::permission::process::Permission,
 		process: tg::process::Id,
 	},
+	ProcessObjectDescendants {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		limit: usize,
+		object: tg::object::Id,
+		source: Key,
+	},
 	ProcessObjects {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -220,6 +256,11 @@ pub(crate) enum Read {
 }
 
 pub(crate) enum ReadOutput {
+	Delegations {
+		after: Option<Vec<u8>>,
+		delegations: Vec<crate::delegation::put::Arg>,
+	},
+
 	Bools(Vec<bool>),
 	Permissions {
 		after: Option<Vec<u8>>,
@@ -238,6 +279,7 @@ pub(crate) enum ReadOutput {
 		after: Option<Vec<u8>>,
 		organizations: Vec<tg::organization::Id>,
 	},
+	Missing,
 	ObjectProcesses {
 		after: Option<Vec<u8>>,
 		processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
@@ -307,10 +349,15 @@ pub(crate) struct State {
 	ancestor_cursors: BTreeMap<Key, Vec<u8>>,
 	ancestor_facts: HashMap<tg::Id, Arc<AncestorNodeFacts>>,
 	ancestor_nodes: BTreeSet<Key>,
+	authorization_conjunctions: BTreeMap<Key, BTreeSet<(Key, Key)>>,
 	authorization_dependencies: BTreeMap<Key, BTreeSet<Key>>,
+	authorization_expirations: BTreeMap<(Key, Key), i64>,
 	authorization_dependents: BTreeMap<Key, BTreeSet<Key>>,
 	authorization_log: Vec<Key>,
-	authorized_subjects: BTreeSet<tg::authorization::Subject>,
+	authorized_subjects: BTreeSet<(
+		Option<tg::authorization::Subject>,
+		tg::authorization::Subject,
+	)>,
 	derived_complete: BTreeSet<Key>,
 	derived_cursors: BTreeMap<Key, Vec<u8>>,
 	derived_dependencies: BTreeMap<Key, BTreeSet<Key>>,
@@ -321,9 +368,20 @@ pub(crate) struct State {
 	newly_evaluated: BTreeSet<Key>,
 	process_facts: HashMap<tg::process::Id, Arc<ProcessFacts>>,
 	process_parent_delegation: bool,
-	subject_key_dependents: BTreeMap<tg::authorization::Subject, BTreeSet<Key>>,
-	subject_subject_dependents:
-		BTreeMap<tg::authorization::Subject, BTreeSet<tg::authorization::Subject>>,
+	subject_key_dependents: BTreeMap<
+		(
+			Option<tg::authorization::Subject>,
+			tg::authorization::Subject,
+		),
+		BTreeSet<Key>,
+	>,
+	subject_subject_dependents: BTreeMap<
+		(
+			Option<tg::authorization::Subject>,
+			tg::authorization::Subject,
+		),
+		BTreeSet<tg::authorization::Subject>,
+	>,
 }
 
 pub(crate) struct FinalSearch {
@@ -586,7 +644,7 @@ impl AncestorOrDescendantSearch {
 		state: &mut State,
 	) -> Self {
 		if let Ok(subject) = principal.try_to_subject() {
-			state.authorize_subject(subject);
+			state.authorize_subject(subject, None);
 		}
 		let mut seen = HashSet::new();
 		let roots = roots
@@ -732,6 +790,7 @@ impl AncestorOrDescendantSearch {
 		match read {
 			read @ (Read::AncestorChecks(_)
 			| Read::AncestorNode { .. }
+			| Read::Delegation { .. }
 			| Read::GroupMembers { .. }
 			| Read::ObjectParents { .. }
 			| Read::OrganizationMembers { .. }
@@ -746,6 +805,7 @@ impl AncestorOrDescendantSearch {
 			| Read::OwnerSandboxes { .. }
 			| Read::ProcessChildren { .. }
 			| Read::ProcessObjectChildren { .. }
+			| Read::ProcessObjectDescendants { .. }
 			| Read::SubjectPermissions { .. }) => self
 				.descendant
 				.as_mut()
@@ -839,7 +899,12 @@ impl State {
 		facts
 	}
 
-	#[must_use]
+	pub(crate) fn has_graph_scopes(&self) -> bool {
+		self.ancestor_facts
+			.values()
+			.any(|facts| !facts.delegations.is_empty() || !facts.object_processes.is_empty())
+	}
+
 	pub(crate) fn ancestor_facts(&self, resource: &tg::Id) -> Option<Arc<AncestorNodeFacts>> {
 		self.ancestor_facts.get(resource).cloned()
 	}
@@ -890,9 +955,10 @@ impl State {
 		&self,
 		member: &tg::authorization::Subject,
 		container: &tg::authorization::Subject,
+		scope: Option<&tg::authorization::Subject>,
 	) -> bool {
 		self.subject_subject_dependents
-			.get(member)
+			.get(&(scope.cloned(), member.clone()))
 			.is_some_and(|containers| containers.contains(container))
 	}
 
@@ -900,27 +966,26 @@ impl State {
 		&mut self,
 		member: &tg::authorization::Subject,
 		container: tg::authorization::Subject,
+		scope: Option<&tg::authorization::Subject>,
 	) -> bool {
 		let inserted = self
 			.subject_subject_dependents
-			.entry(member.clone())
+			.entry((scope.cloned(), member.clone()))
 			.or_default()
 			.insert(container.clone());
-		if self.is_subject_authorized(member) {
-			self.authorize_subject(container);
+		if self.is_subject_authorized(member, scope) {
+			self.authorize_subject(container, scope);
 		}
-
 		inserted
 	}
 
-	#[must_use]
 	pub(crate) fn has_subject_dependency(
 		&self,
 		subject: &tg::authorization::Subject,
 		dependent: &Key,
 	) -> bool {
 		self.subject_key_dependents
-			.get(subject)
+			.get(&(dependent.2.clone(), subject.clone()))
 			.is_some_and(|dependents| dependents.contains(dependent))
 	}
 
@@ -931,32 +996,36 @@ impl State {
 	) -> bool {
 		let inserted = self
 			.subject_key_dependents
-			.entry(subject.clone())
+			.entry((dependent.2.clone(), subject.clone()))
 			.or_default()
 			.insert(dependent.clone());
-		if self.is_subject_authorized(subject) {
+		if self.is_subject_authorized(subject, dependent.2.as_ref()) {
 			self.authorize_with_expiration(dependent, i64::MAX);
 		}
-
 		inserted
 	}
 
-	pub(crate) fn authorize_subject(&mut self, subject: tg::authorization::Subject) {
+	pub(crate) fn authorize_subject(
+		&mut self,
+		subject: tg::authorization::Subject,
+		scope: Option<&tg::authorization::Subject>,
+	) {
 		let mut stack = vec![subject];
 		while let Some(subject) = stack.pop() {
-			if !self.authorized_subjects.insert(subject.clone()) {
+			let subject_key = (scope.cloned(), subject);
+			if !self.authorized_subjects.insert(subject_key.clone()) {
 				continue;
 			}
 			let dependents = self
 				.subject_key_dependents
-				.get(&subject)
+				.get(&subject_key)
 				.map_or_else(Vec::new, |dependents| dependents.iter().cloned().collect());
 			for dependent in dependents {
 				self.authorize_with_expiration(dependent, i64::MAX);
 			}
 			stack.extend(
 				self.subject_subject_dependents
-					.get(&subject)
+					.get(&subject_key)
 					.into_iter()
 					.flatten()
 					.cloned(),
@@ -964,9 +1033,16 @@ impl State {
 		}
 	}
 
-	#[must_use]
-	pub(crate) fn is_subject_authorized(&self, subject: &tg::authorization::Subject) -> bool {
-		self.authorized_subjects.contains(subject)
+	pub(crate) fn is_subject_authorized(
+		&self,
+		subject: &tg::authorization::Subject,
+		scope: Option<&tg::authorization::Subject>,
+	) -> bool {
+		scope == Some(subject)
+			|| *subject == tg::authorization::Subject::Public
+			|| self
+				.authorized_subjects
+				.contains(&(scope.cloned(), subject.clone()))
 	}
 
 	#[must_use]
@@ -993,10 +1069,50 @@ impl State {
 				.insert(dependency.clone());
 		}
 		if self.is_authorized(dependency) {
-			self.authorize_with_expiration(dependent, self.expires_at(dependency));
+			let expires_at = self.expires_at(dependency).min(
+				self.authorization_expirations
+					.get(&(dependency.clone(), dependent.clone()))
+					.copied()
+					.unwrap_or(i64::MAX),
+			);
+			self.authorize_with_expiration(dependent, expires_at);
 		}
 
 		inserted
+	}
+
+	#[must_use]
+	pub(crate) fn has_authorization_conjunction(
+		&self,
+		first: &Key,
+		second: &Key,
+		dependent: &Key,
+	) -> bool {
+		self.authorization_conjunctions
+			.get(first)
+			.is_some_and(|conjunctions| conjunctions.contains(&(second.clone(), dependent.clone())))
+	}
+
+	pub(crate) fn add_authorization_conjunction(
+		&mut self,
+		first: &Key,
+		second: &Key,
+		dependent: &Key,
+	) {
+		for (dependency, other) in [(first, second), (second, first)] {
+			self.authorization_conjunctions
+				.entry(dependency.clone())
+				.or_default()
+				.insert((other.clone(), dependent.clone()));
+			self.authorization_dependencies
+				.entry(dependent.clone())
+				.or_default()
+				.insert(dependency.clone());
+		}
+		if self.is_authorized(first) && self.is_authorized(second) {
+			let expires_at = self.expires_at(first).min(self.expires_at(second));
+			self.authorize_with_expiration(dependent.clone(), expires_at);
+		}
 	}
 
 	pub(crate) fn add_derived_dependency(&mut self, dependency: &Key, dependent: Key) {
@@ -1100,7 +1216,17 @@ impl State {
 	pub(crate) fn authorization_dependents(&self, key: &Key) -> Vec<Key> {
 		self.authorization_dependents
 			.get(key)
-			.map_or_else(Vec::new, |dependents| dependents.iter().cloned().collect())
+			.into_iter()
+			.flatten()
+			.cloned()
+			.chain(
+				self.authorization_conjunctions
+					.get(key)
+					.into_iter()
+					.flatten()
+					.map(|(_, dependent)| dependent.clone()),
+			)
+			.collect()
 	}
 
 	#[must_use]
@@ -1198,11 +1324,27 @@ impl State {
 				crate::authorize::permissions_implied_by(key.1)
 					.into_iter()
 					.filter(|permission| *permission != key.1)
-					.map(|permission| ((key.0.clone(), permission), expires_at)),
+					.map(|permission| ((key.0.clone(), permission, key.2.clone()), expires_at)),
 			);
 			if let Some(dependents) = self.authorization_dependents.get(&key) {
-				stack.extend(dependents.iter().cloned().map(|key| (key, expires_at)));
+				stack.extend(dependents.iter().cloned().map(|dependent| {
+					let expires_at = expires_at.min(
+						self.authorization_expirations
+							.get(&(key.clone(), dependent.clone()))
+							.copied()
+							.unwrap_or(i64::MAX),
+					);
+					(dependent, expires_at)
+				}));
 			}
+			if let Some(conjunctions) = self.authorization_conjunctions.get(&key) {
+				for (other, dependent) in conjunctions {
+					if self.is_authorized(other) {
+						stack.push((dependent.clone(), expires_at.min(self.expires_at(other))));
+					}
+				}
+			}
+
 			let derived = self
 				.derived_dependents
 				.get(&key)
@@ -1300,9 +1442,13 @@ impl FinalSearch {
 		while let Some(key) = self.pending.pop_front() {
 			self.queued.remove(&key);
 			match state.outcome(&key) {
-				outcome @ (Outcome::Authorized | Outcome::Denied) => {
+				Outcome::Authorized => {
 					self.deferred.remove(&key);
-					self.outcomes.insert(key, outcome);
+					self.outcomes.insert(key, Outcome::Authorized);
+				},
+				Outcome::Denied => {
+					self.outcomes.insert(key.clone(), Outcome::Denied);
+					self.enqueue_dependencies(state, &key);
 				},
 				Outcome::Exhausted => unreachable!(),
 				Outcome::Pending => return Some(key),
@@ -1320,13 +1466,17 @@ impl FinalSearch {
 		};
 		self.outcomes.insert(key.clone(), outcome);
 		match outcome {
-			Outcome::Authorized | Outcome::Denied => {
+			Outcome::Authorized => {
 				self.deferred.remove(key);
 			},
-			Outcome::Exhausted | Outcome::Pending => {
+			Outcome::Denied | Outcome::Exhausted | Outcome::Pending => {
 				self.deferred.insert(key.clone());
 			},
 		}
+		if outcome != Outcome::Authorized {
+			self.enqueue_dependencies(state, key);
+		}
+
 		self.enqueue_changed(state, Some(key));
 	}
 
@@ -1340,6 +1490,17 @@ impl FinalSearch {
 				.get(key)
 				.copied()
 				.unwrap_or(Outcome::Exhausted),
+		}
+	}
+
+	fn enqueue_dependencies(&mut self, state: &State, key: &Key) {
+		for dependency in state.authorization_dependencies(key) {
+			if dependency.2.is_some()
+				&& !self.outcomes.contains_key(&dependency)
+				&& self.queued.insert(dependency.clone())
+			{
+				self.pending.push_back(dependency);
+			}
 		}
 	}
 
@@ -1502,6 +1663,37 @@ mod tests {
 	}
 
 	#[test]
+	fn authorization_conjunctions_require_both_proofs_in_either_order() {
+		for reverse in [false, true] {
+			for already_authorized in [false, true] {
+				let first = subtree_key(0);
+				let second = subtree_key(1);
+				let dependent = subtree_key(2);
+				let mut state = State::default();
+				let proofs = if reverse {
+					[(&second, 200), (&first, 100)]
+				} else {
+					[(&first, 100), (&second, 200)]
+				};
+				if already_authorized {
+					for (key, expires_at) in proofs {
+						state.authorize_with_expiration(key.clone(), expires_at);
+					}
+				}
+				state.add_authorization_conjunction(&first, &second, &dependent);
+				if !already_authorized {
+					assert!(!state.is_authorized(&dependent));
+					state.authorize_with_expiration(proofs[0].0.clone(), proofs[0].1);
+					assert!(!state.is_authorized(&dependent));
+					state.authorize_with_expiration(proofs[1].0.clone(), proofs[1].1);
+				}
+				assert!(state.is_authorized(&dependent));
+				assert_eq!(state.expires_at(&dependent), 100);
+			}
+		}
+	}
+
+	#[test]
 	fn a_completed_derived_conjunction_authorizes_after_its_last_dependency() {
 		let child = subtree_key(0);
 		let parent = subtree_key(1);
@@ -1510,6 +1702,7 @@ mod tests {
 			tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Node,
 			),
+			None,
 		);
 		let mut state = State::default();
 		state.add_derived_dependency(&child, parent.clone());
@@ -1531,6 +1724,7 @@ mod tests {
 			tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Node,
 			),
+			None,
 		);
 		let mut search = FinalSearch::new([subtree.clone(), node]);
 		let mut state = State::default();
@@ -1621,7 +1815,7 @@ mod tests {
 			tg::authorization::permission::user::Permission::Read,
 		);
 
-		(resource, permission)
+		(resource, permission, None)
 	}
 
 	fn subtree_key(value: u8) -> Key {
@@ -1633,6 +1827,6 @@ mod tests {
 			tg::authorization::permission::object::Permission::Subtree,
 		);
 
-		(resource, permission)
+		(resource, permission, None)
 	}
 }

@@ -105,8 +105,26 @@ impl Index {
 				let mut resolved =
 					Self::try_resolve_id_with_transaction(db, subspace, transaction, id)?;
 				// A parent or sandbox can reference a process whose record is stored elsewhere.
-				if resolved.is_none() && id.kind() == tg::id::Kind::Process {
-					for kind in [crate::Kind::ChildProcess, crate::Kind::ProcessSandbox] {
+				if resolved.is_none()
+					&& (id.kind() == tg::id::Kind::Process
+						|| tg::object::Id::try_from(id.clone()).is_ok())
+				{
+					let kinds = if id.kind() == tg::id::Kind::Process {
+						&[
+							crate::Kind::ChildProcess,
+							crate::Kind::ProcessSandbox,
+							crate::Kind::Delegation,
+							crate::Kind::ResourcePermission,
+						][..]
+					} else {
+						&[
+							crate::Kind::ObjectProcess,
+							crate::Kind::ChildObject,
+							crate::Kind::Delegation,
+							crate::Kind::ResourcePermission,
+						][..]
+					};
+					for kind in kinds {
 						let prefix =
 							Self::pack(subspace, &(kind.to_i32().unwrap(), id.to_bytes().as_ref()));
 						let (keys, _) = Self::get_authorization_key_page_with_transaction(
@@ -208,6 +226,14 @@ impl Index {
 					.get(transaction, &key)
 					.map_err(|error| tg::error!(!error, "failed to get an authorization fact"))?;
 
+				Output::Bool(value.is_some())
+			},
+			Request::ObjectIndexed { object } => {
+				let key = crate::Key::Object(crate::object::Key::Object(object.clone()));
+				let key = Self::pack(subspace, &key);
+				let value = db
+					.get(transaction, &key)
+					.map_err(|error| tg::error!(!error, "failed to get an authorization fact"))?;
 				Output::Bool(value.is_some())
 			},
 			Request::ObjectChildren {
@@ -564,6 +590,36 @@ impl Index {
 					.collect::<tg::Result<Vec<_>>>()?;
 
 				Output::Ids { after, ids }
+			},
+			Request::Delegations {
+				after,
+				limit,
+				resource,
+			} => {
+				let prefix = Self::pack(
+					subspace,
+					&(
+						crate::Kind::Delegation.to_i32().unwrap(),
+						resource.to_bytes().as_ref(),
+					),
+				);
+				let (entries, after) = Self::get_authorization_entry_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&prefix,
+					after.as_deref(),
+					*limit,
+				)?;
+				let delegations = entries
+					.into_iter()
+					.map(|(_, value)| {
+						tangram_serialize::from_slice(&value).map_err(|error| {
+							tg::error!(!error, "failed to deserialize a delegation")
+						})
+					})
+					.collect::<tg::Result<Vec<_>>>()?;
+				Output::Delegations { after, delegations }
 			},
 			Request::ResourcePermissions {
 				after,

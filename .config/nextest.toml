@@ -1,0 +1,4 @@
+# Timing ratios require an uncontended test runner.
+[[profile.default.overrides]]
+filter = "package(tangram_index_lmdb) & test(scales_linearly)"
+threads-required = "num-test-threads"

@@ -30,6 +30,18 @@ impl Index {
 		let usage_partition_total = partition_totals.usage;
 		for item in &arg.items {
 			match item {
+				tangram_index::batch::Item::DeleteDelegations(subject) => {
+					crate::propagate!(
+						Self::delete_delegations_for_subject_with_transaction(
+							txn,
+							subspace,
+							subject,
+							partition_totals.cleaning
+						)
+						.await
+					);
+				},
+
 				tangram_index::batch::Item::DeleteCheckout(id) => {
 					crate::propagate!(
 						Self::delete_checkout(txn, subspace, id, partition_total).await
@@ -130,6 +142,17 @@ impl Index {
 						std::slice::from_ref(arg),
 						partition_total,
 					));
+				},
+				tangram_index::batch::Item::PutDelegation(arg) => {
+					crate::propagate!(
+						Self::put_delegation_with_transaction(
+							txn,
+							subspace,
+							arg,
+							partition_totals.cleaning
+						)
+						.await
+					);
 				},
 				tangram_index::batch::Item::PutPermission(arg) => {
 					crate::propagate!(

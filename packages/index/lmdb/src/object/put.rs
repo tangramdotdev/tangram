@@ -140,6 +140,27 @@ impl Index {
 		db.put(transaction, &key, &[])
 			.map_err(|error| tg::error!(!error, "failed to put the clean key"))?;
 
+		// Resume permission derivation when the object children become known.
+		if existing.is_none() {
+			let subjects = Self::get_resource_permission_subjects_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&id.clone().into(),
+			)?;
+			for subject in subjects {
+				Self::enqueue_update_with_kind(
+					db,
+					subspace,
+					transaction,
+					tg::Either::Left(id.clone()),
+					crate::update::Kind::Permission(subject),
+					crate::update::Source::Put,
+					None,
+				)?;
+			}
+		}
+
 		if changed {
 			Self::enqueue_update(
 				db,

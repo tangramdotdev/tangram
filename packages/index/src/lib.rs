@@ -4,6 +4,7 @@ pub mod authorize;
 pub mod batch;
 pub mod checkout;
 pub mod clean;
+pub mod delegation;
 pub mod group;
 pub mod indexer;
 pub mod log;

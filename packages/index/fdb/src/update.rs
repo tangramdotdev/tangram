@@ -10,7 +10,10 @@ use {
 	foundationdb_tuple::{self as fdbt, Subspace},
 	futures::{TryStreamExt as _, future},
 	num_traits::ToPrimitive as _,
-	std::{collections::BTreeSet, ops::ControlFlow},
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		ops::ControlFlow,
+	},
 	tangram_client::prelude::*,
 };
 
@@ -1511,7 +1514,7 @@ impl Index {
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let resource = tg::Id::from(id.clone());
 		let (children, entries) = futures::try_join!(
-			Self::get_object_children_with_transaction(txn, subspace, id),
+			Self::try_get_object_children_with_transaction(txn, subspace, id),
 			Self::get_resource_permission_entries_for_subject_with_transaction(
 				txn, subspace, &resource, subject,
 			),
@@ -1525,7 +1528,7 @@ impl Index {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		};
 		let child_entries = {
-			let result = future::try_join_all(children.iter().map(|child| {
+			let result = future::try_join_all(children.iter().flatten().map(|child| {
 				let resource = tg::Id::from(child.clone());
 				async move {
 					Self::get_resource_permission_entries_for_subject_with_transaction(
@@ -1553,24 +1556,94 @@ impl Index {
 			tg::authorization::permission::object::Permission::Subtree,
 		);
 		let mut expected = BTreeSet::new();
-		for entry in entries.iter().filter(|entry| entry.permission == node) {
-			let Some(entry_expires_at) = entry.effective_expires_at() else {
-				continue;
-			};
+		let prefix = Self::pack(
+			subspace,
+			&(
+				crate::Kind::Delegation.to_i32().unwrap(),
+				id.to_bytes().as_ref(),
+				subject.to_string(),
+			),
+		);
+		let delegations = crate::propagate!(
+			Self::get_delegations_with_prefix(txn, subspace, &prefix, usize::MAX).await
+		);
+		for delegation in delegations {
+			let source_entries = crate::propagate!(
+				Self::get_resource_permission_entries_for_subject_with_transaction(
+					txn,
+					subspace,
+					&resource,
+					&delegation.source
+				)
+				.await
+			);
+			for permission in [node, subtree] {
+				let Some(cover) = Self::permission_entries_cover_expires_at(
+					&source_entries,
+					&delegation.source,
+					permission,
+				) else {
+					continue;
+				};
+				let expires_at =
+					Self::min_expires_at(cover.expires_at, Some(delegation.expires_at));
+				if !Self::has_non_materialized_cover(&entries, subject, permission, expires_at) {
+					expected.insert((subject.clone(), permission, expires_at));
+				}
+			}
+		}
+		// Recompute node proofs so a removed delegation cannot sustain its own subtree permission.
+		let mut nodes = entries
+			.iter()
+			.filter(|entry| entry.permission == node)
+			.filter_map(|entry| {
+				let mut entry = entry.clone();
+				entry.materialized = None;
+				entry
+					.effective_expires_at()
+					.map(|expires_at| (entry.subject, expires_at))
+			})
+			.collect::<Vec<_>>();
+		nodes.extend(
+			expected
+				.iter()
+				.filter(|(_, permission, _)| *permission == node)
+				.map(|(subject, _, expires_at)| (subject.clone(), *expires_at)),
+		);
+		// Derive subtree permissions only after the object children are indexed.
+		for (subject, entry_expires_at) in nodes.into_iter().filter(|_| children.is_some()) {
 			let expires_at = child_entries
 				.iter()
 				.try_fold(entry_expires_at, |output, entries| {
-					Self::permission_entries_cover_expires_at(entries, &entry.subject, subtree)
+					Self::permission_entries_cover_expires_at(entries, &subject, subtree)
 						.map(|cover| Self::min_expires_at(output, cover.expires_at))
 				});
-			if let Some(expires_at) = expires_at {
-				if Self::has_non_materialized_cover(&entries, &entry.subject, subtree, expires_at) {
-					continue;
-				}
-				expected.insert((entry.subject.clone(), subtree, expires_at));
+			if let Some(expires_at) = expires_at
+				&& !Self::has_non_materialized_cover(&entries, &subject, subtree, expires_at)
+			{
+				expected.insert((subject, subtree, expires_at));
 			}
 		}
-		let managed = BTreeSet::from([subtree]);
+
+		// Keep the longest proof when multiple sources establish the same permission.
+		let mut covers = BTreeMap::new();
+		for (subject, permission, expires_at) in expected {
+			covers
+				.entry((subject, permission))
+				.and_modify(|current: &mut Option<i64>| {
+					*current = match (*current, expires_at) {
+						(Some(a), Some(b)) => Some(a.max(b)),
+						_ => None,
+					};
+				})
+				.or_insert(expires_at);
+		}
+		let expected = covers
+			.into_iter()
+			.map(|((subject, permission), expires_at)| (subject, permission, expires_at))
+			.collect();
+		let managed = BTreeSet::from([node, subtree]);
+
 		let materialized_changed = crate::propagate!(
 			Self::reconcile_materialized_permissions(
 				txn,
@@ -3085,6 +3158,33 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		match id {
 			tg::Either::Left(id) => {
+				if let Kind::Permission(source) = kind {
+					let prefix = Self::pack(
+						subspace,
+						&(
+							crate::Kind::DelegationSource.to_i32().unwrap(),
+							id.to_bytes().as_ref(),
+							source.to_string(),
+						),
+					);
+					let delegations = crate::propagate!(
+						Self::get_delegations_with_prefix(txn, subspace, &prefix, usize::MAX).await
+					);
+					for delegation in delegations {
+						crate::propagate!(
+							Self::enqueue_update_propagate(
+								txn,
+								subspace,
+								&tg::Either::Left(id.clone()),
+								&Kind::Permission(delegation.subject),
+								version,
+								partition_total
+							)
+							.await
+						);
+					}
+				}
+
 				let parents = crate::propagate!(
 					Self::get_object_parents_with_transaction(txn, subspace, id).await
 				);

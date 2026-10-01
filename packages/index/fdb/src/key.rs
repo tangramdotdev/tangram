@@ -8,6 +8,7 @@ use {
 pub enum Key {
 	Checkout(crate::checkout::Key),
 	Clean(crate::clean::Key),
+	Delegation(crate::delegation::Key),
 	Permission(crate::permission::Key),
 	Group(crate::group::Key),
 	Indexer(crate::indexer::Key),
@@ -89,6 +90,10 @@ pub enum Kind {
 	Indexer = 70,
 	PermissionUpdateClean = 71,
 	StorageAndMetadataUpdateClean = 72,
+	Delegation = 73,
+	DelegationSource = 74,
+	DelegationExpiresAt = 75,
+	DelegationSubject = 76,
 }
 
 impl fdbt::TuplePack for Key {
@@ -98,6 +103,54 @@ impl fdbt::TuplePack for Key {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
+			Key::Delegation(crate::delegation::Key::Delegation {
+				resource,
+				source,
+				subject,
+			}) => (
+				Kind::Delegation.to_i32().unwrap(),
+				resource.to_bytes().as_ref(),
+				subject.to_string(),
+				source.to_string(),
+			)
+				.pack(w, tuple_depth),
+			Key::Delegation(crate::delegation::Key::Subject {
+				resource,
+				source,
+				subject,
+			}) => (
+				Kind::DelegationSubject.to_i32().unwrap(),
+				subject.to_string(),
+				resource.to_bytes().as_ref(),
+				source.to_string(),
+			)
+				.pack(w, tuple_depth),
+
+			Key::Delegation(crate::delegation::Key::Source {
+				resource,
+				source,
+				subject,
+			}) => (
+				Kind::DelegationSource.to_i32().unwrap(),
+				resource.to_bytes().as_ref(),
+				source.to_string(),
+				subject.to_string(),
+			)
+				.pack(w, tuple_depth),
+			Key::Delegation(crate::delegation::Key::ExpiresAt {
+				expires_at,
+				resource,
+				source,
+				subject,
+			}) => (
+				Kind::DelegationExpiresAt.to_i32().unwrap(),
+				expires_at,
+				resource.to_bytes().as_ref(),
+				subject.to_string(),
+				source.to_string(),
+			)
+				.pack(w, tuple_depth),
+
 			Key::Indexer(crate::indexer::Key::Indexer(id)) => {
 				(Kind::Indexer.to_i32().unwrap(), id.to_bytes().as_ref()).pack(w, tuple_depth)
 			},
@@ -685,6 +738,71 @@ impl fdbt::TupleUnpack<'_> for Key {
 		let kind = Kind::from_i32(kind).ok_or(fdbt::PackError::Message("invalid kind".into()))?;
 
 		match kind {
+			Kind::DelegationSubject => {
+				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, resource): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, source): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let resource = tg::Id::from_slice(&resource).map_err(|_| {
+					fdbt::PackError::Message("invalid delegation resource id".into())
+				})?;
+				let subject = subject
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid subject".into()))?;
+				let source = source
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid subject".into()))?;
+				let key = crate::delegation::Key::Subject {
+					resource,
+					source,
+					subject,
+				};
+				Ok((input, Key::Delegation(key)))
+			},
+
+			Kind::Delegation | Kind::DelegationSource | Kind::DelegationExpiresAt => {
+				let (input, expires_at) = if kind == Kind::DelegationExpiresAt {
+					let (input, expires_at): (_, i64) =
+						fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+					(input, Some(expires_at))
+				} else {
+					(input, None)
+				};
+				let (input, resource): (_, Vec<u8>) =
+					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, first): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, second): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let resource = tg::Id::from_slice(&resource).map_err(|_| {
+					fdbt::PackError::Message("invalid delegation resource id".into())
+				})?;
+				let first = first
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid subject".into()))?;
+				let second = second
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid subject".into()))?;
+				let key = match kind {
+					Kind::Delegation => crate::delegation::Key::Delegation {
+						resource,
+						source: second,
+						subject: first,
+					},
+					Kind::DelegationSource => crate::delegation::Key::Source {
+						resource,
+						source: first,
+						subject: second,
+					},
+					Kind::DelegationExpiresAt => crate::delegation::Key::ExpiresAt {
+						expires_at: expires_at.unwrap(),
+						resource,
+						source: second,
+						subject: first,
+					},
+					_ => unreachable!(),
+				};
+				Ok((input, Key::Delegation(key)))
+			},
+
 			Kind::Indexer => {
 				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let id = tg::indexer::Id::from_slice(&id)

@@ -1,7 +1,8 @@
 *.pending-snap
 .DS_Store
 /.claude
-/.config
+/.config/*
+!/.config/nextest.toml
 /.tangram
 /packages/clients/js/dist
 /packages/typescript/dist

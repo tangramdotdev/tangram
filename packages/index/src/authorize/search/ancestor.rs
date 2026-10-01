@@ -1,7 +1,7 @@
 use {
 	super::{
-		AncestorCandidate, AncestorChecks, AncestorNodeFacts, AncestorNodeRead, Budget, Key,
-		Outcome, Read, ReadOutput, State,
+		AncestorCandidate, AncestorChecks, AncestorNodeFacts, AncestorNodeRead, Budget,
+		DelegationRead, Key, Outcome, Read, ReadOutput, State,
 	},
 	std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
 	tangram_client::prelude::*,
@@ -9,6 +9,13 @@ use {
 
 enum AncestorTask {
 	Checks(AncestorChecks),
+	Delegation {
+		after: Option<Vec<u8>>,
+		dependent: Key,
+		depth: usize,
+		read: DelegationRead,
+		resource: tg::Id,
+	},
 	GroupMembers {
 		after: Option<Vec<u8>>,
 		dependent: Key,
@@ -64,6 +71,7 @@ struct MembershipPage {
 pub(super) struct Search {
 	authorization_revision: usize,
 	budget: Budget,
+	delegation_search_started: bool,
 	dormant: HashMap<Key, Vec<AncestorTask>>,
 	pub(super) incomplete: HashSet<Key>,
 	// Reference counting prunes acyclic stale branches; cycles remain live conservatively.
@@ -75,6 +83,7 @@ pub(super) struct Search {
 	tokens: Vec<tg::authorization::Body>,
 	unresolved: HashSet<Key>,
 	visited: HashSet<Key>,
+	visited_delegations: HashSet<(Key, tg::Id)>,
 	visited_subjects: HashSet<(tg::authorization::Subject, Key)>,
 }
 
@@ -83,7 +92,8 @@ impl AncestorTask {
 	fn dependent(&self) -> &Key {
 		match self {
 			Self::Checks(checks) => &checks.dependent,
-			Self::GroupMembers { dependent: key, .. }
+			Self::Delegation { dependent: key, .. }
+			| Self::GroupMembers { dependent: key, .. }
 			| Self::Node { key, .. }
 			| Self::NodeRead { key, .. }
 			| Self::ObjectParents { dependent: key, .. }
@@ -97,7 +107,8 @@ impl AncestorTask {
 	fn depth(&self) -> usize {
 		match self {
 			Self::Checks(checks) => checks.depth,
-			Self::GroupMembers { depth, .. }
+			Self::Delegation { depth, .. }
+			| Self::GroupMembers { depth, .. }
 			| Self::Node { depth, .. }
 			| Self::NodeRead { depth, .. }
 			| Self::ObjectParents { depth, .. }
@@ -138,6 +149,7 @@ impl Search {
 		let mut search = Self {
 			authorization_revision,
 			budget,
+			delegation_search_started: false,
 			dormant: HashMap::new(),
 			incomplete,
 			live_references: HashMap::new(),
@@ -148,6 +160,7 @@ impl Search {
 			tokens,
 			unresolved,
 			visited,
+			visited_delegations: HashSet::new(),
 			visited_subjects: HashSet::new(),
 		};
 		for root in roots {
@@ -165,6 +178,18 @@ impl Search {
 		let mut reads = Vec::new();
 		while reads.len() < limit && !self.unresolved.is_empty() {
 			let Some((depth, mut queue)) = self.queues.pop_first() else {
+				if !self.delegation_search_started {
+					self.delegation_search_started = true;
+					if state.has_graph_scopes() {
+						let roots = self.unresolved.iter().cloned().collect::<Vec<_>>();
+						for key in roots {
+							self.visited_delegations
+								.insert((key.clone(), key.0.clone()));
+							self.queue_delegation_parents(&key, &key.0, 0);
+						}
+						continue;
+					}
+				}
 				break;
 			};
 			let task = queue.pop_front().unwrap();
@@ -182,6 +207,23 @@ impl Search {
 			}
 			match task {
 				AncestorTask::Checks(checks) => reads.push(Read::AncestorChecks(checks)),
+				AncestorTask::Delegation {
+					after,
+					dependent,
+					depth,
+					read,
+					resource,
+				} => {
+					let limit = self.budget.config.page_size;
+					reads.push(Read::Delegation {
+						after,
+						dependent,
+						depth,
+						limit,
+						read,
+						resource,
+					});
+				},
 				AncestorTask::GroupMembers {
 					after,
 					dependent,
@@ -316,6 +358,79 @@ impl Search {
 				let values = output.into_bools()?;
 				self.apply_checks(state, checks, values);
 			},
+			Read::Delegation {
+				dependent,
+				depth,
+				read,
+				resource,
+				..
+			} => {
+				let after = match read {
+					DelegationRead::Delegations => {
+						let ReadOutput::Delegations { after, delegations } = output else {
+							return Err(tg::error!("expected delegation facts"));
+						};
+						self.apply_delegations(state, depth, &dependent, &delegations);
+						after
+					},
+					DelegationRead::ObjectParents | DelegationRead::ProcessParents => {
+						let (after, parents) = output.into_ids()?;
+						for parent in parents {
+							self.queue_delegation_root(state, &dependent, &parent, depth + 1);
+						}
+						after
+					},
+					DelegationRead::ObjectProcesses => {
+						let (after, processes) = output.into_object_processes()?;
+						for (process, kind) in processes {
+							if matches!(dependent.1, tg::authorization::Permission::Object(_)) {
+								let guard = (
+									process.clone().into(),
+									tg::authorization::Permission::Process(
+										crate::authorize::process_object_permission(kind),
+									),
+									dependent.2.clone(),
+								);
+								let source = (
+									dependent.0.clone(),
+									dependent.1,
+									Some(tg::authorization::Subject::Process(process.clone())),
+								);
+								if source != dependent
+									&& !self.add_conjunction(
+										state,
+										&dependent,
+										guard,
+										source.clone(),
+										depth + 1,
+									) {
+									return Ok(());
+								}
+								self.queue_delegation_root(state, &source, &source.0, depth + 1);
+							}
+							self.queue_delegation_root(
+								state,
+								&dependent,
+								&process.into(),
+								depth + 1,
+							);
+						}
+						after
+					},
+				};
+				if let Some(after) = after {
+					self.queues
+						.entry(depth)
+						.or_default()
+						.push_back(AncestorTask::Delegation {
+							after: Some(after),
+							dependent,
+							depth,
+							read,
+							resource,
+						});
+				}
+			},
 			Read::AncestorNode { depth, key, read } => {
 				self.apply_node_read(state, depth, &key, read, output)?;
 			},
@@ -354,7 +469,7 @@ impl Search {
 					let permission = tg::authorization::Permission::Object(
 						tg::authorization::permission::object::Permission::Subtree,
 					);
-					let dependency = (parent, permission);
+					let dependency = (parent, permission, dependent.2.clone());
 					let dependency_depth = depth + 1;
 					if !self.add_dependency(state, &dependent, dependency, dependency_depth) {
 						return Ok(());
@@ -413,7 +528,7 @@ impl Search {
 				for parent in parents {
 					let permission =
 						tg::authorization::Permission::Process(permission.to_subtree());
-					let dependency = (parent, permission);
+					let dependency = (parent, permission, dependent.2.clone());
 					let dependency_depth = depth + 1;
 					if !self.add_dependency(state, &dependent, dependency, dependency_depth) {
 						return Ok(());
@@ -445,6 +560,7 @@ impl Search {
 			| Read::Process { .. }
 			| Read::ProcessChildren { .. }
 			| Read::ProcessObjectChildren { .. }
+			| Read::ProcessObjectDescendants { .. }
 			| Read::ProcessObjects { .. }
 			| Read::Resolve { .. }
 			| Read::SubjectPermissions { .. }
@@ -517,6 +633,10 @@ impl Search {
 	}
 
 	fn queue_node_checks(&mut self, depth: usize, key: &Key) -> tg::Result<()> {
+		if key.2.is_some() {
+			self.queue_checks(depth, key, Vec::new());
+			return Ok(());
+		}
 		let mut candidates = Vec::new();
 		match key.1 {
 			tg::authorization::Permission::Object(permission) => {
@@ -531,7 +651,7 @@ impl Search {
 					if !body.authorizes(parent_permission) || parent == object {
 						continue;
 					}
-					let dependency = (tg::Id::from(parent.clone()), parent_permission);
+					let dependency = (tg::Id::from(parent.clone()), parent_permission, None);
 					let check = crate::authorize::Check::ObjectChild {
 						child: object.clone(),
 						parent,
@@ -557,7 +677,8 @@ impl Search {
 						let dependency_permission = tg::authorization::Permission::Process(
 							crate::authorize::process_object_permission(kind),
 						);
-						let dependency = (tg::Id::from(process.clone()), dependency_permission);
+						let dependency =
+							(tg::Id::from(process.clone()), dependency_permission, None);
 						if !self.source_authorizes(&dependency) {
 							continue;
 						}
@@ -589,7 +710,7 @@ impl Search {
 					if parent == process {
 						continue;
 					}
-					let dependency = (tg::Id::from(parent.clone()), dependency_permission);
+					let dependency = (tg::Id::from(parent.clone()), dependency_permission, None);
 					if !self.source_authorizes(&dependency) {
 						continue;
 					}
@@ -625,13 +746,14 @@ impl Search {
 		let next_depth = depth + 1;
 		for member in page.members {
 			let member = subject_for_member(member)?;
-			let edge_known = state.has_membership_dependency(&member, &page.container);
+			let edge_known =
+				state.has_membership_dependency(&member, &page.container, dependent.2.as_ref());
 			if !edge_known && !self.budget.add_edge() {
 				self.incomplete.insert(dependent.clone());
 
 				return Ok(());
 			}
-			state.add_membership_dependency(&member, page.container.clone());
+			state.add_membership_dependency(&member, page.container.clone(), dependent.2.as_ref());
 			if state.is_authorized(dependent) {
 				return Ok(());
 			}
@@ -663,6 +785,19 @@ impl Search {
 		let mut permissions_for_search = Vec::new();
 		let mut next = Vec::new();
 		match read {
+			AncestorNodeRead::Delegations { resource, .. } => {
+				let ReadOutput::Delegations { after, delegations } = output else {
+					return Err(tg::error!("expected delegation facts"));
+				};
+				pending.facts.delegations.extend(delegations);
+				if let Some(after) = after {
+					next.push(AncestorNodeRead::Delegations {
+						after: Some(after),
+						limit: self.budget.config.page_size,
+						resource,
+					});
+				}
+			},
 			AncestorNodeRead::Group { .. } => {
 				pending.facts.parent = output.into_group()?.and_then(|group| group.parent);
 			},
@@ -759,6 +894,11 @@ impl Search {
 		if let Ok(group) = tg::group::Id::try_from(resource.clone()) {
 			reads.push(AncestorNodeRead::Group { group });
 		} else if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
+			reads.push(AncestorNodeRead::Delegations {
+				after: None,
+				limit,
+				resource: object.clone().into(),
+			});
 			reads.push(AncestorNodeRead::ObjectProcesses {
 				after: None,
 				limit,
@@ -770,6 +910,11 @@ impl Search {
 				target: resource.clone(),
 			});
 		} else if resource.kind() == tg::id::Kind::Process {
+			reads.push(AncestorNodeRead::Delegations {
+				after: None,
+				limit,
+				resource: resource.clone(),
+			});
 			reads.push(AncestorNodeRead::TargetTags {
 				after: None,
 				limit,
@@ -840,27 +985,34 @@ impl Search {
 				return Ok(());
 			}
 		}
-		let (resource, permission) = key;
-		let principal_is_resource = match (&self.principal, permission) {
-			(tg::Principal::Process(process), tg::authorization::Permission::Process(_)) => {
-				tg::Id::from(process.clone()) == *resource
-			},
-			(
-				tg::Principal::Sandbox(sandbox),
-				tg::authorization::Permission::Sandbox(
-					tg::authorization::permission::sandbox::Permission::Read
-					| tg::authorization::permission::sandbox::Permission::Write,
-				),
-			) => tg::Id::from(sandbox.clone()) == *resource,
-			(tg::Principal::User(user), tg::authorization::Permission::User(_)) => {
-				tg::Id::from(user.clone()) == *resource
-			},
-			_ => false,
-		};
-		let token_permissions = self
-			.tokens
-			.iter()
-			.any(|body| &body.resource == resource && body.authorizes(*permission));
+		let (resource, permission, _) = key;
+		let scoped_principal = key
+			.2
+			.as_ref()
+			.and_then(|subject| subject.try_to_principal().ok());
+		let principal = scoped_principal.as_ref().unwrap_or(&self.principal);
+		let principal_is_resource = (key.2.is_none() || scoped_principal.is_some())
+			&& match (principal, permission) {
+				(tg::Principal::Process(process), tg::authorization::Permission::Process(_)) => {
+					tg::Id::from(process.clone()) == *resource
+				},
+				(
+					tg::Principal::Sandbox(sandbox),
+					tg::authorization::Permission::Sandbox(
+						tg::authorization::permission::sandbox::Permission::Read
+						| tg::authorization::permission::sandbox::Permission::Write,
+					),
+				) => tg::Id::from(sandbox.clone()) == *resource,
+				(tg::Principal::User(user), tg::authorization::Permission::User(_)) => {
+					tg::Id::from(user.clone()) == *resource
+				},
+				_ => false,
+			};
+		let token_permissions = key.2.is_none()
+			&& self
+				.tokens
+				.iter()
+				.any(|body| &body.resource == resource && body.authorizes(*permission));
 		if matches!(
 			permission,
 			tg::authorization::Permission::Sandbox(
@@ -873,7 +1025,11 @@ impl Search {
 		{
 			return Ok(());
 		}
-		if principal_is_resource {
+		if principal_is_resource
+			|| scoped_principal
+				.as_ref()
+				.is_some_and(|principal| matches!(principal, tg::Principal::Root))
+		{
 			state.authorize_ancestor_or_descendant(key.clone());
 		} else if token_permissions {
 			let expires_at = self.source_expiration(key).unwrap();
@@ -882,6 +1038,8 @@ impl Search {
 		if state.is_authorized(key) {
 			return Ok(());
 		}
+
+		self.apply_delegations(state, depth, key, &facts.delegations);
 
 		// Construct the authorization dependencies from the facts.
 		let mut dependencies = Vec::new();
@@ -898,11 +1056,21 @@ impl Search {
 		match permission {
 			tg::authorization::Permission::Object(_) => {
 				for (process, kind) in &facts.object_processes {
+					let permission = tg::authorization::Permission::Process(
+						crate::authorize::process_object_permission(*kind),
+					);
+					let process_key = (tg::Id::from(process.clone()), permission, key.2.clone());
 					if direct_processes.contains(process) {
-						let permission = tg::authorization::Permission::Process(
-							crate::authorize::process_object_permission(*kind),
+						dependencies.push(process_key);
+					} else {
+						let source = (
+							key.0.clone(),
+							key.1,
+							Some(tg::authorization::Subject::Process(process.clone())),
 						);
-						dependencies.push((tg::Id::from(process.clone()), permission));
+						if !self.add_conjunction(state, key, process_key, source, depth + 1) {
+							return Ok(());
+						}
 					}
 				}
 				dependencies.extend(Self::tag_dependencies(facts, *permission));
@@ -929,13 +1097,13 @@ impl Search {
 					};
 					if let Some(owner) = owner {
 						let permission = crate::authorize::write_permission_for_resource(&owner)?;
-						dependencies.push((owner, permission));
+						dependencies.push((owner, permission, None));
 					}
 				}
 				if let Some(parent) = &facts.parent {
 					let permission =
 						crate::authorize::permission_for_named_parent(parent, *permission)?;
-					dependencies.push((parent.clone(), permission));
+					dependencies.push((parent.clone(), permission, None));
 				}
 			},
 		}
@@ -954,6 +1122,126 @@ impl Search {
 		Ok(())
 	}
 
+	fn apply_delegations(
+		&mut self,
+		state: &mut State,
+		depth: usize,
+		key: &Key,
+		delegations: &[crate::delegation::put::Arg],
+	) {
+		for delegation in delegations {
+			if !state.is_subject_authorized(&delegation.subject, key.2.as_ref()) {
+				if key.1.is_read_like()
+					&& let tg::authorization::Subject::Tag(tag) = &delegation.subject
+				{
+					let read = (
+						tag.clone().into(),
+						tg::authorization::Permission::Tag(
+							tg::authorization::permission::tag::Permission::Read,
+						),
+						key.2.clone(),
+					);
+					let recipient = (key.0.clone(), key.1, Some(delegation.subject.clone()));
+					if !self.add_conjunction(state, key, read, recipient, depth + 1) {
+						return;
+					}
+				}
+				// A process parent can use the recipient's permissions only if the recipient proves them.
+				if state.process_parent_delegation()
+					&& let tg::authorization::Subject::Process(process) = &delegation.subject
+				{
+					let parent = (
+						process.clone().into(),
+						tg::authorization::Permission::Process(
+							tg::authorization::permission::process::Permission::Parent,
+						),
+						key.2.clone(),
+					);
+					let recipient = (key.0.clone(), key.1, Some(delegation.subject.clone()));
+					if !self.add_conjunction(state, key, parent, recipient, depth + 1) {
+						return;
+					}
+				}
+				continue;
+			}
+			let dependency = (key.0.clone(), key.1, Some(delegation.source.clone()));
+			state
+				.authorization_expirations
+				.entry((dependency.clone(), key.clone()))
+				.and_modify(|expires_at| *expires_at = (*expires_at).max(delegation.expires_at))
+				.or_insert(delegation.expires_at);
+			if !self.add_dependency(state, key, dependency.clone(), depth + 1) {
+				return;
+			}
+			if self.delegation_search_started
+				&& !state.is_authorized(&dependency)
+				&& self
+					.visited_delegations
+					.insert((dependency.clone(), dependency.0.clone()))
+			{
+				self.queue_delegation_parents(&dependency, &dependency.0, depth + 1);
+			}
+		}
+	}
+
+	fn queue_delegation_root(
+		&mut self,
+		state: &State,
+		dependent: &Key,
+		resource: &tg::Id,
+		depth: usize,
+	) {
+		if !self
+			.visited_delegations
+			.insert((dependent.clone(), resource.clone()))
+		{
+			return;
+		}
+		if !self.budget.add_edge() || !self.budget.add_node(depth) {
+			self.incomplete.insert(dependent.clone());
+			return;
+		}
+		if state.is_authorized(dependent) {
+			return;
+		}
+		self.queues
+			.entry(depth)
+			.or_default()
+			.push_back(AncestorTask::Delegation {
+				after: None,
+				dependent: dependent.clone(),
+				depth,
+				read: DelegationRead::Delegations,
+				resource: resource.clone(),
+			});
+		self.queue_delegation_parents(dependent, resource, depth);
+	}
+
+	fn queue_delegation_parents(&mut self, dependent: &Key, resource: &tg::Id, depth: usize) {
+		let reads = if tg::object::Id::try_from(resource.clone()).is_ok() {
+			&[
+				DelegationRead::ObjectParents,
+				DelegationRead::ObjectProcesses,
+			][..]
+		} else if resource.kind() == tg::id::Kind::Process {
+			&[DelegationRead::ProcessParents][..]
+		} else {
+			&[][..]
+		};
+		for read in reads {
+			self.queues
+				.entry(depth)
+				.or_default()
+				.push_back(AncestorTask::Delegation {
+					after: None,
+					dependent: dependent.clone(),
+					depth,
+					read: *read,
+					resource: resource.clone(),
+				});
+		}
+	}
+
 	fn add_permission(
 		&mut self,
 		state: &mut State,
@@ -963,6 +1251,24 @@ impl Search {
 	) -> bool {
 		if !permission.permission.implies(dependent.1) {
 			return true;
+		}
+		if state.is_subject_authorized(&permission.subject, dependent.2.as_ref()) {
+			state.authorize_ancestor_or_descendant(dependent.clone());
+			return true;
+		}
+		if let tg::authorization::Subject::Tag(tag) = &permission.subject {
+			if !permission.permission.is_read_like() {
+				return true;
+			}
+			let read = tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			);
+			return self.add_dependency(
+				state,
+				dependent,
+				(tag.clone().into(), read, dependent.2.clone()),
+				depth + 1,
+			);
 		}
 		if let tg::authorization::Subject::Sync(sync) = &permission.subject {
 			if !permission.permission.is_read_like() {
@@ -974,11 +1280,15 @@ impl Search {
 			return self.add_dependency(
 				state,
 				dependent,
-				(sync.clone().into(), permission),
+				(sync.clone().into(), permission, dependent.2.clone()),
 				depth + 1,
 			);
 		}
-		let source = (permission.resource.clone(), permission.permission);
+		let source = (
+			permission.resource.clone(),
+			permission.permission,
+			dependent.2.clone(),
+		);
 		let subject = permission.subject.clone();
 		if !self.add_subject_dependency(state, dependent, source, subject.clone(), depth) {
 			return false;
@@ -989,7 +1299,7 @@ impl Search {
 			let permission = tg::authorization::Permission::Process(
 				tg::authorization::permission::process::Permission::Parent,
 			);
-			let dependency = (tg::Id::from(process), permission);
+			let dependency = (tg::Id::from(process), permission, dependent.2.clone());
 			if dependency != *dependent
 				&& !self.add_dependency(state, dependent, dependency, depth + 1)
 			{
@@ -1008,8 +1318,8 @@ impl Search {
 		subject: tg::authorization::Subject,
 		depth: usize,
 	) -> bool {
-		let direct =
-			subject == tg::authorization::Subject::Public || state.is_subject_authorized(&subject);
+		let direct = subject == tg::authorization::Subject::Public
+			|| state.is_subject_authorized(&subject, dependent.2.as_ref());
 		let edge_known = state.has_subject_dependency(&subject, &source);
 		if !direct && !edge_known && !self.budget.add_edge() {
 			self.incomplete.insert(dependent.clone());
@@ -1017,7 +1327,7 @@ impl Search {
 			return false;
 		}
 		if subject == tg::authorization::Subject::Public {
-			state.authorize_subject(subject.clone());
+			state.authorize_subject(subject.clone(), dependent.2.as_ref());
 		}
 		state.add_subject_dependency(&subject, source);
 		if !state.is_authorized(dependent) {
@@ -1034,7 +1344,7 @@ impl Search {
 		depth: usize,
 		subject: tg::authorization::Subject,
 	) {
-		if state.is_subject_authorized(&subject)
+		if state.is_subject_authorized(&subject, dependent.2.as_ref())
 			|| !matches!(
 				subject,
 				tg::authorization::Subject::Group(_) | tg::authorization::Subject::Organization(_)
@@ -1113,7 +1423,7 @@ impl Search {
 					tg::authorization::permission::tag::Permission::Read,
 				);
 
-				(tg::Id::from(tag.clone()), permission)
+				(tg::Id::from(tag.clone()), permission, None)
 			})
 			.collect()
 	}
@@ -1181,6 +1491,9 @@ impl Search {
 	}
 
 	fn source_expiration(&self, key: &Key) -> Option<i64> {
+		if key.2.is_some() {
+			return None;
+		}
 		if let tg::authorization::Permission::Process(_) = key.1
 			&& let Ok(process) = tg::process::Id::try_from(key.0.clone())
 			&& matches!(&self.principal, tg::Principal::Process(principal) if principal == &process)
@@ -1198,9 +1511,12 @@ impl Search {
 		&mut self,
 		state: &mut State,
 		dependent: &Key,
-		dependency: Key,
+		mut dependency: Key,
 		depth: usize,
 	) -> bool {
+		if dependency.2.is_none() {
+			dependency.2.clone_from(&dependent.2);
+		}
 		let edge_known = state.has_authorization_dependency(&dependency, dependent);
 		if !edge_known {
 			if !self.budget.add_edge() {
@@ -1212,6 +1528,38 @@ impl Search {
 			self.add_live_dependency(state, dependent, &dependency);
 		}
 
+		self.queue_dependency(state, dependent, dependency, depth)
+	}
+
+	fn add_conjunction(
+		&mut self,
+		state: &mut State,
+		dependent: &Key,
+		first: Key,
+		second: Key,
+		depth: usize,
+	) -> bool {
+		if !state.has_authorization_conjunction(&first, &second, dependent) {
+			if !self.budget.add_edge() || !self.budget.add_edge() {
+				self.incomplete.insert(dependent.clone());
+				return false;
+			}
+			state.add_authorization_conjunction(&first, &second, dependent);
+			self.add_live_dependency(state, dependent, &first);
+			self.add_live_dependency(state, dependent, &second);
+		}
+
+		self.queue_dependency(state, dependent, first, depth)
+			&& self.queue_dependency(state, dependent, second, depth)
+	}
+
+	fn queue_dependency(
+		&mut self,
+		state: &State,
+		dependent: &Key,
+		dependency: Key,
+		depth: usize,
+	) -> bool {
 		match state.ancestor_or_descendant(&dependency) {
 			Outcome::Authorized | Outcome::Denied => return true,
 			Outcome::Exhausted => unreachable!(),

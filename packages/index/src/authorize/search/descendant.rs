@@ -44,6 +44,12 @@ enum DescendantTask {
 		permission: tg::authorization::permission::process::Permission,
 		process: tg::process::Id,
 	},
+	ProcessObjectDescendants {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		object: tg::object::Id,
+		source: Key,
+	},
 	Subject {
 		depth: usize,
 		subject: tg::authorization::Subject,
@@ -63,6 +69,7 @@ pub(super) struct Search {
 	queues: BTreeMap<usize, VecDeque<DescendantTask>>,
 	pub(super) unresolved: HashSet<Key>,
 	visited: HashSet<Key>,
+	visited_process_objects: HashSet<(Key, tg::object::Id)>,
 	visited_subjects: HashSet<tg::authorization::Subject>,
 }
 
@@ -89,6 +96,7 @@ impl Search {
 				queues: BTreeMap::new(),
 				unresolved,
 				visited: HashSet::new(),
+				visited_process_objects: HashSet::new(),
 				visited_subjects: HashSet::new(),
 			};
 		}
@@ -108,9 +116,9 @@ impl Search {
 			.collect::<Vec<_>>();
 		for body in tokens {
 			sources.extend(
-				body.permissions
-					.iter()
-					.map(|permission| ((body.resource.clone(), *permission), body.expires_at)),
+				body.permissions.iter().map(|permission| {
+					((body.resource.clone(), *permission, None), body.expires_at)
+				}),
 			);
 		}
 		let mut sources_seen = HashSet::new();
@@ -133,6 +141,7 @@ impl Search {
 			queues,
 			unresolved,
 			visited,
+			visited_process_objects: HashSet::new(),
 			visited_subjects: HashSet::new(),
 		}
 	}
@@ -244,6 +253,20 @@ impl Search {
 						process,
 					});
 				},
+				DescendantTask::ProcessObjectDescendants {
+					after,
+					depth,
+					object,
+					source,
+				} => {
+					reads.push(Read::ProcessObjectDescendants {
+						after,
+						depth,
+						limit: self.budget.config.page_size,
+						object,
+						source,
+					});
+				},
 				DescendantTask::Subject { depth, subject } => {
 					self.expand_subject(depth, subject);
 				},
@@ -283,6 +306,7 @@ impl Search {
 				tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
 				),
+				None,
 			)),
 			Read::ProcessChildren {
 				process,
@@ -296,11 +320,12 @@ impl Search {
 			} => Some((
 				process.clone().into(),
 				tg::authorization::Permission::Process(*permission),
+				None,
 			)),
 			Read::OwnerSandboxes { owner, .. } => owner.to_id().and_then(|resource| {
 				crate::authorize::write_permission_for_resource(&resource)
 					.ok()
-					.map(|permission| (resource, permission))
+					.map(|permission| (resource, permission, None))
 			}),
 			Read::SubjectPermissions {
 				subject: tg::authorization::Subject::Sync(sync),
@@ -310,6 +335,7 @@ impl Search {
 				tg::authorization::Permission::Sync(
 					tg::authorization::permission::sync::Permission::Read,
 				),
+				None,
 			)),
 			_ => None,
 		};
@@ -341,7 +367,7 @@ impl Search {
 				);
 				let neighbors = children
 					.into_iter()
-					.map(|child| (child, permission))
+					.map(|child| (child, permission, None))
 					.collect();
 
 				(depth, depth + 1, continuation, neighbors)
@@ -362,6 +388,7 @@ impl Search {
 						neighbors.push((
 							sandbox.clone(),
 							tg::authorization::Permission::Sandbox(permission),
+							None,
 						));
 					}
 				}
@@ -389,6 +416,7 @@ impl Search {
 							(
 								child.clone(),
 								tg::authorization::Permission::Process(*permission),
+								None,
 							)
 						})
 					})
@@ -429,6 +457,16 @@ impl Search {
 						source.clone().unwrap(),
 					);
 				}
+				// Reachability alone exposes only permissions actually held by the process on each descendant.
+				for (object, kind) in &objects {
+					if kinds.contains(kind) {
+						self.queue_process_object_descendants(
+							depth + 1,
+							object.clone(),
+							source.clone().unwrap(),
+						);
+					}
+				}
 				let fallback = after.map_or(DescendantFallback::None, |after| {
 					DescendantFallback::ProcessObjects {
 						after: Some(after),
@@ -438,6 +476,78 @@ impl Search {
 				});
 				self.queue_fallback(depth, fallback);
 
+				return Ok(());
+			},
+			Read::ProcessObjectDescendants {
+				after: _,
+				depth,
+				object,
+				source,
+				..
+			} => {
+				let (after, children) = output.into_ids()?;
+				let process = tg::process::Id::try_from(source.0.clone())?;
+				for permission in [
+					tg::authorization::permission::object::Permission::Subtree,
+					tg::authorization::permission::object::Permission::Node,
+				] {
+					let candidates =
+						children
+							.iter()
+							.map(|child| {
+								let covering =
+									if permission
+										== tg::authorization::permission::object::Permission::Node
+									{
+										vec![tg::authorization::permission::object::Permission::Subtree,permission]
+									} else {
+										vec![permission]
+									};
+								let proofs = covering
+									.into_iter()
+									.map(|permission| {
+										vec![crate::authorize::Check::ProcessObjectPermission {
+											object: child.clone().try_into().unwrap(),
+											permission,
+											process: process.clone(),
+										}]
+									})
+									.collect();
+								DescendantCandidate {
+									edges: 1,
+									neighbor: (
+										child.clone(),
+										tg::authorization::Permission::Object(permission),
+										None,
+									),
+									proofs,
+								}
+							})
+							.collect();
+					self.queue_candidates(
+						depth,
+						candidates,
+						DescendantFallback::None,
+						source.clone(),
+					);
+				}
+				for child in children {
+					self.queue_process_object_descendants(
+						depth + 1,
+						child.try_into()?,
+						source.clone(),
+					);
+				}
+				if let Some(after) = after {
+					self.queues.entry(depth).or_default().push_back(
+						DescendantTask::ProcessObjectDescendants {
+							after: Some(after),
+							depth,
+							object,
+							source,
+						},
+					);
+				}
 				return Ok(());
 			},
 			Read::SubjectPermissions { depth, subject, .. } => {
@@ -451,7 +561,7 @@ impl Search {
 				let neighbors = permissions
 					.into_iter()
 					.filter(|permission| !sync || permission.permission.is_read_like())
-					.map(|permission| (permission.resource, permission.permission))
+					.map(|permission| (permission.resource, permission.permission, None))
 					.collect();
 
 				(depth, depth, continuation, neighbors)
@@ -460,6 +570,7 @@ impl Search {
 			| Read::AncestorNode { .. }
 			| Read::GroupMembers { .. }
 			| Read::ObjectParents { .. }
+			| Read::Delegation { .. }
 			| Read::OrganizationMembers { .. }
 			| Read::Process { .. }
 			| Read::ProcessObjects { .. }
@@ -653,14 +764,14 @@ impl Search {
 		};
 		let next_depth = depth + 1;
 		for container in containers {
-			let edge_known = state.has_membership_dependency(&member_subject, &container);
+			let edge_known = state.has_membership_dependency(&member_subject, &container, None);
 			if !edge_known && !self.budget.add_edge() {
 				self.exhausted = true;
 				self.requeue_read(retry)?;
 
 				return Ok(());
 			}
-			state.add_membership_dependency(&member_subject, container.clone());
+			state.add_membership_dependency(&member_subject, container.clone(), None);
 			if self.visited_subjects.contains(&container) {
 				continue;
 			}
@@ -707,6 +818,7 @@ impl Search {
 	pub(super) fn reset_visited_if_complete(&mut self) {
 		if self.queues.is_empty() && !self.exhausted {
 			self.visited.clear();
+			self.visited_process_objects.clear();
 		}
 	}
 
@@ -730,7 +842,7 @@ impl Search {
 		if self.exhausted {
 			return;
 		}
-		let (resource, permission) = key.clone();
+		let (resource, permission, _) = key.clone();
 		if !matches!(permission, tg::authorization::Permission::Object(_)) {
 			self.queues
 				.entry(depth + 1)
@@ -785,6 +897,7 @@ impl Search {
 					tg::authorization::Permission::Process(
 						tg::authorization::permission::process::Permission::Parent,
 					),
+					None,
 				);
 				if permission != tg::authorization::permission::process::Permission::Parent
 					&& !self.visited.contains(&parent)
@@ -847,7 +960,7 @@ impl Search {
 			.into_iter()
 			.rev()
 			.filter(|permission| *permission != key.1)
-			.map(|permission| (key.0.clone(), permission))
+			.map(|permission| (key.0.clone(), permission, None))
 			.filter(|key| !self.visited.contains(key))
 			.collect::<Vec<_>>();
 		if !self.budget.add(implied.len(), implied.len(), depth) {
@@ -892,12 +1005,12 @@ impl Search {
 				};
 				DescendantCandidate {
 					edges: 1,
-					neighbor: (tg::Id::from(child), permission),
+					neighbor: (tg::Id::from(child), permission, None),
 					proofs: vec![vec![check]],
 				}
 			})
 			.collect();
-		let source = (object.clone().into(), permission);
+		let source = (object.clone().into(), permission, None);
 		self.queue_candidates(depth, candidates, fallback, source);
 	}
 
@@ -936,7 +1049,7 @@ impl Search {
 				let permission = tg::authorization::Permission::Process(permission);
 				candidates.push(DescendantCandidate {
 					edges: 1,
-					neighbor: (tg::Id::from(child.clone()), permission),
+					neighbor: (tg::Id::from(child.clone()), permission, None),
 					proofs: vec![vec![check]],
 				});
 			}
@@ -944,6 +1057,7 @@ impl Search {
 		let source = (
 			process.clone().into(),
 			tg::authorization::Permission::Process(permission),
+			None,
 		);
 		self.queue_candidates(depth, candidates, fallback, source);
 	}
@@ -987,8 +1101,36 @@ impl Search {
 		let source = (
 			process.clone().into(),
 			tg::authorization::Permission::Process(permission),
+			None,
 		);
 		self.queue_candidates(depth, candidates, fallback, source);
+	}
+
+	fn queue_process_object_descendants(
+		&mut self,
+		depth: usize,
+		object: tg::object::Id,
+		source: Key,
+	) {
+		if !self
+			.visited_process_objects
+			.insert((source.clone(), object.clone()))
+		{
+			return;
+		}
+		if !self.budget.add(1, 1, depth) {
+			self.exhausted = true;
+			return;
+		}
+		self.queues
+			.entry(depth)
+			.or_default()
+			.push_back(DescendantTask::ProcessObjectDescendants {
+				after: None,
+				depth,
+				object,
+				source,
+			});
 	}
 
 	fn process_object_candidate(
@@ -1030,7 +1172,7 @@ impl Search {
 		let permission = tg::authorization::Permission::Object(permission);
 		DescendantCandidate {
 			edges: 2,
-			neighbor: (tg::Id::from(object), permission),
+			neighbor: (tg::Id::from(object), permission, None),
 			proofs,
 		}
 	}
@@ -1158,6 +1300,21 @@ impl Search {
 					process,
 				},
 			),
+			Read::ProcessObjectDescendants {
+				after,
+				depth,
+				object,
+				source,
+				..
+			} => (
+				depth,
+				DescendantTask::ProcessObjectDescendants {
+					after,
+					depth,
+					object,
+					source,
+				},
+			),
 			Read::SubjectPermissions {
 				after,
 				depth,
@@ -1175,6 +1332,7 @@ impl Search {
 			| Read::AncestorNode { .. }
 			| Read::GroupMembers { .. }
 			| Read::ObjectParents { .. }
+			| Read::Delegation { .. }
 			| Read::OrganizationMembers { .. }
 			| Read::Process { .. }
 			| Read::ProcessObjects { .. }
@@ -1246,7 +1404,7 @@ fn inherent_sources(principal: &tg::Principal) -> Vec<Key> {
 				tg::authorization::permission::process::Permission::Parent,
 			))
 			.into_iter()
-			.map(|permission| (tg::Id::from(process.clone()), permission))
+			.map(|permission| (tg::Id::from(process.clone()), permission, None))
 			.collect()
 		},
 		tg::Principal::Sandbox(sandbox) => vec![
@@ -1255,12 +1413,14 @@ fn inherent_sources(principal: &tg::Principal) -> Vec<Key> {
 				tg::authorization::Permission::Sandbox(
 					tg::authorization::permission::sandbox::Permission::Read,
 				),
+				None,
 			),
 			(
 				tg::Id::from(sandbox.clone()),
 				tg::authorization::Permission::Sandbox(
 					tg::authorization::permission::sandbox::Permission::Write,
 				),
+				None,
 			),
 		],
 		tg::Principal::User(user) => {
@@ -1268,7 +1428,7 @@ fn inherent_sources(principal: &tg::Principal) -> Vec<Key> {
 				tg::authorization::permission::user::Permission::Admin,
 			))
 			.into_iter()
-			.map(|permission| (tg::Id::from(user.clone()), permission))
+			.map(|permission| (tg::Id::from(user.clone()), permission, None))
 			.collect()
 		},
 		tg::Principal::Anonymous

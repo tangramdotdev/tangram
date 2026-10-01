@@ -939,7 +939,7 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 }
 
 #[tokio::test]
-async fn authorize_process_object_permissions_require_process_direct_permissions() {
+async fn authorize_process_object_permissions_require_process_permissions() {
 	let (_dir, index) = new_index();
 	let command_holder = tg::user::Id::new();
 	let object = object_id(0);
@@ -1047,7 +1047,7 @@ async fn authorize_process_object_permissions_require_process_direct_permissions
 		.await
 	);
 	assert!(
-		!is_authorized(
+		is_authorized(
 			&index,
 			object.clone().into(),
 			subtree,
@@ -2803,7 +2803,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 			tangram_index::tag::put::Arg {
 				version: "initial".into(),
 				account: None,
-				id: child_tag,
+				id: child_tag.clone(),
 				name: "child".into(),
 				parent: Some(parent_tag.clone().into()),
 				permissions: vec![object_permission(
@@ -2815,6 +2815,13 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 		],
 	)
 	.unwrap();
+	put_resource_permission(
+		&index,
+		&mut txn,
+		object.clone().into(),
+		tg::authorization::Subject::Tag(child_tag),
+		object_permission(tg::authorization::permission::object::Permission::Subtree),
+	);
 	put_resource_permission(
 		&index,
 		&mut txn,
