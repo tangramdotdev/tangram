@@ -13,6 +13,7 @@ mod authorize;
 mod batch;
 mod checkout;
 mod clean;
+mod delegation;
 mod error;
 mod group;
 mod indexer;

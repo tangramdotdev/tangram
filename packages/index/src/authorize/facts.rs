@@ -17,6 +17,12 @@ pub type Response<E> = Result<ControlFlow<Output, E>, tg::Error>;
 
 #[derive(Clone, Debug)]
 pub enum Request {
+	Delegations {
+		after: Option<Vec<u8>>,
+		limit: usize,
+		resource: tg::Id,
+	},
+
 	Group {
 		group: tg::group::Id,
 	},
@@ -45,6 +51,9 @@ pub enum Request {
 	ObjectChildren {
 		after: Option<Vec<u8>>,
 		limit: usize,
+		object: tg::object::Id,
+	},
+	ObjectIndexed {
 		object: tg::object::Id,
 	},
 	ObjectParents {
@@ -126,6 +135,11 @@ pub enum Request {
 
 #[derive(Clone, Debug)]
 pub enum Output {
+	Delegations {
+		after: Option<Vec<u8>>,
+		delegations: Vec<crate::delegation::put::Arg>,
+	},
+
 	Bool(bool),
 	Permissions {
 		after: Option<Vec<u8>>,
@@ -186,6 +200,7 @@ enum CacheKey {
 		child: tg::object::Id,
 		parent: tg::object::Id,
 	},
+	ObjectIndexed(tg::object::Id),
 	ObjectParents {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -321,6 +336,7 @@ impl Request {
 				child: child.clone(),
 				parent: parent.clone(),
 			},
+			Self::ObjectIndexed { object } => CacheKey::ObjectIndexed(object.clone()),
 			Self::ObjectParents {
 				after,
 				limit,
@@ -396,7 +412,8 @@ impl Request {
 				limit: *limit,
 				target: target.clone(),
 			},
-			Self::GroupMembers { .. }
+			Self::Delegations { .. }
+			| Self::GroupMembers { .. }
 			| Self::ObjectChildren { .. }
 			| Self::OwnerSandboxes { .. }
 			| Self::OrganizationMembers { .. }

@@ -123,6 +123,28 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		txn.set(&key, &[]);
 
+		// Resume permission derivation when the object children become known.
+		if existing.is_none() {
+			let subjects = crate::propagate!(
+				Self::get_resource_permission_subjects_with_transaction(
+					txn,
+					subspace,
+					&id.clone().into()
+				)
+				.await
+			);
+			for subject in subjects {
+				Self::enqueue_update_with_kind(
+					txn,
+					subspace,
+					&tg::Either::Left(id.clone()),
+					&crate::update::Kind::Permission(subject),
+					crate::update::Source::Put,
+					partition_totals.permission_update,
+				);
+			}
+		}
+
 		if changed {
 			Self::enqueue_update(
 				txn,

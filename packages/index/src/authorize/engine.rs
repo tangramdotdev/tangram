@@ -346,20 +346,20 @@ impl Batch {
 				roots
 					.entry((arg.tokens.clone(), process_parent_delegation))
 					.or_default()
-					.push((id.clone(), permission));
+					.push((id.clone(), permission, None));
 			}
 		}
 
-		for ((tokens, process_parent_delegation), roots) in roots {
+		for (context, roots) in roots {
+			let (tokens, process_parent_delegation) = &context;
 			let index = self.searches.len();
-			self.search_indices
-				.insert((tokens.clone(), process_parent_delegation), index);
+			self.search_indices.insert(context.clone(), index);
 			self.searches.push(TokenSearch::new(
 				self.config,
 				&self.principal,
-				process_parent_delegation,
+				*process_parent_delegation,
 				roots,
-				tokens,
+				tokens.clone(),
 			));
 		}
 		self.phase = BatchPhase::Search { next: 0 };
@@ -410,7 +410,7 @@ impl Batch {
 				let search_index =
 					self.search_indices[&(arg.tokens.clone(), process_parent_delegation)];
 				let search = &self.searches[search_index];
-				let key = (id.clone(), permission);
+				let key = (id.clone(), permission, None);
 				match search.final_search.outcome(&search.state, &key) {
 					Outcome::Authorized => {
 						expires_at = expires_at.min(search.state.expires_at(&key));
@@ -526,7 +526,11 @@ impl TokenSearch {
 						self.phase = TokenPhase::Complete;
 						continue;
 					};
-					let initial = self.initial[&key];
+					let initial = self
+						.initial
+						.get(&key)
+						.copied()
+						.unwrap_or_else(|| self.state.ancestor_or_descendant(&key));
 					let search = PermissionSearch::new(self.config, &key, initial, &self.state)?;
 					self.active = Some((key, search));
 				},
@@ -574,6 +578,7 @@ impl PermissionSearch {
 					config.subtree,
 					&key.0,
 					initial,
+                    key.2.as_ref(),
 				)?)),
 				tg::authorization::Permission::Process(
 					permission
@@ -594,6 +599,7 @@ impl PermissionSearch {
 					&key.0,
 					permission,
 					initial,
+                    key.2.as_ref(),
 				)?)),
 				_ => PermissionPhase::Complete(initial),
 			},
@@ -652,6 +658,7 @@ impl SubtreeEvaluation {
 		config: super::SubtreeConfig,
 		resource: &tg::Id,
 		initial: Outcome,
+		subject: Option<&tg::authorization::Subject>,
 	) -> tg::Result<Self> {
 		let mut search = SubtreeSearch::new_object(config, resource)?;
 		let root = (
@@ -659,7 +666,9 @@ impl SubtreeEvaluation {
 			tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
 			),
+			subject.cloned(),
 		);
+		search.set_subject(subject.cloned());
 		search.apply_ancestor_or_descendant(std::slice::from_ref(&root), &[initial])?;
 
 		Ok(Self {
@@ -673,12 +682,15 @@ impl SubtreeEvaluation {
 		resource: &tg::Id,
 		permission: tg::authorization::permission::process::Permission,
 		initial: Outcome,
+		subject: Option<&tg::authorization::Subject>,
 	) -> tg::Result<Self> {
 		let mut search = SubtreeSearch::new_process(config, permission, resource)?;
 		let root = (
 			resource.clone(),
 			tg::authorization::Permission::Process(permission),
+			subject.cloned(),
 		);
+		search.set_subject(subject.cloned());
 		search.apply_ancestor_or_descendant(std::slice::from_ref(&root), &[initial])?;
 
 		Ok(Self {
@@ -934,6 +946,7 @@ impl ProcessSearch {
 						config.subtree,
 						&resource,
 						initial,
+						self.root.2.as_ref(),
 					)?));
 				},
 				ProcessPhase::ObjectInitial { roots, search } => {
@@ -1036,7 +1049,13 @@ impl ProcessSearch {
 		let roots = self
 			.objects
 			.iter()
-			.map(|object| (tg::Id::from(object.clone()), permission))
+			.map(|object| {
+				(
+					tg::Id::from(object.clone()),
+					permission,
+					self.root.2.clone(),
+				)
+			})
 			.collect::<Vec<_>>();
 		for root in &roots {
 			state.add_derived_dependency(root, self.root.clone());
@@ -1136,6 +1155,22 @@ where
 			ReadOutput::Bools(values)
 		},
 		Read::AncestorNode { read, .. } => match read {
+			super::search::AncestorNodeRead::Delegations {
+				after,
+				limit,
+				resource,
+			} => {
+				let output = read!(facts::Request::Delegations {
+					after: after.clone(),
+					limit: *limit,
+					resource: resource.clone()
+				});
+				let facts::Output::Delegations { after, delegations } = output else {
+					return Err(tg::error!("expected delegation facts"));
+				};
+				ReadOutput::Delegations { after, delegations }
+			},
+
 			super::search::AncestorNodeRead::Group { group } => {
 				let output = read!(facts::Request::Group {
 					group: group.clone(),
@@ -1270,6 +1305,20 @@ where
 				}
 			},
 		},
+		Read::ProcessObjectDescendants {
+			after,
+			limit,
+			object,
+			..
+		} => {
+			let output = read!(facts::Request::ObjectChildren {
+				after: after.clone(),
+				limit: *limit,
+				object: object.clone()
+			});
+			let (after, ids) = output.into_ids()?;
+			ReadOutput::Ids { after, ids }
+		},
 		Read::ObjectChildren {
 			after,
 			limit,
@@ -1282,6 +1331,14 @@ where
 			object,
 			..
 		} => {
+			if matches!(read, Read::SubtreeObjectChildren { .. }) {
+				let output = read!(facts::Request::ObjectIndexed {
+					object: object.clone(),
+				});
+				if !output.into_bool()? {
+					return Ok(ControlFlow::Break(ReadOutput::Missing));
+				}
+			}
 			let output = read!(facts::Request::ObjectChildren {
 				after: after.clone(),
 				limit: *limit,
@@ -1291,6 +1348,55 @@ where
 
 			ReadOutput::Ids { after, ids }
 		},
+		Read::Delegation {
+			after,
+			limit,
+			read,
+			resource,
+			..
+		} => {
+			let request = match read {
+				super::search::DelegationRead::Delegations => facts::Request::Delegations {
+					after: after.clone(),
+					limit: *limit,
+					resource: resource.clone(),
+				},
+				super::search::DelegationRead::ObjectParents => facts::Request::ObjectParents {
+					after: after.clone(),
+					limit: *limit,
+					object: resource.clone().try_into()?,
+				},
+				super::search::DelegationRead::ObjectProcesses => facts::Request::ObjectProcesses {
+					after: after.clone(),
+					limit: *limit,
+					object: resource.clone().try_into()?,
+				},
+				super::search::DelegationRead::ProcessParents => facts::Request::ProcessParents {
+					after: after.clone(),
+					limit: *limit,
+					process: resource.clone().try_into()?,
+				},
+			};
+			let output = read!(request);
+			match read {
+				super::search::DelegationRead::Delegations => {
+					let facts::Output::Delegations { after, delegations } = output else {
+						return Err(tg::error!("expected delegation facts"));
+					};
+					ReadOutput::Delegations { after, delegations }
+				},
+				super::search::DelegationRead::ObjectProcesses => {
+					let (after, processes) = output.into_object_processes()?;
+					ReadOutput::ObjectProcesses { after, processes }
+				},
+				super::search::DelegationRead::ObjectParents
+				| super::search::DelegationRead::ProcessParents => {
+					let (after, ids) = output.into_ids()?;
+					ReadOutput::Ids { after, ids }
+				},
+			}
+		},
+
 		Read::ObjectParents {
 			after,
 			limit,
@@ -1819,6 +1925,10 @@ mod tests {
 				async move {
 					let output = match request {
 						facts::Request::Id { id } => facts::Output::Id(Some(id)),
+						facts::Request::Delegations { .. } => facts::Output::Delegations {
+							after: None,
+							delegations: Vec::new(),
+						},
 						facts::Request::ObjectParents { .. } => facts::Output::Ids {
 							after: None,
 							ids: Vec::new(),
@@ -1881,12 +1991,14 @@ mod tests {
 			tg::authorization::Permission::Process(
 				tg::authorization::permission::process::Permission::Node,
 			),
+			None,
 		);
 		let subtree = (
 			resource.clone(),
 			tg::authorization::Permission::Process(
 				tg::authorization::permission::process::Permission::Subtree,
 			),
+			None,
 		);
 		let mut state = State::default();
 		state.deny_ancestor_or_descendant(&node);
@@ -1896,6 +2008,7 @@ mod tests {
 			&resource,
 			tg::authorization::permission::process::Permission::Subtree,
 			Outcome::Denied,
+			None,
 		)
 		.unwrap();
 
@@ -2032,6 +2145,10 @@ mod tests {
 				ReadOutput::Bools(vec![false; checks.candidates().len()])
 			},
 			Read::AncestorNode { read, .. } => match read {
+				AncestorNodeRead::Delegations { .. } => ReadOutput::Delegations {
+					after: None,
+					delegations: Vec::new(),
+				},
 				AncestorNodeRead::Group { .. } => ReadOutput::Group(None),
 				AncestorNodeRead::ObjectProcesses { .. } => ReadOutput::ObjectProcesses {
 					after: None,
@@ -2065,6 +2182,8 @@ mod tests {
 				ids: Vec::new(),
 			},
 			Read::ObjectChildren { .. }
+			| Read::ProcessObjectDescendants { .. }
+			| Read::Delegation { .. }
 			| Read::ObjectParents { .. }
 			| Read::OwnerSandboxes { .. }
 			| Read::ProcessChildren { .. }

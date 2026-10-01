@@ -48,6 +48,10 @@ pub(crate) struct Search {
 }
 
 impl Search {
+	pub(crate) fn set_subject(&mut self, subject: Option<tg::authorization::Subject>) {
+		self.root.2 = subject;
+	}
+
 	pub(crate) fn new_object(
 		config: crate::authorize::SubtreeConfig,
 		resource: &tg::Id,
@@ -109,7 +113,7 @@ impl Search {
 		permission: tg::authorization::Permission,
 	) -> Self {
 		let nodes = vec![root.clone()];
-		let root_key = (root.clone(), permission);
+		let root_key = (root.clone(), permission, None);
 		let visited = HashSet::from([root]);
 
 		Self {
@@ -319,6 +323,10 @@ impl Search {
 			},
 			_ => return Err(tg::error!("received an invalid read for a subtree search")),
 		};
+		if matches!(output, ReadOutput::Missing) {
+			self.complete(state, Outcome::Denied);
+			return Ok(());
+		}
 		let (after, children) = output.into_ids()?;
 		let parent = self.subtree_key(&parent);
 		let complete = matches!(self.phase, Phase::Complete { .. });
@@ -375,7 +383,9 @@ impl Search {
 			Outcome::Authorized => {
 				for node in &self.visited {
 					let key = self.subtree_key(node);
-					state.authorize_derived(key);
+					if !state.is_authorized(&key) {
+						state.authorize_derived(key);
+					}
 				}
 			},
 			Outcome::Denied => state.deny_derived(&self.root),
@@ -401,7 +411,7 @@ impl Search {
 			Kind::Process { node, .. } => tg::authorization::Permission::Process(node),
 		};
 
-		(node.clone(), permission)
+		(node.clone(), permission, self.root.2.clone())
 	}
 
 	fn prepare_children(&mut self, state: &mut State, nodes: Vec<tg::Id>) {
@@ -448,7 +458,7 @@ impl Search {
 			Kind::Process { subtree, .. } => tg::authorization::Permission::Process(subtree),
 		};
 
-		(node.clone(), permission)
+		(node.clone(), permission, self.root.2.clone())
 	}
 
 	fn try_schedule_child(&mut self, child: tg::Id, depth: usize) -> bool {

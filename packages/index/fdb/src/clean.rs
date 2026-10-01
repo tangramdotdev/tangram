@@ -109,7 +109,17 @@ impl Index {
 			permissions,
 			..Default::default()
 		};
-		let remaining_batch_size = batch_size.saturating_sub(permissions);
+		let delegations = crate::propagate!(
+			Self::delete_expired_delegations(
+				txn,
+				subspace,
+				now,
+				batch_size.saturating_sub(permissions),
+				partition_total
+			)
+			.await
+		);
+		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations);
 		let mut candidates = Vec::new();
 
 		let key_kind = Kind::Clean.to_i32().unwrap();
@@ -328,7 +338,10 @@ impl Index {
 			)
 			.await
 		);
-		output.done = permissions == 0 && candidates.is_empty() && propagated_versions == 0;
+		output.done = delegations == 0
+			&& permissions == 0
+			&& candidates.is_empty()
+			&& propagated_versions == 0;
 
 		Ok(ControlFlow::Break(output))
 	}

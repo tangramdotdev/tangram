@@ -9,6 +9,9 @@ pub struct Arg {
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub enum Item {
+	#[tangram_serialize(id = 25)]
+	DeleteDelegations(tg::authorization::Subject),
+
 	#[tangram_serialize(id = 22)]
 	DeleteCheckout(tg::Id),
 
@@ -41,6 +44,9 @@ pub enum Item {
 
 	#[tangram_serialize(id = 8)]
 	PutCheckout(crate::checkout::put::Arg),
+
+	#[tangram_serialize(id = 24)]
+	PutDelegation(crate::delegation::put::Arg),
 
 	#[tangram_serialize(id = 9)]
 	PutPermission(crate::permission::put::Arg),

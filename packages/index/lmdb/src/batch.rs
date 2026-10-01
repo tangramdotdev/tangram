@@ -27,6 +27,15 @@ impl Index {
 	) -> tg::Result<()> {
 		for item in &arg.items {
 			match item {
+				tangram_index::batch::Item::DeleteDelegations(subject) => {
+					Self::delete_delegations_for_subject_with_transaction(
+						db,
+						subspace,
+						transaction,
+						subject,
+					)?;
+				},
+
 				tangram_index::batch::Item::DeleteCheckout(id) => {
 					Self::delete_checkout(db, subspace, transaction, id)?;
 				},
@@ -109,6 +118,9 @@ impl Index {
 						transaction,
 						std::slice::from_ref(arg),
 					)?;
+				},
+				tangram_index::batch::Item::PutDelegation(arg) => {
+					Self::put_delegation_with_transaction(db, subspace, transaction, arg)?;
 				},
 				tangram_index::batch::Item::PutPermission(arg) => {
 					Self::put_permissions_with_transaction(
