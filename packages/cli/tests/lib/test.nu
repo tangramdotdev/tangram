@@ -689,8 +689,8 @@ export def --env "server spawn" [
 			authentication: {
 				tokens: $keys,
 			},
-			authorization: {
-				tokens: $keys,
+			verification: {
+				tokens: $keys
 			},
 		}
 	} else {

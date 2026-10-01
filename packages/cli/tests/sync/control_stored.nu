@@ -46,6 +46,7 @@ for kind in [object process] {
 	let ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.ack --params ({ node: $node } | to json --raw) | from json | get watch
 	let blocker_ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.ack --params ({ node: $blocker } | to json --raw) | from json | get watch
 	let push_log = $env.TMPDIR | path join $'push-($kind).log'
+	'' | save --force $push_log
 	let push = job spawn {
 		let job_id = job id
 		let output = tg --no-quiet --url $local.url --token $root_token push $node $blocker o+e>| tee { save --force $push_log } | complete
@@ -59,11 +60,11 @@ for kind in [object process] {
 	let endpoint = if $kind == object { 'objects' } else { 'processes' }
 	let uri = $'http://localhost/($endpoint)/($node)?($query)'
 
-	# Each read has its own client attempt and must receive an acknowledgement before storage resumes.
+	# Each missing read verifies storage with its own client attempt before storage resumes.
 	let reads = 0..3 | each {
 		job spawn {
 			let job_id = job id
-			let output = http get --max-time 30sec --unix-socket $socket --headers $headers $uri
+			let output = http get --max-time 10sec --unix-socket $socket --headers $headers $uri
 			$output | job send --tag $job_id 0
 		}
 	}

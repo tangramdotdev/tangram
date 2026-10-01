@@ -1,5 +1,4 @@
 mod ancestor;
-mod authorize;
 mod batch;
 mod clean;
 mod delegation;
@@ -13,6 +12,7 @@ mod storage;
 mod tag;
 mod update;
 mod usage;
+mod verify;
 mod versions;
 
 use super::{Config, Index};

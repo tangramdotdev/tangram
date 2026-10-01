@@ -13,7 +13,7 @@ import threading
 import time
 import urllib.parse
 
-case, socket_path, tangram, url, port, source_url, directory = sys.argv[1:]
+case, socket_path, tangram, url, port, source_url, directory, root_token = sys.argv[1:]
 TTL = 2
 
 
@@ -22,6 +22,10 @@ TTL = 2
 class Variant:
     id: int
     value: object = None
+
+
+class Signed(int):
+    pass
 
 
 def varint(value):
@@ -50,6 +54,8 @@ def encode(value):
         return b"\x00"
     if isinstance(value, bool):
         return b"\x01" + bytes([value])
+    if isinstance(value, Signed):
+        return b"\x03" + varint((value << 1) ^ (value >> 63))
     if isinstance(value, int):
         return b"\x02" + varint(value)
     if isinstance(value, str):
@@ -104,6 +110,16 @@ def node_bytes(id):
     return bytes([0, 0, kind, int(id[5])]) + body
 
 
+def verification_output(node, storage, permissions):
+    kind = 1 if node[2] == 8 else 0
+    tokens = []
+    if permissions:
+        names = ["node", "node_command_objects", "node_error_objects", "node_log_objects", "node_output_objects", "parent", "subtree", "subtree_command_objects", "subtree_error_objects", "subtree_log_objects", "subtree_output_objects"] if kind else ["node", "subtree"]
+        body = {0: Signed(int(time.time()) + 60), 1: [("process_" if kind else "object_") + names[permission.id] for permission in permissions], 2: node}
+        tokens.append(body)
+    return Variant(kind, {0: storage, 1: permissions, 2: tokens})
+
+
 def missing_id(index=0):
     body = base64.b32encode(index.to_bytes(32, "little")).decode().rstrip("=")
     return "blb_01" + body.translate(str.maketrans(BASE32, ALPHABET))
@@ -115,8 +131,8 @@ def subject(token):
     return f"syncs.{body['resource']}.control"
 
 
-def command(*args):
-    return subprocess.check_output([tangram, "--url", url, *map(str, args)], timeout=15).decode().strip()
+def command(*args, token=None):
+    return subprocess.check_output([tangram, "--url", url, "--token", token or root_token, *map(str, args)], timeout=15).decode().strip()
 
 
 def source_blob(value):
@@ -136,12 +152,13 @@ def release(name, watch):
 
 
 class Sync:
-    def __init__(self, arg=None, status=200):
+    def __init__(self, arg=None, status=200, *, token=None):
         self.requests = set()
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.socket.settimeout(10)
         self.socket.connect(socket_path)
         headers = ("POST /sync HTTP/1.1\r\nHost: localhost\r\n"
+                   f"Authorization: Bearer {token or root_token}\r\n"
                    "Accept: application/vnd.tangram.sync\r\nContent-Type: application/vnd.tangram.sync\r\n"
                    "x-tg-arg-in-body: true\r\nTransfer-Encoding: chunked\r\n\r\n")
         self.socket.sendall(headers.encode())
@@ -307,7 +324,7 @@ class Peer:
         kind = 1 if request[0].value[0][2] == 8 else 0
         storage = [Variant(0), Variant(1 if kind == 0 else 5)] if stored else []
         permissions = [Variant(0), Variant(1)] if stored else []
-        output = None if error else Variant(1, Variant(kind, {0: storage, 1: permissions}) if stored else None)
+        output = None if error else Variant(1, verification_output(request[0].value[0], storage, permissions) if stored else None)
         self.reply(request, Variant(1, {0: {3: error} if error else None, 1: request[2], 2: request[3], 3: output}))
 
     def cancel(self, id, attempt):
@@ -352,13 +369,18 @@ class Peer:
                 assert time.monotonic() < deadline, "the responder did not subscribe"
 
 
-def read_object(id, token, collection="objects"):
+def read_object(id, token, collection="objects", *, metadata=False):
     sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     sock.settimeout(10)
     sock.connect(socket_path)
     tokens = token if isinstance(token, list) else [token]
-    query = urllib.parse.urlencode({f"tokens[local][{index}]": token for index, token in enumerate(tokens)})
-    sock.sendall(f"GET /{collection}/{id}?{query} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\nConnection: close\r\n\r\n".encode())
+    query = {f"tokens[local][{index}]": token for index, token in enumerate(tokens)}
+    if metadata:
+        query["metadata"] = "true"
+    query = urllib.parse.urlencode(query)
+    # Reads with proofs exercise authorization; tokenless reads inspect storage as root.
+    authorization = f"Authorization: Bearer {reader_token if tokens else root_token}\r\n"
+    sock.sendall(f"GET /{collection}/{id}?{query} HTTP/1.1\r\nHost: localhost\r\nAccept: application/json\r\n{authorization}Connection: close\r\n\r\n".encode())
     response = http.client.HTTPResponse(sock)
     response.begin()
     result = response.status, response.read()
@@ -373,6 +395,40 @@ def fake_peer(messenger, nodes=None):
     sync = Sync({"get": ",".join(nodes or [missing_id()])})
     reached("sync.control.subscribe", subscribe)
     return sync, Peer(messenger, sync.token), subscribe
+
+
+
+def test_receiving_initial_authorization(messenger):
+    text = "locally stored bytes without the receiving user's permissions"
+    id = command("put", f"tg.blob({json.dumps(text)})")
+    command("index")
+    assert read_object(id, [])[0] == 200
+    completed = Sync()
+    completed.finish()
+    while completed.receive().id != 2:
+        pass
+    completed.close()
+    assert read_object(id, completed.token)[0] == 404
+
+    # A receiving sync must request the bytes instead of awaiting another unfinished sync's proof.
+    earlier = Sync({"get": id}, token=reader_token)
+    earlier.requested(id)
+    referent = id + "?" + urllib.parse.urlencode({"tokens[local][0]": earlier.token})
+    later = Sync({"get": referent}, token=reader_token)
+    later.requested(id)
+    later.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(id), 1: b"\x00" + text.encode()}))))
+    later.finish()
+    while later.receive().id != 2:
+        pass
+    later.close()
+    status, body = read_object(id, later.token)
+    assert status == 200, (status, body)
+
+    earlier.missing(id)
+    earlier.finish()
+    while earlier.receive().id != 2:
+        pass
+    earlier.close()
 
 
 def test_output(messenger):
@@ -406,7 +462,7 @@ def test_output(messenger):
 
 def recover_attempt(messenger, fail):
     sync, peer, subscribe = fake_peer(messenger)
-    id = missing_id(1) if fail else source_blob("old attempt")
+    id = missing_id(1) if fail else command("put", 'tg.blob("old attempt")')
     with concurrent.futures.ThreadPoolExecutor() as executor:
         read = executor.submit(read_object, id, sync.token)
         heartbeat = peer.request(True)
@@ -428,14 +484,12 @@ def recover_attempt(messenger, fail):
         peer.ack(request)
         assert peer.request(attempt="new")[2] == request[2], "an old ACK must not stop retries on the new attempt"
         peer.ack(replacement)
-        if not fail:
-            assert command("put", 'tg.blob("old attempt")') == id
         error = "the replacement was cancelled" if fail else None
         response_request = replacement if fail else request
         peer.respond(response_request, error)
         status, body = read.result(timeout=5)
         if fail:
-            assert status == 404, (status, body)
+            assert status == 500 and b"failed to verify the resource through a sync" in body, (status, body)
         else:
             assert status == 200, (status, body)
             assert base64.b64decode(json.loads(body)["data"]["value"]["bytes"]) == b"old attempt"
@@ -473,14 +527,14 @@ def test_stale_heartbeats(messenger):
             peer.heartbeat(new, "new")
             time.sleep(0.05)
         status, body = read.result(timeout=5)
-        assert status == 404, (status, body)
+        assert status == 500 and b"failed to verify the resource through a sync" in body, (status, body)
     sync.close()
     release("sync.control.subscribe", subscribe)
 
 
 def test_final_read(messenger):
     sync, peer, subscribe = fake_peer(messenger)
-    id = source_blob("final read")
+    id = command("put", 'tg.blob("final read")')
     with concurrent.futures.ThreadPoolExecutor() as executor:
         read = executor.submit(read_object, id, sync.token)
         peer.heartbeat(peer.request(True), "attempt")
@@ -488,7 +542,7 @@ def test_final_read(messenger):
         ack_watch = watch("sync.control.ack", node=id)
         peer.ack(request)
         reached("sync.control.ack", ack_watch)
-        assert command("put", 'tg.blob("final read")') == id
+        assert command("put", 'tg.blob("final read")', token=reader_token) == id
         assert not read.done(), "an acknowledged sync must wait for a response"
         release("sync.control.ack", ack_watch)
         peer.respond(request, "the transfer failed")
@@ -700,7 +754,7 @@ def test_failed_wait(messenger):
         peer.respond(request, "the transfer failed")
         peer.acknowledged(request[2], request[3])
         status, body = read.result(timeout=2)
-        assert status == 404, (status, body)
+        assert status == 500 and b"failed to verify the resource through a sync" in body, (status, body)
         assert command("put", 'tg.blob("polling after failure")') == id
         status, body = read_object(id, [])
         assert status == 200, (status, body)
@@ -710,7 +764,7 @@ def test_failed_wait(messenger):
 
 def test_notification(messenger):
     sync, peer, subscribe = fake_peer(messenger)
-    id = source_blob("immediate notification")
+    id = command("put", 'tg.blob("immediate notification")')
     with concurrent.futures.ThreadPoolExecutor() as executor:
         read = executor.submit(read_object, id, sync.token)
         peer.heartbeat(peer.request(True), "attempt")
@@ -720,7 +774,6 @@ def test_notification(messenger):
         reached("sync.control.ack", ack)
         release("sync.control.ack", ack)
         time.sleep(0.1)
-        assert command("put", 'tg.blob("immediate notification")') == id
         peer.respond(request)
         status, body = read.result(timeout=1)
         assert status == 200, (status, body)
@@ -744,7 +797,7 @@ def test_live_wait(messenger):
                 pass
         peer.respond(request, "the transfer failed")
         status, body = read.result(timeout=2)
-        assert status == 404, (status, body)
+        assert status == 500 and b"failed to verify the resource through a sync" in body, (status, body)
     sync.close()
     release("sync.control.subscribe", subscribe)
 
@@ -814,7 +867,7 @@ def test_candidates(messenger):
     for index in range(len(syncs)):
         reached("sync.control.subscribe", subscribe, index)
     peers = [Peer(messenger, sync.token) for sync in syncs]
-    id = source_blob("candidates")
+    id = command("put", 'tg.blob("candidates")')
     with concurrent.futures.ThreadPoolExecutor() as executor:
         read = executor.submit(read_object, id, [sync.token for sync in syncs] + [syncs[0].token])
         requests = []
@@ -835,7 +888,6 @@ def test_candidates(messenger):
         peers[1].respond(requests[1], stored=False)
         peers[1].acknowledged(requests[1][2], requests[1][3])
         assert not read.done(), "one failed or missing candidate must not end the search"
-        assert command("put", 'tg.blob("candidates")') == id
         peers[3].respond(requests[3])
         status, body = read.result(timeout=5)
         assert status == 200, (status, body)
@@ -856,7 +908,7 @@ def test_candidate_local_fallback(messenger):
             reached("sync.control.subscribe", subscribe, index)
         peers = [Peer(messenger, sync.token) for sync in syncs]
         text = f"local fallback after candidate ends: {missing}"
-        id = source_blob(text)
+        id = command("put", f"tg.blob({json.dumps(text)})")
         with concurrent.futures.ThreadPoolExecutor() as executor:
             read = executor.submit(read_object, id, [sync.token for sync in syncs])
             requests = []
@@ -868,9 +920,8 @@ def test_candidate_local_fallback(messenger):
                 reached("sync.control.ack", ack)
                 release("sync.control.ack", ack)
                 requests.append(request)
-            assert command("put", f"tg.blob({json.dumps(text)})") == id
+            assert command("put", f"tg.blob({json.dumps(text)})", token=reader_token) == id
             command("index")
-            assert not read.done(), "local availability must not trigger polling"
             if missing:
                 peers[0].respond(requests[0], stored=False)
             else:
@@ -1032,6 +1083,157 @@ def test_index_handoff(messenger):
             sync.close()
 
 
+def test_authorization_storage(messenger):
+    for stored, permissions in ((False, [Variant(0), Variant(1)]), (True, [Variant(0), Variant(1)]), (True, [Variant(0)]), (True, [])):
+        text = f"authorization without storage: {stored}, {permissions}"
+        id = source_blob(text)
+        if stored:
+            assert command("put", f"tg.blob({json.dumps(text)})") == id
+        sync, peer, subscribe = fake_peer(messenger)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            read = executor.submit(read_object, id, sync.token)
+            peer.heartbeat(peer.request(True), "authorization")
+            request = peer.request()
+            arg = request[0].value
+            assert arg[0] == node_bytes(id), arg
+            assert arg[2] == Variant(0, []), "authorization must not request storage"
+            try:
+                read.result(timeout=0.1)
+            except concurrent.futures.TimeoutError:
+                pass
+            else:
+                raise AssertionError("a read must wait for authorization even if storage has answered")
+            peer.ack(request)
+            output = Variant(1, verification_output(arg[0], [], permissions))
+            peer.reply(request, Variant(1, {0: None, 1: request[2], 2: request[3], 3: output}))
+            if not permissions:
+                # An insufficient response cannot authorize the read, and a live sync failure remains retryable.
+                try:
+                    read.result(timeout=0.25)
+                except concurrent.futures.TimeoutError:
+                    pass
+                else:
+                    raise AssertionError("an insufficient response must not finish authorization")
+                peer.respond(request, "the live sync has not proved the permissions")
+            if not stored and permissions:
+                # The storage fallback uses a new control client after authorization settles.
+                heartbeat_storage = peer.request(True)
+                while heartbeat_storage[1] == request[1]:
+                    peer.heartbeat(heartbeat_storage, "authorization")
+                    heartbeat_storage = peer.request(True)
+                peer.heartbeat(heartbeat_storage, "storage")
+                request_storage = peer.request()
+                while request_storage[2] == request[2]:
+                    # The initial acknowledgment can race a queued retry of the permission request.
+                    peer.ack(request_storage)
+                    request_storage = peer.request()
+                arg_storage = request_storage[0].value
+                assert arg_storage[1] == Variant(1, []), "the authorized read should require only storage"
+                assert arg_storage[2] == Variant(0, [Variant(0)]), "the read must not wait for subtree storage"
+                peer.ack(request_storage)
+                assert command("put", f"tg.blob({json.dumps(text)})") == id
+                output_storage = Variant(1, verification_output(request[0].value[0], [Variant(0)], []))
+                peer.reply(request_storage, Variant(1, {0: None, 1: request_storage[2], 2: request_storage[3], 3: output_storage}))
+                peer.acknowledged(request_storage[2], request_storage[3])
+                stored = True
+            status, body = read.result(timeout=2)
+            expected = 200 if stored and permissions else 500
+            assert status == expected, (status, body)
+            if status == 500:
+                assert b"failed to verify the resource through a sync" in body, body
+            if status == 200:
+                token = json.loads(body)["tokens"]["local"][0]
+                proof = token.split(".")[1]
+                proof = json.loads(base64.b64decode(proof + "=" * (-len(proof) % 4)))
+                response_proof = output.value.value[2][0]
+                assert proof["resource"] == id, proof
+                assert proof["expires_at"] <= response_proof[0], "the object proof must not outlive the returned authorization body"
+            peer.acknowledged(request[2], request[3])
+        sync.close()
+        release("sync.control.subscribe", subscribe)
+
+    # A metadata request may return a node proof after indexing without waiting for optional subtree permission.
+    id = command("put", 'tg.blob("optional subtree")')
+    sync, peer, subscribe = fake_peer(messenger)
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        read = executor.submit(read_object, id, sync.token, metadata=True)
+        peer.heartbeat(peer.request(True), "optional")
+        requests = {}
+        while len(requests) < 2:
+            request = peer.request()
+            peer.ack(request)
+            requests[request[0].value[1].value[0].id] = request
+        request = requests[0]
+        output = Variant(1, verification_output(request[0].value[0], [], [Variant(0)]))
+        peer.reply(request, Variant(1, {0: None, 1: request[2], 2: request[3], 3: output}))
+        status, body = read.result(timeout=2)
+        assert status == 200, (status, body)
+        peer.cancelled(requests[1])
+    sync.close()
+    release("sync.control.subscribe", subscribe)
+
+
+def test_verification_storage(messenger, result="success"):
+    # A root reader needs only storage, so its verification request must not require a permission proof.
+    text = "storage-only verification"
+    id = source_blob(text)
+    sync, peer, subscribe = fake_peer(messenger)
+
+    def pull():
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        sock.settimeout(10)
+        sock.connect(socket_path)
+        referent = f"{id}?tokens[local][0]={urllib.parse.quote(sync.token, safe='')}"
+        body = json.dumps({"nodes": [referent], "source": "local"}).encode()
+        headers = ("POST /pull HTTP/1.1\r\nHost: localhost\r\n"
+                   "Accept: text/event-stream\r\nContent-Type: application/json\r\n"
+                   f"Authorization: Bearer {root_token}\r\nContent-Length: {len(body)}\r\nConnection: close\r\n\r\n")
+        sock.sendall(headers.encode() + body)
+        response = http.client.HTTPResponse(sock)
+        response.begin()
+        result = response.status, response.read()
+        response.close()
+        sock.close()
+        return result
+
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        read = executor.submit(pull)
+        peer.heartbeat(peer.request(True), "storage-only")
+        request = peer.request()
+        arg = request[0].value
+        assert arg[0] == node_bytes(id), arg
+        assert arg[1] == Variant(1, []), "storage-only verification must not request permissions"
+        assert arg[2] == Variant(0, [Variant(0)]), "verification should request only the missing node storage"
+        peer.ack(request)
+        if result in ("success", "recovered"):
+            assert command("put", f"tg.blob({json.dumps(text)})") == id
+        if result == "success":
+            output = Variant(1, verification_output(request[0].value[0], [Variant(0)], []))
+            peer.reply(request, Variant(1, {0: None, 1: request[2], 2: request[3], 3: output}))
+        elif result != "timeout":
+            peer.respond(request, "the transfer failed")
+        status, body = read.result(timeout=10)
+        assert status == 200, (status, body)
+        if result in ("success", "recovered"):
+            assert b"event: error" not in body, (status, body)
+        else:
+            assert b"event: error" in body, "a transient storage failure must not settle as unavailable"
+    sync.close()
+    release("sync.control.subscribe", subscribe)
+
+
+def test_verification_storage_error(messenger):
+    test_verification_storage(messenger, "error")
+
+
+def test_verification_storage_recovered(messenger):
+    test_verification_storage(messenger, "recovered")
+
+
+def test_verification_storage_timeout(messenger):
+    test_verification_storage(messenger, "timeout")
+
+
 def test_requirements(messenger):
     child = source_blob("child")
     data = b"\x01\x00" + encode({0: [{0: node_bytes(child), 1: 5}]})
@@ -1053,8 +1255,20 @@ def test_requirements(messenger):
     response = peer.response("permissions")
     assert response[0] is None and response[3].value.value[0] == [], response
     peer.acknowledge(response)
+    # Permission proof finishes before storage; the read waits only for the parent bytes.
+    executor = concurrent.futures.ThreadPoolExecutor()
+    read = executor.submit(read_object, parent, sync.token)
+    try:
+        read.result(timeout=0.1)
+    except concurrent.futures.TimeoutError:
+        pass
+    else:
+        raise AssertionError("the read must await node storage after authorization")
     sync.requested(parent)
     sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(parent), 1: data}))))
+    status, body = read.result(timeout=5)
+    assert status == 200, (status, body)
+    executor.shutdown()
     response = peer.response("node")
     assert response[0] is None and response[3].value.value[0] == [Variant(0)], response
     peer.acknowledge(response)
@@ -1142,7 +1356,9 @@ def test_failed_transfer(messenger):
     stored = peer.response("stored")
     output = stored[3]
     assert stored[0] is None and output.id == 1 and output.value.id == 0, stored
-    assert output.value.value == {0: [Variant(0), Variant(1)], 1: [Variant(0), Variant(1)]}, stored
+    assert output.value.value[0] == [Variant(0), Variant(1)], stored
+    assert output.value.value[1] == [Variant(0), Variant(1)], stored
+    assert output.value.value[2], "the response should include an authorization body"
 
     # A malformed object fails the remaining transfer while the stored response is still unacknowledged.
     sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(missing), 1: b"\xff"}))))
@@ -1158,5 +1374,6 @@ def test_failed_transfer(messenger):
     sync.close()
 
 
+reader_token = json.loads(command("login", "--verbose", "--name", "reader"))["token"]
 messenger = None if case == "output" else Messenger()
 globals()["test_" + case](messenger)

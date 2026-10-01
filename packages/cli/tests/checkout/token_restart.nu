@@ -7,14 +7,16 @@ for preserve_keys in [true false] {
 	let root_token = random chars
 	let local = server spawn --preserve-keys=$preserve_keys --config {
 		authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
-		authorization: {
-			final: {
-				ancestor: { max_depth: 0, max_edges: 0, max_nodes: 0 }
-				descendant: { max_depth: 0, max_edges: 0, max_nodes: 0 }
-				subtree: { max_objects: 0 }
-			}
+		verification: {
 			index: { delay: null }
-			initial: false
+			permissions: {
+				final: {
+					ancestor: { max_depth: 0, max_edges: 0, max_nodes: 0 }
+					descendant: { max_depth: 0, max_edges: 0, max_nodes: 0 }
+					subtree: { max_objects: 0 }
+				}
+				initial: false
+			}
 		}
 		vfs: false
 	}

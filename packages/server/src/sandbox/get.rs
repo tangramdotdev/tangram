@@ -141,7 +141,8 @@ impl Session {
 		let authorize_future = self.authorize(resource, permission).boxed();
 		let get_future = self.try_get_sandbox_local_inner(id, source).boxed();
 		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
-		if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
+		let permissions = permissions.check_exhaustion()?;
+		if !permissions.permissions.contains(permission) {
 			return Ok(None);
 		}
 		let Some(mut output) = output else {

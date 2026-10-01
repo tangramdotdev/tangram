@@ -530,12 +530,13 @@ impl Session {
 
 		// Authorize the remaining nodes.
 		let authorization_outputs = self
-			.authorize_batch_with_required(args, required)
+			.authorize_batch_initial(args, required)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the sync nodes"))?;
 		let mut graph = graph.lock().unwrap();
 		for (position, output) in std::iter::zip(positions, authorization_outputs) {
-			if let Some(permissions) = output {
+			{
+				let permissions = output.permissions;
 				match ids[position].kind() {
 					tg::id::Kind::Process => graph.update_process_local_permissions(
 						&ids[position].clone().try_into()?,

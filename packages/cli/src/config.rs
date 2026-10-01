@@ -27,9 +27,6 @@ pub struct Config {
 	pub authentication: Option<Authentication>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub authorization: Option<Authorization>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub billing: Option<Billing>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -142,6 +139,9 @@ pub struct Config {
 	/// Set the V8 thread pool size.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub v8_thread_pool_size: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub verification: Option<Verification>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub version: Option<String>,
@@ -383,55 +383,63 @@ pub struct Billing {
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Authorization {
-	#[serde(default, rename = "final", skip_serializing_if = "Option::is_none")]
-	pub final_: Option<BoolOr<AuthorizationSearches>>,
+pub struct Verification {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub index: Option<VerificationIndex>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub index: Option<AuthorizationIndex>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub initial: Option<BoolOr<AuthorizationSearches>>,
+	pub permissions: Option<VerificationPermissions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub tokens: Option<BoolOr<TokenKeys>>,
 }
 
 #[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct VerificationPermissions {
+	#[serde(default, rename = "final", skip_serializing_if = "Option::is_none")]
+	pub final_: Option<BoolOr<PermissionSearches>>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub initial: Option<BoolOr<PermissionSearches>>,
+}
+
+#[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorizationIndex {
+pub struct VerificationIndex {
 	#[serde(
 		default,
 		skip_serializing_if = "Option::is_none",
 		with = "serde_with::rust::double_option"
 	)]
-	pub delay: Option<Option<AuthorizationIndexDelay>>,
+	pub delay: Option<Option<VerificationIndexDelay>>,
 }
 
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorizationSearches {
+pub struct PermissionSearches {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub ancestor: Option<AuthorizationSearch>,
+	pub ancestor: Option<PermissionSearch>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub descendant: Option<AuthorizationSearch>,
+	pub descendant: Option<PermissionSearch>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub subtree: Option<AuthorizationSubtree>,
+	pub subtree: Option<PermissionSubtree>,
 }
 
 #[serde_as]
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(transparent)]
-pub struct AuthorizationIndexDelay(#[serde_as(as = "DurationSecondsWithFrac")] pub Duration);
+pub struct VerificationIndexDelay(#[serde_as(as = "DurationSecondsWithFrac")] pub Duration);
 
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorizationSearch {
+pub struct PermissionSearch {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_depth: Option<usize>,
 
@@ -448,7 +456,7 @@ pub struct AuthorizationSearch {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct AuthorizationSubtree {
+pub struct PermissionSubtree {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_depth: Option<usize>,
 
@@ -698,7 +706,7 @@ pub enum Index {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct FdbIndexAuthorize {
+pub struct FdbIndexVerification {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub concurrency: Option<usize>,
 }
@@ -707,9 +715,6 @@ pub struct FdbIndexAuthorize {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct FdbIndex {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub authorize: Option<FdbIndexAuthorize>,
-
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cleaning_partition_total: Option<u64>,
 
@@ -742,6 +747,9 @@ pub struct FdbIndex {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_write_operation_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub verification: Option<FdbIndexVerification>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub write_operation_batch_size: Option<usize>,
@@ -2301,8 +2309,8 @@ fn resolve_server_config(source: &Config) -> tg::Result<server::Config> {
 	if let Some(source) = source.authentication {
 		target.authentication = resolve_authentication(source)?;
 	}
-	if let Some(source) = source.authorization {
-		target.authorization = resolve_authorization(source)?;
+	if let Some(source) = source.verification {
+		target.verification = resolve_verification(source)?;
 	}
 	if let Some(source) = source.billing {
 		target.billing = Some(resolve_billing(source)?);
@@ -2595,16 +2603,13 @@ fn resolve_billing(source: Billing) -> tg::Result<server::Billing> {
 	Ok(target)
 }
 
-fn resolve_authorization(source: Authorization) -> tg::Result<server::Authorization> {
-	let mut target = server::Authorization::default();
-	if let Some(source) = source.final_ {
-		target.final_ = resolve_authorization_searches_bool_or(source, target.final_)?;
-	}
+fn resolve_verification(source: Verification) -> tg::Result<server::Verification> {
+	let mut target = server::Verification::default();
 	if let Some(source) = source.index {
-		target.index = resolve_authorization_index(source);
+		target.index = resolve_verification_index(source);
 	}
-	if let Some(source) = source.initial {
-		target.initial = resolve_authorization_searches_bool_or(source, target.initial)?;
+	if let Some(source) = source.permissions {
+		target.permissions = resolve_verification_permissions(&source)?;
 	}
 	if let Some(source) = source.tokens {
 		target.tokens = resolve_bool_or(source, resolve_token_keys)?;
@@ -2613,66 +2618,80 @@ fn resolve_authorization(source: Authorization) -> tg::Result<server::Authorizat
 	Ok(target)
 }
 
-fn resolve_authorization_searches_bool_or(
-	source: BoolOr<AuthorizationSearches>,
-	target: server::AuthorizationSearches,
-) -> tg::Result<server::AuthorizationSearches> {
-	let target = resolve_bool_or(source, |source| {
-		Ok(resolve_authorization_searches(source, target))
-	})?
-	.unwrap_or_else(disabled_authorization_searches);
+fn resolve_verification_permissions(
+	source: &VerificationPermissions,
+) -> tg::Result<server::VerificationPermissions> {
+	let mut target = server::VerificationPermissions::default();
+	if let Some(source) = source.final_ {
+		target.final_ = resolve_permission_searches_bool_or(source, target.final_)?;
+	}
+	if let Some(source) = source.initial {
+		target.initial = resolve_permission_searches_bool_or(source, target.initial)?;
+	}
 
 	Ok(target)
 }
 
-fn disabled_authorization_searches() -> server::AuthorizationSearches {
-	let page_size = server::AuthorizationSearch::default().page_size;
-	let ancestor = server::AuthorizationSearch {
+fn resolve_permission_searches_bool_or(
+	source: BoolOr<PermissionSearches>,
+	target: server::PermissionSearches,
+) -> tg::Result<server::PermissionSearches> {
+	let target = resolve_bool_or(source, |source| {
+		Ok(resolve_permission_searches(source, target))
+	})?
+	.unwrap_or_else(disabled_permission_searches);
+
+	Ok(target)
+}
+
+fn disabled_permission_searches() -> server::PermissionSearches {
+	let page_size = server::PermissionSearch::default().page_size;
+	let ancestor = server::PermissionSearch {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		page_size,
 	};
 	let descendant = ancestor.clone();
-	let subtree = server::AuthorizationSubtree {
+	let subtree = server::PermissionSubtree {
 		max_depth: 0,
 		max_objects: 0,
 		max_processes: 0,
 	};
 
-	server::AuthorizationSearches {
+	server::PermissionSearches {
 		ancestor,
 		descendant,
 		subtree,
 	}
 }
 
-fn resolve_authorization_index(source: AuthorizationIndex) -> server::AuthorizationIndex {
-	let mut target = server::AuthorizationIndex::default();
+fn resolve_verification_index(source: VerificationIndex) -> server::VerificationIndex {
+	let mut target = server::VerificationIndex::default();
 	if let Some(delay) = source.delay {
 		target.delay = delay.map(|delay| delay.0);
 	}
 	target
 }
 
-fn resolve_authorization_searches(
-	source: AuthorizationSearches,
-	mut target: server::AuthorizationSearches,
-) -> server::AuthorizationSearches {
+fn resolve_permission_searches(
+	source: PermissionSearches,
+	mut target: server::PermissionSearches,
+) -> server::PermissionSearches {
 	if let Some(source) = source.ancestor {
-		target.ancestor = resolve_authorization_search(source);
+		target.ancestor = resolve_permission_search(source);
 	}
 	if let Some(source) = source.descendant {
-		target.descendant = resolve_authorization_search(source);
+		target.descendant = resolve_permission_search(source);
 	}
 	if let Some(source) = source.subtree {
-		target.subtree = resolve_authorization_subtree(source);
+		target.subtree = resolve_permission_subtree(source);
 	}
 	target
 }
 
-fn resolve_authorization_search(source: AuthorizationSearch) -> server::AuthorizationSearch {
-	let mut target = server::AuthorizationSearch::default();
+fn resolve_permission_search(source: PermissionSearch) -> server::PermissionSearch {
+	let mut target = server::PermissionSearch::default();
 	if let Some(value) = source.max_depth {
 		target.max_depth = value;
 	}
@@ -2688,8 +2707,8 @@ fn resolve_authorization_search(source: AuthorizationSearch) -> server::Authoriz
 	target
 }
 
-fn resolve_authorization_subtree(source: AuthorizationSubtree) -> server::AuthorizationSubtree {
-	let mut target = server::AuthorizationSubtree::default();
+fn resolve_permission_subtree(source: PermissionSubtree) -> server::PermissionSubtree {
+	let mut target = server::PermissionSubtree::default();
 	if let Some(value) = source.max_depth {
 		target.max_depth = value;
 	}
@@ -2953,8 +2972,8 @@ fn resolve_index(source: Index) -> server::Index {
 
 fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	let mut target = server::FdbIndex::default();
-	if let Some(source) = &source.authorize {
-		target.authorize = resolve_fdb_index_authorize(source);
+	if let Some(source) = &source.verification {
+		target.verification = resolve_fdb_index_verification(source);
 	}
 	if let Some(value) = source.cleaning_partition_total {
 		target.cleaning_partition_total = value;
@@ -2998,8 +3017,8 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	target
 }
 
-fn resolve_fdb_index_authorize(source: &FdbIndexAuthorize) -> server::FdbIndexAuthorize {
-	let mut target = server::FdbIndexAuthorize::default();
+fn resolve_fdb_index_verification(source: &FdbIndexVerification) -> server::FdbIndexVerification {
+	let mut target = server::FdbIndexVerification::default();
 	if let Some(value) = source.concurrency {
 		target.concurrency = value;
 	}
@@ -4488,51 +4507,47 @@ mod tests {
 	}
 
 	#[test]
-	fn parses_and_resolves_authorization() {
+	fn parses_and_resolves_verification() {
 		let source: Config = serde_json::from_value(serde_json::json!({
-			"authorization": {
-				"final": {
-					"ancestor": { "max_edges": 2 },
-					"descendant": { "max_edges": 3 },
-					"subtree": { "max_objects": 4 },
+			"index": { "kind": "lmdb" },
+			"verification": {
+				"index": { "delay": 0.025 },
+				"permissions": {
+					"final": {
+						"ancestor": { "max_edges": 2 },
+						"descendant": { "max_edges": 3 },
+						"subtree": { "max_objects": 4 },
+					},
+					"initial": { "ancestor": { "max_edges": 1 } },
 				},
-				"initial": {
-					"ancestor": { "max_edges": 1 },
-				},
-				"index": {
-					"delay": 0.025,
-				},
-			},
-			"index": {
-				"kind": "lmdb",
 			},
 		}))
 		.unwrap();
 		let target = resolve_server_config(&source).unwrap();
-		let authorization = target.authorization;
-		assert_eq!(authorization.final_.ancestor.max_edges, 2);
-		assert_eq!(authorization.final_.descendant.max_edges, 3);
-		assert_eq!(authorization.final_.subtree.max_objects, 4);
-		assert_eq!(authorization.initial.ancestor.max_edges, 1);
+		let verification = target.verification;
+		assert_eq!(verification.permissions.final_.ancestor.max_edges, 2);
+		assert_eq!(verification.permissions.final_.descendant.max_edges, 3);
+		assert_eq!(verification.permissions.final_.subtree.max_objects, 4);
+		assert_eq!(verification.permissions.initial.ancestor.max_edges, 1);
 		assert_eq!(
-			authorization.initial.descendant,
-			server::AuthorizationSearch::default()
+			verification.permissions.initial.descendant,
+			server::PermissionSearch::default()
 		);
-		assert_eq!(authorization.initial.subtree.max_depth, 0);
-		assert_eq!(authorization.initial.subtree.max_objects, 0);
-		assert_eq!(authorization.initial.subtree.max_processes, 0);
-		assert_eq!(authorization.index.delay, Some(Duration::from_millis(25)));
+		assert_eq!(verification.permissions.initial.subtree.max_depth, 0);
+		assert_eq!(verification.permissions.initial.subtree.max_objects, 0);
+		assert_eq!(verification.permissions.initial.subtree.max_processes, 0);
+		assert_eq!(verification.index.delay, Some(Duration::from_millis(25)));
 
-		let source: Authorization = serde_json::from_value(serde_json::json!({
+		let source: Verification = serde_json::from_value(serde_json::json!({
 			"index": {
 				"delay": null,
 			},
 		}))
 		.unwrap();
-		let target = resolve_authorization(source).unwrap();
+		let target = resolve_verification(source).unwrap();
 		assert_eq!(target.index.delay, None);
 		assert_eq!(
-			server::AuthorizationIndex::default().delay,
+			server::VerificationIndex::default().delay,
 			Some(Duration::from_millis(10))
 		);
 	}
@@ -4558,24 +4573,24 @@ mod tests {
 	}
 
 	#[test]
-	fn parses_and_resolves_authorization_search_booleans() {
-		let source: Authorization = serde_json::from_value(serde_json::json!({
+	fn parses_and_resolves_verification_permission_search_booleans() {
+		let source: VerificationPermissions = serde_json::from_value(serde_json::json!({
 			"final": false,
 			"initial": false,
 		}))
 		.unwrap();
-		let target = resolve_authorization(source).unwrap();
-		let disabled = disabled_authorization_searches();
+		let target = resolve_verification_permissions(&source).unwrap();
+		let disabled = disabled_permission_searches();
 		assert_eq!(target.final_, disabled);
 		assert_eq!(target.initial, disabled);
 
-		let source: Authorization = serde_json::from_value(serde_json::json!({
+		let source: VerificationPermissions = serde_json::from_value(serde_json::json!({
 			"final": true,
 			"initial": true,
 		}))
 		.unwrap();
-		let target = resolve_authorization(source).unwrap();
-		let enabled = server::AuthorizationSearches::default();
+		let target = resolve_verification_permissions(&source).unwrap();
+		let enabled = server::PermissionSearches::default();
 		assert_eq!(target.final_, enabled);
 		assert_eq!(target.initial, enabled);
 	}

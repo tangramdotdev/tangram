@@ -70,8 +70,11 @@ impl Session {
 				tg::Selector::<tg::Id>::Specifier(arg.specifier.clone()),
 				permission,
 			)
-			.await?;
-		if authorized.is_some_and(|permissions| !permissions.contains(permission)) {
+			.await?
+			.check_exhaustion()?;
+		if !authorized.permissions.contains(permission)
+			&& ids_by_specifier.values().any(Option::is_some)
+		{
 			return Err(tg::error!("unauthorized"));
 		}
 		crate::checkpoint!(self.server, "group.create.authorized", specifier = %arg.specifier)

@@ -47,8 +47,11 @@ impl Session {
 		);
 		let required = tg::authorization::permission::Set::Process(required);
 		// Select the local route only when it can authorize the entire operation.
-		let permissions = self.authorize(resource, required).await?;
-		if !permissions.is_some_and(|permissions| permissions.contains(required)) {
+		let permissions = self
+			.authorize(resource, required)
+			.await?
+			.check_exhaustion()?;
+		if !permissions.permissions.contains(required) {
 			return Ok(None);
 		}
 		Ok(Some(control))
@@ -100,10 +103,13 @@ impl Session {
 		let mut permissions = self
 			.authorize_batch_with_required([(resource, permissions)], required)
 			.await?;
-		let permissions = permissions.pop().unwrap();
+		let permissions = permissions.pop().unwrap().check_exhaustion()?;
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);
-		Ok(permissions.filter(|permissions| permissions.contains(permission)))
+		Ok(permissions
+			.permissions
+			.contains(permission)
+			.then_some(permissions.permissions))
 	}
 }

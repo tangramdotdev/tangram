@@ -17,8 +17,6 @@ pub struct Config {
 
 	pub authentication: Authentication,
 
-	pub authorization: Authorization,
-
 	pub billing: Option<Billing>,
 
 	pub cache: Cache,
@@ -70,6 +68,8 @@ pub struct Config {
 	pub sync: Sync,
 
 	pub usage: Usage,
+
+	pub verification: Verification,
 
 	pub version: Option<String>,
 
@@ -228,32 +228,37 @@ pub struct Billing {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct Authorization {
-	pub final_: AuthorizationSearches,
+pub struct Verification {
+	pub index: VerificationIndex,
 
-	pub index: AuthorizationIndex,
-
-	pub initial: AuthorizationSearches,
+	pub permissions: VerificationPermissions,
 
 	pub tokens: Option<TokenKeys>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AuthorizationIndex {
+pub struct VerificationPermissions {
+	pub final_: PermissionSearches,
+
+	pub initial: PermissionSearches,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct VerificationIndex {
 	pub delay: Option<Duration>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct AuthorizationSearches {
-	pub ancestor: AuthorizationSearch,
+pub struct PermissionSearches {
+	pub ancestor: PermissionSearch,
 
-	pub descendant: AuthorizationSearch,
+	pub descendant: PermissionSearch,
 
-	pub subtree: AuthorizationSubtree,
+	pub subtree: PermissionSubtree,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AuthorizationSearch {
+pub struct PermissionSearch {
 	pub max_depth: usize,
 
 	pub max_edges: usize,
@@ -264,7 +269,7 @@ pub struct AuthorizationSearch {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct AuthorizationSubtree {
+pub struct PermissionSubtree {
 	pub max_depth: usize,
 
 	pub max_objects: usize,
@@ -306,13 +311,21 @@ impl Default for AuthenticationTokens {
 	}
 }
 
-impl Default for Authorization {
+impl Default for Verification {
 	fn default() -> Self {
 		Self {
-			final_: AuthorizationSearches::default(),
-			index: AuthorizationIndex::default(),
-			initial: authorization_initial_default(),
+			index: VerificationIndex::default(),
+			permissions: VerificationPermissions::default(),
 			tokens: default_authorization_tokens(),
+		}
+	}
+}
+
+impl Default for VerificationPermissions {
+	fn default() -> Self {
+		Self {
+			final_: PermissionSearches::default(),
+			initial: permission_initial_default(),
 		}
 	}
 }
@@ -464,14 +477,12 @@ pub enum Index {
 }
 
 #[derive(Clone, Debug)]
-pub struct FdbIndexAuthorize {
+pub struct FdbIndexVerification {
 	pub concurrency: usize,
 }
 
 #[derive(Clone, Debug)]
 pub struct FdbIndex {
-	pub authorize: FdbIndexAuthorize,
-
 	pub cleaning_partition_total: u64,
 
 	pub cluster: PathBuf,
@@ -494,6 +505,7 @@ pub struct FdbIndex {
 
 	pub max_write_operation_batch_size: usize,
 
+	pub verification: FdbIndexVerification,
 	pub write_operation_batch_size: usize,
 
 	pub write_transaction_concurrency: usize,
@@ -1332,7 +1344,6 @@ impl Default for Config {
 			advanced: Advanced::default(),
 			archive: None,
 			authentication: Authentication::default(),
-			authorization: Authorization::default(),
 			billing: None,
 			cache: Cache::default(),
 			checkin: Checkin::default(),
@@ -1359,6 +1370,7 @@ impl Default for Config {
 			sandbox: Sandbox::default(),
 			sync: Sync::default(),
 			usage: Usage::default(),
+			verification: Verification::default(),
 			version: None,
 			vfs: None,
 			watch: Some(Watch::default()),
@@ -1575,7 +1587,7 @@ impl Default for Index {
 	}
 }
 
-impl Default for AuthorizationIndex {
+impl Default for VerificationIndex {
 	fn default() -> Self {
 		Self {
 			delay: Some(Duration::from_millis(10)),
@@ -1583,7 +1595,7 @@ impl Default for AuthorizationIndex {
 	}
 }
 
-impl Default for AuthorizationSearch {
+impl Default for PermissionSearch {
 	fn default() -> Self {
 		Self {
 			max_depth: 256,
@@ -1594,7 +1606,7 @@ impl Default for AuthorizationSearch {
 	}
 }
 
-impl Default for AuthorizationSubtree {
+impl Default for PermissionSubtree {
 	fn default() -> Self {
 		Self {
 			max_depth: 256,
@@ -1604,7 +1616,7 @@ impl Default for AuthorizationSubtree {
 	}
 }
 
-impl Default for FdbIndexAuthorize {
+impl Default for FdbIndexVerification {
 	fn default() -> Self {
 		Self { concurrency: 64 }
 	}
@@ -1613,7 +1625,6 @@ impl Default for FdbIndexAuthorize {
 impl Default for FdbIndex {
 	fn default() -> Self {
 		Self {
-			authorize: FdbIndexAuthorize::default(),
 			cleaning_partition_total: 1,
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
 			permission_update_partition_total: 1,
@@ -1624,6 +1635,7 @@ impl Default for FdbIndex {
 			read_transaction_concurrency: 64,
 			usage_update_partition_total: 1,
 			usage_partition_total: 1,
+			verification: FdbIndexVerification::default(),
 			max_write_operation_batch_size: 1_000,
 			write_operation_batch_size: 8_000,
 			write_transaction_concurrency: 256,
@@ -2295,16 +2307,16 @@ fn default_dns() -> Vec<Ipv4Addr> {
 	Vec::new()
 }
 
-fn authorization_initial_default() -> AuthorizationSearches {
-	let ancestor = AuthorizationSearch::default();
-	let descendant = AuthorizationSearch::default();
-	let subtree = AuthorizationSubtree {
+fn permission_initial_default() -> PermissionSearches {
+	let ancestor = PermissionSearch::default();
+	let descendant = PermissionSearch::default();
+	let subtree = PermissionSubtree {
 		max_depth: 0,
 		max_objects: 0,
 		max_processes: 0,
 	};
 
-	AuthorizationSearches {
+	PermissionSearches {
 		ancestor,
 		descendant,
 		subtree,

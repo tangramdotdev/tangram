@@ -69,7 +69,7 @@ struct MembershipPage {
 }
 
 pub(super) struct Search {
-	authorization_revision: usize,
+	verification_revision: usize,
 	budget: Budget,
 	delegation_search_started: bool,
 	dormant: HashMap<Key, Vec<AncestorTask>>,
@@ -80,6 +80,7 @@ pub(super) struct Search {
 	pending_nodes: HashMap<tg::Id, PendingAncestorNode>,
 	principal: tg::Principal,
 	queues: BTreeMap<usize, VecDeque<AncestorTask>>,
+	token_subject: Option<tg::authorization::Subject>,
 	tokens: Vec<tg::authorization::Body>,
 	unresolved: HashSet<Key>,
 	visited: HashSet<Key>,
@@ -122,13 +123,13 @@ impl AncestorTask {
 impl Search {
 	#[must_use]
 	pub(super) fn new(
-		config: crate::authorize::SearchConfig,
+		config: crate::verify::SearchConfig,
 		principal: &tg::Principal,
 		roots: &[Key],
 		tokens: Vec<tg::authorization::Body>,
 		state: &State,
 	) -> Self {
-		let authorization_revision = state.authorization_revision();
+		let verification_revision = state.verification_revision();
 		let mut budget = Budget::with_root_total(config, roots.len());
 		let mut incomplete = HashSet::new();
 		let mut queues = BTreeMap::<_, VecDeque<_>>::new();
@@ -147,7 +148,7 @@ impl Search {
 		}
 
 		let mut search = Self {
-			authorization_revision,
+			verification_revision,
 			budget,
 			delegation_search_started: false,
 			dormant: HashMap::new(),
@@ -157,6 +158,7 @@ impl Search {
 			pending_nodes: HashMap::new(),
 			principal: principal.clone(),
 			queues,
+			token_subject: state.token_subject().cloned(),
 			tokens,
 			unresolved,
 			visited,
@@ -172,8 +174,8 @@ impl Search {
 
 	pub(super) fn take_reads(&mut self, state: &mut State, limit: usize) -> tg::Result<Vec<Read>> {
 		assert!(limit > 0);
-		let authorized = state.authorization_changes_since(&mut self.authorization_revision);
-		self.remove_authorized(state, authorized);
+		let verified = state.verification_changes_since(&mut self.verification_revision);
+		self.remove_verified(state, verified);
 		let mut deferred = Vec::new();
 		let mut reads = Vec::new();
 		while reads.len() < limit && !self.unresolved.is_empty() {
@@ -241,7 +243,7 @@ impl Search {
 				},
 				AncestorTask::Node { depth, key } => {
 					match state.ancestor_or_descendant(&key) {
-						Outcome::Authorized | Outcome::Denied => continue,
+						Outcome::Verified | Outcome::Denied => continue,
 						Outcome::Exhausted => unreachable!(),
 						Outcome::Pending => {},
 					}
@@ -250,18 +252,18 @@ impl Search {
 						continue;
 					}
 					match state.ancestor_or_descendant(&key) {
-						Outcome::Authorized | Outcome::Denied => {},
+						Outcome::Verified | Outcome::Denied => {},
 						Outcome::Exhausted => unreachable!(),
 						Outcome::Pending => {
 							if state.ancestor_node_is_complete(&key) {
-								for dependency in state.authorization_dependencies(&key) {
+								for dependency in state.verification_dependencies(&key) {
 									let dependency_depth = depth + 1;
 									self.add_dependency(state, &key, dependency, dependency_depth);
-									if state.is_authorized(&key) {
+									if state.is_verified(&key) {
 										break;
 									}
 								}
-								if !state.is_authorized(&key) {
+								if !state.is_verified(&key) {
 									self.queue_parents(state, depth, &key)?;
 								}
 							} else if let Some(facts) = state.ancestor_facts(&key.0) {
@@ -283,7 +285,7 @@ impl Search {
 					depth,
 					object,
 				} => {
-					if state.is_authorized(&dependent) {
+					if state.is_verified(&dependent) {
 						continue;
 					}
 					let limit = self.budget.config.page_size;
@@ -317,7 +319,7 @@ impl Search {
 					permission,
 					process,
 				} => {
-					if state.is_authorized(&dependent) {
+					if state.is_verified(&dependent) {
 						continue;
 					}
 					let limit = self.budget.config.page_size;
@@ -387,7 +389,7 @@ impl Search {
 								let guard = (
 									process.clone().into(),
 									tg::authorization::Permission::Process(
-										crate::authorize::process_object_permission(kind),
+										crate::verify::process_object_permission(kind),
 									),
 									dependent.2.clone(),
 								);
@@ -462,7 +464,7 @@ impl Search {
 				..
 			} => {
 				let (after, parents) = output.into_ids()?;
-				if state.is_authorized(&dependent) {
+				if state.is_verified(&dependent) {
 					return Ok(());
 				}
 				for parent in parents {
@@ -474,7 +476,7 @@ impl Search {
 					if !self.add_dependency(state, &dependent, dependency, dependency_depth) {
 						return Ok(());
 					}
-					if state.is_authorized(&dependent) {
+					if state.is_verified(&dependent) {
 						return Ok(());
 					}
 				}
@@ -522,7 +524,7 @@ impl Search {
 				..
 			} => {
 				let (after, parents) = output.into_ids()?;
-				if state.is_authorized(&dependent) {
+				if state.is_verified(&dependent) {
 					return Ok(());
 				}
 				for parent in parents {
@@ -533,7 +535,7 @@ impl Search {
 					if !self.add_dependency(state, &dependent, dependency, dependency_depth) {
 						return Ok(());
 					}
-					if state.is_authorized(&dependent) {
+					if state.is_verified(&dependent) {
 						return Ok(());
 					}
 				}
@@ -588,15 +590,15 @@ impl Search {
 					return;
 				}
 			}
-			debug_assert!(self.source_authorizes(&candidate.dependency));
+			debug_assert!(self.source_verifys(&candidate.dependency));
 			let expires_at = self.source_expiration(&candidate.dependency).unwrap();
-			state.authorize_with_expiration(candidate.dependency.clone(), expires_at);
+			state.verify_with_expiration(candidate.dependency.clone(), expires_at);
 			if !self.add_dependency(
 				state,
 				&checks.dependent,
 				candidate.dependency,
 				checks.depth + 1,
-			) || state.is_authorized(&checks.dependent)
+			) || state.is_verified(&checks.dependent)
 			{
 				return;
 			}
@@ -633,7 +635,7 @@ impl Search {
 	}
 
 	fn queue_node_checks(&mut self, depth: usize, key: &Key) -> tg::Result<()> {
-		if key.2.is_some() {
+		if key.2 != self.token_subject {
 			self.queue_checks(depth, key, Vec::new());
 			return Ok(());
 		}
@@ -651,8 +653,12 @@ impl Search {
 					if !body.authorizes(parent_permission) || parent == object {
 						continue;
 					}
-					let dependency = (tg::Id::from(parent.clone()), parent_permission, None);
-					let check = crate::authorize::Check::ObjectChild {
+					let dependency = (
+						tg::Id::from(parent.clone()),
+						parent_permission,
+						self.token_subject.clone(),
+					);
+					let check = crate::verify::Check::ObjectChild {
 						child: object.clone(),
 						parent,
 					};
@@ -675,20 +681,20 @@ impl Search {
 						crate::process::object::Kind::Output,
 					] {
 						let dependency_permission = tg::authorization::Permission::Process(
-							crate::authorize::process_object_permission(kind),
+							crate::verify::process_object_permission(kind),
 						);
 						let dependency =
 							(tg::Id::from(process.clone()), dependency_permission, None);
-						if !self.source_authorizes(&dependency) {
+						if !self.source_verifys(&dependency) {
 							continue;
 						}
 						for covering_permission in &covering_permissions {
-							let relationship = crate::authorize::Check::ProcessObject {
+							let relationship = crate::verify::Check::ProcessObject {
 								kind,
 								object: object.clone(),
 								process: process.clone(),
 							};
-							let permission = crate::authorize::Check::ProcessObjectPermission {
+							let permission = crate::verify::Check::ProcessObjectPermission {
 								object: object.clone(),
 								permission: *covering_permission,
 								process: process.clone(),
@@ -711,10 +717,10 @@ impl Search {
 						continue;
 					}
 					let dependency = (tg::Id::from(parent.clone()), dependency_permission, None);
-					if !self.source_authorizes(&dependency) {
+					if !self.source_verifys(&dependency) {
 						continue;
 					}
-					let check = crate::authorize::Check::ProcessChild {
+					let check = crate::verify::Check::ProcessChild {
 						child: process.clone(),
 						parent,
 					};
@@ -740,7 +746,7 @@ impl Search {
 		depth: usize,
 		page: MembershipPage,
 	) -> tg::Result<()> {
-		if state.is_authorized(dependent) {
+		if state.is_verified(dependent) {
 			return Ok(());
 		}
 		let next_depth = depth + 1;
@@ -754,7 +760,7 @@ impl Search {
 				return Ok(());
 			}
 			state.add_membership_dependency(&member, page.container.clone(), dependent.2.as_ref());
-			if state.is_authorized(dependent) {
+			if state.is_verified(dependent) {
 				return Ok(());
 			}
 			self.queue_subject(state, dependent, next_depth, member);
@@ -955,10 +961,10 @@ impl Search {
 			.into_iter()
 			.collect::<Vec<_>>();
 		while let Some(key) = stack.pop() {
-			if state.is_authorized(&key) || !incomplete.insert(key.clone()) {
+			if state.is_verified(&key) || !incomplete.insert(key.clone()) {
 				continue;
 			}
-			stack.extend(state.authorization_dependents(&key));
+			stack.extend(state.verification_dependents(&key));
 		}
 		self.incomplete = incomplete;
 
@@ -968,8 +974,8 @@ impl Search {
 				state.deny_ancestor_or_descendant(key);
 			}
 		}
-		let authorized = state.authorization_changes_since(&mut self.authorization_revision);
-		self.remove_authorized(state, authorized);
+		let verified = state.verification_changes_since(&mut self.verification_revision);
+		self.remove_verified(state, verified);
 	}
 
 	fn expand_node(
@@ -1008,7 +1014,7 @@ impl Search {
 				},
 				_ => false,
 			};
-		let token_permissions = key.2.is_none()
+		let token_permissions = key.2 == self.token_subject
 			&& self
 				.tokens
 				.iter()
@@ -1030,18 +1036,18 @@ impl Search {
 				.as_ref()
 				.is_some_and(|principal| matches!(principal, tg::Principal::Root))
 		{
-			state.authorize_ancestor_or_descendant(key.clone());
+			state.verify_ancestor_or_descendant(key.clone());
 		} else if token_permissions {
 			let expires_at = self.source_expiration(key).unwrap();
-			state.authorize_with_expiration(key.clone(), expires_at);
+			state.verify_with_expiration(key.clone(), expires_at);
 		}
-		if state.is_authorized(key) {
+		if state.is_verified(key) {
 			return Ok(());
 		}
 
 		self.apply_delegations(state, depth, key, &facts.delegations);
 
-		// Construct the authorization dependencies from the facts.
+		// Construct the verification dependencies from the facts.
 		let mut dependencies = Vec::new();
 		let mut direct_processes = HashSet::new();
 		for entry in &facts.permissions {
@@ -1057,7 +1063,7 @@ impl Search {
 			tg::authorization::Permission::Object(_) => {
 				for (process, kind) in &facts.object_processes {
 					let permission = tg::authorization::Permission::Process(
-						crate::authorize::process_object_permission(*kind),
+						crate::verify::process_object_permission(*kind),
 					);
 					let process_key = (tg::Id::from(process.clone()), permission, key.2.clone());
 					if direct_processes.contains(process) {
@@ -1096,13 +1102,13 @@ impl Search {
 						| tg::Principal::Runner(_) => None,
 					};
 					if let Some(owner) = owner {
-						let permission = crate::authorize::write_permission_for_resource(&owner)?;
+						let permission = crate::verify::write_permission_for_resource(&owner)?;
 						dependencies.push((owner, permission, None));
 					}
 				}
 				if let Some(parent) = &facts.parent {
 					let permission =
-						crate::authorize::permission_for_named_parent(parent, *permission)?;
+						crate::verify::permission_for_named_parent(parent, *permission)?;
 					dependencies.push((parent.clone(), permission, None));
 				}
 			},
@@ -1112,7 +1118,7 @@ impl Search {
 			if !self.add_dependency(state, key, dependency, dependency_depth) {
 				return Ok(());
 			}
-			if state.is_authorized(key) {
+			if state.is_verified(key) {
 				return Ok(());
 			}
 		}
@@ -1130,7 +1136,7 @@ impl Search {
 		delegations: &[crate::delegation::put::Arg],
 	) {
 		for delegation in delegations {
-			if !state.is_subject_authorized(&delegation.subject, key.2.as_ref()) {
+			if !state.is_subject_verified(&delegation.subject, key.2.as_ref()) {
 				if key.1.is_read_like()
 					&& let tg::authorization::Subject::Tag(tag) = &delegation.subject
 				{
@@ -1166,7 +1172,7 @@ impl Search {
 			}
 			let dependency = (key.0.clone(), key.1, Some(delegation.source.clone()));
 			state
-				.authorization_expirations
+				.verification_expirations
 				.entry((dependency.clone(), key.clone()))
 				.and_modify(|expires_at| *expires_at = (*expires_at).max(delegation.expires_at))
 				.or_insert(delegation.expires_at);
@@ -1174,7 +1180,7 @@ impl Search {
 				return;
 			}
 			if self.delegation_search_started
-				&& !state.is_authorized(&dependency)
+				&& !state.is_verified(&dependency)
 				&& self
 					.visited_delegations
 					.insert((dependency.clone(), dependency.0.clone()))
@@ -1201,7 +1207,7 @@ impl Search {
 			self.incomplete.insert(dependent.clone());
 			return;
 		}
-		if state.is_authorized(dependent) {
+		if state.is_verified(dependent) {
 			return;
 		}
 		self.queues
@@ -1252,8 +1258,8 @@ impl Search {
 		if !permission.permission.implies(dependent.1) {
 			return true;
 		}
-		if state.is_subject_authorized(&permission.subject, dependent.2.as_ref()) {
-			state.authorize_ancestor_or_descendant(dependent.clone());
+		if state.is_subject_verified(&permission.subject, dependent.2.as_ref()) {
+			state.verify_ancestor_or_descendant(dependent.clone());
 			return true;
 		}
 		if let tg::authorization::Subject::Tag(tag) = &permission.subject {
@@ -1319,7 +1325,7 @@ impl Search {
 		depth: usize,
 	) -> bool {
 		let direct = subject == tg::authorization::Subject::Public
-			|| state.is_subject_authorized(&subject, dependent.2.as_ref());
+			|| state.is_subject_verified(&subject, dependent.2.as_ref());
 		let edge_known = state.has_subject_dependency(&subject, &source);
 		if !direct && !edge_known && !self.budget.add_edge() {
 			self.incomplete.insert(dependent.clone());
@@ -1327,10 +1333,10 @@ impl Search {
 			return false;
 		}
 		if subject == tg::authorization::Subject::Public {
-			state.authorize_subject(subject.clone(), dependent.2.as_ref());
+			state.verify_subject(subject.clone(), dependent.2.as_ref());
 		}
 		state.add_subject_dependency(&subject, source);
-		if !state.is_authorized(dependent) {
+		if !state.is_verified(dependent) {
 			self.queue_subject(state, dependent, depth, subject);
 		}
 
@@ -1344,7 +1350,7 @@ impl Search {
 		depth: usize,
 		subject: tg::authorization::Subject,
 	) {
-		if state.is_subject_authorized(&subject, dependent.2.as_ref())
+		if state.is_subject_verified(&subject, dependent.2.as_ref())
 			|| !matches!(
 				subject,
 				tg::authorization::Subject::Group(_) | tg::authorization::Subject::Organization(_)
@@ -1376,7 +1382,7 @@ impl Search {
 		depth: usize,
 		subject: tg::authorization::Subject,
 	) {
-		if state.is_authorized(&dependent) {
+		if state.is_verified(&dependent) {
 			return;
 		}
 		let task = match subject {
@@ -1486,15 +1492,16 @@ impl Search {
 		processes
 	}
 
-	fn source_authorizes(&self, key: &Key) -> bool {
+	fn source_verifys(&self, key: &Key) -> bool {
 		self.source_expiration(key).is_some()
 	}
 
 	fn source_expiration(&self, key: &Key) -> Option<i64> {
-		if key.2.is_some() {
+		if key.2 != self.token_subject {
 			return None;
 		}
-		if let tg::authorization::Permission::Process(_) = key.1
+		if key.2.is_none()
+			&& let tg::authorization::Permission::Process(_) = key.1
 			&& let Ok(process) = tg::process::Id::try_from(key.0.clone())
 			&& matches!(&self.principal, tg::Principal::Process(principal) if principal == &process)
 		{
@@ -1517,13 +1524,13 @@ impl Search {
 		if dependency.2.is_none() {
 			dependency.2.clone_from(&dependent.2);
 		}
-		let edge_known = state.has_authorization_dependency(&dependency, dependent);
+		let edge_known = state.has_verification_dependency(&dependency, dependent);
 		if !edge_known {
 			if !self.budget.add_edge() {
 				self.incomplete.insert(dependent.clone());
 				return false;
 			}
-			let inserted = state.add_authorization_dependency(&dependency, dependent.clone());
+			let inserted = state.add_verification_dependency(&dependency, dependent.clone());
 			debug_assert!(inserted);
 			self.add_live_dependency(state, dependent, &dependency);
 		}
@@ -1539,12 +1546,12 @@ impl Search {
 		second: Key,
 		depth: usize,
 	) -> bool {
-		if !state.has_authorization_conjunction(&first, &second, dependent) {
+		if !state.has_verification_conjunction(&first, &second, dependent) {
 			if !self.budget.add_edge() || !self.budget.add_edge() {
 				self.incomplete.insert(dependent.clone());
 				return false;
 			}
-			state.add_authorization_conjunction(&first, &second, dependent);
+			state.add_verification_conjunction(&first, &second, dependent);
 			self.add_live_dependency(state, dependent, &first);
 			self.add_live_dependency(state, dependent, &second);
 		}
@@ -1561,7 +1568,7 @@ impl Search {
 		depth: usize,
 	) -> bool {
 		match state.ancestor_or_descendant(&dependency) {
-			Outcome::Authorized | Outcome::Denied => return true,
+			Outcome::Verified | Outcome::Denied => return true,
 			Outcome::Exhausted => unreachable!(),
 			Outcome::Pending => {},
 		}
@@ -1608,7 +1615,7 @@ impl Search {
 					self.queues.entry(depth).or_default().push_back(task);
 				}
 			}
-			stack.extend(state.authorization_dependencies(&key));
+			stack.extend(state.verification_dependencies(&key));
 		}
 	}
 
@@ -1622,8 +1629,8 @@ impl Search {
 		self.live_references.contains_key(key)
 	}
 
-	fn remove_authorized(&mut self, state: &State, authorized: Vec<Key>) {
-		for key in authorized {
+	fn remove_verified(&mut self, state: &State, verified: Vec<Key>) {
+		for key in verified {
 			if self.unresolved.remove(&key) {
 				self.remove_live_reference(state, &key);
 			}
@@ -1641,7 +1648,7 @@ impl Search {
 				continue;
 			}
 			self.live_references.remove(&key);
-			stack.extend(state.authorization_dependencies(&key));
+			stack.extend(state.verification_dependencies(&key));
 		}
 	}
 
@@ -1654,7 +1661,7 @@ impl Search {
 fn ancestor_candidate(
 	dependency: Key,
 	edges: usize,
-	checks: impl IntoIterator<Item = crate::authorize::Check>,
+	checks: impl IntoIterator<Item = crate::verify::Check>,
 ) -> AncestorCandidate {
 	let checks = checks.into_iter().collect();
 
@@ -1669,6 +1676,6 @@ fn subject_for_member(member: tg::Id) -> tg::Result<tg::authorization::Subject> 
 	match member.kind() {
 		tg::id::Kind::Group => Ok(tg::authorization::Subject::Group(member.try_into()?)),
 		tg::id::Kind::User => Ok(tg::authorization::Subject::User(member.try_into()?)),
-		_ => Err(tg::error!("invalid authorization membership subject")),
+		_ => Err(tg::error!("invalid verification membership subject")),
 	}
 }

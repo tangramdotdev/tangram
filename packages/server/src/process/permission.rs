@@ -67,13 +67,13 @@ impl Session {
 			.prepare_process_object_permission_roots(roots, root_permissions)
 			.await?;
 
-		let authorize =
-			crate::authorization_search_config(&self.server.config.authorization.final_);
+		let verify =
+			crate::verification_search_config(&self.server.config.verification.permissions.final_);
 		let principal = self.context.principal.clone();
 		let process = process.clone();
 		let time_to_touch = expires_at.map(|_| self.server.config.object.permission_time_to_touch);
 		let arg = tangram_index::process::object::permission::Arg {
-			authorize,
+			verify,
 			created_at,
 			expires_at,
 			principal,
@@ -123,10 +123,12 @@ impl Session {
 					.then_some(tg::authorization::permission::Set::Object(permissions));
 				if !permissions.is_some_and(|permissions| permissions.contains(subtree_permission))
 				{
-					let permissions = subtree_permission.into();
+					let permissions: tg::authorization::permission::Set = subtree_permission.into();
 					let resource = tg::Selector::Id(resource);
 					let tokens = tokens.into_iter().map(|token| token.body).collect();
-					index_args.push(tangram_index::authorize::Arg {
+					index_args.push(tangram_index::verify::Arg {
+						storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+						subject: None,
 						required: permissions,
 						requested: permissions,
 						resource,
@@ -153,24 +155,21 @@ impl Session {
 
 	async fn prepare_process_object_permission_authorization(
 		&self,
-		args: Vec<tangram_index::authorize::Arg>,
+		args: Vec<tangram_index::verify::Arg>,
 		required: Vec<tg::authorization::permission::Set>,
 	) -> tg::Result<()> {
-		let authorization = &self.server.config.authorization;
-		let delay = authorization.index.delay;
-		let initial_config = crate::authorization_search_config(&authorization.initial);
-		let permissions_required = |outcomes: &[tangram_index::authorize::Outcome]| {
+		let verification = &self.server.config.verification;
+		let delay = verification.index.delay;
+		let initial_config = crate::verification_search_config(&verification.permissions.initial);
+		let permissions_required = |outcomes: &[tangram_index::verify::Output]| {
 			outcomes.len() == required.len()
-				&& std::iter::zip(outcomes, &required).all(|(outcome, required)| {
-					outcome
-						.output()
-						.is_some_and(|output| output.permissions.contains(*required))
-				})
+				&& std::iter::zip(outcomes, &required)
+					.all(|(outcome, required)| outcome.permissions.contains(*required))
 		};
 		let initial =
 			self.server
 				.index
-				.authorize_batch(&args, initial_config, &self.context.principal);
+				.verify_batch(&args, initial_config, &self.context.principal);
 		tokio::pin!(initial);
 		let initial_result = match delay {
 			Some(delay) => tokio::select! {

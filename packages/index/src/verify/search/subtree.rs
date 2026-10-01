@@ -5,8 +5,8 @@ use {
 };
 
 pub(crate) enum Action {
-	AuthorizeAncestorOrDescendant { roots: Vec<Key> },
-	AuthorizeProcessNodes { roots: Vec<(Key, Outcome)> },
+	VerifyAncestorOrDescendant { roots: Vec<Key> },
+	VerifyProcessNodes { roots: Vec<(Key, Outcome)> },
 	Complete { outcome: Outcome },
 	Read { reads: Vec<Read> },
 }
@@ -26,9 +26,9 @@ enum Kind {
 }
 
 enum Phase {
-	AuthorizeNodes { nodes: Vec<tg::Id> },
-	AuthorizeProcessNodes { nodes: Vec<tg::Id> },
-	AuthorizeSubtrees { nodes: Vec<tg::Id> },
+	VerifyNodes { nodes: Vec<tg::Id> },
+	VerifyProcessNodes { nodes: Vec<tg::Id> },
+	VerifySubtrees { nodes: Vec<tg::Id> },
 	Children,
 	Complete { outcome: Outcome },
 	Nodes,
@@ -53,7 +53,7 @@ impl Search {
 	}
 
 	pub(crate) fn new_object(
-		config: crate::authorize::SubtreeConfig,
+		config: crate::verify::SubtreeConfig,
 		resource: &tg::Id,
 	) -> tg::Result<Self> {
 		let root = tg::object::Id::try_from(resource.clone())?;
@@ -70,7 +70,7 @@ impl Search {
 	}
 
 	pub(crate) fn new_process(
-		config: crate::authorize::SubtreeConfig,
+		config: crate::verify::SubtreeConfig,
 		permission: tg::authorization::permission::process::Permission,
 		resource: &tg::Id,
 	) -> tg::Result<Self> {
@@ -141,13 +141,13 @@ impl Search {
 		loop {
 			let phase = std::mem::replace(&mut self.phase, Phase::Nodes);
 			match phase {
-				Phase::AuthorizeNodes { nodes } => match self.kind {
+				Phase::VerifyNodes { nodes } => match self.kind {
 					Kind::Object => {
 						let mut incomplete = false;
 						for node in &nodes {
 							let key = self.node_key(node);
 							match state.ancestor_or_descendant(&key) {
-								Outcome::Authorized => {},
+								Outcome::Verified => {},
 								Outcome::Denied => {
 									let key = self.subtree_key(node);
 									state.deny_derived(&key);
@@ -167,7 +167,7 @@ impl Search {
 						let roots = nodes
 							.iter()
 							.map(|node| self.node_key(node))
-							.filter(|key| !state.is_authorized(key))
+							.filter(|key| !state.is_verified(key))
 							.map(|key| {
 								let outcome = self
 									.ancestor_or_descendant
@@ -182,17 +182,17 @@ impl Search {
 							self.prepare_children(state, nodes);
 							continue;
 						}
-						self.phase = Phase::AuthorizeProcessNodes { nodes };
+						self.phase = Phase::VerifyProcessNodes { nodes };
 
-						return Ok(Action::AuthorizeProcessNodes { roots });
+						return Ok(Action::VerifyProcessNodes { roots });
 					},
 				},
-				Phase::AuthorizeProcessNodes { nodes } => {
+				Phase::VerifyProcessNodes { nodes } => {
 					let mut incomplete = false;
 					for node in &nodes {
 						let key = self.node_key(node);
 						match state.outcome(&key) {
-							Outcome::Authorized => {},
+							Outcome::Verified => {},
 							Outcome::Denied => {
 								let key = self.subtree_key(node);
 								state.deny_derived(&key);
@@ -208,13 +208,13 @@ impl Search {
 					}
 					self.prepare_children(state, nodes);
 				},
-				Phase::AuthorizeSubtrees { nodes } => {
+				Phase::VerifySubtrees { nodes } => {
 					let nodes = nodes
 						.into_iter()
-						.filter(|node| !state.is_authorized(&self.subtree_key(node)))
+						.filter(|node| !state.is_verified(&self.subtree_key(node)))
 						.collect::<Vec<_>>();
 					if nodes.is_empty() {
-						return Ok(self.complete(state, Outcome::Authorized));
+						return Ok(self.complete(state, Outcome::Verified));
 					}
 					let roots = nodes
 						.iter()
@@ -224,12 +224,12 @@ impl Search {
 								&& !self.ancestor_or_descendant.contains_key(key)
 						})
 						.collect::<Vec<_>>();
-					self.phase = Phase::AuthorizeNodes { nodes };
+					self.phase = Phase::VerifyNodes { nodes };
 					if roots.is_empty() {
 						continue;
 					}
 
-					return Ok(Action::AuthorizeAncestorOrDescendant { roots });
+					return Ok(Action::VerifyAncestorOrDescendant { roots });
 				},
 				Phase::Children => {
 					if self.pending.is_empty() {
@@ -250,13 +250,13 @@ impl Search {
 				},
 				Phase::Nodes => {
 					if self.nodes.is_empty() {
-						return Ok(self.complete(state, Outcome::Authorized));
+						return Ok(self.complete(state, Outcome::Verified));
 					}
 					let mut nodes = Vec::new();
 					for node in &self.nodes {
 						let key = self.subtree_key(node);
 						match state.outcome(&key) {
-							Outcome::Authorized => {},
+							Outcome::Verified => {},
 							Outcome::Denied => {
 								state.deny_derived(&key);
 
@@ -267,7 +267,7 @@ impl Search {
 						}
 					}
 					if nodes.is_empty() {
-						return Ok(self.complete(state, Outcome::Authorized));
+						return Ok(self.complete(state, Outcome::Verified));
 					}
 					if nodes.len() > self.budget.remaining {
 						return Ok(self.complete(state, Outcome::Exhausted));
@@ -281,12 +281,12 @@ impl Search {
 								&& !self.ancestor_or_descendant.contains_key(key)
 						})
 						.collect::<Vec<_>>();
-					self.phase = Phase::AuthorizeSubtrees { nodes };
+					self.phase = Phase::VerifySubtrees { nodes };
 					if roots.is_empty() {
 						continue;
 					}
 
-					return Ok(Action::AuthorizeAncestorOrDescendant { roots });
+					return Ok(Action::VerifyAncestorOrDescendant { roots });
 				},
 			}
 		}
@@ -330,14 +330,14 @@ impl Search {
 		let (after, children) = output.into_ids()?;
 		let parent = self.subtree_key(&parent);
 		let complete = matches!(self.phase, Phase::Complete { .. });
-		let covered = state.is_authorized(&parent);
+		let covered = state.is_verified(&parent);
 		let mut denied = false;
 		let mut exhausted = false;
 		for child in children {
 			let child = self.subtree_key(&child);
 			state.add_derived_dependency(&child, parent.clone());
 			match state.outcome(&child) {
-				Outcome::Authorized => continue,
+				Outcome::Verified => continue,
 				Outcome::Denied => {
 					denied |= !covered;
 					continue;
@@ -380,11 +380,11 @@ impl Search {
 
 	fn complete(&mut self, state: &mut State, outcome: Outcome) -> Action {
 		match outcome {
-			Outcome::Authorized => {
+			Outcome::Verified => {
 				for node in &self.visited {
 					let key = self.subtree_key(node);
-					if !state.is_authorized(&key) {
-						state.authorize_derived(key);
+					if !state.is_verified(&key) {
+						state.verify_derived(key);
 					}
 				}
 			},
@@ -393,7 +393,7 @@ impl Search {
 			Outcome::Pending => unreachable!(),
 		}
 		let outcome = match state.outcome(&self.root) {
-			Outcome::Authorized => Outcome::Authorized,
+			Outcome::Verified => Outcome::Verified,
 			Outcome::Denied => Outcome::Denied,
 			Outcome::Exhausted => unreachable!(),
 			Outcome::Pending => Outcome::Exhausted,
@@ -421,12 +421,12 @@ impl Search {
 			let dependency = self.node_key(&node);
 			let dependent = self.subtree_key(&node);
 			state.add_derived_dependency(&dependency, dependent.clone());
-			if state.is_authorized(&dependent) {
+			if state.is_verified(&dependent) {
 				continue;
 			}
 			for child in state.derived_children(&dependent) {
 				match state.outcome(&child) {
-					Outcome::Authorized => {},
+					Outcome::Verified => {},
 					Outcome::Denied => {
 						self.complete(state, Outcome::Denied);
 
@@ -518,7 +518,7 @@ mod tests {
 		let incomplete = object(1);
 		let denied = object(2);
 		let mut search = Search::new_object(
-			crate::authorize::SubtreeConfig::default(),
+			crate::verify::SubtreeConfig::default(),
 			&root.clone().into(),
 		)
 		.unwrap();
@@ -548,7 +548,7 @@ mod tests {
 		let child = object(1);
 		let resource = tg::Id::from(root.clone());
 		let mut search =
-			Search::new_object(crate::authorize::SubtreeConfig::default(), &resource).unwrap();
+			Search::new_object(crate::verify::SubtreeConfig::default(), &resource).unwrap();
 		search.phase = Phase::Complete {
 			outcome: Outcome::Exhausted,
 		};
@@ -585,7 +585,7 @@ mod tests {
 		let root = object(0);
 		let resource = tg::Id::from(root);
 		let mut search =
-			Search::new_object(crate::authorize::SubtreeConfig::default(), &resource).unwrap();
+			Search::new_object(crate::verify::SubtreeConfig::default(), &resource).unwrap();
 		let subtree = search.subtree_key(&resource);
 		let node = search.node_key(&resource);
 		search
@@ -597,7 +597,7 @@ mod tests {
 
 		assert!(matches!(
 			action,
-			Action::AuthorizeAncestorOrDescendant { roots } if roots == [node]
+			Action::VerifyAncestorOrDescendant { roots } if roots == [node]
 		));
 	}
 
@@ -607,7 +607,7 @@ mod tests {
 		let child = object(1);
 		let resource = tg::Id::from(root);
 		let mut search =
-			Search::new_object(crate::authorize::SubtreeConfig::default(), &resource).unwrap();
+			Search::new_object(crate::verify::SubtreeConfig::default(), &resource).unwrap();
 		let parent = search.subtree_key(&resource);
 		let child = search.subtree_key(&child.into());
 		let node = search.node_key(&resource);
@@ -616,7 +616,7 @@ mod tests {
 		state.deny_ancestor_or_descendant(&parent);
 		state.add_derived_dependency(&child, parent.clone());
 		state.set_derived_cursor(&parent, &cursor);
-		state.authorize_ancestor_or_descendant(node);
+		state.verify_ancestor_or_descendant(node);
 
 		let action = search.next_action(&mut state, 1, 1).unwrap();
 
@@ -636,14 +636,14 @@ mod tests {
 		let resource = tg::Id::from(process);
 		let permission = tg::authorization::permission::process::Permission::SubtreeCommandObjects;
 		let mut search = Search::new_process(
-			crate::authorize::SubtreeConfig::default(),
+			crate::verify::SubtreeConfig::default(),
 			permission,
 			&resource,
 		)
 		.unwrap();
 		let mut state = State::default();
 
-		let Action::AuthorizeAncestorOrDescendant { roots } =
+		let Action::VerifyAncestorOrDescendant { roots } =
 			search.next_action(&mut state, 1, 1).unwrap()
 		else {
 			panic!("expected the process subtree ancestor or descendant search");
@@ -652,7 +652,7 @@ mod tests {
 		search
 			.apply_ancestor_or_descendant(&roots, &[Outcome::Denied])
 			.unwrap();
-		let Action::AuthorizeAncestorOrDescendant { roots } =
+		let Action::VerifyAncestorOrDescendant { roots } =
 			search.next_action(&mut state, 1, 1).unwrap()
 		else {
 			panic!("expected the process node ancestor or descendant search");
@@ -665,7 +665,7 @@ mod tests {
 
 		assert!(matches!(
 			action,
-			Action::AuthorizeProcessNodes { roots }
+			Action::VerifyProcessNodes { roots }
 				if matches!(roots.as_slice(), [(_, Outcome::Exhausted)])
 		));
 	}

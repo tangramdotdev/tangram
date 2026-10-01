@@ -200,9 +200,10 @@ impl Session {
 			.authorize_batch(authorizations)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the sandboxes"))?;
+		crate::authorization::check_exhaustion(&authorizations)?;
 		let mut authorized = Vec::new();
 		for (mut item, permissions) in std::iter::zip(data, authorizations) {
-			if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
+			if !permissions.permissions.contains(permission) {
 				continue;
 			}
 			if let Some(token) = self.create_read_token(&item.id.clone().into())? {

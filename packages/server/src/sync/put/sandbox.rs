@@ -36,7 +36,9 @@ impl Session {
 		let authorized = self
 			.authorize(resource, permission)
 			.await?
-			.is_some_and(|permissions| permissions.contains(permission));
+			.check_exhaustion()?
+			.permissions
+			.contains(permission);
 		if !authorized {
 			self.sync_put_sandbox_finish_missing(state, &node).await;
 			return Ok(());

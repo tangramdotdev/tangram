@@ -96,7 +96,7 @@ async fn process_object_permissions_walk_and_write_in_one_batch() {
 				}),
 				tangram_index::batch::Item::PutProcessObjectPermissions(
 					tangram_index::process::object::permission::Arg {
-						authorize: tangram_index::authorize::Config::default(),
+						verify: tangram_index::verify::Config::default(),
 						created_at: 0,
 						expires_at: None,
 						principal: creator.clone(),
@@ -137,16 +137,18 @@ async fn process_object_permissions_walk_and_write_in_one_batch() {
 
 #[tokio::test]
 async fn process_object_permissions_require_search_unless_subtree_is_proven() {
-	let search = tangram_index::authorize::SearchConfig {
+	let search = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		..Default::default()
 	};
-	let authorize = tangram_index::authorize::Config {
-		ancestor: search,
-		descendant: search,
-		..Default::default()
+	let verify = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor: search,
+			descendant: search,
+			..Default::default()
+		},
 	};
 	let (_dir, index) = new_index();
 	let object = object_id(0);
@@ -180,7 +182,7 @@ async fn process_object_permissions_require_search_unless_subtree_is_proven() {
 			permissions,
 		};
 		let permission = tangram_index::process::object::permission::Arg {
-			authorize,
+			verify,
 			created_at: 0,
 			expires_at: None,
 			principal: tg::Principal::Process(process.clone()),
@@ -207,7 +209,7 @@ async fn process_object_permissions_require_search_unless_subtree_is_proven() {
 			assert!(
 				error
 					.to_string()
-					.contains("process object permission authorization search exhausted")
+					.contains("process object permission verification search exhausted")
 			);
 			assert!(process_permission(&index, &process, &object, subtree).is_none());
 		}
@@ -288,25 +290,31 @@ async fn process_object_permissions_require_permanent_permissions() {
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,
 	};
-	let disabled = tangram_index::authorize::SearchConfig {
+	let disabled = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		page_size: 1,
 	};
 	let configs = [
-		tangram_index::authorize::Config {
-			descendant: disabled,
-			..Default::default()
+		tangram_index::verify::Config {
+			permissions: tangram_index::verify::PermissionsConfig {
+				descendant: disabled,
+				..Default::default()
+			},
 		},
-		tangram_index::authorize::Config {
-			ancestor: disabled,
-			..Default::default()
+		tangram_index::verify::Config {
+			permissions: tangram_index::verify::PermissionsConfig {
+				ancestor: disabled,
+				..Default::default()
+			},
 		},
 	];
 	let args = [root.clone(), child.clone()]
 		.into_iter()
-		.map(|object| tangram_index::authorize::Arg {
+		.map(|object| tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: subtree.into(),
 			required: subtree.into(),
 			resource: tg::Selector::Id(object.into()),
@@ -352,25 +360,22 @@ async fn process_object_permissions_require_permanent_permissions() {
 				tg::Principal::User(reader.clone()),
 				tg::Principal::Process(process.clone()),
 			] {
-				let outcomes = index
-					.authorize_batch(&args, config, &principal)
-					.await
-					.unwrap();
+				let outcomes = index.verify_batch(&args, config, &principal).await.unwrap();
 				assert_eq!(
 					outcomes.iter().all(|outcome| matches!(
-						outcome,
-						tangram_index::authorize::Outcome::Authorized(_)
+						outcome.outcome,
+						tangram_index::verify::Outcome::Satisfied
 					)),
 					expected
 				);
 			}
 			let outcomes = index
-				.authorize_batch(&args, config, &tg::Principal::User(node_reader.clone()))
+				.verify_batch(&args, config, &tg::Principal::User(node_reader.clone()))
 				.await
 				.unwrap();
 			assert!(outcomes.iter().all(|outcome| !matches!(
-				outcome,
-				tangram_index::authorize::Outcome::Authorized(_)
+				outcome.outcome,
+				tangram_index::verify::Outcome::Satisfied
 			)));
 		}
 		assert_eq!(

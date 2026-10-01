@@ -5,8 +5,10 @@ use ../lib/test.nu *
 let root = random chars
 let local = server spawn --preserve-keys --config {
 	authentication: { root: { token: $root }, users: { providers: { insecure: true } } }
-	authorization: { index: { delay: null } }
-	tracing: { filter: 'tangram=info,tangram_index::authorize::engine=debug', stderr_format: json }
+	verification: {
+		index: { delay: null }
+	}
+	tracing: { filter: 'tangram=info,tangram_index::verify::engine=debug', stderr_format: json }
 }
 let bob = tg login --verbose --name bob | from json
 let socket = $local.url | str replace 'http+unix://' '' | url decode
@@ -54,7 +56,7 @@ let searches = open --raw $local.log
 	| skip $offset
 	| where ($it | str starts-with '{')
 	| each { from json }
-	| where $it.fields.message? == 'authorize batch'
+	| where $it.fields.message? == 'verify batch'
 	| get fields.resource
 
 assert (($searches | where $it == $granted | length) > 0) 'the log filter must observe a search that is genuinely required'

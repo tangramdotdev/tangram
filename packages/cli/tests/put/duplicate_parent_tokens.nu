@@ -5,7 +5,11 @@ use ../lib/test.nu *
 let root_token = random chars
 let local = server spawn --name local --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
-	authorization: { final: false }
+	verification: {
+		permissions: {
+			final: false
+		}
+	}
 }
 let alice = tg login --verbose --name alice | from json
 let socket = $local.url | str replace 'http+unix://' '' | url decode

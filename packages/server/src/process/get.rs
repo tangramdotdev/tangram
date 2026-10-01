@@ -43,71 +43,20 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if locations.local.as_ref().is_some_and(|local| local.current)
-			&& let Some(output) = self
-				.try_get_process_local(
-					id,
-					arg.metadata,
-					arg.availability,
-					arg.tokens.local_authorization(),
-					arg.source,
-				)
-				.await?
-		{
-			let output = if output.data.status.is_finished() {
-				output
-			} else {
-				runner.unwrap_or(output)
-			};
-			return Ok(Some(output));
-		}
-
 		let local_future = async {
-			if let Some(local) = &locations.local {
-				let tokens = &arg.tokens;
-				if local.current
-					&& arg.source.is_auto()
-					&& let Some(output) = self
-						.try_get_with_sync_wait(
-							tokens,
-							tg::sync::control::ClientRequestArg::process(
-								id.clone(),
-								tg::authorization::permission::process::Set::NODE,
-								tg::process::storage::Set::NODE,
-							),
-							|control| async move {
-								if let Some(tg::sync::control::GetServerResponseOutput::Process(
-									control,
-								)) = control
-								{
-									return self
-										.try_get_process_local_with_control(
-											id,
-											arg.metadata,
-											arg.availability,
-											tokens,
-											control,
-										)
-										.await;
-								}
-
-								self.try_get_process_local(
-									id,
-									arg.metadata,
-									arg.availability,
-									tokens.local_authorization(),
-									arg.source,
-								)
-								.await
-							},
-						)
-						.await
-						.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-				{
-					return Ok(Some(output));
-				}
+			if locations.local.as_ref().is_some_and(|local| local.current) {
+				let output = self
+					.try_get_process_local(
+						id,
+						arg.metadata,
+						arg.availability,
+						arg.tokens.local_authorization(),
+						arg.source,
+					)
+					.await?;
+				return Ok(output);
 			}
-			Ok::<_, tg::Error>(None)
+			Ok(None)
 		};
 		let lookup_future = async {
 			if let Some(local) = &locations.local
@@ -196,7 +145,7 @@ impl Session {
 		let mut output =
 			self.create_process_get_output(id, data, Some(runner.location.clone()), None);
 		output.tokens = arg.tokens.clone();
-		if let Some(token) = self.create_process_get_token(id)? {
+		if let Some(token) = self.create_process_get_token(id, None)? {
 			output.tokens.insert_local_authorization(token);
 		}
 
@@ -264,18 +213,49 @@ impl Session {
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);
-		let authorize_future = async { self.authorize(resource, permission).await }.boxed();
+		let authorize_future = self
+			.authorize_with_permissions(
+				resource.clone(),
+				permission.into(),
+				permission.into(),
+				tg::authorization::permission::Set::Process(
+					tg::authorization::permission::process::Set::empty(),
+				),
+			)
+			.boxed();
 		let get_future = self
 			.try_get_process_local_inner(id, metadata, source)
 			.boxed();
-		let (permissions, output) = future::try_join(authorize_future, get_future).await?;
-		if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
+		let (authorization, output) = future::join(authorize_future, get_future).await;
+		let authorization = authorization?.check_exhaustion()?;
+		if !authorization.permissions.contains(permission) {
 			return Ok(None);
+		}
+		let mut output = output?;
+		// The concurrent read can miss data that arrives while authorization is pending.
+		if output.is_none() {
+			let permissions = tg::authorization::permission::Set::Process(
+				tg::authorization::permission::process::Set::empty(),
+			);
+			let storage = tg::storage::Set::Process(tg::process::storage::Set::NODE);
+			if self
+				.verify(resource, permissions, storage)
+				.boxed()
+				.await?
+				.check_exhaustion()?
+				.outcome != crate::authorization::Outcome::Satisfied
+			{
+				return Ok(None);
+			}
+			output = self
+				.try_get_process_local_inner(id, metadata, source)
+				.boxed()
+				.await?;
 		}
 		let Some(mut output) = output else {
 			return Ok(None);
 		};
-		if let Some(token) = self.create_process_get_token(id)? {
+		if let Some(token) = self.create_process_get_token(id, authorization.expires_at)? {
 			output.tokens.insert_local_authorization(token);
 		}
 		if let Some(metadata) = output.metadata.take() {
@@ -293,49 +273,10 @@ impl Session {
 		Ok(Some(output))
 	}
 
-	async fn try_get_process_local_with_control(
-		&self,
-		id: &tg::process::Id,
-		metadata: bool,
-		availability: bool,
-		tokens: &tg::authorization::Tokens,
-		control: tg::sync::control::GetProcessServerResponseOutput,
-	) -> tg::Result<Option<tg::process::get::Output>> {
-		let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens.clone());
-		let requested = tg::authorization::permission::Set::Process(
-			tg::authorization::permission::process::Set::all(),
-		);
-		let required = tg::authorization::permission::Set::Process(
-			tg::authorization::permission::process::Set::NODE,
-		);
-		let proven = tg::authorization::permission::Set::Process(control.permissions);
-		let Some(authorization) = self
-			.authorize_with_permissions(resource, requested, required, proven)
-			.await?
-		else {
-			return Ok(None);
-		};
-		let Some(mut output) = self
-			.try_get_process_local_with_permissions(id, authorization.permissions, metadata)
-			.await?
-		else {
-			return Ok(None);
-		};
-		if let Some(token) = self.create_process_get_token(id)? {
-			output.tokens.insert_local_authorization(token);
-		}
-		if availability && control.storage.contains(tg::process::storage::Set::NODE) {
-			output.availability = Self::compute_process_availability_with_permissions(
-				control.storage,
-				authorization.permissions,
-			);
-		}
-		Ok(Some(output))
-	}
-
 	fn create_process_get_token(
 		&self,
 		id: &tg::process::Id,
+		authorization_expires_at: Option<i64>,
 	) -> tg::Result<Option<tg::authorization::Token>> {
 		let created_at = self.server.clock.unix_timestamp()?;
 		let time_to_live = i64::try_from(
@@ -345,6 +286,8 @@ impl Session {
 		let expires_at = created_at
 			.checked_add(time_to_live)
 			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
+		let expires_at =
+			authorization_expires_at.map_or(expires_at, |expiration| expiration.min(expires_at));
 		let resource = tg::Id::from(id.clone());
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,

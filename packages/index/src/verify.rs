@@ -1,5 +1,6 @@
 use tangram_client::prelude::*;
 
+mod discover;
 mod engine;
 pub use engine::Batch;
 #[doc(hidden)]
@@ -33,26 +34,48 @@ pub struct Arg {
 	pub requested: tg::authorization::permission::Set,
 	pub required: tg::authorization::permission::Set,
 	pub resource: tg::Selector<tg::Id>,
+	pub storage: tg::storage::Set,
+	/// The subject to verify, or the request principal when absent.
+	pub subject: Option<tg::authorization::Subject>,
+	/// Validated token bodies available to the subject being verified.
 	pub tokens: Vec<tg::authorization::Body>,
 }
 
 #[derive(Clone, Debug)]
 pub struct Output {
 	pub expires_at: Option<i64>,
+	pub outcome: Outcome,
 	pub permissions: tg::authorization::permission::Set,
+	pub storage: tg::storage::Set,
+	pub syncs: Vec<Sync>,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Outcome {
-	Authorized(Output),
-	Denied(Option<Output>),
 	Exhausted,
+	Satisfied,
+	Unsatisfied,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct Sync {
+	pub permission: tg::authorization::Permission,
+	pub resource: tg::Id,
+	pub sync: tg::sync::Id,
 }
 
 #[derive(
 	Clone, Copy, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize,
 )]
 pub struct Config {
+	#[tangram_serialize(id = 0)]
+	pub permissions: PermissionsConfig,
+}
+
+#[derive(
+	Clone, Copy, Debug, Default, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub struct PermissionsConfig {
 	#[tangram_serialize(id = 0)]
 	pub ancestor: SearchConfig,
 
@@ -149,40 +172,28 @@ impl Arg {
 	}
 }
 
-impl Outcome {
-	#[must_use]
-	pub fn output(&self) -> Option<&Output> {
-		match self {
-			Self::Authorized(output) | Self::Denied(Some(output)) => Some(output),
-			Self::Denied(None) | Self::Exhausted => None,
-		}
-	}
-
-	pub fn into_result(self) -> tg::Result<Output> {
-		match self {
-			Self::Authorized(output) => Ok(output),
-			Self::Denied(_) => Err(tg::error!("authorization denied")),
-			Self::Exhausted => Err(search_exhausted_error("the authorization search exhausted")),
-		}
-	}
-
-	#[must_use]
-	pub(crate) fn from_output(
-		output: Option<Output>,
-		permissions: tg::authorization::permission::Set,
-	) -> Self {
-		match output {
-			Some(output) if output.permissions.contains(permissions) => Self::Authorized(output),
-			output => Self::Denied(output),
+impl Output {
+	pub fn into_result(self) -> tg::Result<Self> {
+		match self.outcome {
+			Outcome::Exhausted => Err(search_exhausted_error("the verification search exhausted")),
+			Outcome::Satisfied => Ok(self),
+			Outcome::Unsatisfied => Err(tg::error!("verification denied")),
 		}
 	}
 }
 
 impl Config {
 	pub fn validate(&self) -> tg::Result<()> {
+		self.permissions.validate()?;
+		Ok(())
+	}
+}
+
+impl PermissionsConfig {
+	pub fn validate(&self) -> tg::Result<()> {
 		if self.ancestor.page_size == 0 || self.descendant.page_size == 0 {
 			return Err(tg::error!(
-				"the authorization search page size must be greater than zero"
+				"the verification search page size must be greater than zero"
 			));
 		}
 
@@ -213,9 +224,9 @@ impl Default for SubtreeConfig {
 
 #[must_use]
 pub fn search_exhausted_error(message: &str) -> tg::Error {
-	let authorization_search_exhausted = true;
+	let verification_search_exhausted = true;
 
-	tg::error!(?authorization_search_exhausted, "{message}")
+	tg::error!(?verification_search_exhausted, "{message}")
 }
 
 /// Validate that the permission is coherent with the resource kind.
@@ -416,14 +427,14 @@ pub(crate) fn permissions_implied_by(
 }
 
 pub(crate) fn insert_implied_permissions(
-	authorized: &mut tg::authorization::permission::Set,
+	verified: &mut tg::authorization::permission::Set,
 	requested: tg::authorization::permission::Set,
 	permission: tg::authorization::Permission,
 ) {
 	for permission in permissions_implied_by(permission) {
 		let permission = tg::authorization::permission::Set::from_permission(permission);
 		if requested.contains(permission) {
-			authorized.insert(permission);
+			verified.insert(permission);
 		}
 	}
 }
@@ -530,4 +541,74 @@ pub(crate) fn permission_for_named_parent(
 	};
 
 	Ok(permission)
+}
+
+#[must_use]
+pub fn storage_permissions(
+	storage: tg::storage::Set,
+	permissions: tg::authorization::permission::Set,
+) -> tg::authorization::permission::Set {
+	if storage.is_empty() {
+		return permissions.empty_like();
+	}
+	match storage {
+		tg::storage::Set::Object(storage) => {
+			let mut permissions = tg::authorization::permission::object::Set::empty();
+			for storage in storage.iter() {
+				let permission = match storage {
+					tg::object::storage::Storage::Node => {
+						tg::authorization::permission::object::Permission::Node
+					},
+					tg::object::storage::Storage::Subtree => {
+						tg::authorization::permission::object::Permission::Subtree
+					},
+				};
+				permissions.insert(tg::authorization::permission::object::Set::from_permission(
+					permission,
+				));
+			}
+			tg::authorization::permission::Set::Object(permissions)
+		},
+		tg::storage::Set::Process(storage) => {
+			let mut permissions = tg::authorization::permission::process::Set::empty();
+			for storage in storage.iter() {
+				let permission = match storage {
+					tg::process::storage::Storage::Node => {
+						tg::authorization::permission::process::Permission::Node
+					},
+					tg::process::storage::Storage::NodeCommandObjects => {
+						tg::authorization::permission::process::Permission::NodeCommandObjects
+					},
+					tg::process::storage::Storage::NodeErrorObjects => {
+						tg::authorization::permission::process::Permission::NodeErrorObjects
+					},
+					tg::process::storage::Storage::NodeLogObjects => {
+						tg::authorization::permission::process::Permission::NodeLogObjects
+					},
+					tg::process::storage::Storage::NodeOutputObjects => {
+						tg::authorization::permission::process::Permission::NodeOutputObjects
+					},
+					tg::process::storage::Storage::Subtree => {
+						tg::authorization::permission::process::Permission::Subtree
+					},
+					tg::process::storage::Storage::SubtreeCommandObjects => {
+						tg::authorization::permission::process::Permission::SubtreeCommandObjects
+					},
+					tg::process::storage::Storage::SubtreeErrorObjects => {
+						tg::authorization::permission::process::Permission::SubtreeErrorObjects
+					},
+					tg::process::storage::Storage::SubtreeLogObjects => {
+						tg::authorization::permission::process::Permission::SubtreeLogObjects
+					},
+					tg::process::storage::Storage::SubtreeOutputObjects => {
+						tg::authorization::permission::process::Permission::SubtreeOutputObjects
+					},
+				};
+				permissions.insert(
+					tg::authorization::permission::process::Set::from_permission(permission),
+				);
+			}
+			tg::authorization::permission::Set::Process(permissions)
+		},
+	}
 }

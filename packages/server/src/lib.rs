@@ -86,6 +86,7 @@ mod temp;
 mod token;
 mod usage;
 mod user;
+mod verify;
 mod vfs;
 mod watch;
 mod write;
@@ -196,12 +197,12 @@ impl Server {
 		// Validate the configuration.
 		config.sync.control.validate()?;
 		config.usage.validate()?;
-		authorization_search_config(&config.authorization.initial)
+		verification_search_config(&config.verification.permissions.initial)
 			.validate()
-			.map_err(|error| tg::error!(!error, "invalid initial authorization configuration"))?;
-		authorization_search_config(&config.authorization.final_)
+			.map_err(|error| tg::error!(!error, "invalid initial verification configuration"))?;
+		verification_search_config(&config.verification.permissions.final_)
 			.validate()
-			.map_err(|error| tg::error!(!error, "invalid final authorization configuration"))?;
+			.map_err(|error| tg::error!(!error, "invalid final verification configuration"))?;
 
 		// Get or create the directory.
 		let directory = config.directory.clone().unwrap_or_else(|| {
@@ -915,11 +916,10 @@ impl Server {
 				}
 				#[cfg(feature = "foundationdb")]
 				{
-					let authorize = tangram_index_fdb::AuthorizeConfig {
-						concurrency: options.authorize.concurrency,
+					let verification = tangram_index_fdb::VerificationConfig {
+						concurrency: options.verification.concurrency,
 					};
 					let options = tangram_index_fdb::Options {
-						authorize,
 						cleaning_partition_total: options.cleaning_partition_total,
 						cluster: options.cluster.clone(),
 						permission_update_partition_total: options
@@ -938,6 +938,7 @@ impl Server {
 						read_transaction_concurrency: options.read_transaction_concurrency,
 						usage_update_partition_total: options.usage_update_partition_total,
 						usage_partition_total: options.usage_partition_total,
+						verification,
 						max_write_operation_batch_size: options.max_write_operation_batch_size,
 						write_operation_batch_size: options.write_operation_batch_size,
 						write_transaction_concurrency: options.write_transaction_concurrency,
@@ -1153,7 +1154,7 @@ impl Server {
 		)
 		.await?;
 		let authorization_tokens = load_token_keys(
-			config.authorization.tokens.as_ref(),
+			config.verification.tokens.as_ref(),
 			&path.join("authorization.key"),
 		)
 		.await?;
@@ -1958,30 +1959,32 @@ impl Drop for Owned {
 	}
 }
 
-fn authorization_search_config(
-	config: &self::config::AuthorizationSearches,
-) -> tangram_index::authorize::Config {
-	let ancestor = tangram_index::authorize::SearchConfig {
+fn verification_search_config(
+	config: &self::config::PermissionSearches,
+) -> tangram_index::verify::Config {
+	let ancestor = tangram_index::verify::SearchConfig {
 		max_depth: config.ancestor.max_depth,
 		max_edges: config.ancestor.max_edges,
 		max_nodes: config.ancestor.max_nodes,
 		page_size: config.ancestor.page_size,
 	};
-	let descendant = tangram_index::authorize::SearchConfig {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_depth: config.descendant.max_depth,
 		max_edges: config.descendant.max_edges,
 		max_nodes: config.descendant.max_nodes,
 		page_size: config.descendant.page_size,
 	};
-	let subtree = tangram_index::authorize::SubtreeConfig {
+	let subtree = tangram_index::verify::SubtreeConfig {
 		max_depth: config.subtree.max_depth,
 		max_objects: config.subtree.max_objects,
 		max_processes: config.subtree.max_processes,
 	};
-	tangram_index::authorize::Config {
-		ancestor,
-		descendant,
-		subtree,
+	tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor,
+			descendant,
+			subtree,
+		},
 	}
 }
 

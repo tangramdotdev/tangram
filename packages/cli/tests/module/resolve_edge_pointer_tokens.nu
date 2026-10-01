@@ -62,16 +62,16 @@ assert equal $case.module.referent.node $'graph=($case.graph)&index=0&kind=file'
 
 let socket = $local.url | str replace 'http+unix://' '' | url decode
 let watch = (
-	tg --token $root_token checkpoint watch authorization.index
+	tg --token $root_token checkpoint watch verification.index
 	| from json
 	| get watch
 )
 
 # The first resolution must fall through to the index for the graph containing A.
 let b_job = resolve-module-background $socket $bob.token $case.module './b'
-let hit = tg --token $root_token checkpoint wait authorization.index $watch 0 | from json
+let hit = tg --token $root_token checkpoint wait verification.index $watch 0 | from json
 assert equal $hit.params.resource $case.graph
-tg --token $root_token checkpoint continue authorization.index $watch 0
+tg --token $root_token checkpoint continue verification.index $watch 0
 let b = job recv --tag $b_job --timeout 10sec
 
 assert ($case.dependencyGraph in (token-resources $b.module))
@@ -80,4 +80,4 @@ assert ($case.dependencyGraph in (token-resources $b.module))
 let c_job = resolve-module-background $socket $bob.token $b.module './c'
 let c = job recv --tag $c_job --timeout 10sec
 assert ($case.dependencyGraph in (token-resources $c.module))
-tg --token $root_token checkpoint unwatch authorization.index $watch
+tg --token $root_token checkpoint unwatch verification.index $watch

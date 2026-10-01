@@ -9,7 +9,6 @@ use {
 };
 
 mod ancestor;
-mod authorize;
 mod batch;
 mod checkout;
 mod clean;
@@ -34,6 +33,7 @@ mod tests;
 mod update;
 mod usage;
 mod user;
+mod verify;
 mod visible;
 mod writer;
 
@@ -291,13 +291,13 @@ impl tangram_index::Index for Index {
 		self.start_usage(at).await
 	}
 
-	async fn authorize_batch(
+	async fn verify_batch(
 		&self,
-		args: &[tangram_index::authorize::Arg],
-		config: tangram_index::authorize::Config,
+		args: &[tangram_index::verify::Arg],
+		config: tangram_index::verify::Config,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<tangram_index::authorize::Outcome>> {
-		self.authorize_batch(args, config, principal).await
+	) -> tg::Result<Vec<tangram_index::verify::Output>> {
+		self.verify_batch(args, config, principal).await
 	}
 
 	async fn contains_ids(&self, ids: &[tg::Id]) -> tg::Result<Vec<bool>> {

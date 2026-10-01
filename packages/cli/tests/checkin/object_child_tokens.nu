@@ -56,7 +56,7 @@ assert equal $metadata.subtree.solved false
 # Any descendant authorization search would block the traversal or leave a recorded checkpoint hit.
 let watches = $case.children | each { |id|
 	let params = { resource: $id } | to json --raw
-	tg --token $root_token checkpoint watch authorization.index --params $params | from json | get watch
+	tg --token $root_token checkpoint watch verification.index --params $params | from json | get watch
 }
 let dependencies = [$case.directory] | to json
 let directory = artifact {
@@ -71,9 +71,9 @@ let job = job spawn {
 let output = job recv --tag $job --timeout 15sec
 assert equal $output.permissions [object_subtree]
 for watch in $watches {
-	let hit = timeout 1s tg --token $root_token checkpoint wait authorization.index $watch 0 | complete
+	let hit = timeout 1s tg --token $root_token checkpoint wait verification.index $watch 0 | complete
 	assert equal $hit.exit_code 124 "neither prefetch nor solver reads should search the index for descendants."
-	tg --token $root_token checkpoint unwatch authorization.index $watch
+	tg --token $root_token checkpoint unwatch verification.index $watch
 }
 let object = tg --token $alice.token get --blobs --depth inf $output.reference
 assert ($object | str contains "replacement") "the descendant dependency should be solved."

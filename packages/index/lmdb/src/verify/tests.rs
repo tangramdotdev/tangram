@@ -84,7 +84,7 @@ fn put_permission(
 //        \   |   /
 //         decoy   proof   the proof carries a permission for the requester
 //             \   /
-//             target      the resource being authorized
+//             target      the resource being verified
 //
 // Object ids are constructed to sort in visit order, so the decoy is the first of the target's two
 // parents the search reaches. Reading the target's parents enqueues both at depth one and costs two
@@ -96,8 +96,8 @@ fn put_permission(
 async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 	// Use the default budgets, and size the decoy's fan-in against the edge budget rather than
 	// hardcoding it, so raising the budget cannot make this test pass.
-	let authorize = tangram_index::authorize::Config::default();
-	let ancestor = authorize.ancestor;
+	let verify = tangram_index::verify::Config::default();
+	let ancestor = verify.permissions.ancestor;
 	let fanin = ancestor.max_edges + ancestor.page_size;
 
 	// Create the graph.
@@ -121,22 +121,24 @@ async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 	put_permission(&index, &mut txn, &proof, &user, subtree);
 	txn.commit().unwrap();
 
-	// Authorize the target.
+	// Verify the target.
 	let permission = tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Node,
 	);
 	let principal = tg::Principal::User(user);
 	let transaction = index.env.read_txn().unwrap();
 	let requested = tg::authorization::permission::Set::from_permission(permission);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested,
 		required: requested,
 		resource: tg::Selector::Id(target.into()),
 		tokens: Vec::new(),
 	};
-	let outcomes = Index::authorize_batch_with_transaction(
-		tangram_index::authorize::facts::Cache::new(),
-		authorize,
+	let outcomes = Index::verify_batch_with_transaction(
+		tangram_index::verify::facts::Cache::new(),
+		verify,
 		&index.db,
 		&index.subspace,
 		&transaction,
@@ -146,7 +148,7 @@ async fn ancestor_search_must_not_abort_with_the_proof_enqueued() {
 	.unwrap();
 
 	assert!(matches!(
-		outcomes[0],
-		tangram_index::authorize::Outcome::Authorized(_)
+		outcomes[0].outcome,
+		tangram_index::verify::Outcome::Satisfied
 	));
 }

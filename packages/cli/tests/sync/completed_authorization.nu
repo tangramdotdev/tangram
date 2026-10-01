@@ -16,7 +16,15 @@ let file = tg --url $local_source.url put --no-tokens 'tg.file("private")' | str
 tg --url $remote_destination.url --token $root_token index
 let batch_watch = tg --url $remote_destination.url --token $root_token checkpoint watch index.batch | from json | get watch
 let stopped_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.control.stopped | from json | get watch
-let referent = tg --url $local_source.url push $file | str trim
+let push_log = $env.TMPDIR | path join push.log
+'' | save --force $push_log
+let push = job spawn {
+	let job_id = job id
+	let output = tg --no-quiet --url $local_source.url push $file o+e>| tee { save --force $push_log } | complete
+	$output | job send --tag $job_id 0
+}
+wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push must expose its authorization token before waiting for indexing'
+let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
 let referent = $referent | str replace --all 'tokens[remote]' 'tokens[local]'
 let proof = $'http://localhost/($referent)' | url parse | get params | where {|param| $param.key =~ '^tokens\[' } | each {|param|
 	let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
@@ -29,18 +37,19 @@ assert ($body.resource | str starts-with 'syn_') 'the token should identify a sy
 assert equal $body.permissions [sync_read]
 # Leave the sync batch queued until a read reaches authorization's indexing wait.
 tg --url $remote_destination.url --token $root_token checkpoint wait index.batch $batch_watch 0 | ignore
-tg --url $remote_destination.url --token $root_token checkpoint wait sync.control.stopped $stopped_watch 0 | ignore
-tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.control.stopped $stopped_watch
-let wait_watch = tg --url $remote_destination.url --token $root_token checkpoint watch authorization.index.wait | from json | get watch
+let wait_watch = tg --url $remote_destination.url --token $root_token checkpoint watch verification.index.wait | from json | get watch
 let read = job spawn {
 	let job_id = job id
 	let output = tg --url $remote_destination.url --token $bob.token read $referent | complete
 	$output | job send --tag $job_id 0
 }
-tg --url $remote_destination.url --token $root_token checkpoint wait authorization.index.wait $wait_watch 0 | ignore
+tg --url $remote_destination.url --token $root_token checkpoint wait verification.index.wait $wait_watch 0 | ignore
 assert equal (try { job recv --tag $read --timeout 0sec } catch { null }) null 'the read should wait for indexing'
-tg --url $remote_destination.url --token $root_token checkpoint unwatch authorization.index.wait $wait_watch
+tg --url $remote_destination.url --token $root_token checkpoint unwatch verification.index.wait $wait_watch
 tg --url $remote_destination.url --token $root_token checkpoint unwatch index.batch $batch_watch
+success (job recv --tag $push --timeout 10sec) 'the sync should complete after its final index writes'
+tg --url $remote_destination.url --token $root_token checkpoint wait sync.control.stopped $stopped_watch 0 | ignore
+tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.control.stopped $stopped_watch
 let output = job recv --tag $read --timeout 10sec
 success $output 'authorization should wait for the queued sync permissions'
 assert equal $output.stdout 'private'

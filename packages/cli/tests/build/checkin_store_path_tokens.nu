@@ -28,7 +28,7 @@ let process = tg build --detach $module | str trim
 timeout 30s tg checkpoint wait runner.process.start $start_watch 0 | ignore
 let watches = [$directory $bin $file] | each { |id|
 	let params = { resource: $id } | to json --raw
-	tg checkpoint watch authorization.index --params $params | from json | get watch
+	tg checkpoint watch verification.index --params $params | from json | get watch
 }
 tg checkpoint continue runner.process.start $start_watch 0
 tg checkpoint unwatch runner.process.start $start_watch
@@ -42,7 +42,7 @@ if $result.exit != 0 {
 }
 assert equal $result.exit 0
 for watch in $watches {
-	tg checkpoint unwatch authorization.index $watch
+	tg checkpoint unwatch verification.index $watch
 }
 let output = tg read $result.output.value
 assert equal ($output | str trim) $file

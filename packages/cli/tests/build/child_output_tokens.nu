@@ -3,9 +3,11 @@ use ../lib/test.nu *
 # A child's output is readable through the tokens its wait returns when authorization searches are disabled.
 
 let local = server spawn --name local --config {
-	authorization: {
-		final: false
-		initial: false
+	verification: {
+		permissions: {
+			final: false
+			initial: false
+		}
 	}
 }
 

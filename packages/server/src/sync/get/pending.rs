@@ -170,36 +170,48 @@ impl Session {
 				else {
 					return Err(tg::error!("expected process permissions"));
 				};
-				let request = tg::sync::control::ClientRequestArg::process(
-					id.clone(),
-					permissions,
-					tg::process::storage::Set::NODE,
-				);
-				self.try_get_with_sync_wait(&tokens, request, |output| {
-					let id = id.clone();
-					async move {
-						if let Some(output) = output {
-							state
-								.graph
-								.lock()
-								.unwrap()
-								.update_node_local_control_output(&id.clone().into(), &output)?;
-						}
-						let touched_at = self.server.clock.unix_timestamp()?;
+
+				let touched_at = self.server.clock.unix_timestamp()?;
+				let (mut outputs, _) = self
+					.sync_get_touch_authorized_processes(
+						&state.graph,
+						std::slice::from_ref(&id),
+						&state.arg,
+						touched_at,
+						self.server.config.process.time_to_touch,
+					)
+					.await?;
+				let mut output = outputs.pop().flatten();
+				if output.is_none() {
+					let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
+					let storage = tg::storage::Set::Process(tg::process::storage::Set::NODE);
+					let verified = self
+						.verify(
+							resource,
+							tg::authorization::permission::Set::Process(permissions),
+							storage,
+						)
+						.await?
+						.check_exhaustion()?;
+					if verified.outcome == crate::authorization::Outcome::Satisfied {
+						state
+							.graph
+							.lock()
+							.unwrap()
+							.update_node_local_verified(&id.clone().into(), &verified)?;
 						let (mut outputs, _) = self
 							.sync_get_touch_authorized_processes(
 								&state.graph,
-								&[id],
+								std::slice::from_ref(&id),
 								&state.arg,
 								touched_at,
 								self.server.config.process.time_to_touch,
 							)
 							.await?;
-						Ok(outputs.pop().flatten())
+						output = outputs.pop().flatten();
 					}
-				})
-				.await?
-				.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
+				}
+				output.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
 				let node = super::index::ProcessNode { id, missing: true };
 				self.sync_get_index_process_batch(state, vec![node], None)
 					.await?;

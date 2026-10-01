@@ -207,12 +207,12 @@ impl Session {
 		let authorizations = self
 			.authorize_batch(objects.into_iter().map(|object| (object, permissions)))
 			.await?;
-		let has_subtree_permission =
-			|authorizations: &[Option<tg::authorization::permission::Set>]| {
-				authorizations.iter().all(|authorization| {
-					authorization.is_some_and(|permissions| permissions.contains(permission))
-				})
-			};
+		crate::authorization::check_exhaustion(&authorizations)?;
+		let has_subtree_permission = |authorizations: &[crate::authorization::Output]| {
+			authorizations
+				.iter()
+				.all(|authorization| authorization.permissions.contains(permission))
+		};
 		let command_has_subtree_permission =
 			has_subtree_permission(&authorizations[..command_object_count]);
 		let error_has_subtree_permission =

@@ -136,9 +136,11 @@ impl Session {
 			.map(|(_, permissions)| *permissions)
 			.collect::<Vec<_>>();
 		let outputs = self.authorize_batch(args).await?;
-		let available = outputs.into_iter().zip(required).all(|(output, required)| {
-			output.is_some_and(|permissions| permissions.contains(required))
-		});
+		crate::authorization::check_exhaustion(&outputs)?;
+		let available = outputs
+			.into_iter()
+			.zip(required)
+			.all(|(output, required)| output.permissions.contains(required));
 
 		Ok(available)
 	}

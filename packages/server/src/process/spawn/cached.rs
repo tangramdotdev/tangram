@@ -306,11 +306,10 @@ impl Session {
 			.authorize_batch(args)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to authorize the cached processes"))?;
+		crate::authorization::check_exhaustion(&authorizations)?;
 		let authorized = authorizations
 			.into_iter()
-			.map(|authorization| {
-				authorization.is_some_and(|authorized| authorized.contains(permissions))
-			})
+			.map(|authorization| authorization.permissions.contains(permissions))
 			.collect();
 
 		Ok(authorized)

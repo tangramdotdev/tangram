@@ -3,7 +3,12 @@ use ../../lib/test.nu *
 # Storing a directory through duplicate parent references preserves subtree authorization.
 
 let local = server spawn --name local --config {
-	authorization: { final: false, initial: false }
+	verification: {
+		permissions: {
+			final: false
+			initial: false
+		}
+	}
 }
 let path = artifact {
 	tangram.ts: '

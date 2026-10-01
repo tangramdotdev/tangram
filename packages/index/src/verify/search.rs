@@ -17,7 +17,7 @@ pub(crate) use {
 	subtree::{Action as SubtreeAction, Search as SubtreeSearch},
 };
 
-// A missing subject uses the caller; delegation sources carry their own authorization context.
+// A missing subject uses the caller; delegation sources carry their own verification context.
 pub(crate) type Key = (
 	tg::Id,
 	tg::authorization::Permission,
@@ -300,14 +300,14 @@ pub(crate) enum ReadOutput {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Outcome {
-	Authorized,
+	Verified,
 	Denied,
 	Exhausted,
 	Pending,
 }
 
 struct Budget {
-	config: crate::authorize::SearchConfig,
+	config: crate::verify::SearchConfig,
 	edges: usize,
 	nodes: usize,
 }
@@ -335,9 +335,9 @@ enum ProofStatus {
 }
 
 struct KeyEvaluation {
-	// A proof from either evaluation authorizes the key for every search strategy.
+	// A proof from either evaluation verifys the key for every search strategy.
 	ancestor_or_descendant: ProofStatus,
-	authorized: bool,
+	verified: bool,
 	derived: Option<ProofStatus>,
 	expires_at: i64,
 }
@@ -349,12 +349,12 @@ pub(crate) struct State {
 	ancestor_cursors: BTreeMap<Key, Vec<u8>>,
 	ancestor_facts: HashMap<tg::Id, Arc<AncestorNodeFacts>>,
 	ancestor_nodes: BTreeSet<Key>,
-	authorization_conjunctions: BTreeMap<Key, BTreeSet<(Key, Key)>>,
-	authorization_dependencies: BTreeMap<Key, BTreeSet<Key>>,
-	authorization_expirations: BTreeMap<(Key, Key), i64>,
-	authorization_dependents: BTreeMap<Key, BTreeSet<Key>>,
-	authorization_log: Vec<Key>,
-	authorized_subjects: BTreeSet<(
+	verification_conjunctions: BTreeMap<Key, BTreeSet<(Key, Key)>>,
+	verification_dependencies: BTreeMap<Key, BTreeSet<Key>>,
+	verification_expirations: BTreeMap<(Key, Key), i64>,
+	verification_dependents: BTreeMap<Key, BTreeSet<Key>>,
+	verification_log: Vec<Key>,
+	verified_subjects: BTreeSet<(
 		Option<tg::authorization::Subject>,
 		tg::authorization::Subject,
 	)>,
@@ -368,6 +368,8 @@ pub(crate) struct State {
 	newly_evaluated: BTreeSet<Key>,
 	process_facts: HashMap<tg::process::Id, Arc<ProcessFacts>>,
 	process_parent_delegation: bool,
+	sync_keys: BTreeSet<Key>,
+	token_subject: Option<tg::authorization::Subject>,
 	subject_key_dependents: BTreeMap<
 		(
 			Option<tg::authorization::Subject>,
@@ -583,7 +585,7 @@ impl ReadOutput {
 
 impl Budget {
 	#[must_use]
-	fn new(config: crate::authorize::SearchConfig) -> Self {
+	fn new(config: crate::verify::SearchConfig) -> Self {
 		Self {
 			config,
 			edges: 0,
@@ -592,14 +594,14 @@ impl Budget {
 	}
 
 	#[must_use]
-	fn with_root_total(mut config: crate::authorize::SearchConfig, root_total: usize) -> Self {
+	fn with_root_total(mut config: crate::verify::SearchConfig, root_total: usize) -> Self {
 		config.max_edges = config.max_edges.saturating_mul(root_total);
 		config.max_nodes = config.max_nodes.saturating_mul(root_total);
 
 		Self::new(config)
 	}
 
-	fn add_root_total(&mut self, config: crate::authorize::SearchConfig, root_total: usize) {
+	fn add_root_total(&mut self, config: crate::verify::SearchConfig, root_total: usize) {
 		debug_assert_eq!(self.config.max_depth, config.max_depth);
 		debug_assert_eq!(self.config.page_size, config.page_size);
 		self.config.max_edges = self
@@ -637,14 +639,14 @@ impl Budget {
 impl AncestorOrDescendantSearch {
 	#[must_use]
 	pub(crate) fn new(
-		config: crate::authorize::Config,
+		config: crate::verify::Config,
 		principal: &tg::Principal,
 		roots: &[Key],
 		tokens: &[tg::authorization::Body],
 		state: &mut State,
 	) -> Self {
 		if let Ok(subject) = principal.try_to_subject() {
-			state.authorize_subject(subject, None);
+			state.verify_subject(subject, None);
 		}
 		let mut seen = HashSet::new();
 		let roots = roots
@@ -659,13 +661,24 @@ impl AncestorOrDescendantSearch {
 		let (ancestor, descendant) = if complete {
 			(None, None)
 		} else {
-			let ancestor =
-				AncestorSearch::new(config.ancestor, principal, &roots, tokens.to_vec(), state);
+			let ancestor = AncestorSearch::new(
+				config.permissions.ancestor,
+				principal,
+				&roots,
+				tokens.to_vec(),
+				state,
+			);
 			let descendant = if let Some(mut descendant) = state.take_descendant() {
-				descendant.add_targets(config.descendant, roots.clone());
+				descendant.add_targets(config.permissions.descendant, roots.clone());
 				descendant
 			} else {
-				DescendantSearch::new(config.descendant, principal, state, roots.clone(), tokens)
+				DescendantSearch::new(
+					config.permissions.descendant,
+					principal,
+					state,
+					roots.clone(),
+					tokens,
+				)
 			};
 
 			(Some(ancestor), Some(descendant))
@@ -761,7 +774,7 @@ impl AncestorOrDescendantSearch {
 					let mut search = self.ancestor.take().unwrap();
 					search.finish(state);
 					for root in &self.roots {
-						if state.is_authorized(root) {
+						if state.is_verified(root) {
 							continue;
 						}
 						if search.incomplete.contains(root) {
@@ -838,7 +851,7 @@ impl KeyEvaluation {
 
 		Self {
 			ancestor_or_descendant: ProofStatus::Pending,
-			authorized: false,
+			verified: false,
 			derived,
 			expires_at: i64::MIN,
 		}
@@ -846,8 +859,8 @@ impl KeyEvaluation {
 
 	#[must_use]
 	fn outcome(&self) -> Outcome {
-		if self.authorized {
-			return Outcome::Authorized;
+		if self.verified {
+			return Outcome::Verified;
 		}
 		let evaluations = [Some(self.ancestor_or_descendant), self.derived];
 		if evaluations
@@ -862,8 +875,8 @@ impl KeyEvaluation {
 
 	#[must_use]
 	fn ancestor_or_descendant(&self) -> Outcome {
-		if self.authorized {
-			return Outcome::Authorized;
+		if self.verified {
+			return Outcome::Verified;
 		}
 
 		match self.ancestor_or_descendant {
@@ -874,6 +887,15 @@ impl KeyEvaluation {
 }
 
 impl State {
+	pub(crate) fn set_token_subject(&mut self, subject: Option<tg::authorization::Subject>) {
+		self.token_subject = subject;
+	}
+
+	#[must_use]
+	pub(crate) fn token_subject(&self) -> Option<&tg::authorization::Subject> {
+		self.token_subject.as_ref()
+	}
+
 	#[must_use]
 	pub(crate) fn process_parent_delegation(&self) -> bool {
 		self.process_parent_delegation
@@ -897,6 +919,48 @@ impl State {
 		self.process_facts.insert(process, facts.clone());
 
 		facts
+	}
+
+	#[must_use]
+	pub(crate) fn syncs(&self, root: &Key) -> std::collections::BTreeSet<super::Sync> {
+		if self.sync_keys.is_empty() {
+			return BTreeSet::new();
+		}
+		let mut syncs = BTreeSet::new();
+		let mut seen = BTreeSet::new();
+		let mut pending = vec![root.clone()];
+		while let Some(key) = pending.pop() {
+			if !seen.insert(key.clone()) {
+				continue;
+			}
+			if let Some(tg::authorization::Subject::Sync(sync)) = &key.2
+				&& matches!(
+					key.1,
+					tg::authorization::Permission::Object(_)
+						| tg::authorization::Permission::Process(_)
+				) {
+				syncs.insert(super::Sync {
+					permission: key.1,
+					resource: key.0.clone(),
+					sync: sync.clone(),
+				});
+			}
+			pending.extend(
+				self.verification_dependencies
+					.get(&key)
+					.into_iter()
+					.flatten()
+					.cloned(),
+			);
+			pending.extend(
+				self.derived_dependencies
+					.get(&key)
+					.into_iter()
+					.flatten()
+					.cloned(),
+			);
+		}
+		syncs
 	}
 
 	pub(crate) fn has_graph_scopes(&self) -> bool {
@@ -973,8 +1037,8 @@ impl State {
 			.entry((scope.cloned(), member.clone()))
 			.or_default()
 			.insert(container.clone());
-		if self.is_subject_authorized(member, scope) {
-			self.authorize_subject(container, scope);
+		if self.is_subject_verified(member, scope) {
+			self.verify_subject(container, scope);
 		}
 		inserted
 	}
@@ -999,13 +1063,13 @@ impl State {
 			.entry((dependent.2.clone(), subject.clone()))
 			.or_default()
 			.insert(dependent.clone());
-		if self.is_subject_authorized(subject, dependent.2.as_ref()) {
-			self.authorize_with_expiration(dependent, i64::MAX);
+		if self.is_subject_verified(subject, dependent.2.as_ref()) {
+			self.verify_with_expiration(dependent, i64::MAX);
 		}
 		inserted
 	}
 
-	pub(crate) fn authorize_subject(
+	pub(crate) fn verify_subject(
 		&mut self,
 		subject: tg::authorization::Subject,
 		scope: Option<&tg::authorization::Subject>,
@@ -1013,7 +1077,7 @@ impl State {
 		let mut stack = vec![subject];
 		while let Some(subject) = stack.pop() {
 			let subject_key = (scope.cloned(), subject);
-			if !self.authorized_subjects.insert(subject_key.clone()) {
+			if !self.verified_subjects.insert(subject_key.clone()) {
 				continue;
 			}
 			let dependents = self
@@ -1021,7 +1085,7 @@ impl State {
 				.get(&subject_key)
 				.map_or_else(Vec::new, |dependents| dependents.iter().cloned().collect());
 			for dependent in dependents {
-				self.authorize_with_expiration(dependent, i64::MAX);
+				self.verify_with_expiration(dependent, i64::MAX);
 			}
 			stack.extend(
 				self.subject_subject_dependents
@@ -1033,7 +1097,7 @@ impl State {
 		}
 	}
 
-	pub(crate) fn is_subject_authorized(
+	pub(crate) fn is_subject_verified(
 		&self,
 		subject: &tg::authorization::Subject,
 		scope: Option<&tg::authorization::Subject>,
@@ -1041,81 +1105,88 @@ impl State {
 		scope == Some(subject)
 			|| *subject == tg::authorization::Subject::Public
 			|| self
-				.authorized_subjects
+				.verified_subjects
 				.contains(&(scope.cloned(), subject.clone()))
 	}
 
 	#[must_use]
-	pub(crate) fn has_authorization_dependency(&self, dependency: &Key, dependent: &Key) -> bool {
-		self.authorization_dependents
+	pub(crate) fn has_verification_dependency(&self, dependency: &Key, dependent: &Key) -> bool {
+		self.verification_dependents
 			.get(dependency)
 			.is_some_and(|dependents| dependents.contains(dependent))
 	}
 
-	pub(crate) fn add_authorization_dependency(
-		&mut self,
-		dependency: &Key,
-		dependent: Key,
-	) -> bool {
+	pub(crate) fn add_verification_dependency(&mut self, dependency: &Key, dependent: Key) -> bool {
+		if matches!(dependency.2, Some(tg::authorization::Subject::Sync(_))) {
+			self.sync_keys.insert(dependency.clone());
+		}
 		let inserted = self
-			.authorization_dependents
+			.verification_dependents
 			.entry(dependency.clone())
 			.or_default()
 			.insert(dependent.clone());
 		if inserted {
-			self.authorization_dependencies
+			self.verification_dependencies
 				.entry(dependent.clone())
 				.or_default()
 				.insert(dependency.clone());
 		}
-		if self.is_authorized(dependency) {
+		if self.is_verified(dependency) {
 			let expires_at = self.expires_at(dependency).min(
-				self.authorization_expirations
+				self.verification_expirations
 					.get(&(dependency.clone(), dependent.clone()))
 					.copied()
 					.unwrap_or(i64::MAX),
 			);
-			self.authorize_with_expiration(dependent, expires_at);
+			self.verify_with_expiration(dependent, expires_at);
 		}
 
 		inserted
 	}
 
 	#[must_use]
-	pub(crate) fn has_authorization_conjunction(
+	pub(crate) fn has_verification_conjunction(
 		&self,
 		first: &Key,
 		second: &Key,
 		dependent: &Key,
 	) -> bool {
-		self.authorization_conjunctions
+		self.verification_conjunctions
 			.get(first)
 			.is_some_and(|conjunctions| conjunctions.contains(&(second.clone(), dependent.clone())))
 	}
 
-	pub(crate) fn add_authorization_conjunction(
+	pub(crate) fn add_verification_conjunction(
 		&mut self,
 		first: &Key,
 		second: &Key,
 		dependent: &Key,
 	) {
+		for dependency in [first, second] {
+			if matches!(dependency.2, Some(tg::authorization::Subject::Sync(_))) {
+				self.sync_keys.insert(dependency.clone());
+			}
+		}
 		for (dependency, other) in [(first, second), (second, first)] {
-			self.authorization_conjunctions
+			self.verification_conjunctions
 				.entry(dependency.clone())
 				.or_default()
 				.insert((other.clone(), dependent.clone()));
-			self.authorization_dependencies
+			self.verification_dependencies
 				.entry(dependent.clone())
 				.or_default()
 				.insert(dependency.clone());
 		}
-		if self.is_authorized(first) && self.is_authorized(second) {
+		if self.is_verified(first) && self.is_verified(second) {
 			let expires_at = self.expires_at(first).min(self.expires_at(second));
-			self.authorize_with_expiration(dependent.clone(), expires_at);
+			self.verify_with_expiration(dependent.clone(), expires_at);
 		}
 	}
 
 	pub(crate) fn add_derived_dependency(&mut self, dependency: &Key, dependent: Key) {
+		if matches!(dependency.2, Some(tg::authorization::Subject::Sync(_))) {
+			self.sync_keys.insert(dependency.clone());
+		}
 		let inserted = self
 			.derived_dependents
 			.entry(dependency.clone())
@@ -1126,7 +1197,7 @@ impl State {
 				.entry(dependent.clone())
 				.or_default()
 				.insert(dependency.clone());
-			if !self.is_authorized(dependency) {
+			if !self.is_verified(dependency) {
 				let unresolved = self
 					.derived_unresolved
 					.entry(dependent.clone())
@@ -1135,22 +1206,22 @@ impl State {
 			}
 		}
 		self.propagate_derived_outcome(dependency);
-		self.try_authorize_derived(dependent);
+		self.try_verify_derived(dependent);
 	}
 
-	pub(crate) fn authorize_derived(&mut self, key: Key) {
+	pub(crate) fn verify_derived(&mut self, key: Key) {
 		let expires_at = self.derived_expires_at(&key);
-		self.authorize_with_expiration(key, expires_at);
+		self.verify_with_expiration(key, expires_at);
 	}
 
-	pub(crate) fn authorize_ancestor_or_descendant(&mut self, key: Key) {
-		self.authorize_with_expiration(key, i64::MAX);
+	pub(crate) fn verify_ancestor_or_descendant(&mut self, key: Key) {
+		self.verify_with_expiration(key, i64::MAX);
 	}
 
 	pub(crate) fn complete_derived(&mut self, key: &Key) {
 		self.derived_cursors.remove(key);
 		self.derived_complete.insert(key.clone());
-		self.try_authorize_derived(key.clone());
+		self.try_verify_derived(key.clone());
 	}
 
 	#[must_use]
@@ -1183,7 +1254,7 @@ impl State {
 	}
 
 	pub(crate) fn deny_derived(&mut self, key: &Key) {
-		if self.is_authorized(key) {
+		if self.is_verified(key) {
 			return;
 		}
 		if self.evaluation_mut(key).derived == Some(ProofStatus::Denied) {
@@ -1195,7 +1266,7 @@ impl State {
 	}
 
 	pub(crate) fn deny_ancestor_or_descendant(&mut self, key: &Key) {
-		if self.is_authorized(key)
+		if self.is_verified(key)
 			|| self.evaluation_mut(key).ancestor_or_descendant == ProofStatus::Denied
 		{
 			return;
@@ -1206,21 +1277,21 @@ impl State {
 	}
 
 	#[must_use]
-	pub(crate) fn is_authorized(&self, key: &Key) -> bool {
+	pub(crate) fn is_verified(&self, key: &Key) -> bool {
 		self.evaluations
 			.get(key)
-			.is_some_and(|evaluation| evaluation.authorized)
+			.is_some_and(|evaluation| evaluation.verified)
 	}
 
 	#[must_use]
-	pub(crate) fn authorization_dependents(&self, key: &Key) -> Vec<Key> {
-		self.authorization_dependents
+	pub(crate) fn verification_dependents(&self, key: &Key) -> Vec<Key> {
+		self.verification_dependents
 			.get(key)
 			.into_iter()
 			.flatten()
 			.cloned()
 			.chain(
-				self.authorization_conjunctions
+				self.verification_conjunctions
 					.get(key)
 					.into_iter()
 					.flatten()
@@ -1230,8 +1301,8 @@ impl State {
 	}
 
 	#[must_use]
-	pub(crate) fn authorization_dependencies(&self, key: &Key) -> Vec<Key> {
-		self.authorization_dependencies
+	pub(crate) fn verification_dependencies(&self, key: &Key) -> Vec<Key> {
+		self.verification_dependencies
 			.get(key)
 			.map_or_else(Vec::new, |dependencies| {
 				dependencies.iter().cloned().collect()
@@ -1270,13 +1341,13 @@ impl State {
 	}
 
 	#[must_use]
-	fn authorization_revision(&self) -> usize {
-		self.authorization_log.len()
+	fn verification_revision(&self) -> usize {
+		self.verification_log.len()
 	}
 
-	fn authorization_changes_since(&self, revision: &mut usize) -> Vec<Key> {
-		let changes = self.authorization_log[*revision..].to_vec();
-		*revision = self.authorization_log.len();
+	fn verification_changes_since(&self, revision: &mut usize) -> Vec<Key> {
+		let changes = self.verification_log[*revision..].to_vec();
+		*revision = self.verification_log.len();
 
 		changes
 	}
@@ -1292,7 +1363,7 @@ impl State {
 	pub(crate) fn expires_at(&self, key: &Key) -> i64 {
 		self.evaluations
 			.get(key)
-			.filter(|evaluation| evaluation.authorized)
+			.filter(|evaluation| evaluation.verified)
 			.map_or(i64::MIN, |evaluation| evaluation.expires_at)
 	}
 
@@ -1306,30 +1377,33 @@ impl State {
 			.unwrap_or(i64::MAX)
 	}
 
-	pub(crate) fn authorize_with_expiration(&mut self, key: Key, expires_at: i64) {
+	pub(crate) fn verify_with_expiration(&mut self, key: Key, expires_at: i64) {
+		if matches!(key.2, Some(tg::authorization::Subject::Sync(_))) {
+			self.sync_keys.insert(key.clone());
+		}
 		let mut stack = vec![(key, expires_at)];
 		while let Some((key, expires_at)) = stack.pop() {
 			let evaluation = self.evaluation_mut(&key);
-			let authorized = evaluation.authorized;
-			if authorized && evaluation.expires_at >= expires_at {
+			let verified = evaluation.verified;
+			if verified && evaluation.expires_at >= expires_at {
 				continue;
 			}
-			evaluation.authorized = true;
+			evaluation.verified = true;
 			evaluation.expires_at = expires_at;
-			if !authorized {
-				self.authorization_log.push(key.clone());
+			if !verified {
+				self.verification_log.push(key.clone());
 			}
 			self.newly_evaluated.insert(key.clone());
 			stack.extend(
-				crate::authorize::permissions_implied_by(key.1)
+				crate::verify::permissions_implied_by(key.1)
 					.into_iter()
 					.filter(|permission| *permission != key.1)
 					.map(|permission| ((key.0.clone(), permission, key.2.clone()), expires_at)),
 			);
-			if let Some(dependents) = self.authorization_dependents.get(&key) {
+			if let Some(dependents) = self.verification_dependents.get(&key) {
 				stack.extend(dependents.iter().cloned().map(|dependent| {
 					let expires_at = expires_at.min(
-						self.authorization_expirations
+						self.verification_expirations
 							.get(&(key.clone(), dependent.clone()))
 							.copied()
 							.unwrap_or(i64::MAX),
@@ -1337,9 +1411,9 @@ impl State {
 					(dependent, expires_at)
 				}));
 			}
-			if let Some(conjunctions) = self.authorization_conjunctions.get(&key) {
+			if let Some(conjunctions) = self.verification_conjunctions.get(&key) {
 				for (other, dependent) in conjunctions {
-					if self.is_authorized(other) {
+					if self.is_verified(other) {
 						stack.push((dependent.clone(), expires_at.min(self.expires_at(other))));
 					}
 				}
@@ -1350,14 +1424,14 @@ impl State {
 				.get(&key)
 				.map_or_else(Vec::new, |dependents| dependents.iter().cloned().collect());
 			for dependent in derived {
-				if !authorized {
+				if !verified {
 					let unresolved = self
 						.derived_unresolved
 						.entry(dependent.clone())
 						.or_default();
 					*unresolved = unresolved.saturating_sub(1);
 				}
-				if self.derived_is_authorized(&dependent) {
+				if self.derived_is_verified(&dependent) {
 					let expires_at = self.derived_expires_at(&dependent);
 					stack.push((dependent, expires_at));
 				}
@@ -1372,7 +1446,7 @@ impl State {
 	}
 
 	#[must_use]
-	fn derived_is_authorized(&self, key: &Key) -> bool {
+	fn derived_is_verified(&self, key: &Key) -> bool {
 		self.derived_complete.contains(key)
 			&& self.derived_unresolved.get(key).copied().unwrap_or(0) == 0
 			&& self
@@ -1395,7 +1469,7 @@ impl State {
 					dependents.iter().cloned().collect::<Vec<_>>()
 				});
 			for dependent in dependents {
-				if self.is_authorized(&dependent) {
+				if self.is_verified(&dependent) {
 					continue;
 				}
 				let evaluation = self.evaluation_mut(&dependent);
@@ -1411,9 +1485,9 @@ impl State {
 		}
 	}
 
-	fn try_authorize_derived(&mut self, key: Key) {
-		if !self.is_authorized(&key) && self.derived_is_authorized(&key) {
-			self.authorize_derived(key);
+	fn try_verify_derived(&mut self, key: Key) {
+		if !self.is_verified(&key) && self.derived_is_verified(&key) {
+			self.verify_derived(key);
 		}
 	}
 }
@@ -1442,9 +1516,9 @@ impl FinalSearch {
 		while let Some(key) = self.pending.pop_front() {
 			self.queued.remove(&key);
 			match state.outcome(&key) {
-				Outcome::Authorized => {
+				Outcome::Verified => {
 					self.deferred.remove(&key);
-					self.outcomes.insert(key, Outcome::Authorized);
+					self.outcomes.insert(key, Outcome::Verified);
 				},
 				Outcome::Denied => {
 					self.outcomes.insert(key.clone(), Outcome::Denied);
@@ -1460,20 +1534,20 @@ impl FinalSearch {
 
 	pub(crate) fn apply(&mut self, state: &mut State, key: &Key, outcome: Outcome) {
 		let outcome = match state.outcome(key) {
-			outcome @ (Outcome::Authorized | Outcome::Denied) => outcome,
+			outcome @ (Outcome::Verified | Outcome::Denied) => outcome,
 			Outcome::Exhausted => unreachable!(),
 			Outcome::Pending => outcome,
 		};
 		self.outcomes.insert(key.clone(), outcome);
 		match outcome {
-			Outcome::Authorized => {
+			Outcome::Verified => {
 				self.deferred.remove(key);
 			},
 			Outcome::Denied | Outcome::Exhausted | Outcome::Pending => {
 				self.deferred.insert(key.clone());
 			},
 		}
-		if outcome != Outcome::Authorized {
+		if outcome != Outcome::Verified {
 			self.enqueue_dependencies(state, key);
 		}
 
@@ -1483,7 +1557,7 @@ impl FinalSearch {
 	#[must_use]
 	pub(crate) fn outcome(&self, state: &State, key: &Key) -> Outcome {
 		match state.outcome(key) {
-			outcome @ (Outcome::Authorized | Outcome::Denied) => outcome,
+			outcome @ (Outcome::Verified | Outcome::Denied) => outcome,
 			Outcome::Exhausted => unreachable!(),
 			Outcome::Pending => self
 				.outcomes
@@ -1494,7 +1568,7 @@ impl FinalSearch {
 	}
 
 	fn enqueue_dependencies(&mut self, state: &State, key: &Key) {
-		for dependency in state.authorization_dependencies(key) {
+		for dependency in state.verification_dependencies(key) {
 			if dependency.2.is_some()
 				&& !self.outcomes.contains_key(&dependency)
 				&& self.queued.insert(dependency.clone())
@@ -1547,7 +1621,7 @@ mod tests {
 		let principal = tg::Principal::User(tg::user::Id::new());
 		let mut state = State::default();
 		let mut search = AncestorOrDescendantSearch::new(
-			crate::authorize::Config::default(),
+			crate::verify::Config::default(),
 			&principal,
 			std::slice::from_ref(&root),
 			&[],
@@ -1574,7 +1648,7 @@ mod tests {
 		let principal = tg::Principal::User(tg::user::Id::new());
 		let mut state = State::default();
 		let mut search = AncestorOrDescendantSearch::new(
-			crate::authorize::Config::default(),
+			crate::verify::Config::default(),
 			&principal,
 			std::slice::from_ref(&root),
 			&[],
@@ -1615,11 +1689,11 @@ mod tests {
 	}
 
 	#[test]
-	fn an_ancestor_permission_page_authorizes_before_the_node_is_complete() {
+	fn an_ancestor_permission_page_verifys_before_the_node_is_complete() {
 		let root = key();
 		let mut state = State::default();
 		let mut search = AncestorOrDescendantSearch::new(
-			crate::authorize::Config::default(),
+			crate::verify::Config::default(),
 			&tg::Principal::Anonymous,
 			std::slice::from_ref(&root),
 			&[],
@@ -1647,25 +1721,25 @@ mod tests {
 		};
 		search.apply(&mut state, read, output).unwrap();
 
-		assert!(state.is_authorized(&root));
+		assert!(state.is_verified(&root));
 	}
 
 	#[test]
-	fn authorization_propagates_across_an_edge_added_after_the_proof() {
+	fn verification_propagates_across_an_edge_added_after_the_proof() {
 		let dependency = key();
 		let dependent = key();
 		let mut state = State::default();
-		state.authorize_ancestor_or_descendant(dependency.clone());
+		state.verify_ancestor_or_descendant(dependency.clone());
 
-		state.add_authorization_dependency(&dependency, dependent.clone());
+		state.add_verification_dependency(&dependency, dependent.clone());
 
-		assert!(state.is_authorized(&dependent));
+		assert!(state.is_verified(&dependent));
 	}
 
 	#[test]
-	fn authorization_conjunctions_require_both_proofs_in_either_order() {
+	fn verification_conjunctions_require_both_proofs_in_either_order() {
 		for reverse in [false, true] {
-			for already_authorized in [false, true] {
+			for already_verified in [false, true] {
 				let first = subtree_key(0);
 				let second = subtree_key(1);
 				let dependent = subtree_key(2);
@@ -1675,26 +1749,26 @@ mod tests {
 				} else {
 					[(&first, 100), (&second, 200)]
 				};
-				if already_authorized {
+				if already_verified {
 					for (key, expires_at) in proofs {
-						state.authorize_with_expiration(key.clone(), expires_at);
+						state.verify_with_expiration(key.clone(), expires_at);
 					}
 				}
-				state.add_authorization_conjunction(&first, &second, &dependent);
-				if !already_authorized {
-					assert!(!state.is_authorized(&dependent));
-					state.authorize_with_expiration(proofs[0].0.clone(), proofs[0].1);
-					assert!(!state.is_authorized(&dependent));
-					state.authorize_with_expiration(proofs[1].0.clone(), proofs[1].1);
+				state.add_verification_conjunction(&first, &second, &dependent);
+				if !already_verified {
+					assert!(!state.is_verified(&dependent));
+					state.verify_with_expiration(proofs[0].0.clone(), proofs[0].1);
+					assert!(!state.is_verified(&dependent));
+					state.verify_with_expiration(proofs[1].0.clone(), proofs[1].1);
 				}
-				assert!(state.is_authorized(&dependent));
+				assert!(state.is_verified(&dependent));
 				assert_eq!(state.expires_at(&dependent), 100);
 			}
 		}
 	}
 
 	#[test]
-	fn a_completed_derived_conjunction_authorizes_after_its_last_dependency() {
+	fn a_completed_derived_conjunction_verifys_after_its_last_dependency() {
 		let child = subtree_key(0);
 		let parent = subtree_key(1);
 		let node = (
@@ -1708,12 +1782,12 @@ mod tests {
 		state.add_derived_dependency(&child, parent.clone());
 		state.add_derived_dependency(&node, parent.clone());
 		state.complete_derived(&parent);
-		state.authorize_ancestor_or_descendant(node);
-		assert!(!state.is_authorized(&parent));
+		state.verify_ancestor_or_descendant(node);
+		assert!(!state.is_verified(&parent));
 
-		state.authorize_derived(child);
+		state.verify_derived(child);
 
-		assert!(state.is_authorized(&parent));
+		assert!(state.is_verified(&parent));
 	}
 
 	#[test]
@@ -1746,14 +1820,14 @@ mod tests {
 		assert_eq!(search.next(&mut state), Some(parent.clone()));
 		search.apply(&mut state, &parent, Outcome::Exhausted);
 		assert_eq!(search.next(&mut state), Some(child.clone()));
-		state.authorize_derived(child.clone());
-		search.apply(&mut state, &child, Outcome::Authorized);
+		state.verify_derived(child.clone());
+		search.apply(&mut state, &child, Outcome::Verified);
 
 		assert_eq!(search.next(&mut state), Some(parent.clone()));
-		state.authorize_derived(parent.clone());
-		search.apply(&mut state, &parent, Outcome::Authorized);
+		state.verify_derived(parent.clone());
+		search.apply(&mut state, &parent, Outcome::Verified);
 		assert_eq!(search.next(&mut state), None);
-		assert_eq!(search.outcome(&state, &parent), Outcome::Authorized);
+		assert_eq!(search.outcome(&state, &parent), Outcome::Verified);
 	}
 
 	#[test]

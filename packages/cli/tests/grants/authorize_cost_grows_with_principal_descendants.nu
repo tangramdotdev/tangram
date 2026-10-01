@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	tracing: {
-		filter: 'tangram=info,tangram_index::authorize=debug'
+		filter: 'tangram=info,tangram_index::verify=debug'
 		stderr_format: 'json'
 	}
 }
@@ -36,7 +36,7 @@ let reads = open $local.log
 	| lines
 	| where ($it | str starts-with '{')
 	| each { from json }
-	| where $it.fields.message? == 'authorize batch'
+	| where $it.fields.message? == 'verify batch'
 	| where $it.fields.args? == 1
 	| where $it.fields.resource? == $target.id
 	| get fields.reads

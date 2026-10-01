@@ -3,7 +3,12 @@ use ../lib/test.nu *
 # A process can check in the store path of a symlink target that a destructive check-in put in the store without an authorization search.
 
 let server = server spawn --config {
-	authorization: { final: false, initial: false }
+	verification: {
+		permissions: {
+			final: false
+			initial: false
+		}
+	}
 	vfs: false
 }
 

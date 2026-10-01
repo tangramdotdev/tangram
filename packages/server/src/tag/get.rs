@@ -85,11 +85,11 @@ impl Session {
 				),
 			)
 			.await?
-			.is_some_and(|permissions| {
-				permissions.contains(tg::authorization::Permission::Tag(
-					tg::authorization::permission::tag::Permission::Read,
-				))
-			});
+			.check_exhaustion()?
+			.permissions
+			.contains(tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			));
 		if !visible {
 			return Ok(None);
 		}

@@ -11,11 +11,12 @@ use {
 	tokio::time::Instant,
 };
 
-mod client;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use self::client::{Client, Output};
+pub(crate) use self::client::Client;
+
+pub(crate) mod client;
 
 #[derive(Clone)]
 pub(super) struct Control {
@@ -250,7 +251,7 @@ impl Server {
 			},
 			protocol::ClientMessage::Request(request) => {
 				match &request.arg {
-					protocol::ClientRequestArg::Get(_) => {
+					protocol::ClientRequestArg::Verify(_) => {
 						let Some(attempt) = request.attempt.as_ref() else {
 							return Ok(());
 						};
@@ -449,14 +450,14 @@ impl Server {
 		if request.response.is_some() {
 			return true;
 		}
-		let protocol::ClientRequestArg::Get(arg) = &request.arg else {
+		let protocol::ClientRequestArg::Verify(arg) = &request.arg else {
 			return false;
 		};
 		let result = state
 			.graph
 			.lock()
 			.unwrap()
-			.try_get_node_local_control_output(arg);
+			.try_verify_node_local_control_output(arg);
 		let result = match result {
 			Ok(None) => {
 				let Some((_, result)) = &state.finished else {
@@ -474,7 +475,7 @@ impl Server {
 			.get_mut(id)
 			.unwrap();
 		let (error, output) = match result {
-			Ok(output) => (None, Some(protocol::ServerResponseOutput::Get(output))),
+			Ok(output) => (None, Some(protocol::ServerResponseOutput::Verify(output))),
 			Err(error) => {
 				let error = tg::error!(!error, "the sync failed");
 				let tg::Either::Left(error) = error.to_data_or_id() else {
@@ -525,7 +526,15 @@ impl Server {
 			for (attempt, id) in responses {
 				state.response_cursor = Some((attempt.clone(), id.clone()));
 				let entry = &state.attempts[&attempt];
-				let response = entry.requests[&id].response.as_ref().unwrap().clone();
+				let request = &entry.requests[&id];
+				let mut response = request.response.as_ref().unwrap().clone();
+				if let Err(error) = self.sync_control_add_tokens(&request.arg, &mut response) {
+					let tg::Either::Left(error) = error.to_data_or_id() else {
+						unreachable!()
+					};
+					response.error = Some(error);
+					response.output = None;
+				}
 				self.sync_control_publish(
 					subject,
 					&entry.client,
@@ -537,6 +546,36 @@ impl Server {
 		tokio::time::timeout(self.config.sync.control.retry_interval, future)
 			.await
 			.ok();
+	}
+
+	fn sync_control_add_tokens(
+		&self,
+		arg: &protocol::ClientRequestArg,
+		response: &mut protocol::ServerResponse,
+	) -> tg::Result<()> {
+		let protocol::ClientRequestArg::Verify(arg) = arg else {
+			return Ok(());
+		};
+		let Some(protocol::ServerResponseOutput::Verify(Some(output))) = &mut response.output
+		else {
+			return Ok(());
+		};
+		let permissions = output.permissions().iter().collect::<Vec<_>>();
+		if permissions.is_empty() {
+			return Ok(());
+		}
+		let expires_at = self.clock.unix_timestamp()?
+			+ i64::try_from(self.config.sync.permission_time_to_live.as_secs()).unwrap();
+		let body = tg::authorization::Body {
+			expires_at,
+			permissions,
+			resource: arg.node.clone(),
+		};
+		match output {
+			protocol::VerifyServerResponseOutput::Object(output) => output.tokens.push(body),
+			protocol::VerifyServerResponseOutput::Process(output) => output.tokens.push(body),
+		}
+		Ok(())
 	}
 
 	fn sync_control_expire(&self, state: &mut State) {

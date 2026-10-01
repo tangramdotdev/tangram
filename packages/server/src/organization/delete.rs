@@ -79,14 +79,9 @@ impl Session {
 		let permission = tg::authorization::Permission::Organization(
 			tg::authorization::permission::organization::Permission::Admin,
 		);
-		match self
-			.authorize(tg::Selector::Id(organization.clone()), permission)
+		self.authorize(tg::Selector::Id(organization.clone()), permission)
 			.await?
-		{
-			None => return Ok(ControlFlow::Break(None)),
-			Some(permissions) if permissions.contains(permission) => (),
-			Some(_) => return Err(tg::error!("unauthorized")),
-		}
+			.into_result()?;
 		let ids_by_specifier = BTreeMap::from([(specifier, Some(id))]);
 		let session = self.clone();
 		let output = self

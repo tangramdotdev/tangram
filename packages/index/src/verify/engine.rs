@@ -13,16 +13,22 @@ use {
 	tangram_client::prelude::*,
 };
 
+type SearchContext = (
+	Vec<tg::authorization::Body>,
+	Option<tg::authorization::Subject>,
+	bool,
+);
+
 pub struct Batch {
 	args: Vec<super::Arg>,
 	config: super::Config,
-	outcomes: Option<Vec<super::Outcome>>,
+	outcomes: Option<Vec<super::Output>>,
 	phase: BatchPhase,
 	principal: tg::Principal,
 	requested: Vec<Option<tg::authorization::permission::Set>>,
 	required: Vec<Option<tg::authorization::permission::Set>>,
 	resources: Vec<Resolution>,
-	search_indices: BTreeMap<(Vec<tg::authorization::Body>, bool), usize>,
+	search_indices: BTreeMap<SearchContext, usize>,
 	searches: Vec<TokenSearch>,
 }
 
@@ -121,36 +127,99 @@ enum ProcessPhase {
 }
 
 impl Batch {
-	pub async fn authorize<E>(
+	pub async fn verify<E>(
 		args: &[super::Arg],
 		client: facts::Client<E>,
 		config: super::Config,
 		principal: &tg::Principal,
-	) -> Result<ControlFlow<Vec<super::Outcome>, E>, tg::Error>
+	) -> Result<ControlFlow<Vec<super::Output>, E>, tg::Error>
 	where
 		E: Clone + Send + Sync + 'static,
 	{
+		// Read storage and prove permissions in the same index transaction.
+		let args = args.to_vec();
+		config.validate()?;
+		args.iter().try_for_each(super::Arg::validate)?;
+		let storage =
+			futures::future::try_join_all(args.iter().map(|arg| read_storage(arg, &client)))
+				.await?;
+		let mut stored = Vec::with_capacity(args.len());
+		for storage in storage {
+			let storage = match storage {
+				ControlFlow::Break(storage) => storage,
+				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			};
+			stored.push(storage);
+		}
 		let client_for_reads = client.clone();
-		let result = Self::authorize_inner(args, client, config, principal).await;
+		let result = Self::verify_inner(&args, client.clone(), config, principal).await;
+		let result = match result? {
+			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			ControlFlow::Break(mut results) => {
+				for ((arg, result), storage) in
+					std::iter::zip(std::iter::zip(&args, &mut results), stored)
+				{
+					result.storage = storage;
+					if !storage.contains(arg.storage) && result.outcome == super::Outcome::Satisfied
+					{
+						result.outcome = super::Outcome::Unsatisfied;
+					}
+					let mut missing = arg.requested.empty_like();
+					for permission in arg.requested.iter() {
+						if !result
+							.permissions
+							.iter()
+							.any(|proof| proof.implies(permission))
+						{
+							missing.insert(tg::authorization::permission::Set::from_permission(
+								permission,
+							));
+						}
+					}
+					if !storage.contains(arg.storage) {
+						missing.insert(super::storage_permissions(arg.storage, arg.requested));
+					}
+					if missing.is_empty() {
+						continue;
+					}
+					let syncs =
+						match super::discover::discover(arg, missing, &client, config, principal)
+							.await?
+						{
+							ControlFlow::Break(syncs) => syncs,
+							ControlFlow::Continue(error) => {
+								return Ok(ControlFlow::Continue(error));
+							},
+						};
+					if syncs.exhausted && result.outcome != super::Outcome::Satisfied {
+						result.outcome = super::Outcome::Exhausted;
+					}
+					result.syncs.extend(syncs.syncs);
+					result.syncs.sort();
+					result.syncs.dedup();
+				}
+				Ok(ControlFlow::Break(results))
+			},
+		};
 		let reads = client_for_reads.reads();
-		for arg in args {
+		for arg in &args {
 			tracing::debug!(
 				args = args.len(),
 				reads,
 				resource = %arg.resource,
-				"authorize batch"
+				"verify batch"
 			);
 		}
 
 		result
 	}
 
-	async fn authorize_inner<E>(
+	pub(super) async fn verify_inner<E>(
 		args: &[super::Arg],
 		client: facts::Client<E>,
 		config: super::Config,
 		principal: &tg::Principal,
-	) -> Result<ControlFlow<Vec<super::Outcome>, E>, tg::Error>
+	) -> Result<ControlFlow<Vec<super::Output>, E>, tg::Error>
 	where
 		E: Clone + Send + Sync + 'static,
 	{
@@ -168,7 +237,7 @@ impl Batch {
 			}
 		}
 		if batch.complete() {
-			let outcomes = batch.into_outcomes()?;
+			let outcomes = batch.into_outputs()?;
 
 			return Ok(ControlFlow::Break(outcomes));
 		}
@@ -188,7 +257,7 @@ impl Batch {
 			batch.searches.push(search);
 		}
 		batch.finish();
-		let outcomes = batch.into_outcomes()?;
+		let outcomes = batch.into_outputs()?;
 
 		Ok(ControlFlow::Break(outcomes))
 	}
@@ -202,14 +271,17 @@ impl Batch {
 		args.iter().try_for_each(super::Arg::validate)?;
 		let outcomes = if args.is_empty() {
 			Some(Vec::new())
-		} else if matches!(principal, tg::Principal::Root) {
+		} else if matches!(principal, tg::Principal::Root)
+			&& args.iter().all(|arg| arg.subject.is_none())
+		{
 			let outcomes = args
 				.iter()
-				.map(|arg| {
-					super::Outcome::Authorized(super::Output {
-						expires_at: None,
-						permissions: arg.requested,
-					})
+				.map(|arg| super::Output {
+					expires_at: None,
+					outcome: super::Outcome::Satisfied,
+					permissions: arg.requested,
+					storage: arg.storage.empty_like(),
+					syncs: Vec::new(),
 				})
 				.collect();
 			Some(outcomes)
@@ -281,7 +353,16 @@ impl Batch {
 	pub(crate) fn apply(&mut self, read: Read, output: ReadOutput) -> tg::Result<()> {
 		match read {
 			Read::Resolve { index, .. } => {
-				let resource = output.into_resolved()?;
+				let resource = output.into_resolved()?.or_else(|| {
+					let arg = &self.args[index];
+					let tg::Selector::Id(id) = &arg.resource else {
+						return None;
+					};
+					arg.tokens
+						.iter()
+						.any(|token| &token.resource == id)
+						.then(|| (id.clone(), true))
+				});
 				let slot = self
 					.resources
 					.get_mut(index)
@@ -290,14 +371,12 @@ impl Batch {
 			},
 			read => {
 				let BatchPhase::Search { next } = self.phase else {
-					return Err(tg::error!(
-						"received an authorization fact outside a search"
-					));
+					return Err(tg::error!("received a verification fact outside a search"));
 				};
 				let search = self
 					.searches
 					.get_mut(next)
-					.ok_or_else(|| tg::error!("received an authorization fact after the search"))?;
+					.ok_or_else(|| tg::error!("received a verification fact after the search"))?;
 				search.apply(read, output)?;
 			},
 		}
@@ -305,9 +384,44 @@ impl Batch {
 		Ok(())
 	}
 
+	#[cfg(test)]
 	pub(crate) fn into_outcomes(self) -> tg::Result<Vec<super::Outcome>> {
 		self.outcomes
-			.ok_or_else(|| tg::error!("the authorization batch is incomplete"))
+			.map(|outputs| outputs.into_iter().map(|output| output.outcome).collect())
+			.ok_or_else(|| tg::error!("the verification batch is incomplete"))
+	}
+
+	fn into_outputs(self) -> tg::Result<Vec<super::Output>> {
+		let outcomes = self
+			.outcomes
+			.as_ref()
+			.ok_or_else(|| tg::error!("the verification batch is incomplete"))?;
+		let results = std::iter::zip(&self.args, outcomes)
+			.enumerate()
+			.map(|(index, (arg, outcome))| {
+				let mut syncs = std::collections::BTreeSet::new();
+				if let Some(Resolution::Complete(Some((id, _)))) = self.resources.get(index) {
+					for permission in arg.requested.iter() {
+						if let Some(index) = self
+							.search_indices
+							.get(&context(arg, permission.is_read_like()))
+						{
+							let search = &self.searches[*index];
+							let key = (id.clone(), permission, arg.subject.clone());
+							syncs.extend(search.state.syncs(&key));
+						}
+					}
+				}
+				super::Output {
+					expires_at: outcome.expires_at,
+					outcome: outcome.outcome,
+					permissions: outcome.permissions,
+					storage: outcome.storage,
+					syncs: syncs.into_iter().collect(),
+				}
+			})
+			.collect();
+		Ok(results)
 	}
 
 	fn prepare_searches(&mut self) -> tg::Result<()> {
@@ -329,7 +443,7 @@ impl Batch {
 			.map(|(arg, resource)| normalize_permissions(resource.as_ref(), arg.required))
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		let mut roots = BTreeMap::<(Vec<tg::authorization::Body>, bool), Vec<Key>>::new();
+		let mut roots = BTreeMap::<SearchContext, Vec<Key>>::new();
 		for (index, (arg, resource)) in std::iter::zip(&self.args, &resources).enumerate() {
 			let Some((id, _)) = resource else {
 				continue;
@@ -337,21 +451,24 @@ impl Batch {
 			let Some(requested) = self.requested[index] else {
 				continue;
 			};
-			if super::validate(id, requested).is_err() || principal_is_resource(&self.principal, id)
+			if super::validate(id, requested).is_err()
+				|| (arg.subject.is_none()
+					&& (matches!(self.principal, tg::Principal::Root)
+						|| principal_is_resource(&self.principal, id)))
 			{
 				continue;
 			}
 			for permission in super::permissions_in_search_order(requested) {
 				let process_parent_delegation = permission.is_read_like();
 				roots
-					.entry((arg.tokens.clone(), process_parent_delegation))
+					.entry(context(arg, process_parent_delegation))
 					.or_default()
-					.push((id.clone(), permission, None));
+					.push((id.clone(), permission, arg.subject.clone()));
 			}
 		}
 
 		for (context, roots) in roots {
-			let (tokens, process_parent_delegation) = &context;
+			let (tokens, subject, process_parent_delegation) = &context;
 			let index = self.searches.len();
 			self.search_indices.insert(context.clone(), index);
 			self.searches.push(TokenSearch::new(
@@ -360,6 +477,7 @@ impl Batch {
 				*process_parent_delegation,
 				roots,
 				tokens.clone(),
+				subject.clone(),
 			));
 		}
 		self.phase = BatchPhase::Search { next: 0 };
@@ -379,43 +497,72 @@ impl Batch {
 		let mut outcomes = Vec::with_capacity(self.args.len());
 		for (index, (arg, resource)) in std::iter::zip(&self.args, resources).enumerate() {
 			let Some((id, _)) = resource else {
-				outcomes.push(super::Outcome::Denied(None));
+				outcomes.push(super::Output {
+					expires_at: None,
+					outcome: super::Outcome::Unsatisfied,
+					permissions: arg.requested.empty_like(),
+					storage: arg.storage.empty_like(),
+					syncs: Vec::new(),
+				});
 				continue;
 			};
 			let Some(requested) = self.requested[index] else {
-				outcomes.push(super::Outcome::Denied(None));
+				outcomes.push(super::Output {
+					expires_at: None,
+					outcome: super::Outcome::Unsatisfied,
+					permissions: arg.requested.empty_like(),
+					storage: arg.storage.empty_like(),
+					syncs: Vec::new(),
+				});
 				continue;
 			};
-			let Some(required) = self.required[index] else {
-				outcomes.push(super::Outcome::Denied(None));
+			let Some(_) = self.required[index] else {
+				outcomes.push(super::Output {
+					expires_at: None,
+					outcome: super::Outcome::Unsatisfied,
+					permissions: arg.requested.empty_like(),
+					storage: arg.storage.empty_like(),
+					syncs: Vec::new(),
+				});
 				continue;
 			};
 			if super::validate(&id, requested).is_err() {
-				outcomes.push(super::Outcome::Denied(None));
+				outcomes.push(super::Output {
+					expires_at: None,
+					outcome: super::Outcome::Unsatisfied,
+					permissions: arg.requested.empty_like(),
+					storage: arg.storage.empty_like(),
+					syncs: Vec::new(),
+				});
 				continue;
 			}
-			if principal_is_resource(&self.principal, &id) {
+			if arg.subject.is_none()
+				&& (matches!(self.principal, tg::Principal::Root)
+					|| principal_is_resource(&self.principal, &id))
+			{
 				let output = super::Output {
 					expires_at: None,
+					outcome: super::Outcome::Satisfied,
 					permissions: arg.requested,
+					storage: arg.storage.empty_like(),
+					syncs: Vec::new(),
 				};
-				outcomes.push(super::Outcome::Authorized(output));
+				outcomes.push(output);
 				continue;
 			}
 			let mut expires_at = i64::MAX;
-			let mut authorized = requested.empty_like();
+			let mut verified = requested.empty_like();
 			let mut exhausted = requested.empty_like();
 			for permission in super::permissions_in_search_order(requested) {
 				let process_parent_delegation = permission.is_read_like();
-				let search_index =
-					self.search_indices[&(arg.tokens.clone(), process_parent_delegation)];
+				let search_index = self.search_indices[&context(arg, process_parent_delegation)];
 				let search = &self.searches[search_index];
-				let key = (id.clone(), permission, None);
+				let key = (id.clone(), permission, arg.subject.clone());
 				match search.final_search.outcome(&search.state, &key) {
-					Outcome::Authorized => {
+					Outcome::Verified => {
 						expires_at = expires_at.min(search.state.expires_at(&key));
-						super::insert_implied_permissions(&mut authorized, requested, permission);
-						if authorized.contains(requested) {
+						super::insert_implied_permissions(&mut verified, requested, permission);
+						if verified.contains(requested) {
 							break;
 						}
 					},
@@ -425,42 +572,43 @@ impl Batch {
 					),
 				}
 			}
-			let required_exhausted = required.iter().any(|permission| {
-				let permission = tg::authorization::permission::Set::from_permission(permission);
-				!authorized.contains(permission) && exhausted.contains(permission)
-			});
-			if required_exhausted {
-				outcomes.push(super::Outcome::Exhausted);
-				continue;
-			}
 
 			// Record optional permissions that remain indeterminate.
 			let mut indeterminate = exhausted;
-			indeterminate.remove(authorized);
+			indeterminate.remove(verified);
 			if !indeterminate.is_empty() {
 				tracing::debug!(
-					%authorized,
+					%verified,
 					%indeterminate,
 					%requested,
 					resource = %id,
-					"authorize permission indeterminate"
+					"verify permission indeterminate"
 				);
 			}
 
 			let permissions = if requested == arg.requested {
-				authorized
-			} else if authorized.contains(requested) {
+				verified
+			} else if verified.contains(requested) {
 				arg.requested
 			} else {
 				arg.requested.empty_like()
 			};
 			let expires_at = (expires_at != i64::MAX).then_some(expires_at);
+			let outcome = if permissions.contains(arg.requested) {
+				super::Outcome::Satisfied
+			} else if !indeterminate.is_empty() {
+				super::Outcome::Exhausted
+			} else {
+				super::Outcome::Unsatisfied
+			};
 			let output = super::Output {
+				outcome,
+				syncs: Vec::new(),
 				expires_at,
 				permissions,
+				storage: arg.storage.empty_like(),
 			};
-			let outcome = super::Outcome::from_output(Some(output), arg.requested);
-			outcomes.push(outcome);
+			outcomes.push(output);
 		}
 		self.outcomes = Some(outcomes);
 		self.phase = BatchPhase::Complete;
@@ -475,8 +623,10 @@ impl TokenSearch {
 		process_parent_delegation: bool,
 		roots: Vec<Key>,
 		tokens: Vec<tg::authorization::Body>,
+		subject: Option<tg::authorization::Subject>,
 	) -> Self {
 		let mut state = State::default();
+		state.set_token_subject(subject);
 		state.set_process_parent_delegation(process_parent_delegation);
 		let initial =
 			AncestorOrDescendantSearch::new(config, principal, &roots, &tokens, &mut state);
@@ -569,13 +719,13 @@ impl PermissionSearch {
 	fn new(config: super::Config, key: &Key, initial: Outcome, state: &State) -> tg::Result<Self> {
 		let current = state.outcome(key);
 		let phase = match current {
-			Outcome::Authorized | Outcome::Denied => PermissionPhase::Complete(current),
+			Outcome::Verified | Outcome::Denied => PermissionPhase::Complete(current),
 			Outcome::Exhausted => unreachable!(),
 			Outcome::Pending => match key.1 {
 				tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
 				) => PermissionPhase::Subtree(Box::new(SubtreeEvaluation::new_object(
-					config.subtree,
+					config.permissions.subtree,
 					&key.0,
 					initial,
                     key.2.as_ref(),
@@ -595,7 +745,7 @@ impl PermissionSearch {
 						| tg::authorization::permission::process::Permission::SubtreeLogObjects
 						| tg::authorization::permission::process::Permission::SubtreeOutputObjects),
 				) => PermissionPhase::Subtree(Box::new(SubtreeEvaluation::new_process(
-					config.subtree,
+					config.permissions.subtree,
 					&key.0,
 					permission,
 					initial,
@@ -748,17 +898,18 @@ impl SubtreeEvaluation {
 					*current = Some(Box::new(ProcessSearch::new(&key, permission, initial)?));
 				},
 				SubtreePhase::Ready => {
-					match self
-						.search
-						.next_action(state, limit, config.ancestor.page_size)?
-					{
-						SubtreeAction::AuthorizeAncestorOrDescendant { roots } => {
+					match self.search.next_action(
+						state,
+						limit,
+						config.permissions.ancestor.page_size,
+					)? {
+						SubtreeAction::VerifyAncestorOrDescendant { roots } => {
 							let search = AncestorOrDescendantSearch::new(
 								config, principal, &roots, tokens, state,
 							);
 							self.phase = SubtreePhase::AncestorOrDescendant { roots, search };
 						},
-						SubtreeAction::AuthorizeProcessNodes { roots } => {
+						SubtreeAction::VerifyProcessNodes { roots } => {
 							self.phase = SubtreePhase::ProcessNodes {
 								current: None,
 								pending: roots.into(),
@@ -846,7 +997,7 @@ impl ProcessSearch {
 	) -> tg::Result<Vec<Read>> {
 		loop {
 			match state.outcome(&self.root) {
-				outcome @ (Outcome::Authorized | Outcome::Denied) => {
+				outcome @ (Outcome::Verified | Outcome::Denied) => {
 					self.phase = ProcessPhase::Complete(outcome);
 				},
 				Outcome::Exhausted => unreachable!(),
@@ -859,11 +1010,11 @@ impl ProcessSearch {
 					pending,
 					value,
 				} => {
-					if self.initial == Outcome::Authorized {
-						self.phase = ProcessPhase::Complete(Outcome::Authorized);
+					if self.initial == Outcome::Verified {
+						self.phase = ProcessPhase::Complete(Outcome::Verified);
 						continue;
 					}
-					if config.subtree.max_objects == 0 {
+					if config.permissions.subtree.max_objects == 0 {
 						self.phase = ProcessPhase::Complete(Outcome::Exhausted);
 						continue;
 					}
@@ -879,7 +1030,7 @@ impl ProcessSearch {
 						};
 						match read {
 							ProcessFactRead::Objects { after } => {
-								let limit = config.ancestor.page_size;
+								let limit = config.permissions.ancestor.page_size;
 								reads.push(Read::ProcessObjects {
 									after,
 									limit,
@@ -917,7 +1068,7 @@ impl ProcessSearch {
 						}
 						if let Some(outcome) = search.outcome() {
 							match outcome {
-								Outcome::Authorized => {},
+								Outcome::Verified => {},
 								Outcome::Denied => {
 									let outcome = finish_process(state, &self.root, false);
 									self.phase = ProcessPhase::Complete(outcome);
@@ -938,12 +1089,12 @@ impl ProcessSearch {
 						self.phase = ProcessPhase::Complete(outcome);
 						continue;
 					};
-					if state.is_authorized(&root) {
+					if state.is_verified(&root) {
 						continue;
 					}
 					let resource = tg::Id::from(object);
 					*current = Some(Box::new(SubtreeEvaluation::new_object(
-						config.subtree,
+						config.permissions.subtree,
 						&resource,
 						initial,
 						self.root.2.as_ref(),
@@ -1061,8 +1212,8 @@ impl ProcessSearch {
 			state.add_derived_dependency(root, self.root.clone());
 		}
 		state.complete_derived(&self.root);
-		if state.is_authorized(&self.root) {
-			self.phase = ProcessPhase::Complete(Outcome::Authorized);
+		if state.is_verified(&self.root) {
+			self.phase = ProcessPhase::Complete(Outcome::Verified);
 
 			return;
 		}
@@ -1604,17 +1755,25 @@ fn aspect_matches(
 	}
 }
 
-fn finish_process(state: &mut State, key: &Key, authorized: bool) -> Outcome {
-	if authorized {
-		state.authorize_derived(key.clone());
+fn finish_process(state: &mut State, key: &Key, verified: bool) -> Outcome {
+	if verified {
+		state.verify_derived(key.clone());
 	} else {
 		state.deny_derived(key);
 	}
 	match state.outcome(key) {
-		outcome @ (Outcome::Authorized | Outcome::Denied) => outcome,
+		outcome @ (Outcome::Verified | Outcome::Denied) => outcome,
 		Outcome::Exhausted => unreachable!(),
 		Outcome::Pending => Outcome::Exhausted,
 	}
+}
+
+fn context(arg: &super::Arg, process_parent_delegation: bool) -> SearchContext {
+	(
+		arg.tokens.clone(),
+		arg.subject.clone(),
+		process_parent_delegation,
+	)
 }
 
 fn normalize_permissions(
@@ -1635,11 +1794,47 @@ fn principal_is_resource(principal: &tg::Principal, resource: &tg::Id) -> bool {
 	matches!(principal, tg::Principal::Process(process) if tg::Id::from(process.clone()) == *resource)
 }
 
+async fn read_storage<E>(
+	arg: &super::Arg,
+	client: &facts::Client<E>,
+) -> Result<ControlFlow<tg::storage::Set, E>, tg::Error>
+where
+	E: Clone + Send + Sync + 'static,
+{
+	if arg.storage.is_empty() {
+		return Ok(ControlFlow::Break(arg.storage.empty_like()));
+	}
+	let tg::Selector::Id(resource) = &arg.resource else {
+		return Err(tg::error!("a storage requirement requires a resource id"));
+	};
+	let valid = match arg.storage {
+		tg::storage::Set::Object(_) => resource.kind().is_object(),
+		tg::storage::Set::Process(_) => resource.kind() == tg::id::Kind::Process,
+	};
+	if !valid {
+		return Err(tg::error!(
+			"the storage requirement does not match the resource"
+		));
+	}
+	let request = facts::Request::Storage {
+		resource: resource.clone(),
+	};
+	let output = match client.read(request).await? {
+		ControlFlow::Break(output) => output,
+		ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+	};
+	let facts::Output::Storage(storage) = output else {
+		return Err(tg::error!("unexpected storage fact response"));
+	};
+
+	Ok(ControlFlow::Break(storage))
+}
+
 #[cfg(test)]
 mod tests {
 	use {
 		super::*,
-		crate::authorize::search::{AncestorNodeRead, MemberRead, Permission},
+		crate::verify::search::{AncestorNodeRead, MemberRead, Permission},
 		std::{
 			sync::{
 				Arc,
@@ -1677,7 +1872,7 @@ mod tests {
 			}
 		});
 
-		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
+		assert!(matches!(outcome[0], super::super::Outcome::Satisfied));
 	}
 
 	#[test]
@@ -1718,7 +1913,7 @@ mod tests {
 			},
 		);
 
-		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
+		assert!(matches!(outcome[0], super::super::Outcome::Satisfied));
 	}
 
 	#[test]
@@ -1766,7 +1961,7 @@ mod tests {
 			},
 		);
 
-		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
+		assert!(matches!(outcome[0], super::super::Outcome::Satisfied));
 	}
 
 	#[test]
@@ -1776,8 +1971,8 @@ mod tests {
 		let user = tg::user::Id::new();
 		let principal = tg::Principal::User(user.clone());
 		let mut config = super::super::Config::default();
-		config.ancestor.max_depth = 1;
-		config.descendant.max_nodes = 0;
+		config.permissions.ancestor.max_depth = 1;
+		config.permissions.descendant.max_nodes = 0;
 		let outcome = run_with_config(
 			&[arg(object.clone().into(), None)],
 			config,
@@ -1811,7 +2006,7 @@ mod tests {
 			},
 		);
 
-		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
+		assert!(matches!(outcome[0], super::super::Outcome::Satisfied));
 	}
 
 	#[test]
@@ -1821,8 +2016,8 @@ mod tests {
 		let user = tg::user::Id::new();
 		let principal = tg::Principal::User(user.clone());
 		let mut config = super::super::Config::default();
-		config.ancestor.max_nodes = 0;
-		config.descendant.max_depth = 1;
+		config.permissions.ancestor.max_nodes = 0;
+		config.permissions.descendant.max_depth = 1;
 		let outcome = run_with_config(
 			&[arg(object.clone().into(), None)],
 			config,
@@ -1859,7 +2054,7 @@ mod tests {
 			},
 		);
 
-		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
+		assert!(matches!(outcome[0], super::super::Outcome::Satisfied));
 	}
 
 	#[test]
@@ -1870,11 +2065,11 @@ mod tests {
 			&tg::Principal::Anonymous,
 			|read| match read {
 				Read::Resolve { .. } => ReadOutput::Resolved(None),
-				_ => panic!("a missing resource must not start an authorization search"),
+				_ => panic!("a missing resource must not start a verification search"),
 			},
 		);
 
-		assert!(matches!(outcome[0], super::super::Outcome::Denied(None)));
+		assert!(matches!(outcome[0], super::super::Outcome::Unsatisfied));
 	}
 
 	#[test]
@@ -1886,6 +2081,8 @@ mod tests {
 			),
 		);
 		let arg = super::super::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: permissions,
 			required: permissions,
 			resource: tg::Selector::Id(object.into()),
@@ -1893,7 +2090,7 @@ mod tests {
 		};
 		let outcome = run(&[arg], &tg::Principal::Anonymous, default_output);
 
-		assert!(matches!(outcome[0], super::super::Outcome::Denied(None)));
+		assert!(matches!(outcome[0], super::super::Outcome::Unsatisfied));
 	}
 
 	#[tokio::test]
@@ -1908,7 +2105,7 @@ mod tests {
 		let barrier = Arc::new(Barrier::new(2));
 		let maximum = Arc::new(AtomicUsize::new(0));
 		let (client, receiver) = facts::channel::<std::convert::Infallible>(2);
-		let authorize = Batch::authorize(
+		let verify = Batch::verify(
 			&args,
 			client,
 			super::super::Config::default(),
@@ -1965,19 +2162,22 @@ mod tests {
 		});
 		let (outcome, ()) = tokio::time::timeout(
 			Duration::from_secs(1),
-			futures::future::join(authorize, provide),
+			futures::future::join(verify, provide),
 		)
 		.await
 		.unwrap();
 		let outcome = match outcome.unwrap() {
-			ControlFlow::Break(outcome) => outcome,
+			ControlFlow::Break(outcome) => outcome
+				.into_iter()
+				.map(|result| result.outcome)
+				.collect::<Vec<_>>(),
 			ControlFlow::Continue(error) => match error {},
 		};
 
 		assert!(
 			outcome
 				.iter()
-				.all(|outcome| matches!(outcome, super::super::Outcome::Denied(_)))
+				.all(|outcome| matches!(outcome, super::super::Outcome::Unsatisfied))
 		);
 		assert_eq!(maximum.load(Ordering::SeqCst), 2);
 	}
@@ -2068,18 +2268,18 @@ mod tests {
 			}
 		});
 
-		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
-		assert!(matches!(outcome[1], super::super::Outcome::Authorized(_)));
+		assert!(matches!(outcome[0], super::super::Outcome::Satisfied));
+		assert!(matches!(outcome[1], super::super::Outcome::Satisfied));
 	}
 
 	#[test]
-	fn root_authorization_completes_without_requesting_facts() {
+	fn root_verification_completes_without_requesting_facts() {
 		let object = object(0);
 		let outcome = run(&[arg(object.into(), None)], &tg::Principal::Root, |_| {
-			panic!("root authorization must not request datastore facts")
+			panic!("root verification must not request datastore facts")
 		});
 
-		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
+		assert!(matches!(outcome[0], super::super::Outcome::Satisfied));
 	}
 
 	#[test]
@@ -2110,8 +2310,8 @@ mod tests {
 			_ => default_output(read),
 		});
 
-		assert!(matches!(outcome[0], super::super::Outcome::Authorized(_)));
-		assert!(matches!(outcome[1], super::super::Outcome::Denied(_)));
+		assert!(matches!(outcome[0], super::super::Outcome::Satisfied));
+		assert!(matches!(outcome[1], super::super::Outcome::Unsatisfied));
 	}
 
 	fn arg(resource: tg::Id, token: Option<tg::authorization::Body>) -> super::super::Arg {
@@ -2121,6 +2321,8 @@ mod tests {
 		let permissions = tg::authorization::permission::Set::from_permission(permission);
 
 		super::super::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: permissions,
 			required: permissions,
 			resource: tg::Selector::Id(resource),

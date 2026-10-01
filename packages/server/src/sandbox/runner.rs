@@ -70,7 +70,10 @@ impl Session {
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let permission = tg::authorization::Permission::Sandbox(permission);
 		// Never use the sandbox's own authorization tokens to authorize a caller.
-		let permissions = self.authorize(resource, permission).await?;
-		Ok(permissions.is_some_and(|permissions| permissions.contains(permission)))
+		let permissions = self
+			.authorize(resource, permission)
+			.await?
+			.check_exhaustion()?;
+		Ok(permissions.permissions.contains(permission))
 	}
 }

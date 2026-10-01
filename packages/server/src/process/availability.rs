@@ -79,9 +79,11 @@ impl Session {
 		let requested = tg::authorization::permission::Set::Process(
 			tg::authorization::permission::process::Set::all(),
 		);
-		let Some(permissions) = self.authorize(resource, requested).await? else {
-			return Ok(None);
-		};
+		let authorization = self
+			.authorize(resource, requested)
+			.await?
+			.check_exhaustion()?;
+		let permissions = authorization.permissions;
 		Ok(Self::compute_process_availability_with_permissions(
 			storage,
 			permissions,

@@ -161,8 +161,9 @@ impl Session {
 					artifact.clone(),
 					tg::authorization::permission::Set::from_permission(permission),
 				)
-				.await?;
-			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
+				.await?
+				.check_exhaustion()?;
+			if authorized.permissions.contains(permission) {
 				return Ok(());
 			}
 		}
@@ -200,8 +201,9 @@ impl Session {
 					artifact.clone(),
 					tg::authorization::permission::Set::from_permission(permission),
 				)
-				.await?;
-			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
+				.await?
+				.check_exhaustion()?;
+			if authorized.permissions.contains(permission) {
 				return Ok(());
 			}
 		}
@@ -257,8 +259,9 @@ impl Session {
 					artifact.clone(),
 					tg::authorization::permission::Set::from_permission(permission),
 				)
-				.await?;
-			if authorized.is_some_and(|permissions| permissions.contains(permission)) {
+				.await?
+				.check_exhaustion()?;
+			if authorized.permissions.contains(permission) {
 				progress.finish_all();
 				return Ok(());
 			}

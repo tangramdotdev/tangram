@@ -4,7 +4,7 @@ use {
 	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
-	tangram_index::authorize::{
+	tangram_index::verify::{
 		Batch,
 		facts::{self, Output, Request},
 	},
@@ -14,41 +14,41 @@ use {
 mod tests;
 
 impl Index {
-	pub async fn authorize_batch(
+	pub async fn verify_batch(
 		&self,
-		args: &[tangram_index::authorize::Arg],
-		config: tangram_index::authorize::Config,
+		args: &[tangram_index::verify::Arg],
+		config: tangram_index::verify::Config,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<tangram_index::authorize::Outcome>> {
-		let request = tangram_index::read::Request::AuthorizeBatch {
+	) -> tg::Result<Vec<tangram_index::verify::Output>> {
+		let request = tangram_index::read::Request::VerifyBatch {
 			args: args.to_owned(),
 			config,
 			principal: principal.clone(),
 		};
 		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::AuthorizeBatch(output) = response else {
+		let tangram_index::read::Response::VerifyBatch(output) = response else {
 			return Err(tg::error!("unexpected read response"));
 		};
 
 		Ok(output)
 	}
 
-	pub(crate) fn authorize_batch_with_transaction(
+	pub(crate) fn verify_batch_with_transaction(
 		cache: facts::Cache<std::convert::Infallible>,
-		config: tangram_index::authorize::Config,
+		config: tangram_index::verify::Config,
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
-		args: &[tangram_index::authorize::Arg],
+		args: &[tangram_index::verify::Arg],
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<tangram_index::authorize::Outcome>> {
+	) -> tg::Result<Vec<tangram_index::verify::Output>> {
 		let (client, receiver) = facts::channel_with_cache(1, cache);
-		let authorize = Batch::authorize(args, client, config, principal);
+		let verify = Batch::verify(args, client, config, principal);
 		let provide = facts::serve(receiver, 1, |request| async move {
-			Self::execute_authorization_fact_with_transaction(db, subspace, transaction, &request)
+			Self::execute_verification_fact_with_transaction(db, subspace, transaction, &request)
 				.map(ControlFlow::Break)
 		});
-		let (outcome, ()) = futures::executor::block_on(futures::future::join(authorize, provide));
+		let (outcome, ()) = futures::executor::block_on(futures::future::join(verify, provide));
 		let outcome = match outcome? {
 			ControlFlow::Break(outcome) => outcome,
 			ControlFlow::Continue(error) => match error {},
@@ -57,7 +57,7 @@ impl Index {
 		Ok(outcome)
 	}
 
-	fn execute_authorization_fact_with_transaction(
+	fn execute_verification_fact_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
@@ -79,7 +79,7 @@ impl Index {
 					subspace,
 					&(crate::Kind::GroupMember.to_i32().unwrap(), group.as_ref()),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (keys, after) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -127,7 +127,7 @@ impl Index {
 					for kind in kinds {
 						let prefix =
 							Self::pack(subspace, &(kind.to_i32().unwrap(), id.to_bytes().as_ref()));
-						let (keys, _) = Self::get_authorization_key_page_with_transaction(
+						let (keys, _) = Self::get_verification_key_page_with_transaction(
 							db,
 							subspace,
 							transaction,
@@ -154,7 +154,7 @@ impl Index {
 					subspace,
 					&(crate::Kind::MemberGroup.to_i32().unwrap(), member.as_ref()),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (keys, after) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -189,7 +189,7 @@ impl Index {
 						member.as_ref(),
 					),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (keys, after) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -224,7 +224,7 @@ impl Index {
 				let key = Self::pack(subspace, &key);
 				let value = db
 					.get(transaction, &key)
-					.map_err(|error| tg::error!(!error, "failed to get an authorization fact"))?;
+					.map_err(|error| tg::error!(!error, "failed to get a verification fact"))?;
 
 				Output::Bool(value.is_some())
 			},
@@ -233,7 +233,7 @@ impl Index {
 				let key = Self::pack(subspace, &key);
 				let value = db
 					.get(transaction, &key)
-					.map_err(|error| tg::error!(!error, "failed to get an authorization fact"))?;
+					.map_err(|error| tg::error!(!error, "failed to get a verification fact"))?;
 				Output::Bool(value.is_some())
 			},
 			Request::ObjectChildren {
@@ -246,7 +246,7 @@ impl Index {
 					subspace,
 					&(crate::Kind::ObjectChild.to_i32().unwrap(), object.as_ref()),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (keys, after) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -278,7 +278,7 @@ impl Index {
 					subspace,
 					&(crate::Kind::ChildObject.to_i32().unwrap(), object.as_ref()),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (keys, after) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -314,7 +314,7 @@ impl Index {
 						object.as_ref(),
 					),
 				);
-				let (entries, after) = Self::get_authorization_entry_page_with_transaction(
+				let (entries, after) = Self::get_verification_entry_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -353,7 +353,7 @@ impl Index {
 						organization.as_ref(),
 					),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (keys, after) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -389,7 +389,7 @@ impl Index {
 						owner.to_string(),
 					),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (keys, after) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -427,7 +427,7 @@ impl Index {
 				let key = Self::pack(subspace, &key);
 				let value = db
 					.get(transaction, &key)
-					.map_err(|error| tg::error!(!error, "failed to get an authorization fact"))?;
+					.map_err(|error| tg::error!(!error, "failed to get a verification fact"))?;
 
 				Output::Bool(value.is_some())
 			},
@@ -444,7 +444,7 @@ impl Index {
 						process.as_ref(),
 					),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (keys, after) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -482,9 +482,9 @@ impl Index {
 						process: process.clone(),
 					});
 					let key = Self::pack(subspace, &key);
-					let value = db.get(transaction, &key).map_err(|error| {
-						tg::error!(!error, "failed to get an authorization fact")
-					})?;
+					let value = db
+						.get(transaction, &key)
+						.map_err(|error| tg::error!(!error, "failed to get a verification fact"))?;
 					if value.is_some() {
 						kinds.push(kind);
 					}
@@ -502,7 +502,7 @@ impl Index {
 					let permission = tg::authorization::Permission::Object(*permission);
 					let resource = object.clone().into();
 					let subject = tg::authorization::Subject::Process(process.clone());
-					let permission = Self::get_authorization_permission_with_transaction(
+					let permission = Self::get_verification_permission_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -528,7 +528,7 @@ impl Index {
 						process.as_ref(),
 					),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (keys, after) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -567,7 +567,7 @@ impl Index {
 						process.as_ref(),
 					),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (keys, after) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -603,7 +603,7 @@ impl Index {
 						resource.to_bytes().as_ref(),
 					),
 				);
-				let (entries, after) = Self::get_authorization_entry_page_with_transaction(
+				let (entries, after) = Self::get_verification_entry_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -634,7 +634,7 @@ impl Index {
 						resource_bytes.as_ref(),
 					),
 				);
-				let (entries, after) = Self::get_authorization_entry_page_with_transaction(
+				let (entries, after) = Self::get_verification_entry_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -688,7 +688,7 @@ impl Index {
 				subject,
 			} => {
 				let (after, permissions) =
-					Self::get_authorization_subject_permissions_with_transaction(
+					Self::get_verification_subject_permissions_with_transaction(
 						db,
 						subspace,
 						transaction,
@@ -699,6 +699,39 @@ impl Index {
 
 				Output::Permissions { after, permissions }
 			},
+			Request::Storage { resource } => {
+				let storage = if resource.kind().is_object() {
+					let object = resource.clone().try_into()?;
+					let object =
+						Self::try_get_object_with_transaction(db, subspace, transaction, &object)?;
+					tg::storage::Set::Object(
+						object
+							.map_or_else(tg::object::storage::Set::empty, |object| object.storage),
+					)
+				} else if resource.kind() == tg::id::Kind::Process {
+					let process = resource.clone().try_into()?;
+					let process = Self::try_get_process_with_transaction(
+						db,
+						subspace,
+						transaction,
+						&process,
+					)?;
+					tg::storage::Set::Process(
+						process
+							.filter(|process| process.data.is_some())
+							.map_or_else(tg::process::storage::Set::empty, |process| {
+								process.storage
+							}),
+					)
+				} else {
+					return Err(tg::error!(
+						"the storage requirement does not match the resource"
+					));
+				};
+
+				Output::Storage(storage)
+			},
+
 			Request::Tag { tag } => {
 				let tag = Self::try_get_tag_with_transaction(db, subspace, transaction, tag)?;
 
@@ -714,7 +747,7 @@ impl Index {
 					subspace,
 					&(crate::Kind::TargetTag.to_i32().unwrap(), target.as_ref()),
 				);
-				let (keys, after) = Self::get_authorization_key_page_with_transaction(
+				let (keys, after) = Self::get_verification_key_page_with_transaction(
 					db,
 					subspace,
 					transaction,
@@ -740,7 +773,7 @@ impl Index {
 		Ok(output)
 	}
 
-	fn get_authorization_permission_with_transaction(
+	fn get_verification_permission_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
@@ -758,7 +791,7 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		let value = db
 			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, "failed to get an authorization fact"))?;
+			.map_err(|error| tg::error!(!error, "failed to get a verification fact"))?;
 		let permission = match value {
 			Some(value) => {
 				let value = crate::permission::PermissionValue::deserialize(value)?;
@@ -778,7 +811,7 @@ impl Index {
 		Ok(permission)
 	}
 
-	fn get_authorization_key_page_with_transaction(
+	fn get_verification_key_page_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
@@ -786,7 +819,7 @@ impl Index {
 		after: Option<&[u8]>,
 		limit: usize,
 	) -> tg::Result<(Vec<crate::Key>, Option<Vec<u8>>)> {
-		let (entries, after) = Self::get_authorization_entry_page_with_transaction(
+		let (entries, after) = Self::get_verification_entry_page_with_transaction(
 			db,
 			subspace,
 			transaction,
@@ -799,7 +832,7 @@ impl Index {
 		Ok((keys, after))
 	}
 
-	fn get_authorization_entry_page_with_transaction(
+	fn get_verification_entry_page_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
@@ -820,12 +853,12 @@ impl Index {
 		);
 		let iter = db
 			.range(transaction, &range)
-			.map_err(|error| tg::error!(!error, "failed to page authorization relationships"))?;
+			.map_err(|error| tg::error!(!error, "failed to page verification relationships"))?;
 		let mut entries = Vec::new();
 		let mut last = None;
 		for entry in iter.take(limit) {
 			let (key, value) = entry.map_err(|error| {
-				tg::error!(!error, "failed to read an authorization relationship")
+				tg::error!(!error, "failed to read a verification relationship")
 			})?;
 			if !key.starts_with(prefix) {
 				break;
@@ -839,7 +872,7 @@ impl Index {
 		Ok((entries, after))
 	}
 
-	fn get_authorization_subject_permissions_with_transaction(
+	fn get_verification_subject_permissions_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
@@ -854,7 +887,7 @@ impl Index {
 				subject.to_string(),
 			),
 		);
-		let (entries, after) = Self::get_authorization_entry_page_with_transaction(
+		let (entries, after) = Self::get_verification_entry_page_with_transaction(
 			db,
 			subspace,
 			transaction,

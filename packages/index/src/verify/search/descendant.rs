@@ -62,11 +62,12 @@ enum DescendantTask {
 }
 
 pub(super) struct Search {
-	authorization_revision: usize,
+	verification_revision: usize,
 	budget: Budget,
 	complete: bool,
 	pub(super) exhausted: bool,
 	queues: BTreeMap<usize, VecDeque<DescendantTask>>,
+	token_subject: Option<tg::authorization::Subject>,
 	pub(super) unresolved: HashSet<Key>,
 	visited: HashSet<Key>,
 	visited_process_objects: HashSet<(Key, tg::object::Id)>,
@@ -76,24 +77,26 @@ pub(super) struct Search {
 impl Search {
 	#[must_use]
 	pub(super) fn new(
-		config: crate::authorize::SearchConfig,
+		config: crate::verify::SearchConfig,
 		principal: &tg::Principal,
 		state: &mut State,
 		targets: Vec<Key>,
 		tokens: &[tg::authorization::Body],
 	) -> Self {
-		let authorization_revision = state.authorization_revision();
+		let token_subject = state.token_subject().cloned();
+		let verification_revision = state.verification_revision();
 		let budget = Budget::with_root_total(config, targets.len());
 		// Public permissions are checked only by the ancestor search, so a descendant search cannot deny.
 		let complete = false;
 		let unresolved = targets.into_iter().collect();
 		if config.max_nodes == 0 {
 			return Self {
-				authorization_revision,
+				verification_revision,
 				budget,
 				complete,
 				exhausted: true,
 				queues: BTreeMap::new(),
+				token_subject,
 				unresolved,
 				visited: HashSet::new(),
 				visited_process_objects: HashSet::new(),
@@ -103,27 +106,40 @@ impl Search {
 
 		let mut queues = BTreeMap::<_, VecDeque<_>>::new();
 		let visited = HashSet::new();
-		if let Ok(subject) = principal.try_to_subject() {
+		if let Some(subject) = token_subject
+			.clone()
+			.or_else(|| principal.try_to_subject().ok())
+		{
 			queues
 				.entry(0)
 				.or_default()
 				.push_back(DescendantTask::Subject { depth: 0, subject });
 		}
 
-		let mut sources = inherent_sources(principal)
+		let sources = if token_subject.is_none() {
+			inherent_sources(principal)
+		} else {
+			Vec::new()
+		};
+		let mut sources = sources
 			.into_iter()
 			.map(|key| (key, i64::MAX))
 			.collect::<Vec<_>>();
 		for body in tokens {
-			sources.extend(
-				body.permissions.iter().map(|permission| {
-					((body.resource.clone(), *permission, None), body.expires_at)
-				}),
-			);
+			sources.extend(body.permissions.iter().map(|permission| {
+				(
+					(
+						body.resource.clone(),
+						*permission,
+						state.token_subject().cloned(),
+					),
+					body.expires_at,
+				)
+			}));
 		}
 		let mut sources_seen = HashSet::new();
 		for (key, expires_at) in sources {
-			state.authorize_with_expiration(key.clone(), expires_at);
+			state.verify_with_expiration(key.clone(), expires_at);
 			if !sources_seen.insert(key.clone()) {
 				continue;
 			}
@@ -134,11 +150,12 @@ impl Search {
 		}
 
 		Self {
-			authorization_revision,
+			verification_revision,
 			budget,
 			complete,
 			exhausted: false,
 			queues,
+			token_subject,
 			unresolved,
 			visited,
 			visited_process_objects: HashSet::new(),
@@ -146,11 +163,7 @@ impl Search {
 		}
 	}
 
-	pub(super) fn add_targets(
-		&mut self,
-		config: crate::authorize::SearchConfig,
-		targets: Vec<Key>,
-	) {
+	pub(super) fn add_targets(&mut self, config: crate::verify::SearchConfig, targets: Vec<Key>) {
 		let added = targets
 			.into_iter()
 			.filter(|target| self.unresolved.insert(target.clone()))
@@ -163,7 +176,7 @@ impl Search {
 
 	pub(super) fn take_reads(&mut self, state: &mut State, limit: usize) -> Vec<Read> {
 		assert!(limit > 0);
-		for key in state.authorization_changes_since(&mut self.authorization_revision) {
+		for key in state.verification_changes_since(&mut self.verification_revision) {
 			self.unresolved.remove(&key);
 		}
 		let mut reads = Vec::new();
@@ -323,14 +336,14 @@ impl Search {
 				None,
 			)),
 			Read::OwnerSandboxes { owner, .. } => owner.to_id().and_then(|resource| {
-				crate::authorize::write_permission_for_resource(&resource)
+				crate::verify::write_permission_for_resource(&resource)
 					.ok()
 					.map(|permission| (resource, permission, None))
 			}),
 			Read::SubjectPermissions {
 				subject: tg::authorization::Subject::Sync(sync),
 				..
-			} => Some((
+			} if self.token_subject != Some(tg::authorization::Subject::Sync(sync.clone())) => Some((
 				sync.clone().into(),
 				tg::authorization::Permission::Sync(
 					tg::authorization::permission::sync::Permission::Read,
@@ -339,6 +352,13 @@ impl Search {
 			)),
 			_ => None,
 		};
+		let source = source.map(|(resource, permission, subject)| {
+			(
+				resource,
+				permission,
+				subject.or_else(|| self.token_subject.clone()),
+			)
+		});
 		let retry = read.clone();
 		let (depth, next_depth, continuation, neighbors) = match read {
 			Read::DescendantChecks(checks) => {
@@ -506,7 +526,7 @@ impl Search {
 								let proofs = covering
 									.into_iter()
 									.map(|permission| {
-										vec![crate::authorize::Check::ProcessObjectPermission {
+										vec![crate::verify::Check::ProcessObjectPermission {
 											object: child.clone().try_into().unwrap(),
 											permission,
 											process: process.clone(),
@@ -583,11 +603,16 @@ impl Search {
 				));
 			},
 		};
-		for key in neighbors {
+		for (resource, permission, subject) in neighbors {
+			let key = (
+				resource,
+				permission,
+				subject.or_else(|| self.token_subject.clone()),
+			);
 			if let Some(source) = &source {
-				state.add_authorization_dependency(source, key.clone());
+				state.add_verification_dependency(source, key.clone());
 			} else {
-				state.authorize_ancestor_or_descendant(key.clone());
+				state.verify_ancestor_or_descendant(key.clone());
 			}
 			if self.visited.contains(&key) {
 				continue;
@@ -643,8 +668,8 @@ impl Search {
 						key: neighbor.clone(),
 					});
 			}
-			state.add_authorization_dependency(&checks.source, neighbor);
-			for key in state.authorization_changes_since(&mut self.authorization_revision) {
+			state.add_verification_dependency(&checks.source, neighbor);
+			for key in state.verification_changes_since(&mut self.verification_revision) {
 				self.unresolved.remove(&key);
 			}
 			if self.unresolved.is_empty() {
@@ -657,10 +682,19 @@ impl Search {
 	fn queue_candidates(
 		&mut self,
 		depth: usize,
-		candidates: Vec<DescendantCandidate>,
+		mut candidates: Vec<DescendantCandidate>,
 		fallback: DescendantFallback,
-		source: Key,
+		mut source: Key,
 	) {
+		source.2 = source.2.or_else(|| self.token_subject.clone());
+		for candidate in &mut candidates {
+			candidate.neighbor.2 = candidate
+				.neighbor
+				.2
+				.clone()
+				.or_else(|| self.token_subject.clone());
+		}
+
 		if candidates.len() > self.budget.config.page_size {
 			self.queue_fallback(depth, fallback);
 
@@ -764,14 +798,22 @@ impl Search {
 		};
 		let next_depth = depth + 1;
 		for container in containers {
-			let edge_known = state.has_membership_dependency(&member_subject, &container, None);
+			let edge_known = state.has_membership_dependency(
+				&member_subject,
+				&container,
+				self.token_subject.as_ref(),
+			);
 			if !edge_known && !self.budget.add_edge() {
 				self.exhausted = true;
 				self.requeue_read(retry)?;
 
 				return Ok(());
 			}
-			state.add_membership_dependency(&member_subject, container.clone(), None);
+			state.add_membership_dependency(
+				&member_subject,
+				container.clone(),
+				self.token_subject.as_ref(),
+			);
 			if self.visited_subjects.contains(&container) {
 				continue;
 			}
@@ -803,7 +845,7 @@ impl Search {
 	#[must_use]
 	pub(super) fn finish(&mut self, state: &mut State) -> Outcome {
 		if self.unresolved.is_empty() {
-			return Outcome::Authorized;
+			return Outcome::Verified;
 		}
 		if !self.complete || self.exhausted {
 			return Outcome::Exhausted;
@@ -835,8 +877,8 @@ impl Search {
 			}
 			self.visited.insert(key.clone());
 		}
-		debug_assert!(state.is_authorized(&key));
-		for key in state.authorization_changes_since(&mut self.authorization_revision) {
+		debug_assert!(state.is_verified(&key));
+		for key in state.verification_changes_since(&mut self.verification_revision) {
 			self.unresolved.remove(&key);
 		}
 		if self.exhausted {
@@ -852,7 +894,7 @@ impl Search {
 					key: key.clone(),
 				});
 		}
-		if crate::authorize::write_permission_for_resource(&resource).ok() == Some(permission)
+		if crate::verify::write_permission_for_resource(&resource).ok() == Some(permission)
 			&& let Some(owner) = principal_for_resource(&resource)
 		{
 			self.queues
@@ -897,7 +939,7 @@ impl Search {
 					tg::authorization::Permission::Process(
 						tg::authorization::permission::process::Permission::Parent,
 					),
-					None,
+					key.2.clone(),
 				);
 				if permission != tg::authorization::permission::process::Permission::Parent
 					&& !self.visited.contains(&parent)
@@ -956,11 +998,11 @@ impl Search {
 	}
 
 	fn expand_node_implications(&mut self, depth: usize, key: Key) {
-		let implied = crate::authorize::permissions_implied_by(key.1)
+		let implied = crate::verify::permissions_implied_by(key.1)
 			.into_iter()
 			.rev()
 			.filter(|permission| *permission != key.1)
-			.map(|permission| (key.0.clone(), permission, None))
+			.map(|permission| (key.0.clone(), permission, key.2.clone()))
 			.filter(|key| !self.visited.contains(key))
 			.collect::<Vec<_>>();
 		if !self.budget.add(implied.len(), implied.len(), depth) {
@@ -999,7 +1041,7 @@ impl Search {
 			.into_iter()
 			.filter(|child| child != object)
 			.map(|child| {
-				let check = crate::authorize::Check::ObjectChild {
+				let check = crate::verify::Check::ObjectChild {
 					child: child.clone(),
 					parent: object.clone(),
 				};
@@ -1010,7 +1052,11 @@ impl Search {
 				}
 			})
 			.collect();
-		let source = (object.clone().into(), permission, None);
+		let source = (
+			object.clone().into(),
+			permission,
+			self.token_subject.clone(),
+		);
 		self.queue_candidates(depth, candidates, fallback, source);
 	}
 
@@ -1042,7 +1088,7 @@ impl Search {
 				if !permission.implies(target) {
 					continue;
 				}
-				let check = crate::authorize::Check::ProcessChild {
+				let check = crate::verify::Check::ProcessChild {
 					child: child.clone(),
 					parent: process.clone(),
 				};
@@ -1057,7 +1103,7 @@ impl Search {
 		let source = (
 			process.clone().into(),
 			tg::authorization::Permission::Process(permission),
-			None,
+			self.token_subject.clone(),
 		);
 		self.queue_candidates(depth, candidates, fallback, source);
 	}
@@ -1101,7 +1147,7 @@ impl Search {
 		let source = (
 			process.clone().into(),
 			tg::authorization::Permission::Process(permission),
-			None,
+			self.token_subject.clone(),
 		);
 		self.queue_candidates(depth, candidates, fallback, source);
 	}
@@ -1154,13 +1200,13 @@ impl Search {
 			.map(|covering_permission| {
 				let mut proof = Vec::new();
 				if !relationship_is_known {
-					proof.push(crate::authorize::Check::ProcessObject {
+					proof.push(crate::verify::Check::ProcessObject {
 						kind,
 						object: object.clone(),
 						process: process.clone(),
 					});
 				}
-				proof.push(crate::authorize::Check::ProcessObjectPermission {
+				proof.push(crate::verify::Check::ProcessObjectPermission {
 					object: object.clone(),
 					permission: covering_permission,
 					process: process.clone(),
@@ -1371,7 +1417,7 @@ fn process_object_kinds(
 		crate::process::object::Kind::Output,
 	]
 	.into_iter()
-	.filter(|kind| permission.implies(crate::authorize::process_object_permission(*kind)))
+	.filter(|kind| permission.implies(crate::verify::process_object_permission(*kind)))
 	.collect()
 }
 
@@ -1393,14 +1439,14 @@ fn subject_for_member(member: tg::Id) -> tg::Result<tg::authorization::Subject> 
 	match member.kind() {
 		tg::id::Kind::Group => Ok(tg::authorization::Subject::Group(member.try_into()?)),
 		tg::id::Kind::User => Ok(tg::authorization::Subject::User(member.try_into()?)),
-		_ => Err(tg::error!("invalid authorization membership subject")),
+		_ => Err(tg::error!("invalid verification membership subject")),
 	}
 }
 
 fn inherent_sources(principal: &tg::Principal) -> Vec<Key> {
 	match principal {
 		tg::Principal::Process(process) => {
-			crate::authorize::permissions_implied_by(tg::authorization::Permission::Process(
+			crate::verify::permissions_implied_by(tg::authorization::Permission::Process(
 				tg::authorization::permission::process::Permission::Parent,
 			))
 			.into_iter()
@@ -1424,7 +1470,7 @@ fn inherent_sources(principal: &tg::Principal) -> Vec<Key> {
 			),
 		],
 		tg::Principal::User(user) => {
-			crate::authorize::permissions_implied_by(tg::authorization::Permission::User(
+			crate::verify::permissions_implied_by(tg::authorization::Permission::User(
 				tg::authorization::permission::user::Permission::Admin,
 			))
 			.into_iter()

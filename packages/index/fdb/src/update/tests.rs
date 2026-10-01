@@ -44,7 +44,7 @@ async fn run_with_partition_totals(
 		unsafe { fdb::boot() }
 	});
 	let options = crate::Options {
-		authorize: crate::AuthorizeConfig { concurrency: 1 },
+		verification: crate::VerificationConfig { concurrency: 1 },
 		cleaning_partition_total: partition_totals.cleaning,
 		cluster: std::env::var_os("FDB_CLUSTER_FILE")
 			.expect("set FDB_CLUSTER_FILE")

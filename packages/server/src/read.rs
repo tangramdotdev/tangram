@@ -250,7 +250,9 @@ impl Reader {
 		let authorized = session
 			.authorize(resource, permission)
 			.await?
-			.is_some_and(|permissions| permissions.contains(permission));
+			.check_exhaustion()?
+			.permissions
+			.contains(permission);
 		let checkout_pointer = if authorized && session.server.checkouts_enabled() {
 			let arg = crate::cache::object::get::Arg {
 				bytes: true,

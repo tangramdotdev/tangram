@@ -65,10 +65,10 @@ impl Index {
 			}
 
 			// Execute the requests sequentially against the shared snapshot.
-			let authorization_fact_cache = tangram_index::authorize::facts::Cache::new();
+			let verification_fact_cache = tangram_index::verify::facts::Cache::new();
 			for (request, sender) in requests {
 				let response = Self::execute_read_request(
-					authorization_fact_cache.clone(),
+					verification_fact_cache.clone(),
 					&arg.db,
 					&arg.subspace,
 					&transaction,
@@ -121,20 +121,20 @@ impl Index {
 	}
 
 	fn execute_read_request(
-		authorization_fact_cache: tangram_index::authorize::facts::Cache<std::convert::Infallible>,
+		verification_fact_cache: tangram_index::verify::facts::Cache<std::convert::Infallible>,
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,
 		request: tangram_index::read::Request,
 	) -> tg::Result<tangram_index::read::Response> {
 		let response = match request {
-			tangram_index::read::Request::AuthorizeBatch {
+			tangram_index::read::Request::VerifyBatch {
 				args,
 				config,
 				principal,
 			} => {
-				let output = Self::authorize_batch_with_transaction(
-					authorization_fact_cache,
+				let output = Self::verify_batch_with_transaction(
+					verification_fact_cache,
 					config,
 					db,
 					subspace,
@@ -142,7 +142,7 @@ impl Index {
 					&args,
 					&principal,
 				)?;
-				tangram_index::read::Response::AuthorizeBatch(output)
+				tangram_index::read::Response::VerifyBatch(output)
 			},
 			tangram_index::read::Request::ContainsIds { ids } => {
 				let output = Self::contains_ids_with_transaction(db, subspace, transaction, &ids)?;

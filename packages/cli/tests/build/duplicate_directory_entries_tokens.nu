@@ -3,9 +3,11 @@ use ../lib/test.nu *
 # Duplicate directory entries retain build authorization when authorization searches are disabled.
 
 let local = server spawn --name local --config {
-	authorization: {
-		final: false
-		initial: false
+	verification: {
+		permissions: {
+			final: false
+			initial: false
+		}
 	}
 }
 

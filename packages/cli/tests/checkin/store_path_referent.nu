@@ -43,7 +43,7 @@ let alias = mktemp --directory
 ln -s $root ($alias | path join root)
 ln -s $root $'($root).tg.ts'
 sleep 1sec
-let watch = tg --token $root_token checkpoint watch authorization.index | from json | get watch
+let watch = tg --token $root_token checkpoint watch verification.index | from json | get watch
 mut resolved = ''
 for case in [
 	{ input: $'($root)/bin/program', path: 'bin/program' },
@@ -80,7 +80,7 @@ for path in [$root $'($root).tg.ts'] {
 	assert ($params | where key in [id path] | is-empty)
 	assert equal ($params | where key starts-with 'tokens[local]' | length) 1
 }
-tg --token $root_token checkpoint unwatch authorization.index $watch
+tg --token $root_token checkpoint unwatch verification.index $watch
 
 # Following an intermediate artifact symlink changes the containing root.
 let target = tg --token $root_token put 'tg.directory({ "program": tg.file("contents") })' | str trim

@@ -240,7 +240,7 @@ impl Session {
 		let get_future = self.try_get_process_data_local(id, source, deadline);
 		let (mut permissions, output) = future::try_join(authorize_future, get_future).await?;
 		let Some(tg::authorization::permission::Set::Process(permissions)) =
-			permissions.pop().flatten()
+			Some(permissions.pop().unwrap().check_exhaustion()?.permissions)
 		else {
 			return Ok(None);
 		};

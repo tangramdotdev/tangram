@@ -25,12 +25,12 @@ let other = (get-object $socket $alice.token $unrelated []).tokens.local.0
 tg --token $alice.token grant $bob.user.id object_node $directory
 let node = (get-object $socket $bob.token $directory []).tokens.local.0
 
-let watch = tg --token $root_token checkpoint watch authorization.index | from json | get watch
+let watch = tg --token $root_token checkpoint watch verification.index | from json | get watch
 for tokens in [[$node $other $subtree] [$subtree $other $node]] {
 	let output = get-object $socket $bob.token $directory $tokens
 	assert equal ($output.children | columns | length) 1
 }
-tg --token $root_token checkpoint unwatch authorization.index $watch
+tg --token $root_token checkpoint unwatch verification.index $watch
 
 let output = get-object $socket $bob.token $directory [$node $other]
 assert equal ($output.children? | default {}) {}

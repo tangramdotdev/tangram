@@ -5,7 +5,7 @@ use {
 	num_traits::ToPrimitive as _,
 	std::{ops::ControlFlow, sync::Arc},
 	tangram_client::prelude::*,
-	tangram_index::authorize::{
+	tangram_index::verify::{
 		Batch,
 		facts::{self, Output, Request},
 	},
@@ -17,37 +17,37 @@ struct FactContext {
 }
 
 impl Index {
-	pub async fn authorize_batch(
+	pub async fn verify_batch(
 		&self,
-		args: &[tangram_index::authorize::Arg],
-		config: tangram_index::authorize::Config,
+		args: &[tangram_index::verify::Arg],
+		config: tangram_index::verify::Config,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<tangram_index::authorize::Outcome>> {
-		let request = tangram_index::read::Request::AuthorizeBatch {
+	) -> tg::Result<Vec<tangram_index::verify::Output>> {
+		let request = tangram_index::read::Request::VerifyBatch {
 			args: args.to_owned(),
 			config,
 			principal: principal.clone(),
 		};
 		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::AuthorizeBatch(output) = response else {
+		let tangram_index::read::Response::VerifyBatch(output) = response else {
 			return Err(tg::error!("unexpected read response"));
 		};
 
 		Ok(output)
 	}
 
-	pub(crate) async fn authorize_batch_with_transaction(
+	pub(crate) async fn verify_batch_with_transaction(
 		cache: facts::Cache<fdb::FdbError>,
 		concurrency: usize,
-		config: tangram_index::authorize::Config,
+		config: tangram_index::verify::Config,
 		txn: &crate::Transaction,
 		subspace: &Subspace,
-		args: &[tangram_index::authorize::Arg],
+		args: &[tangram_index::verify::Arg],
 		principal: &tg::Principal,
-	) -> tg::Result<ControlFlow<Vec<tangram_index::authorize::Outcome>, fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<Vec<tangram_index::verify::Output>, fdb::FdbError>> {
 		let concurrency = concurrency.max(1);
 		let (client, receiver) = facts::channel_with_cache(concurrency, cache);
-		let authorize = Batch::authorize(args, client, config, principal);
+		let verify = Batch::verify(args, client, config, principal);
 		let context = FactContext {
 			subspace: subspace.clone(),
 			txn: txn.clone(),
@@ -56,7 +56,7 @@ impl Index {
 		let provide = facts::serve(receiver, concurrency, move |request| {
 			let context = context.clone();
 			async move {
-				Self::execute_authorization_fact_with_transaction(
+				Self::execute_verification_fact_with_transaction(
 					&context.txn,
 					&context.subspace,
 					&request,
@@ -64,12 +64,12 @@ impl Index {
 				.await
 			}
 		});
-		let (outcome, ()) = futures::future::join(authorize, provide).await;
+		let (outcome, ()) = futures::future::join(verify, provide).await;
 
 		outcome
 	}
 
-	async fn execute_authorization_fact_with_transaction(
+	async fn execute_verification_fact_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
 		request: &Request,
@@ -93,7 +93,7 @@ impl Index {
 					&(Kind::GroupMember.to_i32().unwrap(), group.as_ref()),
 				);
 				let (keys, after) = crate::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -143,7 +143,7 @@ impl Index {
 						let prefix =
 							Self::pack(subspace, &(kind.to_i32().unwrap(), id.to_bytes().as_ref()));
 						let (keys, _) = crate::propagate!(
-							Self::get_authorization_key_page_with_transaction(
+							Self::get_verification_key_page_with_transaction(
 								txn, subspace, &prefix, None, 1
 							)
 							.await
@@ -168,7 +168,7 @@ impl Index {
 					&(Kind::MemberGroup.to_i32().unwrap(), member.as_ref()),
 				);
 				let (keys, after) = crate::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -201,7 +201,7 @@ impl Index {
 					&(Kind::MemberOrganization.to_i32().unwrap(), member.as_ref()),
 				);
 				let (keys, after) = crate::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -259,7 +259,7 @@ impl Index {
 					&(Kind::ObjectChild.to_i32().unwrap(), object.as_ref()),
 				);
 				let (keys, after) = crate::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -292,7 +292,7 @@ impl Index {
 					&(Kind::ChildObject.to_i32().unwrap(), object.as_ref()),
 				);
 				let (keys, after) = crate::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -326,7 +326,7 @@ impl Index {
 					&(Kind::ObjectProcess.to_i32().unwrap(), object.as_ref()),
 				);
 				let (entries, after) = crate::propagate!(
-					Self::get_authorization_entry_page_with_transaction(
+					Self::get_verification_entry_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -365,7 +365,7 @@ impl Index {
 					),
 				);
 				let (keys, after) = crate::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -401,7 +401,7 @@ impl Index {
 					&(Kind::OwnerSandbox.to_i32().unwrap(), owner.to_string()),
 				);
 				let (keys, after) = crate::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -453,7 +453,7 @@ impl Index {
 					&(Kind::ProcessChild.to_i32().unwrap(), process.as_ref()),
 				);
 				let (keys, after) = crate::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -510,7 +510,7 @@ impl Index {
 					let resource = object.clone().into();
 					let subject = tg::authorization::Subject::Process(process.clone());
 					let permission = crate::propagate!(
-						Self::get_authorization_permission_with_transaction(
+						Self::get_verification_permission_with_transaction(
 							txn,
 							subspace,
 							creator.as_ref(),
@@ -535,7 +535,7 @@ impl Index {
 					&(Kind::ProcessObject.to_i32().unwrap(), process.as_ref()),
 				);
 				let (keys, after) = crate::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -571,7 +571,7 @@ impl Index {
 					&(Kind::ChildProcess.to_i32().unwrap(), process.as_ref()),
 				);
 				let (keys, after) = crate::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -607,7 +607,7 @@ impl Index {
 					),
 				);
 				let (entries, after) = crate::propagate!(
-					Self::get_authorization_entry_page_with_transaction(
+					Self::get_verification_entry_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -640,7 +640,7 @@ impl Index {
 					),
 				);
 				let (entries, after) = crate::propagate!(
-					Self::get_authorization_entry_page_with_transaction(
+					Self::get_verification_entry_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -698,7 +698,7 @@ impl Index {
 				subject,
 			} => {
 				let (after, permissions) = crate::propagate!(
-					Self::get_authorization_subject_permissions_with_transaction(
+					Self::get_verification_subject_permissions_with_transaction(
 						txn,
 						subspace,
 						subject,
@@ -710,6 +710,37 @@ impl Index {
 
 				Output::Permissions { after, permissions }
 			},
+			Request::Storage { resource } => {
+				let storage = if resource.kind().is_object() {
+					let object = resource.clone().try_into()?;
+					let object = crate::propagate!(
+						Self::try_get_object_with_transaction(txn, subspace, &object).await
+					);
+					tg::storage::Set::Object(
+						object
+							.map_or_else(tg::object::storage::Set::empty, |object| object.storage),
+					)
+				} else if resource.kind() == tg::id::Kind::Process {
+					let process = resource.clone().try_into()?;
+					let process = crate::propagate!(
+						Self::try_get_process_with_transaction(txn, subspace, &process).await
+					);
+					tg::storage::Set::Process(
+						process
+							.filter(|process| process.data.is_some())
+							.map_or_else(tg::process::storage::Set::empty, |process| {
+								process.storage
+							}),
+					)
+				} else {
+					return Err(tg::error!(
+						"the storage requirement does not match the resource"
+					));
+				};
+
+				Output::Storage(storage)
+			},
+
 			Request::Tag { tag } => {
 				let tag =
 					crate::propagate!(Self::try_get_tag_with_transaction(txn, subspace, tag).await);
@@ -727,7 +758,7 @@ impl Index {
 					&(Kind::TargetTag.to_i32().unwrap(), target.as_ref()),
 				);
 				let (keys, after) = crate::propagate!(
-					Self::get_authorization_key_page_with_transaction(
+					Self::get_verification_key_page_with_transaction(
 						txn,
 						subspace,
 						&prefix,
@@ -754,7 +785,7 @@ impl Index {
 		Ok(ControlFlow::Break(output))
 	}
 
-	async fn get_authorization_permission_with_transaction(
+	async fn get_verification_permission_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
 		creator: Option<&tg::Principal>,
@@ -790,7 +821,7 @@ impl Index {
 		Ok(ControlFlow::Break(permission))
 	}
 
-	async fn get_authorization_key_page_with_transaction(
+	async fn get_verification_key_page_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
 		prefix: &[u8],
@@ -798,7 +829,7 @@ impl Index {
 		limit: usize,
 	) -> tg::Result<ControlFlow<(Vec<crate::Key>, Option<Vec<u8>>), fdb::FdbError>> {
 		let (entries, after) = crate::propagate!(
-			Self::get_authorization_entry_page_with_transaction(
+			Self::get_verification_entry_page_with_transaction(
 				txn, subspace, prefix, after, limit,
 			)
 			.await
@@ -808,7 +839,7 @@ impl Index {
 		Ok(ControlFlow::Break((keys, after)))
 	}
 
-	async fn get_authorization_entry_page_with_transaction(
+	async fn get_verification_entry_page_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
 		prefix: &[u8],
@@ -844,7 +875,7 @@ impl Index {
 		Ok(ControlFlow::Break((entries, after)))
 	}
 
-	async fn get_authorization_subject_permissions_with_transaction(
+	async fn get_verification_subject_permissions_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
 		subject: &tg::authorization::Subject,
@@ -861,7 +892,7 @@ impl Index {
 			),
 		);
 		let (entries, after) = crate::propagate!(
-			Self::get_authorization_entry_page_with_transaction(
+			Self::get_verification_entry_page_with_transaction(
 				txn, subspace, &prefix, after, limit,
 			)
 			.await

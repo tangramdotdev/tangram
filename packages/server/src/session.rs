@@ -24,6 +24,7 @@ mod watch;
 pub(crate) struct Session {
 	pub context: Context,
 	pub server: Server,
+	pub sync: Option<tg::sync::Id>,
 	pub sync_control: Option<std::sync::Arc<crate::sync::control::Client>>,
 }
 
@@ -33,6 +34,7 @@ impl Session {
 		Self {
 			context,
 			server,
+			sync: None,
 			sync_control: None,
 		}
 	}

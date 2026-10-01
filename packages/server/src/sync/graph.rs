@@ -1474,12 +1474,13 @@ impl Graph {
 		self.control = Some(control);
 	}
 
-	pub fn try_get_node_local_control_output(
+	pub fn try_verify_node_local_control_output(
 		&self,
-		arg: &tg::sync::control::GetClientRequestArg,
-	) -> tg::Result<Option<tg::sync::control::GetServerResponseOutput>> {
+		arg: &tg::sync::control::VerifyClientRequestArg,
+	) -> tg::Result<Option<tg::sync::control::VerifyServerResponseOutput>> {
 		use tg::sync::control::{
-			GetObjectServerResponseOutput, GetProcessServerResponseOutput, GetServerResponseOutput,
+			VerifyObjectServerResponseOutput, VerifyProcessServerResponseOutput,
+			VerifyServerResponseOutput,
 		};
 		arg.validate()?;
 		let Some(node) = self.nodes.get(&arg.node) else {
@@ -1495,9 +1496,10 @@ impl Graph {
 				let tg::authorization::permission::Set::Object(permissions) = permissions else {
 					return Err(tg::error!("expected object permissions"));
 				};
-				GetServerResponseOutput::Object(GetObjectServerResponseOutput {
+				VerifyServerResponseOutput::Object(VerifyObjectServerResponseOutput {
 					permissions,
 					storage: node.local_storage,
+					tokens: Vec::new(),
 				})
 			},
 			Node::Process(node) => {
@@ -1509,9 +1511,10 @@ impl Graph {
 				let tg::authorization::permission::Set::Process(permissions) = permissions else {
 					return Err(tg::error!("expected process permissions"));
 				};
-				GetServerResponseOutput::Process(GetProcessServerResponseOutput {
+				VerifyServerResponseOutput::Process(VerifyProcessServerResponseOutput {
 					permissions,
 					storage: node.local_storage,
+					tokens: Vec::new(),
 				})
 			},
 			_ => return Err(tg::error!("expected an object or process")),
@@ -1519,13 +1522,45 @@ impl Graph {
 		Ok(output.satisfies(arg).then_some(output))
 	}
 
+	pub(crate) fn update_node_local_verified(
+		&mut self,
+		id: &tg::Id,
+		output: &crate::verify::Output,
+	) -> tg::Result<()> {
+		let control = match (&output.permissions, &output.storage) {
+			(
+				tg::authorization::permission::Set::Object(permissions),
+				tg::storage::Set::Object(storage),
+			) => tg::sync::control::VerifyServerResponseOutput::Object(
+				tg::sync::control::VerifyObjectServerResponseOutput {
+					permissions: *permissions,
+					storage: *storage,
+					tokens: Vec::new(),
+				},
+			),
+			(
+				tg::authorization::permission::Set::Process(permissions),
+				tg::storage::Set::Process(storage),
+			) => tg::sync::control::VerifyServerResponseOutput::Process(
+				tg::sync::control::VerifyProcessServerResponseOutput {
+					permissions: *permissions,
+					storage: *storage,
+					tokens: Vec::new(),
+				},
+			),
+			_ => return Err(tg::error!("expected verified object or process storage")),
+		};
+		self.update_node_local_control_output(id, &control)?;
+		Ok(())
+	}
+
 	pub fn update_node_local_control_output(
 		&mut self,
 		id: &tg::Id,
-		output: &tg::sync::control::GetServerResponseOutput,
+		output: &tg::sync::control::VerifyServerResponseOutput,
 	) -> tg::Result<()> {
 		match output {
-			tg::sync::control::GetServerResponseOutput::Object(output) => {
+			tg::sync::control::VerifyServerResponseOutput::Object(output) => {
 				let id = id.clone().try_into()?;
 				let arg = UpdateObjectLocalArg {
 					data: None,
@@ -1541,7 +1576,7 @@ impl Graph {
 				};
 				self.update_object_local(arg);
 			},
-			tg::sync::control::GetServerResponseOutput::Process(output) => {
+			tg::sync::control::VerifyServerResponseOutput::Process(output) => {
 				let id = id.clone().try_into()?;
 				let arg = UpdateProcessLocalArg {
 					data: None,

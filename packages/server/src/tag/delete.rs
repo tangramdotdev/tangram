@@ -93,12 +93,13 @@ impl Session {
 						tg::authorization::permission::tag::Permission::Write,
 					),
 				)
-				.await?;
-			if !authorized.is_some_and(|permissions| {
-				permissions.contains(tg::authorization::Permission::Tag(
+				.await?
+				.check_exhaustion()?;
+			if !authorized
+				.permissions
+				.contains(tg::authorization::Permission::Tag(
 					tg::authorization::permission::tag::Permission::Write,
-				))
-			}) {
+				)) {
 				return Err(tg::error!("unauthorized"));
 			}
 		}

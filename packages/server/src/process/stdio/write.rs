@@ -119,8 +119,11 @@ impl Session {
 			tg::authorization::permission::process::Permission::Parent,
 		);
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
-		let authorized = self.authorize(resource, permission).await?;
-		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+		let authorized = self
+			.authorize(resource, permission)
+			.await?
+			.check_exhaustion()?;
+		if !authorized.permissions.contains(permission) {
 			return Err(tg::error!("unauthorized"));
 		}
 		let stream = self.write_process_stdio_with_control(id, data, streams, input, stopper, None);

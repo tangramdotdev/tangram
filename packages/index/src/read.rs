@@ -7,11 +7,6 @@ pub type ResponseSender = tokio::sync::oneshot::Sender<tg::Result<Response>>;
 pub type Sender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
 
 pub enum Request {
-	AuthorizeBatch {
-		args: Vec<crate::authorize::Arg>,
-		config: crate::authorize::Config,
-		principal: tg::Principal,
-	},
 	ContainsIds {
 		ids: Vec<tg::Id>,
 	},
@@ -103,6 +98,11 @@ pub enum Request {
 	TryGetUsers {
 		ids: Vec<tg::user::Id>,
 	},
+	VerifyBatch {
+		args: Vec<crate::verify::Arg>,
+		config: crate::verify::Config,
+		principal: tg::Principal,
+	},
 	Visible {
 		ids: Vec<tg::Id>,
 		principal: tg::Principal,
@@ -110,7 +110,6 @@ pub enum Request {
 }
 
 pub enum Response {
-	AuthorizeBatch(Vec<crate::authorize::Outcome>),
 	ContainsIds(Vec<bool>),
 	GetIndexers(Vec<crate::indexer::Indexer>),
 	LogCompactionBatch(Vec<crate::log::Entry>),
@@ -140,5 +139,6 @@ pub enum Response {
 	TryGetSpecifiersForIds(Vec<Option<tg::Specifier>>),
 	TryGetTags(Vec<Option<crate::tag::Tag>>),
 	TryGetUsers(Vec<Option<crate::user::User>>),
+	VerifyBatch(Vec<crate::verify::Output>),
 	Visible(Vec<bool>),
 }
