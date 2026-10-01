@@ -2330,7 +2330,7 @@ impl Tree {
 			if !updated {
 				continue;
 			}
-			let line = String::from_utf8_lossy(&latest).into_owned();
+			let line = String::from_utf8_lossy_owned(latest);
 			if !updates.push(line) {
 				continue;
 			}

@@ -585,7 +585,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 		.await
 		.unwrap()
 		.unwrap();
-	assert!(processes.is_empty());
+	assert_eq!(processes, Vec::new());
 	assert_eq!(
 		index
 			.try_get_sandbox_processes_count(&sandbox)

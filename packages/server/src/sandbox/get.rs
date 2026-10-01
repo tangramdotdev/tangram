@@ -273,7 +273,7 @@ impl Session {
 			future::Either::Right((control, index_future)) => {
 				let indexed = if control.as_ref().is_ok_and(&index_required) {
 					let indexed = index_future.await?;
-					if indexed.as_ref().is_some_and(&index_complete) {
+					if indexed.as_ref().is_some_and(index_complete) {
 						indexed
 					} else {
 						get_index().await?

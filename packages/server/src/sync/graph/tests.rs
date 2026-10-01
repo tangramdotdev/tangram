@@ -161,17 +161,17 @@ fn lifted_authorization_tokens_for_sync_follow_attachment_ancestors() {
 		);
 	}
 	for id in [&ids[2], &ids[4]] {
-		assert!(
+		assert_eq!(
 			graph
 				.get_node_local_tokens(&id.clone().into())
-				.authorization
-				.is_empty()
+				.authorization,
+			Vec::new()
 		);
-		assert!(
+		assert_eq!(
 			graph
 				.get_node_remote_tokens(&id.clone().into())
-				.authorization
-				.is_empty()
+				.authorization,
+			Vec::new()
 		);
 	}
 }

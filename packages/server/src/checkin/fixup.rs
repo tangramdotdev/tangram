@@ -41,8 +41,10 @@ impl Session {
 				)?;
 			}
 		}
-		let epoch = filetime::FileTime::from_system_time(std::time::SystemTime::UNIX_EPOCH);
-		filetime::set_symlink_file_times(path, epoch, epoch).map_err(
+		let times = std::fs::FileTimes::new()
+			.set_accessed(std::time::SystemTime::UNIX_EPOCH)
+			.set_modified(std::time::SystemTime::UNIX_EPOCH);
+		std::fs::set_times_nofollow(path, times).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to set the modified time"),
 		)?;
 		Ok(())
