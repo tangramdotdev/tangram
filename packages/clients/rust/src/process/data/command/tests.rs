@@ -143,7 +143,7 @@ fn command_can_have_no_objects() {
 	command.env.clear();
 	command.executable.node.artifact = None;
 	command.stdin = None;
-	assert!(command.objects().is_empty());
+	assert_eq!(command.objects(), Vec::new());
 }
 
 #[test]

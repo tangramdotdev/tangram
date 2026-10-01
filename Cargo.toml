@@ -52,7 +52,7 @@ edition = "2024"
 homepage = "https://www.tangram.dev"
 license = "MIT"
 repository = "https://github.com/tangramdotdev/tangram"
-rust-version = "1.91"
+rust-version = "1.99"
 version = "0.0.0"
 
 [workspace.lints.clippy]
@@ -110,7 +110,6 @@ deno_core_icudata = "0.78"
 derive_more = { version = "2", features = ["full"] }
 env_logger = "0.11"
 fastcdc = { version = "5", features = ["tokio"] }
-filetime = "0.2"
 flate2 = "1"
 fnv = "1"
 foundationdb = { version = "0.11", features = ["fdb-7_3", "embedded-fdb-include"] }

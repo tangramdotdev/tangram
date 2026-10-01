@@ -21,7 +21,7 @@ async fn deduplicates_and_completes_log_compactions() {
 
 	index.complete_log_compaction(&entries[0]).await.unwrap();
 
-	assert!(index.log_compaction_batch(10).await.unwrap().is_empty());
+	assert_eq!(index.log_compaction_batch(10).await.unwrap(), Vec::new());
 	assert_eq!(
 		index
 			.try_get_oldest_log_compaction_transaction_id()

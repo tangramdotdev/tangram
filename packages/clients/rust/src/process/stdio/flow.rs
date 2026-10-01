@@ -39,7 +39,6 @@ struct State {
 	window: Sender,
 }
 
-#[must_use]
 pub fn read(
 	input: BoxStream<'static, tg::Result<read::ClientMessage>>,
 	output: BoxStream<'static, tg::Result<read::ServerMessage>>,

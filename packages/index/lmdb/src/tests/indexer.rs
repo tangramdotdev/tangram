@@ -36,7 +36,7 @@ async fn lifecycle() {
 	index.delete_indexer(arg).await.unwrap();
 	let arg = tangram_index::indexer::get::Arg { id: id.clone() };
 	assert!(index.try_get_indexer(arg).await.unwrap().is_none());
-	assert!(index.get_indexers().await.unwrap().is_empty());
+	assert_eq!(index.get_indexers().await.unwrap(), Vec::new());
 	let arg = tangram_index::indexer::update::Arg {
 		id,
 		value: tangram_index::indexer::update::Value::Available(false),

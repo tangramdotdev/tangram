@@ -129,7 +129,7 @@ async fn replacing_or_removing_an_object_checkout_removes_the_previous_relations
 		})
 		.await
 		.unwrap();
-	assert!(output.checkouts.is_empty());
+	assert_eq!(output.checkouts, Vec::new());
 
 	let arg = tangram_index::batch::Arg {
 		items: vec![

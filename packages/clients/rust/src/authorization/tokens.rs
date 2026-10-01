@@ -432,7 +432,7 @@ mod tests {
 		assert!(tokens.is_empty());
 		tokens.inherit(&child);
 		tokens.clear_authorization();
-		assert!(tokens.local_authorization().is_empty());
+		assert_eq!(tokens.local_authorization(), []);
 
 		let body = tg::authorization::Body {
 			expires_at: i64::MAX,
