@@ -408,7 +408,6 @@ impl Server {
 			.map_future({
 				let idle = idle.clone();
 				move |future: T::Future| {
-					// Keep the connection active from request handling through the response body.
 					let token = idle.token();
 					async move {
 						let response = future.await?;
