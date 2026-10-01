@@ -44,7 +44,9 @@ impl Session {
 		let authorized = self
 			.authorize(resource, permission)
 			.await?
-			.is_some_and(|permissions| permissions.contains(permission));
+			.check_exhaustion()?
+			.permissions
+			.contains(permission);
 		let visible = if node.id.kind() == tg::id::Kind::Tag {
 			self.server
 				.index

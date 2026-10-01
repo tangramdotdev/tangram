@@ -12,6 +12,8 @@ use {
 	tangram_client::prelude::*,
 };
 
+const BUDGET_EXHAUSTED: &str = "the verification discovery budget is exhausted";
+
 pub type Receiver<E> = mpsc::Receiver<Message<E>>;
 pub type Response<E> = Result<ControlFlow<Output, E>, tg::Error>;
 
@@ -118,6 +120,9 @@ pub enum Request {
 	Specifier {
 		specifier: tg::Specifier,
 	},
+	Storage {
+		resource: tg::Id,
+	},
 	SubjectPermissions {
 		after: Option<Vec<u8>>,
 		limit: usize,
@@ -170,6 +175,7 @@ pub enum Output {
 		objects: Vec<(tg::object::Id, crate::process::object::Kind)>,
 	},
 	SandboxOwner(Option<tg::Principal>),
+	Storage(tg::storage::Set),
 	Tag(Option<crate::tag::Tag>),
 	Tags {
 		after: Option<Vec<u8>>,
@@ -242,6 +248,7 @@ enum CacheKey {
 	},
 	SandboxOwner(tg::sandbox::Id),
 	Specifier(tg::Specifier),
+	Storage(tg::Id),
 	Tag(tg::tag::Id),
 	TargetTags {
 		after: Option<Vec<u8>>,
@@ -265,10 +272,15 @@ struct CacheMissGuard<E> {
 }
 
 pub struct Client<E> {
+	budget: Option<Arc<Budget>>,
 	cache: Cache<E>,
 	concurrency: usize,
 	reads: Arc<AtomicUsize>,
 	sender: mpsc::Sender<Message<E>>,
+}
+
+struct Budget {
+	remaining: AtomicUsize,
 }
 
 #[cfg(test)]
@@ -282,6 +294,7 @@ pub fn channel_with_cache<E>(concurrency: usize, cache: Cache<E>) -> (Client<E>,
 	let concurrency = concurrency.max(1);
 	let (sender, receiver) = mpsc::channel(concurrency);
 	let client = Client {
+		budget: None,
 		cache,
 		concurrency,
 		reads: Arc::new(AtomicUsize::new(0)),
@@ -309,6 +322,38 @@ where
 }
 
 impl Request {
+	fn limit_mut(&mut self) -> Option<&mut usize> {
+		match self {
+			Self::Delegations { limit, .. }
+			| Self::GroupMembers { limit, .. }
+			| Self::MemberGroups { limit, .. }
+			| Self::MemberOrganizations { limit, .. }
+			| Self::ObjectChildren { limit, .. }
+			| Self::ObjectParents { limit, .. }
+			| Self::ObjectProcesses { limit, .. }
+			| Self::OrganizationMembers { limit, .. }
+			| Self::OwnerSandboxes { limit, .. }
+			| Self::ProcessChildren { limit, .. }
+			| Self::ProcessObjects { limit, .. }
+			| Self::ProcessParents { limit, .. }
+			| Self::ResourcePermissions { limit, .. }
+			| Self::SubjectPermissions { limit, .. }
+			| Self::TargetTags { limit, .. } => Some(limit),
+			Self::Group { .. }
+			| Self::Id { .. }
+			| Self::ObjectChild { .. }
+			| Self::ObjectIndexed { .. }
+			| Self::Process { .. }
+			| Self::ProcessChild { .. }
+			| Self::ProcessObject { .. }
+			| Self::ProcessObjectPermission { .. }
+			| Self::SandboxOwner { .. }
+			| Self::Specifier { .. }
+			| Self::Storage { .. }
+			| Self::Tag { .. } => None,
+		}
+	}
+
 	#[must_use]
 	fn cache_key(&self) -> Option<CacheKey> {
 		let key = match self {
@@ -402,6 +447,7 @@ impl Request {
 			},
 			Self::SandboxOwner { sandbox } => CacheKey::SandboxOwner(sandbox.clone()),
 			Self::Specifier { specifier } => CacheKey::Specifier(specifier.clone()),
+			Self::Storage { resource } => CacheKey::Storage(resource.clone()),
 			Self::Tag { tag } => CacheKey::Tag(tag.clone()),
 			Self::TargetTags {
 				after,
@@ -426,9 +472,30 @@ impl Request {
 }
 
 impl Output {
+	fn fact_count(&self) -> usize {
+		match self {
+			Self::Delegations { delegations, .. } => delegations.len(),
+			Self::Permissions { permissions, .. } => permissions.len(),
+			Self::Ids { ids, .. } => ids.len(),
+			Self::MemberGroups { groups, .. } => groups.len(),
+			Self::MemberOrganizations { organizations, .. } => organizations.len(),
+			Self::ObjectProcesses { processes, .. } => processes.len(),
+			Self::ProcessObjectKinds(kinds) => kinds.len(),
+			Self::ProcessObjects { objects, .. } => objects.len(),
+			Self::Tags { tags, .. } => tags.len(),
+			Self::Bool(_)
+			| Self::Group(_)
+			| Self::Id(_)
+			| Self::Process(_)
+			| Self::SandboxOwner(_)
+			| Self::Storage(_)
+			| Self::Tag(_) => 1,
+		}
+	}
+
 	pub(crate) fn into_bool(self) -> tg::Result<bool> {
 		let Self::Bool(value) = self else {
-			return Err(tg::error!("received a non-boolean authorization fact"));
+			return Err(tg::error!("received a non-boolea verification fact"));
 		};
 
 		Ok(value)
@@ -438,7 +505,7 @@ impl Output {
 		self,
 	) -> tg::Result<(Option<Vec<u8>>, Vec<crate::permission::Fact>)> {
 		let Self::Permissions { after, permissions } = self else {
-			return Err(tg::error!("received a non-permission authorization fact"));
+			return Err(tg::error!("received a non-permission verification fact"));
 		};
 
 		Ok((after, permissions))
@@ -446,7 +513,7 @@ impl Output {
 
 	pub(crate) fn into_group(self) -> tg::Result<Option<crate::group::Group>> {
 		let Self::Group(group) = self else {
-			return Err(tg::error!("received a non-group authorization fact"));
+			return Err(tg::error!("received a non-group verification fact"));
 		};
 
 		Ok(group)
@@ -454,7 +521,7 @@ impl Output {
 
 	pub(crate) fn into_id(self) -> tg::Result<Option<tg::Id>> {
 		let Self::Id(id) = self else {
-			return Err(tg::error!("received a non-ID authorization fact"));
+			return Err(tg::error!("received a non-ID verification fact"));
 		};
 
 		Ok(id)
@@ -462,7 +529,7 @@ impl Output {
 
 	pub(crate) fn into_ids(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::Id>)> {
 		let Self::Ids { after, ids } = self else {
-			return Err(tg::error!("received a non-ID-page authorization fact"));
+			return Err(tg::error!("received a non-ID-page verification fact"));
 		};
 
 		Ok((after, ids))
@@ -470,7 +537,7 @@ impl Output {
 
 	pub(crate) fn into_member_groups(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::group::Id>)> {
 		let Self::MemberGroups { after, groups } = self else {
-			return Err(tg::error!("received a non-member-group authorization fact"));
+			return Err(tg::error!("received a non-member-group verification fact"));
 		};
 
 		Ok((after, groups))
@@ -485,7 +552,7 @@ impl Output {
 		} = self
 		else {
 			return Err(tg::error!(
-				"received a non-member-organization authorization fact"
+				"received a non-member-organization verification fact"
 			));
 		};
 
@@ -500,7 +567,7 @@ impl Output {
 	)> {
 		let Self::ObjectProcesses { after, processes } = self else {
 			return Err(tg::error!(
-				"received a non-object-process authorization fact"
+				"received a non-object-process verification fact"
 			));
 		};
 
@@ -509,7 +576,7 @@ impl Output {
 
 	pub(crate) fn into_process(self) -> tg::Result<Option<crate::process::Process>> {
 		let Self::Process(process) = self else {
-			return Err(tg::error!("received a non-process authorization fact"));
+			return Err(tg::error!("received a non-process verification fact"));
 		};
 
 		Ok(process)
@@ -518,7 +585,7 @@ impl Output {
 	pub(crate) fn into_process_object_kinds(self) -> tg::Result<Vec<crate::process::object::Kind>> {
 		let Self::ProcessObjectKinds(kinds) = self else {
 			return Err(tg::error!(
-				"received a non-process-object-kind authorization fact"
+				"received a non-process-object-kind verification fact"
 			));
 		};
 
@@ -533,7 +600,7 @@ impl Output {
 	)> {
 		let Self::ProcessObjects { after, objects } = self else {
 			return Err(tg::error!(
-				"received a non-process-object authorization fact"
+				"received a non-process-object verification fact"
 			));
 		};
 
@@ -542,9 +609,7 @@ impl Output {
 
 	pub(crate) fn into_sandbox_owner(self) -> tg::Result<Option<tg::Principal>> {
 		let Self::SandboxOwner(owner) = self else {
-			return Err(tg::error!(
-				"received a non-sandbox-owner authorization fact"
-			));
+			return Err(tg::error!("received a non-sandbox-owner verification fact"));
 		};
 
 		Ok(owner)
@@ -552,7 +617,7 @@ impl Output {
 
 	pub(crate) fn into_tag(self) -> tg::Result<Option<crate::tag::Tag>> {
 		let Self::Tag(tag) = self else {
-			return Err(tg::error!("received a non-tag authorization fact"));
+			return Err(tg::error!("received a non-tag verification fact"));
 		};
 
 		Ok(tag)
@@ -560,7 +625,7 @@ impl Output {
 
 	pub(crate) fn into_tags(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::tag::Id>)> {
 		let Self::Tags { after, tags } = self else {
-			return Err(tg::error!("received a non-tag-list authorization fact"));
+			return Err(tg::error!("received a non-tag-list verification fact"));
 		};
 
 		Ok((after, tags))
@@ -644,7 +709,60 @@ where
 		self.reads.load(Ordering::Relaxed)
 	}
 
-	pub(crate) async fn read(&self, request: Request) -> Response<E> {
+	#[must_use]
+	pub(super) fn with_budget(&self, limit: usize) -> Self {
+		let mut client = self.clone();
+		client.budget = Some(Arc::new(Budget {
+			remaining: AtomicUsize::new(limit),
+		}));
+		client
+	}
+
+	#[must_use]
+	pub(super) fn is_budget_exhausted(error: &tg::Error) -> bool {
+		error.message().as_deref() == Some(BUDGET_EXHAUSTED)
+	}
+
+	pub(crate) async fn read(&self, mut request: Request) -> Response<E> {
+		let Some(budget) = &self.budget else {
+			return self.read_inner(request).await;
+		};
+		let maximum = if let Some(limit) = request.limit_mut() {
+			*limit
+		} else if matches!(request, Request::ProcessObject { .. }) {
+			4
+		} else {
+			1
+		};
+		let amount = maximum.saturating_add(1);
+		let available = budget
+			.remaining
+			.try_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
+				Some(remaining.saturating_sub(amount))
+			})
+			.unwrap();
+		let reserved = available.min(amount);
+		if let Some(limit) = request.limit_mut() {
+			if reserved < 2 {
+				return Err(tg::error!("{BUDGET_EXHAUSTED}"));
+			}
+			*limit = reserved - 1;
+		} else if reserved < amount {
+			return Err(tg::error!("{BUDGET_EXHAUSTED}"));
+		}
+
+		// Share the page and fact budget across cached reads and nested verification searches.
+		let response = self.read_inner(request).await;
+		if let Ok(ControlFlow::Break(output)) = &response {
+			let used = output.fact_count().saturating_add(1);
+			budget
+				.remaining
+				.fetch_add(reserved.saturating_sub(used), Ordering::Relaxed);
+		}
+		response
+	}
+
+	async fn read_inner(&self, request: Request) -> Response<E> {
 		let Some(key) = request.cache_key() else {
 			self.record_read(&request);
 
@@ -690,10 +808,10 @@ where
 		self.reads.fetch_add(1, Ordering::Relaxed);
 		match request {
 			Request::ObjectChild { child: object, .. } => {
-				tracing::debug!(%object, "check object parent for authorization");
+				tracing::debug!(%object, "check object parent for verification");
 			},
 			Request::ObjectParents { object, .. } => {
-				tracing::debug!(%object, "read object parents for authorization");
+				tracing::debug!(%object, "read object parents for verification");
 			},
 			_ => {},
 		}
@@ -708,9 +826,9 @@ where
 		request_sender
 			.send(message)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to send an authorization fact request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send a verification fact request"))?;
 		let response = receiver.await.map_err(|error| {
-			tg::error!(!error, "failed to receive an authorization fact response")
+			tg::error!(!error, "failed to receive a verification fact response")
 		})??;
 
 		Ok(response)
@@ -720,6 +838,7 @@ where
 impl<E> Clone for Client<E> {
 	fn clone(&self) -> Self {
 		Self {
+			budget: self.budget.clone(),
 			cache: self.cache.clone(),
 			concurrency: self.concurrency,
 			reads: self.reads.clone(),
@@ -766,7 +885,7 @@ mod tests {
 				}
 			}
 		});
-		let authorize = async move {
+		let verify = async move {
 			let first = client.read(Request::Id {
 				id: tg::user::Id::new().into(),
 			});
@@ -778,7 +897,7 @@ mod tests {
 		};
 		let result = tokio::time::timeout(
 			Duration::from_secs(1),
-			futures::future::join(authorize, provide),
+			futures::future::join(verify, provide),
 		)
 		.await
 		.unwrap();
@@ -815,7 +934,7 @@ mod tests {
 				}
 			}
 		});
-		let authorize = async move {
+		let verify = async move {
 			let reads = (0..TOTAL).map(|_| {
 				let client = client.clone();
 				async move {
@@ -827,7 +946,7 @@ mod tests {
 
 			futures::future::try_join_all(reads).await
 		};
-		let (responses, ()) = futures::future::join(authorize, provide).await;
+		let (responses, ()) = futures::future::join(verify, provide).await;
 
 		assert_eq!(responses.unwrap().len(), TOTAL);
 		assert_eq!(maximum.load(Ordering::SeqCst), CONCURRENCY);
@@ -848,7 +967,7 @@ mod tests {
 				}
 			}
 		});
-		let authorize = async move {
+		let verify = async move {
 			let id = tg::Id::from(tg::user::Id::new());
 			let request = Request::Id { id };
 			let first = client.read(request.clone());
@@ -856,7 +975,7 @@ mod tests {
 
 			futures::try_join!(first, second)
 		};
-		let (responses, ()) = futures::future::join(authorize, provide).await;
+		let (responses, ()) = futures::future::join(verify, provide).await;
 
 		let (first, second) = responses.unwrap();
 		assert!(matches!(first, ControlFlow::Break(Output::Id(None))));
@@ -892,7 +1011,7 @@ mod tests {
 				}
 			}
 		});
-		let authorize = async move {
+		let verify = async move {
 			let id = tg::Id::from(tg::user::Id::new());
 			let request = Request::Id { id };
 			let first = first_client.read(request.clone());
@@ -901,7 +1020,7 @@ mod tests {
 			futures::try_join!(first, second)
 		};
 		let providers = futures::future::join(first_provider, second_provider);
-		let (responses, ((), ())) = futures::future::join(authorize, providers).await;
+		let (responses, ((), ())) = futures::future::join(verify, providers).await;
 
 		let (first, second) = responses.unwrap();
 		assert!(matches!(first, ControlFlow::Break(Output::Id(None))));
@@ -927,7 +1046,7 @@ mod tests {
 				}
 			}
 		});
-		let authorize = async move {
+		let verify = async move {
 			let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
 			let object_request = Request::ObjectParents {
 				after: None,
@@ -947,7 +1066,7 @@ mod tests {
 			assert!(matches!(third, ControlFlow::Break(Output::Ids { .. })));
 			client.read(process_request).await
 		};
-		let (response, ()) = futures::future::join(authorize, provide).await;
+		let (response, ()) = futures::future::join(verify, provide).await;
 
 		let response = response.unwrap();
 		assert!(matches!(response, ControlFlow::Break(Output::Ids { .. })));
@@ -972,7 +1091,7 @@ mod tests {
 				}
 			}
 		});
-		let authorize = async move {
+		let verify = async move {
 			let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
 			let request = Request::ObjectChildren {
 				after: None,
@@ -983,7 +1102,7 @@ mod tests {
 			assert!(matches!(first, ControlFlow::Break(Output::Ids { .. })));
 			client.read(request).await
 		};
-		let (response, ()) = futures::future::join(authorize, provide).await;
+		let (response, ()) = futures::future::join(verify, provide).await;
 
 		let response = response.unwrap();
 		assert!(matches!(response, ControlFlow::Break(Output::Ids { .. })));
@@ -996,12 +1115,12 @@ mod tests {
 		let provide = serve(receiver, 1, |_| async {
 			Ok(ControlFlow::Continue(Retry::Retry))
 		});
-		let authorize = async move {
+		let verify = async move {
 			let id = tg::Id::from(tg::user::Id::new());
 
 			client.read(Request::Id { id }).await
 		};
-		let (response, ()) = futures::future::join(authorize, provide).await;
+		let (response, ()) = futures::future::join(verify, provide).await;
 
 		assert!(matches!(
 			response.unwrap(),

@@ -37,11 +37,13 @@ impl Session {
 			id if tg::object::Id::try_from(id.clone()).is_ok()
 				|| matches!(id.kind(), tg::id::Kind::Process | tg::id::Kind::Sync) =>
 			{
-				tangram_index::authorize::validate(id, permissions)?;
-				if self
+				tangram_index::verify::validate(id, permissions)?;
+				if !self
 					.authorize(authorization_resource.clone(), permissions)
 					.await?
-					.is_none_or(|authorized| !authorized.contains(permissions))
+					.check_exhaustion()?
+					.permissions
+					.contains(permissions)
 				{
 					return Err(tg::error!("failed to find the resource"));
 				}
@@ -49,20 +51,24 @@ impl Session {
 			_ => {
 				// The resource is not found without read permission, so creating a grant does not reveal whether a resource the actor cannot see exists.
 				let permission = Self::read_permission_for_resource(&resource)?;
-				if self
+				if !self
 					.authorize(authorization_resource.clone(), permission)
 					.await?
-					.is_none_or(|permissions| !permissions.contains(permission))
+					.check_exhaustion()?
+					.permissions
+					.contains(permission)
 				{
 					return Err(tg::error!("failed to find the resource"));
 				}
 
 				// Creating a grant requires admin permission on the resource.
 				let permission = Self::admin_permission_for_resource(&resource)?;
-				if self
+				if !self
 					.authorize(authorization_resource, permission)
 					.await?
-					.is_none_or(|permissions| !permissions.contains(permission))
+					.check_exhaustion()?
+					.permissions
+					.contains(permission)
 				{
 					return Err(tg::error!("unauthorized"));
 				}
@@ -152,11 +158,9 @@ impl Session {
 			_ => {
 				// Revoking a grant on a user, group, organization, or tag requires admin permission on the resource.
 				let permission = Self::admin_permission_for_resource(&resource)?;
-				match self.authorize(authorization_resource, permission).await? {
-					None => return Ok(None),
-					Some(permissions) if permissions.contains(permission) => (),
-					Some(_) => return Err(tg::error!("unauthorized")),
-				}
+				self.authorize(authorization_resource, permission)
+					.await?
+					.into_result()?;
 			},
 		}
 		let session = self.clone();
@@ -234,7 +238,7 @@ impl Session {
 			}
 			.ok_or_else(|| tg::error!("failed to find the resource"))?;
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions)?;
-		tangram_index::authorize::validate(&resource, permissions)?;
+		tangram_index::verify::validate(&resource, permissions)?;
 		let subject =
 			match Self::resolve_subject_with_transaction(transaction, &arg.subject).await? {
 				ControlFlow::Break(subject) => subject,
@@ -372,7 +376,7 @@ impl Session {
 			return Ok(ControlFlow::Break(None));
 		};
 		let permissions = Self::normalize_grant_permissions(&resource, arg.permissions)?;
-		tangram_index::authorize::validate(&resource, permissions)?;
+		tangram_index::verify::validate(&resource, permissions)?;
 		let subject =
 			match Self::resolve_subject_with_transaction(transaction, &arg.subject).await? {
 				ControlFlow::Break(subject) => subject,
@@ -780,7 +784,9 @@ impl Session {
 		if !self
 			.authorize(resource.clone(), read)
 			.await?
-			.is_some_and(|permissions| permissions.contains(read))
+			.check_exhaustion()?
+			.permissions
+			.contains(read)
 		{
 			return Ok(None);
 		}
@@ -788,7 +794,9 @@ impl Session {
 		if !self
 			.authorize(resource.clone(), admin)
 			.await?
-			.is_some_and(|permissions| permissions.contains(admin))
+			.check_exhaustion()?
+			.permissions
+			.contains(admin)
 		{
 			return Err(tg::error!("unauthorized"));
 		}
@@ -921,7 +929,9 @@ impl Session {
 				if !self
 					.authorize(tg::Selector::Id(id.clone()), read)
 					.await?
-					.is_some_and(|permissions| permissions.contains(read))
+					.check_exhaustion()?
+					.permissions
+					.contains(read)
 				{
 					return Ok(None);
 				}
@@ -929,7 +939,9 @@ impl Session {
 				if !self
 					.authorize(tg::Selector::Id(id), admin)
 					.await?
-					.is_some_and(|permissions| permissions.contains(admin))
+					.check_exhaustion()?
+					.permissions
+					.contains(admin)
 				{
 					return Err(tg::error!("unauthorized"));
 				}

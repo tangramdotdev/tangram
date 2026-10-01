@@ -13,8 +13,10 @@ export def test [case: string] {
 	}
 	wait_until { open --raw $log | str contains 'Server is ready' } 'NATS must start'
 	let store = { object_concurrency: 8, object_max_batch: 1 }
+	let root_token = random chars
 	let local = server spawn --config {
 		advanced: { checkpoints: true },
+		authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 		messenger: { kind: 'nats', url: $'nats://127.0.0.1:($port)' },
 		sync: {
 			control: {
@@ -33,7 +35,7 @@ export def test [case: string] {
 	}
 	let socket = $local.url | str replace 'http+unix://' '' | url decode
 	let local_source = server spawn --name local-source
-	let output = python3 $helper $case $socket (which tg | first | get path) $local.url $port $local_source.url $local.directory | complete
+	let output = python3 $helper $case $socket (which tg | first | get path) $local.url $port $local_source.url $local.directory $root_token | complete
 	server stop $local_source
 	server stop $local
 	job kill $messenger

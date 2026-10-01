@@ -10,7 +10,12 @@ for case in [
 	let server = server spawn --now '2026-01-01T00:00:00Z' --config {
 		advanced: { checkpoints: true }
 		authentication: { root: { token: $root_token } }
-		authorization: { final: false, initial: false }
+		verification: {
+			permissions: {
+				final: false
+				initial: false
+			}
+		}
 		object: { permission_time_to_live: 60 }
 		vfs: false
 	}

@@ -31,7 +31,7 @@ let bytes = tg --token $alice.token object get --bytes $directory | into binary
 sleep 1sec
 
 # An exact subtree token must avoid every authorization index lookup, including for children.
-let watch = tg --token $root_token checkpoint watch authorization.index | from json | get watch
+let watch = tg --token $root_token checkpoint watch verification.index | from json | get watch
 let output = get-object $socket $bob.token $directory --token $first.tokens.local.0
 assert equal $output.data $first.data
 assert equal (token-body $output.tokens.local.0).expires_at $source.expires_at
@@ -62,7 +62,7 @@ let loaded = job recv --tag $job --timeout 10sec
 success $loaded "loading descendants with the returned tokens should not consult the index."
 assert ($loaded.stdout | str contains '"contents"')
 assert equal (tg --token $bob.token object get --bytes $reference | into binary) $bytes "the object bytes must be unchanged."
-tg --token $root_token checkpoint unwatch authorization.index $watch
+tg --token $root_token checkpoint unwatch verification.index $watch
 
 # A node grant allows the object get but must not mint child subtree tokens.
 tg --token $alice.token grant $bob.user.id object_node $directory

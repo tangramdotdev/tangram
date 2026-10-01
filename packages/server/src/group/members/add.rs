@@ -37,11 +37,9 @@ impl Session {
 		let permission = tg::authorization::Permission::Group(
 			tg::authorization::permission::group::Permission::Admin,
 		);
-		match self.authorize(group.clone(), permission).await? {
-			None => return Err(tg::error!("failed to find the group")),
-			Some(permissions) if permissions.contains(permission) => (),
-			Some(_) => return Err(tg::error!("unauthorized")),
-		}
+		self.authorize(group.clone(), permission)
+			.await?
+			.into_result()?;
 		let session = self.clone();
 		self.server
 			.database

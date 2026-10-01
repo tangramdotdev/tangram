@@ -9,7 +9,6 @@ use {
 };
 
 mod ancestor;
-mod authorize;
 mod batch;
 mod checkout;
 mod clean;
@@ -34,6 +33,7 @@ mod transaction;
 mod update;
 mod usage;
 mod user;
+mod verify;
 mod visible;
 mod writer;
 
@@ -55,7 +55,6 @@ pub struct Index {
 }
 
 pub struct Options {
-	pub authorize: AuthorizeConfig,
 	pub cleaning_partition_total: u64,
 	pub cluster: std::path::PathBuf,
 	pub permission_update_partition_total: u64,
@@ -68,12 +67,13 @@ pub struct Options {
 	pub usage_update_partition_total: u64,
 	pub usage_partition_total: u64,
 	pub max_write_operation_batch_size: usize,
+	pub verification: VerificationConfig,
 	pub write_operation_batch_size: usize,
 	pub write_transaction_concurrency: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct AuthorizeConfig {
+pub struct VerificationConfig {
 	pub concurrency: usize,
 }
 
@@ -132,12 +132,12 @@ impl Index {
 		tokio::spawn({
 			let database = database.clone();
 			let subspace = subspace.clone();
-			let authorize_concurrency = options.authorize.concurrency;
+			let verification_concurrency = options.verification.concurrency;
 			let read_request_batch_size = options.read_request_batch_size;
 			let read_transaction_concurrency = options.read_transaction_concurrency;
 			async move {
 				Self::reader_task(reader::Arg {
-					authorize_concurrency,
+					verification_concurrency,
 					database,
 					partition_totals,
 					read_request_batch_size,
@@ -150,7 +150,7 @@ impl Index {
 		});
 
 		// Spawn the writer task.
-		let authorize = options.authorize;
+		let verification = options.verification;
 		let max_process_depth = options.max_process_depth;
 		let max_write_operation_batch_size = options.max_write_operation_batch_size;
 		let write_operation_batch_size = options.write_operation_batch_size;
@@ -161,7 +161,7 @@ impl Index {
 			let subspace = subspace.clone();
 			async move {
 				let arg = writer::Arg {
-					authorize,
+					verification,
 					database,
 					max_process_depth,
 					max_write_operation_batch_size,
@@ -192,9 +192,9 @@ impl Index {
 	}
 
 	fn validate_options(options: &Options) -> tg::Result<()> {
-		if options.authorize.concurrency == 0 {
+		if options.verification.concurrency == 0 {
 			return Err(tg::error!(
-				"the FDB index authorization concurrency must be greater than zero"
+				"the FDB index verification concurrency must be greater than zero"
 			));
 		}
 		for (name, partition_total) in [
@@ -354,13 +354,13 @@ impl tangram_index::Index for Index {
 		self.start_usage(at).await
 	}
 
-	async fn authorize_batch(
+	async fn verify_batch(
 		&self,
-		args: &[tangram_index::authorize::Arg],
-		config: tangram_index::authorize::Config,
+		args: &[tangram_index::verify::Arg],
+		config: tangram_index::verify::Config,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<tangram_index::authorize::Outcome>> {
-		self.authorize_batch(args, config, principal).await
+	) -> tg::Result<Vec<tangram_index::verify::Output>> {
+		self.verify_batch(args, config, principal).await
 	}
 
 	async fn contains_ids(&self, ids: &[tg::Id]) -> tg::Result<Vec<bool>> {

@@ -934,7 +934,8 @@ impl Provider {
 				.authorize(tg::Selector::Id(id), permission)
 				.await
 				.map_err(|error| named_node_error(&error))?
-				.is_some_and(|permissions| permissions.contains(permission));
+				.permissions
+				.contains(permission);
 
 			return Ok(authorized.then_some(NamedNodeEntry::Directory));
 		}
@@ -1259,6 +1260,7 @@ impl Provider {
 		}
 		let output = crate::authorization::Output {
 			expires_at,
+			outcome: crate::authorization::Outcome::Satisfied,
 			permissions: subtree.into(),
 		};
 		Ok(output)
@@ -1288,14 +1290,14 @@ impl Provider {
 		);
 		let requested = tg::authorization::permission::Set::from(permission);
 		let session = self.session();
-		let Some(output) = session
+		let output = session
 			.authorize_with_permissions(resource, requested, requested, requested.empty_like())
 			.await
-			.map_err(|error| Self::map_cache_sync_error(&error))?
-			.filter(|output| output.permissions.contains(permission))
-		else {
+			.and_then(crate::authorization::Output::check_exhaustion)
+			.map_err(|error| Self::map_cache_sync_error(&error))?;
+		if !output.permissions.contains(permission) {
 			return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
-		};
+		}
 
 		// Retain the result on the node so subsequent accesses can use its token.
 		let expires_at = self.token_expiration(output.expires_at)?;

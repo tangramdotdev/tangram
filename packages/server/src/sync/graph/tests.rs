@@ -540,31 +540,34 @@ fn process_log_metadata_waits_for_compaction() {
 
 #[test]
 fn object_control_updates_keep_storage_and_permissions_independent() {
-	use tg::sync::control::{GetObjectServerResponseOutput, GetServerResponseOutput};
+	use tg::sync::control::{VerifyObjectServerResponseOutput, VerifyServerResponseOutput};
 	let arg = tg::sync::Arg::default();
 	let mut graph = Graph::new(&arg, false);
 	let id = tg::object::Id::from(tg::file::Id::new(b"object"));
-	let output = GetServerResponseOutput::Object(GetObjectServerResponseOutput {
+	let output = VerifyServerResponseOutput::Object(VerifyObjectServerResponseOutput {
 		permissions: tg::authorization::permission::object::Set::SUBTREE,
 		storage: tg::object::storage::Set::NODE,
+		tokens: Vec::new(),
 	});
 	graph
 		.update_node_local_control_output(&id.clone().into(), &output)
 		.unwrap();
 	assert!(!graph.get_object_local_availability(&id).subtree);
 
-	let output = GetServerResponseOutput::Object(GetObjectServerResponseOutput {
+	let output = VerifyServerResponseOutput::Object(VerifyObjectServerResponseOutput {
 		permissions: tg::authorization::permission::object::Set::empty(),
 		storage: tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
+		tokens: Vec::new(),
 	});
 	graph
 		.update_node_local_control_output(&id.clone().into(), &output)
 		.unwrap();
 	assert!(graph.get_object_local_availability(&id).subtree);
 
-	let output = GetServerResponseOutput::Object(GetObjectServerResponseOutput {
+	let output = VerifyServerResponseOutput::Object(VerifyObjectServerResponseOutput {
 		permissions: tg::authorization::permission::object::Set::empty(),
 		storage: tg::object::storage::Set::empty(),
+		tokens: Vec::new(),
 	});
 	graph
 		.update_node_local_control_output(&id.clone().into(), &output)
@@ -574,15 +577,16 @@ fn object_control_updates_keep_storage_and_permissions_independent() {
 
 #[test]
 fn process_control_updates_merge_individual_fields() {
-	use tg::sync::control::{GetProcessServerResponseOutput, GetServerResponseOutput};
+	use tg::sync::control::{VerifyProcessServerResponseOutput, VerifyServerResponseOutput};
 	let arg = tg::sync::Arg::default();
 	let mut graph = Graph::new(&arg, false);
 	let id = tg::process::Id::new();
-	let output = GetServerResponseOutput::Process(GetProcessServerResponseOutput {
+	let output = VerifyServerResponseOutput::Process(VerifyProcessServerResponseOutput {
 		permissions: tg::authorization::permission::process::Set::NODE_LOG_OBJECTS,
 		storage: tg::process::storage::Set::NODE
 			| tg::process::storage::Set::NODE_LOG_OBJECTS
 			| tg::process::storage::Set::NODE_OUTPUT_OBJECTS,
+		tokens: Vec::new(),
 	});
 	graph
 		.update_node_local_control_output(&id.clone().into(), &output)
@@ -591,9 +595,10 @@ fn process_control_updates_merge_individual_fields() {
 	assert!(availability.node_log_objects);
 	assert!(!availability.node_output_objects);
 
-	let output = GetServerResponseOutput::Process(GetProcessServerResponseOutput {
+	let output = VerifyServerResponseOutput::Process(VerifyProcessServerResponseOutput {
 		permissions: tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS,
 		storage: tg::process::storage::Set::NODE | tg::process::storage::Set::NODE_ERROR_OBJECTS,
+		tokens: Vec::new(),
 	});
 	graph
 		.update_node_local_control_output(&id.clone().into(), &output)
@@ -613,32 +618,36 @@ fn process_control_updates_merge_individual_fields() {
 #[test]
 fn control_responses_preserve_storage_and_permissions_on_the_wire() {
 	use tg::sync::control::{
-		GetObjectServerResponseOutput, GetProcessServerResponseOutput, GetServerResponseOutput,
+		VerifyObjectServerResponseOutput, VerifyProcessServerResponseOutput,
+		VerifyServerResponseOutput,
 	};
 	let outputs = [
-		GetServerResponseOutput::Object(GetObjectServerResponseOutput {
+		VerifyServerResponseOutput::Object(VerifyObjectServerResponseOutput {
 			permissions: tg::authorization::permission::object::Set::empty(),
 			storage: tg::object::storage::Set::empty(),
+			tokens: Vec::new(),
 		}),
-		GetServerResponseOutput::Object(GetObjectServerResponseOutput {
+		VerifyServerResponseOutput::Object(VerifyObjectServerResponseOutput {
 			permissions: tg::authorization::permission::object::Set::SUBTREE,
 			storage: tg::object::storage::Set::NODE,
+			tokens: Vec::new(),
 		}),
-		GetServerResponseOutput::Process(GetProcessServerResponseOutput {
+		VerifyServerResponseOutput::Process(VerifyProcessServerResponseOutput {
 			permissions: tg::authorization::permission::process::Set::all(),
 			storage: tg::process::storage::Set::NODE
 				| tg::process::storage::Set::NODE_COMMAND_OBJECTS
 				| tg::process::storage::Set::NODE_ERROR_OBJECTS
 				| tg::process::storage::Set::SUBTREE_LOG_OBJECTS
 				| tg::process::storage::Set::SUBTREE_OUTPUT_OBJECTS,
+			tokens: Vec::new(),
 		}),
 	];
 	for output in outputs {
 		let json = serde_json::to_value(&output).unwrap();
-		let decoded: GetServerResponseOutput = serde_json::from_value(json.clone()).unwrap();
+		let decoded: VerifyServerResponseOutput = serde_json::from_value(json.clone()).unwrap();
 		assert_eq!(serde_json::to_value(decoded).unwrap(), json);
 		let bytes = tangram_serialize::to_vec(&output).unwrap();
-		let decoded: GetServerResponseOutput = tangram_serialize::from_slice(&bytes).unwrap();
+		let decoded: VerifyServerResponseOutput = tangram_serialize::from_slice(&bytes).unwrap();
 		assert_eq!(serde_json::to_value(decoded).unwrap(), json);
 	}
 }
@@ -646,36 +655,36 @@ fn control_responses_preserve_storage_and_permissions_on_the_wire() {
 #[test]
 fn control_requirements_are_independent_in_either_order() {
 	use tg::sync::control::{
-		GetClientRequestArg, GetObjectServerResponseOutput, GetServerResponseOutput,
+		VerifyClientRequestArg, VerifyObjectServerResponseOutput, VerifyServerResponseOutput,
 	};
 	for storage_first in [false, true] {
 		let config = tg::sync::Arg::default();
 		let mut graph = Graph::new(&config, false);
 		let node: tg::Id = tg::blob::Id::new(b"independent").into();
 		let permissions = tg::authorization::permission::object::Set::SUBTREE;
-		let permission_request = GetClientRequestArg {
+		let permission_request = VerifyClientRequestArg {
 			node: node.clone(),
 			permissions: tg::authorization::permission::Set::Object(permissions),
 			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		};
-		let stored_request = GetClientRequestArg {
+		let stored_request = VerifyClientRequestArg {
 			storage: tg::storage::Set::Object(
 				tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
 			),
 			..permission_request.clone()
 		};
-		let storage_only_request = GetClientRequestArg {
+		let storage_only_request = VerifyClientRequestArg {
 			permissions: stored_request.permissions.empty_like(),
 			..stored_request.clone()
 		};
 		assert!(
 			graph
-				.try_get_node_local_control_output(&permission_request)
+				.try_verify_node_local_control_output(&permission_request)
 				.unwrap()
 				.is_none()
 		);
 		for stored in [storage_first, !storage_first] {
-			let output = GetServerResponseOutput::Object(GetObjectServerResponseOutput {
+			let output = VerifyServerResponseOutput::Object(VerifyObjectServerResponseOutput {
 				permissions: if stored {
 					tg::authorization::permission::object::Set::empty()
 				} else {
@@ -686,6 +695,7 @@ fn control_requirements_are_independent_in_either_order() {
 				} else {
 					tg::object::storage::Set::empty()
 				},
+				tokens: Vec::new(),
 			});
 			graph
 				.update_node_local_control_output(&node, &output)
@@ -693,20 +703,20 @@ fn control_requirements_are_independent_in_either_order() {
 			if stored == storage_first {
 				assert_eq!(
 					graph
-						.try_get_node_local_control_output(&storage_only_request)
+						.try_verify_node_local_control_output(&storage_only_request)
 						.unwrap()
 						.is_some(),
 					stored
 				);
 				assert!(
 					graph
-						.try_get_node_local_control_output(&stored_request)
+						.try_verify_node_local_control_output(&stored_request)
 						.unwrap()
 						.is_none()
 				);
 				assert_eq!(
 					graph
-						.try_get_node_local_control_output(&permission_request)
+						.try_verify_node_local_control_output(&permission_request)
 						.unwrap()
 						.is_some(),
 					!stored
@@ -722,14 +732,14 @@ fn control_requirements_are_independent_in_either_order() {
 		}
 		assert!(
 			graph
-				.try_get_node_local_control_output(&stored_request)
+				.try_verify_node_local_control_output(&stored_request)
 				.unwrap()
 				.is_some()
 		);
 		assert!(!graph.nodes[&node].unwrap_object_ref().marked);
 		assert!(
 			graph
-				.try_get_node_local_control_output(&storage_only_request)
+				.try_verify_node_local_control_output(&storage_only_request)
 				.unwrap()
 				.is_some()
 		);
@@ -738,7 +748,7 @@ fn control_requirements_are_independent_in_either_order() {
 
 #[test]
 fn process_data_and_permissions_do_not_prove_storage() {
-	use tg::sync::control::GetClientRequestArg;
+	use tg::sync::control::VerifyClientRequestArg;
 	let config = tg::sync::Arg::default();
 	let mut graph = Graph::new(&config, false);
 	let id = tg::process::Id::new();
@@ -757,14 +767,14 @@ fn process_data_and_permissions_do_not_prove_storage() {
 		storage: None,
 	};
 	graph.update_process_local(update);
-	let request = GetClientRequestArg {
+	let request = VerifyClientRequestArg {
 		node: id.clone().into(),
 		permissions,
 		storage: tg::storage::Set::Process(tg::process::storage::Set::empty()),
 	};
 	assert!(
 		graph
-			.try_get_node_local_control_output(&request)
+			.try_verify_node_local_control_output(&request)
 			.unwrap()
 			.is_some()
 	);
@@ -773,13 +783,13 @@ fn process_data_and_permissions_do_not_prove_storage() {
 			.get_process_local_storage(&id)
 			.is_some_and(tg::process::storage::Set::is_empty)
 	);
-	let request = GetClientRequestArg {
+	let request = VerifyClientRequestArg {
 		storage: tg::storage::Set::Process(tg::process::storage::Set::NODE),
 		..request
 	};
 	assert!(
 		graph
-			.try_get_node_local_control_output(&request)
+			.try_verify_node_local_control_output(&request)
 			.unwrap()
 			.is_none()
 	);
@@ -795,11 +805,11 @@ fn process_data_and_permissions_do_not_prove_storage() {
 	graph.update_process_local(update);
 	assert!(
 		graph
-			.try_get_node_local_control_output(&request)
+			.try_verify_node_local_control_output(&request)
 			.unwrap()
 			.is_some()
 	);
-	let request = GetClientRequestArg {
+	let request = VerifyClientRequestArg {
 		storage: tg::storage::Set::Process(
 			tg::process::storage::Set::NODE | tg::process::storage::Set::NODE_COMMAND_OBJECTS,
 		),
@@ -807,7 +817,7 @@ fn process_data_and_permissions_do_not_prove_storage() {
 	};
 	assert!(
 		graph
-			.try_get_node_local_control_output(&request)
+			.try_verify_node_local_control_output(&request)
 			.unwrap()
 			.is_none()
 	);
@@ -816,7 +826,7 @@ fn process_data_and_permissions_do_not_prove_storage() {
 #[test]
 fn permissions_aggregate_without_storage() {
 	use tg::sync::control::{
-		GetClientRequestArg, GetObjectServerResponseOutput, GetServerResponseOutput,
+		VerifyClientRequestArg, VerifyObjectServerResponseOutput, VerifyServerResponseOutput,
 	};
 	let config = tg::sync::Arg::default();
 	let mut graph = Graph::new(&config, false);
@@ -841,7 +851,7 @@ fn permissions_aggregate_without_storage() {
 		storage: None,
 	};
 	graph.update_object_local(update);
-	let request = GetClientRequestArg {
+	let request = VerifyClientRequestArg {
 		node: parent.clone().into(),
 		permissions: tg::authorization::permission::Set::Object(
 			tg::authorization::permission::object::Set::SUBTREE,
@@ -850,20 +860,21 @@ fn permissions_aggregate_without_storage() {
 	};
 	assert!(
 		graph
-			.try_get_node_local_control_output(&request)
+			.try_verify_node_local_control_output(&request)
 			.unwrap()
 			.is_none()
 	);
-	let output = GetServerResponseOutput::Object(GetObjectServerResponseOutput {
+	let output = VerifyServerResponseOutput::Object(VerifyObjectServerResponseOutput {
 		permissions: tg::authorization::permission::object::Set::SUBTREE,
 		storage: tg::object::storage::Set::empty(),
+		tokens: Vec::new(),
 	});
 	graph
 		.update_node_local_control_output(&child.into(), &output)
 		.unwrap();
 	assert!(
 		graph
-			.try_get_node_local_control_output(&request)
+			.try_verify_node_local_control_output(&request)
 			.unwrap()
 			.is_some()
 	);
@@ -927,7 +938,7 @@ fn process_command_permissions_aggregate_without_process_storage() {
 
 #[test]
 fn control_requests_preserve_storage_variants_on_the_wire() {
-	use tg::sync::control::GetClientRequestArg;
+	use tg::sync::control::VerifyClientRequestArg;
 	let object: tg::Id = tg::blob::Id::new(b"object").into();
 	let process: tg::Id = tg::process::Id::new().into();
 	for (node, permissions, storage) in [
@@ -948,22 +959,23 @@ fn control_requests_preserve_storage_variants_on_the_wire() {
 	] {
 		for permissions in [permissions.empty_like(), permissions] {
 			for storage in [storage.empty_like(), storage] {
-				let request = GetClientRequestArg {
+				let request = VerifyClientRequestArg {
 					node: node.clone(),
 					permissions,
 					storage,
 				};
 				request.validate().unwrap();
 				let json = serde_json::to_value(&request).unwrap();
-				let decoded: GetClientRequestArg = serde_json::from_value(json.clone()).unwrap();
+				let decoded: VerifyClientRequestArg = serde_json::from_value(json.clone()).unwrap();
 				assert_eq!(serde_json::to_value(decoded).unwrap(), json);
 				let bytes = tangram_serialize::to_vec(&request).unwrap();
-				let decoded: GetClientRequestArg = tangram_serialize::from_slice(&bytes).unwrap();
+				let decoded: VerifyClientRequestArg =
+					tangram_serialize::from_slice(&bytes).unwrap();
 				assert_eq!(serde_json::to_value(decoded).unwrap(), json);
 			}
 		}
 	}
-	let request = GetClientRequestArg {
+	let request = VerifyClientRequestArg {
 		node: tg::blob::Id::new(b"mismatched").into(),
 		permissions: tg::authorization::permission::Set::Object(
 			tg::authorization::permission::object::Set::NODE,

@@ -34,9 +34,8 @@ impl Session {
 			_ => return Err(tg::error!("invalid remote principal")),
 		};
 		let permission = Self::write_permission_for_resource(&id)?;
-		let Some(permissions) = self.authorize(id, permission).await? else {
-			return Err(tg::error!("unauthorized"));
-		};
+		let authorization = self.authorize(id, permission).await?.check_exhaustion()?;
+		let permissions = authorization.permissions;
 		if !permissions.contains(permission) {
 			return Err(tg::error!("unauthorized"));
 		}

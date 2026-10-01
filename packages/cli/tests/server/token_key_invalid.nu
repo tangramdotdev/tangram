@@ -21,7 +21,9 @@ for kind in [authentication authorization] {
 
 # Validate the private key independently of the configured public keys.
 let local = server spawn --config {
-	authorization: { tokens: { public_keys: [] } }
+	verification: {
+		tokens: { public_keys: [] }
+	}
 	vfs: false
 }
 server stop $local

@@ -22,11 +22,9 @@ impl Session {
 		let permission = tg::authorization::Permission::Organization(
 			tg::authorization::permission::organization::Permission::Admin,
 		);
-		match self.authorize(organization.clone(), permission).await? {
-			None => return Ok(None),
-			Some(permissions) if permissions.contains(permission) => {},
-			Some(_) => return Err(tg::error!("unauthorized")),
-		}
+		self.authorize(organization.clone(), permission)
+			.await?
+			.into_result()?;
 
 		let organization = organization.clone();
 		let id = self

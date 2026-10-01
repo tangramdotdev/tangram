@@ -1842,8 +1842,11 @@ impl Session {
 			tg::object::Id::from(id.clone()),
 			command.state().tokens().local_authorization().to_vec(),
 		);
-		let authorized = self.authorize(resource, permission).await?;
-		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+		let authorized = self
+			.authorize(resource, permission)
+			.await?
+			.check_exhaustion()?;
+		if !authorized.permissions.contains(permission) {
 			return Ok(None);
 		}
 		let id = tg::object::Id::from(id);
@@ -2003,8 +2006,8 @@ impl Session {
 		items.push(tangram_index::batch::Item::PutPermission(permission_arg));
 		if let Some(parent) = parent {
 			let permission_arg = tangram_index::process::object::permission::Arg {
-				authorize: crate::authorization_search_config(
-					&self.server.config.authorization.final_,
+				verify: crate::verification_search_config(
+					&self.server.config.verification.permissions.final_,
 				),
 				created_at: now,
 				expires_at: Some(expires_at),

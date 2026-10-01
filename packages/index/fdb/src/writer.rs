@@ -26,7 +26,7 @@ pub struct Metrics {
 }
 
 pub(super) struct Arg {
-	pub authorize: crate::AuthorizeConfig,
+	pub verification: crate::VerificationConfig,
 	pub database: Arc<fdb::Database>,
 	pub max_process_depth: Option<u64>,
 	pub max_write_operation_batch_size: usize,
@@ -53,7 +53,7 @@ struct Batch {
 
 #[derive(Clone, Copy)]
 struct ExecutionConfig<'a> {
-	authorize: crate::AuthorizeConfig,
+	verification: crate::VerificationConfig,
 	max_process_depth: Option<u64>,
 	max_write_operation_batch_size: usize,
 	metrics: &'a Metrics,
@@ -68,7 +68,7 @@ enum TransactionError {
 impl Index {
 	pub(super) async fn writer_task(arg: Arg) {
 		let Arg {
-			authorize,
+			verification,
 			database,
 			max_process_depth,
 			max_write_operation_batch_size,
@@ -155,7 +155,7 @@ impl Index {
 			let subspace = subspace.clone();
 			async move {
 				let config = ExecutionConfig {
-					authorize,
+					verification,
 					max_process_depth,
 					max_write_operation_batch_size,
 					metrics: &metrics,
@@ -1175,7 +1175,7 @@ impl Index {
 			},
 			Request::Batch(arg) => {
 				let result = Self::batch_with_transaction(
-					config.authorize,
+					config.verification,
 					txn,
 					subspace,
 					arg,

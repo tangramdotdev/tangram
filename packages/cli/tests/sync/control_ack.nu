@@ -17,10 +17,10 @@ let heartbeat_watch = tg --url $remote.url --token $root_token checkpoint watch 
 let retain_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.request.retain --params $params | from json | get watch
 let store_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blob } | to json --raw) | from json | get watch
 let request_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.request --params $params | from json | get watch
-let ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.ack --params $params | from json | get watch
 
 # Hold the incoming object and the control subscription so the first heartbeats are lost.
 let push_log = $env.TMPDIR | path join push.log
+'' | save --force $push_log
 let push = job spawn {
 	let job_id = job id
 	let output = tg --no-quiet --url $local.url push $blob o+e>| tee { save --force $push_log } | complete
@@ -35,30 +35,36 @@ let query = { 'tokens[local][0]': $sync } | url build-query
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let read = job spawn {
 	let job_id = job id
-	let output = http get --max-time 30sec --unix-socket $socket --headers { Accept: 'application/json', Authorization: $'Bearer ($root_token)' } $'http://localhost/objects/($blob)?($query)'
+	let headers = { Authorization: $'Bearer ($root_token)' }
+	let output = http get --max-time 10sec --unix-socket $socket --headers ($headers | insert Accept 'application/json') $'http://localhost/objects/($blob)?($query)'
 	$output | job send --tag $job_id 0
 }
 
+# The missing authorized read verifies node storage through the incoming sync.
 # The first heartbeat also retries until the control service starts listening.
-let first_heartbeat = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.heartbeat.request $heartbeat_watch 0 | from json | get params.id
-tg --url $remote.url --token $root_token checkpoint continue sync.control.heartbeat.request $heartbeat_watch 0
-let second_heartbeat = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.heartbeat.request $heartbeat_watch 1 | from json | get params.id
-assert equal $first_heartbeat $second_heartbeat "a heartbeat retry should preserve the request ID"
+let first_heartbeat = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.heartbeat.request $heartbeat_watch 0 | from json | get params
+let retry_heartbeat_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.heartbeat.request --params ({ client: $first_heartbeat.client } | to json --raw) | from json | get watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.control.heartbeat.request $heartbeat_watch
+let second_heartbeat = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.heartbeat.request $retry_heartbeat_watch 0 | from json | get params
+assert equal $first_heartbeat.id $second_heartbeat.id "a heartbeat retry should preserve the request ID"
+tg --url $remote.url --token $root_token checkpoint unwatch sync.control.heartbeat.request $retry_heartbeat_watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.control.subscribe $subscribe_watch
 
 # Node requests retain the same ID while their acknowledgement is held.
 let first = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.request $request_watch 0 | from json | get params.id
-tg --url $remote.url --token $root_token checkpoint continue sync.control.request $request_watch 0
-let second = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.request $request_watch 1 | from json | get params.id
-assert equal $first $second "a retry should preserve the request ID"
+let retry_params = { node: $blob, id: $first } | to json --raw
+let retry_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.request --params $retry_params | from json | get watch
+let ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.ack --params $retry_params | from json | get watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.control.request $request_watch
+let second = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.request $retry_watch 0 | from json | get params.id
+assert equal $first $second "a retry should preserve the request ID"
+tg --url $remote.url --token $root_token checkpoint unwatch sync.control.request $retry_watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.control.request.retain $retain_watch
 let acknowledged = timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $ack_watch 0 | from json | get params.id
 assert equal $acknowledged $first "the sync should acknowledge the retained request"
 
 # No request is sent after the acknowledgement, and the acknowledgement does not complete the read.
-let request_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.request --params $params | from json | get watch
+let request_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.request --params $retry_params | from json | get watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.control.ack $ack_watch
 let output = timeout 1s tg --url $remote.url --token $root_token checkpoint wait sync.control.request $request_watch 0 | complete
 assert equal $output.exit_code 124 "the acknowledged request must not be resent"

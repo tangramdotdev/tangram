@@ -104,11 +104,11 @@ pub struct ClientRequest {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ClientRequestArg {
-	#[tangram_serialize(id = 1)]
-	Get(GetClientRequestArg),
-
 	#[tangram_serialize(id = 0)]
 	Heartbeat(HeartbeatClientRequestArg),
+
+	#[tangram_serialize(id = 1)]
+	Verify(VerifyClientRequestArg),
 }
 
 #[derive(
@@ -159,11 +159,11 @@ pub struct ServerResponse {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerResponseOutput {
-	#[tangram_serialize(id = 1)]
-	Get(Option<GetServerResponseOutput>),
-
 	#[tangram_serialize(id = 0)]
 	Heartbeat(HeartbeatServerResponseOutput),
+
+	#[tangram_serialize(id = 1)]
+	Verify(Option<VerifyServerResponseOutput>),
 }
 
 #[derive(
@@ -174,7 +174,7 @@ pub enum ServerResponseOutput {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct GetClientRequestArg {
+pub struct VerifyClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub node: tg::Id,
 
@@ -194,12 +194,12 @@ pub struct GetClientRequestArg {
 	tangram_serialize::Serialize,
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum GetServerResponseOutput {
+pub enum VerifyServerResponseOutput {
 	#[tangram_serialize(id = 0)]
-	Object(GetObjectServerResponseOutput),
+	Object(VerifyObjectServerResponseOutput),
 
 	#[tangram_serialize(id = 1)]
-	Process(GetProcessServerResponseOutput),
+	Process(VerifyProcessServerResponseOutput),
 }
 
 #[derive(
@@ -210,12 +210,15 @@ pub enum GetServerResponseOutput {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct GetObjectServerResponseOutput {
+pub struct VerifyObjectServerResponseOutput {
 	#[tangram_serialize(id = 1)]
 	pub permissions: tg::authorization::permission::object::Set,
 
 	#[tangram_serialize(id = 0)]
 	pub storage: tg::object::storage::Set,
+
+	#[tangram_serialize(id = 2)]
+	pub tokens: Vec<tg::authorization::Body>,
 }
 
 #[derive(
@@ -226,12 +229,15 @@ pub struct GetObjectServerResponseOutput {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct GetProcessServerResponseOutput {
+pub struct VerifyProcessServerResponseOutput {
 	#[tangram_serialize(id = 1)]
 	pub permissions: tg::authorization::permission::process::Set,
 
 	#[tangram_serialize(id = 0)]
 	pub storage: tg::process::storage::Set,
+
+	#[tangram_serialize(id = 2)]
+	pub tokens: Vec<tg::authorization::Body>,
 }
 
 #[derive(
@@ -264,7 +270,7 @@ impl ClientRequestArg {
 		permissions: tg::authorization::permission::object::Set,
 		storage: tg::object::storage::Set,
 	) -> Self {
-		Self::Get(GetClientRequestArg {
+		Self::Verify(VerifyClientRequestArg {
 			node: node.into(),
 			permissions: tg::authorization::permission::Set::Object(permissions),
 			storage: tg::storage::Set::Object(storage),
@@ -277,7 +283,7 @@ impl ClientRequestArg {
 		permissions: tg::authorization::permission::process::Set,
 		storage: tg::process::storage::Set,
 	) -> Self {
-		Self::Get(GetClientRequestArg {
+		Self::Verify(VerifyClientRequestArg {
 			node: node.into(),
 			permissions: tg::authorization::permission::Set::Process(permissions),
 			storage: tg::storage::Set::Process(storage),
@@ -287,13 +293,13 @@ impl ClientRequestArg {
 	#[must_use]
 	pub fn node(&self) -> Option<tg::Id> {
 		match self {
-			Self::Get(arg) => Some(arg.node.clone()),
+			Self::Verify(arg) => Some(arg.node.clone()),
 			Self::Heartbeat(_) => None,
 		}
 	}
 }
 
-impl GetClientRequestArg {
+impl VerifyClientRequestArg {
 	pub fn validate(&self) -> tg::Result<()> {
 		let valid = match (&self.permissions, &self.storage) {
 			(tg::authorization::permission::Set::Object(_), tg::storage::Set::Object(_)) => {
@@ -313,9 +319,9 @@ impl GetClientRequestArg {
 	}
 }
 
-impl GetServerResponseOutput {
+impl VerifyServerResponseOutput {
 	#[must_use]
-	pub fn satisfies(&self, arg: &GetClientRequestArg) -> bool {
+	pub fn satisfies(&self, arg: &VerifyClientRequestArg) -> bool {
 		if !self.permissions().contains(arg.permissions) {
 			return false;
 		}
@@ -327,6 +333,14 @@ impl GetServerResponseOutput {
 				output.storage.contains(required)
 			},
 			_ => false,
+		}
+	}
+
+	#[must_use]
+	pub fn tokens(&self) -> &[tg::authorization::Body] {
+		match self {
+			Self::Object(output) => &output.tokens,
+			Self::Process(output) => &output.tokens,
 		}
 	}
 

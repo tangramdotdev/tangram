@@ -317,6 +317,7 @@ impl Session {
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
 		let authorization = self.authorize_batch(authorization_args).await?;
+		crate::authorization::check_exhaustion(&authorization)?;
 		let mut allowed = tree
 			.ancestors
 			.iter()
@@ -339,8 +340,7 @@ impl Session {
 					.parent
 					.as_ref()
 					.is_none_or(|parent| allowed.contains(parent));
-			let authorized = parent_allowed
-				&& authorization.is_some_and(|permissions| permissions.contains(permission));
+			let authorized = parent_allowed && authorization.permissions.contains(permission);
 			if !authorized {
 				if named_node.id == node.node {
 					return Err(tg::error!(id = %named_node.id, "unauthorized"));

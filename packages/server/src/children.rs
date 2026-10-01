@@ -215,9 +215,11 @@ impl Session {
 		let mut authorizations = self
 			.authorize_batch_with_required([(resource, permissions)], required.into())
 			.await?;
-		let Some(permissions) = authorizations.pop().unwrap() else {
-			return Err(tg::error!(%id, "failed to find the node"));
-		};
+		let permissions = authorizations
+			.pop()
+			.unwrap()
+			.check_exhaustion()?
+			.permissions;
 		if !permissions.contains(required) {
 			return Err(tg::error!(%id, "failed to find the node"));
 		}

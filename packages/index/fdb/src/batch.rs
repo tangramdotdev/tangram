@@ -20,7 +20,7 @@ impl Index {
 	}
 
 	pub(crate) async fn batch_with_transaction(
-		authorize: crate::AuthorizeConfig,
+		verification: crate::VerificationConfig,
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::batch::Arg,
@@ -240,7 +240,7 @@ impl Index {
 				tangram_index::batch::Item::PutProcessObjectPermissions(arg) => {
 					crate::propagate!(
 						Self::put_process_object_permissions_with_transaction(
-							authorize.concurrency,
+							verification.concurrency,
 							txn,
 							subspace,
 							arg,

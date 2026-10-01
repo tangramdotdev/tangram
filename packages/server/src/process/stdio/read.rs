@@ -214,8 +214,11 @@ impl Session {
 				);
 				let resource =
 					tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
-				let authorized = self.authorize(resource, permission).await?;
-				Ok(authorized.is_some_and(|permissions| permissions.contains(permission)))
+				let authorized = self
+					.authorize(resource, permission)
+					.await?
+					.check_exhaustion()?;
+				Ok(authorized.permissions.contains(permission))
 			},
 			(true, true) => Err(tg::error!(
 				"cannot read stdin and stdout or stderr in a single request"

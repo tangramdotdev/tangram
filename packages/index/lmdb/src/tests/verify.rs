@@ -329,55 +329,53 @@ fn new_index() -> (tempfile::TempDir, Index) {
 	(dir, index)
 }
 
-async fn authorize(
+async fn verify(
 	index: &Index,
-	args: Vec<tangram_index::authorize::Arg>,
+	args: Vec<tangram_index::verify::Arg>,
 	user: &tg::user::Id,
-) -> Vec<tangram_index::authorize::Outcome> {
+) -> Vec<tangram_index::verify::Output> {
 	index
-		.authorize_batch(
+		.verify_batch(
 			&args,
-			tangram_index::authorize::Config::default(),
+			tangram_index::verify::Config::default(),
 			&tg::Principal::User(user.clone()),
 		)
 		.await
 		.unwrap()
 }
 
-async fn is_authorized(
+async fn is_verified(
 	index: &Index,
 	resource: tg::Id,
 	permission: tg::authorization::Permission,
 	principal: &tg::Principal,
 ) -> bool {
 	let permissions = tg::authorization::permission::Set::from(permission);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(resource),
 		tokens: Vec::new(),
 	};
 	let output = index
-		.authorize_batch(
-			&[arg],
-			tangram_index::authorize::Config::default(),
-			principal,
-		)
+		.verify_batch(&[arg], tangram_index::verify::Config::default(), principal)
 		.await
 		.unwrap();
-	output[0]
-		.output()
-		.is_some_and(|output| output.permissions.contains(permissions))
+	output[0].permissions.contains(permissions)
 }
 
-async fn authorize_secs(
+async fn verify_secs(
 	index: &Index,
-	config: tangram_index::authorize::Config,
+	config: tangram_index::verify::Config,
 	resource: &tg::object::Id,
 	user: &tg::user::Id,
 ) -> f64 {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: node,
 		required: node,
 		resource: tg::Selector::Id(resource.clone().into()),
@@ -385,22 +383,20 @@ async fn authorize_secs(
 	};
 	let start = Instant::now();
 	let output = index
-		.authorize_batch(&[arg], config, &tg::Principal::User(user.clone()))
+		.verify_batch(&[arg], config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
 	let elapsed = start.elapsed().as_secs_f64();
 	assert!(
-		output[0]
-			.output()
-			.is_some_and(|output| output.permissions.contains(node)),
-		"the node should be authorized via the root's subtree permission"
+		output[0].permissions.contains(node),
+		"the node should be verified via the root's subtree permission"
 	);
 	elapsed
 }
 
-async fn authorize_batch_chain_secs(
+async fn verify_batch_chain_secs(
 	index: &Index,
-	config: tangram_index::authorize::Config,
+	config: tangram_index::verify::Config,
 	nodes: &[tg::object::Id],
 	user: &tg::user::Id,
 ) -> f64 {
@@ -408,7 +404,9 @@ async fn authorize_batch_chain_secs(
 	let args = nodes
 		.iter()
 		.rev()
-		.map(|resource| tangram_index::authorize::Arg {
+		.map(|resource| tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: node,
 			required: node,
 			resource: tg::Selector::Id(resource.clone().into()),
@@ -417,15 +415,15 @@ async fn authorize_batch_chain_secs(
 		.collect::<Vec<_>>();
 	let start = Instant::now();
 	let outcomes = index
-		.authorize_batch(&args, config, &tg::Principal::User(user.clone()))
+		.verify_batch(&args, config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
 	let elapsed = start.elapsed().as_secs_f64();
-	assert!(outcomes.iter().all(|outcome| {
-		outcome
-			.output()
-			.is_some_and(|output| output.permissions.contains(node))
-	}));
+	assert!(
+		outcomes
+			.iter()
+			.all(|outcome| { outcome.permissions.contains(node) })
+	);
 
 	elapsed
 }
@@ -456,33 +454,37 @@ fn put_overlapping_ancestor_component(
 	leaves
 }
 
-async fn authorize_overlapping_exhausted_secs(
+async fn verify_overlapping_exhausted_secs(
 	index: &Index,
 	depth: usize,
 	leaves: &[tg::object::Id],
 	user: &tg::user::Id,
 ) -> f64 {
-	let ancestor = tangram_index::authorize::SearchConfig {
+	let ancestor = tangram_index::verify::SearchConfig {
 		max_depth: depth / 2,
 		max_edges: 4 * depth,
 		max_nodes: 2 * depth,
 		..Default::default()
 	};
-	let descendant = tangram_index::authorize::SearchConfig {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor,
-		descendant,
-		subtree: tangram_index::authorize::SubtreeConfig::default(),
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor,
+			descendant,
+			subtree: tangram_index::verify::SubtreeConfig::default(),
+		},
 	};
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let args = leaves
 		.iter()
-		.map(|leaf| tangram_index::authorize::Arg {
+		.map(|leaf| tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: node,
 			required: node,
 			resource: tg::Selector::Id(leaf.clone().into()),
@@ -491,46 +493,50 @@ async fn authorize_overlapping_exhausted_secs(
 		.collect::<Vec<_>>();
 	let start = Instant::now();
 	let outcomes = index
-		.authorize_batch(&args, config, &tg::Principal::User(user.clone()))
+		.verify_batch(&args, config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
 	let elapsed = start.elapsed().as_secs_f64();
 	assert!(
 		outcomes
 			.iter()
-			.all(|outcome| matches!(outcome, tangram_index::authorize::Outcome::Exhausted))
+			.all(|outcome| matches!(outcome.outcome, tangram_index::verify::Outcome::Exhausted))
 	);
 
 	elapsed
 }
 
-async fn authorize_overlapping_descendant_secs(
+async fn verify_overlapping_descendant_secs(
 	index: &Index,
 	depth: usize,
 	leaves: &[tg::object::Id],
 	user: &tg::user::Id,
 ) -> f64 {
-	let ancestor = tangram_index::authorize::SearchConfig {
+	let ancestor = tangram_index::verify::SearchConfig {
 		max_depth: depth,
 		max_edges: 0,
 		max_nodes: 2 * depth,
 		..Default::default()
 	};
-	let descendant = tangram_index::authorize::SearchConfig {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_depth: depth + 1,
 		max_edges: 4 * (depth + leaves.len()),
 		max_nodes: 2 * (depth + leaves.len()),
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor,
-		descendant,
-		subtree: tangram_index::authorize::SubtreeConfig::default(),
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor,
+			descendant,
+			subtree: tangram_index::verify::SubtreeConfig::default(),
+		},
 	};
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let args = leaves
 		.iter()
-		.map(|leaf| tangram_index::authorize::Arg {
+		.map(|leaf| tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: node,
 			required: node,
 			resource: tg::Selector::Id(leaf.clone().into()),
@@ -539,45 +545,49 @@ async fn authorize_overlapping_descendant_secs(
 		.collect::<Vec<_>>();
 	let start = Instant::now();
 	let outcomes = index
-		.authorize_batch(&args, config, &tg::Principal::User(user.clone()))
+		.verify_batch(&args, config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
 	let elapsed = start.elapsed().as_secs_f64();
-	assert!(outcomes.iter().all(|outcome| {
-		outcome
-			.output()
-			.is_some_and(|output| output.permissions.contains(node))
-	}));
+	assert!(
+		outcomes
+			.iter()
+			.all(|outcome| { outcome.permissions.contains(node) })
+	);
 
 	elapsed
 }
 
-async fn authorize_overlapping_subtree_secs(
+async fn verify_overlapping_subtree_secs(
 	index: &Index,
 	nodes: &[tg::object::Id],
 	user: &tg::user::Id,
 ) -> f64 {
 	let length = nodes.len();
-	let search = tangram_index::authorize::SearchConfig {
+	let search = tangram_index::verify::SearchConfig {
 		max_depth: length,
 		max_edges: 4 * length,
 		max_nodes: 2 * length,
 		..Default::default()
 	};
-	let subtree_config = tangram_index::authorize::SubtreeConfig {
+	let subtree_config = tangram_index::verify::SubtreeConfig {
 		max_depth: length,
 		max_objects: length,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor: search,
-		descendant: search,
-		subtree: subtree_config,
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor: search,
+			descendant: search,
+			subtree: subtree_config,
+		},
 	};
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let args = nodes
 		.iter()
-		.map(|node| tangram_index::authorize::Arg {
+		.map(|node| tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: subtree,
 			required: subtree,
 			resource: tg::Selector::Id(node.clone().into()),
@@ -586,21 +596,21 @@ async fn authorize_overlapping_subtree_secs(
 		.collect::<Vec<_>>();
 	let start = Instant::now();
 	let outcomes = index
-		.authorize_batch(&args, config, &tg::Principal::User(user.clone()))
+		.verify_batch(&args, config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
 	let elapsed = start.elapsed().as_secs_f64();
-	assert!(outcomes.iter().all(|outcome| {
-		outcome
-			.output()
-			.is_some_and(|output| output.permissions.contains(subtree))
-	}));
+	assert!(
+		outcomes
+			.iter()
+			.all(|outcome| { outcome.permissions.contains(subtree) })
+	);
 
 	elapsed
 }
 
 #[must_use]
-fn put_authorized_subtree_chain(
+fn put_verified_subtree_chain(
 	index: &Index,
 	transaction: &mut lmdb::RwTxn<'_>,
 	offset: usize,
@@ -625,30 +635,34 @@ fn put_authorized_subtree_chain(
 	nodes
 }
 
-async fn authorize_object_process_permissions_secs(
+async fn verify_object_process_permissions_secs(
 	index: &Index,
 	object: &tg::object::Id,
 	user: &tg::user::Id,
 ) -> f64 {
-	let ancestor = tangram_index::authorize::SearchConfig {
+	let ancestor = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 1,
 		..Default::default()
 	};
-	let descendant = tangram_index::authorize::SearchConfig {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor,
-		descendant,
-		subtree: tangram_index::authorize::SubtreeConfig::default(),
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor,
+			descendant,
+			subtree: tangram_index::verify::SubtreeConfig::default(),
+		},
 	};
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: node,
 		required: node,
 		resource: tg::Selector::Id(object.clone().into()),
@@ -656,13 +670,13 @@ async fn authorize_object_process_permissions_secs(
 	};
 	let start = Instant::now();
 	let outcomes = index
-		.authorize_batch(&[arg], config, &tg::Principal::User(user.clone()))
+		.verify_batch(&[arg], config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
 	let elapsed = start.elapsed().as_secs_f64();
 	assert!(matches!(
-		outcomes[0],
-		tangram_index::authorize::Outcome::Exhausted
+		outcomes[0].outcome,
+		tangram_index::verify::Outcome::Exhausted
 	));
 
 	elapsed
@@ -670,12 +684,14 @@ async fn authorize_object_process_permissions_secs(
 
 async fn deny_secs(
 	index: &Index,
-	config: tangram_index::authorize::Config,
+	config: tangram_index::verify::Config,
 	resource: &tg::object::Id,
 	user: &tg::user::Id,
 ) -> f64 {
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: node,
 		required: node,
 		resource: tg::Selector::Id(resource.clone().into()),
@@ -683,16 +699,16 @@ async fn deny_secs(
 	};
 	let start = Instant::now();
 	let output = index
-		.authorize_batch(&[arg], config, &tg::Principal::User(user.clone()))
+		.verify_batch(&[arg], config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
 	let elapsed = start.elapsed().as_secs_f64();
-	assert!(!output[0].output().unwrap().permissions.contains(node));
+	assert!(!output[0].permissions.contains(node));
 	elapsed
 }
 
 #[tokio::test]
-async fn authorize_new_specifier_with_parent_write_permission() {
+async fn verify_new_specifier_with_parent_write_permission() {
 	let (_dir, index) = new_index();
 	let alice = tg::user::Id::new();
 	let group = tg::group::Id::new();
@@ -734,19 +750,25 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 		tg::authorization::Permission::Tag(tg::authorization::permission::tag::Permission::Write);
 	let permissions = tg::authorization::permission::Set::from_permission(permission);
 	let args = [
-		tangram_index::authorize::Arg {
+		tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: permissions,
 			required: permissions,
 			resource: tg::Selector::Specifier("alice/new".parse().unwrap()),
 			tokens: Vec::new(),
 		},
-		tangram_index::authorize::Arg {
+		tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: permissions,
 			required: permissions,
 			resource: tg::Selector::Specifier("alice/taken".parse().unwrap()),
 			tokens: Vec::new(),
 		},
-		tangram_index::authorize::Arg {
+		tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: permissions,
 			required: permissions,
 			resource: tg::Selector::Specifier("unclaimed/new".parse().unwrap()),
@@ -754,38 +776,30 @@ async fn authorize_new_specifier_with_parent_write_permission() {
 		},
 	];
 	let outputs = index
-		.authorize_batch(
+		.verify_batch(
 			&args,
-			tangram_index::authorize::Config::default(),
+			tangram_index::verify::Config::default(),
 			&tg::Principal::User(writer),
 		)
 		.await
 		.unwrap();
-	assert!(
-		outputs[0]
-			.output()
-			.is_some_and(|output| output.permissions.contains(permission))
-	);
-	assert!(outputs[1].output().is_none());
-	assert!(outputs[2].output().is_none());
+	assert!(outputs[0].permissions.contains(permission));
+	assert!(outputs[1].permissions.is_empty());
+	assert!(outputs[2].permissions.is_empty());
 
 	let outputs = index
-		.authorize_batch(
+		.verify_batch(
 			&args[..1],
-			tangram_index::authorize::Config::default(),
+			tangram_index::verify::Config::default(),
 			&tg::Principal::User(outsider),
 		)
 		.await
 		.unwrap();
-	assert!(
-		outputs[0]
-			.output()
-			.is_some_and(|output| !output.permissions.contains(permission))
-	);
+	assert!(!outputs[0].permissions.contains(permission));
 }
 
 #[tokio::test]
-async fn authorize_process_parent_delegates_only_read_like_permissions() {
+async fn verify_process_parent_delegates_only_read_like_permissions() {
 	let (_dir, index) = new_index();
 	let descendant = object_id(2);
 	let expiring_object = object_id(1);
@@ -894,23 +908,23 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 		(tg::Principal::User(outsider), false, false),
 	] {
 		assert_eq!(
-			is_authorized(&index, expiring_object.clone().into(), subtree, &principal,).await,
+			is_verified(&index, expiring_object.clone().into(), subtree, &principal,).await,
 			expected_read,
 		);
 		assert_eq!(
-			is_authorized(&index, object.clone().into(), subtree, &principal).await,
+			is_verified(&index, object.clone().into(), subtree, &principal).await,
 			expected_read,
 		);
 		assert_eq!(
-			is_authorized(&index, descendant.clone().into(), subtree, &principal).await,
+			is_verified(&index, descendant.clone().into(), subtree, &principal).await,
 			expected_read,
 		);
 		assert_eq!(
-			is_authorized(&index, target.clone().into(), sandbox_write, &principal,).await,
+			is_verified(&index, target.clone().into(), sandbox_write, &principal,).await,
 			expected_write,
 		);
 		assert_eq!(
-			is_authorized(&index, target.clone().into(), sandbox_read, &principal,).await,
+			is_verified(&index, target.clone().into(), sandbox_read, &principal,).await,
 			expected_read,
 		);
 	}
@@ -919,27 +933,29 @@ async fn authorize_process_parent_delegates_only_read_like_permissions() {
 	let write = tg::authorization::permission::Set::from(sandbox_write);
 	let mut requested = read;
 	requested.insert(write);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested,
 		required: read,
 		resource: tg::Selector::Id(target.into()),
 		tokens: Vec::new(),
 	};
 	let outputs = index
-		.authorize_batch(
+		.verify_batch(
 			&[arg],
-			tangram_index::authorize::Config::default(),
+			tangram_index::verify::Config::default(),
 			&tg::Principal::User(process_parent_holder),
 		)
 		.await
 		.unwrap();
-	let permissions = outputs[0].output().unwrap().permissions;
+	let permissions = outputs[0].permissions;
 	assert!(permissions.contains(read));
 	assert!(!permissions.contains(write));
 }
 
 #[tokio::test]
-async fn authorize_process_object_permissions_require_process_permissions() {
+async fn verify_process_object_permissions_require_process_permissions() {
 	let (_dir, index) = new_index();
 	let command_holder = tg::user::Id::new();
 	let object = object_id(0);
@@ -992,7 +1008,7 @@ async fn authorize_process_object_permissions_require_process_permissions() {
 	txn.commit().unwrap();
 
 	assert!(
-		!is_authorized(
+		!is_verified(
 			&index,
 			object.clone().into(),
 			subtree,
@@ -1001,7 +1017,7 @@ async fn authorize_process_object_permissions_require_process_permissions() {
 		.await
 	);
 	assert!(
-		!is_authorized(
+		!is_verified(
 			&index,
 			object.clone().into(),
 			subtree,
@@ -1010,7 +1026,7 @@ async fn authorize_process_object_permissions_require_process_permissions() {
 		.await
 	);
 	assert!(
-		!is_authorized(
+		!is_verified(
 			&index,
 			object.clone().into(),
 			subtree,
@@ -1029,7 +1045,7 @@ async fn authorize_process_object_permissions_require_process_permissions() {
 	);
 	txn.commit().unwrap();
 	assert!(
-		is_authorized(
+		is_verified(
 			&index,
 			object.clone().into(),
 			subtree,
@@ -1038,7 +1054,7 @@ async fn authorize_process_object_permissions_require_process_permissions() {
 		.await
 	);
 	assert!(
-		is_authorized(
+		is_verified(
 			&index,
 			object.clone().into(),
 			subtree,
@@ -1047,7 +1063,7 @@ async fn authorize_process_object_permissions_require_process_permissions() {
 		.await
 	);
 	assert!(
-		is_authorized(
+		is_verified(
 			&index,
 			object.clone().into(),
 			subtree,
@@ -1060,7 +1076,7 @@ async fn authorize_process_object_permissions_require_process_permissions() {
 	put_process_direct_permission(&index, &mut txn, object.clone().into(), &process, subtree);
 	txn.commit().unwrap();
 	assert!(
-		!is_authorized(
+		!is_verified(
 			&index,
 			object.clone().into(),
 			subtree,
@@ -1069,7 +1085,7 @@ async fn authorize_process_object_permissions_require_process_permissions() {
 		.await
 	);
 	assert!(
-		is_authorized(
+		is_verified(
 			&index,
 			object.clone().into(),
 			subtree,
@@ -1077,11 +1093,11 @@ async fn authorize_process_object_permissions_require_process_permissions() {
 		)
 		.await
 	);
-	assert!(is_authorized(&index, object.into(), subtree, &tg::Principal::User(parent),).await);
+	assert!(is_verified(&index, object.into(), subtree, &tg::Principal::User(parent),).await);
 }
 
 #[tokio::test]
-async fn authorize_process_node_fields_cover_object_subtrees() {
+async fn verify_process_node_fields_cover_object_subtrees() {
 	let node = tg::authorization::permission::object::Permission::Node;
 	let subtree = tg::authorization::permission::object::Permission::Subtree;
 	for (kind, permission) in [
@@ -1117,7 +1133,7 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 		let node_object_child = object_id(6);
 		let other_object = object_id(7);
 
-		// Give each process an object subtree, plus references that are not fully authorized.
+		// Give each process an object subtree, plus references that are not fully verified.
 		let mut transaction = index.env.write_txn().unwrap();
 		put_sandbox(&index, &mut transaction, &sandbox);
 		for process in [&process, &child_process] {
@@ -1201,7 +1217,7 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 		transaction.commit().unwrap();
 
 		// Exercise permissions and tokens through both search directions independently and together.
-		let disabled = tangram_index::authorize::SearchConfig {
+		let disabled = tangram_index::verify::SearchConfig {
 			max_depth: 0,
 			max_edges: 0,
 			max_nodes: 0,
@@ -1247,7 +1263,9 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 						.iter()
 						.map(|(object, permission, _)| {
 							let permissions = object_permission(*permission).into();
-							tangram_index::authorize::Arg {
+							tangram_index::verify::Arg {
+								storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+								subject: None,
 								requested: permissions,
 								required: permissions,
 								resource: tg::Selector::Id((*object).clone().into()),
@@ -1256,42 +1274,48 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 						})
 						.collect::<Vec<_>>();
 					for (search, config) in [
-						("both", tangram_index::authorize::Config::default()),
+						("both", tangram_index::verify::Config::default()),
 						(
 							"ancestor",
-							tangram_index::authorize::Config {
-								descendant: disabled,
-								..Default::default()
+							tangram_index::verify::Config {
+								permissions: tangram_index::verify::PermissionsConfig {
+									descendant: disabled,
+									..Default::default()
+								},
 							},
 						),
 						(
 							"descendant",
-							tangram_index::authorize::Config {
-								ancestor: disabled,
-								..Default::default()
+							tangram_index::verify::Config {
+								permissions: tangram_index::verify::PermissionsConfig {
+									ancestor: disabled,
+									..Default::default()
+								},
 							},
 						),
 						(
 							"descendant paginated",
-							tangram_index::authorize::Config {
-								ancestor: disabled,
-								descendant: tangram_index::authorize::SearchConfig {
-									page_size: 1,
+							tangram_index::verify::Config {
+								permissions: tangram_index::verify::PermissionsConfig {
+									ancestor: disabled,
+									descendant: tangram_index::verify::SearchConfig {
+										page_size: 1,
+										..Default::default()
+									},
 									..Default::default()
 								},
-								..Default::default()
 							},
 						),
 					] {
-						let outcomes = index
-							.authorize_batch(&args, config, &principal)
-							.await
-							.unwrap();
+						let outcomes = index.verify_batch(&args, config, &principal).await.unwrap();
 						for ((object, object_permission, expected), outcome) in
 							std::iter::zip(cases.iter().copied(), outcomes)
 						{
 							assert_eq!(
-								matches!(outcome, tangram_index::authorize::Outcome::Authorized(_)),
+								matches!(
+									outcome.outcome,
+									tangram_index::verify::Outcome::Satisfied
+								),
 								expected,
 								"{kind:?} {permission}, {search}, token={with_token}, node_only={node_only}, {object} {object_permission}: {outcome:?}"
 							);
@@ -1304,7 +1328,7 @@ async fn authorize_process_node_fields_cover_object_subtrees() {
 }
 
 #[tokio::test]
-async fn authorize_parent_permission_flows_to_process_children() {
+async fn verify_parent_permission_flows_to_process_children() {
 	let (_dir, index) = new_index();
 	let child = tg::process::Id::new();
 	let node_reader = tg::user::Id::new();
@@ -1339,7 +1363,7 @@ async fn authorize_parent_permission_flows_to_process_children() {
 	txn.commit().unwrap();
 
 	assert!(
-		is_authorized(
+		is_verified(
 			&index,
 			child.clone().into(),
 			parent_permission,
@@ -1348,7 +1372,7 @@ async fn authorize_parent_permission_flows_to_process_children() {
 		.await
 	);
 	assert!(
-		!is_authorized(
+		!is_verified(
 			&index,
 			child.into(),
 			parent_permission,
@@ -1359,7 +1383,7 @@ async fn authorize_parent_permission_flows_to_process_children() {
 }
 
 #[tokio::test]
-async fn authorize_sandbox_permissions_do_not_authorize_processes() {
+async fn verify_sandbox_permissions_do_not_verify_processes() {
 	let (_dir, index) = new_index();
 	let process = tg::process::Id::new();
 	let reader = tg::user::Id::new();
@@ -1406,7 +1430,7 @@ async fn authorize_sandbox_permissions_do_not_authorize_processes() {
 		let permission = tg::authorization::Permission::Process(permission);
 		for user in [&reader, &writer] {
 			assert!(
-				!is_authorized(
+				!is_verified(
 					&index,
 					process.clone().into(),
 					permission,
@@ -1419,22 +1443,24 @@ async fn authorize_sandbox_permissions_do_not_authorize_processes() {
 }
 
 #[tokio::test]
-async fn authorize_derives_process_permissions_without_materialized_permissions() {
-	let descendant = tangram_index::authorize::SearchConfig {
+async fn verify_derives_process_permissions_without_materialized_permissions() {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		..Default::default()
 	};
-	let subtree = tangram_index::authorize::SubtreeConfig {
+	let subtree = tangram_index::verify::SubtreeConfig {
 		max_depth: 0,
 		max_objects: 0,
 		max_processes: 0,
 	};
-	let initial_config = tangram_index::authorize::Config {
-		ancestor: tangram_index::authorize::SearchConfig::default(),
-		descendant,
-		subtree,
+	let initial_config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor: tangram_index::verify::SearchConfig::default(),
+			descendant,
+			subtree,
+		},
 	};
 	let (_dir, index) = new_index();
 	let child = tg::process::Id::new();
@@ -1488,19 +1514,21 @@ async fn authorize_derives_process_permissions_without_materialized_permissions(
 	let permission = tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::NodeCommandObjects,
 	);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permission.into(),
 		required: permission.into(),
 		resource: tg::Selector::Id(parent.clone().into()),
 		tokens: Vec::new(),
 	};
 	let outcomes = index
-		.authorize_batch(&[arg], initial_config, &tg::Principal::User(user.clone()))
+		.verify_batch(&[arg], initial_config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
 	assert!(matches!(
-		outcomes[0],
-		tangram_index::authorize::Outcome::Exhausted
+		outcomes[0].outcome,
+		tangram_index::verify::Outcome::Exhausted
 	));
 
 	for permission in [
@@ -1516,7 +1544,7 @@ async fn authorize_derives_process_permissions_without_materialized_permissions(
 	] {
 		let permission = tg::authorization::Permission::Process(permission);
 		assert!(
-			is_authorized(
+			is_verified(
 				&index,
 				parent.clone().into(),
 				permission,
@@ -1530,19 +1558,21 @@ async fn authorize_derives_process_permissions_without_materialized_permissions(
 // Authorizing an object walks its ancestry for a covering permission. The work must
 // grow linearly with the depth of the ancestry.
 #[tokio::test]
-async fn authorize_deep_chain_scales_linearly() {
+async fn verify_deep_chain_scales_linearly() {
 	const DEPTH: usize = 1000;
 
-	let search = tangram_index::authorize::SearchConfig {
+	let search = tangram_index::verify::SearchConfig {
 		max_depth: DEPTH,
 		max_edges: 4 * DEPTH,
 		max_nodes: 2 * DEPTH,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor: search,
-		descendant: search,
-		subtree: tangram_index::authorize::SubtreeConfig::default(),
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor: search,
+			descendant: search,
+			subtree: tangram_index::verify::SubtreeConfig::default(),
+		},
 	};
 	let (_dir, index) = new_index();
 
@@ -1569,8 +1599,8 @@ async fn authorize_deep_chain_scales_linearly() {
 
 	// Compare a ratio of two depths rather than an absolute time, so the bound is
 	// machine-independent.
-	let base = authorize_secs(&index, config, &nodes[DEPTH / 4], &user).await;
-	let deep = authorize_secs(&index, config, &nodes[DEPTH], &user).await;
+	let base = verify_secs(&index, config, &nodes[DEPTH / 4], &user).await;
+	let deep = verify_secs(&index, config, &nodes[DEPTH], &user).await;
 	let ratio = deep / base;
 	eprintln!(
 		"depth {} = {:.1}ms, depth {DEPTH} = {:.1}ms, ratio = {ratio:.1}x",
@@ -1580,25 +1610,27 @@ async fn authorize_deep_chain_scales_linearly() {
 	);
 	assert!(
 		ratio < 6.0,
-		"authorization compounded {ratio:.1}x over a 4x deeper chain: it is super-linear in the chain depth"
+		"verification compounded {ratio:.1}x over a 4x deeper chain: it is super-linear in the chain depth"
 	);
 }
 
 #[tokio::test]
-async fn authorize_combines_ancestor_and_descendant_searches() {
+async fn verify_combines_ancestor_and_descendant_searches() {
 	const DEPTH: usize = 18;
 	const SEARCH_DEPTH: usize = 16;
 
-	let search = tangram_index::authorize::SearchConfig {
+	let search = tangram_index::verify::SearchConfig {
 		max_depth: SEARCH_DEPTH,
 		max_edges: 64,
 		max_nodes: 64,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor: search,
-		descendant: search,
-		subtree: tangram_index::authorize::SubtreeConfig::default(),
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor: search,
+			descendant: search,
+			subtree: tangram_index::verify::SubtreeConfig::default(),
+		},
 	};
 	let (_directory, index) = new_index();
 	let nodes = (0..=DEPTH).map(object_id).collect::<Vec<_>>();
@@ -1620,38 +1652,42 @@ async fn authorize_combines_ancestor_and_descendant_searches() {
 	transaction.commit().unwrap();
 
 	let permissions = object_permissions([tg::authorization::permission::object::Permission::Node]);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(nodes[DEPTH].clone().into()),
 		tokens: Vec::new(),
 	};
 	let outcomes = index
-		.authorize_batch(&[arg], config, &tg::Principal::User(user))
+		.verify_batch(&[arg], config, &tg::Principal::User(user))
 		.await
 		.unwrap();
 
 	assert!(matches!(
-		outcomes[0],
-		tangram_index::authorize::Outcome::Authorized(_)
+		outcomes[0].outcome,
+		tangram_index::verify::Outcome::Satisfied
 	));
 }
 
 #[tokio::test]
-async fn authorize_deep_chain_batch_scales_linearly() {
+async fn verify_deep_chain_batch_scales_linearly() {
 	const BASE: usize = 128;
 	const DEEP: usize = 512;
 
-	let search = tangram_index::authorize::SearchConfig {
+	let search = tangram_index::verify::SearchConfig {
 		max_depth: DEEP,
 		max_edges: 4 * DEEP,
 		max_nodes: 2 * DEEP,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor: search,
-		descendant: search,
-		subtree: tangram_index::authorize::SubtreeConfig::default(),
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor: search,
+			descendant: search,
+			subtree: tangram_index::verify::SubtreeConfig::default(),
+		},
 	};
 	let (_directory, index) = new_index();
 	let nodes = (0..=DEEP).map(object_id).collect::<Vec<_>>();
@@ -1672,8 +1708,8 @@ async fn authorize_deep_chain_batch_scales_linearly() {
 	);
 	transaction.commit().unwrap();
 
-	let base = authorize_batch_chain_secs(&index, config, &nodes[1..=BASE], &user).await;
-	let deep = authorize_batch_chain_secs(&index, config, &nodes[1..=DEEP], &user).await;
+	let base = verify_batch_chain_secs(&index, config, &nodes[1..=BASE], &user).await;
+	let deep = verify_batch_chain_secs(&index, config, &nodes[1..=DEEP], &user).await;
 	let ratio = deep / base;
 	eprintln!(
 		"no-token batch: {BASE} nodes = {:.1}ms, {DEEP} nodes = {:.1}ms, ratio = {ratio:.1}x",
@@ -1682,12 +1718,12 @@ async fn authorize_deep_chain_batch_scales_linearly() {
 	);
 	assert!(
 		ratio < 8.0,
-		"authorization compounded {ratio:.1}x over a 4x deeper batch: positive proofs were not reused"
+		"verification compounded {ratio:.1}x over a 4x deeper batch: positive proofs were not reused"
 	);
 }
 
 #[tokio::test]
-async fn authorize_overlapping_exhausted_ancestor_batch_scales_linearly() {
+async fn verify_overlapping_exhausted_ancestor_batch_scales_linearly() {
 	const BASE: usize = 128;
 	const DEEP: usize = 512;
 
@@ -1699,8 +1735,8 @@ async fn authorize_overlapping_exhausted_ancestor_batch_scales_linearly() {
 		put_overlapping_ancestor_component(&index, &mut transaction, 10_000, DEEP, DEEP);
 	transaction.commit().unwrap();
 
-	let base = authorize_overlapping_exhausted_secs(&index, BASE, &base_leaves, &user).await;
-	let deep = authorize_overlapping_exhausted_secs(&index, DEEP, &deep_leaves, &user).await;
+	let base = verify_overlapping_exhausted_secs(&index, BASE, &base_leaves, &user).await;
+	let deep = verify_overlapping_exhausted_secs(&index, DEEP, &deep_leaves, &user).await;
 	let ratio = deep / base;
 	eprintln!(
 		"overlapping exhausted ancestor batch: {BASE} leaves = {:.1}ms, {DEEP} leaves = {:.1}ms, ratio = {ratio:.1}x",
@@ -1709,12 +1745,12 @@ async fn authorize_overlapping_exhausted_ancestor_batch_scales_linearly() {
 	);
 	assert!(
 		ratio < 8.0,
-		"authorization compounded {ratio:.1}x over a 4x larger overlapping exhausted graph: ancestor work was repeated per root"
+		"verification compounded {ratio:.1}x over a 4x larger overlapping exhausted graph: ancestor work was repeated per root"
 	);
 }
 
 #[tokio::test]
-async fn authorize_overlapping_descendant_batch_scales_linearly() {
+async fn verify_overlapping_descendant_batch_scales_linearly() {
 	const BASE: usize = 512;
 	const DEEP: usize = 2048;
 
@@ -1741,8 +1777,8 @@ async fn authorize_overlapping_descendant_batch_scales_linearly() {
 	);
 	transaction.commit().unwrap();
 
-	let base = authorize_overlapping_descendant_secs(&index, BASE, &base_leaves, &base_user).await;
-	let deep = authorize_overlapping_descendant_secs(&index, DEEP, &deep_leaves, &deep_user).await;
+	let base = verify_overlapping_descendant_secs(&index, BASE, &base_leaves, &base_user).await;
+	let deep = verify_overlapping_descendant_secs(&index, DEEP, &deep_leaves, &deep_user).await;
 	let ratio = deep / base;
 	eprintln!(
 		"overlapping descendant batch: {BASE} leaves = {:.1}ms, {DEEP} leaves = {:.1}ms, ratio = {ratio:.1}x",
@@ -1751,12 +1787,12 @@ async fn authorize_overlapping_descendant_batch_scales_linearly() {
 	);
 	assert!(
 		ratio < 6.0,
-		"authorization compounded {ratio:.1}x over a 4x larger overlapping descendant graph: descendant work was repeated per root"
+		"verification compounded {ratio:.1}x over a 4x larger overlapping descendant graph: descendant work was repeated per root"
 	);
 }
 
 #[tokio::test]
-async fn authorize_overlapping_subtree_batch_scales_linearly() {
+async fn verify_overlapping_subtree_batch_scales_linearly() {
 	const BASE: usize = 128;
 	const DEEP: usize = 512;
 
@@ -1764,14 +1800,12 @@ async fn authorize_overlapping_subtree_batch_scales_linearly() {
 	let base_user = tg::user::Id::new();
 	let deep_user = tg::user::Id::new();
 	let mut transaction = index.env.write_txn().unwrap();
-	let base_nodes =
-		put_authorized_subtree_chain(&index, &mut transaction, 20_000, BASE, &base_user);
-	let deep_nodes =
-		put_authorized_subtree_chain(&index, &mut transaction, 30_000, DEEP, &deep_user);
+	let base_nodes = put_verified_subtree_chain(&index, &mut transaction, 20_000, BASE, &base_user);
+	let deep_nodes = put_verified_subtree_chain(&index, &mut transaction, 30_000, DEEP, &deep_user);
 	transaction.commit().unwrap();
 
-	let base = authorize_overlapping_subtree_secs(&index, &base_nodes, &base_user).await;
-	let deep = authorize_overlapping_subtree_secs(&index, &deep_nodes, &deep_user).await;
+	let base = verify_overlapping_subtree_secs(&index, &base_nodes, &base_user).await;
+	let deep = verify_overlapping_subtree_secs(&index, &deep_nodes, &deep_user).await;
 	let ratio = deep / base;
 	eprintln!(
 		"overlapping subtree batch: {BASE} roots = {:.1}ms, {DEEP} roots = {:.1}ms, ratio = {ratio:.1}x",
@@ -1780,24 +1814,26 @@ async fn authorize_overlapping_subtree_batch_scales_linearly() {
 	);
 	assert!(
 		ratio < 8.0,
-		"authorization compounded {ratio:.1}x over a 4x larger overlapping subtree graph: derived subtree proofs were not reused"
+		"verification compounded {ratio:.1}x over a 4x larger overlapping subtree graph: derived subtree proofs were not reused"
 	);
 }
 
 #[tokio::test]
-async fn authorize_ancestor_search_can_deny_when_the_descendant_cannot() {
-	let ancestor = tangram_index::authorize::SearchConfig {
+async fn verify_ancestor_search_can_deny_when_the_descendant_cannot() {
+	let ancestor = tangram_index::verify::SearchConfig {
 		max_edges: 0,
 		..Default::default()
 	};
-	let descendant = tangram_index::authorize::SearchConfig {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_nodes: 0,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor,
-		descendant,
-		..Default::default()
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor,
+			descendant,
+			..Default::default()
+		},
 	};
 	let (_dir, index) = new_index();
 	let object = object_id(0);
@@ -1808,41 +1844,39 @@ async fn authorize_ancestor_search_can_deny_when_the_descendant_cannot() {
 
 	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
 	let permissions = tg::authorization::permission::Set::from(permission);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(object.into()),
 		tokens: Vec::new(),
 	};
 	let output = index
-		.authorize_batch(&[arg], config, &tg::Principal::Process(process))
+		.verify_batch(&[arg], config, &tg::Principal::Process(process))
 		.await
 		.unwrap();
-	assert!(
-		!output[0]
-			.output()
-			.unwrap()
-			.permissions
-			.contains(permissions)
-	);
+	assert!(!output[0].permissions.contains(permissions));
 }
 
 #[tokio::test]
-async fn authorize_initial_search_limits_can_disable_descendants() {
-	let ancestor = tangram_index::authorize::SearchConfig {
+async fn verify_initial_search_limits_can_disable_descendants() {
+	let ancestor = tangram_index::verify::SearchConfig {
 		max_edges: 0,
 		..Default::default()
 	};
-	let descendant = tangram_index::authorize::SearchConfig {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		..Default::default()
 	};
-	let initial_config = tangram_index::authorize::Config {
-		ancestor,
-		descendant,
-		subtree: tangram_index::authorize::SubtreeConfig::default(),
+	let initial_config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor,
+			descendant,
+			subtree: tangram_index::verify::SubtreeConfig::default(),
+		},
 	};
 	let (_dir, index) = new_index();
 	let child = object_id(0);
@@ -1863,14 +1897,16 @@ async fn authorize_initial_search_limits_can_disable_descendants() {
 
 	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
 	let permissions = tg::authorization::permission::Set::from(permission);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(child.into()),
 		tokens: Vec::new(),
 	};
 	let outcomes = index
-		.authorize_batch(
+		.verify_batch(
 			std::slice::from_ref(&arg),
 			initial_config,
 			&tg::Principal::User(user.clone()),
@@ -1878,43 +1914,39 @@ async fn authorize_initial_search_limits_can_disable_descendants() {
 		.await
 		.unwrap();
 	assert!(matches!(
-		outcomes[0],
-		tangram_index::authorize::Outcome::Exhausted
+		outcomes[0].outcome,
+		tangram_index::verify::Outcome::Exhausted
 	));
 	let final_ = index
-		.authorize_batch(
+		.verify_batch(
 			&[arg],
-			tangram_index::authorize::Config::default(),
+			tangram_index::verify::Config::default(),
 			&tg::Principal::User(user),
 		)
 		.await
 		.unwrap();
-	assert!(
-		final_[0]
-			.output()
-			.unwrap()
-			.permissions
-			.contains(permissions)
-	);
+	assert!(final_[0].permissions.contains(permissions));
 }
 
 #[tokio::test]
-async fn authorize_initial_search_limits_can_disable_derived_subtrees() {
-	let descendant = tangram_index::authorize::SearchConfig {
+async fn verify_initial_search_limits_can_disable_derived_subtrees() {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		..Default::default()
 	};
-	let subtree = tangram_index::authorize::SubtreeConfig {
+	let subtree = tangram_index::verify::SubtreeConfig {
 		max_depth: 0,
 		max_objects: 0,
 		max_processes: 0,
 	};
-	let initial_config = tangram_index::authorize::Config {
-		ancestor: tangram_index::authorize::SearchConfig::default(),
-		descendant,
-		subtree,
+	let initial_config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor: tangram_index::verify::SearchConfig::default(),
+			descendant,
+			subtree,
+		},
 	};
 	let (_dir, index) = new_index();
 	let child = object_id(0);
@@ -1936,14 +1968,16 @@ async fn authorize_initial_search_limits_can_disable_derived_subtrees() {
 
 	let permission = object_permission(tg::authorization::permission::object::Permission::Subtree);
 	let permissions = tg::authorization::permission::Set::from(permission);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(root.into()),
 		tokens: Vec::new(),
 	};
 	let outcomes = index
-		.authorize_batch(
+		.verify_batch(
 			std::slice::from_ref(&arg),
 			initial_config,
 			&tg::Principal::User(user.clone()),
@@ -1951,28 +1985,22 @@ async fn authorize_initial_search_limits_can_disable_derived_subtrees() {
 		.await
 		.unwrap();
 	assert!(matches!(
-		outcomes[0],
-		tangram_index::authorize::Outcome::Exhausted
+		outcomes[0].outcome,
+		tangram_index::verify::Outcome::Exhausted
 	));
 	let final_ = index
-		.authorize_batch(
+		.verify_batch(
 			&[arg],
-			tangram_index::authorize::Config::default(),
+			tangram_index::verify::Config::default(),
 			&tg::Principal::User(user),
 		)
 		.await
 		.unwrap();
-	assert!(
-		final_[0]
-			.output()
-			.unwrap()
-			.permissions
-			.contains(permissions)
-	);
+	assert!(final_[0].permissions.contains(permissions));
 }
 
 #[tokio::test]
-async fn authorize_trait_returns_authorized_and_denied_outcomes() {
+async fn verify_trait_returns_verified_and_denied_outcomes() {
 	let (_dir, index) = new_index();
 	let object = object_id(0);
 	let outsider = tg::user::Id::new();
@@ -1991,54 +2019,58 @@ async fn authorize_trait_returns_authorized_and_denied_outcomes() {
 	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let resource = tg::Selector::Id(object.into());
-	let outcome = tangram_index::Index::authorize(
+	let outcome = tangram_index::Index::verify(
 		&index,
 		resource.clone(),
 		permissions,
-		tangram_index::authorize::Config::default(),
+		tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		tangram_index::verify::Config::default(),
 		&tg::Principal::User(user),
 	)
 	.await
 	.unwrap();
 	let output = outcome.into_result().unwrap();
 	assert!(output.permissions.contains(permissions));
-	let outcome = tangram_index::Index::authorize(
+	let outcome = tangram_index::Index::verify(
 		&index,
 		resource,
 		permissions,
-		tangram_index::authorize::Config::default(),
+		tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		tangram_index::verify::Config::default(),
 		&tg::Principal::User(outsider),
 	)
 	.await
 	.unwrap();
 	let error = outcome.into_result().unwrap_err();
-	assert!(error.to_string().contains("authorization denied"));
+	assert!(error.to_string().contains("verification denied"));
 }
 
 #[tokio::test]
-async fn authorize_returns_an_exhausted_outcome_when_searches_exhaust() {
-	let ancestor = tangram_index::authorize::SearchConfig {
+async fn verify_returns_an_exhausted_outcome_when_searches_exhaust() {
+	let ancestor = tangram_index::verify::SearchConfig {
 		max_edges: 0,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor,
-		..Default::default()
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor,
+			..Default::default()
+		},
 	};
 	let (_dir, index) = new_index();
-	let authorized = object_id(2);
+	let verified = object_id(2);
 	let child = object_id(0);
 	let parent = object_id(1);
 	let user = tg::user::Id::new();
 	let mut txn = index.env.write_txn().unwrap();
-	put_object(&index, &mut txn, &authorized);
+	put_object(&index, &mut txn, &verified);
 	put_object(&index, &mut txn, &child);
 	put_object(&index, &mut txn, &parent);
 	put_child(&index, &mut txn, &parent, &child);
 	put_permission(
 		&index,
 		&mut txn,
-		&authorized,
+		&verified,
 		&user,
 		tg::authorization::permission::object::Permission::Node,
 	);
@@ -2047,56 +2079,63 @@ async fn authorize_returns_an_exhausted_outcome_when_searches_exhaust() {
 	let permission = object_permission(tg::authorization::permission::object::Permission::Node);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let resource = tg::Selector::Id(child.into());
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: resource.clone(),
 		tokens: Vec::new(),
 	};
-	let authorized_arg = tangram_index::authorize::Arg {
+	let verified_arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
-		resource: tg::Selector::Id(authorized.into()),
+		resource: tg::Selector::Id(verified.into()),
 		tokens: Vec::new(),
 	};
 	let outcomes = index
-		.authorize_batch(
-			&[authorized_arg, arg],
+		.verify_batch(
+			&[verified_arg, arg],
 			config,
 			&tg::Principal::User(user.clone()),
 		)
 		.await
 		.unwrap();
 	assert!(matches!(
-		outcomes[0],
-		tangram_index::authorize::Outcome::Authorized(_)
+		outcomes[0].outcome,
+		tangram_index::verify::Outcome::Satisfied
 	));
 	assert!(matches!(
-		outcomes[1],
-		tangram_index::authorize::Outcome::Exhausted
+		outcomes[1].outcome,
+		tangram_index::verify::Outcome::Exhausted
 	));
-	let outcome = tangram_index::Index::authorize(
+	let outcome = tangram_index::Index::verify(
 		&index,
 		resource,
 		permissions,
+		tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		config,
 		&tg::Principal::User(user),
 	)
 	.await
 	.unwrap();
 	let error = outcome.into_result().unwrap_err();
-	assert!(error.to_string().contains("authorization search exhausted"));
+	assert!(error.to_string().contains("verification search exhausted"));
 }
 
 #[tokio::test]
-async fn authorize_returns_an_exhausted_outcome_when_the_subtree_search_exhausts() {
-	let subtree = tangram_index::authorize::SubtreeConfig {
+async fn verify_returns_an_exhausted_outcome_when_the_subtree_search_exhausts() {
+	let subtree = tangram_index::verify::SubtreeConfig {
 		max_objects: 0,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		subtree,
-		..Default::default()
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			subtree,
+			..Default::default()
+		},
 	};
 	let (_dir, index) = new_index();
 	let object = object_id(0);
@@ -2115,42 +2154,47 @@ async fn authorize_returns_an_exhausted_outcome_when_the_subtree_search_exhausts
 	let permission = object_permission(tg::authorization::permission::object::Permission::Subtree);
 	let permissions = tg::authorization::permission::Set::from(permission);
 	let resource = tg::Selector::Id(object.into());
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: resource.clone(),
 		tokens: Vec::new(),
 	};
 	let outcomes = index
-		.authorize_batch(&[arg], config, &tg::Principal::User(user.clone()))
+		.verify_batch(&[arg], config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
 	assert!(matches!(
-		outcomes[0],
-		tangram_index::authorize::Outcome::Exhausted
+		outcomes[0].outcome,
+		tangram_index::verify::Outcome::Exhausted
 	));
-	let outcome = tangram_index::Index::authorize(
+	let outcome = tangram_index::Index::verify(
 		&index,
 		resource,
 		permissions,
+		tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		config,
 		&tg::Principal::User(user),
 	)
 	.await
 	.unwrap();
 	let error = outcome.into_result().unwrap_err();
-	assert!(error.to_string().contains("authorization search exhausted"));
+	assert!(error.to_string().contains("verification search exhausted"));
 }
 
 #[tokio::test]
-async fn authorize_returns_required_permissions_when_an_optional_search_exhausts() {
-	let subtree = tangram_index::authorize::SubtreeConfig {
+async fn verify_returns_required_permissions_when_an_optional_search_exhausts() {
+	let subtree = tangram_index::verify::SubtreeConfig {
 		max_objects: 0,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		subtree,
-		..Default::default()
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			subtree,
+			..Default::default()
+		},
 	};
 	let (_directory, index) = new_index();
 	let object = object_id(0);
@@ -2172,38 +2216,60 @@ async fn authorize_returns_required_permissions_when_an_optional_search_exhausts
 		tg::authorization::permission::object::Permission::Subtree,
 	]);
 	let required = tg::authorization::permission::Set::from(node);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required,
 		resource: tg::Selector::Id(object.into()),
 		tokens: Vec::new(),
 	};
+	let mut strict = arg.clone();
+	strict.required = permissions;
+	let mut node_only = arg.clone();
+	node_only.requested = required;
 	let outcomes = index
-		.authorize_batch(&[arg], config, &tg::Principal::User(user))
+		.verify_batch(
+			&[strict, arg, node_only],
+			config,
+			&tg::Principal::User(user),
+		)
 		.await
 		.unwrap();
-	let output = outcomes[0].output().unwrap();
+	let output = &outcomes[0];
 	assert!(output.permissions.contains(required));
 	assert!(matches!(
-		outcomes[0],
-		tangram_index::authorize::Outcome::Denied(Some(_))
+		outcomes[0].outcome,
+		tangram_index::verify::Outcome::Exhausted
 	));
+	assert_eq!(
+		outcomes[1].outcome,
+		tangram_index::verify::Outcome::Exhausted
+	);
+	assert!(outcomes[1].permissions.contains(required));
+	assert!(!outcomes[0].permissions.contains(permissions));
+	assert_eq!(
+		outcomes[2].outcome,
+		tangram_index::verify::Outcome::Satisfied
+	);
 }
 
 #[tokio::test]
-async fn authorize_wide_fanout_scales_linearly() {
+async fn verify_wide_fanout_scales_linearly() {
 	const BASE: usize = 512;
 	const WIDE: usize = 2048;
 
-	let search = tangram_index::authorize::SearchConfig {
+	let search = tangram_index::verify::SearchConfig {
 		max_edges: 2 * WIDE,
 		max_nodes: 2 * WIDE,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor: search,
-		descendant: search,
-		subtree: tangram_index::authorize::SubtreeConfig::default(),
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor: search,
+			descendant: search,
+			subtree: tangram_index::verify::SubtreeConfig::default(),
+		},
 	};
 	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();
@@ -2232,12 +2298,12 @@ async fn authorize_wide_fanout_scales_linearly() {
 	);
 	assert!(
 		ratio < 6.0,
-		"authorization compounded {ratio:.1}x over a 4x wider graph: it is super-linear in the graph width"
+		"verification compounded {ratio:.1}x over a 4x wider graph: it is super-linear in the graph width"
 	);
 }
 
 #[tokio::test]
-async fn authorize_object_process_permissions_scale_linearly() {
+async fn verify_object_process_permissions_scale_linearly() {
 	const BASE: usize = 2048;
 	const WIDE: usize = 8192;
 
@@ -2269,8 +2335,8 @@ async fn authorize_object_process_permissions_scale_linearly() {
 	}
 	transaction.commit().unwrap();
 
-	let base = authorize_object_process_permissions_secs(&index, &base_object, &user).await;
-	let wide = authorize_object_process_permissions_secs(&index, &wide_object, &user).await;
+	let base = verify_object_process_permissions_secs(&index, &base_object, &user).await;
+	let wide = verify_object_process_permissions_secs(&index, &wide_object, &user).await;
 	let ratio = wide / base;
 	eprintln!(
 		"object-process permissions: {BASE} relations/permissions = {:.1}ms, {WIDE} relations/permissions = {:.1}ms, ratio = {ratio:.1}x",
@@ -2279,19 +2345,21 @@ async fn authorize_object_process_permissions_scale_linearly() {
 	);
 	assert!(
 		ratio < 8.0,
-		"authorization compounded {ratio:.1}x over a 4x wider relation/permission set"
+		"verification compounded {ratio:.1}x over a 4x wider relation/permission set"
 	);
 }
 
 #[tokio::test]
-async fn authorize_process_aspect_denial_wins_over_an_exhausted_object() {
-	let subtree = tangram_index::authorize::SubtreeConfig {
+async fn verify_process_aspect_denial_wins_over_an_exhausted_object() {
+	let subtree = tangram_index::verify::SubtreeConfig {
 		max_objects: 1,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		subtree,
-		..Default::default()
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			subtree,
+			..Default::default()
+		},
 	};
 	let (_directory, index) = new_index();
 	let process = tg::process::Id::new();
@@ -2337,25 +2405,27 @@ async fn authorize_process_aspect_denial_wins_over_an_exhausted_object() {
 		tg::authorization::permission::process::Permission::NodeOutputObjects,
 	);
 	let permissions = permission.into();
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(process.into()),
 		tokens: Vec::new(),
 	};
 	let outcomes = index
-		.authorize_batch(&[arg], config, &tg::Principal::User(user))
+		.verify_batch(&[arg], config, &tg::Principal::User(user))
 		.await
 		.unwrap();
 
 	assert!(matches!(
-		outcomes[0],
-		tangram_index::authorize::Outcome::Denied(_)
+		outcomes[0].outcome,
+		tangram_index::verify::Outcome::Unsatisfied
 	));
 }
 
 #[tokio::test]
-async fn authorize_does_not_share_token_results_between_batch_arguments() {
+async fn verify_does_not_share_token_results_between_batch_arguments() {
 	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();
 	let parent = object_id(0);
@@ -2368,7 +2438,9 @@ async fn authorize_does_not_share_token_results_between_batch_arguments() {
 
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
 	let args = vec![
-		tangram_index::authorize::Arg {
+		tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: node,
 			required: node,
 			resource: tg::Selector::Id(child.clone().into()),
@@ -2380,7 +2452,9 @@ async fn authorize_does_not_share_token_results_between_batch_arguments() {
 				resource: parent.into(),
 			}],
 		},
-		tangram_index::authorize::Arg {
+		tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: node,
 			required: node,
 			resource: tg::Selector::Id(child.into()),
@@ -2388,16 +2462,16 @@ async fn authorize_does_not_share_token_results_between_batch_arguments() {
 		},
 	];
 	let reversed = vec![args[1].clone(), args[0].clone()];
-	let output = authorize(&index, args, &user).await;
-	assert!(output[0].output().unwrap().permissions.contains(node));
-	assert!(!output[1].output().unwrap().permissions.contains(node));
-	let output = authorize(&index, reversed, &user).await;
-	assert!(!output[0].output().unwrap().permissions.contains(node));
-	assert!(output[1].output().unwrap().permissions.contains(node));
+	let output = verify(&index, args, &user).await;
+	assert!(output[0].permissions.contains(node));
+	assert!(!output[1].permissions.contains(node));
+	let output = verify(&index, reversed, &user).await;
+	assert!(!output[0].permissions.contains(node));
+	assert!(output[1].permissions.contains(node));
 }
 
 #[tokio::test]
-async fn authorize_keeps_ancestor_or_descendant_and_derived_subtree_results_separate() {
+async fn verify_keeps_ancestor_or_descendant_and_derived_subtree_results_separate() {
 	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();
 	let root = object_id(0);
@@ -2420,36 +2494,42 @@ async fn authorize_keeps_ancestor_or_descendant_and_derived_subtree_results_sepa
 
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
 	let args = vec![
-		tangram_index::authorize::Arg {
+		tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: subtree,
 			required: subtree,
 			resource: tg::Selector::Id(root.into()),
 			tokens: Vec::new(),
 		},
-		tangram_index::authorize::Arg {
+		tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: subtree,
 			required: subtree,
 			resource: tg::Selector::Id(child.into()),
 			tokens: Vec::new(),
 		},
 	];
-	let output = authorize(&index, args, &user).await;
+	let output = verify(&index, args, &user).await;
 	assert!(
 		output
 			.iter()
-			.all(|outcome| outcome.output().unwrap().permissions.contains(subtree))
+			.all(|outcome| outcome.permissions.contains(subtree))
 	);
 }
 
 #[tokio::test]
-async fn authorize_reuses_an_overlapping_derived_subtree_denial() {
-	let subtree_config = tangram_index::authorize::SubtreeConfig {
+async fn verify_reuses_an_overlapping_derived_subtree_denial() {
+	let subtree_config = tangram_index::verify::SubtreeConfig {
 		max_objects: 2,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		subtree: subtree_config,
-		..Default::default()
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			subtree: subtree_config,
+			..Default::default()
+		},
 	};
 	let (_directory, index) = new_index();
 	let user = tg::user::Id::new();
@@ -2477,7 +2557,9 @@ async fn authorize_reuses_an_overlapping_derived_subtree_denial() {
 	for objects in [[&root, &child], [&child, &root]] {
 		let args = objects
 			.into_iter()
-			.map(|object| tangram_index::authorize::Arg {
+			.map(|object| tangram_index::verify::Arg {
+				storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+				subject: None,
 				requested: subtree,
 				required: subtree,
 				resource: tg::Selector::Id(object.clone().into()),
@@ -2485,26 +2567,28 @@ async fn authorize_reuses_an_overlapping_derived_subtree_denial() {
 			})
 			.collect::<Vec<_>>();
 		let outcomes = index
-			.authorize_batch(&args, config, &tg::Principal::User(user.clone()))
+			.verify_batch(&args, config, &tg::Principal::User(user.clone()))
 			.await
 			.unwrap();
-		assert!(outcomes.iter().all(|outcome| {
-			outcome
-				.output()
-				.is_some_and(|output| !output.permissions.contains(subtree))
-		}));
+		assert!(
+			outcomes
+				.iter()
+				.all(|outcome| { !outcome.permissions.contains(subtree) })
+		);
 	}
 }
 
 #[tokio::test]
-async fn authorize_reuses_an_overlapping_derived_subtree_proof() {
-	let subtree_config = tangram_index::authorize::SubtreeConfig {
+async fn verify_reuses_an_overlapping_derived_subtree_proof() {
+	let subtree_config = tangram_index::verify::SubtreeConfig {
 		max_objects: 2,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		subtree: subtree_config,
-		..Default::default()
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			subtree: subtree_config,
+			..Default::default()
+		},
 	};
 	let (_directory, index) = new_index();
 	let user = tg::user::Id::new();
@@ -2530,7 +2614,9 @@ async fn authorize_reuses_an_overlapping_derived_subtree_proof() {
 	for objects in [[&root, &child], [&child, &root]] {
 		let args = objects
 			.into_iter()
-			.map(|object| tangram_index::authorize::Arg {
+			.map(|object| tangram_index::verify::Arg {
+				storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+				subject: None,
 				requested: subtree,
 				required: subtree,
 				resource: tg::Selector::Id(object.clone().into()),
@@ -2538,19 +2624,19 @@ async fn authorize_reuses_an_overlapping_derived_subtree_proof() {
 			})
 			.collect::<Vec<_>>();
 		let outcomes = index
-			.authorize_batch(&args, config, &tg::Principal::User(user.clone()))
+			.verify_batch(&args, config, &tg::Principal::User(user.clone()))
 			.await
 			.unwrap();
-		assert!(outcomes.iter().all(|outcome| {
-			outcome
-				.output()
-				.is_some_and(|output| output.permissions.contains(subtree))
-		}));
+		assert!(
+			outcomes
+				.iter()
+				.all(|outcome| { outcome.permissions.contains(subtree) })
+		);
 	}
 }
 
 #[tokio::test]
-async fn authorize_prunes_a_covered_subtree_before_loading_its_children() {
+async fn verify_prunes_a_covered_subtree_before_loading_its_children() {
 	const CHILDREN: usize = 2048;
 
 	let (_dir, index) = new_index();
@@ -2583,9 +2669,11 @@ async fn authorize_prunes_a_covered_subtree_before_loading_its_children() {
 	txn.commit().unwrap();
 
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
-	let output = authorize(
+	let output = verify(
 		&index,
-		vec![tangram_index::authorize::Arg {
+		vec![tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: subtree,
 			required: subtree,
 			resource: tg::Selector::Id(root.into()),
@@ -2594,11 +2682,11 @@ async fn authorize_prunes_a_covered_subtree_before_loading_its_children() {
 		&user,
 	)
 	.await;
-	assert!(output[0].output().unwrap().permissions.contains(subtree));
+	assert!(output[0].permissions.contains(subtree));
 }
 
 #[tokio::test]
-async fn authorize_visits_shared_descendants_once() {
+async fn verify_visits_shared_descendants_once() {
 	const LAYERS: usize = 10;
 
 	let (_dir, index) = new_index();
@@ -2641,9 +2729,11 @@ async fn authorize_visits_shared_descendants_once() {
 	txn.commit().unwrap();
 
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
-	let output = authorize(
+	let output = verify(
 		&index,
-		vec![tangram_index::authorize::Arg {
+		vec![tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: subtree,
 			required: subtree,
 			resource: tg::Selector::Id(root.into()),
@@ -2652,11 +2742,11 @@ async fn authorize_visits_shared_descendants_once() {
 		&user,
 	)
 	.await;
-	assert!(output[0].output().unwrap().permissions.contains(subtree));
+	assert!(output[0].permissions.contains(subtree));
 }
 
 #[tokio::test]
-async fn authorize_subtree_ignores_a_visited_child_at_the_depth_limit() {
+async fn verify_subtree_ignores_a_visited_child_at_the_depth_limit() {
 	const DEPTH: usize = 16;
 
 	let (_dir, index) = new_index();
@@ -2680,9 +2770,11 @@ async fn authorize_subtree_ignores_a_visited_child_at_the_depth_limit() {
 	txn.commit().unwrap();
 
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
-	let output = authorize(
+	let output = verify(
 		&index,
-		vec![tangram_index::authorize::Arg {
+		vec![tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: subtree,
 			required: subtree,
 			resource: tg::Selector::Id(objects[0].clone().into()),
@@ -2691,11 +2783,11 @@ async fn authorize_subtree_ignores_a_visited_child_at_the_depth_limit() {
 		&user,
 	)
 	.await;
-	assert!(output[0].output().unwrap().permissions.contains(subtree));
+	assert!(output[0].permissions.contains(subtree));
 }
 
 #[tokio::test]
-async fn authorize_accumulates_permissions_from_different_proofs() {
+async fn verify_accumulates_permissions_from_different_proofs() {
 	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();
 	let root = object_id(0);
@@ -2718,9 +2810,11 @@ async fn authorize_accumulates_permissions_from_different_proofs() {
 		tg::authorization::permission::object::Permission::Node,
 		tg::authorization::permission::object::Permission::Subtree,
 	]);
-	let output = authorize(
+	let output = verify(
 		&index,
-		vec![tangram_index::authorize::Arg {
+		vec![tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: permissions,
 			required: permissions,
 			resource: tg::Selector::Id(root.into()),
@@ -2729,17 +2823,11 @@ async fn authorize_accumulates_permissions_from_different_proofs() {
 		&user,
 	)
 	.await;
-	assert!(
-		output[0]
-			.output()
-			.unwrap()
-			.permissions
-			.contains(permissions)
-	);
+	assert!(output[0].permissions.contains(permissions));
 }
 
 #[tokio::test]
-async fn authorize_ancestor_or_descendant_cycle_with_an_authorized_escape() {
+async fn verify_ancestor_or_descendant_cycle_with_an_verified_escape() {
 	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();
 	let first = object_id(0);
@@ -2762,9 +2850,11 @@ async fn authorize_ancestor_or_descendant_cycle_with_an_authorized_escape() {
 	txn.commit().unwrap();
 
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
-	let output = authorize(
+	let output = verify(
 		&index,
-		vec![tangram_index::authorize::Arg {
+		vec![tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: node,
 			required: node,
 			resource: tg::Selector::Id(first.into()),
@@ -2773,11 +2863,11 @@ async fn authorize_ancestor_or_descendant_cycle_with_an_authorized_escape() {
 		&user,
 	)
 	.await;
-	assert!(output[0].output().unwrap().permissions.contains(node));
+	assert!(output[0].permissions.contains(node));
 }
 
 #[tokio::test]
-async fn authorize_descendant_node_proof_can_walk_upward() {
+async fn verify_descendant_node_proof_can_walk_upward() {
 	let (_dir, index) = new_index();
 	let user = tg::user::Id::new();
 	let object = object_id(0);
@@ -2832,9 +2922,11 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 	txn.commit().unwrap();
 
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
-	let output = authorize(
+	let output = verify(
 		&index,
-		vec![tangram_index::authorize::Arg {
+		vec![tangram_index::verify::Arg {
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
 			requested: subtree,
 			required: subtree,
 			resource: tg::Selector::Id(object.into()),
@@ -2843,11 +2935,11 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 		&user,
 	)
 	.await;
-	assert!(output[0].output().unwrap().permissions.contains(subtree));
+	assert!(output[0].permissions.contains(subtree));
 }
 
 #[tokio::test]
-async fn authorize_searches_traverse_memberships_in_both_directions() {
+async fn verify_searches_traverse_memberships_in_both_directions() {
 	let (_dir, index) = new_index();
 	let mut users = [tg::user::Id::new(), tg::user::Id::new()];
 	users.sort_by_key(|user| tg::Id::from(user.clone()).to_bytes());
@@ -2950,73 +3042,83 @@ async fn authorize_searches_traverse_memberships_in_both_directions() {
 	txn.commit().unwrap();
 
 	let node = object_permissions([tg::authorization::permission::object::Permission::Node]);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: node,
 		required: node,
 		resource: tg::Selector::Id(object.clone().into()),
 		tokens: Vec::new(),
 	};
-	let ancestor = tangram_index::authorize::SearchConfig {
+	let ancestor = tangram_index::verify::SearchConfig {
 		max_nodes: 0,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor,
-		descendant: tangram_index::authorize::SearchConfig {
-			page_size: 1,
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor,
+			descendant: tangram_index::verify::SearchConfig {
+				page_size: 1,
+				..Default::default()
+			},
 			..Default::default()
 		},
-		..Default::default()
 	};
 	let output = index
-		.authorize_batch(&[arg], config, &tg::Principal::User(user.clone()))
+		.verify_batch(&[arg], config, &tg::Principal::User(user.clone()))
 		.await
 		.unwrap();
-	assert!(output[0].output().unwrap().permissions.contains(node));
+	assert!(output[0].permissions.contains(node));
 
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: node,
 		required: node,
 		resource: tg::Selector::Id(object.into()),
 		tokens: Vec::new(),
 	};
-	let descendant = tangram_index::authorize::SearchConfig {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_nodes: 0,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor: tangram_index::authorize::SearchConfig {
-			page_size: 1,
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor: tangram_index::verify::SearchConfig {
+				page_size: 1,
+				..Default::default()
+			},
+			descendant,
 			..Default::default()
 		},
-		descendant,
-		..Default::default()
 	};
 	let output = index
-		.authorize_batch(&[arg], config, &tg::Principal::User(user))
+		.verify_batch(&[arg], config, &tg::Principal::User(user))
 		.await
 		.unwrap();
-	assert!(output[0].output().unwrap().permissions.contains(node));
+	assert!(output[0].permissions.contains(node));
 }
 
 #[tokio::test]
-async fn authorize_ancestor_search_processes_the_shallowest_depth_first() {
-	let ancestor = tangram_index::authorize::SearchConfig {
+async fn verify_ancestor_search_processes_the_shallowest_depth_first() {
+	let ancestor = tangram_index::verify::SearchConfig {
 		max_depth: 16,
 		max_edges: 5,
 		max_nodes: 32,
 		..Default::default()
 	};
-	let descendant = tangram_index::authorize::SearchConfig {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor,
-		descendant,
-		subtree: tangram_index::authorize::SubtreeConfig::default(),
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor,
+			descendant,
+			subtree: tangram_index::verify::SubtreeConfig::default(),
+		},
 	};
 	let (_directory, index) = new_index();
 	let target = object_id(0);
@@ -3061,38 +3163,42 @@ async fn authorize_ancestor_search_processes_the_shallowest_depth_first() {
 	transaction.commit().unwrap();
 
 	let permissions = node.into();
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(target.into()),
 		tokens: Vec::new(),
 	};
 	let outcomes = index
-		.authorize_batch(&[arg], config, &tg::Principal::User(user))
+		.verify_batch(&[arg], config, &tg::Principal::User(user))
 		.await
 		.unwrap();
 	assert!(matches!(
-		outcomes[0],
-		tangram_index::authorize::Outcome::Authorized(_)
+		outcomes[0].outcome,
+		tangram_index::verify::Outcome::Satisfied
 	));
 }
 
 #[tokio::test]
-async fn authorize_derived_search_can_finish_after_ancestor_or_descendant_search_exhausts() {
-	let ancestor = tangram_index::authorize::SearchConfig {
+async fn verify_derived_search_can_finish_after_ancestor_or_descendant_search_exhausts() {
+	let ancestor = tangram_index::verify::SearchConfig {
 		max_edges: 0,
 		..Default::default()
 	};
-	let descendant = tangram_index::authorize::SearchConfig {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor,
-		descendant,
-		subtree: tangram_index::authorize::SubtreeConfig::default(),
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor,
+			descendant,
+			subtree: tangram_index::verify::SubtreeConfig::default(),
+		},
 	};
 	let (_directory, index) = new_index();
 	let child = object_id(0);
@@ -3113,42 +3219,42 @@ async fn authorize_derived_search_can_finish_after_ancestor_or_descendant_search
 	transaction.commit().unwrap();
 
 	let subtree = object_permissions([tg::authorization::permission::object::Permission::Subtree]);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: subtree,
 		required: subtree,
 		resource: tg::Selector::Id(root.into()),
 		tokens: Vec::new(),
 	};
 	let outcomes = index
-		.authorize_batch(&[arg], config, &tg::Principal::User(user))
+		.verify_batch(&[arg], config, &tg::Principal::User(user))
 		.await
 		.unwrap();
 
-	assert!(
-		outcomes[0]
-			.output()
-			.is_some_and(|output| output.permissions.contains(subtree))
-	);
+	assert!(outcomes[0].permissions.contains(subtree));
 }
 
 #[tokio::test]
-async fn authorize_batch_propagates_a_converging_positive_proof() {
-	let ancestor = tangram_index::authorize::SearchConfig {
+async fn verify_batch_propagates_a_converging_positive_proof() {
+	let ancestor = tangram_index::verify::SearchConfig {
 		max_depth: 2,
 		max_edges: 64,
 		max_nodes: 64,
 		..Default::default()
 	};
-	let descendant = tangram_index::authorize::SearchConfig {
+	let descendant = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		..Default::default()
 	};
-	let config = tangram_index::authorize::Config {
-		ancestor,
-		descendant,
-		subtree: tangram_index::authorize::SubtreeConfig::default(),
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			ancestor,
+			descendant,
+			subtree: tangram_index::verify::SubtreeConfig::default(),
+		},
 	};
 	let (_directory, index) = new_index();
 	let target = object_id(20);
@@ -3193,25 +3299,27 @@ async fn authorize_batch_propagates_a_converging_positive_proof() {
 
 	let permissions =
 		object_permissions([tg::authorization::permission::object::Permission::Subtree]);
-	let args = [&target, &first_far, &second_far].map(|object| tangram_index::authorize::Arg {
+	let args = [&target, &first_far, &second_far].map(|object| tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(object.clone().into()),
 		tokens: Vec::new(),
 	});
 	let outcomes = index
-		.authorize_batch(&args, config, &tg::Principal::User(user))
+		.verify_batch(&args, config, &tg::Principal::User(user))
 		.await
 		.unwrap();
 	assert!(
 		outcomes
 			.iter()
-			.all(|outcome| matches!(outcome, tangram_index::authorize::Outcome::Authorized(_)))
+			.all(|outcome| matches!(outcome.outcome, tangram_index::verify::Outcome::Satisfied))
 	);
 }
 
 #[tokio::test]
-async fn authorize_checks_the_requested_object_before_enumerating() {
+async fn verify_checks_the_requested_object_before_enumerating() {
 	const WIDTH: usize = 16;
 	let (_directory, index) = new_index();
 	let placeholder = object_id(2 * WIDTH);
@@ -3256,38 +3364,44 @@ async fn authorize_checks_the_requested_object_before_enumerating() {
 		permissions: vec![permission],
 		resource: parent.into(),
 	};
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(child.into()),
 		tokens: vec![token],
 	};
 	for config in [
-		tangram_index::authorize::Config {
-			ancestor: tangram_index::authorize::SearchConfig {
-				max_edges: 1,
+		tangram_index::verify::Config {
+			permissions: tangram_index::verify::PermissionsConfig {
+				ancestor: tangram_index::verify::SearchConfig {
+					max_edges: 1,
+					..Default::default()
+				},
+				descendant: tangram_index::verify::SearchConfig {
+					max_nodes: 0,
+					..Default::default()
+				},
 				..Default::default()
 			},
-			descendant: tangram_index::authorize::SearchConfig {
-				max_nodes: 0,
-				..Default::default()
-			},
-			..Default::default()
 		},
-		tangram_index::authorize::Config {
-			ancestor: tangram_index::authorize::SearchConfig {
-				max_nodes: 0,
+		tangram_index::verify::Config {
+			permissions: tangram_index::verify::PermissionsConfig {
+				ancestor: tangram_index::verify::SearchConfig {
+					max_nodes: 0,
+					..Default::default()
+				},
+				descendant: tangram_index::verify::SearchConfig {
+					max_edges: 1,
+					..Default::default()
+				},
 				..Default::default()
 			},
-			descendant: tangram_index::authorize::SearchConfig {
-				max_edges: 1,
-				..Default::default()
-			},
-			..Default::default()
 		},
 	] {
 		let outcomes = index
-			.authorize_batch(
+			.verify_batch(
 				std::slice::from_ref(&arg),
 				config,
 				&tg::Principal::Anonymous,
@@ -3295,8 +3409,8 @@ async fn authorize_checks_the_requested_object_before_enumerating() {
 			.await
 			.unwrap();
 		assert!(matches!(
-			outcomes[0],
-			tangram_index::authorize::Outcome::Authorized(_)
+			outcomes[0].outcome,
+			tangram_index::verify::Outcome::Satisfied
 		));
 	}
 }
@@ -3328,24 +3442,28 @@ async fn multiple_tokens_combine_subtree_proofs_and_expirations() {
 		body(&unrelated, Permission::Subtree, 1),
 	];
 	let permissions = object_permissions([Permission::Subtree]);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(parent.into()),
 		tokens,
 	};
 	for config in [
-		tangram_index::authorize::Config::default(),
-		tangram_index::authorize::Config {
-			descendant: tangram_index::authorize::SearchConfig {
-				max_nodes: 0,
+		tangram_index::verify::Config::default(),
+		tangram_index::verify::Config {
+			permissions: tangram_index::verify::PermissionsConfig {
+				descendant: tangram_index::verify::SearchConfig {
+					max_nodes: 0,
+					..Default::default()
+				},
 				..Default::default()
 			},
-			..Default::default()
 		},
 	] {
 		let outcomes = index
-			.authorize_batch(
+			.verify_batch(
 				std::slice::from_ref(&arg),
 				config,
 				&tg::Principal::Anonymous,
@@ -3377,24 +3495,28 @@ async fn multiple_tokens_preserve_descendant_proof_expiration() {
 		resource: resource.into(),
 	};
 	let permissions = object_permissions([Permission::Subtree]);
-	let arg = tangram_index::authorize::Arg {
+	let arg = tangram_index::verify::Arg {
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
 		requested: permissions,
 		required: permissions,
 		resource: tg::Selector::Id(child.into()),
 		tokens: vec![body(parent, 200), body(unrelated, 1)],
 	};
 	for config in [
-		tangram_index::authorize::Config::default(),
-		tangram_index::authorize::Config {
-			ancestor: tangram_index::authorize::SearchConfig {
-				max_nodes: 0,
+		tangram_index::verify::Config::default(),
+		tangram_index::verify::Config {
+			permissions: tangram_index::verify::PermissionsConfig {
+				ancestor: tangram_index::verify::SearchConfig {
+					max_nodes: 0,
+					..Default::default()
+				},
 				..Default::default()
 			},
-			..Default::default()
 		},
 	] {
 		let outcomes = index
-			.authorize_batch(
+			.verify_batch(
 				std::slice::from_ref(&arg),
 				config,
 				&tg::Principal::Anonymous,
@@ -3460,21 +3582,25 @@ async fn sync_read_confers_only_read_like_permissions() {
 		);
 	}
 	transaction.commit().unwrap();
-	let disabled = tangram_index::authorize::SearchConfig {
+	let disabled = tangram_index::verify::SearchConfig {
 		max_depth: 0,
 		max_edges: 0,
 		max_nodes: 0,
 		..Default::default()
 	};
 	for config in [
-		tangram_index::authorize::Config::default(),
-		tangram_index::authorize::Config {
-			descendant: disabled,
-			..Default::default()
+		tangram_index::verify::Config::default(),
+		tangram_index::verify::Config {
+			permissions: tangram_index::verify::PermissionsConfig {
+				descendant: disabled,
+				..Default::default()
+			},
 		},
-		tangram_index::authorize::Config {
-			ancestor: disabled,
-			..Default::default()
+		tangram_index::verify::Config {
+			permissions: tangram_index::verify::PermissionsConfig {
+				ancestor: disabled,
+				..Default::default()
+			},
 		},
 	] {
 		for (principal, tokens, allowed) in [
@@ -3498,25 +3624,25 @@ async fn sync_read_confers_only_read_like_permissions() {
 				(process.clone().into(), process_node, true),
 				(process.clone().into(), process_parent, false),
 			] {
-				let arg = tangram_index::authorize::Arg {
+				let arg = tangram_index::verify::Arg {
+					storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+					subject: None,
 					required: permission.into(),
 					requested: permission.into(),
 					resource: tg::Selector::Id(resource),
 					tokens: tokens.clone(),
 				};
 				let output = index
-					.authorize_batch(&[arg], config, &principal)
+					.verify_batch(&[arg], config, &principal)
 					.await
 					.unwrap();
-				let authorized = output[0]
-					.output()
-					.is_some_and(|output| output.permissions.contains(permission));
+				let verified = output[0].permissions.contains(permission);
 				if allowed && read_like && !tokens.is_empty() {
-					assert_eq!(output[0].output().unwrap().expires_at, Some(200));
+					assert_eq!(output[0].expires_at, Some(200));
 				}
 
 				assert_eq!(
-					authorized,
+					verified,
 					allowed && read_like,
 					"{permission:?} {principal:?} {config:?}"
 				);
@@ -3526,7 +3652,7 @@ async fn sync_read_confers_only_read_like_permissions() {
 }
 
 #[tokio::test]
-async fn authorize_denies_sandbox_read_for_process_without_a_local_record() {
+async fn verify_denies_sandbox_read_for_process_without_a_local_record() {
 	let (_dir, index) = new_index();
 	let process = tg::process::Id::new();
 	let sandbox = tg::sandbox::Id::new();
@@ -3556,7 +3682,7 @@ async fn authorize_denies_sandbox_read_for_process_without_a_local_record() {
 		tg::authorization::permission::process::Permission::Node,
 	);
 	assert!(
-		!is_authorized(
+		!is_verified(
 			&index,
 			process.into(),
 			permission,
@@ -3564,4 +3690,86 @@ async fn authorize_denies_sandbox_read_for_process_without_a_local_record() {
 		)
 		.await
 	);
+}
+
+#[tokio::test]
+async fn verify_combines_permissions_and_storage_without_conflating_them() {
+	let (_dir, index) = new_index();
+	let object = object_id(0);
+	let user = tg::user::Id::new();
+	let mut transaction = index.env.write_txn().unwrap();
+	let record = tangram_index::object::Object {
+		checkout: None,
+		metadata: tg::object::Metadata::default(),
+		put: [0; 16],
+		reference_count: 0,
+		storage: tg::object::storage::Set::NODE,
+		touched_at: 0,
+	};
+	let key = Key::Object(ObjectKey::Object(object.clone()));
+	put_value(&index, &mut transaction, &key, &record.serialize().unwrap());
+	put_permission(
+		&index,
+		&mut transaction,
+		&object,
+		&user,
+		tg::authorization::permission::object::Permission::Node,
+	);
+	transaction.commit().unwrap();
+	let permissions = object_permissions([tg::authorization::permission::object::Permission::Node]);
+	let node = tg::storage::Set::Object(tg::object::storage::Set::NODE);
+	let subtree = tg::storage::Set::Object(tg::object::storage::Set::SUBTREE);
+	let arg = tangram_index::verify::Arg {
+		requested: permissions,
+		required: permissions,
+		resource: tg::Selector::Id(object.into()),
+		storage: node,
+		subject: None,
+		tokens: Vec::new(),
+	};
+	let missing_storage = tangram_index::verify::Arg {
+		storage: subtree,
+		..arg.clone()
+	};
+	let storage_only = tangram_index::verify::Arg {
+		requested: permissions.empty_like(),
+		required: permissions.empty_like(),
+		..arg.clone()
+	};
+	let missing_permissions = tangram_index::verify::Arg {
+		subject: Some(tg::authorization::Subject::User(tg::user::Id::new())),
+		..arg.clone()
+	};
+	let outputs = index
+		.verify_batch(
+			&[arg, missing_storage, storage_only, missing_permissions],
+			tangram_index::verify::Config::default(),
+			&tg::Principal::User(user),
+		)
+		.await
+		.unwrap();
+	assert_eq!(
+		outputs[0].outcome,
+		tangram_index::verify::Outcome::Satisfied
+	);
+	assert!(outputs[0].permissions.contains(permissions));
+	assert_eq!(outputs[0].storage, node);
+	assert_eq!(
+		outputs[1].outcome,
+		tangram_index::verify::Outcome::Unsatisfied
+	);
+	assert!(outputs[1].permissions.contains(permissions));
+	assert_eq!(outputs[1].storage, node);
+	assert_eq!(
+		outputs[2].outcome,
+		tangram_index::verify::Outcome::Satisfied
+	);
+	assert!(outputs[2].permissions.is_empty());
+	assert_eq!(outputs[2].storage, node);
+	assert_eq!(
+		outputs[3].outcome,
+		tangram_index::verify::Outcome::Unsatisfied
+	);
+	assert!(outputs[3].permissions.is_empty());
+	assert_eq!(outputs[3].storage, node);
 }

@@ -237,8 +237,11 @@ impl Session {
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);
-		let permissions = self.authorize(resource, permission).await?;
-		if !permissions.is_some_and(|permissions| permissions.contains(permission)) {
+		let permissions = self
+			.authorize(resource, permission)
+			.await?
+			.check_exhaustion()?;
+		if !permissions.permissions.contains(permission) {
 			return Ok(None);
 		}
 

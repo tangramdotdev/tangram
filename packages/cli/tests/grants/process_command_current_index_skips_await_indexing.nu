@@ -31,7 +31,7 @@ tg --url $local.url --token $alice.token index
 let config = (
 	$local.config
 	| upsert advanced.single_process true
-	| upsert authorization.tokens null
+	| upsert verification.tokens null
 	| upsert roles [api runner scheduler]
 )
 

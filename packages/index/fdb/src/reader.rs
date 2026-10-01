@@ -10,7 +10,7 @@ use {
 };
 
 pub(super) struct Arg {
-	pub authorize_concurrency: usize,
+	pub verification_concurrency: usize,
 	pub database: Arc<fdb::Database>,
 	pub partition_totals: crate::PartitionTotals,
 	pub read_request_batch_size: usize,
@@ -22,7 +22,7 @@ pub(super) struct Arg {
 impl Index {
 	pub(super) async fn reader_task(arg: Arg) {
 		let Arg {
-			authorize_concurrency,
+			verification_concurrency,
 			database,
 			partition_totals,
 			read_request_batch_size,
@@ -46,7 +46,7 @@ impl Index {
 		})
 		.for_each_concurrent(read_transaction_concurrency, |requests| {
 			Self::execute_read_batch(
-				authorize_concurrency,
+				verification_concurrency,
 				&database,
 				partition_totals,
 				&subspace,
@@ -73,7 +73,7 @@ impl Index {
 	}
 
 	async fn execute_read_batch(
-		authorize_concurrency: usize,
+		verification_concurrency: usize,
 		database: &fdb::Database,
 		partition_totals: crate::PartitionTotals,
 		subspace: &fdbt::Subspace,
@@ -105,7 +105,7 @@ impl Index {
 		};
 		let mut transaction = crate::Transaction::new(transaction);
 		loop {
-			let authorization_fact_cache = tangram_index::authorize::facts::Cache::new();
+			let verification_fact_cache = tangram_index::verify::facts::Cache::new();
 			let (retry_error, mut retry_requests) = {
 				// Execute the pending requests concurrently.
 				let transaction = &transaction;
@@ -113,11 +113,11 @@ impl Index {
 				let mut futures = requests
 					.into_iter()
 					.map(|(request, sender)| {
-						let authorization_fact_cache = authorization_fact_cache.clone();
+						let verification_fact_cache = verification_fact_cache.clone();
 						async move {
 							let result = Self::execute_read_request(
-								authorization_fact_cache,
-								authorize_concurrency,
+								verification_fact_cache,
+								verification_concurrency,
 								partition_totals,
 								transaction,
 								subspace,
@@ -191,22 +191,22 @@ impl Index {
 	}
 
 	async fn execute_read_request(
-		authorization_fact_cache: tangram_index::authorize::facts::Cache<fdb::FdbError>,
-		authorize_concurrency: usize,
+		verification_fact_cache: tangram_index::verify::facts::Cache<fdb::FdbError>,
+		verification_concurrency: usize,
 		partition_totals: crate::PartitionTotals,
 		transaction: &crate::Transaction,
 		subspace: &fdbt::Subspace,
 		request: &tangram_index::read::Request,
 	) -> tg::Result<ControlFlow<tangram_index::read::Response, fdb::FdbError>> {
 		let response = match request {
-			tangram_index::read::Request::AuthorizeBatch {
+			tangram_index::read::Request::VerifyBatch {
 				args,
 				config,
 				principal,
 			} => {
-				let result = Self::authorize_batch_with_transaction(
-					authorization_fact_cache,
-					authorize_concurrency,
+				let result = Self::verify_batch_with_transaction(
+					verification_fact_cache,
+					verification_concurrency,
 					*config,
 					transaction,
 					subspace,
@@ -215,7 +215,7 @@ impl Index {
 				)
 				.await;
 				let output = crate::propagate!(result);
-				tangram_index::read::Response::AuthorizeBatch(output)
+				tangram_index::read::Response::VerifyBatch(output)
 			},
 			tangram_index::read::Request::ContainsIds { ids } => {
 				let result = Self::contains_ids_with_transaction(transaction, subspace, ids).await;

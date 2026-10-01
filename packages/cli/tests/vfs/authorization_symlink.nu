@@ -9,7 +9,12 @@ if $nu.os-info.name != 'linux' {
 let transports = if (fuse_io_uring_available) { [read_write io_uring] } else { [read_write] }
 for io in $transports {
 	let local = server spawn --name local --config {
-		authorization: { final: false, initial: false }
+		verification: {
+			permissions: {
+				final: false
+				initial: false
+			}
+		}
 		vfs: { io: $io, kind: fuse, passthrough: disabled }
 	}
 

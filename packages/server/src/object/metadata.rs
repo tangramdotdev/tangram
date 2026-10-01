@@ -72,9 +72,10 @@ impl Session {
 		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::object::Metadata>> {
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
-		let Some(authorization) = self.authorize_object_read(resource, true).await? else {
-			return Ok(None);
-		};
+		let authorization = self
+			.authorize_object_read(resource, true)
+			.await?
+			.check_exhaustion()?;
 		let permissions = authorization.permissions;
 		let output = Self::mask_object_metadata_with_permissions(metadata, permissions);
 

@@ -1357,9 +1357,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
-				let subject = subject.parse().map_err(|_| {
-					fdbt::PackError::Message("invalid authorization subject".into())
-				})?;
+				let subject = subject
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid verification subject".into()))?;
 				let creator = creator
 					.map(|creator| {
 						creator.parse().map_err(|_| {
@@ -1368,7 +1368,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					})
 					.transpose()?;
 				let permission = permission.parse().map_err(|_| {
-					fdbt::PackError::Message("invalid authorization permission".into())
+					fdbt::PackError::Message("invalid verification permission".into())
 				})?;
 				let key = Key::Permission(crate::permission::Key::ResourcePermission {
 					resource,
@@ -1387,9 +1387,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, creator): (_, Option<String>) =
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let subject = subject.parse().map_err(|_| {
-					fdbt::PackError::Message("invalid authorization subject".into())
-				})?;
+				let subject = subject
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid verification subject".into()))?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
 				let creator = creator
@@ -1400,7 +1400,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					})
 					.transpose()?;
 				let permission = permission.parse().map_err(|_| {
-					fdbt::PackError::Message("invalid authorization permission".into())
+					fdbt::PackError::Message("invalid verification permission".into())
 				})?;
 				let key = Key::Permission(crate::permission::Key::SubjectPermission {
 					subject,
@@ -1432,9 +1432,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 					fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
-				let subject = subject.parse().map_err(|_| {
-					fdbt::PackError::Message("invalid authorization subject".into())
-				})?;
+				let subject = subject
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid verification subject".into()))?;
 				let permission_resource = tg::Id::from_slice(&permission_resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
 				let creator = creator
@@ -1445,7 +1445,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					})
 					.transpose()?;
 				let permission = permission.parse().map_err(|_| {
-					fdbt::PackError::Message("invalid authorization permission".into())
+					fdbt::PackError::Message("invalid verification permission".into())
 				})?;
 				let key = Key::Permission(crate::permission::Key::Visibility {
 					resource,
@@ -1469,9 +1469,9 @@ impl fdbt::TupleUnpack<'_> for Key {
 				let (input, source): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let resource = tg::Id::from_slice(&resource_bytes)
 					.map_err(|_| fdbt::PackError::Message("invalid resource id".into()))?;
-				let subject = subject.parse().map_err(|_| {
-					fdbt::PackError::Message("invalid authorization subject".into())
-				})?;
+				let subject = subject
+					.parse()
+					.map_err(|_| fdbt::PackError::Message("invalid verification subject".into()))?;
 				let creator = creator
 					.map(|creator| {
 						creator.parse().map_err(|_| {
@@ -1480,7 +1480,7 @@ impl fdbt::TupleUnpack<'_> for Key {
 					})
 					.transpose()?;
 				let permission = permission.parse().map_err(|_| {
-					fdbt::PackError::Message("invalid authorization permission".into())
+					fdbt::PackError::Message("invalid verification permission".into())
 				})?;
 				let source = crate::permission::PermissionSource::from_i32(source)
 					.ok_or_else(|| fdbt::PackError::Message("invalid permission source".into()))?;
@@ -1757,7 +1757,7 @@ fn unpack_update_kind(
 			let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 			let subject = subject
 				.parse()
-				.map_err(|_| fdbt::PackError::Message("invalid authorization subject".into()))?;
+				.map_err(|_| fdbt::PackError::Message("invalid verification subject".into()))?;
 			Ok((input, crate::update::Kind::Permission(subject)))
 		},
 		tangram_index::update::Kind::StorageAndMetadata => {

@@ -3,7 +3,12 @@ use ../lib/test.nu *
 # A runner-created cancellation error should retain its tokens when authorization searches are disabled.
 
 let server = server spawn --config {
-	authorization: { final: false, initial: false }
+	verification: {
+		permissions: {
+			final: false
+			initial: false
+		}
+	}
 }
 
 let path = artifact {

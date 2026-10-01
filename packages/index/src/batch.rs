@@ -178,12 +178,14 @@ mod tests {
 					organization,
 				}),
 				Item::PutProcessObjectPermissions(crate::process::object::permission::Arg {
-					authorize: crate::authorize::Config {
-						ancestor: crate::authorize::SearchConfig {
-							max_depth: 7,
+					verify: crate::verify::Config {
+						permissions: crate::verify::PermissionsConfig {
+							ancestor: crate::verify::SearchConfig {
+								max_depth: 7,
+								..Default::default()
+							},
 							..Default::default()
 						},
-						..Default::default()
 					},
 					created_at: 1,
 					expires_at: None,
@@ -228,7 +230,10 @@ mod tests {
 		let Item::PutProcessObjectPermissions(process_permission_arg) = &arg.items[10] else {
 			panic!();
 		};
-		assert_eq!(process_permission_arg.authorize.ancestor.max_depth, 7);
+		assert_eq!(
+			process_permission_arg.verify.permissions.ancestor.max_depth,
+			7
+		);
 		let Item::PutSandbox(sandbox_arg) = &arg.items[11] else {
 			panic!();
 		};

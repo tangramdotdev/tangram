@@ -3,7 +3,12 @@ use ../lib/test.nu *
 # A symlink authorization token does not authorize an unmaterialized artifact or an ID mentioned only in its path.
 
 let server = server spawn --config {
-	authorization: { final: false, initial: false }
+	verification: {
+		permissions: {
+			final: false
+			initial: false
+		}
+	}
 	vfs: false
 }
 

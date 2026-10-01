@@ -44,11 +44,9 @@ impl Session {
 		let permission = tg::authorization::Permission::Organization(
 			tg::authorization::permission::organization::Permission::Admin,
 		);
-		match self.authorize(organization.clone(), permission).await? {
-			None => return Err(tg::error!("failed to find the organization")),
-			Some(permissions) if permissions.contains(permission) => (),
-			Some(_) => return Err(tg::error!("unauthorized")),
-		}
+		self.authorize(organization.clone(), permission)
+			.await?
+			.into_result()?;
 		let session = self.clone();
 		self.server
 			.database

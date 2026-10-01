@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Both run and spawn await the command transfer before scheduling by default.
+# Both run and spawn await the command transfer before scheduling when awaiting pushes is enabled.
 for mode in [run spawn] {
 	let root_token = random chars
 
@@ -9,6 +9,7 @@ for mode in [run spawn] {
 	let remote = server spawn --preserve-keys --name remote --config {
 		advanced: { checkpoints: true, single_process: false },
 		authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
+		process: { await_push: true },
 		roles: [api indexer scheduler],
 		sync: { get: { store: { lmdb: $store, memory: $store, scylla: $store } } },
 	}
@@ -26,6 +27,7 @@ for mode in [run spawn] {
 	# Create a user and a local server that routes runs through the scheduler.
 	let alice = tg --url $remote.url login --verbose --name alice | from json
 	let local = server spawn --name local --config {
+		process: { await_push: true },
 		remotes: { default: { token: $alice.token, url: $remote.url } },
 
 	}

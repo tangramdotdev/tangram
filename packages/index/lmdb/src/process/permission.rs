@@ -36,9 +36,9 @@ impl Index {
 		}
 		let mut permissions = BTreeMap::new();
 		let mut traversed = BTreeSet::new();
-		let authorization_fact_cache = tangram_index::authorize::facts::Cache::new();
+		let verification_fact_cache = tangram_index::verify::facts::Cache::new();
 
-		// Walk the authorized portion of the locally indexed object graph.
+		// Walk the verified portion of the locally indexed object graph.
 		while !objects.is_empty() {
 			// Use the supplied subtree permissions before searching the index.
 			objects.retain(|object| {
@@ -58,50 +58,49 @@ impl Index {
 				break;
 			}
 
-			let authorize_args = objects
+			let verify_args = objects
 				.iter()
 				.cloned()
-				.map(|object| tangram_index::authorize::Arg {
+				.map(|object| tangram_index::verify::Arg {
+					storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+					subject: None,
 					requested,
 					required: node.into(),
 					resource: tg::Selector::Id(object.into()),
 					tokens: Vec::new(),
 				})
 				.collect::<Vec<_>>();
-			let authorizations = Self::authorize_batch_with_transaction(
-				authorization_fact_cache.clone(),
-				arg.authorize,
+			let verifications = Self::verify_batch_with_transaction(
+				verification_fact_cache.clone(),
+				arg.verify,
 				db,
 				subspace,
 				transaction,
-				&authorize_args,
+				&verify_args,
 				&arg.principal,
 			)?;
 			let mut children = BTreeSet::new();
-			for (object, outcome) in std::iter::zip(objects, authorizations) {
-				let authorization = match outcome {
-					tangram_index::authorize::Outcome::Authorized(output)
-					| tangram_index::authorize::Outcome::Denied(Some(output)) => Some(output),
-					tangram_index::authorize::Outcome::Denied(None) => None,
-					tangram_index::authorize::Outcome::Exhausted => {
-						return Err(tangram_index::authorize::search_exhausted_error(
-							"the process object permission authorization search exhausted",
-						));
-					},
-				};
+			for (object, outcome) in std::iter::zip(objects, verifications) {
+				if outcome.outcome == tangram_index::verify::Outcome::Exhausted {
+					return Err(tangram_index::verify::search_exhausted_error(
+						"the process object permission verification search exhausted",
+					));
+				}
+				let verification = Some(outcome);
+
 				let proven_permissions = root_permissions
 					.get(&object)
 					.copied()
 					.unwrap_or_else(|| requested.empty_like());
-				let permission = if authorization
+				let permission = if verification
 					.as_ref()
-					.is_some_and(|authorization| authorization.permissions.contains(subtree))
+					.is_some_and(|verification| verification.permissions.contains(subtree))
 				{
 					tg::authorization::permission::object::Permission::Subtree
 				} else if proven_permissions.contains(node)
-					|| authorization
+					|| verification
 						.as_ref()
-						.is_some_and(|authorization| authorization.permissions.contains(node))
+						.is_some_and(|verification| verification.permissions.contains(node))
 				{
 					tg::authorization::permission::object::Permission::Node
 				} else {

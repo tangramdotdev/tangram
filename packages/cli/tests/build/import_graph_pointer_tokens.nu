@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
 	tracing: {
-		filter: 'tangram=info,tangram_index::authorize::engine=debug'
+		filter: 'tangram=info,tangram_index::verify::engine=debug'
 		stderr_format: 'json'
 	}
 }
@@ -37,7 +37,7 @@ let searches = open --raw $local.log
 	| lines
 	| where ($it | str starts-with '{')
 	| each { from json }
-	| where $it.fields.message? == 'authorize batch'
+	| where $it.fields.message? == 'verify batch'
 	| where $it.fields.resource? == $output.graph
 	| get fields.reads
 assert equal $searches [] 'reading the imported directory searched the authorization graph despite having an exact token.'

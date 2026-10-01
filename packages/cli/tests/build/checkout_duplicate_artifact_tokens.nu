@@ -3,7 +3,12 @@ use ../lib/test.nu *
 # Checkout should combine the tokens of duplicate artifact references before authorizing them.
 
 let server = server spawn --config {
-	authorization: { final: false, initial: false }
+	verification: {
+		permissions: {
+			final: false
+			initial: false
+		}
+	}
 	vfs: false
 }
 

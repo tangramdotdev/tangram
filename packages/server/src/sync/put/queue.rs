@@ -557,71 +557,32 @@ impl Session {
 		}
 
 		// Authorize the objects.
-		let outputs = self
-			.authorize_batch(authorization_args.clone())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize the objects"))?;
-		let mut futures = futures::stream::FuturesUnordered::new();
-		for ((id, output), (resource, requested)) in std::iter::zip(
-			std::iter::zip(authorization_ids, outputs),
+		let authorization = self.authorize_batch_with_required(
 			authorization_args,
-		) {
-			futures.push(async move {
-				// Wait for an incoming sync to prove the missing permissions.
-				let required = Self::sync_put_object_node_permissions();
-				let output = match output {
-					Some(permissions) if permissions.contains(required) => Some(permissions),
-					_ => {
-						self.sync_put_pending(state, id.clone().into()).await?;
-						let request = tg::sync::control::ClientRequestArg::object(
-							id.clone(),
-							tg::authorization::permission::object::Set::NODE,
-							tg::object::storage::Set::empty(),
-						);
-						self.try_get_with_sync_wait(&resource.options.tokens, request, |output| {
-							let resource = resource.clone();
-							let id = id.clone();
-							async move {
-								if state.graph.lock().unwrap().object_remote_available(&id) {
-									return Ok(Some(None));
-								}
-								if let Some(output) = output {
-									let mut graph = state.graph.lock().unwrap();
-									graph.update_node_local_control_output(
-										&id.clone().into(),
-										&output,
-									)?;
-									let authorization =
-										graph.get_object_local_authorization(&id, requested);
-									return Ok(authorization
-										.permissions
-										.contains(required)
-										.then_some(Some(authorization.permissions)));
-								}
-								let args = [(resource, requested)];
-								let mut outputs = self.authorize_batch(args).await?;
-								let output = outputs
-									.pop()
-									.flatten()
-									.filter(|permissions| permissions.contains(required));
-								Ok(output.map(Some))
-							}
-						})
-						.await?
-						.flatten()
-					},
-				};
-				if let Some(permissions) = output {
-					state
-						.graph
-						.lock()
-						.unwrap()
-						.update_object_local_permissions(&id, permissions);
+			Self::sync_put_object_node_permissions(),
+		);
+		tokio::pin!(authorization);
+		let outputs =
+			if let Some(outputs) = futures::future::poll_immediate(authorization.as_mut()).await {
+				outputs
+			} else {
+				for id in &authorization_ids {
+					self.sync_put_pending(state, id.clone().into()).await?;
 				}
-				Ok::<_, tg::Error>(())
-			});
+				authorization.await
+			}
+			.map_err(|error| tg::error!(!error, "failed to authorize the objects"))?;
+		crate::authorization::check_exhaustion(&outputs)?;
+		for (id, output) in std::iter::zip(authorization_ids, outputs) {
+			{
+				let permissions = output.permissions;
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.update_object_local_permissions(&id, permissions);
+			}
 		}
-		while futures.try_next().await?.is_some() {}
 
 		// Route the objects.
 		for node in nodes {
@@ -743,71 +704,32 @@ impl Session {
 		}
 
 		// Authorize the processes.
-		let outputs = self
-			.authorize_batch(authorization_args.clone())
-			.await
-			.map_err(|error| tg::error!(!error, "failed to authorize the processes"))?;
-		let mut futures = futures::stream::FuturesUnordered::new();
-		for ((id, output), (resource, requested)) in std::iter::zip(
-			std::iter::zip(authorization_ids, outputs),
+		let authorization = self.authorize_batch_with_required(
 			authorization_args,
-		) {
-			futures.push(async move {
-				// Wait for an incoming sync to prove the missing permissions.
-				let required = Self::sync_put_process_node_permissions();
-				let output = match output {
-					Some(permissions) if permissions.contains(required) => Some(permissions),
-					_ => {
-						self.sync_put_pending(state, id.clone().into()).await?;
-						let request = tg::sync::control::ClientRequestArg::process(
-							id.clone(),
-							tg::authorization::permission::process::Set::NODE,
-							tg::process::storage::Set::empty(),
-						);
-						self.try_get_with_sync_wait(&resource.options.tokens, request, |output| {
-							let resource = resource.clone();
-							let id = id.clone();
-							async move {
-								if state.graph.lock().unwrap().process_remote_available(&id) {
-									return Ok(Some(None));
-								}
-								if let Some(output) = output {
-									let mut graph = state.graph.lock().unwrap();
-									graph.update_node_local_control_output(
-										&id.clone().into(),
-										&output,
-									)?;
-									let authorization =
-										graph.get_process_local_authorization(&id, requested);
-									return Ok(authorization
-										.permissions
-										.contains(required)
-										.then_some(Some(authorization.permissions)));
-								}
-								let args = [(resource, requested)];
-								let mut outputs = self.authorize_batch(args).await?;
-								let output = outputs
-									.pop()
-									.flatten()
-									.filter(|permissions| permissions.contains(required));
-								Ok(output.map(Some))
-							}
-						})
-						.await?
-						.flatten()
-					},
-				};
-				if let Some(permissions) = output {
-					state
-						.graph
-						.lock()
-						.unwrap()
-						.update_process_local_permissions(&id, permissions);
+			Self::sync_put_process_node_permissions(),
+		);
+		tokio::pin!(authorization);
+		let outputs =
+			if let Some(outputs) = futures::future::poll_immediate(authorization.as_mut()).await {
+				outputs
+			} else {
+				for id in &authorization_ids {
+					self.sync_put_pending(state, id.clone().into()).await?;
 				}
-				Ok::<_, tg::Error>(())
-			});
+				authorization.await
+			}
+			.map_err(|error| tg::error!(!error, "failed to authorize the processes"))?;
+		crate::authorization::check_exhaustion(&outputs)?;
+		for (id, output) in std::iter::zip(authorization_ids, outputs) {
+			{
+				let permissions = output.permissions;
+				state
+					.graph
+					.lock()
+					.unwrap()
+					.update_process_local_permissions(&id, permissions);
+			}
 		}
-		while futures.try_next().await?.is_some() {}
 
 		// Route the processes.
 		for node in nodes {

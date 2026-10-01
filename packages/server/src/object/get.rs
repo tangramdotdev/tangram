@@ -67,68 +67,18 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the locations"))?;
 
-		if locations.local.as_ref().is_some_and(|local| local.current)
-			&& let Some(output) = self
-				.try_get_object_local(
-					id,
-					arg.metadata,
-					arg.availability,
-					arg.tokens.local_authorization(),
-				)
-				.await?
-		{
-			return Ok(Some(output));
-		}
-
 		let local_future = async {
 			if locations.local.as_ref().is_some_and(|local| local.current) {
-				// Wait for the object and the authorization proven by its incoming sync.
-				let tokens = &arg.tokens;
-				if let Some(output) = self
-					.try_get_with_sync_wait(
-						tokens,
-						tg::sync::control::ClientRequestArg::object(
-							id.clone(),
-							tg::authorization::permission::object::Set::NODE,
-							tg::object::storage::Set::NODE,
-						),
-						|control| {
-							let arg = arg.clone();
-							async move {
-								let Some(output) =
-									self.server.try_get_object_local(id, false).await?
-								else {
-									return Ok(None);
-								};
-								if let Some(tg::sync::control::GetServerResponseOutput::Object(
-									control,
-								)) = control
-								{
-									return self
-										.try_get_object_local_with_control(
-											id, &arg, control, output,
-										)
-										.await;
-								}
-
-								self.authorize_object_get_output(
-									id,
-									arg.metadata,
-									arg.availability,
-									tokens.local_authorization(),
-									output,
-								)
-								.await
-							}
-						},
+				return self
+					.try_get_object_local(
+						id,
+						arg.metadata,
+						arg.availability,
+						arg.tokens.local_authorization(),
 					)
-					.await
-					.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
-				{
-					return Ok(Some(output));
-				}
+					.await;
 			}
-			Ok::<_, tg::Error>(None)
+			Ok(None)
 		};
 		let lookup_future = async {
 			if let Some(local) = &locations.local
@@ -178,42 +128,6 @@ impl Session {
 		error.map_or(Ok(None), Err)
 	}
 
-	async fn try_get_object_local_with_control(
-		&self,
-		id: &tg::object::Id,
-		arg: &tg::object::get::Arg,
-		control: tg::sync::control::GetObjectServerResponseOutput,
-		output: tg::object::get::Output,
-	) -> tg::Result<Option<tg::object::get::Output>> {
-		let resource = tg::Referent::with_node_and_tokens(id.clone(), arg.tokens.clone());
-		let requested = tg::authorization::permission::Set::Object(
-			tg::authorization::permission::object::Set::from(vec![
-				tg::authorization::permission::object::Permission::Node,
-				tg::authorization::permission::object::Permission::Subtree,
-			]),
-		);
-		let required = tg::authorization::permission::Set::Object(
-			tg::authorization::permission::object::Set::NODE,
-		);
-		let proven = tg::authorization::permission::Set::Object(control.permissions);
-		let Some(authorization) = self
-			.authorize_with_permissions(resource, requested, required, proven)
-			.await?
-		else {
-			return Ok(None);
-		};
-		let mut output = self
-			.create_object_get_output(id, arg.metadata, false, authorization, output)
-			.await?;
-		if arg.availability && control.storage.contains(tg::object::storage::Set::NODE) {
-			output.availability = Self::compute_object_availability_with_permissions(
-				control.storage,
-				authorization.permissions,
-			);
-		}
-		Ok(Some(output))
-	}
-
 	pub(crate) async fn try_get_object_local(
 		&self,
 		id: &tg::object::Id,
@@ -221,36 +135,41 @@ impl Session {
 		availability: bool,
 		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::object::get::Output>> {
-		let Some(output) = self.server.try_get_object_local(id, false).await? else {
-			return Ok(None);
-		};
-		self.authorize_object_get_output(id, metadata, availability, tokens, output)
-			.await
-	}
-
-	async fn authorize_object_get_output(
-		&self,
-		id: &tg::object::Id,
-		metadata: bool,
-		availability: bool,
-		tokens: &[tg::authorization::Token],
-		output: tg::object::get::Output,
-	) -> tg::Result<Option<tg::object::get::Output>> {
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let node = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Node,
 		);
 		let wait_for_subtree = metadata || availability;
-		let Some(authorization) = self
-			.authorize_object_read(resource, wait_for_subtree)
-			.await?
-		else {
-			tracing::trace!(%id, principal = ?self.context.principal, "authorization denied");
-			return Ok(None);
-		};
+		let authorize_future = self
+			.authorize_object_read(resource.clone(), wait_for_subtree)
+			.boxed();
+		let get_future = self.server.try_get_object_local(id, false);
+		let (authorization, output) = future::join(authorize_future, get_future).await;
+		let authorization = authorization?.check_exhaustion()?;
 		if !authorization.permissions.contains(node) {
 			return Ok(None);
 		}
+		let mut output = output?;
+		// The concurrent read can miss bytes that arrive while authorization is pending.
+		if output.is_none() {
+			let permissions = tg::authorization::permission::Set::Object(
+				tg::authorization::permission::object::Set::empty(),
+			);
+			let storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
+			if self
+				.verify(resource, permissions, storage)
+				.boxed()
+				.await?
+				.check_exhaustion()?
+				.outcome != crate::authorization::Outcome::Satisfied
+			{
+				return Ok(None);
+			}
+			output = self.server.try_get_object_local(id, false).await?;
+		}
+		let Some(output) = output else {
+			return Ok(None);
+		};
 		let output = self
 			.create_object_get_output(id, metadata, availability, authorization, output)
 			.await?;

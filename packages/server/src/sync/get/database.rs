@@ -497,13 +497,24 @@ impl Session {
 				.map(|(resource, _, permissions)| (resource.clone(), *permissions))
 				.collect::<Vec<_>>();
 			let outputs = self.authorize_batch(args).await?;
-			for ((_, allow_unclaimed, permissions), output) in
+			crate::authorization::check_exhaustion(&outputs)?;
+			for ((resource, allow_unclaimed, permissions), output) in
 				std::iter::zip(authorizations, outputs)
 			{
-				let authorized = match output {
-					Some(output) => output.contains(*permissions),
-					None => *allow_unclaimed,
-				};
+				let authorized = output.permissions.contains(*permissions)
+					|| (*allow_unclaimed
+						&& match resource {
+							tg::Selector::Specifier(specifier) => {
+								std::iter::once(specifier.clone())
+									.chain(specifier.ancestors())
+									.all(|specifier| {
+										!existing_specifiers
+											.ids_by_specifier
+											.contains_key(&specifier)
+									})
+							},
+							tg::Selector::Id(_) => false,
+						});
 				if !authorized {
 					return Err(tg::error!("unauthorized"));
 				}

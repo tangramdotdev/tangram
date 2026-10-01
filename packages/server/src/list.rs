@@ -467,7 +467,9 @@ impl Session {
 				);
 				self.authorize(resource, permission)
 					.await?
-					.is_some_and(|permissions| permissions.contains(permission))
+					.check_exhaustion()?
+					.permissions
+					.contains(permission)
 			};
 			if authorized {
 				let tokens =

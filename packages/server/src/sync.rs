@@ -18,7 +18,6 @@ mod graph;
 mod progress;
 mod put;
 mod queue;
-mod wait;
 
 pub(crate) use self::graph::Graph;
 
@@ -252,6 +251,7 @@ impl Session {
 		verify_object_ids: bool,
 	) -> tg::Result<()> {
 		let mut session = self.clone();
+		session.sync = arg.sync.as_ref().map(|sync| sync.node.clone());
 		session.sync_control = Some(Arc::new(control::Client::default()));
 		session
 			.sync_task_inner(arg, stream, sender, verify_object_ids)

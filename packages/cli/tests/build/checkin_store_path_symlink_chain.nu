@@ -3,7 +3,12 @@ use ../lib/test.nu *
 # Directory checkout tokens authorize symlink targets through chains, duplicate inputs, and reused checkouts.
 
 let server = server spawn --config {
-	authorization: { final: false, initial: false }
+	verification: {
+		permissions: {
+			final: false
+			initial: false
+		}
+	}
 	vfs: false
 }
 

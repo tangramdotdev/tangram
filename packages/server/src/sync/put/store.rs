@@ -253,60 +253,34 @@ impl Session {
 					// Wait for an incoming sync to supply the missing node.
 					self.sync_put_pending(state, object.node.clone().into())
 						.await?;
-					let tokens = &object.options.tokens;
 					let local_future = async {
-						if let Some(output) = self
-							.try_get_with_sync_wait(
-								tokens,
-								tg::sync::control::ClientRequestArg::object(
-									object.node.clone(),
-									tg::authorization::permission::object::Set::NODE,
-									tg::object::storage::Set::NODE,
-								),
-								|control| {
-									let object = object.clone();
-									let mut permissions = *permissions;
-									if let Some(control) = &control {
-										permissions.insert(control.permissions());
-									}
-									async move {
-										if state
-											.graph
-											.lock()
-											.unwrap()
-											.object_remote_available(&object.node)
-										{
-											return Ok(Some(None));
-										}
-										if let Some(control) = control {
-											state
-												.graph
-												.lock()
-												.unwrap()
-												.update_node_local_control_output(
-													&object.node.clone().into(),
-													&control,
-												)?;
-										}
-										let objects = std::slice::from_ref(&object);
-										let permissions = std::slice::from_ref(&permissions);
-										let mut outputs = self
-											.try_get_object_batch_local(
-												objects,
-												permissions,
-												metadata,
-											)
-											.await?;
-										Ok(outputs.pop().flatten().map(Some))
-									}
-								},
-							)
+						let required = tg::authorization::permission::Set::Object(
+							tg::authorization::permission::object::Set::NODE,
+						);
+						let storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
+						let output = self
+							.verify(object.clone(), required, storage)
 							.await?
-						{
-							return Ok(output);
+							.check_exhaustion()?;
+						if output.outcome != crate::authorization::Outcome::Satisfied {
+							return Ok(None);
 						}
-
-						Ok(None)
+						{
+							let mut graph = state.graph.lock().unwrap();
+							if graph.object_remote_available(&object.node) {
+								return Ok(None);
+							}
+							graph
+								.update_node_local_verified(&object.node.clone().into(), &output)?;
+						}
+						let mut outputs = self
+							.try_get_object_batch_local(
+								std::slice::from_ref(object),
+								std::slice::from_ref(permissions),
+								metadata,
+							)
+							.await?;
+						Ok(outputs.pop().flatten())
 					};
 					let region_future = self.try_get_object_regions(
 						&object.node,
@@ -676,53 +650,36 @@ impl Session {
 					{
 						return Ok(Some(output));
 					}
-					let request = tg::sync::control::ClientRequestArg::process(
-						process.node.clone(),
-						tg::authorization::permission::process::Set::NODE,
-						tg::process::storage::Set::NODE,
-					);
-					let tokens = &process.options.tokens;
 					self.sync_put_pending(state, process.node.clone().into())
 						.await?;
 					let local_future = async {
-						if let Some(output) = self
-							.try_get_with_sync_wait(tokens, request, |control| {
-								let mut permissions = *permissions;
-								async move {
-									if state
-										.graph
-										.lock()
-										.unwrap()
-										.process_remote_available(&process.node)
-									{
-										return Ok(Some(None));
-									}
-									if let Some(control) = control {
-										state
-											.graph
-											.lock()
-											.unwrap()
-											.update_node_local_control_output(
-												&process.node.clone().into(),
-												&control,
-											)?;
-										permissions.insert(control.permissions());
-									}
-									self.try_get_process_local_with_permissions(
-										&process.node,
-										permissions,
-										metadata,
-									)
-									.await
-									.map(|output| output.map(Some))
-								}
-							})
+						let required = tg::authorization::permission::Set::Process(
+							tg::authorization::permission::process::Set::NODE,
+						);
+						let storage = tg::storage::Set::Process(tg::process::storage::Set::NODE);
+						let output = self
+							.verify(process.clone(), required, storage)
 							.await?
-						{
-							return Ok(output);
+							.check_exhaustion()?;
+						if output.outcome != crate::authorization::Outcome::Satisfied {
+							return Ok(None);
 						}
-
-						Ok(None)
+						{
+							let mut graph = state.graph.lock().unwrap();
+							if graph.process_remote_available(&process.node) {
+								return Ok(None);
+							}
+							graph.update_node_local_verified(
+								&process.node.clone().into(),
+								&output,
+							)?;
+						}
+						self.try_get_process_local_with_permissions(
+							&process.node,
+							*permissions,
+							metadata,
+						)
+						.await
 					};
 					let region_future = self.try_get_process_regions(
 						&process.node,

@@ -10,7 +10,7 @@ use {
 
 impl Index {
 	pub(crate) async fn put_process_object_permissions_with_transaction(
-		authorize_concurrency: usize,
+		verify_concurrency: usize,
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::process::object::permission::Arg,
@@ -40,9 +40,9 @@ impl Index {
 		}
 		let mut permissions = BTreeMap::new();
 		let mut traversed = BTreeSet::new();
-		let authorization_fact_cache = tangram_index::authorize::facts::Cache::new();
+		let verification_fact_cache = tangram_index::verify::facts::Cache::new();
 
-		// Walk the authorized portion of the locally indexed object graph.
+		// Walk the verified portion of the locally indexed object graph.
 		while !objects.is_empty() {
 			// Use the supplied subtree permissions before searching the index.
 			objects.retain(|object| {
@@ -62,53 +62,52 @@ impl Index {
 				break;
 			}
 
-			let authorize_args = objects
+			let verify_args = objects
 				.iter()
 				.cloned()
-				.map(|object| tangram_index::authorize::Arg {
+				.map(|object| tangram_index::verify::Arg {
+					storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+					subject: None,
 					requested,
 					required: node.into(),
 					resource: tg::Selector::Id(object.into()),
 					tokens: Vec::new(),
 				})
 				.collect::<Vec<_>>();
-			let authorizations = crate::propagate!(
-				Self::authorize_batch_with_transaction(
-					authorization_fact_cache.clone(),
-					authorize_concurrency,
-					arg.authorize,
+			let verifications = crate::propagate!(
+				Self::verify_batch_with_transaction(
+					verification_fact_cache.clone(),
+					verify_concurrency,
+					arg.verify,
 					txn,
 					subspace,
-					&authorize_args,
+					&verify_args,
 					&arg.principal,
 				)
 				.await
 			);
-			let mut authorized = Vec::new();
-			for (object, outcome) in std::iter::zip(objects, authorizations) {
-				let authorization = match outcome {
-					tangram_index::authorize::Outcome::Authorized(output)
-					| tangram_index::authorize::Outcome::Denied(Some(output)) => Some(output),
-					tangram_index::authorize::Outcome::Denied(None) => None,
-					tangram_index::authorize::Outcome::Exhausted => {
-						return Err(tangram_index::authorize::search_exhausted_error(
-							"the process object permission authorization search exhausted",
-						));
-					},
-				};
+			let mut verified = Vec::new();
+			for (object, outcome) in std::iter::zip(objects, verifications) {
+				if outcome.outcome == tangram_index::verify::Outcome::Exhausted {
+					return Err(tangram_index::verify::search_exhausted_error(
+						"the process object permission verification search exhausted",
+					));
+				}
+				let verification = Some(outcome);
+
 				let proven_permissions = root_permissions
 					.get(&object)
 					.copied()
 					.unwrap_or_else(|| requested.empty_like());
-				let permission = if authorization
+				let permission = if verification
 					.as_ref()
-					.is_some_and(|authorization| authorization.permissions.contains(subtree))
+					.is_some_and(|verification| verification.permissions.contains(subtree))
 				{
 					tg::authorization::permission::object::Permission::Subtree
 				} else if proven_permissions.contains(node)
-					|| authorization
+					|| verification
 						.as_ref()
-						.is_some_and(|authorization| authorization.permissions.contains(node))
+						.is_some_and(|verification| verification.permissions.contains(node))
 				{
 					tg::authorization::permission::object::Permission::Node
 				} else {
@@ -128,9 +127,9 @@ impl Index {
 				{
 					continue;
 				}
-				authorized.push(object);
+				verified.push(object);
 			}
-			let results = futures::future::try_join_all(authorized.iter().map(|object| {
+			let results = futures::future::try_join_all(verified.iter().map(|object| {
 				Self::try_get_object_children_with_transaction(txn, subspace, object)
 			}))
 			.await?;

@@ -20,7 +20,7 @@ fn empty_requests_are_notified_when_a_child_enters_the_graph() {
 	graph.set_control(sender.downgrade());
 	let parent: tg::object::Id = tg::blob::Id::new(b"parent").into();
 	let child = tg::blob::Id::new(b"child");
-	let request = protocol::GetClientRequestArg {
+	let request = protocol::VerifyClientRequestArg {
 		node: child.clone().into(),
 		permissions: tg::authorization::permission::Set::Object(
 			tg::authorization::permission::object::Set::empty(),
@@ -29,7 +29,7 @@ fn empty_requests_are_notified_when_a_child_enters_the_graph() {
 	};
 	assert!(
 		graph
-			.try_get_node_local_control_output(&request)
+			.try_verify_node_local_control_output(&request)
 			.unwrap()
 			.is_none()
 	);
@@ -55,11 +55,11 @@ fn empty_requests_are_notified_when_a_child_enters_the_graph() {
 	};
 	assert!(nodes.contains(&request.node));
 	let output = graph
-		.try_get_node_local_control_output(&request)
+		.try_verify_node_local_control_output(&request)
 		.unwrap()
 		.unwrap();
 	assert!(output.permissions().is_empty());
-	let protocol::GetServerResponseOutput::Object(output) = output else {
+	let protocol::VerifyServerResponseOutput::Object(output) = output else {
 		panic!("expected an object response")
 	};
 	assert!(output.storage.is_empty());
@@ -113,7 +113,7 @@ fn requests_wait_for_their_own_requirements() {
 		.as_ref()
 		.unwrap();
 	assert!(
-		matches!(&response.output, Some(protocol::ServerResponseOutput::Get(Some(protocol::GetServerResponseOutput::Object(output)))) if output.storage.is_empty())
+		matches!(&response.output, Some(protocol::ServerResponseOutput::Verify(Some(protocol::VerifyServerResponseOutput::Object(output)))) if output.storage.is_empty())
 	);
 	let update = UpdateObjectLocalArg {
 		data: None,
@@ -180,7 +180,7 @@ fn finished_sync_distinguishes_missing_from_permission_only_success() {
 		assert!(permissions.error.is_none());
 		assert!(matches!(
 			&permissions.output,
-			Some(protocol::ServerResponseOutput::Get(Some(_)))
+			Some(protocol::ServerResponseOutput::Verify(Some(_)))
 		));
 		let storage = state.attempts["attempt"].requests["storage"]
 			.response
@@ -190,7 +190,7 @@ fn finished_sync_distinguishes_missing_from_permission_only_success() {
 		if !failure {
 			assert!(matches!(
 				&storage.output,
-				Some(protocol::ServerResponseOutput::Get(None))
+				Some(protocol::ServerResponseOutput::Verify(None))
 			));
 		}
 	}
@@ -226,9 +226,10 @@ fn graph_notifies_ancestors_and_inherited_children_without_retaining_control() {
 	while receiver.try_recv().is_ok() {}
 	let child: tg::object::Id = child.into();
 	let output =
-		protocol::GetServerResponseOutput::Object(protocol::GetObjectServerResponseOutput {
+		protocol::VerifyServerResponseOutput::Object(protocol::VerifyObjectServerResponseOutput {
 			permissions: tg::authorization::permission::object::Set::SUBTREE,
 			storage: tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
+			tokens: Vec::new(),
 		});
 	graph
 		.update_node_local_control_output(&child.clone().into(), &output)

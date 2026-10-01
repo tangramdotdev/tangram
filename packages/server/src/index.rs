@@ -83,17 +83,17 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn authorize_batch(
+	async fn verify_batch(
 		&self,
-		args: &[index::authorize::Arg],
-		config: index::authorize::Config,
+		args: &[index::verify::Arg],
+		config: index::verify::Config,
 		principal: &tg::Principal,
-	) -> tg::Result<Vec<index::authorize::Outcome>> {
+	) -> tg::Result<Vec<index::verify::Output>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.authorize_batch(args, config, principal).await,
+			Self::Fdb(index) => index.verify_batch(args, config, principal).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.authorize_batch(args, config, principal).await,
+			Self::Lmdb(index) => index.verify_batch(args, config, principal).await,
 		}
 	}
 

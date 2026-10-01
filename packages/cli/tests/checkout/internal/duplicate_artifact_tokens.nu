@@ -3,7 +3,12 @@ use ../../lib/test.nu *
 # Duplicate references share their tokens without changing the output paths or authorizing other artifacts.
 
 let server = server spawn --config {
-	authorization: { final: false, initial: false }
+	verification: {
+		permissions: {
+			final: false
+			initial: false
+		}
+	}
 	vfs: false
 }
 

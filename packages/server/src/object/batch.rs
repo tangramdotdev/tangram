@@ -286,9 +286,10 @@ impl Session {
 		}
 
 		let outputs = self.authorize_batch(authorization_args).await?;
+		crate::authorization::check_exhaustion(&outputs)?;
 		let authorized = outputs
 			.into_iter()
-			.all(|output| output.is_some_and(|permissions| permissions.contains(permission)));
+			.all(|output| output.permissions.contains(permission));
 
 		Ok(authorized)
 	}

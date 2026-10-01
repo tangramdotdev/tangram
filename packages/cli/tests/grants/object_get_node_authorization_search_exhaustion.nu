@@ -4,14 +4,16 @@ use ../lib/test.nu *
 
 let local = server spawn --config {
 	authentication: { users: { providers: { insecure: true } } }
-	authorization: {
-		final: {
-			descendant: { max_depth: 0, max_edges: 0, max_nodes: 0 }
-			subtree: { max_objects: 0 }
+	verification: {
+		permissions: {
+			final: {
+				descendant: { max_depth: 0, max_edges: 0, max_nodes: 0 }
+				subtree: { max_objects: 0 }
+			}
 		}
 	}
 	tracing: {
-		filter: 'tangram=info,tangram_index::authorize=debug'
+		filter: 'tangram=info,tangram_index::verify=debug'
 		stderr_format: 'json'
 	}
 }
@@ -43,8 +45,8 @@ let event = open --raw $local.log
 	| lines
 	| where ($it | str starts-with '{')
 	| each { from json }
-	| where $it.fields.message? == 'authorize permission indeterminate'
+	| where $it.fields.message? == 'verify permission indeterminate'
 	| where $it.fields.resource? == $directory
 	| last
-assert equal $event.fields.authorized 'object_node'
+assert equal $event.fields.verified 'object_node'
 assert equal $event.fields.indeterminate 'object_subtree'

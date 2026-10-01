@@ -20,7 +20,7 @@ let first = http get --headers { Accept: 'application/json', Authorization: $'Be
 let child = $first.children | columns | first
 let child_token = $first.children | get $child | get tokens.local.0
 let child_body = token-body $child_token
-let watch = tg --url $remote.url --token $root_token checkpoint watch authorization.index | from json | get watch
+let watch = tg --url $remote.url --token $root_token checkpoint watch verification.index | from json | get watch
 
 for trusted in [false true] {
 	let local = server spawn --name $'local-($trusted)' --config {
@@ -58,4 +58,4 @@ for trusted in [false true] {
 	assert ($output.stdout | str contains '"contents"')
 }
 
-tg --url $remote.url --token $root_token checkpoint unwatch authorization.index $watch
+tg --url $remote.url --token $root_token checkpoint unwatch verification.index $watch

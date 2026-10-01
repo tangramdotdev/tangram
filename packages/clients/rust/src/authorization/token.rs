@@ -23,11 +23,24 @@ pub struct Token {
 }
 
 #[derive(
-	Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+	Clone,
+	Debug,
+	Eq,
+	Hash,
+	Ord,
+	PartialEq,
+	PartialOrd,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
 )]
 pub struct Body {
+	#[tangram_serialize(id = 0)]
 	pub expires_at: i64,
+	#[tangram_serialize(id = 1)]
 	pub permissions: Vec<tg::authorization::Permission>,
+	#[tangram_serialize(id = 2)]
 	pub resource: tg::Id,
 }
 

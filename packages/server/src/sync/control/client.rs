@@ -32,7 +32,7 @@ pub(crate) struct Request {
 #[derive(Clone)]
 pub(crate) enum Output {
 	Pending,
-	Ready(tg::Result<Option<protocol::GetServerResponseOutput>>),
+	Ready(tg::Result<Option<protocol::VerifyServerResponseOutput>>),
 }
 
 struct State {
@@ -143,6 +143,15 @@ impl Client {
 }
 
 impl Request {
+	pub async fn wait(&mut self) -> tg::Result<Option<protocol::VerifyServerResponseOutput>> {
+		loop {
+			match self.output() {
+				Output::Pending => self.changed().await?,
+				Output::Ready(result) => return result,
+			}
+		}
+	}
+
 	pub fn output(&mut self) -> Output {
 		self.receiver.borrow_and_update().clone()
 	}
@@ -377,8 +386,8 @@ impl Server {
 						(Some(error), None, _) => Some(Err(tg::Error::try_from(error.clone())?)),
 						(
 							None,
-							Some(protocol::ServerResponseOutput::Get(output)),
-							protocol::ClientRequestArg::Get(arg),
+							Some(protocol::ServerResponseOutput::Verify(output)),
+							protocol::ClientRequestArg::Verify(arg),
 						) if output.as_ref().is_none_or(|output| output.satisfies(arg)) => Some(Ok(output.clone())),
 						_ => None,
 					};

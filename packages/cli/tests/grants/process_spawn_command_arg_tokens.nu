@@ -30,10 +30,12 @@ failure (tg --token $bob.token get $executable_referent.node | complete) 'Bob mu
 
 # Disable authorization graph searches.
 let config = $local.config | merge deep {
-	authorization: {
-		final: false
+	verification: {
 		index: { delay: null }
-		initial: false
+		permissions: {
+			final: false
+			initial: false
+		}
 	}
 }
 $config | to json | save --force $local.config_path

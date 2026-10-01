@@ -38,12 +38,12 @@ wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the pu
 let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
 let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
 
-# Bob's request is retained, then succeeds with the permissions reported when the object is stored.
+# Bob's request waits for the sync to prove permissions, which this upload records after storage.
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let query = { 'tokens[local][0]': $sync } | url build-query
 let read = job spawn {
 	let job_id = job id
-	let output = http get --max-time 30sec --unix-socket $socket --headers {
+	let output = http get --allow-errors --full --max-time 30sec --unix-socket $socket --headers {
 		Accept: 'application/json',
 		Authorization: $'Bearer ($bob.token)',
 	} $'http://localhost/objects/($private)?($query)'
@@ -52,7 +52,13 @@ let read = job spawn {
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.ack $ack_watch 0 | ignore
 tg --url $remote.url --token $root_token checkpoint unwatch sync.control.ack $ack_watch
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $private_watch
-job recv --tag $read --timeout 10sec | ignore
+# The concurrent storage lookup saw missing bytes; the authorized read retries after availability is proven.
+assert equal (job recv --tag $read --timeout 10sec | get status) 200
+let output = http get --allow-errors --full --max-time 10sec --unix-socket $socket --headers {
+	Accept: 'application/json',
+	Authorization: $'Bearer ($bob.token)',
+} $'http://localhost/objects/($private)?($query)'
+assert equal $output.status 200
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blocker_watch 0 | ignore
 tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $blocker_watch
 success (job recv --tag $push --timeout 10sec) "Alice's push must finish"

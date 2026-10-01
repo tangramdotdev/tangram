@@ -40,11 +40,11 @@ for response in [$remote_response $local_response] {
 
 # The owning server must accept its node capability without searching the index for other permissions.
 let params = { resource: $process } | to json --raw
-let index_watch = tg --url $remote.url --token $remote_root checkpoint watch authorization.index --params $params | from json | get watch
+let index_watch = tg --url $remote.url --token $remote_root checkpoint watch verification.index --params $params | from json | get watch
 let query = { 'tokens[local][0]': $remote_response.tokens.local.0 } | url build-query
 let output = http get --max-time 10sec --unix-socket $remote_socket --headers { Authorization: $'Bearer ($remote_alice.token)' } $'http://localhost/processes/($process)?($query)'
 assert equal $output.data.status started
-tg --url $remote.url --token $remote_root checkpoint unwatch authorization.index $index_watch
+tg --url $remote.url --token $remote_root checkpoint unwatch verification.index $index_watch
 
 let headers = { Authorization: $'Bearer ($alice.token)' }
 let query = { location: remote } | url build-query
@@ -67,13 +67,13 @@ let remote_job = job spawn {
 timeout 10s tg --url $remote.url --token $remote_root checkpoint wait process.control.response.publish $response_watch 0 | ignore
 
 # A local node capability can read the same state without the remote or an index authorization search.
-let index_watch = tg --url $runner.url --token $runner_root checkpoint watch authorization.index --params $params | from json | get watch
+let index_watch = tg --url $runner.url --token $runner_root checkpoint watch verification.index --params $params | from json | get watch
 let query = { location: remote, 'tokens[local][0]': $local_response.tokens.local.0 } | url build-query
 let output = http get --max-time 10sec --unix-socket $runner_socket --headers $headers $'http://localhost/processes/($process)?($query)'
 assert equal $output.location remote
 assert equal $output.data.status started
 assert ($output.tokens.local? | is-not-empty)
-tg --url $runner.url --token $runner_root checkpoint unwatch authorization.index $index_watch
+tg --url $runner.url --token $runner_root checkpoint unwatch verification.index $index_watch
 
 tg --url $remote.url --token $remote_root checkpoint continue process.control.response.publish $response_watch 0
 tg --url $remote.url --token $remote_root checkpoint unwatch process.control.response.publish $response_watch
@@ -94,7 +94,7 @@ let targets = [
 ]
 let waits = $targets | each { |target|
 	let params = { resource: $process, token_resource: $process } | to json --raw
-	let index_watch = tg --url $target.server.url --token $target.root checkpoint watch authorization.index --params $params | from json | get watch
+	let index_watch = tg --url $target.server.url --token $target.root checkpoint watch verification.index --params $params | from json | get watch
 	let params = { process: $process } | to json --raw
 	let attach_watch = tg --url $target.server.url --token $target.root checkpoint watch process.wait.attach --params $params | from json | get watch
 	let socket = $target.server.url | str replace 'http+unix://' '' | url decode
@@ -119,5 +119,5 @@ for wait in $waits {
 	let output = $response | into string | lines | where { $in starts-with 'data: ' } | last | str substring 6.. | from json
 	assert equal $output.exit 0
 	assert (not ($output.output.value | str contains 'tokens[')) "waiting must not mint an output capability"
-	tg --url $wait.target.server.url --token $wait.target.root checkpoint unwatch authorization.index $wait.index_watch
+	tg --url $wait.target.server.url --token $wait.target.root checkpoint unwatch verification.index $wait.index_watch
 }

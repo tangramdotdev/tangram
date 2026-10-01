@@ -562,9 +562,10 @@ impl Session {
 				})
 				.collect::<Vec<_>>();
 			let authorized = self.authorize_batch(args).await?;
+			crate::authorization::check_exhaustion(&authorized)?;
 			if authorized
 				.into_iter()
-				.all(|output| output.is_some_and(|permissions| permissions.contains(permission)))
+				.all(|output| output.permissions.contains(permission))
 			{
 				return Ok(());
 			}
@@ -614,9 +615,10 @@ impl Session {
 				})
 				.collect::<Vec<_>>();
 			let authorized = self.authorize_batch(args).await?;
+			crate::authorization::check_exhaustion(&authorized)?;
 			if authorized
 				.into_iter()
-				.all(|output| output.is_some_and(|permissions| permissions.contains(permission)))
+				.all(|output| output.permissions.contains(permission))
 			{
 				return Ok(());
 			}
@@ -688,9 +690,10 @@ impl Session {
 				})
 				.collect::<Vec<_>>();
 			let authorized = self.authorize_batch(args).await?;
+			crate::authorization::check_exhaustion(&authorized)?;
 			if authorized
 				.into_iter()
-				.all(|output| output.is_some_and(|permissions| permissions.contains(permission)))
+				.all(|output| output.permissions.contains(permission))
 			{
 				progress.finish_all();
 				return Ok(());

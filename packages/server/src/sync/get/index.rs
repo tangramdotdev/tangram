@@ -255,73 +255,25 @@ impl Session {
 					crate::checkpoint!(self.server, "sync.get.index.object.wait", id = %node.id)
 						.await;
 					let tokens = tg::authorization::Tokens::with_local_entry(entry.clone());
-					let request = tg::sync::control::ClientRequestArg::object(
-						node.id.clone(),
+					let resource = tg::Referent::with_node_and_tokens(node.id.clone(), tokens);
+					let permissions = tg::authorization::permission::Set::Object(
 						tg::authorization::permission::object::Set::NODE,
-						tg::object::storage::Set::NODE,
 					);
-					self.try_get_with_sync_wait(&tokens, request.clone(), |output| {
-						let id = node.id.clone();
-						let tg::sync::control::ClientRequestArg::Get(request) = &request else {
-							unreachable!();
-						};
-						async move {
-							if let Some(output) = output {
-								let mut graph = state.graph.lock().unwrap();
-								graph.update_node_local_control_output(
-									&id.clone().into(),
-									&output,
-								)?;
-								let required = tg::authorization::permission::Set::Object(
-									tg::authorization::permission::object::Set::NODE,
-								);
-								if !graph.object_local_permissions(&id).contains(required) {
-									return Ok(None);
-								}
-							} else {
-								let ids = std::slice::from_ref(&id);
-								let touched_at = self.server.clock.unix_timestamp()?;
-								let (mut objects, mut permissions) = self
-									.sync_get_touch_authorized_objects(
-										&state.graph,
-										ids,
-										touched_at,
-										self.server.config.object.time_to_touch,
-									)
-									.await?;
-								let permissions = permissions.pop().flatten();
-								if permissions.is_none() {
-									return Ok(None);
-								}
-								if let Some(object) = objects.pop().flatten() {
-									let arg = UpdateObjectLocalArg {
-										data: None,
-										id: &id,
-										marked: None,
-										metadata: Some(object.metadata),
-										permissions,
-										put: Some(object.put),
-										requested: None,
-										storage: Some(object.storage),
-									};
-									state.graph.lock().unwrap().update_object_local(arg);
-								}
-							}
-							if state
-								.graph
-								.lock()
-								.unwrap()
-								.try_get_node_local_control_output(request)?
-								.is_none()
-							{
-								return Ok(None);
-							}
-							let output = self.server.try_get_object_local(&id, false).await?;
-							Ok(output.map(|_| ()))
-						}
-					})
-					.await?
-					.is_some()
+					let storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
+					let output = self
+						.verify(resource, permissions, storage)
+						.await?
+						.check_exhaustion()?;
+					if output.outcome == crate::authorization::Outcome::Satisfied {
+						state
+							.graph
+							.lock()
+							.unwrap()
+							.update_node_local_verified(&node.id.clone().into(), &output)?;
+						self.sync_get_index_touch_object(state, &node.id).await?
+					} else {
+						false
+					}
 				} else {
 					false
 				};
@@ -416,6 +368,46 @@ impl Session {
 		Self::sync_get_index_close_queue_if_end(state);
 
 		Ok(())
+	}
+
+	async fn sync_get_index_touch_object(
+		&self,
+		state: &State,
+		id: &tg::object::Id,
+	) -> tg::Result<bool> {
+		let touched_at = self.server.clock.unix_timestamp()?;
+		let (mut objects, mut permissions) = self
+			.sync_get_touch_authorized_objects(
+				&state.graph,
+				std::slice::from_ref(id),
+				touched_at,
+				self.server.config.object.time_to_touch,
+			)
+			.await?;
+		let Some(permissions) = permissions.pop().flatten() else {
+			return Ok(false);
+		};
+		let required = tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::NODE,
+		);
+		if !permissions.contains(required) {
+			return Ok(false);
+		}
+		if let Some(object) = objects.pop().flatten() {
+			let arg = UpdateObjectLocalArg {
+				data: None,
+				id,
+				marked: None,
+				metadata: Some(object.metadata),
+				permissions: Some(permissions),
+				put: Some(object.put),
+				requested: None,
+				storage: Some(object.storage),
+			};
+			state.graph.lock().unwrap().update_object_local(arg);
+		}
+		let stored = self.server.try_get_object_local(id, false).await?.is_some();
+		Ok(stored)
 	}
 
 	pub(super) async fn sync_get_index_send_object_available(
@@ -855,8 +847,11 @@ impl Session {
 				let permission = tg::authorization::Permission::Sandbox(
 					tg::authorization::permission::sandbox::Permission::Write,
 				);
-				let authorized = self.authorize(message.id.clone(), permission).await?;
-				if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+				let authorized = self
+					.authorize(message.id.clone(), permission)
+					.await?
+					.check_exhaustion()?;
+				if !authorized.permissions.contains(permission) {
 					return Err(tg::error!("unauthorized"));
 				}
 			}

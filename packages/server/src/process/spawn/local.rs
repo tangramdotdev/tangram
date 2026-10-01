@@ -187,6 +187,7 @@ impl Session {
 			},
 			tg::Either::Right(id) => {
 				let command = tg::Command::with_referent(command.clone());
+				self.spawn_process_load_command(&command).await?;
 				let data = command.data_with_instance(self).await?;
 				(data.host, tg::Either::Right(id.clone()))
 			},
@@ -195,6 +196,34 @@ impl Session {
 		let output = (host, command);
 
 		Ok(output)
+	}
+
+	async fn spawn_process_load_command(&self, command: &tg::Command) -> tg::Result<()> {
+		let output = command.try_load_with_instance(self).await;
+		if output.as_ref().is_ok_and(Option::is_some) {
+			return Ok(());
+		}
+
+		// Spawning requires the command node while its remaining graph can still be transferring.
+		let permissions = tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::NODE,
+		);
+		let storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
+		if self
+			.verify(
+				command.to_referent().map(tg::object::Id::from),
+				permissions,
+				storage,
+			)
+			.await?
+			.check_exhaustion()?
+			.outcome == crate::authorization::Outcome::Satisfied
+		{
+			command.load_with_instance(self).await?;
+			return Ok(());
+		}
+		output?.ok_or_else(|| tg::error!("failed to load the command"))?;
+		Ok(())
 	}
 
 	pub(super) fn spawn_process_is_cacheable(arg: &tg::process::spawn::Arg) -> bool {

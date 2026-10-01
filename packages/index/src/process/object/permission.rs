@@ -3,7 +3,7 @@ use tangram_client::prelude::*;
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
 	#[tangram_serialize(id = 6)]
-	pub authorize: crate::authorize::Config,
+	pub verify: crate::verify::Config,
 
 	#[tangram_serialize(id = 0)]
 	pub created_at: i64,
@@ -35,12 +35,12 @@ pub struct Root {
 
 impl Arg {
 	pub fn validate(&self) -> tg::Result<()> {
-		self.authorize.validate()?;
+		self.verify.validate()?;
 		if self.expires_at.is_none()
 			&& self.principal != tg::Principal::Process(self.process.clone())
 		{
 			return Err(tg::error!(
-				"non-expiring process object permissions must be authorized by the process"
+				"non-expiring process object permissions must be verified by the process"
 			));
 		}
 		if self.roots.iter().any(|root| {

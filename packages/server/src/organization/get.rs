@@ -65,8 +65,9 @@ impl Session {
 				),
 				permission,
 			)
-			.await?;
-		if !authorized.is_some_and(|permissions| permissions.contains(permission)) {
+			.await?
+			.check_exhaustion()?;
+		if !authorized.permissions.contains(permission) {
 			return Ok(None);
 		}
 		let id = id.clone();

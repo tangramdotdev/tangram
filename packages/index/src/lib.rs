@@ -1,6 +1,5 @@
 use {futures::FutureExt as _, std::time::Duration, tangram_client::prelude::*};
 
-pub mod authorize;
 pub mod batch;
 pub mod checkout;
 pub mod clean;
@@ -19,37 +18,41 @@ pub mod tag;
 pub mod update;
 pub mod usage;
 pub mod user;
+pub mod verify;
 
 pub mod prelude {
 	pub use super::Index as _;
 }
 
 pub trait Index {
-	fn authorize_batch(
+	fn verify_batch(
 		&self,
-		args: &[crate::authorize::Arg],
-		config: crate::authorize::Config,
+		args: &[crate::verify::Arg],
+		config: crate::verify::Config,
 		principal: &tg::Principal,
-	) -> impl Future<Output = tg::Result<Vec<crate::authorize::Outcome>>> + Send;
+	) -> impl Future<Output = tg::Result<Vec<crate::verify::Output>>> + Send;
 
-	fn authorize(
+	fn verify(
 		&self,
 		resource: tg::Selector<tg::Id>,
 		permissions: tg::authorization::permission::Set,
-		config: crate::authorize::Config,
+		storage: tg::storage::Set,
+		config: crate::verify::Config,
 		principal: &tg::Principal,
-	) -> impl Future<Output = tg::Result<crate::authorize::Outcome>> + Send
+	) -> impl Future<Output = tg::Result<crate::verify::Output>> + Send
 	where
 		Self: Sync,
 	{
-		let arg = crate::authorize::Arg {
+		let arg = crate::verify::Arg {
+			subject: None,
 			requested: permissions,
 			required: permissions,
 			resource,
+			storage,
 			tokens: Vec::new(),
 		};
 		async move {
-			let mut outcomes = self.authorize_batch(&[arg], config, principal).await?;
+			let mut outcomes = self.verify_batch(&[arg], config, principal).await?;
 			let outcome = outcomes.pop().unwrap();
 
 			Ok(outcome)
