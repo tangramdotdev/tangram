@@ -37,6 +37,7 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 			},
 			subject: subject.clone(),
 			time_to_touch: None,
+			version: None,
 		}])
 		.await
 		.unwrap();
@@ -178,6 +179,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 					source: tangram_index::permission::Source::Direct { expires_at: None },
 					subject: subject.clone(),
 					time_to_touch: None,
+					version: None,
 				}),
 			],
 		})
@@ -197,6 +199,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 				},
 				subject: subject.clone(),
 				time_to_touch: None,
+				version: None,
 			},
 			tangram_index::permission::put::Arg {
 				created_at: 0,
@@ -208,6 +211,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 				},
 				subject: subject.clone(),
 				time_to_touch: None,
+				version: None,
 			},
 		])
 		.await

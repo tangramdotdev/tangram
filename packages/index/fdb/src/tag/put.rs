@@ -58,6 +58,15 @@ impl Index {
 					)
 					.await
 				);
+				crate::propagate!(
+					Self::delete_delegations_for_subject_with_transaction(
+						txn,
+						subspace,
+						&subject,
+						partition_totals.permission_update
+					)
+					.await
+				);
 			}
 		}
 		if let Some(tag) = tag.as_ref()

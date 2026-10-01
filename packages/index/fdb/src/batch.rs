@@ -20,7 +20,6 @@ impl Index {
 	}
 
 	pub(crate) async fn batch_with_transaction(
-		verification: crate::VerificationConfig,
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::batch::Arg,
@@ -37,6 +36,18 @@ impl Index {
 							subspace,
 							subject,
 							partition_totals.cleaning
+						)
+						.await
+					);
+				},
+
+				tangram_index::batch::Item::EnqueuePermissionCapture(arg) => {
+					crate::propagate!(
+						Self::enqueue_permission_capture_with_transaction(
+							txn,
+							subspace,
+							arg,
+							partition_totals.permission_update
 						)
 						.await
 					);
@@ -232,18 +243,6 @@ impl Index {
 							txn,
 							subspace,
 							std::slice::from_ref(arg),
-							partition_totals,
-						)
-						.await
-					);
-				},
-				tangram_index::batch::Item::PutProcessObjectPermissions(arg) => {
-					crate::propagate!(
-						Self::put_process_object_permissions_with_transaction(
-							verification.concurrency,
-							txn,
-							subspace,
-							arg,
 							partition_totals,
 						)
 						.await

@@ -95,6 +95,17 @@ impl Index {
 		partition_total: u64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		arg.validate()?;
+		if let Some(version) = &arg.version {
+			let tg::authorization::Subject::Tag(id) = &arg.subject else {
+				unreachable!()
+			};
+			let tag =
+				crate::propagate!(Self::try_get_tag_with_transaction(txn, subspace, id).await);
+			if tag.is_none_or(|tag| tag.version != *version) {
+				return Ok(ControlFlow::Break(()));
+			}
+		}
+
 		let key = IndexKey::Delegation(keys(arg)[0].clone());
 		let key = Self::pack(subspace, &key);
 		let result = txn.get(&key, false).await;

@@ -2,7 +2,6 @@ use {
 	super::child::AddProcessChildArg,
 	crate::Session,
 	futures::{FutureExt as _, future},
-	num::ToPrimitive as _,
 	std::pin::pin,
 	tangram_client::prelude::*,
 };
@@ -434,27 +433,18 @@ impl Session {
 			items.push(tangram_index::batch::Item::PutPermission(permission));
 		}
 		if write_command_permissions {
-			let permission_expires_at = now
-				+ self
-					.server
-					.config
-					.object
-					.permission_time_to_live
-					.as_secs()
-					.to_i64()
-					.unwrap();
-			let command_objects = command.objects();
-			let permission_arg = self
-				.create_process_object_permission_arg(
-					&id,
-					command_objects,
-					now,
-					Some(permission_expires_at),
-				)
-				.await?;
-			items.push(tangram_index::batch::Item::PutProcessObjectPermissions(
-				permission_arg,
-			));
+			let destination = id.clone().into();
+			let roots = command
+				.objects()
+				.into_iter()
+				.map(|root| root.map(Into::into));
+			items.extend(self.create_permission_capture_items(
+				destination,
+				None,
+				roots,
+				self.context.principal.clone(),
+				now,
+			)?);
 		}
 		if !items.is_empty() {
 			let arg = tangram_index::batch::Arg { items };

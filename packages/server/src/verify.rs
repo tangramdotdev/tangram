@@ -832,8 +832,8 @@ impl Session {
 					} else {
 						arg.required
 					};
-					outcome.permissions.contains(permissions)
-						&& outcome.storage.contains(arg.storage)
+					let permissions_satisfied = outcome.permissions.contains(permissions);
+					permissions_satisfied && outcome.storage.contains(arg.storage)
 				})
 		};
 		let initial =
@@ -922,9 +922,8 @@ impl Session {
 					outcome: Outcome::Unsatisfied,
 					permissions: required_permissions.empty_like(),
 				});
-				let outcome = if output.permissions.contains(required_permissions)
-					&& storage.contains(required_storage)
-				{
+				let permissions_satisfied = output.permissions.contains(required_permissions);
+				let outcome = if permissions_satisfied && storage.contains(required_storage) {
 					Outcome::Satisfied
 				} else if exhausted[position] {
 					Outcome::Exhausted

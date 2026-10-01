@@ -1,12 +1,12 @@
 mod ancestor;
 mod batch;
+mod capture;
 mod clean;
 mod delegation;
 mod indexer;
 mod location;
 mod log;
 mod object;
-mod process_object_permission;
 mod reader;
 mod storage;
 mod tag;

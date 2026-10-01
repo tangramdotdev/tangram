@@ -55,6 +55,12 @@ impl Index {
 					transaction,
 					&subject,
 				)?;
+				Self::delete_delegations_for_subject_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&subject,
+				)?;
 			}
 		}
 		if let Some(tag) = tag.as_ref()

@@ -7,13 +7,15 @@ use {
 };
 
 impl Index {
-	pub async fn try_get_process_node_children(
+	pub async fn try_get_process_children_and_objects(
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tangram_index::process::NodeChildren>> {
-		let request = tangram_index::read::Request::TryGetProcessNodeChildren { id: id.clone() };
+		let request =
+			tangram_index::read::Request::TryGetProcessChildrenAndObjects { id: id.clone() };
 		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetProcessNodeChildren(output) = response else {
+		let tangram_index::read::Response::TryGetProcessChildrenAndObjects(output) = response
+		else {
 			return Err(tg::error!("unexpected read response"));
 		};
 
@@ -413,7 +415,7 @@ impl Index {
 		Ok(objects)
 	}
 
-	pub(crate) fn try_get_process_node_children_with_transaction(
+	pub(crate) fn try_get_process_children_and_objects_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
 		transaction: &lmdb::RoTxn<'_>,

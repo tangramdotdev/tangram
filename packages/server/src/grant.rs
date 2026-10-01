@@ -347,6 +347,7 @@ impl Session {
 				source: tangram_index::permission::Source::Grant,
 				subject: subject.clone(),
 				time_to_touch: None,
+				version: None,
 			},
 		));
 		Ok(ControlFlow::Break((

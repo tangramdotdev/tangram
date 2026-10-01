@@ -12,6 +12,7 @@ use {
 
 mod billing;
 mod cache;
+mod capture;
 mod cleaning;
 mod compaction;
 mod database;
@@ -64,6 +65,7 @@ struct Tasks {
 	archive_sequence_reservations: SharedTask<tg::Result<()>>,
 	batch_expiration: SharedTask<tg::Result<()>>,
 	billing_cleanup: Task<tg::Result<()>>,
+	permission_capture: SharedTask<tg::Result<()>>,
 	cleaning: Task<tg::Result<()>>,
 	database_index_queue: Task<tg::Result<()>>,
 	permission_update: Task<tg::Result<()>>,
@@ -265,6 +267,22 @@ impl Server {
 						&config.cleaning,
 						config.cleaning.partitions.start,
 						config.cleaning.partitions.end,
+						&stopper,
+					)
+					.await
+			}
+		});
+
+		// Service capture separately so its verification can await indexing.
+		let permission_capture_task = SharedTask::spawn({
+			let indexer = indexer.clone();
+			let config = config.clone();
+			move |stopper| async move {
+				indexer
+					.permission_capture_task(
+						&config.permission_capture,
+						config.updates.permissions.partitions.start,
+						config.updates.permissions.partitions.end,
 						&stopper,
 					)
 					.await
@@ -473,6 +491,7 @@ impl Server {
 			archive_sequence_reservations: archive_sequence_reservations_task,
 			batch_expiration: batch_expiration_task,
 			billing_cleanup: billing_cleanup_task,
+			permission_capture: permission_capture_task,
 			cleaning: cleaning_task,
 			database_index_queue: database_index_queue_task,
 			permission_update: permission_update_task,
@@ -493,6 +512,7 @@ impl Server {
 		// Monitor the request and queue tasks at the indexer level.
 		let mut monitored = [
 			("archive queue", tasks.archive_queue.clone()),
+			("permission capture", tasks.permission_capture.clone()),
 			("index queue", tasks.index_queue.clone()),
 			("request", tasks.request.clone()),
 			("wait", tasks.wait.clone()),
@@ -577,6 +597,7 @@ impl Indexer {
 			archive_sequence_reservations,
 			batch_expiration,
 			billing_cleanup,
+			permission_capture,
 			cleaning,
 			database_index_queue,
 			permission_update,
@@ -593,6 +614,13 @@ impl Indexer {
 			usage_expiration,
 			wait,
 		} = tasks;
+
+		// Cancel capture before stopping the index requests it may be awaiting.
+		permission_capture.stop();
+		permission_capture
+			.wait()
+			.await
+			.map_err(|error| tg::error!(!error, "the capture task panicked"))??;
 
 		// Stop accepting queue requests.
 		if self.id.is_some() {

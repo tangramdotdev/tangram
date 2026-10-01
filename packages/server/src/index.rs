@@ -35,6 +35,52 @@ impl Index {
 }
 
 impl index::Index for Index {
+	async fn enqueue_permission_capture(
+		&self,
+		arg: index::permission::capture::enqueue::Arg,
+	) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.enqueue_permission_capture(arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.enqueue_permission_capture(arg).await,
+		}
+	}
+
+	async fn permission_capture_batch(
+		&self,
+		batch_size: usize,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<Vec<index::permission::capture::Entry>> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => {
+				index
+					.permission_capture_batch(batch_size, partition_start, partition_end)
+					.await
+			},
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => {
+				index
+					.permission_capture_batch(batch_size, partition_start, partition_end)
+					.await
+			},
+		}
+	}
+
+	async fn complete_permission_capture(
+		&self,
+		entry: &index::permission::capture::Entry,
+	) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "foundationdb")]
+			Self::Fdb(index) => index.complete_permission_capture(entry).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(index) => index.complete_permission_capture(entry).await,
+		}
+	}
+
 	async fn delete_indexer(&self, arg: index::indexer::delete::Arg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "foundationdb")]
@@ -341,15 +387,15 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn try_get_process_node_children(
+	async fn try_get_process_children_and_objects(
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tangram_index::process::NodeChildren>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_process_node_children(id).await,
+			Self::Fdb(index) => index.try_get_process_children_and_objects(id).await,
 			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_process_node_children(id).await,
+			Self::Lmdb(index) => index.try_get_process_children_and_objects(id).await,
 		}
 	}
 

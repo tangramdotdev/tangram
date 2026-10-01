@@ -31,6 +31,16 @@ impl Index {
 		args: &[tangram_index::permission::put::Arg],
 	) -> tg::Result<()> {
 		for arg in args {
+			arg.validate()?;
+			if let Some(version) = &arg.version {
+				let tg::authorization::Subject::Tag(id) = &arg.subject else {
+					unreachable!()
+				};
+				let tag = Self::try_get_tag_with_transaction(db, subspace, transaction, id)?;
+				if tag.is_none_or(|tag| tag.version != *version) {
+					continue;
+				}
+			}
 			let (expires_at, source) = match arg.source {
 				tangram_index::permission::Source::Direct { expires_at } => {
 					(expires_at, PermissionSource::Direct)
@@ -41,31 +51,8 @@ impl Index {
 				arg.source,
 				tangram_index::permission::Source::Direct { expires_at: None }
 			);
-			if non_expiring_direct {
-				let tg::authorization::Subject::Process(process) = &arg.subject else {
-					return Err(tg::error!(
-						"a non-expiring direct permission must have a process subject"
-					));
-				};
-				if arg.creator.as_ref() != Some(&tg::Principal::Process(process.clone())) {
-					return Err(tg::error!(
-						"a non-expiring direct permission must be created by its process"
-					));
-				}
-				if tg::object::Id::try_from(arg.resource.clone()).is_err() {
-					return Err(tg::error!(
-						"a non-expiring direct permission must target an object"
-					));
-				}
-			}
+			let mut permissions_changed = false;
 			for permission in arg.permissions.iter() {
-				if non_expiring_direct
-					&& !matches!(permission, tg::authorization::Permission::Object(_))
-				{
-					return Err(tg::error!(
-						"a non-expiring direct permission must contain object permissions"
-					));
-				}
 				let entry = PermissionIndexEntry {
 					creator: arg.creator.as_ref(),
 					expires_at,
@@ -82,6 +69,7 @@ impl Index {
 					arg.time_to_touch,
 				)?;
 				if changed {
+					permissions_changed = true;
 					Self::enqueue_permission_update(
 						db,
 						subspace,
@@ -89,6 +77,26 @@ impl Index {
 						&arg.resource,
 						&arg.subject,
 						permission,
+					)?;
+				}
+			}
+			if non_expiring_direct && permissions_changed {
+				if let Ok(id) = tg::object::Id::try_from(arg.resource.clone()) {
+					Self::enqueue_account_object_from_parents(
+						db,
+						subspace,
+						transaction,
+						&id,
+						arg.created_at,
+					)?;
+				} else {
+					let id = tg::process::Id::try_from(arg.resource.clone())?;
+					Self::enqueue_account_process_from_parents(
+						db,
+						subspace,
+						transaction,
+						&id,
+						arg.created_at,
 					)?;
 				}
 			}

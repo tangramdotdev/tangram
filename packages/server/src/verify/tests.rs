@@ -158,3 +158,38 @@ fn entry() -> super::Entry {
 		state: super::RequestState::Queued { deadline: None },
 	}
 }
+
+#[test]
+fn permission_capture_preserves_partial_proofs_without_hiding_exhaustion() {
+	use {
+		crate::{
+			Session,
+			authorization::{Outcome, Output},
+		},
+		tangram_client as tg,
+	};
+	let node = tg::authorization::permission::Set::Object(
+		tg::authorization::permission::object::Set::NODE,
+	);
+	let storage = tg::storage::Set::Object(tg::object::storage::Set::empty());
+	let partial = Output {
+		expires_at: None,
+		outcome: Outcome::Exhausted,
+		permissions: node,
+	};
+	let mut requested = node;
+	requested.insert(tg::authorization::permission::Set::Object(
+		tg::authorization::permission::object::Set::SUBTREE,
+	));
+	let requirements = [(requested, storage); 2];
+	let outputs = Session::verify_outputs(
+		vec![None, Some(partial)],
+		vec![storage; 2],
+		&requirements,
+		&[true; 2],
+	);
+	assert_eq!(outputs[0].outcome, Outcome::Exhausted);
+	assert!(outputs[0].permissions.is_empty());
+	assert_eq!(outputs[1].outcome, Outcome::Exhausted);
+	assert_eq!(outputs[1].permissions, node);
+}

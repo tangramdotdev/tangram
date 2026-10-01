@@ -102,17 +102,9 @@ struct FinishProcessRunOutput {
 }
 
 struct IndexFinishedProcessTaskArg {
-	authorization: crate::process::put::Authorization,
 	data: tg::process::Data,
 	id: tg::process::Id,
 	location: tg::Location,
-}
-
-struct RecordFinishedProcessArg<'a> {
-	data: &'a tg::process::Data,
-	id: &'a tg::process::Id,
-	location: &'a tg::Location,
-	processes: Arc<crate::process::Processes>,
 }
 
 struct FinishProcessTaskArg {
@@ -129,7 +121,6 @@ struct FinishProcessTaskArg {
 struct IndexProcessTaskArg<'a> {
 	command: tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 	command_data: CommandFuture,
-	command_roots: Vec<tangram_index::process::object::permission::Root>,
 	data: tg::process::Data,
 	id: &'a tg::process::Id,
 	location: &'a tg::Location,
@@ -886,22 +877,7 @@ impl Session {
 			));
 		}
 
-		// Prepare command authorization before tracked finish writes can wait for initialization.
-		let command_roots = session
-			.prepare_process_command_permissions(&state.command, &location, parent.as_ref())
-			.await;
-		let command_roots = match command_roots {
-			Ok(roots) => roots,
-			Err(error) => {
-				process_stopper.stop();
-				drop(index_sender);
-				drop(ready_sender);
-				finish_task.wait().await.ok();
-				return Err(error);
-			},
-		};
-
-		// Complete command permission preparation before a tracked finish write can wait for indexing.
+		// Allow finish to proceed once the sandbox control connection is ready.
 		ready_sender.send(()).ok();
 
 		let data = state.to_data();
@@ -958,7 +934,6 @@ impl Session {
 		let arg = IndexProcessTaskArg {
 			command: state.command.clone(),
 			command_data: command.clone(),
-			command_roots,
 			data,
 			id: &id,
 			location: &location,
@@ -1115,6 +1090,12 @@ impl Session {
 		responses: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<ControlConnection> {
 		crate::checkpoint!(self.server, "runner.process.control.connect", process = ?arg.id).await;
+		let local_process_control = matches!(
+			self.server.location(arg.location.as_ref())?,
+			tg::Location::Local(tg::location::Local { region: None })
+		);
+		let mut session = self.clone();
+		session.local_process_control = local_process_control;
 		let reconnect_context = self.context.clone();
 		let reconnect_server = self.server.clone();
 		let reconnect = move |output: &tg::process::control::Output| {
@@ -1124,9 +1105,11 @@ impl Session {
 				token,
 				..reconnect_context
 			};
-			reconnect_server.session(&context)
+			let mut session = reconnect_server.session(&context);
+			session.local_process_control = local_process_control;
+			session
 		};
-		let (output, requests) = self
+		let (output, requests) = session
 			.try_get_process_control_stream_all(arg, responses, reconnect)
 			.boxed()
 			.await
@@ -1295,45 +1278,29 @@ impl Session {
 			.await
 			.map_err(|_| tg::error!("the process connection failed before initialization"))?;
 
-		// The initial write establishes command permissions; the finished write only needs proofs for the result objects.
-		let index_task =
-			if let Some(authorization) = self.try_prepare_finished_process_authorization(&data) {
-				let arg = IndexFinishedProcessTaskArg {
-					authorization,
-					data: data.clone(),
-					id: id.clone(),
-					location: location.clone(),
-				};
-				let session = self.clone();
-				let index_task = crate::process::IndexTask::spawn(move |_| async move {
-					index_receiver
-						.await
-						.map_err(|_| tg::error!("the process connection failed before indexing"))?;
-					let inner = session.clone();
-					session
-						.server
-						.index_tasks
-						.spawn(move |_| async move { inner.index_finished_process_task(arg).await })
-						.wait()
-						.await
-						.map_err(|_| tg::error!("the finished process index task panicked"))?
-				});
-				self.publish_finished_process(&id, &processes, &data)
-					.await?;
-				Some(index_task)
-			} else {
-				index_receiver.await.map_err(|_| {
-					tg::error!("the process connection failed before permission preparation")
-				})?;
-				let arg = RecordFinishedProcessArg {
-					data: &data,
-					id: &id,
-					location: &location,
-					processes: processes.clone(),
-				};
-				self.record_finished_process_local(arg).await?;
-				None
-			};
+		// Publish completion and capture permissions independently of the output transfer.
+		let arg = IndexFinishedProcessTaskArg {
+			data: data.clone(),
+			id: id.clone(),
+			location: location.clone(),
+		};
+		let session = self.clone();
+		let index_task = crate::process::IndexTask::spawn(move |_| async move {
+			index_receiver
+				.await
+				.map_err(|_| tg::error!("the process connection failed before indexing"))?;
+			let inner = session.clone();
+			session
+				.server
+				.index_tasks
+				.spawn(move |_| async move { inner.index_finished_process_task(arg).await })
+				.wait()
+				.await
+				.map_err(|_| tg::error!("the finished process index task panicked"))?
+		});
+		self.publish_finished_process(&id, &processes, &data)
+			.await?;
+		let index_task = Some(index_task);
 
 		// Publish local completion before waiting for command transfer and Start submission.
 		if let Some(initialization) = initialization {
@@ -1342,7 +1309,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "the process initialization failed"))?;
 		}
 
-		// Await the result transfer by default until concurrent push and finish are reliable.
+		// Await the output transfer before sending Finish when explicitly configured.
 		if self.server.config.process.await_push && location.is_remote() {
 			let sync = sync_receiver
 				.await
@@ -1379,12 +1346,7 @@ impl Session {
 		&self,
 		arg: IndexFinishedProcessTaskArg,
 	) -> tg::Result<()> {
-		let IndexFinishedProcessTaskArg {
-			authorization,
-			data,
-			id,
-			location,
-		} = arg;
+		let IndexFinishedProcessTaskArg { data, id, location } = arg;
 		let options = crate::process::put::Options {
 			defer_index: false,
 			enqueue_log_compaction: false,
@@ -1408,7 +1370,7 @@ impl Session {
 			.put_process_local_inner(
 				&id,
 				arg,
-				crate::process::put::ObjectPermissions::Authorized(authorization),
+				crate::process::put::ObjectPermissions::Capture,
 				options,
 			)
 			.await;
@@ -1416,37 +1378,6 @@ impl Session {
 			tracing::error!(error = %error.trace(), process = %id, "failed to index the finished process");
 		}
 		result?;
-
-		Ok(())
-	}
-
-	async fn record_finished_process_local(
-		&self,
-		arg: RecordFinishedProcessArg<'_>,
-	) -> tg::Result<()> {
-		let RecordFinishedProcessArg {
-			data,
-			id,
-			location,
-			processes,
-		} = arg;
-
-		// Publish completion before waiting for indexing to prepare the process permissions.
-		self.publish_finished_process(id, &processes, data).await?;
-
-		// Permission preparation can call index(), so this work must remain outside server.index_tasks.
-		// The control finish handler queues local log compaction, and the log writer records EOF.
-		let remote = location.is_remote();
-		let options = crate::process::put::Options {
-			defer_index: self.server.config.advanced.single_process,
-			enqueue_log_compaction: false,
-			location: Some(location.clone()),
-			store_data: remote,
-			sync: None,
-		};
-		self.put_finished_process_local(id, data.clone(), options)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to index the finished process"))?;
 
 		Ok(())
 	}
@@ -1723,7 +1654,7 @@ impl Session {
 			Err(error) => Err(tg::error!(!error, %id, "the process buffered task panicked")),
 		};
 
-		// Retain the original concurrent finish behavior when awaiting pushes is disabled.
+		// Push the output concurrently with Finish by default.
 		if !self.server.config.process.await_push
 			&& let Err(error) = self.push_process_output(&id, &location, &data, sync).await
 		{
@@ -1912,38 +1843,10 @@ impl Session {
 		))
 	}
 
-	async fn prepare_process_command_permissions(
-		&self,
-		command: &tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
-		location: &tg::Location,
-		parent: Option<&tg::process::Id>,
-	) -> tg::Result<Vec<tangram_index::process::object::permission::Root>> {
-		if !location.is_remote() {
-			return Ok(Vec::new());
-		}
-		let Some(parent) = parent else {
-			return Ok(Vec::new());
-		};
-		let context = crate::Context {
-			principal: tg::Principal::Process(parent.clone()),
-			token: None,
-			..self.context.clone()
-		};
-		let session = self.server.session(&context);
-		let roots = session
-			.prepare_process_object_permission_roots(
-				command.objects(),
-				tg::authorization::permission::object::Set::NODE,
-			)
-			.await?;
-		Ok(roots)
-	}
-
 	async fn spawn_index_process_task(&self, arg: IndexProcessTaskArg<'_>) -> tg::Result<()> {
 		let IndexProcessTaskArg {
 			command,
 			command_data,
-			command_roots,
 			data,
 			id,
 			location,
@@ -1971,11 +1874,6 @@ impl Session {
 			.as_ref()
 			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
 		let now = self.server.clock.unix_timestamp()?;
-		let time_to_live = i64::try_from(
-			self.server.config.object.permission_time_to_live.as_secs(),
-		)
-		.map_err(|error| tg::error!(!error, "failed to convert the permission time to live"))?;
-		let expires_at = now + time_to_live;
 		let put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
 			children: None,
@@ -2004,40 +1902,25 @@ impl Session {
 		let mut items = vec![tangram_index::batch::Item::PutProcess(put_process_arg)];
 		let permission_arg = self.create_process_sandbox_permission_arg(id, sandbox, now)?;
 		items.push(tangram_index::batch::Item::PutPermission(permission_arg));
-		if let Some(parent) = parent {
-			let permission_arg = tangram_index::process::object::permission::Arg {
-				verify: crate::verification_search_config(
-					&self.server.config.verification.permissions.final_,
-				),
-				created_at: now,
-				expires_at: Some(expires_at),
-				principal: tg::Principal::Process(parent.clone()),
-				process: id.clone(),
-				roots: command_roots,
-				time_to_touch: Some(self.server.config.object.permission_time_to_touch),
-			};
-			items.push(tangram_index::batch::Item::PutProcessObjectPermissions(
-				permission_arg,
-			));
-		} else {
-			for command in command.objects() {
-				let permission = tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Node,
-				);
-				let permission_arg = tangram_index::permission::put::Arg {
-					created_at: now,
-					creator: Some(self.context.principal.clone()),
-					permissions: permission.into(),
-					resource: command.node.into(),
-					source: tangram_index::permission::Source::Direct {
-						expires_at: Some(expires_at),
-					},
-					subject: tg::authorization::Subject::Process(id.clone()),
-					time_to_touch: Some(self.server.config.object.permission_time_to_touch),
-				};
-				items.push(tangram_index::batch::Item::PutPermission(permission_arg));
-			}
-		}
+		let destination = id.clone().into();
+		// Loading an inline command does not prove permissions on the objects it references.
+		let permissions = match &command.node {
+			tg::Either::Left(_) => tg::authorization::permission::object::Set::empty(),
+			tg::Either::Right(_) => tg::authorization::permission::object::Set::NODE,
+		};
+		let permissions = tg::authorization::permission::Set::Object(permissions);
+		let roots = command
+			.objects()
+			.into_iter()
+			.map(|resource| (resource.map(Into::into), permissions));
+		let source = tg::Principal::Process(parent.unwrap_or(id).clone());
+		items.extend(self.create_permission_capture_items_with_permissions(
+			destination,
+			None,
+			roots,
+			source,
+			now,
+		)?);
 
 		// Apply the initial data before the finished data can be written.
 		let arg = tangram_index::batch::Arg { items };

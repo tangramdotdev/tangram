@@ -30,6 +30,7 @@ async fn target_versions_clear_subject_permissions() {
 		},
 		subject: subject.clone(),
 		time_to_touch: None,
+		version: None,
 	};
 	index.put_permissions(&[permission]).await.unwrap();
 	let has_permissions = || {

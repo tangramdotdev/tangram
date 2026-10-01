@@ -34,6 +34,7 @@ impl Session {
 			},
 			subject,
 			time_to_touch: Some(self.server.config.process.permission_time_to_touch),
+			version: None,
 		};
 		Ok(Some(arg))
 	}

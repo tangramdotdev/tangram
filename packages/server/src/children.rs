@@ -94,7 +94,9 @@ impl Session {
 			},
 			tg::id::Kind::Process => {
 				let id = id.try_into()?;
-				let nodes = self.try_get_process_node_children_from_index(&id).await?;
+				let nodes = self
+					.try_get_process_children_and_objects_from_index(&id)
+					.await?;
 				inherit_child_options(nodes, &parent_options)
 			},
 			tg::id::Kind::Tag => {
@@ -265,11 +267,15 @@ impl Session {
 			.ok_or_else(|| tg::error!(%id, "failed to find the object"))
 	}
 
-	async fn try_get_process_node_children_from_index(
+	async fn try_get_process_children_and_objects_from_index(
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Vec<tg::Referent<tg::Id>>> {
-		let output = self.server.index.try_get_process_node_children(id).await?;
+		let output = self
+			.server
+			.index
+			.try_get_process_children_and_objects(id)
+			.await?;
 		if output.as_ref().is_some_and(|output| output.complete) {
 			return Ok(output.unwrap().nodes);
 		}
@@ -281,7 +287,7 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to index"))?;
 		self.server
 			.index
-			.try_get_process_node_children(id)
+			.try_get_process_children_and_objects(id)
 			.await?
 			.map(|output| output.nodes)
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))

@@ -55,6 +55,15 @@ impl Index {
 			)
 			.await
 		);
+		crate::propagate!(
+			Self::delete_delegations_for_subject_with_transaction(
+				txn,
+				subspace,
+				&subject,
+				partition_totals.permission_update
+			)
+			.await
+		);
 		let target = match &data.target {
 			tg::Either::Left(id) => id.to_bytes().to_vec(),
 			tg::Either::Right(id) => id.to_bytes().to_vec(),

@@ -1,3 +1,4 @@
+mod capture;
 mod delete;
 mod get;
 mod key;

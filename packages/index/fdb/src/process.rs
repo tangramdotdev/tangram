@@ -1,6 +1,5 @@
 mod get;
 mod key;
-mod permission;
 mod put;
 mod touch;
 

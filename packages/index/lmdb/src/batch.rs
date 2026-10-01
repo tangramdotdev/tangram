@@ -36,6 +36,15 @@ impl Index {
 					)?;
 				},
 
+				tangram_index::batch::Item::EnqueuePermissionCapture(arg) => {
+					Self::enqueue_permission_capture_with_transaction(
+						db,
+						subspace,
+						transaction,
+						arg,
+					)?;
+				},
+
 				tangram_index::batch::Item::DeleteCheckout(id) => {
 					Self::delete_checkout(db, subspace, transaction, id)?;
 				},
@@ -198,14 +207,6 @@ impl Index {
 						subspace,
 						transaction,
 						std::slice::from_ref(arg),
-					)?;
-				},
-				tangram_index::batch::Item::PutProcessObjectPermissions(arg) => {
-					Self::put_process_object_permissions_with_transaction(
-						db,
-						subspace,
-						transaction,
-						arg,
 					)?;
 				},
 				tangram_index::batch::Item::PutSandbox(arg) => {

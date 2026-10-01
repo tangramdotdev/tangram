@@ -147,6 +147,7 @@ impl Session {
 				},
 				subject: permission_subject,
 				time_to_touch: Some(self.server.config.object.permission_time_to_touch),
+				version: None,
 			});
 		let account = self.usage_account(&self.context.principal).await?;
 		let arg = tangram_index::batch::Arg {

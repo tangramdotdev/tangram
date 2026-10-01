@@ -36,6 +36,12 @@ impl Index {
 			let data = tangram_index::tag::Tag::deserialize(bytes)?;
 			let subject = tg::authorization::Subject::Tag(id.clone());
 			Self::delete_subject_permissions_with_transaction(db, subspace, transaction, &subject)?;
+			Self::delete_delegations_for_subject_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&subject,
+			)?;
 			let target = match &data.target {
 				tg::Either::Left(id) => id.to_bytes().to_vec(),
 				tg::Either::Right(id) => id.to_bytes().to_vec(),
