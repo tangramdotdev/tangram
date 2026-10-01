@@ -1884,7 +1884,7 @@ impl LmdbCache {
 impl Default for Process {
 	fn default() -> Self {
 		Self {
-			await_push: true,
+			await_push: false,
 			children_wakeup_interval: Duration::from_mins(1),
 			permission_time_to_live: default_process_permission_time_to_live(),
 			permission_time_to_touch: default_time_to_touch(),

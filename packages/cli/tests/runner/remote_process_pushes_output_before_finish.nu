@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A remote runner pushes the output objects and waits for the push to complete before sending Finish.
+# A remote runner configured to await pushes transfers its output before sending Finish.
 let root_token = random chars
 let remote = server spawn --preserve-keys --name remote --config {
 	advanced: { checkpoints: true },
@@ -9,6 +9,7 @@ let remote = server spawn --preserve-keys --name remote --config {
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
 let runner = server spawn --name runner --config {
+	process: { await_push: true },
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],

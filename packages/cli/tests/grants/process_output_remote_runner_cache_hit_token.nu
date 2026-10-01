@@ -49,6 +49,9 @@ let runner_one = server spawn --name runner-one --config $runner_config
 let foo = tg --url $local.url build --remote $"($path)#foo" | complete
 success $foo "the foo build must populate the remote's process cache."
 
+# Wait for the output transfer before stopping the only runner that holds its bytes.
+success (tg --url $local.url cat ($foo.stdout | str trim) | complete) "the output must reach the remote before runner 1 stops."
+
 # Kill runner1 to force runner 2 to pick up the next build.
 let pid = open ($runner_one.directory | path join 'lock') | into int
 kill --signal 2 $pid

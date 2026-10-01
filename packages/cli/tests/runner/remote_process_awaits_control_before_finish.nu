@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# The default waits for the authorization token for the remote control sync before pushing the output and sending Finish.
+# Awaiting pushes waits for the authorization token for the remote control sync before pushing the output and sending Finish.
 
 let root_token = random chars
 
@@ -15,6 +15,7 @@ let created = tg --url $remote.url --token $root_token runner create | from json
 # Spawn the runner with checkpoints enabled.
 let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
+	process: { await_push: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: 'default', token: $created.token.token },

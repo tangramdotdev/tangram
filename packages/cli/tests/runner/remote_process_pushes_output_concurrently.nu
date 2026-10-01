@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A remote runner can send Finish concurrently with the output push when awaiting pushes is disabled.
+# A remote runner sends Finish concurrently with the output push by default.
 let root_token = random chars
 let remote = server spawn --preserve-keys --name remote --config {
 	advanced: { checkpoints: true },
@@ -12,7 +12,6 @@ let runner = server spawn --name runner --config {
 	advanced: { checkpoints: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
-	process: { await_push: false },
 	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
