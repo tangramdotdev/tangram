@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# An executable reads a transitive file dependency by store path without an authorization search, with the VFS as without it.
+# Transitive file dependencies must be readable by store path without opening intermediate files or searching the authorization graph.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
@@ -26,8 +26,9 @@ let path = artifact {
 	'
 }
 
-let io = if (fuse_io_uring_available) { 'io_uring' } else { 'read_write' }
-for config in [{ vfs: false } { vfs: { io: $io, kind: 'fuse' } }] {
+let transports = if (fuse_io_uring_available) { [read_write io_uring] } else { [read_write] }
+let configs = [{ vfs: false }] | append ($transports | each { |io| { vfs: { io: $io, kind: fuse, passthrough: disabled } } })
+for config in $configs {
 	let server = server spawn --config ($config | merge { authorization: { final: false, initial: false } })
 	let command = tg build $path | str trim
 	let output = tg run --sandbox $command | complete
