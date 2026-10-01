@@ -1014,7 +1014,7 @@ def test_index_handoff(messenger):
             reached("sync.get.index.enqueue", enqueue)
         messenger.absent(lambda path, message:
             path == f"{peer.subject}.client.client" and message.id == 1 and message.value[1] == "missing")
-        # Control must still accept new readers while the partial grant batch is blocked.
+        # Control must still accept new readers while the partial permission batch is blocked.
         fresh_attempt = peer.connect("fresh", client="fresh")
         peer.send("read", id, fresh_attempt, client="fresh")
         response = peer.response("read", client="fresh")
@@ -1023,11 +1023,13 @@ def test_index_handoff(messenger):
         batch = watch("index.batch")
         release("sync.get.index.enqueue", enqueue)
         reached("index.batch", batch)
-        # Finishing control requires enqueueing, but does not require processing the batch.
+        # Control must keep requests pending until the partial permission batch commits.
+        messenger.absent(lambda path, message:
+            path == f"{peer.subject}.client.client" and message.id == 1 and message.value[1] == "missing")
+        release("index.batch", batch)
         terminal = peer.response("missing")
         assert terminal[0] is not None, terminal
         peer.acknowledge(terminal)
-        release("index.batch", batch)
         if interruption == "failure":
             sync.close()
 

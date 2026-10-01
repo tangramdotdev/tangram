@@ -803,7 +803,8 @@ impl Session {
 				.collect(),
 		};
 		crate::checkpoint!(self.server, "sync.get.index.enqueue", sync = %sync).await;
-		match self.server.index_batch(arg).await {
+		// Commit the graph directly so a failed write cannot be hidden by the completion barrier.
+		match self.server.index_batch_task(arg).await {
 			Ok(()) => Ok(ControlFlow::Break(())),
 			Err(error) => {
 				let error = tg::error!(!error, "failed to index the sync");

@@ -881,6 +881,17 @@ impl Server {
 
 			return Ok(());
 		}
+		self.index_tasks
+			.spawn({
+				let server = self.clone();
+				|_| async move { server.index_batch_task(arg).await }
+			})
+			.detach();
+
+		Ok(())
+	}
+
+	pub(crate) async fn index_batch_task(&self, arg: index::batch::Arg) -> tg::Result<()> {
 		let command_object_permission = arg.items.iter().any(|item| {
 			matches!(
 				item,
@@ -917,39 +928,29 @@ impl Server {
 			matches!(item, index::batch::Item::PutProcess(arg)
 				if arg.data.as_ref().is_some_and(|data| data.status.is_started()))
 		});
-		self.index_tasks
-			.spawn({
-				let server = self.clone();
-				|_| async move {
-					crate::checkpoint!(
-						server,
-						"index.batch",
-						child_process,
-						command_object_permission,
-						destroyed_sandbox,
-						finished_process,
-						started_process
-					)
-					.await;
-					let result = server.index_batch_inner(arg).await;
-					if let Err(error) = &result {
-						tracing::error!(error = %error.trace(), "failed to index a batch");
-					}
-					if result.is_ok() {
-						server.index_changed.notify_waiters();
-					}
-					if result.is_ok() && log_compaction {
-						server.spawn_publish_log_compaction_notification_task();
-					}
-					crate::checkpoint!(server, "index.batch.finished", command_object_permission)
-						.await;
+		crate::checkpoint!(
+			self,
+			"index.batch",
+			child_process,
+			command_object_permission,
+			destroyed_sandbox,
+			finished_process,
+			started_process
+		)
+		.await;
+		let result = self.index_batch_inner(arg).await;
+		if let Err(error) = &result {
+			tracing::error!(error = %error.trace(), "failed to index a batch");
+		}
+		if result.is_ok() {
+			self.index_changed.notify_waiters();
+		}
+		if result.is_ok() && log_compaction {
+			self.spawn_publish_log_compaction_notification_task();
+		}
+		crate::checkpoint!(self, "index.batch.finished", command_object_permission).await;
 
-					result
-				}
-			})
-			.detach();
-
-		Ok(())
+		result
 	}
 
 	pub(crate) async fn index_batch_inner(&self, arg: index::batch::Arg) -> tg::Result<()> {

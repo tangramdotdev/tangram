@@ -299,19 +299,30 @@ impl Session {
 			tokio::sync::mpsc::channel::<tg::Result<tg::sync::GetMessage>>(256);
 		let (put_output_sender, put_output_receiver) =
 			tokio::sync::mpsc::channel::<tg::Result<tg::sync::PutMessage>>(256);
+		let id = arg.sync.as_ref().unwrap().node.clone();
 		let output_future = async move {
 			let mut stream = stream::select(
 				ReceiverStream::new(get_output_receiver).map_ok(tg::sync::Message::Get),
 				ReceiverStream::new(put_output_receiver).map_ok(tg::sync::Message::Put),
 			)
-			.chain(stream::once(future::ok(tg::sync::Message::End)))
 			.take_while_inclusive(|result| future::ready(result.is_ok()));
 			while let Some(result) = stream.next().await {
+				let message = result?;
 				sender
-					.send(result)
+					.send(Ok(message))
 					.await
 					.map_err(|_| tg::error!("failed to send the message"))?;
 			}
+
+			// Both transfer halves finished, including their final graph writes and database transactions.
+			// Commit asynchronous index batches before reporting successful completion.
+			crate::checkpoint!(self.server, "sync.complete.index", sync = %id).await;
+			self.server.index_inner().await?;
+			crate::checkpoint!(self.server, "sync.completed", sync = %id).await;
+			sender
+				.send(Ok(tg::sync::Message::End))
+				.await
+				.map_err(|error| tg::error!(!error, "failed to send the end message"))?;
 			Ok::<_, tg::Error>(())
 		};
 
