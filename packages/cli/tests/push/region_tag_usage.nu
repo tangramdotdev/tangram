@@ -3,6 +3,13 @@ use ../lib/test.nu *
 # A tag charges storage only in regions where its target is present, including
 # when the target arrives after the tag.
 
+def target_permissions [url: string, token: string, tag: string] {
+	let target = tg --url $url --token $token children --verbose $tag | from json | get data.0
+	$target.options?.tokens?.local? | default [] | each {|token|
+		$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json | get permissions
+	} | flatten
+}
+
 let region_a_directory = mktemp -d
 let region_b_directory = mktemp -d
 let database_path = mktemp -d | path join database
@@ -41,7 +48,7 @@ wait_until {
 	(tg --url $remote_region_b.url --token $alice.token user usage | from json | get object_count) >= 1
 } "Alice's tag should charge storage in region B"
 let tag = tg --url $remote_region_b.url --token $alice.token tag get owned | from json
-assert ($tag.permissions | any { |permission| $permission in ['object_node' 'object_subtree'] }) "the tag should retain Alice's target permissions"
+assert (target_permissions $remote_region_b.url $alice.token $tag.id | any { |permission| $permission in ['object_node' 'object_subtree'] }) "the tag should retain Alice's target permissions"
 let usage = tg --url $remote_region_a.url --token $alice.token user usage | from json
 assert equal $usage.object_count 0 "the tag must not charge storage for an absent object"
 
@@ -69,7 +76,7 @@ failure (tg --url $remote_region_b.url --token $alice.token object get --bytes -
 tg --url $remote_region_b.url --token $alice.token tag put alice/no-access $private_object
 tg --url $remote_region_b.url index
 let tag = tg --url $remote_region_b.url --token $alice.token tag get alice/no-access | from json
-assert ($tag.permissions? | default [] | is-empty) "the tag must not record unavailable target permissions"
+assert (target_permissions $remote_region_b.url $alice.token $tag.id | is-empty) "the tag must not record unavailable target permissions"
 let usage = tg --url $remote_region_b.url --token $alice.token user usage | from json
 assert equal $usage.object_count $region_b_usage.object_count "an inaccessible tag target must not charge Alice in region B"
 

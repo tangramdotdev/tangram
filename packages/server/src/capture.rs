@@ -1,7 +1,7 @@
 use {crate::Session, std::collections::BTreeSet, tangram_client::prelude::*};
 
 impl Session {
-	pub(crate) fn create_permission_capture_items(
+	pub(crate) fn create_capture_permissions_batch_items(
 		&self,
 		resource: tg::Id,
 		version: Option<String>,
@@ -17,12 +17,12 @@ impl Session {
 				Ok((resource, permissions))
 			})
 			.collect::<tg::Result<Vec<_>>>()?;
-		self.create_permission_capture_items_with_permissions(
+		self.create_capture_permissions_batch_items_with_permissions(
 			resource, version, roots, principal, created_at,
 		)
 	}
 
-	pub(crate) fn create_permission_capture_items_with_permissions(
+	pub(crate) fn create_capture_permissions_batch_items_with_permissions(
 		&self,
 		resource: tg::Id,
 		version: Option<String>,

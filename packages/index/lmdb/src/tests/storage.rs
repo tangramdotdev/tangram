@@ -495,12 +495,12 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 			tangram_index::batch::Item::PutObject(object_arg(command, [], 7)),
 			tangram_index::batch::Item::PutProcess(process_arg),
 			tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+				touched_at: 0,
 				version: "initial".into(),
 				account: Some(account.clone()),
 				id: tag,
 				name: "tag".to_owned(),
 				parent: Some(user.into()),
-				permissions: Vec::new(),
 				specifier: "user/tag".parse().unwrap(),
 				target: tg::Either::Right(process.clone()),
 			}),
@@ -649,12 +649,12 @@ async fn account_storage_is_retained_by_a_tag() {
 			}),
 			tangram_index::batch::Item::PutObject(object_arg(object.clone(), [], 5)),
 			tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+				touched_at: 0,
 				version: "initial".into(),
 				account: Some(account.clone()),
 				id: tag.clone(),
 				name: "tag".to_owned(),
 				parent: Some(user.into()),
-				permissions: Vec::new(),
 				specifier: "user/tag".parse().unwrap(),
 				target: tg::Either::Left(object.clone()),
 			}),
@@ -938,4 +938,132 @@ async fn subtree_storage_requires_node_storage() {
 	}
 	let storage = index.try_get_object(&id).await.unwrap().unwrap().storage;
 	assert!(storage.contains(tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE));
+}
+
+#[tokio::test]
+async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
+	for is_process in [false, true] {
+		for has_permissions in [false, true] {
+			let (_dir, index) = new_index(1);
+			let first_account = tangram_index::usage::Account::User(tg::user::Id::new());
+			let second_account = tangram_index::usage::Account::User(tg::user::Id::new());
+			let tag_id = tg::tag::Id::new();
+			let created_at = now() - 3;
+			let object = object_id(1000);
+			let process = tg::process::Id::new();
+			let (target, resource, permissions, stored) = if is_process {
+				(
+					tg::Either::Right(process.clone()),
+					tg::Id::from(process.clone()),
+					tg::authorization::permission::Set::Process(
+						tg::authorization::permission::process::Set::SUBTREE,
+					),
+					tangram_index::batch::Item::PutProcess(process_arg(
+						process,
+						Vec::new(),
+						object,
+					)),
+				)
+			} else {
+				(
+					tg::Either::Left(object.clone()),
+					tg::Id::from(object.clone()),
+					tg::authorization::permission::Set::Object(
+						tg::authorization::permission::object::Set::SUBTREE,
+					),
+					tangram_index::batch::Item::PutObject(object_arg(object, [], 5)),
+				)
+			};
+			let mut tag = tangram_index::tag::put::Arg {
+				account: Some(first_account.clone()),
+				id: tag_id.clone(),
+				name: "tag".into(),
+				parent: None,
+				specifier: "tag".parse().unwrap(),
+				target,
+				touched_at: created_at,
+				version: "initial".into(),
+			};
+			let mut items = vec![stored, tangram_index::batch::Item::PutTag(tag.clone())];
+			if has_permissions {
+				let arg = tangram_index::permission::put::Arg {
+					created_at,
+					creator: None,
+					permissions,
+					resource: resource.clone(),
+					source: tangram_index::permission::Source::Direct { expires_at: None },
+					subject: tg::authorization::Subject::Tag(tag_id.clone()),
+					time_to_touch: None,
+					version: Some("initial".into()),
+				};
+				items.push(tangram_index::batch::Item::PutPermission(arg));
+			}
+			index
+				.batch(tangram_index::batch::Arg { items })
+				.await
+				.unwrap();
+			while index
+				.update_batch(tangram_index::update::Kind::Usage, 100)
+				.await
+				.unwrap()
+				.count != 0
+			{}
+			let first_usage = get_usage(&index, &first_account).await;
+			assert_eq!(
+				first_usage.object_count + first_usage.process_count,
+				u64::from(has_permissions)
+			);
+
+			// Changing only the account retains the tag's permissions and supplies no new capture evidence.
+			tag.account = Some(second_account.clone());
+			tag.touched_at = created_at + 1;
+			index.put_tags(&[tag]).await.unwrap();
+			while index
+				.update_batch(tangram_index::update::Kind::Usage, 100)
+				.await
+				.unwrap()
+				.count != 0
+			{}
+			let transaction = index.env.read_txn().unwrap();
+			let key = if is_process {
+				crate::Key::Usage(crate::usage::Key::AccountProcess {
+					account: second_account.clone(),
+					process: resource.clone().try_into().unwrap(),
+				})
+			} else {
+				crate::Key::Usage(crate::usage::Key::AccountObject {
+					account: second_account.clone(),
+					object: resource.clone().try_into().unwrap(),
+				})
+			};
+			let value = index
+				.db
+				.get(&transaction, &Index::pack(&index.subspace, &key))
+				.unwrap();
+			assert_eq!(value.is_some(), has_permissions);
+			if let Some(value) = value {
+				let entry = tangram_index::usage::storage::Entry::deserialize(value).unwrap();
+				assert_eq!(entry.touched_at, created_at + 1);
+			}
+			drop(transaction);
+
+			// The old account is released while the new tag account retains the target.
+			for _ in 0..4 {
+				let arg = tangram_index::clean::Arg {
+					batch_size: 100,
+					max_object_touched_at: i64::MAX,
+					max_process_touched_at: i64::MAX,
+					max_sandbox_touched_at: i64::MIN,
+					now: created_at + 2,
+					partition_end: 1,
+					partition_start: 0,
+				};
+				if index.clean(arg).await.unwrap().done {
+					break;
+				}
+			}
+			let first_usage = get_usage(&index, &first_account).await;
+			assert_eq!(first_usage.object_count + first_usage.process_count, 0);
+		}
+	}
 }

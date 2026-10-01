@@ -219,7 +219,6 @@ impl Session {
 			ancestors.push(super::NamedNode {
 				id: id.clone(),
 				parent,
-				permissions: Vec::new(),
 				specifier,
 				target: None,
 			});
@@ -248,7 +247,6 @@ impl Session {
 			id: tg::Id,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			parent: Option<tg::Id>,
-			permissions: Option<String>,
 			#[tangram_database(as = "db::value::FromStr")]
 			specifier: tg::Specifier,
 			target: Option<String>,
@@ -271,7 +269,7 @@ impl Session {
 						join descendants on descendants.id = children.parent
 					)
 				select descendants.id, coalesce(groups.parent, tags.parent) as parent,
-					tags.permissions, specifiers.specifier, tags.target
+					specifiers.specifier, tags.target
 				from descendants
 				join specifiers on specifiers.id = descendants.id
 				left join groups on groups.id = descendants.id
@@ -285,12 +283,6 @@ impl Session {
 		let rows = crate::database::retry!(result, "failed to list the named checkout subtree");
 		let mut nodes = Vec::with_capacity(rows.len());
 		for row in rows {
-			let permissions = row
-				.permissions
-				.map(|permissions| serde_json::from_str(&permissions))
-				.transpose()
-				.map_err(|error| tg::error!(!error, "failed to deserialize the tag permissions"))?
-				.unwrap_or_default();
 			let target = row
 				.target
 				.map(|target| Self::parse_tag_target(&target))
@@ -302,7 +294,6 @@ impl Session {
 			let node = super::NamedNode {
 				id: row.id,
 				parent: row.parent,
-				permissions,
 				specifier: row.specifier,
 				target,
 			};
@@ -328,7 +319,6 @@ impl Session {
 				group.map(|group| super::NamedNode {
 					id: id.into(),
 					parent: group.parent,
-					permissions: Vec::new(),
 					specifier: group.specifier,
 					target: None,
 				})
@@ -345,7 +335,6 @@ impl Session {
 				organization.map(|organization| super::NamedNode {
 					id: id.into(),
 					parent: None,
-					permissions: Vec::new(),
 					specifier: organization.specifier,
 					target: None,
 				})
@@ -366,7 +355,6 @@ impl Session {
 					super::NamedNode {
 						id: id.into(),
 						parent: tag.parent,
-						permissions: tag.permissions,
 						specifier: tag.specifier,
 						target: Some(target),
 					}
@@ -383,7 +371,6 @@ impl Session {
 				user.map(|user| super::NamedNode {
 					id: id.into(),
 					parent: None,
-					permissions: Vec::new(),
 					specifier: user.specifier,
 					target: None,
 				})
@@ -1569,7 +1556,6 @@ impl Server {
 				let node = super::NamedNode {
 					id: id.clone().into(),
 					parent: group.parent,
-					permissions: Vec::new(),
 					specifier: group.specifier,
 					target: None,
 				};
@@ -1581,7 +1567,6 @@ impl Server {
 				let node = super::NamedNode {
 					id: id.clone().into(),
 					parent: None,
-					permissions: Vec::new(),
 					specifier: organization.specifier,
 					target: None,
 				};
@@ -1593,7 +1578,6 @@ impl Server {
 				let node = super::NamedNode {
 					id: id.clone().into(),
 					parent: tag.parent,
-					permissions: tag.permissions,
 					specifier: tag.specifier,
 					target: Some(tag.target),
 				};
@@ -1605,7 +1589,6 @@ impl Server {
 				let node = super::NamedNode {
 					id: id.clone().into(),
 					parent: None,
-					permissions: Vec::new(),
 					specifier: user.specifier,
 					target: None,
 				};
@@ -1694,7 +1677,6 @@ impl Server {
 		let node = super::NamedNode {
 			id: id.clone(),
 			parent: None,
-			permissions: Vec::new(),
 			specifier: specifier.clone(),
 			target: None,
 		};

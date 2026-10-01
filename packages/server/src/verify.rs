@@ -111,6 +111,26 @@ impl Session {
 		Ok(outputs.pop().unwrap())
 	}
 
+	pub(crate) async fn verify_with_subject(
+		&self,
+		resource: impl IntoAuthorizationResource,
+		requested: tg::authorization::permission::Set,
+		required: tg::authorization::permission::Set,
+		storage: tg::storage::Set,
+		subject: tg::authorization::Subject,
+	) -> tg::Result<Output> {
+		let mut outputs = self
+			.verify_batch_inner_with_subject(
+				[(resource, requested, None, storage)],
+				Some(required),
+				true,
+				Some(subject),
+				Mode::Normal,
+			)
+			.await?;
+		Ok(outputs.pop().unwrap())
+	}
+
 	pub(crate) async fn verify_batch<R, I>(&self, args: I) -> tg::Result<Vec<Output>>
 	where
 		R: IntoAuthorizationResource,

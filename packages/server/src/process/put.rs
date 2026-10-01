@@ -262,7 +262,7 @@ impl Session {
 					.into_iter()
 					.filter(|root| !objects.contains(&root.node))
 					.map(|root| root.map(Into::into));
-				let items = self.create_permission_capture_items(
+				let items = self.create_capture_permissions_batch_items(
 					destination,
 					None,
 					roots,
@@ -277,8 +277,13 @@ impl Session {
 					.into_iter()
 					.map(|root| root.map(Into::into));
 				let source = tg::Principal::Process(id.clone());
-				let items =
-					self.create_permission_capture_items(destination, None, roots, source, now)?;
+				let items = self.create_capture_permissions_batch_items(
+					destination,
+					None,
+					roots,
+					source,
+					now,
+				)?;
 				(BTreeSet::new(), items)
 			},
 		};

@@ -7,7 +7,6 @@ pub struct Tag {
 	pub location: Option<tg::Location>,
 	pub name: String,
 	pub parent: Option<tg::Id>,
-	pub permissions: Vec<tg::authorization::Permission>,
 	pub specifier: tg::Specifier,
 	pub tokens: tg::authorization::Tokens,
 }
@@ -51,7 +50,6 @@ impl From<tg::tag::get::Output> for Tag {
 			target,
 			name,
 			parent,
-			permissions,
 			specifier,
 		} = data;
 		let options = tg::referent::Options {
@@ -76,7 +74,6 @@ impl From<tg::tag::get::Output> for Tag {
 			location,
 			name,
 			parent,
-			permissions,
 			specifier,
 			tokens,
 		}

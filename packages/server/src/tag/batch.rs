@@ -35,21 +35,16 @@ impl Session {
 			.iter()
 			.map(|item| item.specifier.clone())
 			.collect::<Vec<_>>();
-		let mut permissions = Vec::with_capacity(arg.tags.len());
-		for item in &arg.tags {
-			permissions.push(self.recorded_tag_target_permissions(&item.target).await?);
-		}
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let options = tangram_futures::retry::Options::default();
 		let session = self.clone();
 		tangram_futures::retry(&options, || {
 			let arg = arg.clone();
-			let permissions = permissions.clone();
 			let session = session.clone();
 			let specifiers = specifiers.clone();
 			async move {
 				match session
-					.post_tag_batch_local_attempt(arg, permissions, &specifiers, touched_at)
+					.post_tag_batch_local_attempt(arg, &specifiers, touched_at)
 					.await?
 				{
 					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
@@ -62,14 +57,12 @@ impl Session {
 		.await?;
 		self.server
 			.spawn_publish_database_index_queue_notification_task();
-		self.checkout_await_indexing().await?;
 		Ok(())
 	}
 
 	async fn post_tag_batch_local_attempt(
 		&self,
 		arg: tg::tag::batch::Arg,
-		permissions: Vec<Vec<tg::authorization::Permission>>,
 		specifiers: &[tg::Specifier],
 		touched_at: i64,
 	) -> tg::Result<ControlFlow<()>> {
@@ -85,7 +78,6 @@ impl Session {
 			.run(|transaction| {
 				let arg = arg.clone();
 				let ids_by_specifier = ids_by_specifier.clone();
-				let permissions = permissions.clone();
 				let session = session.clone();
 				async move {
 					session
@@ -93,7 +85,6 @@ impl Session {
 							transaction,
 							arg,
 							ids_by_specifier,
-							permissions,
 							touched_at,
 						)
 						.await
@@ -110,7 +101,6 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		arg: tg::tag::batch::Arg,
 		ids_by_specifier: BTreeMap<tg::Specifier, Option<tg::Id>>,
-		permissions: Vec<Vec<tg::authorization::Permission>>,
 		touched_at: i64,
 	) -> tg::Result<ControlFlow<ControlFlow<()>, crate::database::Error>> {
 		let batch_size = self.server.config.sync.get.database.batch_size;
@@ -128,7 +118,7 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 		let mut batch = tangram_index::batch::Arg::default();
-		for (item, permissions) in std::iter::zip(arg.tags, permissions) {
+		for item in arg.tags {
 			let arg = tg::tag::put::Arg {
 				tokens: item.tokens,
 				ancestors: tg::node::Ancestors {
@@ -141,8 +131,9 @@ impl Session {
 				specifier: item.specifier,
 				target: item.target,
 			};
+			let tokens = arg.tokens.clone();
 			let (data, version) = match self
-				.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
+				.put_tag_with_transaction(transaction, arg, &mut batch)
 				.await?
 			{
 				ControlFlow::Break(data) => data,
@@ -155,42 +146,38 @@ impl Session {
 				ControlFlow::Break(account) => account,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
-			let target_access = Self::tag_target_permissions_grant_access(&data.permissions);
+			let destination = data.id.clone().into();
 			let target = match data.target {
 				tg::tag::data::Target::Object(id) => tg::Either::Left(id),
 				tg::tag::data::Target::Process(id) => tg::Either::Right(id),
 			};
 			batch.items.push(tangram_index::batch::Item::PutTag(
 				tangram_index::tag::put::Arg {
+					touched_at,
 					account: account.clone(),
 					id: data.id,
 					name: data.name,
 					parent: data.parent,
-					permissions: data.permissions,
 					specifier: data.specifier,
 					target: target.clone(),
-					version,
+					version: version.clone(),
 				},
 			));
-			if target_access && let Some(account) = account {
-				let item = match target {
-					tg::Either::Left(object) => tangram_index::batch::Item::PutAccountObject(
-						tangram_index::usage::storage::put::ObjectArg {
-							account,
-							object,
-							touched_at,
-						},
-					),
-					tg::Either::Right(process) => tangram_index::batch::Item::PutAccountProcess(
-						tangram_index::usage::storage::put::ProcessArg {
-							account,
-							process,
-							touched_at,
-						},
-					),
-				};
-				batch.items.push(item);
-			}
+			let resource = tg::Referent::with_node_and_tokens(
+				match &target {
+					tg::Either::Left(id) => tg::Id::from(id.clone()),
+					tg::Either::Right(id) => tg::Id::from(id.clone()),
+				},
+				tokens,
+			);
+			let capture = self.create_capture_permissions_batch_items(
+				destination,
+				Some(version),
+				[resource],
+				self.context.principal.clone(),
+				touched_at,
+			)?;
+			batch.items.extend(capture);
 		}
 		match self
 			.server

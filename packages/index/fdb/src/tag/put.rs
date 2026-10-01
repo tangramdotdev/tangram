@@ -161,7 +161,6 @@ impl Index {
 			account: arg.account.clone(),
 			name: arg.name.clone(),
 			parent: arg.parent.clone(),
-			permissions: arg.permissions.clone(),
 			specifier: arg.specifier.clone(),
 			target: arg.target.clone(),
 			version: arg.version.clone(),
@@ -200,6 +199,36 @@ impl Index {
 		});
 		let tag_parent_key = Self::pack(subspace, &tag_parent_key);
 		txn.set(&tag_parent_key, &[]);
+
+		// Charge the current account for permissions already held by the tag, even without a new capture proof.
+		if arg.account.is_some() && tag.as_ref().is_none_or(|tag| tag.account != arg.account) {
+			match &arg.target {
+				tg::Either::Left(id) => {
+					crate::propagate!(
+						Self::enqueue_account_object_from_parents(
+							txn,
+							subspace,
+							id,
+							partition_totals.usage_update,
+							arg.touched_at
+						)
+						.await
+					);
+				},
+				tg::Either::Right(id) => {
+					crate::propagate!(
+						Self::enqueue_account_process_from_parents(
+							txn,
+							subspace,
+							id,
+							partition_totals.usage_update,
+							arg.touched_at
+						)
+						.await
+					);
+				},
+			}
+		}
 
 		Ok(ControlFlow::Break(()))
 	}

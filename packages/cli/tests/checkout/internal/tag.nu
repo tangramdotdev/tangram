@@ -16,6 +16,8 @@ assert equal (open $tag_path) 'first' "expected the tag path to contain the firs
 
 let second = artifact 'second'
 tg tag --force dep $second
+# Tag writes return before the indexer invalidates checkout entries.
+tg index
 assert (not ($tag_path | path exists --no-symlink)) "expected replacing the tag to invalidate its store entry"
 
 let path = tg checkout dep | str trim

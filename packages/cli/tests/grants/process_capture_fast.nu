@@ -44,7 +44,7 @@ assert equal $proof.resource $command
 assert ('object_subtree' in $proof.permissions)
 
 let params = { resource: $command } | to json --raw
-let authorization = tg --token $root_token checkpoint watch authorization.index --params $params | from json | get watch
+let authorization = tg --token $root_token checkpoint watch verification.index --params $params | from json | get watch
 let capture = tg --token $root_token checkpoint watch permission_capture.started | from json | get watch
 let arg = {
 	cached: false
@@ -58,7 +58,7 @@ let response = http post --raw --max-time 30sec --unix-socket $socket --headers 
 assert (not ($response | str contains 'event: error')) "the exact command proof must authorize spawn."
 let spawned = $response | lines | where { $in starts-with 'data: ' } | last | str substring 6.. | from json
 let process = $spawned.process | split row '?' | first
-tg --token $root_token checkpoint unwatch authorization.index $authorization
+tg --token $root_token checkpoint unwatch verification.index $authorization
 let finished = timeout 30s tg --token $bob.token wait $process | from json
 assert ($finished.exit == 0) ($finished | to json)
 let output = $finished.output.value | split row '?' | first

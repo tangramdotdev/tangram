@@ -78,12 +78,16 @@ tg --url $remote_primary.url checkpoint continue sync.request.response $primary_
 tg --url $remote_primary.url checkpoint unwatch sync.request.response $primary_response_watch
 success (job recv --tag $pull)
 
-# The primary region records the tag and its permissions from the secondary region's token.
+# The primary region records the tag and preserves its target permissions from the secondary region's token.
 let primary_tag = tg --url $remote_primary.url tag get routed/process | from json
 assert equal $primary_tag.id $tag.id
 assert equal $primary_tag.target.id $process
+let target = tg --url $remote_primary.url children --verbose $tag.id | from json | get data.0
+let permissions = $target.options?.tokens?.local? | default [] | each {|token|
+	$token | split row '.' | get 1 | decode base64 | decode utf-8 | from json | get permissions
+} | flatten
 assert (
-	$primary_tag.permissions
+	$permissions
 	| any {|permission| $permission == 'process_node_output_objects' or $permission == 'process_subtree_output_objects' }
 ) "the forwarded tag should retain permission to its process output"
 

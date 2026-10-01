@@ -10,12 +10,12 @@ pub struct Arg {
 	pub name: String,
 	#[tangram_serialize(id = 3)]
 	pub parent: Option<tg::Id>,
-	#[tangram_serialize(id = 4)]
-	pub permissions: Vec<tg::authorization::Permission>,
 	#[tangram_serialize(id = 5)]
 	pub specifier: tg::Specifier,
 	#[tangram_serialize(id = 1)]
 	pub target: tg::Either<tg::object::Id, tg::process::Id>,
+	#[tangram_serialize(id = 8)]
+	pub touched_at: i64,
 	#[tangram_serialize(id = 7)]
 	pub version: String,
 }

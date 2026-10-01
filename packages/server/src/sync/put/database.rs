@@ -41,12 +41,17 @@ impl Session {
 		let resource = tg::Selector::Id(node.id.clone());
 		let tokens = tg::authorization::Tokens::with_local_entry(node.tokens.clone());
 		let resource = tg::Referent::with_node_and_tokens(resource, tokens);
-		let authorized = self
-			.authorize(resource, permission)
+		let permissions = tg::authorization::permission::Set::from_permission(permission);
+		let authorization = self
+			.authorize_with_permissions(
+				resource,
+				permissions,
+				permissions,
+				permissions.empty_like(),
+			)
 			.await?
-			.check_exhaustion()?
-			.permissions
-			.contains(permission);
+			.check_exhaustion()?;
+		let authorized = authorization.permissions.contains(permission);
 		let visible = if node.id.kind() == tg::id::Kind::Tag {
 			self.server
 				.index
@@ -73,7 +78,9 @@ impl Session {
 		}
 
 		// Read the node.
-		let output = self.sync_put_database_read(state, &node).await?;
+		let output = self
+			.sync_put_database_read(state, &node, authorization)
+			.await?;
 		let Some(output) = output else {
 			if node.send {
 				self.sync_put_database_missing(state, &node.id).await;
@@ -148,6 +155,7 @@ impl Session {
 		&self,
 		state: &State,
 		node: &Node,
+		authorization: crate::authorization::Output,
 	) -> tg::Result<Option<Output>> {
 		let children_enabled = match node.id.kind() {
 			tg::id::Kind::Group => state.arg.group_children,
@@ -169,6 +177,7 @@ impl Session {
 							transaction,
 							&node,
 							children_enabled,
+							authorization,
 						)
 						.await
 				}
@@ -182,6 +191,7 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		node: &Node,
 		children_enabled: bool,
+		authorization: crate::authorization::Output,
 	) -> tg::Result<ControlFlow<Option<Output>, crate::database::Error>> {
 		let specifier =
 			match Self::try_get_specifier_for_id_with_transaction(transaction, &node.id).await? {
@@ -197,6 +207,7 @@ impl Session {
 					transaction,
 					&node.id,
 					children_enabled,
+					authorization,
 				)
 				.await?
 			{
@@ -290,28 +301,47 @@ impl Session {
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::Id,
 		enabled: bool,
+		authorization: crate::authorization::Output,
 	) -> tg::Result<ControlFlow<Vec<tg::Referent<tg::Id>>, crate::database::Error>> {
 		if !enabled {
 			return Ok(ControlFlow::Break(Vec::new()));
 		}
 		if id.kind() == tg::id::Kind::Tag {
+			let permission = tg::authorization::Permission::Tag(
+				tg::authorization::permission::tag::Permission::Read,
+			);
+			if !authorization.permissions.contains(permission) {
+				return Ok(ControlFlow::Break(Vec::new()));
+			}
 			let tag = id.clone().try_into()?;
 			let data = match Self::get_tag_data_with_transaction(transaction, &tag).await? {
 				ControlFlow::Break(data) => data,
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			};
 			let target = data.target;
-			let id = match target {
+			let id: tg::Id = match target {
 				tg::tag::data::Target::Object(id) => id.into(),
 				tg::tag::data::Target::Process(id) => id.into(),
 			};
-			let token = match self
-				.create_tag_target_token_with_transaction(transaction, &tag, &id)
-				.await?
-			{
-				ControlFlow::Break(token) => token,
-				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
+			// Carry only the proven tag permission; resolve target permissions outside the transaction.
+			let time_to_live = if id.kind().is_object() {
+				self.server.config.object.permission_time_to_live
+			} else {
+				self.server.config.process.permission_time_to_live
 			};
+			let expires_at = self
+				.server
+				.clock
+				.unix_timestamp()?
+				.checked_add(
+					i64::try_from(time_to_live.as_secs())
+						.map_err(|error| tg::error!(!error, "invalid permission time to live"))?,
+				)
+				.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
+			let expires_at = authorization
+				.expires_at
+				.map_or(expires_at, |expiration| expires_at.min(expiration));
+			let token = self.create_token(tag.into(), vec![permission], expires_at)?;
 			let node = tg::Referent::with_node_and_local_tokens(id, token);
 
 			return Ok(ControlFlow::Break(vec![node]));

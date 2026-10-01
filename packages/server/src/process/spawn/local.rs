@@ -438,7 +438,7 @@ impl Session {
 				.objects()
 				.into_iter()
 				.map(|root| root.map(Into::into));
-			items.extend(self.create_permission_capture_items(
+			items.extend(self.create_capture_permissions_batch_items(
 				destination,
 				None,
 				roots,

@@ -4,7 +4,9 @@ use {
 	num::ToPrimitive as _,
 	std::{ops::ControlFlow, pin::pin},
 	tangram_client::prelude::*,
-	tangram_database as db,
+	tangram_database::{self as db, prelude::*},
+	tangram_futures::stream::TryExt as _,
+	tangram_index::prelude::*,
 };
 
 struct NamedNode {
@@ -506,7 +508,7 @@ impl Session {
 
 		let node = list_target_to_id(target);
 		let mut target_tokens = tg::authorization::Tokens::with_authorization(
-			self.create_tag_target_token(&id, &node).await?,
+			self.create_tag_target_token(&id, &node, &tokens).await?,
 		);
 		target_tokens.inherit(&tokens);
 		let tokens = target_tokens;
@@ -696,48 +698,137 @@ impl Session {
 		&self,
 		id: &tg::tag::Id,
 		target: &tg::Id,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<tg::authorization::Token>> {
-		// Get the tag.
+		// Require permission to read the tag before exposing its target permissions.
+		let permission =
+			tg::authorization::permission::Set::Tag(tg::authorization::permission::tag::Set::READ);
+		let resource = tg::Referent::with_node_and_tokens(
+			tg::Selector::<tg::Id>::Id(id.clone().into()),
+			tokens.clone(),
+		);
+		let authorization = self
+			.authorize_with_permissions(resource, permission, permission, permission.empty_like())
+			.await?;
+		if !authorization.permissions.contains(permission) {
+			return Ok(None);
+		}
+
+		// Match the indexed permissions to the current target version before searching.
+		let Some((actual, version)) = self.try_get_tag_target_state(id).await? else {
+			return Ok(None);
+		};
+		if actual != *target {
+			return Err(tg::error!(%id, "the tag target does not match"));
+		}
+		let mut indexed = self.server.index.try_get_tag(id).await?;
+		let matches = |tag: &tangram_index::tag::Tag| {
+			tag.version == version && list_target_to_id(tag.target.clone()) == *target
+		};
+		if !indexed.as_ref().is_some_and(matches) {
+			self.index()
+				.await?
+				.try_last()
+				.await
+				.map_err(|error| tg::error!(!error, "failed to index the tag"))?;
+			indexed = self.server.index.try_get_tag(id).await?;
+		}
+		if !indexed.as_ref().is_some_and(matches) {
+			return Ok(None);
+		}
+
+		// Search as the tag subject without using the caller's target permissions.
+		let (requested, time_to_live) = if target.kind().is_object() {
+			let mut permissions = tg::authorization::permission::object::Set::NODE;
+			permissions.insert(tg::authorization::permission::object::Set::SUBTREE);
+			(
+				tg::authorization::permission::Set::Object(permissions),
+				self.server.config.object.permission_time_to_live,
+			)
+		} else if target.kind() == tg::id::Kind::Process {
+			let mut permissions = tg::authorization::permission::process::Set::all();
+			permissions.remove(tg::authorization::permission::process::Set::PARENT);
+			(
+				tg::authorization::permission::Set::Process(permissions),
+				self.server.config.process.permission_time_to_live,
+			)
+		} else {
+			return Err(tg::error!("invalid tag target"));
+		};
+		let subject = tg::authorization::Subject::Tag(id.clone());
+		let verified = self
+			.verify_with_subject(
+				target.clone(),
+				requested,
+				requested.empty_like(),
+				crate::verify::empty_storage(requested),
+				subject,
+			)
+			.await?;
+		if verified.permissions.is_empty() {
+			return Ok(None);
+		}
+
+		// Discard a proof if the tag changed while verification was pending.
+		if self.try_get_tag_target_state(id).await? != Some((target.clone(), version)) {
+			return Ok(None);
+		}
+		let expires_at = self
+			.server
+			.clock
+			.unix_timestamp()?
+			.checked_add(
+				i64::try_from(time_to_live.as_secs())
+					.map_err(|error| tg::error!(!error, "invalid permission time to live"))?,
+			)
+			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
+		let expires_at = authorization
+			.expires_at
+			.into_iter()
+			.chain(verified.expires_at)
+			.fold(expires_at, i64::min);
+		let permissions = verified.permissions.iter().collect();
+		let token = self.create_token(target.clone(), permissions, expires_at)?;
+
+		Ok(token)
+	}
+
+	async fn try_get_tag_target_state(
+		&self,
+		id: &tg::tag::Id,
+	) -> tg::Result<Option<(tg::Id, String)>> {
 		let id = id.clone();
-		let target = target.clone();
-		let session = self.clone();
 		self.server
 			.database
 			.run_with_options(db::ConnectionOptions::default(), |transaction| {
 				let id = id.clone();
-				let session = session.clone();
-				let target = target.clone();
 				async move {
-					session
-						.create_tag_target_token_with_transaction(transaction, &id, &target)
-						.await
+					Self::try_get_tag_target_state_with_transaction(transaction, &id).await
 				}
 				.boxed()
 			})
 			.await
 	}
 
-	pub(crate) async fn create_tag_target_token_with_transaction(
-		&self,
+	async fn try_get_tag_target_state_with_transaction(
 		transaction: &crate::database::Transaction<'_>,
 		id: &tg::tag::Id,
-		target: &tg::Id,
-	) -> tg::Result<ControlFlow<Option<tg::authorization::Token>, crate::database::Error>> {
-		let data = match Self::get_tag_data_with_transaction(transaction, id).await? {
-			ControlFlow::Break(data) => data,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let actual: tg::Id = match data.target {
-			tg::tag::data::Target::Object(id) => id.into(),
-			tg::tag::data::Target::Process(id) => id.into(),
-		};
-		if actual != *target {
-			return Err(tg::error!("the tag target does not match"));
+	) -> tg::Result<ControlFlow<Option<(tg::Id, String)>, crate::database::Error>> {
+		#[derive(db::row::Deserialize)]
+		struct Row {
+			#[tangram_database(as = "db::value::FromStr")]
+			target: tg::Id,
+			version: String,
 		}
+		let p = transaction.p();
+		let statement = format!("select target, version from tags where id = {p}1;");
+		let result = transaction
+			.query_optional_into::<Row>(statement.into(), db::params![id.to_string()])
+			.await;
+		let row = crate::database::retry!(result, "failed to get the tag target state");
+		let state = row.map(|row| (row.target, row.version));
 
-		let token = self.create_tag_target_token_with_permissions(target, data.permissions)?;
-
-		Ok(ControlFlow::Break(token))
+		Ok(ControlFlow::Break(state))
 	}
 
 	pub(crate) fn create_tag_target_token_with_permissions(

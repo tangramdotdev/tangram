@@ -78,7 +78,6 @@ pub(crate) struct AncestorNodeFacts {
 	pub object_processes: Vec<(tg::process::Id, crate::process::object::Kind)>,
 	pub parent: Option<tg::Id>,
 	pub sandbox_owner: Option<tg::Principal>,
-	pub tags: Vec<(tg::tag::Id, Vec<tg::authorization::Permission>)>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -113,14 +112,6 @@ pub(crate) enum AncestorNodeRead {
 	},
 	Tag {
 		tag: tg::tag::Id,
-	},
-	TargetTag {
-		tag: tg::tag::Id,
-	},
-	TargetTags {
-		after: Option<Vec<u8>>,
-		limit: usize,
-		target: tg::Id,
 	},
 }
 
@@ -292,10 +283,6 @@ pub(crate) enum ReadOutput {
 	Resolved(Option<(tg::Id, bool)>),
 	SandboxOwner(Option<tg::Principal>),
 	Tag(Option<crate::tag::Tag>),
-	Tags {
-		after: Option<Vec<u8>>,
-		tags: Vec<tg::tag::Id>,
-	},
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -572,14 +559,6 @@ impl ReadOutput {
 		};
 
 		Ok(tag)
-	}
-
-	fn into_tags(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::tag::Id>)> {
-		let Self::Tags { after, tags } = self else {
-			return Err(tg::error!("received a non-tag result for a tag list read"));
-		};
-
-		Ok((after, tags))
 	}
 }
 

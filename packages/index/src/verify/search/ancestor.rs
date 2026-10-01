@@ -838,26 +838,6 @@ impl Search {
 			AncestorNodeRead::Tag { .. } => {
 				pending.facts.parent = output.into_tag()?.and_then(|tag| tag.parent);
 			},
-			AncestorNodeRead::TargetTag { tag } => {
-				if let Some(value) = output.into_tag()? {
-					pending.facts.tags.push((tag, value.permissions));
-				}
-			},
-			AncestorNodeRead::TargetTags { target, .. } => {
-				let (after, tags) = output.into_tags()?;
-				next.extend(
-					tags.into_iter()
-						.map(|tag| AncestorNodeRead::TargetTag { tag }),
-				);
-				if let Some(after) = after {
-					let limit = self.budget.config.page_size;
-					next.push(AncestorNodeRead::TargetTags {
-						after: Some(after),
-						limit,
-						target,
-					});
-				}
-			},
 		}
 		pending.remaining = pending
 			.remaining
@@ -910,21 +890,11 @@ impl Search {
 				limit,
 				object,
 			});
-			reads.push(AncestorNodeRead::TargetTags {
-				after: None,
-				limit,
-				target: resource.clone(),
-			});
 		} else if resource.kind() == tg::id::Kind::Process {
 			reads.push(AncestorNodeRead::Delegations {
 				after: None,
 				limit,
 				resource: resource.clone(),
-			});
-			reads.push(AncestorNodeRead::TargetTags {
-				after: None,
-				limit,
-				target: resource.clone(),
 			});
 		} else if let Ok(sandbox) = tg::sandbox::Id::try_from(resource.clone()) {
 			reads.push(AncestorNodeRead::SandboxOwner { sandbox });
@@ -1079,11 +1049,8 @@ impl Search {
 						}
 					}
 				}
-				dependencies.extend(Self::tag_dependencies(facts, *permission));
 			},
-			tg::authorization::Permission::Process(_) => {
-				dependencies.extend(Self::tag_dependencies(facts, *permission));
-			},
+			tg::authorization::Permission::Process(_) => {},
 			tg::authorization::Permission::Group(_)
 			| tg::authorization::Permission::Organization(_)
 			| tg::authorization::Permission::Sandbox(_)
@@ -1410,28 +1377,6 @@ impl Search {
 			| tg::authorization::Subject::User(_) => return,
 		};
 		self.queues.entry(depth).or_default().push_back(task);
-	}
-
-	fn tag_dependencies(
-		facts: &AncestorNodeFacts,
-		permission: tg::authorization::Permission,
-	) -> Vec<Key> {
-		facts
-			.tags
-			.iter()
-			.filter(|(_, permissions)| {
-				permissions
-					.iter()
-					.any(|tag_permission| tag_permission.implies(permission))
-			})
-			.map(|(tag, _)| {
-				let permission = tg::authorization::Permission::Tag(
-					tg::authorization::permission::tag::Permission::Read,
-				);
-
-				(tg::Id::from(tag.clone()), permission, None)
-			})
-			.collect()
 	}
 
 	fn queue_parents(&mut self, state: &mut State, depth: usize, key: &Key) -> tg::Result<()> {
