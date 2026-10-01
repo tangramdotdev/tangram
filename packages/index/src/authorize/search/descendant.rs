@@ -1065,7 +1065,8 @@ impl Search {
 			| tg::authorization::Subject::Root
 			| tg::authorization::Subject::Runner(_)
 			| tg::authorization::Subject::Sandbox(_)
-			| tg::authorization::Subject::Sync(_) => None,
+			| tg::authorization::Subject::Sync(_)
+			| tg::authorization::Subject::Tag(_) => None,
 		};
 		let Some(member) = member else {
 			return;

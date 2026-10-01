@@ -153,9 +153,11 @@ impl Cli {
 						referent
 					};
 					let id = node.node.clone();
+					let tokens = node.options.tokens.clone();
 					items.push(node);
 					tags.push((tag.clone(), id.clone()));
 					let arg = tg::tag::put::Arg {
+						tokens,
 						ancestors: tg::node::Ancestors {
 							create: true,
 							..Default::default()
@@ -180,6 +182,7 @@ impl Cli {
 						let checked_in = publish_checkin(&client, path, false).await?;
 						let id = checked_in.node;
 						let arg = tg::tag::put::Arg {
+							tokens: checked_in.options.tokens,
 							ancestors: tg::node::Ancestors {
 								create: true,
 								..Default::default()
@@ -200,9 +203,11 @@ impl Cli {
 						let path = path.ok_or_else(|| tg::error!("cycle items must have paths"))?;
 						let node = publish_checkin(&client, path, true).await?;
 						let id = node.node.clone();
+						let tokens = node.options.tokens.clone();
 						items.push(node);
 						tags.push((tag.clone(), id.clone()));
 						let arg = tg::tag::put::Arg {
+							tokens,
 							ancestors: tg::node::Ancestors {
 								create: true,
 								..Default::default()
@@ -271,6 +276,7 @@ impl Cli {
 		let tags = tags
 			.into_iter()
 			.map(|(tag, node)| tg::tag::batch::Item {
+				tokens: tg::authorization::Tokens::default(),
 				target: node.into(),
 				specifier: tag,
 			})

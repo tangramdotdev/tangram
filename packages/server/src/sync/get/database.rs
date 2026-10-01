@@ -1066,7 +1066,7 @@ impl Session {
 		batch_size: usize,
 	) -> tg::Result<
 		ControlFlow<
-			BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
+			BTreeMap<tg::tag::Id, (Vec<tg::authorization::Permission>, String)>,
 			crate::database::Error,
 		>,
 	> {
@@ -1075,6 +1075,7 @@ impl Session {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::tag::Id,
 			permissions: String,
+			version: String,
 		}
 
 		let tags = nodes
@@ -1090,18 +1091,19 @@ impl Session {
 		let mut outputs = BTreeMap::new();
 		for tags in tags.chunks(batch_size) {
 			let p = transaction.p();
-			let values = Self::sync_get_database_placeholders(p, tags.len(), 5);
+			let values = Self::sync_get_database_placeholders(p, tags.len(), 6);
 			let statement = formatdoc!(
 				"
-					insert into tags (id, name, parent, target, permissions)
+					insert into tags (id, name, parent, target, permissions, version)
 					values {values}
 					on conflict (id) do update
 					set name = excluded.name, parent = excluded.parent, target = excluded.target,
-						permissions = case when tags.target = excluded.target then tags.permissions else excluded.permissions end
-					returning id, permissions;
+						permissions = case when tags.target = excluded.target then tags.permissions else excluded.permissions end,
+						version = case when tags.target = excluded.target then tags.version else excluded.version end
+					returning id, permissions, version;
 				"
 			);
-			let mut params = Vec::with_capacity(tags.len() * 5);
+			let mut params = Vec::with_capacity(tags.len() * 6);
 			for message in tags {
 				let target = Self::sync_get_database_tag_target(&message.target)?;
 				let permissions = tag_permissions
@@ -1114,7 +1116,8 @@ impl Session {
 					message.name.clone(),
 					message.parent.as_ref().map(ToString::to_string),
 					target.to_string(),
-					permissions
+					permissions,
+					crate::tag::version()
 				]);
 			}
 			let result = transaction
@@ -1125,7 +1128,7 @@ impl Session {
 				let permissions = serde_json::from_str(&row.permissions).map_err(|error| {
 					tg::error!(!error, "failed to deserialize the tag permissions")
 				})?;
-				outputs.insert(row.id, permissions);
+				outputs.insert(row.id, (permissions, row.version));
 			}
 		}
 
@@ -1294,7 +1297,7 @@ impl Session {
 		nodes: &[tg::sync::PutNodeMessage],
 		created: &BTreeSet<tg::Id>,
 		tag_accounts: &BTreeMap<tg::tag::Id, Option<tg::usage::Account>>,
-		tag_permissions: &BTreeMap<tg::tag::Id, Vec<tg::authorization::Permission>>,
+		tag_permissions: &BTreeMap<tg::tag::Id, (Vec<tg::authorization::Permission>, String)>,
 		touched_at: i64,
 	) -> tg::Result<tangram_index::batch::Arg> {
 		let mut batch = tangram_index::batch::Arg::default();
@@ -1323,7 +1326,7 @@ impl Session {
 					)
 				},
 				tg::sync::PutNodeMessage::Tag(message) => {
-					let permissions = tag_permissions
+					let (permissions, version) = tag_permissions
 						.get(&message.id)
 						.cloned()
 						.ok_or_else(|| tg::error!("missing the tag permissions"))?;
@@ -1336,6 +1339,7 @@ impl Session {
 						permissions,
 						specifier: message.specifier.clone(),
 						target,
+						version,
 					})
 				},
 				tg::sync::PutNodeMessage::User(message) => {
@@ -1365,7 +1369,7 @@ impl Session {
 			let Some(account) = tag_accounts.get(&message.id).cloned().flatten() else {
 				continue;
 			};
-			let permissions = tag_permissions
+			let (permissions, _) = tag_permissions
 				.get(&message.id)
 				.ok_or_else(|| tg::error!("missing the tag permissions"))?;
 			if !Self::tag_target_permissions_grant_access(permissions) {

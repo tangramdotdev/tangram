@@ -241,6 +241,9 @@ impl Session {
 				ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 			}
 			.ok_or_else(|| tg::error!("failed to find the subject"))?;
+		if matches!(subject, tg::authorization::Subject::Tag(_)) {
+			return Err(tg::error!("a tag cannot be a grant subject"));
+		}
 		let created_at = self.server.clock.unix_timestamp()?;
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
@@ -937,7 +940,8 @@ impl Session {
 			| tg::authorization::Subject::Root
 			| tg::authorization::Subject::Runner(_)
 			| tg::authorization::Subject::Sandbox(_)
-			| tg::authorization::Subject::Sync(_) => {
+			| tg::authorization::Subject::Sync(_)
+			| tg::authorization::Subject::Tag(_) => {
 				if !matches!(self.context.principal, tg::Principal::Root) {
 					return Err(tg::error!("unauthorized"));
 				}
@@ -1171,6 +1175,7 @@ impl Session {
 				tg::authorization::Subject::Sync(id) => {
 					tg::authorization::Subject::Sync(id.clone())
 				},
+				tg::authorization::Subject::Tag(id) => tg::authorization::Subject::Tag(id.clone()),
 				tg::authorization::Subject::User(id) => {
 					let id = id.clone();
 					let specifier = match Self::try_get_specifier_for_id_with_transaction(

@@ -491,6 +491,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 			tangram_index::batch::Item::PutObject(object_arg(command, [], 7)),
 			tangram_index::batch::Item::PutProcess(process_arg),
 			tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+				version: "initial".into(),
 				account: Some(account.clone()),
 				id: tag,
 				name: "tag".to_owned(),
@@ -644,6 +645,7 @@ async fn account_storage_is_retained_by_a_tag() {
 			}),
 			tangram_index::batch::Item::PutObject(object_arg(object.clone(), [], 5)),
 			tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+				version: "initial".into(),
 				account: Some(account.clone()),
 				id: tag.clone(),
 				name: "tag".to_owned(),

@@ -1,9 +1,10 @@
 use {
 	crate::{
-		Db, Index, Key, Request, Response,
+		Db, Index, Key, Kind, Request, Response,
 		permission::{PermissionIndexEntry, PermissionSource, PermissionValue},
 	},
 	foundationdb_tuple as fdbt, heed as lmdb,
+	num_traits::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
 
@@ -21,6 +22,70 @@ impl Index {
 			return Err(tg::error!("unexpected write response"));
 		};
 
+		Ok(())
+	}
+
+	pub(crate) fn delete_subject_permissions_with_transaction(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &mut lmdb::RwTxn<'_>,
+		subject: &tg::authorization::Subject,
+	) -> tg::Result<()> {
+		let prefix = Self::pack(
+			subspace,
+			&(
+				Kind::SubjectPermission.to_i32().unwrap(),
+				subject.to_string(),
+			),
+		);
+		let entries = db
+			.prefix_iter(transaction, &prefix)
+			.map_err(|error| tg::error!(!error, "failed to get the subject permissions"))?
+			.map(|entry| {
+				let (key, value) = entry
+					.map_err(|error| tg::error!(!error, "failed to read a subject permission"))?;
+				Ok((
+					Self::unpack(subspace, key)?,
+					PermissionValue::deserialize(value)?,
+				))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		for (key, value) in entries {
+			let Key::Permission(crate::permission::Key::SubjectPermission {
+				creator,
+				permission,
+				resource,
+				subject,
+			}) = key
+			else {
+				return Err(tg::error!("expected a subject permission key"));
+			};
+			for source in [
+				PermissionSource::Direct,
+				PermissionSource::Grant,
+				PermissionSource::Materialized,
+			] {
+				let Some(expires_at) = value.source_expires_at(source) else {
+					continue;
+				};
+				let entry = PermissionIndexEntry {
+					creator: creator.as_ref(),
+					expires_at,
+					permission,
+					resource: &resource,
+					subject: &subject,
+				};
+				Self::delete_permission_index_entry(db, subspace, transaction, &entry, source)?;
+			}
+			Self::enqueue_permission_update(
+				db,
+				subspace,
+				transaction,
+				&resource,
+				&subject,
+				permission,
+			)?;
+		}
 		Ok(())
 	}
 

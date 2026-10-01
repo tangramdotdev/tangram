@@ -204,7 +204,7 @@ impl Session {
 			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 		}
 		let mut batch = tangram_index::batch::Arg::default();
-		let data = match self
+		let (data, version) = match self
 			.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
 			.await?
 		{
@@ -232,6 +232,7 @@ impl Session {
 				permissions: data.permissions,
 				specifier: data.specifier,
 				target: target.clone(),
+				version,
 			},
 		));
 		if target_access && let Some(account) = account {
@@ -271,7 +272,7 @@ impl Session {
 		arg: tg::tag::put::Arg,
 		permissions: Vec<tg::authorization::Permission>,
 		batch: &mut tangram_index::batch::Arg,
-	) -> tg::Result<ControlFlow<tg::tag::Data, crate::database::Error>> {
+	) -> tg::Result<ControlFlow<(tg::tag::Data, String), crate::database::Error>> {
 		let existing =
 			match Self::try_get_id_for_specifier_with_transaction(transaction, &arg.specifier)
 				.await?
@@ -339,18 +340,19 @@ impl Session {
 
 		// Put the tag.
 		let target = Self::tag_target_to_string(&arg.target);
-		let (id, permissions) = if let Some(id) = existing {
+		let (id, permissions, version) = if let Some(id) = existing {
 			let id =
 				tg::tag::Id::try_from(id).map_err(|_| tg::error!("specifier is already in use"))?;
 			#[derive(db::row::Deserialize)]
 			struct Row {
 				permissions: String,
 				target: String,
+				version: String,
 			}
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
-					select permissions, target
+					select permissions, target, version
 					from tags
 					where id = {p}1;
 				"
@@ -359,6 +361,11 @@ impl Session {
 				.query_one_into::<Row>(statement.into(), db::params![id.to_string()])
 				.await;
 			let row = crate::database::retry!(result, "failed to execute the statement");
+			let version = if row.target == target {
+				row.version
+			} else {
+				crate::tag::version()
+			};
 			let permissions = if row.target == target {
 				serde_json::from_str(&row.permissions)
 					.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?
@@ -373,20 +380,26 @@ impl Session {
 			let statement = formatdoc!(
 				"
 					update tags
-					set permissions = {p}3, target = {p}1
+					set permissions = {p}3, target = {p}1, version = {p}4
 					where id = {p}2;
 				"
 			);
 			let result = transaction
 				.execute(
 					statement.into(),
-					db::params![target.clone(), id.to_string(), permissions_json],
+					db::params![
+						target.clone(),
+						id.to_string(),
+						permissions_json,
+						version.clone()
+					],
 				)
 				.await;
 			crate::database::retry!(result, "failed to execute the statement");
-			(id, permissions)
+			(id, permissions, version)
 		} else {
 			let id = tg::tag::Id::new();
+			let version = crate::tag::version();
 			let permissions_json = serde_json::to_string(&permissions)
 				.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
 			match Self::insert_specifier_with_transaction(
@@ -403,8 +416,8 @@ impl Session {
 			let p = transaction.p();
 			let statement = formatdoc!(
 				"
-					insert into tags (id, name, parent, target, permissions)
-					values ({p}1, {p}2, {p}3, {p}4, {p}5);
+					insert into tags (id, name, parent, target, permissions, version)
+					values ({p}1, {p}2, {p}3, {p}4, {p}5, {p}6);
 				"
 			);
 			let result = transaction
@@ -415,7 +428,8 @@ impl Session {
 						name,
 						parent.as_ref().map(ToString::to_string),
 						target.clone(),
-						permissions_json
+						permissions_json,
+						version.clone()
 					],
 				)
 				.await;
@@ -458,18 +472,18 @@ impl Session {
 					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
 				}
 			}
-			(id, permissions)
+			(id, permissions, version)
 		};
 		let data = tg::tag::Data {
 			id,
-			target: arg.target,
 			name: arg.specifier.name().to_owned(),
 			parent,
 			permissions,
 			specifier: arg.specifier,
+			target: arg.target,
 		};
 
-		Ok(ControlFlow::Break(data))
+		Ok(ControlFlow::Break((data, version)))
 	}
 
 	async fn put_tag_primary_region(&self, mut arg: tg::tag::put::Arg) -> tg::Result<()> {
@@ -494,6 +508,9 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		arg.tokens = arg
+			.tokens
+			.for_location(&tg::Location::Remote(remote.clone()));
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		client
 			.put_tag(arg)

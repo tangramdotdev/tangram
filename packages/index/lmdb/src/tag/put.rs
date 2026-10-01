@@ -43,6 +43,20 @@ impl Index {
 			.map_err(|error| tg::error!(!error, "failed to get the tag"))?
 			.map(tangram_index::tag::Tag::deserialize)
 			.transpose()?;
+		if let Some(tag) = &tag {
+			if tag.version == arg.version && tag.target != arg.target {
+				return Err(tg::error!("the tag target changed without a new version"));
+			}
+			if tag.version != arg.version {
+				let subject = tg::authorization::Subject::Tag(arg.id.clone());
+				Self::delete_subject_permissions_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&subject,
+				)?;
+			}
+		}
 		if let Some(tag) = tag.as_ref()
 			&& (tag.account != arg.account
 				|| tag.specifier != arg.specifier
@@ -120,6 +134,7 @@ impl Index {
 			permissions: arg.permissions.clone(),
 			specifier: arg.specifier.clone(),
 			target: arg.target.clone(),
+			version: arg.version.clone(),
 		}
 		.serialize()?;
 		db.put(transaction, &key, &value)

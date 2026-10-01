@@ -9,6 +9,7 @@ mod object;
 mod process_object_permission;
 mod reader;
 mod storage;
+mod tag;
 mod update;
 mod usage;
 mod versions;

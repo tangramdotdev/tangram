@@ -1,9 +1,11 @@
 use {
 	crate::{
-		Index, Key, Request, Response,
+		Index, Key, Kind, Request, Response,
 		permission::{PermissionIndexEntry, PermissionSource, PermissionValue},
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
+	futures::TryStreamExt as _,
+	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
@@ -22,6 +24,83 @@ impl Index {
 			return Err(tg::error!("unexpected write response"));
 		};
 		Ok(())
+	}
+
+	pub(crate) async fn delete_subject_permissions_with_transaction(
+		txn: &crate::Transaction,
+		subspace: &fdbt::Subspace,
+		subject: &tg::authorization::Subject,
+		partition_totals: crate::PartitionTotals,
+	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let prefix = Self::pack(
+			subspace,
+			&(
+				Kind::SubjectPermission.to_i32().unwrap(),
+				subject.to_string(),
+			),
+		);
+		let range_subspace = fdbt::Subspace::from_bytes(prefix);
+		let range = fdb::RangeOption::from(&range_subspace);
+		let result = txn
+			.get_ranges_keyvalues(range, false)
+			.try_collect::<Vec<_>>()
+			.await;
+		let entries = crate::retry!(result);
+		let entries = entries
+			.iter()
+			.map(|entry| {
+				Ok((
+					Self::unpack(subspace, entry.key())?,
+					PermissionValue::deserialize(entry.value())?,
+				))
+			})
+			.collect::<tg::Result<Vec<_>>>()?;
+		for (key, value) in entries {
+			let Key::Permission(crate::permission::Key::SubjectPermission {
+				creator,
+				permission,
+				resource,
+				subject,
+			}) = key
+			else {
+				return Err(tg::error!("expected a subject permission key"));
+			};
+			for source in [
+				PermissionSource::Direct,
+				PermissionSource::Grant,
+				PermissionSource::Materialized,
+			] {
+				let Some(expires_at) = value.source_expires_at(source) else {
+					continue;
+				};
+				let entry = PermissionIndexEntry {
+					creator: creator.as_ref(),
+					expires_at,
+					permission,
+					resource: &resource,
+					subject: &subject,
+				};
+				crate::propagate!(
+					Self::delete_permission_index_entry(
+						txn,
+						subspace,
+						&entry,
+						source,
+						partition_totals.cleaning
+					)
+					.await
+				);
+			}
+			Self::enqueue_permission_update(
+				txn,
+				subspace,
+				&resource,
+				&subject,
+				permission,
+				partition_totals.permission_update,
+			);
+		}
+		Ok(ControlFlow::Break(()))
 	}
 
 	pub(crate) async fn delete_permissions_with_transaction(

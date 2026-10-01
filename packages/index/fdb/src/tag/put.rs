@@ -43,6 +43,23 @@ impl Index {
 		let tag = crate::retry!(result)
 			.map(|bytes| tangram_index::tag::Tag::deserialize(&bytes))
 			.transpose()?;
+		if let Some(tag) = &tag {
+			if tag.version == arg.version && tag.target != arg.target {
+				return Err(tg::error!("the tag target changed without a new version"));
+			}
+			if tag.version != arg.version {
+				let subject = tg::authorization::Subject::Tag(arg.id.clone());
+				crate::propagate!(
+					Self::delete_subject_permissions_with_transaction(
+						txn,
+						subspace,
+						&subject,
+						partition_totals
+					)
+					.await
+				);
+			}
+		}
 		if let Some(tag) = tag.as_ref()
 			&& (tag.account != arg.account
 				|| tag.specifier != arg.specifier
@@ -138,6 +155,7 @@ impl Index {
 			permissions: arg.permissions.clone(),
 			specifier: arg.specifier.clone(),
 			target: arg.target.clone(),
+			version: arg.version.clone(),
 		}
 		.serialize()?;
 		txn.set(&key, &value);

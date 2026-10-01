@@ -130,6 +130,7 @@ impl Session {
 		let mut batch = tangram_index::batch::Arg::default();
 		for (item, permissions) in std::iter::zip(arg.tags, permissions) {
 			let arg = tg::tag::put::Arg {
+				tokens: item.tokens,
 				ancestors: tg::node::Ancestors {
 					create: arg.parents,
 					pull: tg::node::AncestorsPull::Never,
@@ -140,7 +141,7 @@ impl Session {
 				specifier: item.specifier,
 				target: item.target,
 			};
-			let data = match self
+			let (data, version) = match self
 				.put_tag_with_transaction(transaction, arg, permissions, &mut batch)
 				.await?
 			{
@@ -168,6 +169,7 @@ impl Session {
 					permissions: data.permissions,
 					specifier: data.specifier,
 					target: target.clone(),
+					version,
 				},
 			));
 			if target_access && let Some(account) = account {
@@ -224,6 +226,11 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		for item in &mut arg.tags {
+			item.tokens = item
+				.tokens
+				.for_location(&tg::Location::Remote(remote.clone()));
+		}
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		client
 			.post_tag_batch(arg)
