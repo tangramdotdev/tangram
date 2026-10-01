@@ -405,17 +405,22 @@ impl Server {
 			.max_local_error_reset_streams(None);
 		let service = service
 			.map_request(|request: http::Request<hyper::body::Incoming>| request.boxed_body())
-			.map_response({
+			.map_future({
 				let idle = idle.clone();
-				move |response: http::Response<BoxBody>| {
-					response.map(move |body| {
-						BoxBody::new(tangram_http::idle::Body::new(idle.token(), body).map_err(
-							|error| {
-								tracing::error!(?error, "response body error");
-								error
-							},
-						))
-					})
+				move |future: T::Future| {
+					let token = idle.token();
+					async move {
+						let response = future.await?;
+						let response = response.map(move |body| {
+							BoxBody::new(tangram_http::idle::Body::new(token, body).map_err(
+								|error| {
+									tracing::error!(?error, "response body error");
+									error
+								},
+							))
+						});
+						Ok::<_, Infallible>(response)
+					}
 				}
 			});
 		let service = hyper_util::service::TowerToHyperService::new(service);
