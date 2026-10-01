@@ -169,6 +169,7 @@ impl Session {
 		)?;
 
 		// Send the put end message after all futures complete.
+		crate::checkpoint!(self.server, "sync.put.end").await;
 		state
 			.sender
 			.send(Ok(tg::sync::PutMessage::End))

@@ -231,7 +231,7 @@ impl Session {
 
 		// Register the child and return the connection messages.
 		let mut output = output;
-		let mut pending_wait = None;
+		let mut waited = false;
 		loop {
 			let message = tokio::select! {
 				message = output.try_next() => message?,
@@ -255,12 +255,6 @@ impl Session {
 						command = %command.node,
 					)
 					.await;
-					if let Some(message) = pending_wait.take() {
-						sender
-							.send(Ok(message))
-							.await
-							.map_err(|_| tg::error!("the process connection closed"))?;
-					}
 				} else {
 					sync_sender
 						.as_ref()
@@ -271,16 +265,13 @@ impl Session {
 				}
 				continue;
 			}
-			if start_command_sync
-				&& sync_sender.is_some()
-				&& matches!(
-					message,
-					tg::process::connect::ServerMessage::Notification(
-						tg::process::connect::ServerNotification::Wait(_)
-					)
-				) {
-				pending_wait = Some(message);
-				continue;
+			if matches!(
+				message,
+				tg::process::connect::ServerMessage::Notification(
+					tg::process::connect::ServerNotification::Wait(_)
+				)
+			) {
+				waited = true;
 			}
 			if let tg::process::connect::ServerMessage::Response(response) = &message
 				&& let Some(tg::process::connect::ServerResponseOutput::Connect(output)) =
@@ -296,11 +287,8 @@ impl Session {
 				.await
 				.map_err(|_| tg::error!("the process connection closed"))?;
 		}
-		if sync_sender.is_some() {
+		if sync_sender.is_some() && !waited {
 			return Err(tg::error!("the command sync ended unexpectedly"));
-		}
-		if pending_wait.is_some() {
-			return Err(tg::error!("the process wait was not forwarded"));
 		}
 
 		Ok(())
@@ -534,6 +522,9 @@ impl Session {
 				arg: tg::process::connect::ClientRequestArg::Connect(arg),
 				id: request_id,
 			};
+			if let Some(task) = sync_task.take() {
+				task.abort();
+			}
 			let input = futures::stream::once(futures::future::ok(
 				tg::process::connect::ClientMessage::Request(request),
 			))
@@ -541,7 +532,6 @@ impl Session {
 			.chain(input)
 			.boxed();
 			self.connect_process_cached_task(output, input, low).await?;
-			Self::connect_process_finish_command_sync(&mut sync_task).await?;
 			return Ok(());
 		}
 
@@ -624,10 +614,17 @@ impl Session {
 		.await?;
 
 		// Run the connection until completion or detachment.
-		self.connect_process_run_task(state, wait, pending, input)
+		let finished = self
+			.connect_process_run_task(state, wait, pending, input)
 			.boxed()
 			.await?;
-		Self::connect_process_finish_command_sync(&mut sync_task).await?;
+		if finished {
+			if let Some(task) = sync_task.take() {
+				task.abort();
+			}
+		} else {
+			Self::connect_process_finish_command_sync(&mut sync_task).await?;
+		}
 
 		Ok(())
 	}
@@ -707,7 +704,7 @@ impl Session {
 		mut wait: Wait,
 		mut pending: VecDeque<tg::process::connect::ClientMessage>,
 		mut input: Input,
-	) -> tg::Result<()> {
+	) -> tg::Result<bool> {
 		// Keep completion independent of subscribed output and its EOF handshakes.
 		let mut finished = false;
 		loop {
@@ -719,7 +716,7 @@ impl Session {
 				&& state.writes.is_empty()
 				&& state.responses.is_empty()
 			{
-				return Ok(());
+				return Ok(true);
 			}
 			let message = if let Some(message) = pending.pop_front() {
 				message
@@ -755,7 +752,7 @@ impl Session {
 				.await?
 			{
 				Self::finish_connect_response(&mut input, id).await?;
-				return Ok(());
+				return Ok(false);
 			}
 		}
 	}
