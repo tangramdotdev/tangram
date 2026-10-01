@@ -52,6 +52,7 @@ pub struct Arg {
 	pub sandbox_processes: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	/// The source location. An absent source selects the default remote.
 	pub source: Option<tg::Location>,
 
 	#[serde(default, skip_serializing_if = "is_false")]
@@ -80,10 +81,7 @@ impl Default for Arg {
 			process_log_objects: false,
 			process_output_objects: true,
 			sandbox_processes: false,
-			source: Some(tg::Location::Remote(tg::location::Remote {
-				name: "default".to_owned(),
-				region: None,
-			})),
+			source: None,
 			tag_targets: true,
 			user_children: false,
 		}

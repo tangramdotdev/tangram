@@ -22,7 +22,7 @@ struct PushOrPullInnerArg<'a> {
 	get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
 	process: bool,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
-	source: Option<tg::Location>,
+	source: tg::Location,
 	sync: Option<tg::Referent<tg::sync::Id>>,
 }
 
@@ -33,7 +33,7 @@ struct PushOrPullTaskArg {
 	process: bool,
 	progress: crate::progress::Handle<tg::push::Output>,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
-	source: Option<tg::Location>,
+	source: tg::Location,
 	source_session: Option<tg::Session>,
 	sync: Option<tg::Referent<tg::sync::Id>>,
 }
@@ -45,15 +45,19 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + use<>,
 	> {
-		let source = arg
-			.source
-			.clone()
-			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
-		let destination = arg
-			.destination
-			.clone()
-			.ok_or_else(|| tg::error!("a push requires a destination"))?;
-		let stream = self.push_or_pull(&arg, Some(source), destination).await?;
+		let source = arg.source.clone().unwrap_or_else(|| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})
+		});
+		let destination = arg.destination.clone().unwrap_or_else(|| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})
+		});
+		let stream = self.push_or_pull(&arg, source, destination).await?;
 		Ok(stream)
 	}
 
@@ -64,16 +68,20 @@ impl Session {
 	) -> tg::Result<
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + use<>,
 	> {
-		let source = arg
-			.source
-			.clone()
-			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
-		let destination = arg
-			.destination
-			.clone()
-			.ok_or_else(|| tg::error!("a push requires a destination"))?;
+		let source = arg.source.clone().unwrap_or_else(|| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})
+		});
+		let destination = arg.destination.clone().unwrap_or_else(|| {
+			tg::Location::Remote(tg::location::Remote {
+				name: "default".to_owned(),
+				region: None,
+			})
+		});
 		let stream = self
-			.push_or_pull_for_process(&arg, Some(source), destination, sync)
+			.push_or_pull_for_process(&arg, source, destination, sync)
 			.await?;
 		Ok(stream)
 	}
@@ -81,7 +89,7 @@ impl Session {
 	pub(crate) async fn push_or_pull(
 		&self,
 		arg: &tg::push::Arg,
-		source: Option<tg::Location>,
+		source: tg::Location,
 		destination: tg::Location,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
 		let get = arg
@@ -119,7 +127,7 @@ impl Session {
 			get,
 			process: false,
 			received_specifiers: Some(received_specifiers.clone()),
-			source: Some(source),
+			source,
 			sync: None,
 		};
 		let stream = self.push_or_pull_inner(inner_arg).await?;
@@ -131,7 +139,7 @@ impl Session {
 	pub(crate) async fn push_or_pull_for_process(
 		&self,
 		arg: &tg::push::Arg,
-		source: Option<tg::Location>,
+		source: tg::Location,
 		destination: tg::Location,
 		sync: Option<tg::Referent<tg::sync::Id>>,
 	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
@@ -167,8 +175,8 @@ impl Session {
 			sync,
 		} = inner_arg;
 		let source_session = match &source {
-			None | Some(tg::Location::Local(_)) => None,
-			Some(tg::Location::Remote(remote)) => {
+			tg::Location::Local(_) => None,
+			tg::Location::Remote(remote) => {
 				let session = if process {
 					self.get_remote_session_for_process(&remote.name).await
 				} else {
@@ -200,9 +208,7 @@ impl Session {
 					tokens.for_location(&destination)
 				} else {
 					let mut relay = tg::authorization::Tokens::with_local(tokens.local().cloned());
-					if let Some(source) = &source
-						&& let Some(entry) = tokens.get(source)
-					{
+					if let Some(entry) = tokens.get(&source) {
 						relay.set(source.clone(), entry.clone());
 					}
 					relay
@@ -247,7 +253,7 @@ impl Session {
 		// Spawn a task to set the indicator totals as soon as they are ready.
 		let indicator_total_task = Task::spawn({
 			let session = self.clone();
-			let source = source.clone().unwrap_or_else(|| destination.clone());
+			let source = source.clone();
 			let progress = progress.clone();
 			let arg = arg.clone();
 			|_| async move {
@@ -498,13 +504,10 @@ impl Session {
 
 				// Create the source arg and input stream.
 				let source_location = match &source {
-					None => None,
-					Some(tg::Location::Local(local)) => Some(tg::Location::Local(local.clone())),
-					Some(tg::Location::Remote(remote)) => {
-						Some(tg::Location::Local(tg::location::Local {
-							region: remote.region.clone(),
-						}))
-					},
+					tg::Location::Local(local) => tg::Location::Local(local.clone()),
+					tg::Location::Remote(remote) => tg::Location::Local(tg::location::Local {
+						region: remote.region.clone(),
+					}),
 				};
 				let source_arg = tg::sync::Arg {
 					ancestors: arg.ancestors,
@@ -512,7 +515,7 @@ impl Session {
 					force: arg.force,
 					get: Vec::new(),
 					group_children: arg.group_children,
-					location: source_location.map(Into::into),
+					location: Some(source_location.into()),
 					metadata: arg.metadata,
 					organization_children: arg.organization_children,
 					process_children: arg.process_children,
@@ -557,13 +560,6 @@ impl Session {
 
 				// Create the source future.
 				let source_future = async {
-					if source.is_none() {
-						return Self::push_or_pull_without_source(
-							source_input_stream,
-							source_output_sender,
-						)
-						.await;
-					}
 					let source_output_stream = if let Some(source_session) = source_session {
 						source_session
 							.sync(source_arg, source_input_stream)
@@ -725,56 +721,6 @@ impl Session {
 		progress.finish("bytes");
 
 		Ok(output)
-	}
-
-	async fn push_or_pull_without_source(
-		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-		sender: tokio::sync::mpsc::Sender<tg::sync::Message>,
-	) -> tg::Result<bool> {
-		sender
-			.send(tg::sync::Message::Get(tg::sync::GetMessage::End))
-			.await
-			.map_err(|_| tg::error!("failed to send the message"))?;
-		while let Some(message) = stream.try_next().await? {
-			let message = match message {
-				tg::sync::Message::Get(tg::sync::GetMessage::Node(node)) => {
-					if let tg::Selector::Id(id) = &node.selector
-						&& (id.kind().is_object() || id.kind() == tg::id::Kind::Process)
-					{
-						sender
-							.send(tg::sync::Message::Put(tg::sync::PutMessage::Pending(
-								id.clone(),
-							)))
-							.await
-							.map_err(|_| tg::error!("failed to send the message"))?;
-					}
-					let message = tg::sync::PutMissingMessage {
-						selector: node.selector,
-						tokens: Vec::new(),
-					};
-					tg::sync::PutMessage::Missing(message)
-				},
-				tg::sync::Message::Get(tg::sync::GetMessage::End) => {
-					sender
-						.send(tg::sync::Message::Put(tg::sync::PutMessage::End))
-						.await
-						.map_err(|_| tg::error!("failed to send the message"))?;
-					return Ok(true);
-				},
-				tg::sync::Message::Get(
-					tg::sync::GetMessage::Available(_)
-					| tg::sync::GetMessage::Output(_)
-					| tg::sync::GetMessage::Progress(_),
-				)
-				| tg::sync::Message::Put(_) => continue,
-				tg::sync::Message::End => return Ok(false),
-			};
-			sender
-				.send(tg::sync::Message::Put(message))
-				.await
-				.map_err(|_| tg::error!("failed to send the message"))?;
-		}
-		Ok(false)
 	}
 
 	fn push_or_pull_record_received_specifier(

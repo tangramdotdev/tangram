@@ -533,178 +533,68 @@ impl Session {
 			})
 			.collect::<Vec<_>>();
 
-		let ids = artifacts
+		let permissions = tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::SUBTREE,
+		);
+		let storage = tg::storage::Set::Object(
+			tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
+		);
+		let args = artifacts
 			.iter()
-			.map(|artifact| artifact.node.clone().into())
-			.collect::<Vec<_>>();
-		let stored = self
-			.server
-			.index
-			.try_get_objects(&ids)
-			.await?
-			.iter()
-			.all(|object| {
-				object.as_ref().is_some_and(|object| {
-					object.storage.contains(tg::object::storage::Set::SUBTREE)
-				})
-			});
-		if stored {
-			let permission = tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			);
-			let args = artifacts
-				.iter()
-				.map(|artifact| {
-					(
-						artifact.clone(),
-						tg::authorization::permission::Set::from_permission(permission),
-					)
-				})
-				.collect::<Vec<_>>();
-			let authorized = self.authorize_batch(args).await?;
-			crate::authorization::check_exhaustion(&authorized)?;
-			if authorized
+			.map(|artifact| (artifact.clone(), permissions, storage));
+		let verification = self.verify_batch(args).await.and_then(|outputs| {
+			outputs
 				.into_iter()
-				.all(|output| output.permissions.contains(permission))
-			{
-				return Ok(());
-			}
-		}
-
-		// Index.
-		let stream = self
-			.index()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to start the index"))?;
-		let mut stream = pin!(stream);
-		while let Some(event) = stream
-			.try_next()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the next index event"))?
-		{
-			progress.forward(Ok(event));
-		}
-
-		let ids = artifacts
-			.iter()
-			.map(|artifact| artifact.node.clone().into())
-			.collect::<Vec<_>>();
-		let stored = self
-			.server
-			.index
-			.try_get_objects(&ids)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to check if the artifacts are available"))?
-			.iter()
-			.all(|object| {
-				object.as_ref().is_some_and(|object| {
-					object.storage.contains(tg::object::storage::Set::SUBTREE)
-				})
-			});
-		if stored {
-			let permission = tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			);
-			let args = artifacts
+				.map(crate::verify::Output::check_exhaustion)
+				.collect::<tg::Result<Vec<_>>>()
+		});
+		if verification.as_ref().is_ok_and(|outputs| {
+			outputs
 				.iter()
-				.map(|artifact| {
-					(
-						artifact.clone(),
-						tg::authorization::permission::Set::from_permission(permission),
-					)
-				})
-				.collect::<Vec<_>>();
-			let authorized = self.authorize_batch(args).await?;
-			crate::authorization::check_exhaustion(&authorized)?;
-			if authorized
-				.into_iter()
-				.all(|output| output.permissions.contains(permission))
-			{
-				return Ok(());
-			}
+				.all(|output| output.outcome == crate::authorization::Outcome::Satisfied)
+		}) {
+			return Ok(());
 		}
 
-		// Pull.
-		let source = self.checkout_pull_source().await?;
-		let stream = self
-			.pull(tg::pull::Arg {
+		// A local verification failure can still be repaired by pulling from the configured remote.
+		if let Some(source) = self.checkout_pull_source().await? {
+			let arg = tg::pull::Arg {
 				nodes: artifacts
 					.iter()
 					.cloned()
 					.map(|artifact| artifact.map(tg::Id::from))
 					.collect(),
-				source,
+				source: Some(source),
 				..Default::default()
-			})
-			.await
-			.ok();
-		if let Some(stream) = stream {
-			progress.spinner("pull", "pull");
-			let mut stream = pin!(stream);
-			while let Some(event) = stream.try_next().await.ok().flatten() {
-				progress.forward(Ok(event));
+			};
+			if let Ok(stream) = self.pull(arg).await {
+				progress.spinner("pull", "pull");
+				let mut stream = pin!(stream);
+				while let Some(event) = stream.try_next().await.ok().flatten() {
+					progress.forward(Ok(event));
+				}
 			}
-		}
-
-		// Index.
-		let stream = self
-			.index()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to start the index"))?;
-		let mut stream = pin!(stream);
-		while let Some(event) = stream
-			.try_next()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the next index event"))?
-		{
-			progress.forward(Ok(event));
-		}
-
-		let ids = artifacts
-			.iter()
-			.map(|artifact| artifact.node.clone().into())
-			.collect::<Vec<_>>();
-		let stored = self
-			.server
-			.index
-			.try_get_objects(&ids)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to check if the artifacts are available"))?
-			.iter()
-			.all(|object| {
-				object.as_ref().is_some_and(|object| {
-					object.storage.contains(tg::object::storage::Set::SUBTREE)
-				})
-			});
-		if stored {
-			let permission = tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			);
 			let args = artifacts
 				.iter()
-				.map(|artifact| {
-					(
-						artifact.clone(),
-						tg::authorization::permission::Set::from_permission(permission),
-					)
-				})
-				.collect::<Vec<_>>();
-			let authorized = self.authorize_batch(args).await?;
-			crate::authorization::check_exhaustion(&authorized)?;
-			if authorized
+				.map(|artifact| (artifact.clone(), permissions, storage));
+			if self
+				.verify_batch(args)
+				.await?
 				.into_iter()
-				.all(|output| output.permissions.contains(permission))
+				.map(crate::verify::Output::check_exhaustion)
+				.collect::<tg::Result<Vec<_>>>()?
+				.iter()
+				.all(|output| output.outcome == crate::authorization::Outcome::Satisfied)
 			{
 				progress.finish_all();
 				return Ok(());
 			}
 		}
-
 		progress.finish_all();
+		verification?;
+		let ids = artifacts.iter().map(|artifact| &artifact.node);
 
-		Err(
-			tg::error!(requested_ids = %ids.iter().format(", "), "failed to ensure artifact availability"),
-		)
+		Err(tg::error!(requested_ids = %ids.format(", "), "failed to ensure artifact availability"))
 	}
 
 	async fn checkout_internal_task(

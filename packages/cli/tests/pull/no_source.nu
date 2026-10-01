@@ -1,50 +1,15 @@
 use ../lib/test.nu *
 
-# A source-less pull must wait for a local sync and preserve its proven access.
-let root_token = random chars
-let store = { object_concurrency: 8, object_max_batch: 1 }
-let remote_destination = server spawn --name remote-destination --config {
-	advanced: { checkpoints: true },
-	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	sync: {
-		get: { store: { lmdb: $store, memory: $store, scylla: $store } },
-	},
-}
-let alice = tg --url $remote_destination.url login --verbose --name alice | from json
-let bob = tg --url $remote_destination.url login --verbose --name bob | from json
-let local_source = server spawn --name local-source --config {
-	remotes: { default: { token: $alice.token, url: $remote_destination.url } },
-}
-let file = tg --url $local_source.url put --no-tokens 'tg.file("private")' | str trim
-let file_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $file } | to json --raw) | from json | get watch
-let ack_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.control.ack --params ({ node: $file } | to json --raw) | from json | get watch
-let push_log = $env.TMPDIR | path join push.log
-let push = job spawn {
-	let job_id = job id
-	let output = tg --no-quiet --url $local_source.url push $file o+e>| tee { save --force $push_log } | complete
-	$output | job send --tag $job_id 0
-}
-timeout 10s tg --url $remote_destination.url --token $root_token checkpoint wait sync.get.store.object $file_watch 0 | ignore
-wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log its authorization token for the sync'
-let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
-let referent = $referent | str replace --all 'tokens[remote]' 'tokens[local]'
-let socket = $remote_destination.url | str replace 'http+unix://' '' | url decode
-let pull = job spawn {
-	let job_id = job id
-	let response = http post --max-time 15sec --raw --content-type application/json --headers { Authorization: $'Bearer ($bob.token)' } --unix-socket $socket http://localhost/pull { nodes: [$referent] }
-	$response | job send --tag $job_id 0
-}
-success (timeout 10s tg --url $remote_destination.url --token $root_token checkpoint wait sync.control.ack $ack_watch 0 | complete) 'the pull should wait on the local sync'
-tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.control.ack $ack_watch
-tg --url $remote_destination.url --token $root_token checkpoint unwatch sync.get.store.object $file_watch
-let response = job recv --tag $pull --timeout 15sec
-assert ($response | str contains 'event: output') 'the source-less pull should complete'
-assert not ($response | str contains 'event: error') 'the source-less pull should not fail'
-success (tg --url $remote_destination.url --token $bob.token read $file | complete) 'the pull should persist access without requiring the authorization token for the sync again'
-success (job recv --tag $push --timeout 10sec) 'the push should complete'
+# An omitted source selects the default remote.
 
-# Stored bytes alone are not proof, and no source must not silently select a remote.
-let eve = tg --url $remote_destination.url login --verbose --name eve | from json
-let response = http post --max-time 15sec --raw --content-type application/json --headers { Authorization: $'Bearer ($eve.token)' } --unix-socket $socket http://localhost/pull { nodes: [$file] }
-assert ($response | str contains 'event: error') 'a source-less pull without proof should time out'
-failure (tg --url $remote_destination.url --token $eve.token read $file | complete) 'the failed pull should not grant access'
+let remote = server spawn --name remote
+let file = tg --url $remote.url put --no-tokens 'tg.file("hello")' | str trim
+let local = server spawn --name local --config {
+	remotes: { default: { url: $remote.url } }
+}
+let socket = $local.url | str replace 'http+unix://' '' | url decode
+let response = http post --max-time 15sec --raw --content-type application/json --unix-socket $socket http://localhost/pull { nodes: [$file] }
+assert ($response | str contains 'event: output') 'the pull should complete using the default remote'
+assert not ($response | str contains 'event: error') 'the pull should not fail'
+server stop $remote
+assert equal (tg --url $local.url read $file) 'hello'

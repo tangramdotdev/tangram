@@ -57,10 +57,7 @@ pub struct Args {
 impl Cli {
 	pub async fn command_pull(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let source = args
-			.source
-			.to_location()?
-			.or(tg::pull::Arg::default().source);
+		let source = args.source.to_location()?;
 
 		// Get the references.
 		let location = source.clone().unwrap_or_else(|| {

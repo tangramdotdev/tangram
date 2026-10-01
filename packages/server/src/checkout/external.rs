@@ -12,7 +12,6 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
-	tangram_index::prelude::*,
 	tangram_util::read::InspectReader,
 };
 
@@ -141,132 +140,45 @@ impl Session {
 		artifact: &tg::Referent<tg::artifact::Id>,
 		progress: &crate::progress::Handle<tg::checkout::Output>,
 	) -> tg::Result<()> {
-		let id = &artifact.node;
-		let storage = self
-			.server
-			.index
-			.try_get_object(&id.clone().into())
-			.await
-			.map_err(
-				|error| tg::error!(!error, artifact = %id, "failed to check if the artifact is available"),
-			)?
-			.map(|object| object.storage)
-			.unwrap_or_default();
-		if storage.contains(tg::object::storage::Set::SUBTREE) {
-			let permission = tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			);
-			let authorized = self
-				.authorize(
-					artifact.clone(),
-					tg::authorization::permission::Set::from_permission(permission),
-				)
-				.await?
-				.check_exhaustion()?;
-			if authorized.permissions.contains(permission) {
-				return Ok(());
-			}
-		}
-
-		// Index.
-		let stream = self
-			.index()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to start the index"))?;
-		let mut stream = pin!(stream);
-		while let Some(event) = stream
-			.try_next()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the next index event"))?
+		let permissions = tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::SUBTREE,
+		);
+		let storage = tg::storage::Set::Object(
+			tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
+		);
+		if self
+			.verify(artifact.clone(), permissions, storage)
+			.await?
+			.check_exhaustion()?
+			.outcome == crate::authorization::Outcome::Satisfied
 		{
-			progress.forward(Ok(event));
+			return Ok(());
 		}
 
-		let storage = self
-			.server
-			.index
-			.try_get_object(&id.clone().into())
-			.await
-			.map_err(
-				|error| tg::error!(!error, artifact = %id, "failed to check if the artifact is available"),
-			)?
-			.map(|object| object.storage)
-			.unwrap_or_default();
-		if storage.contains(tg::object::storage::Set::SUBTREE) {
-			let permission = tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			);
-			let authorized = self
-				.authorize(
-					artifact.clone(),
-					tg::authorization::permission::Set::from_permission(permission),
-				)
-				.await?
-				.check_exhaustion()?;
-			if authorized.permissions.contains(permission) {
-				return Ok(());
-			}
-		}
-
-		// Pull.
-		let source = self.checkout_pull_source().await?;
-		let stream = self
-			.pull(tg::pull::Arg {
+		// Pull from the default remote when it is configured.
+		if let Some(source) = self.checkout_pull_source().await? {
+			let arg = tg::pull::Arg {
 				nodes: vec![artifact.clone().map(tg::Id::from)],
-				source,
+				source: Some(source),
 				..Default::default()
-			})
-			.await
-			.ok();
-		if let Some(stream) = stream {
-			progress.spinner("pull", "pull");
-			let mut stream = pin!(stream);
-			while let Some(event) = stream.try_next().await.ok().flatten() {
-				progress.forward(Ok(event));
+			};
+			if let Ok(stream) = self.pull(arg).await {
+				progress.spinner("pull", "pull");
+				let mut stream = pin!(stream);
+				while let Some(event) = stream.try_next().await.ok().flatten() {
+					progress.forward(Ok(event));
+				}
 			}
-		}
-
-		// Index.
-		let stream = self
-			.index()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to start the index"))?;
-		let mut stream = pin!(stream);
-		while let Some(event) = stream
-			.try_next()
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the next index event"))?
-		{
-			progress.forward(Ok(event));
-		}
-
-		let storage = self
-			.server
-			.index
-			.try_get_object(&id.clone().into())
-			.await
-			.map_err(
-				|error| tg::error!(!error, artifact = %id, "failed to check if the artifact is available"),
-			)?
-			.map(|object| object.storage)
-			.unwrap_or_default();
-		if storage.contains(tg::object::storage::Set::SUBTREE) {
-			let permission = tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			);
-			let authorized = self
-				.authorize(
-					artifact.clone(),
-					tg::authorization::permission::Set::from_permission(permission),
-				)
+			if self
+				.verify(artifact.clone(), permissions, storage)
 				.await?
-				.check_exhaustion()?;
-			if authorized.permissions.contains(permission) {
+				.check_exhaustion()?
+				.outcome == crate::authorization::Outcome::Satisfied
+			{
 				progress.finish_all();
 				return Ok(());
 			}
 		}
-
 		progress.finish_all();
 
 		Err(tg::error!("failed to find the artifact"))
