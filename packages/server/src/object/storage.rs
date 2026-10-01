@@ -4,7 +4,7 @@ impl Server {
 	pub(crate) async fn try_get_object_storage_local(
 		&self,
 		id: &tg::object::Id,
-	) -> tg::Result<Option<tangram_index::object::Storage>> {
+	) -> tg::Result<Option<tg::object::storage::Set>> {
 		Ok(self
 			.index
 			.try_get_object(id)

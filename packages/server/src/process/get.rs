@@ -73,7 +73,7 @@ impl Session {
 							tg::sync::control::ClientRequestArg::process(
 								id.clone(),
 								tg::authorization::permission::process::Set::NODE,
-								Some(tg::process::Storage::default()),
+								tg::process::storage::Set::NODE,
 							),
 							|control| async move {
 								if let Some(tg::sync::control::GetServerResponseOutput::Process(
@@ -324,9 +324,9 @@ impl Session {
 		if let Some(token) = self.create_process_get_token(id)? {
 			output.tokens.insert_local_authorization(token);
 		}
-		if availability && let Some(storage) = control.storage {
+		if availability && control.storage.contains(tg::process::storage::Set::NODE) {
 			output.availability = Self::compute_process_availability_with_permissions(
-				&storage,
+				control.storage,
 				authorization.permissions,
 			);
 		}

@@ -182,7 +182,7 @@ pub struct GetClientRequestArg {
 	pub permissions: tg::authorization::permission::Set,
 
 	#[tangram_serialize(id = 2)]
-	pub storage: Option<tg::Storage>,
+	pub storage: tg::storage::Set,
 }
 
 #[derive(
@@ -215,7 +215,7 @@ pub struct GetObjectServerResponseOutput {
 	pub permissions: tg::authorization::permission::object::Set,
 
 	#[tangram_serialize(id = 0)]
-	pub storage: Option<tg::object::Storage>,
+	pub storage: tg::object::storage::Set,
 }
 
 #[derive(
@@ -231,7 +231,7 @@ pub struct GetProcessServerResponseOutput {
 	pub permissions: tg::authorization::permission::process::Set,
 
 	#[tangram_serialize(id = 0)]
-	pub storage: Option<tg::process::Storage>,
+	pub storage: tg::process::storage::Set,
 }
 
 #[derive(
@@ -262,12 +262,12 @@ impl ClientRequestArg {
 	pub fn object(
 		node: tg::object::Id,
 		permissions: tg::authorization::permission::object::Set,
-		storage: Option<tg::object::Storage>,
+		storage: tg::object::storage::Set,
 	) -> Self {
 		Self::Get(GetClientRequestArg {
 			node: node.into(),
 			permissions: tg::authorization::permission::Set::Object(permissions),
-			storage: storage.map(tg::Storage::Object),
+			storage: tg::storage::Set::Object(storage),
 		})
 	}
 
@@ -275,12 +275,12 @@ impl ClientRequestArg {
 	pub fn process(
 		node: tg::process::Id,
 		permissions: tg::authorization::permission::process::Set,
-		storage: Option<tg::process::Storage>,
+		storage: tg::process::storage::Set,
 	) -> Self {
 		Self::Get(GetClientRequestArg {
 			node: node.into(),
 			permissions: tg::authorization::permission::Set::Process(permissions),
-			storage: storage.map(tg::Storage::Process),
+			storage: tg::storage::Set::Process(storage),
 		})
 	}
 
@@ -296,14 +296,12 @@ impl ClientRequestArg {
 impl GetClientRequestArg {
 	pub fn validate(&self) -> tg::Result<()> {
 		let valid = match (&self.permissions, &self.storage) {
-			(
-				tg::authorization::permission::Set::Object(_),
-				None | Some(tg::Storage::Object(_)),
-			) => self.node.kind().is_object(),
-			(
-				tg::authorization::permission::Set::Process(_),
-				None | Some(tg::Storage::Process(_)),
-			) => self.node.kind() == tg::id::Kind::Process,
+			(tg::authorization::permission::Set::Object(_), tg::storage::Set::Object(_)) => {
+				self.node.kind().is_object()
+			},
+			(tg::authorization::permission::Set::Process(_), tg::storage::Set::Process(_)) => {
+				self.node.kind() == tg::id::Kind::Process
+			},
 			_ => false,
 		};
 		if !valid {
@@ -321,16 +319,13 @@ impl GetServerResponseOutput {
 		if !self.permissions().contains(arg.permissions) {
 			return false;
 		}
-		match (self, &arg.storage) {
-			(_, None) => true,
-			(Self::Object(output), Some(tg::Storage::Object(required))) => output
-				.storage
-				.as_ref()
-				.is_some_and(|storage| storage.contains(required)),
-			(Self::Process(output), Some(tg::Storage::Process(required))) => output
-				.storage
-				.as_ref()
-				.is_some_and(|storage| storage.contains(required)),
+		match (self, arg.storage) {
+			(Self::Object(output), tg::storage::Set::Object(required)) => {
+				output.storage.contains(required)
+			},
+			(Self::Process(output), tg::storage::Set::Process(required)) => {
+				output.storage.contains(required)
+			},
 			_ => false,
 		}
 	}

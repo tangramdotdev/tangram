@@ -142,7 +142,7 @@ impl Session {
 					output: None,
 					parent: None,
 					sandbox: None,
-					storage: tangram_index::process::Storage::default(),
+					storage: tg::process::storage::Set::NODE,
 					time_to_touch: self.server.config.process.time_to_touch,
 					touched_at: now,
 				})
@@ -163,7 +163,7 @@ impl Session {
 			output: output_objects,
 			parent: Some(parent.clone()),
 			sandbox: None,
-			storage: tangram_index::process::Storage::default(),
+			storage: tg::process::storage::Set::NODE,
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};

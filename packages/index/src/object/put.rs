@@ -1,4 +1,4 @@
-use {super::Storage, std::collections::BTreeSet, tangram_client::prelude::*};
+use {super::storage::Set, std::collections::BTreeSet, tangram_client::prelude::*};
 
 #[derive(Clone, Debug, tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub struct Arg {
@@ -13,7 +13,7 @@ pub struct Arg {
 	#[tangram_serialize(id = 7)]
 	pub put: [u8; 16],
 	#[tangram_serialize(id = 4)]
-	pub storage: Storage,
+	pub storage: Set,
 	#[tangram_serialize(id = 5)]
 	pub time_to_touch: std::time::Duration,
 	#[tangram_serialize(id = 6)]

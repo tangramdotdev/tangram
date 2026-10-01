@@ -25,7 +25,7 @@ fn empty_requests_are_notified_when_a_child_enters_the_graph() {
 		permissions: tg::authorization::permission::Set::Object(
 			tg::authorization::permission::object::Set::empty(),
 		),
-		storage: None,
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 	};
 	assert!(
 		graph
@@ -62,7 +62,7 @@ fn empty_requests_are_notified_when_a_child_enters_the_graph() {
 	let protocol::GetServerResponseOutput::Object(output) = output else {
 		panic!("expected an object response")
 	};
-	assert!(output.storage.is_none());
+	assert!(output.storage.is_empty());
 }
 
 #[test]
@@ -73,7 +73,11 @@ fn requests_wait_for_their_own_requirements() {
 	request(
 		&mut state,
 		"permissions",
-		protocol::ClientRequestArg::object(id.clone(), permissions, None),
+		protocol::ClientRequestArg::object(
+			id.clone(),
+			permissions,
+			tg::object::storage::Set::empty(),
+		),
 	);
 	request(
 		&mut state,
@@ -81,7 +85,7 @@ fn requests_wait_for_their_own_requirements() {
 		protocol::ClientRequestArg::object(
 			id.clone(),
 			permissions,
-			Some(tg::object::Storage { subtree: true }),
+			tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
 		),
 	);
 	assert!(!Server::sync_control_create_response(
@@ -109,7 +113,7 @@ fn requests_wait_for_their_own_requirements() {
 		.as_ref()
 		.unwrap();
 	assert!(
-		matches!(&response.output, Some(protocol::ServerResponseOutput::Get(Some(protocol::GetServerResponseOutput::Object(output)))) if output.storage.is_none())
+		matches!(&response.output, Some(protocol::ServerResponseOutput::Get(Some(protocol::GetServerResponseOutput::Object(output)))) if output.storage.is_empty())
 	);
 	let update = UpdateObjectLocalArg {
 		data: None,
@@ -119,7 +123,7 @@ fn requests_wait_for_their_own_requirements() {
 		permissions: None,
 		put: None,
 		requested: None,
-		storage: Some(tg::object::Storage { subtree: true }),
+		storage: Some(tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE),
 	};
 	state.graph.lock().unwrap().update_object_local(update);
 	assert!(Server::sync_control_create_response(
@@ -136,7 +140,11 @@ fn finished_sync_distinguishes_missing_from_permission_only_success() {
 		request(
 			&mut state,
 			"permissions",
-			protocol::ClientRequestArg::object(id.clone(), permissions, None),
+			protocol::ClientRequestArg::object(
+				id.clone(),
+				permissions,
+				tg::object::storage::Set::empty(),
+			),
 		);
 		request(
 			&mut state,
@@ -144,7 +152,7 @@ fn finished_sync_distinguishes_missing_from_permission_only_success() {
 			protocol::ClientRequestArg::object(
 				id.clone(),
 				permissions,
-				Some(tg::object::Storage::default()),
+				tg::object::storage::Set::NODE,
 			),
 		);
 		state.graph.lock().unwrap().update_object_local_permissions(
@@ -212,7 +220,7 @@ fn graph_notifies_ancestors_and_inherited_children_without_retaining_control() {
 		)),
 		put: None,
 		requested: None,
-		storage: Some(tg::object::Storage::default()),
+		storage: Some(tg::object::storage::Set::NODE),
 	};
 	graph.update_object_local(update);
 	while receiver.try_recv().is_ok() {}
@@ -220,7 +228,7 @@ fn graph_notifies_ancestors_and_inherited_children_without_retaining_control() {
 	let output =
 		protocol::GetServerResponseOutput::Object(protocol::GetObjectServerResponseOutput {
 			permissions: tg::authorization::permission::object::Set::SUBTREE,
-			storage: Some(tg::object::Storage { subtree: true }),
+			storage: tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
 		});
 	graph
 		.update_node_local_control_output(&child.clone().into(), &output)

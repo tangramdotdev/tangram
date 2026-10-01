@@ -21,7 +21,7 @@ pub struct ObjectNode {
 	pub length: Option<u64>,
 	pub metadata: Option<tg::object::Metadata>,
 	pub put: [u8; 16],
-	pub storage: Option<tangram_index::object::Storage>,
+	pub storage: tg::object::storage::Set,
 	pub transferred_bytes: u64,
 }
 
@@ -203,7 +203,7 @@ impl Session {
 					permissions: None,
 					put: Some(node.put),
 					requested: None,
-					storage: Some(node.storage.clone().unwrap_or_default()),
+					storage: Some(node.storage | tg::object::storage::Set::NODE),
 				};
 				graph.update_object_local(arg);
 			}
@@ -327,7 +327,7 @@ impl Session {
 					output: None,
 					parent: None,
 					sandbox: None,
-					storage: tangram_index::process::Storage::default(),
+					storage: tg::process::storage::Set::NODE,
 					time_to_touch: self.server.config.process.time_to_touch,
 					touched_at: now,
 				})
@@ -356,7 +356,7 @@ impl Session {
 					metadata,
 					permissions: None,
 					requested: None,
-					storage: Some(tg::process::Storage::default()),
+					storage: Some(tg::process::storage::Set::NODE),
 				};
 				graph.update_process_local(arg);
 			}

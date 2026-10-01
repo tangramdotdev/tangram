@@ -304,9 +304,9 @@ class Peer:
         self.reply(request, Variant(1, {0: None, 1: request[2], 2: attempt, 3: Variant(0, {0: (TTL, 0)})}))
 
     def respond(self, request, error=None, stored=True):
-        storage = {0: True} if stored else None
-        permissions = [Variant(0), Variant(1)] if stored else []
         kind = 1 if request[0].value[0][2] == 8 else 0
+        storage = [Variant(0), Variant(1 if kind == 0 else 5)] if stored else []
+        permissions = [Variant(0), Variant(1)] if stored else []
         output = None if error else Variant(1, Variant(kind, {0: storage, 1: permissions}) if stored else None)
         self.reply(request, Variant(1, {0: {3: error} if error else None, 1: request[2], 2: request[3], 3: output}))
 
@@ -322,7 +322,7 @@ class Peer:
         return self.messenger.receive(lambda path, message:
             path == f"{self.subject}.attempts.{attempt}.server" and message == Variant(0, {0: id, 1: attempt}))
 
-    def send(self, id, node=None, attempt=None, client="client", permissions=Variant(1, [Variant(0)]), storage=Variant(0, {})):
+    def send(self, id, node=None, attempt=None, client="client", permissions=Variant(1, [Variant(0)]), storage=Variant(0, [Variant(0)])):
         arg = Variant(0, {}) if node is None else Variant(1, {0: node_bytes(node), 1: permissions, 2: storage})
         request = {0: arg, 1: client, 2: id, 3: attempt}
         path = f"{self.subject}.server" if attempt is None else f"{self.subject}.attempts.{attempt}.server"
@@ -1045,32 +1045,32 @@ def test_requirements(messenger):
     peer = Peer(messenger, sync.token)
     attempt = peer.connect()
     peer.send("node", parent, attempt)
-    peer.send("permissions", parent, attempt, permissions=Variant(1, [Variant(1)]), storage=None)
+    peer.send("permissions", parent, attempt, permissions=Variant(1, [Variant(1)]), storage=Variant(0, []))
     peer.send("storage", parent, attempt, permissions=Variant(1, []))
-    peer.send("subtree", parent, attempt, permissions=Variant(1, [Variant(1)]), storage=Variant(0, {0: True}))
+    peer.send("subtree", parent, attempt, permissions=Variant(1, [Variant(1)]), storage=Variant(0, [Variant(0), Variant(1)]))
     for id in ("node", "storage", "subtree"):
         peer.retained(id)
     response = peer.response("permissions")
-    assert response[0] is None and response[3].value.value[0] is None, response
+    assert response[0] is None and response[3].value.value[0] == [], response
     peer.acknowledge(response)
     sync.requested(parent)
     sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(parent), 1: data}))))
     response = peer.response("node")
-    assert response[0] is None and response[3].value.value[0] == {}, response
+    assert response[0] is None and response[3].value.value[0] == [Variant(0)], response
     peer.acknowledge(response)
     response = peer.response("storage")
-    assert response[0] is None and response[3].value.value[0] == {}, response
+    assert response[0] is None and response[3].value.value[0] == [Variant(0)], response
     peer.acknowledge(response)
     messenger.absent(lambda path, message: path == f"{peer.subject}.client.client"
                      and message.id == 1 and message.value[1] == "subtree")
     sync.requested(child)
     sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(child), 1: b"\x00child"}))))
     response = peer.response("subtree")
-    assert response[0] is None and response[3].value.value[0] == {0: True}, response
+    assert response[0] is None and response[3].value.value[0] == [Variant(0), Variant(1)], response
     peer.acknowledge(response)
-    peer.send("late", parent, attempt, permissions=Variant(1, [Variant(1)]), storage=Variant(0, {0: True}))
+    peer.send("late", parent, attempt, permissions=Variant(1, [Variant(1)]), storage=Variant(0, [Variant(0), Variant(1)]))
     response = peer.response("late")
-    assert response[0] is None and response[3].value.value[0] == {0: True}, response
+    assert response[0] is None and response[3].value.value[0] == [Variant(0), Variant(1)], response
     peer.acknowledge(response)
     sync.close()
 
@@ -1142,7 +1142,7 @@ def test_failed_transfer(messenger):
     stored = peer.response("stored")
     output = stored[3]
     assert stored[0] is None and output.id == 1 and output.value.id == 0, stored
-    assert output.value.value == {0: {0: True}, 1: [Variant(0), Variant(1)]}, stored
+    assert output.value.value == {0: [Variant(0), Variant(1)], 1: [Variant(0), Variant(1)]}, stored
 
     # A malformed object fails the remaining transfer while the stored response is still unacknowledged.
     sync.send(Variant(1, Variant(0, Variant(1, {0: node_bytes(missing), 1: b"\xff"}))))

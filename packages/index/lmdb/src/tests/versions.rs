@@ -290,7 +290,7 @@ fn object(
 		id,
 		metadata: tg::object::Metadata::default(),
 		put: [1; 16],
-		storage: tangram_index::object::Storage::default(),
+		storage: tg::object::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,
 	}

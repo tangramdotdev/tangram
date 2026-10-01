@@ -114,7 +114,7 @@ fn put_process_with_set(
 		reference_count: 0,
 		sandbox: Some(sandbox.clone()),
 		set,
-		storage: tangram_index::process::Storage::default(),
+		storage: tg::process::storage::Set::NODE,
 		touched_at: 0,
 	}
 	.serialize()

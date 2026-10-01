@@ -90,7 +90,7 @@ impl Session {
 						tg::sync::control::ClientRequestArg::object(
 							id.clone(),
 							tg::authorization::permission::object::Set::NODE,
-							Some(tg::object::Storage::default()),
+							tg::object::storage::Set::NODE,
 						),
 						|control| {
 							let arg = arg.clone();
@@ -205,11 +205,9 @@ impl Session {
 		let mut output = self
 			.create_object_get_output(id, arg.metadata, false, authorization, output)
 			.await?;
-		if arg.availability
-			&& let Some(storage) = control.storage
-		{
+		if arg.availability && control.storage.contains(tg::object::storage::Set::NODE) {
 			output.availability = Self::compute_object_availability_with_permissions(
-				&storage,
+				control.storage,
 				authorization.permissions,
 			);
 		}
@@ -284,7 +282,7 @@ impl Session {
 		}
 		if availability && let Some(storage) = self.server.try_get_object_storage_local(id).await? {
 			output.availability =
-				Self::compute_object_availability_with_permissions(&storage, permissions);
+				Self::compute_object_availability_with_permissions(storage, permissions);
 		}
 		Ok(output)
 	}

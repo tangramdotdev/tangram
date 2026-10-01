@@ -85,9 +85,9 @@ impl Session {
 		};
 		let (objects, processes) =
 			futures::try_join!(touch_objects_future, touch_processes_future)?;
-		let objects_stored = objects
-			.into_iter()
-			.all(|object| object.is_some_and(|object| object.storage.subtree));
+		let objects_stored = objects.into_iter().all(|object| {
+			object.is_some_and(|object| object.storage.contains(tg::object::storage::Set::SUBTREE))
+		});
 		let processes_stored = processes.into_iter().all(|process| {
 			let Some(process) = process else {
 				return false;
@@ -97,16 +97,24 @@ impl Session {
 			}
 			let storage = process.storage;
 			if arg.process_children {
-				storage.subtree
-					&& (!arg.process_command_objects || storage.subtree_command_objects)
-					&& (!arg.process_error_objects || storage.subtree_error_objects)
-					&& (!arg.process_log_objects || storage.subtree_log_objects)
-					&& (!arg.process_output_objects || storage.subtree_output_objects)
+				storage.contains(tg::process::storage::Set::SUBTREE)
+					&& (!arg.process_command_objects
+						|| storage.contains(tg::process::storage::Set::SUBTREE_COMMAND_OBJECTS))
+					&& (!arg.process_error_objects
+						|| storage.contains(tg::process::storage::Set::SUBTREE_ERROR_OBJECTS))
+					&& (!arg.process_log_objects
+						|| storage.contains(tg::process::storage::Set::SUBTREE_LOG_OBJECTS))
+					&& (!arg.process_output_objects
+						|| storage.contains(tg::process::storage::Set::SUBTREE_OUTPUT_OBJECTS))
 			} else {
-				(!arg.process_command_objects || storage.node_command_objects)
-					&& (!arg.process_error_objects || storage.node_error_objects)
-					&& (!arg.process_log_objects || storage.node_log_objects)
-					&& (!arg.process_output_objects || storage.node_output_objects)
+				(!arg.process_command_objects
+					|| storage.contains(tg::process::storage::Set::NODE_COMMAND_OBJECTS))
+					&& (!arg.process_error_objects
+						|| storage.contains(tg::process::storage::Set::NODE_ERROR_OBJECTS))
+					&& (!arg.process_log_objects
+						|| storage.contains(tg::process::storage::Set::NODE_LOG_OBJECTS))
+					&& (!arg.process_output_objects
+						|| storage.contains(tg::process::storage::Set::NODE_OUTPUT_OBJECTS))
 			}
 		});
 		let stored = objects_stored && processes_stored;

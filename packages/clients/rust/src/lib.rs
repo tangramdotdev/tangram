@@ -45,7 +45,6 @@ pub use {
 		selector::Selector,
 		session::Session,
 		specifier::Specifier,
-		storage::Storage,
 		symlink::Handle as Symlink,
 		tag::Handle as Tag,
 		template::Handle as Template,

@@ -96,7 +96,7 @@ async fn reproduce(index: &Index, late: bool) {
 		solvable: Some(false),
 		solved: Some(true),
 	};
-	leaf.storage.subtree = true;
+	leaf.storage.insert(tg::object::storage::Set::SUBTREE);
 	put(index, vec![leaf.clone()]).await;
 	if !late {
 		step(index).await;
@@ -236,7 +236,7 @@ fn directory(children: &[(&str, tg::object::Id)]) -> tangram_index::object::put:
 		id,
 		metadata,
 		put: [1; 16],
-		storage: tangram_index::object::Storage::default(),
+		storage: tg::object::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 0,
 	}

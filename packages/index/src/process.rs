@@ -3,7 +3,7 @@ use {
 	tangram_util::serde::{is_default, is_false},
 };
 
-pub use tg::process::Storage;
+pub use tg::process::storage;
 
 pub mod object;
 pub mod put;
@@ -33,7 +33,7 @@ pub struct Process {
 	pub set: Set,
 
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
-	pub storage: Storage,
+	pub storage: storage::Set,
 
 	#[tangram_serialize(id = 3)]
 	pub touched_at: i64,

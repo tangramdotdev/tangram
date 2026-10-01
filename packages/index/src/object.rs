@@ -1,6 +1,6 @@
 use {tangram_client::prelude::*, tangram_util::serde::is_default};
 
-pub use tg::object::Storage;
+pub use tg::object::storage;
 
 pub mod put;
 
@@ -21,7 +21,7 @@ pub struct Object {
 	pub reference_count: u64,
 
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_default")]
-	pub storage: Storage,
+	pub storage: storage::Set,
 
 	#[tangram_serialize(id = 4)]
 	pub touched_at: i64,

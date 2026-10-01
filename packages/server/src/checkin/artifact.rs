@@ -185,7 +185,7 @@ impl Session {
 			node.object_complete = true;
 			node.permissions
 				.insert(tg::authorization::permission::object::Set::NODE);
-			node.storage = object.storage.clone();
+			node.storage = object.storage;
 		}
 
 		// Record the newly created objects' children.
@@ -490,7 +490,11 @@ impl Session {
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&index).unwrap();
-		node.storage = tangram_index::object::Storage { subtree: stored };
+		node.storage = if stored {
+			tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE
+		} else {
+			tg::object::storage::Set::NODE
+		};
 		node.metadata = Some(metadata);
 		node.edge.replace(tg::graph::data::Edge::Object(id.clone()));
 		graph.insert_id(index, id);
@@ -821,7 +825,11 @@ impl Session {
 
 		// Update the node.
 		let node = graph.nodes.get_mut(&global).unwrap();
-		node.storage = tangram_index::object::Storage { subtree: stored };
+		node.storage = if stored {
+			tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE
+		} else {
+			tg::object::storage::Set::NODE
+		};
 		node.metadata = Some(metadata);
 
 		Ok(())
@@ -848,7 +856,10 @@ impl Session {
 			if let Some(nodes) = graph.ids.get(id) {
 				if let Some(index) = nodes.first() {
 					let node = graph.nodes.get(index).unwrap();
-					(node.storage.subtree, node.metadata.clone())
+					(
+						node.storage.contains(tg::object::storage::Set::SUBTREE),
+						node.metadata.clone(),
+					)
 				} else {
 					(false, None)
 				}
@@ -862,7 +873,10 @@ impl Session {
 								id: id_,
 								metadata,
 								storage,
-							} if id_ == id => Some((storage.subtree, metadata.clone())),
+							} if id_ == id => Some((
+								storage.contains(tg::object::storage::Set::SUBTREE),
+								metadata.clone(),
+							)),
 							Contents::Write(output) if &output.id == id => {
 								Some((true, Some(output.metadata.clone())))
 							},
@@ -960,7 +974,11 @@ impl Session {
 			id: id.clone(),
 			metadata: metadata.clone(),
 			put,
-			storage: tangram_index::object::Storage { subtree: stored },
+			storage: if stored {
+				tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE
+			} else {
+				tg::object::storage::Set::NODE
+			},
 			time_to_touch,
 			touched_at,
 		};
@@ -1099,7 +1117,7 @@ impl Session {
 			id: id.clone(),
 			metadata: node.metadata.clone().unwrap_or_default(),
 			put,
-			storage: node.storage.clone(),
+			storage: node.storage,
 			time_to_touch: self.server.config.object.time_to_touch,
 			touched_at,
 		};
@@ -1554,7 +1572,7 @@ impl Session {
 			id: id.clone(),
 			metadata,
 			put,
-			storage: tangram_index::object::Storage { subtree: true },
+			storage: tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
 			time_to_touch,
 			touched_at,
 		};

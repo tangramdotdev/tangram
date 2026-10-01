@@ -274,7 +274,7 @@ impl Session {
 			referrers: im::HashSet::default(),
 			solvable: false,
 			solved: true,
-			storage: tangram_index::object::Storage::default(),
+			storage: tg::object::storage::Set::NODE,
 			variant,
 		};
 		state.graph.nodes.insert(index, Box::new(node));

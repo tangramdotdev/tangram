@@ -1403,12 +1403,16 @@ impl Index {
 		};
 		let mut changed = false;
 
-		if !object.storage.subtree {
-			let value = child_objects
-				.iter()
-				.all(|child| child.as_ref().is_some_and(|object| object.storage.subtree));
+		if object.storage.contains(tg::object::storage::Set::NODE)
+			&& !object.storage.contains(tg::object::storage::Set::SUBTREE)
+		{
+			let value = child_objects.iter().all(|child| {
+				child.as_ref().is_some_and(|object| {
+					object.storage.contains(tg::object::storage::Set::SUBTREE)
+				})
+			});
 			if value {
-				object.storage.subtree = true;
+				object.storage.insert(tg::object::storage::Set::SUBTREE);
 				changed = true;
 			}
 		}
@@ -3033,101 +3037,178 @@ impl Index {
 			}
 		}
 
-		if process.set.command_objects && !process.storage.node_command_objects {
-			let value = command_objects
-				.iter()
-				.all(|option| option.as_ref().is_some_and(|object| object.storage.subtree));
+		if process.set.command_objects
+			&& !process
+				.storage
+				.contains(tg::process::storage::Set::NODE_COMMAND_OBJECTS)
+		{
+			let value = command_objects.iter().all(|option| {
+				option.as_ref().is_some_and(|object| {
+					object.storage.contains(tg::object::storage::Set::SUBTREE)
+				})
+			});
 			if value {
-				process.storage.node_command_objects = true;
+				process
+					.storage
+					.insert(tg::process::storage::Set::NODE_COMMAND_OBJECTS);
 				changed = true;
 			}
 		}
 
-		if process.set.error_objects && !process.storage.node_error_objects {
-			let value = error_objects
-				.iter()
-				.all(|option| option.as_ref().is_some_and(|object| object.storage.subtree));
+		if process.set.error_objects
+			&& !process
+				.storage
+				.contains(tg::process::storage::Set::NODE_ERROR_OBJECTS)
+		{
+			let value = error_objects.iter().all(|option| {
+				option.as_ref().is_some_and(|object| {
+					object.storage.contains(tg::object::storage::Set::SUBTREE)
+				})
+			});
 			if value {
-				process.storage.node_error_objects = true;
+				process
+					.storage
+					.insert(tg::process::storage::Set::NODE_ERROR_OBJECTS);
 				changed = true;
 			}
 		}
 
-		if process.set.log_objects && !process.storage.node_log_objects {
-			let value = log_objects
-				.iter()
-				.all(|option| option.as_ref().is_some_and(|object| object.storage.subtree));
+		if process.set.log_objects
+			&& !process
+				.storage
+				.contains(tg::process::storage::Set::NODE_LOG_OBJECTS)
+		{
+			let value = log_objects.iter().all(|option| {
+				option.as_ref().is_some_and(|object| {
+					object.storage.contains(tg::object::storage::Set::SUBTREE)
+				})
+			});
 			if value {
-				process.storage.node_log_objects = true;
+				process
+					.storage
+					.insert(tg::process::storage::Set::NODE_LOG_OBJECTS);
 				changed = true;
 			}
 		}
 
-		if process.set.output_objects && !process.storage.node_output_objects {
-			let value = output_objects
-				.iter()
-				.all(|option| option.as_ref().is_some_and(|object| object.storage.subtree));
+		if process.set.output_objects
+			&& !process
+				.storage
+				.contains(tg::process::storage::Set::NODE_OUTPUT_OBJECTS)
+		{
+			let value = output_objects.iter().all(|option| {
+				option.as_ref().is_some_and(|object| {
+					object.storage.contains(tg::object::storage::Set::SUBTREE)
+				})
+			});
 			if value {
-				process.storage.node_output_objects = true;
+				process
+					.storage
+					.insert(tg::process::storage::Set::NODE_OUTPUT_OBJECTS);
 				changed = true;
 			}
 		}
 
-		if process.set.children && !process.storage.subtree {
-			let value = children
-				.iter()
-				.all(|child| child.as_ref().is_some_and(|child| child.storage.subtree));
+		if process.set.children
+			&& process.storage.contains(tg::process::storage::Set::NODE)
+			&& !process.storage.contains(tg::process::storage::Set::SUBTREE)
+		{
+			let value = children.iter().all(|child| {
+				child
+					.as_ref()
+					.is_some_and(|child| child.storage.contains(tg::process::storage::Set::SUBTREE))
+			});
 			if value {
-				process.storage.subtree = true;
+				process.storage.insert(tg::process::storage::Set::SUBTREE);
 				changed = true;
 			}
 		}
 
 		if process.set.children {
-			if !process.storage.subtree_command_objects && process.storage.node_command_objects {
+			if !process
+				.storage
+				.contains(tg::process::storage::Set::SUBTREE_COMMAND_OBJECTS)
+				&& process
+					.storage
+					.contains(tg::process::storage::Set::NODE_COMMAND_OBJECTS)
+			{
 				let value = children.iter().all(|child| {
-					child
-						.as_ref()
-						.is_some_and(|child| child.storage.subtree_command_objects)
+					child.as_ref().is_some_and(|child| {
+						child
+							.storage
+							.contains(tg::process::storage::Set::SUBTREE_COMMAND_OBJECTS)
+					})
 				});
 				if value {
-					process.storage.subtree_command_objects = true;
+					process
+						.storage
+						.insert(tg::process::storage::Set::SUBTREE_COMMAND_OBJECTS);
 					changed = true;
 				}
 			}
 
-			if !process.storage.subtree_error_objects && process.storage.node_error_objects {
+			if !process
+				.storage
+				.contains(tg::process::storage::Set::SUBTREE_ERROR_OBJECTS)
+				&& process
+					.storage
+					.contains(tg::process::storage::Set::NODE_ERROR_OBJECTS)
+			{
 				let value = children.iter().all(|child| {
-					child
-						.as_ref()
-						.is_some_and(|child| child.storage.subtree_error_objects)
+					child.as_ref().is_some_and(|child| {
+						child
+							.storage
+							.contains(tg::process::storage::Set::SUBTREE_ERROR_OBJECTS)
+					})
 				});
 				if value {
-					process.storage.subtree_error_objects = true;
+					process
+						.storage
+						.insert(tg::process::storage::Set::SUBTREE_ERROR_OBJECTS);
 					changed = true;
 				}
 			}
 
-			if !process.storage.subtree_log_objects && process.storage.node_log_objects {
+			if !process
+				.storage
+				.contains(tg::process::storage::Set::SUBTREE_LOG_OBJECTS)
+				&& process
+					.storage
+					.contains(tg::process::storage::Set::NODE_LOG_OBJECTS)
+			{
 				let value = children.iter().all(|child| {
-					child
-						.as_ref()
-						.is_some_and(|child| child.storage.subtree_log_objects)
+					child.as_ref().is_some_and(|child| {
+						child
+							.storage
+							.contains(tg::process::storage::Set::SUBTREE_LOG_OBJECTS)
+					})
 				});
 				if value {
-					process.storage.subtree_log_objects = true;
+					process
+						.storage
+						.insert(tg::process::storage::Set::SUBTREE_LOG_OBJECTS);
 					changed = true;
 				}
 			}
 
-			if !process.storage.subtree_output_objects && process.storage.node_output_objects {
+			if !process
+				.storage
+				.contains(tg::process::storage::Set::SUBTREE_OUTPUT_OBJECTS)
+				&& process
+					.storage
+					.contains(tg::process::storage::Set::NODE_OUTPUT_OBJECTS)
+			{
 				let value = children.iter().all(|child| {
-					child
-						.as_ref()
-						.is_some_and(|child| child.storage.subtree_output_objects)
+					child.as_ref().is_some_and(|child| {
+						child
+							.storage
+							.contains(tg::process::storage::Set::SUBTREE_OUTPUT_OBJECTS)
+					})
 				});
 				if value {
-					process.storage.subtree_output_objects = true;
+					process
+						.storage
+						.insert(tg::process::storage::Set::SUBTREE_OUTPUT_OBJECTS);
 					changed = true;
 				}
 			}

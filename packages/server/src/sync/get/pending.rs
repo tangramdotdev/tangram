@@ -173,7 +173,7 @@ impl Session {
 				let request = tg::sync::control::ClientRequestArg::process(
 					id.clone(),
 					permissions,
-					Some(tg::process::Storage::default()),
+					tg::process::storage::Set::NODE,
 				);
 				self.try_get_with_sync_wait(&tokens, request, |output| {
 					let id = id.clone();

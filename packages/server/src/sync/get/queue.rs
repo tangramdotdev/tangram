@@ -234,7 +234,7 @@ impl Session {
 						permissions,
 						put: Some(object.put),
 						requested: None,
-						storage: Some(storage.clone()),
+						storage: Some(storage),
 					};
 					state.graph.lock().unwrap().update_object_local(arg);
 					let availability = state
@@ -517,7 +517,7 @@ impl Session {
 							metadata: Some(metadata.clone()),
 							permissions,
 							requested: request.then_some(Requested { eager: node.eager }),
-							storage: Some(storage.clone()),
+							storage: Some(*storage),
 						};
 						graph.update_process_local(arg);
 						let availability = graph.get_process_local_availability(&node.id);

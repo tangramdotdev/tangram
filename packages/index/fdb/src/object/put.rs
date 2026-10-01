@@ -46,9 +46,10 @@ impl Index {
 			.clone()
 			.or_else(|| merged.and_then(|existing| existing.checkout.clone()));
 
-		let storage = tangram_index::object::Storage {
-			subtree: arg.storage.subtree || merged.is_some_and(|existing| existing.storage.subtree),
-		};
+		let mut storage = arg.storage;
+		if let Some(existing) = merged {
+			storage.insert(existing.storage);
+		}
 
 		let mut metadata = arg.metadata.clone();
 		if let Some(existing) = merged {

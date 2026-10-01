@@ -72,7 +72,7 @@ impl Session {
 	pub(crate) async fn compute_process_availability(
 		&self,
 		id: &tg::process::Id,
-		storage: tangram_index::process::Storage,
+		storage: tg::process::storage::Set,
 		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::process::Availability>> {
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
@@ -83,15 +83,19 @@ impl Session {
 			return Ok(None);
 		};
 		Ok(Self::compute_process_availability_with_permissions(
-			&storage,
+			storage,
 			permissions,
 		))
 	}
 
 	pub(crate) fn compute_process_availability_with_permissions(
-		storage: &tangram_index::process::Storage,
+		storage: tg::process::storage::Set,
 		permissions: tg::authorization::permission::Set,
 	) -> Option<tg::process::Availability> {
+		if !storage.contains(tg::process::storage::Set::NODE) {
+			return None;
+		}
+
 		let mut output = tg::process::Availability::default();
 		let mut permitted = false;
 
@@ -104,59 +108,69 @@ impl Session {
 		if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Subtree,
 		)) {
-			output.subtree = storage.subtree;
+			output.subtree = storage.contains(tg::process::storage::Set::SUBTREE);
 			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::SubtreeCommandObjects,
 		)) {
-			output.node_command_objects = storage.node_command_objects;
-			output.subtree_command_objects = storage.subtree_command_objects;
+			output.node_command_objects =
+				storage.contains(tg::process::storage::Set::NODE_COMMAND_OBJECTS);
+			output.subtree_command_objects =
+				storage.contains(tg::process::storage::Set::SUBTREE_COMMAND_OBJECTS);
 			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::NodeCommandObjects,
 		)) {
-			output.node_command_objects = storage.node_command_objects;
+			output.node_command_objects =
+				storage.contains(tg::process::storage::Set::NODE_COMMAND_OBJECTS);
 			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::SubtreeErrorObjects,
 		)) {
-			output.node_error_objects = storage.node_error_objects;
-			output.subtree_error_objects = storage.subtree_error_objects;
+			output.node_error_objects =
+				storage.contains(tg::process::storage::Set::NODE_ERROR_OBJECTS);
+			output.subtree_error_objects =
+				storage.contains(tg::process::storage::Set::SUBTREE_ERROR_OBJECTS);
 			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::NodeErrorObjects,
 		)) {
-			output.node_error_objects = storage.node_error_objects;
+			output.node_error_objects =
+				storage.contains(tg::process::storage::Set::NODE_ERROR_OBJECTS);
 			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::SubtreeLogObjects,
 		)) {
-			output.node_log_objects = storage.node_log_objects;
-			output.subtree_log_objects = storage.subtree_log_objects;
+			output.node_log_objects = storage.contains(tg::process::storage::Set::NODE_LOG_OBJECTS);
+			output.subtree_log_objects =
+				storage.contains(tg::process::storage::Set::SUBTREE_LOG_OBJECTS);
 			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::NodeLogObjects,
 		)) {
-			output.node_log_objects = storage.node_log_objects;
+			output.node_log_objects = storage.contains(tg::process::storage::Set::NODE_LOG_OBJECTS);
 			permitted = true;
 		}
 
 		if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::SubtreeOutputObjects,
 		)) {
-			output.node_output_objects = storage.node_output_objects;
-			output.subtree_output_objects = storage.subtree_output_objects;
+			output.node_output_objects =
+				storage.contains(tg::process::storage::Set::NODE_OUTPUT_OBJECTS);
+			output.subtree_output_objects =
+				storage.contains(tg::process::storage::Set::SUBTREE_OUTPUT_OBJECTS);
 			permitted = true;
 		} else if permissions.contains(tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::NodeOutputObjects,
 		)) {
-			output.node_output_objects = storage.node_output_objects;
+			output.node_output_objects =
+				storage.contains(tg::process::storage::Set::NODE_OUTPUT_OBJECTS);
 			permitted = true;
 		}
 

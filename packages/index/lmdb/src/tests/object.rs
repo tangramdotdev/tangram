@@ -27,7 +27,7 @@ fn object_arg(
 		id,
 		metadata: complete_metadata(),
 		put: [1; 16],
-		storage: tangram_index::object::Storage { subtree: true },
+		storage: tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 10,
 	}

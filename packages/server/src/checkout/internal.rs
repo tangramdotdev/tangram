@@ -543,7 +543,11 @@ impl Session {
 			.try_get_objects(&ids)
 			.await?
 			.iter()
-			.all(|object| object.as_ref().is_some_and(|object| object.storage.subtree));
+			.all(|object| {
+				object.as_ref().is_some_and(|object| {
+					object.storage.contains(tg::object::storage::Set::SUBTREE)
+				})
+			});
 		if stored {
 			let permission = tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
@@ -591,7 +595,11 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to check if the artifacts are available"))?
 			.iter()
-			.all(|object| object.as_ref().is_some_and(|object| object.storage.subtree));
+			.all(|object| {
+				object.as_ref().is_some_and(|object| {
+					object.storage.contains(tg::object::storage::Set::SUBTREE)
+				})
+			});
 		if stored {
 			let permission = tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
@@ -661,7 +669,11 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to check if the artifacts are available"))?
 			.iter()
-			.all(|object| object.as_ref().is_some_and(|object| object.storage.subtree));
+			.all(|object| {
+				object.as_ref().is_some_and(|object| {
+					object.storage.contains(tg::object::storage::Set::SUBTREE)
+				})
+			});
 		if stored {
 			let permission = tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,

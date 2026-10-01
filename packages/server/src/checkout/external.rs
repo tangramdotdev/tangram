@@ -152,7 +152,7 @@ impl Session {
 			)?
 			.map(|object| object.storage)
 			.unwrap_or_default();
-		if storage.subtree {
+		if storage.contains(tg::object::storage::Set::SUBTREE) {
 			let permission = tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
 			);
@@ -191,7 +191,7 @@ impl Session {
 			)?
 			.map(|object| object.storage)
 			.unwrap_or_default();
-		if storage.subtree {
+		if storage.contains(tg::object::storage::Set::SUBTREE) {
 			let permission = tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
 			);
@@ -248,7 +248,7 @@ impl Session {
 			)?
 			.map(|object| object.storage)
 			.unwrap_or_default();
-		if storage.subtree {
+		if storage.contains(tg::object::storage::Set::SUBTREE) {
 			let permission = tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
 			);

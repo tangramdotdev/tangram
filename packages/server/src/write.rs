@@ -649,7 +649,7 @@ impl Session {
 				id,
 				metadata: blob.metadata.clone(),
 				put: blob.put,
-				storage: tangram_index::object::Storage { subtree: true },
+				storage: tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
 				time_to_touch,
 				touched_at,
 			};

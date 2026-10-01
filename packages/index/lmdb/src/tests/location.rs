@@ -22,7 +22,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 			output: None,
 			parent: None,
 			sandbox: None,
-			storage: tangram_index::process::Storage::default(),
+			storage: tg::process::storage::Set::NODE,
 			time_to_touch: std::time::Duration::from_secs(60),
 			touched_at: 1,
 		};

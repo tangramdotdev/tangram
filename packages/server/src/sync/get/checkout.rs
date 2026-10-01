@@ -41,7 +41,7 @@ struct Blob {
 	put: [u8; 16],
 	received: bool,
 	registered: bool,
-	storage: Option<tangram_index::object::Storage>,
+	storage: tg::object::storage::Set,
 	transferred_bytes: u64,
 }
 
@@ -334,7 +334,7 @@ impl Session {
 			put,
 			received: true,
 			registered: true,
-			storage: None,
+			storage: tg::object::storage::Set::empty(),
 			transferred_bytes,
 		};
 		Self::sync_get_checkout_insert_blob(state, id, blob);
@@ -459,7 +459,7 @@ impl Session {
 				put,
 				received: false,
 				registered,
-				storage: storage.clone(),
+				storage: storage.unwrap_or_default(),
 				transferred_bytes: 0,
 			};
 			let object_id = id.clone().into();
@@ -878,7 +878,7 @@ impl Session {
 				length: Some(blob.length),
 				metadata: blob.metadata.take(),
 				put: blob.put,
-				storage: blob.storage.take(),
+				storage: std::mem::take(&mut blob.storage),
 				transferred_bytes: blob.transferred_bytes,
 			};
 			state

@@ -26,7 +26,7 @@ fn object_arg(
 			..Default::default()
 		},
 		put: [1; 16],
-		storage: tangram_index::object::Storage::default(),
+		storage: tg::object::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,
 	}
@@ -59,7 +59,7 @@ fn process_arg(
 		output: Some(None),
 		parent: None,
 		sandbox: None,
-		storage: tangram_index::process::Storage::default(),
+		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,
 	}
@@ -101,7 +101,7 @@ async fn command_objects_can_be_empty_or_multiple_without_a_stored_command() {
 			.iter()
 			.map(|id| {
 				let mut object = object_arg(id.clone(), [], 1);
-				object.storage.subtree = true;
+				object.storage.insert(tg::object::storage::Set::SUBTREE);
 				tangram_index::batch::Item::PutObject(object)
 			})
 			.collect::<Vec<_>>();
@@ -126,7 +126,11 @@ async fn command_objects_can_be_empty_or_multiple_without_a_stored_command() {
 			.unwrap();
 		assert_eq!(process.command_id, command_id);
 		assert!(process.set.command_objects);
-		assert!(process.storage.node_command_objects);
+		assert!(
+			process
+				.storage
+				.contains(tg::process::storage::Set::NODE_COMMAND_OBJECTS)
+		);
 		assert_eq!(process.metadata.node.command_objects.count, Some(count));
 		assert_eq!(process.metadata.node.command_objects.size, Some(count));
 		assert!(index.try_get_object(&command_id).await.unwrap().is_none());
@@ -360,7 +364,7 @@ async fn account_storage_traverses_new_process_relationships() {
 		output: None,
 		parent: None,
 		sandbox: None,
-		storage: tangram_index::process::Storage::default(),
+		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
 		touched_at: 1,
 	};
@@ -888,4 +892,50 @@ fn rejects_zero_usage_partitions() {
 		write_operation_batch_size: 100_000,
 	});
 	assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn subtree_storage_requires_node_storage() {
+	let (_dir, index) = new_index(1);
+	let id = object_id(900);
+	let mut object = object_arg(id.clone(), [], 1);
+	object.storage = tg::object::storage::Set::empty();
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutObject(object.clone())],
+	};
+	index.batch(arg).await.unwrap();
+	loop {
+		let output = index
+			.update_batch(tangram_index::update::Kind::StorageAndMetadata, 100)
+			.await
+			.unwrap();
+		if output.count == 0 {
+			break;
+		}
+	}
+	assert!(
+		index
+			.try_get_object(&id)
+			.await
+			.unwrap()
+			.unwrap()
+			.storage
+			.is_empty()
+	);
+	object.storage = tg::object::storage::Set::NODE;
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutObject(object)],
+	};
+	index.batch(arg).await.unwrap();
+	loop {
+		let output = index
+			.update_batch(tangram_index::update::Kind::StorageAndMetadata, 100)
+			.await
+			.unwrap();
+		if output.count == 0 {
+			break;
+		}
+	}
+	let storage = index.try_get_object(&id).await.unwrap().unwrap().storage;
+	assert!(storage.contains(tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE));
 }

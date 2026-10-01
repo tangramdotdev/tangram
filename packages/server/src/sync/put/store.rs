@@ -261,7 +261,7 @@ impl Session {
 								tg::sync::control::ClientRequestArg::object(
 									object.node.clone(),
 									tg::authorization::permission::object::Set::NODE,
-									Some(tg::object::Storage::default()),
+									tg::object::storage::Set::NODE,
 								),
 								|control| {
 									let object = object.clone();
@@ -679,7 +679,7 @@ impl Session {
 					let request = tg::sync::control::ClientRequestArg::process(
 						process.node.clone(),
 						tg::authorization::permission::process::Set::NODE,
-						Some(tg::process::Storage::default()),
+						tg::process::storage::Set::NODE,
 					);
 					let tokens = &process.options.tokens;
 					self.sync_put_pending(state, process.node.clone().into())

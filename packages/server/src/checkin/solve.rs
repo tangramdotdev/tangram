@@ -1172,7 +1172,7 @@ impl Session {
 				.and_then(|metadata| metadata.subtree.solvable)
 				.unwrap_or(true),
 			solved: false,
-			storage: tangram_index::object::Storage::default(),
+			storage: tg::object::storage::Set::NODE,
 			variant,
 		};
 
@@ -1336,7 +1336,7 @@ impl Session {
 			referrers: im::HashSet::default(),
 			solvable: true,
 			solved: false,
-			storage: tangram_index::object::Storage::default(),
+			storage: tg::object::storage::Set::NODE,
 			variant,
 		};
 

@@ -226,7 +226,7 @@ impl Session {
 				permissions,
 				put: output.as_ref().map(|object| object.put),
 				requested: None,
-				storage: output.as_ref().map(|object| object.storage.clone()),
+				storage: output.as_ref().map(|object| object.storage),
 			};
 			state.graph.lock().unwrap().update_object_local(arg);
 			let mut availability = state
@@ -258,7 +258,7 @@ impl Session {
 					let request = tg::sync::control::ClientRequestArg::object(
 						node.id.clone(),
 						tg::authorization::permission::object::Set::NODE,
-						Some(tg::object::Storage::default()),
+						tg::object::storage::Set::NODE,
 					);
 					self.try_get_with_sync_wait(&tokens, request.clone(), |output| {
 						let id = node.id.clone();
@@ -525,7 +525,7 @@ impl Session {
 				metadata: output.as_ref().map(|p| p.metadata.clone()),
 				permissions,
 				requested: None,
-				storage: output.as_ref().map(|p| p.storage.clone()),
+				storage: output.as_ref().map(|p| p.storage),
 			};
 			state.graph.lock().unwrap().update_process_local(arg);
 			let availability = state
@@ -699,7 +699,7 @@ impl Session {
 					let stored = object
 						.unwrap_object_ref()
 						.local_storage()
-						.is_some_and(|storage| storage.subtree);
+						.contains(tg::object::storage::Set::SUBTREE);
 					if stored {
 						process_objects.insert(tg::object::Id::try_from(id.clone())?);
 					}
@@ -1087,7 +1087,7 @@ impl Session {
 							})
 							.collect::<tg::Result<std::collections::BTreeSet<_>>>()?;
 						let metadata = node.metadata().cloned().unwrap();
-						let storage = node.local_storage().cloned().unwrap();
+						let storage = node.local_storage();
 						let checkout = graph.checkout_objects().get(&id).cloned();
 						let arg = tangram_index::object::put::Arg {
 							checkout,
@@ -1116,7 +1116,7 @@ impl Session {
 							.clone()
 							.ok_or_else(|| tg::error!("expected the process children to be set"))?;
 						let command_id = data.command.command_id()?.into();
-						let storage = node.local_storage().cloned().unwrap();
+						let storage = node.local_storage();
 						let metadata = node.metadata().cloned().unwrap();
 						let objects = node
 							.objects()

@@ -71,7 +71,7 @@ impl Session {
 	pub(crate) async fn compute_object_availability(
 		&self,
 		id: &tg::object::Id,
-		storage: tangram_index::object::Storage,
+		storage: tg::object::storage::Set,
 		tokens: &[tg::authorization::Token],
 	) -> tg::Result<Option<tg::object::Availability>> {
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
@@ -79,21 +79,25 @@ impl Session {
 			return Ok(None);
 		};
 		let permissions = authorization.permissions;
-		let output = Self::compute_object_availability_with_permissions(&storage, permissions);
+		let output = Self::compute_object_availability_with_permissions(storage, permissions);
 
 		Ok(output)
 	}
 
 	pub(crate) fn compute_object_availability_with_permissions(
-		storage: &tangram_index::object::Storage,
+		storage: tg::object::storage::Set,
 		permissions: tg::authorization::permission::Set,
 	) -> Option<tg::object::Availability> {
+		if !storage.contains(tg::object::storage::Set::NODE) {
+			return None;
+		}
+
 		let subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
 		if permissions.contains(subtree) {
 			let availability = tg::object::Availability {
-				subtree: storage.subtree,
+				subtree: storage.contains(tg::object::storage::Set::SUBTREE),
 			};
 
 			return Some(availability);

@@ -78,9 +78,9 @@ impl Index {
 			set.merge(&existing.set);
 		}
 
-		let mut storage = arg.storage.clone();
+		let mut storage = arg.storage;
 		if merge && let Some(ref existing) = existing {
-			storage.merge(&existing.storage);
+			storage.insert(existing.storage);
 		}
 
 		let mut metadata = arg.metadata.clone();

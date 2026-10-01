@@ -576,7 +576,7 @@ impl Session {
 						let request = tg::sync::control::ClientRequestArg::object(
 							id.clone(),
 							tg::authorization::permission::object::Set::NODE,
-							None,
+							tg::object::storage::Set::empty(),
 						);
 						self.try_get_with_sync_wait(&resource.options.tokens, request, |output| {
 							let resource = resource.clone();
@@ -762,7 +762,7 @@ impl Session {
 						let request = tg::sync::control::ClientRequestArg::process(
 							id.clone(),
 							tg::authorization::permission::process::Set::NODE,
-							None,
+							tg::process::storage::Set::empty(),
 						);
 						self.try_get_with_sync_wait(&resource.options.tokens, request, |output| {
 							let resource = resource.clone();

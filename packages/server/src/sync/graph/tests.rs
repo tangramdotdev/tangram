@@ -85,7 +85,7 @@ fn received_object_is_not_stored_until_written() {
 		permissions: None,
 		put: None,
 		requested: None,
-		storage: Some(tg::object::Storage::default()),
+		storage: Some(tg::object::storage::Set::NODE),
 	};
 	graph.update_object_local(update);
 	assert!(graph.get_object_local_availability(&id).subtree);
@@ -279,10 +279,16 @@ fn process_facts_match_recomputation_in_every_arrival_order() {
 					metadata.as_ref(),
 					"order {order:?}, event {event}"
 				);
-				assert_eq!(node.local_storage().cloned().unwrap_or_default(), storage);
+				assert_eq!(node.local_storage(), storage);
 				assert_eq!(
 					serde_json::to_value(graph.get_process_local_availability(id)).unwrap(),
-					serde_json::to_value(storage).unwrap()
+					serde_json::to_value(Graph::compute_process_availability_from_permissions(
+						storage,
+						Some(tg::authorization::permission::Set::Process(
+							tg::authorization::permission::process::Set::all()
+						))
+					))
+					.unwrap()
 				);
 			}
 		}
@@ -488,7 +494,11 @@ fn process_metadata_and_availability_settle_without_finalization() {
 	assert_eq!(metadata.subtree.command_objects.count, Some(2));
 	assert_eq!(metadata.subtree.command_objects.depth, Some(1));
 	assert_eq!(metadata.subtree.output_objects.size, Some(1));
-	assert!(parent.local_storage().unwrap().subtree_command_objects);
+	assert!(
+		parent
+			.local_storage()
+			.contains(tg::process::storage::Set::SUBTREE_COMMAND_OBJECTS)
+	);
 	assert!(parent.local_availability().unwrap().subtree_command_objects);
 	assert!(parent.local_availability().unwrap().subtree_output_objects);
 }
@@ -507,7 +517,10 @@ fn process_log_metadata_waits_for_compaction() {
 	update_process(&mut graph, &child, &child_data);
 	let node = graph.nodes()[&tg::Id::from(child.clone())].unwrap_process_ref();
 	assert_eq!(node.metadata().unwrap().node.log_objects.count, None);
-	assert!(node.local_storage().unwrap().node_log_objects);
+	assert!(
+		node.local_storage()
+			.contains(tg::process::storage::Set::NODE_LOG_OBJECTS)
+	);
 	let node = graph.nodes()[&tg::Id::from(parent.clone())].unwrap_process_ref();
 	assert_eq!(node.metadata().unwrap().subtree.log_objects.count, None);
 	assert!(node.local_availability().unwrap().subtree_log_objects);
@@ -533,7 +546,7 @@ fn object_control_updates_keep_storage_and_permissions_independent() {
 	let id = tg::object::Id::from(tg::file::Id::new(b"object"));
 	let output = GetServerResponseOutput::Object(GetObjectServerResponseOutput {
 		permissions: tg::authorization::permission::object::Set::SUBTREE,
-		storage: Some(tg::object::Storage { subtree: false }),
+		storage: tg::object::storage::Set::NODE,
 	});
 	graph
 		.update_node_local_control_output(&id.clone().into(), &output)
@@ -542,7 +555,7 @@ fn object_control_updates_keep_storage_and_permissions_independent() {
 
 	let output = GetServerResponseOutput::Object(GetObjectServerResponseOutput {
 		permissions: tg::authorization::permission::object::Set::empty(),
-		storage: Some(tg::object::Storage { subtree: true }),
+		storage: tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
 	});
 	graph
 		.update_node_local_control_output(&id.clone().into(), &output)
@@ -551,7 +564,7 @@ fn object_control_updates_keep_storage_and_permissions_independent() {
 
 	let output = GetServerResponseOutput::Object(GetObjectServerResponseOutput {
 		permissions: tg::authorization::permission::object::Set::empty(),
-		storage: None,
+		storage: tg::object::storage::Set::empty(),
 	});
 	graph
 		.update_node_local_control_output(&id.clone().into(), &output)
@@ -567,11 +580,9 @@ fn process_control_updates_merge_individual_fields() {
 	let id = tg::process::Id::new();
 	let output = GetServerResponseOutput::Process(GetProcessServerResponseOutput {
 		permissions: tg::authorization::permission::process::Set::NODE_LOG_OBJECTS,
-		storage: Some(tg::process::Storage {
-			node_log_objects: true,
-			node_output_objects: true,
-			..Default::default()
-		}),
+		storage: tg::process::storage::Set::NODE
+			| tg::process::storage::Set::NODE_LOG_OBJECTS
+			| tg::process::storage::Set::NODE_OUTPUT_OBJECTS,
 	});
 	graph
 		.update_node_local_control_output(&id.clone().into(), &output)
@@ -582,10 +593,7 @@ fn process_control_updates_merge_individual_fields() {
 
 	let output = GetServerResponseOutput::Process(GetProcessServerResponseOutput {
 		permissions: tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS,
-		storage: Some(tg::process::Storage {
-			node_error_objects: true,
-			..Default::default()
-		}),
+		storage: tg::process::storage::Set::NODE | tg::process::storage::Set::NODE_ERROR_OBJECTS,
 	});
 	graph
 		.update_node_local_control_output(&id.clone().into(), &output)
@@ -598,7 +606,7 @@ fn process_control_updates_merge_individual_fields() {
 		graph
 			.get_process_local_storage(&id)
 			.unwrap()
-			.node_output_objects
+			.contains(tg::process::storage::Set::NODE_OUTPUT_OBJECTS)
 	);
 }
 
@@ -610,21 +618,19 @@ fn control_responses_preserve_storage_and_permissions_on_the_wire() {
 	let outputs = [
 		GetServerResponseOutput::Object(GetObjectServerResponseOutput {
 			permissions: tg::authorization::permission::object::Set::empty(),
-			storage: None,
+			storage: tg::object::storage::Set::empty(),
 		}),
 		GetServerResponseOutput::Object(GetObjectServerResponseOutput {
 			permissions: tg::authorization::permission::object::Set::SUBTREE,
-			storage: Some(tg::object::Storage::default()),
+			storage: tg::object::storage::Set::NODE,
 		}),
 		GetServerResponseOutput::Process(GetProcessServerResponseOutput {
 			permissions: tg::authorization::permission::process::Set::all(),
-			storage: Some(tg::process::Storage {
-				node_command_objects: true,
-				node_error_objects: true,
-				subtree_log_objects: true,
-				subtree_output_objects: true,
-				..Default::default()
-			}),
+			storage: tg::process::storage::Set::NODE
+				| tg::process::storage::Set::NODE_COMMAND_OBJECTS
+				| tg::process::storage::Set::NODE_ERROR_OBJECTS
+				| tg::process::storage::Set::SUBTREE_LOG_OBJECTS
+				| tg::process::storage::Set::SUBTREE_OUTPUT_OBJECTS,
 		}),
 	];
 	for output in outputs {
@@ -650,10 +656,12 @@ fn control_requirements_are_independent_in_either_order() {
 		let permission_request = GetClientRequestArg {
 			node: node.clone(),
 			permissions: tg::authorization::permission::Set::Object(permissions),
-			storage: None,
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 		};
 		let stored_request = GetClientRequestArg {
-			storage: Some(tg::Storage::Object(tg::object::Storage { subtree: true })),
+			storage: tg::storage::Set::Object(
+				tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
+			),
 			..permission_request.clone()
 		};
 		let storage_only_request = GetClientRequestArg {
@@ -673,7 +681,11 @@ fn control_requirements_are_independent_in_either_order() {
 				} else {
 					permissions
 				},
-				storage: stored.then_some(tg::object::Storage { subtree: true }),
+				storage: if stored {
+					tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE
+				} else {
+					tg::object::storage::Set::empty()
+				},
 			});
 			graph
 				.update_node_local_control_output(&node, &output)
@@ -703,7 +715,7 @@ fn control_requirements_are_independent_in_either_order() {
 					graph.nodes[&node]
 						.unwrap_object_ref()
 						.local_storage
-						.is_some(),
+						.contains(tg::object::storage::Set::NODE),
 					stored
 				);
 			}
@@ -748,7 +760,7 @@ fn process_data_and_permissions_do_not_prove_storage() {
 	let request = GetClientRequestArg {
 		node: id.clone().into(),
 		permissions,
-		storage: None,
+		storage: tg::storage::Set::Process(tg::process::storage::Set::empty()),
 	};
 	assert!(
 		graph
@@ -756,9 +768,13 @@ fn process_data_and_permissions_do_not_prove_storage() {
 			.unwrap()
 			.is_some()
 	);
-	assert!(graph.get_process_local_storage(&id).is_none());
+	assert!(
+		graph
+			.get_process_local_storage(&id)
+			.is_some_and(tg::process::storage::Set::is_empty)
+	);
 	let request = GetClientRequestArg {
-		storage: Some(tg::Storage::Process(tg::process::Storage::default())),
+		storage: tg::storage::Set::Process(tg::process::storage::Set::NODE),
 		..request
 	};
 	assert!(
@@ -774,7 +790,7 @@ fn process_data_and_permissions_do_not_prove_storage() {
 		metadata: None,
 		permissions: None,
 		requested: None,
-		storage: Some(tg::process::Storage::default()),
+		storage: Some(tg::process::storage::Set::NODE),
 	};
 	graph.update_process_local(update);
 	assert!(
@@ -784,10 +800,9 @@ fn process_data_and_permissions_do_not_prove_storage() {
 			.is_some()
 	);
 	let request = GetClientRequestArg {
-		storage: Some(tg::Storage::Process(tg::process::Storage {
-			node_command_objects: true,
-			..Default::default()
-		})),
+		storage: tg::storage::Set::Process(
+			tg::process::storage::Set::NODE | tg::process::storage::Set::NODE_COMMAND_OBJECTS,
+		),
 		..request
 	};
 	assert!(
@@ -831,7 +846,7 @@ fn permissions_aggregate_without_storage() {
 		permissions: tg::authorization::permission::Set::Object(
 			tg::authorization::permission::object::Set::SUBTREE,
 		),
-		storage: None,
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
 	};
 	assert!(
 		graph
@@ -841,7 +856,7 @@ fn permissions_aggregate_without_storage() {
 	);
 	let output = GetServerResponseOutput::Object(GetObjectServerResponseOutput {
 		permissions: tg::authorization::permission::object::Set::SUBTREE,
-		storage: None,
+		storage: tg::object::storage::Set::empty(),
 	});
 	graph
 		.update_node_local_control_output(&child.into(), &output)
@@ -856,7 +871,7 @@ fn permissions_aggregate_without_storage() {
 		graph.nodes[&tg::Id::from(parent)]
 			.unwrap_object_ref()
 			.local_storage
-			.is_none()
+			.is_empty()
 	);
 }
 
@@ -906,7 +921,7 @@ fn process_command_permissions_aggregate_without_process_storage() {
 		graph.nodes[&tg::Id::from(parent)]
 			.unwrap_process_ref()
 			.local_storage()
-			.is_none()
+			.is_empty()
 	);
 }
 
@@ -921,18 +936,18 @@ fn control_requests_preserve_storage_variants_on_the_wire() {
 			tg::authorization::permission::Set::Object(
 				tg::authorization::permission::object::Set::NODE,
 			),
-			tg::Storage::Object(tg::object::Storage::default()),
+			tg::storage::Set::Object(tg::object::storage::Set::NODE),
 		),
 		(
 			process,
 			tg::authorization::permission::Set::Process(
 				tg::authorization::permission::process::Set::NODE,
 			),
-			tg::Storage::Process(tg::process::Storage::default()),
+			tg::storage::Set::Process(tg::process::storage::Set::NODE),
 		),
 	] {
 		for permissions in [permissions.empty_like(), permissions] {
-			for storage in [None, Some(storage.clone())] {
+			for storage in [storage.empty_like(), storage] {
 				let request = GetClientRequestArg {
 					node: node.clone(),
 					permissions,
@@ -953,7 +968,7 @@ fn control_requests_preserve_storage_variants_on_the_wire() {
 		permissions: tg::authorization::permission::Set::Object(
 			tg::authorization::permission::object::Set::NODE,
 		),
-		storage: Some(tg::Storage::Process(tg::process::Storage::default())),
+		storage: tg::storage::Set::Process(tg::process::storage::Set::NODE),
 	};
 	assert!(request.validate().is_err());
 }
@@ -1011,7 +1026,8 @@ fn assert_object_reference(graph: &Graph, root: &tg::object::Id, granted: bool) 
 			metadata
 		);
 		assert_eq!(
-			node.local_storage().is_some_and(|storage| storage.subtree),
+			node.local_storage()
+				.contains(tg::object::storage::Set::SUBTREE),
 			stored
 		);
 		assert_eq!(
@@ -1068,15 +1084,12 @@ fn reference_object(graph: &Graph, index: usize) -> (tg::object::metadata::Subtr
 fn reference_process(
 	graph: &Graph,
 	node: &ProcessNode,
-) -> (
-	Option<tg::process::Metadata>,
-	tangram_index::process::Storage,
-) {
+) -> (Option<tg::process::Metadata>, tg::process::storage::Set) {
 	let Some(objects) = node.objects() else {
-		return (None, tangram_index::process::Storage::default());
+		return (None, tg::process::storage::Set::empty());
 	};
 	let mut metadata = tg::process::Metadata::default();
-	let mut storage = tangram_index::process::Storage::default();
+	let mut storage = tg::process::storage::Set::NODE;
 
 	// Recompute the child process subtrees.
 	let children = node.children().map(|children| {
@@ -1101,7 +1114,12 @@ fn reference_process(
 		});
 		// Preserve the existing sync depth convention.
 		metadata.subtree.depth = Some(1);
-		storage.subtree = children.iter().all(|(_, storage)| storage.subtree);
+		if children
+			.iter()
+			.all(|(_, storage)| storage.contains(tg::process::storage::Set::SUBTREE))
+		{
+			storage.insert(tg::process::storage::Set::SUBTREE);
+		}
 	}
 
 	// Aggregate the direct objects and child subtrees for each aspect.
@@ -1135,19 +1153,19 @@ fn reference_process(
 				let (child, stored) = match kind {
 					tangram_index::process::object::Kind::Command => (
 						&child_metadata.subtree.command_objects,
-						child_storage.subtree_command_objects,
+						child_storage.contains(tg::process::storage::Set::SUBTREE_COMMAND_OBJECTS),
 					),
 					tangram_index::process::object::Kind::Error => (
 						&child_metadata.subtree.error_objects,
-						child_storage.subtree_error_objects,
+						child_storage.contains(tg::process::storage::Set::SUBTREE_ERROR_OBJECTS),
 					),
 					tangram_index::process::object::Kind::Log => (
 						&child_metadata.subtree.log_objects,
-						child_storage.subtree_log_objects,
+						child_storage.contains(tg::process::storage::Set::SUBTREE_LOG_OBJECTS),
 					),
 					tangram_index::process::object::Kind::Output => (
 						&child_metadata.subtree.output_objects,
-						child_storage.subtree_output_objects,
+						child_storage.contains(tg::process::storage::Set::SUBTREE_OUTPUT_OBJECTS),
 					),
 				};
 				add_reference_metadata(&mut subtree, child);
@@ -1161,32 +1179,36 @@ fn reference_process(
 			tangram_index::process::object::Kind::Command => (
 				&mut metadata.node.command_objects,
 				&mut metadata.subtree.command_objects,
-				&mut storage.node_command_objects,
-				&mut storage.subtree_command_objects,
+				tg::process::storage::Set::NODE_COMMAND_OBJECTS,
+				tg::process::storage::Set::SUBTREE_COMMAND_OBJECTS,
 			),
 			tangram_index::process::object::Kind::Error => (
 				&mut metadata.node.error_objects,
 				&mut metadata.subtree.error_objects,
-				&mut storage.node_error_objects,
-				&mut storage.subtree_error_objects,
+				tg::process::storage::Set::NODE_ERROR_OBJECTS,
+				tg::process::storage::Set::SUBTREE_ERROR_OBJECTS,
 			),
 			tangram_index::process::object::Kind::Log => (
 				&mut metadata.node.log_objects,
 				&mut metadata.subtree.log_objects,
-				&mut storage.node_log_objects,
-				&mut storage.subtree_log_objects,
+				tg::process::storage::Set::NODE_LOG_OBJECTS,
+				tg::process::storage::Set::SUBTREE_LOG_OBJECTS,
 			),
 			tangram_index::process::object::Kind::Output => (
 				&mut metadata.node.output_objects,
 				&mut metadata.subtree.output_objects,
-				&mut storage.node_output_objects,
-				&mut storage.subtree_output_objects,
+				tg::process::storage::Set::NODE_OUTPUT_OBJECTS,
+				tg::process::storage::Set::SUBTREE_OUTPUT_OBJECTS,
 			),
 		};
 		*node_metadata = direct;
 		*subtree_metadata = subtree;
-		*node_storage = direct_stored;
-		*subtree_storage = subtree_stored;
+		if direct_stored {
+			storage.insert(node_storage);
+		}
+		if subtree_stored {
+			storage.insert(subtree_storage);
+		}
 	}
 
 	(Some(metadata), storage)
@@ -1230,7 +1252,7 @@ fn update_object_data(graph: &mut Graph, id: &tg::object::Id, data: &tg::object:
 		permissions: None,
 		put: None,
 		requested: None,
-		storage: Some(tg::object::Storage::default()),
+		storage: Some(tg::object::storage::Set::NODE),
 	};
 	graph.update_object_local(update);
 }
@@ -1264,7 +1286,7 @@ fn update_process(graph: &mut Graph, id: &tg::process::Id, data: &tg::process::D
 		metadata: None,
 		permissions: None,
 		requested: None,
-		storage: Some(tg::process::Storage::default()),
+		storage: Some(tg::process::storage::Set::NODE),
 	};
 	graph.update_process_local(update);
 }

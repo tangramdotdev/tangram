@@ -93,7 +93,7 @@ pub struct ObjectNode {
 	local_availability: Option<tg::object::Availability>,
 	local_end: bool,
 	local_permissions: Option<tg::authorization::permission::Set>,
-	local_storage: Option<tangram_index::object::Storage>,
+	local_storage: tg::object::storage::Set,
 	local_tokens: tg::authorization::tokens::Entry,
 	marked: bool,
 	metadata: Option<tg::object::Metadata>,
@@ -119,7 +119,7 @@ pub struct ProcessNode {
 	local_availability: Option<tg::process::Availability>,
 	local_end: bool,
 	local_permissions: Option<tg::authorization::permission::Set>,
-	local_storage: Option<tangram_index::process::Storage>,
+	local_storage: tg::process::storage::Set,
 	local_tokens: tg::authorization::tokens::Entry,
 	marked: bool,
 	metadata: Option<tg::process::Metadata>,
@@ -182,7 +182,7 @@ pub struct UpdateObjectLocalArg<'a> {
 	pub permissions: Option<tg::authorization::permission::Set>,
 	pub put: Option<[u8; 16]>,
 	pub requested: Option<Requested>,
-	pub storage: Option<tangram_index::object::Storage>,
+	pub storage: Option<tg::object::storage::Set>,
 }
 
 pub struct UpdateProcessLocalArg<'a> {
@@ -192,7 +192,7 @@ pub struct UpdateProcessLocalArg<'a> {
 	pub metadata: Option<tg::process::Metadata>,
 	pub permissions: Option<tg::authorization::permission::Set>,
 	pub requested: Option<Requested>,
-	pub storage: Option<tangram_index::process::Storage>,
+	pub storage: Option<tg::process::storage::Set>,
 }
 
 impl Graph {
@@ -720,10 +720,7 @@ impl Graph {
 		}
 
 		if let Some(storage) = storage {
-			match &mut node.local_storage {
-				Some(local_storage) => local_storage.merge(&storage),
-				None => node.local_storage = Some(storage),
-			}
+			node.local_storage.insert(storage);
 		}
 
 		if let Some(permissions) = permissions {
@@ -1003,10 +1000,7 @@ impl Graph {
 			}
 
 			if let Some(storage) = storage {
-				match &mut node.local_storage {
-					Some(local_storage) => local_storage.merge(&storage),
-					None => node.local_storage = Some(storage),
-				}
+				node.local_storage.insert(storage);
 			}
 
 			if let Some(permissions) = permissions {
@@ -1414,10 +1408,10 @@ impl Graph {
 	pub fn get_process_local_storage(
 		&self,
 		id: &tg::process::Id,
-	) -> Option<&tangram_index::process::Storage> {
+	) -> Option<tg::process::storage::Set> {
 		self.nodes
 			.get(&tg::Id::from(id.clone()))
-			.and_then(|node| node.unwrap_process_ref().local_storage.as_ref())
+			.map(|node| node.unwrap_process_ref().local_storage)
 	}
 
 	pub fn get_process_local_availability(
@@ -1503,7 +1497,7 @@ impl Graph {
 				};
 				GetServerResponseOutput::Object(GetObjectServerResponseOutput {
 					permissions,
-					storage: node.local_storage.clone(),
+					storage: node.local_storage,
 				})
 			},
 			Node::Process(node) => {
@@ -1517,7 +1511,7 @@ impl Graph {
 				};
 				GetServerResponseOutput::Process(GetProcessServerResponseOutput {
 					permissions,
-					storage: node.local_storage.clone(),
+					storage: node.local_storage,
 				})
 			},
 			_ => return Err(tg::error!("expected an object or process")),
@@ -1543,7 +1537,7 @@ impl Graph {
 					)),
 					put: None,
 					requested: None,
-					storage: output.storage.clone(),
+					storage: Some(output.storage),
 				};
 				self.update_object_local(arg);
 			},
@@ -1558,7 +1552,7 @@ impl Graph {
 						output.permissions,
 					)),
 					requested: None,
-					storage: output.storage.clone(),
+					storage: Some(output.storage),
 				};
 				self.update_process_local(arg);
 			},
@@ -1944,10 +1938,10 @@ impl Graph {
 	}
 
 	fn compute_object_availability(
-		storage: Option<&tangram_index::object::Storage>,
+		storage: tg::object::storage::Set,
 		permissions: Option<tg::authorization::permission::Set>,
 	) -> bool {
-		storage.is_some_and(|storage| storage.subtree)
+		storage.contains(tg::object::storage::Set::SUBTREE)
 			&& permissions.is_some_and(|permissions| {
 				permissions.contains(tg::authorization::Permission::Object(
 					tg::authorization::permission::object::Permission::Subtree,
@@ -1956,54 +1950,54 @@ impl Graph {
 	}
 
 	fn compute_process_availability_from_permissions(
-		storage: Option<&tangram_index::process::Storage>,
+		storage: tg::process::storage::Set,
 		permissions: Option<tg::authorization::permission::Set>,
 	) -> tg::process::Availability {
-		let Some(storage) = storage else {
-			return tg::process::Availability::default();
-		};
 		tg::process::Availability {
-			node_command_objects: storage.node_command_objects
+			node_command_objects: storage.contains(tg::process::storage::Set::NODE_COMMAND_OBJECTS)
 				&& Self::contains_process_permission(
 					permissions,
 					tg::authorization::permission::process::Permission::NodeCommandObjects,
 				),
-			node_error_objects: storage.node_error_objects
+			node_error_objects: storage.contains(tg::process::storage::Set::NODE_ERROR_OBJECTS)
 				&& Self::contains_process_permission(
 					permissions,
 					tg::authorization::permission::process::Permission::NodeErrorObjects,
 				),
-			node_log_objects: storage.node_log_objects
+			node_log_objects: storage.contains(tg::process::storage::Set::NODE_LOG_OBJECTS)
 				&& Self::contains_process_permission(
 					permissions,
 					tg::authorization::permission::process::Permission::NodeLogObjects,
 				),
-			node_output_objects: storage.node_output_objects
+			node_output_objects: storage.contains(tg::process::storage::Set::NODE_OUTPUT_OBJECTS)
 				&& Self::contains_process_permission(
 					permissions,
 					tg::authorization::permission::process::Permission::NodeOutputObjects,
 				),
-			subtree: storage.subtree
+			subtree: storage.contains(tg::process::storage::Set::SUBTREE)
 				&& Self::contains_process_permission(
 					permissions,
 					tg::authorization::permission::process::Permission::Subtree,
 				),
-			subtree_command_objects: storage.subtree_command_objects
+			subtree_command_objects: storage
+				.contains(tg::process::storage::Set::SUBTREE_COMMAND_OBJECTS)
 				&& Self::contains_process_permission(
 					permissions,
 					tg::authorization::permission::process::Permission::SubtreeCommandObjects,
 				),
-			subtree_error_objects: storage.subtree_error_objects
+			subtree_error_objects: storage
+				.contains(tg::process::storage::Set::SUBTREE_ERROR_OBJECTS)
 				&& Self::contains_process_permission(
 					permissions,
 					tg::authorization::permission::process::Permission::SubtreeErrorObjects,
 				),
-			subtree_log_objects: storage.subtree_log_objects
+			subtree_log_objects: storage.contains(tg::process::storage::Set::SUBTREE_LOG_OBJECTS)
 				&& Self::contains_process_permission(
 					permissions,
 					tg::authorization::permission::process::Permission::SubtreeLogObjects,
 				),
-			subtree_output_objects: storage.subtree_output_objects
+			subtree_output_objects: storage
+				.contains(tg::process::storage::Set::SUBTREE_OUTPUT_OBJECTS)
 				&& Self::contains_process_permission(
 					permissions,
 					tg::authorization::permission::process::Permission::SubtreeOutputObjects,
@@ -2021,15 +2015,17 @@ impl Graph {
 	}
 
 	pub fn object_permissions_for_storage(
-		storage: &tangram_index::object::Storage,
+		storage: tg::object::storage::Set,
 	) -> Option<tg::authorization::permission::Set> {
-		storage.subtree.then(|| {
-			tg::authorization::permission::Set::from_permission(
-				tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Subtree,
-				),
-			)
-		})
+		storage
+			.contains(tg::object::storage::Set::SUBTREE)
+			.then(|| {
+				tg::authorization::permission::Set::from_permission(
+					tg::authorization::Permission::Object(
+						tg::authorization::permission::object::Permission::Subtree,
+					),
+				)
+			})
 	}
 
 	#[must_use]
@@ -2077,7 +2073,7 @@ impl Graph {
 	}
 
 	pub fn process_permissions_for_storage(
-		storage: &tangram_index::process::Storage,
+		storage: tg::process::storage::Set,
 	) -> Option<tg::authorization::permission::Set> {
 		let mut permissions = tg::authorization::permission::Set::Process(
 			tg::authorization::permission::process::Set::empty(),
@@ -2087,31 +2083,31 @@ impl Graph {
 				tg::authorization::Permission::Process(permission),
 			));
 		};
-		if storage.node_command_objects {
+		if storage.contains(tg::process::storage::Set::NODE_COMMAND_OBJECTS) {
 			insert(tg::authorization::permission::process::Permission::NodeCommandObjects);
 		}
-		if storage.node_error_objects {
+		if storage.contains(tg::process::storage::Set::NODE_ERROR_OBJECTS) {
 			insert(tg::authorization::permission::process::Permission::NodeErrorObjects);
 		}
-		if storage.node_log_objects {
+		if storage.contains(tg::process::storage::Set::NODE_LOG_OBJECTS) {
 			insert(tg::authorization::permission::process::Permission::NodeLogObjects);
 		}
-		if storage.node_output_objects {
+		if storage.contains(tg::process::storage::Set::NODE_OUTPUT_OBJECTS) {
 			insert(tg::authorization::permission::process::Permission::NodeOutputObjects);
 		}
-		if storage.subtree {
+		if storage.contains(tg::process::storage::Set::SUBTREE) {
 			insert(tg::authorization::permission::process::Permission::Subtree);
 		}
-		if storage.subtree_command_objects {
+		if storage.contains(tg::process::storage::Set::SUBTREE_COMMAND_OBJECTS) {
 			insert(tg::authorization::permission::process::Permission::SubtreeCommandObjects);
 		}
-		if storage.subtree_error_objects {
+		if storage.contains(tg::process::storage::Set::SUBTREE_ERROR_OBJECTS) {
 			insert(tg::authorization::permission::process::Permission::SubtreeErrorObjects);
 		}
-		if storage.subtree_log_objects {
+		if storage.contains(tg::process::storage::Set::SUBTREE_LOG_OBJECTS) {
 			insert(tg::authorization::permission::process::Permission::SubtreeLogObjects);
 		}
-		if storage.subtree_output_objects {
+		if storage.contains(tg::process::storage::Set::SUBTREE_OUTPUT_OBJECTS) {
 			insert(tg::authorization::permission::process::Permission::SubtreeOutputObjects);
 		}
 		(!permissions.is_empty()).then_some(permissions)
@@ -2842,8 +2838,8 @@ impl ObjectNode {
 	}
 
 	#[must_use]
-	pub fn local_storage(&self) -> Option<&tangram_index::object::Storage> {
-		self.local_storage.as_ref()
+	pub fn local_storage(&self) -> tg::object::storage::Set {
+		self.local_storage
 	}
 
 	#[must_use]
@@ -2879,8 +2875,8 @@ impl ProcessNode {
 	}
 
 	#[must_use]
-	pub fn local_storage(&self) -> Option<&tangram_index::process::Storage> {
-		self.local_storage.as_ref()
+	pub fn local_storage(&self) -> tg::process::storage::Set {
+		self.local_storage
 	}
 
 	#[must_use]

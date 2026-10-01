@@ -52,7 +52,7 @@ async fn delegation_traversal_and_propagation() {
 		output: None,
 		parent: None,
 		sandbox: None,
-		storage: tangram_index::process::Storage::default(),
+		storage: tg::process::storage::Set::NODE,
 		time_to_touch: Duration::ZERO,
 		touched_at: 0,
 	};
@@ -335,7 +335,7 @@ fn process_object(process: &tg::process::Id, root: &tg::object::Id) -> tangram_i
 		output: None,
 		parent: None,
 		sandbox: None,
-		storage: tangram_index::process::Storage::default(),
+		storage: tg::process::storage::Set::NODE,
 		time_to_touch: Duration::ZERO,
 		touched_at: 0,
 	};
@@ -369,7 +369,7 @@ fn put_object(
 		id: id.clone(),
 		metadata: tg::object::Metadata::default(),
 		put: [1; 16],
-		storage: tangram_index::object::Storage::default(),
+		storage: tg::object::storage::Set::NODE,
 		time_to_touch: Duration::ZERO,
 		touched_at: 0,
 	};
@@ -610,7 +610,7 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 		output: Some(Some(vec![file.clone()])),
 		parent: None,
 		sandbox: None,
-		storage: tangram_index::process::Storage::default(),
+		storage: tg::process::storage::Set::NODE,
 		time_to_touch: Duration::ZERO,
 		touched_at: 0,
 	};

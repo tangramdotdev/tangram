@@ -130,7 +130,7 @@ impl Session {
 					id: id.clone(),
 					metadata,
 					put: output.put,
-					storage: tangram_index::object::Storage { subtree: true },
+					storage: tg::object::storage::Set::NODE | tg::object::storage::Set::SUBTREE,
 					time_to_touch: self.server.config.object.time_to_touch,
 					touched_at,
 				};

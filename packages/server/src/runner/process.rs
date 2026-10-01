@@ -1994,7 +1994,7 @@ impl Session {
 			output: None,
 			parent: parent.cloned(),
 			sandbox: Some(sandbox.clone()),
-			storage: tangram_index::process::Storage::default(),
+			storage: tg::process::storage::Set::NODE,
 			time_to_touch: self.server.config.process.time_to_touch,
 			touched_at: now,
 		};

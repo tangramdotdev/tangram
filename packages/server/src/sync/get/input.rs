@@ -172,7 +172,7 @@ impl Session {
 							length: None,
 							metadata: message.metadata,
 							put,
-							storage: None,
+							storage: tg::object::storage::Set::empty(),
 							transferred_bytes,
 						};
 						store_object_sender.send(node).await.map_err(|_| {

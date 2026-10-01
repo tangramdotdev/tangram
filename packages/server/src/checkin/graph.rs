@@ -32,7 +32,7 @@ pub struct Node {
 	pub referrers: im::HashSet<usize, fnv::FnvBuildHasher>,
 	pub solvable: bool,
 	pub solved: bool,
-	pub storage: tangram_index::object::Storage,
+	pub storage: tg::object::storage::Set,
 	pub variant: Variant,
 }
 
@@ -73,7 +73,7 @@ impl Graph {
 			referrers: im::HashSet::default(),
 			solvable: false,
 			solved: true,
-			storage: tangram_index::object::Storage::default(),
+			storage: tg::object::storage::Set::NODE,
 			variant: Variant::Object,
 		};
 		self.nodes.insert(index, Box::new(node));
@@ -288,7 +288,7 @@ pub enum Contents {
 	Id {
 		id: tg::blob::Id,
 		metadata: Option<tg::object::Metadata>,
-		storage: tangram_index::object::Storage,
+		storage: tg::object::storage::Set,
 	},
 	Write(Box<crate::write::Output>),
 }

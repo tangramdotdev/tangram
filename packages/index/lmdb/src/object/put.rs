@@ -43,9 +43,10 @@ impl Index {
 			.and_then(|existing| existing.checkout.clone());
 		let checkout_changed = previous_checkout != checkout;
 
-		let storage = tangram_index::object::Storage {
-			subtree: arg.storage.subtree || merged.is_some_and(|existing| existing.storage.subtree),
-		};
+		let mut storage = arg.storage;
+		if let Some(existing) = merged {
+			storage.insert(existing.storage);
+		}
 
 		let mut metadata = arg.metadata.clone();
 		if let Some(existing) = merged {
