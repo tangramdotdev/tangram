@@ -12,6 +12,10 @@ use {
 	tangram_database::{self as db, prelude::*},
 };
 
+pub(crate) fn version() -> String {
+	tg::id::ENCODING.encode(uuid::Uuid::now_v7().as_bytes())
+}
+
 impl Session {
 	pub(crate) async fn get_tag_data_with_transaction(
 		transaction: &Transaction<'_>,

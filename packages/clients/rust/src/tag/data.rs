@@ -3,13 +3,13 @@ use crate::prelude::*;
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Data {
 	pub id: tg::tag::Id,
-	pub target: Target,
 	pub name: String,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<tg::Id>,
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
 	pub permissions: Vec<tg::authorization::Permission>,
 	pub specifier: tg::Specifier,
+	pub target: Target,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

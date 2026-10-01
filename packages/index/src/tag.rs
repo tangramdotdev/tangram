@@ -23,6 +23,8 @@ pub struct Tag {
 
 	#[tangram_serialize(id = 0)]
 	pub target: tg::Either<tg::object::Id, tg::process::Id>,
+	#[tangram_serialize(id = 6)]
+	pub version: String,
 }
 
 impl Tag {

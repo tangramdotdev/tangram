@@ -21,6 +21,9 @@ pub struct Arg {
 	pub specifier: tg::Specifier,
 
 	pub target: tg::tag::data::Target,
+
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl tg::Session {

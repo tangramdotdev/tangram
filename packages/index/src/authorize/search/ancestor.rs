@@ -1090,6 +1090,7 @@ impl Search {
 			| tg::authorization::Subject::Runner(_)
 			| tg::authorization::Subject::Sandbox(_)
 			| tg::authorization::Subject::Sync(_)
+			| tg::authorization::Subject::Tag(_)
 			| tg::authorization::Subject::User(_) => return,
 		};
 		self.queues.entry(depth).or_default().push_back(task);

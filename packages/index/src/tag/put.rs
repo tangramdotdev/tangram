@@ -16,4 +16,6 @@ pub struct Arg {
 	pub specifier: tg::Specifier,
 	#[tangram_serialize(id = 1)]
 	pub target: tg::Either<tg::object::Id, tg::process::Id>,
+	#[tangram_serialize(id = 7)]
+	pub version: String,
 }

@@ -2791,6 +2791,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 		&mut txn,
 		&[
 			tangram_index::tag::put::Arg {
+				version: "initial".into(),
 				account: None,
 				id: parent_tag.clone(),
 				name: "parent".into(),
@@ -2800,6 +2801,7 @@ async fn authorize_descendant_node_proof_can_walk_upward() {
 				target: tg::Either::Left(object.clone()),
 			},
 			tangram_index::tag::put::Arg {
+				version: "initial".into(),
 				account: None,
 				id: child_tag,
 				name: "child".into(),

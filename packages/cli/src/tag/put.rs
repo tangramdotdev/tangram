@@ -53,6 +53,7 @@ impl Cli {
 
 		// Put the tag.
 		let arg = tg::tag::put::Arg {
+			tokens: referent.options.tokens,
 			ancestors: args.ancestors.get(),
 			force: args.force,
 			location: args.location.get(),
