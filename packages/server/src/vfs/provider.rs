@@ -2360,9 +2360,8 @@ impl Provider {
 			std::io::Error::from_raw_os_error(libc::EIO)
 		})?;
 		if let Some(named_node) = named_node {
-			let Some(NamedNodeEntry::Symlink(target)) =
-				self.get_named_node_entry(&named_node.specifier).await?
-			else {
+			// Keep the target from the lookup stable for the kernel's symlink cache.
+			let Some(target) = named_node.target else {
 				return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 			};
 			self.register_target_tokens(&target)?;
@@ -2414,10 +2413,8 @@ impl Provider {
 			..
 		} = self.get_sync(id)?;
 		if let Some(named_node) = named_node {
-			let entry = self
-				.runtime
-				.block_on(self.get_named_node_entry(&named_node.specifier))?;
-			let Some(NamedNodeEntry::Symlink(target)) = entry else {
+			// Keep the target from the lookup stable for the kernel's symlink cache.
+			let Some(target) = named_node.target else {
 				return Err(std::io::Error::from_raw_os_error(libc::ENOENT));
 			};
 			self.register_target_tokens(&target)?;
@@ -4489,11 +4486,16 @@ impl Nodes {
 		remember: bool,
 	) -> std::io::Result<u64> {
 		let mut state = self.state.lock().unwrap();
+		// Allocate a new inode when the target changes because the kernel caches symlink contents.
 		if let Some(id) = state
 			.nodes
 			.get(&parent)
 			.and_then(|node| node.children.get(name).copied())
-		{
+			&& state.nodes[&id].named.as_ref().is_some_and(|existing| {
+				existing.suffix == named_node.suffix
+					&& existing.target.as_ref().map(|target| &target.node)
+						== named_node.target.as_ref().map(|target| &target.node)
+			}) {
 			let node = state.nodes.get_mut(&id).unwrap();
 			node.artifact = None;
 			node.attrs = Some(attrs);
