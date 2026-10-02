@@ -50,7 +50,8 @@ for checkpoint in [runner.process.control.connect process.control.output] {
 	tg --url $runner.url checkpoint unwatch runner.process.output.stored $stored_watch
 	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete) "completion should not wait for the control connection or indexing"
 	tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch
-	failure (timeout 1s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "Finish must wait for the authorization token for the control sync"
+	let output = timeout 1s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete
+	assert equal $output.exit_code 124 $"Finish must wait for the authorization token for the control sync: ($output.stderr)"
 	tg --url $receiver.url --token $receiver_token checkpoint unwatch $checkpoint $control_watch
 	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "Finish should follow the control connection and output push"
 	tg --url $runner.url checkpoint unwatch runner.process.control.finish.sent $sent_watch

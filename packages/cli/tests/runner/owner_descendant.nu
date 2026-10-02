@@ -46,7 +46,7 @@ let start_watch = (
 )
 let build = build_background $bob_local.url $bob.user.id $unrelated_path
 let output = timeout 1s tg --url $runner_organization.url checkpoint wait runner.process.start $start_watch 0 | complete
-failure $output "the organization runner should not start an unrelated user's process"
+assert equal $output.exit_code 124 $"the organization runner should not start an unrelated user's process: ($output.stderr)"
 
 let created = tg --url $remote.url --token $bob.token runner create --owner $bob.user.id | from json
 let runner_user = server spawn --name runner-user --config {

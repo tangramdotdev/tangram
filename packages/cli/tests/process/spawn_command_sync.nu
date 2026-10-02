@@ -95,7 +95,8 @@ for location in [remote 'local(east)'] {
 			}
 			success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | complete) "the push should reach the held command object"
 			if $await_push {
-				failure (timeout 1s tg --url $runner.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete) "the default must push before spawning"
+				let output = timeout 1s tg --url $runner.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete
+				assert equal $output.exit_code 124 $"the default must push before spawning: ($output.stderr)"
 				let output = try { job recv --tag $spawn --timeout 1sec } catch { null }
 				assert equal $output null
 				tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $store_watch

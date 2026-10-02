@@ -37,8 +37,10 @@ success $pushed "the runner should push the output"
 
 # The output must be on the remote before the runner sends Finish.
 success (tg --url $remote.url --token $root_token get $expected | complete) "the output should be on the remote before Finish is sent"
-failure (timeout 1s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "Finish must not be sent before the output push completes"
-failure (timeout 1s tg --url $remote.url --token $root_token checkpoint wait process.control.finish $received_watch 0 | complete) "the remote must not receive Finish before the output push completes"
+let output = timeout 1s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete
+assert equal $output.exit_code 124 $"Finish must not be sent before the output push completes: ($output.stderr)"
+let output = timeout 1s tg --url $remote.url --token $root_token checkpoint wait process.control.finish $received_watch 0 | complete
+assert equal $output.exit_code 124 $"the remote must not receive Finish before the output push completes: ($output.stderr)"
 
 # Release the push and verify that Finish follows.
 tg --url $runner.url checkpoint unwatch runner.process.output.push.finished $pushed_watch

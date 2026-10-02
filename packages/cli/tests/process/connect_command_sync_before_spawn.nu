@@ -72,7 +72,8 @@ for mode in [run spawn] {
 		$output | job send --tag $job_id 0
 	}
 	success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | complete) "the command transfer should reach the executable blob"
-	failure (timeout 1s tg --url $runner.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete) "the process must not be scheduled before the command transfer completes"
+	let output = timeout 1s tg --url $runner.url checkpoint wait runner.process.state.inserted $state_watch 0 | complete
+	assert equal $output.exit_code 124 $"the process must not be scheduled before the command transfer completes: ($output.stderr)"
 	let output = try { job recv --tag $run --timeout 1sec } catch { null }
 	assert equal $output null "spawn must not return before the command transfer completes"
 

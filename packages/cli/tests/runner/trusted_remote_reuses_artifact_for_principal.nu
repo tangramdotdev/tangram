@@ -49,5 +49,5 @@ if $output == null {
 success $output "Bob's process should use the locally stored artifact A"
 
 let output = timeout 1s tg --url $runner.url checkpoint wait sync.get.input.object $watch 0 | complete
-failure $output "the trusted runner should not re-pull artifact A for Bob"
+assert equal $output.exit_code 124 $"the trusted runner should not re-pull artifact A for Bob: ($output.stderr)"
 tg --url $runner.url checkpoint unwatch sync.get.input.object $watch
