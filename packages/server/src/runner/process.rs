@@ -1914,13 +1914,15 @@ impl Session {
 			.into_iter()
 			.map(|resource| (resource.map(Into::into), permissions));
 		let source = tg::Principal::Process(parent.unwrap_or(id).clone());
-		items.extend(self.create_permission_capture_items_with_permissions(
-			destination,
-			None,
-			roots,
-			source,
-			now,
-		)?);
+		items.extend(
+			self.create_capture_permissions_batch_items_with_permissions(
+				destination,
+				None,
+				roots,
+				source,
+				now,
+			)?,
+		);
 
 		// Apply the initial data before the finished data can be written.
 		let arg = tangram_index::batch::Arg { items };

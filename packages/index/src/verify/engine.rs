@@ -1366,26 +1366,11 @@ where
 
 				ReadOutput::SandboxOwner(owner)
 			},
-			super::search::AncestorNodeRead::Tag { tag }
-			| super::search::AncestorNodeRead::TargetTag { tag } => {
+			super::search::AncestorNodeRead::Tag { tag } => {
 				let output = read!(facts::Request::Tag { tag: tag.clone() });
 				let tag = output.into_tag()?;
 
 				ReadOutput::Tag(tag)
-			},
-			super::search::AncestorNodeRead::TargetTags {
-				after,
-				limit,
-				target,
-			} => {
-				let output = read!(facts::Request::TargetTags {
-					after: after.clone(),
-					limit: *limit,
-					target: target.clone(),
-				});
-				let (after, tags) = output.into_tags()?;
-
-				ReadOutput::Tags { after, tags }
 			},
 		},
 		Read::DescendantChecks(checks) => {
@@ -2361,13 +2346,7 @@ mod tests {
 					permissions: Vec::new(),
 				},
 				AncestorNodeRead::SandboxOwner { .. } => ReadOutput::SandboxOwner(None),
-				AncestorNodeRead::Tag { .. } | AncestorNodeRead::TargetTag { .. } => {
-					ReadOutput::Tag(None)
-				},
-				AncestorNodeRead::TargetTags { .. } => ReadOutput::Tags {
-					after: None,
-					tags: Vec::new(),
-				},
+				AncestorNodeRead::Tag { .. } => ReadOutput::Tag(None),
 			},
 			Read::Member { read, .. } => match read {
 				MemberRead::Groups { .. } => ReadOutput::MemberGroups {

@@ -170,9 +170,9 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 		id: id.clone(),
 		name: "test".into(),
 		parent: None,
-		permissions: Vec::new(),
 		specifier: "test".parse().unwrap(),
 		target: tg::Either::Left(object.clone()),
+		touched_at: 0,
 		version: "old".into(),
 	};
 	index.put_tags(std::slice::from_ref(&tag)).await.unwrap();

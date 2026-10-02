@@ -39,7 +39,6 @@ impl Session {
 			name: String,
 			#[tangram_database(as = "Option<db::value::FromStr>")]
 			parent: Option<tg::Id>,
-			permissions: String,
 			target: String,
 		}
 
@@ -56,7 +55,7 @@ impl Session {
 		let p = transaction.p();
 		let statement = formatdoc!(
 			"
-				select target, name, parent, permissions
+				select target, name, parent
 				from tags
 				where id = {p}1;
 			"
@@ -69,13 +68,10 @@ impl Session {
 			return Ok(ControlFlow::Break(None));
 		};
 		let target = Self::parse_tag_target(&row.target)?;
-		let permissions = serde_json::from_str(&row.permissions)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the permissions"))?;
 		let data = tg::tag::Data {
 			id: id.clone(),
 			name: row.name,
 			parent: row.parent,
-			permissions,
 			specifier,
 			target,
 		};
@@ -95,77 +91,5 @@ impl Session {
 			tg::tag::data::Target::Object(id) => id.to_string(),
 			tg::tag::data::Target::Process(id) => id.to_string(),
 		}
-	}
-
-	pub(crate) fn tag_target_permissions_grant_access(
-		permissions: &[tg::authorization::Permission],
-	) -> bool {
-		[
-			tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Node,
-			),
-			tg::authorization::Permission::Process(
-				tg::authorization::permission::process::Permission::Node,
-			),
-		]
-		.into_iter()
-		.any(|required| {
-			permissions
-				.iter()
-				.any(|permission| permission.implies(required))
-		})
-	}
-
-	/// Compute the permissions the current principal has on a tag target, to be recorded on the tag.
-	pub(crate) async fn recorded_tag_target_permissions(
-		&self,
-		target: &tg::tag::data::Target,
-	) -> tg::Result<Vec<tg::authorization::Permission>> {
-		let (resource, aspects): (tg::Id, Vec<tg::authorization::Permission>) = match target {
-			tg::tag::data::Target::Object(id) => (
-				id.clone().into(),
-				vec![tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Node,
-				)],
-			),
-			tg::tag::data::Target::Process(id) => (
-				id.clone().into(),
-				[
-					tg::authorization::permission::process::Permission::Node,
-					tg::authorization::permission::process::Permission::NodeCommandObjects,
-					tg::authorization::permission::process::Permission::NodeErrorObjects,
-					tg::authorization::permission::process::Permission::NodeLogObjects,
-					tg::authorization::permission::process::Permission::NodeOutputObjects,
-				]
-				.into_iter()
-				.map(tg::authorization::Permission::Process)
-				.collect(),
-			),
-		};
-		// Root is always authorized, so it records the subtree variant of every aspect without consulting the index.
-		if matches!(self.context.principal, tg::Principal::Root) {
-			return Ok(aspects
-				.into_iter()
-				.map(tg::authorization::Permission::subtree)
-				.collect());
-		}
-		// For each aspect, record the strongest permission the principal has, trying the subtree variant before the node variant.
-		let mut permissions = Vec::new();
-		for aspect in aspects {
-			for permission in [aspect.subtree(), aspect] {
-				let resource = tg::Selector::Id(resource.clone());
-				if self
-					.authorize(resource, permission)
-					.await?
-					.check_exhaustion()?
-					.permissions
-					.contains(permission)
-				{
-					permissions.push(permission);
-					break;
-				}
-			}
-		}
-		Ok(permissions)
 	}
 }

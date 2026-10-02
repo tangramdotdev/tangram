@@ -137,7 +137,6 @@ impl Index {
 			account: arg.account.clone(),
 			name: arg.name.clone(),
 			parent: arg.parent.clone(),
-			permissions: arg.permissions.clone(),
 			specifier: arg.specifier.clone(),
 			target: arg.target.clone(),
 			version: arg.version.clone(),
@@ -181,6 +180,26 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 		db.put(transaction, &key, &[])
 			.map_err(|error| tg::error!(!error, "failed to put the tag parent"))?;
+
+		// Charge the current account for permissions already held by the tag, even without a new capture proof.
+		if arg.account.is_some() && tag.as_ref().is_none_or(|tag| tag.account != arg.account) {
+			match &arg.target {
+				tg::Either::Left(id) => Self::enqueue_account_object_from_parents(
+					db,
+					subspace,
+					transaction,
+					id,
+					arg.touched_at,
+				)?,
+				tg::Either::Right(id) => Self::enqueue_account_process_from_parents(
+					db,
+					subspace,
+					transaction,
+					id,
+					arg.touched_at,
+				)?,
+			}
+		}
 
 		Ok(())
 	}

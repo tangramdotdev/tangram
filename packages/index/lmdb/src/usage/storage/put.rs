@@ -177,18 +177,32 @@ impl Index {
 		target: &[u8],
 		required: tg::authorization::Permission,
 	) -> tg::Result<BTreeSet<tangram_index::usage::Account>> {
-		let tags = Self::get_target_tags_with_transaction(db, subspace, transaction, target)?;
-		let tags = Self::try_get_tags_with_transaction(db, subspace, transaction, &tags)?;
-		let accounts = tags
-			.into_iter()
-			.flatten()
-			.filter(|tag| {
-				tag.permissions
-					.iter()
-					.any(|permission| permission.implies(required))
-			})
-			.filter_map(|tag| tag.account)
-			.collect();
+		let tag_ids = Self::get_target_tags_with_transaction(db, subspace, transaction, target)?;
+		let tags = Self::try_get_tags_with_transaction(db, subspace, transaction, &tag_ids)?;
+		let mut accounts = BTreeSet::new();
+		for (id, tag) in std::iter::zip(tag_ids, tags) {
+			let Some(tag) = tag else {
+				continue;
+			};
+			let subject = tg::authorization::Subject::Tag(id);
+			let resource = match tag.target {
+				tg::Either::Left(id) => tg::Id::from(id),
+				tg::Either::Right(id) => tg::Id::from(id),
+			};
+			let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&resource,
+				&subject,
+			)?;
+			if entries.iter().any(|entry| {
+				entry.permission.implies(required) && entry.effective_expires_at().is_some()
+			}) && let Some(account) = tag.account
+			{
+				accounts.insert(account);
+			}
+		}
 
 		Ok(accounts)
 	}

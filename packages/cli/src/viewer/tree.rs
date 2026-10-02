@@ -1482,7 +1482,6 @@ impl Tree {
 							location,
 							name,
 							parent,
-							permissions: Vec::new(),
 							specifier,
 							tokens,
 						};

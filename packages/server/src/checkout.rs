@@ -64,7 +64,6 @@ pub(super) struct NamedTree {
 pub(super) struct NamedNode {
 	pub id: tg::Id,
 	pub parent: Option<tg::Id>,
-	pub permissions: Vec<tg::authorization::Permission>,
 	pub specifier: tg::Specifier,
 	pub target: Option<tg::Either<tg::object::Id, tg::process::Id>>,
 }
@@ -371,10 +370,10 @@ impl Session {
 			let target_artifact = if let Some(target) = &target
 				&& let Ok(target_artifact) = tg::artifact::Id::try_from(target.clone())
 			{
-				let token = self.create_tag_target_token_with_permissions(
-					target,
-					named_node.permissions.clone(),
-				)?;
+				let id = tg::tag::Id::try_from(named_node.id.clone())?;
+				let token = self
+					.create_tag_target_token(&id, target, &node.options.tokens)
+					.await?;
 				let options = tg::referent::Options {
 					location: node.options.location.clone(),
 					tokens: tg::authorization::Tokens::with_authorization(token),

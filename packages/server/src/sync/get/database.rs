@@ -54,8 +54,6 @@ impl Session {
 
 		// Send the database nodes to the primary region.
 		if !self.server.is_primary_region() {
-			self.sync_get_database_update_tag_target_permissions(graph, &nodes)
-				.await?;
 			let tag_permissions = self.sync_get_database_tag_permissions(graph, &nodes)?;
 			self.sync_get_database_add_tag_target_tokens(&mut nodes, &tag_permissions)?;
 			self.sync_get_database_to_primary_region(nodes, force)
@@ -64,9 +62,7 @@ impl Session {
 			return Ok(());
 		}
 
-		// Update the tag target permissions in the graph.
-		self.sync_get_database_update_tag_target_permissions(graph, &nodes)
-			.await?;
+		// Preserve proofs already established by the sync and capture any remaining permissions later.
 		let tag_permissions = self.sync_get_database_tag_permissions(graph, &nodes)?;
 		let touched_at = self.server.clock.unix_timestamp()?;
 
@@ -94,7 +90,6 @@ impl Session {
 		.await?;
 		self.server
 			.spawn_publish_database_index_queue_notification_task();
-		self.checkout_await_indexing().await?;
 
 		Ok(())
 	}
@@ -604,68 +599,6 @@ impl Session {
 		Ok(ControlFlow::Break(tag_targets))
 	}
 
-	async fn sync_get_database_update_tag_target_permissions(
-		&self,
-		graph: &Arc<Mutex<Graph>>,
-		nodes: &[tg::sync::PutNodeMessage],
-	) -> tg::Result<()> {
-		let mut objects = BTreeSet::new();
-		let mut processes = BTreeSet::new();
-		for node in nodes {
-			let tg::sync::PutNodeMessage::Tag(message) = node else {
-				continue;
-			};
-			if !message.tokens.is_empty() {
-				self.sync_get_database_tag_permissions_from_tokens(message)?;
-				continue;
-			}
-			if let Ok(id) = tg::object::Id::try_from(message.target.clone()) {
-				objects.insert(id);
-			} else if let Ok(id) = tg::process::Id::try_from(message.target.clone()) {
-				processes.insert(id);
-			} else {
-				return Err(tg::error!("invalid tag target"));
-			}
-		}
-
-		let object_permissions = tg::authorization::permission::Set::from_permission(
-			tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Node,
-			),
-		);
-		self.sync_get_authorize(
-			graph,
-			objects.into_iter().map(tg::Id::from),
-			object_permissions,
-			object_permissions,
-		)
-		.await?;
-
-		let mut process_permissions = tg::authorization::permission::Set::Process(
-			tg::authorization::permission::process::Set::empty(),
-		);
-		for permission in [
-			tg::authorization::permission::process::Permission::Node,
-			tg::authorization::permission::process::Permission::NodeCommandObjects,
-			tg::authorization::permission::process::Permission::NodeErrorObjects,
-			tg::authorization::permission::process::Permission::NodeLogObjects,
-			tg::authorization::permission::process::Permission::NodeOutputObjects,
-		] {
-			process_permissions.insert(tg::authorization::permission::Set::from_permission(
-				tg::authorization::Permission::Process(permission),
-			));
-		}
-		self.sync_get_authorize(
-			graph,
-			processes.into_iter().map(tg::Id::from),
-			process_permissions,
-			process_permissions,
-		)
-		.await?;
-
-		Ok(())
-	}
-
 	fn sync_get_database_tag_permissions(
 		&self,
 		graph: &Arc<Mutex<Graph>>,
@@ -1085,7 +1018,6 @@ impl Session {
 		struct Row {
 			#[tangram_database(as = "db::value::FromStr")]
 			id: tg::tag::Id,
-			permissions: String,
 			version: String,
 		}
 
@@ -1102,33 +1034,26 @@ impl Session {
 		let mut outputs = BTreeMap::new();
 		for tags in tags.chunks(batch_size) {
 			let p = transaction.p();
-			let values = Self::sync_get_database_placeholders(p, tags.len(), 6);
+			let values = Self::sync_get_database_placeholders(p, tags.len(), 5);
 			let statement = formatdoc!(
 				"
-					insert into tags (id, name, parent, target, permissions, version)
+					insert into tags (id, name, parent, target, version)
 					values {values}
 					on conflict (id) do update
 					set name = excluded.name, parent = excluded.parent, target = excluded.target,
-						permissions = case when tags.target = excluded.target then tags.permissions else excluded.permissions end,
 						version = case when tags.target = excluded.target then tags.version else excluded.version end
-					returning id, permissions, version;
+					returning id, version;
 				"
 			);
-			let mut params = Vec::with_capacity(tags.len() * 6);
+			let mut params = Vec::with_capacity(tags.len() * 5);
 			for message in tags {
 				let target = Self::sync_get_database_tag_target(&message.target)?;
-				let permissions = tag_permissions
-					.get(&message.id)
-					.ok_or_else(|| tg::error!("missing the tag permissions"))?;
-				let permissions = serde_json::to_string(permissions)
-					.map_err(|error| tg::error!(!error, "failed to serialize the permissions"))?;
 				params.extend(db::params![
 					message.id.to_string(),
 					message.name.clone(),
 					message.parent.as_ref().map(ToString::to_string),
 					target.to_string(),
-					permissions,
-					crate::tag::version()
+					crate::tag::version(),
 				]);
 			}
 			let result = transaction
@@ -1136,9 +1061,10 @@ impl Session {
 				.await;
 			let rows = crate::database::retry!(result, "failed to put the tags");
 			for row in rows {
-				let permissions = serde_json::from_str(&row.permissions).map_err(|error| {
-					tg::error!(!error, "failed to deserialize the tag permissions")
-				})?;
+				let permissions = tag_permissions
+					.get(&row.id)
+					.cloned()
+					.ok_or_else(|| tg::error!("missing the tag permissions"))?;
 				outputs.insert(row.id, (permissions, row.version));
 			}
 		}
@@ -1337,17 +1263,17 @@ impl Session {
 					)
 				},
 				tg::sync::PutNodeMessage::Tag(message) => {
-					let (permissions, version) = tag_permissions
+					let (_, version) = tag_permissions
 						.get(&message.id)
 						.cloned()
 						.ok_or_else(|| tg::error!("missing the tag permissions"))?;
 					let target = Self::sync_get_database_tag_target(&message.target)?;
 					tangram_index::batch::Item::PutTag(tangram_index::tag::put::Arg {
+						touched_at,
 						account: tag_accounts.get(&message.id).cloned().flatten(),
 						id: message.id.clone(),
 						name: message.name.clone(),
 						parent: message.parent.clone(),
-						permissions,
 						specifier: message.specifier.clone(),
 						target,
 						version,
@@ -1362,6 +1288,32 @@ impl Session {
 				},
 			};
 			batch.items.push(item);
+			if let tg::sync::PutNodeMessage::Tag(message) = node {
+				let (permissions, version) = tag_permissions
+					.get(&message.id)
+					.ok_or_else(|| tg::error!("missing the tag permissions"))?;
+				let mut proven =
+					Self::permission_capture_permissions(&message.target)?.empty_like();
+				for permission in permissions {
+					proven.insert((*permission).into());
+				}
+				let resource = tg::Referent::with_node_and_local_tokens(
+					message.target.clone(),
+					message.tokens.clone(),
+				);
+				let root = (resource, proven);
+				let destination = message.id.clone().into();
+				batch.items.extend(
+					self.create_capture_permissions_batch_items_with_permissions(
+						destination,
+						Some(version.clone()),
+						[root],
+						self.context.principal.clone(),
+						touched_at,
+					)?,
+				);
+			}
+
 			if created.contains(&id)
 				&& let Some(arg) = self.sync_get_create_permission(&id, None)?
 			{
@@ -1370,42 +1322,6 @@ impl Session {
 					.push(tangram_index::batch::Item::PutPermission(arg));
 			}
 		}
-		for message in nodes.iter().filter_map(|node| {
-			let tg::sync::PutNodeMessage::Tag(message) = node else {
-				return None;
-			};
-
-			Some(message)
-		}) {
-			let Some(account) = tag_accounts.get(&message.id).cloned().flatten() else {
-				continue;
-			};
-			let (permissions, _) = tag_permissions
-				.get(&message.id)
-				.ok_or_else(|| tg::error!("missing the tag permissions"))?;
-			if !Self::tag_target_permissions_grant_access(permissions) {
-				continue;
-			}
-			let target = Self::sync_get_database_tag_target(&message.target)?;
-			let item = match target {
-				tg::Either::Left(object) => tangram_index::batch::Item::PutAccountObject(
-					tangram_index::usage::storage::put::ObjectArg {
-						account,
-						object,
-						touched_at,
-					},
-				),
-				tg::Either::Right(process) => tangram_index::batch::Item::PutAccountProcess(
-					tangram_index::usage::storage::put::ProcessArg {
-						account,
-						process,
-						touched_at,
-					},
-				),
-			};
-			batch.items.push(item);
-		}
-
 		Ok(batch)
 	}
 

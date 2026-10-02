@@ -927,13 +927,15 @@ impl Session {
 			}
 			let destination = process.clone().into();
 			let source = tg::Principal::Process(process);
-			items.extend(self.create_permission_capture_items_with_permissions(
-				destination,
-				None,
-				roots,
-				source,
-				created_at,
-			)?);
+			items.extend(
+				self.create_capture_permissions_batch_items_with_permissions(
+					destination,
+					None,
+					roots,
+					source,
+					created_at,
+				)?,
+			);
 		}
 		Ok(items)
 	}

@@ -110,7 +110,8 @@ impl Session {
 					tg::tag::data::Target::Process(id) => id.into(),
 				};
 				let token = self
-					.create_tag_target_token_with_permissions(&target, output.data.permissions)?;
+					.create_tag_target_token(&id, &target, &parent_options.tokens)
+					.await?;
 				let options = tg::referent::Options {
 					location: Some(location),
 					tokens: tg::authorization::Tokens::with_authorization(token),

@@ -622,14 +622,6 @@ impl Output {
 
 		Ok(tag)
 	}
-
-	pub(crate) fn into_tags(self) -> tg::Result<(Option<Vec<u8>>, Vec<tg::tag::Id>)> {
-		let Self::Tags { after, tags } = self else {
-			return Err(tg::error!("received a non-tag-list verification fact"));
-		};
-
-		Ok((after, tags))
-	}
 }
 
 impl<E> Cache<E> {

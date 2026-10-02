@@ -8,11 +8,11 @@ async fn target_versions_clear_subject_permissions() {
 	let second: tg::object::Id = tg::file::Id::new(b"second").into();
 	let subject = tg::authorization::Subject::Tag(id.clone());
 	let mut tag = tangram_index::tag::put::Arg {
+		touched_at: 0,
 		account: None,
 		id: id.clone(),
 		name: "test".into(),
 		parent: None,
-		permissions: Vec::new(),
 		specifier: "test".parse().unwrap(),
 		target: tg::Either::Left(first.clone()),
 		version: "z".into(),

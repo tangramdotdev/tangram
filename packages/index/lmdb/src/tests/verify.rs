@@ -2881,24 +2881,22 @@ async fn verify_descendant_node_proof_can_walk_upward() {
 		&mut txn,
 		&[
 			tangram_index::tag::put::Arg {
+				touched_at: 0,
 				version: "initial".into(),
 				account: None,
 				id: parent_tag.clone(),
 				name: "parent".into(),
 				parent: None,
-				permissions: Vec::new(),
 				specifier: "parent".parse().unwrap(),
 				target: tg::Either::Left(object.clone()),
 			},
 			tangram_index::tag::put::Arg {
+				touched_at: 0,
 				version: "initial".into(),
 				account: None,
 				id: child_tag.clone(),
 				name: "child".into(),
 				parent: Some(parent_tag.clone().into()),
-				permissions: vec![object_permission(
-					tg::authorization::permission::object::Permission::Node,
-				)],
 				specifier: "parent/child".parse().unwrap(),
 				target: tg::Either::Left(object.clone()),
 			},
