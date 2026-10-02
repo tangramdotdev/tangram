@@ -69,7 +69,7 @@ struct DirectorySnapshot {
 
 #[derive(Clone)]
 struct DirectorySnapshotEntry {
-	artifact: Option<ArtifactInfo>,
+	artifact: Option<ArtifactState>,
 	kind: vfs::EntryKind,
 	name: String,
 	named: Option<NamedNodeInfo>,
@@ -87,10 +87,10 @@ struct State {
 
 #[derive(Clone)]
 struct Node {
-	artifact: Option<ArtifactInfo>,
+	artifact: Option<ArtifactState>,
 	attrs: Option<vfs::Attrs>,
 	children: BTreeMap<String, u64>,
-	dependencies: Vec<ArtifactInfo>,
+	dependencies: Vec<ArtifactState>,
 	depth: u64,
 	lookup_count: u64,
 	name: Option<String>,
@@ -101,7 +101,7 @@ struct Node {
 
 #[derive(Clone)]
 struct NodeInfo {
-	artifact: Option<ArtifactInfo>,
+	artifact: Option<ArtifactState>,
 	attrs: Option<vfs::Attrs>,
 	depth: u64,
 	named: Option<NamedNodeInfo>,
@@ -109,11 +109,17 @@ struct NodeInfo {
 }
 
 #[derive(Clone)]
-struct ArtifactInfo {
+struct ArtifactState {
+	branch_children: Arc<Mutex<BTreeMap<tg::artifact::Id, BranchChild>>>,
 	children_expires_at: Arc<Mutex<Option<i64>>>,
 	data: Option<tg::artifact::data::Artifact>,
 	id: tg::artifact::Id,
 	tokens: Arc<Mutex<Vec<tg::authorization::Token>>>,
+}
+
+struct BranchChild {
+	artifact: ArtifactState,
+	parent_tokens: Vec<tg::authorization::Token>,
 }
 
 #[derive(Clone)]
@@ -600,7 +606,7 @@ impl Provider {
 
 	fn artifact_token(
 		&self,
-		artifact: &ArtifactInfo,
+		artifact: &ArtifactState,
 	) -> std::io::Result<Option<tg::authorization::Token>> {
 		self.authorize(&artifact.tokens, &artifact.id.clone().into())?;
 		let token = artifact
@@ -649,7 +655,7 @@ impl Provider {
 		dependency: Option<&tg::graph::data::Dependency>,
 		graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<Option<ArtifactInfo>> {
+	) -> std::io::Result<Option<ArtifactState>> {
 		let Some(edge) = dependency.and_then(|dependency| dependency.0.node.as_ref()) else {
 			return Ok(None);
 		};
@@ -1583,7 +1589,7 @@ impl Provider {
 		node: u64,
 		parent: u64,
 		depth: u64,
-		entries: Option<BTreeMap<String, ArtifactInfo>>,
+		entries: Option<BTreeMap<String, ArtifactState>>,
 		pageable: bool,
 	) -> DirectorySnapshot {
 		let entries = entries.map(|entries| {
@@ -1682,7 +1688,7 @@ impl Provider {
 		Ok(entry)
 	}
 
-	async fn should_page_directory_inner(&self, artifact: &ArtifactInfo) -> std::io::Result<bool> {
+	async fn should_page_directory_inner(&self, artifact: &ArtifactState) -> std::io::Result<bool> {
 		let (directory, _) = self.directory_node_inner(artifact).await?;
 
 		Ok(Self::directory_requires_paging(&directory))
@@ -1690,7 +1696,7 @@ impl Provider {
 
 	fn should_page_directory_sync_inner(
 		&self,
-		artifact: &ArtifactInfo,
+		artifact: &ArtifactState,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<bool> {
 		let (directory, _) = self.directory_node_sync_inner(artifact, transaction)?;
@@ -2449,7 +2455,7 @@ impl Provider {
 	fn register_file_dependencies(
 		&self,
 		source: u64,
-		artifact: &ArtifactInfo,
+		artifact: &ArtifactState,
 		dependencies: &BTreeMap<tg::Reference, Option<tg::graph::data::Dependency>>,
 		graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
@@ -2469,7 +2475,7 @@ impl Provider {
 		Ok(())
 	}
 
-	fn register_dependency(&self, source: u64, dependency: &ArtifactInfo) -> std::io::Result<()> {
+	fn register_dependency(&self, source: u64, dependency: &ArtifactState) -> std::io::Result<()> {
 		self.nodes.insert_dependency(source, dependency);
 		let tokens = dependency.tokens.lock().unwrap().clone();
 		self.nodes
@@ -2521,7 +2527,7 @@ impl Provider {
 
 	async fn compute_attrs_from_artifact_inner(
 		&self,
-		artifact: Option<&ArtifactInfo>,
+		artifact: Option<&ArtifactState>,
 		depth: u64,
 	) -> std::io::Result<vfs::Attrs> {
 		match artifact {
@@ -2569,7 +2575,7 @@ impl Provider {
 		edge: tg::graph::data::Edge<tg::directory::Id>,
 		default_graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<ArtifactInfo> {
+	) -> std::io::Result<ArtifactState> {
 		match edge {
 			tg::graph::data::Edge::Index(index) => {
 				let graph =
@@ -2607,7 +2613,7 @@ impl Provider {
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		default_graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<ArtifactInfo> {
+	) -> std::io::Result<ArtifactState> {
 		match edge {
 			tg::graph::data::Edge::Index(index) => {
 				let graph =
@@ -2636,7 +2642,7 @@ impl Provider {
 		tokens: &Mutex<Vec<tg::authorization::Token>>,
 		pointer: &tg::graph::data::Pointer,
 		expected_kind: Option<tg::artifact::Kind>,
-	) -> std::io::Result<ArtifactInfo> {
+	) -> std::io::Result<ArtifactState> {
 		if let Some(expected_kind) = expected_kind
 			&& pointer.kind != expected_kind
 		{
@@ -2676,12 +2682,15 @@ impl Provider {
 			authorization,
 			&data.into(),
 		)?;
+		// Retain the pointer token on the source so later traversals can reuse it.
+		let incoming = artifact.tokens.lock().unwrap().clone();
+		Self::insert_tokens(&mut tokens.lock().unwrap(), &incoming);
 		Ok(artifact)
 	}
 
 	async fn artifact_data_inner(
 		&self,
-		artifact: &ArtifactInfo,
+		artifact: &ArtifactState,
 	) -> std::io::Result<tg::artifact::data::Artifact> {
 		let authorization = self
 			.authorize_inner(&artifact.tokens, &artifact.id.clone().into())
@@ -2712,16 +2721,16 @@ impl Provider {
 
 	async fn directory_entries_inner(
 		&self,
-		directory: &ArtifactInfo,
+		directory: &ArtifactState,
 		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<BTreeMap<String, ArtifactInfo>> {
+	) -> std::io::Result<BTreeMap<String, ArtifactState>> {
 		let mut entries = BTreeMap::new();
 		let mut stack = vec![(directory.clone(), default_graph.cloned())];
 		while let Some((directory, default_graph)) = stack.pop() {
 			let tokens = directory.tokens.clone();
-			let (directory, graph) = self.directory_node_inner(&directory).await?;
+			let (directory_data, graph) = self.directory_node_inner(&directory).await?;
 			let graph = graph.or(default_graph);
-			match directory {
+			match directory_data {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					for (name, edge) in leaf.entries {
 						let artifact =
@@ -2737,6 +2746,7 @@ impl Provider {
 							graph.as_ref(),
 							None,
 						)?;
+						let artifact = self.branch_child(&directory, artifact)?;
 						stack.push((artifact, graph.clone()));
 					}
 				},
@@ -2747,11 +2757,11 @@ impl Provider {
 
 	async fn directory_entries_range_inner(
 		&self,
-		directory: &ArtifactInfo,
+		directory: &ArtifactState,
 		default_graph: Option<&tg::graph::Id>,
 		offset: u64,
 		limit: usize,
-	) -> std::io::Result<Vec<(String, ArtifactInfo)>> {
+	) -> std::io::Result<Vec<(String, ArtifactState)>> {
 		let mut entries = Vec::new();
 		let mut stack = vec![(directory.clone(), default_graph.cloned(), offset)];
 		while entries.len() < limit {
@@ -2759,9 +2769,9 @@ impl Provider {
 				break;
 			};
 			let tokens = directory.tokens.clone();
-			let (directory, graph) = self.directory_node_inner(&directory).await?;
+			let (directory_data, graph) = self.directory_node_inner(&directory).await?;
 			let graph = graph.or(default_graph);
-			match directory {
+			match directory_data {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					let offset = offset.to_usize().unwrap_or(usize::MAX);
 					let limit = limit.saturating_sub(entries.len());
@@ -2774,15 +2784,16 @@ impl Provider {
 				tg::graph::data::Directory::Branch(branch) => {
 					let limit = limit.saturating_sub(entries.len()).to_u64().unwrap();
 					let mut children = Vec::new();
-					for (directory, offset) in
+					for (edge, offset) in
 						Self::directory_children_range(branch.children, offset, limit)
 					{
 						let artifact = self.artifact_from_directory_edge_inner(
 							&tokens,
-							directory,
+							edge,
 							graph.as_ref(),
 							None,
 						)?;
+						let artifact = self.branch_child(&directory, artifact)?;
 						children.push((artifact, graph.clone(), offset));
 					}
 					stack.extend(children.into_iter().rev());
@@ -2795,10 +2806,10 @@ impl Provider {
 
 	async fn directory_lookup_entry_inner(
 		&self,
-		directory: &ArtifactInfo,
+		directory: &ArtifactState,
 		name: &str,
 		default_graph: Option<&tg::graph::Id>,
-	) -> std::io::Result<Option<ArtifactInfo>> {
+	) -> std::io::Result<Option<ArtifactState>> {
 		let mut directory = directory.clone();
 		let mut default_graph = default_graph.cloned();
 		loop {
@@ -2822,21 +2833,54 @@ impl Provider {
 					else {
 						return Ok(None);
 					};
-					directory = self.artifact_from_directory_edge_inner(
+					let artifact = self.artifact_from_directory_edge_inner(
 						&tokens,
 						child.directory,
 						graph.as_ref(),
 						None,
 					)?;
+					directory = self.branch_child(&directory, artifact)?;
 					default_graph = graph;
 				},
 			}
 		}
 	}
 
+	fn branch_child(
+		&self,
+		parent: &ArtifactState,
+		child: ArtifactState,
+	) -> std::io::Result<ArtifactState> {
+		// Reuse the child so that the child tokens it registers persist across traversals.
+		let parent_tokens = child.tokens.lock().unwrap().clone();
+		let mut children = parent.branch_children.lock().unwrap();
+		let entry = children
+			.entry(child.id.clone())
+			.or_insert_with(|| BranchChild {
+				artifact: child,
+				parent_tokens: parent_tokens.clone(),
+			});
+
+		// Replace the expired tokens when the parent renews its tokens for the child.
+		if entry.parent_tokens != parent_tokens {
+			let now = self
+				.server
+				.clock
+				.unix_timestamp()
+				.map_err(|error| Self::map_cache_sync_error(&error))?;
+			let mut tokens = entry.artifact.tokens.lock().unwrap();
+			tokens.retain(|token| token.body.expires_at >= now);
+			Self::insert_tokens(&mut tokens, &parent_tokens);
+			drop(tokens);
+			entry.parent_tokens = parent_tokens;
+		}
+
+		Ok(entry.artifact.clone())
+	}
+
 	async fn directory_node_inner(
 		&self,
-		directory: &ArtifactInfo,
+		directory: &ArtifactState,
 	) -> std::io::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
 		let tokens = directory.tokens.clone();
 		let data = self.artifact_data_inner(directory).await?;
@@ -2859,7 +2903,7 @@ impl Provider {
 
 	async fn file_node_inner(
 		&self,
-		file: &ArtifactInfo,
+		file: &ArtifactState,
 	) -> std::io::Result<(tg::graph::data::File, Option<tg::graph::Id>)> {
 		let tokens = file.tokens.clone();
 		let data = self.artifact_data_inner(file).await?;
@@ -2924,7 +2968,7 @@ impl Provider {
 
 	async fn symlink_node_inner(
 		&self,
-		symlink: &ArtifactInfo,
+		symlink: &ArtifactState,
 	) -> std::io::Result<(tg::graph::data::Symlink, Option<tg::graph::Id>)> {
 		let tokens = symlink.tokens.clone();
 		let data = self.artifact_data_inner(symlink).await?;
@@ -2948,7 +2992,7 @@ impl Provider {
 	fn artifact(
 		id: tg::artifact::Id,
 		tokens: &Mutex<Vec<tg::authorization::Token>>,
-	) -> ArtifactInfo {
+	) -> ArtifactState {
 		let resource = tg::Id::from(id.clone());
 		let tokens = tokens
 			.lock()
@@ -2957,7 +3001,8 @@ impl Provider {
 			.filter(|token| token.body.resource == resource)
 			.cloned()
 			.collect::<Vec<_>>();
-		ArtifactInfo {
+		ArtifactState {
+			branch_children: Arc::default(),
 			children_expires_at: Arc::default(),
 			data: None,
 			id,
@@ -3158,7 +3203,7 @@ impl Provider {
 
 	fn artifact_data_sync_inner(
 		&self,
-		artifact: &ArtifactInfo,
+		artifact: &ArtifactState,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<tg::artifact::data::Artifact> {
 		let authorization = self.authorize_sync(&artifact.tokens, &artifact.id.clone().into())?;
@@ -3262,7 +3307,7 @@ impl Provider {
 
 	fn directory_node_sync_inner(
 		&self,
-		directory: &ArtifactInfo,
+		directory: &ArtifactState,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
 		let tokens = directory.tokens.clone();
@@ -3409,7 +3454,7 @@ impl Provider {
 
 	fn file_node_sync_inner(
 		&self,
-		file: &ArtifactInfo,
+		file: &ArtifactState,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::File, Option<tg::graph::Id>)> {
 		let tokens = file.tokens.clone();
@@ -3434,7 +3479,7 @@ impl Provider {
 
 	fn symlink_node_sync_inner(
 		&self,
-		symlink: &ArtifactInfo,
+		symlink: &ArtifactState,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::Symlink, Option<tg::graph::Id>)> {
 		let tokens = symlink.tokens.clone();
@@ -3459,17 +3504,18 @@ impl Provider {
 
 	fn directory_entries_sync_inner(
 		&self,
-		directory: &ArtifactInfo,
+		directory: &ArtifactState,
 		default_graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<BTreeMap<String, ArtifactInfo>> {
+	) -> std::io::Result<BTreeMap<String, ArtifactState>> {
 		let mut entries = BTreeMap::new();
 		let mut stack = vec![(directory.clone(), default_graph.cloned())];
 		while let Some((directory, default_graph)) = stack.pop() {
 			let tokens = directory.tokens.clone();
-			let (directory, graph) = self.directory_node_sync_inner(&directory, transaction)?;
+			let (directory_data, graph) =
+				self.directory_node_sync_inner(&directory, transaction)?;
 			let graph = graph.or(default_graph);
-			match directory {
+			match directory_data {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					for (name, edge) in leaf.entries {
 						let artifact = self.artifact_from_edge_inner(
@@ -3489,6 +3535,7 @@ impl Provider {
 							graph.as_ref(),
 							transaction,
 						)?;
+						let artifact = self.branch_child(&directory, artifact)?;
 						stack.push((artifact, graph.clone()));
 					}
 				},
@@ -3499,12 +3546,12 @@ impl Provider {
 
 	fn directory_entries_range_sync_inner(
 		&self,
-		directory: &ArtifactInfo,
+		directory: &ArtifactState,
 		default_graph: Option<&tg::graph::Id>,
 		offset: u64,
 		limit: usize,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<Vec<(String, ArtifactInfo)>> {
+	) -> std::io::Result<Vec<(String, ArtifactState)>> {
 		let mut entries = Vec::new();
 		let mut stack = vec![(directory.clone(), default_graph.cloned(), offset)];
 		while entries.len() < limit {
@@ -3512,9 +3559,10 @@ impl Provider {
 				break;
 			};
 			let tokens = directory.tokens.clone();
-			let (directory, graph) = self.directory_node_sync_inner(&directory, transaction)?;
+			let (directory_data, graph) =
+				self.directory_node_sync_inner(&directory, transaction)?;
 			let graph = graph.or(default_graph);
-			match directory {
+			match directory_data {
 				tg::graph::data::Directory::Leaf(leaf) => {
 					let offset = offset.to_usize().unwrap_or(usize::MAX);
 					let limit = limit.saturating_sub(entries.len());
@@ -3531,15 +3579,16 @@ impl Provider {
 				tg::graph::data::Directory::Branch(branch) => {
 					let limit = limit.saturating_sub(entries.len()).to_u64().unwrap();
 					let mut children = Vec::new();
-					for (directory, offset) in
+					for (edge, offset) in
 						Self::directory_children_range(branch.children, offset, limit)
 					{
 						let artifact = self.artifact_from_directory_edge_inner(
 							&tokens,
-							directory,
+							edge,
 							graph.as_ref(),
 							transaction,
 						)?;
+						let artifact = self.branch_child(&directory, artifact)?;
 						children.push((artifact, graph.clone(), offset));
 					}
 					stack.extend(children.into_iter().rev());
@@ -3552,11 +3601,11 @@ impl Provider {
 
 	fn directory_lookup_entry_sync_inner(
 		&self,
-		directory: &ArtifactInfo,
+		directory: &ArtifactState,
 		name: &str,
 		default_graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
-	) -> std::io::Result<Option<ArtifactInfo>> {
+	) -> std::io::Result<Option<ArtifactState>> {
 		let mut directory = directory.clone();
 		let mut default_graph = default_graph.cloned();
 		loop {
@@ -3581,12 +3630,13 @@ impl Provider {
 					else {
 						return Ok(None);
 					};
-					directory = self.artifact_from_directory_edge_inner(
+					let artifact = self.artifact_from_directory_edge_inner(
 						&tokens,
 						child.directory,
 						graph.as_ref(),
 						transaction,
 					)?;
+					directory = self.branch_child(&directory, artifact)?;
 					default_graph = graph;
 				},
 			}
@@ -3606,7 +3656,7 @@ impl Provider {
 
 	fn compute_attrs_from_artifact_sync_inner(
 		&self,
-		artifact: Option<&ArtifactInfo>,
+		artifact: Option<&ArtifactState>,
 		depth: u64,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<vfs::Attrs> {
@@ -3757,7 +3807,7 @@ impl Provider {
 		std::io::Error::from_raw_os_error(libc::EIO)
 	}
 
-	fn attrs_from_artifact(artifact: Option<&ArtifactInfo>) -> Option<vfs::Attrs> {
+	fn attrs_from_artifact(artifact: Option<&ArtifactState>) -> Option<vfs::Attrs> {
 		match artifact {
 			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::File) => None,
 			Some(artifact) if matches!(artifact.id.kind(), tg::artifact::Kind::Directory) => {
@@ -3769,7 +3819,7 @@ impl Provider {
 		}
 	}
 
-	fn entry_kind_from_artifact(artifact: &ArtifactInfo) -> vfs::EntryKind {
+	fn entry_kind_from_artifact(artifact: &ArtifactState) -> vfs::EntryKind {
 		match artifact.id.kind() {
 			tg::artifact::Kind::Directory => vfs::EntryKind::Directory,
 			tg::artifact::Kind::File => vfs::EntryKind::File,
@@ -3797,9 +3847,10 @@ impl Provider {
 	}
 }
 
-impl ArtifactInfo {
+impl ArtifactState {
 	fn snapshot(&self) -> Self {
 		Self {
+			branch_children: Arc::default(),
 			children_expires_at: Arc::default(),
 			data: self.data.clone(),
 			id: self.id.clone(),
@@ -4081,7 +4132,7 @@ impl Nodes {
 		Ok(())
 	}
 
-	fn root_artifact(&self, id: &tg::artifact::Id) -> ArtifactInfo {
+	fn root_artifact(&self, id: &tg::artifact::Id) -> ArtifactState {
 		let state = self.state.lock().unwrap();
 		let root = &state.nodes[&vfs::ROOT_NODE_ID];
 		if let Some(source) = root
@@ -4116,7 +4167,8 @@ impl Nodes {
 			.filter(|token| token.body.resource == id.clone().into())
 			.cloned()
 			.collect::<Vec<_>>();
-		ArtifactInfo {
+		ArtifactState {
+			branch_children: Arc::default(),
 			children_expires_at: Arc::default(),
 			data: None,
 			id: id.clone(),
@@ -4124,7 +4176,7 @@ impl Nodes {
 		}
 	}
 
-	fn insert_dependency(&self, source: u64, artifact: &ArtifactInfo) {
+	fn insert_dependency(&self, source: u64, artifact: &ArtifactState) {
 		let mut state = self.state.lock().unwrap();
 		let Some(node) = state.nodes.get_mut(&source) else {
 			return;
@@ -4341,7 +4393,7 @@ impl Nodes {
 		&self,
 		parent: u64,
 		name: &str,
-		artifact: ArtifactInfo,
+		artifact: ArtifactState,
 		depth: u64,
 		attrs: Option<vfs::Attrs>,
 		remember: bool,
@@ -4655,7 +4707,7 @@ impl vfs::Provider for Provider {
 #[cfg(test)]
 mod tests {
 	use {
-		super::{ArtifactInfo, Nodes, Provider},
+		super::{ArtifactState, Nodes, Provider},
 		std::sync::{Arc, Mutex},
 		tangram_client::prelude::*,
 		tangram_vfs as vfs,
@@ -4883,7 +4935,7 @@ mod tests {
 		assert_eq!(*artifact.tokens.lock().unwrap(), expected.authorization);
 	}
 
-	fn artifact(bytes: &[u8]) -> ArtifactInfo {
+	fn artifact(bytes: &[u8]) -> ArtifactState {
 		let id: tg::artifact::Id = tg::file::Id::new(bytes).into();
 		let token = tg::authorization::Token {
 			body: tg::authorization::Body {
@@ -4899,7 +4951,8 @@ mod tests {
 			},
 			signature: vec![0; 64],
 		};
-		ArtifactInfo {
+		ArtifactState {
+			branch_children: Arc::default(),
 			children_expires_at: Arc::default(),
 			data: None,
 			id,
