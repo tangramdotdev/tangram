@@ -13,6 +13,7 @@ members = [
   "packages/cache/scylla",
   "packages/cli",
   "packages/clients/js/native",
+  "packages/clients/py/native",
   "packages/clients/rust",
   "packages/compiler",
   "packages/database",
@@ -176,6 +177,8 @@ pin-project = "1"
 postgres-protocol = "0.6"
 pretty_assertions = "1"
 proc-macro2 = "1"
+pyo3 = "0.29.3"
+pyo3-build-config = "0.29.3"
 quick-xml = { version = "0.41", features = ["serialize"] }
 quote = "1"
 radix_trie = "0.3.0"

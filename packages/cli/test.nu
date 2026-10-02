@@ -196,8 +196,9 @@ def main [
 		error make { msg: 'no tests matched the provided filters' }
 	}
 
-	# Tests that require the Node.js client must live under node/.
+	# Tests that require an external language client live under its named directory.
 	let node = $tests | any { |test| $test.name | str starts-with 'node/' }
+	let py = $tests | any { |test| $test.name | str starts-with 'py/' }
 	let extension_args = if $node { ['--package' 'tangram_js_native'] } else { [] }
 
 	# Build and install the current macOS app and file system extension. Isolate
@@ -250,6 +251,13 @@ def main [
 		let client_profile = if $release { 'release' } else { 'dev' }
 		let client_build_args = if $tangram_path == null { ['--skip-extension-build'] } else { [] }
 		bun run --filter @tangramdotdev/client build --profile $client_profile ...$client_build_args
+	}
+
+	# Build the Python client with an installed Python 3.12 or later.
+	if $py {
+		let client_profile = if $release { 'release' } else { 'dev' }
+		let python_executable = $env.TANGRAM_PYTHON? | default 'python3'
+		^$python_executable packages/clients/py/build.py --profile $client_profile
 	}
 
 	if $cloud {

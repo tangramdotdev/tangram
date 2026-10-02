@@ -4,7 +4,13 @@
 /.config/*
 !/.config/nextest.toml
 /.tangram
+/.venv
+/.ruff_cache
 /packages/clients/js/dist
+/packages/clients/py/.venv
+/packages/clients/py/.ruff_cache
+/packages/clients/py/src/tangram/_native*.so
+__pycache__
 /packages/typescript/dist
 /release
 /target
