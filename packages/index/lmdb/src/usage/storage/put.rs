@@ -390,10 +390,17 @@ impl Index {
 			let previous = entry.permissions;
 			entry.permissions.insert(permissions);
 			if previous != entry.permissions {
+				// Recheck additions because the queued permissions may no longer retain storage.
+				entry.reference_count = 0;
 				db.put(transaction, &entry_key, &entry.serialize()?)
 					.map_err(|error| {
 						tg::error!(!error, "failed to update the storage permissions")
 					})?;
+				let clean_arg = tangram_index::usage::storage::put::ObjectArg {
+					touched_at: entry.touched_at,
+					..arg.clone()
+				};
+				Self::put_account_object_clean_key(db, subspace, transaction, &clean_arg)?;
 				Self::clear_usage_update_versions(
 					db,
 					subspace,
@@ -512,6 +519,8 @@ impl Index {
 			let stored = entry.stores_node();
 			entry.permissions.insert(permissions);
 			if previous != entry.permissions {
+				// Recheck additions because the queued permissions may no longer retain storage.
+				entry.reference_count = 0;
 				if !stored && entry.stores_node() {
 					let delta = tangram_index::usage::DeltaArg {
 						account: &arg.account,
@@ -526,6 +535,11 @@ impl Index {
 					.map_err(|error| {
 						tg::error!(!error, "failed to update the storage permissions")
 					})?;
+				let clean_arg = tangram_index::usage::storage::put::ProcessArg {
+					touched_at: entry.touched_at,
+					..arg.clone()
+				};
+				Self::put_account_process_clean_key(db, subspace, transaction, &clean_arg)?;
 				Self::clear_usage_update_versions(
 					db,
 					subspace,

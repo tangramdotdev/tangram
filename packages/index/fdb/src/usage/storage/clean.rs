@@ -166,6 +166,9 @@ impl Index {
 			Self::compute_account_storage_permissions_with_transaction(txn, subspace, account, &id)
 				.await
 		);
+		// Leave permission additions to usage puts so that they propagate to descendants.
+		let permissions =
+			tangram_index::usage::storage::retained_permissions(entry.permissions, permissions);
 		if !permissions.is_empty() {
 			if permissions != entry.permissions {
 				let stored = entry.stores_node();

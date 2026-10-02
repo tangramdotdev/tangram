@@ -1754,6 +1754,29 @@ async fn account_storage_uses_cached_references_until_a_parent_changes() {
 		.put(&mut transaction, &parent_key, &parent_value)
 		.unwrap();
 
+	// An expansion invalidates the references until cleanup confirms the retaining parent.
+	let entry = tangram_index::usage::storage::Entry::deserialize(
+		index.db.get(&transaction, &key).unwrap().unwrap(),
+	)
+	.unwrap();
+	assert_eq!(entry.reference_count, 0);
+	Index::clean_account_object_entry(
+		&index.db,
+		&index.subspace,
+		&mut transaction,
+		&account,
+		&child,
+		10800,
+		3600,
+		1,
+	)
+	.unwrap();
+	let entry = tangram_index::usage::storage::Entry::deserialize(
+		index.db.get(&transaction, &key).unwrap().unwrap(),
+	)
+	.unwrap();
+	assert_eq!(entry.reference_count, 1);
+
 	// Touching a retained entry does not create another cleanup key.
 	let arg = tangram_index::usage::storage::put::ObjectArg {
 		touched_at: 4000,
@@ -1917,4 +1940,304 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 	assert_eq!(usage.object_count, 1);
 	assert_eq!(usage.object_size, 3);
 	assert_eq!(usage.process_count, 0);
+}
+
+#[tokio::test]
+async fn tag_storage_propagates_permissions_when_cleanup_precedes_the_queued_put() {
+	for processes in [false, true] {
+		tag_storage_with_cleanup_before_a_queued_permission_addition(processes, false).await;
+	}
+}
+
+#[tokio::test]
+async fn tag_storage_cleans_a_queued_permission_addition_after_tag_deletion() {
+	for processes in [false, true] {
+		tag_storage_with_cleanup_before_a_queued_permission_addition(processes, true).await;
+	}
+}
+
+async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
+	processes: bool,
+	delete_tag: bool,
+) {
+	let (_dir, index) = new_index(1);
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let tag = tg::tag::Id::new();
+	let added_tag = if delete_tag {
+		tg::tag::Id::new()
+	} else {
+		tag.clone()
+	};
+	let (root, child, leaf, mut items) = if processes {
+		let root = tg::process::Id::new();
+		let child = tg::process::Id::new();
+		let leaf = tg::process::Id::new();
+		let command = object_id(1603);
+		let items = vec![
+			tangram_index::batch::Item::PutProcess(process_arg(
+				root.clone(),
+				vec![child.clone()],
+				command.clone(),
+			)),
+			tangram_index::batch::Item::PutProcess(process_arg(
+				child.clone(),
+				vec![leaf.clone()],
+				command.clone(),
+			)),
+			tangram_index::batch::Item::PutProcess(process_arg(leaf.clone(), vec![], command)),
+		];
+		(
+			tg::Either::Right(root),
+			tg::Either::Right(child),
+			tg::Either::Right(leaf),
+			items,
+		)
+	} else {
+		let root = object_id(1600);
+		let child = object_id(1601);
+		let leaf = object_id(1602);
+		let items = vec![
+			tangram_index::batch::Item::PutObject(object_arg(root.clone(), [child.clone()], 1)),
+			tangram_index::batch::Item::PutObject(object_arg(child.clone(), [leaf.clone()], 2)),
+			tangram_index::batch::Item::PutObject(object_arg(leaf.clone(), [], 3)),
+		];
+		(
+			tg::Either::Left(root),
+			tg::Either::Left(child),
+			tg::Either::Left(leaf),
+			items,
+		)
+	};
+	let tags = if delete_tag {
+		vec![(&tag, "node"), (&added_tag, "subtree")]
+	} else {
+		vec![(&tag, "node")]
+	};
+	for (id, name) in tags {
+		let arg = tangram_index::tag::put::Arg {
+			account: Some(account.clone()),
+			id: id.clone(),
+			name: name.into(),
+			parent: None,
+			specifier: name.parse().unwrap(),
+			target: root.clone(),
+			touched_at: 3600,
+			version: "initial".into(),
+		};
+		items.push(tangram_index::batch::Item::PutTag(arg));
+	}
+	let arg = tangram_index::batch::Arg { items };
+	index.batch(arg).await.unwrap();
+	let node = if processes {
+		tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		)
+	} else {
+		tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		)
+	};
+	for resource in [&root, &child] {
+		let resource = match resource {
+			tg::Either::Left(object) => tg::Id::from(object.clone()),
+			tg::Either::Right(process) => tg::Id::from(process.clone()),
+		};
+		let arg = tangram_index::permission::put::Arg {
+			created_at: 3600,
+			creator: None,
+			permissions: node.into(),
+			resource,
+			source: tangram_index::permission::Source::Direct { expires_at: None },
+			subject: tg::authorization::Subject::Tag(tag.clone()),
+			time_to_touch: None,
+			version: Some("initial".into()),
+		};
+		index.put_permissions(&[arg]).await.unwrap();
+	}
+	while index
+		.update_batch(tangram_index::update::Kind::Usage, 100)
+		.await
+		.unwrap()
+		.count != 0
+	{}
+
+	// Capture an addition while existing entries are already eligible for cleanup.
+	let resource = match &root {
+		tg::Either::Left(object) => tg::Id::from(object.clone()),
+		tg::Either::Right(process) => tg::Id::from(process.clone()),
+	};
+	let arg = tangram_index::permission::put::Arg {
+		created_at: 10800,
+		creator: None,
+		permissions: node.subtree().into(),
+		resource,
+		source: tangram_index::permission::Source::Direct { expires_at: None },
+		subject: tg::authorization::Subject::Tag(added_tag.clone()),
+		time_to_touch: None,
+		version: Some("initial".into()),
+	};
+	index.put_permissions(&[arg]).await.unwrap();
+	let resource = if delete_tag {
+		index.delete_tags(&[added_tag]).await.unwrap();
+		&root
+	} else {
+		assert_eq!(
+			index
+				.update_batch(tangram_index::update::Kind::Usage, 1)
+				.await
+				.unwrap()
+				.count,
+			1
+		);
+		&child
+	};
+
+	// Run cleanup before the queued addition to this entry is processed.
+	let mut transaction = index.env.write_txn().unwrap();
+	match resource {
+		tg::Either::Left(object) => Index::clean_account_object_entry(
+			&index.db,
+			&index.subspace,
+			&mut transaction,
+			&account,
+			object,
+			10800,
+			3600,
+			1,
+		)
+		.unwrap(),
+		tg::Either::Right(process) => Index::clean_account_process_entry(
+			&index.db,
+			&index.subspace,
+			&mut transaction,
+			&account,
+			process,
+			10800,
+			3600,
+			1,
+		)
+		.unwrap(),
+	}
+	transaction.commit().unwrap();
+	while index
+		.update_batch(tangram_index::update::Kind::Usage, 100)
+		.await
+		.unwrap()
+		.count != 0
+	{}
+
+	// Deleted captures must be removed even when their puts run after the deletion cleanup.
+	if delete_tag {
+		let transaction = index.env.read_txn().unwrap();
+		let (entry_key, clean_key) = match &root {
+			tg::Either::Left(object) => (
+				super::super::Key::Usage(super::super::usage::Key::AccountObject {
+					account: account.clone(),
+					object: object.clone(),
+				}),
+				super::super::Key::Clean(super::super::clean::Key::AccountObject {
+					account: account.clone(),
+					object: object.clone(),
+					touched_at: 3600,
+				}),
+			),
+			tg::Either::Right(process) => (
+				super::super::Key::Usage(super::super::usage::Key::AccountProcess {
+					account: account.clone(),
+					process: process.clone(),
+				}),
+				super::super::Key::Clean(super::super::clean::Key::AccountProcess {
+					account: account.clone(),
+					process: process.clone(),
+					touched_at: 3600,
+				}),
+			),
+		};
+		let entry = tangram_index::usage::storage::Entry::deserialize(
+			index
+				.db
+				.get(&transaction, &Index::pack(&index.subspace, &entry_key))
+				.unwrap()
+				.unwrap(),
+		)
+		.unwrap();
+		assert_eq!(entry.reference_count, 0);
+		assert_eq!(entry.touched_at, 3600);
+		assert!(
+			index
+				.db
+				.get(&transaction, &Index::pack(&index.subspace, &clean_key))
+				.unwrap()
+				.is_some()
+		);
+		drop(transaction);
+
+		for _ in 0..8 {
+			let arg = tangram_index::clean::Arg {
+				batch_size: 100,
+				max_object_touched_at: 10800,
+				max_process_touched_at: 10800,
+				max_sandbox_touched_at: 0,
+				now: 18000,
+				partition_end: 1,
+				partition_start: 0,
+			};
+			if index.clean(arg).await.unwrap().done {
+				break;
+			}
+		}
+	}
+	let transaction = index.env.read_txn().unwrap();
+	let key = match leaf {
+		tg::Either::Left(object) => super::super::usage::Key::AccountObject {
+			account: account.clone(),
+			object,
+		},
+		tg::Either::Right(process) => super::super::usage::Key::AccountProcess {
+			account: account.clone(),
+			process,
+		},
+	};
+	let key = super::super::Key::Usage(key);
+	let stored = index
+		.db
+		.get(&transaction, &Index::pack(&index.subspace, &key))
+		.unwrap()
+		.is_some();
+	assert_eq!(
+		stored, !delete_tag,
+		"the leaf's storage must match the surviving captures"
+	);
+	let now = jiff::Timestamp::new(18000, 0).unwrap();
+	let period =
+		tangram_index::usage::Period::containing(tangram_index::usage::PeriodKind::Hour, now);
+	let usage = index.get_usage(&account, period, now).await.unwrap();
+	assert_eq!(
+		usage.object_count,
+		if processes {
+			0
+		} else if delete_tag {
+			2
+		} else {
+			3
+		}
+	);
+	assert_eq!(
+		usage.object_size,
+		if processes {
+			0
+		} else if delete_tag {
+			3
+		} else {
+			6
+		}
+	);
+	assert_eq!(
+		usage.process_count,
+		if processes {
+			if delete_tag { 2 } else { 3 }
+		} else {
+			0
+		}
+	);
 }

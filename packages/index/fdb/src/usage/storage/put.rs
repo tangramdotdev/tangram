@@ -342,7 +342,19 @@ impl Index {
 			let previous = entry.permissions;
 			entry.permissions.insert(permissions);
 			if previous != entry.permissions {
+				// Recheck additions because the queued permissions may no longer retain storage.
+				entry.reference_count = 0;
 				txn.set(&entry_key, &entry.serialize()?);
+				let clean_arg = tangram_index::usage::storage::put::ObjectArg {
+					touched_at: entry.touched_at,
+					..arg.clone()
+				};
+				Self::put_account_object_clean_key(
+					txn,
+					subspace,
+					&clean_arg,
+					cleaning_partition_total,
+				);
 				Self::clear_usage_update_versions(
 					txn,
 					subspace,
@@ -479,6 +491,8 @@ impl Index {
 			let stored = entry.stores_node();
 			entry.permissions.insert(permissions);
 			if previous != entry.permissions {
+				// Recheck additions because the queued permissions may no longer retain storage.
+				entry.reference_count = 0;
 				if !stored && entry.stores_node() {
 					Self::add_usage_delta(
 						txn,
@@ -491,6 +505,16 @@ impl Index {
 					);
 				}
 				txn.set(&entry_key, &entry.serialize()?);
+				let clean_arg = tangram_index::usage::storage::put::ProcessArg {
+					touched_at: entry.touched_at,
+					..arg.clone()
+				};
+				Self::put_account_process_clean_key(
+					txn,
+					subspace,
+					&clean_arg,
+					cleaning_partition_total,
+				);
 				Self::clear_usage_update_versions(
 					txn,
 					subspace,

@@ -231,6 +231,9 @@ impl Index {
 				account,
 				&id,
 			)?;
+		// Leave permission additions to usage puts so that they propagate to descendants.
+		let permissions =
+			tangram_index::usage::storage::retained_permissions(entry.permissions, permissions);
 		if !permissions.is_empty() {
 			if permissions != entry.permissions {
 				let stored = entry.stores_node();
