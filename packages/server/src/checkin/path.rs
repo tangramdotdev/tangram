@@ -148,6 +148,28 @@ impl Session {
 		Ok(output)
 	}
 
+	pub(super) fn checkin_seed_vfs_tokens(
+		&self,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<()> {
+		let Some(sandbox) = self.try_get_checkin_origin_sandbox()? else {
+			return Ok(());
+		};
+		let vfs = self
+			.server
+			.runner
+			.state()
+			.sandboxes()
+			.get_by_id(&sandbox)
+			.and_then(|state| state.vfs.as_ref()?.upgrade());
+		if let Some(vfs) = vfs {
+			// Forward the issued proof before returning the ID to the process that will use it.
+			vfs.seed_tokens(self, tokens)
+				.map_err(|error| tg::error!(!error, "failed to seed the sandbox VFS tokens"))?;
+		}
+		Ok(())
+	}
+
 	fn try_get_checkin_origin_sandbox(&self) -> tg::Result<Option<tg::sandbox::Id>> {
 		let Some(sandbox) = self
 			.server

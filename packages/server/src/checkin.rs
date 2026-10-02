@@ -108,6 +108,7 @@ impl Session {
 
 		// Recognize the store path after resolving parent symlinks and traversal components.
 		if let Some(output) = self.try_checkin_store_path(&arg.path).await? {
+			self.checkin_seed_vfs_tokens(&output.artifact.options.tokens)?;
 			let progress = crate::progress::Handle::new();
 			progress.output(output);
 			return Ok(progress.stream().left_stream());
@@ -280,6 +281,11 @@ impl Session {
 				}
 				let referent = tg::Referent { node: id, options };
 				let output = tg::checkin::Output { artifact: referent };
+				if let Err(error) = session.checkin_seed_vfs_tokens(&output.artifact.options.tokens)
+				{
+					progress.error(error);
+					return;
+				}
 				progress.output(output);
 			}
 		});
