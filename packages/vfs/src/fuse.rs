@@ -99,8 +99,6 @@ pub enum Passthrough {
 	#[default]
 	Auto,
 	Disabled,
-	/// Require kernel support and successful registration for files with backing descriptors.
-	/// Files without backing descriptors use regular FUSE I/O.
 	Required,
 }
 
