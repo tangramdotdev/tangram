@@ -46,9 +46,9 @@ let build = job spawn {
 success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete) "the parent should start"
 tg --url $runner.url checkpoint continue runner.process.start $start_watch 0
 success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.connect $control_watch 0 | complete) "the unassigned child should reach control"
-let response_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.output | from json | get watch
+let response_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.header | from json | get watch
 tg --url $runner.url checkpoint unwatch runner.process.control.connect $control_watch
-let response = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.output $response_watch 0 | from json
+let response = timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.header $response_watch 0 | from json
 let child = $response.params.process
 assert ($child | str starts-with 'pcs_') "control should assign a process ID"
 let started = timeout 1s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | complete
@@ -59,7 +59,7 @@ let index_watch = tg --url $runner.url checkpoint watch runner.process.index.sta
 let stored_watch = tg --url $runner.url checkpoint watch runner.process.output.stored --params $params | from json | get watch
 let finished_watch = tg --url $runner.url checkpoint watch runner.process.finished --params $params | from json | get watch
 let sent_watch = tg --url $runner.url checkpoint watch runner.process.control.finish.sent --params $params | from json | get watch
-tg --url $remote.url --token $root_token checkpoint unwatch process.control.output $response_watch
+tg --url $remote.url --token $root_token checkpoint unwatch process.control.header $response_watch
 let started = timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 1 | from json
 assert equal $started.params.process $child "the child should start with its assigned ID"
 tg --url $runner.url checkpoint unwatch runner.process.start $start_watch

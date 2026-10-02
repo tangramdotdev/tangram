@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let dir = tg put 'tg.directory({ "hello.txt": tg.file("hello") })' | str trim
+let dir = tg put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' | referent node
 
 let output = tg archive --format zip --compression gz $dir | complete
 failure $output

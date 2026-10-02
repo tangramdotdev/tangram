@@ -12,7 +12,7 @@ let path = artifact {
 
 tg tag foo ($path | path join 'foo.tg.ts')
 
-let id = tg checkin --destructive --ignore=false --lock=file ($path | path join 'bar.tg.ts')
+let id = tg checkin --no-tokens --destructive --ignore=false --lock=file ($path | path join 'bar.tg.ts') | referent node
 tg index
 
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id

@@ -8,7 +8,7 @@ let local = server spawn --name local --config {
 	advanced: { checkpoints: true },
 }
 
-let object = tg --url $local_source.url put 'tg.file("contents")' | str trim
+let object = tg --url $local_source.url put --no-tokens 'tg.file("contents")' | referent node
 tg --url $local.url remote put default $local_source.url --trusted
 
 let watch = (

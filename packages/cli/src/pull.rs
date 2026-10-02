@@ -23,6 +23,9 @@ pub struct Args {
 	#[arg(long)]
 	pub organization_children: bool,
 
+	#[command(flatten)]
+	pub print: crate::print::Options,
+
 	#[arg(long)]
 	pub process_children: bool,
 
@@ -112,14 +115,20 @@ impl Cli {
 			tag_targets: args.tag_targets.get(),
 			user_children: args.user_children,
 		};
-		let stream = client
+		let (header, stream) = client
 			.pull(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to pull"))?;
+		for node in &header.nodes {
+			self.print_info_referent(node, &args.print);
+		}
 		let output = self.render_progress_stream(stream).await?;
 
 		self.print_push_or_pull_amounts("skipped", &output.skipped);
 		self.print_push_or_pull_amounts("transferred", &output.transferred);
+		for referent in &output.nodes {
+			Self::print_referent(referent, &args.print);
+		}
 
 		Ok(())
 	}

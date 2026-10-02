@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let blob = "" | tg write | str trim
+let blob = "" | tg write --no-tokens | referent node
 
 let output = tg read $blob | complete
 success $output

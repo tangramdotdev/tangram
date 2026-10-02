@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let output = 0x[ff fe fd] | tg put | complete
+let output = 0x[ff fe fd] | tg put --no-tokens | complete
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred

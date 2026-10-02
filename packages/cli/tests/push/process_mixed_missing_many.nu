@@ -32,7 +32,7 @@ def test [...args] {
 	}
 
 	# Build the module.
-	let process_id = tg --url $local_source.url build --detach $path | str trim
+	let process_id = tg --url $local_source.url build --no-tokens --detach $path | referent node
 
 	# Wait for the process to finish.
 	tg --url $local_source.url wait $process_id
@@ -46,10 +46,10 @@ def test [...args] {
 	tg --url $local_source.url index
 
 	# Put the main process to the local server.
-	tg --url $local_source.url get $process_id | tg --url $local.url put --id $process_id
+	tg --url $local_source.url get $process_id | tg --url $local.url put --no-tokens --id $process_id | referent node
 
 	# Put the main module to the local server.
-	tg --url $local_source.url get --bytes $main_module_id | tg --url $local.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $main_module_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 
 	# Get all the main module's descendants recursively and put to local.
 	mut main_cmd_descendants = []
@@ -67,22 +67,22 @@ def test [...args] {
 	}
 	for child_id in $main_cmd_descendants {
 		let kind = $child_id | str substring 0..<3
-		tg --url $local_source.url get --bytes $child_id | tg --url $local.url put --bytes --kind $kind
+		tg --url $local_source.url get --bytes $child_id | tg --url $local.url put --no-tokens --bytes --kind $kind | referent node
 	}
 
 	# Put the log to the local server.
 	let log_id = tg --url $local_source.url get $process_id | from json | get log
-	tg --url $local_source.url get --bytes $log_id | tg --url $local.url put --bytes --kind blob
+	tg --url $local_source.url get --bytes $log_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 
 	# Put the main output to the local server.
-	tg --url $local_source.url get --bytes $main_output_id | tg --url $local.url put --bytes --kind dir
+	tg --url $local_source.url get --bytes $main_output_id | tg --url $local.url put --no-tokens --bytes --kind dir | referent node
 
 	# Get all file children from the output directory.
 	let output_files = tg --url $local_source.url children $main_output_id | from json
 
 	# Put output files to the local server.
 	for fil_id in $output_files {
-		tg --url $local_source.url get --bytes $fil_id | tg --url $local.url put --bytes --kind fil
+		tg --url $local_source.url get --bytes $fil_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 	}
 
 	# Get blobs from the output files.
@@ -96,9 +96,9 @@ def test [...args] {
 	for i in 0..<$blob_count {
 		let blb_id = $output_blobs | get $i
 		if $i < $half_blobs {
-			tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
+			tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 		} else {
-			tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
+			tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
 		}
 	}
 
@@ -113,15 +113,15 @@ def test [...args] {
 		let child_log_id = $child_data.log
 
 		# Put the child's log to the local server.
-		tg --url $local_source.url get --bytes $child_log_id | tg --url $local.url put --bytes --kind blob
+		tg --url $local_source.url get --bytes $child_log_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 
 		# Put some child processes to local, some to remote (process root missing).
 		if ($i mod 4) == 0 {
 			# Put to remote only (root missing locally).
-			tg --url $local_source.url get $child_id | tg --url $remote.url put --id $child_id
+			tg --url $local_source.url get $child_id | tg --url $remote.url put --no-tokens --id $child_id | referent node
 		} else {
 			# Put to local.
-			tg --url $local_source.url get $child_id | tg --url $local.url put --id $child_id
+			tg --url $local_source.url get $child_id | tg --url $local.url put --no-tokens --id $child_id | referent node
 		}
 
 		# Get all the child module's descendants recursively.
@@ -142,45 +142,45 @@ def test [...args] {
 		# Alternate between missing command inputs and missing outputs.
 		if ($i mod 3) == 0 {
 			# Put module to remote (intermediate missing), output to local.
-			tg --url $local_source.url get --bytes $child_module_id | tg --url $remote.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_module_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
 			for desc_id in $child_cmd_descendants {
 				let kind = $desc_id | str substring 0..<3
-				tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --bytes --kind $kind
+				tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --no-tokens --bytes --kind $kind | referent node
 			}
-			tg --url $local_source.url get --bytes $child_output_id | tg --url $local.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_output_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 
 			# Put the blob for this output to local.
 			let child_blob_ids = tg --url $local_source.url children $child_output_id | from json
 			for blb_id in $child_blob_ids {
-				tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
+				tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 			}
 		} else if ($i mod 3) == 1 {
 			# Put module to local, output to remote (leaf missing).
-			tg --url $local_source.url get --bytes $child_module_id | tg --url $local.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_module_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 			for desc_id in $child_cmd_descendants {
 				let kind = $desc_id | str substring 0..<3
-				tg --url $local_source.url get --bytes $desc_id | tg --url $local.url put --bytes --kind $kind
+				tg --url $local_source.url get --bytes $desc_id | tg --url $local.url put --no-tokens --bytes --kind $kind | referent node
 			}
-			tg --url $local_source.url get --bytes $child_output_id | tg --url $remote.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_output_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
 
 			# Put the blob for this output to remote.
 			let child_blob_ids = tg --url $local_source.url children $child_output_id | from json
 			for blb_id in $child_blob_ids {
-				tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
+				tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
 			}
 		} else {
 			# Put both command and output to local.
-			tg --url $local_source.url get --bytes $child_module_id | tg --url $local.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_module_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 			for desc_id in $child_cmd_descendants {
 				let kind = $desc_id | str substring 0..<3
-				tg --url $local_source.url get --bytes $desc_id | tg --url $local.url put --bytes --kind $kind
+				tg --url $local_source.url get --bytes $desc_id | tg --url $local.url put --no-tokens --bytes --kind $kind | referent node
 			}
-			tg --url $local_source.url get --bytes $child_output_id | tg --url $local.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $child_output_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 
 			# Put the blob for this output to local.
 			let child_blob_ids = tg --url $local_source.url children $child_output_id | from json
 			for blb_id in $child_blob_ids {
-				tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
+				tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 			}
 		}
 	}

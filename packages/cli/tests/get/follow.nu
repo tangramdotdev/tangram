@@ -7,7 +7,7 @@ let local = server spawn
 let path = artifact {
 	file: "hello"
 }
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 tg tag foo $id
 
 let output = with-env { TANGRAM_QUIET: "false" } { tg get foo | complete }

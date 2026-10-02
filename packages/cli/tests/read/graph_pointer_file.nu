@@ -15,7 +15,7 @@ let graph = '
 		]
 	})
 '
-let graph_id = tg put $graph | str trim
+let graph_id = tg put --no-tokens $graph | referent node
 
 # Read the file pointer and assert the contents match.
 let output = tg read $"graph=($graph_id)&index=0&kind=file" | complete

@@ -10,9 +10,9 @@ let output = tg --token $alice.token organization list | complete
 failure $output "tg organization list should not be a command"
 snapshot --normalize $output.stderr r#'
 	error: unrecognized subcommand 'list'
-	
+
 	Usage: tg organization <COMMAND>
-	
+
 	For more information, try '--help'.
 
 '#

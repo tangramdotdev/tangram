@@ -14,6 +14,9 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[command(flatten)]
+	pub print: crate::print::Options,
+
+	#[command(flatten)]
 	pub ttl: Ttl,
 }
 
@@ -60,7 +63,7 @@ impl Cli {
 			.build_with_instance(&client)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the sandbox"))?;
-		Self::print_id(sandbox.id());
+		Self::print_referent(&sandbox.to_referent(), &args.print);
 		Ok(())
 	}
 }

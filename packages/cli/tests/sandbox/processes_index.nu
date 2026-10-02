@@ -21,12 +21,12 @@ for location in [local remote] {
 		$local_owner
 	}
 	let path = artifact { tangram.ts: 'export default () => tg.file("done");' }
-	let first = tg --url $local_owner.url --token $root_token build --detach --checksum 'sha256:0000000000000000000000000000000000000000000000000000000000000000' $path | str trim
+	let first = tg --url $local_owner.url --token $root_token build --no-tokens --detach --checksum 'sha256:0000000000000000000000000000000000000000000000000000000000000000' $path | referent node
 	tg --url $local_owner.url --token $root_token wait $first | ignore
 	tg --url $local_owner.url --token $root_token index | ignore
 
 	# Reusing a checksum mismatch creates a new result without assigning a sandbox.
-	let second = tg --url $local_owner.url --token $root_token build --detach --cached=true --checksum 'sha256:1111111111111111111111111111111111111111111111111111111111111111' $path | str trim
+	let second = tg --url $local_owner.url --token $root_token build --no-tokens --detach --cached=true --checksum 'sha256:1111111111111111111111111111111111111111111111111111111111111111' $path | referent node
 	tg --url $local_owner.url --token $root_token wait $second | ignore
 	let first_data = tg --url $local_owner.url --token $root_token get $first | from json
 	let second_data = tg --url $local_owner.url --token $root_token get $second | from json

@@ -17,8 +17,8 @@ let local = server spawn --config {
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 let socket = $local.url | str replace 'http+unix://' '' | url decode
-let directory = tg --token $alice.token put 'tg.directory({ "file": tg.file("hello") })' | str trim
-let unrelated = tg --token $alice.token put 'tg.file("unrelated")' | str trim
+let directory = tg --token $alice.token put --no-tokens 'tg.directory({ "file": tg.file("hello") })' | referent node
+let unrelated = tg --token $alice.token put --no-tokens 'tg.file("unrelated")' | referent node
 tg --token $alice.token index
 let subtree = (get-object $socket $alice.token $directory []).tokens.local.0
 let other = (get-object $socket $alice.token $unrelated []).tokens.local.0
@@ -38,7 +38,7 @@ assert equal ($output.children? | default {}) {}
 # A large collection of distinct authorization tokens uses the framed arg through the Rust client.
 let objects = 0..<16 | each { |i|
 	let value = ['tg.file("proof ' ($i | into string) '")'] | str join
-	tg --token $alice.token put $value | str trim
+	tg --token $alice.token put --no-tokens $value | referent node
 }
 tg --token $alice.token index
 let tokens = $objects | each { |object|

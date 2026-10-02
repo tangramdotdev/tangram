@@ -15,12 +15,12 @@ let bob_local = server spawn --name bob-local --config {
 }
 
 # Alice stores a private file and blob on the remote and grants Bob the file subtree.
-let directory = tg --url $alice_local.url put 'tg.directory({ "hello.txt": tg.file("hello") })' | str trim
+let directory = tg --url $alice_local.url put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' | referent node
 tg --url $alice_local.url index
 let file = tg --url $alice_local.url children $directory | from json | get 0
 tg --url $alice_local.url push --lazy $file
 tg --url $remote.url index
-tg --url $alice_local.url get --bytes $directory | tg --url $bob_local.url put --bytes --kind dir
+tg --url $alice_local.url get --bytes $directory | tg --url $bob_local.url put --no-tokens --bytes --kind dir | referent node
 tg --url $remote.url --token $alice.token grant $bob.user.id object_subtree $file | ignore
 
 # Bob's first push transfers the directory and writes direct permissions over the subtree he relied on.

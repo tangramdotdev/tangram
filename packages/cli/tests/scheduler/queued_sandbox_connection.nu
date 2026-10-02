@@ -14,7 +14,7 @@ let path = artifact {
 	',
 }
 
-tg build --detach $"($path)#blocker" | ignore
-let output = tg sandbox create | complete
+tg build --no-tokens --detach $"($path)#blocker" | ignore
+let output = tg sandbox create --no-tokens | complete
 success $output "a queued sandbox should wait for runner capacity"
 tg sandbox destroy ($output.stdout | str trim)

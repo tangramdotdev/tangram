@@ -14,7 +14,7 @@ let path = artifact {
 }
 
 # Check in and tag the directory.
-let dir_id = tg checkin $path
+let dir_id = tg checkin --no-tokens $path | referent node
 tg tag test $dir_id
 
 # Get the nested file using the path option with a resolved tag reference.

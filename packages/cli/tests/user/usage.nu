@@ -20,7 +20,7 @@ let old = tg usage --day 1970-01-01 | complete
 failure $old "usage before tracking started should be unavailable"
 assert ($old.stderr | str contains "usage is unavailable for the requested period")
 
-tg put 'tg.file("hello")'
+tg put --no-tokens 'tg.file("hello")' | referent node
 tg index
 
 let top_level = tg usage $alice.user.id | from json

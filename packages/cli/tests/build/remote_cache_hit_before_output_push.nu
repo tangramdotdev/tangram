@@ -48,12 +48,12 @@ let push_watch = (
 )
 
 # Start the first build and wait for it to reach its output push.
-let process = tg --url $local_first.url build --detach --remote --user $alice.user.id $path | str trim
+let process = tg --url $local_first.url build --no-tokens --detach --remote --user $alice.user.id $path | referent node
 let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.output.push.started $push_watch 0 | complete
 success $output "the first build should reach its output push"
 
 # The second build must be a cache hit for the first process while its output push is held.
-let cached = tg --url $local_second.url build --detach --remote --user $alice.user.id $path | str trim
+let cached = tg --url $local_second.url build --no-tokens --detach --remote --user $alice.user.id $path | referent node
 assert equal $cached $process "the second build should reuse the first process while its output push is held"
 
 # The cached process's wait completes and names the output file.

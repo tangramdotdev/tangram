@@ -8,9 +8,9 @@ let local = server spawn --name local --config {
 }
 
 let contents = 'checkout retained by its blob'
-let blob = tg --url $remote.url put 'tg.blob("checkout retained by its blob")' | str trim
+let blob = tg --url $remote.url put --no-tokens 'tg.blob("checkout retained by its blob")' | referent node
 let file_value = ['tg.file({"contents":' $blob '})'] | str join
-let file = tg --url $remote.url put $file_value | str trim
+let file = tg --url $remote.url put --no-tokens $file_value | referent node
 tg --url $local.url pull $file
 
 let path = $local.checkout_directory | path join $file

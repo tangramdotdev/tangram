@@ -14,7 +14,7 @@ let local = server spawn --config {
 
 # Create and tag an artifact.
 let path = artifact 'test'
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 # Create a nested tag structure: test/a/b/c, test/a/b/d, test/a/e
 let tags = ["test/a/b/c" "test/a/b/d" "test/a/e"]

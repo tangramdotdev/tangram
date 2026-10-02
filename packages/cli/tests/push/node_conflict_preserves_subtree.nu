@@ -14,7 +14,7 @@ tg --url $remote_destination.url --token $alice.token grant $bob.user.id write r
 
 # A conflict preserves a protected tag even when the caller has group admin.
 let local_tree = tg --url $remote_destination.url --token $alice.token group create tree | from json
-let node = tg --url $remote_destination.url --token $alice.token put 'tg.file("secret")' | str trim
+let node = tg --url $remote_destination.url --token $alice.token put --no-tokens 'tg.file("secret")' | referent node
 tg --url $remote_destination.url --token $alice.token tag put tree/secret $node
 let local_tag = tg --url $remote_destination.url --token $alice.token tag get tree/secret | from json
 tg --url $remote_destination.url --token $alice.token grant $bob.user.id admin tree | ignore

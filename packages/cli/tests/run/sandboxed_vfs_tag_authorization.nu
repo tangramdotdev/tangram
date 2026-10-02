@@ -8,11 +8,11 @@ if $nu.os-info.name != 'linux' {
 
 let local = server spawn --busybox --config { vfs: true }
 
-let target = tg checkin (artifact 'allowed') | str trim
-let foreign = tg checkin (artifact 'foreign') | str trim
+let target = tg checkin --no-tokens (artifact 'allowed') | referent node
+let foreign = tg checkin --no-tokens (artifact 'foreign') | referent node
 tg tag shared $target
 
-let sandbox = tg sandbox create --no-network | str trim
+let sandbox = tg sandbox create --no-tokens --no-network | referent node
 tg grant $sandbox read shared | ignore
 tg index
 

@@ -12,7 +12,7 @@ let alice_local = server spawn --name alice-local --config {
 }
 
 # Alice stores a private file on the remote and grants Bob the subtree.
-let directory = tg --url $alice_local.url put 'tg.directory({ "hello.txt": tg.file("hello") })' | str trim
+let directory = tg --url $alice_local.url put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' | referent node
 tg --url $alice_local.url index
 let file = tg --url $alice_local.url children $directory | from json | get 0
 tg --url $alice_local.url push --lazy $file

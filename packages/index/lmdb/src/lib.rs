@@ -44,6 +44,7 @@ pub struct Config {
 	pub map_size: usize,
 	pub max_process_depth: Option<u64>,
 	pub path: PathBuf,
+	pub posix_sem_prefix: Option<String>,
 	pub read_request_batch_size: usize,
 	pub read_transaction_concurrency: usize,
 	pub usage_partition_total: u64,
@@ -80,20 +81,23 @@ impl Index {
 			.map_err(
 				|error| tg::error!(!error, path = %config.path.display(), "failed to open the lmdb file"),
 			)?;
+		let mut options = lmdb::EnvOpenOptions::new();
+		options
+			.map_size(config.map_size)
+			.max_dbs(3)
+			.max_readers(1_000);
+		unsafe {
+			options.flags(
+				lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::WRITE_MAP | lmdb::EnvFlags::MAP_ASYNC,
+			);
+		}
+		if let Some(prefix) = &config.posix_sem_prefix {
+			options.semaphore_name(prefix.clone());
+		}
 		let env = unsafe {
-			lmdb::EnvOpenOptions::new()
-				.map_size(config.map_size)
-				.max_dbs(3)
-				.max_readers(1_000)
-				.flags(
-					lmdb::EnvFlags::NO_SUB_DIR
-						| lmdb::EnvFlags::WRITE_MAP
-						| lmdb::EnvFlags::MAP_ASYNC,
-				)
-				.open(&config.path)
-				.map_err(|error| {
-					tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment")
-				})?
+			options.open(&config.path).map_err(|error| {
+				tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment")
+			})?
 		};
 		let mut transaction = env.write_txn().unwrap();
 		let db = env

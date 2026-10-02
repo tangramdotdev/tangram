@@ -169,9 +169,8 @@ class Sync:
         assert self.response.status == status, (self.response.status, self.response.read())
         if status == 200:
             assert self.response.getheader("Content-Type") == "application/vnd.tangram.sync"
-            assert self.response.getheader("x-tg-output-in-body") == "true"
-            self.output = json.loads(self.response.read(read_varint(self.response)))
-            self.sync = self.output["sync"]
+            self.header = json.loads(self.response.read(read_varint(self.response)))
+            self.sync = self.header["sync"]
             self.token = self.sync["options"]["tokens"]["local"][0]
 
     def chunk(self, data):

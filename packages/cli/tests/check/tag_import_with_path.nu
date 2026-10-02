@@ -22,7 +22,7 @@ let test_path = artifact {
 }
 
 # Checkin and verify the snapshot.
-let id = tg checkin $test_path
+let id = tg checkin --no-tokens $test_path | referent node
 tg index
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '

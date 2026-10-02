@@ -12,10 +12,10 @@ let path = artifact {
 		')
 	})
 }
-let id = tg checkin $path | str trim
+let id = tg checkin --no-tokens $path | referent node
 tg tag put test $id
 
-let process = tg spawn test --executable bin/hello | str trim
+let process = tg spawn --no-tokens test --executable bin/hello | referent node
 let process = tg get $process | from json
 let executable = $process.command.node.executable.node
 assert equal $executable.artifact $id

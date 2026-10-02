@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn --config { tracing: { stderr_format: 'json' } }
 
-let id = tg build --detach --executable /tangram-missing-executable | str trim
+let id = tg build --no-tokens --detach --executable /tangram-missing-executable | referent node
 let output = tg output $id | complete
 failure $output
 assert ($output.stderr | str contains 'failed to spawn the process in the sandbox')

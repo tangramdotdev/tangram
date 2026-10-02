@@ -7,7 +7,7 @@ let local_source = server spawn --name local-source --config { advanced: { check
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("regional output"); }'
 }
-let process = tg --url $local_source.url build --detach $path | str trim
+let process = tg --url $local_source.url build --no-tokens --detach $path | referent node
 let result = tg --url $local_source.url wait --no-tokens $process | from json
 let output = $result.output.value
 let sandbox = tg --url $local_source.url process get $process | from json | get sandbox

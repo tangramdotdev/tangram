@@ -22,7 +22,7 @@ let path = artifact {
 	f.txt: 'File F'
 }
 
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 # Check out the branch directory.
 tg checkout $id

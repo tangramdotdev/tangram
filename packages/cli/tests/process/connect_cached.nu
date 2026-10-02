@@ -11,7 +11,7 @@ let path = artifact {
 		};
 	'
 }
-let process = tg --url $remote.url build --detach $path | str trim
+let process = tg --url $remote.url build --no-tokens --detach $path | referent node
 tg --url $remote.url wait $process | ignore
 let local = server spawn --name local --config { remotes: { default: { url: $remote.url } } }
 let command = tg --url $remote.url process get --no-tokens $process | from json | get command | to json --raw

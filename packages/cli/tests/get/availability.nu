@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let file = tg put 'tg.file("available")' | str trim
+let file = tg put --no-tokens 'tg.file("available")' | referent node
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("available"); }'
 }

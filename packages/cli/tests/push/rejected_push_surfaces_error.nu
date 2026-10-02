@@ -11,7 +11,7 @@ let local = server spawn --name local --config {
 }
 tg --url $local.url login --verbose --name alice | from json
 
-let id = tg --url $local.url put 'tg.file("hello")' | str trim
+let id = tg --url $local.url put --no-tokens 'tg.file("hello")' | referent node
 tg --url $local.url tag put alice/example $id
 
 let output = (tg --url $local.url --no-quiet push alice/example | complete)

@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
-let id = tg --token $alice.token checkin (artifact "hello")
+let id = tg --token $alice.token checkin --no-tokens (artifact "hello") | referent node
 
 tg --token $alice.token group create alice/project
 tg --token $alice.token tag alice/release $id

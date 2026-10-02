@@ -15,7 +15,7 @@ let artifact = '
 		]
 	})
 '
-let graph_id = tg put $artifact | str trim
+let graph_id = tg put --no-tokens $artifact | referent node
 let reference = $"graph=($graph_id)&index=0&kind=directory"
 let output = tg children $reference | complete
 failure $output 'expected an object, got a pointer'

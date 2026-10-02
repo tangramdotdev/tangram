@@ -13,5 +13,5 @@ let path = artifact {
 		tangram.ts: ''
 	}
 }
-let output = tg checkin --destructive ($path | path join 'foo') --ignore=false | complete
+let output = tg checkin --no-tokens --destructive ($path | path join 'foo') --ignore=false | complete
 failure $output "destructive checkin with external path dependencies should fail"

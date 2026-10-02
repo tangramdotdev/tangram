@@ -8,7 +8,7 @@ let local = server spawn --config {
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
-let target = tg --token $alice.token put 'tg.file("capture")' | str trim
+let target = tg --token $alice.token put --no-tokens 'tg.file("capture")' | referent node
 tg --token $alice.token tag put private $target
 tg --token $root_token index
 let tag = tg --token $alice.token tag get private | from json

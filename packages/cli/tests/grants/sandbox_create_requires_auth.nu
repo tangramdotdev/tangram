@@ -4,12 +4,12 @@ use ../lib/test.nu *
 
 let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
-let denied = tg sandbox create --no-network | complete
+let denied = tg sandbox create --no-tokens --no-network | complete
 failure $denied "an unauthenticated principal must not create a sandbox"
 
 let alice = tg login --verbose --name alice | from json
-let allowed = tg --token $alice.token sandbox create --no-network | complete
+let allowed = tg --token $alice.token sandbox create --no-tokens --no-network | complete
 success $allowed "Alice should create a sandbox"
 
-let sandbox = $allowed.stdout | str trim
+let sandbox = $allowed.stdout | referent node
 tg --token $alice.token sandbox destroy $sandbox

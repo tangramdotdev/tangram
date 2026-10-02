@@ -24,7 +24,7 @@ let checkin_package_path = artifact {
 }
 
 # Check in once to create the lock and warm the remote cache.
-tg --url $local.url checkin $checkin_package_path
+tg --url $local.url checkin --no-tokens $checkin_package_path | referent node
 
 let checkin_lockfile_path = $checkin_package_path | path join 'tangram.lock'
 let checkin_initial_lock = open $checkin_lockfile_path | from json
@@ -40,13 +40,13 @@ let checkin_new_path = artifact {
 tg --url $remote.url tag -p checkin/a/1.1.0 $checkin_new_path
 
 # Run checkin --update with the default TTL. The cached response should keep checkin/a/1.0.0.
-tg --url $local.url checkin $checkin_package_path --update checkin/a
+tg --url $local.url checkin --no-tokens $checkin_package_path --update checkin/a | referent node
 let checkin_stale_lock = open $checkin_lockfile_path | from json
 let checkin_stale_tag = $checkin_stale_lock.nodes.1.dependencies."checkin/a/^1".options.tag
 assert ($checkin_stale_tag == "checkin/a/1.0.0") "without a ttl override, checkin should use the remote cache"
 
 # Run checkin --update with --tag-ttl 0. The fresh list should now use checkin/a/1.1.0.
-tg --url $local.url checkin $checkin_package_path --update checkin/a --tag-ttl 0
+tg --url $local.url checkin --no-tokens $checkin_package_path --update checkin/a --tag-ttl 0 | referent node
 let checkin_fresh_lock = open $checkin_lockfile_path | from json
 let checkin_fresh_tag = $checkin_fresh_lock.nodes.1.dependencies."checkin/a/^1".options.tag
 assert ($checkin_fresh_tag == "checkin/a/1.1.0") "with ttl 0, checkin should bypass the cache"
@@ -68,7 +68,7 @@ let update_package_path = artifact {
 }
 
 # Check in once to create the lock and warm the remote cache.
-tg --url $local.url checkin $update_package_path
+tg --url $local.url checkin --no-tokens $update_package_path | referent node
 
 let update_lockfile_path = $update_package_path | path join 'tangram.lock'
 let update_initial_lock = open $update_lockfile_path | from json

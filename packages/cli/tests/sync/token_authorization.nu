@@ -22,8 +22,8 @@ let bob_local = server spawn --name bob-local --config {
 }
 
 # Hold Alice's private object before storage and leave a second object held to keep the sync open.
-let private = tg --url $alice_local.url put 'tg.file("private")' | str trim
-let blocker = tg --url $alice_local.url put 'tg.file("blocker")' | str trim
+let private = tg --url $alice_local.url put --no-tokens 'tg.file("private")' | referent node
+let blocker = tg --url $alice_local.url put --no-tokens 'tg.file("blocker")' | referent node
 let private_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $private } | to json --raw) | from json | get watch
 let blocker_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blocker } | to json --raw) | from json | get watch
 let ack_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.ack --params ({ node: $private } | to json --raw) | from json | get watch
@@ -34,8 +34,8 @@ let push = job spawn {
 	$output | job send --tag $job_id 0
 }
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $private_watch 0 | ignore
-wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log its complete authorization token for the sync'
-let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
+wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should print its complete authorization token for the sync'
+let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
 
 # Bob's request waits for the sync to prove permissions, which this upload records after storage.
@@ -67,13 +67,15 @@ success (job recv --tag $push --timeout 10sec) "Alice's push must finish"
 failure (tg --url $remote.url --token $bob.token get --local $private | complete) "storage alone must not authorize Bob's read"
 
 # An authorization token for a sync and authorization proofs for unrelated nodes do not authorize Alice's object.
-let unrelated_object = tg --url $bob_local.url put 'tg.file("unrelated")' | str trim
-let unrelated_referent = tg --url $bob_local.url push $unrelated_object | str trim
+let unrelated_object = tg --url $bob_local.url put --no-tokens 'tg.file("unrelated")' | referent node
+let output = tg --no-quiet --url $bob_local.url push $unrelated_object | complete
+success $output
+let unrelated_referent = $output.stderr | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 let unrelated_uri = $'http://localhost/($unrelated_referent)' | url parse
 let unrelated_sync = $unrelated_uri.params | where key == 'tokens[remote][0]' | first | get value
 let unrelated = [one two] | each {|name|
 	let value = ['tg.file("' $name '")'] | str join
-	tg --url $remote.url --token $bob.token put $value | str trim
+	tg --url $remote.url --token $bob.token put --no-tokens $value | referent node
 }
 tg --url $remote.url --token $root_token index
 let tokens = $unrelated | each {|id|

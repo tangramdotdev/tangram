@@ -19,7 +19,7 @@ let path = artifact {
 		}
 	',
 }
-let parent = tg --token $alice.token build --detach $path | str trim
+let parent = tg --token $alice.token build --no-tokens --detach $path | referent node
 let output = (tg --token $alice.token wait $parent | from json).output.value | split row '?' | first
 tg --token $alice.token index
 let data = tg --token $alice.token get $parent | from json

@@ -24,7 +24,7 @@ let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	},
 }
 let alice = tg login --verbose --name alice | from json
-let object = tg --token $alice.token put 'tg.file("keep")' | str trim
+let object = tg --token $alice.token put --no-tokens 'tg.file("keep")' | referent node
 tg --token $alice.token tag keep $object
 tg --token $alice.token index
 

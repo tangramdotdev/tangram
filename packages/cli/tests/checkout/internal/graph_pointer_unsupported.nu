@@ -17,7 +17,7 @@ let value = '
 		]
 	})
 '
-let graph_id = tg put $value
+let graph_id = tg put --no-tokens $value | referent node
 
 # Build a graph pointer reference and attempt to check it out.
 let reference = $"graph=($graph_id)&index=0&kind=directory"

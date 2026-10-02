@@ -26,14 +26,14 @@ let path = artifact {
 		}
 	'
 }
-let parent = tg --url $alice_local.url build --detach $path | str trim
+let parent = tg --url $alice_local.url build --no-tokens --detach $path | referent node
 tg --url $alice_local.url wait $parent
 tg --url $alice_local.url index
 tg --url $alice_local.url push $parent --process-children --process-command-objects --process-log-objects
 tg --url $remote.url index
 
 # Bob has only the parent process node and relies on the granted subtree for the rest.
-tg --url $alice_local.url get $parent | tg --url $bob_local.url put --id $parent
+tg --url $alice_local.url get $parent | tg --url $bob_local.url put --no-tokens --id $parent | referent node
 tg --url $bob_local.url index
 tg --url $remote.url --token $alice.token grant $bob.user.id process_subtree,process_subtree_command_objects,process_subtree_error_objects,process_subtree_log_objects,process_subtree_output_objects $parent | ignore
 

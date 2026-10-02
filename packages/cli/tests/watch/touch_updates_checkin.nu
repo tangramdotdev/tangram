@@ -7,13 +7,13 @@ let local = server spawn
 let path = artifact {
 	tangram.ts: 'export default function () { return "one"; }'
 }
-let before = tg checkin $path --watch
+let before = tg checkin --no-tokens $path --watch | referent node
 
 'export default function () { return "two"; }' | save --force ($path | path join tangram.ts)
 let output = tg watch touch $path ($path | path join tangram.ts) | complete
 success $output
 
-let after = tg checkin $path --watch
+let after = tg checkin --no-tokens $path --watch | referent node
 assert ($before != $after) "the checkin should produce a new id"
 let object = tg get $after --blobs --depth=inf --no-tokens --pretty
 snapshot --normalize-ids --redact $path $object '

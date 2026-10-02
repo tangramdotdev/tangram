@@ -20,7 +20,7 @@ let runner = server spawn --name runner --config {
 let alice = tg --url $runner.url login --verbose --name alice | from json
 let reader = tg --url $runner.url login --verbose --name reader | from json
 let eve = tg --url $remote.url login --verbose --name eve | from json
-let file = tg --url $runner.url --token $alice.token put --no-tokens 'tg.file("private unused argument")' | str trim
+let file = tg --url $runner.url --token $alice.token put --no-tokens 'tg.file("private unused argument")' | referent node
 tg --url $runner.url --token $runner_root index
 failure (tg --url $runner.url --token $reader.token get --bytes $file | complete) "the reader must not have access to the private file."
 failure (tg --url $remote.url --token $eve.token get --bytes $file | complete) "the spawning parent must not have access to the private file."

@@ -22,7 +22,7 @@ let path = artifact {
 	'
 }
 
-let output = tg checkin $path | complete
+let output = tg checkin --no-tokens $path | complete
 failure $output "the command should fail when the dependency in the tag is missing"
 
 snapshot --name stderr --normalize-ids --redact $path $output.stderr

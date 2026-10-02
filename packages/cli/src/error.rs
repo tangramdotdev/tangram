@@ -20,7 +20,11 @@ impl Cli {
 				.object()
 				.map(|object| object.unwrap_error())
 			else {
-				eprintln!("{} {}", "->".red(), error_handle.id());
+				let mut referent = error_handle.to_referent();
+				referent.inherit(&error_referent);
+				let color = tangram_util::tty::is_foreground_controlling_tty(libc::STDERR_FILENO);
+				let string = Self::format_referent(&referent, color, true);
+				eprintln!("{} {string}", "->".red());
 				continue;
 			};
 
@@ -173,7 +177,11 @@ impl Cli {
 			} {
 				error
 			} else {
-				eprintln!("{} {}", "->".red(), error_referent.node().id());
+				let mut referent = error_referent.node().to_referent();
+				referent.inherit(&error_referent);
+				let color = tangram_util::tty::is_foreground_controlling_tty(libc::STDERR_FILENO);
+				let string = Self::format_referent(&referent, color, true);
+				eprintln!("{} {string}", "->".red());
 				continue;
 			};
 

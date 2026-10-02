@@ -17,7 +17,7 @@ let bottom_path = artifact {
 	'
 }
 
-let bottom_id = tg checkin $bottom_path
+let bottom_id = tg checkin --no-tokens $bottom_path | referent node
 
 # Create a tag for the bottom package on the local server so it can be resolved.
 tg tag put -p test-bottom/1.0.0 $bottom_id | complete
@@ -35,7 +35,7 @@ let left_path = artifact {
 	'
 }
 
-let left_id = tg checkin $left_path
+let left_id = tg checkin --no-tokens $left_path | referent node
 
 # Create a tag for the left package on the local server so it can be resolved.
 tg tag put -p test-left/1.0.0 $left_id | complete
@@ -53,7 +53,7 @@ let right_path = artifact {
 	'
 }
 
-let right_id = tg checkin $right_path
+let right_id = tg checkin --no-tokens $right_path | referent node
 
 # Create a tag for the right package on the local server so it can be resolved.
 tg tag put -p test-right/1.0.0 $right_id | complete
@@ -73,7 +73,7 @@ let main_path = artifact {
 	'
 }
 
-let main_id = tg checkin $main_path
+let main_id = tg checkin --no-tokens $main_path | referent node
 
 # Publish the main package - this should publish bottom, then left and right, then main.
 let output = tg --no-quiet publish $main_path | complete

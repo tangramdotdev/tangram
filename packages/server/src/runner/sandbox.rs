@@ -1391,9 +1391,9 @@ impl Session {
 			location: Some(location.into()),
 			runner: Some(runner),
 		};
-		let (output, requests) = self.connect_sandbox_control(arg, input_stream).await?;
-		let token = output.token.ok_or_else(
-			|| tg::error!(id = %output.id, "missing the sandbox authentication token"),
+		let (header, requests) = self.connect_sandbox_control(arg, input_stream).await?;
+		let token = header.token.ok_or_else(
+			|| tg::error!(id = %header.id, "missing the sandbox authentication token"),
 		)?;
 		let control = crate::control::Stream::new_reconnecting(
 			requests,
@@ -1402,7 +1402,7 @@ impl Session {
 		);
 		let connection = SandboxControlConnection {
 			control,
-			id: output.id,
+			id: header.id,
 			token,
 		};
 
@@ -1431,21 +1431,21 @@ impl Session {
 			location: Some(location.clone().into()),
 			runner: Some(runner),
 		};
-		let (output, control) = self.connect_sandbox_control(arg, input_stream).await?;
+		let (header, control) = self.connect_sandbox_control(arg, input_stream).await?;
 		if let Some(id) = id
-			&& output.id != *id
+			&& header.id != *id
 		{
 			return Err(
-				tg::error!(actual = %output.id, expected = %id, "the server returned an invalid sandbox"),
+				tg::error!(actual = %header.id, expected = %id, "the server returned an invalid sandbox"),
 			);
 		}
-		output
+		header
 			.token
 			.or_else(|| id.and(self.context.token.clone()))
 			.ok_or_else(
-				|| tg::error!(id = %output.id, "missing the sandbox authentication token"),
+				|| tg::error!(id = %header.id, "missing the sandbox authentication token"),
 			)?;
-		self.index_remote_sandbox(&output.id, location, created_at, None, None)
+		self.index_remote_sandbox(&header.id, location, created_at, None, None)
 			.await?;
 		let connection = ConnectedSandboxControl { requests: control };
 
@@ -1457,24 +1457,24 @@ impl Session {
 		arg: tg::sandbox::control::Arg,
 		input: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> tg::Result<(
-		tg::sandbox::control::Output,
+		tg::sandbox::control::Header,
 		BoxStream<'static, tg::Result<tg::control::Event<tg::sandbox::control::ServerMessage>>>,
 	)> {
 		let id = arg.id.clone();
 		crate::checkpoint!(self.server, "runner.sandbox.control.connect", sandbox = ?id).await;
 		let reconnect_context = self.context.clone();
 		let reconnect_server = self.server.clone();
-		let reconnect = move |output: &tg::sandbox::control::Output| {
-			let token = output.token.clone().or(reconnect_context.token.clone());
+		let reconnect = move |header: &tg::sandbox::control::Header| {
+			let token = header.token.clone().or(reconnect_context.token.clone());
 			let context = Context {
-				principal: tg::Principal::Sandbox(output.id.clone()),
+				principal: tg::Principal::Sandbox(header.id.clone()),
 				token,
 				..reconnect_context
 			};
 
 			reconnect_server.session(&context)
 		};
-		let (output, control) = self
+		let (header, control) = self
 			.get_sandbox_control_stream_all(arg, input, reconnect)
 			.boxed()
 			.await
@@ -1486,7 +1486,7 @@ impl Session {
 				)
 			})?;
 
-		Ok((output, control.boxed()))
+		Ok((header, control.boxed()))
 	}
 
 	async fn index_remote_sandbox(

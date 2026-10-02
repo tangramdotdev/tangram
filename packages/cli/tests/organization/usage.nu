@@ -16,7 +16,7 @@ assert ($by_id.object_count == 0)
 assert ($by_id.object_size == 0)
 assert ($by_id.process_count == 0)
 
-let object = tg put 'tg.file("owned through a tag")' | str trim
+let object = tg put --no-tokens 'tg.file("owned through a tag")' | referent node
 tg tag put -p acme/owned $object
 wait_until {
 	(tg organization usage $organization.id | from json | get object_count) >= 1

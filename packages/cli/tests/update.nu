@@ -39,7 +39,7 @@ let old_root = artifact {
 }
 
 # Check in to create the initial lockfile.
-tg checkin $old_root
+tg checkin --no-tokens $old_root | referent node
 
 # Create updated versions.
 let transitive_1_1_0 = artifact {

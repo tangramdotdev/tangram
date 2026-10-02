@@ -19,7 +19,7 @@ let socket = $local.url | str replace 'http+unix://' '' | url decode
 let missing = 'fil_010000000000000000000000000000000000000000000000000000'
 let expression = 'tg.directory({"file":tg.file({"contents":"capture","dependencies":{"missing":{"node":MISSING}}})})'
 	| str replace MISSING $missing
-let directory = tg --token $alice.token put $expression | str trim
+let directory = tg --token $alice.token put --no-tokens $expression | referent node
 let file = tg --token $alice.token children $directory | from json | get 0 | split row '?' | first
 tg --token $root_token index
 

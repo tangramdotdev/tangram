@@ -23,7 +23,7 @@ let path = artifact {
 }
 
 # Build.
-let id = tg --url $local_one.url checkin $path
+let id = tg --url $local_one.url checkin --no-tokens $path | referent node
 let output_id = tg --url $local_one.url build --no-tokens $id
 print 'first build succeeded'
 

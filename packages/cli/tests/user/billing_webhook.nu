@@ -12,7 +12,7 @@ let local = server spawn --config {
 
 let alice = tg login --email alice@example.com --verbose --name alice | from json
 
-let unconfigured = tg --token $alice.token sandbox create --no-network | complete
+let unconfigured = tg --token $alice.token sandbox create --no-tokens --no-network | complete
 failure $unconfigured "a user without a Stripe customer should not create a sandbox"
 assert ($unconfigured.stderr | str contains 'tg user billing manage') "the error should explain how to configure billing"
 
@@ -20,7 +20,7 @@ with-env { BROWSER: 'false' } {
 	tg --token $alice.token user billing manage
 }
 
-let incomplete = tg --token $alice.token sandbox create --no-network | complete
+let incomplete = tg --token $alice.token sandbox create --no-tokens --no-network | complete
 failure $incomplete "a user without a default payment method should not create a sandbox"
 assert ($incomplete.stderr | str contains 'billing is not ready') "the error should explain that billing is not ready"
 
@@ -49,7 +49,7 @@ assert equal (send_stripe_webhook $local $webhook_secret $deleted_event) 200 "a 
 let requests = stripe_requests $stripe
 assert equal ($requests | length) 3 "an ignored webhook should not retrieve the customer"
 
-let created = tg --token $alice.token sandbox create --no-network | complete
+let created = tg --token $alice.token sandbox create --no-tokens --no-network | complete
 success $created "an ignored webhook should not change the user's billing status"
 tg --token $alice.token sandbox destroy ($created.stdout | str trim)
 

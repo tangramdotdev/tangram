@@ -30,7 +30,7 @@ let artifact = artifact {
 }
 
 # Check the module in without checkout pointers, so that it is not checked out.
-let id = tg checkin --no-checkout-pointers ($artifact | path join 'mod.tg.ts')
+let id = tg checkin --no-tokens --no-checkout-pointers ($artifact | path join 'mod.tg.ts') | referent node
 
 # The first checkout writes the file, because there is no internal checkout to reflink.
 let cold_path = $tmp | path join 'cold'

@@ -9,7 +9,7 @@ let remote = server spawn --cloud --name remote
 let temp_file = mktemp --tmpdir
 "hello, world!\n" | save --force $temp_file
 
-let id = cat $temp_file | tg --url $local.url write
+let id = cat $temp_file | tg --url $local.url write --no-tokens | referent node
 tg --url $local.url index
 let metadata = tg --url $local.url object metadata --pretty $id
 snapshot --name metadata $metadata '

@@ -59,7 +59,7 @@ let start_watch = (
 	| from json
 	| get watch
 )
-let process = tg --url $local.url build --detach --remote $path | str trim
+let process = tg --url $local.url build --no-tokens --detach --remote $path | referent node
 
 # Hold the runner after it installs the parent sandbox, then replace the
 # scheduler before the parent requests its child sandbox.

@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let file_id = tg put --no-tokens 'tg.file("contents")' | str trim
+let file_id = tg put --no-tokens 'tg.file("contents")' | referent node
 assert ($file_id | str starts-with "fil_") "the put should return a file id"
 
 let compressed = tg compress --no-tokens --format gz $file_id | str trim

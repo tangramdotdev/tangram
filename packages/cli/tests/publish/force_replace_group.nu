@@ -20,7 +20,7 @@ let path = artifact {
 		};
 	'
 }
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 let output = tg publish $path | complete
 failure $output "publishing should not replace a conflicting group without force"

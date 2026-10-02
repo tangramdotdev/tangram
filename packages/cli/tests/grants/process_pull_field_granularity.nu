@@ -14,7 +14,7 @@ let alice_local = server spawn --name alice-local --config {
 
 # Alice builds a private process and pushes it with its command and output.
 let path = artifact { tangram.ts: 'export default function () { return tg.file("hello"); }' }
-let process = tg --url $alice_local.url build --detach $path | str trim
+let process = tg --url $alice_local.url build --no-tokens --detach $path | referent node
 tg --url $alice_local.url wait $process
 tg --url $alice_local.url index
 tg --url $alice_local.url push $process --process-command-objects --process-output-objects

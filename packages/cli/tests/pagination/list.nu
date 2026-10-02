@@ -83,7 +83,7 @@ assert equal $remotes.name ["" alpha beta zeta]
 
 let paths = 1..3 | each {
 	let path = artifact { tangram.ts: 'export default () => 42;' }
-	tg --token $alice.token checkin $path --watch | ignore
+	tg --token $alice.token checkin --no-tokens $path --watch | ignore
 	$path
 }
 check_pages [--token $alice.token watch list]

@@ -19,7 +19,7 @@ let artifact = '
 		"kind": "file"
 	})
 '
-let id = tg put $artifact
+let id = tg put --no-tokens $artifact | referent node
 
 # Check out.
 tg checkout $id

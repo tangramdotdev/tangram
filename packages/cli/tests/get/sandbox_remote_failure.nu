@@ -20,7 +20,7 @@ let local = server spawn --name local --config {
 	}
 }
 
-let sandbox = tg --url $remote_alpha.url sandbox create --no-network | str trim
+let sandbox = tg --url $remote_alpha.url sandbox create --no-tokens --no-network | referent node
 
 let pid = open ($remote_zeta.directory | path join lock) | into int
 kill --signal 2 $pid

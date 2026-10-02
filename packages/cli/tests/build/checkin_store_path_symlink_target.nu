@@ -16,7 +16,7 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			const directory = await tg.directory({});
-			return tg.build`tg checkin "\${SYMLINK%/*}/${directory.id}"`.env({
+			return tg.build`tg checkin --no-tokens "\${SYMLINK%/*}/${directory.id}"`.env({
 				SYMLINK: tg.symlink({ artifact: directory }),
 			});
 		}

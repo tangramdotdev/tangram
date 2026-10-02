@@ -13,7 +13,7 @@ let artifact = '
 		]
 	})
 '
-let graph_id = tg put $artifact | str trim
+let graph_id = tg put --no-tokens $artifact | referent node
 let output = tg document $"graph=($graph_id)&index=0&kind=file?get=tangram.ts" | complete
 success $output
 

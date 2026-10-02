@@ -19,7 +19,7 @@ let single_file_dir = mktemp --directory
 let single_file_path = $single_file_dir | path join "package.tg.ts"
 $single_file_content | save $single_file_path
 
-let single_file_id = tg checkin $single_file_path
+let single_file_id = tg checkin --no-tokens $single_file_path | referent node
 tg tag put -p test-single-file/1.0.0 $single_file_id | complete
 
 # Create a multi-file package with submodules.
@@ -44,7 +44,7 @@ let multi_file_path = artifact {
 	}
 }
 
-let multi_file_id = tg checkin $multi_file_path
+let multi_file_id = tg checkin --no-tokens $multi_file_path | referent node
 tg tag put -p test-multi-file/1.0.0 $multi_file_id | complete
 
 # Create a main package that imports both.
@@ -61,7 +61,7 @@ let main_path = artifact {
 	'
 }
 
-let main_id = tg checkin $main_path
+let main_id = tg checkin --no-tokens $main_path | referent node
 
 # Publish and capture the output to check what gets published.
 let output = tg --no-quiet publish $main_path | complete

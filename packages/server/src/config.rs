@@ -519,6 +519,8 @@ pub struct LmdbIndex {
 
 	pub path: PathBuf,
 
+	pub posix_sem_prefix: Option<String>,
+
 	pub read_request_batch_size: usize,
 
 	pub read_transaction_concurrency: usize,
@@ -1660,6 +1662,7 @@ impl Default for LmdbIndex {
 		Self {
 			map_size: 1_099_511_627_776,
 			path: PathBuf::from("index.lmdb"),
+			posix_sem_prefix: None,
 			read_request_batch_size: 64,
 			read_transaction_concurrency: 4,
 			usage_partition_total: 1,

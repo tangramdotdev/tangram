@@ -9,7 +9,7 @@ let local = server spawn --config {
 # Hold the index write of a put so the wait's first pass finds it pending.
 let batch_watch = tg --url $local.url checkpoint watch index.batch | from json | get watch
 let wait_watch = tg --url $local.url checkpoint watch indexer.request.wait | from json | get watch
-tg --url $local.url put -k directory 'tg.directory({})' | ignore
+tg --url $local.url put --no-tokens -k directory 'tg.directory({})' | ignore
 let request = job spawn {
 	let job_id = job id
 	let output = tg --url $local.url index | complete

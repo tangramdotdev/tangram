@@ -18,7 +18,7 @@ let artifact = '
 		]
 	})
 '
-let graph_id = tg put $artifact
+let graph_id = tg put --no-tokens $artifact | referent node
 let reference = $"graph=($graph_id)&index=0&kind=directory"
 let output = tg push $reference --eager | complete
 failure $output 'expected an object, got a pointer'

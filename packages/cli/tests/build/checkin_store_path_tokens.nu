@@ -3,9 +3,9 @@ use ../lib/test.nu *
 # Checkin reuses the command's artifact tokens inside a process, including without the VFS.
 
 let local = server spawn --busybox --config { advanced: { checkpoints: true } }
-let file = tg put 'tg.file("checkin-store-path")' | str trim
-let bin = tg put 'tg.directory({ "program": tg.file("checkin-store-path") })' | str trim
-let directory = tg put 'tg.directory({ "bin": tg.directory({ "program": tg.file("checkin-store-path") }) })' | str trim
+let file = tg put --no-tokens 'tg.file("checkin-store-path")' | referent node
+let bin = tg put --no-tokens 'tg.directory({ "program": tg.file("checkin-store-path") })' | referent node
+let directory = tg put --no-tokens 'tg.directory({ "bin": tg.directory({ "program": tg.file("checkin-store-path") }) })' | referent node
 let module = artifact {
 	tangram.ts: '
 		import busybox from "busybox";
@@ -16,7 +16,7 @@ let module = artifact {
 			return tg.build`
 				path="\${TMPDIR:-/tmp}/checkin-alias"
 				ln -s ${directory} "$path"
-				tg checkin "$path/bin/../bin/program" > ${tg.output}
+				tg checkin --no-tokens "$path/bin/../bin/program" > ${tg.output}
 			`.env(tg.build(busybox));
 		};
 	'
@@ -24,7 +24,7 @@ let module = artifact {
 
 # Allow setup to finish, then block authorization index searches for every artifact in the path.
 let start_watch = tg checkpoint watch runner.process.start | from json | get watch
-let process = tg build --detach $module | str trim
+let process = tg build --no-tokens --detach $module | referent node
 timeout 30s tg checkpoint wait runner.process.start $start_watch 0 | ignore
 let watches = [$directory $bin $file] | each { |id|
 	let params = { resource: $id, storage: false } | to json --raw

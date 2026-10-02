@@ -10,7 +10,7 @@ let local = server spawn --cloud --config {
 	object: { put_timeout: 5 },
 	roles: [api indexer],
 }
-let output = 'hello' | timeout 10 tg write | complete
+let output = 'hello' | timeout 10 tg write --no-tokens | complete
 success $output
 wait_until { http get $'($archive.url)/requests' | length | $in == 1 } 'the upload must start'
 

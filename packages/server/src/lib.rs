@@ -968,6 +968,7 @@ impl Server {
 								u64::try_from(config.indexer.updates.max_process_depth).unwrap()
 							}),
 						path,
+						posix_sem_prefix: options.posix_sem_prefix.clone(),
 						read_request_batch_size: options.read_request_batch_size,
 						read_transaction_concurrency: options.read_transaction_concurrency,
 						usage_partition_total: options.usage_partition_total,

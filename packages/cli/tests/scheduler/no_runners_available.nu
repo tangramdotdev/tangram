@@ -12,7 +12,7 @@ let local = server spawn --name local --config {
 	roles: [api indexer scheduler],
 	scheduler: $scheduler,
 }
-let output = tg --url $local.url sandbox create | complete
+let output = tg --url $local.url sandbox create --no-tokens | complete
 failure $output "creating a sandbox with no runners should fail"
 assert ($output.stderr | str contains 'no runners available')
 
@@ -33,6 +33,6 @@ let runner = server spawn --name runner --config {
 	runner: { cpus: 1 },
 	scheduler: $scheduler,
 }
-let output = tg --url $runner.url sandbox create --host nonexistent | complete
+let output = tg --url $runner.url sandbox create --no-tokens --host nonexistent | complete
 failure $output "creating a sandbox for an unmatched host should fail"
 assert ($output.stderr | str contains 'no runners available')

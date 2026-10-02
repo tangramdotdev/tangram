@@ -20,7 +20,7 @@ let local = server spawn --config {
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 let socket = $local.url | str replace 'http+unix://' '' | url decode
-let directory = tg --token $root_token put 'tg.directory({ "child": tg.file("hello") })' | str trim
+let directory = tg --token $root_token put --no-tokens 'tg.directory({ "child": tg.file("hello") })' | referent node
 tg --token $root_token index
 tg --token $root_token grant $alice.user.id object_subtree $directory
 

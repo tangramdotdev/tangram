@@ -12,7 +12,7 @@ let path = artifact {
 	'
 }
 
-let id = tg build -d $path | str trim
+let id = tg build --no-tokens -d $path | referent node
 tg wait $id
 tg index
 let stderr = tg process log --stream stderr $id | complete

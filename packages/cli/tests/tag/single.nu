@@ -8,7 +8,7 @@ let local = server spawn
 let path = artifact 'test'
 
 # Check in.
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 # Put tag.
 let pattern = "test"

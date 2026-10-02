@@ -420,7 +420,7 @@ impl Cli {
 			};
 			self.print_serde(output, args.print).await?;
 		} else {
-			Self::print_display(output.node().id());
+			Self::print_referent(&output.node().to_referent(), &args.print);
 		}
 
 		Ok(())

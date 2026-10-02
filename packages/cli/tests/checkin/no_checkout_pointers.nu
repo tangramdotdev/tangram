@@ -6,7 +6,7 @@ let local = server spawn
 
 let path = artifact 'Hello, World!'
 
-let id = tg checkin --no-checkout-pointers $path
+let id = tg checkin --no-tokens --no-checkout-pointers $path | referent node
 tg index
 
 # Verify we can read the file contents using tg read.

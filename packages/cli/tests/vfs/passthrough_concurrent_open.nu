@@ -18,7 +18,7 @@ let local = server spawn --directory $server_path --config {
 }
 vfs assert_mounted $server_path
 
-let id = tg checkin (artifact { file.txt: 'contents' }) | str trim
+let id = tg checkin --no-tokens (artifact { file.txt: 'contents' }) | referent node
 let path = vfs root $server_path $id | path join 'file.txt'
 
 # Registering a backing descriptor requires CAP_SYS_ADMIN, which a build made by this harness does

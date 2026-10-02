@@ -104,7 +104,7 @@ where
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<(
-			tg::sandbox::control::Output,
+			tg::sandbox::control::Header,
 			impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
 			+ Send
 			+ 'static,
@@ -113,11 +113,11 @@ where
 		match self {
 			tg::Either::Left(s) => s
 				.get_sandbox_control_stream(arg, stream)
-				.map_ok(|(output, stream)| (output, stream.left_stream()))
+				.map_ok(|(header, stream)| (header, stream.left_stream()))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.get_sandbox_control_stream(arg, stream)
-				.map_ok(|(output, stream)| (output, stream.right_stream()))
+				.map_ok(|(header, stream)| (header, stream.right_stream()))
 				.right_future(),
 		}
 	}

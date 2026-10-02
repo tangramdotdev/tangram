@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let dir = mktemp --directory
 let local = server spawn --directory $dir
 
-tg put 'tg.file("force")'
+tg put --no-tokens 'tg.file("force")' | referent node
 
 let output = tg -d $dir clean --force | complete
 success $output

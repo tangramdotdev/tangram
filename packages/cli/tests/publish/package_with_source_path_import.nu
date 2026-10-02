@@ -35,11 +35,11 @@ let main_path = $shared_path | path join main
 
 # Checkin the dep package to get its ID, but do not create a tag.
 cd $dep_path
-tg checkin .
+tg checkin --no-tokens . | referent node
 
 # Checkin the main package to get its ID, but do not create a tag.
 cd $main_path
-tg checkin .
+tg checkin --no-tokens . | referent node
 
 # Publish the main package without having created tags beforehand.
 # This should discover the source dep, create its tag, publish it, then publish main.

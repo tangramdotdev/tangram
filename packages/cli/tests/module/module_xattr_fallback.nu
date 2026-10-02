@@ -9,7 +9,7 @@ let path = artifact {
 	"foo.ts": (file --xattrs { "user.tangram.module": "ts" } "export default function () { return 'test'; }")
 }
 
-let id = tg checkin ($path | path join "foo.ts")
+let id = tg checkin --no-tokens ($path | path join "foo.ts") | referent node
 let obj = tg object get --no-tokens $id
 
 snapshot --normalize-ids --redact $path $obj 'tg.file({"contents":blb_010000000000000000000000000000000000000000000000000000,"module":"ts"})'

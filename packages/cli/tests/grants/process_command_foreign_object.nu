@@ -18,7 +18,7 @@ failure $denied "Eve should not read Alice's command before the exploit."
 # Eve builds a process that references Alice's command by id.
 let source = 'export default function () { return tg.build(tg.Command.withId("CMD_ID")); }' | str replace "CMD_ID" $command
 let eve_path = artifact { tangram.ts: $source }
-let eve_process = tg --token $eve.token build --detach $eve_path | str trim
+let eve_process = tg --token $eve.token build --no-tokens --detach $eve_path | referent node
 tg --token $eve.token wait $eve_process
 
 # Eve must not gain read access to Alice's command by referencing it.

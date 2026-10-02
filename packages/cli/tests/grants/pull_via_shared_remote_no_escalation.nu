@@ -7,7 +7,7 @@ let local_source = server spawn --cloud --name local-source --config { authentic
 let alice_s = tg --url $local_source.url login --verbose --name alice | from json
 
 # Alice stores a private file on the source.
-let file = tg --url $local_source.url --token $alice_s.token put 'tg.file("topsecret")' | str trim
+let file = tg --url $local_source.url --token $alice_s.token put --no-tokens 'tg.file("topsecret")' | referent node
 tg --url $local_source.url index
 
 # A shared server reaches the source via Alice's source token as its server-level remote.

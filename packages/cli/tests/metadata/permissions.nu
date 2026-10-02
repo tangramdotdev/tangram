@@ -7,7 +7,7 @@ let local = server spawn --config { authentication: { users: { providers: { inse
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 
-let directory = tg --token $alice.token put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
+let directory = tg --token $alice.token put --no-tokens 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | referent node
 tg --token $alice.token index
 
 let alice_object_metadata = tg --token $alice.token metadata $directory | from json

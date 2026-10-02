@@ -10,7 +10,7 @@ let alice_local = server spawn --name alice-local --config {
 }
 
 tg --url $alice_local.url group create private
-let file = tg --url $alice_local.url put 'tg.file("secret")' | str trim
+let file = tg --url $alice_local.url put --no-tokens 'tg.file("secret")' | referent node
 tg --url $alice_local.url tag put private/1.0.0 $file
 tg --url $alice_local.url push --group-children private
 tg --url $remote.url index

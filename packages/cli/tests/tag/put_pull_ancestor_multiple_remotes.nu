@@ -16,7 +16,7 @@ let local = server spawn --name local --config {
 		second: { url: $local_second.url }
 	}
 }
-let node = tg --url $local.url put 'tg.file("data")' | str trim
+let node = tg --url $local.url put --no-tokens 'tg.file("data")' | referent node
 tg --url $local.url tag put -p foo/bar/baz $node
 
 let local_root = tg --url $local.url group get foo | from json

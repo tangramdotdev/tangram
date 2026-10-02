@@ -36,12 +36,12 @@ let source = artifact {
 		}
 	}
 }
-let id = tg checkin $source | str trim
+let id = tg checkin --no-tokens $source | referent node
 let root = tg checkout $id | str trim
 let main = $root | path join packages main
-let main_id = tg checkin $main | str trim
-let dep_id = tg checkin ($root | path join packages dep) | str trim
-let leaf_id = tg checkin ($root | path join packages leaf) | str trim
+let main_id = tg checkin --no-tokens $main | referent node
+let dep_id = tg checkin --no-tokens ($root | path join packages dep) | referent node
+let leaf_id = tg checkin --no-tokens ($root | path join packages leaf) | referent node
 
 # An unrelated working directory must not change the planned or published artifacts.
 let elsewhere = artifact {

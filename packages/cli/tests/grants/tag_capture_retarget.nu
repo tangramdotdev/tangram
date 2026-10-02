@@ -13,8 +13,8 @@ let bob = tg login --verbose --name bob | from json
 let missing = 'fil_010000000000000000000000000000000000000000000000000000'
 let expression = 'tg.file({"contents":"old","dependencies":{"missing":{"node":MISSING}}})'
 	| str replace MISSING $missing
-let old = tg --token $alice.token put $expression | str trim
-let replacement = tg --token $alice.token put 'tg.file("new")' | str trim
+let old = tg --token $alice.token put --no-tokens $expression | referent node
+let replacement = tg --token $alice.token put --no-tokens 'tg.file("new")' | referent node
 tg --token $root_token index
 
 let params = { resource: $old } | to json --raw

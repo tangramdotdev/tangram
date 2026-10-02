@@ -60,7 +60,7 @@ pub trait Process: Send + Sync + 'static {
 		'a,
 		tg::Result<
 			Option<(
-				tg::process::control::Output,
+				tg::process::control::Header,
 				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 			)>,
 		>,
@@ -207,13 +207,13 @@ where
 		'a,
 		tg::Result<
 			Option<(
-				tg::process::control::Output,
+				tg::process::control::Header,
 				BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 			)>,
 		>,
 	> {
 		self.try_get_process_control_stream(arg, stream)
-			.map_ok(|option| option.map(|(output, stream)| (output, stream.boxed())))
+			.map_ok(|option| option.map(|(header, stream)| (header, stream.boxed())))
 			.boxed()
 	}
 

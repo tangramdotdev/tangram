@@ -29,7 +29,7 @@ let path = artifact {
 		};
 	'
 }
-let process = tg --url $alice_local.url build --detach $path | str trim
+let process = tg --url $alice_local.url build --no-tokens --detach $path | referent node
 tg --url $alice_local.url wait $process | ignore
 
 # Grant Bob access independently of the incoming sync.
@@ -42,7 +42,7 @@ let watch = (
 	| get watch
 )
 
-# Alice pushes the process without its logs and takes the referent with the authorization token for the sync from the log.
+# Alice pushes the process without its logs and takes the referent with the authorization token for the sync from stderr.
 let push_log = $env.TMPDIR | path join push.log
 let push = job spawn {
 	let job_id = job id
@@ -51,9 +51,9 @@ let push = job spawn {
 }
 let output = timeout 30s tg --url $alice_local.url checkpoint wait sync.put.store.process $watch 0 | complete
 success $output "alice's push should reach the process"
-wait_until { ($push_log | path exists) and ((open --raw $push_log) | str contains 'tokens[remote][0]') } 'the push should log the referent with the authorization token for the sync'
+wait_until { ($push_log | path exists) and ((open --raw $push_log) | str contains 'tokens[remote][0]') } 'the push should print the referent with the authorization token for the sync'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[' }
-let referent = $push_lines | first | str trim
+let referent = $push_lines | first | str trim | str replace --regex '^info ' ''
 
 # Bob's pull asks for logs that cannot be supplied by this push.
 let logs_pull = job spawn {

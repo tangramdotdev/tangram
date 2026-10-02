@@ -18,7 +18,7 @@ let control_watch = tg --url $runner.url checkpoint watch runner.process.control
 let finished_watch = tg --url $runner.url checkpoint watch runner.process.finished | from json | get watch
 let state_watch = tg --url $runner.url checkpoint watch runner.process.state.inserted | from json | get watch
 let artifact = 'tg.file({ "contents": tg.blob("#!/bin/sh\nread line\ntest \"$line\" = ready"), "executable": true })'
-let file = tg --url $remote.url --token $root_token put $artifact | str trim
+let file = tg --url $remote.url --token $root_token put --no-tokens $artifact | referent node
 let spawn = job spawn {
 	let job_id = job id
 	let output = tg --url $remote.url --token $root_token run --sandbox --stdin pipe --stdout null --stderr null $file | complete

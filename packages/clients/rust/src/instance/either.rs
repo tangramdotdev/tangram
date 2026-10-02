@@ -178,18 +178,19 @@ where
 		&self,
 		arg: tg::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::pull::Header,
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
-		>,
+		)>,
 	> {
 		match self {
 			tg::Either::Left(s) => s
 				.pull(arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
+				.map(|result| result.map(|(header, stream)| (header, stream.left_stream())))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.pull(arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
+				.map(|result| result.map(|(header, stream)| (header, stream.right_stream())))
 				.right_future(),
 		}
 	}
@@ -198,18 +199,19 @@ where
 		&self,
 		arg: tg::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::push::Header,
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
-		>,
+		)>,
 	> {
 		match self {
 			tg::Either::Left(s) => s
 				.push(arg)
-				.map(|result| result.map(futures::StreamExt::left_stream))
+				.map(|result| result.map(|(header, stream)| (header, stream.left_stream())))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.push(arg)
-				.map(|result| result.map(futures::StreamExt::right_stream))
+				.map(|result| result.map(|(header, stream)| (header, stream.right_stream())))
 				.right_future(),
 		}
 	}
@@ -220,18 +222,18 @@ where
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<(
-			tg::sync::Output,
+			tg::sync::Header,
 			impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
 		)>,
 	> {
 		match self {
 			tg::Either::Left(s) => s
 				.sync(arg, stream)
-				.map(|result| result.map(|(output, stream)| (output, stream.left_stream())))
+				.map(|result| result.map(|(header, stream)| (header, stream.left_stream())))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.sync(arg, stream)
-				.map(|result| result.map(|(output, stream)| (output, stream.right_stream())))
+				.map(|result| result.map(|(header, stream)| (header, stream.right_stream())))
 				.right_future(),
 		}
 	}

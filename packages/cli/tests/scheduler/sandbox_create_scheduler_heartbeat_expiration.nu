@@ -18,9 +18,9 @@ let path = artifact {
 	',
 }
 
-tg build --detach $"($path)#blocker" | ignore
+tg build --no-tokens --detach $"($path)#blocker" | ignore
 let start = date now
-let output = tg sandbox create | complete
+let output = tg sandbox create --no-tokens | complete
 failure $output "a queued sandbox should fail when its scheduler stops emitting heartbeats"
 assert ((date now) - $start < 6sec) "the sandbox create should fail after the heartbeat TTL"
 let stderr = $output.stderr | ansi strip

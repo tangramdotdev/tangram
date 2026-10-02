@@ -96,7 +96,10 @@ pub trait Instance:
 		arg: tg::pull::Arg,
 	) -> BoxFuture<
 		'_,
-		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::pull::Output>>>>,
+		tg::Result<(
+			tg::pull::Header,
+			BoxStream<'static, tg::Result<tg::progress::Event<tg::pull::Output>>>,
+		)>,
 	>;
 
 	fn push(
@@ -104,7 +107,10 @@ pub trait Instance:
 		arg: tg::push::Arg,
 	) -> BoxFuture<
 		'_,
-		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>>,
+		tg::Result<(
+			tg::push::Header,
+			BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>,
+		)>,
 	>;
 
 	fn sync<'a>(
@@ -114,7 +120,7 @@ pub trait Instance:
 	) -> BoxFuture<
 		'a,
 		tg::Result<(
-			tg::sync::Output,
+			tg::sync::Header,
 			BoxStream<'static, tg::Result<tg::sync::Message>>,
 		)>,
 	>;
@@ -224,9 +230,14 @@ where
 		arg: tg::pull::Arg,
 	) -> BoxFuture<
 		'_,
-		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::pull::Output>>>>,
+		tg::Result<(
+			tg::pull::Header,
+			BoxStream<'static, tg::Result<tg::progress::Event<tg::pull::Output>>>,
+		)>,
 	> {
-		self.pull(arg).map_ok(futures::StreamExt::boxed).boxed()
+		self.pull(arg)
+			.map_ok(|(header, stream)| (header, stream.boxed()))
+			.boxed()
 	}
 
 	fn push(
@@ -234,9 +245,14 @@ where
 		arg: tg::push::Arg,
 	) -> BoxFuture<
 		'_,
-		tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>>,
+		tg::Result<(
+			tg::push::Header,
+			BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>,
+		)>,
 	> {
-		self.push(arg).map_ok(futures::StreamExt::boxed).boxed()
+		self.push(arg)
+			.map_ok(|(header, stream)| (header, stream.boxed()))
+			.boxed()
 	}
 
 	fn sync<'a>(
@@ -246,12 +262,12 @@ where
 	) -> BoxFuture<
 		'a,
 		tg::Result<(
-			tg::sync::Output,
+			tg::sync::Header,
 			BoxStream<'static, tg::Result<tg::sync::Message>>,
 		)>,
 	> {
 		self.sync(arg, stream)
-			.map_ok(|(output, stream)| (output, stream.boxed()))
+			.map_ok(|(header, stream)| (header, stream.boxed()))
 			.boxed()
 	}
 

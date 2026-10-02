@@ -12,7 +12,7 @@ let path = artifact {
 	'
 }
 
-let process_id = tg build --detach $path | str trim
+let process_id = tg build --no-tokens --detach $path | referent node
 tg wait $process_id
 
 let process = tg get $process_id | from json

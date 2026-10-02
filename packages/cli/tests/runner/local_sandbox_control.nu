@@ -33,7 +33,7 @@ success $output
 assert equal ($output.stdout | from json) "ok"
 assert equal $hit.exit_code 124 "spawning in the current sandbox must not contact owner-side control"
 
-let sandbox = tg --url $remote.url --token $root_token sandbox create | str trim
+let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 let alice = tg --url $runner.url login --verbose --name alice | from json
 tg --url $runner.url --token $alice.token remote put default $remote.url
 tg --url $runner.url --token $root_token grant $alice.user.id read $sandbox

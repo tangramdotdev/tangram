@@ -9,7 +9,7 @@ let remote = server spawn --cloud --name remote --config {
 let local = server spawn --name local --config {
 	remotes: { default: { token: $root_token, url: $remote.url } },
 }
-let file = tg --url $local.url put 'tg.file("hello")' | str trim
+let file = tg --url $local.url put --no-tokens 'tg.file("hello")' | referent node
 
 tg --url $remote.url --token $root_token checkpoint panic sync.request.response
 

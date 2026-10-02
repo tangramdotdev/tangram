@@ -18,7 +18,7 @@ let path = artifact {
 let id = tg --url $local_source.url build $path
 
 # Put the object only on the remote server.
-tg --url $local_source.url get --bytes $id | tg --url $remote.url put --bytes --kind fil
+tg --url $local_source.url get --bytes $id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
 
 # Index the remote server.
 tg --url $remote.url index

@@ -35,7 +35,7 @@ let path = artifact {
 	'
 }
 
-let process = tg --url $local.url build --remote --detach $path
+let process = tg --url $local.url build --no-tokens --remote --detach $path | referent node
 
 # Draining the logs makes the runner resolve its configured remote. It has to do so as the runner:
 # resolving as the spawning user finds no remote of that name, and the process then dies on the log

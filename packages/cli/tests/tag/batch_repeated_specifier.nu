@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A tag batch can repeat a specifier without treating its own earlier write as a snapshot mismatch.
 
 let local = server spawn
-let target = tg put 'tg.file("target")' | str trim
+let target = tg put --no-tokens 'tg.file("target")' | referent node
 let body = {
 	force: false,
 	parents: false,
@@ -41,7 +41,7 @@ assert equal $status 200 "the repeated tag batch should succeed"
 let tag = tg tag get repeated | from json
 assert equal $tag.target.id $target
 
-let replacement = tg put 'tg.file("replacement")' | str trim
+let replacement = tg put --no-tokens 'tg.file("replacement")' | referent node
 let body = {
 	force: true,
 	parents: false,

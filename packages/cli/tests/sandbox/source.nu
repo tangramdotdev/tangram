@@ -21,7 +21,7 @@ for remote_runner in [false true] {
 		control: { read_timeout: 0.25 },
 		remotes: { default: { url: $local_owner.url } },
 	}
-	let sandbox = tg --url $local_owner.url sandbox create | str trim
+	let sandbox = tg --url $local_owner.url sandbox create --no-tokens | referent node
 	tg --url $local_owner.url index
 	for source in [auto runner index] {
 		assert equal (tg --url $local_client.url sandbox get --source $source $sandbox | from json | get data.status) started

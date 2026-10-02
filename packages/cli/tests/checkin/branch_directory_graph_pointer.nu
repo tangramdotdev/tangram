@@ -29,7 +29,7 @@ let dependency_path = artifact {
 	'
 }
 let dependency = tg build $dependency_path | str trim
-let replacement = tg put 'tg.file("replacement")' | str trim
+let replacement = tg put --no-tokens 'tg.file("replacement")' | referent node
 tg tag -p dependency/1.0.0 $replacement
 tg index
 

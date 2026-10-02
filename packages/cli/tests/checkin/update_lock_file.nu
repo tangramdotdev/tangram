@@ -41,7 +41,7 @@ let path = artifact {
 	foo.tg.lock: $lock
 }
 
-let id = tg checkin ($path | path join 'foo.tg.ts') --update a --lock=file
+let id = tg checkin --no-tokens ($path | path join 'foo.tg.ts') --update a --lock=file | referent node
 tg index
 
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id

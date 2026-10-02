@@ -14,7 +14,7 @@ let path = artifact {
 	'
 }
 
-let id = tg build --detach $path | str trim
+let id = tg build --no-tokens --detach $path | referent node
 tg wait $id
 
 tg remote put default $remote.url
@@ -38,7 +38,7 @@ let no_log_path = artifact {
 	'
 }
 
-let no_log_id = tg build --detach $no_log_path | str trim
+let no_log_id = tg build --no-tokens --detach $no_log_path | referent node
 tg wait $no_log_id
 
 let output = tg push --lazy --process-log-objects $no_log_id | complete

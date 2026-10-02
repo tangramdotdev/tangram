@@ -23,7 +23,7 @@ let missing = 'fil_010000000000000000000000000000000000000000000000000000'
 # Compute the expected ids so the descendant checkpoint is installed before the process finishes.
 let expression = 'tg.directory({"file":tg.file({"contents":"capture","dependencies":{"missing":{"node":MISSING}}})})'
 	| str replace MISSING $missing
-let directory = tg --token $alice.token put $expression | str trim
+let directory = tg --token $alice.token put --no-tokens $expression | referent node
 let file = tg --token $alice.token children $directory | from json | get 0 | split row '?' | first
 tg --token $root_token index
 for id in [$directory $file] {
@@ -45,7 +45,7 @@ let source = '
 	}
 ' | str replace MISSING $missing
 let module = artifact { tangram.ts: $source }
-let process = tg --token $alice.token build --detach $module | str trim
+let process = tg --token $alice.token build --no-tokens --detach $module | referent node
 let finished = tg --token $alice.token wait $process | from json
 assert equal $finished.exit 0
 assert equal ($finished.output.value | split row '?' | first) $directory

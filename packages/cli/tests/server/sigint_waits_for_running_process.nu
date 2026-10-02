@@ -16,7 +16,7 @@ for single_process in [true false] {
 	let local = server spawn --config { advanced: { single_process: $single_process } }
 
 	# Wait until the process is running, so that the server is signaled with work in flight.
-	let process = tg --url $local.url build --detach $path | str trim
+	let process = tg --url $local.url build --no-tokens --detach $path | referent node
 	wait_until { (tg --url $local.url log $process | complete).stdout | str contains 'started' } "the process must start"
 
 	# Send SIGINT to the server.

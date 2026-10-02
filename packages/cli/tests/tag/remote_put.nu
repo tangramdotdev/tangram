@@ -11,7 +11,7 @@ let local = server spawn --name local --config {
 # Tag an object on the remote server.
 let tag = "foo/bar"
 let path = artifact 'foo'
-let id = tg --url $local.url checkin $path
+let id = tg --url $local.url checkin --no-tokens $path | referent node
 tg --url $local.url push $id
 tg --url $remote.url tag put -p $tag $id
 

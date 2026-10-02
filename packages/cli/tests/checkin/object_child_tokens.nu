@@ -9,7 +9,7 @@ let local = server spawn --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } }
 }
 let alice = tg login --verbose --name alice | from json
-let replacement = tg --token $alice.token put 'tg.file("replacement")' | str trim
+let replacement = tg --token $alice.token put --no-tokens 'tg.file("replacement")' | referent node
 tg --token $alice.token tag -p replacement/1.0.0 $replacement
 let fixture = artifact {
 	tangram.ts: '

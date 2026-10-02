@@ -12,10 +12,10 @@ for io in $transports {
 		advanced: { checkpoints: true }
 		vfs: { io: $io, kind: fuse, passthrough: disabled }
 	}
-	let target = tg put 'tg.file("allowed\n")' | str trim
-	let foreign = tg put 'tg.file("foreign\n")' | str trim
+	let target = tg put --no-tokens 'tg.file("allowed\n")' | referent node
+	let foreign = tg put --no-tokens 'tg.file("foreign\n")' | referent node
 	tg tag shared $target
-	let sandbox = tg sandbox create --no-network | str trim
+	let sandbox = tg sandbox create --no-tokens --no-network | referent node
 	tg grant $sandbox read shared | ignore
 	tg index
 

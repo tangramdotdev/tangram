@@ -15,7 +15,7 @@ let artifact = '
 		]
 	})
 '
-let graph = tg put $artifact | str trim
+let graph = tg put --no-tokens $artifact | referent node
 let output = tg get $"graph=($graph)&index=0&kind=directory" --no-tokens --pretty | complete
 success $output
 assert equal ($output.stdout | lines) [

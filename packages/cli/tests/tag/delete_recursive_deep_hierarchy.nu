@@ -6,7 +6,7 @@ let local = server spawn
 
 # Create and tag an artifact.
 let path = artifact 'test'
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 # Create a deep hierarchy to test sorting by length.
 let tags = ["test/1/2/3/4/5"]

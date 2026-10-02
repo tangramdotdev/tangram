@@ -15,14 +15,14 @@ let bob_local = server spawn --name bob-local --config {
 }
 
 # Alice stores a private file and blob on the remote.
-let directory = tg --url $alice_local.url put 'tg.directory({ "hello.txt": tg.file("hello") })' | str trim
+let directory = tg --url $alice_local.url put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' | referent node
 tg --url $alice_local.url index
 let file = tg --url $alice_local.url children $directory | from json | get 0
 tg --url $alice_local.url push --lazy $file
 tg --url $remote.url index
 
 # Bob has the directory structure but not Alice's private file or blob.
-tg --url $alice_local.url get --bytes $directory | tg --url $bob_local.url put --bytes --kind dir
+tg --url $alice_local.url get --bytes $directory | tg --url $bob_local.url put --no-tokens --bytes --kind dir | referent node
 
 # Without a grant Bob can neither transfer nor rely on Alice's private file.
 let denied = tg --url $bob_local.url --no-quiet push --lazy $directory | complete
@@ -32,7 +32,7 @@ failure $denied "Bob should not rely on Alice's private file without a grant."
 tg --url $remote.url --token $alice.token grant $bob.user.id object_subtree $file | ignore
 
 # Use a new directory because the failed push may have already transferred the original directory node.
-let directory = tg --url $bob_local.url put ('tg.directory({ "world.txt": ' + $file + ' })') | str trim
+let directory = tg --url $bob_local.url put --no-tokens ('tg.directory({ "world.txt": ' + $file + ' })') | referent node
 
 # Now Bob skips the granted file and blob and transfers only the new directory.
 let output = tg --url $bob_local.url --no-quiet push --lazy $directory | complete

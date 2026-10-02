@@ -48,7 +48,7 @@ impl Cli {
 			input
 		};
 
-		let id = if args.bytes {
+		let referent = if args.bytes {
 			let bytes = Bytes::from(input);
 
 			// Compute the ID if necessary.
@@ -68,12 +68,12 @@ impl Cli {
 				location,
 				metadata: None,
 			};
-			client
+			let output = client
 				.put_object(&id, arg)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
 
-			id
+			output.object
 		} else {
 			// Parse the value.
 			let input = std::str::from_utf8(&input)
@@ -92,11 +92,11 @@ impl Cli {
 				return Err(tg::error!("expected an object value"));
 			};
 
-			object.id()
+			object.to_referent()
 		};
 
-		// Print the id.
-		Self::print_id(&id);
+		// Print the referent.
+		Self::print_referent(&referent, &args.print);
 
 		Ok(())
 	}

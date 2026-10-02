@@ -12,14 +12,14 @@ let path = artifact {
 }
 
 # Populate the remote cache for the dependency.
-let remote_dependency = tg --url $remote.url build --detach $"($path)#dependency" | str trim
+let remote_dependency = tg --url $remote.url build --no-tokens --detach $"($path)#dependency" | referent node
 tg --url $remote.url wait $remote_dependency | ignore
 
 # Reuse the dependency on a clean client, creating an index-only process record locally.
 let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },
 }
-let parent = tg --url $local.url build --detach $path | str trim
+let parent = tg --url $local.url build --no-tokens --detach $path | referent node
 tg --url $local.url wait $parent | ignore
 let child = tg --url $local.url process children $parent | from json | first
 assert $child.cached "the dependency should be a remote cache hit"

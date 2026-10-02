@@ -9,7 +9,7 @@ let path = artifact {
 	foo.tg.ts: 'import * as root from "./tangram.ts";'
 }
 
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 tg index
 
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id

@@ -40,7 +40,7 @@ let local = server spawn --name local --config {
 
 # Alice pushes a tagged object to region B. The tag is global, but the object
 # and its storage usage are regional.
-let object = tg --url $local.url put 'tg.file("hello")' | str trim
+let object = tg --url $local.url put --no-tokens 'tg.file("hello")' | referent node
 tg --url $local.url tag put owned $object
 tg --url $local.url push --remote=b owned
 
@@ -70,7 +70,7 @@ let bob_local = server spawn --name bob-local --config {
 		b: { token: $bob.token, url: $remote_region_b.url }
 	}
 }
-let private_object = tg --url $bob_local.url put 'tg.file("private")' | str trim
+let private_object = tg --url $bob_local.url put --no-tokens 'tg.file("private")' | referent node
 tg --url $bob_local.url push --remote=b $private_object
 failure (tg --url $remote_region_b.url --token $alice.token object get --bytes --local $private_object | complete) "Alice must not access Bob's private object"
 tg --url $remote_region_b.url --token $alice.token tag put alice/no-access $private_object

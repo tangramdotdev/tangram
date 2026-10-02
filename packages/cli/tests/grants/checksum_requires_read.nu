@@ -7,7 +7,7 @@ let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 
 # Alice stores a private file; Eve cannot read it.
-let secret = tg --token $alice.token put 'tg.file("checksumsecret")' | str trim
+let secret = tg --token $alice.token put --no-tokens 'tg.file("checksumsecret")' | referent node
 tg index
 let before = tg --token $eve.token get $secret | complete
 failure $before "Eve should not read Alice's private file before the exploit."

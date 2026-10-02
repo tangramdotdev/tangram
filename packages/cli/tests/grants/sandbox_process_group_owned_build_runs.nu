@@ -7,7 +7,7 @@ let alice = tg login --verbose --name alice | from json
 tg --token $alice.token group create team
 
 let path = artifact { tangram.ts: 'export default () => tg.file("x")' }
-let process = tg --token $alice.token build --detach --owner team $path | str trim
+let process = tg --token $alice.token build --no-tokens --detach --owner team $path | referent node
 tg --token $alice.token wait $process | complete | ignore
 let data = tg --token $alice.token get $process | from json
 assert ($data.error? == null) "a group-owned build must not fail to access its command"

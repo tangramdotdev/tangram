@@ -13,7 +13,7 @@ let path = artifact {
 	link: (symlink 'hello.txt')
 }
 
-let id = tg checkin --no-tokens $path | str trim
+let id = tg checkin --no-tokens $path | referent node
 
 # Test each archive format and compression combination by archiving and extracting the artifact, then comparing the result to the original.
 def roundtrip [format: string, compression?: string] {

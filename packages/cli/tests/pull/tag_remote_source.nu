@@ -6,10 +6,10 @@ let local_other = server spawn --cloud --name local-other
 let local_source = server spawn --cloud --name local-source
 let local = server spawn --name local
 
-let other_id = tg --url $local_other.url put 'tg.file("from the other remote")' | str trim
+let other_id = tg --url $local_other.url put --no-tokens 'tg.file("from the other remote")' | referent node
 tg --url $local_other.url tag -p conflict/1.0.0 $other_id
 
-let source_id = tg --url $local_source.url put 'tg.file("from the source remote")' | str trim
+let source_id = tg --url $local_source.url put --no-tokens 'tg.file("from the source remote")' | referent node
 tg --url $local_source.url tag -p conflict/1.0.0 $source_id
 
 tg --url $local.url remote put other $local_other.url

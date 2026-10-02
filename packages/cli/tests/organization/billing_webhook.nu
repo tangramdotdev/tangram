@@ -14,7 +14,7 @@ let alice = tg login --verbose --name alice | from json
 tg --token $alice.token organization create acme
 tg --token $alice.token group create acme/team
 
-let unconfigured = tg --token $alice.token sandbox create --organization acme --no-network | complete
+let unconfigured = tg --token $alice.token sandbox create --no-tokens --organization acme --no-network | complete
 failure $unconfigured "an organization without a Stripe customer should not own a sandbox"
 assert ($unconfigured.stderr | str contains 'tg organization billing manage') "the error should explain how to configure organization billing"
 
@@ -30,7 +30,7 @@ let event = {
 }
 assert equal (send_stripe_webhook $local $webhook_secret $event) 200 "a valid webhook should be accepted"
 
-let created = tg --token $alice.token sandbox create --group acme/team --no-network | complete
+let created = tg --token $alice.token sandbox create --no-tokens --group acme/team --no-network | complete
 success $created "a group should inherit its organization's billing status"
 tg --token $alice.token sandbox destroy ($created.stdout | str trim)
 

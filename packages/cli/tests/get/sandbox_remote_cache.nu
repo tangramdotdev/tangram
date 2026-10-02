@@ -16,7 +16,7 @@ let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 
-let sandbox = tg --url $remote.url sandbox create --no-network | str trim
+let sandbox = tg --url $remote.url sandbox create --no-tokens --no-network | referent node
 
 let output = tg --url $local.url get $sandbox | from json
 assert equal $output.data.id $sandbox

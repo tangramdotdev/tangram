@@ -10,7 +10,7 @@ let alice_local = server spawn --name alice-local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 tg --url $alice_local.url pull $alice.user.id
-let alice_file = tg --url $alice_local.url put 'tg.file("alice")' | str trim
+let alice_file = tg --url $alice_local.url put --no-tokens 'tg.file("alice")' | referent node
 tg --url $alice_local.url tag put alice/allowed $alice_file
 tg --url $alice_local.url push alice/allowed
 success (tg --url $remote.url --token $alice.token tag get alice/allowed | complete)
@@ -22,7 +22,7 @@ let bob_local = server spawn --name bob-local --config {
 	},
 }
 tg --url $bob_local.url pull --remote=source $alice.user.id
-let bob_file = tg --url $bob_local.url put 'tg.file("bob")' | str trim
+let bob_file = tg --url $bob_local.url put --no-tokens 'tg.file("bob")' | referent node
 tg --url $bob_local.url tag put alice/denied $bob_file
 let output = tg --url $bob_local.url push --remote=destination alice/denied | complete
 failure $output "Bob should not be able to push a tag under Alice's user."

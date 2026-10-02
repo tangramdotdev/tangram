@@ -7,7 +7,7 @@ let local = server spawn --config { authentication: { users: { providers: { inse
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 
-let sandbox = tg --token $alice.token sandbox create --no-network | str trim
+let sandbox = tg --token $alice.token sandbox create --no-tokens --no-network | referent node
 let path = artifact { tangram.ts: 'export default function () { return tg.file("spawn-into-existing"); }' }
 
 # Eve cannot write Alice's sandbox, so she must not spawn a process into it.

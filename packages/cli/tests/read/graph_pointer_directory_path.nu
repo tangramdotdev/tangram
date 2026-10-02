@@ -21,7 +21,7 @@ let graph = '
 		]
 	})
 '
-let graph_id = tg put $graph | str trim
+let graph_id = tg put --no-tokens $graph | referent node
 
 # Read through the directory pointer using a reference path option.
 let output = tg read $"graph=($graph_id)&index=0&kind=directory?get=hello.txt" | complete

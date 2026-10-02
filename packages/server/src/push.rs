@@ -16,6 +16,8 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
+type HeaderSender = Arc<Mutex<Option<tokio::sync::oneshot::Sender<tg::Result<tg::push::Header>>>>>;
+
 struct PushOrPullInnerArg<'a> {
 	arg: &'a tg::push::Arg,
 	destination: tg::Location,
@@ -30,6 +32,7 @@ struct PushOrPullTaskArg {
 	arg: tg::push::Arg,
 	destination: tg::Location,
 	get: Vec<tg::Referent<tg::Selector<tg::Id>>>,
+	header_sender: HeaderSender,
 	process: bool,
 	progress: crate::progress::Handle<tg::push::Output>,
 	received_specifiers: Option<Arc<Mutex<BTreeSet<tg::Specifier>>>>,
@@ -42,9 +45,10 @@ impl Session {
 	pub(crate) async fn push(
 		&self,
 		arg: tg::push::Arg,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::push::Header,
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + use<>,
-	> {
+	)> {
 		let source = arg.source.clone().unwrap_or_else(|| {
 			tg::Location::Remote(tg::location::Remote {
 				name: "default".to_owned(),
@@ -57,17 +61,18 @@ impl Session {
 				region: None,
 			})
 		});
-		let stream = self.push_or_pull(&arg, source, destination).await?;
-		Ok(stream)
+		let (header, stream) = self.push_or_pull(&arg, source, destination).await?;
+		Ok((header, stream))
 	}
 
 	pub(crate) async fn push_for_process(
 		&self,
 		arg: tg::push::Arg,
 		sync: Option<tg::Referent<tg::sync::Id>>,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::push::Header,
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + use<>,
-	> {
+	)> {
 		let source = arg.source.clone().unwrap_or_else(|| {
 			tg::Location::Remote(tg::location::Remote {
 				name: "default".to_owned(),
@@ -80,10 +85,10 @@ impl Session {
 				region: None,
 			})
 		});
-		let stream = self
+		let (header, stream) = self
 			.push_or_pull_for_process(&arg, source, destination, sync)
 			.await?;
-		Ok(stream)
+		Ok((header, stream))
 	}
 
 	pub(crate) async fn push_or_pull(
@@ -91,7 +96,10 @@ impl Session {
 		arg: &tg::push::Arg,
 		source: tg::Location,
 		destination: tg::Location,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
+	) -> tg::Result<(
+		tg::push::Header,
+		BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>,
+	)> {
 		let get = arg
 			.nodes
 			.iter()
@@ -130,7 +138,7 @@ impl Session {
 			source,
 			sync: None,
 		};
-		let stream = self.push_or_pull_inner(inner_arg).await?;
+		let (_, stream) = self.push_or_pull_inner(inner_arg).await?;
 		let output = (stream, received_specifiers);
 
 		Ok(output)
@@ -142,7 +150,10 @@ impl Session {
 		source: tg::Location,
 		destination: tg::Location,
 		sync: Option<tg::Referent<tg::sync::Id>>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
+	) -> tg::Result<(
+		tg::push::Header,
+		BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>,
+	)> {
 		let get = arg
 			.nodes
 			.iter()
@@ -164,7 +175,10 @@ impl Session {
 	async fn push_or_pull_inner(
 		&self,
 		inner_arg: PushOrPullInnerArg<'_>,
-	) -> tg::Result<BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>> {
+	) -> tg::Result<(
+		tg::push::Header,
+		BoxStream<'static, tg::Result<tg::progress::Event<tg::push::Output>>>,
+	)> {
 		let PushOrPullInnerArg {
 			arg,
 			destination,
@@ -263,6 +277,10 @@ impl Session {
 			}
 		});
 
+		// Create the header channel.
+		let (header_sender, header_receiver) = tokio::sync::oneshot::channel();
+		let header_sender = Arc::new(Mutex::new(Some(header_sender)));
+
 		// Spawn the task.
 		let task = Task::spawn({
 			let session = self.clone();
@@ -273,6 +291,7 @@ impl Session {
 					arg,
 					destination,
 					get,
+					header_sender: header_sender.clone(),
 					process,
 					progress: progress.clone(),
 					received_specifiers,
@@ -289,6 +308,9 @@ impl Session {
 						progress.output(output);
 					},
 					Ok(Err(error)) => {
+						if let Some(sender) = header_sender.lock().unwrap().take() {
+							sender.send(Err(error.clone())).ok();
+						}
 						progress.error(error);
 					},
 					Err(payload) => {
@@ -296,7 +318,11 @@ impl Session {
 							.downcast_ref::<String>()
 							.map(String::as_str)
 							.or(payload.downcast_ref::<&str>().copied());
-						progress.error(tg::error!(?message, "the task panicked"));
+						let error = tg::error!(?message, "the task panicked");
+						if let Some(sender) = header_sender.lock().unwrap().take() {
+							sender.send(Err(error.clone())).ok();
+						}
+						progress.error(error);
 					},
 				}
 			}
@@ -305,7 +331,11 @@ impl Session {
 		// Create the stream.
 		let stream = progress.stream().attach(indicator_total_task).attach(task);
 
-		Ok(stream.boxed())
+		let header = header_receiver
+			.await
+			.map_err(|error| tg::error!(!error, "failed to receive the push or pull header"))??;
+
+		Ok((header, stream.boxed()))
 	}
 
 	async fn push_or_pull_set_indicator_totals(
@@ -450,6 +480,7 @@ impl Session {
 			arg,
 			destination,
 			get,
+			header_sender,
 			process,
 			progress,
 			received_specifiers,
@@ -466,17 +497,20 @@ impl Session {
 			max_retries: retry.max_retries,
 		};
 		let session = self.clone();
+		let sync_state = Arc::new(Mutex::new(sync));
 		let output = tangram_futures::retry::retry(&retry, || {
 			let arg = arg.clone();
 			let destination = destination.clone();
 			let get = get.clone();
+			let header_sender = header_sender.clone();
 			let progress = progress.clone();
 			let received_specifiers = received_specifiers.clone();
 			let session = session.clone();
 			let source = source.clone();
 			let source_session = source_session.clone();
-			let sync = sync.clone();
+			let sync_state = sync_state.clone();
 			async move {
+				let sync = sync_state.lock().unwrap().clone();
 				if let Some(received_specifiers) = &received_specifiers {
 					received_specifiers.lock().unwrap().clear();
 				}
@@ -604,7 +638,7 @@ impl Session {
 
 				// Create the destination future.
 				let destination_future = async {
-					let (sync_output, destination_output_stream) = session
+					let (sync_header, destination_output_stream) = session
 						.sync_with_source_trust(
 							destination_arg,
 							process,
@@ -616,18 +650,23 @@ impl Session {
 							tg::error!(!error, "failed to create the destination stream")
 						})?;
 
-					// Log the sync proofs so callers can request nodes before the transfer ends.
-					if let Some(sync) = &sync_output.sync {
-						let mut authorization_tokens = tg::authorization::Tokens::default();
+					// Preserve the sync so the header remains valid across transfer retries.
+					*sync_state.lock().unwrap() = sync_header.sync.clone();
+
+					// Send the header before transferring the nodes.
+					let mut nodes = arg.nodes.clone();
+					if let Some(sync) = &sync_header.sync {
+						let mut tokens = tg::authorization::Tokens::default();
 						for token in sync.options.tokens.local_authorization() {
-							authorization_tokens
-								.insert_authorization(destination.clone(), token.clone());
+							tokens.insert_authorization(destination.clone(), token.clone());
 						}
-						for node in &arg.nodes {
-							let mut node = node.clone();
-							node.options.tokens.inherit(&authorization_tokens);
-							progress.log(None, node.to_string());
+						for node in &mut nodes {
+							node.options.tokens.inherit(&tokens);
 						}
+					}
+					let header = tg::push::Header { nodes };
+					if let Some(sender) = header_sender.lock().unwrap().take() {
+						sender.send(Ok(header)).ok();
 					}
 
 					let mut get_output = None;
@@ -642,7 +681,7 @@ impl Session {
 								*output.lock().unwrap() += &message;
 							},
 							tg::sync::Message::End => {
-								return Ok::<_, tg::Error>((true, sync_output, get_output));
+								return Ok::<_, tg::Error>((true, sync_header, get_output));
 							},
 							_ => {
 								destination_output_sender
@@ -652,10 +691,10 @@ impl Session {
 							},
 						}
 					}
-					Ok((false, sync_output, get_output))
+					Ok((false, sync_header, get_output))
 				};
 
-				let (source_completed, (destination_completed, sync_output, get_output)) =
+				let (source_completed, (destination_completed, sync_header, get_output)) =
 					future::try_join(source_future, destination_future)
 						.boxed()
 						.await?;
@@ -663,7 +702,7 @@ impl Session {
 				if source_completed && destination_completed {
 					let mut output = output.lock().unwrap().clone();
 					output.nodes = session.create_sync_output_nodes(&arg)?;
-					if let Some(sync) = sync_output.sync {
+					if let Some(sync) = sync_header.sync {
 						let mut authorization_tokens = tg::authorization::Tokens::default();
 						for token in sync.options.tokens.local_authorization() {
 							authorization_tokens
@@ -860,8 +899,8 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
-		// Get the stream.
-		let stream = self
+		// Get the header and stream.
+		let (header, stream) = self
 			.push(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the push"))?;
@@ -883,6 +922,9 @@ impl Session {
 				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		};
+
+		let body = tangram_http::body::header::set(body, &header)
+			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 
 		// Create the response.
 		let mut response = http::Response::builder();

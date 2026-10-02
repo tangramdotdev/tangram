@@ -12,7 +12,7 @@ let bob = tg --url $remote_destination.url login --verbose --name bob | from jso
 let local_source = server spawn --name local-source --config {
 	remotes: { default: { token: $alice.token, url: $remote_destination.url } },
 }
-let file = tg --url $local_source.url put --no-tokens 'tg.file("private")' | str trim
+let file = tg --url $local_source.url put --no-tokens 'tg.file("private")' | referent node
 tg --url $remote_destination.url --token $root_token index
 let batch_watch = tg --url $remote_destination.url --token $root_token checkpoint watch index.batch | from json | get watch
 let stopped_watch = tg --url $remote_destination.url --token $root_token checkpoint watch sync.control.stopped | from json | get watch
@@ -24,7 +24,7 @@ let push = job spawn {
 	$output | job send --tag $job_id 0
 }
 wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push must expose its authorization token before waiting for indexing'
-let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
+let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 let referent = $referent | str replace --all 'tokens[remote]' 'tokens[local]'
 let proof = $'http://localhost/($referent)' | url parse | get params | where {|param| $param.key =~ '^tokens\[' } | each {|param|
 	let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json

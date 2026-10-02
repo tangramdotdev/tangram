@@ -17,6 +17,6 @@ let dependency = tg build --no-tokens $dependency_path | str trim
 let reference = $'($dependency)?get=module.tg.ts'
 let dependencies = [$reference] | to json
 let path = artifact (file --xattrs { "user.tangram.dependencies": $dependencies } input)
-let id = tg checkin --no-solve $path
+let id = tg checkin --no-tokens --no-solve $path | referent node
 let object = tg get --blobs --depth=inf --no-tokens --pretty $id
 assert ($object | str contains "graph target") "the dependency should refer to the file in the loaded graph"

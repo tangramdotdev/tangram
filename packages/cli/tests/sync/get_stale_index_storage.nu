@@ -17,18 +17,18 @@ let local_client = server spawn --name local-client --config {
 # a time, so the deeper branch's blob is the last object to arrive, and the root is still incomplete
 # when the file's own subtree is complete.
 let directory = (
-	tg --url $remote.url put 'tg.directory({
+	tg --url $remote.url put --no-tokens 'tg.directory({
 		"f": tg.file("fff"),
 		"z": tg.directory({ "v": tg.file("vvv") }),
-	})'
+	})' | referent node
 	| str trim
 )
 
 # Name the file and both branches' blobs. Objects are content addressed, so putting the same
 # contents again yields the ids of the objects that are already in the directory.
-let file = tg --url $remote.url put 'tg.file("fff")' | str trim
-let file_blob = tg --url $remote.url put 'tg.blob("fff")' | str trim
-let deep_blob = tg --url $remote.url put 'tg.blob("vvv")' | str trim
+let file = tg --url $remote.url put --no-tokens 'tg.file("fff")' | referent node
+let file_blob = tg --url $remote.url put --no-tokens 'tg.blob("fff")' | referent node
+let deep_blob = tg --url $remote.url put --no-tokens 'tg.blob("vvv")' | referent node
 tg --url $remote.url index
 
 # Get the file. This stores the file's own data but not the blob it points to, and it writes the

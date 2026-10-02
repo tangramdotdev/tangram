@@ -8,7 +8,7 @@ let local = server spawn --name local --config {
 }
 
 # Create and tag an object on the remote.
-let id = tg --url $remote.url put 'tg.file("test")' | str trim
+let id = tg --url $remote.url put --no-tokens 'tg.file("test")' | referent node
 tg --url $remote.url tag -p remote-only/1.0.0 $id
 
 # Kill the remote server.

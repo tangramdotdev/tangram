@@ -16,7 +16,7 @@ let path1 = artifact {
 	'
 }
 
-let id1 = tg checkin $path1
+let id1 = tg checkin --no-tokens $path1 | referent node
 tg publish $path1
 
 # Verify the tag points to the first package.
@@ -37,7 +37,7 @@ let path2 = artifact {
 	'
 }
 
-let id2 = tg checkin $path2
+let id2 = tg checkin --no-tokens $path2 | referent node
 
 # The two packages should have different IDs.
 assert not equal $id1 $id2 "The two packages should have different IDs."

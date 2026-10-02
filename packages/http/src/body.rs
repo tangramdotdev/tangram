@@ -13,7 +13,7 @@ pub mod and_then_frame;
 pub mod arg;
 pub mod coalesce;
 pub mod compression;
-pub mod output;
+pub mod header;
 
 pub use {self::coalesce::Coalesce, http_body_util::BodyStream};
 

@@ -11,10 +11,10 @@ let local = server spawn --config {
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
-let dependency = tg --token $alice.token put 'tg.directory({"library":tg.file("contents")})' | str trim
+let dependency = tg --token $alice.token put --no-tokens 'tg.directory({"library":tg.file("contents")})' | referent node
 let source = 'tg.file({"contents":"wrapper","dependencies":{"DEPENDENCY":{"node":DEPENDENCY}}})'
 	| str replace --all DEPENDENCY $dependency
-let id = tg --token $alice.token put $source | str trim
+let id = tg --token $alice.token put --no-tokens $source | referent node
 tg index
 let path = tg --token $alice.token checkout $id | str trim
 let fixture = {

@@ -46,7 +46,7 @@ pub trait Runner: Send + Sync + 'static {
 	) -> BoxFuture<
 		'a,
 		tg::Result<(
-			tg::runner::control::Output,
+			tg::runner::control::Header,
 			BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
 		)>,
 	>;
@@ -110,12 +110,12 @@ where
 	) -> BoxFuture<
 		'a,
 		tg::Result<(
-			tg::runner::control::Output,
+			tg::runner::control::Header,
 			BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
 		)>,
 	> {
 		self.get_runner_control_stream(arg, stream)
-			.map_ok(|(output, stream)| (output, stream.boxed()))
+			.map_ok(|(header, stream)| (header, stream.boxed()))
 			.boxed()
 	}
 }

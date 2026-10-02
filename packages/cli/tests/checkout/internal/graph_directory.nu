@@ -26,7 +26,7 @@ let artifact = artifact {
 		}
 	'
 }
-let id = tg checkin --no-checkout-pointers $artifact
+let id = tg checkin --no-tokens --no-checkout-pointers $artifact | referent node
 let id = tg build $id
 rm --recursive --force $local.checkout_directory
 mkdir $local.checkout_directory

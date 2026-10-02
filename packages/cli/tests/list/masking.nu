@@ -7,7 +7,7 @@ let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 
-let id = tg --url $remote.url put 'tg.file("remote")' | str trim
+let id = tg --url $remote.url put --no-tokens 'tg.file("remote")' | referent node
 let remote_group = tg --url $remote.url group create foo | from json
 tg --url $remote.url tag put foo/a $id
 let remote_tag = tg --url $remote.url tag get foo/a | from json

@@ -57,7 +57,7 @@ impl tg::instance::Runner for tg::Session {
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<(
-			tg::runner::control::Output,
+			tg::runner::control::Header,
 			impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
 		)>,
 	> {

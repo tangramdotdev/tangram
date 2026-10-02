@@ -9,7 +9,7 @@ let local = server spawn --config {
 }
 
 let path = artifact 'test'
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 tg tag put test $id
 let tag = tg tag get test | from json
 let watch = (

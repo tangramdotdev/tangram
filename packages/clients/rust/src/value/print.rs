@@ -600,12 +600,19 @@ where
 	}
 
 	fn object_id(&mut self, state: &tg::object::State) -> Result {
-		let tokens = if self.options.tokens {
-			state.tokens()
-		} else {
-			tg::authorization::Tokens::default()
-		};
-		let referent = tg::Referent::with_node_and_tokens(state.id(), tokens);
+		let referent = tg::Referent::with_node_and_tokens(state.id(), state.tokens());
+		self.referent(&referent)
+	}
+
+	pub fn referent<T>(&mut self, referent: &tg::Referent<T>) -> Result
+	where
+		T: Display,
+	{
+		let mut options = referent.options.clone();
+		if !self.options.tokens {
+			options.tokens.clear();
+		}
+		let referent = tg::Referent::new(&referent.node, options);
 		let string = referent.to_string();
 		if let Some((id, query)) = string.split_once('?') {
 			self.color(id, Color::Blue)?;

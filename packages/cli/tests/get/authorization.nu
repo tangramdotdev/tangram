@@ -6,7 +6,7 @@ let local = server spawn --config { authentication: { users: { providers: { inse
 let alice = tg --url $local.url login --verbose --name alice | from json
 let bob = tg --url $local.url login --verbose --name bob | from json
 let path = artifact 'contents'
-let artifact = tg --url $local.url --token $alice.token checkin $path
+let artifact = tg --url $local.url --token $alice.token checkin --no-tokens $path | referent node
 let parent = tg --url $local.url --token $alice.token group create --verbose private | from json
 tg --url $local.url --token $alice.token group create private/1.0.0 | ignore
 tg --url $local.url --token $alice.token tag private/1.0.0/latest $artifact

@@ -12,7 +12,7 @@ let server = server spawn --config {
 	vfs: false
 }
 
-let secret = tg put 'tg.directory({ "secret": "contents" })' | str trim
+let secret = tg put --no-tokens 'tg.directory({ "secret": "contents" })' | referent node
 
 let path = artifact {
 	tangram.ts: '
@@ -20,7 +20,7 @@ let path = artifact {
 			const directory = await tg.directory({});
 			for (const input of [tg.symlink({ artifact: directory }), tg.symlink(secret)]) {
 				const output = await tg.build`
-					if tg checkin "\${INPUT%/*}/${secret}" > ${tg.output} 2>&1; then
+					if tg checkin --no-tokens "\${INPUT%/*}/${secret}" > ${tg.output} 2>&1; then
 						exit 1
 					fi
 				`.env({ INPUT: input }).then(tg.File.expect);

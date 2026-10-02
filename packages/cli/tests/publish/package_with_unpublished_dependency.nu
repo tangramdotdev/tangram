@@ -17,7 +17,7 @@ let dep_path = artifact {
 	'
 }
 
-let dep_id = tg checkin $dep_path
+let dep_id = tg checkin --no-tokens $dep_path | referent node
 
 # Create a tag for the dependency on the local server so it can be resolved.
 tg tag put -p test-dep/1.0.0 $dep_id | complete
@@ -35,7 +35,7 @@ let main_path = artifact {
 	'
 }
 
-let main_id = tg checkin $main_path
+let main_id = tg checkin --no-tokens $main_path | referent node
 
 # Publish the main package - this should also publish the dependency.
 tg publish $main_path | complete | success $in

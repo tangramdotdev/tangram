@@ -12,7 +12,7 @@ tg --token $alice.token group create team
 tg --token $alice.token grant $bob.user.id read team
 tg --token $bob.token group get team
 
-let target = tg --token $root_token put 'tg.file("replacement")' | str trim
+let target = tg --token $root_token put --no-tokens 'tg.file("replacement")' | referent node
 tg --token $root_token tag put --force alice $target
 tg index
 

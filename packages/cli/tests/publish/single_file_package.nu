@@ -20,7 +20,7 @@ let file_path = $temp_dir | path join "package.ts"
 $file_content | save $file_path
 
 # Checkin the file.
-let id = tg checkin $file_path
+let id = tg checkin --no-tokens $file_path | referent node
 
 # Publish the file.
 tg publish $file_path

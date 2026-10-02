@@ -5,9 +5,9 @@ use lib/test.nu *
 let local = server spawn --config { indexer: { cleaning: {} }, sandbox: { ttl: 0 } }
 
 let create = if $nu.os-info.name == 'linux' {
-	tg sandbox create --hostname sandbox-test --mount /tmp:/sandbox,ro --no-network
+	tg sandbox create --no-tokens --hostname sandbox-test --mount /tmp:/sandbox,ro --no-network | referent node
 } else {
-	tg sandbox create --mount /tmp:/sandbox,ro --no-network
+	tg sandbox create --no-tokens --mount /tmp:/sandbox,ro --no-network | referent node
 }
 let create = $create | str trim
 assert ($create | str starts-with "sbx_")

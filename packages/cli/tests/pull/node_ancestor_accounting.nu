@@ -22,7 +22,7 @@ let child = tg --url $remote.url group create ancestor/child | from json
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("trigger"); }',
 }
-let process = tg --url $local_source.url build --detach $path | str trim
+let process = tg --url $local_source.url build --no-tokens --detach $path | referent node
 tg --url $local_source.url wait $process
 tg --url $local_source.url push $process
 tg --url $remote.url wait $process

@@ -4,8 +4,8 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let one = "one " | tg write | str trim
-let two = "two" | tg write | str trim
+let one = "one " | tg write --no-tokens | referent node
+let two = "two" | tg write --no-tokens | referent node
 
 let contents = tg read $one $two
 assert equal $contents "one two" "the contents should be concatenated in order"

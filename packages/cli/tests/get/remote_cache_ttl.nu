@@ -8,9 +8,9 @@ let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 
-let first = tg --url $remote.url put 'tg.file("first")' | str trim
-let second = tg --url $remote.url put 'tg.file("second")' | str trim
-let third = tg --url $remote.url put 'tg.file("third")' | str trim
+let first = tg --url $remote.url put --no-tokens 'tg.file("first")' | referent node
+let second = tg --url $remote.url put --no-tokens 'tg.file("second")' | referent node
+let third = tg --url $remote.url put --no-tokens 'tg.file("third")' | referent node
 
 tg --url $remote.url tag foo $first
 assert equal (tg --url $local.url tag get foo | from json | get target.id) $first

@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let output = tg put --id pcs_010000000000000000000000000000000000000000000000000000 "not json" | complete
+let output = tg put --no-tokens --id pcs_010000000000000000000000000000000000000000000000000000 "not json" | complete
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred

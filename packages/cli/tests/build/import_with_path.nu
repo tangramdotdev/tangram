@@ -12,9 +12,9 @@ tg tag test $path
 
 let path = artifact {
 	tangram.ts: '
-		import file from "test" with { 
-			"get": "subdirectory/file.txt", 
-			"type": "file" 
+		import file from "test" with {
+			"get": "subdirectory/file.txt",
+			"type": "file"
 		};
 		export default function () { return file.text; }
 	'

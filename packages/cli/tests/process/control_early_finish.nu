@@ -9,7 +9,7 @@ let tangram = which tg | where type == external | get path | first
 for source in ['export default () => tg.file("control output");' 'export default () => { throw new Error("control error"); }'] {
 	let local = server spawn --config { advanced: { checkpoints: true } }
 	let path = artifact { tangram.ts: $source }
-	let id = tg build --detach $path | str trim
+	let id = tg build --no-tokens --detach $path | referent node
 	tg wait $id | complete | ignore
 	let data = mktemp
 

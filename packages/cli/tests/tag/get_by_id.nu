@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let local = server spawn
 
 let path = artifact 'test'
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 tg tag put test $id
 
 # Capture the tag id from the specifier-based lookup.

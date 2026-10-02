@@ -10,7 +10,7 @@ tg tag -p a/1.0.0 $a1
 let root = artifact {
 	tangram.ts: 'import a from "a/^1";'
 }
-tg checkin $root
+tg checkin --no-tokens $root | referent node
 
 let a2 = artifact { tangram.ts: 'export default function () { return "a2"; }' }
 tg tag -p a/1.1.0 $a2

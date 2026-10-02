@@ -24,7 +24,7 @@ let path = artifact {
 let foo_path = $path | path join foo
 
 # Checkin the artifact.
-let id = tg --url $local.url checkin $foo_path | from json
+let id = tg --url $local.url checkin --no-tokens $foo_path | referent node | from json
 
 # Tag the artifact.
 tg --url $local.url tag foo $id

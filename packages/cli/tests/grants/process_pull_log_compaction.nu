@@ -22,7 +22,7 @@ let path = artifact { tangram.ts: 'export default async function () { console.lo
 let alice_local = server spawn --name alice-local --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
-let process = tg --url $alice_local.url run --network=true --detach $path --remote | str trim
+let process = tg --url $alice_local.url run --no-tokens --network=true --detach $path --remote | referent node
 wait_until { (tg --url $remote.url --token $alice.token process log $process | complete | get stdout) =~ "alicesecret" } --timeout 30sec
 
 # Sanity: the log is live and Alice can read her secret.

@@ -10,7 +10,7 @@ let path = artifact {
 			return tg.build`
 				path="\${TMPDIR:-/tmp}/hello.txt"
 				echo "Hello, World!" > $path
-				tg checkin $path > ${tg.output}
+				tg checkin --no-tokens $path > ${tg.output}
 			`;
 		}
 	',

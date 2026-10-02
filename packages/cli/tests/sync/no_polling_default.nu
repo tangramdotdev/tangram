@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local_source = server spawn --name local-source
 let local = server spawn --name local
-let id = tg --url $local_source.url put 'tg.blob("absent")' | str trim
+let id = tg --url $local_source.url put --no-tokens 'tg.blob("absent")' | referent node
 let started = date now
 let output = tg --url $local.url get --local --bytes $id | complete
 let elapsed = (date now) - $started

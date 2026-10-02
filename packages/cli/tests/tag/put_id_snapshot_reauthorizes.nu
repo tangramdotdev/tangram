@@ -9,7 +9,7 @@ let local = server spawn --config {
 }
 let alice = tg login --verbose --name alice | from json
 let path = artifact 'data'
-let target = tg --token $alice.token checkin $path | str trim
+let target = tg --token $alice.token checkin --no-tokens $path | referent node
 let watch = (
 	tg --token $root_token checkpoint watch tag.put.authorized --params ({ specifier: 'parent/tag' } | to json)
 	| from json

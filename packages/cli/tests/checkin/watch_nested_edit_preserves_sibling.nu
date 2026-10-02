@@ -10,17 +10,17 @@ let path = artifact {
 		"x.txt": 'one'
 	}
 }
-let first = tg checkin $path --watch
+let first = tg checkin --no-tokens $path --watch | referent node
 
 # Edit the nested file and invalidate just that file node.
 'two' | save --force ($path | path join 'sub' 'x.txt')
 tg watch touch $path ($path | path join 'sub' 'x.txt')
 
-let watched = tg checkin $path --watch
+let watched = tg checkin --no-tokens $path --watch | referent node
 assert ($first != $watched) "editing a nested file should change the id"
 
 # A cold checkin ignores the watch cache, so it is the ground truth.
-let cold = tg checkin $path
+let cold = tg checkin --no-tokens $path | referent node
 assert ($watched == $cold) "the incremental checkin should equal a cold checkin"
 
 let object = tg get $watched --blobs --depth=inf --no-tokens --pretty

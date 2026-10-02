@@ -40,15 +40,15 @@ for await_push in [true false] {
 	let host = $"($architecture)-($operating_system)"
 	let contents = "#!/bin/sh\nwhile read -r line; do :; done\n"
 	let blob_value = ['tg.blob(' ($contents | to json) ')'] | str join
-	let blob = tg --url $local.url put $blob_value | str trim
+	let blob = tg --url $local.url put --no-tokens $blob_value | referent node
 	let file_value = ['tg.file({"contents":' $blob ',"executable":true})'] | str join
-	let file = tg --url $local.url put $file_value | str trim
+	let file = tg --url $local.url put --no-tokens $file_value | referent node
 	let value = (
 		['tg.command({"executable":{"artifact":' $file '},"host":' ($host | to json) '})']
 		| str join
 	)
 	let command = (
-		tg --url $local.url put $value
+		tg --url $local.url put --no-tokens $value | referent node
 		| str trim
 	)
 

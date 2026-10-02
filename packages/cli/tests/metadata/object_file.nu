@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let id = tg put 'tg.file("hello")' | str trim
+let id = tg put --no-tokens 'tg.file("hello")' | referent node
 tg index
 
 let metadata = tg object metadata $id | from json

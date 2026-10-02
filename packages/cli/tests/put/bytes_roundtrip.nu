@@ -4,8 +4,8 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let original = tg put 'tg.file("roundtrip")' | str trim
+let original = tg put --no-tokens 'tg.file("roundtrip")' | referent node
 let bytes = tg get $original --bytes
 
-let recomputed = $bytes | tg put --bytes --kind fil | str trim
+let recomputed = $bytes | tg put --no-tokens --bytes --kind fil | referent node
 assert ($recomputed == $original) "the recomputed id should match the original"

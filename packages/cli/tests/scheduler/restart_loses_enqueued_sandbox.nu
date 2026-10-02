@@ -68,7 +68,7 @@ let path = artifact {
 	',
 }
 
-let process = tg --url $local.url build --detach --remote $path | str trim
+let process = tg --url $local.url build --no-tokens --detach --remote $path | referent node
 wait_until {
 	let output = tg --url $local.url process log --stream stdout $process | complete
 	$output.exit_code == 0 and ($output.stdout | str contains "child spawn is pending")

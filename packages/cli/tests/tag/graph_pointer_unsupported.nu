@@ -17,7 +17,7 @@ let graph = '
 		]
 	})
 '
-let graph_id = tg put $graph
+let graph_id = tg put --no-tokens $graph | referent node
 
 # Attempt to tag a graph pointer reference. This should fail because tagging
 # graph pointers is unsupported.

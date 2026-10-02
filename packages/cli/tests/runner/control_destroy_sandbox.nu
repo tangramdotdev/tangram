@@ -15,7 +15,7 @@ let runner = server spawn --name runner --config {
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }
-let sandbox = tg --url $remote.url --token $root_token sandbox create | str trim
+let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let other = tg --url $remote.url --token $root_token runner create | from json
 $other | to json | save other.json

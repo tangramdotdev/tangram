@@ -250,7 +250,7 @@ impl Cli {
 			source: Some(tg::Location::Local(tg::location::Local::default())),
 			..Default::default()
 		};
-		let stream = client
+		let (_, stream) = client
 			.push(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to push items"))?;
@@ -352,7 +352,7 @@ impl Cli {
 				tag_targets: false,
 				..Default::default()
 			};
-			let stream = client
+			let (_, stream) = client
 				.push(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to push tag ancestors"))?;

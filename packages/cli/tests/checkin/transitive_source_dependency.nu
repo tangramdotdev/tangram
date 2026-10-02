@@ -17,7 +17,7 @@ let path = artifact {
 tg tag a $'($path)/a.tg.ts'
 
 # Check in a module that depends on a. This should fail because b is not tagged.
-let output = tg checkin $'($path)/c.tg.ts' | complete
+let output = tg checkin --no-tokens $'($path)/c.tg.ts' | complete
 failure $output "the checkin should fail before b is tagged"
 snapshot --normalize --redact $path $output.stderr '
 	error an error occurred
@@ -30,5 +30,5 @@ snapshot --normalize --redact $path $output.stderr '
 
 # Tag b and retry. This should now succeed.
 tg tag b $'($path)/b.tg.ts'
-let output = tg checkin $'($path)/c.tg.ts' | complete
+let output = tg checkin --no-tokens $'($path)/c.tg.ts' | complete
 success $output "the checkin should succeed after b is tagged"

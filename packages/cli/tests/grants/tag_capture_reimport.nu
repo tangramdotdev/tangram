@@ -6,8 +6,8 @@ let root_token = random chars
 let remote = server spawn --name remote --config {
 	authentication: { root: { token: $root_token } }
 }
-let original = tg --url $remote.url --token $root_token put 'tg.file("original")' | str trim
-let replacement = tg --url $remote.url --token $root_token put 'tg.file("replacement")' | str trim
+let original = tg --url $remote.url --token $root_token put --no-tokens 'tg.file("original")' | referent node
+let replacement = tg --url $remote.url --token $root_token put --no-tokens 'tg.file("replacement")' | referent node
 tg --url $remote.url --token $root_token tag put retained $original --public
 tg --url $remote.url --token $root_token index
 let source = tg --url $remote.url --token $root_token tag get retained | from json

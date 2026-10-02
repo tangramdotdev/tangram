@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let link = tg put 'tg.symlink({ "artifact": tg.file("via symlink") })' | str trim
+let link = tg put --no-tokens 'tg.symlink({ "artifact": tg.file("via symlink") })' | referent node
 
 let contents = tg read $link
 assert equal $contents "via symlink" "the read contents should match the target file contents"

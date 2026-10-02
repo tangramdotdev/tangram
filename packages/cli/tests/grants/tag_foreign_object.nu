@@ -8,7 +8,7 @@ let eve = tg login --verbose --name eve | from json
 
 # Alice builds a private file.
 let alice_path = artifact { tangram.ts: 'export default function () { return tg.file("topsecret"); }' }
-let alice_process = tg --token $alice.token build --detach $alice_path | str trim
+let alice_process = tg --token $alice.token build --no-tokens --detach $alice_path | referent node
 let file = (tg --token $alice.token wait $alice_process | from json).output.value | split row '?' | first
 
 # Eve cannot read Alice's private file.

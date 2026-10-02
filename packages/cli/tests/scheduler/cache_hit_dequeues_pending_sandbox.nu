@@ -28,10 +28,10 @@ let path = artifact {
 }
 
 tg --url $remote.url build $"($path)#cached" | ignore
-let blocker = tg --url $local.url build --detach $"($path)#blocker" | str trim
+let blocker = tg --url $local.url build --no-tokens --detach $"($path)#blocker" | referent node
 success (tg --url $local.url build $"($path)#cached" | complete) "the remote cache hit should win"
 tg --url $local.url wait $blocker | ignore
 let start = date now
-let sandbox = tg --url $local.url sandbox create | str trim
+let sandbox = tg --url $local.url sandbox create --no-tokens | referent node
 assert ((date now) - $start < 5sec) "the unused local process candidate should be dequeued"
 tg --url $local.url sandbox destroy $sandbox

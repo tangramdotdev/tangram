@@ -15,7 +15,7 @@ let runner = server spawn --name runner --config {
 let connect = tg --url $local_owner.url checkpoint watch sandbox.control.connect | from json | get watch
 let creator = job spawn {
 	let job_id = job id
-	let output = timeout 20s tg --url $local_owner.url sandbox create | complete
+	let output = timeout 20s tg --url $local_owner.url sandbox create --no-tokens | complete
 	$output | job send --tag $job_id 0
 }
 let sandbox = timeout 10s tg --url $local_owner.url checkpoint wait sandbox.control.connect $connect 0 | from json | get params.sandbox

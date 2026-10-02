@@ -14,12 +14,12 @@ tg --token $alice.token group create team
 let acme = tg --token $bob.token organization get acme | from json
 
 # An organization resolves and is stored as the owner.
-let sandbox = tg --token $bob.token sandbox create --organization acme --no-network | str trim
+let sandbox = tg --token $bob.token sandbox create --no-tokens --organization acme --no-network | referent node
 let data = tg --token $bob.token sandbox get $sandbox | from json | get data
 assert equal $data.owner $acme.id "the --organization alias should resolve an organization owner"
 
 # A group is not an organization, so --organization must reject it.
-let group = tg --token $bob.token sandbox create --organization team --no-network | complete
+let group = tg --token $bob.token sandbox create --no-tokens --organization team --no-network | complete
 failure $group "--organization must reject a group"
 snapshot --normalize $group.stderr '
 	error an error occurred
@@ -28,7 +28,7 @@ snapshot --normalize $group.stderr '
 '
 
 # A user is not an organization, so --organization must reject it.
-let user = tg --token $bob.token sandbox create --organization $alice.user.id --no-network | complete
+let user = tg --token $bob.token sandbox create --no-tokens --organization $alice.user.id --no-network | complete
 failure $user "--organization must reject a user"
 snapshot --normalize $user.stderr '
 	error an error occurred

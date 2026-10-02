@@ -51,9 +51,9 @@ let path = artifact {
 }
 
 # Ensure we cannot checkin this artifact with --locked
-let output = tg checkin $path --locked | complete
+let output = tg checkin --no-tokens $path --locked | complete
 failure $output
 
 # Ensure we cannot this artifact with --locked and --unsolved-dependencies
-let output = tg checkin $path --locked --unsolved-dependencies | complete
+let output = tg checkin --no-tokens $path --locked --unsolved-dependencies | complete
 failure $output

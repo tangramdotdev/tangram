@@ -11,7 +11,7 @@ let path = artifact {
 		'hello.txt': 'hello'
 	}
 }
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 tg tag put -p test/1.0.0 $id
 
 # Push the group and its children.
@@ -35,9 +35,9 @@ let remote_group = tg --url $remote.url group get test | from json
 assert equal $remote_group.id $local_group.id "the remote group should keep its id"
 
 # A later push requires force to overwrite a remote change.
-let local_id = tg put 'tg.file("local update")' | str trim
+let local_id = tg put --no-tokens 'tg.file("local update")' | referent node
 tg tag put --force test/1.0.0 $local_id
-let remote_id = tg --url $remote.url put 'tg.file("remote update")' | str trim
+let remote_id = tg --url $remote.url put --no-tokens 'tg.file("remote update")' | referent node
 tg --url $remote.url tag put --force test/1.0.0 $remote_id
 failure (tg --url $remote.url object get $local_id | complete)
 let output = tg push test/1.0.0 | complete

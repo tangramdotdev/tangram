@@ -9,7 +9,7 @@ let alice = tg --url $remote.url login --verbose --name alice | from json
 let local_builder = server spawn --name local-builder --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
-let directory = tg --url $local_builder.url put 'tg.directory({ "child.txt": tg.file("hello") })' | str trim
+let directory = tg --url $local_builder.url put --no-tokens 'tg.directory({ "child.txt": tg.file("hello") })' | referent node
 let child = tg --url $local_builder.url children $directory | from json | get 0
 tg --url $local_builder.url index
 tg --url $local_builder.url push $child
@@ -28,7 +28,7 @@ let remote_alice = tg --url $local_source.url --token $carol.token login --remot
 assert equal $remote_alice.user.id $alice.user.id "the pusher should authenticate as the destination user."
 let bytes = mktemp -t
 tg --url $local_builder.url object get --bytes $directory | save --force --raw $bytes
-open --raw $bytes | tg --url $local_source.url --token $bob.token object put --bytes $directory
+open --raw $bytes | tg --url $local_source.url --token $bob.token object put --no-tokens --bytes $directory | referent node
 tg --url $local_source.url --token $bob.token grant $carol.user.id object_node $directory | ignore
 tg --url $local_source.url --token $bob.token index
 let local_child = tg --url $local_source.url --token $carol.token object get --bytes --local $child | complete

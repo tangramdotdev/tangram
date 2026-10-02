@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let file_id = tg put 'tg.file("contents")' | str trim
+let file_id = tg put --no-tokens 'tg.file("contents")' | referent node
 
 let tar_output = tg archive --format tar $file_id | complete
 failure $tar_output

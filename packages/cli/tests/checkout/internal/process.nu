@@ -7,7 +7,7 @@ let local = server spawn
 let path = artifact {
 	tangram.ts: 'export default function () { return "hello"; }'
 }
-let process = tg build --detach $path | str trim
+let process = tg build --no-tokens --detach $path | referent node
 tg wait $process
 
 let output = tg checkout $process | complete

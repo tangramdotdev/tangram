@@ -22,7 +22,7 @@ let connect_watch = tg --url $remote.url --token $root_token checkpoint watch sa
 let state_watch = tg --url $runner.url checkpoint watch runner.sandbox.state.inserted | from json | get watch
 let create_job = job spawn {
 	let job_id = job id
-	let output = tg --url $remote.url --token $root_token sandbox create | complete
+	let output = tg --url $remote.url --token $root_token sandbox create --no-tokens | complete
 	$output | job send --tag $job_id 0
 }
 success (timeout 30s tg --url $runner.url checkpoint wait runner.sandbox.state.inserted $state_watch 0 | complete) "the runner must insert the sandbox state"

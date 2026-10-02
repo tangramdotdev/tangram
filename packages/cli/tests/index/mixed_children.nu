@@ -11,7 +11,7 @@ let dep_path = artifact {
 		export default function () { return "dependency"; }
 	'
 }
-let dep_id = tg --url $local.url checkin $dep_path
+let dep_id = tg --url $local.url checkin --no-tokens $dep_path | referent node
 tg --url $local.url tag dep $dep_id
 let path = artifact {
 	with_dep: {
@@ -29,7 +29,7 @@ let path = artifact {
 		export default function () { return withDep(); }
 	'
 }
-let id = tg --url $local.url checkin $path
+let id = tg --url $local.url checkin --no-tokens $path | referent node
 tg --url $local.url index
 let metadata = tg --url $local.url object metadata --pretty $id
 snapshot --name metadata $metadata '

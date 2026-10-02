@@ -62,7 +62,7 @@ let start_watch = (
 	| from json
 	| get watch
 )
-let id = tg --url $local.url build --remote --detach -E TANGRAM_QUIET=true $path
+let id = tg --url $local.url build --no-tokens --remote --detach -E TANGRAM_QUIET=true $path | referent node
 
 # Replace the remote after it schedules the process but before the runner
 # starts it, then verify that the runner delivers the complete logs.

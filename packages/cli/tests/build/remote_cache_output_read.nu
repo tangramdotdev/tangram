@@ -14,7 +14,7 @@ let shared = artifact {
 	'
 }
 
-let process = tg build --detach $shared | str trim
+let process = tg build --no-tokens --detach $shared | referent node
 tg wait $process
 tg push --eager --process-output-objects $process
 

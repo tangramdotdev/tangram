@@ -21,7 +21,7 @@ let alice = tg --url $runner.url login --verbose --name alice | from json
 tg --url $runner.url --token $alice.token remote put default $remote.url
 let finish_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.finish | from json | get watch
 let path = artifact { tangram.ts: 'export default () => "output";' }
-let process = tg --url $remote.url --token $root_token build --detach $path | str trim
+let process = tg --url $remote.url --token $root_token build --no-tokens --detach $path | referent node
 timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | ignore
 let socket = $runner.url | str replace 'http+unix://' '' | url decode
 let local = http get --unix-socket $socket --headers { Authorization: $'Bearer ($root_token)' } $'http://localhost/processes/($process)?location=remote'

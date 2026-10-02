@@ -16,10 +16,10 @@ tg tag -p a/1.0.0 $dependency_path
 let path = artifact {
 	tangram.ts: 'import a from "a/^1";'
 }
-tg checkin $path --watch | ignore
+tg checkin --no-tokens $path --watch | ignore
 let source_path = $path | path join tangram.ts
 tg watch touch $path $source_path
-tg checkin $path --watch | ignore
+tg checkin --no-tokens $path --watch | ignore
 
 let dependency_path = artifact {
 	tangram.ts: '// a 1.1.0'
@@ -29,7 +29,7 @@ tg tag -p a/1.1.0 $dependency_path
 def update_background [path: path] {
 	job spawn {
 		let job_id = job id
-		let output = tg checkin $path --watch --update a | complete
+		let output = tg checkin --no-tokens $path --watch --update a | complete
 		$output | job send --tag $job_id 0
 	}
 }

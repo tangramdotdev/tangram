@@ -13,7 +13,7 @@ let path = artifact {
 	'
 }
 
-let id = tg build --detach $path | str trim
+let id = tg build --no-tokens --detach $path | referent node
 tg wait $id
 tg remote put default $remote.url | complete
 tg push --process-log-objects $id

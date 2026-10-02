@@ -53,6 +53,58 @@ fn object_query_is_gray() {
 	);
 }
 
+#[test]
+fn referent_query_preserves_options() {
+	let id = tg::file::Id::new(b"source");
+	let mut options = tg::referent::Options::with_path("source.ts");
+	options.tokens.insert_local_authorization(token());
+	let referent = tg::Referent::new(id.clone(), options);
+	let string = referent.to_string();
+	let (_, query) = string.split_once('?').unwrap();
+	let options = tg::value::print::Options {
+		color: true,
+		tokens: true,
+		..Default::default()
+	};
+	let mut output = String::new();
+	let mut printer = tg::value::print::Printer::new(&mut output, options);
+	printer.referent(&referent).unwrap();
+	assert_eq!(
+		output,
+		format!("\x1b[94m{id}\x1b[0m\x1b[38;5;244m?{query}\x1b[0m")
+	);
+}
+
+#[test]
+fn referent_without_color_is_a_uri() {
+	let id = tg::file::Id::new(b"source");
+	let referent = tg::Referent::with_node_and_local_tokens(id, vec![token()]);
+	let options = tg::value::print::Options {
+		tokens: true,
+		..Default::default()
+	};
+	let mut output = String::new();
+	let mut printer = tg::value::print::Printer::new(&mut output, options);
+	printer.referent(&referent).unwrap();
+	assert_eq!(output, referent.to_string());
+}
+
+#[test]
+fn referent_without_tokens_preserves_other_options() {
+	let id = tg::file::Id::new(b"source");
+	let mut options = tg::referent::Options::with_path("source.ts");
+	options.tokens.insert_local_authorization(token());
+	let referent = tg::Referent::new(id, options);
+	let mut output = String::new();
+	let mut printer =
+		tg::value::print::Printer::new(&mut output, tg::value::print::Options::default());
+	printer.referent(&referent).unwrap();
+	assert_eq!(output, referent.without_token().to_string());
+	assert!(output.contains("path=source.ts"));
+	assert!(!output.contains("tokens["));
+	assert!(!referent.options.tokens.is_empty());
+}
+
 fn print_values(options: tg::referent::Options) -> [String; 3] {
 	let module = tg::Module {
 		kind: tg::module::Kind::Ts,

@@ -66,6 +66,13 @@ pub struct Arg {
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+pub struct Header {
+	#[serde_as(as = "Vec<DisplayFromStr>")]
+	pub nodes: Vec<tg::Referent<tg::Id>>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Output {
 	#[serde_as(as = "Vec<DisplayFromStr>")]
 	#[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -92,9 +99,10 @@ impl tg::Session {
 	pub async fn push(
 		&self,
 		arg: tg::push::Arg,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::push::Header,
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static + use<>,
-	> {
+	)> {
 		let method = http::Method::POST;
 		let uri = "/push";
 		let request = http::request::Builder::default()
@@ -132,8 +140,14 @@ impl tg::Session {
 		) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let stream = response
-			.sse()
+		// Read the header before consuming the progress stream.
+		let mut reader = response.reader();
+		let header =
+			tangram_http::body::header::get(&mut reader, tangram_http::body::header::MAX_LENGTH)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
+
+		let stream = tangram_http::sse::decode(reader)
 			.map_err(|error| tg::error!(!error, "failed to read an event"))
 			.and_then(|event| {
 				future::ready(
@@ -146,7 +160,7 @@ impl tg::Session {
 					},
 				)
 			});
-		Ok(stream)
+		Ok((header, stream))
 	}
 }
 

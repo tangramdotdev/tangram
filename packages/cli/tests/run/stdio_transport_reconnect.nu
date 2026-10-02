@@ -14,7 +14,7 @@ let path = artifact {
 		}
 	'
 }
-let parent = tg build --detach $path | str trim
+let parent = tg build --no-tokens --detach $path | referent node
 wait_until { (tg log $parent | str trim) != "" }
 let id = tg log $parent | str trim
 let output = node $driver $tangram ($local.directory | path join socket) $id | complete

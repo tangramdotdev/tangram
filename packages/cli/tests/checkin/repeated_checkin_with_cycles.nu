@@ -22,12 +22,12 @@ let path = artifact {
 }
 
 # Check in from hub first.
-let hub_id = tg checkin ($path | path join 'hub.tg.ts')
+let hub_id = tg checkin --no-tokens ($path | path join 'hub.tg.ts') | referent node
 let hub_obj = tg get $hub_id
 let graph_from_hub = $hub_obj | parse --regex '"graph":(gph_[a-z0-9]+)' | get capture0 | first
 
 # Check in from a.
-let a_id = tg checkin ($path | path join 'a.tg.ts')
+let a_id = tg checkin --no-tokens ($path | path join 'a.tg.ts') | referent node
 let a_obj = tg get $a_id
 let graph_from_a = $a_obj | parse --regex '"graph":(gph_[a-z0-9]+)' | get capture0 | first
 

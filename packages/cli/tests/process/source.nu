@@ -21,7 +21,7 @@ for remote_runner in [false true] {
 	let local_client = server spawn --name local-client --config { control: { read_timeout: 0.25 }, remotes: { default: { url: $local_owner.url } } }
 	let finish = tg --url $runner.url checkpoint watch runner.process.control.finish.request | from json | get watch
 	let path = artifact { tangram.ts: 'export default () => { console.log("source log"); return "done"; };' }
-	let process = tg --url $local_owner.url build --detach $path | str trim
+	let process = tg --url $local_owner.url build --no-tokens --detach $path | referent node
 	timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.request $finish 0 | ignore
 
 	# Default and runner reads can observe completion while the authoritative index is still started.

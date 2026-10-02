@@ -27,6 +27,6 @@ tg checkout --dependencies=true $id --path $path
 tg tag delete foo/1.0.0
 tg clean
 
-let left = tg checkin $path
+let left = tg checkin --no-tokens $path | referent node
 
 assert equal $left $id

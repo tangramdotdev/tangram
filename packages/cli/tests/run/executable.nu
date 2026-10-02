@@ -14,9 +14,9 @@ let path = artifact {
 		echo "goodbye $1"
 	')
 }
-let directory = tg checkin $path | str trim
-let executable = tg checkin ($path | path join "hello") | str trim
-let replacement = tg checkin ($path | path join "goodbye") | str trim
+let directory = tg checkin --no-tokens $path | referent node
+let executable = tg checkin --no-tokens ($path | path join "hello") | referent node
+let replacement = tg checkin --no-tokens ($path | path join "goodbye") | referent node
 
 let output = tg run --executable $executable --arg-string run | complete
 success $output
@@ -62,6 +62,6 @@ let output = tg run ($path | path join "hello") --executable $replacement --arg-
 success $output
 assert (($output.stdout | str trim) == "goodbye replaced")
 
-let process = tg spawn --executable $executable --arg-string spawn | str trim
+let process = tg spawn --no-tokens --executable $executable --arg-string spawn | referent node
 let output = tg wait $process | from json
 assert ($output.exit == 0)

@@ -43,6 +43,6 @@ tg tag delete foo/1.1.0
 tg tag delete bar
 tg clean
 
-let left = tg checkin $path
+let left = tg checkin --no-tokens $path | referent node
 
 assert equal $left $id

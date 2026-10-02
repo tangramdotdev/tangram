@@ -26,7 +26,7 @@ let local = server spawn --name local --config {
 let path = artifact {
 	tangram.ts: 'export default function () { return tg.file("hello"); }'
 }
-let process = tg --url $local.url build --remote --detach $path | str trim
+let process = tg --url $local.url build --no-tokens --remote --detach $path | referent node
 let result = tg --url $local.url wait $process | from json
 assert equal $result.exit 0 "the remote process should finish successfully."
 let output = $result.output.value | split row '?' | first

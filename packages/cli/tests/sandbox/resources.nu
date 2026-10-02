@@ -9,7 +9,7 @@ if $nu.os-info.name != 'linux' {
 
 let local = server spawn
 
-let id = tg sandbox create --cpu 1 --memory 268435456 | str trim
+let id = tg sandbox create --no-tokens --cpu 1 --memory 268435456 | referent node
 
 let sandbox = tg sandbox get $id | from json | get data
 assert equal $sandbox.cpu 1 "the cpu option should be reflected"

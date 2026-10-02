@@ -3,8 +3,8 @@ use ../lib/test.nu *
 # Internal and external directory checkouts retain exact permanent tokens on roots and nested directories.
 
 let server = server spawn --config { vfs: false }
-let nested = tg put 'tg.directory({})' | str trim
-let directory = tg put 'tg.directory({ "nested": tg.directory({}) })' | str trim
+let nested = tg put --no-tokens 'tg.directory({})' | referent node
+let directory = tg put --no-tokens 'tg.directory({ "nested": tg.directory({}) })' | referent node
 
 let internal = tg checkout $directory | str trim
 let external = (mktemp --directory) | path join checkout

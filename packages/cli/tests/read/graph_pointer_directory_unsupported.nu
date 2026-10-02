@@ -17,7 +17,7 @@ let graph = '
 		]
 	})
 '
-let graph_id = tg put $graph | str trim
+let graph_id = tg put --no-tokens $graph | referent node
 
 # Reading a directory pointer should fail.
 let output = tg read $"graph=($graph_id)&index=0&kind=directory" | complete

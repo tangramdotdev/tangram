@@ -30,10 +30,10 @@ let root = artifact {
 }
 
 # Check in from A.
-let a_from_a = tg checkin ($root | path join "packages/a")
+let a_from_a = tg checkin --no-tokens ($root | path join "packages/a") | referent node
 
 # Check in from B.
-let b_from_b = tg checkin ($root | path join "packages/b")
+let b_from_b = tg checkin --no-tokens ($root | path join "packages/b") | referent node
 
 # Get the graph ID for each using tg children.
 let a_graph = tg children $a_from_a | from json | get 0

@@ -12,7 +12,7 @@ let alice_local = server spawn --name alice-local --config {
 }
 
 # Alice stores a private file on the remote.
-let file = tg --url $alice_local.url put 'tg.file("topsecret")' | str trim
+let file = tg --url $alice_local.url put --no-tokens 'tg.file("topsecret")' | referent node
 tg --url $alice_local.url index
 tg --url $alice_local.url push $file
 tg --url $remote.url index

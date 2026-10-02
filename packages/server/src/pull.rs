@@ -10,22 +10,21 @@ impl Session {
 	pub(crate) async fn pull(
 		&self,
 		arg: tg::pull::Arg,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::pull::Header,
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + use<>,
-	> {
-		if arg
-			.nodes
-			.iter()
-			.all(|node| node.node.kind() == tg::id::Kind::Process || node.node.kind().is_object())
-			&& self
-				.pull_nodes_available_local(&arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to check whether the pull is local"))?
+	)> {
+		if let Some(nodes) = self
+			.try_pull_nodes_local(&arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to pull the nodes locally"))?
 		{
-			let stream = stream::once(future::ok(tg::progress::Event::Output(
-				tg::pull::Output::default(),
-			)));
-			return Ok(stream.boxed());
+			let output = tg::pull::Output {
+				nodes,
+				..Default::default()
+			};
+			let stream = stream::once(future::ok(tg::progress::Event::Output(output)));
+			return Ok((tg::pull::Header::default(), stream.boxed()));
 		}
 
 		let source = arg.source.clone().unwrap_or_else(|| {
@@ -39,7 +38,7 @@ impl Session {
 			.clone()
 			.unwrap_or_else(|| tg::Location::Local(tg::location::Local::default()));
 		let arg: tg::push::Arg = arg.clone().into();
-		let stream = if matches!(
+		let (header, stream) = if matches!(
 			self.context.principal,
 			tg::Principal::Process(_) | tg::Principal::Sandbox(_)
 		) {
@@ -48,10 +47,22 @@ impl Session {
 		} else {
 			self.push_or_pull(&arg, source, destination).await?
 		};
-		Ok(stream.boxed())
+		Ok((header, stream.boxed()))
 	}
 
-	async fn pull_nodes_available_local(&self, arg: &tg::pull::Arg) -> tg::Result<bool> {
+	async fn try_pull_nodes_local(
+		&self,
+		arg: &tg::pull::Arg,
+	) -> tg::Result<Option<Vec<tg::Referent<tg::Id>>>> {
+		if !arg
+			.nodes
+			.iter()
+			.all(|node| node.node.kind() == tg::id::Kind::Process || node.node.kind().is_object())
+		{
+			return Ok(None);
+		}
+
+		// Check the local storage.
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let object_ids = arg
 			.nodes
@@ -124,9 +135,10 @@ impl Session {
 		});
 		let stored = objects_stored && processes_stored;
 		if !stored {
-			return Ok(false);
+			return Ok(None);
 		}
 
+		// Authorize the requested permissions.
 		let args = arg
 			.nodes
 			.iter()
@@ -142,12 +154,39 @@ impl Session {
 			.collect::<Vec<_>>();
 		let outputs = self.authorize_batch(args).await?;
 		crate::authorization::check_exhaustion(&outputs)?;
-		let available = outputs
-			.into_iter()
-			.zip(required)
-			.all(|(output, required)| output.permissions.contains(required));
+		if !outputs
+			.iter()
+			.zip(&required)
+			.all(|(output, required)| output.permissions.contains(*required))
+		{
+			return Ok(None);
+		}
 
-		Ok(available)
+		// Sign tokens for the verified permissions, bounded by the authorization proofs.
+		let created_at = self.server.clock.unix_timestamp()?;
+		let mut nodes = Vec::with_capacity(arg.nodes.len());
+		for ((node, authorization), permissions) in arg.nodes.iter().zip(outputs).zip(required) {
+			let time_to_live = if node.node.kind().is_object() {
+				self.server.config.object.permission_time_to_live
+			} else {
+				self.server.config.process.permission_time_to_live
+			};
+			let time_to_live = i64::try_from(time_to_live.as_secs()).map_err(|error| {
+				tg::error!(!error, "failed to convert the permission time to live")
+			})?;
+			let expires_at = created_at
+				.checked_add(time_to_live)
+				.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
+			let expires_at = authorization
+				.expires_at
+				.map_or(expires_at, |expiration| expiration.min(expires_at));
+			let id = node.node.clone();
+			let token = self.create_token(id.clone(), permissions.iter().collect(), expires_at)?;
+			let node = tg::Referent::with_node_and_local_tokens(id, token);
+			nodes.push(node);
+		}
+
+		Ok(Some(nodes))
 	}
 
 	fn pull_node_permissions(
@@ -225,8 +264,8 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 
-		// Get the stream.
-		let stream = self
+		// Get the header and stream.
+		let (header, stream) = self
 			.pull(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the pull"))?;
@@ -248,6 +287,9 @@ impl Session {
 				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
 			},
 		};
+
+		let body = tangram_http::body::header::set(body, &header)
+			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 
 		// Create the response.
 		let mut response = http::Response::builder();

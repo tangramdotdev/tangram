@@ -47,7 +47,7 @@ for io in $transports {
 
 	let first = tg build $module --arg-string nested | str trim
 	let second = tg build $module --arg-string 'nested/.' | str trim
-	let sandbox = tg sandbox create --no-network | str trim
+	let sandbox = tg sandbox create --no-tokens --no-network | referent node
 	let output = tg run $'--sandbox=($sandbox)' $first | complete
 	success $output 'the first symlink must load the shared target'
 	assert equal ($output.stdout | str trim) 'ok'

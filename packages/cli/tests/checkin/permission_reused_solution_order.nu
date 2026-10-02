@@ -17,7 +17,7 @@ let dependency_path = artifact {
 	b: dependency
 	c: dependency
 }
-let dependency = tg --url $remote.url checkin --no-lock --root $dependency_path | str trim
+let dependency = tg --url $remote.url checkin --no-tokens --no-lock --root $dependency_path | referent node
 tg --url $remote.url tag -p dependency/1.0.0 $dependency
 
 let local = server spawn --name local --config {

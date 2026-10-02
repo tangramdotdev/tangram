@@ -200,7 +200,7 @@ pub struct Arg {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
+pub struct Header {
 	pub id: tg::sandbox::Id,
 	pub token: Option<String>,
 }
@@ -211,7 +211,7 @@ impl tg::Session {
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> tg::Result<(
-		tg::sandbox::control::Output,
+		tg::sandbox::control::Header,
 		impl futures::Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>>
 		+ Send
 		+ 'static
@@ -251,11 +251,6 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		let output_in_body = tangram_http::body::output::get_header(response.headers())
-			.map_err(|error| tg::error!(!error, "failed to parse the output in body header"))?;
-		if !output_in_body {
-			return Err(tg::error!("missing the output in body header"));
-		}
 		let content_type = response
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
@@ -268,10 +263,10 @@ impl tg::Session {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
 		let mut reader = response.reader();
-		let output =
-			tangram_http::body::output::get(&mut reader, tangram_http::body::output::MAX_LENGTH)
+		let header =
+			tangram_http::body::header::get(&mut reader, tangram_http::body::header::MAX_LENGTH)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to deserialize the output"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
 		let stream = tangram_http::sse::decode(reader)
 			.map_err(|error| tg::error!(!error, "failed to read a message"))
 			.and_then(|event| {
@@ -285,7 +280,7 @@ impl tg::Session {
 					},
 				)
 			});
-		Ok((output, stream))
+		Ok((header, stream))
 	}
 }
 

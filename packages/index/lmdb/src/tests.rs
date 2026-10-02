@@ -27,6 +27,7 @@ fn new_index_with_usage_partition_total(usage_partition_total: u64) -> (tempfile
 		map_size: 1 << 30,
 		max_process_depth: None,
 		path: dir.path().join("index"),
+		posix_sem_prefix: None,
 		read_request_batch_size: 64,
 		read_transaction_concurrency: 4,
 		usage_partition_total,

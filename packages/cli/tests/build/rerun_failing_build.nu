@@ -13,7 +13,7 @@ let path = artifact {
 cd $path
 let output = tg build | complete
 assert equal $output.exit_code 1
-let first_output = $output.stderr 
+let first_output = $output.stderr
 	| normalize | normalize --normalize-ids
 snapshot $first_output '
 	error an error occurred
@@ -30,6 +30,6 @@ snapshot $first_output '
 
 let output = tg build | complete
 assert equal $output.exit_code 1
-let second_output = $output.stderr 
+let second_output = $output.stderr
 	| normalize | normalize --normalize-ids
 assert equal $first_output $second_output

@@ -18,6 +18,6 @@ let path = artifact {
 	',
 }
 
-tg build --detach $"($path)#blocker" | ignore
+tg build --no-tokens --detach $"($path)#blocker" | ignore
 let output = tg build $"($path)#child" | complete
 success $output "a queued process should wait for runner capacity"

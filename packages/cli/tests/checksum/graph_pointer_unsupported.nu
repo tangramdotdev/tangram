@@ -15,7 +15,7 @@ let graph = '
 		]
 	})
 '
-let graph_id = tg put $graph
+let graph_id = tg put --no-tokens $graph | referent node
 
 # Checksumming a graph pointer should fail.
 let output = tg checksum $"graph=($graph_id)&index=0&kind=file" | complete

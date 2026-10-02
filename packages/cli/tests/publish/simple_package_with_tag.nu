@@ -16,7 +16,7 @@ let path = artifact {
 	'
 }
 
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 let tag = "test-pkg/1.0.0"
 tg tag put -p $tag $id | complete

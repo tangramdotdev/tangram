@@ -16,7 +16,7 @@ let path = artifact {
 def checkin_background [path: path] {
 	job spawn {
 		let job_id = job id
-		let output = tg checkin $path | complete
+		let output = tg checkin --no-tokens $path | complete
 		$output | job send --tag $job_id 0
 	}
 }

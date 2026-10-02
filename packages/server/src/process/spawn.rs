@@ -573,7 +573,7 @@ impl Session {
 			process_command_objects: true,
 			..Default::default()
 		};
-		let stream = self
+		let (_, stream) = self
 			.push_for_process(push_arg, None)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to push the command"))?;

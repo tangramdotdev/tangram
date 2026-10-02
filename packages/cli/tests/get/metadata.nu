@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let file = tg put 'tg.file("metadata")' | str trim
+let file = tg put --no-tokens 'tg.file("metadata")' | referent node
 tg index
 
 let output = with-env { TANGRAM_QUIET: "false" } { tg get $file --metadata | complete }

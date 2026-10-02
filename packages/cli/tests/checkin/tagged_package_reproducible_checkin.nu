@@ -26,12 +26,12 @@ let path = artifact {
 }
 
 # Check in on the first local server.
-let id1 = tg --url $local_one.url checkin $path
+let id1 = tg --url $local_one.url checkin --no-tokens $path | referent node
 tg --url $local_one.url index
 let output1 = tg --url $local_one.url object get --blobs --depth=inf --no-tokens --pretty $id1
 
 # Check in on the second local server.
-let id2 = tg --url $local_two.url checkin $path
+let id2 = tg --url $local_two.url checkin --no-tokens $path | referent node
 tg --url $local_two.url index
 let output2 = tg --url $local_two.url object get --blobs --depth=inf --no-tokens --pretty $id2
 

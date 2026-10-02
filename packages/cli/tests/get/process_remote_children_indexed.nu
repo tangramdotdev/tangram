@@ -17,7 +17,7 @@ let path = artifact {
 		export function child() { return "child"; }
 	',
 }
-let process = tg --url $remote.url build --detach $path | str trim
+let process = tg --url $remote.url build --no-tokens --detach $path | referent node
 tg --url $remote.url wait $process
 tg --url $remote.url push --process-log-objects $process
 let remote_children = tg --url $remote.url process children --local $process | from json

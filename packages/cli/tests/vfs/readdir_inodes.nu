@@ -28,7 +28,7 @@ let server_path = mktemp --directory
 let local = server spawn --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
 
-let id = tg checkin $source | str trim
+let id = tg checkin --no-tokens $source | referent node
 let path = vfs root $server_path $id
 
 let build_path = mktemp --directory

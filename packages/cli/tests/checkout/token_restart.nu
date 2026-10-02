@@ -22,10 +22,10 @@ for preserve_keys in [true false] {
 	}
 	let bob = tg --token $root_token login --verbose --name bob | from json
 	let user = $bob.user.id
-	let library = tg --token $root_token put 'tg.file("library")' | str trim
+	let library = tg --token $root_token put --no-tokens 'tg.file("library")' | referent node
 	let source = 'tg.file({"contents":"wrapper","dependencies":{"LIBRARY":{"node":LIBRARY}}})'
 		| str replace --all LIBRARY $library
-	let wrapper = tg --token $root_token put $source | str trim
+	let wrapper = tg --token $root_token put --no-tokens $source | referent node
 	tg --token $root_token grant $user object_subtree $wrapper | ignore
 	tg --token $root_token index
 
@@ -42,7 +42,7 @@ for preserve_keys in [true false] {
 	# Store a new parent with the recovered child token before the restart.
 	let source = 'tg.file({"contents":"before restart","dependencies":{"library":{"node":REFERENCE}}})'
 		| str replace REFERENCE $reference
-	let output = tg --token $bob.token put $source | complete
+	let output = tg --token $bob.token put --no-tokens $source | complete
 	success $output 'the checkout dependency token should authorize the object batch before restart'
 
 	let server = server restart $local
@@ -54,7 +54,7 @@ for preserve_keys in [true false] {
 	# Store another parent with the dependency token recovered from the reused checkout.
 	let source = 'tg.file({"contents":"after restart","dependencies":{"library":{"node":REFERENCE}}})'
 		| str replace REFERENCE $warm_reference
-	let warm_output = tg --token $bob.token put $source | complete
+	let warm_output = tg --token $bob.token put --no-tokens $source | complete
 
 	# A separately materialized file receives a current token for the same dependency.
 	let fresh_path = (mktemp --directory) | path join library
@@ -64,7 +64,7 @@ for preserve_keys in [true false] {
 	let fresh_reference = $'($library)?($query)'
 	let source = 'tg.file({"contents":"after restart","dependencies":{"library":{"node":REFERENCE}}})'
 		| str replace REFERENCE $fresh_reference
-	let output = tg --token $bob.token put $source | complete
+	let output = tg --token $bob.token put --no-tokens $source | complete
 	success $output 'a fresh token should authorize the same object batch without changing the search budget'
 
 	server stop $local

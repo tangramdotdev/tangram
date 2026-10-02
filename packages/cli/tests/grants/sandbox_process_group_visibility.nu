@@ -15,11 +15,11 @@ tg --token $alice.token group members add team $carol.user.id
 
 # Bob builds a private process and another in a sandbox owned by the team.
 let private_path = artifact { tangram.ts: 'export default function () { return tg.file("group-visibility-private"); }' }
-let private = tg --token $bob.token build --detach $private_path | str trim
+let private = tg --token $bob.token build --no-tokens --detach $private_path | referent node
 tg --token $bob.token wait $private | complete | ignore
 
 let team_path = artifact { tangram.ts: 'export default function () { return tg.file("group-visibility-team"); }' }
-let process = tg --token $bob.token build --detach --group team $team_path | str trim
+let process = tg --token $bob.token build --no-tokens --detach --group team $team_path | referent node
 tg --token $bob.token wait $process | complete | ignore
 
 # Carol cannot read either process through her group membership.

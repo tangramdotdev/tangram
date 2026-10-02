@@ -102,7 +102,7 @@ where
 	) -> impl Future<
 		Output = tg::Result<
 			Option<(
-				tg::process::control::Output,
+				tg::process::control::Header,
 				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
 			)>,
 		>,
@@ -110,11 +110,11 @@ where
 		match self {
 			tg::Either::Left(s) => s
 				.try_get_process_control_stream(arg, stream)
-				.map_ok(|option| option.map(|(output, stream)| (output, stream.left_stream())))
+				.map_ok(|option| option.map(|(header, stream)| (header, stream.left_stream())))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.try_get_process_control_stream(arg, stream)
-				.map_ok(|option| option.map(|(output, stream)| (output, stream.right_stream())))
+				.map_ok(|option| option.map(|(header, stream)| (header, stream.right_stream())))
 				.right_future(),
 		}
 	}

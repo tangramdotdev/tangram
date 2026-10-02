@@ -4,9 +4,9 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let one = tg put 'tg.file("one")' | str trim
+let one = tg put --no-tokens 'tg.file("one")' | referent node
 tg tag put -p a/1.0.0 $one
-let two = tg put 'tg.file("two")' | str trim
+let two = tg put --no-tokens 'tg.file("two")' | referent node
 tg tag put -p a/1.1.0 $two
 
 let output = tg get --no-tokens "a?follow=true" | complete

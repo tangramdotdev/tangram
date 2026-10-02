@@ -12,7 +12,7 @@ let local_directory_source = server spawn --name local-directory-source --config
 }
 
 # An anonymous push stores a public file and blob on the remote.
-let directory = tg --url $local_source.url put 'tg.directory({ "public.txt": tg.file("public") })' | str trim
+let directory = tg --url $local_source.url put --no-tokens 'tg.directory({ "public.txt": tg.file("public") })' | referent node
 tg --url $local_source.url index
 let file = tg --url $local_source.url children $directory | from json | get 0
 
@@ -25,7 +25,7 @@ snapshot ($output.stderr | lines | where {|l| $l =~ '(transferred|skipped)'} | s
 tg --url $remote.url index
 
 # A second anonymous client has only the directory structure, not the file or blob.
-tg --url $local_source.url get --bytes $directory | tg --url $local_directory_source.url put --bytes --kind dir
+tg --url $local_source.url get --bytes $directory | tg --url $local_directory_source.url put --no-tokens --bytes --kind dir | referent node
 
 # The later anonymous push relies on the public file subtree and transfers only the directory.
 let output = tg --url $local_directory_source.url --no-quiet push --lazy $directory | complete

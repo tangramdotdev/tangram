@@ -30,7 +30,7 @@ for directory_index in 0..<50 {
 		$'contents ($directory_index) ($file_index)' | save ($child | path join $'file_($file_index).txt')
 	}
 }
-let directory = tg --url $local.url checkin $path | str trim
+let directory = tg --url $local.url checkin --no-tokens $path | referent node
 tg --url $local.url index
 let metadata = tg --url $local.url object metadata $directory | from json
 assert ($metadata.subtree.count > 4000)

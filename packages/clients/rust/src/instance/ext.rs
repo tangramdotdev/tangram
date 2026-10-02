@@ -487,10 +487,10 @@ pub trait Ext: tg::Instance {
 		&self,
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
-		reconnect: impl FnOnce(&tg::sandbox::control::Output) -> Self + Send,
+		reconnect: impl FnOnce(&tg::sandbox::control::Header) -> Self + Send,
 	) -> impl Future<
 		Output = tg::Result<(
-			tg::sandbox::control::Output,
+			tg::sandbox::control::Header,
 			impl Stream<Item = tg::Result<tg::control::Event<tg::sandbox::control::ServerMessage>>>
 			+ Send
 			+ 'static,
@@ -529,13 +529,13 @@ pub trait Ext: tg::Instance {
 			});
 			input_task.detach();
 
-			// Get the initial output stream.
-			let (output, output_stream) = instance
+			// Get the initial header and stream.
+			let (header, output_stream) = instance
 				.get_sandbox_control_stream(arg.clone(), input_receiver.clone().boxed())
 				.await?;
-			let instance = reconnect(&output);
+			let instance = reconnect(&header);
 			let arg = tg::sandbox::control::Arg {
-				id: Some(output.id.clone()),
+				id: Some(header.id.clone()),
 				..arg
 			};
 
@@ -602,7 +602,7 @@ pub trait Ext: tg::Instance {
 				}
 			});
 
-			Ok((output, stream))
+			Ok((header, stream))
 		}
 	}
 
@@ -610,11 +610,11 @@ pub trait Ext: tg::Instance {
 		&self,
 		arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-		reconnect: impl FnOnce(&tg::process::control::Output) -> Self + Send,
+		reconnect: impl FnOnce(&tg::process::control::Header) -> Self + Send,
 	) -> impl Future<
 		Output = tg::Result<
 			Option<(
-				tg::process::control::Output,
+				tg::process::control::Header,
 				impl Stream<Item = tg::Result<tg::control::Event<tg::process::control::ServerMessage>>>
 				+ Send
 				+ 'static,
@@ -654,19 +654,19 @@ pub trait Ext: tg::Instance {
 			});
 			input_task.detach();
 
-			// Get the initial output stream.
-			let Some((output, output_stream)) = instance
+			// Get the initial header and stream.
+			let Some((header, output_stream)) = instance
 				.try_get_process_control_stream(arg.clone(), response_receiver.clone().boxed())
 				.await?
 			else {
 				input_task.abort();
 				return Ok(None);
 			};
-			let instance = reconnect(&output);
+			let instance = reconnect(&header);
 			let arg = tg::process::control::Arg {
 				data: None,
-				id: Some(output.process.node.clone()),
-				sync: output.sync.clone(),
+				id: Some(header.process.node.clone()),
+				sync: header.sync.clone(),
 				..arg
 			};
 
@@ -737,7 +737,7 @@ pub trait Ext: tg::Instance {
 				}
 			});
 
-			Ok(Some((output, stream)))
+			Ok(Some((header, stream)))
 		}
 	}
 

@@ -4,7 +4,7 @@ use ../lib/checkin.nu checkin-output
 # An opaque permission-only graph pointer does not prevent a later normal reference from expanding the same node.
 
 let local = server spawn
-let dependency = tg put 'tg.file("old dependency")' | str trim
+let dependency = tg put --no-tokens 'tg.file("old dependency")' | referent node
 let graph_module = r#'
 	export default async function () {
 		const dependency = tg.File.withId("<dependency>");
@@ -48,7 +48,7 @@ let metadata = tg object metadata $graph | from json
 assert equal $metadata.node.solvable true "the graph should be solvable"
 assert equal $metadata.subtree.solved true "the graph should already be solved"
 
-let replacement = tg put 'tg.file("new dependency")' | str trim
+let replacement = tg put --no-tokens 'tg.file("new dependency")' | referent node
 tg tag put --force dependency/1.0.0 $replacement
 let reference = $'graph=($graph)&index=0&kind=file'
 let dependencies = [$reference] | to json

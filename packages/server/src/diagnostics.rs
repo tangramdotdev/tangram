@@ -43,7 +43,7 @@ impl Server {
 			.json()
 			.await
 			.inspect_err(
-				|error| tracing::warn!(%error, "failed to deserialize response from github"),
+				|error| tracing::debug!(%error, "failed to deserialize response from github"),
 			)
 			.ok()?;
 		Some(output.name)

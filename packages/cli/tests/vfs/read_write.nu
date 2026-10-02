@@ -21,7 +21,7 @@ assert ($env.LAST_EXIT_CODE == 0) 'expected the store path to be mounted as a VF
 let source = artifact {
 	file.txt: 'hello'
 }
-let id = tg checkin $source | str trim
+let id = tg checkin --no-tokens $source | referent node
 let path = $server_path | path join 'store' $id
 let contents = open ($path | path join 'file.txt')
 assert ($contents == 'hello')

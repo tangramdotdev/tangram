@@ -21,7 +21,7 @@ let local_path = artifact {
 }
 
 # Check in the package.
-tg checkin $local_path
+tg checkin --no-tokens $local_path | referent node
 
 # Verify the lockfile has a/1.0.0.
 let lockfile_path = $local_path | path join 'tangram.lock'

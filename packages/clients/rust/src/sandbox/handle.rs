@@ -107,6 +107,16 @@ impl Sandbox {
 		self.0.tokens.read().unwrap().clone()
 	}
 
+	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<Id> {
+		let options = tg::referent::Options {
+			location: self.location().and_then(|location| location.to_location()),
+			tokens: self.tokens(),
+			..tg::referent::Options::default()
+		};
+		tg::Referent::new(self.id().clone(), options)
+	}
+
 	pub fn detach(&self) {
 		self.0.owned.store(false, Ordering::SeqCst);
 	}

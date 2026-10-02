@@ -60,7 +60,7 @@ impl tg::instance::Sandbox for Session {
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> tg::Result<(
-		tg::sandbox::control::Output,
+		tg::sandbox::control::Header,
 		impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
 	)> {
 		self.get_sandbox_control_stream_with_context(arg, stream)

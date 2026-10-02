@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let blob = "hello, world! this is not an archive at all, just text." | tg write
+let blob = "hello, world! this is not an archive at all, just text." | tg write --no-tokens | referent node
 
 let output = tg extract $blob | complete
 failure $output

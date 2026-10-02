@@ -12,7 +12,7 @@ let path = artifact {
 	tangram.ts: ''
 }
 
-let id = tg checkin $path --watch
+let id = tg checkin --no-tokens $path --watch | referent node
 let object = tg get $id --blobs --depth=inf --no-tokens --pretty
 snapshot $object '
 	tg.directory({

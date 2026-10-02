@@ -9,7 +9,7 @@ let remote_destination = server spawn --cloud --name remote-destination --config
 }
 let alice = tg --url $remote_destination.url login --verbose --name alice | from json
 let bob = tg --url $remote_destination.url login --verbose --name bob | from json
-let private = tg --url $remote_destination.url --token $alice.token put 'tg.file("private")' | str trim
+let private = tg --url $remote_destination.url --token $alice.token put --no-tokens 'tg.file("private")' | referent node
 tg --url $remote_destination.url --token $root_token index
 failure (tg --url $remote_destination.url --token $bob.token get --local $private | complete) "Bob should initially lack access"
 tg --url $remote_destination.url --token $bob.token remote put default $local_source.url

@@ -15,7 +15,7 @@ let graph = '
 		]
 	})
 '
-let graph_id = tg put $graph
+let graph_id = tg put --no-tokens $graph | referent node
 
 # Attempt to check out a graph pointer reference. This should fail because
 # checking out graph pointers is unsupported.

@@ -8,7 +8,7 @@ let local = server spawn --busybox --config {
 }
 
 let path = artifact "test"
-let id = tg --token $root_token checkin $path
+let id = tg --token $root_token checkin --no-tokens $path | referent node
 tg --token $root_token tag put test $id
 
 let no_network = artifact {

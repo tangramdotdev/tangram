@@ -14,7 +14,7 @@ vfs assert_mounted $server_path
 let artifact = artifact {
 	tangram.ts: 'export default () => "test";'
 }
-let artifact = tg checkin $artifact
+let artifact = tg checkin --no-tokens $artifact | referent node
 tg tag -p foo/bar $artifact
 tg tag -p foo/baz/qux $artifact
 
@@ -30,11 +30,11 @@ tg tag delete foo/bar | ignore
 assert ((ls ($root | path join 'foo') | get name | path basename) == ['baz']) 'expected the deleted tag to disappear from enumeration'
 
 # Tags for unsupported VFS node kinds remain visible as dangling symlinks.
-let blob = tg put 'tg.blob("test")' | str trim
+let blob = tg put --no-tokens 'tg.blob("test")' | referent node
 let process_path = artifact {
 	tangram.ts: 'export default () => "test";'
 }
-let process = tg build --detach $process_path | str trim
+let process = tg build --no-tokens --detach $process_path | referent node
 tg wait $process | ignore
 tg tag -p foo/blob $blob
 tg tag -p foo/process $process

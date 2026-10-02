@@ -210,22 +210,22 @@ where
 	decode_reader_with_trailers(reader, trailer_receiver, task, max_frame_size)
 }
 
-pub(crate) async fn decode_with_output<T, O>(
+pub(crate) async fn decode_with_header<T, H>(
 	body: Boxed,
 	max_frame_size: u64,
-) -> tg::Result<(O, BoxStream<'static, tg::Result<T>>)>
+) -> tg::Result<(H, BoxStream<'static, tg::Result<T>>)>
 where
-	O: serde::de::DeserializeOwned,
+	H: serde::de::DeserializeOwned,
 	T: for<'de> tangram_serialize::Deserialize<'de> + Send + 'static,
 {
 	let (mut reader, trailer_receiver, task) = split_body(body);
-	let output =
-		tangram_http::body::output::get(&mut reader, tangram_http::body::output::MAX_LENGTH)
+	let header =
+		tangram_http::body::header::get(&mut reader, tangram_http::body::header::MAX_LENGTH)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to deserialize the output"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
 	let stream = decode_reader_with_trailers(reader, trailer_receiver, task, max_frame_size);
 
-	Ok((output, stream))
+	Ok((header, stream))
 }
 
 pub(crate) fn decode_reader<T, R>(

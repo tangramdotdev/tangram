@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let dir = tg put --no-tokens 'tg.directory({})' | str trim
+let dir = tg put --no-tokens 'tg.directory({})' | referent node
 
 let blob = tg archive --format tar $dir | str trim
 let extracted = tg extract --no-tokens $blob | str trim

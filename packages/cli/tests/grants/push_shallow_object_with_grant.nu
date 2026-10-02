@@ -15,7 +15,7 @@ let bob_local = server spawn --name bob-local --config {
 }
 
 # Bob creates the directory and its file, and pushes only the file.
-let directory = tg --url $bob_local.url put 'tg.directory({ "b.txt": tg.file("b") })' | str trim
+let directory = tg --url $bob_local.url put --no-tokens 'tg.directory({ "b.txt": tg.file("b") })' | referent node
 let file = tg --url $bob_local.url children $directory | from json | get 0
 tg --url $bob_local.url index
 tg --url $bob_local.url push $file
@@ -27,7 +27,7 @@ tg --url $remote.url --token $bob.token grant $alice.user.id object_subtree $fil
 # Alice's server holds the directory shallowly.
 let bytes = mktemp -t
 tg --url $bob_local.url object get --bytes $directory | save --force --raw $bytes
-open --raw $bytes | tg --url $alice_local.url object put --bytes $directory
+open --raw $bytes | tg --url $alice_local.url object put --no-tokens --bytes $directory | referent node
 tg --url $alice_local.url index
 let absent = tg --url $alice_local.url object get --bytes --local $file | complete
 failure $absent "Alice's server must not have the file."

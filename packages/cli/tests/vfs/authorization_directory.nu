@@ -18,7 +18,7 @@ for io in $transports {
 		vfs: { io: $io, kind: fuse, passthrough: disabled }
 	}
 
-	let foreign = tg put 'tg.file("foreign\n")' | str trim
+	let foreign = tg put --no-tokens 'tg.file("foreign\n")' | referent node
 
 	let module = artifact {
 		tangram.ts: '

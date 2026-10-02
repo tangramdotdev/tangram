@@ -11,7 +11,7 @@ let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 
 let graph = (
-	tg --token $alice.token put '
+	tg --token $alice.token put --no-tokens '
 		tg.graph({
 			"nodes": [
 				{
@@ -20,7 +20,7 @@ let graph = (
 				}
 			]
 		})
-	'
+	' | referent node
 	| str trim
 )
 tg --token $alice.token index

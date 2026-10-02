@@ -48,7 +48,7 @@ let path = artifact {
 };
 
 # Run a remote build
-let id = tg build --remote --detach $path
+let id = tg build --no-tokens --remote --detach $path | referent node
 let output = tg wait $id | from json
 assert ($output.exit == 0)
 snapshot $output.output '42'

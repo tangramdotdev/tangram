@@ -100,7 +100,7 @@ pub struct Arg {
 }
 
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
-pub struct Output {
+pub struct Header {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub sync: Option<tg::Referent<tg::sync::Id>>,
 }
@@ -425,7 +425,7 @@ impl tg::Session {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<(
-		tg::sync::Output,
+		tg::sync::Header,
 		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
 	)> {
 		let max_frame_size = self.client().sync.max_frame_size;
@@ -504,12 +504,6 @@ impl tg::Session {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
 
-		let output_in_body = tangram_http::body::output::get_header(response.headers())
-			.map_err(|error| tg::error!(!error, "failed to parse the output in body header"))?;
-		if !output_in_body {
-			return Err(tg::error!("missing the output in body header"));
-		}
-
 		let mut stream = BodyStream::new(response.into_body());
 		let (data_sender, data_receiver) = tokio::sync::mpsc::channel(1);
 		let (trailer_sender, trailer_receiver) = tokio::sync::mpsc::channel(1);
@@ -536,10 +530,10 @@ impl tg::Session {
 
 		let mut reader =
 			StreamReader::new(ReceiverStream::new(data_receiver).map_err(std::io::Error::other));
-		let output =
-			tangram_http::body::output::get(&mut reader, tangram_http::body::output::MAX_LENGTH)
+		let header =
+			tangram_http::body::header::get(&mut reader, tangram_http::body::header::MAX_LENGTH)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to deserialize the output"))?;
+				.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
 		let data_messages = stream::try_unfold(reader, move |mut reader| async move {
 			let Some(len) = reader
 				.try_read_uvarint()
@@ -592,7 +586,7 @@ impl tg::Session {
 
 		let stream = stream::select(data_messages, trailer_messages).attach(task);
 
-		Ok((output, stream))
+		Ok((header, stream))
 	}
 }
 

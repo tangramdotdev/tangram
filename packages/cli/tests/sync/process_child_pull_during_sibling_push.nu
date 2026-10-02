@@ -60,7 +60,7 @@ let path = artifact {
 		}
 	'
 }
-let blob = tg --url $local.url put 'tg.blob("first")' | str trim
+let blob = tg --url $local.url put --no-tokens 'tg.blob("first")' | referent node
 
 # Record which runner finishes each process.
 def record_finishes [runner: record] {
@@ -133,7 +133,7 @@ let ack_watch = (
 )
 
 # Start the build and wait for the producer's push to reach the blob.
-let parent = tg --url $local.url build --remote --detach $path | str trim
+let parent = tg --url $local.url build --no-tokens --remote --detach $path | referent node
 let wait = job spawn {
 	let job_id = job id
 	let output = tg --url $local.url wait $parent | complete

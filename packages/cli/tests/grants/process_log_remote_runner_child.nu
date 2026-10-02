@@ -37,7 +37,7 @@ let path = artifact {
 	'
 }
 
-let process = tg --url $local.url build --remote --detach $path
+let process = tg --url $local.url build --no-tokens --remote --detach $path | referent node
 
 let wait = tg --url $local.url wait $process | complete
 success $wait

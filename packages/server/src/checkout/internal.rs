@@ -554,7 +554,7 @@ impl Session {
 				source: Some(source),
 				..Default::default()
 			};
-			if let Ok(stream) = self.pull(arg).await {
+			if let Ok((_, stream)) = self.pull(arg).await {
 				progress.spinner("pull", "pull");
 				let mut stream = pin!(stream);
 				while let Some(event) = stream.try_next().await.ok().flatten() {

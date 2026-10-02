@@ -17,7 +17,7 @@ let remote_slow = server spawn --name remote-slow --config { control: { read_tim
 let local_client = server spawn --name local-client --config {
 	remotes: { alpha: { url: $remote_slow.url }, zeta: { url: $local_owner.url } },
 }
-let sandbox = tg --url $local_owner.url sandbox create | str trim
+let sandbox = tg --url $local_owner.url sandbox create --no-tokens | referent node
 let runner_socket = $runner.url | str replace 'http+unix://' '' | url decode
 let local_owner_socket = $local_owner.url | str replace 'http+unix://' '' | url decode
 let local_client_socket = $local_client.url | str replace 'http+unix://' '' | url decode
@@ -30,11 +30,11 @@ let reader = job spawn {
 	| each { $in | job send --tag $job_id 0 }
 	| ignore
 }
-let first = tg --url $local_owner.url spawn $'--sandbox=($sandbox)' $path | str trim
+let first = tg --url $local_owner.url spawn --no-tokens $'--sandbox=($sandbox)' $path | referent node
 let first_chunk = job recv --tag $reader --timeout 10sec | str substring 6.. | from json
 assert equal $first_chunk { data: [$first], position: 0 }
 timeout 10s tg --url $local_owner.url wait --source=index $first | ignore
-let second = tg --url $local_owner.url spawn $'--sandbox=($sandbox)' $path | str trim
+let second = tg --url $local_owner.url spawn --no-tokens $'--sandbox=($sandbox)' $path | referent node
 let second_chunk = job recv --tag $reader --timeout 10sec | str substring 6.. | from json
 assert equal $second_chunk { data: [$second], position: 1 }
 assert equal (job recv --tag $reader --timeout 10sec) 'event: end'

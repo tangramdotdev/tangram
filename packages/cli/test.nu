@@ -88,6 +88,9 @@ def main [
 	if $stress_count != null and $stress_count < 1 {
 		error make { msg: '--stress-count must be at least one' }
 	}
+	# Build the small native helper without requiring Python or additional packages.
+	build_posix_semaphore_helper
+
 	# Clean up leftover test resources if requested.
 	if $clean {
 		let scylla_client_path = if $release { build_scylla_client --release } else { build_scylla_client }
@@ -105,11 +108,6 @@ def main [
 			| append $fskit_temp_paths
 		)
 		let lmdb_sysv_keys = lmdb_sysv_keys_for_test_dirs $test_temp_paths
-
-		for path in $test_temp_paths {
-			remove_temp_directory --force-vfs-cleanup $path
-			print -e $"removed ($path)"
-		}
 
 		let postgres_output = (^timeout 5 psql --host=127.0.0.1 --username=postgres --dbname=postgres --tuples-only --no-align --command 'select datname from pg_database' | complete)
 		if $postgres_output.exit_code == 0 {
@@ -153,6 +151,21 @@ def main [
 		}
 		let remaining_tangram_processes = count_tangram_processes
 		print -e $"cleaned tangram processes: ($tangram_processes - $remaining_tangram_processes)"
+
+		if $remaining_tangram_processes != 0 {
+			error make { msg: 'test cleanup could not stop all Tangram processes' }
+		}
+		for path in $test_temp_paths {
+			force_unmount_vfs $path
+		}
+		if $nu.os-info.name == 'macos' {
+			stop_fskit_provider $release
+		}
+		for path in $test_temp_paths {
+			cleanup_posix_semaphores $path
+			remove_temp_directory --force-vfs-cleanup $path
+			print -e $"removed ($path)"
+		}
 
 		let lmdb_sysv_semaphores = count_lmdb_sysv_semaphores $lmdb_sysv_keys
 		if $lmdb_sysv_semaphores > 0 {
@@ -609,6 +622,21 @@ def main [
 
 	if not ($failed | is-empty) {
 		exit 1
+	}
+}
+
+def build_posix_semaphore_helper [] {
+	let directory = $repository_path | path join 'target/test'
+	mkdir $directory
+	let temporary = ^mktemp ($directory | path join 'posix_semaphores.XXXXXX') | str trim
+	let source = $repository_path | path join 'packages/cli/tests/lib/posix_semaphores.c'
+	let libraries = if $nu.os-info.name == 'linux' { ['-lrt'] } else { [] }
+	try {
+		^cc -std=c11 -Wall -Wextra -Werror -pthread $source -o $temporary ...$libraries
+		mv -f $temporary ($directory | path join 'posix_semaphores')
+	} catch {|error|
+		rm -f $temporary
+		error make $error
 	}
 }
 
@@ -1295,6 +1323,18 @@ def run_test [test: record, options: record] {
 		}
 	}
 
+	# Unlink semaphore names even when preserving the test files for debugging.
+	if $process_cleanup.error == null {
+		let error = try {
+			force_unmount_vfs $temp_path
+			cleanup_posix_semaphores $temp_path
+			null
+		} catch {|error| $error }
+		if $error != null {
+			$cleanup_errors = $cleanup_errors | append $error
+		}
+	}
+
 	# If the test passed, delete snapshots which were not touched and remove touch files. Skip this in stress mode, because concurrent runs of the same test would race on these files.
 	if $output.exit_code == 0 and not $options.stress {
 		let parent_path = $test.path | path dirname
@@ -1349,7 +1389,7 @@ def run_test [test: record, options: record] {
 	}
 
 	# Clean up the temp directory.
-	let preserve_temp = $options.preserve_temps or ($options.preserve_failing_temps and $output.exit_code not-in [0 77])
+	let preserve_temp = (not ($cleanup_errors | is-empty)) or $options.preserve_temps or ($options.preserve_failing_temps and $output.exit_code not-in [0 77])
 	let temp_cleanup_error = if $preserve_temp {
 		null
 	} else {
@@ -1791,7 +1831,10 @@ def force_unmount_vfs_macos [path: string] {
 		| get path
 	)
 	for store_path in $store_paths {
-		try { ^timeout --kill-after 2s 5 umount -f $store_path o> /dev/null e> /dev/null }
+		let output = (^timeout --kill-after 2s 5 umount -f $store_path | complete)
+		if $output.exit_code != 0 {
+			error make { msg: $'failed to unmount the test VFS: ($store_path)', help: ($output.stderr | str trim) }
+		}
 	}
 }
 

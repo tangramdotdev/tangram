@@ -529,7 +529,7 @@ impl Session {
 		);
 
 		// Get the runner control stream.
-		let (output, mut control) = self
+		let (header, mut control) = self
 			.run_get_runner_control_stream(id, &location, *cleanup)
 			.boxed()
 			.await?;
@@ -537,7 +537,7 @@ impl Session {
 		// Destroy the previous sandboxes before accepting work.
 		let mut index = 1;
 		if *cleanup {
-			self.cleanup_runner_sandboxes(output.sandboxes, &mut control, &mut index)
+			self.cleanup_runner_sandboxes(header.sandboxes, &mut control, &mut index)
 				.boxed()
 				.await?;
 			*cleanup = false;
@@ -545,7 +545,7 @@ impl Session {
 		self.server
 			.runner
 			.state
-			.set_scheduler(Some(output.scheduler));
+			.set_scheduler(Some(header.scheduler));
 
 		// Handle new sandbox requests.
 		self.run_handle_runner_control_stream(location, control, index, stopper)
@@ -657,7 +657,7 @@ impl Session {
 		location: &tg::Location,
 		cleanup: bool,
 	) -> tg::Result<(
-		tg::runner::control::Output,
+		tg::runner::control::Header,
 		crate::control::Stream<
 			tg::runner::control::ServerMessage,
 			tg::runner::control::ClientMessage,
@@ -679,7 +679,7 @@ impl Session {
 			location,
 			scheduler_ttl,
 		};
-		let (output, output_stream) = self
+		let (header, output_stream) = self
 			.get_runner_control_stream_with_context(arg, input_stream)
 			.boxed()
 			.await
@@ -687,7 +687,7 @@ impl Session {
 		let output_stream = output_stream.boxed();
 		let stream =
 			crate::control::Stream::new(output_stream, input, crate::control::stream_options());
-		Ok((output, stream))
+		Ok((header, stream))
 	}
 
 	async fn run_handle_runner_control_stream(

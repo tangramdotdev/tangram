@@ -17,7 +17,7 @@ let eve = tg login --verbose --name eve | from json
 
 # Alice builds a process whose output is a file.
 let path = artifact { tangram.ts: 'export default async function () { return tg.file("secret"); }' }
-let process = tg --token $alice.token build --detach $path | str trim
+let process = tg --token $alice.token build --no-tokens --detach $path | referent node
 
 # The owner can read the output from either the live or stored wait response.
 let aliceresult = tg --token $alice.token wait $process | from json

@@ -10,7 +10,7 @@ let local = server spawn --config {
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 
-let id = tg --token $alice.token put 'tg.file("contents")' | str trim
+let id = tg --token $alice.token put --no-tokens 'tg.file("contents")' | referent node
 tg index
 let path = tg --token $alice.token checkout $id | str trim
 assert equal $path ($local.checkout_directory | path join $id)
@@ -28,7 +28,7 @@ let output = tg --token $bob.token get --bytes $'($id)?tokens[local][0]=($token)
 success $output 'the token from the xattr should authorize the object read'
 
 # Checkin should authorize the same path using the token in its xattr.
-let output = tg --token $bob.token checkin $path | complete
+let output = tg --token $bob.token checkin --no-tokens $path | complete
 success $output 'checkin should authorize using the file token xattr'
 snapshot $output.stderr ''
-assert equal ($output.stdout | str trim) $id
+assert equal ($output.stdout | referent node) $id

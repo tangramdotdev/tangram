@@ -18,7 +18,7 @@ let local = server spawn --config {
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
-let object = tg --token $alice.token put 'tg.blob("existing object")' | str trim
+let object = tg --token $alice.token put --no-tokens 'tg.blob("existing object")' | referent node
 tg --token $alice.token index
 let output = tg --token $bob.token object get --bytes $object | complete
 failure $output 'a required permission search without a proof should fail'

@@ -8,7 +8,7 @@ let path = artifact {
     file.tg.ts: r#'export default function () { return "hello, world!"; }'#
 };
 
-let id = tg checkin ($path + '/file.tg.ts')
+let id = tg checkin --no-tokens ($path + '/file.tg.ts') | referent node
 tg index
 
 let output = tg build $id

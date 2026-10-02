@@ -32,7 +32,7 @@ let path = artifact {
 	',
 }
 let finish_watch = tg --url $runner.url checkpoint watch runner.process.finish | from json | get watch
-let process = tg --url $local.url build --remote --detach $path | str trim
+let process = tg --url $local.url build --no-tokens --remote --detach $path | referent node
 let first = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 0 | from json | get params.process
 
 # Hold control reads on the remote so children can only arrive from runner state.

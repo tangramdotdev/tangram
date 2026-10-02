@@ -6,7 +6,7 @@ let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },
 }
-let directory = tg --url $local.url put 'tg.directory({ "a": tg.file("a"), "b": tg.file("b") })' | str trim
+let directory = tg --url $local.url put --no-tokens 'tg.directory({ "a": tg.file("a"), "b": tg.file("b") })' | referent node
 tg --url $local.url index
 
 success (tg --url $local.url push $directory | complete)

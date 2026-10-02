@@ -59,7 +59,7 @@ let path = artifact {
 
 }
 
-let id = tg checkin ($path | path join 'root') --update a
+let id = tg checkin --no-tokens ($path | path join 'root') --update a | referent node
 tg index
 
 let object = tg get --depth=inf --no-tokens --pretty $id

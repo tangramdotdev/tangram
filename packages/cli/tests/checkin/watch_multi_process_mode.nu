@@ -6,7 +6,7 @@ let local = server spawn --config { advanced: { single_process: false } }
 let path = artifact {
 	tangram.ts: 'export default "hello";'
 }
-let output = tg --url $local.url checkin $path --watch | complete
+let output = tg --url $local.url checkin --no-tokens $path --watch | complete
 
 failure $output
 assert ($output.stderr | str contains "the watch option is not supported in multi-process mode")

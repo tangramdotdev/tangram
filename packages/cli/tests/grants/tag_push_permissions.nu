@@ -14,7 +14,7 @@ let reader = tg --url $local.url --token $root_token login --verbose --name read
 
 # A local public tag confers the process node and its output on a reader who did not build it.
 let path = artifact { tangram.ts: 'export default function () { return tg.file("hello"); }' }
-let process = tg --url $local.url --token $root_token build --detach $path | str trim
+let process = tg --url $local.url --token $root_token build --no-tokens --detach $path | referent node
 let finished = tg --url $local.url --token $root_token wait $process | from json
 let output = $finished.output.value | split row '?' | first
 tg --url $local.url --token $root_token index

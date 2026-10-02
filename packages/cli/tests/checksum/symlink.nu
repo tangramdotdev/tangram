@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let symlink_id = tg put 'tg.symlink({ "path": "some/path" })' | str trim
+let symlink_id = tg put --no-tokens 'tg.symlink({ "path": "some/path" })' | referent node
 
 let output = tg checksum $symlink_id | complete
 failure $output

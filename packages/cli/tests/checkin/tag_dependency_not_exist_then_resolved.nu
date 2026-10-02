@@ -12,7 +12,7 @@ let path = artifact {
 }
 
 # Check in with --unsolved-dependencies. The dependency should be unsolved.
-let id1 = tg checkin --watch --unsolved-dependencies $path
+let id1 = tg checkin --no-tokens --watch --unsolved-dependencies $path | referent node
 tg index
 
 let object1 = tg object get --blobs --depth=inf --no-tokens --pretty $id1
@@ -25,7 +25,7 @@ let a = artifact {
 tg tag -p a/1.0.0 $a
 
 # Check in again without --unsolved-dependencies. The dependency should now be resolved.
-let id2 = tg checkin --watch $path
+let id2 = tg checkin --no-tokens --watch $path | referent node
 tg index
 
 let object2 = tg object get --blobs --depth=inf --no-tokens --pretty $id2

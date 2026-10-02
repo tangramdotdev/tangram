@@ -13,7 +13,7 @@ let path = artifact {
 		import a from "./a.tg.ts";
 	'
 }
-let id = tg --url $local.url checkin $path
+let id = tg --url $local.url checkin --no-tokens $path | referent node
 tg --url $local.url index
 let metadata = tg --url $local.url object metadata --pretty $id
 snapshot --name metadata $metadata '

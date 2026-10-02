@@ -14,7 +14,7 @@ let local = server spawn --name 'local' --config {
 let dep_path = artifact {
 	tangram.ts: 'export default function () { return "dep"; }'
 }
-let dep_id = tg checkin --destructive --ignore=false $dep_path
+let dep_id = tg checkin --no-tokens --destructive --ignore=false $dep_path | referent node
 tg index
 
 let path = artifact {
@@ -22,7 +22,7 @@ let path = artifact {
 		import dep from "($dep_id)";
 	'
 }
-let id = tg checkin --destructive $path --ignore=false
+let id = tg checkin --no-tokens --destructive $path --ignore=false | referent node
 tg index
 
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id

@@ -126,6 +126,7 @@ async fn restarting_permission_capture_retains_original_roots_and_partial_permis
 		map_size: 1 << 30,
 		max_process_depth: None,
 		path: directory.path().join("index"),
+		posix_sem_prefix: None,
 		read_request_batch_size: 64,
 		read_transaction_concurrency: 4,
 		usage_partition_total: 1,

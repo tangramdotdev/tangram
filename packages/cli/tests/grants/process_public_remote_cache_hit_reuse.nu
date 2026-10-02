@@ -24,7 +24,7 @@ let local_client = server spawn --name local-client --config {
 }
 
 # The premise of the test is that the dependency is reused rather than built.
-let process = tg --url $local_client.url build --detach $path | str trim
+let process = tg --url $local_client.url build --no-tokens --detach $path | referent node
 tg --url $local_client.url wait $process | ignore
 let children = tg --url $local_client.url process children $process | from json
 assert equal ($children | length) 1 "the build should have spawned the dependency"

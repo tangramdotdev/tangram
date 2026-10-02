@@ -6,7 +6,7 @@ let local = server spawn
 
 # Create and tag an artifact.
 let path = artifact 'test'
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 # Create a mix of leaf tags and nested structure.
 let tags = ["test/1.0.0" "test/2.0.0" "test/foo/bar" "test/foo/baz"]
@@ -45,7 +45,7 @@ let output = tg tag delete "" | complete
 failure $output "The command should reject an empty pattern."
 snapshot --normalize $output.stderr r#'
 	error: invalid value '' for '<PATTERN>': invalid specifier pattern
-	
+
 	For more information, try '--help'.
 
 '#

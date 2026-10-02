@@ -12,7 +12,7 @@ for mode in [--eager --lazy] {
 	let path = artifact {
 		tangram.ts: 'export default function () { console.log("stdout"); console.error("stderr"); }'
 	}
-	let process = tg build --detach $path | str trim
+	let process = tg build --no-tokens --detach $path | referent node
 	timeout 10s tg wait $process
 	let hit = timeout 10s tg checkpoint wait process.log.compact.read $watch 0 | from json
 	assert equal $hit.params.process $process

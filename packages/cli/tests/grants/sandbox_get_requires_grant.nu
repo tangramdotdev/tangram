@@ -7,7 +7,7 @@ let local = server spawn --config { authentication: { users: { providers: { inse
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 
-let sandbox = tg --token $alice.token sandbox create --no-network | str trim
+let sandbox = tg --token $alice.token sandbox create --no-tokens --no-network | referent node
 
 let alice_get = tg --token $alice.token sandbox get $sandbox | complete
 success $alice_get "Alice should get her own sandbox"

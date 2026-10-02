@@ -10,7 +10,7 @@ for mode in ['444', '555'] {
 	chmod $mode $path
 	let permissions = ls -l $path | get mode | first
 
-	let id = tg checkin $path
+	let id = tg checkin --no-tokens $path | referent node
 	let checkout = $local.checkout_directory | path join $id
 	assert equal (tg read $id) $contents
 	assert equal (ls -l $path | get mode | first) $permissions

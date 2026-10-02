@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # An omitted source selects the default remote.
 
 let remote = server spawn --name remote
-let file = tg --url $remote.url put --no-tokens 'tg.file("hello")' | str trim
+let file = tg --url $remote.url put --no-tokens 'tg.file("hello")' | referent node
 let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }

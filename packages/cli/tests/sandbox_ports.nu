@@ -8,7 +8,7 @@ if $nu.os-info.name != 'linux' {
 
 let local = server spawn
 
-let sandbox = (tg sandbox create --port 80 --port 127.0.0.1::53/udp | str trim)
+let sandbox = (tg sandbox create --no-tokens --port 80 --port 127.0.0.1::53/udp | referent node)
 assert ($sandbox | str starts-with "sbx_")
 
 let get = tg sandbox get $sandbox | from json | get data
@@ -20,7 +20,7 @@ let list = tg sandbox list | from json
 let listed = ($list | where id == $sandbox | first)
 assert equal $listed.network.ports $get.network.ports
 
-let output = tg sandbox create --no-network --port 8080:80 | complete
+let output = tg sandbox create --no-tokens --no-network --port 8080:80 | complete
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
@@ -28,7 +28,7 @@ snapshot --normalize $output.stderr '
 
 '
 
-let output = tg sandbox create --network=host --port 8080:80 | complete
+let output = tg sandbox create --no-tokens --network=host --port 8080:80 | complete
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred
@@ -42,9 +42,9 @@ let path = artifact {
 		exit 0
 	')
 }
-let executable = tg checkin ($path | path join "script") | str trim
+let executable = tg checkin --no-tokens ($path | path join "script") | referent node
 
-let output = tg spawn $"--sandbox=($sandbox)" --port 8080:80 --executable $executable | complete
+let output = tg spawn --no-tokens $"--sandbox=($sandbox)" --port 8080:80 --executable $executable | complete
 failure $output
 snapshot --normalize-ids $output.stderr '
 	error an error occurred

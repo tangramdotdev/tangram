@@ -75,7 +75,7 @@ impl tg::instance::Process for Server {
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
 		Option<(
-			tg::process::control::Output,
+			tg::process::control::Header,
 			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
 		)>,
 	> {

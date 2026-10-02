@@ -6,7 +6,7 @@ let local = server spawn
 
 # Create a tag so the failure cannot be attributed to a missing tag.
 let path = artifact "test"
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 tg tag put test $id
 
 let module = artifact {

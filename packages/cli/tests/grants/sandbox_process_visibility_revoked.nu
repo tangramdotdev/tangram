@@ -14,7 +14,7 @@ tg --token $alice.token group members add team $carol.user.id
 
 # Bob builds a process and explicitly grants the team access.
 let path = artifact { tangram.ts: 'export default function () { return tg.file("revoked-visibility-team"); }' }
-let process = tg --token $bob.token build --detach --group team $path | str trim | split row '?' | first
+let process = tg --token $bob.token build --no-tokens --detach --group team $path | referent node | split row '?' | first
 tg --token $bob.token wait $process | complete | ignore
 
 tg --token $bob.token grant team process_subtree $process

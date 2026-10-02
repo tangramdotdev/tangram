@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let blob = "hello, world!\n" | tg write
+let blob = "hello, world!\n" | tg write --no-tokens | referent node
 
 # The digest lengths are in hex characters.
 def check [algorithm: string, length: int] {

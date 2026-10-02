@@ -9,5 +9,5 @@ let path = artifact {
 }
 let id = tg build --no-tokens $path | str trim
 
-let bundle_id = tg bundle $id | str trim
+let bundle_id = tg bundle --no-tokens $id | referent node
 assert equal $bundle_id $id "bundling a dependency-free symlink should return it unchanged"

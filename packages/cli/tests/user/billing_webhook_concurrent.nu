@@ -41,7 +41,7 @@ tg --token $root_token checkpoint continue billing.webhook.store $watch 0
 assert equal (job recv --tag $first --timeout 10sec) 200
 tg --token $root_token checkpoint unwatch billing.webhook.store $watch
 
-let output = tg --token $alice.token sandbox create --no-network | complete
+let output = tg --token $alice.token sandbox create --no-tokens --no-network | complete
 failure $output 'the delayed duplicate must not overwrite the committed billing state'
 assert ($output.stderr | str contains 'billing is not ready')
 stop_stripe $stripe

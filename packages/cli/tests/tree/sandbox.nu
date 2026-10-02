@@ -8,7 +8,7 @@ let path = artifact {
 	tangram.ts: 'export default function () { return 42; }'
 }
 
-let sandbox = tg sandbox create | str trim
+let sandbox = tg sandbox create --no-tokens | referent node
 let tree = job spawn {
 	let job_id = job id
 	let output = tg tree $sandbox --depth 2 | complete

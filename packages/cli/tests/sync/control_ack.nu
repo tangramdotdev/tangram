@@ -10,7 +10,7 @@ let remote = server spawn --name remote --config {
 let local = server spawn --name local --config {
 	remotes: { default: { token: $root_token, url: $remote.url } },
 }
-let blob = tg --url $local.url put 'tg.blob("hello")' | str trim
+let blob = tg --url $local.url put --no-tokens 'tg.blob("hello")' | referent node
 let params = { node: $blob } | to json --raw
 let subscribe_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.subscribe | from json | get watch
 let heartbeat_watch = tg --url $remote.url --token $root_token checkpoint watch sync.control.heartbeat.request | from json | get watch
@@ -28,8 +28,8 @@ let push = job spawn {
 }
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $store_watch 0 | ignore
 timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.control.subscribe $subscribe_watch 0 | ignore
-wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should log the referent with the authorization token for the sync'
-let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
+wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should print the referent with the authorization token for the sync'
+let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
 let query = { 'tokens[local][0]': $sync } | url build-query
 let socket = $remote.url | str replace 'http+unix://' '' | url decode

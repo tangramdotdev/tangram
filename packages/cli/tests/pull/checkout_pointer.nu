@@ -7,34 +7,34 @@ let local = server spawn --name local
 tg remote put default $remote.url
 
 let contents = 'pulled through a checkout pointer'
-let blob = tg --url $remote.url put 'tg.blob("pulled through a checkout pointer")' | str trim
-let file = tg --url $remote.url put 'tg.file("pulled through a checkout pointer")' | str trim
+let blob = tg --url $remote.url put --no-tokens 'tg.blob("pulled through a checkout pointer")' | referent node
+let file = tg --url $remote.url put --no-tokens 'tg.file("pulled through a checkout pointer")' | referent node
 let executable = (
-	tg --url $remote.url put 'tg.file({ "contents": tg.blob("pulled through a checkout pointer"), "executable": true })'
+	tg --url $remote.url put --no-tokens 'tg.file({ "contents": tg.blob("pulled through a checkout pointer"), "executable": true })' | referent node
 	| str trim
 )
-let eager_file = tg --url $remote.url put 'tg.file("eager checkout pointer")' | str trim
+let eager_file = tg --url $remote.url put --no-tokens 'tg.file("eager checkout pointer")' | referent node
 let eager_skipped = (
-	tg --url $remote.url put 'tg.file({ "contents": tg.blob("pulled through a checkout pointer"), "module": "ts" })'
+	tg --url $remote.url put --no-tokens 'tg.file({ "contents": tg.blob("pulled through a checkout pointer"), "module": "ts" })' | referent node
 	| str trim
 )
 let large_bytes = random binary 5000000
-let large_blob = $large_bytes | tg --url $remote.url write | str trim
+let large_blob = $large_bytes | tg --url $remote.url write --no-tokens | referent node
 let large_file_value = ['tg.file({"contents":' $large_blob '})'] | str join
 let large_file = (
-	tg --url $remote.url put $large_file_value
+	tg --url $remote.url put --no-tokens $large_file_value | referent node
 	| str trim
 )
 let large_executable_value = (
 	['tg.file({"contents":' $large_blob ',"executable":true})'] | str join
 )
 let large_executable = (
-	tg --url $remote.url put $large_executable_value
+	tg --url $remote.url put --no-tokens $large_executable_value | referent node
 	| str trim
 )
 let large_module_value = ['tg.file({"contents":' $large_blob ',"module":"ts"})'] | str join
 let large_module = (
-	tg --url $remote.url put $large_module_value
+	tg --url $remote.url put --no-tokens $large_module_value | referent node
 	| str trim
 )
 
@@ -105,7 +105,7 @@ let local_branch = server spawn --name local-branch --config {
 	remotes: { default: { url: $remote.url } },
 }
 let bytes = random binary 300000
-let branch_blob = $bytes | tg --url $remote.url write | str trim
+let branch_blob = $bytes | tg --url $remote.url write --no-tokens | referent node
 tg --url $local_branch.url pull $branch_blob
 let entries = (
 	ls $local_branch.checkout_directory
@@ -116,7 +116,7 @@ let branch_path = $entries.0.name
 assert equal (open --raw $branch_path | hash sha256) ($bytes | hash sha256)
 
 let local_writer = server spawn --name local-writer
-let written_blob = $bytes | tg --url $local_writer.url write | str trim
+let written_blob = $bytes | tg --url $local_writer.url write --no-tokens | referent node
 assert equal $written_blob $branch_blob
 let written_file = (
 	ls $local_writer.checkout_directory

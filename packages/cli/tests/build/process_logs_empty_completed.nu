@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let local = server spawn --config { advanced: { checkpoints: true }, indexer: { log_compaction: false }, runner: { process_state_ttl: 0.01 } }
 let watch = tg checkpoint watch runner.process.control.finished | from json | get watch
 let path = artifact { tangram.ts: 'export default function () {}' }
-let id = tg build --detach $path | str trim
+let id = tg build --no-tokens --detach $path | referent node
 tg wait $id | ignore
 timeout 10 tg checkpoint wait runner.process.control.finished $watch 0 | ignore
 tg checkpoint continue runner.process.control.finished $watch 0

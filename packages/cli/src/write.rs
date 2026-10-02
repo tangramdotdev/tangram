@@ -36,7 +36,7 @@ impl Cli {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to write the blob"))?
 		};
-		Self::print_id(&output.blob.node);
+		Self::print_referent(&output.blob, &args.print);
 		Ok(())
 	}
 }

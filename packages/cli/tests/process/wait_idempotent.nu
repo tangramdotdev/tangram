@@ -7,7 +7,7 @@ let local = server spawn
 let path = artifact {
 	tangram.ts: 'export default async function () { return 42; }',
 }
-let process = tg build --detach $path | str trim
+let process = tg build --no-tokens --detach $path | referent node
 
 let first = tg wait $process | from json
 let second = tg wait $process | from json

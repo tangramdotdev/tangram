@@ -12,15 +12,15 @@ let local_client = server spawn --name local-client --config {
 # Put a directory with two branches. The deeper branch provides a checkpoint after the file's blob
 # is stored while still keeping the pull open.
 let directory = (
-	tg --url $remote.url put 'tg.directory({
+	tg --url $remote.url put --no-tokens 'tg.directory({
 		"f": tg.file("available"),
 		"z": tg.directory({ "v": tg.file("later") }),
-	})'
+	})' | referent node
 	| str trim
 )
-let file = tg --url $remote.url put 'tg.file("available")' | str trim
-let file_blob = tg --url $remote.url put 'tg.blob("available")' | str trim
-let deep_blob = tg --url $remote.url put 'tg.blob("later")' | str trim
+let file = tg --url $remote.url put --no-tokens 'tg.file("available")' | referent node
+let file_blob = tg --url $remote.url put --no-tokens 'tg.blob("available")' | referent node
+let deep_blob = tg --url $remote.url put --no-tokens 'tg.blob("later")' | referent node
 tg --url $remote.url index
 
 let object_filter_watch = (

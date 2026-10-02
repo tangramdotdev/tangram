@@ -8,7 +8,7 @@ let path = artifact {
 	tangram.ts: 'import * as a from "./file.tg.ts";',
 	file.tg.ts: 'import * as root from "./tangram.ts";',
 }
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 let output = tg get $"($id)?get=./file.tg.ts" --depth=inf --no-tokens --pretty | complete
 success $output
 snapshot $output.stdout '
