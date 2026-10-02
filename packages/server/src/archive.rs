@@ -36,6 +36,7 @@ impl Archive {
 			bucket: config.bucket.clone(),
 			endpoint: config.endpoint.clone(),
 			express: config.express,
+			path_style: config.path_style,
 			pool,
 			reconnect,
 			region: config.region.clone(),

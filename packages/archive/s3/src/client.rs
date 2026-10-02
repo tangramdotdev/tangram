@@ -38,6 +38,11 @@ pub(super) struct Session {
 impl Client {
 	#[must_use = "the S3 client construction result must be checked"]
 	pub(super) fn new(config: &super::Config) -> tg::Result<Self> {
+		if config.express && config.path_style {
+			return Err(tg::error!(
+				"the S3 Express archive does not support path-style addressing"
+			));
+		}
 		if config.pool.max == 0 {
 			return Err(tg::error!(
 				"the S3 archive pool maximum must be greater than zero"
@@ -64,12 +69,16 @@ impl Client {
 				"the S3 archive endpoint must not have a path, query, or fragment"
 			));
 		}
-		let authority = format!("{}.{authority}", config.bucket);
+		let (authority, path) = if config.path_style {
+			(authority.to_owned(), format!("/{}", config.bucket))
+		} else {
+			(format!("{}.{authority}", config.bucket), String::new())
+		};
 		let url = config
 			.endpoint
 			.to_builder()
 			.authority(&authority)
-			.path("")
+			.path(&path)
 			.build()
 			.map_err(|error| tg::error!(!error, "failed to build the S3 archive URL"))?;
 		let credentials = Credentials::new(

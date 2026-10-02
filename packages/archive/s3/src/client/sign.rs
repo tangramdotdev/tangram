@@ -27,7 +27,8 @@ impl Client {
 			query,
 			session_token,
 		} = arg;
-		let mut builder = self.url.to_builder().path(path);
+		let path = format!("{}{path}", self.url.path());
+		let mut builder = self.url.to_builder().path(&path);
 		if let Some(query) = query {
 			builder = builder.query_raw(query);
 		}
@@ -103,7 +104,10 @@ impl Client {
 		instructions.apply_to_request_http1x(&mut request);
 
 		// Send an origin-form HTTP/1 target after signing the absolute S3 URL.
-		let target = query.map_or_else(|| path.to_owned(), |query| format!("{path}?{query}"));
+		let target = match query {
+			Some(query) => format!("{path}?{query}"),
+			None => path,
+		};
 		let uri = target
 			.parse()
 			.map_err(|error| tg::error!(!error, "failed to create the S3 request target"))?;
@@ -124,18 +128,78 @@ fn signing_name(express: bool) -> &'static str {
 mod tests {
 	use {aws_credential_types::Credentials, bytes::Bytes};
 
-	fn client() -> super::super::Client {
-		let config = super::super::super::Config {
+	fn config() -> super::super::super::Config {
+		super::super::super::Config {
 			access_key: "root-access".into(),
 			bucket: "bucket--use1-az4--x-s3".into(),
 			endpoint: tangram_uri::Uri::parse("https://objects.example.com").unwrap(),
 			express: true,
+			path_style: false,
 			pool: tangram_pool::Options::default(),
 			reconnect: tangram_futures::retry::Options::default(),
 			region: "us-east-1".into(),
 			secret_key: "root-secret".into(),
-		};
+		}
+	}
+
+	fn client() -> super::super::Client {
+		let config = config();
 		super::super::Client::new(&config).unwrap()
+	}
+
+	#[test]
+	fn signs_requests_with_the_selected_bucket_addressing() {
+		for path_style in [false, true] {
+			let mut config = config();
+			config.bucket = "archive-bucket".into();
+			config.endpoint = tangram_uri::Uri::parse("https://objects.example.com:9443").unwrap();
+			config.express = false;
+			config.path_style = path_style;
+			let client = super::super::Client::new(&config).unwrap();
+			let credentials = Credentials::new("access", "secret", None, None, "test");
+			for method in [http::Method::GET, http::Method::PUT, http::Method::DELETE] {
+				let arg = super::Request {
+					body: Bytes::from_static(b"object contents"),
+					credentials: &credentials,
+					headers: http::HeaderMap::new(),
+					method: method.clone(),
+					path: "/key",
+					query: Some("versionId=version"),
+					session_token: None,
+				};
+				let request = client.request(arg).unwrap();
+				let (host, target) = if path_style {
+					(
+						"objects.example.com:9443",
+						"/archive-bucket/key?versionId=version",
+					)
+				} else {
+					(
+						"archive-bucket.objects.example.com:9443",
+						"/key?versionId=version",
+					)
+				};
+				assert_eq!(request.method(), method);
+				assert_eq!(request.headers()[http::header::HOST], host);
+				assert_eq!(request.uri(), target);
+				let authorization = request.headers()[http::header::AUTHORIZATION]
+					.to_str()
+					.unwrap();
+				assert!(authorization.contains("/s3/aws4_request"));
+				assert!(!request.headers().contains_key("x-amz-s3session-token"));
+			}
+		}
+	}
+
+	#[test]
+	fn rejects_path_style_for_express() {
+		let mut config = config();
+		config.path_style = true;
+		let error = super::super::Client::new(&config).err().unwrap();
+		assert_eq!(
+			error.to_string(),
+			"the S3 Express archive does not support path-style addressing"
+		);
 	}
 
 	#[test]

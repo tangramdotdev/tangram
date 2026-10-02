@@ -178,6 +178,9 @@ pub struct S3Archive {
 	pub express: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path_style: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub pool: Option<ArchivePool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2460,6 +2463,7 @@ fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
 	let bucket = required(source.bucket, "archive.bucket")?;
 	let endpoint = required(source.endpoint, "archive.endpoint")?;
 	let express = required(source.express, "archive.express")?;
+	let path_style = source.path_style.unwrap_or_default();
 	let mut pool = server::ArchivePool::default();
 	if let Some(source) = source.pool {
 		if let Some(value) = source.max {
@@ -2483,6 +2487,7 @@ fn resolve_s3_archive(source: S3Archive) -> tg::Result<server::S3Archive> {
 		bucket,
 		endpoint,
 		express,
+		path_style,
 		pool,
 		reconnect,
 		region,
@@ -4499,12 +4504,31 @@ mod tests {
 		assert_eq!(target.bucket, "bucket");
 		assert_eq!(target.endpoint.as_str(), "https://objects.example.com");
 		assert!(target.express);
+		assert!(!target.path_style);
 		assert_eq!(target.pool.max, 32);
 		assert_eq!(target.pool.min, 4);
 		assert_eq!(target.pool.ttl, Some(Duration::from_secs(30)));
 		assert_eq!(target.reconnect.max_retries, 12);
 		assert_eq!(target.region, "us-east-1");
 		assert_eq!(target.secret_key, "secret");
+	}
+
+	#[test]
+	fn resolves_s3_archive_path_style() {
+		for path_style in [false, true] {
+			let source: S3Archive = serde_json::from_value(serde_json::json!({
+				"access_key": "access",
+				"bucket": "bucket",
+				"endpoint": "https://objects.example.com",
+				"express": false,
+				"path_style": path_style,
+				"region": "ash",
+				"secret_key": "secret",
+			}))
+			.unwrap();
+			let target = resolve_s3_archive(source).unwrap();
+			assert_eq!(target.path_style, path_style);
+		}
 	}
 
 	#[test]

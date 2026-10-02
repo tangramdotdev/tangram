@@ -9,6 +9,7 @@ pub struct Config {
 	pub bucket: String,
 	pub endpoint: Uri,
 	pub express: bool,
+	pub path_style: bool,
 	pub pool: tangram_pool::Options,
 	pub reconnect: tangram_futures::retry::Options,
 	pub region: String,
@@ -69,6 +70,7 @@ mod tests {
 			bucket,
 			endpoint: Uri::from_str(&endpoint).unwrap(),
 			express: false,
+			path_style: std::env::var("TANGRAM_S3_PATH_STYLE").is_ok_and(|value| value == "true"),
 			pool: tangram_pool::Options {
 				max: 4,
 				min: 2,

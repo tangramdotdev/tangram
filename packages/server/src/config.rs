@@ -95,6 +95,8 @@ pub struct S3Archive {
 
 	pub express: bool,
 
+	pub path_style: bool,
+
 	pub pool: ArchivePool,
 
 	pub reconnect: Reconnect,
