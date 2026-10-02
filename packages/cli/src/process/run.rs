@@ -7,7 +7,7 @@ pub struct Args {
 	#[command(flatten)]
 	pub options: Options,
 
-	/// The reference to the command.
+	/// The reference to the command, artifact, or process.
 	#[arg(index = 1, value_terminator = "--")]
 	pub reference: Option<tg::Reference>,
 
