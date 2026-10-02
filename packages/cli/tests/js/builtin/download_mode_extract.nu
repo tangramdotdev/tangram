@@ -1,29 +1,26 @@
 use ../../lib/test.nu *
+use ../../lib/http.nu *
 
 # tg.download with the "extract" mode unpacks the downloaded archive, returning a directory artifact.
 
-skip_if_offline
-
 let local = server spawn
-
-let arch = $nu.os-info.arch
-let archive = if $nu.os-info.name == "macos" {
-	$"dash_($arch)_darwin.tar.zst"
-} else {
-	$"dash_($arch)_linux.tar.zst"
-}
-let url = $"https://github.com/tangramdotdev/bootstrap/releases/download/v2026.09.16/($archive)"
+let source = artifact { 'file.txt': 'hello, world!' }
+let archive = mktemp
+tar -czf $archive -C $source file.txt
+let http = spawn_http_server { '/archive.tar.gz': { file: $archive } }
 
 let module = '
-	export default async function () {
-		let result = await tg.download("URL_PLACEHOLDER", undefined, { mode: "extract" });
-		return (result instanceof tg.Directory) && tg.Artifact.is(result);
+	export default async function (url: string) {
+		let result = await tg.download(url, undefined, { mode: "extract" });
+		tg.assert(result instanceof tg.Directory);
+		const file = tg.File.expect(await result.get("file.txt"));
+		return await file.text;
 	}
-' | str replace "URL_PLACEHOLDER" $url
+'
 
 let path = artifact {
 	tangram.ts: $module
 }
 
-let output = tg build $path
-snapshot $output 'true'
+let output = tg build $path $'($http.url)/archive.tar.gz' | from json
+assert equal $output 'hello, world!'

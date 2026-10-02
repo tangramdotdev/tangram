@@ -1,29 +1,25 @@
 use ../../lib/test.nu *
+use ../../lib/http.nu *
 
 # tg.download with the "decompress" mode decompresses the downloaded archive, returning a file artifact.
 
-skip_if_offline
-
 let local = server spawn
-
-let arch = $nu.os-info.arch
-let archive = if $nu.os-info.name == "macos" {
-	$"dash_($arch)_darwin.tar.zst"
-} else {
-	$"dash_($arch)_linux.tar.zst"
-}
-let url = $"https://github.com/tangramdotdev/bootstrap/releases/download/v2026.09.16/($archive)"
+let source = artifact 'hello, world!'
+let compressed = mktemp
+gzip --no-name --stdout $source o> $compressed
+let http = spawn_http_server { '/file.gz': { file: $compressed } }
 
 let module = '
-	export default async function () {
-		let result = await tg.download("URL_PLACEHOLDER", undefined, { mode: "decompress" });
-		return (result instanceof tg.File) && tg.Artifact.is(result);
+	export default async function (url: string) {
+		let result = await tg.download(url, undefined, { mode: "decompress" });
+		tg.assert(result instanceof tg.File);
+		return await result.text;
 	}
-' | str replace "URL_PLACEHOLDER" $url
+'
 
 let path = artifact {
 	tangram.ts: $module
 }
 
-let output = tg build $path
-snapshot $output 'true'
+let output = tg build $path $'($http.url)/file.gz' | from json
+assert equal $output 'hello, world!'

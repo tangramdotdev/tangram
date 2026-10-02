@@ -1,19 +1,20 @@
 use ../../lib/test.nu *
+use ../../lib/http.nu *
 
 # tg.download defaults to the wildcard "sha256:any" checksum when no checksum is given, returning a blob.
 
-skip_if_offline
-
 let local = server spawn
+let http = spawn_http_server { '/': { body: "hello, world!\n" } }
 
 let path = artifact {
 	tangram.ts: '
-		export default async function () {
-			let blob = await tg.download("http://www.example.com");
-			return (blob instanceof tg.Blob) && (await blob.length) > 0;
+		export default async function (url: string) {
+			let blob = await tg.download(url);
+			tg.assert(blob instanceof tg.Blob);
+			return await blob.text;
 		}
 	'
 }
 
-let output = tg build $path
-snapshot $output 'true'
+let output = tg build $path $http.url | from json
+assert equal $output "hello, world!\n"
