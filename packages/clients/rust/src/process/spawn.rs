@@ -885,7 +885,18 @@ impl<O: 'static> tg::Process<O> {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to determine if the output path exists"))?;
 
-		if exists {
+		let outcome_bytes = if exists {
+			tg::file::xattrs::read_outcome(&output_path)?
+		} else {
+			None
+		};
+		let has_outcome = outcome_bytes.is_some();
+		if let Some(bytes) = outcome_bytes {
+			let data = serde_json::from_slice::<tg::process::outcome::Data>(&bytes)
+				.map_err(|error| tg::error!(!error, "failed to parse the outcome xattr"))?;
+			outcome.error = data.error;
+			outcome.output = data.output;
+		} else if exists {
 			let output_bytes = tg::file::xattrs::read_output(&output_path)
 				.map_err(|error| tg::error!(!error, "failed to read the output xattr"))?;
 			if let Some(bytes) = output_bytes {
@@ -922,7 +933,7 @@ impl<O: 'static> tg::Process<O> {
 			}
 		}
 
-		if outcome.output.is_none() && exists {
+		if !has_outcome && outcome.error.is_none() && outcome.output.is_none() && exists {
 			let entry = tg::checkin::Arg {
 				options: tg::checkin::Options {
 					destructive: true,

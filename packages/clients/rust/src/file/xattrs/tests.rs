@@ -317,6 +317,38 @@ fn named_process_metadata() {
 	assert_eq!(read_checksum(&temp).unwrap(), Some(b"checksum".to_vec()));
 }
 
+#[test]
+fn empty_process_metadata_reads_contents() {
+	let temp = Temp::new().unwrap();
+	let contents = vec![42; 131_072];
+	std::fs::write(temp.as_ref(), &contents).unwrap();
+	for (read, write) in [
+		(
+			(|path: &Path| read_error(path)) as fn(&Path) -> tg::Result<Option<Vec<u8>>>,
+			(|path: &Path, value: &[u8]| write_error(path, value))
+				as fn(&Path, &[u8]) -> tg::Result<()>,
+		),
+		(
+			(|path: &Path| read_outcome(path)) as fn(&Path) -> tg::Result<Option<Vec<u8>>>,
+			(|path: &Path, value: &[u8]| write_outcome(path, value))
+				as fn(&Path, &[u8]) -> tg::Result<()>,
+		),
+		(
+			(|path: &Path| read_output(path)) as fn(&Path) -> tg::Result<Option<Vec<u8>>>,
+			(|path: &Path, value: &[u8]| write_output(path, value))
+				as fn(&Path, &[u8]) -> tg::Result<()>,
+		),
+	] {
+		assert_eq!(read(temp.as_ref()).unwrap(), None);
+		write(temp.as_ref(), b"").unwrap();
+		assert_eq!(read(temp.as_ref()).unwrap().as_ref(), Some(&contents));
+		write(temp.as_ref(), b"inline").unwrap();
+		assert_eq!(read(temp.as_ref()).unwrap(), Some(b"inline".to_vec()));
+		write(temp.as_ref(), &contents).unwrap();
+		assert_eq!(read(temp.as_ref()).unwrap().as_ref(), Some(&contents));
+	}
+}
+
 fn token(contents: &str) -> tg::authorization::Token {
 	let file = tg::File::with_contents(contents);
 	let body = tg::authorization::token::Body {

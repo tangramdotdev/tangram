@@ -64,6 +64,7 @@ pub fn syscall<'js>(
 		"host_object_id" => qjs::Function::new(ctx.clone(), self::host::object_id),
 		"host_parallelism" => qjs::Function::new(ctx.clone(), self::host::parallelism),
 		"host_read" => qjs::Function::new(ctx.clone(), Async(self::host::read)),
+		"host_read_file" => qjs::Function::new(ctx.clone(), Async(self::host::read_file)),
 		"host_remove" => qjs::Function::new(ctx.clone(), Async(self::host::remove)),
 		"host_signal" => qjs::Function::new(ctx.clone(), Async(self::host::signal)),
 		"host_signal_close" => {

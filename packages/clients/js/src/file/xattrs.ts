@@ -1,13 +1,28 @@
 import * as tg from "../index.ts";
 
 const ERROR_NAME = "user.tangram.error";
+const OUTCOME_NAME = "user.tangram.outcome";
 const OUTPUT_NAME = "user.tangram.output";
 
 export let readError = (path: string): Promise<Uint8Array | null> =>
-	readSharded(path, ERROR_NAME);
+	readProcessAttribute(path, ERROR_NAME);
+
+export let readOutcome = (path: string): Promise<Uint8Array | null> =>
+	readProcessAttribute(path, OUTCOME_NAME);
 
 export let readOutput = (path: string): Promise<Uint8Array | null> =>
-	readSharded(path, OUTPUT_NAME);
+	readProcessAttribute(path, OUTPUT_NAME);
+
+/** An empty process attribute marks the file contents as its serialized value. */
+let readProcessAttribute = async (
+	path: string,
+	name: string,
+): Promise<Uint8Array | null> => {
+	let value = await readSharded(path, name);
+	return value !== null && value.length === 0
+		? await tg.host.readFile(path)
+		: value;
+};
 
 /** Read a Tangram attribute stored as a single value or numbered shards. */
 let readSharded = async (

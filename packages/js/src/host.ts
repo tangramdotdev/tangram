@@ -116,6 +116,10 @@ export let host: tg.Host = {
 		return syscall("host_read", fd, length ?? null, stopper ?? null);
 	},
 
+	readFile(path: string): Promise<Uint8Array> {
+		return syscall("host_read_file", path);
+	},
+
 	remove(path: string): Promise<void> {
 		return syscall("host_remove", path);
 	},

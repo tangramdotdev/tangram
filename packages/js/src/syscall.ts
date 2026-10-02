@@ -90,6 +90,8 @@ declare global {
 		stopper: number | null,
 	): Promise<Uint8Array | null>;
 
+	function syscall(syscall: "host_read_file", path: string): Promise<Uint8Array>;
+
 	function syscall(syscall: "host_remove", path: string): Promise<void>;
 
 	function syscall(

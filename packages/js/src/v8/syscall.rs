@@ -47,6 +47,7 @@ pub fn syscall<'s>(
 		"host_object_id" => sync(scope, &args, self::host::object_id),
 		"host_parallelism" => sync(scope, &args, self::host::parallelism),
 		"host_read" => async_(scope, &args, self::host::read),
+		"host_read_file" => async_(scope, &args, self::host::read_file),
 		"host_remove" => async_(scope, &args, self::host::remove),
 		"host_signal" => async_(scope, &args, self::host::signal),
 		"host_signal_close" => async_(scope, &args, self::host::listen_signal_close),

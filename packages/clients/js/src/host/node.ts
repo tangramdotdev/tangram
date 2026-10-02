@@ -350,6 +350,10 @@ export let host: Host = {
 		return await readFd(fd, length ?? 64 * 1024, signal);
 	},
 
+	async readFile(path: string): Promise<Uint8Array> {
+		return await fs.promises.readFile(path);
+	},
+
 	async remove(path: string): Promise<void> {
 		await fs.promises.rm(path, { force: true, recursive: true });
 	},

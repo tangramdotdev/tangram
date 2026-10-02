@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { readError, readOutput } from "../src/file/xattrs.ts";
+import { readError, readOutcome, readOutput } from "../src/file/xattrs.ts";
 import * as tg from "../src/index.ts";
 
 test("the Node host lists and reads raw xattrs", async () => {
@@ -22,6 +22,26 @@ test("the Node host lists and reads raw xattrs", async () => {
 				execFileSync("setfattr", ["--name", name, "--value", value, path]);
 			}
 		}
+		await writeFile(path, "serialized contents");
+		if (process.platform === "darwin") {
+			execFileSync("xattr", ["-w", "user.tangram.outcome", "", path]);
+		} else {
+			execFileSync("setfattr", [
+				"--name",
+				"user.tangram.outcome",
+				"--value",
+				"",
+				path,
+			]);
+		}
+		assert.deepEqual(
+			await tg.host.getxattr(path, "user.tangram.outcome"),
+			new Uint8Array(),
+		);
+		assert.equal(
+			new TextDecoder().decode(await readOutcome(path)),
+			"serialized contents",
+		);
 		let names = await tg.host.listxattr(path);
 		assert(names.includes("user.tangram.output.0"));
 		assert(names.includes("user.tangram.output.1"));
@@ -39,17 +59,25 @@ test("the Node host lists and reads raw xattrs", async () => {
 test("process xattr readers validate and assemble shards", async () => {
 	let getxattr = tg.host.getxattr;
 	let listxattr = tg.host.listxattr;
+	let readFile = tg.host.readFile;
 	try {
 		for (let [name, read] of [
 			["user.tangram.output", readOutput],
 			["user.tangram.error", readError],
+			["user.tangram.outcome", readOutcome],
 		] as const) {
 			let values = new Map<string, Uint8Array>();
 			tg.host.getxattr = async (_path, key) => values.get(key) ?? null;
 			tg.host.listxattr = async () => [...values.keys()];
 			assert.equal(await read("file"), null);
 			values.set(name, new Uint8Array());
-			assert.deepEqual(await read("file"), new Uint8Array());
+			let contents = new TextEncoder().encode("serialized contents");
+			tg.host.readFile = async () => contents;
+			assert.deepEqual(await read("file"), contents);
+			tg.host.readFile = async () => {
+				throw new Error("read failed");
+			};
+			await assert.rejects(() => read("file"), /read failed/);
 			values.clear();
 
 			// Split multibyte text and insert more than ten shards in reverse order.
@@ -82,5 +110,6 @@ test("process xattr readers validate and assemble shards", async () => {
 	} finally {
 		tg.host.getxattr = getxattr;
 		tg.host.listxattr = listxattr;
+		tg.host.readFile = readFile;
 	}
 });

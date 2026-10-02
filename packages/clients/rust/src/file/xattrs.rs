@@ -14,6 +14,7 @@ pub const LOCK_NAME: &str = "user.tangram.lock";
 /// The maximum extended attribute value size used by virtual filesystems.
 pub const MAX_VALUE_SIZE: usize = 64 * 1024;
 pub const MODULE_NAME: &str = "user.tangram.module";
+pub const OUTCOME_NAME: &str = "user.tangram.outcome";
 pub const OUTPUT_NAME: &str = "user.tangram.output";
 pub const TOKEN_NAME: &str = "user.tangram.token";
 
@@ -175,8 +176,9 @@ pub fn write_checksum(path: impl AsRef<Path>, value: &[u8]) -> tg::Result<()> {
 	Ok(())
 }
 
+/// Read a serialized error, using the file contents when the attribute is empty.
 pub fn read_error(path: impl AsRef<Path>) -> tg::Result<Option<Vec<u8>>> {
-	let value = shards::read_sharded(path, ERROR_NAME)
+	let value = read_process_attribute(path.as_ref(), ERROR_NAME)
 		.map_err(|error| tg::error!(!error, "failed to read the error xattr"))?;
 	Ok(value)
 }
@@ -199,8 +201,22 @@ pub fn write_lock(path: impl AsRef<Path>, value: &[u8]) -> tg::Result<()> {
 	Ok(())
 }
 
+/// Read a serialized outcome, using the file contents when the attribute is empty.
+pub fn read_outcome(path: impl AsRef<Path>) -> tg::Result<Option<Vec<u8>>> {
+	let value = read_process_attribute(path.as_ref(), OUTCOME_NAME)
+		.map_err(|error| tg::error!(!error, "failed to read the outcome xattr"))?;
+	Ok(value)
+}
+
+pub fn write_outcome(path: impl AsRef<Path>, value: &[u8]) -> tg::Result<()> {
+	shards::write_sharded(path, OUTCOME_NAME, value)
+		.map_err(|error| tg::error!(!error, "failed to write the outcome xattr"))?;
+	Ok(())
+}
+
+/// Read a serialized output, using the file contents when the attribute is empty.
 pub fn read_output(path: impl AsRef<Path>) -> tg::Result<Option<Vec<u8>>> {
-	let value = shards::read_sharded(path, OUTPUT_NAME)
+	let value = read_process_attribute(path.as_ref(), OUTPUT_NAME)
 		.map_err(|error| tg::error!(!error, "failed to read the output xattr"))?;
 	Ok(value)
 }
@@ -318,6 +334,14 @@ impl Default for Options {
 			max_value_size: tg::file::xattrs::MAX_VALUE_SIZE,
 		}
 	}
+}
+
+fn read_process_attribute(path: &Path, name: &str) -> std::io::Result<Option<Vec<u8>>> {
+	let value = shards::read_sharded(path, name)?;
+	if value.as_ref().is_some_and(Vec::is_empty) {
+		return std::fs::read(path).map(Some);
+	}
+	Ok(value)
 }
 
 fn deserialize_token_xattr(value: &[u8]) -> tg::Result<tg::authorization::Token> {

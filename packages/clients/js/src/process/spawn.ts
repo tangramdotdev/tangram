@@ -1,4 +1,4 @@
-import { readError, readOutput } from "../file/xattrs.ts";
+import { readError, readOutcome, readOutput } from "../file/xattrs.ts";
 import * as tg from "../index.ts";
 import { Connection } from "./connect.ts";
 import * as stdio from "./stdio.ts";
@@ -365,31 +365,48 @@ export let waitUnsandboxed = async (
 		outcome = outcome_;
 		let exists = await tg.host.exists(outputPath);
 		if (exists) {
-			let outputBytes = await readOutput(outputPath);
-			if (outputBytes !== null) {
-				let tgon = tg.encoding.utf8.decode(outputBytes);
-				outcome_.output = tg.Value.parse(tgon);
-			}
-			let errorBytes = await readError(outputPath);
-			if (errorBytes !== null) {
-				let string = tg.encoding.utf8.decode(errorBytes);
-				try {
-					let value = tg.encoding.json.decode(string) as
-						| tg.Error.Data
-						| tg.Error.Id;
-					outcome_.error =
-						typeof value === "string"
-							? tg.Error.withId(value)
-							: tg.Error.fromData(value);
-				} catch {
-					let referent = tg.Referent.fromDataString(
-						string,
-						(id) => id as tg.Error.Id,
-					);
-					outcome_.error = tg.Error.withReferent(referent);
+			let outcomeBytes = await readOutcome(outputPath);
+			if (outcomeBytes !== null) {
+				let data = JSON.parse(
+					tg.encoding.utf8.decode(outcomeBytes),
+				) as tg.Process.Outcome.Data;
+				let value = tg.Process.Outcome.fromData(data);
+				outcome_.error = value.error;
+				if (value.output !== undefined) {
+					outcome_.output = value.output;
+				}
+			} else {
+				let outputBytes = await readOutput(outputPath);
+				if (outputBytes !== null) {
+					let tgon = tg.encoding.utf8.decode(outputBytes);
+					outcome_.output = tg.Value.parse(tgon);
+				}
+				let errorBytes = await readError(outputPath);
+				if (errorBytes !== null) {
+					let string = tg.encoding.utf8.decode(errorBytes);
+					try {
+						let value = tg.encoding.json.decode(string) as
+							| tg.Error.Data
+							| tg.Error.Id;
+						outcome_.error =
+							typeof value === "string"
+								? tg.Error.withId(value)
+								: tg.Error.fromData(value);
+					} catch {
+						let referent = tg.Referent.fromDataString(
+							string,
+							(id) => id as tg.Error.Id,
+						);
+						outcome_.error = tg.Error.withReferent(referent);
+					}
 				}
 			}
-			if (outcome_.output === undefined) {
+
+			if (
+				outcomeBytes === null &&
+				outcome_.error === null &&
+				outcome_.output === undefined
+			) {
 				let stream = await tg.client.checkin({
 					options: {
 						checkoutPointers: true,

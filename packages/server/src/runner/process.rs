@@ -2262,34 +2262,49 @@ impl Session {
 			outcome.checksum = Some(checksum);
 		}
 
-		// Try to read the user.tangram.output xattr.
-		if let Ok(Some(bytes)) = tg::file::xattrs::read_output(&path) {
-			let tgon = String::from_utf8(bytes)
-				.map_err(|error| tg::error!(!error, "failed to decode the output xattr"))?;
-			outcome.output = Some(
-				tgon.parse::<tg::Value>()
-					.map_err(|error| tg::error!(!error, "failed to parse the output xattr"))?,
-			);
-		}
+		// Read the combined outcome before the separate output and error attributes.
+		let outcome_bytes = if exists {
+			tg::file::xattrs::read_outcome(&path)?
+		} else {
+			None
+		};
+		let has_outcome = outcome_bytes.is_some();
+		if let Some(bytes) = outcome_bytes {
+			let data = serde_json::from_slice::<tg::process::outcome::Data>(&bytes)
+				.map_err(|error| tg::error!(!error, "failed to parse the outcome xattr"))?;
+			let value = tg::process::Outcome::try_from(data)?;
+			outcome.error = value.error;
+			outcome.output = value.output;
+		} else if exists {
+			// Try to read the user.tangram.output xattr.
+			if let Some(bytes) = tg::file::xattrs::read_output(&path)? {
+				let tgon = String::from_utf8(bytes)
+					.map_err(|error| tg::error!(!error, "failed to decode the output xattr"))?;
+				outcome.output = Some(
+					tgon.parse::<tg::Value>()
+						.map_err(|error| tg::error!(!error, "failed to parse the output xattr"))?,
+				);
+			}
 
-		// Try to read the user.tangram.error xattr.
-		if let Ok(Some(bytes)) = tg::file::xattrs::read_error(&path) {
-			let error = if let Ok(data) = serde_json::from_slice::<tg::error::Data>(&bytes) {
-				tg::Error::try_from(data)
-					.map_err(|error| tg::error!(!error, "failed to convert the error data"))?
-			} else {
-				let string = String::from_utf8(bytes)
-					.map_err(|error| tg::error!(!error, "failed to decode the error xattr"))?;
-				let referent = string
-					.parse()
-					.map_err(|error| tg::error!(!error, "failed to parse the error xattr"))?;
-				tg::Error::with_referent(referent)
-			};
-			outcome.error = Some(error);
+			// Try to read the user.tangram.error xattr.
+			if let Some(bytes) = tg::file::xattrs::read_error(&path)? {
+				let error = if let Ok(data) = serde_json::from_slice::<tg::error::Data>(&bytes) {
+					tg::Error::try_from(data)
+						.map_err(|error| tg::error!(!error, "failed to convert the error data"))?
+				} else {
+					let string = String::from_utf8(bytes)
+						.map_err(|error| tg::error!(!error, "failed to decode the error xattr"))?;
+					let referent = string
+						.parse()
+						.map_err(|error| tg::error!(!error, "failed to parse the error xattr"))?;
+					tg::Error::with_referent(referent)
+				};
+				outcome.error = Some(error);
+			}
 		}
 
 		// Check in the output.
-		if outcome.output.is_none() && exists {
+		if !has_outcome && outcome.error.is_none() && outcome.output.is_none() && exists {
 			let path = self.guest_path_for_host_path(&path)?;
 			let arg = tg::checkin::Arg {
 				options: tg::checkin::Options {

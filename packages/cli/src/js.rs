@@ -160,39 +160,22 @@ impl Cli {
 		.await
 		.map_err(|error| tg::error!(!error, "the js thread failed"))?;
 
-		// Write the output.
+		// Write the serialized outcome to the file and mark it with an empty attribute.
 		if let Ok(output_path) = std::env::var("TANGRAM_OUTPUT")
 			&& (output.is_some() || error.is_some())
 		{
-			std::fs::write(&output_path, "").map_err(
-				|error| tg::error!(!error, path = %output_path, "failed to write the output"),
+			let outcome = tg::process::Outcome {
+				error,
+				exit,
+				output,
+			};
+			let bytes = serde_json::to_vec(&outcome.to_data())
+				.map_err(|error| tg::error!(!error, "failed to serialize the outcome"))?;
+			std::fs::write(&output_path, bytes).map_err(
+				|error| tg::error!(!error, path = %output_path, "failed to write the outcome"),
 			)?;
-			if let Some(output) = &output {
-				let options = tg::value::print::Options {
-					tokens: true,
-					..Default::default()
-				};
-				let tgon = output.print(options);
-				tg::file::xattrs::write_output(&output_path, tgon.as_bytes())
-					.map_err(|error| tg::error!(!error, "failed to write the output xattr"))?;
-			}
-			if let Some(error) = &error {
-				if let Some(data) = error
-					.state()
-					.object()
-					.map(|object| object.unwrap_error().to_data())
-				{
-					let json = serde_json::to_vec(&data)
-						.map_err(|error| tg::error!(!error, "failed to serialize the error"))?;
-					tg::file::xattrs::write_error(&output_path, &json)
-						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
-				} else {
-					let referent = error.to_referent();
-					let string = referent.to_string();
-					tg::file::xattrs::write_error(&output_path, string.as_bytes())
-						.map_err(|error| tg::error!(!error, "failed to write the error xattr"))?;
-				}
-			}
+			tg::file::xattrs::write_outcome(&output_path, b"")
+				.map_err(|error| tg::error!(!error, "failed to write the outcome xattr"))?;
 		}
 
 		Ok(exit)

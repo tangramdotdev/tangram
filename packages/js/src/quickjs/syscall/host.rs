@@ -195,6 +195,11 @@ pub async fn read(
 	Result(result)
 }
 
+pub async fn read_file(ctx: qjs::Ctx<'_>, path: String) -> Result<Uint8Array> {
+	let state = ctx.userdata::<StateHandle>().unwrap().clone();
+	Result(state.host.read_file(path).await.map(Uint8Array::from))
+}
+
 pub async fn remove(ctx: qjs::Ctx<'_>, path: String) -> Result<()> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	Result(state.host.remove(path).await)

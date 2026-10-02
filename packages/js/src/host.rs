@@ -301,6 +301,13 @@ impl Host {
 		Ok(Some(buffer.into()))
 	}
 
+	pub async fn read_file(&self, path: String) -> tg::Result<Bytes> {
+		let bytes = tokio::fs::read(&path)
+			.await
+			.map_err(|error| tg::error!(!error, %path, "failed to read the file"))?;
+		Ok(bytes.into())
+	}
+
 	pub async fn remove(&self, path: String) -> tg::Result<()> {
 		tangram_util::fs::remove(&path)
 			.await

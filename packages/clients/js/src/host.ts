@@ -62,6 +62,8 @@ export type Host = {
 		stopper?: tg.Host.Stopper | null,
 	): Promise<Uint8Array | null>;
 
+	readFile(path: string): Promise<Uint8Array>;
+
 	remove(path: string): Promise<void>;
 
 	signal(pid: number, signal: tg.Process.Signal): Promise<void>;

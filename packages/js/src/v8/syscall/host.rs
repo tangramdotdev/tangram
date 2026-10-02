@@ -197,6 +197,11 @@ pub async fn read(
 	state.host.read(fd, length, stopper).await
 }
 
+pub async fn read_file(state: Rc<State>, args: (String,)) -> tg::Result<Bytes> {
+	let (path,) = args;
+	state.host.read_file(path).await
+}
+
 pub async fn remove(state: Rc<State>, args: (String,)) -> tg::Result<()> {
 	let (path,) = args;
 	state.host.remove(path).await
