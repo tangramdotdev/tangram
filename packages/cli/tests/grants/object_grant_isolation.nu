@@ -30,7 +30,17 @@ success $granted "Eve should read the file she was granted."
 # Eve cannot climb to the parent directory.
 let parent = tg --url $remote.url --token $eve.token get $directory | complete
 failure $parent "the grant should not confer the parent directory."
+snapshot $parent.stderr '
+	error an error occurred
+	-> failed to load the object
+
+'
 
 # Eve cannot reach the sibling file.
 let sibling = tg --url $remote.url --token $eve.token get $sibling_file | complete
 failure $sibling "the grant should not confer a sibling file."
+snapshot $sibling.stderr '
+	error an error occurred
+	-> failed to load the object
+
+'

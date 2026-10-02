@@ -31,3 +31,8 @@ tg --url $remote.url index
 # After revocation Bob can no longer read the file.
 let denied = tg --url $remote.url --token $bob.token get $file | complete
 failure $denied "Bob should lose access after the grant is revoked."
+snapshot $denied.stderr '
+	error an error occurred
+	-> failed to load the object
+
+'

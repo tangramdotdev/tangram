@@ -23,10 +23,42 @@ success (tg --token $bob.token process children $process | complete)
 let status = tg --token $bob.token process status $process | from json
 assert equal $status [started]
 
-failure (tg --token $carol.token process get $process | complete)
-failure (tg --token $carol.token process status $process | complete)
-failure (tg --token $carol.token process children $process | complete)
-failure (tg --token $carol.token wait $process | complete)
+let output = tg --token $carol.token process get $process | complete
+failure $output "an unrelated principal must not get the process"
+snapshot --normalize $output.stderr '
+	error an error occurred
+	-> failed to get the process
+	   id = pcs_0000000000000000000000000000
+	-> failed to get the process
+
+'
+let output = tg --token $carol.token process status $process | complete
+failure $output "an unrelated principal must not read the process status"
+snapshot --normalize $output.stderr '
+	error an error occurred
+	-> failed to get the process status
+	   id = pcs_0000000000000000000000000000
+	-> failed to get the process
+
+'
+let output = tg --token $carol.token process children $process | complete
+failure $output "an unrelated principal must not read the process children"
+snapshot --normalize $output.stderr '
+	error an error occurred
+	-> failed to get the process children
+	   id = pcs_0000000000000000000000000000
+	-> failed to get the process
+
+'
+let output = tg --token $carol.token wait $process | complete
+failure $output "an unrelated principal must not wait for the process"
+snapshot --normalize $output.stderr '
+	error an error occurred
+	-> failed to wait for the process
+	   id = pcs_0000000000000000000000000000
+	-> failed to find the process
+
+'
 
 # Attach the node reader while the process is active, then finish without publishing to the index.
 let params = { process: $process } | to json --raw
@@ -51,7 +83,14 @@ let result = job recv --tag $wait_job --timeout 10sec
 let result = $result | lines | where { str starts-with 'data: ' } | last | str substring 6.. | from json
 assert equal $result.exit 0
 assert (not ($result.output.value | str contains 'tokens[')) "a node reader must not receive an output capability"
-failure (tg --token $bob.token cat $result.output.value | complete) "a node reader must not read the output"
+let output = tg --token $bob.token cat $result.output.value | complete
+failure $output "a node reader must not read the output"
+snapshot $output.stderr '
+	error an error occurred
+	-> failed to get file contents
+	-> failed to load the object
+
+'
 
 # An output reader can receive the output capability and read the result before completion is indexed.
 tg --token $alice.token grant $bob.user.id process_node_output_objects $process | ignore

@@ -14,7 +14,19 @@ let file = (tg --token $alice.token wait $process | from json).output.value | sp
 # Eve cannot read Alice's private object.
 let denied = tg --token $eve.token get $file | complete
 failure $denied "Eve should not read Alice's private object."
+snapshot $denied.stderr '
+	error an error occurred
+	-> failed to load the object
+
+'
 
 # Eve must not be able to touch an object she cannot read; it should be masked as not found.
 let touched = tg --token $eve.token object touch $file | complete
 failure $touched "Eve must not touch an object she cannot read."
+snapshot --normalize-ids $touched.stderr '
+	error an error occurred
+	-> failed to touch the object
+	   id = fil_010000000000000000000000000000000000000000000000000000
+	-> failed to touch the object
+
+'
