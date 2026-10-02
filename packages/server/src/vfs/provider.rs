@@ -249,14 +249,25 @@ impl Provider {
 						.listxattrs(id)
 						.await
 						.map(|names| vfs::Response::ListXattrs { names }),
-					vfs::Request::Lookup { id, name } => self
-						.lookup(id, &name)
-						.await
-						.map(|id| vfs::Response::Lookup { attrs: None, id }),
+					vfs::Request::Lookup { id, name } => {
+						let immutable = self.nodes.is_immutable(id);
+						self.lookup(id, &name)
+							.await
+							.map(|id| vfs::Response::Lookup {
+								attrs: None,
+								id,
+								immutable,
+							})
+					},
 					vfs::Request::LookupAndRemember { id, name } => {
+						let immutable = self.nodes.is_immutable(id);
 						self.lookup_and_remember(id, &name).await.map(|entry| {
 							let (id, attrs) = entry.unzip();
-							vfs::Response::Lookup { attrs, id }
+							vfs::Response::Lookup {
+								attrs,
+								id,
+								immutable,
+							}
 						})
 					},
 					vfs::Request::LookupParent { id } => self
@@ -417,15 +428,27 @@ impl Provider {
 			vfs::Request::ListXattrs { id } => self
 				.listxattrs_sync_inner(id, transaction)
 				.map(|names| vfs::Response::ListXattrs { names }),
-			vfs::Request::Lookup { id, name } => self
-				.lookup_sync_inner(id, &name, transaction, false)
-				.map(|id| vfs::Response::Lookup { attrs: None, id }),
-			vfs::Request::LookupAndRemember { id, name } => self
-				.lookup_and_remember_sync_inner(id, &name, transaction)
-				.map(|entry| {
-					let (id, attrs) = entry.unzip();
-					vfs::Response::Lookup { attrs, id }
-				}),
+			vfs::Request::Lookup { id, name } => {
+				let immutable = self.nodes.is_immutable(id);
+				self.lookup_sync_inner(id, &name, transaction, false)
+					.map(|id| vfs::Response::Lookup {
+						attrs: None,
+						id,
+						immutable,
+					})
+			},
+			vfs::Request::LookupAndRemember { id, name } => {
+				let immutable = self.nodes.is_immutable(id);
+				self.lookup_and_remember_sync_inner(id, &name, transaction)
+					.map(|entry| {
+						let (id, attrs) = entry.unzip();
+						vfs::Response::Lookup {
+							attrs,
+							id,
+							immutable,
+						}
+					})
+			},
 			vfs::Request::LookupParent { id } => self
 				.lookup_parent_sync(id)
 				.map(|id| vfs::Response::LookupParent { id }),
@@ -4279,6 +4302,16 @@ impl Nodes {
 				tracing::error!(%id, "node not found");
 				std::io::Error::from_raw_os_error(libc::ENOENT)
 			})
+	}
+
+	fn is_immutable(&self, id: u64) -> bool {
+		// The root and named directories gain entries over time, but artifacts never change.
+		self.state
+			.lock()
+			.unwrap()
+			.nodes
+			.get(&id)
+			.is_some_and(|node| node.artifact.is_some())
 	}
 
 	fn set_attrs(&self, id: u64, attrs: vfs::Attrs) {

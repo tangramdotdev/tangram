@@ -462,10 +462,30 @@ where
 				}
 			},
 			RequestData::Lookup(_) => {
-				let ProviderResponse::Lookup { attrs, id } = response else {
+				let ProviderResponse::Lookup {
+					attrs,
+					id,
+					immutable,
+				} = response
+				else {
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
-				let node = id.ok_or_else(|| Error::from_raw_os_error(libc::ENOENT))?;
+				let Some(node) = id else {
+					// Reply with a negative entry when the entry cannot appear later, so that the kernel caches its absence.
+					if !immutable {
+						return Err(Error::from_raw_os_error(libc::ENOENT));
+					}
+					let out = fuse_entry_out {
+						attr: fuse_attr::new_zeroed(),
+						attr_valid: 0,
+						attr_valid_nsec: 0,
+						entry_valid: u64::MAX,
+						entry_valid_nsec: 0,
+						generation: 0,
+						nodeid: 0,
+					};
+					return Ok(Response::Lookup(out));
+				};
 				let attrs = attrs.ok_or_else(|| Error::from_raw_os_error(libc::EIO))?;
 				let out = Self::fuse_entry_out_from_attrs(node, attrs);
 				Ok(Response::Lookup(out))

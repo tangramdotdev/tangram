@@ -105,18 +105,24 @@ impl tangram_vfs::Provider for Provider {
 						tangram_vfs::Request::Lookup { id, name } => self
 							.lookup(id, &name)
 							.await
-							.map(|id| tangram_vfs::Response::Lookup { attrs: None, id }),
+							.map(|id| tangram_vfs::Response::Lookup {
+								attrs: None,
+								id,
+								immutable: false,
+							}),
 						tangram_vfs::Request::LookupAndRemember { id, name } => {
 							match self.lookup(id, &name).await {
 								Ok(Some(id)) => self.getattr(id).await.map(|attrs| {
 									tangram_vfs::Response::Lookup {
 										attrs: Some(attrs),
 										id: Some(id),
+										immutable: false,
 									}
 								}),
 								Ok(None) => Ok(tangram_vfs::Response::Lookup {
 									attrs: None,
 									id: None,
+									immutable: false,
 								}),
 								Err(error) => Err(error),
 							}
