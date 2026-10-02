@@ -32,6 +32,6 @@ assert equal (send_stripe_webhook $local $webhook_secret $event) 200 "a valid we
 
 let created = tg --token $alice.token sandbox create --no-tokens --group acme/team --no-network | complete
 success $created "a group should inherit its organization's billing status"
-tg --token $alice.token sandbox destroy ($created.stdout | str trim)
+tg --token $alice.token sandbox destroy ($created.stdout | referent node)
 
 stop_stripe $stripe

@@ -116,7 +116,7 @@ def early_finish():
         return json.loads(result.stdout) if result.stdout else None
 
     watches = {name: checkpoint("watch", name)["watch"] for name in (
-        "process.control.output", "process.control.finish",
+        "process.control.header", "process.control.finish",
     )}
     # End the synthetic writer's empty log before Finish queues compaction.
     end = {"kind": "write", "value": {"kind": "end", "value": {
@@ -131,10 +131,10 @@ def early_finish():
     with concurrent.futures.ThreadPoolExecutor() as executor:
         pending = executor.submit(connect, {"parent": parent, "lease": "test", "data": data}, None, messages)
         try:
-            # The request body reaches the server before Output is returned.
+            # The request body reaches the server before the header is returned.
             for name in watches:
                 checkpoint("wait", name, watches[name], 0)
-            checkpoint("unwatch", "process.control.output", watches.pop("process.control.output"))
+            checkpoint("unwatch", "process.control.header", watches.pop("process.control.header"))
             sock, response, output = pending.result(timeout=10)
             sync = output["sync"]
             assert sync, output

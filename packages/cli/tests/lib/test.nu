@@ -280,6 +280,23 @@ export def "token body" [value?: string] {
 	$value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
 }
 
+# Decode the length-prefixed JSON header before reading the SSE stream.
+export def "stream header" [] {
+	let bytes = $in | into binary
+	mut length = 0
+	mut offset = 0
+	loop {
+		let byte = $bytes | bytes at $offset..$offset | into int
+		$length = $length + (($byte | bits and 127) | bits shl (7 * $offset))
+		$offset = $offset + 1
+		if $byte < 128 { break }
+		if $offset >= 10 { error make { msg: 'invalid stream header length' } }
+	}
+	let header = $bytes | bytes at $offset..<($offset + $length) | decode utf-8 | from json
+	let stream = $bytes | bytes at ($offset + $length).. | decode utf-8
+	{ header: $header, stream: $stream }
+}
+
 export def --env snapshot [
 	--name: string
 	--normalize (-n)

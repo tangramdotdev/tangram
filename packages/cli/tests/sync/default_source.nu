@@ -18,7 +18,7 @@ for operation in [push pull] {
 		let arg = { destination: $target, nodes: [$id] }
 		let arg = if $explicit_null { $arg | insert source null } else { $arg }
 		let response = http post --raw --max-time 20sec --content-type application/json --unix-socket $socket --headers { Accept: 'text/event-stream' } $'http://localhost/($operation)' $arg
-		assert not ($response | str contains 'event: error') 'the transfer should use the default remote source'
+		assert not ($response | stream header | get stream | str contains 'event: error') 'the transfer should use the default remote source'
 		let target_url = if $operation == push { $destination.url } else { $local.url }
 		let target_socket = $target_url | str replace 'http+unix://' '' | url decode
 		let data = http get --max-time 10sec --unix-socket $target_socket --headers { Accept: 'application/json' } $'http://localhost/objects/($id)' | get data.value.bytes | decode base64 | decode utf-8
@@ -33,7 +33,7 @@ for explicit_null in [false true] {
 	let arg = { source: 'local', nodes: [$id] }
 	let arg = if $explicit_null { $arg | insert destination null } else { $arg }
 	let response = http post --raw --max-time 20sec --content-type application/json --unix-socket $socket --headers { Accept: 'text/event-stream' } 'http://localhost/push' $arg
-	assert not ($response | str contains 'event: error') 'the transfer should use the default remote destination'
+	assert not ($response | stream header | get stream | str contains 'event: error') 'the transfer should use the default remote destination'
 	let source_socket = $source.url | str replace 'http+unix://' '' | url decode
 	let data = http get --max-time 10sec --unix-socket $source_socket --headers { Accept: 'application/json' } $'http://localhost/objects/($id)' | get data.value.bytes | decode base64 | decode utf-8
 	assert equal $data $value

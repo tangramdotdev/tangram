@@ -6,7 +6,7 @@ let local = server spawn
 
 let output = tg put --no-tokens 'tg.bogus(((' | complete
 failure $output
-snapshot --normalize $output.stderr '
+snapshot --normalize ($output.stderr | str replace --regex '(?m)[ \t]+$' '') '
 	error an error occurred
 	-> failed to parse the value
 	->

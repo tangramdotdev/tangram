@@ -51,6 +51,6 @@ assert equal ($requests | length) 3 "an ignored webhook should not retrieve the 
 
 let created = tg --token $alice.token sandbox create --no-tokens --no-network | complete
 success $created "an ignored webhook should not change the user's billing status"
-tg --token $alice.token sandbox destroy ($created.stdout | str trim)
+tg --token $alice.token sandbox destroy ($created.stdout | referent node)
 
 stop_stripe $stripe
