@@ -327,11 +327,21 @@ impl Session {
 		if local {
 			command_options.location = Some(tg::Location::Local(tg::location::Local::default()));
 		} else {
+			let trusted = match &location {
+				tg::Location::Remote(remote) => self
+					.get_remote_session(&remote.name)
+					.await
+					.map_err(|error| {
+						tg::error!(!error, remote = %remote.name, "failed to get the remote client")
+					})?
+					.trusted(),
+				tg::Location::Local(_) => false,
+			};
 			self.update_tokens_and_location(
 				&mut command_options.tokens,
 				Some(&mut command_options.location),
 				&location,
-				false,
+				trusted,
 			)?;
 		}
 		state.command.options = command_options;
