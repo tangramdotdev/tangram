@@ -32,3 +32,12 @@ assert ((open $path) =~ 'updated') 'expected the updated tag target'
 
 tg tag delete dep | ignore
 assert (not ($path | path exists)) 'expected the deleted tag to disappear'
+
+# A miss in an existing named directory must not hide a new tag.
+tg tag -p group/initial $initial
+let group = vfs store_path $server_path | path join 'group'
+assert ((open ($group | path join 'initial/tangram.ts')) =~ 'initial') 'expected the existing nested tag'
+let path = $group | path join 'added/tangram.ts'
+assert (not ($path | path exists)) 'expected the nested tag to be absent initially'
+tg tag group/added $updated
+assert ((open $path) =~ 'updated') 'expected the new nested tag to appear'

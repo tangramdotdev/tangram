@@ -15,7 +15,7 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
-	/// The reference to the command.
+	/// The reference to the command, artifact, or process.
 	#[arg(index = 1, value_terminator = "--")]
 	pub reference: Option<tg::Reference>,
 
@@ -576,7 +576,35 @@ impl Cli {
 			..Default::default()
 		};
 		let referent = self.get_with_arg(&reference, arg).await?.referent;
-		let mut referent = referent.into_graph_edge()?;
+		let mut referent = match referent.node.clone() {
+			tg::get::Node::Id(id) if id.kind() == tg::id::Kind::Process => {
+				let id = tg::process::Id::try_from(id)?;
+				let process = tg::Process::<tg::Value>::with_referent(referent.map(|_| id));
+				let state = process
+					.load_with_instance(&client)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the process's command"))?;
+				let command = process.command_with_instance(&client).await?;
+				let command = match command {
+					tg::Either::Left(command) => {
+						let arg = tg::process::spawn::CommandArg {
+							args: command.args,
+							cwd: command.cwd,
+							env: command.env,
+							executable: command.executable,
+							host: Some(command.host),
+							stdin: command.stdin,
+							user: command.user,
+						};
+						tg::command::Builder::try_with_spawn_arg(arg)?.build()?
+					},
+					tg::Either::Right(command) => command,
+				};
+				let node = tg::graph::Edge::Object(tg::Object::Command(command));
+				tg::Referent::new(node, state.command.options.clone())
+			},
+			_ => referent.into_graph_edge()?,
+		};
 
 		// Set the args.
 		let mut args_: Vec<tg::command::Value> = Vec::new();
@@ -645,12 +673,7 @@ impl Cli {
 				let object = command.object_with_instance(&client).await?;
 				command_env = Some(object.env.clone());
 				command_options = Some(referent.options.clone());
-				tg::Command::builder()
-					.host(object.host.clone())
-					.executable(object.executable.clone())
-					.args(object.args.clone())
-					.cwd(object.cwd.clone())
-					.stdin(object.stdin.clone())
+				tg::command::Builder::with_object(&object)
 			},
 
 			_ if executable.is_some() => tg::Command::builder(),

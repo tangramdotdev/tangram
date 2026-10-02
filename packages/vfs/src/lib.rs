@@ -92,6 +92,7 @@ pub enum Response {
 	Lookup {
 		attrs: Option<Attrs>,
 		id: Option<u64>,
+		immutable: bool,
 	},
 	LookupParent {
 		id: u64,
@@ -335,7 +336,7 @@ pub trait Provider {
 				.next()
 				.ok_or_else(|| Error::other("expected exactly one response"))??;
 			match response {
-				Response::Lookup { attrs, id } => match (attrs, id) {
+				Response::Lookup { attrs, id, .. } => match (attrs, id) {
 					(Some(attrs), Some(id)) => Ok(Some((id, attrs))),
 					(None, None) => Ok(None),
 					_ => Err(Error::other("invalid lookup-and-remember response")),
@@ -356,7 +357,7 @@ pub trait Provider {
 			.next()
 			.ok_or_else(|| Error::other("expected exactly one response"))??;
 		match response {
-			Response::Lookup { attrs, id } => match (attrs, id) {
+			Response::Lookup { attrs, id, .. } => match (attrs, id) {
 				(Some(attrs), Some(id)) => Ok(Some((id, attrs))),
 				(None, None) => Ok(None),
 				_ => Err(Error::other("invalid lookup-and-remember response")),
