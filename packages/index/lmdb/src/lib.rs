@@ -86,6 +86,7 @@ impl Index {
 			.map_size(config.map_size)
 			.max_dbs(3)
 			.max_readers(1_000);
+		// SAFETY: The index writes to the mapped data only through LMDB transactions.
 		unsafe {
 			options.flags(
 				lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::WRITE_MAP | lmdb::EnvFlags::MAP_ASYNC,
@@ -94,6 +95,7 @@ impl Index {
 		if let Some(prefix) = &config.posix_sem_prefix {
 			options.semaphore_name(prefix.clone());
 		}
+		// SAFETY: The index accesses the database and its lock file only through LMDB.
 		let env = unsafe {
 			options.open(&config.path).map_err(|error| {
 				tg::error!(!error, path = %config.path.display(), "failed to open the lmdb environment")
