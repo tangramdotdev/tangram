@@ -551,8 +551,8 @@ impl fdbt::TuplePack for Key {
 						object,
 						touched_at,
 					} => (
-						touched_at,
 						crate::clean::ItemKind::AccountObject.to_i32().unwrap(),
+						touched_at,
 						account.id().to_bytes().as_ref(),
 						object.to_bytes().as_ref(),
 					)
@@ -562,33 +562,33 @@ impl fdbt::TuplePack for Key {
 						process,
 						touched_at,
 					} => (
-						touched_at,
 						crate::clean::ItemKind::AccountProcess.to_i32().unwrap(),
+						touched_at,
 						account.id().to_bytes().as_ref(),
 						process.to_bytes().as_ref(),
 					)
 						.pack(w, tuple_depth),
 					crate::clean::Key::Checkout { id, touched_at } => (
-						touched_at,
 						crate::clean::ItemKind::Checkout.to_i32().unwrap(),
+						touched_at,
 						id.to_bytes().as_ref(),
 					)
 						.pack(w, tuple_depth),
 					crate::clean::Key::Object { id, touched_at } => (
-						touched_at,
 						crate::clean::ItemKind::Object.to_i32().unwrap(),
+						touched_at,
 						id.to_bytes().as_ref(),
 					)
 						.pack(w, tuple_depth),
 					crate::clean::Key::Process { id, touched_at } => (
-						touched_at,
 						crate::clean::ItemKind::Process.to_i32().unwrap(),
+						touched_at,
 						id.to_bytes().as_ref(),
 					)
 						.pack(w, tuple_depth),
 					crate::clean::Key::Sandbox { id, touched_at } => (
-						touched_at,
 						crate::clean::ItemKind::Sandbox.to_i32().unwrap(),
+						touched_at,
 						id.to_bytes().as_ref(),
 					)
 						.pack(w, tuple_depth),
@@ -1509,8 +1509,8 @@ impl fdbt::TupleUnpack<'_> for Key {
 			},
 
 			Kind::Clean => {
-				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, kind_value): (_, i32) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, touched_at): (_, i64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let kind = crate::clean::ItemKind::from_i32(kind_value)
 					.ok_or(fdbt::PackError::Message("invalid cleanup item kind".into()))?;
 				let (input, key) = match kind {

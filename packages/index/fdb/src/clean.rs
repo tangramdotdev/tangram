@@ -6,16 +6,16 @@ use {
 	super::{Index, Kind, Request, Response},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
-	futures::StreamExt as _,
+	futures::{StreamExt as _, future},
 	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
 struct Candidate {
+	item: Item,
 	partition: u64,
 	touched_at: i64,
-	item: Item,
 }
 
 #[derive(Clone)]
@@ -120,111 +120,27 @@ impl Index {
 			.await
 		);
 		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations);
-		let mut candidates = Vec::new();
 
-		let key_kind = Kind::Clean.to_i32().unwrap();
-		let max_touched_at = max_object_touched_at
-			.max(max_process_touched_at)
-			.max(max_sandbox_touched_at);
-		for partition in partition_start..partition_end {
-			let begin = Self::pack(subspace, &(key_kind, partition, i64::MIN));
-			let end = Self::pack(
+		// Preserve the numeric kind order when timestamps tie.
+		let cutoffs = [
+			(ItemKind::Checkout, max_object_touched_at),
+			(ItemKind::Object, max_object_touched_at),
+			(ItemKind::Process, max_process_touched_at),
+			(ItemKind::Sandbox, max_sandbox_touched_at),
+			(ItemKind::AccountObject, max_object_touched_at),
+			(ItemKind::AccountProcess, max_process_touched_at),
+		];
+		let candidates = crate::propagate!(
+			Self::clean_candidates(
+				txn,
 				subspace,
-				&(key_kind, partition, max_touched_at.saturating_add(1)),
-			);
-			if candidates.len() >= remaining_batch_size {
-				break;
-			}
-			let range = fdb::RangeOption {
-				begin: fdb::KeySelector::first_greater_or_equal(&begin),
-				end: fdb::KeySelector::first_greater_or_equal(&end),
-				mode: fdb::options::StreamingMode::Iterator,
-				..Default::default()
-			};
-			let mut entries = txn.get_ranges_keyvalues(range, false);
-			while candidates.len() < remaining_batch_size {
-				let result = entries.next().await.transpose();
-				let Some(entry) = crate::retry!(result) else {
-					break;
-				};
-				let key = Self::unpack(subspace, entry.key())?;
-				let crate::Key::Clean(key) = key else {
-					return Err(tg::error!("expected clean key"));
-				};
-				let (item, partition, touched_at, max_touched_at) = match key {
-					crate::clean::Key::AccountObject {
-						account,
-						object,
-						partition,
-						touched_at,
-					} => (
-						Item::AccountObject { account, object },
-						partition,
-						touched_at,
-						max_object_touched_at,
-					),
-					crate::clean::Key::AccountProcess {
-						account,
-						partition,
-						process,
-						touched_at,
-					} => (
-						Item::AccountProcess { account, process },
-						partition,
-						touched_at,
-						max_process_touched_at,
-					),
-					crate::clean::Key::Checkout {
-						id,
-						partition,
-						touched_at,
-					} => (
-						Item::Checkout(id),
-						partition,
-						touched_at,
-						max_object_touched_at,
-					),
-					crate::clean::Key::Object {
-						id,
-						partition,
-						touched_at,
-					} => (
-						Item::Object(id),
-						partition,
-						touched_at,
-						max_object_touched_at,
-					),
-					crate::clean::Key::Process {
-						id,
-						partition,
-						touched_at,
-					} => (
-						Item::Process(id),
-						partition,
-						touched_at,
-						max_process_touched_at,
-					),
-					crate::clean::Key::Sandbox {
-						id,
-						partition,
-						touched_at,
-					} => (
-						Item::Sandbox(id),
-						partition,
-						touched_at,
-						max_sandbox_touched_at,
-					),
-				};
-				if touched_at > max_touched_at {
-					continue;
-				}
-				candidates.push(Candidate {
-					partition,
-					touched_at,
-					item,
-				});
-			}
-		}
+				&cutoffs,
+				remaining_batch_size,
+				partition_start,
+				partition_end,
+			)
+			.await
+		);
 
 		for candidate in &candidates {
 			match &candidate.item {
@@ -344,6 +260,139 @@ impl Index {
 			&& propagated_versions == 0;
 
 		Ok(ControlFlow::Break(output))
+	}
+
+	async fn clean_candidates(
+		txn: &crate::Transaction,
+		subspace: &Subspace,
+		cutoffs: &[(ItemKind, i64)],
+		batch_size: usize,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<ControlFlow<Vec<Candidate>, fdb::FdbError>> {
+		let key_kind = Kind::Clean.to_i32().unwrap();
+		let mut candidates = Vec::new();
+		for partition in partition_start..partition_end {
+			let remaining = batch_size.saturating_sub(candidates.len());
+			if remaining == 0 {
+				break;
+			}
+
+			// Bound each kind's scan by its own expiration cutoff.
+			let mut streams = Vec::new();
+			for &(item_kind, max_touched_at) in cutoffs {
+				let item_kind = item_kind.to_i32().unwrap();
+				let begin = Self::pack(subspace, &(key_kind, partition, item_kind));
+				let prefix =
+					Self::pack(subspace, &(key_kind, partition, item_kind, max_touched_at));
+				let end = Subspace::from_bytes(prefix).range().1;
+				let range = fdb::RangeOption {
+					begin: fdb::KeySelector::first_greater_or_equal(begin),
+					end: fdb::KeySelector::first_greater_or_equal(end),
+					limit: Some(remaining),
+					mode: fdb::options::StreamingMode::Iterator,
+					..Default::default()
+				};
+				let stream = txn.get_ranges_keyvalues(range, false);
+				streams.push(stream);
+			}
+
+			// Read the range heads together and preserve transaction retry errors.
+			let futures = streams
+				.iter_mut()
+				.map(|stream| async move { stream.next().await.transpose() });
+			let result = future::try_join_all(futures).await;
+			let entries = crate::retry!(result);
+			let mut heads = entries
+				.into_iter()
+				.map(|entry| {
+					entry
+						.map(|entry| Self::clean_candidate(subspace, entry.key()))
+						.transpose()
+				})
+				.collect::<tg::Result<Vec<_>>>()?;
+
+			// Merge the ranges by timestamp, breaking ties in the numeric kind order.
+			while candidates.len() < batch_size {
+				let index = heads
+					.iter()
+					.enumerate()
+					.filter_map(|(index, candidate)| {
+						candidate.as_ref().map(|candidate| (index, candidate))
+					})
+					.min_by_key(|(index, candidate)| (candidate.touched_at, *index))
+					.map(|(index, _)| index);
+				let Some(index) = index else {
+					break;
+				};
+				candidates.push(heads[index].take().unwrap());
+				if candidates.len() < batch_size {
+					let result = streams[index].next().await.transpose();
+					let entry = crate::retry!(result);
+					heads[index] = entry
+						.map(|entry| Self::clean_candidate(subspace, entry.key()))
+						.transpose()?;
+				}
+			}
+		}
+
+		Ok(ControlFlow::Break(candidates))
+	}
+
+	fn clean_candidate(subspace: &Subspace, key: &[u8]) -> tg::Result<Candidate> {
+		let key = Self::unpack(subspace, key)?;
+		let crate::Key::Clean(key) = key else {
+			return Err(tg::error!("expected clean key"));
+		};
+		let (item, partition, touched_at) = match key {
+			Key::AccountObject {
+				account,
+				object,
+				partition,
+				touched_at,
+			} => (
+				Item::AccountObject { account, object },
+				partition,
+				touched_at,
+			),
+			Key::AccountProcess {
+				account,
+				partition,
+				process,
+				touched_at,
+			} => (
+				Item::AccountProcess { account, process },
+				partition,
+				touched_at,
+			),
+			Key::Checkout {
+				id,
+				partition,
+				touched_at,
+			} => (Item::Checkout(id), partition, touched_at),
+			Key::Object {
+				id,
+				partition,
+				touched_at,
+			} => (Item::Object(id), partition, touched_at),
+			Key::Process {
+				id,
+				partition,
+				touched_at,
+			} => (Item::Process(id), partition, touched_at),
+			Key::Sandbox {
+				id,
+				partition,
+				touched_at,
+			} => (Item::Sandbox(id), partition, touched_at),
+		};
+		let candidate = Candidate {
+			item,
+			partition,
+			touched_at,
+		};
+
+		Ok(candidate)
 	}
 
 	async fn delete_expired_permissions(
