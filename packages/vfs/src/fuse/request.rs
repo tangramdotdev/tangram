@@ -471,7 +471,7 @@ where
 					return Err(Error::from_raw_os_error(libc::EIO));
 				};
 				let Some(node) = id else {
-					// Reply with a negative entry when the entry cannot appear later, so that the kernel caches its absence.
+					// Cache the absence only when the entry cannot appear later.
 					if !immutable {
 						return Err(Error::from_raw_os_error(libc::ENOENT));
 					}

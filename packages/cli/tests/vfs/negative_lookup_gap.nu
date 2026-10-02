@@ -13,6 +13,7 @@ let path = artifact {
 		export default async function () {
 			const directory = await tg.directory({ "present.txt": "present" });
 			const output = await tg.build`
+				[ -f ${directory}/present.txt ] || exit 1
 				start=$EPOCHREALTIME
 				i=0
 				while [ $i -lt 100000 ]; do
@@ -34,8 +35,10 @@ def measure [config: record] {
 	$milliseconds
 }
 
-let io = if (fuse_io_uring_available) { 'io_uring' } else { 'read_write' }
-let vfs = measure { vfs: { io: $io, kind: 'fuse' } }
 let disabled = measure { vfs: false }
-print $'100000 missing-path tests: vfs=($vfs)ms disabled=($disabled)ms'
-assert ($vfs <= $disabled * 2 + 50) $'the VFS took ($vfs)ms, the disabled VFS took ($disabled)ms'
+let transports = if (fuse_io_uring_available) { [read_write io_uring] } else { [read_write] }
+for io in $transports {
+	let vfs = measure { vfs: { io: $io, kind: 'fuse' } }
+	print $'100000 missing-path tests: ($io)=($vfs)ms disabled=($disabled)ms'
+	assert ($vfs <= $disabled * 2 + 50) $'the ($io) VFS took ($vfs)ms, the disabled VFS took ($disabled)ms'
+}
