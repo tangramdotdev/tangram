@@ -113,7 +113,7 @@ struct ProcessOutput {
 }
 
 enum UsageRelationship {
-	Object(tg::object::Id),
+	Object(tg::object::Id, Option<tangram_index::process::object::Kind>),
 	Process(tg::process::Id),
 }
 
@@ -590,6 +590,7 @@ impl Index {
 				},
 				Kind::Usage(UsageKind::Put {
 					account,
+					permissions,
 					touched_at,
 				}) => match &id {
 					tg::Either::Left(object) => {
@@ -603,7 +604,7 @@ impl Index {
 									touched_at: *touched_at,
 								},
 								partition_totals,
-								false,
+								Some(*permissions),
 								Some(&version),
 							)
 							.await
@@ -620,7 +621,7 @@ impl Index {
 									touched_at: *touched_at,
 								},
 								partition_totals,
-								false,
+								Some(*permissions),
 								Some(&version),
 							)
 							.await
@@ -835,9 +836,10 @@ impl Index {
 		let result = txn
 			.get(&Self::pack(subspace, &crate::Key::Usage(key)), false)
 			.await;
-		if crate::retry!(result).is_none() {
+		let Some(value) = crate::retry!(result) else {
 			return Ok(ControlFlow::Break(None));
-		}
+		};
+		let entry = tangram_index::usage::storage::Entry::deserialize(&value)?;
 
 		// Resolve the put version once a versionstamped insertion starts propagating.
 		if cursor.is_none() {
@@ -848,15 +850,31 @@ impl Index {
 		let (relationships, cursor) = crate::propagate!(
 			Self::get_storage_relationships_page(txn, subspace, id, cursor).await
 		);
-		let kind = Kind::Usage(UsageKind::Put {
-			account: account.clone(),
-			touched_at,
-		});
 		for relationship in relationships {
-			let id = match relationship {
-				UsageRelationship::Object(id) => tg::Either::Left(id),
-				UsageRelationship::Process(id) => tg::Either::Right(id),
+			let (id, permissions) = match relationship {
+				UsageRelationship::Object(object, kind) => {
+					let permissions = match kind {
+						Some(kind) => tangram_index::usage::storage::object_permissions(
+							entry.permissions,
+							kind,
+						),
+						None => tangram_index::usage::storage::child_permissions(entry.permissions),
+					};
+					(tg::Either::Left(object), permissions)
+				},
+				UsageRelationship::Process(process) => (
+					tg::Either::Right(process),
+					tangram_index::usage::storage::child_permissions(entry.permissions),
+				),
 			};
+			if permissions.is_empty() {
+				continue;
+			}
+			let kind = Kind::Usage(UsageKind::Put {
+				account: account.clone(),
+				permissions,
+				touched_at,
+			});
 			Self::enqueue_update_with_kind_at_version(
 				txn,
 				subspace,
@@ -897,7 +915,7 @@ impl Index {
 			let result =
 				future::try_join_all(relationships.iter().map(|relationship| async move {
 					match relationship {
-						UsageRelationship::Object(object) => {
+						UsageRelationship::Object(object, _) => {
 							Self::schedule_account_object_for_cleaning(
 								txn,
 								subspace,
@@ -1139,7 +1157,7 @@ impl Index {
 		};
 		let relationships = children
 			.into_iter()
-			.map(UsageRelationship::Object)
+			.map(|object| UsageRelationship::Object(object, None))
 			.collect();
 
 		Ok(ControlFlow::Break((relationships, cursor)))
@@ -1201,7 +1219,7 @@ impl Index {
 		relationships.extend(
 			objects
 				.into_iter()
-				.map(|(object, _)| UsageRelationship::Object(object)),
+				.map(|(object, kind)| UsageRelationship::Object(object, Some(kind))),
 		);
 		let cursor = more.then_some(UsageCursor::ProcessObject(cursor));
 

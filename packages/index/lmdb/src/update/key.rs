@@ -48,6 +48,7 @@ pub enum UsageKind {
 	},
 	Put {
 		account: tangram_index::usage::Account,
+		permissions: tg::authorization::permission::Set,
 		touched_at: i64,
 	},
 }

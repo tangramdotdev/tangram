@@ -200,33 +200,52 @@ impl Index {
 		let tag_parent_key = Self::pack(subspace, &tag_parent_key);
 		txn.set(&tag_parent_key, &[]);
 
-		// Charge the current account for permissions already held by the tag, even without a new capture proof.
-		if arg.account.is_some() && tag.as_ref().is_none_or(|tag| tag.account != arg.account) {
-			match &arg.target {
-				tg::Either::Left(id) => {
+		if tag.as_ref().is_none_or(|tag| tag.account != arg.account) {
+			let resources = crate::propagate!(
+				Self::get_tag_storage_resources_with_transaction(txn, subspace, &arg.id).await
+			);
+			for resource in resources {
+				if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
+					crate::propagate!(
+						Self::schedule_object_accounts_for_cleaning(
+							txn,
+							subspace,
+							&object,
+							partition_totals.usage_update
+						)
+						.await
+					);
 					crate::propagate!(
 						Self::enqueue_account_object_from_parents(
 							txn,
 							subspace,
-							id,
+							&object,
 							partition_totals.usage_update,
 							arg.touched_at
 						)
 						.await
 					);
-				},
-				tg::Either::Right(id) => {
+				} else if let Ok(process) = tg::process::Id::try_from(resource) {
+					crate::propagate!(
+						Self::schedule_process_accounts_for_cleaning(
+							txn,
+							subspace,
+							&process,
+							partition_totals.usage_update
+						)
+						.await
+					);
 					crate::propagate!(
 						Self::enqueue_account_process_from_parents(
 							txn,
 							subspace,
-							id,
+							&process,
 							partition_totals.usage_update,
 							arg.touched_at
 						)
 						.await
 					);
-				},
+				}
 			}
 		}
 

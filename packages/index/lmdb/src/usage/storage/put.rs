@@ -2,7 +2,7 @@ use {
 	crate::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	num_traits::ToPrimitive as _,
-	std::collections::BTreeSet,
+	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 };
 
@@ -31,7 +31,9 @@ impl Index {
 			entry.touched_at = arg.touched_at;
 			db.put(transaction, &key, &entry.serialize()?)
 				.map_err(|error| tg::error!(!error, "failed to touch the account object"))?;
-			Self::put_account_object_clean_key(db, subspace, transaction, arg)?;
+			if entry.reference_count == 0 {
+				Self::put_account_object_clean_key(db, subspace, transaction, arg)?;
+			}
 		}
 
 		Ok(())
@@ -61,7 +63,9 @@ impl Index {
 			entry.touched_at = arg.touched_at;
 			db.put(transaction, &key, &entry.serialize()?)
 				.map_err(|error| tg::error!(!error, "failed to touch the account process"))?;
-			Self::put_account_process_clean_key(db, subspace, transaction, arg)?;
+			if entry.reference_count == 0 {
+				Self::put_account_process_clean_key(db, subspace, transaction, arg)?;
+			}
 		}
 
 		Ok(())
@@ -74,38 +78,66 @@ impl Index {
 		object: &tg::object::Id,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		let mut accounts = BTreeSet::new();
+		let mut accounts = BTreeMap::new();
+		let mut insert = |account, permissions: tg::authorization::permission::Set| {
+			if !permissions.is_empty() {
+				accounts
+					.entry(account)
+					.and_modify(|current: &mut tg::authorization::permission::Set| {
+						current.insert(permissions);
+					})
+					.or_insert(permissions);
+			}
+		};
 		let parents = Self::get_object_parents_with_transaction(db, subspace, transaction, object)?;
 		for parent in parents {
-			accounts.extend(Self::get_object_accounts_with_transaction(
-				db,
-				subspace,
-				transaction,
-				&parent,
-			)?);
+			for account in
+				Self::get_object_accounts_with_transaction(db, subspace, transaction, &parent)?
+			{
+				if let Some(entry) = Self::get_account_storage_entry_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&account,
+					&tg::Either::Left(parent.clone()),
+				)? {
+					insert(
+						account,
+						tangram_index::usage::storage::child_permissions(entry.permissions),
+					);
+				}
+			}
 		}
 		let processes =
 			Self::get_object_processes_with_transaction(db, subspace, transaction, object)?;
-		for (process, _) in processes {
-			accounts.extend(Self::get_process_accounts_with_transaction(
-				db,
-				subspace,
-				transaction,
-				&process,
-			)?);
+		for (process, kind) in processes {
+			for account in
+				Self::get_process_accounts_with_transaction(db, subspace, transaction, &process)?
+			{
+				if let Some(entry) = Self::get_account_storage_entry_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&account,
+					&tg::Either::Right(process.clone()),
+				)? {
+					insert(
+						account,
+						tangram_index::usage::storage::object_permissions(entry.permissions, kind),
+					);
+				}
+			}
 		}
-		let object_bytes = object.to_bytes();
-		let required = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Node,
-		);
-		accounts.extend(Self::get_target_tag_accounts_with_transaction(
+		let resource = tg::Id::from(object.clone());
+		for (account, permissions) in Self::get_tag_storage_permissions_with_transaction(
 			db,
 			subspace,
 			transaction,
-			object_bytes.as_ref(),
-			required,
-		)?);
-		for account in accounts {
+			&resource,
+		)? {
+			insert(account, permissions);
+		}
+		for (account, permissions) in accounts {
 			Self::enqueue_update_with_kind(
 				db,
 				subspace,
@@ -113,6 +145,7 @@ impl Index {
 				tg::Either::Left(object.clone()),
 				crate::update::Kind::Usage(crate::update::UsageKind::Put {
 					account,
+					permissions,
 					touched_at,
 				}),
 				crate::update::Source::Put,
@@ -130,29 +163,47 @@ impl Index {
 		process: &tg::process::Id,
 		touched_at: i64,
 	) -> tg::Result<()> {
-		let mut accounts = BTreeSet::new();
+		let mut accounts = BTreeMap::new();
+		let mut insert = |account, permissions: tg::authorization::permission::Set| {
+			if !permissions.is_empty() {
+				accounts
+					.entry(account)
+					.and_modify(|current: &mut tg::authorization::permission::Set| {
+						current.insert(permissions);
+					})
+					.or_insert(permissions);
+			}
+		};
 		let parents =
 			Self::get_process_parents_with_transaction(db, subspace, transaction, process)?;
 		for parent in parents {
-			accounts.extend(Self::get_process_accounts_with_transaction(
-				db,
-				subspace,
-				transaction,
-				&parent,
-			)?);
+			for account in
+				Self::get_process_accounts_with_transaction(db, subspace, transaction, &parent)?
+			{
+				if let Some(entry) = Self::get_account_storage_entry_with_transaction(
+					db,
+					subspace,
+					transaction,
+					&account,
+					&tg::Either::Right(parent.clone()),
+				)? {
+					insert(
+						account,
+						tangram_index::usage::storage::child_permissions(entry.permissions),
+					);
+				}
+			}
 		}
-		let process_bytes = process.to_bytes();
-		let required = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Node,
-		);
-		accounts.extend(Self::get_target_tag_accounts_with_transaction(
+		let resource = tg::Id::from(process.clone());
+		for (account, permissions) in Self::get_tag_storage_permissions_with_transaction(
 			db,
 			subspace,
 			transaction,
-			process_bytes.as_ref(),
-			required,
-		)?);
-		for account in accounts {
+			&resource,
+		)? {
+			insert(account, permissions);
+		}
+		for (account, permissions) in accounts {
 			Self::enqueue_update_with_kind(
 				db,
 				subspace,
@@ -160,6 +211,7 @@ impl Index {
 				tg::Either::Right(process.clone()),
 				crate::update::Kind::Usage(crate::update::UsageKind::Put {
 					account,
+					permissions,
 					touched_at,
 				}),
 				crate::update::Source::Put,
@@ -168,43 +220,6 @@ impl Index {
 		}
 
 		Ok(())
-	}
-
-	fn get_target_tag_accounts_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RoTxn<'_>,
-		target: &[u8],
-		required: tg::authorization::Permission,
-	) -> tg::Result<BTreeSet<tangram_index::usage::Account>> {
-		let tag_ids = Self::get_target_tags_with_transaction(db, subspace, transaction, target)?;
-		let tags = Self::try_get_tags_with_transaction(db, subspace, transaction, &tag_ids)?;
-		let mut accounts = BTreeSet::new();
-		for (id, tag) in std::iter::zip(tag_ids, tags) {
-			let Some(tag) = tag else {
-				continue;
-			};
-			let subject = tg::authorization::Subject::Tag(id);
-			let resource = match tag.target {
-				tg::Either::Left(id) => tg::Id::from(id),
-				tg::Either::Right(id) => tg::Id::from(id),
-			};
-			let entries = Self::get_resource_permission_entries_for_subject_with_transaction(
-				db,
-				subspace,
-				transaction,
-				&resource,
-				&subject,
-			)?;
-			if entries.iter().any(|entry| {
-				entry.permission.implies(required) && entry.effective_expires_at().is_some()
-			}) && let Some(account) = tag.account
-			{
-				accounts.insert(account);
-			}
-		}
-
-		Ok(accounts)
 	}
 
 	pub(crate) fn enqueue_account_process_relationships(
@@ -224,11 +239,26 @@ impl Index {
 		let objects =
 			Self::get_process_objects_with_transaction(db, subspace, transaction, process)?;
 		for account in accounts {
+			let Some(entry) = Self::get_account_storage_entry_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&account,
+				&tg::Either::Right(process.clone()),
+			)?
+			else {
+				continue;
+			};
+			let permissions = tangram_index::usage::storage::child_permissions(entry.permissions);
 			let kind = crate::update::Kind::Usage(crate::update::UsageKind::Put {
-				account,
+				account: account.clone(),
+				permissions,
 				touched_at,
 			});
 			for child in &children {
+				if permissions.is_empty() {
+					break;
+				}
 				Self::enqueue_update_with_kind(
 					db,
 					subspace,
@@ -239,7 +269,19 @@ impl Index {
 					None,
 				)?;
 			}
-			for (object, _) in &objects {
+			for (object, object_kind) in &objects {
+				let permissions = tangram_index::usage::storage::object_permissions(
+					entry.permissions,
+					*object_kind,
+				);
+				if permissions.is_empty() {
+					continue;
+				}
+				let kind = crate::update::Kind::Usage(crate::update::UsageKind::Put {
+					account: account.clone(),
+					permissions,
+					touched_at,
+				});
 				Self::enqueue_update_with_kind(
 					db,
 					subspace,
@@ -323,7 +365,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::usage::storage::put::ObjectArg,
 		usage_partition_total: u64,
-		touch_existing: bool,
+		permissions: Option<tg::authorization::permission::Set>,
 		version: Option<u64>,
 	) -> tg::Result<bool> {
 		let entry_key = Key::Usage(crate::usage::Key::AccountObject {
@@ -331,12 +373,46 @@ impl Index {
 			object: arg.object.clone(),
 		});
 		let entry_key = Self::pack(subspace, &entry_key);
-		if let Some(value) = db
+		let value = db
 			.get(transaction, &entry_key)
-			.map_err(|error| tg::error!(!error, "failed to get the account object"))?
-		{
-			let mut entry = tangram_index::usage::storage::Entry::deserialize(value)?;
+			.map_err(|error| tg::error!(!error, "failed to get the account object"))?;
+		let entry = value
+			.map(tangram_index::usage::storage::Entry::deserialize)
+			.transpose()?;
+		let touch_existing = permissions.is_none();
+		let permissions = permissions.unwrap_or(tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::SUBTREE,
+		));
+		if permissions.is_empty() {
+			return Ok(false);
+		}
+		if let Some(mut entry) = entry {
+			let previous = entry.permissions;
+			entry.permissions.insert(permissions);
+			if previous != entry.permissions {
+				db.put(transaction, &entry_key, &entry.serialize()?)
+					.map_err(|error| {
+						tg::error!(!error, "failed to update the storage permissions")
+					})?;
+				Self::clear_usage_update_versions(
+					db,
+					subspace,
+					transaction,
+					&tg::Either::Left(arg.object.clone()),
+					&arg.account,
+				)?;
+				Self::propagate_account_object(
+					db,
+					subspace,
+					transaction,
+					arg,
+					entry.permissions,
+					version.unwrap_or_else(|| transaction.id() as u64),
+				)?;
+			}
+
 			if touch_existing && arg.touched_at > entry.touched_at {
+				entry.reference_count = 0;
 				entry.touched_at = arg.touched_at;
 				let value = entry.serialize()?;
 				db.put(transaction, &entry_key, &value)
@@ -344,7 +420,14 @@ impl Index {
 				Self::put_account_object_clean_key(db, subspace, transaction, arg)?;
 			}
 			if let Some(version) = version {
-				Self::propagate_account_object(db, subspace, transaction, arg, version)?;
+				Self::propagate_account_object(
+					db,
+					subspace,
+					transaction,
+					arg,
+					entry.permissions,
+					version,
+				)?;
 			}
 			return Ok(false);
 		}
@@ -354,6 +437,7 @@ impl Index {
 			return Ok(false);
 		};
 		let entry = tangram_index::usage::storage::Entry {
+			permissions,
 			reference_count: 0,
 			touched_at: arg.touched_at,
 		};
@@ -391,7 +475,7 @@ impl Index {
 		Self::add_usage_delta(db, subspace, transaction, entry)?;
 
 		let version = version.unwrap_or_else(|| transaction.id() as u64);
-		Self::propagate_account_object(db, subspace, transaction, arg, version)?;
+		Self::propagate_account_object(db, subspace, transaction, arg, permissions, version)?;
 
 		Ok(true)
 	}
@@ -402,7 +486,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::usage::storage::put::ProcessArg,
 		usage_partition_total: u64,
-		touch_existing: bool,
+		permissions: Option<tg::authorization::permission::Set>,
 		version: Option<u64>,
 	) -> tg::Result<bool> {
 		let entry_key = Key::Usage(crate::usage::Key::AccountProcess {
@@ -410,12 +494,57 @@ impl Index {
 			process: arg.process.clone(),
 		});
 		let entry_key = Self::pack(subspace, &entry_key);
-		if let Some(value) = db
+		let value = db
 			.get(transaction, &entry_key)
-			.map_err(|error| tg::error!(!error, "failed to get the account process"))?
-		{
-			let mut entry = tangram_index::usage::storage::Entry::deserialize(value)?;
+			.map_err(|error| tg::error!(!error, "failed to get the account process"))?;
+		let entry = value
+			.map(tangram_index::usage::storage::Entry::deserialize)
+			.transpose()?;
+		let touch_existing = permissions.is_none();
+		let permissions = permissions.unwrap_or(tg::authorization::permission::Set::Process(
+			tg::authorization::permission::process::Set::all(),
+		));
+		if permissions.is_empty() {
+			return Ok(false);
+		}
+		if let Some(mut entry) = entry {
+			let previous = entry.permissions;
+			let stored = entry.stores_node();
+			entry.permissions.insert(permissions);
+			if previous != entry.permissions {
+				if !stored && entry.stores_node() {
+					let delta = tangram_index::usage::DeltaArg {
+						account: &arg.account,
+						at: arg.touched_at,
+						delta: 1,
+						kind: tangram_index::usage::DeltaKind::ProcessCount,
+						partition: rand::random_range(0..usage_partition_total),
+					};
+					Self::add_usage_delta(db, subspace, transaction, delta)?;
+				}
+				db.put(transaction, &entry_key, &entry.serialize()?)
+					.map_err(|error| {
+						tg::error!(!error, "failed to update the storage permissions")
+					})?;
+				Self::clear_usage_update_versions(
+					db,
+					subspace,
+					transaction,
+					&tg::Either::Right(arg.process.clone()),
+					&arg.account,
+				)?;
+				Self::propagate_account_process(
+					db,
+					subspace,
+					transaction,
+					arg,
+					entry.permissions,
+					version.unwrap_or_else(|| transaction.id() as u64),
+				)?;
+			}
+
 			if touch_existing && arg.touched_at > entry.touched_at {
+				entry.reference_count = 0;
 				entry.touched_at = arg.touched_at;
 				let value = entry.serialize()?;
 				db.put(transaction, &entry_key, &value)
@@ -423,7 +552,14 @@ impl Index {
 				Self::put_account_process_clean_key(db, subspace, transaction, arg)?;
 			}
 			if let Some(version) = version {
-				Self::propagate_account_process(db, subspace, transaction, arg, version)?;
+				Self::propagate_account_process(
+					db,
+					subspace,
+					transaction,
+					arg,
+					entry.permissions,
+					version,
+				)?;
 			}
 			return Ok(false);
 		}
@@ -434,6 +570,7 @@ impl Index {
 			return Ok(false);
 		}
 		let entry = tangram_index::usage::storage::Entry {
+			permissions,
 			reference_count: 0,
 			touched_at: arg.touched_at,
 		};
@@ -451,17 +588,19 @@ impl Index {
 		Self::put_account_process_clean_key(db, subspace, transaction, arg)?;
 		let usage_partition = rand::random_range(0..usage_partition_total);
 
-		let entry = tangram_index::usage::DeltaArg {
-			account: &arg.account,
-			at: arg.touched_at,
-			delta: 1,
-			kind: tangram_index::usage::DeltaKind::ProcessCount,
-			partition: usage_partition,
-		};
-		Self::add_usage_delta(db, subspace, transaction, entry)?;
+		if entry.stores_node() {
+			let entry = tangram_index::usage::DeltaArg {
+				account: &arg.account,
+				at: arg.touched_at,
+				delta: 1,
+				kind: tangram_index::usage::DeltaKind::ProcessCount,
+				partition: usage_partition,
+			};
+			Self::add_usage_delta(db, subspace, transaction, entry)?;
+		}
 
 		let version = version.unwrap_or_else(|| transaction.id() as u64);
-		Self::propagate_account_process(db, subspace, transaction, arg, version)?;
+		Self::propagate_account_process(db, subspace, transaction, arg, permissions, version)?;
 
 		Ok(true)
 	}
@@ -471,6 +610,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::usage::storage::put::ObjectArg,
+		permissions: tg::authorization::permission::Set,
 		version: u64,
 	) -> tg::Result<()> {
 		let id = tg::Either::Left(arg.object.clone());
@@ -484,8 +624,12 @@ impl Index {
 		)? {
 			return Ok(());
 		}
-		let children =
-			Self::get_object_children_with_transaction(db, subspace, transaction, &arg.object)?;
+		let inherited = tangram_index::usage::storage::child_permissions(permissions);
+		let children = if inherited.is_empty() {
+			Vec::new()
+		} else {
+			Self::get_object_children_with_transaction(db, subspace, transaction, &arg.object)?
+		};
 		for child in children {
 			Self::enqueue_update_with_kind(
 				db,
@@ -494,6 +638,7 @@ impl Index {
 				tg::Either::Left(child),
 				crate::update::Kind::Usage(crate::update::UsageKind::Put {
 					account: arg.account.clone(),
+					permissions: inherited,
 					touched_at: arg.touched_at,
 				}),
 				crate::update::Source::Put,
@@ -509,6 +654,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::usage::storage::put::ProcessArg,
+		permissions: tg::authorization::permission::Set,
 		version: u64,
 	) -> tg::Result<()> {
 		let id = tg::Either::Right(arg.process.clone());
@@ -522,8 +668,12 @@ impl Index {
 		)? {
 			return Ok(());
 		}
-		let children =
-			Self::get_process_children_with_transaction(db, subspace, transaction, &arg.process)?;
+		let inherited = tangram_index::usage::storage::child_permissions(permissions);
+		let children = if inherited.is_empty() {
+			Vec::new()
+		} else {
+			Self::get_process_children_with_transaction(db, subspace, transaction, &arg.process)?
+		};
 		for child in children {
 			Self::enqueue_update_with_kind(
 				db,
@@ -532,6 +682,7 @@ impl Index {
 				tg::Either::Right(child),
 				crate::update::Kind::Usage(crate::update::UsageKind::Put {
 					account: arg.account.clone(),
+					permissions: inherited,
 					touched_at: arg.touched_at,
 				}),
 				crate::update::Source::Put,
@@ -540,7 +691,11 @@ impl Index {
 		}
 		let objects =
 			Self::get_process_objects_with_transaction(db, subspace, transaction, &arg.process)?;
-		for (object, _) in objects {
+		for (object, kind) in objects {
+			let permissions = tangram_index::usage::storage::object_permissions(permissions, kind);
+			if permissions.is_empty() {
+				continue;
+			}
 			Self::enqueue_update_with_kind(
 				db,
 				subspace,
@@ -548,6 +703,7 @@ impl Index {
 				tg::Either::Left(object),
 				crate::update::Kind::Usage(crate::update::UsageKind::Put {
 					account: arg.account.clone(),
+					permissions,
 					touched_at: arg.touched_at,
 				}),
 				crate::update::Source::Put,

@@ -181,23 +181,43 @@ impl Index {
 		db.put(transaction, &key, &[])
 			.map_err(|error| tg::error!(!error, "failed to put the tag parent"))?;
 
-		// Charge the current account for permissions already held by the tag, even without a new capture proof.
-		if arg.account.is_some() && tag.as_ref().is_none_or(|tag| tag.account != arg.account) {
-			match &arg.target {
-				tg::Either::Left(id) => Self::enqueue_account_object_from_parents(
-					db,
-					subspace,
-					transaction,
-					id,
-					arg.touched_at,
-				)?,
-				tg::Either::Right(id) => Self::enqueue_account_process_from_parents(
-					db,
-					subspace,
-					transaction,
-					id,
-					arg.touched_at,
-				)?,
+		if tag.as_ref().is_none_or(|tag| tag.account != arg.account) {
+			let resources = Self::get_tag_storage_resources_with_transaction(
+				db,
+				subspace,
+				transaction,
+				&arg.id,
+			)?;
+			for resource in resources {
+				if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
+					Self::schedule_object_accounts_for_cleaning(
+						db,
+						subspace,
+						transaction,
+						&object,
+					)?;
+					Self::enqueue_account_object_from_parents(
+						db,
+						subspace,
+						transaction,
+						&object,
+						arg.touched_at,
+					)?;
+				} else if let Ok(process) = tg::process::Id::try_from(resource) {
+					Self::schedule_process_accounts_for_cleaning(
+						db,
+						subspace,
+						transaction,
+						&process,
+					)?;
+					Self::enqueue_account_process_from_parents(
+						db,
+						subspace,
+						transaction,
+						&process,
+						arg.touched_at,
+					)?;
+				}
 			}
 		}
 

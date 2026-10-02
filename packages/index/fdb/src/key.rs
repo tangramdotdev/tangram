@@ -1842,10 +1842,14 @@ fn pack_update_kind<W: std::io::Write>(
 			},
 			crate::update::UsageKind::Put {
 				account,
+				permissions,
 				touched_at,
 			} => {
 				let mut offset = 0i32.pack(w, tuple_depth)?;
 				offset += account.id().to_bytes().as_ref().pack(w, tuple_depth)?;
+				let permissions =
+					tangram_serialize::to_vec(permissions).map_err(std::io::Error::other)?;
+				offset += permissions.as_slice().pack(w, tuple_depth)?;
 				offset += touched_at.pack(w, tuple_depth)?;
 				Ok(offset)
 			},
@@ -1875,24 +1879,42 @@ fn unpack_update_kind(
 				0 | 3 => {
 					let (input, account): (_, Vec<u8>) =
 						fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-					let (input, touched_at): (_, i64) =
-						fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 					let account = tg::Id::from_slice(&account)
 						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
 					let account = tangram_index::usage::Account::try_from(account)
 						.map_err(|_| fdbt::PackError::Message("invalid usage account".into()))?;
-					let kind = match kind {
-						0 => crate::update::UsageKind::Put {
-							account,
-							touched_at,
+					match kind {
+						0 => {
+							let (input, bytes): (_, Vec<u8>) =
+								fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+							let permissions =
+								tangram_serialize::from_slice(&bytes).map_err(|_| {
+									fdbt::PackError::Message("invalid storage permissions".into())
+								})?;
+							let (input, touched_at): (_, i64) =
+								fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+							(
+								input,
+								crate::update::UsageKind::Put {
+									account,
+									permissions,
+									touched_at,
+								},
+							)
 						},
-						3 => crate::update::UsageKind::Propagate {
-							account,
-							touched_at,
+						3 => {
+							let (input, touched_at): (_, i64) =
+								fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+							(
+								input,
+								crate::update::UsageKind::Propagate {
+									account,
+									touched_at,
+								},
+							)
 						},
 						_ => unreachable!(),
-					};
-					(input, kind)
+					}
 				},
 				1 => {
 					let (input, account): (_, Vec<u8>) =

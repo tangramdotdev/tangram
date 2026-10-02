@@ -275,6 +275,7 @@ impl Index {
 				) => return Err(tg::error!("unsupported LMDB usage update kind")),
 				Kind::Usage(UsageKind::Put {
 					account,
+					permissions,
 					touched_at,
 				}) => match &id {
 					tg::Either::Left(object) => {
@@ -289,7 +290,7 @@ impl Index {
 							transaction,
 							&entry,
 							usage_partition_total,
-							false,
+							Some(*permissions),
 							Some(version),
 						)
 					}?,
@@ -305,7 +306,7 @@ impl Index {
 							transaction,
 							&entry,
 							usage_partition_total,
-							false,
+							Some(*permissions),
 							Some(version),
 						)
 					}?,

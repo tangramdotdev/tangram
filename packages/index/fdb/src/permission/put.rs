@@ -84,31 +84,31 @@ impl Index {
 					);
 				}
 			}
-			if non_expiring_direct && permissions_changed {
-				if let Ok(id) = tg::object::Id::try_from(arg.resource.clone()) {
-					crate::propagate!(
-						Self::enqueue_account_object_from_parents(
-							txn,
-							subspace,
-							&id,
-							partition_totals.cleaning,
-							arg.created_at
-						)
-						.await
-					);
+			if non_expiring_direct
+				&& permissions_changed
+				&& let tg::authorization::Subject::Tag(id) = &arg.subject
+				&& let Some(tag) =
+					crate::propagate!(Self::try_get_tag_with_transaction(txn, subspace, id).await)
+				&& let Some(account) = tag.account
+			{
+				let id = if let Ok(object) = tg::object::Id::try_from(arg.resource.clone()) {
+					tg::Either::Left(object)
 				} else {
-					let id = tg::process::Id::try_from(arg.resource.clone())?;
-					crate::propagate!(
-						Self::enqueue_account_process_from_parents(
-							txn,
-							subspace,
-							&id,
-							partition_totals.cleaning,
-							arg.created_at
-						)
-						.await
-					);
-				}
+					tg::Either::Right(tg::process::Id::try_from(arg.resource.clone())?)
+				};
+				let kind = crate::update::Kind::Usage(crate::update::UsageKind::Put {
+					account,
+					permissions: arg.permissions,
+					touched_at: arg.created_at,
+				});
+				Self::enqueue_update_with_kind(
+					txn,
+					subspace,
+					&id,
+					&kind,
+					crate::update::Source::Put,
+					partition_totals.usage_update,
+				);
 			}
 		}
 		Ok(ControlFlow::Break(()))

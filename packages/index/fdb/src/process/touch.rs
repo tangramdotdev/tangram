@@ -109,7 +109,9 @@ impl Index {
 											subspace,
 											&arg,
 											partition_totals,
-											false,
+											Some(tg::authorization::permission::Set::Process(
+												tg::authorization::permission::process::Set::all()
+											)),
 											None,
 										)
 										.await

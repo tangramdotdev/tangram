@@ -102,7 +102,9 @@ impl Index {
 						transaction,
 						&arg,
 						usage_partition_total,
-						false,
+						Some(tg::authorization::permission::Set::Process(
+							tg::authorization::permission::process::Set::all(),
+						)),
 						None,
 					)?;
 					if inserted {

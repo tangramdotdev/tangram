@@ -2,7 +2,7 @@ use {
 	crate::{Index, Key},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	num_traits::ToPrimitive as _,
-	std::{collections::BTreeSet, ops::ControlFlow},
+	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 };
 
@@ -28,7 +28,9 @@ impl Index {
 		if arg.touched_at.saturating_sub(entry.touched_at) >= time_to_touch {
 			entry.touched_at = arg.touched_at;
 			txn.set(&key, &entry.serialize()?);
-			Self::put_account_object_clean_key(txn, subspace, arg, partition_total);
+			if entry.reference_count == 0 {
+				Self::put_account_object_clean_key(txn, subspace, arg, partition_total);
+			}
 		}
 
 		Ok(ControlFlow::Break(()))
@@ -55,7 +57,9 @@ impl Index {
 		if arg.touched_at.saturating_sub(entry.touched_at) >= time_to_touch {
 			entry.touched_at = arg.touched_at;
 			txn.set(&key, &entry.serialize()?);
-			Self::put_account_process_clean_key(txn, subspace, arg, partition_total);
+			if entry.reference_count == 0 {
+				Self::put_account_process_clean_key(txn, subspace, arg, partition_total);
+			}
 		}
 
 		Ok(ControlFlow::Break(()))
@@ -68,50 +72,77 @@ impl Index {
 		partition_total: u64,
 		touched_at: i64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		let object_bytes = object.to_bytes();
-		let required = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Node,
+		let mut accounts = BTreeMap::new();
+		let mut insert = |account, permissions: tg::authorization::permission::Set| {
+			if !permissions.is_empty() {
+				accounts
+					.entry(account)
+					.and_modify(|current: &mut tg::authorization::permission::Set| {
+						current.insert(permissions);
+					})
+					.or_insert(permissions);
+			}
+		};
+		let parents = crate::propagate!(
+			Self::get_object_parents_with_transaction(txn, subspace, object).await
 		);
-		let (parents, processes, accounts) = futures::future::try_join3(
-			Self::get_object_parents_with_transaction(txn, subspace, object),
-			Self::get_object_processes_with_transaction(txn, subspace, object),
-			Self::get_target_tag_accounts_with_transaction(
-				txn,
-				subspace,
-				object_bytes.as_ref(),
-				required,
-			),
-		)
-		.await?;
-		let parents = match parents {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let processes = match processes {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let mut accounts = match accounts {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
 		for parent in parents {
-			accounts.extend(crate::propagate!(
+			for account in crate::propagate!(
 				Self::get_object_accounts_with_transaction(txn, subspace, &parent).await
-			));
+			) {
+				if let Some(entry) = crate::propagate!(
+					Self::get_account_storage_entry_with_transaction(
+						txn,
+						subspace,
+						&account,
+						&tg::Either::Left(parent.clone())
+					)
+					.await
+				) {
+					insert(
+						account,
+						tangram_index::usage::storage::child_permissions(entry.permissions),
+					);
+				}
+			}
 		}
-		for (process, _) in processes {
-			accounts.extend(crate::propagate!(
+		let processes = crate::propagate!(
+			Self::get_object_processes_with_transaction(txn, subspace, object).await
+		);
+		for (process, kind) in processes {
+			for account in crate::propagate!(
 				Self::get_process_accounts_with_transaction(txn, subspace, &process).await
-			));
+			) {
+				if let Some(entry) = crate::propagate!(
+					Self::get_account_storage_entry_with_transaction(
+						txn,
+						subspace,
+						&account,
+						&tg::Either::Right(process.clone())
+					)
+					.await
+				) {
+					insert(
+						account,
+						tangram_index::usage::storage::object_permissions(entry.permissions, kind),
+					);
+				}
+			}
 		}
-		for account in accounts {
+		let resource = tg::Id::from(object.clone());
+		for (account, permissions) in crate::propagate!(
+			Self::get_tag_storage_permissions_with_transaction(txn, subspace, &resource).await
+		) {
+			insert(account, permissions);
+		}
+		for (account, permissions) in accounts {
 			Self::enqueue_update_with_kind(
 				txn,
 				subspace,
 				&tg::Either::Left(object.clone()),
 				&crate::update::Kind::Usage(crate::update::UsageKind::Put {
 					account,
+					permissions,
 					touched_at,
 				}),
 				crate::update::Source::Put,
@@ -129,40 +160,54 @@ impl Index {
 		partition_total: u64,
 		touched_at: i64,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
-		let process_bytes = process.to_bytes();
-		let required = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Node,
+		let mut accounts = BTreeMap::new();
+		let mut insert = |account, permissions: tg::authorization::permission::Set| {
+			if !permissions.is_empty() {
+				accounts
+					.entry(account)
+					.and_modify(|current: &mut tg::authorization::permission::Set| {
+						current.insert(permissions);
+					})
+					.or_insert(permissions);
+			}
+		};
+		let parents = crate::propagate!(
+			Self::get_process_parents_with_transaction(txn, subspace, process).await
 		);
-		let (parents, accounts) = futures::future::try_join(
-			Self::get_process_parents_with_transaction(txn, subspace, process),
-			Self::get_target_tag_accounts_with_transaction(
-				txn,
-				subspace,
-				process_bytes.as_ref(),
-				required,
-			),
-		)
-		.await?;
-		let parents = match parents {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let mut accounts = match accounts {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
 		for parent in parents {
-			accounts.extend(crate::propagate!(
+			for account in crate::propagate!(
 				Self::get_process_accounts_with_transaction(txn, subspace, &parent).await
-			));
+			) {
+				if let Some(entry) = crate::propagate!(
+					Self::get_account_storage_entry_with_transaction(
+						txn,
+						subspace,
+						&account,
+						&tg::Either::Right(parent.clone())
+					)
+					.await
+				) {
+					insert(
+						account,
+						tangram_index::usage::storage::child_permissions(entry.permissions),
+					);
+				}
+			}
 		}
-		for account in accounts {
+		let resource = tg::Id::from(process.clone());
+		for (account, permissions) in crate::propagate!(
+			Self::get_tag_storage_permissions_with_transaction(txn, subspace, &resource).await
+		) {
+			insert(account, permissions);
+		}
+		for (account, permissions) in accounts {
 			Self::enqueue_update_with_kind(
 				txn,
 				subspace,
 				&tg::Either::Right(process.clone()),
 				&crate::update::Kind::Usage(crate::update::UsageKind::Put {
 					account,
+					permissions,
 					touched_at,
 				}),
 				crate::update::Source::Put,
@@ -171,43 +216,6 @@ impl Index {
 		}
 
 		Ok(ControlFlow::Break(()))
-	}
-
-	async fn get_target_tag_accounts_with_transaction(
-		txn: &crate::Transaction,
-		subspace: &fdbt::Subspace,
-		target: &[u8],
-		required: tg::authorization::Permission,
-	) -> tg::Result<ControlFlow<BTreeSet<tangram_index::usage::Account>, fdb::FdbError>> {
-		let tag_ids =
-			crate::propagate!(Self::get_target_tags_with_transaction(txn, subspace, target).await);
-		let tags =
-			crate::propagate!(Self::try_get_tags_with_transaction(txn, subspace, &tag_ids).await);
-		let mut accounts = BTreeSet::new();
-		for (id, tag) in std::iter::zip(tag_ids, tags) {
-			let Some(tag) = tag else {
-				continue;
-			};
-			let subject = tg::authorization::Subject::Tag(id);
-			let resource = match tag.target {
-				tg::Either::Left(id) => tg::Id::from(id),
-				tg::Either::Right(id) => tg::Id::from(id),
-			};
-			let entries = crate::propagate!(
-				Self::get_resource_permission_entries_for_subject_with_transaction(
-					txn, subspace, &resource, &subject
-				)
-				.await
-			);
-			if entries.iter().any(|entry| {
-				entry.permission.implies(required) && entry.effective_expires_at().is_some()
-			}) && let Some(account) = tag.account
-			{
-				accounts.insert(account);
-			}
-		}
-
-		Ok(ControlFlow::Break(accounts))
 	}
 
 	pub(crate) async fn enqueue_account_process_relationships(
@@ -308,7 +316,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::storage::put::ObjectArg,
 		partition_totals: crate::PartitionTotals,
-		touch_existing: bool,
+		permissions: Option<tg::authorization::permission::Set>,
 		version: Option<&fdbt::Versionstamp>,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let cleaning_partition_total = partition_totals.cleaning;
@@ -319,9 +327,44 @@ impl Index {
 		});
 		let entry_key = Self::pack(subspace, &entry_key);
 		let result = txn.get(&entry_key, false).await;
-		if let Some(value) = crate::retry!(result) {
-			let mut entry = tangram_index::usage::storage::Entry::deserialize(&value)?;
+		let value = crate::retry!(result);
+		let entry = value
+			.map(|value| tangram_index::usage::storage::Entry::deserialize(&value))
+			.transpose()?;
+		let touch_existing = permissions.is_none();
+		let permissions = permissions.unwrap_or(tg::authorization::permission::Set::Object(
+			tg::authorization::permission::object::Set::SUBTREE,
+		));
+		if permissions.is_empty() {
+			return Ok(ControlFlow::Break(false));
+		}
+		if let Some(mut entry) = entry {
+			let previous = entry.permissions;
+			entry.permissions.insert(permissions);
+			if previous != entry.permissions {
+				txn.set(&entry_key, &entry.serialize()?);
+				Self::clear_usage_update_versions(
+					txn,
+					subspace,
+					&tg::Either::Left(arg.object.clone()),
+					&arg.account,
+				);
+				crate::propagate!(
+					Self::propagate_account_storage(
+						txn,
+						subspace,
+						&tg::Either::Left(arg.object.clone()),
+						&arg.account,
+						arg.touched_at,
+						partition_totals.usage_update,
+						version
+					)
+					.await
+				);
+			}
+
 			if touch_existing && arg.touched_at > entry.touched_at {
+				entry.reference_count = 0;
 				entry.touched_at = arg.touched_at;
 				let value = entry.serialize()?;
 				txn.set(&entry_key, &value);
@@ -351,6 +394,7 @@ impl Index {
 			return Ok(ControlFlow::Break(false));
 		};
 		let entry = tangram_index::usage::storage::Entry {
+			permissions,
 			reference_count: 0,
 			touched_at: arg.touched_at,
 		};
@@ -408,7 +452,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::usage::storage::put::ProcessArg,
 		partition_totals: crate::PartitionTotals,
-		touch_existing: bool,
+		permissions: Option<tg::authorization::permission::Set>,
 		version: Option<&fdbt::Versionstamp>,
 	) -> tg::Result<ControlFlow<bool, fdb::FdbError>> {
 		let cleaning_partition_total = partition_totals.cleaning;
@@ -419,9 +463,56 @@ impl Index {
 		});
 		let entry_key = Self::pack(subspace, &entry_key);
 		let result = txn.get(&entry_key, false).await;
-		if let Some(value) = crate::retry!(result) {
-			let mut entry = tangram_index::usage::storage::Entry::deserialize(&value)?;
+		let value = crate::retry!(result);
+		let entry = value
+			.map(|value| tangram_index::usage::storage::Entry::deserialize(&value))
+			.transpose()?;
+		let touch_existing = permissions.is_none();
+		let permissions = permissions.unwrap_or(tg::authorization::permission::Set::Process(
+			tg::authorization::permission::process::Set::all(),
+		));
+		if permissions.is_empty() {
+			return Ok(ControlFlow::Break(false));
+		}
+		if let Some(mut entry) = entry {
+			let previous = entry.permissions;
+			let stored = entry.stores_node();
+			entry.permissions.insert(permissions);
+			if previous != entry.permissions {
+				if !stored && entry.stores_node() {
+					Self::add_usage_delta(
+						txn,
+						subspace,
+						&arg.account,
+						arg.touched_at,
+						tangram_index::usage::DeltaKind::ProcessCount,
+						1,
+						rand::random_range(0..usage_partition_total),
+					);
+				}
+				txn.set(&entry_key, &entry.serialize()?);
+				Self::clear_usage_update_versions(
+					txn,
+					subspace,
+					&tg::Either::Right(arg.process.clone()),
+					&arg.account,
+				);
+				crate::propagate!(
+					Self::propagate_account_storage(
+						txn,
+						subspace,
+						&tg::Either::Right(arg.process.clone()),
+						&arg.account,
+						arg.touched_at,
+						partition_totals.usage_update,
+						version
+					)
+					.await
+				);
+			}
+
 			if touch_existing && arg.touched_at > entry.touched_at {
+				entry.reference_count = 0;
 				entry.touched_at = arg.touched_at;
 				let value = entry.serialize()?;
 				txn.set(&entry_key, &value);
@@ -451,6 +542,7 @@ impl Index {
 			return Ok(ControlFlow::Break(false));
 		}
 		let entry = tangram_index::usage::storage::Entry {
+			permissions,
 			reference_count: 0,
 			touched_at: arg.touched_at,
 		};
@@ -466,15 +558,17 @@ impl Index {
 		Self::put_account_process_clean_key(txn, subspace, arg, cleaning_partition_total);
 		let usage_partition = rand::random_range(0..usage_partition_total);
 
-		Self::add_usage_delta(
-			txn,
-			subspace,
-			&arg.account,
-			arg.touched_at,
-			tangram_index::usage::DeltaKind::ProcessCount,
-			1,
-			usage_partition,
-		);
+		if entry.stores_node() {
+			Self::add_usage_delta(
+				txn,
+				subspace,
+				&arg.account,
+				arg.touched_at,
+				tangram_index::usage::DeltaKind::ProcessCount,
+				1,
+				usage_partition,
+			);
+		}
 
 		crate::propagate!(
 			Self::propagate_account_storage(
