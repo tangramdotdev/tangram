@@ -27,7 +27,7 @@ pub struct Args {
 
 	/// List the grants on this resource.
 	#[arg(long)]
-	pub resource: Option<tg::Selector<tg::Id>>,
+	pub resource: Option<tg::Referent<tg::Selector<tg::Id>>>,
 
 	/// List the grants held by this subject.
 	#[arg(conflicts_with = "resource", long)]
@@ -42,7 +42,11 @@ impl Cli {
 		let arg = tg::grant::list::Arg {
 			cursor: args.cursor,
 			limit: args.limit,
-			location: args.location.get(),
+			location: args
+				.resource
+				.as_ref()
+				.and_then(|resource| args.location.get_for_options(resource))
+				.or_else(|| args.location.get()),
 			resource: args.resource,
 			subject: args.subject,
 		};

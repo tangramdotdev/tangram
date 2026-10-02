@@ -26,7 +26,10 @@ impl Session {
 				self.manage_organization_billing_primary_region(organization, arg)
 					.await
 			},
-			tg::Location::Local(_) => self.manage_organization_billing_local(organization).await,
+			tg::Location::Local(_) => {
+				self.manage_organization_billing_local(organization, &arg.tokens)
+					.await
+			},
 			tg::Location::Remote(remote) => {
 				self.manage_organization_billing_remote(organization, arg, remote)
 					.await
@@ -37,6 +40,7 @@ impl Session {
 	async fn manage_organization_billing_local(
 		&self,
 		organization: &tg::organization::Selector,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<tg::organization::billing::manage::Output> {
 		let billing = self
 			.server
@@ -44,15 +48,17 @@ impl Session {
 			.clone()
 			.ok_or_else(|| tg::error!("billing is not configured"))?;
 		let organization = organization.clone();
+		let tokens = tokens.clone();
 		let options = tangram_futures::retry::Options::default();
 		let session = self.clone();
 		let billing_customer_id = tangram_futures::retry(&options, || {
 			let organization = organization.clone();
 			let session = session.clone();
+			let tokens = tokens.clone();
 			let billing = billing.clone();
 			async move {
 				match session
-					.manage_organization_billing_local_attempt(&organization, &billing)
+					.manage_organization_billing_local_attempt(&organization, &tokens, &billing)
 					.await?
 				{
 					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
@@ -74,6 +80,7 @@ impl Session {
 	async fn manage_organization_billing_local_attempt(
 		&self,
 		organization: &tg::organization::Selector,
+		tokens: &tg::authorization::Tokens,
 		billing: &crate::billing::Billing,
 	) -> tg::Result<ControlFlow<String>> {
 		let selector = match organization {
@@ -90,9 +97,15 @@ impl Session {
 		let permission = tg::authorization::Permission::Organization(
 			tg::authorization::permission::organization::Permission::Admin,
 		);
-		self.authorize(tg::Selector::Id(organization.clone()), permission)
-			.await?
-			.into_result()?;
+		self.authorize(
+			tg::Referent::with_node_and_tokens(
+				tg::Selector::Id(organization.clone()),
+				tokens.clone(),
+			),
+			permission,
+		)
+		.await?
+		.into_result()?;
 		let ids_by_specifier = BTreeMap::from([(specifier, Some(id))]);
 		let data = self
 			.server
@@ -255,6 +268,11 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		arg.tokens = arg.tokens.for_location(&location);
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		let output = client
 			.manage_organization_billing(organization, arg)

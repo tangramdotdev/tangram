@@ -11,14 +11,11 @@ pub struct Args {
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
-	#[arg(index = 1)]
-	pub tag: tg::tag::Selector,
-
-	#[arg(skip)]
-	pub tokens: tg::authorization::Tokens,
-
 	#[command(flatten)]
 	pub print: crate::print::Options,
+
+	#[arg(index = 1)]
+	pub tag: tg::Referent<tg::tag::Selector>,
 
 	#[command(flatten)]
 	pub ttl: crate::get::Ttl,
@@ -29,14 +26,14 @@ impl Cli {
 		let client = self.client().await?;
 		let arg = tg::tag::get::Arg {
 			cached: args.cached,
-			location: args.location.get(),
-			tokens: args.tokens,
+			location: args.location.get_for_options(&args.tag),
+			tokens: args.tag.options.tokens,
 			ttl: args.ttl.get(),
 		};
 		let tag = client
-			.try_get_tag(&args.tag, arg)
+			.try_get_tag(&args.tag.node, arg)
 			.await
-			.map_err(|error| tg::error!(!error, tag = %args.tag, "failed to get the tag"))?
+			.map_err(|error| tg::error!(!error, tag = %args.tag.node, "failed to get the tag"))?
 			.ok_or_else(|| tg::error!("failed to find the tag"))?;
 		let tg::tag::get::Output {
 			data,

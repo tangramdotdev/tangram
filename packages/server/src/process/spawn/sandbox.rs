@@ -21,7 +21,7 @@ impl Session {
 		}
 
 		match &arg.sandbox {
-			Some(tg::Either::Left(_)) if process.allocation.is_some() => {
+			Some(tg::process::spawn::SandboxArg::Create(_)) if process.allocation.is_some() => {
 				let ready_event = self
 					.spawn_process_in_new_sandbox(process)
 					.await?
@@ -32,7 +32,7 @@ impl Session {
 				process.data.sandbox = Some(ready_event.sandbox);
 				Self::spawn_process_apply_connected(process, connected_event);
 			},
-			Some(tg::Either::Left(_)) => {
+			Some(tg::process::spawn::SandboxArg::Create(_)) => {
 				let id = process.id.clone();
 				let mut process_connection_future = self.subscribe_process_connection(&id).await?;
 				let sandbox = process
@@ -79,7 +79,7 @@ impl Session {
 				};
 				process.lease = Some(connected.lease);
 			},
-			Some(tg::Either::Right(_)) => {
+			Some(tg::process::spawn::SandboxArg::Existing(_)) => {
 				let connected_event = self
 					.spawn_process_in_existing_sandbox(process, arg.location.as_ref())
 					.await?;
@@ -146,6 +146,7 @@ impl Session {
 		let arg = tg::sandbox::destroy::Arg {
 			error: Some(tg::Either::Left(error)),
 			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		let session = self.server.session(&self.server.context);
 		tokio::spawn(async move {

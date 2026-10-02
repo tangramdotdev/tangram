@@ -764,12 +764,12 @@ impl Session {
 
 	async fn list_resource_grants_local(
 		&self,
-		resource: tg::Selector<tg::Id>,
+		resource: tg::Referent<tg::Selector<tg::Id>>,
 		after: Option<&(String, String)>,
 		limit: u64,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
 		// Listing the grants on an object, process, or sync requires the root principal.
-		if let tg::Selector::Id(id) = &resource
+		if let tg::Selector::Id(id) = &resource.node
 			&& (matches!(id.kind(), tg::id::Kind::Process | tg::id::Kind::Sync)
 				|| tg::object::Id::try_from(id.clone()).is_ok())
 		{
@@ -780,7 +780,7 @@ impl Session {
 			return Ok(Some(output));
 		}
 		// Listing the grants on a node requires admin permission, and the node is not found without read permission.
-		let id = self.resolve_resource(&resource).await?;
+		let id = self.resolve_resource(&resource.node).await?;
 		let read = Self::read_permission_for_resource(&id)?;
 		if !self
 			.authorize(resource.clone(), read)
@@ -1087,6 +1087,13 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		if let Some(resource) = &mut arg.resource {
+			let location = tg::Location::Remote(tg::location::Remote {
+				name: remote.name.clone(),
+				region: None,
+			});
+			resource.options.tokens = resource.options.tokens.for_location(&location);
+		}
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		client
 			.list_grants(arg)

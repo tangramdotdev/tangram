@@ -45,7 +45,10 @@ impl Session {
 			tg::authorization::permission::group::Permission::Read,
 		);
 		let authorized = self
-			.authorize(group.clone(), permission)
+			.authorize(
+				tg::Referent::with_node_and_tokens(group.clone(), arg.tokens.clone()),
+				permission,
+			)
 			.await?
 			.check_exhaustion()?;
 		if !authorized.permissions.contains(permission) {
@@ -175,6 +178,11 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		arg.tokens = arg.tokens.for_location(&location);
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		client.list_group_members(group, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to list the group members"),

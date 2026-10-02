@@ -135,7 +135,7 @@ impl Sandbox {
 		I: tg::Instance,
 	{
 		arg.location = self.location().or(arg.location);
-		arg.sandbox = Some(tg::process::SandboxArg::Id(self.id().clone()));
+		arg.sandbox = Some(tg::process::SandboxArg::Referent(self.to_referent()));
 
 		tg::Process::<tg::Value>::run_with_instance(instance, arg).await
 	}
@@ -157,6 +157,7 @@ impl Drop for Inner {
 		};
 		let id = self.id.clone();
 		let location = self.location.read().unwrap().clone();
+		let tokens = self.tokens.read().unwrap().clone();
 		let Ok(runtime) = tokio::runtime::Handle::try_current() else {
 			return;
 		};
@@ -164,6 +165,7 @@ impl Drop for Inner {
 			let arg = tg::sandbox::destroy::Arg {
 				error: None,
 				location,
+				tokens,
 			};
 			instance.try_destroy_sandbox(&id, arg).await.ok();
 		});

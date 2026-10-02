@@ -10,6 +10,9 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
+
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl tg::Sandbox {
@@ -25,6 +28,7 @@ impl tg::Sandbox {
 		let arg = tg::sandbox::destroy::Arg {
 			error: None,
 			location: self.location(),
+			tokens: self.tokens(),
 		};
 		instance.destroy_sandbox(self.id(), arg).await?;
 		self.detach();

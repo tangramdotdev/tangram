@@ -26,7 +26,7 @@ impl Session {
 					.await
 			},
 			tg::Location::Local(_) => {
-				self.add_organization_member_local(organization, &arg.member)
+				self.add_organization_member_local(organization, &arg.member, &arg.tokens)
 					.await
 			},
 			tg::Location::Remote(remote) => {
@@ -40,13 +40,17 @@ impl Session {
 		&self,
 		organization: &tg::organization::Selector,
 		member: &tg::organization::Member,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<()> {
 		let permission = tg::authorization::Permission::Organization(
 			tg::authorization::permission::organization::Permission::Admin,
 		);
-		self.authorize(organization.clone(), permission)
-			.await?
-			.into_result()?;
+		self.authorize(
+			tg::Referent::with_node_and_tokens(organization.clone(), tokens.clone()),
+			permission,
+		)
+		.await?
+		.into_result()?;
 		let session = self.clone();
 		self.server
 			.database
@@ -129,6 +133,11 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		arg.tokens = arg.tokens.for_location(&location);
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		client
 			.add_organization_member(organization, arg)

@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub group: tg::group::Selector,
+	pub group: tg::Referent<tg::group::Selector>,
 
 	#[command(flatten)]
 	pub location: crate::location::Args,
@@ -18,13 +18,14 @@ impl Cli {
 	pub async fn command_group_members_add(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let arg = tg::group::members::add::Arg {
-			location: args.location.get(),
+			location: args.location.get_for_options(&args.group),
 			member: args.member.clone(),
+			tokens: args.group.options.tokens,
 		};
 		client
-			.add_group_member(&args.group, arg)
+			.add_group_member(&args.group.node, arg)
 			.await
-			.map_err(|error| tg::error!(!error, group = %args.group, member = %args.member, "failed to add the group member"))?;
+			.map_err(|error| tg::error!(!error, group = %args.group.node, member = %args.member, "failed to add the group member"))?;
 		Ok(())
 	}
 }

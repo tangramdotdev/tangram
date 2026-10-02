@@ -554,6 +554,7 @@ impl Session {
 			let arg = tg::sandbox::destroy::Arg {
 				error: Some(error),
 				location: Some(location.into()),
+				tokens: tg::authorization::Tokens::default(),
 			};
 			match session.try_destroy_sandbox(&id, arg).boxed().await {
 				Ok(Some(_)) => {},

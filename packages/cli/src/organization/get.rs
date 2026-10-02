@@ -9,16 +9,13 @@ pub struct Args {
 	pub cached: bool,
 
 	#[arg(index = 1)]
-	pub organization: tg::organization::Selector,
+	pub organization: tg::Referent<tg::organization::Selector>,
 
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
-
-	#[arg(skip)]
-	pub tokens: tg::authorization::Tokens,
 
 	#[command(flatten)]
 	pub ttl: crate::get::Ttl,
@@ -29,15 +26,15 @@ impl Cli {
 		let client = self.client().await?;
 		let arg = tg::organization::get::Arg {
 			cached: args.cached,
-			location: args.location.get(),
-			tokens: args.tokens,
+			location: args.location.get_for_options(&args.organization),
+			tokens: args.organization.options.tokens,
 			ttl: args.ttl.get(),
 		};
 		let organization = client
-			.try_get_organization(&args.organization, arg)
+			.try_get_organization(&args.organization.node, arg)
 			.await
 			.map_err(
-				|error| tg::error!(!error, organization = %args.organization, "failed to get the organization"),
+				|error| tg::error!(!error, organization = %args.organization.node, "failed to get the organization"),
 			)?
 			.ok_or_else(|| tg::error!("failed to find the organization"))?;
 		let tg::organization::get::Output {

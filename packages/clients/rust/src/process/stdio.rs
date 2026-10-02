@@ -34,8 +34,8 @@ pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-stdio";
 	Clone,
 	Debug,
 	Default,
-	PartialEq,
 	Eq,
+	PartialEq,
 	derive_more::IsVariant,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
@@ -44,7 +44,7 @@ pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-stdio";
 )]
 #[tangram_serialize(display, from_str)]
 pub enum Stdio {
-	Blob(tg::blob::Id),
+	Blob(Box<tg::Referent<tg::blob::Id>>),
 	#[default]
 	Inherit,
 	Log,
@@ -153,7 +153,7 @@ impl std::str::FromStr for Stdio {
 			"tty" => Ok(Self::Tty),
 			_ => value
 				.parse()
-				.map(Self::Blob)
+				.map(|referent| Self::Blob(Box::new(referent)))
 				.map_err(|_| tg::error!(%value, "invalid stdio")),
 		}
 	}

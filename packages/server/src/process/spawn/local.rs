@@ -226,7 +226,8 @@ impl Session {
 	}
 
 	pub(super) fn spawn_process_is_cacheable(arg: &tg::process::spawn::Arg) -> bool {
-		let cacheable = if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
+		let cacheable = if let Some(tg::process::spawn::SandboxArg::Create(sandbox)) = &arg.sandbox
+		{
 			sandbox.mounts.is_empty() && sandbox.network.is_none()
 		} else {
 			false
@@ -243,7 +244,7 @@ impl Session {
 		&self,
 		arg: &tg::process::spawn::Arg,
 	) -> tg::Result<()> {
-		if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
+		if let Some(tg::process::spawn::SandboxArg::Create(sandbox)) = &arg.sandbox {
 			self.authorize_owner(sandbox.owner.as_ref()).await?;
 		}
 		Ok(())
@@ -288,26 +289,33 @@ impl Session {
 		host: &str,
 	) -> tg::Result<Output> {
 		let requested_owner = match &arg.sandbox {
-			Some(tg::Either::Left(sandbox)) => sandbox.owner.clone(),
-			Some(tg::Either::Right(sandbox)) => {
+			Some(tg::process::spawn::SandboxArg::Create(sandbox)) => sandbox.owner.clone(),
+			Some(tg::process::spawn::SandboxArg::Existing(sandbox)) => {
+				let permission = tg::authorization::Permission::Sandbox(
+					tg::authorization::permission::sandbox::Permission::Write,
+				);
+				self.authorize(sandbox.clone(), permission)
+					.await?
+					.into_result()?;
 				let origin_owner = self
 					.server
 					.try_get_request_origin_sandbox(self.context.origin)?
-					.filter(|origin| origin.id == *sandbox)
+					.filter(|origin| origin.id == sandbox.node)
 					.map(|origin| origin.data.arg.owner.clone());
 				if let Some(owner) = origin_owner {
 					owner
 				} else {
-					let entry = tg::sandbox::get::Arg {
-						location: arg.location.clone(),
-						..tg::sandbox::get::Arg::default()
+					let sandbox = if let Some(sandbox) =
+						self.server.runner.state().try_get_sandbox(&sandbox.node)
+					{
+						sandbox
+					} else {
+						self.try_get_sandbox_from_index(&sandbox.node)
+							.await?
+							.and_then(|sandbox| sandbox.data)
+							.ok_or_else(|| tg::error!("failed to find the sandbox"))?
 					};
-					self.try_get_sandbox(sandbox, entry)
-						.boxed()
-						.await?
-						.ok_or_else(|| tg::error!("failed to find the sandbox"))?
-						.data
-						.owner
+					sandbox.data.owner
 				}
 			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
@@ -348,7 +356,7 @@ impl Session {
 		} else {
 			Some(self.context.principal.clone())
 		};
-		if matches!(arg.sandbox, Some(tg::Either::Left(_))) {
+		if matches!(arg.sandbox, Some(tg::process::spawn::SandboxArg::Create(_))) {
 			self.verify_billing(owner.as_ref()).await?;
 		}
 
@@ -359,7 +367,7 @@ impl Session {
 			.server
 			.create_process_authentication_token(id.clone())?;
 		let (sandbox, sandbox_arg, sandbox_token) = match &arg.sandbox {
-			Some(tg::Either::Left(sandbox_arg)) => {
+			Some(tg::process::spawn::SandboxArg::Create(sandbox_arg)) => {
 				let mut sandbox_arg = Self::normalize_sandbox_create_arg(sandbox_arg.clone())?;
 				sandbox_arg.host = Some(host.to_owned());
 				sandbox_arg.location.clone_from(&arg.location);
@@ -377,7 +385,9 @@ impl Session {
 					.create_sandbox_authentication_token(sandbox.clone())?;
 				(sandbox, Some(sandbox_arg), Some(token))
 			},
-			Some(tg::Either::Right(sandbox)) => (sandbox.clone(), None, None),
+			Some(tg::process::spawn::SandboxArg::Existing(sandbox)) => {
+				(sandbox.node.clone(), None, None)
+			},
 			None => return Err(tg::error!("expected the sandbox to be set")),
 		};
 		let tty = arg

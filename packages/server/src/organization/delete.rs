@@ -25,7 +25,10 @@ impl Session {
 				self.try_delete_organization_primary_region(organization, arg)
 					.await
 			},
-			tg::Location::Local(_) => self.try_delete_organization_local(organization).await,
+			tg::Location::Local(_) => {
+				self.try_delete_organization_local(organization, &arg.tokens)
+					.await
+			},
 			tg::Location::Remote(remote) => {
 				self.try_delete_organization_remote(organization, arg, remote)
 					.await
@@ -36,16 +39,19 @@ impl Session {
 	async fn try_delete_organization_local(
 		&self,
 		organization: &tg::organization::Selector,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<Option<()>> {
 		let organization = organization.clone();
+		let tokens = tokens.clone();
 		let options = tangram_futures::retry::Options::default();
 		let session = self.clone();
 		let output = tangram_futures::retry(&options, || {
 			let organization = organization.clone();
 			let session = session.clone();
+			let tokens = tokens.clone();
 			async move {
 				match session
-					.try_delete_organization_local_attempt(&organization)
+					.try_delete_organization_local_attempt(&organization, &tokens)
 					.await?
 				{
 					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
@@ -65,6 +71,7 @@ impl Session {
 	async fn try_delete_organization_local_attempt(
 		&self,
 		organization: &tg::organization::Selector,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<ControlFlow<Option<()>>> {
 		let selector = match organization {
 			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
@@ -79,9 +86,15 @@ impl Session {
 		let permission = tg::authorization::Permission::Organization(
 			tg::authorization::permission::organization::Permission::Admin,
 		);
-		self.authorize(tg::Selector::Id(organization.clone()), permission)
-			.await?
-			.into_result()?;
+		self.authorize(
+			tg::Referent::with_node_and_tokens(
+				tg::Selector::Id(organization.clone()),
+				tokens.clone(),
+			),
+			permission,
+		)
+		.await?
+		.into_result()?;
 		let ids_by_specifier = BTreeMap::from([(specifier, Some(id))]);
 		let session = self.clone();
 		let output = self
@@ -178,6 +191,11 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		arg.tokens = arg.tokens.for_location(&location);
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		let output = client
 			.try_delete_organization(organization, arg)
