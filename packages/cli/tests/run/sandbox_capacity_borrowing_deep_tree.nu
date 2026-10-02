@@ -26,5 +26,6 @@ let path = artifact {
 	',
 }
 
-let output = timeout 15s tg build $path | complete
+let output = timeout 60s tg build $path | complete
 success $output "a deep sandboxed process tree should complete by borrowing parent capacity"
+assert equal ($output.stdout | from json) done

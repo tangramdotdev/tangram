@@ -10,7 +10,7 @@ let transports = if (fuse_io_uring_available) { [read_write io_uring] } else { [
 for io in $transports {
 	let local = server spawn --config { vfs: { io: $io, kind: fuse, passthrough: disabled } }
 	let source = artifact { link: (symlink 'target'), target: 'contents' }
-	let id = tg checkin $source | str trim
+	let id = tg checkin $source | referent node
 	let path = $local.directory | path join store $id link
 	success (^stat -L $path | complete)
 

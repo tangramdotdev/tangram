@@ -538,6 +538,8 @@ def test_stale_heartbeats(messenger):
 def test_final_read(messenger):
     sync, peer, subscribe = fake_peer(messenger)
     id = command("put", 'tg.blob("final read")')
+    # Hold local authorization searches until the terminal reply has arrived.
+    index_watch = watch("verification.index", resource=id, storage=False)
     with concurrent.futures.ThreadPoolExecutor() as executor:
         read = executor.submit(read_object, id, sync.token)
         peer.heartbeat(peer.request(True), "attempt")
@@ -545,10 +547,15 @@ def test_final_read(messenger):
         ack_watch = watch("sync.control.ack", node=id)
         peer.ack(request)
         reached("sync.control.ack", ack_watch)
+        reached("verification.index", index_watch)
         assert command("put", 'tg.blob("final read")', token=reader_token) == id
         assert not read.done(), "an acknowledged sync must wait for a response"
         release("sync.control.ack", ack_watch)
+        response_watch = watch("sync.control.response", id=request[2], attempt=request[3])
         peer.respond(request, "the transfer failed")
+        reached("sync.control.response", response_watch)
+        release("sync.control.response", response_watch)
+        release("verification.index", index_watch)
         status, body = read.result(timeout=5)
         assert status == 200, (status, body)
         assert base64.b64decode(json.loads(body)["data"]["value"]["bytes"]) == b"final read"

@@ -15,7 +15,7 @@ assert ($local.config.indexer?.id? == null)
 # The put must return while the archive holds its upload response.
 let output = 0x[00 68 65 6c 6c 6f] | timeout 10 tg object put --no-tokens --bytes --kind blob | complete
 success $output
-let id = $output.stdout | str trim
+let id = $output.stdout | referent node
 wait_until { http get $'($archive.url)/requests' | length | $in == 1 } 'the upload must start'
 
 # Indexing must return while the upload is pending.

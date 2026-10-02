@@ -25,7 +25,7 @@ for operation in [spawn build] {
 	tg wait $spawned | ignore
 	assert equal (tg output $spawned | from json) spawn
 	let spawned_data = tg get $spawned | from json
-	assert equal $spawned_data.sandbox $sandbox
+	assert equal $spawned_data.sandbox ($sandbox | referent node)
 	tg sandbox destroy $sandbox
 
 	# A build creates its own sandbox and applies the CLI environment and cache options.

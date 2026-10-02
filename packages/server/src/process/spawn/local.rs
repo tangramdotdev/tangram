@@ -291,12 +291,7 @@ impl Session {
 		let requested_owner = match &arg.sandbox {
 			Some(tg::process::spawn::SandboxArg::Create(sandbox)) => sandbox.owner.clone(),
 			Some(tg::process::spawn::SandboxArg::Existing(sandbox)) => {
-				let permission = tg::authorization::Permission::Sandbox(
-					tg::authorization::permission::sandbox::Permission::Write,
-				);
-				self.authorize(sandbox.clone(), permission)
-					.await?
-					.into_result()?;
+				// The verified request origin permits spawning in the same sandbox.
 				let origin_owner = self
 					.server
 					.try_get_request_origin_sandbox(self.context.origin)?
@@ -305,6 +300,12 @@ impl Session {
 				if let Some(owner) = origin_owner {
 					owner
 				} else {
+					let permission = tg::authorization::Permission::Sandbox(
+						tg::authorization::permission::sandbox::Permission::Write,
+					);
+					self.authorize(sandbox.clone(), permission)
+						.await?
+						.into_result()?;
 					let sandbox = if let Some(sandbox) =
 						self.server.runner.state().try_get_sandbox(&sandbox.node)
 					{

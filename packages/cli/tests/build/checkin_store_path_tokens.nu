@@ -45,4 +45,4 @@ for watch in $watches {
 	tg checkpoint unwatch verification.index $watch
 }
 let output = tg read $result.output.value
-assert equal ($output | str trim) $file
+assert equal ($output | referent node) $file

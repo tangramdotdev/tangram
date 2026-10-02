@@ -55,6 +55,10 @@ for authority in [remote local] {
 		let query = $'location=remote&tokens[local][0]=($node | url encode --all)'
 		let reference = $'($process)?($query)'
 
+		# Finish indexing the process before testing denied control operations.
+		tg --url $remote.url --token $remote_root index
+		tg --url $runner.url --token $runner_root index
+
 		# Node authority alone must not permit signaling or accessing pipes.
 		if $protocol == standalone {
 			let denied = timeout 10s tg --url $runner.url --token $alice.token process signal $reference --signal TERM | complete
