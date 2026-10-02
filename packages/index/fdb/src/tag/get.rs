@@ -1,8 +1,7 @@
 use {
-	crate::{Index, Key, Kind},
+	crate::{Index, Key},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
-	num_traits::ToPrimitive as _,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
@@ -64,35 +63,5 @@ impl Index {
 		let tag = Some(tangram_index::tag::Tag::deserialize(&bytes)?);
 
 		Ok(ControlFlow::Break(tag))
-	}
-
-	pub(crate) async fn get_target_tags_with_transaction(
-		txn: &crate::Transaction,
-		subspace: &Subspace,
-		target: &[u8],
-	) -> tg::Result<ControlFlow<Vec<tg::tag::Id>, fdb::FdbError>> {
-		let key = (Kind::TargetTag.to_i32().unwrap(), target);
-		let prefix = Self::pack(subspace, &key);
-		let range_subspace = Subspace::from_bytes(prefix);
-		let range = fdb::RangeOption {
-			mode: fdb::options::StreamingMode::WantAll,
-			..fdb::RangeOption::from(&range_subspace)
-		};
-
-		let result = txn.get_range(&range, 1, false).await;
-		let entries = crate::retry!(result);
-
-		let tags = entries
-			.iter()
-			.map(|entry| {
-				let key = Self::unpack(subspace, entry.key())?;
-				let Key::Tag(crate::tag::Key::TargetTag { tag, .. }) = key else {
-					return Err(tg::error!("unexpected key type"));
-				};
-				Ok(tag)
-			})
-			.collect::<tg::Result<Vec<_>>>()?;
-
-		Ok(ControlFlow::Break(tags))
 	}
 }

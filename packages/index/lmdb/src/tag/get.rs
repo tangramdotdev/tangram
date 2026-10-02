@@ -1,7 +1,6 @@
 use {
-	crate::{Db, Index, Key, Kind},
+	crate::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
-	num::ToPrimitive as _,
 	tangram_client::prelude::*,
 };
 
@@ -50,29 +49,5 @@ impl Index {
 			return Ok(None);
 		};
 		Ok(Some(tangram_index::tag::Tag::deserialize(bytes)?))
-	}
-
-	pub(crate) fn get_target_tags_with_transaction(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RoTxn<'_>,
-		target: &[u8],
-	) -> tg::Result<Vec<tg::tag::Id>> {
-		let prefix = &(Kind::TargetTag.to_i32().unwrap(), target);
-		let prefix = Self::pack(subspace, prefix);
-		let mut tags = Vec::new();
-		let iter = db
-			.prefix_iter(transaction, &prefix)
-			.map_err(|error| tg::error!(!error, "failed to get the target tags"))?;
-		for entry in iter {
-			let (key, _) =
-				entry.map_err(|error| tg::error!(!error, "failed to read the target tag entry"))?;
-			let key = Self::unpack(subspace, key)?;
-			let Key::Tag(crate::tag::Key::TargetTag { tag, .. }) = key else {
-				return Err(tg::error!("unexpected key type"));
-			};
-			tags.push(tag);
-		}
-		Ok(tags)
 	}
 }

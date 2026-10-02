@@ -65,6 +65,29 @@ impl Index {
 			else {
 				return Err(tg::error!("expected a subject permission key"));
 			};
+			if matches!(subject, tg::authorization::Subject::Tag(_)) {
+				if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
+					crate::propagate!(
+						Self::schedule_object_accounts_for_cleaning(
+							txn,
+							subspace,
+							&object,
+							partition_totals.usage_update
+						)
+						.await
+					);
+				} else if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
+					crate::propagate!(
+						Self::schedule_process_accounts_for_cleaning(
+							txn,
+							subspace,
+							&process,
+							partition_totals.usage_update
+						)
+						.await
+					);
+				}
+			}
 			for source in [
 				PermissionSource::Direct,
 				PermissionSource::Grant,

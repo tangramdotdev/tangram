@@ -60,6 +60,23 @@ impl Index {
 			else {
 				return Err(tg::error!("expected a subject permission key"));
 			};
+			if matches!(subject, tg::authorization::Subject::Tag(_)) {
+				if let Ok(object) = tg::object::Id::try_from(resource.clone()) {
+					Self::schedule_object_accounts_for_cleaning(
+						db,
+						subspace,
+						transaction,
+						&object,
+					)?;
+				} else if let Ok(process) = tg::process::Id::try_from(resource.clone()) {
+					Self::schedule_process_accounts_for_cleaning(
+						db,
+						subspace,
+						transaction,
+						&process,
+					)?;
+				}
+			}
 			for source in [
 				PermissionSource::Direct,
 				PermissionSource::Grant,

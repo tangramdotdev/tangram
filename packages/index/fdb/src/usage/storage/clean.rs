@@ -154,30 +154,52 @@ impl Index {
 			txn.clear(&clean_key);
 			return Ok(ControlFlow::Break(()));
 		}
-		let reference_count = match candidate {
+		let (account, id) = match candidate {
 			Candidate::Object {
 				account, object, ..
-			} => {
-				crate::propagate!(
-					Self::compute_account_object_reference_count(txn, subspace, account, object)
-						.await
-				)
-			},
+			} => (account, tg::Either::Left(object.clone())),
 			Candidate::Process {
 				account, process, ..
-			} => {
-				crate::propagate!(
-					Self::compute_account_process_reference_count(txn, subspace, account, process,)
-						.await
-				)
-			},
+			} => (account, tg::Either::Right(process.clone())),
 		};
-		if reference_count > 0 {
+		let (permissions, reference_count) = crate::propagate!(
+			Self::compute_account_storage_permissions_with_transaction(txn, subspace, account, &id)
+				.await
+		);
+		// Leave permission additions to usage puts so that they propagate to descendants.
+		let permissions =
+			tangram_index::usage::storage::retained_permissions(entry.permissions, permissions);
+		if !permissions.is_empty() {
+			if permissions != entry.permissions {
+				let stored = entry.stores_node();
+				entry.permissions = permissions;
+				if stored != entry.stores_node() {
+					let delta = i64::from(entry.stores_node()) - i64::from(stored);
+					Self::add_usage_delta(
+						txn,
+						subspace,
+						account,
+						now,
+						tangram_index::usage::DeltaKind::ProcessCount,
+						delta,
+						rand::random_range(0..partition_totals.usage),
+					);
+				}
+				Self::enqueue_update_with_kind(
+					txn,
+					subspace,
+					&id,
+					&crate::update::Kind::Usage(crate::update::UsageKind::Clean(account.clone())),
+					crate::update::Source::Put,
+					partition_totals.usage_update,
+				);
+			}
 			entry.reference_count = reference_count;
 			txn.set(&entry_key, &entry.serialize()?);
 			txn.clear(&clean_key);
 			return Ok(ControlFlow::Break(()));
 		}
+
 		match candidate {
 			Candidate::Object {
 				account, object, ..
@@ -213,148 +235,6 @@ impl Index {
 		txn.clear(&clean_key);
 
 		Ok(ControlFlow::Break(()))
-	}
-
-	async fn compute_account_object_reference_count(
-		txn: &crate::Transaction,
-		subspace: &fdbt::Subspace,
-		account: &tangram_index::usage::Account,
-		object: &tg::object::Id,
-	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
-		let (parents, processes) = futures::future::try_join(
-			Self::get_object_parents_with_transaction(txn, subspace, object),
-			Self::get_object_processes_with_transaction(txn, subspace, object),
-		)
-		.await?;
-		let parents = match parents {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let processes = match processes {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let keys = parents
-			.into_iter()
-			.map(|object| {
-				Key::Usage(crate::usage::Key::AccountObject {
-					account: account.clone(),
-					object,
-				})
-			})
-			.chain(processes.into_iter().map(|(process, _)| {
-				Key::Usage(crate::usage::Key::AccountProcess {
-					account: account.clone(),
-					process,
-				})
-			}))
-			.map(|key| Self::pack(subspace, &key))
-			.collect::<Vec<_>>();
-		let entries_future = async {
-			let result = futures::future::try_join_all(
-				keys.iter()
-					.map(|key| async move { txn.get(key, false).await }),
-			)
-			.await;
-			let entries = crate::retry!(result);
-
-			Ok::<_, tg::Error>(ControlFlow::Break(entries))
-		};
-		let object_bytes = object.to_bytes();
-		let tags_future = Self::count_account_tags(txn, subspace, account, object_bytes.as_ref());
-		let (entries, tag_count) = futures::future::try_join(entries_future, tags_future).await?;
-		let entries = match entries {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let tag_count = match tag_count {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let entry_count = entries.iter().filter(|value| value.is_some()).count();
-		let count = u64::try_from(entry_count).unwrap() + tag_count;
-
-		Ok(ControlFlow::Break(count))
-	}
-
-	async fn compute_account_process_reference_count(
-		txn: &crate::Transaction,
-		subspace: &fdbt::Subspace,
-		account: &tangram_index::usage::Account,
-		process: &tg::process::Id,
-	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
-		let parents = crate::propagate!(
-			Self::get_process_parents_with_transaction(txn, subspace, process).await
-		);
-		let keys = parents
-			.into_iter()
-			.map(|process| {
-				let key = Key::Usage(crate::usage::Key::AccountProcess {
-					account: account.clone(),
-					process,
-				});
-				Self::pack(subspace, &key)
-			})
-			.collect::<Vec<_>>();
-		let entries_future = async {
-			let result = futures::future::try_join_all(
-				keys.iter()
-					.map(|key| async move { txn.get(key, false).await }),
-			)
-			.await;
-			let entries = crate::retry!(result);
-
-			Ok::<_, tg::Error>(ControlFlow::Break(entries))
-		};
-		let process_bytes = process.to_bytes();
-		let tags_future = Self::count_account_tags(txn, subspace, account, process_bytes.as_ref());
-		let (entries, tag_count) = futures::future::try_join(entries_future, tags_future).await?;
-		let entries = match entries {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let tag_count = match tag_count {
-			ControlFlow::Break(value) => value,
-			ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-		};
-		let entry_count = entries.iter().filter(|value| value.is_some()).count();
-		let count = u64::try_from(entry_count).unwrap() + tag_count;
-
-		Ok(ControlFlow::Break(count))
-	}
-
-	async fn count_account_tags(
-		txn: &crate::Transaction,
-		subspace: &fdbt::Subspace,
-		account: &tangram_index::usage::Account,
-		target: &[u8],
-	) -> tg::Result<ControlFlow<u64, fdb::FdbError>> {
-		let tags =
-			crate::propagate!(Self::get_target_tags_with_transaction(txn, subspace, target).await);
-		let tags = {
-			let result = futures::future::try_join_all(
-				tags.iter()
-					.map(|tag| Self::try_get_tag_with_transaction(txn, subspace, tag)),
-			)
-			.await;
-			let results = result?;
-			let mut values = Vec::with_capacity(results.len());
-			for result in results {
-				let value = match result {
-					ControlFlow::Break(value) => value,
-					ControlFlow::Continue(error) => return Ok(ControlFlow::Continue(error)),
-				};
-				values.push(value);
-			}
-			values
-		};
-		let count = tags
-			.iter()
-			.filter(|tag| tag.as_ref().and_then(|tag| tag.account.as_ref()) == Some(account))
-			.count();
-		let count = u64::try_from(count).unwrap();
-
-		Ok(ControlFlow::Break(count))
 	}
 
 	async fn delete_account_object(
@@ -434,6 +314,16 @@ impl Index {
 		now: i64,
 		partition_totals: crate::PartitionTotals,
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		let stored = crate::propagate!(
+			Self::get_account_storage_entry_with_transaction(
+				txn,
+				subspace,
+				account,
+				&tg::Either::Right(process.clone())
+			)
+			.await
+		)
+		.is_some_and(|entry| entry.stores_node());
 		let usage_partition_total = partition_totals.usage;
 		let key = Key::Usage(crate::usage::Key::AccountProcess {
 			account: account.clone(),
@@ -452,15 +342,18 @@ impl Index {
 			account,
 		);
 		let usage_partition = rand::random_range(0..usage_partition_total);
-		Self::add_usage_delta(
-			txn,
-			subspace,
-			account,
-			now,
-			tangram_index::usage::DeltaKind::ProcessCount,
-			-1,
-			usage_partition,
-		);
+		if stored {
+			Self::add_usage_delta(
+				txn,
+				subspace,
+				account,
+				now,
+				tangram_index::usage::DeltaKind::ProcessCount,
+				-1,
+				usage_partition,
+			);
+		}
+
 		Self::enqueue_update_with_kind(
 			txn,
 			subspace,
@@ -499,7 +392,13 @@ impl Index {
 		let Some(value) = crate::retry!(result) else {
 			return Ok(ControlFlow::Break(()));
 		};
-		let entry = tangram_index::usage::storage::Entry::deserialize(&value)?;
+		let mut entry = tangram_index::usage::storage::Entry::deserialize(&value)?;
+		// Invalidate the cached references because the retaining scopes may have changed.
+		if entry.reference_count != 0 {
+			entry.reference_count = 0;
+			txn.set(&Self::pack(subspace, &entry_key), &entry.serialize()?);
+		}
+
 		let partition = Self::partition_for_id(object.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::clean::Key::AccountObject {
 			account: account.clone(),
@@ -527,7 +426,13 @@ impl Index {
 		let Some(value) = crate::retry!(result) else {
 			return Ok(ControlFlow::Break(()));
 		};
-		let entry = tangram_index::usage::storage::Entry::deserialize(&value)?;
+		let mut entry = tangram_index::usage::storage::Entry::deserialize(&value)?;
+		// Invalidate the cached references because the retaining scopes may have changed.
+		if entry.reference_count != 0 {
+			entry.reference_count = 0;
+			txn.set(&Self::pack(subspace, &entry_key), &entry.serialize()?);
+		}
+
 		let partition = Self::partition_for_id(process.to_bytes().as_ref(), partition_total);
 		let key = Key::Clean(crate::clean::Key::AccountProcess {
 			account: account.clone(),

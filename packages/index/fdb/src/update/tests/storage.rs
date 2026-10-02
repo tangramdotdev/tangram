@@ -113,6 +113,9 @@ async fn puts(index: &Index, late: bool) {
 		&middle.id,
 		&Kind::Usage(UsageKind::Put {
 			account: account.clone(),
+			permissions: tg::authorization::permission::Set::Object(
+				tg::authorization::permission::object::Set::SUBTREE,
+			),
 			touched_at: 0,
 		}),
 		Some(&old_version),

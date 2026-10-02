@@ -284,6 +284,9 @@ async fn separates_update_queues() {
 		id,
 		super::super::update::Kind::Usage(super::super::update::UsageKind::Put {
 			account: tangram_index::usage::Account::User(user),
+			permissions: tg::authorization::permission::Set::Object(
+				tg::authorization::permission::object::Set::SUBTREE,
+			),
 			touched_at: 0,
 		}),
 		super::super::update::Source::Put,

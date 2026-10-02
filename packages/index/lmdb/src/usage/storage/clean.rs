@@ -215,27 +215,48 @@ impl Index {
 			return Ok(());
 		}
 
-		let reference_count = match candidate {
+		let (account, id) = match candidate {
 			Candidate::Object {
 				account, object, ..
-			} => Self::compute_account_object_reference_count(
-				db,
-				subspace,
-				transaction,
-				account,
-				object,
-			)?,
+			} => (account, tg::Either::Left(object.clone())),
 			Candidate::Process {
 				account, process, ..
-			} => Self::compute_account_process_reference_count(
+			} => (account, tg::Either::Right(process.clone())),
+		};
+		let (permissions, reference_count) =
+			Self::compute_account_storage_permissions_with_transaction(
 				db,
 				subspace,
 				transaction,
 				account,
-				process,
-			)?,
-		};
-		if reference_count > 0 {
+				&id,
+			)?;
+		// Leave permission additions to usage puts so that they propagate to descendants.
+		let permissions =
+			tangram_index::usage::storage::retained_permissions(entry.permissions, permissions);
+		if !permissions.is_empty() {
+			if permissions != entry.permissions {
+				let stored = entry.stores_node();
+				entry.permissions = permissions;
+				if stored != entry.stores_node() {
+					let delta = i64::from(entry.stores_node()) - i64::from(stored);
+					let delta = tangram_index::usage::DeltaArg {
+						account,
+						at: now,
+						delta,
+						kind: tangram_index::usage::DeltaKind::ProcessCount,
+						partition: rand::random_range(0..usage_partition_total),
+					};
+					Self::add_usage_delta(db, subspace, transaction, delta)?;
+				}
+				Self::schedule_account_storage_children_for_cleaning(
+					db,
+					subspace,
+					transaction,
+					account,
+					&id,
+				)?;
+			}
 			entry.reference_count = reference_count;
 			let value = entry.serialize()?;
 			db.put(transaction, &entry_key, &value)
@@ -275,96 +296,54 @@ impl Index {
 		Ok(())
 	}
 
-	fn compute_account_object_reference_count(
+	fn schedule_account_storage_children_for_cleaning(
 		db: &Db,
 		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RwTxn<'_>,
+		transaction: &mut lmdb::RwTxn<'_>,
 		account: &tangram_index::usage::Account,
-		object: &tg::object::Id,
-	) -> tg::Result<u64> {
-		let mut count = 0;
-		for parent in Self::get_object_parents_with_transaction(db, subspace, transaction, object)?
-		{
-			let key = Key::Usage(crate::usage::Key::AccountObject {
-				account: account.clone(),
-				object: parent,
-			});
-			if db
-				.get(transaction, &Self::pack(subspace, &key))
-				.map_err(|error| tg::error!(!error, "failed to get an account object"))?
-				.is_some()
-			{
-				count += 1;
-			}
-		}
-		for (process, _) in
-			Self::get_object_processes_with_transaction(db, subspace, transaction, object)?
-		{
-			let key = Key::Usage(crate::usage::Key::AccountProcess {
-				account: account.clone(),
-				process,
-			});
-			if db
-				.get(transaction, &Self::pack(subspace, &key))
-				.map_err(|error| tg::error!(!error, "failed to get an account process"))?
-				.is_some()
-			{
-				count += 1;
-			}
-		}
-		count += Self::count_account_tags(db, subspace, transaction, account, &object.to_bytes())?;
-
-		Ok(count)
-	}
-
-	fn compute_account_process_reference_count(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RwTxn<'_>,
-		account: &tangram_index::usage::Account,
-		process: &tg::process::Id,
-	) -> tg::Result<u64> {
-		let mut count = 0;
-		for parent in
-			Self::get_process_parents_with_transaction(db, subspace, transaction, process)?
-		{
-			let key = Key::Usage(crate::usage::Key::AccountProcess {
-				account: account.clone(),
-				process: parent,
-			});
-			if db
-				.get(transaction, &Self::pack(subspace, &key))
-				.map_err(|error| tg::error!(!error, "failed to get an account process"))?
-				.is_some()
-			{
-				count += 1;
-			}
-		}
-		count += Self::count_account_tags(db, subspace, transaction, account, &process.to_bytes())?;
-
-		Ok(count)
-	}
-
-	fn count_account_tags(
-		db: &Db,
-		subspace: &fdbt::Subspace,
-		transaction: &lmdb::RwTxn<'_>,
-		account: &tangram_index::usage::Account,
-		target: &[u8],
-	) -> tg::Result<u64> {
-		let tags = Self::get_target_tags_with_transaction(db, subspace, transaction, target)?;
-		let mut count = 0;
-		for tag in tags {
-			let Some(tag) = Self::try_get_tag_with_transaction(db, subspace, transaction, &tag)?
-			else {
-				continue;
-			};
-			if tag.account.as_ref() == Some(account) {
-				count += 1;
-			}
+		id: &tg::Either<tg::object::Id, tg::process::Id>,
+	) -> tg::Result<()> {
+		match id {
+			tg::Either::Left(object) => {
+				for child in
+					Self::get_object_children_with_transaction(db, subspace, transaction, object)?
+				{
+					Self::schedule_account_object_for_cleaning(
+						db,
+						subspace,
+						transaction,
+						account,
+						&child,
+					)?;
+				}
+			},
+			tg::Either::Right(process) => {
+				for child in
+					Self::get_process_children_with_transaction(db, subspace, transaction, process)?
+				{
+					Self::schedule_account_process_for_cleaning(
+						db,
+						subspace,
+						transaction,
+						account,
+						&child,
+					)?;
+				}
+				for (object, _) in
+					Self::get_process_objects_with_transaction(db, subspace, transaction, process)?
+				{
+					Self::schedule_account_object_for_cleaning(
+						db,
+						subspace,
+						transaction,
+						account,
+						&object,
+					)?;
+				}
+			},
 		}
 
-		Ok(count)
+		Ok(())
 	}
 
 	fn delete_account_object(
@@ -441,6 +420,14 @@ impl Index {
 		now: i64,
 		usage_partition_total: u64,
 	) -> tg::Result<()> {
+		let stored = Self::get_account_storage_entry_with_transaction(
+			db,
+			subspace,
+			transaction,
+			account,
+			&tg::Either::Right(process.clone()),
+		)?
+		.is_some_and(|entry| entry.stores_node());
 		let children =
 			Self::get_process_children_with_transaction(db, subspace, transaction, process)?;
 		for child in children {
@@ -483,14 +470,17 @@ impl Index {
 			account,
 		)?;
 		let usage_partition = rand::random_range(0..usage_partition_total);
-		let entry = tangram_index::usage::DeltaArg {
-			account,
-			at: now,
-			delta: -1,
-			kind: tangram_index::usage::DeltaKind::ProcessCount,
-			partition: usage_partition,
-		};
-		Self::add_usage_delta(db, subspace, transaction, entry)?;
+		if stored {
+			let entry = tangram_index::usage::DeltaArg {
+				account,
+				at: now,
+				delta: -1,
+				kind: tangram_index::usage::DeltaKind::ProcessCount,
+				partition: usage_partition,
+			};
+			Self::add_usage_delta(db, subspace, transaction, entry)?;
+		}
+
 		let process_value =
 			Self::try_get_process_with_transaction(db, subspace, transaction, process)?
 				.ok_or_else(|| tg::error!(%process, "a process with a storage entry is missing"))?;
@@ -521,7 +511,18 @@ impl Index {
 		else {
 			return Ok(());
 		};
-		let entry = tangram_index::usage::storage::Entry::deserialize(value)?;
+		let mut entry = tangram_index::usage::storage::Entry::deserialize(value)?;
+		// Invalidate the cached references because the retaining scopes may have changed.
+		if entry.reference_count != 0 {
+			entry.reference_count = 0;
+			db.put(
+				transaction,
+				&Self::pack(subspace, &entry_key),
+				&entry.serialize()?,
+			)
+			.map_err(|error| tg::error!(!error, "failed to invalidate the storage references"))?;
+		}
+
 		let key = Key::Clean(crate::clean::Key::AccountObject {
 			account: account.clone(),
 			object: object.clone(),
@@ -552,7 +553,18 @@ impl Index {
 		else {
 			return Ok(());
 		};
-		let entry = tangram_index::usage::storage::Entry::deserialize(value)?;
+		let mut entry = tangram_index::usage::storage::Entry::deserialize(value)?;
+		// Invalidate the cached references because the retaining scopes may have changed.
+		if entry.reference_count != 0 {
+			entry.reference_count = 0;
+			db.put(
+				transaction,
+				&Self::pack(subspace, &entry_key),
+				&entry.serialize()?,
+			)
+			.map_err(|error| tg::error!(!error, "failed to invalidate the storage references"))?;
+		}
+
 		let key = Key::Clean(crate::clean::Key::AccountProcess {
 			account: account.clone(),
 			process: process.clone(),

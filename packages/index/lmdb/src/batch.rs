@@ -170,7 +170,7 @@ impl Index {
 						transaction,
 						arg,
 						usage_partition_total,
-						true,
+						None,
 						None,
 					)?;
 				},
@@ -181,7 +181,7 @@ impl Index {
 						transaction,
 						arg,
 						usage_partition_total,
-						true,
+						None,
 						None,
 					)?;
 				},
