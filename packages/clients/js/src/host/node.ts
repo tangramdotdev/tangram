@@ -522,7 +522,7 @@ function getNative(): Native {
 	if (native !== undefined) {
 		return native;
 	}
-	let name = `tangram_client.${process.platform}-${process.arch}.node`;
+	let name = `tangram_js_native.${process.platform}-${process.arch}.node`;
 	let require = createRequire(import.meta.url);
 	native = require(path.join(import.meta.dirname, name)) as Native;
 

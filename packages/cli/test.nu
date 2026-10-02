@@ -198,7 +198,7 @@ def main [
 
 	# Tests that require the Node.js client must live under node/.
 	let node = $tests | any { |test| $test.name | str starts-with 'node/' }
-	let extension_args = if $node { ['--package' 'tangram_client_native'] } else { [] }
+	let extension_args = if $node { ['--package' 'tangram_js_native'] } else { [] }
 
 	# Build and install the current macOS app and file system extension. Isolate
 	# its default-feature Cargo build from the all-features test binary.

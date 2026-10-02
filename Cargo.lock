@@ -8155,17 +8155,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_client_native"
-version = "0.0.0"
-dependencies = [
- "napi",
- "napi-build",
- "napi-derive",
- "serde_json",
- "tangram_client",
-]
-
-[[package]]
 name = "tangram_compiler"
 version = "0.0.0"
 dependencies = [
@@ -8464,6 +8453,17 @@ dependencies = [
  "uuid",
  "v8",
  "xattr",
+]
+
+[[package]]
+name = "tangram_js_native"
+version = "0.0.0"
+dependencies = [
+ "napi",
+ "napi-build",
+ "napi-derive",
+ "serde_json",
+ "tangram_client",
 ]
 
 [[package]]

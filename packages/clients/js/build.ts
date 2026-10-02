@@ -14,14 +14,14 @@ let { values: args } = parseArgs({
 let packagePath = dirname(fileURLToPath(import.meta.url));
 let workspacePath = resolve(packagePath, "../../..");
 let libraryExtension = process.platform === "darwin" ? "dylib" : "so";
-let libraryName = `libtangram_client_native.${libraryExtension}`;
+let libraryName = `libtangram_js_native.${libraryExtension}`;
 let targetPath = resolve(
 	workspacePath,
 	process.env.CARGO_TARGET_DIR ?? "target",
 );
 let profilePath = args.profile === "dev" ? "debug" : args.profile;
 let libraryPath = resolve(targetPath, profilePath, libraryName);
-let nativeName = `tangram_client.${process.platform}-${process.arch}.node`;
+let nativeName = `tangram_js_native.${process.platform}-${process.arch}.node`;
 
 if (!args["skip-extension-build"]) {
 	await run("cargo", [
