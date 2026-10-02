@@ -2,7 +2,11 @@ use ../lib/test.nu *
 
 # Building a module that bundles a file with no dependencies produces a checkout that matches the snapshot.
 
-let local = server spawn
+let local = server spawn --config {
+	verification: {
+		permissions: { final: false, initial: false }
+	}
+}
 
 let path = artifact {
 	tangram.ts: '
