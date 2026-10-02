@@ -92,7 +92,6 @@ pub enum Response {
 	Lookup {
 		attrs: Option<Attrs>,
 		id: Option<u64>,
-		/// Whether the parent directory contents are immutable.
 		immutable: bool,
 	},
 	LookupParent {
