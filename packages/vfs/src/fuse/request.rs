@@ -496,22 +496,10 @@ where
 				};
 				let mut open_flags = sys::FOPEN_NOFLUSH | sys::FOPEN_KEEP_CACHE;
 				let mut backing_id = -1;
-				if self.passthrough_enabled {
-					let Some(backing_fd) = backing_fd else {
-						if self.passthrough_required {
-							tracing::error!(
-								fh = handle,
-								"passthrough is required but the provider did not supply a backing fd"
-							);
-							return Err(Error::from_raw_os_error(libc::EOPNOTSUPP));
-						}
-						let out = fuse_open_out {
-							backing_id,
-							fh: handle,
-							open_flags,
-						};
-						return Ok(Response::Open(out));
-					};
+				// Files without a backing descriptor use regular FUSE I/O even when passthrough is required.
+				if self.passthrough_enabled
+					&& let Some(backing_fd) = backing_fd
+				{
 					match self.register_passthrough_backing(
 						fd,
 						request.header.nodeid,
