@@ -1,0 +1,10 @@
+{
+	"name": "@tangramdotdev/python-client",
+	"private": true,
+	"scripts": {
+		"build": "python3 build.py",
+		"check": "../../../.venv/bin/python -m ruff check . ../../cli/tests/py && ../../../.venv/bin/ty check src && ../../../.venv/bin/python check_types.py && ../../../.venv/bin/python -m compileall -q src",
+		"format": "../../../.venv/bin/python -m ruff format . ../../cli/tests/py",
+		"test": "../../../.venv/bin/python -m unittest discover -s tests"
+	}
+}

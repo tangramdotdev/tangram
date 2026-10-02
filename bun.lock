@@ -23,6 +23,9 @@
         "@types/node": "^26.6.3",
       },
     },
+    "packages/clients/py": {
+      "name": "@tangramdotdev/python-client",
+    },
     "packages/js": {
       "name": "@tangramdotdev/js",
       "dependencies": {
@@ -247,6 +250,8 @@
     "@tangramdotdev/client": ["@tangramdotdev/client@workspace:packages/clients/js"],
 
     "@tangramdotdev/js": ["@tangramdotdev/js@workspace:packages/js"],
+
+    "@tangramdotdev/python-client": ["@tangramdotdev/python-client@workspace:packages/clients/py"],
 
     "@tangramdotdev/typescript": ["@tangramdotdev/typescript@workspace:packages/typescript"],
 

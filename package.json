@@ -2,6 +2,7 @@
 	"private": true,
 	"workspaces": [
 		"packages/clients/js",
+		"packages/clients/py",
 		"packages/js",
 		"packages/typescript",
 		"packages/vscode"
