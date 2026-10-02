@@ -56,7 +56,7 @@ export namespace Connect {
 								event: tg.Process.Stdio.Read.Event;
 							};
 					  }
-					| { kind: "wait"; value: tg.Process.Wait.Data };
+					| { kind: "outcome"; value: tg.Process.Outcome.Data };
 		  }
 		| {
 				kind: "response";

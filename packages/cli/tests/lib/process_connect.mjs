@@ -136,9 +136,9 @@ try {
 		assert.equal(output.value.cached, true);
 		await until(() => closed);
 		assert.equal(Buffer.concat(chunks).toString(), "cached log\n");
-		const wait = notifications.find((value) => value.kind === "wait");
-		assert.equal(wait.value.exit, 0);
-		assert.equal(wait.value.output, "cached output");
+		const outcome = notifications.find((value) => value.kind === "outcome");
+		assert.equal(outcome.value.exit, 0);
+		assert.equal(outcome.value.output, "cached output");
 	} else if (mode === "disconnect") {
 		request.destroy();
 	} else if (mode === "write") {

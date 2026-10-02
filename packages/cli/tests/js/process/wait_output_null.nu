@@ -7,8 +7,8 @@ let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default () => {
-			let missing = tg.Process.Wait.fromData({ exit: 0 });
-			let null_ = tg.Process.Wait.fromData({ exit: 0, output: null });
+			let missing = tg.Process.Outcome.fromData({ exit: 0 });
+			let null_ = tg.Process.Outcome.fromData({ exit: 0, output: null });
 			return [missing.output === undefined, null_.output === null];
 		}
 	'

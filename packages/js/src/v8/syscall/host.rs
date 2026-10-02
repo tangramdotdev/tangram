@@ -238,10 +238,10 @@ pub async fn stopper_stop(state: Rc<State>, args: (usize,)) -> tg::Result<()> {
 pub async fn wait(
 	state: Rc<State>,
 	args: (u32, Option<usize>),
-) -> tg::Result<Serde<crate::host::WaitOutput>> {
+) -> tg::Result<Serde<crate::host::Outcome>> {
 	let (pid, stopper) = args;
-	let output = state.host.wait(pid, stopper).await?;
-	Ok(Serde(output))
+	let outcome = state.host.wait(pid, stopper).await?;
+	Ok(Serde(outcome))
 }
 
 pub async fn write(state: Rc<State>, args: (i32, Bytes)) -> tg::Result<()> {

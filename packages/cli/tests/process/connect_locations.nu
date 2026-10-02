@@ -57,13 +57,13 @@ let path = artifact {
 				tokens: spawned.tokens,
 				reads: [{ streams: ["stdout"] }],
 			});
-			let [, text, wait] = await Promise.all([
+			let [, text, outcome] = await Promise.all([
 				attached.stdin.writeAll(tg.encoding.utf8.encode("attached\n")),
 				attached.stdout.text(),
 				attached.wait(),
 			]);
 			tg.assert(text === "attached\n");
-			tg.assert(wait.exit === 0);
+			tg.assert(outcome.exit === 0);
 			return "ok";
 		}
 	'

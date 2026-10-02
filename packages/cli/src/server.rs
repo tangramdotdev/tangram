@@ -275,15 +275,15 @@ impl Cli {
 		}
 
 		// Wait up to one second for the server to exit.
-		let (mut handle, wait) = tokio::task::spawn_blocking(move || {
+		let (mut handle, status) = tokio::task::spawn_blocking(move || {
 			let mut handle = handle;
-			let wait = handle.wait_timeout(Duration::from_secs(1))?;
-			Ok::<_, std::io::Error>((handle, wait))
+			let status = handle.wait_timeout(Duration::from_secs(1))?;
+			Ok::<_, std::io::Error>((handle, status))
 		})
 		.await
 		.map_err(|error| tg::error!(!error, "the server wait task panicked"))?
 		.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
-		if wait.is_some() {
+		if status.is_some() {
 			return Ok(());
 		}
 
@@ -298,11 +298,12 @@ impl Cli {
 		}
 
 		// Wait up to one second for the server to exit.
-		let wait = tokio::task::spawn_blocking(move || handle.wait_timeout(Duration::from_secs(1)))
-			.await
-			.map_err(|error| tg::error!(!error, "the server wait task panicked"))?
-			.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
-		if wait.is_some() {
+		let status =
+			tokio::task::spawn_blocking(move || handle.wait_timeout(Duration::from_secs(1)))
+				.await
+				.map_err(|error| tg::error!(!error, "the server wait task panicked"))?
+				.map_err(|error| tg::error!(!error, "failed to wait for the server process"))?;
+		if status.is_some() {
 			return Ok(());
 		}
 

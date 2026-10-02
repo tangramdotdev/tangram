@@ -22,6 +22,8 @@ export class Session {
 		output: Channel<tg.Process.Stdio.Read.ServerMessage>;
 	}> = [];
 	#nextId = 1;
+	#outcome = Promise.withResolvers<tg.Process.Outcome | null>();
+	#outcomeReceived = false;
 	output: tg.Process.Spawn.Output | null = null;
 	#reads = new Map<number, Channel<tg.Process.Stdio.Read.ServerMessage>>();
 	#requests = new Map<
@@ -32,11 +34,9 @@ export class Session {
 		}
 	>();
 	#unacknowledged = new Set<number>();
-	#wait = Promise.withResolvers<tg.Process.Wait | null>();
-	#waited = false;
 
 	private constructor() {
-		this.#wait.promise.catch(() => {});
+		this.#outcome.promise.catch(() => {});
 	}
 
 	static async open(
@@ -118,9 +118,11 @@ export class Session {
 						.get(notification.value.id)
 						?.push({ kind: "notification", value: notification.value.event });
 					break;
-				case "wait":
-					this.#waited = true;
-					this.#wait.resolve(tg.Process.Wait.fromData(notification.value));
+				case "outcome":
+					this.#outcomeReceived = true;
+					this.#outcome.resolve(
+						tg.Process.Outcome.fromData(notification.value),
+					);
 					break;
 			}
 		}
@@ -198,13 +200,13 @@ export class Session {
 		this.#close(id);
 	}
 
-	async wait(): Promise<tg.Process.Wait> {
+	async wait(): Promise<tg.Process.Outcome> {
 		this.confirm();
-		let output = await this.#wait.promise;
-		if (output === null) {
+		let outcome = await this.#outcome.promise;
+		if (outcome === null) {
 			throw new Error("the process connection closed before completion");
 		}
-		return output;
+		return outcome;
 	}
 
 	close(): void {
@@ -212,12 +214,12 @@ export class Session {
 	}
 
 	async detach(): Promise<void> {
-		if (!this.#waited) {
+		if (!this.#outcomeReceived) {
 			let output;
 			try {
 				output = await this.#request({ kind: "detach" });
 			} catch (error) {
-				if (this.#waited) {
+				if (this.#outcomeReceived) {
 					return;
 				}
 				throw error;
@@ -379,9 +381,9 @@ export class Session {
 		}
 
 		if (error === undefined) {
-			this.#wait.resolve(null);
+			this.#outcome.resolve(null);
 		} else {
-			this.#wait.reject(error);
+			this.#outcome.reject(error);
 		}
 	}
 }

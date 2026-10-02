@@ -471,12 +471,12 @@ pub trait Ext: tg::Instance {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
-	) -> impl Future<Output = tg::Result<tg::process::wait::Output>> + Send {
+	) -> impl Future<Output = tg::Result<tg::process::outcome::Data>> + Send {
 		async move {
 			let mut future = self.wait_process_future(id, arg.clone()).await?;
 			loop {
-				if let Some(output) = future.await? {
-					return Ok(output);
+				if let Some(outcome) = future.await? {
+					return Ok(outcome);
 				}
 				future = self.wait_process_future(id, arg.clone()).await?;
 			}

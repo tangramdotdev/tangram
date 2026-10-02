@@ -21,7 +21,7 @@ data: ${JSON.stringify(value)}
 
 `);
 const completed = new Set();
-let waited = false;
+let outcomeReceived = false;
 const done = new Promise((resolve, reject) => {
 	request.on("error", reject);
 	request.on("response", (response) => {
@@ -58,18 +58,18 @@ const done = new Promise((resolve, reject) => {
 							assert.equal(value.output.value.length, chunkSize);
 						}
 					}
-					if (event === "notification" && value.kind === "wait") {
+					if (event === "notification" && value.kind === "outcome") {
 						assert.equal(value.value.exit, 0);
-						waited = true;
+						outcomeReceived = true;
 					}
-					if (waited && completed.size === requestWindow + 1) resolve();
+					if (outcomeReceived && completed.size === requestWindow + 1) resolve();
 				}
 			} catch (error) {
 				reject(error);
 			}
 		});
 		response.on("end", () => {
-			if (!waited || completed.size !== requestWindow + 1)
+			if (!outcomeReceived || completed.size !== requestWindow + 1)
 				reject(new Error("the connection closed early"));
 		});
 	});

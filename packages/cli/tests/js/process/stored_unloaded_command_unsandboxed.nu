@@ -15,11 +15,11 @@ let path = artifact {
 			await command.store();
 			command.unload();
 			let process = await tg.spawn(command).stdout("pipe");
-			let [output, wait] = await Promise.all([
+			let [output, outcome] = await Promise.all([
 				process.stdout.text(),
 				process.wait(),
 			]);
-			return { exit: wait.exit, output: output.trim() };
+			return { exit: outcome.exit, output: output.trim() };
 		}
 	'
 }

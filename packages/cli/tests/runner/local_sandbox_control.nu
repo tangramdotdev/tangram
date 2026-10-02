@@ -20,8 +20,8 @@ let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			const child = await tg.spawn`printf local`.stdio("pipe");
-			const [text, wait] = await Promise.all([child.stdout.text(), child.wait()]);
-			tg.assert(text === "local" && wait.exit === 0);
+			const [text, outcome] = await Promise.all([child.stdout.text(), child.wait()]);
+			tg.assert(text === "local" && outcome.exit === 0);
 			return "ok";
 		}
 	',

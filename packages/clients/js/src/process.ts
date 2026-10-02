@@ -3,11 +3,13 @@ import type { Connect as ProcessConnect } from "./client/process/connect.ts";
 import type { Get as ProcessGet } from "./client/process/get.ts";
 import type { Put as ProcessPut } from "./client/process/put.ts";
 import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
+import type { Wait as ProcessWait } from "./client/process/wait.ts";
 import * as tg from "./index.ts";
 import * as build from "./process/build.ts";
 import * as commandData from "./process/command.ts";
 import * as connect from "./process/connect.ts";
 import * as exec from "./process/exec.ts";
+import * as outcome from "./process/outcome.ts";
 import * as run from "./process/run.ts";
 import * as spawn from "./process/spawn.ts";
 import * as stdio from "./process/stdio.ts";
@@ -32,9 +34,10 @@ export class Process<O extends tg.Value = tg.Value> {
 	#id: number | tg.Process.Id;
 	#lease: string | null;
 	#location: tg.Location.Arg | null;
+	#outcome: tg.Process.Outcome | null;
 	#owned: boolean;
 	#options: tg.Referent.Options;
-	#promise: Promise<tg.Process.Wait> | null;
+	#promise: Promise<tg.Process.Outcome> | null;
 	#state: tg.Process.State | null;
 	#stderr: tg.Process.Stdio.Reader;
 	#stdin: tg.Process.Stdio.Writer;
@@ -42,7 +45,6 @@ export class Process<O extends tg.Value = tg.Value> {
 	#stopper: tg.Host.Stopper | null;
 	#stdout: tg.Process.Stdio.Reader;
 	#tokens: tg.Authorization.Tokens;
-	#wait: tg.Process.Wait | null;
 
 	static async connect<O extends tg.Value = tg.Value>(
 		id: tg.Process.Id,
@@ -252,7 +254,7 @@ export class Process<O extends tg.Value = tg.Value> {
 		stopper: tg.Host.Stopper,
 		tempPath: string,
 		outputPath: string,
-	): Promise<tg.Process.Wait> {
+	): Promise<tg.Process.Outcome> {
 		return await spawn.waitUnsandboxed(
 			pid,
 			stdio,
@@ -296,9 +298,9 @@ export class Process<O extends tg.Value = tg.Value> {
 		this.#stopper = arg.stopper ?? null;
 		this.#tokens = tg.Authorization.Tokens.clone(arg.tokens);
 		tg.Authorization.Tokens.normalize(this.#tokens);
-		this.#wait = arg.wait ?? null;
+		this.#outcome = arg.outcome ?? null;
 		this.#owned =
-			this.#wait === null &&
+			this.#outcome === null &&
 			(typeof this.#id === "number"
 				? this.#stopper !== null
 				: this.#lease !== null);
@@ -644,8 +646,8 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Wait for this process to exit. */
-	async wait(): Promise<tg.Process.Wait> {
-		if (this.#wait !== null) {
+	async wait(): Promise<tg.Process.Outcome> {
+		if (this.#outcome !== null) {
 			if (this.#stdioPromise !== null) {
 				await this.#stdioPromise;
 			}
@@ -653,13 +655,13 @@ export class Process<O extends tg.Value = tg.Value> {
 				this.#location === null
 					? null
 					: tg.Location.Arg.toLocation(this.#location);
-			tg.Process.Wait.inheritLocation(this.#wait, location);
-			tg.Process.Wait.inheritTokens(this.#wait, this.#tokens);
-			return this.#wait;
+			tg.Process.Outcome.inheritLocation(this.#outcome, location);
+			tg.Process.Outcome.inheritTokens(this.#outcome, this.#tokens);
+			return this.#outcome;
 		}
 		if (typeof this.#id === "number") {
 			tg.assert(this.#promise !== null);
-			let wait =
+			let outcome =
 				this.#stdioPromise === null
 					? await this.#promise
 					: (await Promise.all([this.#promise, this.#stdioPromise]))[0];
@@ -667,11 +669,11 @@ export class Process<O extends tg.Value = tg.Value> {
 				this.#location === null
 					? null
 					: tg.Location.Arg.toLocation(this.#location);
-			tg.Process.Wait.inheritLocation(wait, location);
-			tg.Process.Wait.inheritTokens(wait, this.#tokens);
-			this.#wait = wait;
+			tg.Process.Outcome.inheritLocation(outcome, location);
+			tg.Process.Outcome.inheritTokens(outcome, this.#tokens);
+			this.#outcome = outcome;
 			this.#owned = false;
-			return wait;
+			return outcome;
 		}
 		let arg: tg.Process.Wait.Arg = {};
 		if (this.#lease !== null) {
@@ -688,30 +690,30 @@ export class Process<O extends tg.Value = tg.Value> {
 			let promise = await tg.client.waitProcessPromise(this.#id, arg);
 			waitPromise = promise();
 		}
-		let wait =
+		let outcome =
 			this.#stdioPromise === null
 				? await waitPromise
 				: (await Promise.all([waitPromise, this.#stdioPromise]))[0];
-		if (wait === null) {
+		if (outcome === null) {
 			throw new Error("failed to find the process");
 		}
 		let location =
 			this.#location === null
 				? null
 				: tg.Location.Arg.toLocation(this.#location);
-		tg.Process.Wait.inheritLocation(wait, location);
-		tg.Process.Wait.inheritTokens(wait, this.#tokens);
-		this.#wait = wait;
+		tg.Process.Outcome.inheritLocation(outcome, location);
+		tg.Process.Outcome.inheritTokens(outcome, this.#tokens);
+		this.#outcome = outcome;
 		this.#owned = false;
-		return wait;
+		return outcome;
 	}
 
 	/** Wait for this process to exit and return the output. */
 	async output(): Promise<O> {
-		let wait = await this.wait();
+		let outcome = await this.wait();
 
-		if (wait.error !== null) {
-			let error = wait.error;
+		if (outcome.error !== null) {
+			let error = outcome.error;
 			const options = {
 				...this.#options,
 				tokens: error.state.tokens,
@@ -731,8 +733,10 @@ export class Process<O extends tg.Value = tg.Value> {
 				values,
 			});
 		}
-		if (wait.exit >= 1 && wait.exit < 128) {
-			const error = tg.error.sync(`the process exited with code ${wait.exit}`);
+		if (outcome.exit >= 1 && outcome.exit < 128) {
+			const error = tg.error.sync(
+				`the process exited with code ${outcome.exit}`,
+			);
 			const source = {
 				node: error,
 				options: this.#options,
@@ -748,8 +752,10 @@ export class Process<O extends tg.Value = tg.Value> {
 				values,
 			});
 		}
-		if (wait.exit >= 128) {
-			const error = tg.error.sync(`the process exited with code ${wait.exit}`);
+		if (outcome.exit >= 128) {
+			const error = tg.error.sync(
+				`the process exited with code ${outcome.exit}`,
+			);
 			const source = {
 				node: error,
 				options: this.#options,
@@ -761,7 +767,7 @@ export class Process<O extends tg.Value = tg.Value> {
 				values.name = this.#options.name;
 			}
 			throw tg.error.sync(
-				`the child process exited with signal ${wait.exit - 128}`,
+				`the child process exited with signal ${outcome.exit - 128}`,
 				{
 					source,
 					values,
@@ -769,7 +775,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			);
 		}
 
-		let output = wait.output;
+		let output = outcome.output;
 
 		if (output !== undefined) {
 			tg.Value.inheritTokens(output, this.#tokens);
@@ -832,6 +838,8 @@ export class Process<O extends tg.Value = tg.Value> {
 }
 
 export namespace Process {
+	export import Outcome = outcome.Outcome;
+
 	export namespace Connect {
 		export type Arg = ProcessConnect.Arg;
 		export type ClientMessage = ProcessConnect.ClientMessage;
@@ -1245,7 +1253,8 @@ export namespace Process {
 		lease?: string | null;
 		location?: tg.Location.Arg | null;
 		options?: tg.Referent.Options;
-		promise?: Promise<tg.Process.Wait> | null;
+		outcome?: tg.Process.Outcome | null;
+		promise?: Promise<tg.Process.Outcome> | null;
 		state?: State | null;
 		stderr: tg.Process.Stdio.Reader;
 		stdin: tg.Process.Stdio.Writer;
@@ -1253,7 +1262,6 @@ export namespace Process {
 		stopper?: tg.Host.Stopper | null;
 		stdout: tg.Process.Stdio.Reader;
 		tokens?: tg.Authorization.Tokens | null;
-		wait?: tg.Process.Wait | null;
 	};
 
 	export type PreparedUnsandboxedCommandOutput = {
@@ -1754,85 +1762,10 @@ export namespace Process {
 		};
 	}
 
-	export type Wait = {
-		error: tg.Error | null;
-		exit: number;
-		output?: tg.Value;
-	};
-
 	export type Source = "auto" | "index" | "runner";
 
 	export namespace Wait {
-		export type Arg = {
-			lease?: string | null;
-			location?: tg.Location.Arg | null;
-			source?: tg.Process.Source;
-			tokens?: tg.Authorization.Tokens | null;
-		};
-
-		export type Data = {
-			error?: tg.Error.Data | string | null;
-			exit: number;
-			output?: tg.Value.Data;
-		};
-
-		export let fromData = (data: tg.Process.Wait.Data): tg.Process.Wait => {
-			let output: Wait = {
-				error:
-					data.error !== undefined && data.error !== null
-						? typeof data.error === "string"
-							? tg.Error.withReferent(
-									tg.Referent.fromDataString(
-										data.error,
-										(id) => id as tg.Error.Id,
-									),
-								)
-							: tg.Error.fromData(data.error)
-						: null,
-				exit: data.exit,
-			};
-			if ("output" in data) {
-				output.output = tg.Value.fromData(data.output);
-			}
-			return output;
-		};
-
-		export let inheritLocation = (
-			wait: tg.Process.Wait,
-			location: tg.Location | null,
-		): void => {
-			if (wait.error !== null) {
-				tg.Object.inheritLocation(wait.error, location);
-			}
-			if (wait.output !== undefined) {
-				tg.Value.inheritLocation(wait.output, location);
-			}
-		};
-
-		export let inheritTokens = (
-			wait: tg.Process.Wait,
-			tokens: tg.Authorization.Tokens,
-		): void => {
-			if (wait.error !== null) {
-				tg.Object.inheritTokens(wait.error, tokens);
-			}
-			if (wait.output !== undefined) {
-				tg.Value.inheritTokens(wait.output, tokens);
-			}
-		};
-
-		export let toData = (value: Wait): Data => {
-			let output: Data = {
-				exit: value.exit,
-			};
-			if (value.error !== null) {
-				output.error = tg.Error.toDataOrId(value.error);
-			}
-			if (value.output !== undefined) {
-				output.output = tg.Value.toData(value.output);
-			}
-			return output;
-		};
+		export type Arg = ProcessWait.Arg;
 	}
 }
 

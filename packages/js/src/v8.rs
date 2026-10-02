@@ -7,7 +7,7 @@ use {
 		promise::promise_reject_callback,
 		syscall::syscall,
 	},
-	crate::Output,
+	crate::Outcome,
 	futures::{StreamExt as _, future::LocalBoxFuture, stream::FuturesUnordered},
 	sourcemap::SourceMap,
 	std::{
@@ -61,25 +61,25 @@ struct Module {
 	v8: Option<v8::Global<v8::Module>>,
 }
 
-pub async fn run(arg: crate::Arg) -> tg::Result<Output> {
+pub async fn run(arg: crate::Arg) -> tg::Result<Outcome> {
 	let mut runtime = Runtime::new(arg)?;
 	let value = runtime.start()?;
 	let result = runtime.resolve(&value).await;
-	let output = match result {
-		Ok(output) => Output {
+	let outcome = match result {
+		Ok(output) => Outcome {
 			checksum: None,
 			error: None,
 			exit: 0,
 			output: Some(output),
 		},
-		Err(error) => Output {
+		Err(error) => Outcome {
 			checksum: None,
 			error: Some(error),
 			exit: 1,
 			output: None,
 		},
 	};
-	Ok(output)
+	Ok(outcome)
 }
 
 impl Runtime {

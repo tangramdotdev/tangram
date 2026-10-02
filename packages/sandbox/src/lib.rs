@@ -626,10 +626,10 @@ impl Sandbox {
 	) -> tg::Result<impl std::future::Future<Output = tg::Result<u8>> + Send + 'static> {
 		let future = self.0.client.wait(process.index).await?;
 		Ok(async move {
-			let output = future
+			let outcome = future
 				.await?
 				.ok_or_else(|| tg::error!("failed to wait for the process"))?;
-			Ok(output.status)
+			Ok(outcome.status)
 		})
 	}
 

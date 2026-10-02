@@ -24,7 +24,7 @@ let path = artifact {
 						.connection(mode);
 				await process.detach();
 				tg.assert(process.connection === null);
-				let [, stdout, stderr, wait] = await Promise.all([
+				let [, stdout, stderr, outcome] = await Promise.all([
 					process.stdin.writeAll(tg.encoding.utf8.encode("hello\n")),
 					process.stdout.text(),
 					process.stderr.text(),
@@ -32,7 +32,7 @@ let path = artifact {
 				]);
 				tg.assert(stdout === "out:hello\n");
 				tg.assert(stderr === "err:hello\n");
-				tg.assert(wait.exit === 0);
+				tg.assert(outcome.exit === 0);
 				await process.signal(tg.Process.Signal.HUP);
 				ids.push(process.id);
 			}

@@ -90,7 +90,7 @@ struct FinishProcessRunArg {
 	location: tg::Location,
 	processes: Arc<crate::process::Processes>,
 	ready_receiver: tokio::sync::oneshot::Receiver<()>,
-	run_task: Task<tg::Result<RunProcessOutput>>,
+	run_task: Task<tg::Result<RunProcessOutcome>>,
 	sandbox: tangram_sandbox::Sandbox,
 	state: tg::process::State,
 	sync_receiver: tokio::sync::oneshot::Receiver<Option<tg::Referent<tg::sync::Id>>>,
@@ -143,7 +143,7 @@ struct LogSender {
 	sender: tokio::sync::mpsc::Sender<LogEvent>,
 }
 
-struct CollectProcessOutputArg<'a> {
+struct CollectProcessOutcomeArg<'a> {
 	exit: u8,
 	path: PathBuf,
 	state: &'a tg::process::State,
@@ -163,11 +163,11 @@ pub(crate) struct ConnectedEvent {
 }
 
 #[derive(Clone, Debug)]
-struct Output {
+struct Outcome {
 	checksum: Option<tg::Checksum>,
 	error: Option<tg::Error>,
 	exit: u8,
-	value: Option<tg::Value>,
+	output: Option<tg::Value>,
 }
 
 struct RunProcessArg {
@@ -189,7 +189,7 @@ pub(super) struct WriteProcessLogTaskArg {
 	started_at: i64,
 }
 
-struct RunProcessOutput {
+struct RunProcessOutcome {
 	exit: u8,
 	path: PathBuf,
 }
@@ -1155,16 +1155,16 @@ impl Session {
 				Err(error) => matches!(error.to_data_or_id(), tg::Either::Left(data) if matches!(data.code, Some(tg::error::Code::Cancellation))),
 			});
 		let result = match result {
-			Ok(output) => {
+			Ok(outcome) => {
 				let context = crate::Context {
 					origin: crate::Origin::Sandbox(sandbox.index()),
 					..self.context.clone()
 				};
-				let output_session = self.server.session(&context);
-				output_session
-					.collect_process_output(CollectProcessOutputArg {
-						exit: output.exit,
-						path: output.path,
+				let outcome_session = self.server.session(&context);
+				outcome_session
+					.collect_process_outcome(CollectProcessOutcomeArg {
+						exit: outcome.exit,
+						path: outcome.path,
 						state: &state,
 					})
 					.await
@@ -1172,21 +1172,21 @@ impl Session {
 			Err(error) => Err(error),
 		};
 
-		let output = if let Some(finish) = finish {
+		let outcome = if let Some(finish) = finish {
 			let error = finish
 				.error
 				.map(tg::Error::try_from)
 				.transpose()
 				.map_err(|error| tg::error!(!error, "failed to deserialize the process error"))?;
-			Output {
+			Outcome {
 				checksum: None,
 				error,
 				exit: finish.exit,
-				value: None,
+				output: None,
 			}
 		} else {
 			match result {
-				Ok(output) => output,
+				Ok(outcome) => outcome,
 				Err(error) => {
 					let code = match error.to_data_or_id() {
 						tg::Either::Left(data) => data.code.unwrap_or(tg::error::Code::Internal),
@@ -1194,18 +1194,18 @@ impl Session {
 					};
 					let error =
 						tg::error!(!error, code = code, process = %id, "failed to run the process");
-					Output {
+					Outcome {
 						checksum: None,
 						error: Some(error),
 						exit: 1,
-						value: None,
+						output: None,
 					}
 				},
 			}
 		};
 
 		// Store the output.
-		if let Some(value) = &output.value {
+		if let Some(value) = &outcome.output {
 			value
 				.store_with_instance(self)
 				.await
@@ -1213,7 +1213,7 @@ impl Session {
 		}
 
 		// Store the error.
-		let (mut error, error_code) = if let Some(error) = &output.error {
+		let (mut error, error_code) = if let Some(error) = &outcome.error {
 			let error = error.to_data_or_id().map_right(|_| error.to_referent());
 			let error_code = match &error {
 				tg::Either::Left(data) => data.code,
@@ -1224,7 +1224,7 @@ impl Session {
 		} else {
 			(None, None)
 		};
-		let mut exit = output.exit;
+		let mut exit = outcome.exit;
 
 		let process_state = processes
 			.get(&id)
@@ -1244,7 +1244,7 @@ impl Session {
 		if let Some(expected) = &data.expected_checksum
 			&& exit == 0
 		{
-			if let Some(actual) = &output.checksum
+			if let Some(actual) = &outcome.checksum
 				&& expected != actual
 			{
 				error = Some(tg::Either::Left(tg::error::Data {
@@ -1258,15 +1258,15 @@ impl Session {
 					..Default::default()
 				}));
 				exit = 1;
-			} else if output.checksum.is_none() && !expected.is_any() {
+			} else if outcome.checksum.is_none() && !expected.is_any() {
 				return Err(tg::error!(?id, "the actual checksum was not set"));
 			}
 		}
-		data.actual_checksum = output.checksum.clone();
+		data.actual_checksum = outcome.checksum.clone();
 		data.error = error;
 		data.exit = Some(exit);
 		data.finished_at = Some(self.server.clock.unix_timestamp()?);
-		data.output = output.value.as_ref().map(tg::Value::to_data);
+		data.output = outcome.output.as_ref().map(tg::Value::to_data);
 		data.status = tg::process::Status::Finished;
 		Self::validate_process_data(&data)?;
 
@@ -1935,7 +1935,7 @@ impl Session {
 		Ok(())
 	}
 
-	async fn run_process(&self, arg: RunProcessArg) -> tg::Result<RunProcessOutput> {
+	async fn run_process(&self, arg: RunProcessArg) -> tg::Result<RunProcessOutcome> {
 		let RunProcessArg {
 			command,
 			guest_url,
@@ -2134,12 +2134,12 @@ impl Session {
 			)
 			.await;
 
-			let output = RunProcessOutput {
+			let outcome = RunProcessOutcome {
 				exit,
 				path: host_output_path,
 			};
 
-			Ok(output)
+			Ok(outcome)
 		}
 		.boxed()
 		.await;
@@ -2201,13 +2201,13 @@ impl Session {
 			sandbox_process,
 			stopper,
 		} = arg;
-		let wait = sandbox
+		let wait_future = sandbox
 			.wait(sandbox_process)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start waiting for the process"))?;
-		let mut wait = std::pin::pin!(wait);
+		let mut wait_future = std::pin::pin!(wait_future);
 		let (exit, stopped) = tokio::select! {
-				result = &mut wait => {
+				result = &mut wait_future => {
 					let exit = result.map_err(
 						|error| tg::error!(!error, "failed to wait for the process"),
 					)?;
@@ -2215,14 +2215,14 @@ impl Session {
 				},
 				() = stopper.wait() => {
 					sandbox.kill(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
-					let exit = wait.await.map_err(
+					let exit = wait_future.await.map_err(
 						|error| tg::error!(!error, "failed to wait for the process"),
 					)?;
 					(exit, true)
 				},
 				() = process_stopper.wait() => {
 					sandbox.kill(sandbox_process, tg::process::Signal::SIGKILL).await.ok();
-					let exit = wait.await.map_err(
+					let exit = wait_future.await.map_err(
 						|error| tg::error!(!error, "failed to wait for the process"),
 					)?;
 					(exit, true)
@@ -2238,13 +2238,16 @@ impl Session {
 		Ok(exit)
 	}
 
-	async fn collect_process_output(&self, arg: CollectProcessOutputArg<'_>) -> tg::Result<Output> {
-		let CollectProcessOutputArg { exit, path, state } = arg;
-		let mut output = Output {
+	async fn collect_process_outcome(
+		&self,
+		arg: CollectProcessOutcomeArg<'_>,
+	) -> tg::Result<Outcome> {
+		let CollectProcessOutcomeArg { exit, path, state } = arg;
+		let mut outcome = Outcome {
 			checksum: None,
 			error: None,
 			exit,
-			value: None,
+			output: None,
 		};
 		let exists = tokio::fs::try_exists(&path)
 			.await
@@ -2256,14 +2259,14 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to parse the checksum xattr"))
 				.and_then(|string| string.parse::<tg::Checksum>())
 				.map_err(|error| tg::error!(!error, "failed to parse the checksum string"))?;
-			output.checksum = Some(checksum);
+			outcome.checksum = Some(checksum);
 		}
 
 		// Try to read the user.tangram.output xattr.
 		if let Ok(Some(bytes)) = tg::file::xattrs::read_output(&path) {
 			let tgon = String::from_utf8(bytes)
 				.map_err(|error| tg::error!(!error, "failed to decode the output xattr"))?;
-			output.value = Some(
+			outcome.output = Some(
 				tgon.parse::<tg::Value>()
 					.map_err(|error| tg::error!(!error, "failed to parse the output xattr"))?,
 			);
@@ -2282,11 +2285,11 @@ impl Session {
 					.map_err(|error| tg::error!(!error, "failed to parse the error xattr"))?;
 				tg::Error::with_referent(referent)
 			};
-			output.error = Some(error);
+			outcome.error = Some(error);
 		}
 
 		// Check in the output.
-		if output.value.is_none() && exists {
+		if outcome.output.is_none() && exists {
 			let path = self.guest_path_for_host_path(&path)?;
 			let arg = tg::checkin::Arg {
 				options: tg::checkin::Options {
@@ -2311,22 +2314,22 @@ impl Session {
 				.ok_or_else(|| tg::error!("stream ended without output"))?;
 			let artifact = tg::Artifact::with_referent(checkin_output.artifact);
 			let value = artifact.into();
-			output.value = Some(value);
+			outcome.output = Some(value);
 		}
 
 		// Compute the checksum if necessary.
 		if let (Some(checksum), None, Some(value)) =
-			(&state.expected_checksum, &output.checksum, &output.value)
+			(&state.expected_checksum, &outcome.checksum, &outcome.output)
 		{
 			let algorithm = checksum.algorithm();
 			let checksum = self
 				.compute_checksum(value, algorithm)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to compute the checksum"))?;
-			output.checksum = Some(checksum);
+			outcome.checksum = Some(checksum);
 		}
 
-		Ok(output)
+		Ok(outcome)
 	}
 
 	async fn compute_checksum(

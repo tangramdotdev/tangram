@@ -665,8 +665,8 @@ impl Session {
 			location,
 			trusted,
 		)?;
-		if let Some(wait) = &mut output.wait {
-			self.update_wait_output_referents_for_location(wait, location, trusted)?;
+		if let Some(outcome) = &mut output.outcome {
+			self.update_outcome_referents_for_location(outcome, location, trusted)?;
 		}
 		Ok(())
 	}

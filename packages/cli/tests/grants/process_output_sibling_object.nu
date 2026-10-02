@@ -25,8 +25,8 @@ let path = artifact {
 }
 
 let build = tg --token $alice.token build --detach --verbose $path | from json
-let wait = tg --token $alice.token wait $build.process | from json
-assert equal $wait.exit 0 "the parent may return the output it received from the consumer."
+let outcome = tg --token $alice.token wait $build.process | from json
+assert equal $outcome.exit 0 "the parent may return the output it received from the consumer."
 
 # Give Eve access only to the consumer process.
 let consumer = tg --token $alice.token process children $build.process | from json | get 1.process
@@ -34,8 +34,8 @@ tg --token $alice.token grant $eve.user.id process_parent $consumer
 tg --token $alice.token index
 
 # Eve can read the consumer's return value, but not the object it merely named.
-let wait = tg --token $eve.token wait $consumer | from json
-assert equal $wait.exit 0
-let file = $wait.output.value | split row '?' | first
+let outcome = tg --token $eve.token wait $consumer | from json
+assert equal $outcome.exit 0
+let file = $outcome.output.value | split row '?' | first
 let leaked = tg --token $eve.token get $file | complete
 failure $leaked "the consumer must not gain access to its sibling's output by naming its id."

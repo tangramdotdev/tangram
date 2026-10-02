@@ -21,7 +21,7 @@ impl Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
 		// A leased wait must survive graceful shutdown until completion or client disconnect.
 		let mut session = self.clone();
 		if arg.lease.is_some() {
@@ -109,7 +109,7 @@ impl Session {
 		};
 		let stream = stream::once(future).filter_map(|result| async move {
 			match result {
-				Ok(Some(value)) => Some(Ok(tg::process::wait::Event::Output(value))),
+				Ok(Some(outcome)) => Some(Ok(tg::process::wait::Event::Outcome(outcome))),
 				Ok(None) => None,
 				Err(error) => Some(Err(error)),
 			}
@@ -122,7 +122,7 @@ impl Session {
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
 		cancel: Arc<AtomicBool>,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
 		// This session owns cancellation; downstream waits only observe the process.
 		let mut observe_arg = arg.clone();
 		observe_arg.lease = None;
@@ -204,7 +204,7 @@ impl Session {
 		arg: &tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<(
-			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+			BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>,
 			tg::Location,
 		)>,
 	> {
@@ -239,44 +239,40 @@ impl Session {
 		mut arg: tg::process::wait::Arg,
 		mut runner: crate::process::Runner,
 		permissions: tg::authorization::permission::process::Set,
-	) -> BoxFuture<'a, tg::Result<Option<tg::process::wait::Output>>> {
+	) -> BoxFuture<'a, tg::Result<Option<tg::process::outcome::Data>>> {
 		async move {
 			loop {
-				let output = runner
+				let outcome = runner
 					.processes
 					.get(id)
 					.map(|process| -> tg::Result<_> {
 						if !process.data.status.is_finished() {
 							return Ok(None);
 						}
-						let output = Self::create_process_wait_output(
+						let outcome = Self::create_process_outcome_data(
 							&process.data,
 							permissions,
 							false,
 							process.sync.as_ref(),
 							&runner.location,
 						)?;
-						Ok(Some(output))
+						Ok(Some(outcome))
 					})
 					.transpose()?;
-				let Some(output) = output else {
+				let Some(outcome) = outcome else {
 					arg.location = Some(runner.location_arg);
 					let Some(future) = self.try_wait_process_future(id, arg).boxed().await? else {
 						return Ok(None);
 					};
 					return future.await;
 				};
-				if let Some(mut output) = output {
-					// The runner has the output locally, but the process still belongs to its original location.
+				if let Some(mut outcome) = outcome {
+					// The runner has the outcome locally, but the process still belongs to its original location.
 					if runner.location.is_remote() {
 						let location = tg::Location::Local(tg::location::Local::default());
-						self.update_wait_output_referents_for_location(
-							&mut output,
-							&location,
-							false,
-						)?;
+						self.update_outcome_referents_for_location(&mut outcome, &location, false)?;
 					}
-					return Ok(Some(output));
+					return Ok(Some(outcome));
 				}
 				runner.changed.changed().await.ok();
 			}
@@ -284,27 +280,27 @@ impl Session {
 		.boxed()
 	}
 
-	fn create_process_wait_output(
+	fn create_process_outcome_data(
 		data: &tg::process::Data,
 		permissions: tg::authorization::permission::process::Set,
 		retain_stored_sync: bool,
 		sync: Option<&tg::Referent<tg::sync::Id>>,
 		location: &tg::Location,
-	) -> tg::Result<tg::process::wait::Output> {
+	) -> tg::Result<tg::process::outcome::Data> {
 		let exit = data
 			.exit
 			.ok_or_else(|| tg::error!("expected the exit to be set"))?;
-		let mut output = tg::process::wait::Output {
+		let mut outcome = tg::process::outcome::Data {
 			error: data.error.clone(),
 			exit,
 			output: data.output.clone(),
 		};
 
 		// A result sync can expose both fields, so require permission for every object-bearing field.
-		let required = Self::wait_output_sync_permissions(&output);
+		let required = Self::outcome_sync_permissions(&outcome);
 		let authorize_sync = permissions.contains(required);
 		let retain_sync = authorize_sync && retain_stored_sync;
-		output.error = output.error.map(|error| match error {
+		outcome.error = outcome.error.map(|error| match error {
 			tg::Either::Left(error) => tg::Either::Left(error.without_location_and_tokens()),
 			tg::Either::Right(mut error) => {
 				if permissions
@@ -321,23 +317,23 @@ impl Session {
 				tg::Either::Right(error)
 			},
 		});
-		output.output = output.output.map(|mut output| {
+		outcome.output = outcome.output.map(|mut value| {
 			if permissions
 				.contains(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS)
 			{
-				Self::update_process_value_tokens(&mut output, &mut |tokens, id| {
+				Self::update_process_value_tokens(&mut value, &mut |tokens, id| {
 					Self::retain_wait_object_tokens(tokens, id, retain_sync);
 				});
-				output
+				value
 			} else {
-				output.without_location_and_tokens()
+				value.without_location_and_tokens()
 			}
 		});
 		if authorize_sync && let Some(sync) = sync {
-			Self::update_wait_output_authorization_tokens_for_sync(&mut output, sync, location);
+			Self::update_outcome_authorization_tokens_for_sync(&mut outcome, sync, location);
 		}
 
-		Ok(output)
+		Ok(outcome)
 	}
 
 	pub(crate) fn update_process_value_tokens(
@@ -429,16 +425,16 @@ impl Session {
 		}
 	}
 
-	fn wait_output_sync_permissions(
-		output: &tg::process::wait::Output,
+	fn outcome_sync_permissions(
+		outcome: &tg::process::outcome::Data,
 	) -> tg::authorization::permission::process::Set {
 		let mut permissions = tg::authorization::permission::process::Set::empty();
-		if matches!(output.error, Some(tg::Either::Right(_))) {
+		if matches!(outcome.error, Some(tg::Either::Right(_))) {
 			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
 		}
 		let mut objects = std::collections::BTreeSet::new();
-		if let Some(output) = &output.output {
-			output.children(&mut objects);
+		if let Some(value) = &outcome.output {
+			value.children(&mut objects);
 		}
 		if !objects.is_empty() {
 			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
@@ -446,8 +442,8 @@ impl Session {
 		permissions
 	}
 
-	fn update_wait_output_authorization_tokens_for_sync(
-		output: &mut tg::process::wait::Output,
+	fn update_outcome_authorization_tokens_for_sync(
+		outcome: &mut tg::process::outcome::Data,
 		sync: &tg::Referent<tg::sync::Id>,
 		location: &tg::Location,
 	) {
@@ -455,10 +451,10 @@ impl Session {
 		for token in sync.options.tokens.local_authorization() {
 			authorization_tokens.insert_authorization(location.clone(), token.clone());
 		}
-		if let Some(tg::Either::Right(error)) = &mut output.error {
+		if let Some(tg::Either::Right(error)) = &mut outcome.error {
 			error.options.tokens.inherit(&authorization_tokens);
 		}
-		if let Some(data) = &mut output.output {
+		if let Some(data) = &mut outcome.output {
 			Self::update_process_value_tokens(data, &mut |tokens, _| {
 				tokens.inherit(&authorization_tokens);
 			});
@@ -470,7 +466,7 @@ impl Session {
 		id: &tg::process::Id,
 		tokens: Vec<tg::authorization::Token>,
 		source: tg::process::Source,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
 		let mut wakeups = self
 			.create_process_status_wakeup_stream(id, self.context.stopper.clone(), None)
 			.await?;
@@ -502,9 +498,9 @@ impl Session {
 				}
 			};
 			let location = tg::Location::Local(tg::location::Local::default());
-			let output =
-				Self::create_process_wait_output(&process, permissions, true, None, &location)?;
-			Ok(Some(output))
+			let outcome =
+				Self::create_process_outcome_data(&process, permissions, true, None, &location)?;
+			Ok(Some(outcome))
 		};
 
 		Ok(Some(future.boxed()))
@@ -519,7 +515,7 @@ impl Session {
 		source: tg::process::Source,
 	) -> tg::Result<
 		Option<(
-			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+			BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>,
 			String,
 		)>,
 	> {
@@ -557,7 +553,7 @@ impl Session {
 		source: tg::process::Source,
 	) -> tg::Result<
 		Option<(
-			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+			BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>,
 			String,
 		)>,
 	> {
@@ -594,7 +590,7 @@ impl Session {
 		source: tg::process::Source,
 	) -> tg::Result<
 		Option<(
-			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+			BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>,
 			crate::location::Remote,
 		)>,
 	> {
@@ -632,7 +628,7 @@ impl Session {
 		source: tg::process::Source,
 	) -> tg::Result<
 		Option<(
-			BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+			BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>,
 			crate::location::Remote,
 		)>,
 	> {
@@ -671,28 +667,28 @@ impl Session {
 
 	fn update_wait_process_referents_for_location(
 		&self,
-		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
+		future: BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>,
 		location: tg::Location,
 		trusted: bool,
-	) -> BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>> {
+	) -> BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>> {
 		let session = self.clone();
 		async move {
-			let mut output = future.await?;
-			if let Some(output) = &mut output {
-				session.update_wait_output_referents_for_location(output, &location, trusted)?;
+			let mut outcome = future.await?;
+			if let Some(outcome) = &mut outcome {
+				session.update_outcome_referents_for_location(outcome, &location, trusted)?;
 			}
-			Ok(output)
+			Ok(outcome)
 		}
 		.boxed()
 	}
 
-	pub(super) fn update_wait_output_referents_for_location(
+	pub(super) fn update_outcome_referents_for_location(
 		&self,
-		output: &mut tg::process::wait::Output,
+		outcome: &mut tg::process::outcome::Data,
 		location: &tg::Location,
 		trusted: bool,
 	) -> tg::Result<()> {
-		if let Some(error) = &mut output.error {
+		if let Some(error) = &mut outcome.error {
 			match error {
 				tg::Either::Left(error) => {
 					self.update_error_data_referents_for_location(error, location, trusted)?;
@@ -707,7 +703,7 @@ impl Session {
 				},
 			}
 		}
-		if let Some(value) = &mut output.output {
+		if let Some(value) = &mut outcome.output {
 			self.update_value_data_referents_for_location(value, location, trusted)?;
 		}
 		Ok(())
@@ -719,18 +715,18 @@ impl Session {
 		arg: &tg::process::wait::Arg,
 		location: Option<tg::location::Arg>,
 		cancel: Arc<AtomicBool>,
-		future: BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>,
-	) -> BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>> {
+		future: BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>,
+	) -> BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>> {
 		// Remove the parent's child leases when the child finishes.
 		let future = if matches!(self.context.principal, tg::Principal::Process(_)) {
 			let session = self.clone();
 			let child = id.clone();
 			async move {
-				let output = future.await;
-				if matches!(&output, Ok(Some(_))) {
+				let result = future.await;
+				if matches!(&result, Ok(Some(_))) {
 					session.remove_finished_process_child_lease(&child);
 				}
-				output
+				result
 			}
 			.boxed()
 		} else {
@@ -743,14 +739,14 @@ impl Session {
 				let cancel = cancel.clone();
 				let stopper = self.context.stopper.clone();
 				async move {
-					let output = future.await;
+					let result = future.await;
 					// Suppress cancellation when the wait returns during shutdown.
-					if matches!(&output, Ok(Some(_)))
+					if matches!(&result, Ok(Some(_)))
 						|| stopper.as_ref().is_some_and(Stopper::stopped)
 					{
 						cancel.store(false, Ordering::SeqCst);
 					}
-					output
+					result
 				}
 			}
 			.boxed();

@@ -93,12 +93,12 @@ impl Connection {
 		Ok(())
 	}
 
-	pub(crate) async fn wait(&self) -> tg::Result<tg::process::wait::Output> {
+	pub(crate) async fn wait(&self) -> tg::Result<tg::process::outcome::Data> {
 		loop {
 			let session = self.inner.session.lock().await.clone();
 			session.confirm().await;
 			match session.wait().await {
-				Ok(output) => return Ok(output),
+				Ok(outcome) => return Ok(outcome),
 				Err(error) if session.error().is_some() || self.detached() => return Err(error),
 				Err(_) => {},
 			}

@@ -14,8 +14,8 @@ let path = artifact {
 				sandbox: {},
 				stderr: "log", stdin: "null", stdout: "log",
 			});
-			const output = await process.wait();
-			tg.assert(output.exit === 0);
+			const outcome = await process.wait();
+			tg.assert(outcome.exit === 0);
 			const result = await process.command;
 			tg.assert(result instanceof tg.Command && result.id === command.id);
 			return { command: command.id, process: process.id };

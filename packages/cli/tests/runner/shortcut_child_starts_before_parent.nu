@@ -88,8 +88,8 @@ assert equal ($output.stdout | str trim) '42'
 
 let output = timeout 60s tg --url $remote.url --token $root_token wait $parent | complete
 success $output "the parent should finish on the remote"
-let wait = $output.stdout | from json
-assert equal $wait.exit 0 "the parent should succeed"
+let outcome = $output.stdout | from json
+assert equal $outcome.exit 0 "the parent should succeed"
 let children = tg --url $remote.url --token $root_token process children --no-tokens $parent | from json
 assert equal ($children | length) 1 "the remote should record the child under the parent"
 assert equal ($children | get 0.process | split row '?' | first) $child

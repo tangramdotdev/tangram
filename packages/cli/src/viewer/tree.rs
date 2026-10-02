@@ -1676,13 +1676,13 @@ impl Tree {
 			let guard = counter.guard();
 			async move {
 				let _guard = guard;
-				let Ok(wait) = process
+				let Ok(outcome) = process
 					.wait_with_instance(&client, tg::process::wait::Options::default())
 					.await
 				else {
 					return;
 				};
-				if let Some(output) = wait.output {
+				if let Some(output) = outcome.output {
 					let client = client.clone();
 					let update = move |node: Rc<RefCell<Node>>| {
 						let output = Self::create_node(

@@ -17,7 +17,7 @@ let path = artifact {
 					.stdio("pipe")
 					.sandbox()
 					.connection("run");
-			let [, stdout, stderr, wait] = await Promise.all([
+			let [, stdout, stderr, outcome] = await Promise.all([
 				process.stdin.writeAll(tg.encoding.utf8.encode("hello\n")),
 				process.stdout.text(),
 				process.stderr.text(),
@@ -25,7 +25,7 @@ let path = artifact {
 			]);
 			tg.assert(stdout === "out:hello\n");
 			tg.assert(stderr === "err:hello\n");
-			tg.assert(wait.exit === 0);
+			tg.assert(outcome.exit === 0);
 			tg.assert((await process.wait()).exit === 0);
 			tg.assert(requests.length === 1 && requests[0] === "/processes/connect");
 			return "ok";

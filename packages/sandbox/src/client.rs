@@ -9,6 +9,7 @@ use {
 
 pub mod get;
 pub mod kill;
+pub mod outcome;
 pub mod shutdown;
 pub mod spawn;
 pub mod stdio;

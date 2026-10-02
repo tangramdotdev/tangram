@@ -173,7 +173,7 @@ impl tg::instance::Process for Server {
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			impl Future<Output = tg::Result<Option<tg::process::outcome::Data>>> + Send + 'static,
 		>,
 	> {
 		self.session(&self.context)

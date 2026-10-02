@@ -463,7 +463,7 @@ export let host: Host = {
 	async wait(
 		pid: number,
 		stopper?: tg.Host.Stopper | null,
-	): Promise<tg.Host.WaitOutput> {
+	): Promise<tg.Host.Outcome> {
 		let process = processes.get(pid);
 		if (process === undefined) {
 			throw new Error(`failed to find the process ${pid}`);

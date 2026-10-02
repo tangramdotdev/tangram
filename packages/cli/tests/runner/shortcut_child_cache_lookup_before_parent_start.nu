@@ -74,9 +74,9 @@ tg --url $runner.url checkpoint unwatch runner.process.command.push.started $pus
 
 let output = timeout 60s tg --url $remote.url --token $root_token wait $grandparent | complete
 success $output "the second build should finish"
-let wait = $output.stdout | from json
-assert equal $wait.exit 0 "the second build should succeed"
-assert equal $wait.output 42
+let outcome = $output.stdout | from json
+assert equal $outcome.exit 0 "the second build should succeed"
+assert equal $outcome.output 42
 
 # The remote should record the child under the parent.
 let parents = tg --url $remote.url --token $root_token process children --no-tokens $grandparent | from json

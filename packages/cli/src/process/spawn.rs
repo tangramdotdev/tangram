@@ -414,9 +414,9 @@ impl Cli {
 					.node()
 					.location()
 					.and_then(|location| location.to_location()),
+				outcome: output.node().outcome_data(),
 				process: output.node().id().cloned(),
 				tokens: output.node().tokens(),
-				wait: output.node().wait_output(),
 			};
 			self.print_serde(output, args.print).await?;
 		} else {

@@ -12,8 +12,8 @@ let path = artifact {
 			const first = await tg.file("first private input");
 			const second = await tg.file("second private input");
 			const process = await tg.spawn(consume, first, second).sandbox();
-			const output = await process.wait();
-			tg.assert(output.exit === 0);
+			const outcome = await process.wait();
+			tg.assert(outcome.exit === 0);
 			return { first: first.id, second: second.id, process: process.id };
 		};
 	'

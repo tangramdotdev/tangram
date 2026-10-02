@@ -66,8 +66,8 @@ for mode in [none executable] {
 				? tg.File.withReferent(referent)
 				: tg.File.withId(referent.node);
 			const child = await tg.spawn({ env: { FAST: "1" }, executable }).stdio("null");
-			const wait = await child.wait();
-			if (wait.exit !== 0) throw new Error("the process failed");
+			const outcome = await child.wait();
+			if (outcome.exit !== 0) throw new Error("the process failed");
 			process.stdout.write("spawned");
 			process.exit(0);
 		' | complete

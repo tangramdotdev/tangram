@@ -20,9 +20,9 @@ failure $denied "Eve should not read Alice's private file before the exploit."
 let source = 'export default function () { return tg.directory({ "leak": tg.File.withId("FILE_ID") }); }' | str replace "FILE_ID" $file
 let eve_path = artifact { tangram.ts: $source }
 let eve_process = tg --token $eve.token build --detach $eve_path | str trim
-let wait = tg --token $eve.token wait $eve_process | from json
-assert equal $wait.exit 0 "a process may return a readable wrapper around an unreadable object."
-let directory = $wait.output.value | split row '?' | first
+let outcome = tg --token $eve.token wait $eve_process | from json
+assert equal $outcome.exit 0 "a process may return a readable wrapper around an unreadable object."
+let directory = $outcome.output.value | split row '?' | first
 
 # The relationship is stored on the process, and Eve can read the wrapper node.
 let process = tg --token $eve.token get $eve_process | from json

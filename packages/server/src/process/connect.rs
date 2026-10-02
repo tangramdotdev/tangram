@@ -37,13 +37,13 @@ type Input = BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>
 type Operation = BoxFuture<'static, (u64, tg::Result<()>)>;
 type Output = BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>;
 type Sender = mpsc::Sender<tg::Result<tg::process::connect::ServerMessage>>;
-type Wait = BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>;
+type WaitFuture = BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>;
 
 struct Options {
 	arg: tg::process::connect::Arg,
 	id: u64,
 	prepare_output: Option<spawn::PrepareOutput>,
-	wait: Option<(Wait, tg::Location)>,
+	wait_future: Option<(WaitFuture, tg::Location)>,
 }
 
 struct State<'a> {
@@ -231,7 +231,7 @@ impl Session {
 
 		// Register the child and return the connection messages.
 		let mut output = output;
-		let mut waited = false;
+		let mut outcome_received = false;
 		loop {
 			let message = tokio::select! {
 				message = output.try_next() => message?,
@@ -268,10 +268,10 @@ impl Session {
 			if matches!(
 				message,
 				tg::process::connect::ServerMessage::Notification(
-					tg::process::connect::ServerNotification::Wait(_)
+					tg::process::connect::ServerNotification::Outcome(_)
 				)
 			) {
-				waited = true;
+				outcome_received = true;
 			}
 			if let tg::process::connect::ServerMessage::Response(response) = &message
 				&& let Some(tg::process::connect::ServerResponseOutput::Connect(output)) =
@@ -287,7 +287,7 @@ impl Session {
 				.await
 				.map_err(|_| tg::error!("the process connection closed"))?;
 		}
-		if sync_sender.is_some() && !waited {
+		if sync_sender.is_some() && !outcome_received {
 			return Err(tg::error!("the command sync ended unexpectedly"));
 		}
 
@@ -307,12 +307,12 @@ impl Session {
 				source: tg::process::Source::Auto,
 				tokens: arg.tokens.clone(),
 			};
-			if let Some(wait) = self.try_wait_process_runner(process, &wait_arg).await? {
+			if let Some(wait_future) = self.try_wait_process_runner(process, &wait_arg).await? {
 				let options = Options {
 					arg,
 					id,
 					prepare_output: None,
-					wait: Some(wait),
+					wait_future: Some(wait_future),
 				};
 				let output = self.connect_process_local(options, input.take().unwrap());
 				return Ok(Some(output));
@@ -360,8 +360,8 @@ impl Session {
 	) -> tg::Result<Option<Output>> {
 		let mut session = self.clone();
 		session.context.stopper = None;
-		let wait = if let tg::Either::Right(id) = &arg.process {
-			let Some(wait) = session
+		let wait_future = if let tg::Either::Right(id) = &arg.process {
+			let Some(wait_future) = session
 				.try_wait_process_local(
 					id,
 					arg.tokens.local_authorization().to_vec(),
@@ -374,7 +374,7 @@ impl Session {
 			let location = tg::Location::Local(tg::location::Local {
 				region: self.server.config.region.clone(),
 			});
-			Some((wait, location))
+			Some((wait_future, location))
 		} else {
 			None
 		};
@@ -382,7 +382,7 @@ impl Session {
 			arg,
 			id,
 			prepare_output,
-			wait,
+			wait_future,
 		};
 		let output = self.connect_process_local(options, input.take().unwrap());
 		Ok(Some(output))
@@ -420,7 +420,7 @@ impl Session {
 			mut arg,
 			id: request_id,
 			mut prepare_output,
-			wait,
+			wait_future,
 		} = options;
 		let mut sync_task = None;
 		if arg.command_sync {
@@ -476,14 +476,14 @@ impl Session {
 				(output, location)
 			},
 			tg::Either::Right(id) => {
-				let location = wait.as_ref().unwrap().1.clone();
+				let location = wait_future.as_ref().unwrap().1.clone();
 				let output = tg::process::spawn::Output {
 					cached: false,
 					lease: arg.lease,
 					location: Some(location.clone()),
+					outcome: None,
 					process: tg::Either::Right(id),
 					tokens: arg.tokens,
-					wait: None,
 				};
 				(output, Some(location.into()))
 			},
@@ -504,7 +504,7 @@ impl Session {
 		}
 
 		// Follow a cached process to its selected location using the same connection routing.
-		if wait.is_none()
+		if wait_future.is_none()
 			&& !matches!(
 				self.server.location(location.as_ref())?,
 				tg::Location::Local(tg::location::Local { region: None })
@@ -545,12 +545,12 @@ impl Session {
 		let tokens = output.tokens.clone();
 		let cancel = Arc::new(AtomicBool::new(true));
 		let mut lease_guard = output
-			.wait
+			.outcome
 			.is_none()
 			.then(|| spawn::lease::LeaseGuard::new(self, &output))
 			.flatten();
-		let wait = if let Some(output) = output.wait.clone() {
-			futures::future::ready(Ok(Some(output))).boxed()
+		let wait_future = if let Some(outcome) = output.outcome.clone() {
+			futures::future::ready(Ok(Some(outcome))).boxed()
 		} else {
 			let mut wait_arg = tg::process::wait::Arg {
 				lease: None,
@@ -559,8 +559,8 @@ impl Session {
 				tokens: tokens.clone(),
 			};
 
-			// Prefer the runner over the local wait because the runner's output retains the result tokens.
-			let future = if let Some((future, _)) = wait {
+			// Prefer the runner over the local wait because the runner's outcome retains the result tokens.
+			let future = if let Some((future, _)) = wait_future {
 				future
 			} else if let Some((future, _)) = self.try_wait_process_runner(&id, &wait_arg).await? {
 				future
@@ -615,7 +615,7 @@ impl Session {
 
 		// Run the connection until completion or detachment.
 		let finished = self
-			.connect_process_run_task(state, wait, pending, input)
+			.connect_process_run_task(state, wait_future, pending, input)
 			.boxed()
 			.await?;
 		if finished {
@@ -687,7 +687,7 @@ impl Session {
 					&mut response.output
 			{
 				selected.cached = output.cached;
-				selected.wait = output.wait.clone();
+				selected.outcome = output.outcome.clone();
 			}
 			sender
 				.send(Ok(message))
@@ -701,7 +701,7 @@ impl Session {
 	async fn connect_process_run_task(
 		&self,
 		mut state: State<'_>,
-		mut wait: Wait,
+		mut wait_future: WaitFuture,
 		mut pending: VecDeque<tg::process::connect::ClientMessage>,
 		mut input: Input,
 	) -> tg::Result<bool> {
@@ -723,9 +723,9 @@ impl Session {
 			} else {
 				tokio::select! {
 					biased;
-					output = &mut wait, if !finished => {
-						let output = output?.ok_or_else(|| tg::error!("the process wait ended before completion"))?;
-						Self::connect_process_handle_wait(&mut state, output).await?;
+					outcome = &mut wait_future, if !finished => {
+						let outcome = outcome?.ok_or_else(|| tg::error!("the process wait ended before completion"))?;
+						Self::connect_process_handle_outcome(&mut state, outcome).await?;
 						finished = true;
 						continue;
 					},
@@ -757,12 +757,12 @@ impl Session {
 		}
 	}
 
-	async fn connect_process_handle_wait(
+	async fn connect_process_handle_outcome(
 		state: &mut State<'_>,
-		output: tg::process::wait::Output,
+		outcome: tg::process::outcome::Data,
 	) -> tg::Result<()> {
 		state.cancel.store(false, Ordering::SeqCst);
-		let notification = tg::process::connect::ServerNotification::Wait(output);
+		let notification = tg::process::connect::ServerNotification::Outcome(outcome);
 		let message = tg::process::connect::ServerMessage::Notification(notification);
 		state
 			.high
@@ -1284,7 +1284,7 @@ impl Session {
 				if matches!(
 					&message,
 					tg::process::connect::ServerMessage::Notification(
-						tg::process::connect::ServerNotification::Wait(_)
+						tg::process::connect::ServerNotification::Outcome(_)
 					)
 				) && let Some(process) = &process
 				{
@@ -1373,7 +1373,7 @@ impl Session {
 				if matches!(
 					&message,
 					tg::process::connect::ServerMessage::Notification(
-						tg::process::connect::ServerNotification::Wait(_)
+						tg::process::connect::ServerNotification::Outcome(_)
 					)
 				) && let Some(process) = &process
 				{
@@ -1441,6 +1441,11 @@ impl Session {
 			) => (),
 
 			tg::process::connect::ServerMessage::Notification(
+				tg::process::connect::ServerNotification::Outcome(outcome),
+			) => {
+				self.update_outcome_referents_for_location(outcome, location, trusted)?;
+			},
+			tg::process::connect::ServerMessage::Notification(
 				tg::process::connect::ServerNotification::Progress(
 					tg::progress::Event::Diagnostic(diagnostic),
 				),
@@ -1453,11 +1458,6 @@ impl Session {
 						trusted,
 					)?;
 				}
-			},
-			tg::process::connect::ServerMessage::Notification(
-				tg::process::connect::ServerNotification::Wait(output),
-			) => {
-				self.update_wait_output_referents_for_location(output, location, trusted)?;
 			},
 			tg::process::connect::ServerMessage::Response(response) => {
 				if let Some(error) = &mut response.error {

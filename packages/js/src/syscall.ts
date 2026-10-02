@@ -137,7 +137,7 @@ declare global {
 		syscall: "host_wait",
 		pid: number,
 		stopper: number | null,
-	): Promise<tg.Host.WaitOutput>;
+	): Promise<tg.Host.Outcome>;
 
 	function syscall(
 		syscall: "host_write",

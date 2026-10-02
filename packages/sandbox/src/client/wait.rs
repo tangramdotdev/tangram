@@ -9,19 +9,16 @@ use {
 
 #[derive(Clone, Debug)]
 pub enum Event {
-	Output(Output),
-}
-
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
-	pub status: u8,
+	Outcome(super::outcome::Outcome),
 }
 
 impl Client {
 	pub async fn wait(
 		&self,
 		index: u64,
-	) -> tg::Result<impl Future<Output = tg::Result<Option<Output>>> + Send + 'static> {
+	) -> tg::Result<
+		impl Future<Output = tg::Result<Option<super::outcome::Outcome>>> + Send + 'static,
+	> {
 		let method = http::Method::POST;
 		let uri = format!("/processes/{index}/wait");
 		let request = http::request::Builder::default()
@@ -69,8 +66,8 @@ impl Client {
 			.boxed();
 		let future = stream.boxed().try_last().map_ok(|option: Option<Event>| {
 			option.map(|event| {
-				let Event::Output(output) = event;
-				output
+				let Event::Outcome(outcome) = event;
+				outcome
 			})
 		});
 		Ok(future)
@@ -82,12 +79,12 @@ impl TryFrom<Event> for tangram_http::sse::Event {
 
 	fn try_from(value: Event) -> Result<Self, Self::Error> {
 		match value {
-			Event::Output(output) => {
-				let data = serde_json::to_string(&output)
+			Event::Outcome(outcome) => {
+				let data = serde_json::to_string(&outcome)
 					.map_err(|error| tg::error!(!error, "failed to serialize the event"))?;
 				Ok(tangram_http::sse::Event {
 					data,
-					event: Some("output".into()),
+					event: Some("outcome".into()),
 					..Default::default()
 				})
 			},
@@ -100,10 +97,10 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 
 	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
 		match value.event.as_deref() {
-			Some("output") => {
-				let output = serde_json::from_str(&value.data)
+			Some("outcome") => {
+				let outcome = serde_json::from_str(&value.data)
 					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;
-				Ok(Self::Output(output))
+				Ok(Self::Outcome(outcome))
 			},
 			Some("error") => {
 				let error = serde_json::from_str(&value.data)

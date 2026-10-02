@@ -42,12 +42,12 @@ let path = artifact {
 				if (event.kind !== "output") continue;
 				let output = event.value;
 				tg.assert(typeof output.process === "string");
-				let wait = await tg.client.waitProcess(output.process, {
+				let outcome = await tg.client.waitProcess(output.process, {
 					lease: output.lease ?? null,
 					location: output.location == null ? null : tg.Location.Arg.fromLocation(output.location),
 					tokens: output.tokens ?? {},
 				});
-				tg.assert(wait.exit === 0);
+				tg.assert(outcome.exit === 0);
 				return;
 			}
 			throw new Error("expected a spawn output");

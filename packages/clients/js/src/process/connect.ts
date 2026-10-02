@@ -63,7 +63,7 @@ export class Connection {
 		}
 	}
 
-	async wait(): Promise<tg.Process.Wait> {
+	async wait(): Promise<tg.Process.Outcome> {
 		while (true) {
 			let session = this.#session;
 			try {

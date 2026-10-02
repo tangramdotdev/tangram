@@ -147,6 +147,10 @@ pub struct Output {
 	#[tangram_serialize(default, id = 2, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::Location>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
+	pub outcome: Option<tg::process::outcome::Data>,
+
 	#[tangram_serialize(id = 3)]
 	pub process: tg::Either<u32, tg::process::Id>,
 
@@ -157,10 +161,6 @@ pub struct Output {
 		skip_serializing_if = "tg::authorization::Tokens::is_empty"
 	)]
 	pub tokens: tg::authorization::Tokens,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 5, skip_serializing_if = "Option::is_none")]
-	pub wait: Option<tg::process::wait::Output>,
 }
 
 pub(super) struct PrepareUnsandboxedCommandOutput {
@@ -433,9 +433,9 @@ impl<O: 'static> tg::Process<O> {
 				location: process
 					.location()
 					.and_then(|location| location.to_location()),
+				outcome: None,
 				process: process.id().cloned(),
 				tokens: tg::authorization::Tokens::default(),
-				wait: None,
 			};
 			let stream = stream::once(future::ok(tg::progress::Event::Output(output))).boxed();
 			progress(stream).await?;
@@ -594,9 +594,9 @@ impl<O: 'static> tg::Process<O> {
 		let (connection, stream) = tg::process::connect::Connection::open(&instance, arg).await?;
 		let output = progress(stream).await?;
 		let connection = (options.mode == tg::process::connect::Mode::Run).then_some(connection);
-		let wait = output
-			.wait
-			.map(tg::process::Wait::try_from_data)
+		let outcome = output
+			.outcome
+			.map(tg::process::Outcome::try_from_data)
 			.transpose()?;
 		let id = output
 			.process
@@ -653,7 +653,7 @@ impl<O: 'static> tg::Process<O> {
 		} else {
 			super::stdio::Reader::unavailable(tg::process::stdio::Stream::Stdout)
 		};
-		let instance = (output.lease.is_some() && wait.is_none())
+		let instance = (output.lease.is_some() && outcome.is_none())
 			.then(|| tg::instance::dynamic::Instance::new(instance.clone()));
 		let owned = std::sync::atomic::AtomicBool::new(instance.is_some());
 		let mut tokens = output.tokens;
@@ -665,6 +665,7 @@ impl<O: 'static> tg::Process<O> {
 			instance,
 			lease: output.lease,
 			location: Arc::new(RwLock::new(location.map(Into::into))),
+			outcome: Mutex::new(outcome),
 			owned,
 			state: RwLock::new(None),
 			stderr,
@@ -673,7 +674,6 @@ impl<O: 'static> tg::Process<O> {
 			stdout,
 			task: None,
 			tokens: RwLock::new(tokens),
-			wait: Mutex::new(wait),
 		});
 		let process = Self(inner, std::marker::PhantomData);
 		process.stdin().set_process(Arc::downgrade(&process.0));
@@ -844,6 +844,7 @@ impl<O: 'static> tg::Process<O> {
 			instance: None,
 			lease: None,
 			location: Arc::new(RwLock::new(None)),
+			outcome: Mutex::new(None),
 			owned: std::sync::atomic::AtomicBool::new(true),
 			state: RwLock::new(None),
 			stderr,
@@ -852,7 +853,6 @@ impl<O: 'static> tg::Process<O> {
 			stdout,
 			task: Some(task),
 			tokens: RwLock::new(tg::authorization::Tokens::default()),
-			wait: Mutex::new(None),
 		});
 		let process = Self(inner, std::marker::PhantomData);
 		process.stdin().set_process(Arc::downgrade(&process.0));
@@ -866,7 +866,7 @@ impl<O: 'static> tg::Process<O> {
 		mut child: tokio::process::Child,
 		output_path: PathBuf,
 		_temp: tangram_util::fs::Temp,
-	) -> tg::Result<tg::process::wait::Output>
+	) -> tg::Result<tg::process::outcome::Data>
 	where
 		I: tg::Instance,
 	{
@@ -875,7 +875,7 @@ impl<O: 'static> tg::Process<O> {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to wait for the process"))?;
 		let exit = exit_status_to_code(status)?;
-		let mut output = tg::process::wait::Output {
+		let mut outcome = tg::process::outcome::Data {
 			error: None,
 			exit,
 			output: None,
@@ -891,7 +891,7 @@ impl<O: 'static> tg::Process<O> {
 			if let Some(bytes) = output_bytes {
 				let tgon = String::from_utf8(bytes)
 					.map_err(|error| tg::error!(!error, "failed to decode the output xattr"))?;
-				output.output = Some(
+				outcome.output = Some(
 					tgon.parse::<tg::Value>()
 						.map_err(|error| tg::error!(!error, "failed to parse the output xattr"))?
 						.to_data(),
@@ -918,11 +918,11 @@ impl<O: 'static> tg::Process<O> {
 						.map_err(|error| tg::error!(!error, "failed to parse the error xattr"))?;
 					tg::Error::with_referent(referent)
 				};
-				output.error = Some(error.to_data_or_id().map_right(|_| error.to_referent()));
+				outcome.error = Some(error.to_data_or_id().map_right(|_| error.to_referent()));
 			}
 		}
 
-		if output.output.is_none() && exists {
+		if outcome.output.is_none() && exists {
 			let entry = tg::checkin::Arg {
 				options: tg::checkin::Options {
 					destructive: true,
@@ -940,10 +940,10 @@ impl<O: 'static> tg::Process<O> {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check in the output"))?;
 			let artifact = tg::Artifact::with_referent(checkin.artifact);
-			output.output = Some(tg::Value::from(artifact).to_data());
+			outcome.output = Some(tg::Value::from(artifact).to_data());
 		}
 
-		Ok(output)
+		Ok(outcome)
 	}
 }
 

@@ -45,8 +45,8 @@ let path = artifact {
 				})(),
 			]);
 			tg.assert(written === input.length);
-			let wait = await process.wait();
-			return { exit: wait.exit, stderr, stdout };
+			let outcome = await process.wait();
+			return { exit: outcome.exit, stderr, stdout };
 		}
 	',
 }

@@ -61,7 +61,7 @@ let output = timeout 15 node --input-type=module -e '
 			},
 		});
 	};
-	const selected = { cached: false, lease: null, location: null, process: id, tokens: {}, wait: null };
+	const selected = { cached: false, lease: null, location: null, process: id, tokens: {}, outcome: null };
 	const accept = async () => {
 		let connection = await connections.next();
 		let opening = await connection.next();
@@ -168,7 +168,7 @@ let output = timeout 15 node --input-type=module -e '
 	assert.deepEqual(eof.arg.value.data, { kind: "end", value: { combined_position: 3, stream_positions: { stdin: 3 } } });
 	last.response(eof.id, "write", { closed: true, length: 0 });
 	await closing;
-	last.emit("notification", { kind: "wait", value: { exit: 0 } });
+	last.emit("notification", { kind: "outcome", value: { exit: 0 } });
 	assert.equal((await process.wait()).exit, 0);
 	let connection = process.connection;
 	await process.detach();

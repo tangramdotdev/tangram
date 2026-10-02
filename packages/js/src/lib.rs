@@ -30,7 +30,7 @@ pub struct MagicOutput {
 }
 
 #[derive(Clone, Debug)]
-pub struct Output {
+pub struct Outcome {
 	pub checksum: Option<tg::Checksum>,
 	pub error: Option<tg::Error>,
 	pub exit: u8,

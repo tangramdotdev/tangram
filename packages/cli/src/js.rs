@@ -131,7 +131,7 @@ impl Cli {
 		};
 
 		// Run.
-		let tangram_js::Output {
+		let tangram_js::Outcome {
 			error,
 			exit,
 			output,

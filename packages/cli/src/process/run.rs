@@ -160,9 +160,9 @@ impl Cli {
 						.node()
 						.location()
 						.and_then(|location| location.to_location()),
+					outcome: process.node().outcome_data(),
 					process: process.node().id().cloned(),
 					tokens: process.node().tokens(),
-					wait: process.node().wait_output(),
 				};
 				let value = serde_json::to_value(output)
 					.map_err(|error| tg::error!(!error, "failed to serialize the output"))?
@@ -238,7 +238,7 @@ impl Cli {
 				.node()
 				.wait_with_instance(&client, tg::process::wait::Options::default()),
 		);
-		let wait = if let Some(mut view_receiver) = view_receiver {
+		let outcome = if let Some(mut view_receiver) = view_receiver {
 			tokio::select! {
 				result = &mut wait_future => result,
 				result = &mut view_receiver => {
@@ -274,22 +274,22 @@ impl Cli {
 			Self::stop_view_task(view_task).await;
 		}
 
-		// If verbose, return the wait output.
+		// If verbose, return the outcome.
 		if options.verbose {
-			let output = wait.to_data();
-			let value = serde_json::to_value(&output)
-				.map_err(|error| tg::error!(!error, "failed to serialize the output"))?
+			let data = outcome.to_data();
+			let value = serde_json::to_value(&data)
+				.map_err(|error| tg::error!(!error, "failed to serialize the outcome"))?
 				.into();
 			return Ok(value);
 		}
 
 		// Set the exit.
-		if wait.exit != 0 {
-			self.exit.replace(wait.exit.into());
+		if outcome.exit != 0 {
+			self.exit.replace(outcome.exit.into());
 		}
 
 		// Handle an error.
-		if let Some(error) = wait.error {
+		if let Some(error) = outcome.error {
 			let error_options = error.to_referent().options;
 			let error = error
 				.to_data_or_id()
@@ -315,18 +315,18 @@ impl Cli {
 		}
 
 		// Handle non-zero exit.
-		if wait.exit >= 1 && wait.exit < 128 {
-			return Err(tg::error!("the process exited with code {}", wait.exit));
+		if outcome.exit >= 1 && outcome.exit < 128 {
+			return Err(tg::error!("the process exited with code {}", outcome.exit));
 		}
-		if wait.exit >= 128 {
+		if outcome.exit >= 128 {
 			return Err(tg::error!(
 				"the process exited with signal {}",
-				wait.exit - 128
+				outcome.exit - 128
 			));
 		}
 
 		// Get the output.
-		let output = wait.output.unwrap_or(tg::Value::Null);
+		let output = outcome.output.unwrap_or(tg::Value::Null);
 
 		// Check out the output if requested.
 		if let Some(path) = options.checkout.clone() {

@@ -36,13 +36,13 @@ let path = artifact {
 				if (connected) spawn = spawn.connection("run");
 				const child = await spawn;
 				const text = "x".repeat(5 * 1024 * 1024) + "\n";
-				const [, stdout, stderr, wait] = await Promise.all([
+				const [, stdout, stderr, outcome] = await Promise.all([
 					child.stdin.writeAll(tg.encoding.utf8.encode(text)),
 					child.stdout.text(),
 					child.stderr.text(),
 					child.wait(),
 				]);
-				tg.assert(stdout === text && stderr === "stderr" && wait.exit === 0);
+				tg.assert(stdout === text && stderr === "stderr" && outcome.exit === 0);
 				let outputSpawn = tg.spawn`printf contents > "$TANGRAM_OUTPUT"`.stdio("null").sandbox();
 				if (connected) outputSpawn = outputSpawn.connection("run");
 				const output = tg.File.expect(await (await outputSpawn).output());

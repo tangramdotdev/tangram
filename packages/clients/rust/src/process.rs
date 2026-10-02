@@ -14,6 +14,7 @@ pub use self::{
 	handle::{Options, Process as Handle},
 	id::Id,
 	metadata::Metadata,
+	outcome::Outcome,
 	run::{run, run_with_instance},
 	signal::Signal,
 	source::Source,
@@ -23,7 +24,6 @@ pub use self::{
 	stdio::Stdio,
 	storage::Storage,
 	tty::Tty,
-	wait::Wait,
 };
 
 pub mod availability;
@@ -41,6 +41,7 @@ pub mod handle;
 pub mod id;
 pub mod log;
 pub mod metadata;
+pub mod outcome;
 pub mod put;
 pub mod run;
 pub mod signal;

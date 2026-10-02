@@ -168,7 +168,7 @@ impl tg::instance::Process for tg::Session {
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+				impl Future<Output = tg::Result<Option<tg::process::outcome::Data>>> + Send + 'static,
 			>,
 		>,
 	> {

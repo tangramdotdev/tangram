@@ -11,8 +11,8 @@ let path = artifact {
 				args: ["-c", script],
 				stdin: tg.Blob.withId("blb_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0"),
 			}).sandbox();
-			const output = await child.wait();
-			return { process: child.id, exit: output.exit };
+			const outcome = await child.wait();
+			return { process: child.id, exit: outcome.exit };
 		}
 	'
 }

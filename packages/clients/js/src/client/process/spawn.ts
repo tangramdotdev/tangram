@@ -112,9 +112,9 @@ export namespace Spawn {
 		cached?: boolean;
 		lease?: string | null;
 		location?: tg.Location | null;
+		outcome?: tg.Process.Outcome.Data | null;
 		process: number | tg.Process.Id;
 		tokens?: tg.Authorization.Tokens | null;
-		wait?: tg.Process.Wait.Data | null;
 	};
 
 	export namespace Output {
@@ -122,7 +122,7 @@ export namespace Spawn {
 			let output = json as Omit<tg.Process.Spawn.Output, "location"> & {
 				location?: string | tg.Location | null;
 			};
-			let { location, wait, ...rest } = output;
+			let { location, outcome, ...rest } = output;
 			let result: tg.Process.Spawn.Output = { ...rest };
 			if (location !== undefined) {
 				result.location =
@@ -130,8 +130,8 @@ export namespace Spawn {
 						? tg.Location.fromDataString(location)
 						: location;
 			}
-			if (wait !== undefined) {
-				result.wait = wait;
+			if (outcome !== undefined) {
+				result.outcome = outcome;
 			}
 			return result;
 		};

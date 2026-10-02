@@ -352,23 +352,23 @@ export let waitUnsandboxed = async (
 	stopper: tg.Host.Stopper,
 	tempPath: string,
 	outputPath: string,
-): Promise<tg.Process.Wait> => {
-	let wait: tg.Process.Wait | null = null;
+): Promise<tg.Process.Outcome> => {
+	let outcome: tg.Process.Outcome | null = null;
 	let waitError: unknown = null;
 	let waitFailed = false;
 	try {
-		let output = await tg.host.wait(pid, stopper);
-		let wait_: tg.Process.Wait = {
+		let hostOutcome = await tg.host.wait(pid, stopper);
+		let outcome_: tg.Process.Outcome = {
 			error: null,
-			exit: output.exit,
+			exit: hostOutcome.exit,
 		};
-		wait = wait_;
+		outcome = outcome_;
 		let exists = await tg.host.exists(outputPath);
 		if (exists) {
 			let outputBytes = await readOutput(outputPath);
 			if (outputBytes !== null) {
 				let tgon = tg.encoding.utf8.decode(outputBytes);
-				wait_.output = tg.Value.parse(tgon);
+				outcome_.output = tg.Value.parse(tgon);
 			}
 			let errorBytes = await readError(outputPath);
 			if (errorBytes !== null) {
@@ -377,7 +377,7 @@ export let waitUnsandboxed = async (
 					let value = tg.encoding.json.decode(string) as
 						| tg.Error.Data
 						| tg.Error.Id;
-					wait_.error =
+					outcome_.error =
 						typeof value === "string"
 							? tg.Error.withId(value)
 							: tg.Error.fromData(value);
@@ -386,10 +386,10 @@ export let waitUnsandboxed = async (
 						string,
 						(id) => id as tg.Error.Id,
 					);
-					wait_.error = tg.Error.withReferent(referent);
+					outcome_.error = tg.Error.withReferent(referent);
 				}
 			}
-			if (wait_.output === undefined) {
+			if (outcome_.output === undefined) {
 				let stream = await tg.client.checkin({
 					options: {
 						checkoutPointers: true,
@@ -411,7 +411,7 @@ export let waitUnsandboxed = async (
 					throw new Error("stream ended without output");
 				}
 				let artifact = tg.Artifact.withReferent(output.artifact);
-				wait_.output = artifact;
+				outcome_.output = artifact;
 			}
 		}
 	} catch (error) {
@@ -440,8 +440,8 @@ export let waitUnsandboxed = async (
 	if (waitFailed) {
 		throw waitError;
 	}
-	tg.assert(wait !== null);
-	return wait;
+	tg.assert(outcome !== null);
+	return outcome;
 };
 
 export let prepareUnsandboxedCommand = async (
@@ -687,9 +687,9 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 	});
 	let output = opened.output;
 	let connection = mode === "run" ? opened.connection : null;
-	let wait =
-		output.wait !== undefined && output.wait !== null
-			? tg.Process.Wait.fromData(output.wait)
+	let outcome =
+		output.outcome !== undefined && output.outcome !== null
+			? tg.Process.Outcome.fromData(output.outcome)
 			: null;
 	let location =
 		output.location !== undefined && output.location !== null
@@ -735,7 +735,7 @@ export let spawnSandboxed = async <O extends tg.Value = tg.Value>(
 		...(output.tokens !== undefined && output.tokens !== null
 			? { tokens: output.tokens }
 			: {}),
-		wait,
+		outcome,
 	});
 	return process;
 };

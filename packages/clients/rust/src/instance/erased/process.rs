@@ -127,7 +127,7 @@ pub trait Process: Send + Sync + 'static {
 		arg: tg::process::wait::Arg,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>>,
+		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>>,
 	>;
 }
 
@@ -301,7 +301,7 @@ where
 		arg: tg::process::wait::Arg,
 	) -> BoxFuture<
 		'a,
-		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>>,
+		tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>>,
 	> {
 		self.try_wait_process_future(id, arg)
 			.map_ok(|option| option.map(futures::FutureExt::boxed))

@@ -91,7 +91,7 @@ let output = timeout 15 node --input-type=module -e '
 		location: null,
 		process: id,
 		tokens: {},
-		wait: null,
+		outcome: null,
 	});
 	let process = await opening;
 	let written = false;
@@ -116,7 +116,7 @@ let output = timeout 15 node --input-type=module -e '
     });
     response(end.value.id, "write", { closed: true, length: 0 });
     await closing;
-	emit("notification", { kind: "wait", value: { exit: 0 } });
+	emit("notification", { kind: "outcome", value: { exit: 0 } });
 	assert.equal((await process.wait()).exit, 0);
     let readDone = false;
     let reading = process.stdout.text().then(value => { readDone = true; return value; });
@@ -146,7 +146,7 @@ let output = timeout 15 node --input-type=module -e '
 		location: null,
 		process: id,
 		tokens: {},
-		wait: null,
+		outcome: null,
 	});
 	let failed = await reopening;
 	let signaling = failed.signal(tg.Process.Signal.TERM);
@@ -163,9 +163,9 @@ let output = timeout 15 node --input-type=module -e '
 	assert.equal(reconnect.value.arg.value.mode, "run");
 	assert.equal(reconnect.value.arg.value.process, id);
 	response(0, "connect", {
-		cached: false, lease: null, location: null, process: id, tokens: {}, wait: null,
+		cached: false, lease: null, location: null, process: id, tokens: {}, outcome: null,
 	});
-	emit("notification", { kind: "wait", value: { exit: 0 } });
+	emit("notification", { kind: "outcome", value: { exit: 0 } });
 	assert.equal((await waiting).exit, 0);
 	assert.deepEqual(requests, Array(3).fill("/processes/connect"));
 	await failed.detach();
@@ -181,7 +181,7 @@ let output = timeout 15 node --input-type=module -e '
 		location: null,
 		process: id,
 		tokens: {},
-		wait: null,
+		outcome: null,
 	});
 	let busy = await openingBusy;
 	assert.equal((await input.next()).value.event, "ack");
@@ -210,7 +210,7 @@ let output = timeout 15 node --input-type=module -e '
 		response(signal.value.id, "signal");
 	}
 	await Promise.all(pending);
-	emit("notification", { kind: "wait", value: { exit: 0 } });
+	emit("notification", { kind: "outcome", value: { exit: 0 } });
 	assert.equal((await busy.wait()).exit, 0);
 	await busy.detach();
 ' | complete

@@ -6,7 +6,7 @@ use {
 };
 
 impl Server {
-	pub async fn wait(&self, index: u64) -> tg::Result<crate::client::wait::Output> {
+	pub async fn wait(&self, index: u64) -> tg::Result<crate::client::outcome::Outcome> {
 		let task = self
 			.processes
 			.get(&index)
@@ -17,8 +17,8 @@ impl Server {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, process = %index, "the process task panicked"))??;
-		let output = crate::client::wait::Output { status };
-		Ok(output)
+		let outcome = crate::client::outcome::Outcome { status };
+		Ok(outcome)
 	}
 
 	pub(crate) async fn handle_wait_request(
@@ -34,7 +34,7 @@ impl Server {
 			server
 				.wait(index)
 				.await
-				.map(crate::client::wait::Event::Output)
+				.map(crate::client::wait::Event::Outcome)
 		});
 		let stream = stream.map(
 			|result: tg::Result<crate::client::wait::Event>| match result {

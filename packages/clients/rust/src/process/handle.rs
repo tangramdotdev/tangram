@@ -1,5 +1,5 @@
 use {
-	super::{Id, State, Wait},
+	super::{Id, Outcome, State},
 	crate::prelude::*,
 	std::{
 		marker::PhantomData,
@@ -25,6 +25,7 @@ pub(super) struct Inner {
 	pub(super) instance: Option<tg::instance::dynamic::Instance>,
 	pub(super) lease: Option<String>,
 	pub(super) location: Arc<RwLock<Option<tg::location::Arg>>>,
+	pub(super) outcome: Mutex<Option<Outcome>>,
 	pub(super) owned: AtomicBool,
 	pub(super) state: RwLock<Option<Arc<State>>>,
 	pub(super) stderr: tg::process::stdio::Reader,
@@ -33,9 +34,8 @@ pub(super) struct Inner {
 	pub(super) stdio_task: Option<tangram_futures::task::Shared<tg::Result<()>>>,
 	pub(super) stdout: tg::process::stdio::Reader,
 	#[debug(ignore)]
-	pub(super) task: Option<tangram_futures::task::Shared<tg::Result<tg::process::wait::Output>>>,
+	pub(super) task: Option<tangram_futures::task::Shared<tg::Result<tg::process::outcome::Data>>>,
 	pub(super) tokens: RwLock<tg::authorization::Tokens>,
-	pub(super) wait: Mutex<Option<Wait>>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -102,6 +102,7 @@ impl<O> Process<O> {
 			instance,
 			lease,
 			location: location.clone(),
+			outcome: Mutex::new(None),
 			owned,
 			state,
 			stderr,
@@ -110,7 +111,6 @@ impl<O> Process<O> {
 			stdout,
 			task: None,
 			tokens: RwLock::new(tokens),
-			wait: Mutex::new(None),
 		});
 		let process = Self(inner, PhantomData);
 		process.stdin().set_process(Arc::downgrade(&process.0));
@@ -145,8 +145,13 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
-	pub fn wait_output(&self) -> Option<tg::process::wait::Output> {
-		self.0.wait.lock().unwrap().as_ref().map(Wait::to_data)
+	pub fn outcome_data(&self) -> Option<tg::process::outcome::Data> {
+		self.0
+			.outcome
+			.lock()
+			.unwrap()
+			.as_ref()
+			.map(Outcome::to_data)
 	}
 
 	pub(crate) fn inherit_location(&self, location: Option<tg::location::Arg>) {
@@ -421,8 +426,8 @@ impl<O> Process<O> {
 		O: TryFrom<tg::Value>,
 		O::Error: std::error::Error + Send + Sync + 'static,
 	{
-		let wait = self.wait_with_instance(instance, options).await?;
-		let output = wait.into_output()?;
+		let outcome = self.wait_with_instance(instance, options).await?;
+		let output = outcome.into_output()?;
 		let tokens = self.tokens();
 		output.inherit_tokens(&tokens);
 		output

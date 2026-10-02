@@ -29,9 +29,9 @@ impl MockConnection {
 			cached: false,
 			lease: None,
 			location: None,
+			outcome: None,
 			process: tg::Either::Right(id.clone()),
 			tokens: tg::authorization::Tokens::default(),
-			wait: None,
 		};
 		self.respond(0, ServerResponseOutput::Connect(output)).await;
 		arg
@@ -148,16 +148,16 @@ async fn reconnect_preserves_the_process_and_read_cursor() {
 							.await;
 					}
 				}
-				let output = tg::process::wait::Output {
+				let outcome = tg::process::outcome::Data {
 					error: None,
 					exit: 0,
 					output: None,
 				};
 				connection
 					.output
-					.send(Ok(ServerMessage::Notification(ServerNotification::Wait(
-						output,
-					))))
+					.send(Ok(ServerMessage::Notification(
+						ServerNotification::Outcome(outcome),
+					)))
 					.await
 					.unwrap();
 				// Ending the response body closes this physical connection while preserving buffered messages.
@@ -424,21 +424,21 @@ fn responses_preserve_errors_and_optional_null_outputs() {
 	];
 	for error in errors {
 		for value in [None, Some(tg::value::Data::Null)] {
-			let wait = tg::process::wait::Output {
+			let outcome = tg::process::outcome::Data {
 				error: error.clone(),
 				exit: 1,
 				output: value,
 			};
-			let decoded = assert_roundtrip(&wait);
-			assert_eq!(decoded.output.is_some(), wait.output.is_some());
-			assert_roundtrip(&ServerNotification::Wait(wait.clone()));
+			let decoded = assert_roundtrip(&outcome);
+			assert_eq!(decoded.output.is_some(), outcome.output.is_some());
+			assert_roundtrip(&ServerNotification::Outcome(outcome.clone()));
 			let output = tg::process::spawn::Output {
 				cached: true,
 				lease: Some("lease".to_owned()),
 				location: Some("remote:test".parse().unwrap()),
+				outcome: Some(outcome),
 				process: tg::Either::Right(tg::process::Id::new()),
 				tokens: tg::authorization::Tokens::default(),
-				wait: Some(wait),
 			};
 			assert_roundtrip(&ServerResponseOutput::Connect(output));
 		}

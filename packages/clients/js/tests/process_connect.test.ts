@@ -36,7 +36,7 @@ test("reads and closes share the fixed receipt window", async () => {
 					location: null,
 					process: "pcs_010000000000000000000000000000000000000000000000000000",
 					tokens: {},
-					wait: null,
+					outcome: null,
 				},
 			},
 		});

@@ -73,7 +73,7 @@ pub struct SpawnOutput {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct WaitOutput {
+pub struct Outcome {
 	pub exit: u8,
 }
 
@@ -451,7 +451,7 @@ impl Host {
 		Ok(())
 	}
 
-	pub async fn wait(&self, pid: u32, stopper: Option<usize>) -> tg::Result<WaitOutput> {
+	pub async fn wait(&self, pid: u32, stopper: Option<usize>) -> tg::Result<Outcome> {
 		let stopper = self.get_stopper(stopper).await?;
 		let child = self
 			.0
@@ -483,7 +483,7 @@ impl Host {
 		}
 		.map_err(|error| tg::error!(!error, %pid, "failed to wait for the process"))?;
 		let exit = exit_status_to_code(status)?;
-		Ok(WaitOutput { exit })
+		Ok(Outcome { exit })
 	}
 
 	pub async fn write(&self, fd: i32, bytes: Bytes) -> tg::Result<()> {

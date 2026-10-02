@@ -20,7 +20,7 @@ let path = artifact {
 					.sandbox()
 					.location({ components: [{ name: "default" }] })
 					.connection("run");
-			let [, stdout, stderr, wait] = await Promise.all([
+			let [, stdout, stderr, outcome] = await Promise.all([
 				process.stdin.writeAll(tg.encoding.utf8.encode("hello\n")),
 				process.stdout.text(),
 				process.stderr.text(),
@@ -28,7 +28,7 @@ let path = artifact {
 			]);
 			tg.assert(stdout === "out:hello\n");
 			tg.assert(stderr === "err:hello\n");
-			tg.assert(wait.exit === 0);
+			tg.assert(outcome.exit === 0);
 			let spawned = await tg.spawn`echo attached`
 				.stdin("null")
 				.stdout("log")

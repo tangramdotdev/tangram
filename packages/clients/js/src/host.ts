@@ -78,10 +78,7 @@ export type Host = {
 
 	stopperStop(stopper: tg.Host.Stopper): Promise<void>;
 
-	wait(
-		pid: number,
-		stopper?: tg.Host.Stopper | null,
-	): Promise<tg.Host.WaitOutput>;
+	wait(pid: number, stopper?: tg.Host.Stopper | null): Promise<tg.Host.Outcome>;
 
 	write(fd: number, bytes: Uint8Array): Promise<void>;
 
@@ -192,7 +189,7 @@ export namespace Host {
 		stdout: number | null;
 	};
 
-	export type WaitOutput = {
+	export type Outcome = {
 		exit: number;
 	};
 }

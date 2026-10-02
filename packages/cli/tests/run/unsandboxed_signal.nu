@@ -18,8 +18,8 @@ let path = artifact {
 				.stdout("null");
 			await tg.sleep(0.1);
 			await process.signal(tg.Process.Signal.TERM);
-			const wait = await process.wait();
-			return wait.exit;
+			const outcome = await process.wait();
+			return outcome.exit;
 		}
 	',
 }

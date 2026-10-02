@@ -154,7 +154,7 @@ export let host: tg.Host = {
 	wait(
 		pid: number,
 		stopper?: tg.Host.Stopper | null,
-	): Promise<tg.Host.WaitOutput> {
+	): Promise<tg.Host.Outcome> {
 		return syscall("host_wait", pid, stopper ?? null);
 	},
 

@@ -24,7 +24,7 @@ pub(super) struct Output {
 }
 
 impl Output {
-	pub fn wait(&self) -> tg::Result<Option<tg::process::wait::Output>> {
+	pub fn try_outcome(&self) -> tg::Result<Option<tg::process::outcome::Data>> {
 		if !self.data.status.is_finished() {
 			return Ok(None);
 		}
@@ -33,7 +33,7 @@ impl Output {
 			.data
 			.exit
 			.ok_or_else(|| tg::error!(process = %self.id, "expected the exit to be set"))?;
-		Ok(Some(tg::process::wait::Output {
+		Ok(Some(tg::process::outcome::Data {
 			error,
 			exit,
 			output: self.data.output.clone(),
@@ -463,12 +463,12 @@ impl Session {
 		if matches!(
 			output.location,
 			Some(tg::Location::Local(tg::location::Local { region: None }))
-		) && let Some(wait) = &mut output.wait
+		) && let Some(outcome) = &mut output.outcome
 		{
-			if let Some(output) = &mut wait.output {
+			if let Some(output) = &mut outcome.output {
 				self.add_tokens_to_value_data(output)?;
 			}
-			if let Some(tg::Either::Right(error)) = &mut wait.error {
+			if let Some(tg::Either::Right(error)) = &mut outcome.error {
 				self.add_token_to_object_referent(error)?;
 			}
 		}
@@ -501,9 +501,9 @@ impl Session {
 			lease: output.lease.as_deref(),
 			location: output.location.as_ref(),
 			options: &command.options,
+			outcome: output.outcome.as_ref(),
 			parent,
 			tokens: &output.tokens,
-			wait: output.wait.as_ref(),
 		})
 		.await
 		.map_err(

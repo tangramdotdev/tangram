@@ -3,7 +3,7 @@ use {
 		module::{Loader, Resolver},
 		syscall::syscall,
 	},
-	crate::Output,
+	crate::Outcome,
 	futures::future,
 	rquickjs::{self as qjs, CatchResultExt as _},
 	sourcemap::SourceMap,
@@ -60,25 +60,25 @@ struct Module {
 	source_map: Option<SourceMap>,
 }
 
-pub async fn run(arg: crate::Arg) -> tg::Result<Output> {
+pub async fn run(arg: crate::Arg) -> tg::Result<Outcome> {
 	let runtime = Runtime::new(arg).await?;
 	let value = runtime.start().await?;
 	let result = runtime.resolve(&value).await;
-	let output = match result {
-		Ok(output) => Output {
+	let outcome = match result {
+		Ok(output) => Outcome {
 			checksum: None,
 			error: None,
 			exit: 0,
 			output: Some(output),
 		},
-		Err(error) => Output {
+		Err(error) => Outcome {
 			checksum: None,
 			error: Some(error),
 			exit: 1,
 			output: None,
 		},
 	};
-	Ok(output)
+	Ok(outcome)
 }
 
 impl Runtime {

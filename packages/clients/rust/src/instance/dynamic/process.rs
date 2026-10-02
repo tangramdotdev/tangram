@@ -86,7 +86,7 @@ impl Instance {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
 		if let Some(connection) = self.try_connection(id) {
 			let connection = connection.clone();
 			let future = async move { connection.wait().await.map(Some) }.boxed();
@@ -281,7 +281,7 @@ impl tg::instance::Process for Instance {
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+				impl Future<Output = tg::Result<Option<tg::process::outcome::Data>>> + Send + 'static,
 			>,
 		>,
 	> {

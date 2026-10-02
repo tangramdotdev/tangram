@@ -154,7 +154,7 @@ impl tg::instance::Process for Session {
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			impl Future<Output = tg::Result<Option<tg::process::outcome::Data>>> + Send + 'static,
 		>,
 	> {
 		self.try_wait_process_future(id, arg).await

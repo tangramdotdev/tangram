@@ -150,12 +150,12 @@ pub enum ClientRequestArg {
 )]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerNotification {
+	#[tangram_serialize(id = 2)]
+	Outcome(tg::process::outcome::Data),
 	#[tangram_serialize(id = 0)]
 	Progress(tg::progress::Event<()>),
 	#[tangram_serialize(id = 1)]
 	Read(ReadServerNotification),
-	#[tangram_serialize(id = 2)]
-	Wait(tg::process::wait::Output),
 }
 
 #[derive(

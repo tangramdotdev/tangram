@@ -265,7 +265,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 		arg: tg::process::wait::Arg,
 	) -> impl Future<
 		Output = tg::Result<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			impl Future<Output = tg::Result<Option<tg::process::outcome::Data>>> + Send + 'static,
 		>,
 	> + Send {
 		async move {
@@ -282,7 +282,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	) -> impl Future<
 		Output = tg::Result<
 			Option<
-				impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+				impl Future<Output = tg::Result<Option<tg::process::outcome::Data>>> + Send + 'static,
 			>,
 		>,
 	> + Send;
@@ -456,7 +456,7 @@ impl tg::instance::Process for tg::Client {
 		arg: tg::process::wait::Arg,
 	) -> tg::Result<
 		Option<
-			impl Future<Output = tg::Result<Option<tg::process::wait::Output>>> + Send + 'static,
+			impl Future<Output = tg::Result<Option<tg::process::outcome::Data>>> + Send + 'static,
 		>,
 	> {
 		self.session(&self.context)

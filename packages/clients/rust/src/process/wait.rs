@@ -4,8 +4,6 @@ use {
 		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 		future::{self, BoxFuture},
 	},
-	serde::Deserialize as _,
-	serde_with::serde_as,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
@@ -44,39 +42,7 @@ pub struct Arg {
 
 #[derive(Clone, Debug)]
 pub enum Event {
-	Output(Output),
-}
-
-#[serde_as]
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct Output {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<Error>")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub error: Option<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
-
-	#[tangram_serialize(id = 1)]
-	pub exit: u8,
-
-	#[serde(
-		default,
-		skip_serializing_if = "Option::is_none",
-		with = "serde_with::rust::unwrap_or_skip"
-	)]
-	#[tangram_serialize(
-		default,
-		id = 2,
-		skip_serializing_if = "Option::is_none",
-		with = "tangram_serialize::with::unwrap_or_skip"
-	)]
-	pub output: Option<tg::value::Data>,
+	Outcome(tg::process::outcome::Data),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -85,17 +51,11 @@ pub struct Options {
 	pub source: tg::process::Source,
 }
 
-#[derive(Clone, Debug)]
-pub struct Wait {
-	pub error: Option<tg::Error>,
-	pub exit: u8,
-	pub output: Option<tg::Value>,
-}
-
-struct Error;
-
 impl<O> tg::Process<O> {
-	pub async fn wait(&self, options: tg::process::wait::Options) -> tg::Result<tg::process::Wait> {
+	pub async fn wait(
+		&self,
+		options: tg::process::wait::Options,
+	) -> tg::Result<tg::process::Outcome> {
 		let instance = tg::instance()?;
 		self.wait_with_instance(instance, options).await
 	}
@@ -104,7 +64,7 @@ impl<O> tg::Process<O> {
 		&self,
 		instance: &I,
 		options: tg::process::wait::Options,
-	) -> tg::Result<tg::process::Wait>
+	) -> tg::Result<tg::process::Outcome>
 	where
 		I: tg::Instance,
 	{
@@ -114,31 +74,31 @@ impl<O> tg::Process<O> {
 			&& let Some(task) = &self.0.task
 		{
 			self.wait_stdio().await?;
-			let output = task
+			let data = task
 				.wait()
 				.await
 				.map_err(|error| tg::error!(!error, "the task panicked"))??;
-			let wait: tg::process::Wait = output.try_into()?;
+			let outcome: tg::process::Outcome = data.try_into()?;
 			let location = self.location().and_then(|location| location.to_location());
-			wait.inherit_location(location.as_ref());
+			outcome.inherit_location(location.as_ref());
 			let tokens = self.tokens();
-			wait.inherit_tokens(&tokens);
+			outcome.inherit_tokens(&tokens);
 			self.disarm();
-			return Ok(wait);
+			return Ok(outcome);
 		}
-		let wait = options
+		let outcome = options
 			.source
 			.is_auto()
-			.then(|| self.0.wait.lock().unwrap().take())
+			.then(|| self.0.outcome.lock().unwrap().take())
 			.flatten();
-		if let Some(wait) = wait {
+		if let Some(outcome) = outcome {
 			self.wait_stdio().await?;
 			let location = self.location().and_then(|location| location.to_location());
-			wait.inherit_location(location.as_ref());
+			outcome.inherit_location(location.as_ref());
 			let tokens = self.tokens();
-			wait.inherit_tokens(&tokens);
+			outcome.inherit_tokens(&tokens);
 			self.disarm();
-			return Ok(wait);
+			return Ok(outcome);
 		}
 		let Some(id) = self.id().right() else {
 			return Err(tg::error!(
@@ -154,20 +114,20 @@ impl<O> tg::Process<O> {
 		};
 		let mut future = instance.wait_process_future(id, arg.clone()).await?;
 		self.wait_stdio().await?;
-		let output = loop {
-			if let Some(output) = future.await? {
-				break output;
+		let data = loop {
+			if let Some(data) = future.await? {
+				break data;
 			}
 			future = instance.wait_process_future(id, arg.clone()).await?;
 		};
-		let wait: tg::process::Wait = output.try_into()?;
+		let outcome: tg::process::Outcome = data.try_into()?;
 		let location = location.and_then(|location| location.to_location());
-		wait.inherit_location(location.as_ref());
+		outcome.inherit_location(location.as_ref());
 		let tokens = self.tokens();
-		wait.inherit_tokens(&tokens);
+		outcome.inherit_tokens(&tokens);
 		self.disarm();
 
-		Ok(wait)
+		Ok(outcome)
 	}
 
 	pub(super) async fn wait_stdio(&self) -> tg::Result<()> {
@@ -196,7 +156,7 @@ impl tg::Session {
 		&self,
 		id: &tg::process::Id,
 		arg: tg::process::wait::Arg,
-	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::wait::Output>>>>> {
+	) -> tg::Result<Option<BoxFuture<'static, tg::Result<Option<tg::process::outcome::Data>>>>> {
 		let method = http::Method::POST;
 		let path = format!("/processes/{id}/wait");
 		let uri = Uri::builder().path(&path).build().unwrap();
@@ -250,90 +210,12 @@ impl tg::Session {
 			})
 			.boxed();
 		let future = stream.boxed().try_last().map_ok(|option| {
-			option.map(|output| {
-				let Event::Output(output) = output;
-				output
+			option.map(|event| {
+				let Event::Outcome(data) = event;
+				data
 			})
 		});
 		Ok(Some(future.boxed()))
-	}
-}
-
-impl Wait {
-	pub(crate) fn inherit_location(&self, location: Option<&tg::Location>) {
-		if let Some(error) = &self.error {
-			error.state().inherit_location(location);
-		}
-		if let Some(output) = &self.output {
-			output.inherit_location(location);
-		}
-	}
-
-	pub(crate) fn inherit_tokens(&self, tokens: &tg::authorization::Tokens) {
-		if let Some(error) = &self.error {
-			error.state().inherit_tokens(tokens);
-		}
-		if let Some(output) = &self.output {
-			output.inherit_tokens(tokens);
-		}
-	}
-
-	pub fn into_output(self) -> tg::Result<tg::Value> {
-		if let Some(error) = self.error {
-			return Err(error);
-		}
-		match self.exit {
-			0 => (),
-			1..128 => {
-				return Err(tg::error!("the process exited with code {}", self.exit));
-			},
-			128.. => {
-				let signal = self.exit - 128;
-				return Err(tg::error!("the process exited with signal {signal}"));
-			},
-		}
-		let output = self.output.unwrap_or(tg::Value::Null);
-		Ok(output)
-	}
-}
-
-impl Wait {
-	pub fn try_from_data(data: Output) -> tg::Result<Self> {
-		let error = data
-			.error
-			.map(|either| match either {
-				tg::Either::Left(data) => {
-					let object = tg::error::Object::try_from_data(data)?;
-					Ok::<_, tg::Error>(tg::Error::with_object(object))
-				},
-				tg::Either::Right(error) => Ok(tg::Error::with_referent(error)),
-			})
-			.transpose()?;
-		Ok(Self {
-			error,
-			exit: data.exit,
-			output: data.output.map(TryInto::try_into).transpose()?,
-		})
-	}
-
-	#[must_use]
-	pub fn to_data(&self) -> Output {
-		Output {
-			error: self
-				.error
-				.as_ref()
-				.map(|error| error.to_data_or_id().map_right(|_| error.to_referent())),
-			exit: self.exit,
-			output: self.output.as_ref().map(tg::Value::to_data),
-		}
-	}
-}
-
-impl TryFrom<Output> for Wait {
-	type Error = tg::Error;
-
-	fn try_from(value: Output) -> Result<Self, Self::Error> {
-		Self::try_from_data(value)
 	}
 }
 
@@ -342,12 +224,12 @@ impl TryFrom<Event> for tangram_http::sse::Event {
 
 	fn try_from(value: Event) -> Result<Self, Self::Error> {
 		let event = match value {
-			Event::Output(output) => {
-				let data = serde_json::to_string(&output)
+			Event::Outcome(outcome) => {
+				let data = serde_json::to_string(&outcome)
 					.map_err(|error| tg::error!(!error, "failed to serialize the event"))?;
 				tangram_http::sse::Event {
 					data,
-					event: Some("output".into()),
+					event: Some("outcome".into()),
 					..Default::default()
 				}
 			},
@@ -361,10 +243,10 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 
 	fn try_from(value: tangram_http::sse::Event) -> tg::Result<Self> {
 		match value.event.as_deref() {
-			Some("output") => {
-				let output = serde_json::from_str(&value.data)
+			Some("outcome") => {
+				let data = serde_json::from_str(&value.data)
 					.map_err(|error| tg::error!(!error, "failed to deserialize the event"))?;
-				Ok(Self::Output(output))
+				Ok(Self::Outcome(data))
 			},
 			Some("error") => {
 				let error = serde_json::from_str(&value.data)
@@ -373,42 +255,5 @@ impl TryFrom<tangram_http::sse::Event> for Event {
 			},
 			value => Err(tg::error!(?value, "invalid event")),
 		}
-	}
-}
-
-impl serde_with::SerializeAs<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>> for Error {
-	fn serialize_as<S>(
-		source: &tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>,
-		serializer: S,
-	) -> Result<S::Ok, S::Error>
-	where
-		S: serde::Serializer,
-	{
-		match source {
-			tg::Either::Left(data) => serde::Serialize::serialize(data, serializer),
-			tg::Either::Right(referent) => serializer.collect_str(referent),
-		}
-	}
-}
-
-impl<'de> serde_with::DeserializeAs<'de, tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>
-	for Error
-{
-	fn deserialize_as<D>(
-		deserializer: D,
-	) -> Result<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>, D::Error>
-	where
-		D: serde::Deserializer<'de>,
-	{
-		let value = tg::Either::<tg::error::Data, String>::deserialize(deserializer)?;
-		let value = match value {
-			tg::Either::Left(data) => tg::Either::Left(data),
-			tg::Either::Right(value) => {
-				let referent = value.parse().map_err(serde::de::Error::custom)?;
-				tg::Either::Right(referent)
-			},
-		};
-
-		Ok(value)
 	}
 }

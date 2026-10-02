@@ -7,9 +7,9 @@ pub(super) struct AddProcessChildArg<'a> {
 	pub lease: Option<&'a str>,
 	pub location: Option<&'a tg::Location>,
 	pub options: &'a tg::referent::Options,
+	pub outcome: Option<&'a tg::process::outcome::Data>,
 	pub parent: &'a tg::process::Id,
 	pub tokens: &'a tg::authorization::Tokens,
-	pub wait: Option<&'a tg::process::wait::Output>,
 }
 
 impl Session {
@@ -26,7 +26,7 @@ impl Session {
 		};
 		let Some(parent_sandbox) = self.server.runner.state().try_get_process_sandbox(&parent)
 		else {
-			self.index_process_child(&parent, &data, &command, None, arg.wait)
+			self.index_process_child(&parent, &data, &command, None, arg.outcome)
 				.await?;
 			return Ok(());
 		};
@@ -87,7 +87,7 @@ impl Session {
 			&data,
 			&command,
 			Some((parent_data, parent_location)),
-			arg.wait,
+			arg.outcome,
 		)
 		.await?;
 
@@ -100,14 +100,16 @@ impl Session {
 		child: &tg::process::data::Child,
 		command: &tg::command::Id,
 		parent_data: Option<(tg::process::Data, tg::Location)>,
-		wait: Option<&tg::process::wait::Output>,
+		outcome: Option<&tg::process::outcome::Data>,
 	) -> tg::Result<()> {
 		let (error_objects, output_objects) = if child.cached {
-			match wait {
-				Some(wait) => (
-					Some(Self::index_process_child_error_objects(wait.error.as_ref())),
+			match outcome {
+				Some(outcome) => (
+					Some(Self::index_process_child_error_objects(
+						outcome.error.as_ref(),
+					)),
 					Some(Self::index_process_child_output_objects(
-						wait.output.as_ref(),
+						outcome.output.as_ref(),
 					)),
 				),
 				None => (None, None),

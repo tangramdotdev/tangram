@@ -43,7 +43,7 @@ impl Session {
 				.then(|()| spawn_future)
 				.right_future()
 		};
-		let (cache, wait, output) =
+		let (cache, outcome, output) =
 			match future::select(pin!(spawn_future), pin!(cache_future)).await {
 				future::Either::Left((result, cache_future)) => {
 					let output = result?;
@@ -115,7 +115,7 @@ impl Session {
 		let Some(output) = output else {
 			return Ok(None);
 		};
-		Ok(Some(Self::spawn_process_output(output, wait)?))
+		Ok(Some(Self::spawn_process_output(output, outcome)?))
 	}
 
 	pub(super) async fn spawn_process_wait_or_get_cached(
@@ -132,23 +132,27 @@ impl Session {
 			.as_ref()
 			.map(|output| output.tokens.clone())
 			.unwrap_or_default();
-		let local_wait = output.as_ref().map(Output::wait).transpose()?.flatten();
+		let local_outcome = output
+			.as_ref()
+			.map(Output::try_outcome)
+			.transpose()?
+			.flatten();
 		let mut local_cache_guard = output
 			.as_ref()
 			.filter(|output| output.cached)
 			.and_then(|output| LeaseGuard::new_local(self, output));
 		let local_future =
-			self.spawn_process_wait_local(local_id, local_tokens, local_wait, finished);
+			self.spawn_process_wait_local(local_id, local_tokens, local_outcome, finished);
 		let cached_future =
 			self.spawn_process_get_cached_process_region_or_remote(arg, cacheable, finished);
 		let output = match future::select(pin!(local_future), pin!(cached_future)).await {
 			future::Either::Left((result, cached_future)) => {
-				if let Some(wait) = result? {
+				if let Some(outcome) = result? {
 					if let Some(guard) = &mut local_cache_guard {
 						guard.disarm();
 					}
 					let output = output.unwrap();
-					Self::spawn_process_output(output, Some(wait))?
+					Self::spawn_process_output(output, Some(outcome))?
 				} else {
 					let Some(cached_output) = cached_future.await? else {
 						return Ok(None);
@@ -187,22 +191,22 @@ impl Session {
 		&self,
 		id: Option<tg::process::Id>,
 		tokens: Vec<tg::authorization::Token>,
-		wait: Option<tg::process::wait::Output>,
+		outcome: Option<tg::process::outcome::Data>,
 		finished: bool,
-	) -> tg::Result<Option<tg::process::wait::Output>> {
+	) -> tg::Result<Option<tg::process::outcome::Data>> {
 		if finished {
-			return Ok(wait);
+			return Ok(outcome);
 		}
 		if let Some(id) = id {
 			let arg = tg::process::wait::Arg {
 				tokens: tg::authorization::Tokens::with_authorization(tokens),
 				..Default::default()
 			};
-			let wait = self
+			let outcome = self
 				.wait_process(&id, arg)
 				.await
 				.map_err(|error| tg::error!(!error, %id, "failed to wait for the process"))?;
-			Ok(Some(wait))
+			Ok(Some(outcome))
 		} else {
 			Ok(None)
 		}
@@ -359,17 +363,21 @@ impl Session {
 
 	fn spawn_process_output(
 		output: Output,
-		wait: Option<tg::process::wait::Output>,
+		outcome: Option<tg::process::outcome::Data>,
 	) -> tg::Result<tg::process::spawn::Output> {
-		let wait = wait.or(output.wait()?);
-		let lease = if wait.is_some() { None } else { output.lease };
+		let outcome = outcome.or(output.try_outcome()?);
+		let lease = if outcome.is_some() {
+			None
+		} else {
+			output.lease
+		};
 		let output = tg::process::spawn::Output {
 			cached: output.cached,
 			lease,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
+			outcome,
 			process: tg::Either::Right(output.id),
 			tokens: tg::authorization::Tokens::with_authorization(output.tokens),
-			wait,
 		};
 
 		Ok(output)

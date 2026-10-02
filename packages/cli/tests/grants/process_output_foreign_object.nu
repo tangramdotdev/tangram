@@ -20,9 +20,9 @@ failure $denied "Eve should not read Alice's private file before the exploit."
 let source = 'export default function () { return tg.File.withId("FILE_ID"); }' | str replace "FILE_ID" $file
 let eve_path = artifact { tangram.ts: $source }
 let eve_process = tg --token $eve.token build --detach $eve_path | str trim
-let wait = tg --token $eve.token wait $eve_process | from json
-assert equal $wait.exit 0 "a process may name an unreadable object as its output."
-assert equal ($wait.output.value | split row '?' | first) $file
+let outcome = tg --token $eve.token wait $eve_process | from json
+assert equal $outcome.exit 0 "a process may name an unreadable object as its output."
+assert equal ($outcome.output.value | split row '?' | first) $file
 
 # The relationship is stored on the process.
 let process = tg --token $eve.token get $eve_process | from json

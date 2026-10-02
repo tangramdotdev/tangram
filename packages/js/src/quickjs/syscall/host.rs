@@ -241,7 +241,7 @@ pub async fn wait(
 	ctx: qjs::Ctx<'_>,
 	pid: u32,
 	stopper: Arg<Option<usize>>,
-) -> Result<Serde<crate::host::WaitOutput>> {
+) -> Result<Serde<crate::host::Outcome>> {
 	let state = ctx.userdata::<StateHandle>().unwrap().clone();
 	let Arg(stopper) = stopper;
 	let result = state.host.wait(pid, stopper).await.map(Serde);

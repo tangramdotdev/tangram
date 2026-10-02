@@ -30,8 +30,8 @@ let path = artifact {
 			.stdin("null")
 			.stdout("null")
 			.sandbox();
-			const [stderr, wait] = await Promise.all([process.stderr.text(), process.wait()]);
-			return wait.exit !== 0 && stderr.includes("network access is disabled for the origin sandbox");
+			const [stderr, outcome] = await Promise.all([process.stderr.text(), process.wait()]);
+			return outcome.exit !== 0 && stderr.includes("network access is disabled for the origin sandbox");
 		}
 	'
 }

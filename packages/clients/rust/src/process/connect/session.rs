@@ -36,12 +36,12 @@ struct State {
 		)>,
 	>,
 	next_id: AtomicU64,
+	outcome: watch::Sender<Option<tg::Result<tg::process::outcome::Data>>>,
 	output: Mutex<Option<tg::process::spawn::Output>>,
 	reads: Mutex<BTreeMap<u64, mpsc::Sender<tg::Result<tg::process::stdio::read::ServerMessage>>>>,
 	requests: Mutex<BTreeMap<u64, oneshot::Sender<tg::Result<ServerResponseOutput>>>>,
 	sender: mpsc::Sender<tg::Result<ClientMessage>>,
 	unacknowledged: Mutex<BTreeSet<u64>>,
-	wait: watch::Sender<Option<tg::Result<tg::process::wait::Output>>>,
 }
 
 struct ReadGuard {
@@ -63,7 +63,7 @@ impl Session {
 		let (acks, ack_receiver) = mpsc::channel(64);
 		let (sender, receiver) = mpsc::channel(64);
 		let (progress, progress_receiver) = mpsc::channel(64);
-		let (wait, _) = watch::channel(None);
+		let (outcome, _) = watch::channel(None);
 		let mut initial = Vec::new();
 		let mut reads = BTreeMap::new();
 		for (&id, arg) in &arg.reads {
@@ -97,12 +97,12 @@ impl Session {
 			error: Mutex::new(None),
 			initial: Mutex::new(initial),
 			next_id: AtomicU64::new(next_id),
+			outcome,
 			output: Mutex::new(None),
 			reads: Mutex::new(reads),
 			requests: Mutex::new(BTreeMap::new()),
 			sender,
 			unacknowledged: Mutex::new(BTreeSet::new()),
-			wait,
 		};
 		let state = Arc::new(state);
 		let state_task = state.clone();
@@ -147,6 +147,9 @@ impl Session {
 					return Err(tg::error!("unexpected process sync message"));
 				},
 
+				ServerMessage::Notification(ServerNotification::Outcome(outcome)) => {
+					state.outcome.send_replace(Some(Ok(outcome)));
+				},
 				ServerMessage::Notification(ServerNotification::Progress(event)) => {
 					let event =
 						event.try_map_output(|()| Err(tg::error!("unexpected progress output")))?;
@@ -167,9 +170,6 @@ impl Session {
 					{
 						return Err(tg::error!("the process read buffer is full"));
 					}
-				},
-				ServerMessage::Notification(ServerNotification::Wait(output)) => {
-					state.wait.send_replace(Some(Ok(output)));
 				},
 				ServerMessage::Response(response) => {
 					let result = match (response.error, response.output) {
@@ -338,8 +338,8 @@ impl Session {
 		}
 	}
 
-	pub(crate) async fn wait(&self) -> tg::Result<tg::process::wait::Output> {
-		let mut receiver = self.state.wait.subscribe();
+	pub(crate) async fn wait(&self) -> tg::Result<tg::process::outcome::Data> {
+		let mut receiver = self.state.outcome.subscribe();
 		loop {
 			if let Some(result) = receiver.borrow_and_update().clone() {
 				return result;
@@ -352,11 +352,22 @@ impl Session {
 	}
 
 	pub(crate) async fn detach(&self) -> tg::Result<()> {
-		if !self.state.wait.borrow().as_ref().is_some_and(Result::is_ok) {
+		if !self
+			.state
+			.outcome
+			.borrow()
+			.as_ref()
+			.is_some_and(Result::is_ok)
+		{
 			match self.start_request(ClientRequestArg::Detach).await?.await {
 				Ok(Some(ServerResponseOutput::Detach)) => (),
-				Ok(_) | Err(_) if self.state.wait.borrow().as_ref().is_some_and(Result::is_ok) => {
-				},
+				Ok(_) | Err(_)
+					if self
+						.state
+						.outcome
+						.borrow()
+						.as_ref()
+						.is_some_and(Result::is_ok) => {},
 				Ok(_) => {
 					return Err(tg::error!(
 						"the process connection closed before the detach response"
@@ -553,8 +564,8 @@ impl State {
 			}
 		}
 		self.reads.lock().unwrap().clear();
-		if self.wait.borrow().is_none() {
-			self.wait.send_replace(Some(Err(
+		if self.outcome.borrow().is_none() {
+			self.outcome.send_replace(Some(Err(
 				error.unwrap_or_else(|| tg::error!("the process connection closed"))
 			)));
 		}

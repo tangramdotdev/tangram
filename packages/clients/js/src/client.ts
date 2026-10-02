@@ -187,21 +187,21 @@ export class Client {
 	waitProcess(
 		id: tg.Process.Id,
 		arg: tg.Process.Wait.Arg,
-	): Promise<tg.Process.Wait> {
+	): Promise<tg.Process.Outcome> {
 		return waitProcess(this, id, arg);
 	}
 
 	waitProcessPromise(
 		id: tg.Process.Id,
 		arg: tg.Process.Wait.Arg,
-	): Promise<() => Promise<tg.Process.Wait | null>> {
+	): Promise<() => Promise<tg.Process.Outcome | null>> {
 		return waitProcessPromise(this, id, arg);
 	}
 
 	tryWaitProcessPromise(
 		id: tg.Process.Id,
 		arg: tg.Process.Wait.Arg,
-	): Promise<(() => Promise<tg.Process.Wait | null>) | null> {
+	): Promise<(() => Promise<tg.Process.Outcome | null>) | null> {
 		return tryWaitProcessPromise(this, id, arg);
 	}
 

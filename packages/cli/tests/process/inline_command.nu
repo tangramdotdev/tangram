@@ -9,8 +9,8 @@ let path = artifact {
 		export default async () => {
 			const command = await tg.command(child);
 			const process = await tg.spawn(command).sandbox();
-			const output = await process.wait();
-			tg.assert(output.exit === 0);
+			const outcome = await process.wait();
+			tg.assert(outcome.exit === 0);
 			const data = await process.command;
 			tg.assert(!(data instanceof tg.Command));
 			tg.assert(data.host === tg.host.current);
