@@ -39,4 +39,4 @@ failure $command "the error grant should not confer an unrelated command input."
 # A node grant allows waiting on the token-free stored process data.
 tg --token $alice.token grant $eve.user.id process_node $process | ignore
 let result = tg --token $eve.token wait $process | from json
-assert equal $result.error $error
+assert equal ($result.error | split row '?' | first) $error

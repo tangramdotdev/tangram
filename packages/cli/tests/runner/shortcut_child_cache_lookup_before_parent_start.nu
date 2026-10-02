@@ -48,6 +48,10 @@ let output = timeout 60s tg --url $remote.url --token $root_token build $"($path
 success $output "the first build should succeed"
 assert equal ($output.stdout | str trim) '42'
 
+# Wait for the cache entries to be indexed before stopping the runner.
+tg --url $runner.url index
+tg --url $remote.url --token $root_token index
+
 # Replace the runner so the child is only cached on the remote.
 server stop $runner
 let runner = server spawn --name runner-fresh --config $runner_config
