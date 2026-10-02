@@ -1421,8 +1421,11 @@ export def cleanup_background_jobs [temp_path: string] {
 
 	# Signal the actual servers before their Nu job wrappers so they can tear down their sandboxes and mounts.
 	stop_test_server_processes $temp_path
-	for job in (job list | where { ($in.description? | default '') == 'server' } | sort-by id | reverse) {
+	for job in (job list | where { ($in.description? | default '') in [http server] } | sort-by id | reverse) {
 		let exit_path = server_exit_path $temp_path $job.id
+		if $job.description == 'http' {
+			stop_server_job $job.id
+		}
 		if (wait_for_server_exit $exit_path) == null {
 			stop_server_job $job.id
 			if (wait_for_server_exit $exit_path) == null {

@@ -3,8 +3,8 @@ use ../../lib/http.nu *
 
 # A tg.download that responds with an error status fails with the reason on the CLI.
 
-let local = server spawn
 let http = spawn_http_server { '/does-not-exist': { status: 404 } }
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

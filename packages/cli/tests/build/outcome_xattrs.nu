@@ -11,7 +11,8 @@ let path = artifact {
 				if command -v xattr >/dev/null; then
 					xattr -w "$2" "$3" "$TANGRAM_OUTPUT"
 				else
-					setfattr -n "$2" -v "$3" "$TANGRAM_OUTPUT"
+					value=$(printf "%s" "$3" | od -An -tx1 | tr -d " \n")
+					setfattr -n "$2" -v "0x$value" "$TANGRAM_OUTPUT"
 				fi
 				exit "\${4:-0}"
 			`;

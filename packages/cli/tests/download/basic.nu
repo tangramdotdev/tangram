@@ -3,8 +3,8 @@ use ../lib/http.nu *
 
 # Downloading a URL with a wildcard checksum returns a blob with the downloaded contents.
 
-let local = server spawn
 let http = spawn_http_server { '/': { body: "hello, world!\n" } }
+let local = server spawn
 
 let output = tg download $http.url --checksum sha256:any | complete
 success $output

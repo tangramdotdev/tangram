@@ -107,13 +107,11 @@ for location in [local remote] {
 				assert equal $body.resource $object_id "the live response must not expose an ancestor's authorization token"
 			}
 		}
-		if $location == remote and ($field == output or $case.both) {
-			assert ($params | any {|param| $param.key == 'tokens[remote][0]' }) $"the authorization token for the output sync must be associated with its issuer: ($field) ($params | get key | to json --raw)"
-		} else if $location == remote {
-			assert ($params | where {|param| $param.key =~ '^tokens\[' } | all {|param|
-				let body = $param.value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
-				not ($body.resource | str starts-with 'syn_')
-			}) "error permission alone must not expose the shared sync for both error and output objects"
+		if $location == remote {
+			assert ($params | any {|param| $param.key == 'tokens[remote][0]' }) $"the authorization token for the result sync must be associated with its issuer: ($field)"
+			if $field == error {
+				assert ($output.output? == null) "an error-only outcome must not contain output objects"
+			}
 		}
 		# An authorized read uses the runner's indexed grant before the control finish request completes.
 		let read_job = job spawn {

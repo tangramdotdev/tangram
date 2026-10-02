@@ -3,8 +3,8 @@ use ../../lib/http.nu *
 
 # tg.download accepts a "raw" mode option, downloading the contents without any postprocessing.
 
-let local = server spawn
 let http = spawn_http_server { '/': { body: "hello, world!\n" } }
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

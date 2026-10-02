@@ -3,8 +3,8 @@ use ../lib/http.nu *
 
 # tg.download succeeds when the downloaded contents match the exact sha256 checksum that was provided.
 
-let local = server spawn
 let http = spawn_http_server { '/': { body: "hello, world!\n" } }
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

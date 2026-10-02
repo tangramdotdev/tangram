@@ -12,8 +12,10 @@ def --wrapped unavailable [token: string, ...period: string] {
 	assert ($output.stderr | str contains "usage is unavailable for the requested period")
 }
 
+let root_token = random chars
 let local = server spawn --now '2025-12-29T00:00:00Z' --config {
-	authentication: { users: { providers: { insecure: true } } },
+	advanced: { checkpoints: true },
+	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
 	roles: [api indexer runner scheduler],
 	usage: {
 		day_time_to_live: 2678400,
@@ -30,7 +32,10 @@ let carol = tg login --verbose --name carol | from json
 
 # Alice owns one retained object and one transient object. Bob owns one transient object.
 let kept = tg --token $alice.token put 'tg.file("keep")' | str trim
+let watch = tg --token $root_token checkpoint watch permission_capture.written --params ({ resource: $kept } | to json --raw) | from json | get watch
 tg --token $alice.token tag keep $kept
+success (timeout 10s tg --token $root_token checkpoint wait permission_capture.written $watch 0 | complete)
+tg --token $root_token checkpoint unwatch permission_capture.written $watch
 tg --token $alice.token put 'tg.file("remove")'
 tg --token $bob.token put 'tg.file("remove")'
 tg --token $alice.token index

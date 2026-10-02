@@ -3,11 +3,11 @@ use ../../lib/http.nu *
 
 # tg.download with the "decompress" mode decompresses the downloaded archive, returning a file artifact.
 
-let local = server spawn
 let source = artifact 'hello, world!'
 let compressed = mktemp
 gzip --no-name --stdout $source o> $compressed
 let http = spawn_http_server { '/file.gz': { file: $compressed } }
+let local = server spawn
 
 let module = '
 	export default async function (url: string) {

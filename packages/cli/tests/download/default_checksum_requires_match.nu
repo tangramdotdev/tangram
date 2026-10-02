@@ -3,8 +3,8 @@ use ../lib/http.nu *
 
 # Downloading a URL without a checksum fails, because the default checksum matches nothing and the caller must opt in with a wildcard.
 
-let local = server spawn
 let http = spawn_http_server { '/': { body: "hello, world!\n" } }
+let local = server spawn
 
 let output = tg download $http.url | complete
 failure $output

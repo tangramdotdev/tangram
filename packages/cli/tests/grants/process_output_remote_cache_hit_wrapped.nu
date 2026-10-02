@@ -31,5 +31,6 @@ let children = tg --url $local.url process children $process | from json
 assert equal ($children | length) 1 "the build should have spawned the dependency."
 assert ($children | first | get cached) "the dependency should be a remote cache hit."
 assert equal $result.exit 0 "a process should be able to wrap its cache-hit child's output in a new object."
-let output = tg --url $local.url get $result.output.value --depth inf | complete
+# Read across both locations because the cached child remains on the remote.
+let output = tg --url $local.url get --location='local,remote' $result.output.value --depth inf | complete
 success $output "the wrapped child output should be readable."

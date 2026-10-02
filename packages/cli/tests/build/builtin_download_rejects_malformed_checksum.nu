@@ -3,8 +3,8 @@ use ../lib/http.nu *
 
 # tg.download fails when the checksum argument is not a well-formed checksum.
 
-let local = server spawn
 let http = spawn_http_server { '/': { body: "hello, world!\n" } }
+let local = server spawn
 
 let path = artifact {
 	tangram.ts: '

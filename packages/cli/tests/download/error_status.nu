@@ -3,8 +3,8 @@ use ../lib/http.nu *
 
 # Downloading a URL that responds with an error status fails with the reason on the CLI.
 
-let local = server spawn
 let http = spawn_http_server { '/does-not-exist': { status: 404 } }
+let local = server spawn
 
 let output = tg download $'($http.url)/does-not-exist' --checksum sha256:any | complete
 failure $output

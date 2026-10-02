@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
+import { networkInterfaces } from "node:os";
 
 type ResponseConfig = {
 	body?: string;
@@ -15,7 +16,7 @@ const routes: Record<string, ResponseConfig> = JSON.parse(
 	readFileSync(routesPath, "utf8"),
 );
 const server = Bun.serve({
-	hostname: "127.0.0.1",
+	hostname: "0.0.0.0",
 	port: 0,
 	fetch(request) {
 		const path = new URL(request.url).pathname;
@@ -37,4 +38,7 @@ const port = server.port;
 if (port === undefined) {
 	throw new Error("expected the local HTTP server to listen on a TCP port");
 }
-writeFileSync(portPath, port.toString());
+const hostname = Object.values(networkInterfaces())
+	.flatMap((addresses) => addresses ?? [])
+	.find((address) => address.family === "IPv4" && !address.internal)?.address;
+writeFileSync(portPath, JSON.stringify({ hostname, port }));

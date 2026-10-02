@@ -331,9 +331,9 @@ impl Session {
 				tg::Location::Remote(remote) => self
 					.get_remote_session(&remote.name)
 					.await
-					.map_err(|error| {
-						tg::error!(!error, remote = %remote.name, "failed to get the remote client")
-					})?
+					.map_err(
+						|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+					)?
 					.trusted(),
 				tg::Location::Local(_) => false,
 			};

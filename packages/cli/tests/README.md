@@ -237,7 +237,7 @@ needs an explicit call when it reaches the network some other way.
 ### 10. Use a local HTTP server for download tests
 
 Import `lib/http.nu` and call `spawn_http_server` with responses keyed by URL
-path. The helper binds to `127.0.0.1` on an OS-assigned port, waits for startup,
+path. The helper listens on an OS-assigned port, waits for startup,
 and uses the test harness to clean up the server, including on failure or timeout.
 These tests can run with `--offline`.
 
@@ -250,6 +250,7 @@ let http = spawn_http_server {
 	'/redirect': { status: 302, headers: { location: '/file.txt' } },
 	'/missing': { status: 404 },
 }
+let local = server spawn
 let output = tg download $'($http.url)/file.txt' --checksum sha256:any | complete
 success $output
 ```
@@ -257,6 +258,9 @@ success $output
 Responses accept `body` (text), `file` (a local file path for binary contents),
 `headers`, and `status` (200 by default). Unconfigured paths return 404. Redact
 `$http.url` in diagnostic snapshots to keep the random port out of expectations.
+Start the HTTP fixture before `server spawn`: on Linux it configures test-only
+pasta/passt wrappers so sandboxed downloads can reach host loopback. Use
+`$http.host_url` for commands that run directly on the host.
 Pass URLs as build arguments to keep test modules independent of the port.
 
 ### 11. Name principals `alice`, `bob`, `carol`, and reserve `eve` for the adversary

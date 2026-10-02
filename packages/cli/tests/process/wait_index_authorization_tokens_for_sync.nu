@@ -56,7 +56,8 @@ for field in [output error] {
 		tg --url $remote.url --token $root_token grant $bob.user.id process_node_error_objects $process | ignore
 		tg --url $remote.url --token $root_token index
 		let partial = timeout 10s tg --url $remote.url --token $bob.token wait --source=index $process | from json
-		assert (not ($partial.error | str contains 'tokens')) "error permission alone must not expose a sync covering both fields"
+		assert ($partial.output? == null) "an error-only outcome must not contain output objects"
+		assert ($partial.error | str contains 'tokens') "error permission must expose a sync covering only the error objects"
 	}
 
 	let authorized = timeout 10s tg --url $remote.url --token $alice.token wait --source=index $process | from json

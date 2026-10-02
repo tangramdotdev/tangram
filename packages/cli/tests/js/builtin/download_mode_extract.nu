@@ -3,11 +3,11 @@ use ../../lib/http.nu *
 
 # tg.download with the "extract" mode unpacks the downloaded archive, returning a directory artifact.
 
-let local = server spawn
 let source = artifact { 'file.txt': 'hello, world!' }
 let archive = mktemp
 tar -czf $archive -C $source file.txt
 let http = spawn_http_server { '/archive.tar.gz': { file: $archive } }
+let local = server spawn
 
 let module = '
 	export default async function (url: string) {
