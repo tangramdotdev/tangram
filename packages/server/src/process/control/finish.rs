@@ -50,6 +50,7 @@ impl Session {
 	pub(crate) async fn store_process_error(
 		&self,
 		error: tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>,
+		children: Vec<tg::Referent<tg::object::Id>>,
 	) -> tg::Either<tg::error::Data, tg::Referent<tg::error::Id>> {
 		let tg::Either::Left(mut data) = error else {
 			return error;
@@ -66,6 +67,14 @@ impl Session {
 				return tg::Either::Left(data);
 			},
 		};
+
+		// Attach the supplied proofs to the matching children of the error.
+		for child in object.children() {
+			let id = child.id();
+			for referent in children.iter().filter(|referent| referent.node == id) {
+				child.state().inherit_tokens(&referent.options.tokens);
+			}
+		}
 
 		let error = tg::Error::with_object(object);
 		let result = error.store_with_instance(self).await;
