@@ -5,7 +5,7 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub organization: tg::organization::Selector,
+	pub organization: tg::Referent<tg::organization::Selector>,
 
 	#[command(flatten)]
 	pub location: crate::location::Args,
@@ -18,13 +18,14 @@ impl Cli {
 	pub async fn command_organization_members_remove(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
 		let arg = tg::organization::members::remove::Arg {
-			location: args.location.get(),
+			location: args.location.get_for_options(&args.organization),
+			tokens: args.organization.options.tokens,
 		};
 		client
-			.remove_organization_member(&args.organization, &args.member, arg)
+			.remove_organization_member(&args.organization.node, &args.member, arg)
 			.await
 			.map_err(
-				|error| tg::error!(!error, organization = %args.organization, member = %args.member, "failed to remove the organization member"),
+				|error| tg::error!(!error, organization = %args.organization.node, member = %args.member, "failed to remove the organization member"),
 			)?
 			.ok_or_else(|| tg::error!("failed to find the organization member"))?;
 		Ok(())

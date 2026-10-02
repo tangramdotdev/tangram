@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
-tg --token $alice.token put 'tg.file("hello")'
+tg --token $alice.token put --no-tokens 'tg.file("hello")' | referent node
 tg --token $alice.token index
 
 let output = tg --token $alice.token usage | complete

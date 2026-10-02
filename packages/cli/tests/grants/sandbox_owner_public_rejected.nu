@@ -6,7 +6,7 @@ let local = server spawn --config { authentication: { users: { providers: { inse
 
 let alice = tg login --verbose --name alice | from json
 
-let create = tg --token $alice.token sandbox create --owner public --no-network | complete
+let create = tg --token $alice.token sandbox create --no-tokens --owner public --no-network | complete
 failure $create "a sandbox must not be created with a public owner"
 snapshot --normalize $create.stderr '
 	error an error occurred

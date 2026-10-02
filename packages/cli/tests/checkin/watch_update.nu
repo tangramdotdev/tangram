@@ -61,10 +61,10 @@ let path = artifact {
 }
 
 # Check in with --watch.
-let output = tg checkin $path --watch --locked | complete
+let output = tg checkin --no-tokens $path --watch --locked | complete
 success $output
 
-let id = tg checkin $path --watch --update 'a'
+let id = tg checkin --no-tokens $path --watch --update 'a' | referent node
 tg index
 
 let object = tg get --blobs --depth=inf --no-tokens --pretty $id

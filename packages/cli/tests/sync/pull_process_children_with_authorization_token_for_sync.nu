@@ -30,7 +30,7 @@ let data = {
 	status: finished,
 }
 tg --url $alice_local.url process put $process ($data | to json)
-let blocker = tg --url $alice_local.url put 'tg.blob("later")' | str trim
+let blocker = tg --url $alice_local.url put --no-tokens 'tg.blob("later")' | referent node
 
 # Keep the push open after the process is stored, before its permissions can be indexed.
 let stored_watch = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.process --params ({ id: $process } | to json --raw) | from json | get watch
@@ -43,8 +43,8 @@ let push = job spawn {
 }
 success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.process $stored_watch 0 | complete) 'the process should be stored'
 success (timeout 10s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blocker_watch 0 | complete) 'the unrelated object should keep the push open'
-wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log its complete authorization token for the sync'
-let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
+wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should print its complete authorization token for the sync'
+let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 
 # Bob cannot read the stored process's children using his ordinary authorization.
 let output = timeout 10s tg --url $remote.url --token $bob.token process children --local $process | complete

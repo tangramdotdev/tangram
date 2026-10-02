@@ -313,7 +313,7 @@ impl Cli {
 		let output = self.render_progress_stream(stream).await?;
 
 		// Print.
-		Self::print_id(&output.artifact.node);
+		Self::print_referent(&output.artifact, &args.print);
 
 		Ok(())
 	}

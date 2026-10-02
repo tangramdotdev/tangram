@@ -19,7 +19,8 @@ pub struct Arg {
 	pub location: Option<tg::location::Arg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub resource: Option<tg::Selector<tg::Id>>,
+	#[serde_as(as = "Option<DisplayFromStr>")]
+	pub resource: Option<tg::Referent<tg::Selector<tg::Id>>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub subject: Option<tg::authorization::subject::Selector>,

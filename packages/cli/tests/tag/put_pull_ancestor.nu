@@ -10,7 +10,7 @@ let local = server spawn --name local --config {
 }
 
 let remote_root = tg --url $remote.url group create parent | from json
-let node = tg --url $local.url put 'tg.file("data")' | str trim
+let node = tg --url $local.url put --no-tokens 'tg.file("data")' | referent node
 tg --url $local.url tag put -p parent/child/tag $node
 let local_root = tg --url $local.url group get parent | from json
 let local_parent = tg --url $local.url group get parent/child | from json

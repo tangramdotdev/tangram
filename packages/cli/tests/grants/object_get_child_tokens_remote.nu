@@ -13,7 +13,7 @@ let remote = server spawn --cloud --name remote --config {
 }
 let alice = tg --url $remote.url login --verbose --name alice | from json
 let bob = tg --url $remote.url login --verbose --name bob | from json
-let directory = tg --url $remote.url --token $alice.token put 'tg.directory({ "file": tg.file("hello") })' | str trim
+let directory = tg --url $remote.url --token $alice.token put --no-tokens 'tg.directory({ "file": tg.file("hello") })' | referent node
 tg --url $remote.url --token $alice.token index
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let first = http get --headers { Accept: 'application/json', Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($directory)'

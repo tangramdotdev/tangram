@@ -10,7 +10,7 @@ tg tag -p dep/1.0.0 $dep
 let root = artifact {
 	tangram.ts: 'import dep from "dep/^1";'
 }
-tg checkin $root
+tg checkin --no-tokens $root | referent node
 let before = open ($root | path join tangram.lock)
 
 let output = tg update $root | complete

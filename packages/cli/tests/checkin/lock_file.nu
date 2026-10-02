@@ -12,7 +12,7 @@ let path = artifact {
 }
 
 tg tag foo ($path | path join 'foo.tg.ts')
-tg checkin --lock=file ($path | path join 'bar.tg.ts')
+tg checkin --no-tokens --lock=file ($path | path join 'bar.tg.ts') | referent node
 
 # The sibling lockfile should exist.
 let lockfile_path = $path | path join 'bar.tg.lock'

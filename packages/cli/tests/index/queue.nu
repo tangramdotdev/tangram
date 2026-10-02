@@ -11,7 +11,7 @@ let config = {
 let local = server spawn --name local --directory $directory --config $config
 let watch = tg --url $local.url checkpoint watch index.batch | from json | get watch
 
-let id = tg --url $local.url put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
+let id = tg --url $local.url put --no-tokens 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | referent node
 tg --url $local.url checkpoint wait index.batch $watch 0 | ignore
 
 let pid = open ($local.directory | path join 'lock') | into int

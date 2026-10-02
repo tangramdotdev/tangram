@@ -12,7 +12,7 @@ tg --token $alice.token group create team
 tg --token $alice.token grant $bob.user.id write team
 
 let team = tg --token $bob.token group get team | from json
-let sandbox = tg --token $bob.token sandbox create --owner team --no-network | str trim
+let sandbox = tg --token $bob.token sandbox create --no-tokens --owner team --no-network | referent node
 let data = tg --token $bob.token sandbox get $sandbox | from json | get data
 
 assert equal $data.owner $team.id "the sandbox should store the resolved owner"

@@ -28,7 +28,7 @@ for location in [local remote] {
 	let finish_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.finish | from json | get watch
 	let retention_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.control.retention.finished | from json | get watch
 	let path = artifact { tangram.ts: 'export default () => "done";' }
-	let process = tg --url $local_owner.url --token $root_token build --detach $path | str trim
+	let process = tg --url $local_owner.url --token $root_token build --no-tokens --detach $path | referent node
 	success (timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | complete) "the runner must reach the finish checkpoint"
 	let params = { process: $process } | to json --raw
 	let delete_watch = tg --url $local_owner.url --token $root_token checkpoint watch cleaning.process.delete --params $params | from json | get watch

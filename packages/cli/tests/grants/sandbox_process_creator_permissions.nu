@@ -4,10 +4,10 @@ use ../lib/test.nu *
 let local = server spawn --name local --config { authentication: { users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
-let sandbox = tg --token $alice.token sandbox create | str trim
+let sandbox = tg --token $alice.token sandbox create --no-tokens | referent node
 tg --token $alice.token grant $bob.user.id write $sandbox
 let path = artifact { tangram.ts: 'export default () => tg.file("creator-access");' }
-let process = tg --token $bob.token spawn $'--sandbox=($sandbox)' $path | str trim
+let process = tg --token $bob.token spawn --no-tokens $'--sandbox=($sandbox)' $path | referent node
 tg --token $bob.token wait --source=index $process | ignore
 success (tg --token $bob.token process get --source=index $process | complete)
 failure (tg --token $alice.token process get --source=index $process | complete)

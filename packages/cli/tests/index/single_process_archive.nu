@@ -13,7 +13,7 @@ let local = server spawn --cloud --config {
 assert ($local.config.indexer?.id? == null)
 
 # The put must return while the archive holds its upload response.
-let output = 0x[00 68 65 6c 6c 6f] | timeout 10 tg object put --bytes --kind blob | complete
+let output = 0x[00 68 65 6c 6c 6f] | timeout 10 tg object put --no-tokens --bytes --kind blob | complete
 success $output
 let id = $output.stdout | str trim
 wait_until { http get $'($archive.url)/requests' | length | $in == 1 } 'the upload must start'

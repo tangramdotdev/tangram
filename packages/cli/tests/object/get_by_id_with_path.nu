@@ -14,7 +14,7 @@ let path = artifact {
 }
 
 # Check in the directory.
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 # Get the nested file using the path option.
 let output = tg --no-quiet get --no-tokens --pretty $"($id)?get=foo/bar/file.txt" | complete

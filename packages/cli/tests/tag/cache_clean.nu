@@ -11,7 +11,7 @@ let local_source = server spawn --name local-source --config {
 }
 
 let path = artifact 'Hello, World!'
-let id = tg --url $local_source.url checkin $path
+let id = tg --url $local_source.url checkin --no-tokens $path | referent node
 tg --url $local_source.url push $id
 let old = tg --url $remote.url get --no-tokens $id | str trim
 tg --url $remote.url tag put -p "a/b" $id

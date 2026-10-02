@@ -9,6 +9,9 @@ pub struct Arg {
 	pub location: Option<tg::location::Arg>,
 
 	pub member: tg::group::Member,
+
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl tg::Session {

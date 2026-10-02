@@ -15,7 +15,7 @@ let path = artifact {
 
 tg tag foo ($path | path join 'foo.tg.ts')
 
-let id = tg checkin ($path | path join 'package')
+let id = tg checkin --no-tokens ($path | path join 'package') | referent node
 tg index
 
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id

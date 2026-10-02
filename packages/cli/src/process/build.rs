@@ -19,7 +19,10 @@ impl Cli {
 				.try_unwrap_string()
 				.ok()
 				.ok_or_else(|| tg::error!("expected a string"))?;
-			Self::print_display(string);
+			let referent = string
+				.parse::<tg::Referent<tg::Either<u32, tg::process::Id>>>()
+				.map_err(|error| tg::error!(!error, "failed to parse the process referent"))?;
+			Self::print_referent(&referent, &options.print);
 		} else if options.checkout.is_some() {
 			Self::print_display(output);
 		} else if (options.detach && options.verbose) || !output.is_null() {

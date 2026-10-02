@@ -23,14 +23,14 @@ let path = artifact {
 }
 
 # Populate the remote cache for the dependency.
-let dependency = tg --url $remote.url build --detach $"($path)#dependency" | str trim
+let dependency = tg --url $remote.url build --no-tokens --detach $"($path)#dependency" | referent node
 tg --url $remote.url wait $dependency | ignore
 
 let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },
 }
 
-let process = tg --url $local.url build --detach $path | str trim
+let process = tg --url $local.url build --no-tokens --detach $path | referent node
 let result = tg --url $local.url wait $process | from json
 let children = tg --url $local.url process children $process | from json
 assert equal ($children | length) 2 "the build should have spawned the dependency and consumer."

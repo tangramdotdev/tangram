@@ -14,7 +14,7 @@ let path = artifact {
 }
 
 # Check in and tag the directory.
-let dir_id = tg checkin $path
+let dir_id = tg checkin --no-tokens $path | referent node
 tg tag test $dir_id
 
 # Get the nested file using the path option with a resolved tag reference.
@@ -32,4 +32,8 @@ assert ($output.stderr | str contains "id=dir_01dsqh18mkjvps1bsynv883g6h70xtem9p
 assert ($output.stderr | str contains "location=local") "the referent should include its location"
 assert ($output.stderr | str contains "path=foo/bar/file.txt") "the referent should include its path"
 assert ($output.stderr | str contains "tag=test") "the referent should include its tag"
-assert ($output.stderr | str contains "tokens[local][0]") "the referent should include its token"
+assert not ($output.stderr | str contains "tokens[") "--no-tokens should suppress tokens on stderr"
+
+let output = tg --no-quiet get --pretty "test?follow=true&get=foo/bar/file.txt" | complete
+success $output
+assert ($output.stderr | str contains "tokens[local][0]") "the referent should include its token by default"

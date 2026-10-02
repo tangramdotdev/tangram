@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let blob = "hello, world!\n" | tg write --no-tokens
+let blob = "hello, world!\n" | tg write --no-tokens | referent node
 
 # Compress and decompress the blob with each format, then compare the result to the original by id.
 def roundtrip [format: string] {

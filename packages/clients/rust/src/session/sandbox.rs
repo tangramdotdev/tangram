@@ -66,7 +66,7 @@ impl tg::instance::Sandbox for tg::Session {
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<(
-			tg::sandbox::control::Output,
+			tg::sandbox::control::Header,
 			impl Stream<Item = tg::Result<tg::sandbox::control::ServerMessage>> + Send + 'static,
 		)>,
 	> {

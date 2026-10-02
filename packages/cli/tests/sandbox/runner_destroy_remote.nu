@@ -14,7 +14,7 @@ let runner = server spawn --name runner --config {
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }
-let sandbox = tg --url $remote.url --token $root_token sandbox create | str trim
+let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 let socket = $runner.url | str replace 'http+unix://' '' | url decode
 let headers = { Authorization: $'Bearer ($root_token)', 'Content-Type': 'application/json' }
 tg --url $runner.url --token $root_token index

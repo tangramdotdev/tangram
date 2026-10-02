@@ -19,7 +19,7 @@ let path = artifact {
 		}
 	'
 }
-let process = tg --url $alice_local.url build --detach $path | str trim
+let process = tg --url $alice_local.url build --no-tokens --detach $path | referent node
 tg --url $alice_local.url wait $process
 tg --url $alice_local.url index
 tg --url $alice_local.url push $process

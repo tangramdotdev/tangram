@@ -10,10 +10,10 @@ let path = artifact {
 }
 
 # Check in the directory.
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 # Bundle the directory.
-let bundle_id = tg bundle $id
+let bundle_id = tg bundle --no-tokens $id | referent node
 
 # Get the bundled object.
 let output = tg object get $bundle_id --blobs --depth=inf --no-tokens --pretty

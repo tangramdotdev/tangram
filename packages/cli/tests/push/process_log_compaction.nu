@@ -17,7 +17,7 @@ for mode in [--eager --lazy] {
 			'export default function () { console.log("stdout"); console.error("stderr"); }'
 		}
 		let path = artifact { tangram.ts: $source }
-		let process = tg build --detach $path | str trim
+		let process = tg build --no-tokens --detach $path | referent node
 		timeout 10s tg checkpoint wait process.control.log.end $watch 0 | ignore
 		timeout 10s tg wait $process
 		assert equal (tg get $process | from json | get log?) null
@@ -53,6 +53,6 @@ let remote = server spawn --cloud --name remote
 let local = server spawn --name local --config { indexer: { log_compaction: false } }
 tg remote put default $remote.url
 let path = artifact { tangram.ts: 'export default function () { console.log("stdout"); }' }
-let process = tg build --detach $path | str trim
+let process = tg build --no-tokens --detach $path | referent node
 tg wait $process | ignore
 failure (tg --url $local.url push $process --process-log-objects --eager | complete) "push must report an uncompacted log"

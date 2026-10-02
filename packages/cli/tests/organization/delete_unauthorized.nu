@@ -11,7 +11,7 @@ tg --token $alice.token organization create acme
 tg --token $alice.token grant $bob.user.id write acme
 
 # Bob's write lets him tag under the organization.
-let id = tg --token $bob.token checkin (artifact 'x')
+let id = tg --token $bob.token checkin --no-tokens (artifact 'x') | referent node
 tg --token $bob.token tag acme/foo $id
 
 # But write does not confer admin, so bob cannot delete the organization.

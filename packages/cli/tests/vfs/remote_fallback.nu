@@ -13,7 +13,7 @@ let local = server spawn --directory $server_path --name local --config {
 }
 vfs assert_mounted $server_path
 
-let id = tg checkin (artifact { file.txt: 'contents' }) | str trim
+let id = tg checkin --no-tokens (artifact { file.txt: 'contents' }) | referent node
 tg push $id
 tg clean
 let root = vfs root $server_path $id

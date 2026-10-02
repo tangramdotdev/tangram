@@ -11,7 +11,7 @@ pub struct Args {
 	pub print: crate::print::Options,
 
 	#[arg(index = 1)]
-	pub selector: Option<String>,
+	pub selector: Option<tg::Referent<tg::Selector<tg::Id>>>,
 }
 
 #[derive(Clone, Debug, Default, clap::Args)]
@@ -37,10 +37,12 @@ pub struct PeriodArgs {
 impl Cli {
 	pub async fn command_usage(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let arg = tg::usage::Arg::from(args.period);
+		let mut arg = tg::usage::Arg::from(args.period);
 		let usage = if let Some(selector) = args.selector {
-			if let Ok(id) = selector.parse::<tg::Id>() {
-				match id.kind() {
+			arg.location = selector.options.location.map(Into::into);
+			arg.tokens = selector.options.tokens;
+			match selector.node {
+				tg::Selector::Id(id) => match id.kind() {
 					tg::id::Kind::Organization => {
 						client
 							.try_get_organization_usage(
@@ -58,26 +60,27 @@ impl Cli {
 							.await?
 					},
 					_ => return Err(tg::error!("expected a user or organization selector")),
-				}
-			} else {
-				let specifier: tg::Specifier = selector.parse()?;
-				let user_selector = tg::user::Selector::Specifier(specifier.clone());
-				if client
-					.try_get_user(&user_selector, tg::user::get::Arg::default())
-					.await?
-					.is_some()
-				{
-					client
-						.try_get_user_usage(&user_selector, arg.clone())
-						.await?
-				} else {
-					client
-						.try_get_organization_usage(
-							&tg::organization::Selector::Specifier(specifier),
-							arg.clone(),
-						)
-						.await?
-				}
+				},
+				tg::Selector::Specifier(specifier) => {
+					let entry = tg::user::get::Arg {
+						location: arg.location.clone(),
+						tokens: arg.tokens.clone(),
+						..Default::default()
+					};
+					let user_selector = tg::user::Selector::Specifier(specifier.clone());
+					if client.try_get_user(&user_selector, entry).await?.is_some() {
+						client
+							.try_get_user_usage(&user_selector, arg.clone())
+							.await?
+					} else {
+						client
+							.try_get_organization_usage(
+								&tg::organization::Selector::Specifier(specifier),
+								arg.clone(),
+							)
+							.await?
+					}
+				},
 			}
 		} else {
 			let user = client
@@ -100,7 +103,9 @@ impl From<PeriodArgs> for tg::usage::Arg {
 		Self {
 			day: value.day,
 			hour: value.hour,
+			location: None,
 			month: value.month,
+			tokens: tg::authorization::Tokens::default(),
 			week: value.week,
 		}
 	}

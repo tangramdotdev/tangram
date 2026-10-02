@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let sandbox = tg sandbox create --owner root --no-network | str trim
+let sandbox = tg sandbox create --no-tokens --owner root --no-network | referent node
 let data = tg sandbox get $sandbox | from json | get data
 assert equal $data.owner "root" "a root principal should create a root-owned sandbox when authentication is disabled"
 

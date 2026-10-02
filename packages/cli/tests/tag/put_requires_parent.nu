@@ -7,7 +7,7 @@ let local = server spawn --config { authentication: { users: { providers: { inse
 let alice = tg login --verbose --name alice | from json
 
 let path = artifact "test"
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 let output = tg tag company/team/pkg $id | complete
 failure $output "tagging should fail when the parent does not exist"

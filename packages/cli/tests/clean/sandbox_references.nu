@@ -12,7 +12,7 @@ let path = artifact {
 	'
 }
 
-let process = tg process spawn --sandbox $path | str trim
+let process = tg process spawn --no-tokens --sandbox $path | referent node
 tg wait --source=index $process
 
 let sandbox = tg process get $process | from json | get sandbox
@@ -30,8 +30,8 @@ tg clean
 failure (tg process get --source=index $process | complete)
 
 # An existing sandbox retains an otherwise unreferenced process.
-let sandbox = tg sandbox create | str trim
-let process = tg process spawn $'--sandbox=($sandbox)' $path | str trim
+let sandbox = tg sandbox create --no-tokens | referent node
+let process = tg process spawn --no-tokens $'--sandbox=($sandbox)' $path | referent node
 tg wait --source=index $process | ignore
 tg clean
 tg process get --source=index $process | ignore

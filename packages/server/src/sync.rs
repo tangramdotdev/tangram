@@ -30,7 +30,7 @@ impl Session {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<(
-		tg::sync::Output,
+		tg::sync::Header,
 		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
 	)> {
 		self.sync_inner(arg, false, stream, true).await
@@ -41,7 +41,7 @@ impl Session {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<(
-		tg::sync::Output,
+		tg::sync::Header,
 		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
 	)> {
 		self.sync_inner(arg, true, stream, true).await
@@ -54,7 +54,7 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		source_trusted: bool,
 	) -> tg::Result<(
-		tg::sync::Output,
+		tg::sync::Header,
 		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
 	)> {
 		self.sync_inner(arg, process, stream, !source_trusted).await
@@ -67,16 +67,16 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		verify_object_ids: bool,
 	) -> tg::Result<(
-		tg::sync::Output,
+		tg::sync::Header,
 		BoxStream<'static, tg::Result<tg::sync::Message>>,
 	)> {
 		let location = self.server.location(arg.location.as_ref())?;
 
-		let (output, stream) = match location {
+		let (header, stream) = match location {
 			tg::Location::Local(tg::location::Local { region: None }) => {
-				let (output, stream) = self.sync_local(arg, stream, verify_object_ids).await?;
+				let (header, stream) = self.sync_local(arg, stream, verify_object_ids).await?;
 				let stream = stream.with_stopper(self.context.stopper.clone());
-				(output, stream)
+				(header, stream)
 			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
@@ -90,7 +90,7 @@ impl Session {
 			},
 		};
 
-		Ok((output, stream))
+		Ok((header, stream))
 	}
 
 	async fn sync_local(
@@ -99,12 +99,12 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		verify_object_ids: bool,
 	) -> tg::Result<(
-		tg::sync::Output,
+		tg::sync::Header,
 		BoxStream<'static, tg::Result<tg::sync::Message>>,
 	)> {
 		// Verify or create the sync before starting the transfer.
 		arg.sync = Some(self.prepare_sync(arg.sync)?);
-		let output = tg::sync::Output {
+		let header = tg::sync::Header {
 			sync: arg.sync.clone(),
 		};
 
@@ -160,7 +160,7 @@ impl Session {
 			})
 			.attach(task);
 
-		Ok((output, stream.boxed()))
+		Ok((header, stream.boxed()))
 	}
 
 	pub(crate) fn prepare_sync(
@@ -192,7 +192,7 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		region: String,
 	) -> tg::Result<(
-		tg::sync::Output,
+		tg::sync::Header,
 		BoxStream<'static, tg::Result<tg::sync::Message>>,
 	)> {
 		let client = if process {
@@ -208,11 +208,11 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		let (output, stream) = client
+		let (header, stream) = client
 			.sync(arg, stream)
 			.await
 			.map_err(|error| tg::error!(!error, region = %region, "failed to sync"))?;
-		Ok((output, stream.boxed()))
+		Ok((header, stream.boxed()))
 	}
 
 	async fn sync_remote(
@@ -223,7 +223,7 @@ impl Session {
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<(
-		tg::sync::Output,
+		tg::sync::Header,
 		BoxStream<'static, tg::Result<tg::sync::Message>>,
 	)> {
 		let client = if process {
@@ -236,11 +236,11 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		let (output, stream) = client
+		let (header, stream) = client
 			.sync(arg, stream)
 			.await
 			.map_err(|error| tg::error!(!error, remote = %remote, "failed to sync"))?;
-		Ok((output, stream.boxed()))
+		Ok((header, stream.boxed()))
 	}
 
 	async fn sync_task(
@@ -426,7 +426,7 @@ impl Session {
 		})
 		.boxed();
 
-		let (output, stream) = self
+		let (header, stream) = self
 			.sync(arg, stream)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to start the sync"))?;
@@ -479,12 +479,11 @@ impl Session {
 			Ok::<_, tg::Error>(frame)
 		});
 		let body = BoxBody::with_stream(stream);
-		let body = tangram_http::body::output::set(body, &output)
-			.map_err(|error| tg::error!(!error, "failed to serialize the output"))?;
+		let body = tangram_http::body::header::set(body, &header)
+			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 
 		// Create the response.
-		let mut response =
-			http::Response::builder().header(tangram_http::body::output::HEADER, "true");
+		let mut response = http::Response::builder();
 		if let Some(content_type) = content_type {
 			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		}

@@ -7,7 +7,7 @@ let local = server spawn --name local
 tg remote put default $remote.url
 
 tg group create parent
-let file = tg put 'tg.file("data")' | str trim
+let file = tg put --no-tokens 'tg.file("data")' | referent node
 tg tag put parent/tag $file
 
 let output = tg push --ancestors=never parent/tag | complete

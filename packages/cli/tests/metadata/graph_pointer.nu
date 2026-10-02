@@ -15,7 +15,7 @@ let artifact = '
 		]
 	})
 '
-let graph_id = tg put $artifact
+let graph_id = tg put --no-tokens $artifact | referent node
 tg index
 let reference = $"graph=($graph_id)&index=0&kind=directory"
 let output = tg metadata $reference --pretty | complete

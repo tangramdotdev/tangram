@@ -24,7 +24,7 @@ let local_source = server spawn --name local-source --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
 let watch = tg --url $remote.url --token $root_token checkpoint watch process.log.compact.read | from json | get watch
-let process = tg --url $local_source.url build --remote --detach $path | str trim
+let process = tg --url $local_source.url build --no-tokens --remote --detach $path | referent node
 tg --url $local_source.url wait $process
 let hit = tg --url $remote.url --token $root_token checkpoint wait process.log.compact.read $watch 0 | from json
 assert equal $hit.params.process $process

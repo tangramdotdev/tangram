@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let output = tg checkin /nonexistent/path/here | complete
+let output = tg checkin --no-tokens /nonexistent/path/here | complete
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred

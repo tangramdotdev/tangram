@@ -46,7 +46,7 @@ let path = artifact {
 	}
 }
 
-tg checkin ($path | path join 'foo.tg.ts') --update a
+tg checkin --no-tokens ($path | path join 'foo.tg.ts') --update a | referent node
 
 let lockfile_path = $path | path join 'foo.tg.lock'
 assert (not ($lockfile_path | path exists))

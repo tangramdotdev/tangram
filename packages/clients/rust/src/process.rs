@@ -89,7 +89,7 @@ pub struct Arg {
 pub enum SandboxArg {
 	Arg(tg::process::SandboxCreateArg),
 	Bool(bool),
-	Id(tg::sandbox::Id),
+	Referent(tg::Referent<tg::sandbox::Id>),
 }
 
 #[derive(Clone, Debug, Default)]

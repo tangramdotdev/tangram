@@ -20,7 +20,7 @@ let root = artifact {
 }
 
 let process = tg build -dv $root | from json | get process
-let output = tg wait $process 
+let output = tg wait $process
 snapshot $output '{"exit":0,"output":"hello"}'
 let tree = tg view --mode inline --expand-processes $process | ansi strip | str replace --all --regex 'host: "[^"]+"' 'host: "<host>"'
 

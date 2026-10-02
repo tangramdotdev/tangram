@@ -14,7 +14,7 @@ let cycle_path = artifact {
 	'
 }
 
-let cycle_id = tg checkin ($cycle_path | path join 'foo.tg.ts')
+let cycle_id = tg checkin --no-tokens ($cycle_path | path join 'foo.tg.ts') | referent node
 tg tag cycle $cycle_id
 tg index
 
@@ -25,7 +25,7 @@ let path = artifact {
 	'
 }
 
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 tg index
 
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id

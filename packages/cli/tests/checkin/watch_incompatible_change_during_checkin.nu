@@ -11,12 +11,12 @@ let local = server spawn --config {
 let path = artifact {
 	tangram.ts: 'export default "before";'
 }
-tg checkin $path --watch --no-checkout-pointers --no-lock | ignore
+tg checkin --no-tokens $path --watch --no-checkout-pointers --no-lock | ignore
 
 def checkin_background [path: path] {
 	job spawn {
 		let job_id = job id
-		let output = tg checkin $path --watch --no-checkout-pointers --no-lock --no-solve | complete
+		let output = tg checkin --no-tokens $path --watch --no-checkout-pointers --no-lock --no-solve | complete
 		$output | job send --tag $job_id 0
 	}
 }

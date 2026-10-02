@@ -40,7 +40,7 @@ let path = artifact {
 }
 let watches = [first second] | each {|text|
 	let value = ['tg.blob(' ($text | to json) ')'] | str join
-	let blob = tg --url $local_source.url put $value | str trim
+	let blob = tg --url $local_source.url put --no-tokens $value | referent node
 	let params = { id: $blob } | to json --raw
 	let store = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params $params | from json | get watch
 	{ store: $store }

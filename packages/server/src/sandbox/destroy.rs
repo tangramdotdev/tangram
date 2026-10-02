@@ -27,7 +27,7 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_destroy_sandbox_local(id, arg.error.clone())
+					.try_destroy_sandbox_local(id, &arg)
 					.boxed()
 					.await
 					.map_err(|error| tg::error!(!error, %id, "failed to destroy the sandbox"))?
@@ -67,7 +67,7 @@ impl Session {
 		if !self
 			.authorize_sandbox_runner(
 				id,
-				&[],
+				arg.tokens.local_authorization(),
 				tg::authorization::permission::sandbox::Permission::Write,
 			)
 			.await?
@@ -96,12 +96,13 @@ impl Session {
 	pub(crate) async fn try_destroy_sandbox_local(
 		&self,
 		id: &tg::sandbox::Id,
-		error: Option<tg::Either<tg::error::Data, tg::error::Id>>,
+		arg: &tg::sandbox::destroy::Arg,
 	) -> tg::Result<Option<bool>> {
 		let permission = tg::authorization::Permission::Sandbox(
 			tg::authorization::permission::sandbox::Permission::Write,
 		);
-		let authorize_future = self.authorize(id.clone(), permission);
+		let resource = tg::Referent::with_node_and_tokens(id.clone(), arg.tokens.clone());
+		let authorize_future = self.authorize(resource, permission);
 		let get_future = self.try_get_sandbox_from_index(id);
 		let (authorized, sandbox) = future::try_join(authorize_future, get_future).await?;
 		let authorized = authorized.check_exhaustion()?;
@@ -115,7 +116,7 @@ impl Session {
 			return Ok(None);
 		}
 
-		self.destroy_sandbox_with_control(id, error, None)
+		self.destroy_sandbox_with_control(id, arg.error.clone(), None)
 			.boxed()
 			.await
 	}
@@ -284,7 +285,8 @@ impl Session {
 			region: Some(region.to_owned()),
 		});
 		let arg = tg::sandbox::destroy::Arg {
-			location: Some(location.into()),
+			location: Some(location.clone().into()),
+			tokens: arg.tokens.for_location(&location),
 			..arg.clone()
 		};
 		let Some(destroyed) = client.try_destroy_sandbox(id, arg).await.map_err(
@@ -334,12 +336,17 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, %id, "failed to get the remote client"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
 		let arg = tg::sandbox::destroy::Arg {
 			location: Some(tg::location::Arg(vec![
 				tg::location::arg::Component::Local(tg::location::arg::LocalComponent {
 					regions: remote.regions.clone(),
 				}),
 			])),
+			tokens: arg.tokens.for_location(&location),
 			..arg.clone()
 		};
 		let Some(destroyed) = client.try_destroy_sandbox(id, arg).await.map_err(

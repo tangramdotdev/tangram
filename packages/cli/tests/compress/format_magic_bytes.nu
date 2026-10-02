@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let blob = "hello, world!\n" | tg write
+let blob = "hello, world!\n" | tg write --no-tokens | referent node
 
 # Compress the blob with the given format and assert that the output begins with the expected magic bytes.
 def magic [format: string, expected: string] {

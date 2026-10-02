@@ -20,7 +20,7 @@ let artifact = '
 		]
 	})
 '
-let graph_id = tg put $artifact | str trim
+let graph_id = tg put --no-tokens $artifact | referent node
 let output = tg build $"graph=($graph_id)&index=0&kind=directory" | complete
 success $output
 snapshot ($output.stdout | str trim) '"Hello, World!"'

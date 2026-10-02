@@ -6,7 +6,7 @@ let local = server spawn --config {
 	advanced: { checkpoints: true },
 }
 
-for checkpoint in [runner.process.control.connect process.control.output] {
+for checkpoint in [runner.process.control.connect process.control.header] {
 	let control_watch = tg --url $local.url checkpoint watch $checkpoint | from json | get watch
 	let stored_watch = tg --url $local.url checkpoint watch runner.process.output.stored | from json | get watch
 	let finished_watch = tg --url $local.url checkpoint watch runner.process.finished | from json | get watch
@@ -14,7 +14,7 @@ for checkpoint in [runner.process.control.connect process.control.output] {
 	let received_watch = tg --url $local.url checkpoint watch process.control.finish | from json | get watch
 
 	let artifact = 'tg.file({ "contents": tg.blob("#!/bin/sh\nprintf \"%s\" \"$1\" > \"$TANGRAM_OUTPUT\""), "executable": true })'
-	let file = tg --url $local.url put $artifact | str trim
+	let file = tg --url $local.url put --no-tokens $artifact | referent node
 	let build = job spawn {
 		let job_id = job id
 		let output = tg --url $local.url build $file --arg-string $checkpoint | complete

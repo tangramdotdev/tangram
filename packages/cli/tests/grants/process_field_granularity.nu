@@ -20,7 +20,7 @@ let path = artifact {
 		}
 	'
 }
-let parent = tg --url $alice_local.url build --detach $path | str trim
+let parent = tg --url $alice_local.url build --no-tokens --detach $path | referent node
 tg --url $alice_local.url wait $parent
 tg --url $alice_local.url index
 tg --url $alice_local.url push $parent --process-command-objects --process-log-objects

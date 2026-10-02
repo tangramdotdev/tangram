@@ -4,8 +4,8 @@ use ../lib/test.nu *
 
 let local = server spawn --config { indexer: { cleaning: {} }, object: { ttl: 2, ttt: 0 } }
 
-let touched = tg put 'tg.file("keep me alive")' | str trim
-let untouched = tg put 'tg.file("let me die")' | str trim
+let touched = tg put --no-tokens 'tg.file("keep me alive")' | referent node
+let untouched = tg put --no-tokens 'tg.file("let me die")' | referent node
 tg index
 
 # Touch one object while waiting for cleaning to collect the other.

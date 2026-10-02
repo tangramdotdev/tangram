@@ -9,7 +9,7 @@ let eve = tg login --verbose --name eve | from json
 
 # Alice runs a long-running process publicly.
 let path = artifact { tangram.ts: 'export default async function () { await tg.sleep(30); return "done"; }' }
-let process = tg --token $alice.token run --network=true --detach --public $path | str trim
+let process = tg --token $alice.token run --no-tokens --network=true --detach --public $path | referent node
 
 # Eve can read the public process.
 let read = tg --token $eve.token get $process | complete

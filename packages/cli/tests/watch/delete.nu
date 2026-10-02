@@ -7,7 +7,7 @@ let local = server spawn
 let path = artifact {
 	tangram.ts: 'export default function () { return 42; }'
 }
-tg checkin $path --watch
+tg checkin --no-tokens $path --watch | referent node
 
 let watches = tg watch list | from json
 assert equal ($watches | get path) [$path] "the watch should be listed with its path"

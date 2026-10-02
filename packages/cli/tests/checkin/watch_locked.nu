@@ -47,7 +47,7 @@ let path = artifact {
 }
 
 # Ensure we can checkin with file watching.
-let output = tg checkin $path --watch --locked | complete
+let output = tg checkin --no-tokens $path --watch --locked | complete
 success $output
 
 'import b from "b/^1"' | save ($path | path join 'tangram.ts')  --append
@@ -56,5 +56,5 @@ success $output
 tg watch touch $path ($path | path join 'tangram.ts')
 
 # Checkin again but make sure that it fails.
-let output = tg checkin $path --watch --locked | complete
+let output = tg checkin --no-tokens $path --watch --locked | complete
 failure $output

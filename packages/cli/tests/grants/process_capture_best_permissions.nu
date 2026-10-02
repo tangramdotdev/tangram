@@ -20,7 +20,7 @@ let socket = $local.url | str replace 'http+unix://' '' | url decode
 let missing = 'fil_010000000000000000000000000000000000000000000000000000'
 let expression = 'tg.directory({"file":tg.file({"contents":"best","dependencies":{"missing":{"node":MISSING}}})})'
 	| str replace MISSING $missing
-let directory = tg --token $alice.token put $expression | str trim
+let directory = tg --token $alice.token put --no-tokens $expression | referent node
 let file = tg --token $alice.token children $directory | from json | get 0 | split row '?' | first
 tg --token $root_token index
 let object = http get --headers { Accept: application/json, Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($file)'
@@ -43,7 +43,7 @@ let source = '
 	}
 ' | str replace FILE $file | str replace NODE_TOKEN $node_token | str replace SUBTREE_TOKEN $subtree_token
 let module = artifact { tangram.ts: $source }
-let process = tg --token $alice.token build --detach $module | str trim
+let process = tg --token $alice.token build --no-tokens --detach $module | referent node
 let finished = tg --token $alice.token wait $process | from json
 assert equal $finished.exit 0
 let hit = timeout 30s tg --token $root_token checkpoint wait permission_capture.written $written 0 | from json

@@ -2,9 +2,9 @@ use ../lib/test.nu *
 
 # Without solving, an unproven dependency must not gain subtree authority through the file token.
 let local = server spawn --config { vfs: false }
-let dependency = tg put 'tg.file("dependency")' | str trim
+let dependency = tg put --no-tokens 'tg.file("dependency")' | referent node
 let path = artifact (file --xattrs { 'user.tangram.dependencies': ([$dependency] | to json) } 'output')
-let id = tg checkin --destructive --no-ignore --no-solve $path | str trim
+let id = tg checkin --no-tokens --destructive --no-ignore --no-solve $path | referent node
 let checkout = $local.checkout_directory | path join $id
 let token = xattr_read user.tangram.token $checkout
 let body = $token | split row '.' | get 1 | decode base64 | decode utf-8 | from json

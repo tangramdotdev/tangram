@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let output = tg put --bytes "hello" | complete
+let output = tg put --no-tokens --bytes "hello" | complete
 failure $output
 snapshot --normalize $output.stderr '
 	error an error occurred

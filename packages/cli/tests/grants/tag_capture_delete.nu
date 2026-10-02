@@ -17,7 +17,7 @@ let socket = $local.url | str replace 'http+unix://' '' | url decode
 let missing = 'fil_010000000000000000000000000000000000000000000000000000'
 let expression = 'tg.file({"contents":"deleted","dependencies":{"missing":{"node":MISSING}}})'
 	| str replace MISSING $missing
-let target = tg --token $alice.token put $expression | str trim
+let target = tg --token $alice.token put --no-tokens $expression | referent node
 tg --token $root_token index
 
 let params = { resource: $target } | to json --raw

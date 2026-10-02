@@ -8,7 +8,7 @@ let path = artifact {
 	"module.ts": (file --xattrs { "user.tangram.module": "ts" } 'export default function () { return "xattr module"; }')
 }
 
-let id = tg checkin ($path | path join "module.ts")
+let id = tg checkin --no-tokens ($path | path join "module.ts") | referent node
 tg index
 
 let output = tg build $id

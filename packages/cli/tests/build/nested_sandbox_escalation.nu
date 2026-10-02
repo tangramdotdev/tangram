@@ -45,7 +45,7 @@ let same_sandbox_path = artifact {
 		}
 	',
 }
-let sandbox = tg sandbox create --no-network | str trim
+let sandbox = tg sandbox create --no-tokens --no-network | referent node
 success (tg run $"--sandbox=($sandbox)" $same_sandbox_path --arg-string $sandbox | complete)
 
 let different_sandbox_path = artifact {
@@ -55,7 +55,7 @@ let different_sandbox_path = artifact {
 		}
 	',
 }
-let other_sandbox = tg sandbox create --no-network | str trim
+let other_sandbox = tg sandbox create --no-tokens --no-network | referent node
 let output = tg run $"--sandbox=($sandbox)" $different_sandbox_path --arg-string $other_sandbox | complete
 failure $output
 assert ($output.stderr | str contains 'the target sandbox does not match the request origin sandbox')

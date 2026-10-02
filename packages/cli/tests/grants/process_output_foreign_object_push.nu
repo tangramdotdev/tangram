@@ -12,7 +12,7 @@ let alice_local = server spawn --name alice-local --config {
 }
 
 # Alice stores a private file on the remote.
-let file = tg --url $alice_local.url put 'tg.file("topsecret")' | str trim
+let file = tg --url $alice_local.url put --no-tokens 'tg.file("topsecret")' | referent node
 tg --url $alice_local.url index
 tg --url $alice_local.url push $file
 tg --url $remote.url index
@@ -27,7 +27,7 @@ let eve_local = server spawn --name eve-local --config {
 }
 let source = 'export default function () { return tg.File.withId("FILE_ID"); }' | str replace "FILE_ID" $file
 let eve_path = artifact { tangram.ts: $source }
-let eve_process = tg --url $eve_local.url build --detach $eve_path | str trim
+let eve_process = tg --url $eve_local.url build --no-tokens --detach $eve_path | referent node
 tg --url $eve_local.url wait $eve_process | complete
 
 # Eve pushes her process and its output to the remote.

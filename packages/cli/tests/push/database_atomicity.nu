@@ -10,7 +10,7 @@ tg remote put default $remote.url
 let finished_module = artifact {
 	tangram.ts: 'export default function () { return tg.file("finished"); }',
 }
-let finished_process = tg build --detach $finished_module | str trim
+let finished_process = tg build --no-tokens --detach $finished_module | referent node
 tg wait $finished_process
 let sandbox = tg get $finished_process | from json | get sandbox
 tg wait $sandbox

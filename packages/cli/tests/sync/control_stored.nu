@@ -18,7 +18,7 @@ for kind in [object process] {
 		remotes: { default: { token: $root_token, url: $remote.url } },
 	}
 	let node = if $kind == object {
-		tg --url $local.url --token $root_token put 'tg.blob("stored")' | str trim
+		tg --url $local.url --token $root_token put --no-tokens 'tg.blob("stored")' | referent node
 	} else {
 		let process = 'pcs_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0'
 		let data = {
@@ -34,7 +34,7 @@ for kind in [object process] {
 		tg --url $local.url --token $root_token process put $process ($data | to json)
 		$process
 	}
-	let blocker = tg --url $local.url --token $root_token put 'tg.blob("later")' | str trim
+	let blocker = tg --url $local.url --token $root_token put --no-tokens 'tg.blob("later")' | referent node
 	let socket = $remote.url | str replace 'http+unix://' '' | url decode
 	let headers = { Accept: 'application/json', Authorization: $'Bearer ($root_token)' }
 
@@ -53,8 +53,8 @@ for kind in [object process] {
 		$output | job send --tag $job_id 0
 	}
 	timeout 10s tg --url $url --token $root_token checkpoint wait $checkpoint $watch 0 | ignore
-	wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should log the complete referent with the authorization token for the sync'
-	let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim
+	wait_until { (open --raw $push_log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should print the complete referent with the authorization token for the sync'
+	let referent = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 	let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
 	let query = { 'tokens[local][0]': $sync } | url build-query
 	let endpoint = if $kind == object { 'objects' } else { 'processes' }

@@ -25,7 +25,7 @@ let local = server spawn --name local --config {
 }
 
 # Put a directory and its subtree in region A only.
-let directory = tg --url $remote_region_a.url put 'tg.directory({ "file": tg.file("contents") })' | str trim
+let directory = tg --url $remote_region_a.url put --no-tokens 'tg.directory({ "file": tg.file("contents") })' | referent node
 let file = tg --url $remote_region_a.url children $directory | from json | get 0
 let blob = tg --url $remote_region_a.url children $file | from json | get 0
 

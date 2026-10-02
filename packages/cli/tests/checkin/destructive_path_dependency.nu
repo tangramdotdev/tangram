@@ -12,7 +12,7 @@ let path = artifact {
 		tangram.ts: 'export default function () { return "bar"; }'
 	}
 }
-let id = tg checkin --destructive $path --ignore=false
+let id = tg checkin --no-tokens --destructive $path --ignore=false | referent node
 tg index
 
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id

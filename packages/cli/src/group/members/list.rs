@@ -13,7 +13,7 @@ pub struct Args {
 	pub cursor: Option<String>,
 
 	#[arg(index = 1)]
-	pub group: tg::group::Selector,
+	pub group: tg::Referent<tg::group::Selector>,
 
 	/// The maximum number of entries per page (default: 100, maximum: 1000).
 	#[arg(long)]
@@ -36,12 +36,13 @@ impl Cli {
 		let arg = tg::group::members::list::Arg {
 			cursor: args.cursor,
 			limit: args.limit,
-			location: args.location.get(),
+			location: args.location.get_for_options(&args.group),
+			tokens: args.group.options.tokens,
 		};
 		let output = if args.all {
-			client.list_all_group_members(&args.group, arg).await
+			client.list_all_group_members(&args.group.node, arg).await
 		} else {
-			client.list_group_members(&args.group, arg).await
+			client.list_group_members(&args.group.node, arg).await
 		}
 		.map_err(|error| tg::error!(!error, "failed to list the group members"))?;
 

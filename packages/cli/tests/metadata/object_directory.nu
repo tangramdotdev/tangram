@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let id = tg put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
+let id = tg put --no-tokens 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | referent node
 tg index
 
 let metadata = tg object metadata $id | from json

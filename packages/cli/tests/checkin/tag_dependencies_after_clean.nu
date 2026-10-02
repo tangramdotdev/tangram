@@ -25,7 +25,7 @@ let referrer_path = artifact {
 	'
 }
 
-let id1 = tg checkin $referrer_path
+let id1 = tg checkin --no-tokens $referrer_path | referent node
 tg index
 let output1 = tg object get --blobs --depth=inf --no-tokens --pretty $id1
 
@@ -35,7 +35,7 @@ let local_two = server spawn --name local-two --config {
 }
 
 # Check in the same artifact again on the new local server.
-let id2 = tg --url $local_two.url checkin $referrer_path
+let id2 = tg --url $local_two.url checkin --no-tokens $referrer_path | referent node
 tg --url $local_two.url index
 let output2 = tg --url $local_two.url object get --blobs --depth=inf --no-tokens --pretty $id2
 

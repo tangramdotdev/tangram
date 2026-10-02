@@ -42,7 +42,7 @@ let path = artifact {
 }
 
 # Ensure we can checkin with file watching.
-let id = tg checkin $path --watch --locked
+let id = tg checkin --no-tokens $path --watch --locked | referent node
 let object = tg get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '
 	tg.directory({
@@ -73,7 +73,7 @@ snapshot $object '
 # Wait for changes to be handled.
 tg watch touch $path ($path | path join 'tangram.ts')
 
-let id = tg checkin $path --watch --no-solve
+let id = tg checkin --no-tokens $path --watch --no-solve | referent node
 
 let object = tg get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '

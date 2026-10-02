@@ -37,16 +37,16 @@ let blobs = $files | each { |fil_id|
 } | flatten | uniq
 
 # Put the directory to the local server.
-tg --url $local_source.url get --bytes $dir_id | tg --url $local.url put --bytes --kind dir
+tg --url $local_source.url get --bytes $dir_id | tg --url $local.url put --no-tokens --bytes --kind dir | referent node
 
 # Put all files to the local server.
 for fil_id in $files {
-	tg --url $local_source.url get --bytes $fil_id | tg --url $local.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $fil_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 }
 
 # Put all blobs to the remote server.
 for blb_id in $blobs {
-	tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
+	tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
 }
 
 # Index.

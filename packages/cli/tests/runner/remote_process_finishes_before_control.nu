@@ -27,7 +27,7 @@ let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 
-for checkpoint in [runner.process.control.connect process.control.output process.control.index.started runner.process.index.started] {
+for checkpoint in [runner.process.control.connect process.control.header process.control.index.started runner.process.index.started] {
 	let receiver = if ($checkpoint | str starts-with 'process.') { $remote } else { $runner }
 	let receiver_token = if ($checkpoint | str starts-with 'process.') { $root_token } else { '' }
 	let control_watch = tg --url $receiver.url --token $receiver_token checkpoint watch $checkpoint | from json | get watch
@@ -37,7 +37,7 @@ for checkpoint in [runner.process.control.connect process.control.output process
 	let received_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.finish | from json | get watch
 
 	let artifact = 'tg.file({ "contents": tg.blob("#!/bin/sh\nprintf \"%s\" \"$1\" > \"$TANGRAM_OUTPUT\""), "executable": true })'
-	let file = tg --url $local.url put $artifact | str trim
+	let file = tg --url $local.url put --no-tokens $artifact | referent node
 	let build = job spawn {
 		let job_id = job id
 		let output = tg --url $local.url build --remote $file --arg-string $checkpoint | complete

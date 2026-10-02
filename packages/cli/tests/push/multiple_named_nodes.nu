@@ -9,8 +9,8 @@ let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },
 }
 
-let first_file = tg --url $local.url put 'tg.file("first")' | str trim
-let second_file = tg --url $local.url put 'tg.file("second")' | str trim
+let first_file = tg --url $local.url put --no-tokens 'tg.file("first")' | referent node
+let second_file = tg --url $local.url put --no-tokens 'tg.file("second")' | referent node
 let root = tg --url $local.url group create bulk | from json
 let first_group = tg --url $local.url group create bulk/first | from json
 let nested_group = tg --url $local.url group create bulk/first/nested | from json

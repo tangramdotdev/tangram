@@ -4,7 +4,7 @@ use ../lib/test.nu *
 let remote = server spawn --name remote
 let local_client = server spawn --name local-client --config { remotes: { default: { url: $remote.url } } }
 let path = artifact { tangram.ts: 'export default () => "done";' }
-let process = tg --url $remote.url spawn --tty=24,80 $path | str trim
+let process = tg --url $remote.url spawn --no-tokens --tty=24,80 $path | referent node
 tg --url $remote.url wait --source=index $process | ignore
 let socket = $local_client.url | str replace 'http+unix://' '' | url decode
 http put --max-time 10sec --unix-socket $socket --content-type application/json $'http://localhost/processes/($process)/tty/size' { location: 'local,remote', size: { rows: 40, cols: 100 } } | ignore

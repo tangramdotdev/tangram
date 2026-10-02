@@ -55,7 +55,7 @@ let path = artifact {
 # Hold each file's contents at the remote and observe requests to its producer sync.
 let watches = [first second] | each {|text|
 	let value = ['tg.blob(' ($text | to json) ')'] | str join
-	let blob = tg --url $local.url put $value | str trim
+	let blob = tg --url $local.url put --no-tokens $value | referent node
 	let params = { id: $blob } | to json --raw
 	let store = tg --url $remote.url --token $root_token checkpoint watch sync.get.store.object --params $params | from json | get watch
 	let params = { node: $blob } | to json --raw

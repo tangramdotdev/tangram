@@ -34,8 +34,8 @@ pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-stdio";
 	Clone,
 	Debug,
 	Default,
-	PartialEq,
 	Eq,
+	PartialEq,
 	derive_more::IsVariant,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
@@ -44,7 +44,7 @@ pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-stdio";
 )]
 #[tangram_serialize(display, from_str)]
 pub enum Stdio {
-	Blob(tg::blob::Id),
+	Blob(Box<tg::Referent<tg::blob::Id>>),
 	#[default]
 	Inherit,
 	Log,
@@ -153,7 +153,7 @@ impl std::str::FromStr for Stdio {
 			"tty" => Ok(Self::Tty),
 			_ => value
 				.parse()
-				.map(Self::Blob)
+				.map(|referent| Self::Blob(Box::new(referent)))
 				.map_err(|_| tg::error!(%value, "invalid stdio")),
 		}
 	}
@@ -210,22 +210,22 @@ where
 	decode_reader_with_trailers(reader, trailer_receiver, task, max_frame_size)
 }
 
-pub(crate) async fn decode_with_output<T, O>(
+pub(crate) async fn decode_with_header<T, H>(
 	body: Boxed,
 	max_frame_size: u64,
-) -> tg::Result<(O, BoxStream<'static, tg::Result<T>>)>
+) -> tg::Result<(H, BoxStream<'static, tg::Result<T>>)>
 where
-	O: serde::de::DeserializeOwned,
+	H: serde::de::DeserializeOwned,
 	T: for<'de> tangram_serialize::Deserialize<'de> + Send + 'static,
 {
 	let (mut reader, trailer_receiver, task) = split_body(body);
-	let output =
-		tangram_http::body::output::get(&mut reader, tangram_http::body::output::MAX_LENGTH)
+	let header =
+		tangram_http::body::header::get(&mut reader, tangram_http::body::header::MAX_LENGTH)
 			.await
-			.map_err(|error| tg::error!(!error, "failed to deserialize the output"))?;
+			.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
 	let stream = decode_reader_with_trailers(reader, trailer_receiver, task, max_frame_size);
 
-	Ok((output, stream))
+	Ok((header, stream))
 }
 
 pub(crate) fn decode_reader<T, R>(

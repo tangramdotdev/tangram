@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let blob = "hello, world!\n" | tg write
+let blob = "hello, world!\n" | tg write --no-tokens | referent node
 
 let output = tg decompress $blob | complete
 failure $output

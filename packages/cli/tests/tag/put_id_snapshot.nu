@@ -6,7 +6,7 @@ let local = server spawn --config {
 	advanced: { checkpoints: true }
 }
 let path = artifact 'data'
-let node = tg checkin $path | str trim
+let node = tg checkin --no-tokens $path | referent node
 let watch = (
 	tg checkpoint watch tag.put.authorized --params ({ specifier: 'parent/tag' } | to json)
 	| from json

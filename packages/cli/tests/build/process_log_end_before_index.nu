@@ -14,7 +14,7 @@ let path = artifact {
 		export function child() {}
 	',
 }
-let id = tg build --detach $path | str trim
+let id = tg build --no-tokens --detach $path | referent node
 timeout 10s tg checkpoint wait index.batch $batch 0 | ignore
 
 # EOF must reach persistence while the child's initial index write is pending.

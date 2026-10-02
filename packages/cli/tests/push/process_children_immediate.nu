@@ -12,7 +12,7 @@ let local_source = server spawn --name local-source --config {
 let path = artifact {
 	tangram.ts: 'export default () => "hello"',
 }
-let process = tg --url $local_source.url build --detach $path | str trim
+let process = tg --url $local_source.url build --no-tokens --detach $path | referent node
 tg --url $local_source.url wait $process
 let source_process = tg --url $local_source.url process get --local $process | from json
 assert equal $source_process.children [] "the source leaf process should have an empty children list"

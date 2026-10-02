@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 let remote = server spawn --name remote
 let local = server spawn --name local --config { remotes: { default: { url: $remote.url } } }
-let local_ids = 1..2 | each { tg --url $local.url sandbox create --local | str trim }
-let remote_ids = 1..2 | each { tg --url $remote.url sandbox create --local | str trim }
+let local_ids = 1..2 | each { tg --url $local.url sandbox create --no-tokens --local | referent node }
+let remote_ids = 1..2 | each { tg --url $remote.url sandbox create --no-tokens --local | referent node }
 tg --url $local.url index
 tg --url $remote.url index
 let expected = $local_ids | append $remote_ids | sort

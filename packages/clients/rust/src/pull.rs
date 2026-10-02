@@ -62,6 +62,8 @@ pub struct Arg {
 	pub user_children: bool,
 }
 
+pub type Header = tg::push::Header;
+
 pub type Output = tg::push::Output;
 
 impl Default for Arg {
@@ -116,9 +118,10 @@ impl tg::Session {
 	pub async fn pull(
 		&self,
 		arg: tg::pull::Arg,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::pull::Header,
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static + use<>,
-	> {
+	)> {
 		let method = http::Method::POST;
 		let uri = "/pull";
 		let request = http::request::Builder::default()
@@ -156,8 +159,14 @@ impl tg::Session {
 		) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let stream = response
-			.sse()
+		// Read the header before consuming the progress stream.
+		let mut reader = response.reader();
+		let header =
+			tangram_http::body::header::get(&mut reader, tangram_http::body::header::MAX_LENGTH)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
+
+		let stream = tangram_http::sse::decode(reader)
 			.map_err(|error| tg::error!(!error, "failed to read an event"))
 			.and_then(|event| {
 				future::ready(
@@ -170,6 +179,6 @@ impl tg::Session {
 					},
 				)
 			});
-		Ok(stream)
+		Ok((header, stream))
 	}
 }

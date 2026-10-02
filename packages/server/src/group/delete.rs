@@ -24,20 +24,29 @@ impl Session {
 			tg::Location::Local(_) if !self.server.is_primary_region() => {
 				self.try_delete_group_primary_region(group, arg).await
 			},
-			tg::Location::Local(_) => self.try_delete_group_local(group).await,
+			tg::Location::Local(_) => self.try_delete_group_local(group, &arg.tokens).await,
 			tg::Location::Remote(remote) => self.try_delete_group_remote(group, arg, remote).await,
 		}
 	}
 
-	async fn try_delete_group_local(&self, group: &tg::group::Selector) -> tg::Result<Option<()>> {
+	async fn try_delete_group_local(
+		&self,
+		group: &tg::group::Selector,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Option<()>> {
 		let group = group.clone();
+		let tokens = tokens.clone();
 		let options = tangram_futures::retry::Options::default();
 		let session = self.clone();
 		let output = tangram_futures::retry(&options, || {
 			let group = group.clone();
 			let session = session.clone();
+			let tokens = tokens.clone();
 			async move {
-				match session.try_delete_group_local_attempt(&group).await? {
+				match session
+					.try_delete_group_local_attempt(&group, &tokens)
+					.await?
+				{
 					ControlFlow::Break(output) => Ok(ControlFlow::Break(output)),
 					ControlFlow::Continue(()) => Ok(ControlFlow::Continue(tg::error!(
 						"the named node ids kept changing while authorizing the write"
@@ -55,6 +64,7 @@ impl Session {
 	async fn try_delete_group_local_attempt(
 		&self,
 		group: &tg::group::Selector,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<ControlFlow<Option<()>>> {
 		let selector = match group {
 			tg::Selector::Id(id) => tg::Selector::Id(id.clone().into()),
@@ -69,9 +79,12 @@ impl Session {
 		let permission = tg::authorization::Permission::Group(
 			tg::authorization::permission::group::Permission::Admin,
 		);
-		self.authorize(tg::Selector::Id(group.clone()), permission)
-			.await?
-			.into_result()?;
+		self.authorize(
+			tg::Referent::with_node_and_tokens(tg::Selector::Id(group.clone()), tokens.clone()),
+			permission,
+		)
+		.await?
+		.into_result()?;
 		let ids_by_specifier = BTreeMap::from([(specifier, Some(id))]);
 		let session = self.clone();
 		let output = self
@@ -162,6 +175,11 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		arg.tokens = arg.tokens.for_location(&location);
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		let output = client.try_delete_group(group, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to delete the group"),

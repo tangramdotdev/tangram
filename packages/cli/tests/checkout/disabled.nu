@@ -10,7 +10,7 @@ let store_path = $local.directory | path join store
 
 assert (not ($store_path | path exists)) "expected the store directory to remain absent"
 
-let blob = "hello" | tg write | str trim
+let blob = "hello" | tg write --no-tokens | referent node
 assert equal (tg read $blob) "hello" "expected object I/O to work without checkouts"
 assert (not ($store_path | path exists)) "expected object I/O not to create the store directory"
 

@@ -22,7 +22,7 @@ let shared = artifact {
 }
 
 # Build the shared module on the primary and push only that process.
-let shared_process = tg build --detach --no-tokens $shared | str trim
+let shared_process = tg build --detach --no-tokens $shared | referent node
 tg wait $shared_process
 tg index
 tg push --eager --process-output-objects --process-children $shared_process

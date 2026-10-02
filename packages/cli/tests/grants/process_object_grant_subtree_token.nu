@@ -16,7 +16,7 @@ let host = $'((^uname -m | str trim | str replace arm64 aarch64))-((^uname -s | 
 
 def command-id [root: string, host: string, executable: string] {
 	let command = { executable: $executable, host: $host } | to json --raw
-	tg --token $root put $"tg.command\(($command))" | str trim
+	tg --token $root put --no-tokens $"tg.command\(($command))" | referent node
 }
 
 # Bob reaches one command through an exact token and the other through a grant.

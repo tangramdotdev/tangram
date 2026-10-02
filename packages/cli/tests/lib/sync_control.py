@@ -132,11 +132,15 @@ def subject(token):
 
 
 def command(*args, token=None):
-    return subprocess.check_output([tangram, "--url", url, "--token", token or root_token, *map(str, args)], timeout=15).decode().strip()
+    # Wire protocol fixtures need bare resource IDs rather than capability referents.
+    if args[0] == "put":
+        args = (args[0], "--no-tokens", *args[1:])
+    output = subprocess.check_output([tangram, "--url", url, "--token", token or root_token, *map(str, args)], timeout=15).decode().strip()
+    return output.split("?", 1)[0] if args[0] == "put" else output
 
 
 def source_blob(value):
-    return subprocess.check_output([tangram, "--url", source_url, "put", f"tg.blob({json.dumps(value)})"], timeout=15).decode().strip()
+    return subprocess.check_output([tangram, "--url", source_url, "put", "--no-tokens", f"tg.blob({json.dumps(value)})"], timeout=15).decode().strip().split("?", 1)[0]
 
 
 def watch(name, **params):
@@ -169,9 +173,8 @@ class Sync:
         assert self.response.status == status, (self.response.status, self.response.read())
         if status == 200:
             assert self.response.getheader("Content-Type") == "application/vnd.tangram.sync"
-            assert self.response.getheader("x-tg-output-in-body") == "true"
-            self.output = json.loads(self.response.read(read_varint(self.response)))
-            self.sync = self.output["sync"]
+            self.header = json.loads(self.response.read(read_varint(self.response)))
+            self.sync = self.header["sync"]
             self.token = self.sync["options"]["tokens"]["local"][0]
 
     def chunk(self, data):
@@ -1245,10 +1248,10 @@ def test_requirements(messenger):
     child = source_blob("child")
     data = b"\x01\x00" + encode({0: [{0: node_bytes(child), 1: 5}]})
     parent = subprocess.check_output(
-        [tangram, "--url", source_url, "put", "--bytes", "--kind", "blob"],
+        [tangram, "--url", source_url, "put", "--no-tokens", "--bytes", "--kind", "blob"],
         input=data,
         timeout=15,
-    ).decode().strip()
+    ).decode().strip().split("?", 1)[0]
     blocker = missing_id(77)
     sync = Sync({"get": f"{parent},{blocker}"})
     peer = Peer(messenger, sync.token)

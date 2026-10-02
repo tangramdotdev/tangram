@@ -20,7 +20,7 @@ let path = artifact {
 	}
 }
 
-let id = tg build --detach ($path | path join 'c')
+let id = tg build --no-tokens --detach ($path | path join 'c') | referent node
 let output = tg wait $id
 snapshot $output '{"exit":0,"output":42}'
 

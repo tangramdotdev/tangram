@@ -11,7 +11,7 @@ let dep_path = artifact {
 	}
 	tangram.ts: 'export default function () { return "root"; }'
 }
-let dep_id = tg checkin $dep_path
+let dep_id = tg checkin --no-tokens $dep_path | referent node
 
 # Create inner package that imports by ID with path option and tag it.
 let inner_path = artifact {
@@ -29,7 +29,7 @@ let outer_path = artifact {
 }
 
 # Checkin outer package and verify the snapshot.
-let id = tg checkin $outer_path
+let id = tg checkin --no-tokens $outer_path | referent node
 tg index
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '

@@ -10,11 +10,11 @@ let path = artifact {
 }
 
 # Verify that we cannot check this in with --deterministic set.
-let output = tg checkin $path --deterministic | complete
+let output = tg checkin --no-tokens $path --deterministic | complete
 failure $output
 
 # Verify we can check this in with --deterministic and --unsolved-dependencies
-let id = tg checkin $path --deterministic --unsolved-dependencies
+let id = tg checkin --no-tokens $path --deterministic --unsolved-dependencies | referent node
 tg index
 let object = tg get --depth=inf --no-tokens --pretty $id
 snapshot $object '

@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let local = server spawn
 
 let contents = "hello, world!\n"
-let blob = $contents | tg write
+let blob = $contents | tg write --no-tokens | referent node
 
 let checksum = tg checksum --algorithm sha256 $blob | from json
 let expected = $contents | hash sha256

@@ -14,7 +14,7 @@ let local = server spawn --now '2025-12-29T00:00:00Z' --config {
 set_time $local '2026-01-01T00:00:00Z'
 let alice = tg login --verbose --name alice | from json
 
-let first = tg --token $alice.token put 'tg.file("first")' | str trim
+let first = tg --token $alice.token put --no-tokens 'tg.file("first")' | referent node
 tg --token $alice.token tag first $first
 tg --token $alice.token index
 
@@ -31,7 +31,7 @@ assert equal $month_before.object_count 1488
 
 # Index another object in the original hour after the aggregates already exist.
 set_time $local '2026-01-01T00:30:00Z'
-let second = tg --token $alice.token put 'tg.file("second")' | str trim
+let second = tg --token $alice.token put --no-tokens 'tg.file("second")' | referent node
 tg --token $alice.token tag second $second
 tg --token $alice.token index
 

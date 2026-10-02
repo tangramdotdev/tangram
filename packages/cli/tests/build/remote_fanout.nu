@@ -75,7 +75,7 @@ let path = artifact {
 };
 
 # Run a remote build
-let id = tg build --remote --detach $path
+let id = tg build --no-tokens --remote --detach $path | referent node
 let output = timeout 10s tg wait $id | complete
 for entry in ($runners | enumerate) {
 	let watch = $release_watches | get $entry.index

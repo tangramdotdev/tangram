@@ -38,7 +38,7 @@ def test [...args] {
 	} | flatten | uniq
 
 	# Put the directory to the local server.
-	tg --url $local_source.url get --bytes $dir_id | tg --url $local.url put --bytes --kind dir
+	tg --url $local_source.url get --bytes $dir_id | tg --url $local.url put --no-tokens --bytes --kind dir | referent node
 
 	# Put half of the files to the local server, half to the remote server (intermediate missing).
 	let file_count = $files | length
@@ -47,10 +47,10 @@ def test [...args] {
 		let fil_id = $files | get $i
 		if $i < $half_files {
 			# Put to local server.
-			tg --url $local_source.url get --bytes $fil_id | tg --url $local.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $fil_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 		} else {
 			# Put to remote server (intermediate missing locally).
-			tg --url $local_source.url get --bytes $fil_id | tg --url $remote.url put --bytes --kind fil
+			tg --url $local_source.url get --bytes $fil_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
 		}
 	}
 
@@ -61,10 +61,10 @@ def test [...args] {
 		let blb_id = $blobs | get $i
 		if $i < $half_blobs {
 			# Put to local server.
-			tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
+			tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 		} else {
 			# Put to remote server (leaf missing locally).
-			tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
+			tg --url $local_source.url get --bytes $blb_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
 		}
 	}
 

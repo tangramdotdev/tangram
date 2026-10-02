@@ -17,7 +17,7 @@ let path = artifact {
 }
 
 # Build and get process ID.
-let process_id = tg build --detach $path | str trim
+let process_id = tg build --no-tokens --detach $path | referent node
 
 # Wait for process to complete.
 tg wait $process_id

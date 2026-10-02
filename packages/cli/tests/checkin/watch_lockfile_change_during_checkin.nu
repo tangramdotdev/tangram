@@ -43,12 +43,12 @@ let path = artifact {
 }
 
 # Establish a watch with the original lock.
-tg checkin $path --watch --locked | ignore
+tg checkin --no-tokens $path --watch --locked | ignore
 
 def checkin_background [path: path] {
 	job spawn {
 		let job_id = job id
-		let output = tg checkin $path --watch --locked | complete
+		let output = tg checkin --no-tokens $path --watch --locked | complete
 		$output | job send --tag $job_id 0
 	}
 }

@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let file = tg put 'tg.file("solo")' | str trim
+let file = tg put --no-tokens 'tg.file("solo")' | referent node
 
 let output = tg get $"($file)?get=foo" | complete
 failure $output

@@ -15,7 +15,7 @@ let root = artifact {
 		import b from "b/^1";
 	'
 }
-tg checkin $root
+tg checkin --no-tokens $root | referent node
 
 # Tag new versions of both dependencies.
 let a2 = artifact { tangram.ts: 'export default function () { return "a2"; }' }

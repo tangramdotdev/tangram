@@ -10,7 +10,7 @@ let child_path = artifact {
 		export default () => "child";
 	'
 }
-let child_id = tg --url $local.url checkin $child_path
+let child_id = tg --url $local.url checkin --no-tokens $child_path | referent node
 
 # Index and verify the child metadata.
 tg --url $local.url index
@@ -44,7 +44,7 @@ let parent_path = artifact {
 		export default () => child();
 	'
 }
-let parent_id = tg --url $local.url checkin $parent_path
+let parent_id = tg --url $local.url checkin --no-tokens $parent_path | referent node
 
 # Index and verify the parent metadata includes the child's metadata.
 tg --url $local.url index

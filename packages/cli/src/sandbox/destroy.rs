@@ -5,13 +5,13 @@ use {crate::Cli, tangram_client::prelude::*};
 #[group(skip)]
 pub struct Args {
 	#[arg(index = 1)]
-	pub sandbox: tg::sandbox::Id,
+	pub sandbox: tg::Referent<tg::sandbox::Id>,
 }
 
 impl Cli {
 	pub async fn command_sandbox_destroy(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
-		let sandbox = tg::Sandbox::with_id(args.sandbox);
+		let sandbox = tg::Sandbox::with_referent(args.sandbox);
 		let id = sandbox.id().clone();
 		sandbox
 			.destroy_with_instance(&client)

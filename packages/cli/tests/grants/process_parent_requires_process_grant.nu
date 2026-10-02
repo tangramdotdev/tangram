@@ -16,9 +16,9 @@ wait_until { (tg --token $alice.token log $parent.process | str trim | str lengt
 let token = tg --token $alice.token log $parent.process | str trim
 
 let child_path = artifact { tangram.ts: 'export default async () => { await tg.sleep(30); }' }
-let child_object = tg --token $alice.token checkin $child_path | str trim
+let child_object = tg --token $alice.token checkin --no-tokens $child_path | referent node
 tg --token $alice.token grant public object_subtree $child_object
-let child = tg --token $token run --network=true --detach $child_object | str trim
+let child = tg --token $token run --no-tokens --network=true --detach $child_object | referent node
 tg --token $alice.token index
 
 let signaled = tg --token $eve.token process signal $child --signal KILL | complete

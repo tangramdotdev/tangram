@@ -16,7 +16,7 @@ let path = artifact {
 	'
 }
 
-let id = tg build --detach $path | str trim
+let id = tg build --no-tokens --detach $path | referent node
 tg wait $id
 
 let combined = tg process log $id o+e>| complete

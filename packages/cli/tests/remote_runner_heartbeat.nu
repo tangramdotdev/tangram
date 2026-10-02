@@ -52,8 +52,8 @@ let path = artifact {
 	'
 }
 
-let process = tg --url $local.url run --detach $path --remote
-let empty_process = tg --url $local.url run --detach $"($path)#empty" --remote
+let process = tg --url $local.url run --no-tokens --detach $path --remote | referent node
+let empty_process = tg --url $local.url run --no-tokens --detach $"($path)#empty" --remote | referent node
 wait_until {
 	let output = tg --url $remote.url --token $root_token log --timeout 0 $process | complete
 	$output.stdout == "stdout before expiration\n" and $output.stderr == "stderr before expiration\n"

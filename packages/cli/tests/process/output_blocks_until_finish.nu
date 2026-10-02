@@ -7,7 +7,7 @@ let local = server spawn
 let path = artifact {
 	tangram.ts: 'export default async function () { await tg.sleep(1); return 42; }',
 }
-let process = tg build --detach $path | str trim
+let process = tg build --no-tokens --detach $path | referent node
 
 # Wait until the process has started but has not yet finished.
 wait_until { (tg process status --timeout 0 $process | from json) == ["started"] } "the process should start"

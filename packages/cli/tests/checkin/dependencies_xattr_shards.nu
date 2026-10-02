@@ -10,6 +10,6 @@ let directory = artifact {
 		"user.tangram.dependencies.1": 'dency"]'
 	} input)
 }
-let id = tg checkin $directory
+let id = tg checkin --no-tokens $directory | referent node
 let object = tg get --depth 2 --no-tokens --pretty $id
 assert ($object | str contains './dependency') 'the sharded dependency was not preserved'

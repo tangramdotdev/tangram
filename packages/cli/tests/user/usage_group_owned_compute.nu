@@ -11,7 +11,7 @@ tg --token $alice.token group create alice/team
 
 let before = tg --token $alice.token usage | from json
 let path = artifact { tangram.ts: 'export default () => tg.file("hello")' }
-let process = tg --token $alice.token build --detach --owner alice/team $path | str trim
+let process = tg --token $alice.token build --no-tokens --detach --owner alice/team $path | referent node
 tg --token $alice.token wait $process
 let sandbox = tg --token $alice.token process get $process | from json | get sandbox
 tg --token $alice.token wait $sandbox

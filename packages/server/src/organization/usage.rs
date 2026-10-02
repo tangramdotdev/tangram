@@ -14,17 +14,29 @@ impl Session {
 	pub(crate) async fn try_get_organization_usage(
 		&self,
 		organization: &tg::organization::Selector,
-		arg: tg::usage::Arg,
+		mut arg: tg::usage::Arg,
 	) -> tg::Result<Option<tg::usage::Output>> {
+		let location = self.server.location(arg.location.as_ref())?;
+		if let tg::Location::Remote(remote) = &location {
+			let client = self.get_remote_session(&remote.name).await?;
+			arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+			arg.tokens = arg.tokens.for_location(&location);
+			let output = client.try_get_organization_usage(organization, arg).await?;
+			return Ok(output);
+		}
+
 		if !self.server.config.usage.enabled {
 			return Err(tg::error!("usage tracking is disabled"));
 		}
 		let permission = tg::authorization::Permission::Organization(
 			tg::authorization::permission::organization::Permission::Admin,
 		);
-		self.authorize(organization.clone(), permission)
-			.await?
-			.into_result()?;
+		self.authorize(
+			tg::Referent::with_node_and_tokens(organization.clone(), arg.tokens.clone()),
+			permission,
+		)
+		.await?
+		.into_result()?;
 
 		let organization = organization.clone();
 		let id = self

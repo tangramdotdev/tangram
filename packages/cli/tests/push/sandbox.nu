@@ -18,7 +18,7 @@ let path = artifact {
 		}
 	',
 }
-let process = tg build --detach $path | str trim
+let process = tg build --no-tokens --detach $path | referent node
 tg wait --source=index $process
 let sandbox = tg get $process | from json | get sandbox
 tg wait --source=index $sandbox

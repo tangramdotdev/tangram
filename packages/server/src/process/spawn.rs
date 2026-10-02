@@ -53,14 +53,23 @@ impl Session {
 			.try_get_request_origin_sandbox(self.context.origin)?
 			.map(|sandbox| sandbox.id.clone());
 		if let Some(origin) = &request_origin_sandbox
-			&& let Some(tg::Either::Right(target)) = &arg.sandbox
-			&& target != origin
+			&& let Some(tg::process::spawn::SandboxArg::Existing(target)) = &arg.sandbox
+			&& &target.node != origin
 		{
 			return Err(tg::error!(
 				%origin,
-				%target,
+				target = %target.node,
 				"the target sandbox does not match the request origin sandbox"
 			));
+		}
+
+		if let Some(tg::process::spawn::SandboxArg::Existing(sandbox)) = &arg.sandbox {
+			arg.location = sandbox
+				.options
+				.location
+				.clone()
+				.map(Into::into)
+				.or_else(|| arg.location.clone());
 		}
 
 		// Get the authenticated process.
@@ -95,7 +104,7 @@ impl Session {
 				authenticated_process
 					.as_ref()
 					.map(|process| &process.sandbox)
-			}) && let Some(tg::Either::Left(sandbox)) = &arg.sandbox
+			}) && let Some(tg::process::spawn::SandboxArg::Create(sandbox)) = &arg.sandbox
 		{
 			self.validate_sandbox_create_arg_with_parent(sandbox, parent)
 				.await?;
@@ -189,17 +198,18 @@ impl Session {
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let location = self.server.location(arg.location.as_ref())?;
 		let runner_matches_location = self.spawn_process_runner_matches_location(&location);
-		let new_sandbox = matches!(arg.sandbox, Some(tg::Either::Left(_)));
-		let requested =
-			if runner_matches_location && let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
-				let scheduler = &self.server.config.scheduler;
-				Some(tg::runner::Capacity {
-					cpus: sandbox.cpu.unwrap_or(scheduler.default_cpu),
-					memory: sandbox.memory.unwrap_or(scheduler.default_memory),
-				})
-			} else {
-				None
-			};
+		let new_sandbox = matches!(arg.sandbox, Some(tg::process::spawn::SandboxArg::Create(_)));
+		let requested = if runner_matches_location
+			&& let Some(tg::process::spawn::SandboxArg::Create(sandbox)) = &arg.sandbox
+		{
+			let scheduler = &self.server.config.scheduler;
+			Some(tg::runner::Capacity {
+				cpus: sandbox.cpu.unwrap_or(scheduler.default_cpu),
+				memory: sandbox.memory.unwrap_or(scheduler.default_memory),
+			})
+		} else {
+			None
+		};
 		let has_parent = arg.parent.is_some() && parent_sandbox.is_some();
 		let shortcut_allowed = !location.is_remote() || has_parent;
 		let allocation = if shortcut_allowed
@@ -293,7 +303,7 @@ impl Session {
 		location: &tg::Location,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 	) -> Option<BoxFuture<'static, ()>> {
-		let Some(tg::Either::Left(sandbox)) = &arg.sandbox else {
+		let Some(tg::process::spawn::SandboxArg::Create(sandbox)) = &arg.sandbox else {
 			return None;
 		};
 		let parent_sandbox = parent_sandbox?;
@@ -370,7 +380,7 @@ impl Session {
 			)
 			.boxed()
 			.await?;
-		if matches!(arg.sandbox, Some(tg::Either::Left(_)))
+		if matches!(arg.sandbox, Some(tg::process::spawn::SandboxArg::Create(_)))
 			&& let Some(output) = &mut output
 			&& !output.cached
 		{
@@ -460,7 +470,7 @@ impl Session {
 			location: Some(location.clone().into()),
 			..arg
 		};
-		Self::update_spawn_process_command_for_location(&mut arg.command, &location)?;
+		Self::update_spawn_process_arg_for_location(&mut arg, &location)?;
 		let stream = client
 			.try_spawn_process(arg)
 			.await
@@ -515,7 +525,7 @@ impl Session {
 			),
 			..arg
 		};
-		Self::update_spawn_process_command_for_location(&mut arg.command, &destination)?;
+		Self::update_spawn_process_arg_for_location(&mut arg, &destination)?;
 		let stream = client
 			.try_spawn_process(arg)
 			.await
@@ -573,7 +583,7 @@ impl Session {
 			process_command_objects: true,
 			..Default::default()
 		};
-		let stream = self
+		let (_, stream) = self
 			.push_for_process(push_arg, None)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to push the command"))?;
@@ -633,6 +643,21 @@ impl Session {
 			.collect();
 
 		Ok(referents)
+	}
+
+	pub(super) fn update_spawn_process_arg_for_location(
+		arg: &mut tg::process::spawn::Arg,
+		location: &tg::Location,
+	) -> tg::Result<()> {
+		Self::update_spawn_process_command_for_location(&mut arg.command, location)?;
+		if let Some(tg::process::spawn::SandboxArg::Existing(sandbox)) = &mut arg.sandbox {
+			sandbox.options.tokens = sandbox.options.tokens.for_location(location);
+			sandbox.options.location = arg
+				.location
+				.as_ref()
+				.and_then(tg::location::Arg::to_location);
+		}
+		Ok(())
 	}
 
 	pub(super) fn update_spawn_process_command_for_location(

@@ -14,7 +14,7 @@ let path = artifact {
 	'
 }
 
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 tg index
 
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id

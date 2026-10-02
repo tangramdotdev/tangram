@@ -16,7 +16,7 @@ let second = artifact { a.txt: 'hello' }
 def checkin_background [path: path] {
 	job spawn {
 		let job_id = job id
-		let output = tg checkin --destructive --no-ignore $path | complete
+		let output = tg checkin --no-tokens --destructive --no-ignore $path | complete
 		$output | job send --tag $job_id 0
 	}
 }

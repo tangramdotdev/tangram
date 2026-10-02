@@ -19,7 +19,7 @@ let graph = '
 		]
 	})
 '
-let graph_id = tg put $graph | str trim
+let graph_id = tg put --no-tokens $graph | referent node
 
 # Read through the symlink pointer and assert the resolved file contents.
 let output = tg read $"graph=($graph_id)&index=0&kind=symlink" | complete

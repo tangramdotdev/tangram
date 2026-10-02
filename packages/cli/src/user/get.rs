@@ -14,14 +14,11 @@ pub struct Args {
 	#[command(flatten)]
 	pub print: crate::print::Options,
 
-	#[arg(skip)]
-	pub tokens: tg::authorization::Tokens,
-
 	#[command(flatten)]
 	pub ttl: crate::get::Ttl,
 
 	#[arg(index = 1)]
-	pub user: tg::user::Selector,
+	pub user: tg::Referent<tg::user::Selector>,
 }
 
 impl Cli {
@@ -29,15 +26,15 @@ impl Cli {
 		let client = self.client().await?;
 		let arg = tg::user::get::Arg {
 			cached: args.cached,
-			location: args.location.get(),
-			tokens: args.tokens,
+			location: args.location.get_for_options(&args.user),
+			tokens: args.user.options.tokens,
 			ttl: args.ttl.get(),
 		};
 		let user = client
-			.try_get_user(&args.user, arg)
+			.try_get_user(&args.user.node, arg)
 			.await
-			.map_err(|error| tg::error!(!error, user = %args.user, "failed to get the user"))?
-			.ok_or_else(|| tg::error!(user = %args.user, "failed to find the user"))?;
+			.map_err(|error| tg::error!(!error, user = %args.user.node, "failed to get the user"))?
+			.ok_or_else(|| tg::error!(user = %args.user.node, "failed to find the user"))?;
 		let tg::user::get::Output {
 			data,
 			location,

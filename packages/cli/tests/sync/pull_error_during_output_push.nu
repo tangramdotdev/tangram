@@ -44,7 +44,7 @@ let push_watch = (
 )
 
 # Start the build and wait for it to reach its output push.
-let process = tg --url $alice_local.url build --detach --remote --user $alice.user.id $path | str trim
+let process = tg --url $alice_local.url build --no-tokens --detach --remote --user $alice.user.id $path | referent node
 let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.output.push.started $push_watch 0 | complete
 success $output "the build should reach its output push"
 

@@ -153,9 +153,10 @@ impl tg::Instance for tg::Session {
 		&self,
 		arg: tg::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::pull::Header,
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
-		>,
+		)>,
 	> {
 		self.pull(arg)
 	}
@@ -164,9 +165,10 @@ impl tg::Instance for tg::Session {
 		&self,
 		arg: tg::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::push::Header,
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
-		>,
+		)>,
 	> {
 		self.push(arg)
 	}
@@ -177,7 +179,7 @@ impl tg::Instance for tg::Session {
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<(
-			tg::sync::Output,
+			tg::sync::Header,
 			impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
 		)>,
 	> {

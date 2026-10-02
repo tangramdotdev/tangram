@@ -21,7 +21,7 @@ let bob_local = server spawn --name bob-local --config {
 }
 
 # Bob also holds a valid proof for an unrelated resource.
-let unrelated = tg --url $remote.url --token $bob.token put 'tg.file("unrelated")' | str trim
+let unrelated = tg --url $remote.url --token $bob.token put --no-tokens 'tg.file("unrelated")' | referent node
 tg --url $remote.url --token $root_token index
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let unrelated_token = (
@@ -30,11 +30,11 @@ let unrelated_token = (
 )
 
 # Alice has the directory and its file. Bob has the directory but not the file.
-let directory = tg --url $alice_local.url put 'tg.directory({ "file": tg.file("hello") })' | str trim
-let file = tg --url $alice_local.url put 'tg.file("hello")' | str trim
-let blob = tg --url $alice_local.url put 'tg.blob("hello")' | str trim
+let directory = tg --url $alice_local.url put --no-tokens 'tg.directory({ "file": tg.file("hello") })' | referent node
+let file = tg --url $alice_local.url put --no-tokens 'tg.file("hello")' | referent node
+let blob = tg --url $alice_local.url put --no-tokens 'tg.blob("hello")' | referent node
 let script = 'tg.directory({ "file": ' + $file + ' })'
-let output = tg --url $bob_local.url put $script | str trim
+let output = tg --url $bob_local.url put --no-tokens $script | referent node
 assert equal $output $directory "bob should have the same directory"
 failure (tg --url $bob_local.url get --local $file | complete) "bob should not have the file"
 
@@ -54,9 +54,9 @@ let push = job spawn {
 }
 let output = timeout 30s tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $watch 0 | complete
 success $output "alice's push should reach the blob"
-wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should log the referent with the authorization token for the sync'
+wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should print the referent with the authorization token for the sync'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[' }
-let referent = $push_lines | first | str trim
+let referent = $push_lines | first | str trim | str replace --regex '^info ' ''
 
 # Obtain authorization separately from the sync and put the unrelated proof first.
 let root_proof = (

@@ -145,6 +145,16 @@ impl<O> Process<O> {
 	}
 
 	#[must_use]
+	pub fn to_referent(&self) -> tg::Referent<tg::Either<u32, Id>> {
+		let options = tg::referent::Options {
+			location: self.location().and_then(|location| location.to_location()),
+			tokens: self.tokens(),
+			..tg::referent::Options::default()
+		};
+		tg::Referent::new(self.id().cloned(), options)
+	}
+
+	#[must_use]
 	pub fn outcome_data(&self) -> Option<tg::process::outcome::Data> {
 		self.0
 			.outcome

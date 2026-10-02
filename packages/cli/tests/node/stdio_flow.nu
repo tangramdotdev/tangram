@@ -9,7 +9,7 @@ cd $js_path
 let output = timeout 5 node --input-type=module -e '
 	import assert from "node:assert/strict";
 	import * as tg from "@tangramdotdev/client";
-	
+
 	tg.setEncoding({
 	    base64: {
 	        decode: (value) => new Uint8Array(Buffer.from(value, "base64")),

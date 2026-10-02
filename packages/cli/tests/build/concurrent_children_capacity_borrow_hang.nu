@@ -37,7 +37,7 @@ let finish_watch = (
 
 # Hold the first borrowing child as it finishes. Once it advances, its capacity
 # must become available to the second child.
-let top = tg build --detach $path | str trim
+let top = tg build --no-tokens --detach $path | referent node
 tg checkpoint wait runner.process.finish $finish_watch 0 | ignore
 tg checkpoint continue runner.process.finish $finish_watch 0
 tg checkpoint unwatch runner.process.finish $finish_watch

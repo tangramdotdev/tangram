@@ -16,7 +16,7 @@ let path = artifact {
 	'
 }
 
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 tg publish $path
 
 # Verify tag on local.

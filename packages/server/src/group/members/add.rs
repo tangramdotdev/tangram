@@ -24,7 +24,10 @@ impl Session {
 			tg::Location::Local(_) if !self.server.is_primary_region() => {
 				self.add_group_member_primary_region(group, arg).await
 			},
-			tg::Location::Local(_) => self.add_group_member_local(group, &arg.member).await,
+			tg::Location::Local(_) => {
+				self.add_group_member_local(group, &arg.member, &arg.tokens)
+					.await
+			},
 			tg::Location::Remote(remote) => self.add_group_member_remote(group, arg, remote).await,
 		}
 	}
@@ -33,13 +36,17 @@ impl Session {
 		&self,
 		group: &tg::group::Selector,
 		member: &tg::group::Member,
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<()> {
 		let permission = tg::authorization::Permission::Group(
 			tg::authorization::permission::group::Permission::Admin,
 		);
-		self.authorize(group.clone(), permission)
-			.await?
-			.into_result()?;
+		self.authorize(
+			tg::Referent::with_node_and_tokens(group.clone(), tokens.clone()),
+			permission,
+		)
+		.await?
+		.into_result()?;
 		let session = self.clone();
 		self.server
 			.database
@@ -115,6 +122,11 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.name.clone(),
+			region: None,
+		});
+		arg.tokens = arg.tokens.for_location(&location);
 		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
 		client.add_group_member(group, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to add the group member"),

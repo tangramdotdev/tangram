@@ -142,9 +142,10 @@ impl tg::Instance for Instance {
 		&self,
 		arg: tg::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::pull::Header,
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
-		>,
+		)>,
 	> {
 		self.0.pull(arg)
 	}
@@ -153,9 +154,10 @@ impl tg::Instance for Instance {
 		&self,
 		arg: tg::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::push::Header,
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
-		>,
+		)>,
 	> {
 		self.0.push(arg)
 	}
@@ -166,7 +168,7 @@ impl tg::Instance for Instance {
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<(
-			tg::sync::Output,
+			tg::sync::Header,
 			impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
 		)>,
 	> {

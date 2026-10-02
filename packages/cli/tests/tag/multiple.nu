@@ -8,7 +8,7 @@ let local = server spawn
 let path = artifact 'Hello, World!'
 
 # Check in.
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 # Tag the objects.
 let tags = [
@@ -33,7 +33,7 @@ let output = tg match --no-groups "" | complete
 failure $output "The command should reject an empty pattern."
 snapshot --normalize $output.stderr r#'
 	error: invalid value '' for '<PATTERN>': invalid specifier pattern
-	
+
 	For more information, try '--help'.
 
 '#
@@ -47,7 +47,7 @@ let output = tg match --no-groups "test/*/*" | complete
 failure $output "The command should reject operators in parent components."
 snapshot --normalize $output.stderr r#'
 	error: invalid value 'test/*/*' for '<PATTERN>': invalid parent
-	
+
 	For more information, try '--help'.
 
 '#
@@ -61,7 +61,7 @@ let output = tg match --no-groups "test/=0.0.1/*" | complete
 failure $output "The command should reject operators in parent components."
 snapshot --normalize $output.stderr r#'
 	error: invalid value 'test/=0.0.1/*' for '<PATTERN>': invalid parent
-	
+
 	For more information, try '--help'.
 
 '#

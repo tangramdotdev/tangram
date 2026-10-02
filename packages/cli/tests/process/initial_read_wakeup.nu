@@ -18,7 +18,7 @@ for method in [status wait] {
 	let finish = tg --url $runner.url checkpoint watch runner.process.finish | from json | get watch
 	let source = ['export default () => ' ($method | to json) ';'] | str join
 	let path = artifact { tangram.ts: $source }
-	let process = tg --url $local_owner.url spawn $path | str trim
+	let process = tg --url $local_owner.url spawn --no-tokens $path | referent node
 	timeout 10s tg --url $runner.url checkpoint wait runner.process.finish $finish 0 | ignore
 	tg --url $local_owner.url index
 	let watch = tg --url $local_owner.url checkpoint watch process.get.control | from json | get watch

@@ -5,19 +5,19 @@ let local = server spawn --name local --config {
 	advanced: { checkpoints: true },
 	runner: { sandbox_state_ttl: 60 },
 }
-let sandbox = tg sandbox create | str trim
+let sandbox = tg sandbox create --no-tokens | referent node
 let socket = $local.url | str replace 'http+unix://' '' | url decode
 let path = artifact { tangram.ts: 'export default () => "done";' }
 let watch = tg checkpoint watch runner.process.state.insert | from json | get watch
 let first = job spawn {
 	let job_id = job id
-	let process = tg spawn $'--sandbox=($sandbox)' $path | str trim
+	let process = tg spawn --no-tokens $'--sandbox=($sandbox)' $path | referent node
 	$process | job send --tag $job_id 0
 }
 timeout 10s tg checkpoint wait runner.process.state.insert $watch 0 | ignore
 let second = job spawn {
 	let job_id = job id
-	let process = tg spawn $'--sandbox=($sandbox)' $path | str trim
+	let process = tg spawn --no-tokens $'--sandbox=($sandbox)' $path | referent node
 	$process | job send --tag $job_id 0
 }
 timeout 10s tg checkpoint wait runner.process.state.insert $watch 1 | ignore

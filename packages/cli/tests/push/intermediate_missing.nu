@@ -35,13 +35,13 @@ def test [...args] {
 	let blb_id = $output | from json | get 0
 
 	# Put the directory to the local server.
-	tg get --bytes $dir_id | tg --url $local.url put --bytes --kind dir
+	tg get --bytes $dir_id | tg --url $local.url put --no-tokens --bytes --kind dir | referent node
 
 	# Put the file to the remote server.
-	tg get --bytes $fil_id | tg --url $remote.url put --bytes --kind fil
+	tg get --bytes $fil_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
 
 	# Put the blob to the local server.
-	tg get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
+	tg get --bytes $blb_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 
 	# Confirm the file is not on the local server.
 	let output = tg --url $local.url get $fil_id | complete

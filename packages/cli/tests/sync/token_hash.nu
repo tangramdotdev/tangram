@@ -4,8 +4,10 @@ use ../lib/test.nu *
 
 let remote = server spawn --name remote
 let local = server spawn --config { remotes: { default: { url: $remote.url } } }
-let object = tg put 'tg.file("input")' | str trim
-let referent = tg push $object | str trim
+let object = tg put --no-tokens 'tg.file("input")' | referent node
+let output = tg --no-quiet push $object | complete
+success $output
+let referent = $output.stderr | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' ''
 let sync = $'http://localhost/($referent)' | url parse | get params | where key == 'tokens[remote][0]' | first | get value
 
 let path = artifact {

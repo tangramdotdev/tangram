@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn --config { roles: [api runner scheduler] }
 
-let id = tg put 'tg.file("hello")' | str trim
+let id = tg put --no-tokens 'tg.file("hello")' | referent node
 
 wait_until {
 	(tg object metadata $id | complete).exit_code == 0

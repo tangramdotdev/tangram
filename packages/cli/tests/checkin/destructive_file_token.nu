@@ -2,14 +2,14 @@ use ../lib/test.nu *
 
 # Compare identical files in separate stores so neither checkin reuses the other checkout.
 let local_ordinary = server spawn --config { vfs: false }
-let ordinary_id = tg checkin --no-ignore (artifact 'hello') | str trim
+let ordinary_id = tg checkin --no-tokens --no-ignore (artifact 'hello') | referent node
 let checkout = $local_ordinary.checkout_directory | path join $ordinary_id
 assert ('user.tangram.token' in (xattr_list $checkout))
 server stop $local_ordinary
 
 # Build output collection uses destructive checkin, which must also write the file token.
 let local_destructive = server spawn --config { vfs: false }
-let destructive_id = tg checkin --destructive --no-ignore (artifact 'hello') | str trim
+let destructive_id = tg checkin --no-tokens --destructive --no-ignore (artifact 'hello') | referent node
 assert equal $destructive_id $ordinary_id
 let checkout = $local_destructive.checkout_directory | path join $destructive_id
 assert ('user.tangram.token' in (xattr_list $checkout)) 'destructive checkin must write the file token'

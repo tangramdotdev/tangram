@@ -23,7 +23,7 @@ let bob_local = server spawn --name bob-local --config {
 }
 
 # Bob also holds a valid proof for an unrelated resource.
-let unrelated = tg --url $remote.url --token $bob.token put 'tg.file("unrelated")' | str trim
+let unrelated = tg --url $remote.url --token $bob.token put --no-tokens 'tg.file("unrelated")' | referent node
 tg --url $remote.url --token $root_token index
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 let unrelated_token = (
@@ -32,8 +32,8 @@ let unrelated_token = (
 )
 
 # Alice creates a directory whose file's blob is the last object the push sends.
-let directory = tg --url $alice_local.url put 'tg.directory({ "hello.txt": tg.file("hello") })' | str trim
-let blob = tg --url $alice_local.url put 'tg.blob("hello")' | str trim
+let directory = tg --url $alice_local.url put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' | referent node
+let blob = tg --url $alice_local.url put --no-tokens 'tg.blob("hello")' | referent node
 tg --url $alice_local.url index
 
 # Hold the blob's store write on the remote so the push stays open after the directory and the file are
@@ -44,7 +44,7 @@ let blob_watch = (
 	| get watch
 )
 
-# Alice pushes the directory. The push logs the referent with the authorization token for the sync as soon as the remote
+# Alice pushes the directory. The push prints the referent with the authorization token for the sync as soon as the remote
 # starts the sync, so Alice can confer it to Bob before the push finishes.
 let push_log = $env.TMPDIR | path join push.log
 let push = job spawn {
@@ -53,9 +53,9 @@ let push = job spawn {
 	$output | job send --tag $job_id 0
 }
 tg --url $remote.url --token $root_token checkpoint wait sync.get.store.object $blob_watch 0 | ignore
-wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should log the referent with the authorization token for the sync'
+wait_until { open --raw $push_log | str contains 'tokens[remote][0]' } 'the push should print the referent with the authorization token for the sync'
 let push_lines = open --raw $push_log | lines | where {|line| $line =~ 'tokens\[' }
-let referent = $push_lines | first | str trim
+let referent = $push_lines | first | str trim | str replace --regex '^info ' ''
 
 # Obtain authorization separately from the sync and put the unrelated proof first.
 let root_proof = (

@@ -97,7 +97,7 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
 		Option<(
-			tg::process::control::Output,
+			tg::process::control::Header,
 			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 		)>,
 	> {
@@ -128,7 +128,7 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
 		Option<(
-			tg::process::control::Output,
+			tg::process::control::Header,
 			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 		)>,
 	> {
@@ -150,7 +150,7 @@ impl Session {
 		local_process_control: bool,
 	) -> tg::Result<
 		Option<(
-			tg::process::control::Output,
+			tg::process::control::Header,
 			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 		)>,
 	> {
@@ -215,7 +215,7 @@ impl Session {
 				None
 			};
 			let process = tg::Referent::with_node_and_local_tokens(id.clone(), wait_token);
-			let output = tg::process::control::Output {
+			let header = tg::process::control::Header {
 				process,
 				sync: sync.clone(),
 				token,
@@ -227,9 +227,9 @@ impl Session {
 				sync,
 				local_process_control,
 			);
-			crate::checkpoint!(self.server, "process.control.output", process = %output.process.node).await;
+			crate::checkpoint!(self.server, "process.control.header", process = %header.process.node).await;
 
-			return Ok(Some((output, stream)));
+			return Ok(Some((header, stream)));
 		}
 		if shortcut && data.is_none() {
 			return Err(tg::error!("a process on the shortcut path must have data"));
@@ -506,16 +506,16 @@ impl Session {
 			None
 		};
 		let process = tg::Referent::with_node_and_local_tokens(id, wait_token);
-		let output = tg::process::control::Output {
+		let header = tg::process::control::Header {
 			process,
 			sync,
 			token,
 		};
 
-		crate::checkpoint!(self.server, "process.control.output", process = %output.process.node)
+		crate::checkpoint!(self.server, "process.control.header", process = %header.process.node)
 			.await;
 
-		Ok(Some((output, stream)))
+		Ok(Some((header, stream)))
 	}
 
 	fn wait_for_process_control_start(
@@ -823,7 +823,7 @@ impl Session {
 		region: String,
 	) -> tg::Result<
 		Option<(
-			tg::process::control::Output,
+			tg::process::control::Header,
 			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 		)>,
 	> {
@@ -844,9 +844,9 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to get the control stream"),
 			)?;
-		let output = output.map(|(output, stream)| {
+		let output = output.map(|(header, stream)| {
 			let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-			(output, stream)
+			(header, stream)
 		});
 		Ok(output)
 	}
@@ -859,7 +859,7 @@ impl Session {
 		region: Option<String>,
 	) -> tg::Result<
 		Option<(
-			tg::process::control::Output,
+			tg::process::control::Header,
 			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 		)>,
 	> {
@@ -904,9 +904,9 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
 			)?;
-		let output = output.map(|(output, stream)| {
+		let output = output.map(|(header, stream)| {
 			let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-			(output, stream)
+			(header, stream)
 		});
 		Ok(output)
 	}
@@ -1012,7 +1012,7 @@ impl Session {
 		let stream = super::stdio::decode(request, input_encoding, max_frame_size);
 
 		// Get the request stream.
-		let Some((output, stream)) = self
+		let Some((header, stream)) = self
 			.try_get_process_control_stream_with_context(arg, stream)
 			.boxed()
 			.await?
@@ -1027,13 +1027,12 @@ impl Session {
 		// Create the body.
 		let content_type = output_encoding.content_type(tangram_content_type);
 		let body = super::stdio::encode(stream, output_encoding, max_frame_size);
-		let body = tangram_http::body::output::set(body, &output)
-			.map_err(|error| tg::error!(!error, "failed to serialize the output"))?;
+		let body = tangram_http::body::header::set(body, &header)
+			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 
 		// Create the response.
 		let response = http::Response::builder()
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
-			.header(tangram_http::body::output::HEADER, "true")
 			.body(body)
 			.unwrap();
 

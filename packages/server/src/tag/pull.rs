@@ -46,7 +46,7 @@ impl Session {
 						nodes: vec![tg::Referent::new(directory.into(), options)],
 						..Default::default()
 					};
-					let stream = session.pull(arg).await?;
+					let (_, stream) = session.pull(arg).await?;
 					let mut stream = pin!(stream);
 					while stream.try_next().await?.is_some() {}
 					Ok::<_, tg::Error>(())

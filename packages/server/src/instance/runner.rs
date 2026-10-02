@@ -65,7 +65,7 @@ impl tg::instance::Runner for Server {
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> tg::Result<(
-		tg::runner::control::Output,
+		tg::runner::control::Header,
 		impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
 	)> {
 		self.session(&self.context)

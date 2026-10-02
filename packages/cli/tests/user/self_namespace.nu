@@ -7,7 +7,7 @@ let local = server spawn --config { authentication: { users: { providers: { inse
 let alice = tg login --verbose --name alice | from json
 
 let path = artifact 'hello'
-let id = tg --token $alice.token checkin $path
+let id = tg --token $alice.token checkin --no-tokens $path | referent node
 
 # Alice can publish a tag under her own username namespace.
 tg --token $alice.token tag alice/foo $id

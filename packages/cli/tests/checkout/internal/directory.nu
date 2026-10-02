@@ -9,7 +9,7 @@ let artifact = '
 		"hello.txt": "Hello, World!"
 	})
 '
-let id = tg put $artifact
+let id = tg put --no-tokens $artifact | referent node
 
 let output = tg checkout $id
 

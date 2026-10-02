@@ -13,7 +13,7 @@ tg --url $remote.url index
 let local = server spawn --name local --config {
 	remotes: { default: { token: $bob.token, url: $remote.url } }
 }
-let node = tg --url $local.url put 'tg.file("data")' | str trim
+let node = tg --url $local.url put --no-tokens 'tg.file("data")' | referent node
 let output = tg --url $local.url tag put -p private/child/tag $node | complete
 success $output
 assert not ($output.stderr | str contains $remote_parent.id) "the remote ID must not be disclosed"

@@ -4,6 +4,6 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let id = tg put 'tg.file("touch me")' | str trim
+let id = tg put --no-tokens 'tg.file("touch me")' | referent node
 let output = tg object touch $id | complete
 success $output

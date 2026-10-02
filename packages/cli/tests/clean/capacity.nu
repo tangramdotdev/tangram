@@ -16,7 +16,7 @@ let local = server spawn --config {
 	object: { ttl: 86400 }
 }
 
-let object = tg put 'tg.file("clean me")' | str trim
+let object = tg put --no-tokens 'tg.file("clean me")' | referent node
 tg index
 
 wait_until {

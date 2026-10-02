@@ -30,7 +30,7 @@ printf "%s\n" "$line" >&2
 read line || true
 '
 let value = ['tg.file({ "contents": tg.blob(' ($script | to json --raw) '), "executable": true })'] | str join
-let file = tg --url $remote.url --token $remote_root put $value | str trim
+let file = tg --url $remote.url --token $remote_root put --no-tokens $value | referent node
 
 for authority in [remote local] {
 	for protocol in [connect standalone] {

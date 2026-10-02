@@ -88,7 +88,10 @@ impl Cli {
 				.try_unwrap_string()
 				.ok()
 				.ok_or_else(|| tg::error!("expected a string"))?;
-			Self::print_display(string);
+			let referent = string
+				.parse::<tg::Referent<tg::Either<u32, tg::process::Id>>>()
+				.map_err(|error| tg::error!(!error, "failed to parse the process referent"))?;
+			Self::print_referent(&referent, &print);
 		} else if checkout {
 			Self::print_display(output);
 		} else if (detach && verbose) || !output.is_null() {
@@ -149,7 +152,7 @@ impl Cli {
 		let process =
 			Box::pin(self.spawn(options.spawn, reference, trailing, !options.detach, mode)).await?;
 
-		// If the detach flag is set, then return the process ID.
+		// If the detach flag is set, then return the process referent.
 		if options.detach {
 			process.node().detach().await?;
 			if options.verbose {
@@ -169,7 +172,7 @@ impl Cli {
 					.into();
 				return Ok(value);
 			}
-			return Ok(process.node().id().to_string().into());
+			return Ok(process.node().to_referent().to_string().into());
 		}
 
 		// Spawn the view task if necessary.

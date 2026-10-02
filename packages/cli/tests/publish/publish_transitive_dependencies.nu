@@ -31,7 +31,7 @@ let root = artifact {
 }
 
 # 2. Publish A (which should publish C, B, A in topological order).
-tg publish ($root | path join "packages/a") 
+tg publish ($root | path join "packages/a")
 let a_v1 = tg tag get a/0 | from json | get target.id
 
 # 3. Update C by modifying its content.

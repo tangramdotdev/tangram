@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # A sync rechecks an existing tag target after authorization.
 
 let local_source = server spawn --cloud --name local-source
-let source_target = tg --url $local_source.url put 'tg.file("source")' | str trim
+let source_target = tg --url $local_source.url put --no-tokens 'tg.file("source")' | referent node
 tg --url $local_source.url tag put race $source_target
 let remote_destination = server spawn --name remote-destination --config {
 	advanced: { checkpoints: true }
@@ -11,7 +11,7 @@ let remote_destination = server spawn --name remote-destination --config {
 }
 tg --url $remote_destination.url pull race
 
-let destination_target = tg --url $remote_destination.url put 'tg.file("destination")' | str trim
+let destination_target = tg --url $remote_destination.url put --no-tokens 'tg.file("destination")' | referent node
 let watch = tg --url $remote_destination.url checkpoint watch sync.get.database.authorized | from json | get watch
 let pull = job spawn {
 	let job_id = job id

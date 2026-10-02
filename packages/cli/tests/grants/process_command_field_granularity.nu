@@ -10,7 +10,7 @@ let eve = tg login --verbose --name eve | from json
 
 # Alice builds a private process.
 let path = artifact { tangram.ts: 'export default function () { return tg.file("hello"); }' }
-let parent = tg --token $alice.token build --detach $path | str trim
+let parent = tg --token $alice.token build --no-tokens --detach $path | referent node
 tg --token $alice.token wait $parent
 tg --token $alice.token index
 let data = tg --token $alice.token get $parent | from json

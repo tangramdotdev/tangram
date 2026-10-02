@@ -31,7 +31,7 @@ mod tests;
 
 type CommandFuture = Shared<BoxFuture<'static, tg::Result<tg::process::data::Command>>>;
 type ControlConnection = (
-	tg::process::control::Output,
+	tg::process::control::Header,
 	BoxStream<'static, tg::Result<tg::control::Event<tg::process::control::ServerMessage>>>,
 );
 
@@ -40,8 +40,8 @@ pub(super) struct ProcessControlConnection {
 		tg::process::control::ServerMessage,
 		tg::process::control::ClientMessage,
 	>,
+	header: tg::process::control::Header,
 	input: tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
-	output: tg::process::control::Output,
 }
 
 const LOG_BUFFER_SIZE: usize = 16 * 1024 * 1024;
@@ -377,7 +377,7 @@ impl Session {
 		// Obtain the shortcut process identity before starting execution.
 		let mut initialization = None;
 		let mut started = tokio::sync::watch::channel(true).1;
-		let (id, inner_token, command_session, connection_output) = match (id, inner_token) {
+		let (id, inner_token, command_session, connection_header) = match (id, inner_token) {
 			(Some(id), Some(token)) => (id, token, None, None),
 			(None, None) => {
 				let parent = parent.as_ref().ok_or_else(|| {
@@ -399,9 +399,9 @@ impl Session {
 					.process_control_connection_pool()
 					.take()
 					.await?;
-				let id = connection.output.process.node.clone();
+				let id = connection.header.process.node.clone();
 				let token =
-					connection.output.token.clone().ok_or_else(
+					connection.header.token.clone().ok_or_else(
 						|| tg::error!(%id, "missing the process authentication token"),
 					)?;
 				let start = tg::process::control::StartClientRequestArg {
@@ -462,7 +462,7 @@ impl Session {
 				start_task.detach();
 				control_sender_high = connection.input;
 				control = connection.control;
-				(id, token, Some(command_session), Some(connection.output))
+				(id, token, Some(command_session), Some(connection.header))
 			},
 			_ => {
 				return Err(tg::error!(
@@ -503,9 +503,9 @@ impl Session {
 			.sandbox
 			.clone()
 			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
-		let sync = connection_output
+		let sync = connection_header
 			.as_ref()
-			.and_then(|output| output.sync.clone().filter(|_| location.is_remote()));
+			.and_then(|header| header.sync.clone().filter(|_| location.is_remote()));
 		let (control_sender, control_receiver) = crate::process::control::local::Local::new();
 		let entry = crate::process::State {
 			changed: tokio::sync::watch::channel(()).0,
@@ -893,8 +893,8 @@ impl Session {
 		let data = state.to_data();
 
 		// Reuse the shortcut connection or connect the assigned process while it runs.
-		let output = if let Some(output) = connection_output {
-			Ok(output)
+		let header = if let Some(header) = connection_header {
+			Ok(header)
 		} else {
 			let arg = tg::process::control::Arg {
 				data: Some(data.clone()),
@@ -909,15 +909,15 @@ impl Session {
 			session
 				.connect_process_control(arg, control_responses.take().unwrap())
 				.await
-				.and_then(|(output, requests)| {
+				.and_then(|(header, requests)| {
 					requests_sender
 						.send(requests)
 						.map_err(|_| tg::error!("the process control stream was dropped"))?;
-					Ok(output)
+					Ok(header)
 				})
 		};
-		let output = match output {
-			Ok(output) => output,
+		let header = match header {
+			Ok(header) => header,
 			Err(error) => {
 				process_stopper.stop();
 				drop(index_sender);
@@ -928,7 +928,7 @@ impl Session {
 				return Err(error);
 			},
 		};
-		let sync = output.sync.filter(|_| location.is_remote());
+		let sync = header.sync.filter(|_| location.is_remote());
 		processes
 			.get_mut(&id)
 			.expect("the process state was not found")
@@ -984,7 +984,7 @@ impl Session {
 		event_sender
 			.send(Ok(Event::Connected(ConnectedEvent {
 				lease: lease.clone(),
-				process: output.process,
+				process: header.process,
 			})))
 			.ok();
 
@@ -1078,7 +1078,7 @@ impl Session {
 			start: false,
 			sync: None,
 		};
-		let (output, requests) = self.connect_process_control(arg, responses).await?;
+		let (header, requests) = self.connect_process_control(arg, responses).await?;
 		let control = crate::control::Stream::new_reconnecting_with_priorities(
 			requests,
 			input_high.clone(),
@@ -1087,8 +1087,8 @@ impl Session {
 		);
 		let connection = ProcessControlConnection {
 			control,
+			header,
 			input: input_high,
-			output,
 		};
 
 		Ok(connection)
@@ -1108,10 +1108,10 @@ impl Session {
 		session.local_process_control = local_process_control;
 		let reconnect_context = self.context.clone();
 		let reconnect_server = self.server.clone();
-		let reconnect = move |output: &tg::process::control::Output| {
-			let token = output.token.clone().or(reconnect_context.token.clone());
+		let reconnect = move |header: &tg::process::control::Header| {
+			let token = header.token.clone().or(reconnect_context.token.clone());
 			let context = crate::Context {
-				principal: tg::Principal::Process(output.process.node.clone()),
+				principal: tg::Principal::Process(header.process.node.clone()),
 				token,
 				..reconnect_context
 			};
@@ -1119,13 +1119,13 @@ impl Session {
 			session.local_process_control = local_process_control;
 			session
 		};
-		let (output, requests) = session
+		let (header, requests) = session
 			.try_get_process_control_stream_all(arg, responses, reconnect)
 			.boxed()
 			.await
 			.map_err(|source| tg::error!(!source, "failed to create the control stream"))?
 			.ok_or_else(|| tg::error!("expected a control stream"))?;
-		Ok((output, requests.boxed()))
+		Ok((header, requests.boxed()))
 	}
 
 	async fn finish_process_run(
@@ -1735,7 +1735,7 @@ impl Session {
 				.collect(),
 			..Default::default()
 		};
-		let stream = self
+		let (_, stream) = self
 			.push_for_process(arg, sync)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to push the output"))?;
@@ -1839,7 +1839,7 @@ impl Session {
 			process_command_objects: true,
 			..Default::default()
 		};
-		let stream = session.push_for_process(arg, None).await?;
+		let (_, stream) = session.push_for_process(arg, None).await?;
 		let mut stream = std::pin::pin!(stream);
 		while let Some(event) = stream.try_next().await? {
 			if event.is_output() {

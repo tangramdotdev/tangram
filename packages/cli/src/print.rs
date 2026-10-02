@@ -163,8 +163,45 @@ impl Cli {
 		Ok(())
 	}
 
-	pub(crate) fn print_id(id: &tg::Id) {
-		println!("{id}");
+	pub(crate) fn print_referent<T>(referent: &tg::Referent<T>, options: &Options)
+	where
+		T: std::fmt::Display,
+	{
+		let color = tangram_util::tty::is_foreground_controlling_tty(libc::STDOUT_FILENO);
+		let string = Self::format_referent(referent, color, options.tokens.get());
+		println!("{string}");
+	}
+
+	pub(crate) fn print_info_referent<T>(&self, referent: &tg::Referent<T>, options: &Options)
+	where
+		T: std::fmt::Display,
+	{
+		if self.args.quiet.get() {
+			return;
+		}
+		let color = tangram_util::tty::is_foreground_controlling_tty(libc::STDERR_FILENO);
+		let string = Self::format_referent(referent, color, options.tokens.get());
+		self.print_info_message(&string);
+	}
+
+	#[must_use]
+	pub(crate) fn format_referent<T>(
+		referent: &tg::Referent<T>,
+		color: bool,
+		tokens: bool,
+	) -> String
+	where
+		T: std::fmt::Display,
+	{
+		let options = tg::value::print::Options {
+			color,
+			tokens,
+			..Default::default()
+		};
+		let mut string = String::new();
+		let mut printer = tg::value::print::Printer::new(&mut string, options);
+		printer.referent(referent).unwrap();
+		string
 	}
 
 	pub(crate) async fn print_value(

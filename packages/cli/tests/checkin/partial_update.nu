@@ -61,7 +61,7 @@ let path = artifact {
 
 }
 
-let id = tg checkin $path --update a
+let id = tg checkin --no-tokens $path --update a | referent node
 tg index
 let object = tg get --depth=inf --no-tokens --pretty $id
 snapshot $object '

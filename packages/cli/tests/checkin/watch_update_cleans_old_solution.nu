@@ -22,9 +22,9 @@ def checkin_background [path: path, update?: string] {
 		let job_id = job id
 		let update = $update
 		let output = if $update == null {
-			tg checkin $path --watch --no-checkout-pointers --no-lock | complete
+			tg checkin --no-tokens $path --watch --no-checkout-pointers --no-lock | complete
 		} else {
-			tg checkin $path --watch --no-checkout-pointers --no-lock --update $update | complete
+			tg checkin --no-tokens $path --watch --no-checkout-pointers --no-lock --update $update | complete
 		}
 		$output | job send --tag $job_id 0
 	}
@@ -42,7 +42,7 @@ tg checkpoint continue checkin.watch.publish $initial_watch 0
 tg checkpoint unwatch checkin.watch.publish $initial_watch
 let initial_output = job recv --tag $initial_checkin --timeout 10sec
 success $initial_output
-let initial_id = $initial_output.stdout | str trim
+let initial_id = $initial_output.stdout | referent node
 
 # Add a new candidate and update the dependency.
 let a_1_1_path = artifact {
@@ -61,10 +61,10 @@ tg checkpoint continue checkin.watch.publish $update_watch 0
 tg checkpoint unwatch checkin.watch.publish $update_watch
 let update_output = job recv --tag $update_checkin --timeout 10sec
 success $update_output
-let update_id = $update_output.stdout | str trim
+let update_id = $update_output.stdout | referent node
 
 # The watched update must produce the same result as a cold checkin.
-let cold_id = tg checkin $path --no-checkout-pointers --no-lock
+let cold_id = tg checkin --no-tokens $path --no-checkout-pointers --no-lock | referent node
 assert ($update_id != $initial_id) "updating the dependency should change the artifact id"
 assert ($update_id == $cold_id) "the watched update should match a cold checkin"
 

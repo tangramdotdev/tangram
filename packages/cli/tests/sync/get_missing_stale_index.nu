@@ -18,12 +18,12 @@ def test [...args] {
 	)
 
 	# Put the child and the parent on the remote.
-	let file = tg --url $remote.url put 'tg.file("hello")' | str trim
-	let directory = tg --url $remote.url put 'tg.directory({ "hello.txt": tg.file("hello") })' | str trim
+	let file = tg --url $remote.url put --no-tokens 'tg.file("hello")' | referent node
+	let directory = tg --url $remote.url put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' | referent node
 	tg --url $remote.url checkpoint wait index.batch $batch_watch 0 | ignore
 
 	# Put the parent on the local server without the child.
-	tg --url $remote.url get --bytes $directory | tg --url $local.url put --bytes --kind dir
+	tg --url $remote.url get --bytes $directory | tg --url $local.url put --no-tokens --bytes --kind dir | referent node
 
 	# Hold the local fallback before it awaits the queued index writes.
 	let retry_watch = (

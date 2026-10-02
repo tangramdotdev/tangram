@@ -13,7 +13,7 @@ tg tag -p dependency/1.0.0 $target
 let dependency_path = artifact {
 	tangram.ts: 'import dependency from "dependency/^1"; export default dependency;'
 }
-let dependency = tg checkin --no-lock --no-solve --root $dependency_path | str trim
+let dependency = tg checkin --no-tokens --no-lock --no-solve --root $dependency_path | referent node
 let metadata = tg metadata $dependency | from json
 assert equal $metadata.subtree.solvable true "the dependency should be solvable"
 assert equal $metadata.subtree.solved false "the dependency should be unsolved"

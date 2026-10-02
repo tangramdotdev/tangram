@@ -18,7 +18,7 @@ let path = artifact {
 			return tg.build`
 				path="\${TMPDIR:-/tmp}/hello.txt"
 				echo "Hello, World!" > $path
-				id=$(tg checkin $path)
+				id=$(tg checkin --no-tokens $path)
 				checkout=$(tg checkout $id)
 				cat "$checkout" > ${tg.output}
 			`.env(tg.build(busybox));

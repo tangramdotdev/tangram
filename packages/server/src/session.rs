@@ -215,18 +215,20 @@ impl tg::Instance for Session {
 	async fn pull(
 		&self,
 		arg: tg::pull::Arg,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::pull::Header,
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
-	> {
+	)> {
 		self.pull(arg).await
 	}
 
 	async fn push(
 		&self,
 		arg: tg::push::Arg,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::push::Header,
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
-	> {
+	)> {
 		self.push(arg).await
 	}
 
@@ -235,7 +237,7 @@ impl tg::Instance for Session {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<(
-		tg::sync::Output,
+		tg::sync::Header,
 		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
 	)> {
 		self.sync(arg, stream).await

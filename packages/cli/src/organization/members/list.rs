@@ -20,7 +20,7 @@ pub struct Args {
 	pub location: crate::location::Args,
 
 	#[arg(index = 1)]
-	pub organization: tg::organization::Selector,
+	pub organization: tg::Referent<tg::organization::Selector>,
 
 	#[command(flatten)]
 	pub output: crate::print::OutputOptions,
@@ -36,15 +36,16 @@ impl Cli {
 		let arg = tg::organization::members::list::Arg {
 			cursor: args.cursor,
 			limit: args.limit,
-			location: args.location.get(),
+			location: args.location.get_for_options(&args.organization),
+			tokens: args.organization.options.tokens,
 		};
 		let output = if args.all {
 			client
-				.list_all_organization_members(&args.organization, arg)
+				.list_all_organization_members(&args.organization.node, arg)
 				.await
 		} else {
 			client
-				.list_organization_members(&args.organization, arg)
+				.list_organization_members(&args.organization.node, arg)
 				.await
 		}
 		.map_err(|error| tg::error!(!error, "failed to list the organization members"))?;

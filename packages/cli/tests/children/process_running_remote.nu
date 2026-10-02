@@ -46,7 +46,7 @@ let finish_watch = (
 	| from json
 	| get watch
 )
-let process = tg --url $local.url build --detach --remote $path | str trim
+let process = tg --url $local.url build --no-tokens --detach --remote $path | referent node
 
 # Hold the first child's finish so that the parent keeps running while its indexed children list is incomplete.
 let first_hit = timeout 30s tg --url $runner.url checkpoint wait runner.process.finish $finish_watch 0 | from json

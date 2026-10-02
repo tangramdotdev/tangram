@@ -7,8 +7,8 @@ if $nu.os-info.name != 'macos' {
 }
 
 let server = server spawn --config { vfs: false }
-let symlink = tg put 'tg.symlink({ "path": "missing" })' | str trim
-let directory = tg put 'tg.directory({ "link": tg.symlink({ "path": "missing" }) })' | str trim
+let symlink = tg put --no-tokens 'tg.symlink({ "path": "missing" })' | referent node
+let directory = tg put --no-tokens 'tg.directory({ "link": tg.symlink({ "path": "missing" }) })' | referent node
 
 let internal = tg checkout $symlink | str trim
 let internal_directory = tg checkout $directory | str trim

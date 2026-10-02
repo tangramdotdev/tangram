@@ -428,5 +428,6 @@ fn process_candidate_sandbox_destroy_arg() -> tg::sandbox::destroy::Arg {
 	tg::sandbox::destroy::Arg {
 		error: Some(tg::Either::Left(error)),
 		location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+		tokens: tg::authorization::Tokens::default(),
 	}
 }

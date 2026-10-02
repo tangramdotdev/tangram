@@ -7,7 +7,7 @@ let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 
 let path = artifact { tangram.ts: 'export default async () => { await tg.sleep(30); return "done"; }' }
-let process = tg --token $alice.token run --network=true --detach $path | str trim
+let process = tg --token $alice.token run --no-tokens --network=true --detach $path | referent node
 
 tg --token $alice.token grant $eve.user.id process_parent $process
 tg --token $alice.token index

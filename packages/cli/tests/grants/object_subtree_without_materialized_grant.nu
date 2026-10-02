@@ -8,7 +8,7 @@ let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 
 let value = 'tg.directory({ "hello.txt": tg.file("hello") })'
-let directory = tg --token $alice.token put $value | str trim
+let directory = tg --token $alice.token put --no-tokens $value | referent node
 tg --token $alice.token index
 let child = tg --token $alice.token children $directory | from json | get 0
 
@@ -24,7 +24,7 @@ assert equal $metadata.subtree.count 3 "the initial grants should confer subtree
 tg --token $alice.token clean
 
 # Restore the graph without changing its grants.
-let restored = tg --token $alice.token put $value | str trim
+let restored = tg --token $alice.token put --no-tokens $value | referent node
 assert equal $restored $directory "putting the same value should restore the same object"
 tg --token $alice.token index
 

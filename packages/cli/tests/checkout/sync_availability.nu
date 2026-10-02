@@ -14,8 +14,8 @@ for internal in [true false] {
 		remotes: { default: { token: $root_token, url: $destination.url } },
 	}
 	let value = $'checkout-($internal)'
-	let directory = tg --url $source.url put ('tg.directory({ "file": tg.file(' + ($value | to json --raw) + ') })') | str trim
-	let blob = tg --url $source.url put ('tg.blob(' + ($value | to json --raw) + ')') | str trim
+	let directory = tg --url $source.url put --no-tokens ('tg.directory({ "file": tg.file(' + ($value | to json --raw) + ') })') | referent node
+	let blob = tg --url $source.url put --no-tokens ('tg.blob(' + ($value | to json --raw) + ')') | referent node
 	let watch = tg --url $destination.url --token $root_token checkpoint watch sync.get.store.object --params ({ id: $blob } | to json --raw) | from json | get watch
 	let request_watch = tg --url $destination.url --token $root_token checkpoint watch sync.control.request --params ({ node: $directory } | to json --raw) | from json | get watch
 	let log = $env.TMPDIR | path join $'push-($internal).log'
@@ -26,7 +26,7 @@ for internal in [true false] {
 	}
 	timeout 10s tg --url $destination.url --token $root_token checkpoint wait sync.get.store.object $watch 0 | ignore
 	wait_until { (open --raw $log) =~ 'tokens\[remote\][^\r\n]*\r?\n' } 'the push should provide an authorization token for the incoming sync'
-	let referent = open --raw $log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --all 'tokens[remote]' 'tokens[local]'
+	let referent = open --raw $log | lines | where {|line| $line =~ 'tokens\[remote\]' } | first | str trim | str replace --regex '^info ' '' | str replace --all 'tokens[remote]' 'tokens[local]'
 	let path = $env.TMPDIR | path join $'checkout-($internal)'
 	let checkout = job spawn {
 		let job_id = job id

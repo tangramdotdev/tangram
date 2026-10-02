@@ -17,7 +17,7 @@ let instance = instance --primary-region a --regions $regions --config $common
 let remote_region_a = server spawn --instance $instance --region a --name remote-region-a --directory $region_a_directory --url (instance region url $instance a)
 let remote_region_b = server spawn --instance $instance --region b --name remote-region-b --directory $region_b_directory --url (instance region url $instance b)
 
-let directory = tg --url $remote_region_a.url put 'tg.directory({ "file": tg.file("contents") })' | str trim
+let directory = tg --url $remote_region_a.url put --no-tokens 'tg.directory({ "file": tg.file("contents") })' | referent node
 tg --url $remote_region_a.url index
 
 let availability = tg --url $remote_region_b.url object availability $directory --location='local(a)' | from json

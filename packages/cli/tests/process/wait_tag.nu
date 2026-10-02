@@ -11,7 +11,7 @@ tg --url $local.url remote put origin $local_origin.url
 let path = artifact {
 	tangram.ts: 'export default async function () { return 42; }',
 }
-let process = tg --url $local_origin.url build --detach $path | str trim
+let process = tg --url $local_origin.url build --no-tokens --detach $path | referent node
 tg --url $local_origin.url tag put wait_process $process
 
 let output = tg --url $local.url wait 'wait_process?location=remote:origin' | from json

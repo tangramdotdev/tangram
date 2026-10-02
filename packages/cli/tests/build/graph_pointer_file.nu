@@ -14,7 +14,7 @@ let artifact = '
 		]
 	})
 '
-let graph_id = tg put $artifact | str trim
+let graph_id = tg put --no-tokens $artifact | referent node
 tg index
 let output = tg get --blobs --depth=inf --no-tokens --pretty $graph_id | complete
 success $output

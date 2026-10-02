@@ -121,7 +121,7 @@ impl Session {
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> tg::Result<(
-		tg::sandbox::control::Output,
+		tg::sandbox::control::Header,
 		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
 	)> {
 		let location = self.server.location(arg.location.as_ref())?;
@@ -148,7 +148,7 @@ impl Session {
 		arg: tg::sandbox::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 	) -> tg::Result<(
-		tg::sandbox::control::Output,
+		tg::sandbox::control::Header,
 		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
 	)> {
 		self.get_sandbox_control_stream_local_inner(arg, stream, None)
@@ -162,7 +162,7 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 		create_request: Option<String>,
 	) -> tg::Result<(
-		tg::sandbox::control::Output,
+		tg::sandbox::control::Header,
 		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
 	)> {
 		let assign = arg.id.is_none();
@@ -205,15 +205,15 @@ impl Session {
 					"a deferred sandbox control connection must not have data or a creation time"
 				));
 			}
-			let output = tg::sandbox::control::Output {
+			let header = tg::sandbox::control::Header {
 				id: id.clone(),
 				token,
 			};
 			let stream =
 				session.wait_for_sandbox_control_create(id, arg.location, arg.runner, stream);
-			crate::checkpoint!(self.server, "sandbox.control.output", sandbox = %output.id).await;
+			crate::checkpoint!(self.server, "sandbox.control.header", sandbox = %header.id).await;
 
-			return Ok((output, stream));
+			return Ok((header, stream));
 		}
 		self.server.spawn_publish_sandbox_status_task(&id);
 		let created_at = if let Some(created_at) = arg.created_at {
@@ -351,9 +351,9 @@ impl Session {
 			.publish_sandbox_control_connected(&id)
 			.await?;
 
-		let output = tg::sandbox::control::Output { id, token };
+		let header = tg::sandbox::control::Header { id, token };
 
-		Ok((output, stream))
+		Ok((header, stream))
 	}
 
 	fn wait_for_sandbox_control_create(
@@ -538,7 +538,7 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::sandbox::control::ClientMessage>>,
 		region: String,
 	) -> tg::Result<(
-		tg::sandbox::control::Output,
+		tg::sandbox::control::Header,
 		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
 	)> {
 		let id = arg.id.clone();
@@ -554,14 +554,14 @@ impl Session {
 			),
 			..arg
 		};
-		let (output, stream) = client
+		let (header, stream) = client
 			.get_sandbox_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to get the control stream"),
 			)?;
 		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-		Ok((output, stream))
+		Ok((header, stream))
 	}
 
 	async fn get_sandbox_control_stream_remote(
@@ -571,7 +571,7 @@ impl Session {
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<(
-		tg::sandbox::control::Output,
+		tg::sandbox::control::Header,
 		BoxStream<'static, tg::Result<tg::sandbox::control::ServerMessage>>,
 	)> {
 		let id = arg.id.clone();
@@ -585,14 +585,14 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
 			..arg
 		};
-		let (output, stream) = session
+		let (header, stream) = session
 			.get_sandbox_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
 			)?;
 		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-		Ok((output, stream))
+		Ok((header, stream))
 	}
 
 	pub(crate) async fn request_sandbox_control(
@@ -705,7 +705,7 @@ impl Session {
 			})
 			.boxed();
 
-		let (output, stream) = self
+		let (header, stream) = self
 			.get_sandbox_control_stream_with_context(arg, stream)
 			.await?;
 
@@ -715,11 +715,10 @@ impl Session {
 			Err(error) => error.try_into(),
 		});
 		let body = BoxBody::with_sse_stream(stream);
-		let body = tangram_http::body::output::set(body, &output)
-			.map_err(|error| tg::error!(!error, "failed to serialize the output"))?;
+		let body = tangram_http::body::header::set(body, &header)
+			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 		let response = http::Response::builder()
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
-			.header(tangram_http::body::output::HEADER, "true")
 			.body(body)
 			.unwrap();
 

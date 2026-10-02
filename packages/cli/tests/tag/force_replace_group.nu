@@ -5,10 +5,10 @@ use ../lib/test.nu *
 let local = server spawn
 let root = tg group create tree | from json
 let child = tg group create tree/child | from json
-let old_target = tg put 'tg.file("old")' | str trim
+let old_target = tg put --no-tokens 'tg.file("old")' | referent node
 tg tag put tree/child/leaf $old_target
 let leaf = tg tag get tree/child/leaf | from json
-let target = tg put 'tg.file("new")' | str trim
+let target = tg put --no-tokens 'tg.file("new")' | referent node
 
 let output = tg tag put tree $target | complete
 failure $output "a tag should not replace a group without force"

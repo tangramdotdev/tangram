@@ -26,7 +26,7 @@ let path = artifact {
 				{ INPUT: chain, Z_BARE: bare },
 			]) {
 				const output = await tg.build`
-					tg checkin "\${INPUT%/*}/${directory.id}" > ${tg.output}
+					tg checkin --no-tokens "\${INPUT%/*}/${directory.id}" > ${tg.output}
 				`.env(env).then(tg.File.expect);
 				tg.assert((await output.text).trim().split("?")[0] === directory.id);
 			}
@@ -36,14 +36,14 @@ let path = artifact {
 			const symlink = await tg.symlink({ artifact: directory });
 			const chain = await tg.symlink({ artifact: symlink });
 			const output = await tg.build`
-				tg checkin "\${INPUT%/*}/${symlink.id}" > ${tg.output}
+				tg checkin --no-tokens "\${INPUT%/*}/${symlink.id}" > ${tg.output}
 			`.env({ INPUT: chain }).then(tg.File.expect);
 			tg.assert((await output.text).trim().split("?")[0] === symlink.id);
 		}
 		export async function reuse() {
 			const directory = await tg.directory({});
 			return tg.command({
-				args: ["-ec", `tg checkin "\${INPUT%/*}/${directory.id}"`],
+				args: ["-ec", `tg checkin --no-tokens "\${INPUT%/*}/${directory.id}"`],
 				env: { INPUT: tg.symlink({ artifact: directory }) },
 				executable: "/bin/sh",
 				host: tg.host.current,
@@ -76,7 +76,7 @@ if $nu.os-info.name == 'macos' {
 # Reuse the checkout in a new sandbox that recovers the directory token from disk.
 let command = tg build $'($path)#reuse' | str trim
 for _ in 1..2 {
-	let sandbox = tg sandbox create --no-network | str trim
+	let sandbox = tg sandbox create --no-tokens --no-network | referent node
 	let output = tg run $'--sandbox=($sandbox)' $command | complete
 	success $output "a reused checkout must retain the target authorization token in each sandbox"
 	tg sandbox destroy $sandbox

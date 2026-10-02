@@ -19,7 +19,7 @@ let local = server spawn --config {
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 let socket = $local.url | str replace 'http+unix://' '' | url decode
-let directory = tg --token $alice.token put 'tg.directory({ "nested": tg.directory({ "a": tg.file("hello"), "b": tg.file("hello") }) })' | str trim
+let directory = tg --token $alice.token put --no-tokens 'tg.directory({ "nested": tg.directory({ "a": tg.file("hello"), "b": tg.file("hello") }) })' | referent node
 tg --token $alice.token index
 
 # Authorization through the existing grants also produces child tokens.
@@ -83,7 +83,7 @@ let entries = 0..127 | each { |i|
 	let n = $i | into string
 	['"' $n '": tg.file("' $n '")'] | str join
 } | str join ', '
-let directory = tg --token $alice.token put (['tg.directory({' $entries '})'] | str join) | str trim
+let directory = tg --token $alice.token put --no-tokens (['tg.directory({' $entries '})'] | str join) | referent node
 tg --token $alice.token index
 let output = get-object $socket $alice.token $directory
 assert equal ($output.children | columns | length) 128

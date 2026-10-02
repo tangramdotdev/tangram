@@ -24,7 +24,7 @@ let path = artifact {
 		import remote_dep from "remote_dep";
 	'
 }
-let id = tg checkin --destructive $path --ignore=false 
+let id = tg checkin --no-tokens --destructive $path --ignore=false | referent node
 let object = tg get $id --depth=inf --blobs --no-tokens --pretty
 snapshot $object '
 	tg.directory({

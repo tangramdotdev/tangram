@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let blob = "" | tg write --no-tokens
+let blob = "" | tg write --no-tokens | referent node
 
 let compressed = tg compress --no-tokens --format gz $blob | str trim
 assert ($compressed != $blob) "the compressed blob should differ from the empty blob"

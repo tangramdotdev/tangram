@@ -26,7 +26,7 @@ for io in $transports {
 			passthrough: 'disabled'
 		}
 	}
-	let id = tg checkin $source | str trim
+	let id = tg checkin --no-tokens $source | referent node
 	let path = $server_path | path join 'store' $id
 	let first = ls $path | get name | each { path basename } | sort
 	let second = ls $path | get name | each { path basename } | sort

@@ -19,7 +19,7 @@ let inner_path = artifact {
 		import { helper } from "my-lib" with { get: "lib/utils.tg.ts" };
 	'
 }
-let inner_id = tg checkin $inner_path
+let inner_id = tg checkin --no-tokens $inner_path | referent node
 
 # Create outer package that imports inner by ID.
 let outer_path = artifact {
@@ -29,7 +29,7 @@ let outer_path = artifact {
 }
 
 # Checkin outer package and verify the snapshot.
-let id = tg checkin $outer_path
+let id = tg checkin --no-tokens $outer_path | referent node
 tg index
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '

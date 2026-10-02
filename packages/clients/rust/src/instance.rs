@@ -202,18 +202,20 @@ pub trait Instance:
 		&self,
 		arg: tg::pull::Arg,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::pull::Header,
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
-		>,
+		)>,
 	> + Send;
 
 	fn push(
 		&self,
 		arg: tg::push::Arg,
 	) -> impl Future<
-		Output = tg::Result<
+		Output = tg::Result<(
+			tg::push::Header,
 			impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
-		>,
+		)>,
 	> + Send;
 
 	fn sync(
@@ -222,7 +224,7 @@ pub trait Instance:
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> impl Future<
 		Output = tg::Result<(
-			tg::sync::Output,
+			tg::sync::Header,
 			impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
 		)>,
 	> + Send;
@@ -363,18 +365,20 @@ impl tg::Instance for tg::Client {
 	async fn pull(
 		&self,
 		arg: tg::pull::Arg,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::pull::Header,
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::pull::Output>>> + Send + 'static,
-	> {
+	)> {
 		self.session(&self.context).pull(arg).await
 	}
 
 	async fn push(
 		&self,
 		arg: tg::push::Arg,
-	) -> tg::Result<
+	) -> tg::Result<(
+		tg::push::Header,
 		impl Stream<Item = tg::Result<tg::progress::Event<tg::push::Output>>> + Send + 'static,
-	> {
+	)> {
 		self.session(&self.context).push(arg).await
 	}
 
@@ -383,7 +387,7 @@ impl tg::Instance for tg::Client {
 		arg: tg::sync::Arg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 	) -> tg::Result<(
-		tg::sync::Output,
+		tg::sync::Header,
 		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + 'static,
 	)> {
 		self.session(&self.context).sync(arg, stream).await

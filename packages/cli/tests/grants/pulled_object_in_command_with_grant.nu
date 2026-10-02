@@ -22,7 +22,7 @@ let path = artifact {
 	',
 }
 
-let tool = tg --url $remote.url build --detach $"($path)#tool" | str trim
+let tool = tg --url $remote.url build --no-tokens --detach $"($path)#tool" | referent node
 tg --url $remote.url wait $tool
 let output = tg --url $remote.url output $tool | from json | get value | split row '?' | get 0
 

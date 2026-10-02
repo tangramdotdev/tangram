@@ -7,7 +7,7 @@ let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 
-let id = tg --url $remote.url put 'tg.file("test")' | str trim
+let id = tg --url $remote.url put --no-tokens 'tg.file("test")' | referent node
 tg --url $remote.url tag foo $id
 
 # Cache the tag without following it.

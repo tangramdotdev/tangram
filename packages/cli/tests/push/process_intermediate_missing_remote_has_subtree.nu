@@ -40,7 +40,7 @@ def test [...args] {
 	}
 
 	# Build the module on the dummy server.
-	let process_a_id = tg --url $local_source.url build --detach $path | str trim
+	let process_a_id = tg --url $local_source.url build --no-tokens --detach $path | referent node
 
 	# Wait for the process to finish.
 	tg --url $local_source.url wait $process_a_id
@@ -102,67 +102,67 @@ def test [...args] {
 	let blob_d_id = $output_d_children | get 0
 
 	# Put process A to the local server (local has A).
-	tg --url $local_source.url get $process_a_id | tg --url $local.url put --id $process_a_id
+	tg --url $local_source.url get $process_a_id | tg --url $local.url put --no-tokens --id $process_a_id | referent node
 
 	# Put module A and its descendants to the local server.
-	tg --url $local_source.url get --bytes $module_a_id | tg --url $local.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $module_a_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 	let module_a_descendants = get_module_descendants $local_source.url $module_a_id
 	for desc_id in $module_a_descendants {
 		let kind = $desc_id | str substring 0..<3
-		tg --url $local_source.url get --bytes $desc_id | tg --url $local.url put --bytes --kind $kind
+		tg --url $local_source.url get --bytes $desc_id | tg --url $local.url put --no-tokens --bytes --kind $kind | referent node
 	}
 
 	# Put output A to the local server (which is the same as output B, C, D since they pass through).
-	tg --url $local_source.url get --bytes $output_a_id | tg --url $local.url put --bytes --kind fil
-	tg --url $local_source.url get --bytes $blob_d_id | tg --url $local.url put --bytes --kind blob
+	tg --url $local_source.url get --bytes $output_a_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
+	tg --url $local_source.url get --bytes $blob_d_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 
 	# Put log A to the local server.
-	tg --url $local_source.url get --bytes $log_a_id | tg --url $local.url put --bytes --kind blob
+	tg --url $local_source.url get --bytes $log_a_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 
 	# Local does NOT have process B (the intermediate process is missing locally).
 
 	# Put process B, C, and D to the remote server (remote has everything from B downward).
-	tg --url $local_source.url get $process_b_id | tg --url $remote.url put --id $process_b_id
+	tg --url $local_source.url get $process_b_id | tg --url $remote.url put --no-tokens --id $process_b_id | referent node
 
 	# Put module B and its descendants to the remote server.
-	tg --url $local_source.url get --bytes $module_b_id | tg --url $remote.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $module_b_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
 	let module_b_descendants = get_module_descendants $local_source.url $module_b_id
 	for desc_id in $module_b_descendants {
 		let kind = $desc_id | str substring 0..<3
-		tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --bytes --kind $kind
+		tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --no-tokens --bytes --kind $kind | referent node
 	}
 
 	# Put output B to the remote server.
-	tg --url $local_source.url get --bytes $output_b_id | tg --url $remote.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $output_b_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
 
 	# Put process C and D to the remote server.
-	tg --url $local_source.url get $process_c_id | tg --url $remote.url put --id $process_c_id
-	tg --url $local_source.url get $process_d_id | tg --url $remote.url put --id $process_d_id
+	tg --url $local_source.url get $process_c_id | tg --url $remote.url put --no-tokens --id $process_c_id | referent node
+	tg --url $local_source.url get $process_d_id | tg --url $remote.url put --no-tokens --id $process_d_id | referent node
 
 	# Put module C, D and their descendants to the remote server.
-	tg --url $local_source.url get --bytes $module_c_id | tg --url $remote.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $module_c_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
 	let module_c_descendants = get_module_descendants $local_source.url $module_c_id
 	for desc_id in $module_c_descendants {
 		let kind = $desc_id | str substring 0..<3
-		tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --bytes --kind $kind
+		tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --no-tokens --bytes --kind $kind | referent node
 	}
 
-	tg --url $local_source.url get --bytes $module_d_id | tg --url $remote.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $module_d_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
 	let module_d_descendants = get_module_descendants $local_source.url $module_d_id
 	for desc_id in $module_d_descendants {
 		let kind = $desc_id | str substring 0..<3
-		tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --bytes --kind $kind
+		tg --url $local_source.url get --bytes $desc_id | tg --url $remote.url put --no-tokens --bytes --kind $kind | referent node
 	}
 
 	# Put outputs C and D to the remote server.
-	tg --url $local_source.url get --bytes $output_c_id | tg --url $remote.url put --bytes --kind fil
-	tg --url $local_source.url get --bytes $output_d_id | tg --url $remote.url put --bytes --kind fil
-	tg --url $local_source.url get --bytes $blob_d_id | tg --url $remote.url put --bytes --kind blob
+	tg --url $local_source.url get --bytes $output_c_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
+	tg --url $local_source.url get --bytes $output_d_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
+	tg --url $local_source.url get --bytes $blob_d_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
 
 	# Put logs B, C, D to the remote server.
-	tg --url $local_source.url get --bytes $log_b_id | tg --url $remote.url put --bytes --kind blob
-	tg --url $local_source.url get --bytes $log_c_id | tg --url $remote.url put --bytes --kind blob
-	tg --url $local_source.url get --bytes $log_d_id | tg --url $remote.url put --bytes --kind blob
+	tg --url $local_source.url get --bytes $log_b_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
+	tg --url $local_source.url get --bytes $log_c_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
+	tg --url $local_source.url get --bytes $log_d_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
 
 	# Confirm process B is not on the local server.
 	let output = tg --url $local.url get $process_b_id | complete

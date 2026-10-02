@@ -148,6 +148,7 @@ impl Session {
 		let arg = tg::sandbox::destroy::Arg {
 			error: Some(tg::Either::Left(error)),
 			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		let session = self.server.session(&self.server.context);
 		tokio::spawn(async move {

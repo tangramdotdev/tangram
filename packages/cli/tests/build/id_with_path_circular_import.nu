@@ -12,10 +12,10 @@ let path = artifact {
 	file.tg.ts: '
 		import root from "./tangram.ts";
 		export default function () { return root(); }
-		export function a() { return 42; }	
+		export function a() { return 42; }
 	',
 }
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 let output = tg build $"($id)?get=./file.tg.ts" | complete
 success $output
 snapshot $output.stdout '

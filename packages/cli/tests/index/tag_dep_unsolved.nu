@@ -8,13 +8,13 @@ let remote = server spawn --cloud --name remote
 let c1 = artifact {
 	tangram.ts: ''
 }
-let c1_id = tg --url $local.url checkin $c1
+let c1_id = tg --url $local.url checkin --no-tokens $c1 | referent node
 tg --url $local.url tag -p c/1.0.0 $c1_id
 
 let c2 = artifact {
 	tangram.ts: ''
 }
-let c2_id = tg --url $local.url checkin $c2
+let c2_id = tg --url $local.url checkin --no-tokens $c2 | referent node
 tg --url $local.url tag -p c/2.0.0 $c2_id
 
 # Create packages that require incompatible versions.
@@ -23,7 +23,7 @@ let a = artifact {
 		import * as c from "c/^1"
 	'
 }
-let a_id = tg --url $local.url checkin $a
+let a_id = tg --url $local.url checkin --no-tokens $a | referent node
 tg --url $local.url tag -p a/1.0.0 $a_id
 
 let b = artifact {
@@ -31,7 +31,7 @@ let b = artifact {
 		import * as c from "c/^2"
 	'
 }
-let b_id = tg --url $local.url checkin $b
+let b_id = tg --url $local.url checkin --no-tokens $b | referent node
 tg --url $local.url tag -p b/1.0.0 $b_id
 
 # A package that imports both, creating an unsolvable conflict.
@@ -41,7 +41,7 @@ let path = artifact {
 		import * as b from "b/*";
 	'
 }
-let id = tg --url $local.url checkin --unsolved-dependencies $path
+let id = tg --url $local.url checkin --no-tokens --unsolved-dependencies $path | referent node
 tg --url $local.url index
 let metadata = tg --url $local.url object metadata --pretty $id
 snapshot --name metadata $metadata '

@@ -12,7 +12,7 @@ for compaction in [false true] {
 			}
 		'
 	}
-	let id = tg build --detach $path | str trim
+	let id = tg build --no-tokens --detach $path | referent node
 	tg wait $id | ignore
 	let output = timeout 10 tg log --no-timeout $id | complete
 	success $output
@@ -63,7 +63,7 @@ for compaction in [false true] {
 	}
 
 	let path = artifact { tangram.ts: 'export default function () {}' }
-	let id = tg build --detach $path | str trim
+	let id = tg build --no-tokens --detach $path | referent node
 	tg wait $id | ignore
 	for position in ['0' '100' 'end.0' 'end.96'] {
 		let output = timeout 10 tg log --no-timeout --position $position --length=-100 $id | complete

@@ -4,7 +4,7 @@ use {
 		Stream, StreamExt as _, TryStreamExt as _, future,
 		stream::{self, BoxStream},
 	},
-	serde_with::serde_as,
+	serde_with::{DisplayFromStr, serde_as},
 	std::{
 		collections::BTreeMap,
 		future::Future,
@@ -66,7 +66,7 @@ pub struct Arg {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 9, skip_serializing_if = "Option::is_none")]
-	pub sandbox: Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>,
+	pub sandbox: Option<SandboxArg>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 10, skip_serializing_if = "Option::is_none")]
@@ -87,6 +87,23 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 14, skip_serializing_if = "Option::is_none")]
 	pub tty: Option<tg::Either<bool, tg::process::Tty>>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(untagged)]
+pub enum SandboxArg {
+	#[tangram_serialize(id = 0)]
+	Create(tg::sandbox::create::Arg),
+	#[serde(with = "serde_with::As::<DisplayFromStr>")]
+	#[tangram_serialize(id = 1)]
+	Existing(tg::Referent<tg::sandbox::Id>),
 }
 
 #[derive(
@@ -230,9 +247,10 @@ where
 	let executable = arg.executable;
 	let checksum = arg.checksum;
 	let (process_stdin, command_stdin) = match arg.stdin {
-		tg::process::Stdio::Blob(blob) => {
-			(tg::process::Stdio::Inherit, Some(tg::Blob::with_id(blob)))
-		},
+		tg::process::Stdio::Blob(blob) => (
+			tg::process::Stdio::Inherit,
+			Some(tg::Blob::with_referent(*blob)),
+		),
 		stdin => (stdin, None),
 	};
 	let stdout = arg.stdout;
@@ -1296,9 +1314,7 @@ fn exit_status_to_code(status: std::process::ExitStatus) -> tg::Result<u8> {
 	Err(tg::error!("failed to determine the exit status"))
 }
 
-fn normalize_sandbox(
-	arg: &tg::process::Arg,
-) -> tg::Result<Option<tg::Either<tg::sandbox::create::Arg, tg::sandbox::Id>>> {
+fn normalize_sandbox(arg: &tg::process::Arg) -> tg::Result<Option<SandboxArg>> {
 	let has_cpu = arg.cpu.is_some();
 	let cpu = arg.cpu;
 	let has_memory = arg.memory.is_some();
@@ -1330,7 +1346,7 @@ fn normalize_sandbox(
 				sandbox.owner = Some(owner);
 			}
 			let sandbox = normalize_sandbox_create_arg(sandbox);
-			Ok(Some(tg::Either::Left(sandbox)))
+			Ok(Some(SandboxArg::Create(sandbox)))
 		},
 		Some(tg::process::SandboxArg::Arg(mut sandbox)) => {
 			if let Some(cpu) = cpu {
@@ -1351,15 +1367,15 @@ fn normalize_sandbox(
 				sandbox.owner = Some(owner);
 			}
 			let sandbox = normalize_sandbox_create_arg(sandbox);
-			Ok(Some(tg::Either::Left(sandbox)))
+			Ok(Some(SandboxArg::Create(sandbox)))
 		},
-		Some(tg::process::SandboxArg::Id(sandbox)) => {
+		Some(tg::process::SandboxArg::Referent(sandbox)) => {
 			if has_sandbox_fields {
 				return Err(tg::error!(
 					"cpu, memory, mounts, network, owner, and ports are not supported for existing sandboxes"
 				));
 			}
-			Ok(Some(tg::Either::Right(sandbox)))
+			Ok(Some(SandboxArg::Existing(sandbox)))
 		},
 		None | Some(tg::process::SandboxArg::Bool(false)) => {
 			if !has_sandbox_fields {
@@ -1377,7 +1393,7 @@ fn normalize_sandbox(
 				owner: arg.owner.clone(),
 				ttl: Some(Duration::ZERO),
 			};
-			Ok(Some(tg::Either::Left(sandbox)))
+			Ok(Some(SandboxArg::Create(sandbox)))
 		},
 	}
 }

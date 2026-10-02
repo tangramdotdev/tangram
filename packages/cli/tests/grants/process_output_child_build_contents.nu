@@ -16,7 +16,7 @@ let path = artifact {
 	',
 }
 
-let process = tg --token $alice.token build --detach $path | str trim
+let process = tg --token $alice.token build --no-tokens --detach $path | referent node
 let result = tg --token $alice.token wait $process | from json
 assert ($result.exit == 0) "the build should succeed."
 let contents = tg --token $alice.token cat $result.output.value | str trim

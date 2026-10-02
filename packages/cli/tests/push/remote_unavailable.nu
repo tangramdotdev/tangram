@@ -7,7 +7,7 @@ let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } }
 }
 
-let id = tg put 'tg.file("test")' | str trim
+let id = tg put --no-tokens 'tg.file("test")' | referent node
 
 # Kill the remote server.
 let pid = open ($remote.directory | path join 'lock') | into int
@@ -18,6 +18,10 @@ let output = tg push $id | complete
 failure $output
 snapshot --normalize --redact [$id $remote.url $remote.directory ($remote.directory | path expand)] $output.stderr '
 	error an error occurred
+	-> failed to push
+	-> the request failed
+	   status = 500 Internal Server Error
+	-> failed to start the push
 	-> failed to create the destination stream
 	-> failed to sync
 	   remote = default

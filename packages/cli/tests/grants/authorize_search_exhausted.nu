@@ -27,7 +27,7 @@ let entries = 0..<1200 | each { |i|
 	let n = $i | into string
 	['"d' $n '": tg.directory({"f' $n '": tg.file("loader")})'] | str join
 } | str join ','
-tg put (['tg.directory({' $entries '})'] | str join) | ignore
+tg put --no-tokens (['tg.directory({' $entries '})'] | str join) | ignore
 tg index
 
 let output = tg build $path -a ambient | complete

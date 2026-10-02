@@ -20,7 +20,7 @@ let path = artifact {
 	}
 }
 
-let id = tg checkin --destructive --ignore=false ($path | path join 'directory')
+let id = tg checkin --no-tokens --destructive --ignore=false ($path | path join 'directory') | referent node
 tg index
 
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id

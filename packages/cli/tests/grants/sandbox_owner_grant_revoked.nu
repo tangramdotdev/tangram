@@ -10,7 +10,7 @@ let carol = tg login --verbose --name carol | from json
 
 tg --token $alice.token group create team
 tg --token $alice.token grant $bob.user.id write team
-let sandbox = tg --token $bob.token sandbox create --group team --no-network | str trim
+let sandbox = tg --token $bob.token sandbox create --no-tokens --group team --no-network | referent node
 
 tg --token $alice.token grant $carol.user.id write team
 success (tg --token $carol.token sandbox get $sandbox | complete) "Carol should get the sandbox while she has write on the team"

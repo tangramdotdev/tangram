@@ -10,7 +10,7 @@ let path = artifact {
 	'
 }
 
-let id1 = tg checkin --watch --unsolved-dependencies --no-checkout-pointers $path
+let id1 = tg checkin --no-tokens --watch --unsolved-dependencies --no-checkout-pointers $path | referent node
 tg index
 
 let object1 = tg object get --blobs --depth=inf --no-tokens --pretty $id1
@@ -31,7 +31,7 @@ let a = artifact {
 }
 tg tag -p a/1.0.0 $a
 
-let id2 = tg checkin --watch --no-checkout-pointers $path
+let id2 = tg checkin --no-tokens --watch --no-checkout-pointers $path | referent node
 tg index
 
 let object2 = tg object get --blobs --depth=inf --no-tokens --pretty $id2

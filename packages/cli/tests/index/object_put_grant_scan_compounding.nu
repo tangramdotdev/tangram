@@ -21,7 +21,7 @@ for trial in 0..<20 {
 	let entries = (0..<64 | each {|index| wrapper $trial $index } | str join ", ")
 	let expr = (["tg.directory({ ", $entries, " })"] | str join)
 	let t0 = (date now)
-	let out = (tg put $expr | complete)
+	let out = (tg put --no-tokens $expr | complete)
 	let indexed = (tg index | complete)
 	let ns = (((date now) - $t0) | into int)
 	let exit = if $out.exit_code != 0 { $out.exit_code } else { $indexed.exit_code }

@@ -13,9 +13,9 @@ let region_b = server spawn --instance $instance --region b --name region-b --di
 let remote = server spawn --name remote --config { advanced: { checkpoints: true } }
 tg --url $region_a.url remote put default $remote.url
 let path = artifact { tangram.ts: 'export default () => "done";' }
-let process = tg --url $remote.url build --detach $path | str trim
+let process = tg --url $remote.url build --no-tokens --detach $path | referent node
 tg --url $remote.url wait --source=index $process | ignore
-let sandbox = tg --url $remote.url sandbox create | str trim
+let sandbox = tg --url $remote.url sandbox create --no-tokens | referent node
 tg --url $remote.url index
 
 for entry in [{ kind: process, id: $process }, { kind: sandbox, id: $sandbox }] {

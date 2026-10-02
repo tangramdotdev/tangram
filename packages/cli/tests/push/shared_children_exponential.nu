@@ -7,10 +7,10 @@ use ../lib/test.nu *
 # A chain of k directories over a distinct leaf, each naming the two directories below it. The chain
 # gains one node per level and exponentially many paths.
 def chain [k: int, leaf: string] {
-	mut a = (tg put ('tg.file("' + $leaf + '")') | str trim)
-	mut b = (tg put ('tg.directory({"z": ' + $a + '})') | str trim)
+	mut a = (tg put --no-tokens ('tg.file("' + $leaf + '")') | referent node)
+	mut b = (tg put --no-tokens ('tg.directory({"z": ' + $a + '})') | referent node)
 	for _ in 0..<$k {
-		let c = (tg put ('tg.directory({"p": ' + $b + ', "q": ' + $a + '})') | str trim)
+		let c = (tg put --no-tokens ('tg.directory({"p": ' + $b + ', "q": ' + $a + '})') | referent node)
 		$a = $b
 		$b = $c
 	}

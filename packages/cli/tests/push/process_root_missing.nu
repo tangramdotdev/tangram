@@ -25,7 +25,7 @@ def test [...args] {
 	}
 
 	# Build the module.
-	let process_id = tg --url $local_source.url build --detach $path | str trim
+	let process_id = tg --url $local_source.url build --no-tokens --detach $path | referent node
 
 	# Wait for the process to finish.
 	tg --url $local_source.url wait $process_id
@@ -57,26 +57,26 @@ def test [...args] {
 	}
 
 	# Put the process to the remote server only (root missing locally).
-	tg --url $local_source.url get $process_id | tg --url $remote.url put --id $process_id
+	tg --url $local_source.url get $process_id | tg --url $remote.url put --no-tokens --id $process_id | referent node
 
 	# Put the module to the local server.
-	tg --url $local_source.url get --bytes $module_id | tg --url $local.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $module_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 
 	# Put the module's descendants to the local server.
 	for child_id in $all_descendants {
 		let kind = $child_id | str substring 0..<3
-		tg --url $local_source.url get --bytes $child_id | tg --url $local.url put --bytes --kind $kind
+		tg --url $local_source.url get --bytes $child_id | tg --url $local.url put --no-tokens --bytes --kind $kind | referent node
 	}
 
 	# Put the output to the local server.
-	tg --url $local_source.url get --bytes $output_id | tg --url $local.url put --bytes --kind fil
+	tg --url $local_source.url get --bytes $output_id | tg --url $local.url put --no-tokens --bytes --kind fil | referent node
 
 	# Put the output's blob to the local server.
-	tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --bytes --kind blob
+	tg --url $local_source.url get --bytes $blb_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 
 	# Put the log to the remote server.
 	let log_id = tg --url $local_source.url get $process_id | from json | get log
-	tg --url $local_source.url get --bytes $log_id | tg --url $remote.url put --bytes --kind blob
+	tg --url $local_source.url get --bytes $log_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
 
 	# Confirm the process is not on the local server.
 	let output = tg --url $local.url get $process_id | complete

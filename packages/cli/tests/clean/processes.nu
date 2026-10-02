@@ -23,16 +23,16 @@ let path = artifact {
 }
 
 # Build all exports and get their process IDs.
-let a_process = tg process spawn --sandbox ($path + '#a') | str trim
+let a_process = tg process spawn --no-tokens --sandbox ($path + '#a') | referent node
 tg process output $a_process
 
-let b_process = tg process spawn --sandbox ($path + '#b') | str trim
+let b_process = tg process spawn --no-tokens --sandbox ($path + '#b') | referent node
 
-let c_process = tg process spawn --sandbox ($path + '#c') | str trim
+let c_process = tg process spawn --no-tokens --sandbox ($path + '#c') | referent node
 
-let d_process = tg process spawn --sandbox ($path + '#d') | str trim
+let d_process = tg process spawn --no-tokens --sandbox ($path + '#d') | referent node
 
-let e_process = tg process spawn --sandbox ($path + '#e') | str trim
+let e_process = tg process spawn --no-tokens --sandbox ($path + '#e') | referent node
 
 tg wait $a_process
 tg wait $b_process

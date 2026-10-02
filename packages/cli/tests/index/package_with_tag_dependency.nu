@@ -21,7 +21,7 @@ let dep_path = artifact {
 		export default function () { return "dependency"; }
 	'
 }
-let dep_id = tg --url $local.url checkin $dep_path
+let dep_id = tg --url $local.url checkin --no-tokens $dep_path | referent node
 tg --url $local.url tag dep $dep_id
 
 # Create a package that imports the tagged dependency.
@@ -33,7 +33,7 @@ let path = artifact {
 }
 
 # Check in the package on the local server.
-let id = tg --url $local.url checkin $path
+let id = tg --url $local.url checkin --no-tokens $path | referent node
 let dir_id = $id
 
 # Get the file id.
@@ -49,7 +49,7 @@ tg --url $local.url index
 let expected_metadata = tg --url $local.url object metadata $dir_id --pretty
 
 # Put only the directory to the remote server.
-tg --url $local.url get --bytes $dir_id | tg --url $remote.url put --bytes --kind dir
+tg --url $local.url get --bytes $dir_id | tg --url $remote.url put --no-tokens --bytes --kind dir | referent node
 
 # The directory should exist on remote server, but file should not.
 let output = tg --url $remote.url get $dir_id | complete
@@ -72,7 +72,7 @@ snapshot --name incomplete_metadata $incomplete_metadata '
 '
 
 # Now put the file
-tg --url $local.url get --bytes $fil_id | tg --url $remote.url put --bytes --kind fil
+tg --url $local.url get --bytes $fil_id | tg --url $remote.url put --no-tokens --bytes --kind fil | referent node
 
 # Index and check metadata - should still be incomplete because blob is missing.
 tg --url $remote.url index
@@ -88,7 +88,7 @@ snapshot --name partial_metadata $partial_metadata '
 '
 
 # Now put the blob.
-tg --url $local.url get --bytes $blb_id | tg --url $remote.url put --bytes --kind blob
+tg --url $local.url get --bytes $blb_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
 
 # Push the dependency and put the tag.
 tg --url $local.url remote put incremental $remote.url

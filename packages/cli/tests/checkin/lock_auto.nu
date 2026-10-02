@@ -12,7 +12,7 @@ let path = artifact {
 }
 
 tg tag foo ($path | path join 'foo.tg.ts')
-tg checkin ($path | path join 'bar.tg.ts')
+tg checkin --no-tokens ($path | path join 'bar.tg.ts') | referent node
 
 # The sibling lockfile should not exist.
 let lockfile_path = $path | path join 'bar.tg.lock'

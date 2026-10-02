@@ -84,7 +84,7 @@ impl Cli {
 			.map(crate::location::Args::with_location)
 			.unwrap_or_default();
 		let print = args.print;
-		self.print_info_message(&referent.to_string());
+		self.print_info_referent(&referent, &print);
 		let kind = match referent.node() {
 			tg::get::Node::Id(id) => Some(id.kind()),
 			tg::get::Node::Pointer(_) => None,

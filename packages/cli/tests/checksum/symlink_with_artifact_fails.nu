@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let dir = tg put 'tg.directory({ "link": tg.symlink({ "artifact": tg.file("target") }) })' | str trim
+let dir = tg put --no-tokens 'tg.directory({ "link": tg.symlink({ "artifact": tg.file("target") }) })' | referent node
 
 let output = tg checksum $dir | complete
 failure $output

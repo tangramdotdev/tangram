@@ -132,7 +132,7 @@ pub trait Process: Clone + Unpin + Send + Sync + 'static {
 	) -> impl Future<
 		Output = tg::Result<
 			Option<(
-				tg::process::control::Output,
+				tg::process::control::Header,
 				impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
 			)>,
 		>,
@@ -359,7 +359,7 @@ impl tg::instance::Process for tg::Client {
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
 		Option<(
-			tg::process::control::Output,
+			tg::process::control::Header,
 			impl Stream<Item = tg::Result<tg::process::control::ServerMessage>> + Send + 'static,
 		)>,
 	> {

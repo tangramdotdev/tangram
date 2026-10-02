@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let local = server spawn
 
 let artifact = artifact 'contents'
-let target = tg checkin $artifact | str trim
+let target = tg checkin --no-tokens $artifact | referent node
 tg tag -p foo/bar $target
 tg tag -p foo/baz $target
 

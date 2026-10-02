@@ -16,7 +16,7 @@ let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 let socket = $local.url | str replace 'http+unix://' '' | url decode
-let directory = tg --token $alice.token put 'tg.directory({"file":tg.file("fast")})' | str trim
+let directory = tg --token $alice.token put --no-tokens 'tg.directory({"file":tg.file("fast")})' | referent node
 tg --token $root_token index
 let object = http get --headers { Accept: application/json, Authorization: $'Bearer ($alice.token)' } --unix-socket $socket $'http://localhost/objects/($directory)'
 let token = $object.tokens.local.0

@@ -10,7 +10,7 @@ let path = artifact {
 	'
 }
 
-let output = tg checkin $path | complete
+let output = tg checkin --no-tokens $path | complete
 failure $output "the checkin should fail when the tag does not exist"
 snapshot --name stderr --normalize-ids --redact $path $output.stderr
 snapshot --name stdout --normalize-ids --redact $path $output.stdout

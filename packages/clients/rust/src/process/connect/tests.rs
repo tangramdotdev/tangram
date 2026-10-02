@@ -362,7 +362,9 @@ fn spawn_metadata_uses_native_types() {
 		assert!(json.get("target").is_none());
 		assert_roundtrip(&ClientRequestArg::Connect(request));
 		arg.command.node = tg::Either::Right(tg::command::Id::new(b"command"));
-		arg.sandbox = Some(tg::Either::Right(tg::sandbox::Id::new()));
+		arg.sandbox = Some(tg::process::spawn::SandboxArg::Existing(
+			tg::Referent::with_node(tg::sandbox::Id::new()),
+		));
 		arg.tty = Some(tg::Either::Left(true));
 	}
 }

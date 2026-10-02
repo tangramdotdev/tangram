@@ -48,7 +48,7 @@ pub struct Arg {
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct Output {
+pub struct Header {
 	pub process: tg::Referent<tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -686,7 +686,7 @@ impl tg::Session {
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<
 		Option<(
-			tg::process::control::Output,
+			tg::process::control::Header,
 			impl futures::Stream<Item = tg::Result<tg::process::control::ServerMessage>>
 			+ Send
 			+ 'static
@@ -722,20 +722,15 @@ impl tg::Session {
 			let error = tg::error!(!error, status = %status, "the request failed");
 			return Err(error);
 		}
-		let output_in_body = tangram_http::body::output::get_header(response.headers())
-			.map_err(|error| tg::error!(!error, "failed to parse the output in body header"))?;
-		if !output_in_body {
-			return Err(tg::error!("missing the output in body header"));
-		}
 		let content_type = response
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()?;
 		if content_type != Some(TANGRAM_CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let (output, stream) =
-			super::stdio::decode_with_output(response.into_body(), max_frame_size).await?;
-		Ok(Some((output, stream)))
+		let (header, stream) =
+			super::stdio::decode_with_header(response.into_body(), max_frame_size).await?;
+		Ok(Some((header, stream)))
 	}
 }
 

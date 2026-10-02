@@ -9,7 +9,7 @@ let eve = tg login --verbose --name eve | from json
 
 # Alice builds a cacheable process.
 let path = artifact { tangram.ts: 'export default function () { return tg.file("cachedsecret"); }' }
-let alice_process = tg --token $alice.token build --detach $path | str trim
+let alice_process = tg --token $alice.token build --no-tokens --detach $path | referent node
 tg --token $alice.token wait $alice_process | complete
 
 # Eve cannot read Alice's process before building.
@@ -17,11 +17,11 @@ let before = tg --token $eve.token get $alice_process | complete
 failure $before "Eve should not read Alice's process before building the same command."
 
 # Alice rebuilding the same command reuses her own cached process.
-let alice_again = tg --token $alice.token build --detach $path | str trim
+let alice_again = tg --token $alice.token build --no-tokens --detach $path | referent node
 assert ($alice_again == $alice_process) "Alice should reuse her own cached process on a second build."
 
 # Eve building the same command must get a fresh process, not a cache hit on Alice's.
-let eve_process = tg --token $eve.token build --detach $path | str trim
+let eve_process = tg --token $eve.token build --no-tokens --detach $path | referent node
 tg --token $eve.token wait $eve_process | complete
 assert ($eve_process != $alice_process) ("Eve must not get a cache hit on Alice's process: eve=" + $eve_process + " alice=" + $alice_process)
 

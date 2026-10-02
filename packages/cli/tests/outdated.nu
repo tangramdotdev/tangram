@@ -8,7 +8,7 @@ let local = server spawn
 let path = artifact 'Hello, World!'
 
 # Check in.
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 # Tag it a couple times.
 for version in ["1.0.0" "1.1.0" "2.0.0"] {
@@ -17,7 +17,7 @@ for version in ["1.0.0" "1.1.0" "2.0.0"] {
 
 # Create another dependency that is already on the latest version.
 let another = artifact 'Hello again!'
-let another_id = tg checkin $another
+let another_id = tg checkin --no-tokens $another | referent node
 tg tag put -p "another/1.0.0" $another_id
 
 # Create something that uses it.
@@ -28,7 +28,7 @@ let path = artifact {
 	'
 }
 
-tg checkin $path
+tg checkin --no-tokens $path | referent node
 let output = (
 	do --env {
 		cd $path

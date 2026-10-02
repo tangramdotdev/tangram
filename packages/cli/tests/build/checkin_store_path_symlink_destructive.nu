@@ -14,13 +14,13 @@ let server = server spawn --config {
 
 # Prepopulate the checkout for the same empty directory created below so checkout reuses the destructive check-in.
 let directory = mktemp -d
-tg checkin --destructive --no-ignore $directory
+tg checkin --no-tokens --destructive --no-ignore $directory | referent node
 
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
 			const directory = await tg.directory({});
-			return tg.build`tg checkin "\${SYMLINK%/*}/${directory.id}"`.env({
+			return tg.build`tg checkin --no-tokens "\${SYMLINK%/*}/${directory.id}"`.env({
 				SYMLINK: tg.symlink({ artifact: directory }),
 			});
 		}

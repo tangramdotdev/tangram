@@ -25,7 +25,7 @@ for io in $transports {
 			passthrough: 'disabled'
 		}
 	}
-	let id = tg checkin $source | str trim
+	let id = tg checkin --no-tokens $source | referent node
 	let path = $server_path | path join 'store' $id 'link'
 	let target = ^readlink $path | str trim
 	let size = ^stat --format=%s -- $path | str trim | into int

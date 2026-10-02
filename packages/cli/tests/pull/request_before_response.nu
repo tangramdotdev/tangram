@@ -8,7 +8,7 @@ let remote = server spawn --cloud --name remote --config {
 let local = server spawn --name local --config {
 	remotes: { default: { url: $remote.url } },
 }
-let file = tg --url $remote.url put 'tg.file("hello")' | str trim
+let file = tg --url $remote.url put --no-tokens 'tg.file("hello")' | referent node
 let response_watch = (
 	tg --url $remote.url checkpoint watch sync.request.response
 	| from json

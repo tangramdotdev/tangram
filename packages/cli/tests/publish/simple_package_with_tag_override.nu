@@ -16,7 +16,7 @@ let path = artifact {
 	'
 }
 
-let id = tg checkin $path
+let id = tg checkin --no-tokens $path | referent node
 
 let override_tag = "overridden-pkg/2.0.0"
 tg publish --tag $override_tag $path

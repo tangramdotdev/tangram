@@ -29,7 +29,7 @@ for case in [
 				] });
 				const directory = await tg.directory({ graph, index: 2, kind: "directory" });
 				return tg.command({
-					args: ["-ec", `tg checkin "\${INPUT%/*}/${directory.id}"`],
+					args: ["-ec", `tg checkin --no-tokens "\${INPUT%/*}/${directory.id}"`],
 					env: { INPUT: tg.symlink({ graph, index: 0, kind: "symlink" }) },
 					executable: "/bin/sh",
 					host: tg.host.current,
@@ -42,7 +42,7 @@ for case in [
 	let output = http get --headers { Authorization: $'Bearer ($root_token)', Accept: 'application/json' } --unix-socket $socket $'http://localhost/objects/($command)'
 	let token = $output.tokens.local.0
 	let reference = $'($command)?tokens[local][0]=($token | url encode --all)'
-	let sandbox = tg --token $root_token sandbox create --no-network | str trim
+	let sandbox = tg --token $root_token sandbox create --no-tokens --no-network | referent node
 
 	# Materialize the target before reusing the checkout with the older input authorization token.
 	if $case.reuse {
@@ -56,7 +56,7 @@ for case in [
 
 	set_time $server '2026-01-01T00:00:40Z'
 	let watch = tg --token $root_token checkpoint watch runner.process.start | from json | get watch
-	let process = tg --token $root_token run $'--sandbox=($sandbox)' --detach $reference | str trim
+	let process = tg --token $root_token run --no-tokens $'--sandbox=($sandbox)' --detach $reference | referent node
 	let output = timeout 30s tg --token $root_token checkpoint wait runner.process.start $watch 0 | complete
 	success $output "the process must reach the start checkpoint"
 	# Index the started process while its input authorization token is still valid.

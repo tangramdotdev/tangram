@@ -43,7 +43,7 @@ impl<O> tg::Process<O> {
 					&& arg.ports.is_empty()
 					&& arg.network.is_none()
 			},
-			tg::process::SandboxArg::Bool(false) | tg::process::SandboxArg::Id(_) => false,
+			tg::process::SandboxArg::Bool(false) | tg::process::SandboxArg::Referent(_) => false,
 		} && arg.stdin.is_null()
 			&& arg.stdout.is_log()
 			&& arg.stderr.is_log()

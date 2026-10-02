@@ -17,7 +17,7 @@ let dep_path = artifact {
 	'
 }
 
-let dep_id = tg checkin $dep_path
+let dep_id = tg checkin --no-tokens $dep_path | referent node
 tg publish $dep_path | complete | success $in
 
 # Create a package that depends on the first package.
@@ -33,7 +33,7 @@ let main_path = artifact {
 	'
 }
 
-let main_id = tg checkin $main_path
+let main_id = tg checkin --no-tokens $main_path | referent node
 tg publish $main_path | complete | success $in
 
 # Verify tags on local.

@@ -4,6 +4,6 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let positional = tg write "hello" | str trim
-let piped = "hello" | tg write | str trim
+let positional = tg write --no-tokens "hello" | referent node
+let piped = "hello" | tg write --no-tokens | referent node
 assert equal $positional $piped "the positional and piped writes should create the same blob"

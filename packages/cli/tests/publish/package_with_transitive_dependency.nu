@@ -17,7 +17,7 @@ let transitive_path = artifact {
 	'
 }
 
-let transitive_id = tg checkin $transitive_path
+let transitive_id = tg checkin --no-tokens $transitive_path | referent node
 
 # Create a tag for the transitive dependency on the local server so it can be resolved.
 tg tag put -p test-transitive/1.0.0 $transitive_id | complete
@@ -35,7 +35,7 @@ let dep_path = artifact {
 	'
 }
 
-let dep_id = tg checkin $dep_path
+let dep_id = tg checkin --no-tokens $dep_path | referent node
 
 # Create a tag for the dependency on the local server so it can be resolved.
 tg tag put -p test-dep/1.0.0 $dep_id | complete
@@ -53,7 +53,7 @@ let main_path = artifact {
 	'
 }
 
-let main_id = tg checkin $main_path
+let main_id = tg checkin --no-tokens $main_path | referent node
 
 # Publish the main package - this should publish C, then B, then A.
 tg publish $main_path | complete | success $in

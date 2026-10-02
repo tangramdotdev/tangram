@@ -10,7 +10,7 @@ let tangram = which tg | where type == external | get path | first
 for compaction in [false true] {
 	let local = server spawn --config { indexer: { log_compaction: $compaction } }
 	let path = artifact { tangram.ts: 'export default function () {}' }
-	let id = tg build --detach $path | str trim
+	let id = tg build --no-tokens --detach $path | referent node
 	tg wait $id | ignore
 	let data = mktemp
 	tg get $id | save -f $data

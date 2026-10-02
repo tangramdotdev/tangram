@@ -8,11 +8,11 @@ let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 
 # Alice stores a private artifact; Eve cannot read it.
-let secret = tg --token $alice.token put 'tg.file("topsecret-checkin")' | str trim
+let secret = tg --token $alice.token put --no-tokens 'tg.file("topsecret-checkin")' | referent node
 tg index
 let before = tg --token $eve.token get $secret | complete
 failure $before "Eve should not read Alice's private artifact before the exploit."
 
 # Eve checks in the server's store path for Alice's artifact ID. This must be denied, since the store-path checkin creates an object-subtree authorization token for the ID without authorizing the caller.
-let exploit = tg --token $eve.token checkin $"($dir)/store/($secret)" | complete
+let exploit = tg --token $eve.token checkin --no-tokens $"($dir)/store/($secret)" | complete
 failure $exploit "Eve must not check in an artifact she cannot read and create a read token for it."

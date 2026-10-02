@@ -15,7 +15,7 @@ let bob_local = server spawn --name bob-local --config {
 }
 
 # Bob creates the three objects and pushes the middle directory.
-let outer = tg --url $bob_local.url put 'tg.directory({ "b": tg.directory({ "c.txt": tg.file("c") }) })' | str trim
+let outer = tg --url $bob_local.url put --no-tokens 'tg.directory({ "b": tg.directory({ "c.txt": tg.file("c") }) })' | referent node
 let middle = tg --url $bob_local.url children $outer | from json | get 0
 let leaf = tg --url $bob_local.url children $middle | from json | get 0
 tg --url $bob_local.url index
@@ -28,7 +28,7 @@ tg --url $remote.url --token $bob.token grant $alice.user.id object_subtree $lea
 # Alice's server holds the outer directory shallowly.
 let bytes = mktemp -t
 tg --url $bob_local.url object get --bytes $outer | save --force --raw $bytes
-open --raw $bytes | tg --url $alice_local.url object put --bytes $outer
+open --raw $bytes | tg --url $alice_local.url object put --no-tokens --bytes $outer | referent node
 tg --url $alice_local.url index
 let absent = tg --url $alice_local.url object get --bytes --local $middle | complete
 failure $absent "Alice's server must not have the middle directory."

@@ -4,13 +4,13 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let dir = tg put 'tg.directory({ "hello.txt": tg.file("hello") })' | str trim
+let dir = tg put --no-tokens 'tg.directory({ "hello.txt": tg.file("hello") })' | referent node
 
 let format_output = tg archive --format rar $dir | complete
 failure $format_output
 snapshot --normalize $format_output.stderr r#'
 	error: invalid value 'rar' for '--format <FORMAT>': Invalid `ArchiveFormat` string representation
-	
+
 	For more information, try '--help'.
 
 '#
@@ -19,7 +19,7 @@ let compression_output = tg archive --format tar --compression lz4 $dir | comple
 failure $compression_output
 snapshot --normalize $compression_output.stderr r#'
 	error: invalid value 'lz4' for '--compression <COMPRESSION>': Invalid `CompressionFormat` string representation
-	
+
 	For more information, try '--help'.
 
 '#

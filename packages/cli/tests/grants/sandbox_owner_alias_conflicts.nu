@@ -7,6 +7,6 @@ let local = server spawn --config { authentication: { users: { providers: { inse
 let alice = tg login --verbose --name alice | from json
 
 # Providing two owner selectors at once is a usage error.
-failure (tg --token $alice.token sandbox create --owner team --group team --no-network | complete) "--owner and --group must conflict"
-failure (tg --token $alice.token sandbox create --group team --organization team --no-network | complete) "--group and --organization must conflict"
-failure (tg --token $alice.token sandbox create --org team --user team --no-network | complete) "--org and --user must conflict"
+failure (tg --token $alice.token sandbox create --no-tokens --owner team --group team --no-network | complete) "--owner and --group must conflict"
+failure (tg --token $alice.token sandbox create --no-tokens --group team --organization team --no-network | complete) "--group and --organization must conflict"
+failure (tg --token $alice.token sandbox create --no-tokens --org team --user team --no-network | complete) "--org and --user must conflict"

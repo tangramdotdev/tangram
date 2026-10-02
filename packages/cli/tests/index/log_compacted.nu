@@ -11,7 +11,7 @@ let path = artifact {
 		export default function () {}
 	'#
 }
-let id = tg build --detach $path | str trim
+let id = tg build --no-tokens --detach $path | referent node
 tg wait --source=index $id
 
 timeout 10 tg index

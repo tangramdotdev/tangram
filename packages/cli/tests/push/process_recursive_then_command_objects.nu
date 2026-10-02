@@ -24,7 +24,7 @@ def test [path: string, ...args] {
 	tg remote put default $remote.url
 
 	# Build the module.
-	let process_id = tg build --detach $path | str trim
+	let process_id = tg build --no-tokens --detach $path | referent node
 
 	# Wait for the process to finish.
 	tg wait $process_id

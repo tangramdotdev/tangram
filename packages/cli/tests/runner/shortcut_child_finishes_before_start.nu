@@ -31,7 +31,7 @@ let runner = server spawn --name runner --config {
 	},
 }
 
-let dir = tg --url $remote.url --token $root_token put -k directory 'tg.directory({})' | str trim
+let dir = tg --url $remote.url --token $root_token put --no-tokens -k directory 'tg.directory({})' | referent node
 
 # Hold the child's command push so the remote does not learn about the child, and hold the spawn reply so the child finishes before the guest client can wait for it.
 let push_watch = (

@@ -53,7 +53,7 @@ failure (tg --token $alice.token usage --day 2026-01-01 --month 2026-01 | comple
 failure (tg --token $alice.token usage --day 2026-02-29 | complete) "an invalid date should fail"
 failure (tg --token $alice.token usage --day 9999-12-31 | complete) "an overflowing date should fail"
 
-let object = tg --token $alice.token put 'tg.file("hello")' | str trim
+let object = tg --token $alice.token put --no-tokens 'tg.file("hello")' | referent node
 failure (tg --token $alice.token usage $object | complete) "a non-account ID should fail"
 
 # The server remains usable after rejecting all invalid inputs.

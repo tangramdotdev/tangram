@@ -11,7 +11,7 @@ let path = artifact {
 		}
 	'
 }
-let id = tg build --detach $path | str trim
+let id = tg build --no-tokens --detach $path | referent node
 tg wait $id | ignore
 timeout 10 tg checkpoint wait runner.process.control.finished $watch 0 | ignore
 tg checkpoint continue runner.process.control.finished $watch 0

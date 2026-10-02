@@ -4,7 +4,7 @@ use lib/test.nu *
 
 # Spawn a server in a given directory.
 let root_token = random chars
-let config =  { 
+let config =  {
 	advanced: {
 		single_process: false,
 	}
@@ -51,7 +51,7 @@ let path = artifact {
 }
 
 # Run the process.
-let process = tg --url $local.url run --detach $path --remote
+let process = tg --url $local.url run --no-tokens --detach $path --remote | referent node
 
 # Wait for the process to finish.
 let output = tg --url $local.url process wait $process | complete

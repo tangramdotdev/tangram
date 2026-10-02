@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local_default = server spawn
 
-let sandbox = tg sandbox create | str trim
+let sandbox = tg sandbox create --no-tokens | referent node
 let wait = job spawn {
 	let job_id = job id
 	let output = tg wait $sandbox | complete
@@ -31,7 +31,7 @@ assert equal $output destroyed "waiting for a destroyed sandbox should return im
 let local_origin = server spawn --name local-origin
 let local = server spawn --name local
 tg --url $local.url remote put origin $local_origin.url
-let sandbox = tg --url $local_origin.url sandbox create | str trim
+let sandbox = tg --url $local_origin.url sandbox create --no-tokens | referent node
 let wait = job spawn {
 	let job_id = job id
 	let output = tg --url $local.url wait $'($sandbox)?location=remote:origin' | complete

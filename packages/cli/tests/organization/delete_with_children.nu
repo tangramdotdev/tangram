@@ -9,7 +9,7 @@ let alice = tg login --verbose --name alice | from json
 tg --token $alice.token organization create acme
 
 # Tagging under the organization gives it a child.
-let id = tg --token $alice.token checkin (artifact 'x')
+let id = tg --token $alice.token checkin --no-tokens (artifact 'x') | referent node
 tg --token $alice.token tag acme/foo $id
 
 let output = tg --token $alice.token organization delete acme | complete

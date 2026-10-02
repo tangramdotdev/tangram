@@ -43,7 +43,7 @@ let batch_watch = tg --url $local_a.url checkpoint watch index.batch | from json
 let a_wait_watch = tg --url $local_a.url checkpoint watch indexer.request.receive | from json | get watch
 
 # Only A exists when the batch is submitted, so its private queue owns the work.
-let object = tg --url $local_a.url put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
+let object = tg --url $local_a.url put --no-tokens 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | referent node
 tg --url $local_a.url checkpoint wait index.batch $batch_watch 0 | ignore
 let local_b = server spawn --name local-b --config $config
 let update_watch = tg --url $local_b.url checkpoint watch indexer.update.storage_and_metadata.batch | from json | get watch
@@ -113,7 +113,7 @@ snapshot --normalize $output.stderr '
 let local_c = server spawn --name local-c --config ($config | merge deep {
 	indexer: { updates: { storage_and_metadata: { partitions: { start: 0, end: 0 } } } },
 })
-tg --url $local_api.url put 'tg.directory({ "x.txt": tg.file("xxx"), "y.txt": tg.file("yyy") })' | ignore
+tg --url $local_api.url put --no-tokens 'tg.directory({ "x.txt": tg.file("xxx"), "y.txt": tg.file("yyy") })' | ignore
 let shared_watch = tg --url $local_api.url checkpoint watch index.wait.updates | from json | get watch
 let request = job spawn {
 	let id = job id

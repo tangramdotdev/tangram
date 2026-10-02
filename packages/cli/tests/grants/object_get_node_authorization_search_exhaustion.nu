@@ -21,7 +21,7 @@ let local = server spawn --config {
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 
-let directory = tg --token $alice.token put 'tg.directory({ "child": tg.directory({}) })' | str trim
+let directory = tg --token $alice.token put --no-tokens 'tg.directory({ "child": tg.directory({}) })' | referent node
 tg --token $alice.token index
 tg --token $alice.token grant $bob.user.id object_node $directory | ignore
 tg --token $alice.token index

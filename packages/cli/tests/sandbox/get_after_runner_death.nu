@@ -25,7 +25,7 @@ let path = artifact {
 		}
 	',
 }
-let id = tg --url $local.url build --remote --detach $path | str trim
+let id = tg --url $local.url build --no-tokens --remote --detach $path | referent node
 let sandbox = tg --url $remote.url --token $root_token get $id | from json | get sandbox
 assert equal (tg --url $remote.url --token $root_token sandbox get $sandbox | from json | get data.status) "started"
 

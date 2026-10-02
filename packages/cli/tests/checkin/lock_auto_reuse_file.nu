@@ -40,7 +40,7 @@ let path = artifact {
 	foo.tg.lock: $lock
 }
 
-tg checkin ($path | path join 'foo.tg.ts') --update a
+tg checkin --no-tokens ($path | path join 'foo.tg.ts') --update a | referent node
 
 let lock = open ($path | path join 'foo.tg.lock') | from json
 assert (($lock | get nodes.0.dependencies."a/^1".options.tag) == "a/1.1.0")

@@ -13,7 +13,7 @@ let runner = server spawn --name runner --config {
 	roles: [api indexer runner],
 	runner: { id: $created.data.id, remote: default, token: $created.token.token },
 }
-let sandbox = tg --url $local_owner.url sandbox create | str trim
+let sandbox = tg --url $local_owner.url sandbox create --no-tokens | referent node
 tg --url $local_owner.url index
 let watch = tg --url $local_owner.url checkpoint watch sandbox.get.index | from json | get watch
 let socket = $local_owner.url | str replace 'http+unix://' '' | url decode

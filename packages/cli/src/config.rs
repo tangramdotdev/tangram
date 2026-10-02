@@ -772,6 +772,9 @@ pub struct LmdbIndex {
 	pub path: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub posix_sem_prefix: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub read_request_batch_size: Option<usize>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3059,6 +3062,9 @@ fn resolve_lmdb_index(source: LmdbIndex) -> server::LmdbIndex {
 	}
 	if let Some(value) = source.path {
 		target.path = value;
+	}
+	if let Some(value) = source.posix_sem_prefix {
+		target.posix_sem_prefix = Some(value);
 	}
 	if let Some(value) = source.read_request_batch_size {
 		target.read_request_batch_size = value;

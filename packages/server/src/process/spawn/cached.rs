@@ -680,12 +680,13 @@ impl Session {
 		let location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
-		let arg = tg::process::spawn::Arg {
+		let mut arg = tg::process::spawn::Arg {
 			cached: Some(true),
 			cache_location: Some(tg::location::Arg::default()),
 			location: Some(location.clone().into()),
 			..arg.clone()
 		};
+		Self::update_spawn_process_arg_for_location(&mut arg, &location)?;
 		let stream = client
 			.try_spawn_process(arg)
 			.await
@@ -736,7 +737,11 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote client"))?;
 		let trusted = client.trusted();
-		let arg = tg::process::spawn::Arg {
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote.to_owned(),
+			region: region.map(ToOwned::to_owned),
+		});
+		let mut arg = tg::process::spawn::Arg {
 			cached: Some(true),
 			cache_location: Some(tg::location::Arg::default()),
 			location: Some(
@@ -747,6 +752,7 @@ impl Session {
 			),
 			..arg.clone()
 		};
+		Self::update_spawn_process_arg_for_location(&mut arg, &location)?;
 		let stream = client
 			.try_spawn_process(arg)
 			.await

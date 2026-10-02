@@ -15,7 +15,7 @@ let path = artifact {
 	tangram.ts: ''
 }
 
-let id = tg checkin ($path | path join 'ignored')
+let id = tg checkin --no-tokens ($path | path join 'ignored') | referent node
 tg index
 
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id

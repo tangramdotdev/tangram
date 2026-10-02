@@ -31,13 +31,13 @@ let bob = tg login --verbose --name bob | from json
 let carol = tg login --verbose --name carol | from json
 
 # Alice owns one retained object and one transient object. Bob owns one transient object.
-let kept = tg --token $alice.token put 'tg.file("keep")' | str trim
+let kept = tg --token $alice.token put --no-tokens 'tg.file("keep")' | referent node
 let watch = tg --token $root_token checkpoint watch permission_capture.written --params ({ resource: $kept } | to json --raw) | from json | get watch
 tg --token $alice.token tag keep $kept
 success (timeout 10s tg --token $root_token checkpoint wait permission_capture.written $watch 0 | complete)
 tg --token $root_token checkpoint unwatch permission_capture.written $watch
-tg --token $alice.token put 'tg.file("remove")'
-tg --token $bob.token put 'tg.file("remove")'
+tg --token $alice.token put --no-tokens 'tg.file("remove")' | referent node
+tg --token $bob.token put --no-tokens 'tg.file("remove")' | referent node
 tg --token $alice.token index
 
 # Expiration in the next hour preserves the completed hour and records the new storage gauges.

@@ -9,16 +9,13 @@ pub struct Args {
 	pub cached: bool,
 
 	#[arg(index = 1)]
-	pub group: tg::group::Selector,
+	pub group: tg::Referent<tg::group::Selector>,
 
 	#[command(flatten)]
 	pub location: crate::location::Args,
 
 	#[command(flatten)]
 	pub print: crate::print::Options,
-
-	#[arg(skip)]
-	pub tokens: tg::authorization::Tokens,
 
 	#[command(flatten)]
 	pub ttl: crate::get::Ttl,
@@ -29,14 +26,16 @@ impl Cli {
 		let client = self.client().await?;
 		let arg = tg::group::get::Arg {
 			cached: args.cached,
-			location: args.location.get(),
-			tokens: args.tokens,
+			location: args.location.get_for_options(&args.group),
+			tokens: args.group.options.tokens,
 			ttl: args.ttl.get(),
 		};
 		let group = client
-			.try_get_group(&args.group, arg)
+			.try_get_group(&args.group.node, arg)
 			.await
-			.map_err(|error| tg::error!(!error, group = %args.group, "failed to get the group"))?
+			.map_err(
+				|error| tg::error!(!error, group = %args.group.node, "failed to get the group"),
+			)?
 			.ok_or_else(|| tg::error!("failed to find the group"))?;
 		let tg::group::get::Output {
 			data,

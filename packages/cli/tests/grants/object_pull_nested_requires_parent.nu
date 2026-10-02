@@ -12,7 +12,7 @@ let alice_local = server spawn --name alice-local --config {
 }
 
 # Alice stores a private directory with two files on the remote.
-let directory = tg --url $alice_local.url put 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | str trim
+let directory = tg --url $alice_local.url put --no-tokens 'tg.directory({ "a.txt": tg.file("aaa"), "b.txt": tg.file("bbb") })' | referent node
 tg --url $alice_local.url index
 let children = tg --url $alice_local.url children $directory | from json
 let granted_file = $children | get 0

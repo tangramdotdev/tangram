@@ -20,7 +20,7 @@ let path = artifact {
 		}
 	'
 }
-let id = tg build --detach $path
+let id = tg build --no-tokens --detach $path | referent node
 tg wait $id
 let log = tg log $id
 assert equal $log ''

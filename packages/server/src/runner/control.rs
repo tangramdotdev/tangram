@@ -31,7 +31,7 @@ impl Session {
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> tg::Result<(
-		tg::runner::control::Output,
+		tg::runner::control::Header,
 		BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
 	)> {
 		self.verify_request_from_host()?;
@@ -73,7 +73,7 @@ impl Session {
 		arg: tg::runner::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> tg::Result<(
-		tg::runner::control::Output,
+		tg::runner::control::Header,
 		BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
 	)> {
 		let id = arg.id.clone();
@@ -110,7 +110,7 @@ impl Session {
 				"the scheduler returned an invalid ID"
 			));
 		}
-		let output = tg::runner::control::Output {
+		let header = tg::runner::control::Header {
 			sandboxes,
 			scheduler: scheduler.clone(),
 		};
@@ -331,7 +331,7 @@ impl Session {
 			.with_stopper(self.context.stopper.clone())
 			.boxed();
 
-		Ok((output, stream))
+		Ok((header, stream))
 	}
 
 	async fn handle_runner_control_request(
@@ -432,7 +432,7 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 		region: String,
 	) -> tg::Result<(
-		tg::runner::control::Output,
+		tg::runner::control::Header,
 		BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
 	)> {
 		let id = arg.id.clone();
@@ -446,14 +446,14 @@ impl Session {
 			location: Some(location.into()),
 			..arg
 		};
-		let (output, stream) = client
+		let (header, stream) = client
 			.get_runner_control_stream(arg, stream)
 			.await
 			.map_err(
 				|error| tg::error!(!error, region = %region, "failed to get the control stream"),
 			)?;
 		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-		Ok((output, stream))
+		Ok((header, stream))
 	}
 
 	async fn get_runner_control_stream_remote(
@@ -463,7 +463,7 @@ impl Session {
 		remote: String,
 		region: Option<String>,
 	) -> tg::Result<(
-		tg::runner::control::Output,
+		tg::runner::control::Header,
 		BoxStream<'static, tg::Result<tg::runner::control::ServerMessage>>,
 	)> {
 		let id = arg.id.clone();
@@ -480,7 +480,7 @@ impl Session {
 			),
 			..arg
 		};
-		let (output, stream) = client
+		let (header, stream) = client
 			.get_runner_control_stream(arg, stream)
 			.await
 			.map_err(
@@ -515,7 +515,7 @@ impl Session {
 			})
 			.with_stopper(self.context.stopper.clone())
 			.boxed();
-		Ok((output, stream))
+		Ok((header, stream))
 	}
 
 	pub(crate) async fn get_runner_control_stream_request(
@@ -563,7 +563,7 @@ impl Session {
 			.boxed();
 
 		// Get the server message stream.
-		let (output, stream) = self
+		let (header, stream) = self
 			.get_runner_control_stream_with_context(arg, stream)
 			.boxed()
 			.await?;
@@ -575,13 +575,12 @@ impl Session {
 			Err(error) => error.try_into(),
 		});
 		let body = BoxBody::with_sse_stream(stream);
-		let body = tangram_http::body::output::set(body, &output)
-			.map_err(|error| tg::error!(!error, "failed to serialize the output"))?;
+		let body = tangram_http::body::header::set(body, &header)
+			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 
 		// Create the response.
 		let response = http::Response::builder()
 			.header(http::header::CONTENT_TYPE, content_type.to_string())
-			.header(tangram_http::body::output::HEADER, "true")
 			.body(body)
 			.unwrap();
 

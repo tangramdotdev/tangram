@@ -9,8 +9,8 @@ let database = $local.directory | path join database.sqlite3
 let path1 = artifact 'one'
 let path2 = artifact 'two'
 
-let id1 = tg checkin $path1
-let id2 = tg checkin $path2
+let id1 = tg checkin --no-tokens $path1 | referent node
+let id2 = tg checkin --no-tokens $path2 | referent node
 
 # Create the tag.
 tg tag put test $id1

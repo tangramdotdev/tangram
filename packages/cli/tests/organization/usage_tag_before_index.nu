@@ -8,7 +8,7 @@ let local_source = server spawn --name local-source --config {
 	usage: true,
 }
 let organization = tg --url $local_source.url organization create acme | from json
-let object = tg --url $local_source.url put 'tg.file("hello")' | str trim
+let object = tg --url $local_source.url put --no-tokens 'tg.file("hello")' | referent node
 tg --url $local_source.url tag put -p acme/owned $object
 
 # Sync the organization and its tag before either exists in the destination index.

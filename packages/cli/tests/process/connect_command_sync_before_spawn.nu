@@ -38,15 +38,15 @@ for mode in [run spawn] {
 	let host = $"($architecture)-($operating_system)"
 	let contents = "#!/bin/sh\necho hello\n"
 	let blob_value = ['tg.blob(' ($contents | to json) ')'] | str join
-	let blob = tg --url $local.url put $blob_value | str trim
+	let blob = tg --url $local.url put --no-tokens $blob_value | referent node
 	let file_value = ['tg.file({"contents":' $blob ',"executable":true})'] | str join
-	let file = tg --url $local.url put $file_value | str trim
+	let file = tg --url $local.url put --no-tokens $file_value | referent node
 	let value = (
 		['tg.command({"executable":{"artifact":' $file '},"host":' ($host | to json) '})']
 		| str join
 	)
 	let command = (
-		tg --url $local.url put $value
+		tg --url $local.url put --no-tokens $value | referent node
 		| str trim
 	)
 
@@ -65,7 +65,7 @@ for mode in [run spawn] {
 	let run = job spawn {
 		let job_id = job id
 		let output = if $mode == 'spawn' {
-			tg --url $local.url process spawn --cached=false --sandbox --no-tty --remote --user $alice.user.id $command | complete
+			tg --url $local.url process spawn --no-tokens --cached=false --sandbox --no-tty --remote --user $alice.user.id $command | complete
 		} else {
 			tg --url $local.url run --cached=false --no-tty --remote --user $alice.user.id $command | complete
 		}
@@ -84,7 +84,7 @@ for mode in [run spawn] {
 	let output = job recv --tag $run --timeout 30sec
 	success $output
 	if $mode == 'spawn' {
-		let process = $output.stdout | str trim
+		let process = $output.stdout | referent node
 		let output = tg --url $local.url process wait $process | from json
 		assert equal $output.exit 0
 	} else {

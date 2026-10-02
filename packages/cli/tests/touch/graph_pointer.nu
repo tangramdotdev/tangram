@@ -14,7 +14,7 @@ let graph = '
 		]
 	})
 '
-let graph_id = tg put $graph
+let graph_id = tg put --no-tokens $graph | referent node
 
 let output = tg touch $"graph=($graph_id)&index=0&kind=directory" | complete
 failure $output 'expected an object, got a pointer'

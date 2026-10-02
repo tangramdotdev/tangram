@@ -6,8 +6,8 @@ let local = server spawn
 
 let first = artifact 'first'
 let second = artifact 'second'
-let first_id = tg checkin --no-checkout-pointers $first
-let second_id = tg checkin --no-checkout-pointers $second
+let first_id = tg checkin --no-tokens --no-checkout-pointers $first | referent node
+let second_id = tg checkin --no-tokens --no-checkout-pointers $second | referent node
 
 let paths = tg checkout $first_id $second_id | lines
 assert (($paths | length) == 2) "expected two checkout paths"

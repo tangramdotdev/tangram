@@ -11,7 +11,7 @@ let remote_destination = server spawn --name remote-destination --config {
 }
 let old_root = tg --url $remote_destination.url group create tree | from json
 let old_child = tg --url $remote_destination.url group create tree/old | from json
-let old_target = tg --url $remote_destination.url put 'tg.file("old")' | str trim
+let old_target = tg --url $remote_destination.url put --no-tokens 'tg.file("old")' | referent node
 tg --url $remote_destination.url tag put tree/old/leaf $old_target
 let old_leaf = tg --url $remote_destination.url tag get tree/old/leaf | from json
 tg --url $remote_destination.url group create keeper

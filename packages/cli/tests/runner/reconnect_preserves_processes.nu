@@ -26,7 +26,7 @@ let path = artifact {
 	',
 }
 let start_watch = tg --url $runner.url checkpoint watch runner.process.start | from json | get watch
-let id = tg --url $local.url build --remote --detach $path | str trim
+let id = tg --url $local.url build --no-tokens --remote --detach $path | referent node
 assert equal (tg --url $remote.url --token $root_token get $id | from json | get status) "started"
 
 success (timeout 30s tg --url $runner.url checkpoint wait runner.process.start $start_watch 0 | complete) "the process must start on the runner"

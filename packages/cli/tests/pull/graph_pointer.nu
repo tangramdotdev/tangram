@@ -20,7 +20,7 @@ let artifact = '
 		]
 	})
 '
-let graph_id = tg --url $remote.url put $artifact | str trim
+let graph_id = tg --url $remote.url put --no-tokens $artifact | referent node
 tg --url $remote.url index
 let reference = $"graph=($graph_id)&index=0&kind=directory"
 let output = tg pull $reference --eager | complete

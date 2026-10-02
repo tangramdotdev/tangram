@@ -20,7 +20,7 @@ let path = artifact {
 				if tg process touch ${process} > /dev/null 2> "$TANGRAM_OUTPUT"; then
 					exit 1
 				fi
-				object=$(tg put \x27tg.file("object for token")\x27)
+				object=$(tg put --no-tokens \x27tg.file("object for token")\x27)
 				tg object touch "$object"
 			`
 				.sandbox()

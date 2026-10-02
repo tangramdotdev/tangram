@@ -9,8 +9,8 @@ vfs skip_unless_supported
 let server_path = mktemp --directory
 let local = server spawn --directory $server_path --config { vfs: true }
 vfs assert_mounted $server_path
-let directory = tg put 'tg.directory({ "bin": tg.directory({ "program": tg.file("contents") }) })' | str trim
-let file = tg put 'tg.file("contents")' | str trim
+let directory = tg put --no-tokens 'tg.directory({ "bin": tg.directory({ "program": tg.file("contents") }) })' | referent node
+let file = tg put --no-tokens 'tg.file("contents")' | referent node
 for name in [$directory $'($directory).tg.ts'] {
 	let path = vfs root $server_path $name | path join bin program
 	let output = checkin-output $local $path

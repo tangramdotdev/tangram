@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let dir = tg put 'tg.directory({ "f": tg.file("x") })' | str trim
+let dir = tg put --no-tokens 'tg.directory({ "f": tg.file("x") })' | referent node
 
 let output = tg read $dir | complete
 failure $output

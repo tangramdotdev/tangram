@@ -7,10 +7,10 @@ let local = server spawn --name local --config {
 }
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
-let sandbox = tg --url $local.url --token $alice.token sandbox create --no-network | str trim
-let other = tg --url $local.url --token $alice.token sandbox create --no-network | str trim
+let sandbox = tg --url $local.url --token $alice.token sandbox create --no-tokens --no-network | referent node
+let other = tg --url $local.url --token $alice.token sandbox create --no-tokens --no-network | referent node
 let path = artifact { tangram.ts: 'export default () => tg.file("sandbox-read-token");' }
-let process = tg --url $local.url --token $alice.token spawn $'--sandbox=($sandbox)' $path | str trim | split row '?' | first
+let process = tg --url $local.url --token $alice.token spawn --no-tokens $'--sandbox=($sandbox)' $path | referent node | split row '?' | first
 tg --url $local.url --token $alice.token wait --source=index $process | ignore
 tg --url $local.url --token $alice.token index
 let socket = $local.url | str replace 'http+unix://' '' | url decode

@@ -4,7 +4,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 
-let file_id = tg put 'tg.file("hello")' | str trim
+let file_id = tg put --no-tokens 'tg.file("hello")' | referent node
 let children = tg object children $file_id | from json
 assert equal ($children | length) 1 "the file should have one child"
 let blob_id = $children | get 0

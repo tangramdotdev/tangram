@@ -23,7 +23,7 @@ let entries = 0..<30_000 | each { |i|
 	let hash = $i | into string | fill --alignment right --character '0' --width 51
 	{ name: ($i | into string), id: $'fil_01($hash)0' }
 } | transpose --header-row --as-record
-let output = { entries: $entries } | to json --raw | tg --url $local.url object put --bytes --kind directory | complete
+let output = { entries: $entries } | to json --raw | tg --url $local.url object put --no-tokens --bytes --kind directory | complete
 success $output 'the large index item must fit within the NATS message limit'
 let id = $output.stdout | str trim
 tg --url $local.url index

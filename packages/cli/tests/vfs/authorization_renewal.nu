@@ -49,7 +49,7 @@ for io in $transports {
 	}
 
 	let command = tg build $module | str trim
-	let sandbox = tg sandbox create --no-network | str trim
+	let sandbox = tg sandbox create --no-tokens --no-network | referent node
 	let output = tg run $'--sandbox=($sandbox)' $command | complete
 	success $output 'the process must read the artifacts through the VFS with authorization search disabled'
 	assert equal ($output.stdout | str trim) 'ok'

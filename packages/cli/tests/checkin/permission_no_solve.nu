@@ -10,7 +10,7 @@ let local = server spawn --config {
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 
-let dependency = tg --token $alice.token put 'tg.directory({ "value": tg.file("no solve") })' | str trim
+let dependency = tg --token $alice.token put --no-tokens 'tg.directory({ "value": tg.file("no solve") })' | referent node
 tg --token $alice.token index
 tg --token $alice.token grant $bob.user.id object_subtree $dependency | ignore
 

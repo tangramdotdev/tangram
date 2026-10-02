@@ -247,7 +247,7 @@ pub struct Sandbox {
 		overrides_with = "spawn.sandbox.disabled",
 		require_equals = true,
 	)]
-	value: Option<tg::Either<bool, tg::sandbox::Id>>,
+	value: Option<tg::Either<bool, tg::Referent<tg::sandbox::Id>>>,
 
 	#[arg(
 		default_missing_value = "true",
@@ -267,7 +267,7 @@ pub struct Sandbox {
 }
 
 impl Sandbox {
-	pub fn new(sandbox: Option<tg::Either<bool, tg::sandbox::Id>>) -> Self {
+	pub fn new(sandbox: Option<tg::Either<bool, tg::Referent<tg::sandbox::Id>>>) -> Self {
 		Self {
 			value: sandbox,
 			disabled: None,
@@ -276,13 +276,13 @@ impl Sandbox {
 		}
 	}
 
-	pub fn get(&self) -> Option<tg::Either<bool, tg::sandbox::Id>> {
+	pub fn get(&self) -> Option<tg::Either<bool, tg::Referent<tg::sandbox::Id>>> {
 		self.value
 			.clone()
 			.or(self.disabled.map(|v| tg::Either::Left(!v)))
 	}
 
-	pub fn set(&mut self, sandbox: Option<tg::Either<bool, tg::sandbox::Id>>) {
+	pub fn set(&mut self, sandbox: Option<tg::Either<bool, tg::Referent<tg::sandbox::Id>>>) {
 		self.value = sandbox;
 		self.disabled = None;
 	}
@@ -420,7 +420,7 @@ impl Cli {
 			};
 			self.print_serde(output, args.print).await?;
 		} else {
-			Self::print_display(output.node().id());
+			Self::print_referent(&output.node().to_referent(), &args.print);
 		}
 
 		Ok(())
@@ -829,7 +829,7 @@ impl Cli {
 			command = command.host(host);
 		}
 		if let Some(tg::process::Stdio::Blob(blob)) = &options.stdin {
-			command = command.stdin(Some(tg::Blob::with_id(blob.clone())));
+			command = command.stdin(Some(tg::Blob::with_referent(*blob.clone())));
 		}
 
 		command = command.args(args_);
@@ -891,12 +891,12 @@ impl Cli {
 				.store_with_instance(&client)
 				.await?;
 			let command = command.build_spawn_arg()?;
-			let stdin = command.stdin.as_ref().map(|stdin| stdin.node.clone());
+			let stdin = command.stdin.clone();
 			(tg::Either::Left(command), stdin)
 		} else {
 			let command = command.build()?;
 			let object = command.object_with_instance(&client).await?;
-			let stdin = object.stdin.as_ref().map(tg::Blob::id);
+			let stdin = object.stdin.as_ref().map(tg::Blob::to_referent);
 			(tg::Either::Right(command), stdin)
 		};
 
@@ -926,7 +926,7 @@ impl Cli {
 						"sandbox options are not supported for existing sandboxes"
 					));
 				}
-				Some(tg::process::SandboxArg::Id(id))
+				Some(tg::process::SandboxArg::Referent(id))
 			} else {
 				let owner = self
 					.resolve_owner(&client, &options.sandbox.arg.owner)
@@ -966,7 +966,9 @@ impl Cli {
 		};
 
 		let stdin = match (options.stdin.clone(), command_stdin) {
-			(None | Some(tg::process::Stdio::Null), Some(blob)) => tg::process::Stdio::Blob(blob),
+			(None | Some(tg::process::Stdio::Null), Some(blob)) => {
+				tg::process::Stdio::Blob(Box::new(blob))
+			},
 			(Some(stdin), _) => stdin,
 			(None, None) => tg::process::Stdio::default(),
 		};

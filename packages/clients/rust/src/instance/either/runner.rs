@@ -79,18 +79,18 @@ where
 		stream: BoxStream<'static, tg::Result<tg::runner::control::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<(
-			tg::runner::control::Output,
+			tg::runner::control::Header,
 			impl Stream<Item = tg::Result<tg::runner::control::ServerMessage>> + Send + 'static,
 		)>,
 	> + Send {
 		match self {
 			tg::Either::Left(s) => s
 				.get_runner_control_stream(arg, stream)
-				.map_ok(|(output, stream)| (output, stream.left_stream()))
+				.map_ok(|(header, stream)| (header, stream.left_stream()))
 				.left_future(),
 			tg::Either::Right(s) => s
 				.get_runner_control_stream(arg, stream)
-				.map_ok(|(output, stream)| (output, stream.right_stream()))
+				.map_ok(|(header, stream)| (header, stream.right_stream()))
 				.right_future(),
 		}
 	}

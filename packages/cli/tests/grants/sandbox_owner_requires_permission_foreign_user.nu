@@ -8,5 +8,5 @@ let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 
 # Alice has no write on Bob, so she must not be able to assign Bob as the owner of a new sandbox.
-let create = tg --token $alice.token sandbox create --owner $bob.user.id --no-network | complete
+let create = tg --token $alice.token sandbox create --no-tokens --owner $bob.user.id --no-network | complete
 failure $create "Alice must not create a sandbox owned by a user she cannot write"

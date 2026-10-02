@@ -257,6 +257,46 @@ export def doc [string: string] {
 	$result
 }
 
+# Extract the identity when a test compares IDs or calls an endpoint that accepts only an ID.
+export def "referent node" [value?: string] {
+	let input = $in
+	let value = if $value == null { $input } else { $value }
+	$value | str trim | split row '?' | first
+}
+
+# Extract the authorization tokens for a location from a printed referent.
+export def "referent tokens" [location: string, value?: string] {
+	let input = $in
+	let value = if $value == null { $input } else { $value }
+	$'http://localhost/($value | str trim)' | url parse | get params
+	| where {|param| $param.key starts-with $'tokens[($location)][' }
+	| get value
+}
+
+# Read the signed claims when a test verifies the permissions and expiration of a capability.
+export def "token body" [value?: string] {
+	let input = $in
+	let value = if $value == null { $input } else { $value }
+	$value | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+}
+
+# Decode the length-prefixed JSON header before reading the SSE stream.
+export def "stream header" [] {
+	let bytes = $in | into binary
+	mut length = 0
+	mut offset = 0
+	loop {
+		let byte = $bytes | bytes at $offset..$offset | into int
+		$length = $length + (($byte | bits and 127) | bits shl (7 * $offset))
+		$offset = $offset + 1
+		if $byte < 128 { break }
+		if $offset >= 10 { error make { msg: 'invalid stream header length' } }
+	}
+	let header = $bytes | bytes at $offset..<($offset + $length) | decode utf-8 | from json
+	let stream = $bytes | bytes at ($offset + $length).. | decode utf-8
+	{ header: $header, stream: $stream }
+}
+
 export def --env snapshot [
 	--name: string
 	--normalize (-n)
@@ -697,6 +737,15 @@ export def --env "server spawn" [
 		$config
 	}
 
+	# Give a shared index the same semaphore names across servers and restarts.
+	let config = if $config.index.kind? == 'lmdb' and $config.index.posix_sem_prefix? == null {
+		let path = $directory_path | path join ($config.index.path? | default 'index.lmdb') | path expand
+		let prefix = $'/tgi-($path | hash sha256 | str substring 0..15)'
+		$config | upsert index.posix_sem_prefix $prefix
+	} else {
+		$config
+	}
+
 	# Force the selected VFS unless the test disables it.
 	let forced_vfs_kind = if $use_fskit { 'fskit' } else if $use_vfs { 'fuse' } else { null }
 	let config = if $forced_vfs_kind == null {
@@ -806,6 +855,15 @@ export def --env "server start" [server: record] {
 			error make { msg: 'the server is already running' }
 		}
 		try { job kill $job_id }
+	}
+
+	# Record every semaphore name before startup can create it.
+	let config = open $server.config_path
+	let prefixes = [$config.index?.posix_sem_prefix? $config.cache?.posix_sem_prefix?] | compact | uniq
+	let names = $prefixes | each {|prefix| [$'($prefix)r' $'($prefix)w'] } | flatten
+	if not ($names | is-empty) {
+		let root = $env.TMPDIR? | default ($server.config_path | path dirname)
+		(($names | str join "\n") + "\n") | save --append ($root | path join 'posix_semaphores')
 	}
 
 	# Record VFS intent before launch so cleanup still finds it after a crash.
@@ -1408,6 +1466,35 @@ export def fdb_cluster [] {
 	let cluster = mktemp -t
 	foundationdb_cluster_description | save -f $cluster
 	$cluster
+}
+
+# Remove this test's semaphore names after its processes have stopped.
+export def cleanup_posix_semaphores [temp_path: string] {
+	let manifest = $temp_path | path join 'posix_semaphores'
+	let recorded = if ($manifest | path exists) {
+		open --raw $manifest | lines | where { $in != '' }
+	} else { [] }
+	# Recover explicit names from older tests that did not record a manifest.
+	let configured = glob ($temp_path | path join '**/config.json') | each {|path|
+		let config = try { open $path } catch { {} }
+		[$config.index?.posix_sem_prefix? $config.cache?.posix_sem_prefix?] | compact
+	} | flatten | uniq | each {|prefix| [$'($prefix)r' $'($prefix)w'] } | flatten
+	let names = [$recorded $configured] | flatten | uniq
+	let helper = $repository_path | path join 'target/test/posix_semaphores'
+	if not ($names | is-empty) {
+		let output = (^$helper ...$names | complete)
+		if $output.exit_code != 0 {
+			error make { msg: 'failed to unlink the test POSIX semaphores', help: ($output.stderr | str trim) }
+		}
+	}
+	# Recover LMDB's default names while the device and inode are still available.
+	let lockfiles = glob ($temp_path | path join '**/*-lock')
+	if not ($lockfiles | is-empty) {
+		let output = (^$helper --lock-file ...$lockfiles | complete)
+		if $output.exit_code != 0 {
+			error make { msg: 'failed to unlink the test LMDB semaphores', help: ($output.stderr | str trim) }
+		}
+	}
 }
 
 export def cleanup_background_jobs [temp_path: string] {

@@ -28,7 +28,7 @@ let path = artifact {
 }
 
 # Checkin outer package and verify the snapshot.
-let id = tg checkin ($path | path join 'outer')
+let id = tg checkin --no-tokens ($path | path join 'outer') | referent node
 tg index
 let object = tg object get --blobs --depth=inf --no-tokens --pretty $id
 snapshot $object '
