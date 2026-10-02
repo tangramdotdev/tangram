@@ -1,5 +1,5 @@
 use {
-	super::super::{Index, Kind},
+	super::super::{Index, Kind, clean::ItemKind},
 	num_traits::ToPrimitive as _,
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
@@ -35,7 +35,7 @@ fn count_subject_permissions(index: &Index, subject: &tg::authorization::Subject
 
 #[tokio::test]
 async fn object_output_includes_the_deleted_put_and_touched_at() {
-	for touched_at in [7, i64::MAX] {
+	for touched_at in [i64::MIN, 7, i64::MAX] {
 		let (_dir, index) = super::new_index();
 		let id = tg::object::Id::new(tg::object::Kind::Blob, &vec![0].into());
 		let object = tangram_index::object::put::Arg {
@@ -211,12 +211,28 @@ async fn account_and_entity_candidates_share_the_clean_batch() {
 }
 
 #[tokio::test]
-async fn cleaning_does_not_decode_keys_newer_than_every_cutoff() {
+async fn cleaning_does_not_decode_keys_newer_than_their_kind_cutoff() {
 	let (_dir, index) = super::new_index();
-	// Leave the key incomplete so decoding it would fail if the scan reaches it.
-	let key = Index::pack(&index.subspace, &(Kind::Clean.to_i32().unwrap(), 14_i64));
+	// Leave the keys incomplete so decoding them would fail if any scan reaches them.
 	let mut transaction = index.env.write_txn().unwrap();
-	index.db.put(&mut transaction, &key, &[]).unwrap();
+	for (kind, touched_at) in [
+		(ItemKind::AccountObject, 8_i64),
+		(ItemKind::AccountProcess, 12),
+		(ItemKind::Checkout, 8),
+		(ItemKind::Object, 8),
+		(ItemKind::Process, 12),
+		(ItemKind::Sandbox, 14),
+	] {
+		let key = Index::pack(
+			&index.subspace,
+			&(
+				Kind::Clean.to_i32().unwrap(),
+				kind.to_i32().unwrap(),
+				touched_at,
+			),
+		);
+		index.db.put(&mut transaction, &key, &[]).unwrap();
+	}
 	transaction.commit().unwrap();
 	let arg = tangram_index::clean::Arg {
 		batch_size: 100,
@@ -229,11 +245,11 @@ async fn cleaning_does_not_decode_keys_newer_than_every_cutoff() {
 	};
 	let output = index.clean(arg).await.unwrap();
 	assert!(output.done);
-	assert_eq!(count_clean_keys(&index), 1);
+	assert_eq!(count_clean_keys(&index), 6);
 }
 
 #[tokio::test]
-async fn cleaning_respects_each_cutoff_within_the_scan_range() {
+async fn cleaning_respects_each_kind_cutoff() {
 	let (_dir, index) = super::new_index();
 	let items = [7, 8, 13, 14]
 		.into_iter()

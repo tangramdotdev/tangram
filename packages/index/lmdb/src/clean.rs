@@ -1,4 +1,6 @@
 mod key;
+#[cfg(test)]
+mod tests;
 mod update;
 pub(super) use key::{ItemKind, Key};
 
@@ -11,8 +13,8 @@ use {
 };
 
 struct Candidate {
-	touched_at: i64,
 	item: Item,
+	touched_at: i64,
 }
 
 #[derive(Clone)]
@@ -100,69 +102,17 @@ impl Index {
 		)?;
 		let remaining_batch_size = batch_size.saturating_sub(permissions + delegations);
 
-		// Bound the scan so recent records do not hold the writer while updates wait.
-		let kind = Kind::Clean.to_i32().unwrap();
-		let begin = Self::pack(subspace, &(kind,));
-		let max_touched_at = max_object_touched_at
-			.max(max_process_touched_at)
-			.max(max_sandbox_touched_at);
-		let prefix = Self::pack(subspace, &(kind, max_touched_at));
-		let end = fdbt::Subspace::from_bytes(prefix).range().1;
-		let range = (
-			Bound::Included(begin.as_slice()),
-			Bound::Excluded(end.as_slice()),
-		);
-		let mut candidates: Vec<Candidate> = Vec::new();
-		let iter = db
-			.range(transaction, &range)
-			.map_err(|error| tg::error!(!error, "failed to iterate clean keys"))?;
-		for result in iter {
-			if candidates.len() >= remaining_batch_size {
-				break;
-			}
-			let (key, _) =
-				result.map_err(|error| tg::error!(!error, "failed to read clean key"))?;
-			let key = Self::unpack(subspace, key)?;
-			let crate::Key::Clean(key) = key else {
-				return Err(tg::error!("expected clean key"));
-			};
-			let (item, touched_at, max_touched_at) = match key {
-				crate::clean::Key::AccountObject {
-					account,
-					object,
-					touched_at,
-				} => (
-					Item::AccountObject { account, object },
-					touched_at,
-					max_object_touched_at,
-				),
-				crate::clean::Key::AccountProcess {
-					account,
-					process,
-					touched_at,
-				} => (
-					Item::AccountProcess { account, process },
-					touched_at,
-					max_process_touched_at,
-				),
-				crate::clean::Key::Checkout { id, touched_at } => {
-					(Item::Checkout(id), touched_at, max_object_touched_at)
-				},
-				crate::clean::Key::Object { id, touched_at } => {
-					(Item::Object(id), touched_at, max_object_touched_at)
-				},
-				crate::clean::Key::Process { id, touched_at } => {
-					(Item::Process(id), touched_at, max_process_touched_at)
-				},
-				crate::clean::Key::Sandbox { id, touched_at } => {
-					(Item::Sandbox(id), touched_at, max_sandbox_touched_at)
-				},
-			};
-			if touched_at > max_touched_at {
-				continue;
-			}
-			candidates.push(Candidate { touched_at, item });
-		}
+		// Preserve the numeric kind order when timestamps tie.
+		let cutoffs = [
+			(ItemKind::Checkout, max_object_touched_at),
+			(ItemKind::Object, max_object_touched_at),
+			(ItemKind::Process, max_process_touched_at),
+			(ItemKind::Sandbox, max_sandbox_touched_at),
+			(ItemKind::AccountObject, max_object_touched_at),
+			(ItemKind::AccountProcess, max_process_touched_at),
+		];
+		let candidates =
+			Self::clean_candidates(db, subspace, transaction, &cutoffs, remaining_batch_size)?;
 
 		for candidate in &candidates {
 			match &candidate.item {
@@ -268,6 +218,88 @@ impl Index {
 			&& propagated_versions == 0;
 
 		Ok(output)
+	}
+
+	fn clean_candidates(
+		db: &Db,
+		subspace: &fdbt::Subspace,
+		transaction: &lmdb::RwTxn<'_>,
+		cutoffs: &[(ItemKind, i64)],
+		batch_size: usize,
+	) -> tg::Result<Vec<Candidate>> {
+		if batch_size == 0 {
+			return Ok(Vec::new());
+		}
+
+		// Bound each kind's scan by its own expiration cutoff.
+		let kind = Kind::Clean.to_i32().unwrap();
+		let mut iterators = Vec::new();
+		for &(item_kind, max_touched_at) in cutoffs {
+			let item_kind = item_kind.to_i32().unwrap();
+			let begin = Self::pack(subspace, &(kind, item_kind));
+			let prefix = Self::pack(subspace, &(kind, item_kind, max_touched_at));
+			let end = fdbt::Subspace::from_bytes(prefix).range().1;
+			let range = (
+				Bound::Included(begin.as_slice()),
+				Bound::Excluded(end.as_slice()),
+			);
+			let iterator = db
+				.range(transaction, &range)
+				.map_err(|error| tg::error!(!error, "failed to iterate clean keys"))?;
+			let iterator = iterator.map(|result| {
+				let (key, _) =
+					result.map_err(|error| tg::error!(!error, "failed to read clean key"))?;
+				let key = Self::unpack(subspace, key)?;
+				let crate::Key::Clean(key) = key else {
+					return Err(tg::error!("expected clean key"));
+				};
+				let (item, touched_at) = match key {
+					Key::AccountObject {
+						account,
+						object,
+						touched_at,
+					} => (Item::AccountObject { account, object }, touched_at),
+					Key::AccountProcess {
+						account,
+						process,
+						touched_at,
+					} => (Item::AccountProcess { account, process }, touched_at),
+					Key::Checkout { id, touched_at } => (Item::Checkout(id), touched_at),
+					Key::Object { id, touched_at } => (Item::Object(id), touched_at),
+					Key::Process { id, touched_at } => (Item::Process(id), touched_at),
+					Key::Sandbox { id, touched_at } => (Item::Sandbox(id), touched_at),
+				};
+				let candidate = Candidate { item, touched_at };
+				Ok(candidate)
+			});
+			iterators.push(iterator);
+		}
+
+		// Merge the ranges by timestamp, breaking ties in the numeric kind order.
+		let mut heads = iterators
+			.iter_mut()
+			.map(|iterator| iterator.next().transpose())
+			.collect::<tg::Result<Vec<_>>>()?;
+		let mut candidates = Vec::new();
+		while candidates.len() < batch_size {
+			let index = heads
+				.iter()
+				.enumerate()
+				.filter_map(|(index, candidate)| {
+					candidate.as_ref().map(|candidate| (index, candidate))
+				})
+				.min_by_key(|(index, candidate)| (candidate.touched_at, *index))
+				.map(|(index, _)| index);
+			let Some(index) = index else {
+				break;
+			};
+			candidates.push(heads[index].take().unwrap());
+			if candidates.len() < batch_size {
+				heads[index] = iterators[index].next().transpose()?;
+			}
+		}
+
+		Ok(candidates)
 	}
 
 	fn delete_expired_permissions(
