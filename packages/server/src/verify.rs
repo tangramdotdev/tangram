@@ -835,6 +835,7 @@ impl Session {
 				self.server,
 				"verification.index",
 				resource = %arg.resource,
+				storage = !arg.storage.is_empty(),
 				token_resource,
 			)
 			.await;

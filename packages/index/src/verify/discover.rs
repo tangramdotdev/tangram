@@ -502,7 +502,7 @@ mod tests {
 			requested: permissions.empty_like(),
 			required: permissions.empty_like(),
 			resource: tg::Selector::Id(resource.clone()),
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			storage: tg::storage::Set::Object(tg::object::storage::Set::NODE),
 			subject: None,
 			tokens: Vec::new(),
 		};
@@ -637,6 +637,12 @@ mod tests {
 							0,
 						),
 						facts::Request::Id { id } => (facts::Output::Id(Some(id)), 1),
+						facts::Request::Storage { .. } => (
+							facts::Output::Storage(tg::storage::Set::Object(
+								tg::object::storage::Set::empty(),
+							)),
+							1,
+						),
 						facts::Request::Tag { .. } => (facts::Output::Tag(None), 1),
 						facts::Request::TargetTags { .. } => (
 							facts::Output::Tags {
@@ -658,7 +664,7 @@ mod tests {
 			assert_eq!(output.syncs.len(), 1);
 		}
 		let resolution_work = if matches!(kind, Kind::Candidates) {
-			2
+			4
 		} else {
 			0
 		};

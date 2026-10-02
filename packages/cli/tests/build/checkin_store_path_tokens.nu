@@ -27,7 +27,7 @@ let start_watch = tg checkpoint watch runner.process.start | from json | get wat
 let process = tg build --detach $module | str trim
 timeout 30s tg checkpoint wait runner.process.start $start_watch 0 | ignore
 let watches = [$directory $bin $file] | each { |id|
-	let params = { resource: $id } | to json --raw
+	let params = { resource: $id, storage: false } | to json --raw
 	tg checkpoint watch verification.index --params $params | from json | get watch
 }
 tg checkpoint continue runner.process.start $start_watch 0

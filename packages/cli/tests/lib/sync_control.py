@@ -1069,7 +1069,14 @@ def test_index_handoff(messenger):
         fresh_attempt = peer.connect("fresh", client="fresh")
         peer.send("read", id, fresh_attempt, client="fresh")
         response = peer.response("read", client="fresh")
-        assert response[0] is None and response[3] == stored[3], response
+        assert response[0] is None, response
+        # Renewed proofs may have different expirations for the same resources and permissions.
+        output = response[3].value.value
+        previous = stored[3].value.value
+        assert output[0] == previous[0] and output[1] == previous[1], response
+        proofs = [(body[1], body[2]) for body in output[2]]
+        previous_proofs = [(body[1], body[2]) for body in previous[2]]
+        assert proofs == previous_proofs, response
         peer.acknowledge(response)
         batch = watch("index.batch")
         release("sync.get.index.enqueue", enqueue)

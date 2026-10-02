@@ -15,6 +15,6 @@ snapshot --normalize $output.stderr '
 	   organization = ghost
 	-> the request failed
 	   status = 500 Internal Server Error
-	-> failed to find the organization
+	-> unauthorized
 
 '

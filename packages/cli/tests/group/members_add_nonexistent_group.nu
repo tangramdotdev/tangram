@@ -15,6 +15,6 @@ snapshot --normalize $output.stderr '
 	   member = usr_0000000000000000000000000000
 	-> the request failed
 	   status = 500 Internal Server Error
-	-> failed to find the group
+	-> unauthorized
 
 '

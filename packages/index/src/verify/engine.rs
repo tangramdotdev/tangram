@@ -191,7 +191,8 @@ impl Batch {
 								return Ok(ControlFlow::Continue(error));
 							},
 						};
-					if syncs.exhausted && result.outcome != super::Outcome::Satisfied {
+					// Sync discovery must not replace the outcome of the permission search.
+					if syncs.exhausted && !storage.contains(arg.storage) {
 						result.outcome = super::Outcome::Exhausted;
 					}
 					result.syncs.extend(syncs.syncs);

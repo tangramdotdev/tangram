@@ -2185,6 +2185,87 @@ async fn verify_returns_an_exhausted_outcome_when_the_subtree_search_exhausts() 
 }
 
 #[tokio::test]
+async fn verify_permission_denial_survives_sync_discovery_exhaustion() {
+	let subtree = tangram_index::verify::SubtreeConfig {
+		max_objects: 0,
+		..Default::default()
+	};
+	let config = tangram_index::verify::Config {
+		permissions: tangram_index::verify::PermissionsConfig {
+			subtree,
+			..Default::default()
+		},
+	};
+	let (_directory, index) = new_index();
+	let object = object_id(0);
+	let process = tg::process::Id::new();
+	let sandbox = tg::sandbox::Id::new();
+	let user = tg::user::Id::new();
+	let mut transaction = index.env.write_txn().unwrap();
+	let record = tangram_index::object::Object {
+		checkout: None,
+		metadata: tg::object::Metadata::default(),
+		put: [0; 16],
+		reference_count: 0,
+		storage: tg::object::storage::Set::empty(),
+		touched_at: 0,
+	};
+	let key = Key::Object(ObjectKey::Object(object.clone()));
+	put_value(&index, &mut transaction, &key, &record.serialize().unwrap());
+	put_sandbox(&index, &mut transaction, &sandbox);
+	let set = tangram_index::process::Set {
+		command_objects: true,
+		..Default::default()
+	};
+	put_process_with_set(&index, &mut transaction, &process, &sandbox, set);
+	put_process_object(
+		&index,
+		&mut transaction,
+		&process,
+		&object,
+		tangram_index::process::object::Kind::Command,
+	);
+	put_resource_permission(
+		&index,
+		&mut transaction,
+		process.into(),
+		tg::authorization::Subject::User(user.clone()),
+		tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		),
+	);
+	transaction.commit().unwrap();
+
+	// Discovering a sync checks command object permissions, whose derived subtree search exhausts.
+	let permissions =
+		object_permission(tg::authorization::permission::object::Permission::Node).into();
+	let arg = tangram_index::verify::Arg {
+		requested: permissions,
+		required: permissions,
+		resource: tg::Selector::Id(object.into()),
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
+		tokens: Vec::new(),
+	};
+	let mut storage = arg.clone();
+	storage.storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
+	let outputs = index
+		.verify_batch(&[arg, storage], config, &tg::Principal::User(user))
+		.await
+		.unwrap();
+
+	assert_eq!(
+		outputs[0].outcome,
+		tangram_index::verify::Outcome::Unsatisfied
+	);
+	assert!(outputs[0].permissions.is_empty());
+	assert_eq!(
+		outputs[1].outcome,
+		tangram_index::verify::Outcome::Exhausted
+	);
+}
+
+#[tokio::test]
 async fn verify_returns_required_permissions_when_an_optional_search_exhausts() {
 	let subtree = tangram_index::verify::SubtreeConfig {
 		max_objects: 0,
