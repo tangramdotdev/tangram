@@ -928,16 +928,24 @@ async fn poll_read_inner(
 		let object = if let Some(object) = object {
 			object
 		} else {
-			let arg = tg::object::get::Arg::default();
-			let bytes = session
+			let arg = tg::object::get::Arg {
+				tokens: state.tokens(),
+				..Default::default()
+			};
+			let output = session
 				.get_object(&id.unwrap(), arg)
 				.await
-				.map_err(|error| tg::error!(!error, "failed to get the object"))?
-				.bytes;
-			let data = tg::blob::Data::deserialize(bytes)
+				.map_err(|error| tg::error!(!error, "failed to get the object"))?;
+			state.inherit_tokens(&output.tokens);
+			let data = tg::blob::Data::deserialize(output.bytes)
 				.map_err(|error| tg::error!(!error, "failed to deserialize the blob"))?;
 			let object = tg::blob::Object::try_from_data(data)
 				.map_err(|error| tg::error!(!error, "failed to create the blob object"))?;
+			for child in object.children() {
+				if let Some(output) = output.children.get(&child.id()) {
+					child.state().inherit_tokens(&output.tokens);
+				}
+			}
 			let object = Arc::new(object);
 			if object.is_branch() {
 				state.set_object(object.clone());
