@@ -134,6 +134,13 @@ fn test_fd() -> OwnedFd {
 	std::fs::File::open("/dev/null").unwrap().into()
 }
 
+fn lookup_request(unique: u64) -> Request {
+	Request {
+		data: RequestData::Lookup(CString::new("missing").unwrap()),
+		header: request_header(sys::fuse_opcode_FUSE_LOOKUP, unique),
+	}
+}
+
 fn open_request(unique: u64) -> Request {
 	Request {
 		data: RequestData::Open(fuse_open_in {
@@ -551,6 +558,36 @@ fn directory_cache_flags_follow_immutability() {
 		panic!("expected an opendir response");
 	};
 	assert_eq!(response.open_flags, 0);
+}
+
+#[test]
+fn negative_entries_follow_immutability() {
+	let server = server();
+	let fd = test_fd();
+	let request = lookup_request(1);
+	let response = ProviderResponse::Lookup {
+		attrs: None,
+		id: None,
+		immutable: true,
+	};
+	let result = server.map_provider_response_sync(&fd, &request, response);
+	let Ok(Response::Lookup(response)) = &result else {
+		panic!("expected a lookup response");
+	};
+	assert_eq!(response.nodeid, 0);
+	assert_eq!(response.entry_valid, u64::MAX);
+	server.register_response_resources(&fd, 1, &result).unwrap();
+	assert!(server.pending_response_resources.lock().unwrap().is_empty());
+
+	let response = ProviderResponse::Lookup {
+		attrs: None,
+		id: None,
+		immutable: false,
+	};
+	let error = server
+		.map_provider_response_sync(&fd, &request, response)
+		.unwrap_err();
+	assert_eq!(error.raw_os_error(), Some(libc::ENOENT));
 }
 
 #[tokio::test]

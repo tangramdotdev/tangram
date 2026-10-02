@@ -69,7 +69,8 @@ where
 	) -> Result<()> {
 		// Collect resources transferred by the response.
 		let resources = match result {
-			Ok(Response::Lookup(response)) => ResponseResources {
+			// A negative entry has node ID zero and does not transfer a node.
+			Ok(Response::Lookup(response)) if response.nodeid != 0 => ResponseResources {
 				nodes: vec![response.nodeid],
 				..ResponseResources::default()
 			},

@@ -156,10 +156,15 @@ where
 						.listxattrs(id)
 						.await
 						.map(|names| crate::Response::ListXattrs { names }),
-					crate::Request::Lookup { id, name } => self
-						.lookup(id, &name)
-						.await
-						.map(|id| crate::Response::Lookup { attrs: None, id }),
+					crate::Request::Lookup { id, name } => {
+						self.lookup(id, &name)
+							.await
+							.map(|id| crate::Response::Lookup {
+								attrs: None,
+								id,
+								immutable: false,
+							})
+					},
 					crate::Request::LookupAndRemember { .. }
 					| crate::Request::ReadDirPlus { .. } => Err(Error::from_raw_os_error(libc::ENOSYS)),
 					crate::Request::LookupParent { id } => self
