@@ -12,12 +12,7 @@ mod wait;
 mod watch;
 
 pub struct State {
-	inner: Mutex<Inner>,
-}
-
-#[derive(Default)]
-struct Inner {
-	checkpoints: BTreeMap<String, Checkpoint>,
+	checkpoints: Mutex<BTreeMap<String, Checkpoint>>,
 }
 
 #[derive(Default)]
@@ -44,13 +39,13 @@ impl State {
 	#[must_use]
 	pub fn new() -> Self {
 		Self {
-			inner: Mutex::new(Inner::default()),
+			checkpoints: Mutex::new(BTreeMap::new()),
 		}
 	}
 
 	pub fn watch(&self, checkpoint: &str, params: tg::checkpoint::Params) -> u64 {
-		let mut inner = self.inner.lock().unwrap();
-		let checkpoint = inner.checkpoints.entry(checkpoint.to_owned()).or_default();
+		let mut checkpoints = self.checkpoints.lock().unwrap();
+		let checkpoint = checkpoints.entry(checkpoint.to_owned()).or_default();
 		let watch = checkpoint.next_watch;
 		checkpoint.next_watch += 1;
 		let (sender, _) = tokio::sync::watch::channel(0);
@@ -72,8 +67,8 @@ impl State {
 	) -> Option<tg::checkpoint::Params> {
 		loop {
 			let mut receiver = {
-				let inner = self.inner.lock().unwrap();
-				let checkpoint = inner.checkpoints.get(checkpoint)?;
+				let checkpoints = self.checkpoints.lock().unwrap();
+				let checkpoint = checkpoints.get(checkpoint)?;
 				let watch = checkpoint.watches.get(&watch)?;
 				if let Some(hit) = watch.hits.get(&hit) {
 					return Some(hit.params.clone());
@@ -85,9 +80,8 @@ impl State {
 	}
 
 	pub fn continue_hit(&self, checkpoint: &str, watch: u64, hit: u64) -> bool {
-		let mut inner = self.inner.lock().unwrap();
-		let Some(hit) = inner
-			.checkpoints
+		let mut checkpoints = self.checkpoints.lock().unwrap();
+		let Some(hit) = checkpoints
 			.get_mut(checkpoint)
 			.and_then(|checkpoint| checkpoint.watches.get_mut(&watch))
 			.and_then(|watch| watch.hits.get_mut(&hit))
@@ -101,30 +95,29 @@ impl State {
 	}
 
 	pub fn unwatch(&self, checkpoint: &str, watch: u64) -> bool {
-		let mut inner = self.inner.lock().unwrap();
-		inner
-			.checkpoints
+		let mut checkpoints = self.checkpoints.lock().unwrap();
+		checkpoints
 			.get_mut(checkpoint)
 			.and_then(|checkpoint| checkpoint.watches.remove(&watch))
 			.is_some()
 	}
 
 	pub fn abort(&self, checkpoint: &str, params: tg::checkpoint::Params) {
-		let mut inner = self.inner.lock().unwrap();
-		let checkpoint = inner.checkpoints.entry(checkpoint.to_owned()).or_default();
+		let mut checkpoints = self.checkpoints.lock().unwrap();
+		let checkpoint = checkpoints.entry(checkpoint.to_owned()).or_default();
 		checkpoint.aborts.push(params);
 	}
 
 	pub fn panic(&self, checkpoint: &str, params: tg::checkpoint::Params) {
-		let mut inner = self.inner.lock().unwrap();
-		let checkpoint = inner.checkpoints.entry(checkpoint.to_owned()).or_default();
+		let mut checkpoints = self.checkpoints.lock().unwrap();
+		let checkpoint = checkpoints.entry(checkpoint.to_owned()).or_default();
 		checkpoint.panics.push(params);
 	}
 
 	pub async fn hit(&self, checkpoint: &str, params: tg::checkpoint::Params) {
 		let panic = {
-			let inner = self.inner.lock().unwrap();
-			let Some(checkpoint) = inner.checkpoints.get(checkpoint) else {
+			let checkpoints = self.checkpoints.lock().unwrap();
+			let Some(checkpoint) = checkpoints.get(checkpoint) else {
 				return;
 			};
 			if checkpoint
@@ -141,8 +134,8 @@ impl State {
 		};
 		assert!(!panic, "checkpoint panic");
 		let receivers = {
-			let mut inner = self.inner.lock().unwrap();
-			let Some(checkpoint) = inner.checkpoints.get_mut(checkpoint) else {
+			let mut checkpoints = self.checkpoints.lock().unwrap();
+			let Some(checkpoint) = checkpoints.get_mut(checkpoint) else {
 				return;
 			};
 			let mut receivers = Vec::new();
