@@ -21,7 +21,14 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) if !self.server.is_primary_region() => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.add_group_member_region(group, arg, region).await
+			},
+			tg::Location::Local(tg::location::Local { region: None })
+				if !self.server.is_primary_region() =>
+			{
 				self.add_group_member_primary_region(group, arg).await
 			},
 			tg::Location::Local(_) => {
@@ -113,6 +120,28 @@ impl Session {
 		Ok(())
 	}
 
+	async fn add_group_member_region(
+		&self,
+		group: &tg::group::Selector,
+		mut arg: tg::group::members::add::Arg,
+		region: String,
+	) -> tg::Result<()> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		client.add_group_member(group, arg).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to add the group member"),
+		)?;
+
+		Ok(())
+	}
+
 	async fn add_group_member_remote(
 		&self,
 		group: &tg::group::Selector,
@@ -127,7 +156,12 @@ impl Session {
 			region: None,
 		});
 		arg.tokens = arg.tokens.for_location(&location);
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
 		client.add_group_member(group, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to add the group member"),
 		)?;

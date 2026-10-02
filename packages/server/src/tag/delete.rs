@@ -18,7 +18,14 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) if !self.server.is_primary_region() => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.delete_tags_region(arg, region).await
+			},
+			tg::Location::Local(tg::location::Local { region: None })
+				if !self.server.is_primary_region() =>
+			{
 				self.delete_tags_primary_region(arg).await
 			},
 			tg::Location::Local(_) => self.delete_tags_local(arg).await,
@@ -299,6 +306,28 @@ impl Session {
 		Ok(output)
 	}
 
+	async fn delete_tags_region(
+		&self,
+		mut arg: tg::tag::delete::Arg,
+		region: String,
+	) -> tg::Result<tg::tag::delete::Output> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		let output = client
+			.delete_tags(arg)
+			.await
+			.map_err(|error| tg::error!(!error, region = %region, "failed to delete the tags"))?;
+
+		Ok(output)
+	}
+
 	async fn delete_tags_remote(
 		&self,
 		mut arg: tg::tag::delete::Arg,
@@ -307,7 +336,12 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
 		let output = client.delete_tags(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to delete the tags"),
 		)?;

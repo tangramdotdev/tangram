@@ -721,6 +721,11 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.list_grants_region(arg, region).await
+			},
 			tg::Location::Local(_) => self.list_grants_local(arg).await,
 			tg::Location::Remote(remote) => self.list_grants_remote(arg, remote).await,
 		}
@@ -1079,6 +1084,26 @@ impl Session {
 		Ok(ControlFlow::Break(grants))
 	}
 
+	async fn list_grants_region(
+		&self,
+		mut arg: tg::grant::list::Arg,
+		region: String,
+	) -> tg::Result<Option<tg::grant::list::Output>> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		client
+			.list_grants(arg)
+			.await
+			.map_err(|error| tg::error!(!error, region = %region, "failed to list the grants"))
+	}
+
 	async fn list_grants_remote(
 		&self,
 		mut arg: tg::grant::list::Arg,
@@ -1094,7 +1119,12 @@ impl Session {
 			});
 			resource.options.tokens = resource.options.tokens.for_location(&location);
 		}
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
 		client
 			.list_grants(arg)
 			.await

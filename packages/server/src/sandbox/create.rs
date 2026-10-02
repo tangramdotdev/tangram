@@ -24,12 +24,12 @@ impl Session {
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let output = match location {
-			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.create_sandbox_local(arg).await?
-			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			}) => self.create_sandbox_region(arg, region).await?,
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.create_sandbox_region(arg, region).await?
+			},
+			tg::Location::Local(_) => self.create_sandbox_local(arg).await?,
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,

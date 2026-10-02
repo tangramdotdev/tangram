@@ -35,12 +35,12 @@ impl Session {
 		let location_arg = arg.node.options.location.clone().map(Into::into);
 		let location = self.server.location(location_arg.as_ref())?;
 		match location {
-			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.children_local(arg).await
-			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			}) => self.children_region(arg, &region).await,
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.children_region(arg, &region).await
+			},
+			tg::Location::Local(_) => self.children_local(arg).await,
 			tg::Location::Remote(remote) => self.children_remote(arg, &remote).await,
 		}
 	}

@@ -64,7 +64,13 @@ impl Session {
 		}
 		let location = self.server.location(arg.location.as_ref())?;
 		let output = match location {
-			tg::Location::Local(tg::location::Local { region: None }) => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.try_write_process_stdio_region(id, &arg, input, region)
+					.await?
+			},
+			tg::Location::Local(_) => {
 				self.try_write_process_stdio_local(
 					id,
 					&arg.streams,
@@ -73,12 +79,6 @@ impl Session {
 					arg.tokens.local_authorization(),
 				)
 				.await?
-			},
-			tg::Location::Local(tg::location::Local {
-				region: Some(region),
-			}) => {
-				self.try_write_process_stdio_region(id, &arg, input, region)
-					.await?
 			},
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,

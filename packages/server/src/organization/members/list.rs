@@ -28,6 +28,12 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.list_organization_members_region(organization, arg, region)
+					.await
+			},
 			tg::Location::Local(_) => {
 				self.list_organization_members_local(organization, arg)
 					.await
@@ -174,6 +180,29 @@ impl Session {
 		))
 	}
 
+	async fn list_organization_members_region(
+		&self,
+		organization: &tg::organization::Selector,
+		mut arg: tg::organization::members::list::Arg,
+		region: String,
+	) -> tg::Result<tg::organization::members::list::Output> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		client
+			.list_organization_members(organization, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, region = %region, "failed to list the organization members"),
+			)
+	}
+
 	async fn list_organization_members_remote(
 		&self,
 		organization: &tg::organization::Selector,
@@ -188,7 +217,12 @@ impl Session {
 			region: None,
 		});
 		arg.tokens = arg.tokens.for_location(&location);
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
 		client
 			.list_organization_members(organization, arg)
 			.await

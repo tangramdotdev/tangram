@@ -21,7 +21,15 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) if !self.server.is_primary_region() => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.try_delete_organization_region(organization, arg, region)
+					.await
+			},
+			tg::Location::Local(tg::location::Local { region: None })
+				if !self.server.is_primary_region() =>
+			{
 				self.try_delete_organization_primary_region(organization, arg)
 					.await
 			},
@@ -182,6 +190,31 @@ impl Session {
 		Ok(output)
 	}
 
+	async fn try_delete_organization_region(
+		&self,
+		organization: &tg::organization::Selector,
+		mut arg: tg::organization::delete::Arg,
+		region: String,
+	) -> tg::Result<Option<()>> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		let output = client
+			.try_delete_organization(organization, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, region = %region, "failed to delete the organization"),
+			)?;
+
+		Ok(output)
+	}
+
 	async fn try_delete_organization_remote(
 		&self,
 		organization: &tg::organization::Selector,
@@ -196,7 +229,12 @@ impl Session {
 			region: None,
 		});
 		arg.tokens = arg.tokens.for_location(&location);
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
 		let output = client
 			.try_delete_organization(organization, arg)
 			.await

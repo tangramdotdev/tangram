@@ -471,8 +471,9 @@ impl Session {
 		output: &mut tg::process::spawn::Output,
 	) -> tg::Result<()> {
 		if matches!(
-			output.location,
-			Some(tg::Location::Local(tg::location::Local { region: None }))
+			&output.location,
+			Some(tg::Location::Local(tg::location::Local { region }))
+				if region.as_deref().is_none_or(|region| Some(region) == self.server.config.region.as_deref())
 		) && let Some(outcome) = &mut output.outcome
 		{
 			if let Some(output) = &mut outcome.output {

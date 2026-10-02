@@ -21,7 +21,14 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) if !self.server.is_primary_region() => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.manage_user_billing_region(arg, region).await
+			},
+			tg::Location::Local(tg::location::Local { region: None })
+				if !self.server.is_primary_region() =>
+			{
 				self.manage_user_billing_primary_region(arg).await
 			},
 			tg::Location::Local(_) => self.manage_user_billing_local().await,
@@ -242,6 +249,27 @@ impl Session {
 		Ok(output)
 	}
 
+	async fn manage_user_billing_region(
+		&self,
+		mut arg: tg::user::billing::manage::Arg,
+		region: String,
+	) -> tg::Result<tg::user::billing::manage::Output> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		let output = client.manage_user_billing(arg).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to manage the user billing"),
+		)?;
+
+		Ok(output)
+	}
+
 	async fn manage_user_billing_remote(
 		&self,
 		mut arg: tg::user::billing::manage::Arg,
@@ -250,7 +278,12 @@ impl Session {
 		let client = self.get_remote_session(&remote.name).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
 		let output = client.manage_user_billing(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to manage the user billing"),
 		)?;

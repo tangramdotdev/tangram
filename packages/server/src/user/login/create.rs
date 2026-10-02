@@ -23,19 +23,50 @@ impl Session {
 
 		// Start the login.
 		match location {
-			tg::Location::Local(_) if !self.server.is_primary_region() => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.create_login_region(arg, region).await
+			},
+			tg::Location::Local(tg::location::Local { region: None })
+				if !self.server.is_primary_region() =>
+			{
 				self.create_login_primary_region(arg).await
 			},
 			tg::Location::Local(_) => self.create_login_local(arg).await,
 			tg::Location::Remote(remote) => {
 				let client = self.get_remote_session(&remote.name).await?;
 				let arg = tg::user::login::create::Arg {
-					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+					location: Some(
+						tg::Location::Local(tg::location::Local {
+							region: remote.region.clone(),
+						})
+						.into(),
+					),
 					..arg
 				};
 				client.create_login(arg).await
 			},
 		}
+	}
+
+	async fn create_login_region(
+		&self,
+		mut arg: tg::user::login::create::Arg,
+		region: String,
+	) -> tg::Result<tg::user::login::create::Output> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		arg.location = Some(location.into());
+		let output = client
+			.create_login(arg)
+			.await
+			.map_err(|error| tg::error!(!error, region = %region, "failed to create the login"))?;
+		Ok(output)
 	}
 
 	async fn create_login_primary_region(

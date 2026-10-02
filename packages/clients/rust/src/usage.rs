@@ -50,6 +50,7 @@ pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub hour: Option<String>,
 
+	/// Select a server and optional region. An unspecified region includes all of the server's regions.
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
@@ -198,6 +199,7 @@ impl Arg {
 		let Self {
 			day,
 			hour,
+			location: _,
 			month,
 			week,
 			..

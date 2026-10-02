@@ -20,7 +20,14 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) if !self.server.is_primary_region() => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.put_tag_region(arg, region).await
+			},
+			tg::Location::Local(tg::location::Local { region: None })
+				if !self.server.is_primary_region() =>
+			{
 				self.put_tag_primary_region(arg).await
 			},
 			tg::Location::Local(_) => self.put_tag_local(arg).await,
@@ -480,6 +487,29 @@ impl Session {
 		Ok(())
 	}
 
+	async fn put_tag_region(&self, mut arg: tg::tag::put::Arg, region: String) -> tg::Result<()> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.tokens = arg
+			.tokens
+			.for_location(&tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			}));
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		client
+			.put_tag(arg)
+			.await
+			.map_err(|error| tg::error!(!error, region = %region, "failed to put the tag"))?;
+
+		Ok(())
+	}
+
 	async fn put_tag_remote(
 		&self,
 		mut arg: tg::tag::put::Arg,
@@ -491,7 +521,12 @@ impl Session {
 		arg.tokens = arg
 			.tokens
 			.for_location(&tg::Location::Remote(remote.clone()));
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
 		client
 			.put_tag(arg)
 			.await

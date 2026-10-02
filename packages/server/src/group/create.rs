@@ -18,7 +18,14 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) if !self.server.is_primary_region() => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.create_group_region(arg, region).await
+			},
+			tg::Location::Local(tg::location::Local { region: None })
+				if !self.server.is_primary_region() =>
+			{
 				self.create_group_primary_region(arg).await
 			},
 			tg::Location::Local(_) => self.create_group_local(arg).await,
@@ -159,6 +166,32 @@ impl Session {
 		Ok(output)
 	}
 
+	async fn create_group_region(
+		&self,
+		mut arg: tg::group::create::Arg,
+		region: String,
+	) -> tg::Result<tg::group::create::Output> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		let mut output = client
+			.create_group(arg)
+			.await
+			.map_err(|error| tg::error!(!error, region = %region, "failed to create the group"))?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region),
+		});
+		output.location = Some(location);
+
+		Ok(output)
+	}
+
 	async fn create_group_remote(
 		&self,
 		mut arg: tg::group::create::Arg,
@@ -168,7 +201,12 @@ impl Session {
 			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
 		)?;
 		let trusted = client.trusted();
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
 		let mut output = client.create_group(arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to create the group"),
 		)?;

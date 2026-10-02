@@ -1102,7 +1102,8 @@ impl Session {
 		crate::checkpoint!(self.server, "runner.process.control.connect", process = ?arg.id).await;
 		let local_process_control = matches!(
 			self.server.location(arg.location.as_ref())?,
-			tg::Location::Local(tg::location::Local { region: None })
+			tg::Location::Local(tg::location::Local { region })
+				if region.as_deref().is_none_or(|region| Some(region) == self.server.config.region.as_deref())
 		);
 		let mut session = self.clone();
 		session.local_process_control = local_process_control;

@@ -38,7 +38,12 @@ impl Session {
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let (mut output, trusted) = match location.clone() {
-			tg::Location::Local(tg::location::Local { region: None }) => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				(self.put_process_region(id, arg, region).await?, false)
+			},
+			tg::Location::Local(_) => {
 				let options = Options {
 					defer_index: false,
 					enqueue_log_compaction: false,
@@ -48,9 +53,6 @@ impl Session {
 				};
 				(self.put_process_local(id, arg, options).await?, false)
 			},
-			tg::Location::Local(tg::location::Local {
-				region: Some(region),
-			}) => (self.put_process_region(id, arg, region).await?, false),
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,

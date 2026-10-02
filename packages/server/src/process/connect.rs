@@ -115,8 +115,9 @@ impl Session {
 			arg.location = spawn.location.clone();
 			let location = self.server.location(arg.location.as_ref())?;
 			if matches!(
-				location,
-				tg::Location::Local(tg::location::Local { region: None })
+				&location,
+				tg::Location::Local(tg::location::Local { region })
+				if region.as_deref().is_none_or(|region| Some(region) == self.server.config.region.as_deref())
 			) || self.spawn_process_runner_matches_location(&location)
 			{
 				return self
@@ -507,7 +508,8 @@ impl Session {
 		if wait_future.is_none()
 			&& !matches!(
 				self.server.location(location.as_ref())?,
-				tg::Location::Local(tg::location::Local { region: None })
+				tg::Location::Local(tg::location::Local { region })
+				if region.as_deref().is_none_or(|region| Some(region) == self.server.config.region.as_deref())
 			) {
 			let arg = tg::process::connect::Arg {
 				command_sync: false,

@@ -7,32 +7,82 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::Index as _,
 };
 
 impl Session {
 	pub(crate) async fn try_get_user_usage(
 		&self,
 		user: &tg::user::Selector,
-		mut arg: tg::usage::Arg,
+		arg: tg::usage::Arg,
 	) -> tg::Result<Option<tg::usage::Output>> {
-		let location = self.server.location(arg.location.as_ref())?;
-		if let tg::Location::Remote(remote) = &location {
-			let client = self.get_remote_session(&remote.name).await?;
-			arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
-			arg.tokens = arg.tokens.for_location(&location);
-			let output = client.try_get_user_usage(user, arg).await?;
-			return Ok(output);
+		let location = self
+			.server
+			.location(arg.location.as_ref())
+			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
+		match location {
+			tg::Location::Local(tg::location::Local { region: None }) => {
+				self.try_get_user_usage_regions(user, arg).await
+			},
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) == self.server.config.region.as_deref() => {
+				self.try_get_user_usage_local(user, arg).await
+			},
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) => self.try_get_user_usage_region(user, arg, region).await,
+			tg::Location::Remote(remote) => self.try_get_user_usage_remote(user, arg, remote).await,
 		}
+	}
 
+	async fn try_get_user_usage_regions(
+		&self,
+		user: &tg::user::Selector,
+		arg: tg::usage::Arg,
+	) -> tg::Result<Option<tg::usage::Output>> {
+		let Some(account) = self
+			.try_resolve_user_usage_account(user, &arg.tokens)
+			.await?
+		else {
+			return Ok(None);
+		};
+		let now = self.server.clock.now()?;
+		let tokens = arg.tokens.clone();
+		let period = arg.period(now)?;
+		let output = self.get_usage_regions(&account, period, &tokens).await?;
+		Ok(Some(output))
+	}
+
+	async fn try_get_user_usage_local(
+		&self,
+		user: &tg::user::Selector,
+		arg: tg::usage::Arg,
+	) -> tg::Result<Option<tg::usage::Output>> {
 		if !self.server.config.usage.enabled {
 			return Err(tg::error!("usage tracking is disabled"));
 		}
+		let Some(account) = self
+			.try_resolve_user_usage_account(user, &arg.tokens)
+			.await?
+		else {
+			return Ok(None);
+		};
+		let now = self.server.clock.now()?;
+		let period = arg.period(now)?;
+		let output = self.get_usage_local(&account, period).await?;
+		Ok(Some(output))
+	}
+
+	async fn try_resolve_user_usage_account(
+		&self,
+		user: &tg::user::Selector,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<Option<tg::usage::Account>> {
 		let permission = tg::authorization::Permission::User(
 			tg::authorization::permission::user::Permission::Admin,
 		);
 		self.authorize(
-			tg::Referent::with_node_and_tokens(user.clone(), arg.tokens.clone()),
+			tg::Referent::with_node_and_tokens(user.clone(), tokens.clone()),
 			permission,
 		)
 		.await?
@@ -48,29 +98,9 @@ impl Session {
 					.boxed()
 			})
 			.await?;
-		let Some(id) = id else {
-			return Ok(None);
-		};
-		let now = self.server.clock.now()?;
-		let period = arg.period(now)?;
-		let aggregate = self
-			.server
-			.index
-			.get_usage(&tg::usage::Account::User(id.clone()), period, now)
-			.await?;
-		let output = tg::usage::Output {
-			account: id.into(),
-			complete: period.end() <= now,
-			object_count: aggregate.object_count,
-			object_size: aggregate.object_size,
-			period: period.range(),
-			process_count: aggregate.process_count,
-			sandbox_count: aggregate.sandbox_count,
-			sandbox_cpu: aggregate.sandbox_cpu,
-			sandbox_memory: aggregate.sandbox_memory,
-		};
+		let account = id.map(tg::usage::Account::User);
 
-		Ok(Some(output))
+		Ok(account)
 	}
 
 	async fn try_resolve_user_with_transaction(
@@ -92,6 +122,50 @@ impl Session {
 		};
 
 		Ok(ControlFlow::Break(id))
+	}
+
+	async fn try_get_user_usage_region(
+		&self,
+		user: &tg::user::Selector,
+		mut arg: tg::usage::Arg,
+		region: String,
+	) -> tg::Result<Option<tg::usage::Output>> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		arg.location = Some(location.into());
+		let output = client
+			.try_get_user_usage(user, arg)
+			.await
+			.map_err(|error| tg::error!(!error, region = %region, "failed to get the usage"))?;
+		Ok(output)
+	}
+
+	async fn try_get_user_usage_remote(
+		&self,
+		user: &tg::user::Selector,
+		mut arg: tg::usage::Arg,
+		remote: tg::location::Remote,
+	) -> tg::Result<Option<tg::usage::Output>> {
+		let client = self.get_remote_session(&remote.name).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the remote client"),
+		)?;
+		let location = tg::Location::Remote(remote.clone());
+		arg.tokens = arg.tokens.for_location(&location);
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region,
+			})
+			.into(),
+		);
+		let output = client.try_get_user_usage(user, arg).await.map_err(
+			|error| tg::error!(!error, remote = %remote.name, "failed to get the usage"),
+		)?;
+
+		Ok(output)
 	}
 
 	pub(crate) async fn try_get_user_usage_request(

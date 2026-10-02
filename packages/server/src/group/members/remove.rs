@@ -22,7 +22,15 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) if !self.server.is_primary_region() => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.remove_group_member_region(group, member, arg, region)
+					.await
+			},
+			tg::Location::Local(tg::location::Local { region: None })
+				if !self.server.is_primary_region() =>
+			{
 				self.remove_group_member_primary_region(group, member, arg)
 					.await
 			},
@@ -123,6 +131,32 @@ impl Session {
 		Ok(output)
 	}
 
+	async fn remove_group_member_region(
+		&self,
+		group: &tg::group::Selector,
+		member: &tg::group::Member,
+		mut arg: tg::group::members::remove::Arg,
+		region: String,
+	) -> tg::Result<Option<()>> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		let output = client
+			.remove_group_member(group, member, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, region = %region, "failed to remove the group member"),
+			)?;
+
+		Ok(output)
+	}
+
 	async fn remove_group_member_remote(
 		&self,
 		group: &tg::group::Selector,
@@ -138,7 +172,12 @@ impl Session {
 			region: None,
 		});
 		arg.tokens = arg.tokens.for_location(&location);
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
 		let output = client
 			.remove_group_member(group, member, arg)
 			.await

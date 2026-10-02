@@ -248,7 +248,12 @@ impl Session {
 			.await?
 		} else {
 			let spawn_future = match location.clone() {
-				tg::Location::Local(tg::location::Local { region: None }) => self
+				tg::Location::Local(tg::location::Local {
+					region: Some(region),
+				}) if Some(region.as_str()) != self.server.config.region.as_deref() => self
+					.try_spawn_process_region(arg.clone(), progress, region)
+					.boxed(),
+				tg::Location::Local(_) => self
 					.try_spawn_process_local(
 						arg.clone(),
 						command.clone(),
@@ -256,11 +261,6 @@ impl Session {
 						None,
 						None,
 					)
-					.boxed(),
-				tg::Location::Local(tg::location::Local {
-					region: Some(region),
-				}) => self
-					.try_spawn_process_region(arg.clone(), progress, region)
 					.boxed(),
 				tg::Location::Remote(tg::location::Remote {
 					name: remote,
@@ -351,7 +351,13 @@ impl Session {
 				})
 			},
 		);
-		runner_location == *location
+		match location {
+			tg::Location::Local(local) if config.remote.is_none() => local
+				.region
+				.as_deref()
+				.is_none_or(|region| Some(region) == self.server.config.region.as_deref()),
+			_ => runner_location == *location,
+		}
 	}
 
 	async fn try_spawn_process_local(

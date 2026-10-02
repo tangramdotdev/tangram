@@ -28,6 +28,11 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.list_group_members_region(group, arg, region).await
+			},
 			tg::Location::Local(_) => self.list_group_members_local(group, arg).await,
 			tg::Location::Remote(remote) => {
 				self.list_group_members_remote(group, arg, remote).await
@@ -169,6 +174,26 @@ impl Session {
 		Ok(ControlFlow::Break(output))
 	}
 
+	async fn list_group_members_region(
+		&self,
+		group: &tg::group::Selector,
+		mut arg: tg::group::members::list::Arg,
+		region: String,
+	) -> tg::Result<tg::group::members::list::Output> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		client.list_group_members(group, arg).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to list the group members"),
+		)
+	}
+
 	async fn list_group_members_remote(
 		&self,
 		group: &tg::group::Selector,
@@ -183,7 +208,12 @@ impl Session {
 			region: None,
 		});
 		arg.tokens = arg.tokens.for_location(&location);
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
 		client.list_group_members(group, arg).await.map_err(
 			|error| tg::error!(!error, remote = %remote.name, "failed to list the group members"),
 		)

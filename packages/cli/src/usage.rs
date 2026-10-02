@@ -1,9 +1,14 @@
 use {crate::Cli, tangram_client::prelude::*};
 
 /// Get usage for a user or organization.
+///
+/// Usage includes all regions of the selected server unless a specific region is selected with --location.
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
+	#[command(flatten)]
+	pub location: crate::location::Args,
+
 	#[command(flatten)]
 	pub period: PeriodArgs,
 
@@ -37,9 +42,11 @@ pub struct PeriodArgs {
 impl Cli {
 	pub async fn command_usage(&mut self, args: Args) -> tg::Result<()> {
 		let client = self.client().await?;
+		let location = args.location.get();
 		let mut arg = tg::usage::Arg::from(args.period);
+		arg.location = location.clone();
 		let usage = if let Some(selector) = args.selector {
-			arg.location = selector.options.location.map(Into::into);
+			arg.location = args.location.get_for_options(&selector);
 			arg.tokens = selector.options.tokens;
 			match selector.node {
 				tg::Selector::Id(id) => match id.kind() {
@@ -83,8 +90,9 @@ impl Cli {
 				},
 			}
 		} else {
+			let current_arg = tg::user::current::Arg { location };
 			let user = client
-				.get_current_user(tg::user::current::Arg::default())
+				.get_current_user(current_arg)
 				.await?
 				.ok_or_else(|| tg::error!("not logged in"))?;
 			client

@@ -22,7 +22,15 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
-			tg::Location::Local(_) if !self.server.is_primary_region() => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.manage_organization_billing_region(organization, arg, region)
+					.await
+			},
+			tg::Location::Local(tg::location::Local { region: None })
+				if !self.server.is_primary_region() =>
+			{
 				self.manage_organization_billing_primary_region(organization, arg)
 					.await
 			},
@@ -259,6 +267,31 @@ impl Session {
 		Ok(output)
 	}
 
+	async fn manage_organization_billing_region(
+		&self,
+		organization: &tg::organization::Selector,
+		mut arg: tg::organization::billing::manage::Arg,
+		region: String,
+	) -> tg::Result<tg::organization::billing::manage::Output> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: Some(region.clone()),
+			})
+			.into(),
+		);
+		let output = client
+			.manage_organization_billing(organization, arg)
+			.await
+			.map_err(
+				|error| tg::error!(!error, region = %region, "failed to manage the organization billing"),
+			)?;
+
+		Ok(output)
+	}
+
 	async fn manage_organization_billing_remote(
 		&self,
 		organization: &tg::organization::Selector,
@@ -273,7 +306,12 @@ impl Session {
 			region: None,
 		});
 		arg.tokens = arg.tokens.for_location(&location);
-		arg.location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		arg.location = Some(
+			tg::Location::Local(tg::location::Local {
+				region: remote.region.clone(),
+			})
+			.into(),
+		);
 		let output = client
 			.manage_organization_billing(organization, arg)
 			.await

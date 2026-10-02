@@ -126,15 +126,13 @@ impl Session {
 	)> {
 		let location = self.server.location(arg.location.as_ref())?;
 		let output = match location {
-			tg::Location::Local(tg::location::Local { region: None }) => {
-				self.get_sandbox_control_stream_local(arg, stream).await?
-			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			}) => {
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
 				self.get_sandbox_control_stream_region(arg, stream, region)
 					.await?
 			},
+			tg::Location::Local(_) => self.get_sandbox_control_stream_local(arg, stream).await?,
 			tg::Location::Remote(tg::location::Remote { name, region }) => {
 				self.get_sandbox_control_stream_remote(arg, stream, name, region)
 					.await?

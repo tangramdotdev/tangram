@@ -20,12 +20,12 @@ impl Session {
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let (mut output, trusted) = match location.clone() {
-			tg::Location::Local(tg::location::Local { region: None }) => {
-				(self.post_object_batch_local(arg).await?, false)
-			},
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
-			}) => (self.post_object_batch_region(arg, region).await?, false),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				(self.post_object_batch_region(arg, region).await?, false)
+			},
+			tg::Location::Local(_) => (self.post_object_batch_local(arg).await?, false),
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,

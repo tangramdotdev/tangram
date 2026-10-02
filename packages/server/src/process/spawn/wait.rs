@@ -222,13 +222,16 @@ impl Session {
 		let output = if let Some(location) = location
 			&& !matches!(
 				location,
-				tg::Location::Local(tg::location::Local { region: None })
+				tg::Location::Local(tg::location::Local { region })
+				if region.as_deref().is_none_or(|region| Some(region) == self.server.config.region.as_deref())
 			) {
 			match location {
-				tg::Location::Local(tg::location::Local { region: None }) => unreachable!(),
 				tg::Location::Local(tg::location::Local {
 					region: Some(region),
-				}) => self.try_get_cached_process_region(arg, region).await?,
+				}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+					self.try_get_cached_process_region(arg, region).await?
+				},
+				tg::Location::Local(_) => unreachable!(),
 				tg::Location::Remote(tg::location::Remote { name, region }) => {
 					self.try_get_cached_process_remote(arg, name, region.as_deref())
 						.await?

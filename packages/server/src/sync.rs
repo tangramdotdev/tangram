@@ -73,14 +73,16 @@ impl Session {
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let (header, stream) = match location {
-			tg::Location::Local(tg::location::Local { region: None }) => {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.sync_region(arg, process, stream, region).await?
+			},
+			tg::Location::Local(_) => {
 				let (header, stream) = self.sync_local(arg, stream, verify_object_ids).await?;
 				let stream = stream.with_stopper(self.context.stopper.clone());
 				(header, stream)
 			},
-			tg::Location::Local(tg::location::Local {
-				region: Some(region),
-			}) => self.sync_region(arg, process, stream, region).await?,
 			tg::Location::Remote(tg::location::Remote {
 				name: remote,
 				region,

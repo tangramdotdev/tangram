@@ -23,12 +23,22 @@ impl Session {
 
 		// Await the login.
 		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.wait_login_region(arg, region).await
+			},
 			tg::Location::Local(_) => self.wait_login_local(&arg.code).await,
 			tg::Location::Remote(remote) => {
 				let client = self.get_remote_session(&remote.name).await?;
 				let arg = tg::user::login::wait::Arg {
 					code: arg.code,
-					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+					location: Some(
+						tg::Location::Local(tg::location::Local {
+							region: remote.region.clone(),
+						})
+						.into(),
+					),
 				};
 				let mut output = client.wait_login(arg).await?;
 				self.set_remote_token(&remote.name, output.token.clone())
@@ -40,6 +50,25 @@ impl Session {
 				Ok(output)
 			},
 		}
+	}
+
+	async fn wait_login_region(
+		&self,
+		mut arg: tg::user::login::wait::Arg,
+		region: String,
+	) -> tg::Result<tg::user::login::wait::Output> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		arg.location = Some(location.into());
+		let output = client
+			.wait_login(arg)
+			.await
+			.map_err(|error| tg::error!(!error, region = %region, "failed to await the login"))?;
+		Ok(output)
 	}
 
 	async fn wait_login_local(&self, code: &str) -> tg::Result<tg::user::login::wait::Output> {

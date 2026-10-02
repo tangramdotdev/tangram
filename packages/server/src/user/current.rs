@@ -16,6 +16,11 @@ impl Session {
 			.location(arg.location.as_ref())
 			.map_err(|error| tg::error!(!error, "failed to resolve the location"))?;
 		match location {
+			tg::Location::Local(tg::location::Local {
+				region: Some(region),
+			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				self.get_current_user_region(arg, region).await
+			},
 			tg::Location::Local(_) => {
 				let tg::Principal::User(user) = &self.context.principal else {
 					return Ok(None);
@@ -30,11 +35,34 @@ impl Session {
 			tg::Location::Remote(remote) => {
 				let client = self.get_remote_session(&remote.name).await?;
 				let arg = tg::user::current::Arg {
-					location: Some(tg::Location::Local(tg::location::Local::default()).into()),
+					location: Some(
+						tg::Location::Local(tg::location::Local {
+							region: remote.region.clone(),
+						})
+						.into(),
+					),
 				};
 				client.get_current_user(arg).await
 			},
 		}
+	}
+
+	async fn get_current_user_region(
+		&self,
+		mut arg: tg::user::current::Arg,
+		region: String,
+	) -> tg::Result<Option<tg::user::get::Output>> {
+		let client = self.get_region_session(&region).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the region client"),
+		)?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: Some(region.clone()),
+		});
+		arg.location = Some(location.into());
+		let output = client.get_current_user(arg).await.map_err(
+			|error| tg::error!(!error, region = %region, "failed to get the current user"),
+		)?;
+		Ok(output)
 	}
 
 	pub(crate) async fn get_current_user_request(

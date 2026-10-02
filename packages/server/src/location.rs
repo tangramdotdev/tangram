@@ -20,6 +20,7 @@ pub(crate) struct Remote {
 }
 
 impl Server {
+	/// Resolve one location while preserving an explicit region, including the current region.
 	pub(crate) fn location(&self, arg: Option<&tg::location::Arg>) -> tg::Result<tg::Location> {
 		let current_region = self.config().region.as_deref();
 		let configured_regions = self.config().regions.as_deref();
@@ -40,10 +41,6 @@ impl Server {
 		let Some(region) = local.region else {
 			return Ok(tg::Location::Local(local));
 		};
-
-		if Some(region.as_str()) == current_region {
-			return Ok(tg::Location::Local(tg::location::Local::default()));
-		}
 
 		validate_regions(
 			current_region,

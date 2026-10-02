@@ -45,11 +45,11 @@ tg --url $local.url tag put owned $object
 tg --url $local.url push --remote=b owned
 
 wait_until {
-	(tg --url $remote_region_b.url --token $alice.token user usage | from json | get object_count) >= 1
+	(tg --url $remote_region_b.url --token $alice.token user usage --location='local(b)' | from json | get object_count) >= 1
 } "Alice's tag should charge storage in region B"
 let tag = tg --url $remote_region_b.url --token $alice.token tag get owned | from json
 assert (target_permissions $remote_region_b.url $alice.token $tag.id | any { |permission| $permission in ['object_node' 'object_subtree'] }) "the tag should retain Alice's target permissions"
-let usage = tg --url $remote_region_a.url --token $alice.token user usage | from json
+let usage = tg --url $remote_region_a.url --token $alice.token user usage --location='local(a)' | from json
 assert equal $usage.object_count 0 "the tag must not charge storage for an absent object"
 
 # Bob pushes only the object to region A. Alice's tag retained the target
@@ -58,12 +58,12 @@ assert equal $usage.object_count 0 "the tag must not charge storage for an absen
 tg --url $local.url push --remote=a $object
 success (tg --url $remote_region_a.url --token $alice.token object get --bytes --local $object | complete) "Alice's tag should grant access to the object in region A"
 wait_until {
-	(tg --url $remote_region_a.url --token $alice.token user usage | from json | get object_count) >= 1
+	(tg --url $remote_region_a.url --token $alice.token user usage --location='local(a)' | from json | get object_count) >= 1
 } "the existing tag should charge Alice when its target arrives in region A"
 
 # A tag with no target permissions must not charge its owner in either region.
-let region_a_usage = tg --url $remote_region_a.url --token $alice.token user usage | from json
-let region_b_usage = tg --url $remote_region_b.url --token $alice.token user usage | from json
+let region_a_usage = tg --url $remote_region_a.url --token $alice.token user usage --location='local(a)' | from json
+let region_b_usage = tg --url $remote_region_b.url --token $alice.token user usage --location='local(b)' | from json
 let bob_local = server spawn --name bob-local --config {
 	remotes: {
 		a: { token: $bob.token, url: $remote_region_a.url }
@@ -77,11 +77,11 @@ tg --url $remote_region_b.url --token $alice.token tag put alice/no-access $priv
 tg --url $remote_region_b.url index
 let tag = tg --url $remote_region_b.url --token $alice.token tag get alice/no-access | from json
 assert (target_permissions $remote_region_b.url $alice.token $tag.id | is-empty) "the tag must not record unavailable target permissions"
-let usage = tg --url $remote_region_b.url --token $alice.token user usage | from json
+let usage = tg --url $remote_region_b.url --token $alice.token user usage --location='local(b)' | from json
 assert equal $usage.object_count $region_b_usage.object_count "an inaccessible tag target must not charge Alice in region B"
 
 tg --url $bob_local.url push --remote=a $private_object
 tg --url $remote_region_a.url index
 failure (tg --url $remote_region_a.url --token $alice.token object get --bytes --local $private_object | complete) "the tag must not grant Alice access in region A"
-let usage = tg --url $remote_region_a.url --token $alice.token user usage | from json
+let usage = tg --url $remote_region_a.url --token $alice.token user usage --location='local(a)' | from json
 assert equal $usage.object_count $region_a_usage.object_count "an inaccessible tag target must not charge Alice in region A"
