@@ -39,7 +39,7 @@ impl Provider for PassthroughProvider {
 					Ok(ProviderResponse::Unit)
 				},
 				ProviderRequest::Open { .. } => Ok(ProviderResponse::Open {
-					backing_fd: None,
+					backing_fd: Some(test_fd()),
 					handle: 7,
 				}),
 				_ => Err(Error::from_raw_os_error(libc::ENOSYS)),
@@ -507,7 +507,7 @@ fn malformed_names_fail_individual_batch_requests() {
 }
 
 #[test]
-fn required_passthrough_failure_closes_provider_handle() {
+fn required_passthrough_registration_failure_closes_provider_handle() {
 	let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 	let entry = PassthroughProvider {
 		closes: closes.clone(),
@@ -515,7 +515,7 @@ fn required_passthrough_failure_closes_provider_handle() {
 	let server = server_with_provider(entry, true, true);
 	let request = open_request(1);
 	let response = ProviderResponse::Open {
-		backing_fd: None,
+		backing_fd: Some(test_fd()),
 		handle: 7,
 	};
 	let fd = test_fd();
@@ -523,7 +523,7 @@ fn required_passthrough_failure_closes_provider_handle() {
 		.map_provider_response_sync(&fd, &request, response)
 		.unwrap_err();
 
-	assert_eq!(error.raw_os_error(), Some(libc::EOPNOTSUPP));
+	assert_eq!(error.raw_os_error(), Some(libc::ENOTTY));
 	assert_eq!(closes.load(Ordering::Relaxed), 1);
 }
 
@@ -591,7 +591,7 @@ fn negative_entries_follow_immutability() {
 }
 
 #[tokio::test]
-async fn required_passthrough_failure_closes_provider_handle_async() {
+async fn required_passthrough_registration_failure_closes_provider_handle_async() {
 	let closes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
 	let entry = PassthroughProvider {
 		closes: closes.clone(),
@@ -603,7 +603,7 @@ async fn required_passthrough_failure_closes_provider_handle_async() {
 		.await
 		.unwrap_err();
 
-	assert_eq!(error.raw_os_error(), Some(libc::EOPNOTSUPP));
+	assert_eq!(error.raw_os_error(), Some(libc::ENOTTY));
 	assert_eq!(closes.load(Ordering::Relaxed), 1);
 }
 
