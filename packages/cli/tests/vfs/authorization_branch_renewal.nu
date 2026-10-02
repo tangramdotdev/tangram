@@ -28,15 +28,12 @@ for io in $transports {
 						{ count: 2, directory: await tg.directory({ c: "c\n", d: "d\n" }), last: "d" },
 					],
 				});
-				return tg.command({
-					args: ["-ec", `
-						IFS= read -r value < "$1/$2"
-						test "$value" = "$2"
-						printf "ok\n"
-					`, "sh", directory, name],
-					executable: "/bin/sh",
-					host: tg.host.current,
-				});
+				return tg.command`
+					set -e
+					IFS= read -r value < "${directory}/${name}"
+					test "$value" = "${name}"
+					printf "ok\n"
+				`;
 			}
 		'
 	}
