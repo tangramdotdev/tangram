@@ -1,11 +1,11 @@
 use ../lib/test.nu *
 use ../lib/archive.nu *
 
-# Single-process indexing waits for background archiving to succeed, including retries after an upload failure.
+# Single-process indexing completes independently of background archiving, including retries after an upload failure.
 skip_if_no_cloud
 let archive = spawn_archive
 let local = server spawn --cloud --config {
-	advanced: { checkpoints: true, single_directory: false, single_process: true },
+	advanced: { single_directory: false, single_process: true },
 	archive: $archive.config,
 	object: { put_timeout: 5 },
 	roles: [api indexer],
@@ -18,27 +18,19 @@ success $output
 let id = $output.stdout | str trim
 wait_until { http get $'($archive.url)/requests' | length | $in == 1 } 'the upload must start'
 
-let watch = tg checkpoint watch indexer.request.wait | from json | get watch
-let request = job spawn {
-	let id = job id
-	tg index | complete | job send --tag $id 0
-}
-tg checkpoint wait indexer.request.wait $watch 0 | ignore
-tg checkpoint unwatch indexer.request.wait $watch
-let output = try { job recv --tag $request --timeout 200ms } catch { null }
-assert ($output == null) 'indexing must wait for the upload'
+# Indexing must return while the upload is pending.
+let output = timeout 10 tg index | complete
+success $output
 
-# A failed upload must retry the same object and put, and keep indexing pending.
+# A failed upload must retry the same object and put without blocking indexing.
 http post $'($archive.url)/respond' '503' | ignore
 wait_until { http get $'($archive.url)/requests' | length | $in == 2 } 'the upload must retry'
 let requests = http get $'($archive.url)/requests'
 assert equal $requests.0 $requests.1
 assert equal $requests.0.path $'/($id)'
-let output = try { job recv --tag $request --timeout 200ms } catch { null }
-assert ($output == null) 'indexing must wait for the retried upload'
+let output = timeout 10 tg index | complete
+success $output
 
 http post $'($archive.url)/respond' '200' | ignore
-let output = job recv --tag $request --timeout 10sec
-success $output
 server stop $local
 job kill $archive.job
