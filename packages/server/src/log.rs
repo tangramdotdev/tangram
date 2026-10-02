@@ -242,6 +242,7 @@ impl Session {
 							source: tangram_index::permission::Source::Direct { expires_at: None },
 							subject: tg::authorization::Subject::Process(process.clone()),
 							time_to_touch: None,
+							version: None,
 						},
 					),
 				],

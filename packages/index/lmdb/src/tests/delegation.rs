@@ -258,6 +258,7 @@ async fn process_parent_traverses_delegations_before_propagation() {
 					},
 					subject: tg::authorization::Subject::User(user.clone()),
 					time_to_touch: None,
+					version: None,
 				};
 				items.push(tangram_index::batch::Item::PutPermission(arg));
 			}
@@ -386,6 +387,7 @@ fn delegation(
 		resource: resource.clone().into(),
 		source: source.clone(),
 		subject: subject.clone(),
+		version: None,
 	};
 	tangram_index::batch::Item::PutDelegation(arg)
 }
@@ -410,6 +412,7 @@ fn permission(
 		},
 		subject: subject.clone(),
 		time_to_touch: None,
+		version: None,
 	};
 	tangram_index::batch::Item::PutPermission(arg)
 }
@@ -1194,6 +1197,7 @@ async fn process_output_aspect_preserves_permanent_descendant_node_permissions()
 		},
 		subject: scoped.clone(),
 		time_to_touch: None,
+		version: None,
 	};
 	index.put_permissions(&[put]).await.unwrap();
 	let arg = tangram_index::verify::Arg {

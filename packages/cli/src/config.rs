@@ -804,6 +804,9 @@ pub struct Indexer {
 	pub object_cache_partitions: Option<IndexerPartitions>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub permission_capture: Option<IndexerPermissionCapture>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub request: Option<IndexerRequest>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -832,6 +835,25 @@ pub struct IndexerBatch {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct IndexerCache {
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub poll_interval: Option<Duration>,
+}
+
+#[serde_as]
+#[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct IndexerPermissionCapture {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub concurrency: Option<usize>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub delegation_time_to_live: Option<Duration>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub poll_interval: Option<Duration>,
@@ -3055,6 +3077,9 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(source) = source.cache {
 		target.cache = resolve_indexer_cache(source);
 	}
+	if let Some(source) = source.permission_capture {
+		target.permission_capture = resolve_indexer_permission_capture(source);
+	}
 	if let Some(source) = source.cleaning {
 		target.cleaning = resolve_indexer_cleaning(source);
 	}
@@ -3097,6 +3122,26 @@ fn resolve_indexer_batch(source: IndexerBatch) -> server::IndexerBatch {
 
 fn resolve_indexer_cache(source: IndexerCache) -> server::IndexerCache {
 	let mut target = server::IndexerCache::default();
+	if let Some(value) = source.poll_interval {
+		target.poll_interval = value;
+	}
+
+	target
+}
+
+fn resolve_indexer_permission_capture(
+	source: IndexerPermissionCapture,
+) -> server::IndexerPermissionCapture {
+	let mut target = server::IndexerPermissionCapture::default();
+	if let Some(value) = source.batch_size {
+		target.batch_size = value;
+	}
+	if let Some(value) = source.concurrency {
+		target.concurrency = value;
+	}
+	if let Some(value) = source.delegation_time_to_live {
+		target.delegation_time_to_live = value;
+	}
 	if let Some(value) = source.poll_interval {
 		target.poll_interval = value;
 	}

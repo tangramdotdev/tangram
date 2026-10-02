@@ -10,6 +10,7 @@ pub enum Key {
 	Clean(crate::clean::Key),
 	Delegation(crate::delegation::Key),
 	Permission(crate::permission::Key),
+	PermissionCapture { id: Vec<u8>, partition: u64 },
 	Group(crate::group::Key),
 	Indexer(crate::indexer::Key),
 	LogCompaction(crate::log::Key),
@@ -94,6 +95,7 @@ pub enum Kind {
 	DelegationSource = 74,
 	DelegationExpiresAt = 75,
 	DelegationSubject = 76,
+	PermissionCapture = 90,
 }
 
 impl fdbt::TuplePack for Key {
@@ -103,6 +105,12 @@ impl fdbt::TuplePack for Key {
 		tuple_depth: fdbt::TupleDepth,
 	) -> std::io::Result<fdbt::VersionstampOffset> {
 		match self {
+			Key::PermissionCapture { id, partition } => (
+				Kind::PermissionCapture.to_i32().unwrap(),
+				*partition,
+				id.as_slice(),
+			)
+				.pack(w, tuple_depth),
 			Key::Delegation(crate::delegation::Key::Delegation {
 				resource,
 				source,
@@ -738,6 +746,11 @@ impl fdbt::TupleUnpack<'_> for Key {
 		let kind = Kind::from_i32(kind).ok_or(fdbt::PackError::Message("invalid kind".into()))?;
 
 		match kind {
+			Kind::PermissionCapture => {
+				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
+				Ok((input, Key::PermissionCapture { id, partition }))
+			},
 			Kind::DelegationSubject => {
 				let (input, subject): (_, String) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
 				let (input, resource): (_, Vec<u8>) =

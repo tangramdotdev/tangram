@@ -10,10 +10,15 @@ pub struct Arg {
 	pub source: tg::authorization::Subject,
 	#[tangram_serialize(id = 3)]
 	pub subject: tg::authorization::Subject,
+	#[tangram_serialize(id = 4)]
+	pub version: Option<String>,
 }
 
 impl Arg {
 	pub fn validate(&self) -> tg::Result<()> {
+		if self.version.is_some() && !matches!(self.subject, tg::authorization::Subject::Tag(_)) {
+			return Err(tg::error!("a versioned delegation must have a tag subject"));
+		}
 		if tg::object::Id::try_from(self.resource.clone()).is_err()
 			&& self.resource.kind() != tg::id::Kind::Process
 		{

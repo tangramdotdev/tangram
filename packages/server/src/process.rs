@@ -3,8 +3,8 @@ use {
 	std::collections::BTreeSet, tangram_client::prelude::*,
 };
 
-mod permission;
 mod runner;
+mod sandbox;
 
 pub(crate) use runner::Runner;
 

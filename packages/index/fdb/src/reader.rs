@@ -217,6 +217,23 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::VerifyBatch(output)
 			},
+			tangram_index::read::Request::PermissionCaptureBatch {
+				batch_size,
+				partition_end,
+				partition_start,
+			} => {
+				let entries = crate::propagate!(
+					Self::permission_capture_batch_with_transaction(
+						transaction,
+						subspace,
+						*batch_size,
+						*partition_start,
+						*partition_end,
+					)
+					.await
+				);
+				tangram_index::read::Response::PermissionCaptureBatch(entries)
+			},
 			tangram_index::read::Request::ContainsIds { ids } => {
 				let result = Self::contains_ids_with_transaction(transaction, subspace, ids).await;
 				let output = crate::propagate!(result);
@@ -311,12 +328,15 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::TryGetSandboxProcesses(output)
 			},
-			tangram_index::read::Request::TryGetProcessNodeChildren { id } => {
-				let result =
-					Self::try_get_process_node_children_with_transaction(transaction, subspace, id)
-						.await;
+			tangram_index::read::Request::TryGetProcessChildrenAndObjects { id } => {
+				let result = Self::try_get_process_children_and_objects_with_transaction(
+					transaction,
+					subspace,
+					id,
+				)
+				.await;
 				let output = crate::propagate!(result);
-				tangram_index::read::Response::TryGetProcessNodeChildren(output)
+				tangram_index::read::Response::TryGetProcessChildrenAndObjects(output)
 			},
 			tangram_index::read::Request::GetRequesterSubjects { principal } => {
 				let result =

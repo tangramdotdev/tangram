@@ -35,6 +35,11 @@ pub enum Request {
 		ancestor: tg::process::Id,
 		process: tg::process::Id,
 	},
+	PermissionCaptureBatch {
+		batch_size: usize,
+		partition_end: u64,
+		partition_start: u64,
+	},
 	TryGetAncestors {
 		id: tg::Id,
 	},
@@ -72,7 +77,7 @@ pub enum Request {
 	TryGetProcessChildrenCount {
 		id: tg::process::Id,
 	},
-	TryGetProcessNodeChildren {
+	TryGetProcessChildrenAndObjects {
 		id: tg::process::Id,
 	},
 	TryGetProcesses {
@@ -118,6 +123,7 @@ pub enum Response {
 	GetTransactionId(u64),
 	ListSandboxes(Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>),
 	ProcessHasAncestor(bool),
+	PermissionCaptureBatch(Vec<crate::permission::capture::Entry>),
 	TryGetAncestors(Option<Vec<tg::Id>>),
 	TryGetCheckouts(Vec<Option<crate::checkout::Checkout>>),
 	TryGetCachedProcesses(Vec<(tg::process::Id, crate::process::Process)>),
@@ -131,7 +137,7 @@ pub enum Response {
 	TryGetOrganizations(Vec<Option<crate::organization::Organization>>),
 	TryGetProcessChildren(Option<Vec<tg::process::data::Child>>),
 	TryGetProcessChildrenCount(Option<u64>),
-	TryGetProcessNodeChildren(Option<crate::process::NodeChildren>),
+	TryGetProcessChildrenAndObjects(Option<crate::process::NodeChildren>),
 	TryGetProcesses(Vec<Option<crate::process::Process>>),
 	TryGetSandboxProcesses(Option<Vec<tg::process::Id>>),
 	TryGetSandboxProcessesCount(Option<u64>),

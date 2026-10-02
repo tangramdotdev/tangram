@@ -122,6 +122,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 					source: tangram_index::permission::Source::Direct { expires_at: None },
 					subject: subject.clone(),
 					time_to_touch: None,
+					version: None,
 				}),
 				tangram_index::batch::Item::PutPermission(tangram_index::permission::put::Arg {
 					created_at: 0,
@@ -133,6 +134,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 					},
 					subject: subject.clone(),
 					time_to_touch: None,
+					version: None,
 				}),
 			],
 		})

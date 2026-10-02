@@ -159,6 +159,15 @@ impl Index {
 			let mut results: Vec<tg::Result<Response>> = Vec::new();
 			for request in batch.requests {
 				let result = match request {
+					Request::CompletePermissionCapture(entry) => {
+						Self::complete_permission_capture_with_transaction(
+							db,
+							subspace,
+							&mut transaction,
+							&entry,
+						)
+						.map(|()| Response::Unit)
+					},
 					Request::AggregateUsage(arg) => {
 						Self::aggregate_usage_with_transaction(db, subspace, &mut transaction, &arg)
 							.map(Response::AggregateUsageOutput)
@@ -497,6 +506,7 @@ impl Index {
 			});
 			let operation_count = match &request {
 				Request::Batch(arg) => Some(arg.items.len()),
+				Request::CompletePermissionCapture(_) => Some(1),
 				Request::DeleteIndexer(_) | Request::PutIndexer(_) | Request::UpdateIndexer(_) => {
 					Some(1)
 				},
@@ -584,6 +594,7 @@ impl Index {
 				Response::ExpireUsageOutput(tangram_index::usage::expire::Output::default())
 			},
 			Request::Batch(_)
+			| Request::CompletePermissionCapture(_)
 			| Request::CompleteLogCompaction(_)
 			| Request::DeletePermissions(_)
 			| Request::DeleteGroupMembers(_)
@@ -620,6 +631,7 @@ impl Index {
 		match request {
 			Request::AggregateUsage(arg) => (vec![Item::AggregateUsage], Kind::AggregateUsage(arg)),
 			Request::Batch(_)
+			| Request::CompletePermissionCapture(_)
 			| Request::DeleteIndexer(_)
 			| Request::PutIndexer(_)
 			| Request::UpdateIndexer(_) => unreachable!(),

@@ -39,6 +39,9 @@ pub enum Item {
 	#[tangram_serialize(id = 7)]
 	DeleteUser(tg::user::Id),
 
+	#[tangram_serialize(id = 30)]
+	EnqueuePermissionCapture(crate::permission::capture::enqueue::Arg),
+
 	#[tangram_serialize(id = 16)]
 	EnqueueLogCompaction(tg::process::Id),
 
@@ -75,9 +78,6 @@ pub enum Item {
 	#[tangram_serialize(id = 15)]
 	PutProcess(crate::process::put::Arg),
 
-	#[tangram_serialize(id = 23)]
-	PutProcessObjectPermissions(crate::process::object::permission::Arg),
-
 	#[tangram_serialize(id = 17)]
 	PutSandbox(crate::sandbox::put::Arg),
 
@@ -112,7 +112,6 @@ mod tests {
 	#[test]
 	fn serialization_roundtrip() {
 		let group = tg::group::Id::new();
-		let object = tg::object::Id::new(tg::object::Kind::Blob, &vec![1].into());
 		let organization = tg::organization::Id::new();
 		let process = tg::process::Id::new();
 		let sandbox = tg::sandbox::Id::new();
@@ -168,6 +167,7 @@ mod tests {
 					source: crate::permission::Source::Grant,
 					subject: tg::authorization::Subject::Root,
 					time_to_touch: Some(std::time::Duration::new(30, 456)),
+					version: None,
 				}),
 				Item::PutGroupMember(crate::group::member::put::Arg {
 					group,
@@ -176,31 +176,6 @@ mod tests {
 				Item::PutOrganizationMember(crate::organization::member::put::Arg {
 					member: tg::organization::Member::User(user),
 					organization,
-				}),
-				Item::PutProcessObjectPermissions(crate::process::object::permission::Arg {
-					verify: crate::verify::Config {
-						permissions: crate::verify::PermissionsConfig {
-							ancestor: crate::verify::SearchConfig {
-								max_depth: 7,
-								..Default::default()
-							},
-							..Default::default()
-						},
-					},
-					created_at: 1,
-					expires_at: None,
-					principal: tg::Principal::Process(process.clone()),
-					process,
-					roots: vec![crate::process::object::permission::Root {
-						object,
-						permissions: Some(
-							tg::authorization::Permission::Object(
-								tg::authorization::permission::object::Permission::Node,
-							)
-							.into(),
-						),
-					}],
-					time_to_touch: None,
 				}),
 				Item::PutSandbox(crate::sandbox::put::Arg {
 					account: None,
@@ -216,7 +191,7 @@ mod tests {
 		};
 		let bytes = arg.serialize().unwrap();
 		let arg = Arg::deserialize(&bytes).unwrap();
-		assert_eq!(arg.items.len(), 12);
+		assert_eq!(arg.items.len(), 11);
 		assert!(matches!(&arg.items[6], Item::EnqueueLogCompaction(_)));
 		let Item::PutPermission(permission_arg) = &arg.items[7] else {
 			panic!();
@@ -227,14 +202,7 @@ mod tests {
 		);
 		assert!(matches!(&arg.items[8], Item::PutGroupMember(_)));
 		assert!(matches!(&arg.items[9], Item::PutOrganizationMember(_)));
-		let Item::PutProcessObjectPermissions(process_permission_arg) = &arg.items[10] else {
-			panic!();
-		};
-		assert_eq!(
-			process_permission_arg.verify.permissions.ancestor.max_depth,
-			7
-		);
-		let Item::PutSandbox(sandbox_arg) = &arg.items[11] else {
+		let Item::PutSandbox(sandbox_arg) = &arg.items[10] else {
 			panic!();
 		};
 		let data = sandbox_arg.data.as_ref().unwrap();

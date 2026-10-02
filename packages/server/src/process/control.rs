@@ -132,9 +132,14 @@ impl Session {
 			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 		)>,
 	> {
-		self.try_get_process_control_stream_local_inner(arg, stream, None)
-			.boxed()
-			.await
+		self.try_get_process_control_stream_local_inner(
+			arg,
+			stream,
+			None,
+			self.local_process_control,
+		)
+		.boxed()
+		.await
 	}
 
 	async fn try_get_process_control_stream_local_inner(
@@ -142,6 +147,7 @@ impl Session {
 		mut arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 		start: Option<(String, Option<tg::process::control::Sandbox>)>,
+		local_process_control: bool,
 	) -> tg::Result<
 		Option<(
 			tg::process::control::Output,
@@ -185,7 +191,12 @@ impl Session {
 		let mut options = arg.options;
 		options.tokens.clear();
 		let parent = arg.parent;
-		let sync = Some(session.prepare_sync(arg.sync)?);
+		// An in-process runner stores its output locally without starting an incoming sync.
+		let sync = if local_process_control {
+			None
+		} else {
+			Some(session.prepare_sync(arg.sync)?)
+		};
 		if !arg.start {
 			if assign && !matches!(self.context.principal, tg::Principal::Runner(_)) {
 				return Err(tg::error!(
@@ -209,7 +220,13 @@ impl Session {
 				sync: sync.clone(),
 				token,
 			};
-			let stream = session.wait_for_process_control_start(id, arg.location, stream, sync);
+			let stream = session.wait_for_process_control_start(
+				id,
+				arg.location,
+				stream,
+				sync,
+				local_process_control,
+			);
 			crate::checkpoint!(self.server, "process.control.output", process = %output.process.node).await;
 
 			return Ok(Some((output, stream)));
@@ -507,6 +524,7 @@ impl Session {
 		location: Option<tg::location::Arg>,
 		mut stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 		sync: Option<tg::Referent<tg::sync::Id>>,
+		local_process_control: bool,
 	) -> BoxStream<'static, tg::Result<tg::process::control::ServerMessage>> {
 		let session = self.clone();
 		futures::stream::once(async move {
@@ -556,6 +574,7 @@ impl Session {
 					arg,
 					stream,
 					Some((request.id.clone(), sandbox)),
+					local_process_control,
 				)
 				.boxed()
 				.await;
@@ -682,29 +701,16 @@ impl Session {
 				let parent = parent.as_ref().ok_or_else(|| {
 					tg::error!("a process on the shortcut path must have a parent")
 				})?;
-				let context = crate::Context {
-					principal: tg::Principal::Process(parent.clone()),
-					token: None,
-					..self.context.clone()
-				};
-				let parent_session = self.server.session(&context);
-				let time_to_live =
-					i64::try_from(self.server.config.object.permission_time_to_live.as_secs())
-						.map_err(|error| {
-							tg::error!(!error, "failed to convert the permission time to live")
-						})?;
-				let expires_at = touched_at + time_to_live;
-				let permission_arg = parent_session
-					.create_process_object_permission_arg(
-						&id,
-						command_objects,
-						touched_at,
-						Some(expires_at),
-					)
-					.await?;
-				items.push(tangram_index::batch::Item::PutProcessObjectPermissions(
-					permission_arg,
-				));
+				let destination = id.clone().into();
+				let roots = command_objects.into_iter().map(|root| root.map(Into::into));
+				let source = tg::Principal::Process(parent.clone());
+				items.extend(self.create_permission_capture_items(
+					destination,
+					None,
+					roots,
+					source,
+					touched_at,
+				)?);
 			}
 
 			// Submit the prepared batch without waiting for its index commit.

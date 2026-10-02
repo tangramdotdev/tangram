@@ -170,6 +170,7 @@ impl Session {
 					},
 					subject: permission_subject.clone(),
 					time_to_touch: Some(self.server.config.object.permission_time_to_touch),
+					version: None,
 				});
 			}
 		}

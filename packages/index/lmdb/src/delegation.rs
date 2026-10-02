@@ -92,6 +92,16 @@ impl Index {
 		arg: &tangram_index::delegation::put::Arg,
 	) -> tg::Result<()> {
 		arg.validate()?;
+		if let Some(version) = &arg.version {
+			let tg::authorization::Subject::Tag(id) = &arg.subject else {
+				unreachable!()
+			};
+			let tag = Self::try_get_tag_with_transaction(db, subspace, transaction, id)?;
+			if tag.is_none_or(|tag| tag.version != *version) {
+				return Ok(());
+			}
+		}
+
 		let key = IndexKey::Delegation(keys(arg)[0].clone());
 		let key = Self::pack(subspace, &key);
 		let old = db

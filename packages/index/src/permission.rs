@@ -1,5 +1,6 @@
 use tangram_client::prelude::*;
 
+pub mod capture;
 pub mod delete;
 pub mod put;
 

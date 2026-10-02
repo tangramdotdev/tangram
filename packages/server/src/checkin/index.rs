@@ -157,6 +157,7 @@ impl Session {
 					},
 					subject: subject.clone(),
 					time_to_touch: Some(self.server.config.object.permission_time_to_touch),
+					version: None,
 				};
 				args.push(arg);
 			}
@@ -200,6 +201,7 @@ impl Session {
 				},
 				subject: subject.clone(),
 				time_to_touch: Some(self.server.config.object.permission_time_to_touch),
+				version: None,
 			};
 			args.push(arg);
 		}

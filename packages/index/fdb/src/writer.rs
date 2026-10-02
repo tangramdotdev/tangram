@@ -26,7 +26,6 @@ pub struct Metrics {
 }
 
 pub(super) struct Arg {
-	pub verification: crate::VerificationConfig,
 	pub database: Arc<fdb::Database>,
 	pub max_process_depth: Option<u64>,
 	pub max_write_operation_batch_size: usize,
@@ -53,7 +52,6 @@ struct Batch {
 
 #[derive(Clone, Copy)]
 struct ExecutionConfig<'a> {
-	verification: crate::VerificationConfig,
 	max_process_depth: Option<u64>,
 	max_write_operation_batch_size: usize,
 	metrics: &'a Metrics,
@@ -68,7 +66,6 @@ enum TransactionError {
 impl Index {
 	pub(super) async fn writer_task(arg: Arg) {
 		let Arg {
-			verification,
 			database,
 			max_process_depth,
 			max_write_operation_batch_size,
@@ -155,7 +152,6 @@ impl Index {
 			let subspace = subspace.clone();
 			async move {
 				let config = ExecutionConfig {
-					verification,
 					max_process_depth,
 					max_write_operation_batch_size,
 					metrics: &metrics,
@@ -212,6 +208,7 @@ impl Index {
 			}));
 			let operation_count = match &request {
 				Request::Batch(arg) => Some(arg.items.len()),
+				Request::CompletePermissionCapture(_) => Some(1),
 				Request::DeleteIndexer(_) | Request::PutIndexer(_) | Request::UpdateIndexer(_) => {
 					Some(1)
 				},
@@ -299,6 +296,7 @@ impl Index {
 				Response::ExpireUsageOutput(tangram_index::usage::expire::Output::default())
 			},
 			Request::Batch(_)
+			| Request::CompletePermissionCapture(_)
 			| Request::CompleteLogCompaction(_)
 			| Request::DeletePermissions(_)
 			| Request::DeleteGroupMembers(_)
@@ -335,6 +333,7 @@ impl Index {
 		match request {
 			Request::AggregateUsage(arg) => (vec![Item::AggregateUsage], Kind::AggregateUsage(arg)),
 			Request::Batch(_)
+			| Request::CompletePermissionCapture(_)
 			| Request::DeleteIndexer(_)
 			| Request::PutIndexer(_)
 			| Request::UpdateIndexer(_) => unreachable!(),
@@ -1036,6 +1035,7 @@ impl Index {
 				request,
 				Request::AggregateUsage(_)
 					| Request::Batch(_)
+					| Request::CompletePermissionCapture(_)
 					| Request::Clean(_)
 					| Request::ExpireUsage(_)
 					| Request::CompleteLogCompaction(_)
@@ -1168,20 +1168,18 @@ impl Index {
 		let partition_total = partition_totals.cleaning;
 		let usage_partition_total = partition_totals.usage;
 		let response = match request {
+			Request::CompletePermissionCapture(entry) => {
+				Self::complete_permission_capture_with_transaction(txn, subspace, entry);
+				Response::Unit
+			},
 			Request::AggregateUsage(arg) => {
 				let result = Self::aggregate_usage_with_transaction(txn, subspace, arg).await;
 				let output = crate::propagate!(result);
 				Response::AggregateUsageOutput(output)
 			},
 			Request::Batch(arg) => {
-				let result = Self::batch_with_transaction(
-					config.verification,
-					txn,
-					subspace,
-					arg,
-					config.partition_totals,
-				)
-				.await;
+				let result =
+					Self::batch_with_transaction(txn, subspace, arg, config.partition_totals).await;
 				crate::propagate!(result);
 				Response::Unit
 			},

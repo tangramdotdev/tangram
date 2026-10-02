@@ -582,6 +582,7 @@ mod tests {
 									} else {
 										user.clone()
 									},
+									version: None,
 								})
 								.collect();
 							(

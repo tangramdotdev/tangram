@@ -32,6 +32,17 @@ impl Index {
 	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
 		for arg in args {
+			arg.validate()?;
+			if let Some(version) = &arg.version {
+				let tg::authorization::Subject::Tag(id) = &arg.subject else {
+					unreachable!()
+				};
+				let tag =
+					crate::propagate!(Self::try_get_tag_with_transaction(txn, subspace, id).await);
+				if tag.is_none_or(|tag| tag.version != *version) {
+					continue;
+				}
+			}
 			let (expires_at, source) = match arg.source {
 				tangram_index::permission::Source::Direct { expires_at } => {
 					(expires_at, PermissionSource::Direct)
@@ -42,31 +53,8 @@ impl Index {
 				arg.source,
 				tangram_index::permission::Source::Direct { expires_at: None }
 			);
-			if non_expiring_direct {
-				let tg::authorization::Subject::Process(process) = &arg.subject else {
-					return Err(tg::error!(
-						"a non-expiring direct permission must have a process subject"
-					));
-				};
-				if arg.creator.as_ref() != Some(&tg::Principal::Process(process.clone())) {
-					return Err(tg::error!(
-						"a non-expiring direct permission must be created by its process"
-					));
-				}
-				if tg::object::Id::try_from(arg.resource.clone()).is_err() {
-					return Err(tg::error!(
-						"a non-expiring direct permission must target an object"
-					));
-				}
-			}
+			let mut permissions_changed = false;
 			for permission in arg.permissions.iter() {
-				if non_expiring_direct
-					&& !matches!(permission, tg::authorization::Permission::Object(_))
-				{
-					return Err(tg::error!(
-						"a non-expiring direct permission must contain object permissions"
-					));
-				}
 				let changed = crate::propagate!(
 					Self::put_permission_index_entry(
 						txn,
@@ -85,6 +73,7 @@ impl Index {
 					.await
 				);
 				if changed {
+					permissions_changed = true;
 					Self::enqueue_permission_update(
 						txn,
 						subspace,
@@ -92,6 +81,32 @@ impl Index {
 						&arg.subject,
 						permission,
 						partition_totals.permission_update,
+					);
+				}
+			}
+			if non_expiring_direct && permissions_changed {
+				if let Ok(id) = tg::object::Id::try_from(arg.resource.clone()) {
+					crate::propagate!(
+						Self::enqueue_account_object_from_parents(
+							txn,
+							subspace,
+							&id,
+							partition_totals.cleaning,
+							arg.created_at
+						)
+						.await
+					);
+				} else {
+					let id = tg::process::Id::try_from(arg.resource.clone())?;
+					crate::propagate!(
+						Self::enqueue_account_process_from_parents(
+							txn,
+							subspace,
+							&id,
+							partition_totals.cleaning,
+							arg.created_at
+						)
+						.await
 					);
 				}
 			}

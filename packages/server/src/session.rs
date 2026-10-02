@@ -23,6 +23,7 @@ mod watch;
 #[derive(Clone)]
 pub(crate) struct Session {
 	pub context: Context,
+	pub local_process_control: bool,
 	pub server: Server,
 	pub sync: Option<tg::sync::Id>,
 	pub sync_control: Option<std::sync::Arc<crate::sync::control::Client>>,
@@ -33,6 +34,7 @@ impl Session {
 	pub(crate) fn new(server: Server, context: Context) -> Self {
 		Self {
 			context,
+			local_process_control: false,
 			server,
 			sync: None,
 			sync_control: None,

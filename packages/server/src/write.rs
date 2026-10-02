@@ -684,6 +684,7 @@ impl Session {
 					.try_to_subject()
 					.expect("expected the principal to be a valid authorization subject"),
 				time_to_touch: Some(permission_time_to_touch),
+				version: None,
 			})
 			.into_iter()
 			.collect();

@@ -706,6 +706,7 @@ impl Session {
 		let account = self.usage_account(&self.context.principal).await?;
 		let touched_at = self.server.clock.unix_timestamp()?;
 		let (
+			permission_capture_items,
 			put_checkout_args,
 			mut put_permission_args,
 			put_object_args,
@@ -728,6 +729,8 @@ impl Session {
 					),
 				}
 			}
+			let permission_capture_items =
+				self.sync_get_index_permission_capture_items(&graph, sync, touched_at)?;
 			let put_checkout_args = graph
 				.checkouts()
 				.iter()
@@ -738,7 +741,14 @@ impl Session {
 				})
 				.collect::<Vec<_>>();
 			let storage_roots = graph.remote_roots().iter().cloned().collect::<Vec<_>>();
-			(put_checkout_args, args.0, args.1, args.2, storage_roots)
+			(
+				permission_capture_items,
+				put_checkout_args,
+				args.0,
+				args.1,
+				args.2,
+				storage_roots,
+			)
 		};
 		if let Some(arg) = self.sync_get_create_permission(&sync.clone().into(), None)? {
 			put_permission_args.push(arg);
@@ -770,6 +780,7 @@ impl Session {
 						.chain(put_sandbox_permission_args)
 						.map(tangram_index::batch::Item::PutPermission),
 				)
+				.chain(permission_capture_items)
 				.chain(account.into_iter().flat_map(|account| {
 					storage_roots.iter().filter_map(move |id| match id.kind() {
 						tg::id::Kind::Process => {
@@ -879,6 +890,54 @@ impl Session {
 		Ok((put_sandbox_args, put_permission_args))
 	}
 
+	fn sync_get_index_permission_capture_items(
+		&self,
+		graph: &Graph,
+		sync: &tg::sync::Id,
+		created_at: i64,
+	) -> tg::Result<Vec<tangram_index::batch::Item>> {
+		let mut token = None;
+		let mut items = Vec::new();
+		for (id, node) in graph.nodes() {
+			let Node::Process(node) = node else {
+				continue;
+			};
+			if !node.marked() {
+				continue;
+			}
+			let process = tg::process::Id::try_from(id.clone())?;
+			let mut roots = Vec::new();
+			for (index, _) in node.objects().map(Vec::as_slice).unwrap_or_default() {
+				let (id, _) = graph.nodes().get_index(*index).unwrap();
+				let permissions = graph.object_local_permissions(&id.clone().try_into()?);
+				let subtree = tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				);
+				let tokens = if permissions.contains(subtree) {
+					None
+				} else {
+					if token.is_none() {
+						token = Some(self.create_read_token(&sync.clone().into())?);
+					}
+					token.clone().flatten()
+				};
+				let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens);
+				let root = (resource, permissions);
+				roots.push(root);
+			}
+			let destination = process.clone().into();
+			let source = tg::Principal::Process(process);
+			items.extend(self.create_permission_capture_items_with_permissions(
+				destination,
+				None,
+				roots,
+				source,
+				created_at,
+			)?);
+		}
+		Ok(items)
+	}
+
 	fn sync_get_index_create_args(
 		&self,
 		graph: &Graph,
@@ -946,6 +1005,7 @@ impl Session {
 							},
 							subject: permission_subject.clone(),
 							time_to_touch: Some(self.server.config.object.permission_time_to_touch),
+							version: None,
 						});
 					}
 					let covered = object_covered[index] || subtree;
@@ -985,6 +1045,7 @@ impl Session {
 							time_to_touch: Some(
 								self.server.config.process.permission_time_to_touch,
 							),
+							version: None,
 						});
 					}
 					let subtree_permissions =
@@ -997,42 +1058,6 @@ impl Session {
 						}
 					}
 				},
-			}
-		}
-
-		// Create non-expiring direct permissions for the process objects proven locally.
-		for index in indices.iter().copied() {
-			let (id, node) = graph.nodes().get_index(index).unwrap();
-			let Node::Process(node) = node else {
-				continue;
-			};
-			if !node.marked() {
-				continue;
-			}
-			let process = tg::process::Id::try_from(id.clone())?;
-			let creator = tg::Principal::Process(process.clone());
-			let subject = tg::authorization::Subject::Process(process);
-			for (object_index, _) in node.objects().map(Vec::as_slice).unwrap_or_default() {
-				let (object, node) = graph.nodes().get_index(*object_index).unwrap();
-				let availability = node
-					.unwrap_object_ref()
-					.local_availability()
-					.is_some_and(|availability| availability.subtree);
-				if !availability {
-					continue;
-				}
-				put_permission_args.push(tangram_index::permission::put::Arg {
-					created_at: touched_at,
-					creator: Some(creator.clone()),
-					permissions: tg::authorization::Permission::Object(
-						tg::authorization::permission::object::Permission::Subtree,
-					)
-					.into(),
-					resource: tg::object::Id::try_from(object.clone())?.into(),
-					source: tangram_index::permission::Source::Direct { expires_at: None },
-					subject: subject.clone(),
-					time_to_touch: None,
-				});
 			}
 		}
 

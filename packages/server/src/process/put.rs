@@ -18,7 +18,7 @@ pub(crate) struct Authorization {
 
 pub(crate) enum ObjectPermissions {
 	Authorized(Authorization),
-	Discover(tangram_index::process::object::permission::Arg),
+	Capture,
 }
 
 pub(crate) struct Options {
@@ -88,20 +88,7 @@ impl Session {
 		options: Options,
 	) -> tg::Result<()> {
 		Self::validate_process_data(&data)?;
-		let object_permissions = if let Some(authorization) = self
-			.try_prepare_finished_process_authorization(&data)
-			.filter(|authorization| authorization.command_has_subtree_permission)
-		{
-			ObjectPermissions::Authorized(authorization)
-		} else {
-			let roots = Self::finished_process_objects(&data);
-
-			let created_at = self.server.clock.unix_timestamp()?;
-			let process_object_permission_arg = self
-				.create_process_object_permission_arg(id, roots, created_at, None)
-				.await?;
-			ObjectPermissions::Discover(process_object_permission_arg)
-		};
+		let object_permissions = ObjectPermissions::Capture;
 
 		let entry = tg::process::put::Arg {
 			data,
@@ -112,42 +99,6 @@ impl Session {
 			.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
 
 		Ok(())
-	}
-
-	pub(crate) fn try_prepare_finished_process_authorization(
-		&self,
-		data: &tg::process::Data,
-	) -> Option<Authorization> {
-		let permission = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		);
-		let has_subtree_permission = |object: &tg::Referent<tg::object::Id>| {
-			let resource = tg::Id::from(object.node.clone());
-			object
-				.options
-				.tokens
-				.local_authorization()
-				.iter()
-				.any(|token| {
-					token.body.resource == resource
-						&& self.verify_local_token(token)
-						&& token.body.authorizes(permission)
-				})
-		};
-		let objects = Self::finished_process_objects(data);
-		let command_object_count = data.command.objects().len();
-		let command_has_subtree_permission = objects[..command_object_count]
-			.iter()
-			.all(has_subtree_permission);
-		let authorized = objects[command_object_count..]
-			.iter()
-			.all(has_subtree_permission);
-		authorized.then_some(Authorization {
-			command_has_subtree_permission,
-			error_has_subtree_permission: true,
-			log_has_subtree_permission: true,
-			output_has_subtree_permission: true,
-		})
 	}
 
 	fn finished_process_objects(data: &tg::process::Data) -> Vec<tg::Referent<tg::object::Id>> {
@@ -306,30 +257,29 @@ impl Session {
 				if output_has_subtree_permission && let Some(output_objects) = &output_objects {
 					objects.extend(output_objects.iter().cloned());
 				}
-				(objects, Vec::new())
+				let destination = id.clone().into();
+				let roots = Self::finished_process_objects(&token_data)
+					.into_iter()
+					.filter(|root| !objects.contains(&root.node))
+					.map(|root| root.map(Into::into));
+				let items = self.create_permission_capture_items(
+					destination,
+					None,
+					roots,
+					self.context.principal.clone(),
+					now,
+				)?;
+				(objects, items)
 			},
-			ObjectPermissions::Discover(mut arg) => {
-				let subtree = tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Subtree,
-				);
-				let mut objects = BTreeSet::new();
-				arg.roots.retain(|root| {
-					if root
-						.permissions
-						.is_some_and(|permissions| permissions.contains(subtree))
-					{
-						objects.insert(root.object.clone());
-						false
-					} else {
-						true
-					}
-				});
-				let permissions = if arg.roots.is_empty() {
-					Vec::new()
-				} else {
-					vec![tangram_index::batch::Item::PutProcessObjectPermissions(arg)]
-				};
-				(objects, permissions)
+			ObjectPermissions::Capture => {
+				let destination = id.clone().into();
+				let roots = Self::finished_process_objects(&token_data)
+					.into_iter()
+					.map(|root| root.map(Into::into));
+				let source = tg::Principal::Process(id.clone());
+				let items =
+					self.create_permission_capture_items(destination, None, roots, source, now)?;
+				(BTreeSet::new(), items)
 			},
 		};
 		for object in subtree_objects {
@@ -344,6 +294,7 @@ impl Session {
 				source: tangram_index::permission::Source::Direct { expires_at: None },
 				subject: tg::authorization::Subject::Process(id.clone()),
 				time_to_touch: None,
+				version: None,
 			};
 			put_object_permissions.push(tangram_index::batch::Item::PutPermission(arg));
 		}
@@ -402,6 +353,7 @@ impl Session {
 				},
 				subject: permission_subject,
 				time_to_touch: Some(self.server.config.process.permission_time_to_touch),
+				version: None,
 			});
 		let account = self.usage_account(&self.context.principal).await?;
 

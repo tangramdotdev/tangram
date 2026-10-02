@@ -25,6 +25,23 @@ pub mod prelude {
 }
 
 pub trait Index {
+	fn enqueue_permission_capture(
+		&self,
+		arg: crate::permission::capture::enqueue::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn permission_capture_batch(
+		&self,
+		batch_size: usize,
+		partition_start: u64,
+		partition_end: u64,
+	) -> impl Future<Output = tg::Result<Vec<crate::permission::capture::Entry>>> + Send;
+
+	fn complete_permission_capture(
+		&self,
+		entry: &crate::permission::capture::Entry,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
 	fn verify_batch(
 		&self,
 		args: &[crate::verify::Arg],
@@ -266,7 +283,7 @@ pub trait Index {
 		length: u64,
 	) -> impl Future<Output = tg::Result<Option<Vec<tg::process::data::Child>>>> + Send;
 
-	fn try_get_process_node_children(
+	fn try_get_process_children_and_objects(
 		&self,
 		id: &tg::process::Id,
 	) -> impl Future<Output = tg::Result<Option<crate::process::NodeChildren>>> + Send;

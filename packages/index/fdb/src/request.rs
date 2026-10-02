@@ -14,6 +14,7 @@ pub(super) enum Request {
 	Clean(Clean),
 	ExpireUsage(tangram_index::usage::expire::Arg),
 	CompleteLogCompaction(tangram_index::log::Entry),
+	CompletePermissionCapture(tangram_index::permission::capture::Entry),
 	DeletePermissions(Vec<tangram_index::permission::delete::Arg>),
 	DeleteGroupMembers(Vec<tangram_index::group::member::delete::Arg>),
 	DeleteGroups(Vec<tg::group::Id>),
@@ -199,9 +200,11 @@ impl Request {
 			| Self::PutProcesses(_)
 			| Self::PutSandboxes(_)
 			| Self::PutUsers(_) => Priority::Medium,
-			Self::AggregateUsage(_) | Self::Clean(_) | Self::ExpireUsage(_) | Self::Update(_) => {
-				Priority::Low
-			},
+			Self::AggregateUsage(_)
+			| Self::Clean(_)
+			| Self::CompletePermissionCapture(_)
+			| Self::ExpireUsage(_)
+			| Self::Update(_) => Priority::Low,
 			Self::DeletePermissions(_)
 			| Self::DeleteGroupMembers(_)
 			| Self::DeleteGroups(_)

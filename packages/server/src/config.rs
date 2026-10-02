@@ -540,6 +540,8 @@ pub struct Indexer {
 
 	pub object_cache_partitions: IndexerPartitions,
 
+	pub permission_capture: IndexerPermissionCapture,
+
 	pub request: IndexerRequest,
 
 	pub updates: IndexerUpdates,
@@ -558,6 +560,14 @@ pub struct IndexerBatch {
 
 #[derive(Clone, Debug)]
 pub struct IndexerCache {
+	pub poll_interval: Duration,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerPermissionCapture {
+	pub batch_size: usize,
+	pub concurrency: usize,
+	pub delegation_time_to_live: Duration,
 	pub poll_interval: Duration,
 }
 
@@ -1668,6 +1678,17 @@ impl Default for IndexerBatch {
 impl Default for IndexerCache {
 	fn default() -> Self {
 		Self {
+			poll_interval: Duration::from_secs(1),
+		}
+	}
+}
+
+impl Default for IndexerPermissionCapture {
+	fn default() -> Self {
+		Self {
+			batch_size: 16,
+			concurrency: 4,
+			delegation_time_to_live: Duration::from_hours(168),
 			poll_interval: Duration::from_secs(1),
 		}
 	}

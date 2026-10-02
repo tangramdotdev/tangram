@@ -34,6 +34,7 @@ mod authentication;
 mod authorization;
 mod billing;
 mod cache;
+mod capture;
 mod check;
 mod checkin;
 mod checkout;

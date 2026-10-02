@@ -150,7 +150,6 @@ impl Index {
 		});
 
 		// Spawn the writer task.
-		let verification = options.verification;
 		let max_process_depth = options.max_process_depth;
 		let max_write_operation_batch_size = options.max_write_operation_batch_size;
 		let write_operation_batch_size = options.write_operation_batch_size;
@@ -161,7 +160,6 @@ impl Index {
 			let subspace = subspace.clone();
 			async move {
 				let arg = writer::Arg {
-					verification,
 					database,
 					max_process_depth,
 					max_write_operation_batch_size,
@@ -318,6 +316,30 @@ impl Index {
 }
 
 impl tangram_index::Index for Index {
+	async fn enqueue_permission_capture(
+		&self,
+		arg: tangram_index::permission::capture::enqueue::Arg,
+	) -> tg::Result<()> {
+		self.enqueue_permission_capture(arg).await
+	}
+
+	async fn permission_capture_batch(
+		&self,
+		batch_size: usize,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<Vec<tangram_index::permission::capture::Entry>> {
+		self.permission_capture_batch(batch_size, partition_start, partition_end)
+			.await
+	}
+
+	async fn complete_permission_capture(
+		&self,
+		entry: &tangram_index::permission::capture::Entry,
+	) -> tg::Result<()> {
+		self.complete_permission_capture(entry).await
+	}
+
 	async fn delete_indexer(&self, arg: tangram_index::indexer::delete::Arg) -> tg::Result<()> {
 		self.delete_indexer(arg).await
 	}
@@ -491,11 +513,11 @@ impl tangram_index::Index for Index {
 		self.try_get_process_children(id, position, length).await
 	}
 
-	async fn try_get_process_node_children(
+	async fn try_get_process_children_and_objects(
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tangram_index::process::NodeChildren>> {
-		self.try_get_process_node_children(id).await
+		self.try_get_process_children_and_objects(id).await
 	}
 
 	async fn try_get_cached_processes(
