@@ -1943,6 +1943,170 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 }
 
 #[tokio::test]
+async fn tag_storage_expands_permissions_during_propagation() {
+	let (_dir, index) = new_index(1);
+	let account = tangram_index::usage::Account::User(tg::user::Id::new());
+	let root = tg::process::Id::new();
+	let children = std::array::from_fn::<_, 3, _>(|_| tg::process::Id::new());
+	let leaves = std::array::from_fn::<_, 3, _>(|_| tg::process::Id::new());
+	let processes = std::iter::once(&root)
+		.chain(&children)
+		.chain(&leaves)
+		.collect::<Vec<_>>();
+	let logs = (0..processes.len())
+		.map(|index| object_id(1700 + index as u64))
+		.collect::<Vec<_>>();
+	let command = object_id(1800);
+	let tag = tg::tag::Id::new();
+	let mut items = Vec::new();
+	for (position, (id, log)) in processes.iter().zip(&logs).enumerate() {
+		let children = match position {
+			0 => children.to_vec(),
+			1..=3 => vec![leaves[position - 1].clone()],
+			_ => Vec::new(),
+		};
+		let mut arg = process_arg((*id).clone(), children, command.clone());
+		arg.log = Some(Some(log.clone()));
+		items.push(tangram_index::batch::Item::PutProcess(arg));
+		items.push(tangram_index::batch::Item::PutObject(object_arg(
+			log.clone(),
+			[],
+			position as u64 + 1,
+		)));
+	}
+	let arg = tangram_index::tag::put::Arg {
+		account: Some(account.clone()),
+		id: tag.clone(),
+		name: "tag".into(),
+		parent: None,
+		specifier: "tag".parse().unwrap(),
+		target: tg::Either::Right(root.clone()),
+		touched_at: 3600,
+		version: "initial".into(),
+	};
+	items.push(tangram_index::batch::Item::PutTag(arg));
+	let arg = tangram_index::batch::Arg { items };
+	index.batch(arg).await.unwrap();
+	let mut permission = tangram_index::permission::put::Arg {
+		created_at: 3600,
+		creator: None,
+		permissions: tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::SubtreeLogObjects,
+		)
+		.into(),
+		resource: root.clone().into(),
+		source: tangram_index::permission::Source::Direct { expires_at: None },
+		subject: tg::authorization::Subject::Tag(tag),
+		time_to_touch: None,
+		version: Some("initial".into()),
+	};
+	index.put_permissions(&[permission.clone()]).await.unwrap();
+	let entry = |process: &tg::process::Id| {
+		let transaction = index.env.read_txn().unwrap();
+		let key = super::super::Key::Usage(super::super::usage::Key::AccountProcess {
+			account: account.clone(),
+			process: process.clone(),
+		});
+		index
+			.db
+			.get(&transaction, &Index::pack(&index.subspace, &key))
+			.unwrap()
+			.map(|value| tangram_index::usage::storage::Entry::deserialize(value).unwrap())
+	};
+
+	// Stop after one child has propagated log permissions, with the other branches pending.
+	for _ in 0..16 {
+		if children.iter().any(|process| entry(process).is_some()) {
+			break;
+		}
+		assert_eq!(
+			index
+				.update_batch(tangram_index::update::Kind::Usage, 1)
+				.await
+				.unwrap()
+				.count,
+			1
+		);
+	}
+	let visited = children
+		.iter()
+		.filter(|process| entry(process).is_some())
+		.collect::<Vec<_>>();
+	assert_eq!(visited.len(), 1);
+	assert!(!entry(visited[0]).unwrap().stores_node());
+	assert!(leaves.iter().all(|process| entry(process).is_none()));
+	assert!(
+		index
+			.try_get_oldest_update_transaction_id(tangram_index::update::Kind::Usage)
+			.await
+			.unwrap()
+			.is_some()
+	);
+
+	// Add process storage while the log-only traversal is still queued.
+	permission.created_at = 7200;
+	permission.permissions = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Subtree,
+	)
+	.into();
+	index.put_permissions(&[permission]).await.unwrap();
+	let mut drained = false;
+	for _ in 0..128 {
+		if index
+			.update_batch(tangram_index::update::Kind::Usage, 1)
+			.await
+			.unwrap()
+			.count == 0
+		{
+			drained = true;
+			break;
+		}
+	}
+	assert!(drained, "the usage updates must finish");
+
+	// The expansion must revisit existing entries and cover every pending branch without duplicate charges.
+	for process in &processes {
+		let entry = entry(process).unwrap();
+		assert!(entry.stores_node());
+		assert!(
+			entry
+				.permissions
+				.contains(tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::Subtree
+				))
+		);
+		assert!(
+			entry
+				.permissions
+				.contains(tg::authorization::Permission::Process(
+					tg::authorization::permission::process::Permission::SubtreeLogObjects
+				))
+		);
+	}
+	for log in &logs {
+		let transaction = index.env.read_txn().unwrap();
+		let key = super::super::Key::Usage(super::super::usage::Key::AccountObject {
+			account: account.clone(),
+			object: log.clone(),
+		});
+		assert!(
+			index
+				.db
+				.get(&transaction, &Index::pack(&index.subspace, &key))
+				.unwrap()
+				.is_some()
+		);
+	}
+	let now = jiff::Timestamp::new(7200, 0).unwrap();
+	let period =
+		tangram_index::usage::Period::containing(tangram_index::usage::PeriodKind::Hour, now);
+	let usage = index.get_usage(&account, period, now).await.unwrap();
+	assert_eq!(usage.object_count, 7);
+	assert_eq!(usage.object_size, 28);
+	assert_eq!(usage.process_count, 7);
+}
+
+#[tokio::test]
 async fn tag_storage_propagates_permissions_when_cleanup_precedes_the_queued_put() {
 	for processes in [false, true] {
 		tag_storage_with_cleanup_before_a_queued_permission_addition(processes, false).await;
