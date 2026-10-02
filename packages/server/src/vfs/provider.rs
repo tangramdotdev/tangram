@@ -110,10 +110,16 @@ struct NodeInfo {
 
 #[derive(Clone)]
 struct ArtifactInfo {
+	branch_children: Arc<Mutex<BTreeMap<tg::artifact::Id, BranchChild>>>,
 	children_expires_at: Arc<Mutex<Option<i64>>>,
 	data: Option<tg::artifact::data::Artifact>,
 	id: tg::artifact::Id,
 	tokens: Arc<Mutex<Vec<tg::authorization::Token>>>,
+}
+
+struct BranchChild {
+	artifact: ArtifactInfo,
+	parent_tokens: Vec<tg::authorization::Token>,
 }
 
 #[derive(Clone)]
@@ -2822,16 +2828,49 @@ impl Provider {
 					else {
 						return Ok(None);
 					};
-					directory = self.artifact_from_directory_edge_inner(
+					let artifact = self.artifact_from_directory_edge_inner(
 						&tokens,
 						child.directory,
 						graph.as_ref(),
 						None,
 					)?;
+					directory = self.branch_child(&directory, artifact)?;
 					default_graph = graph;
 				},
 			}
 		}
+	}
+
+	fn branch_child(
+		&self,
+		parent: &ArtifactInfo,
+		child: ArtifactInfo,
+	) -> std::io::Result<ArtifactInfo> {
+		// Reuse the child so that the child tokens it registers persist across lookups.
+		let parent_tokens = child.tokens.lock().unwrap().clone();
+		let mut children = parent.branch_children.lock().unwrap();
+		let entry = children
+			.entry(child.id.clone())
+			.or_insert_with(|| BranchChild {
+				artifact: child,
+				parent_tokens: parent_tokens.clone(),
+			});
+
+		// Replace the expired tokens when the parent renews its tokens for the child.
+		if entry.parent_tokens != parent_tokens {
+			let now = self
+				.server
+				.clock
+				.unix_timestamp()
+				.map_err(|error| Self::map_cache_sync_error(&error))?;
+			let mut tokens = entry.artifact.tokens.lock().unwrap();
+			tokens.retain(|token| token.body.expires_at >= now);
+			Self::insert_tokens(&mut tokens, &parent_tokens);
+			drop(tokens);
+			entry.parent_tokens = parent_tokens;
+		}
+
+		Ok(entry.artifact.clone())
 	}
 
 	async fn directory_node_inner(
@@ -2958,6 +2997,7 @@ impl Provider {
 			.cloned()
 			.collect::<Vec<_>>();
 		ArtifactInfo {
+			branch_children: Arc::default(),
 			children_expires_at: Arc::default(),
 			data: None,
 			id,
@@ -3581,12 +3621,13 @@ impl Provider {
 					else {
 						return Ok(None);
 					};
-					directory = self.artifact_from_directory_edge_inner(
+					let artifact = self.artifact_from_directory_edge_inner(
 						&tokens,
 						child.directory,
 						graph.as_ref(),
 						transaction,
 					)?;
+					directory = self.branch_child(&directory, artifact)?;
 					default_graph = graph;
 				},
 			}
@@ -3800,6 +3841,7 @@ impl Provider {
 impl ArtifactInfo {
 	fn snapshot(&self) -> Self {
 		Self {
+			branch_children: Arc::default(),
 			children_expires_at: Arc::default(),
 			data: self.data.clone(),
 			id: self.id.clone(),
@@ -4117,6 +4159,7 @@ impl Nodes {
 			.cloned()
 			.collect::<Vec<_>>();
 		ArtifactInfo {
+			branch_children: Arc::default(),
 			children_expires_at: Arc::default(),
 			data: None,
 			id: id.clone(),
@@ -4900,6 +4943,7 @@ mod tests {
 			signature: vec![0; 64],
 		};
 		ArtifactInfo {
+			branch_children: Arc::default(),
 			children_expires_at: Arc::default(),
 			data: None,
 			id,
