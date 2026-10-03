@@ -306,6 +306,8 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		let options = mountOptions(options)
 		let cacheKind: UInt32
 		switch options["cache_kind"] {
+		case "fjall":
+			cacheKind = 2
 		case "rocksdb":
 			cacheKind = 1
 		default:

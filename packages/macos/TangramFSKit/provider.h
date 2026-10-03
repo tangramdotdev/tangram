@@ -114,7 +114,7 @@ typedef struct {
 	uint64_t node_ttl_secs;
 	// The map size with which to open the store. It must be at least the server's.
 	uint64_t cache_map_size;
-	// The local cache backend: zero selects LMDB, one selects RocksDB.
+	// The local cache backend: zero selects LMDB, one selects RocksDB, and two disables the fast path for Fjall.
 	uint32_t cache_kind;
 	// The store's path within the data directory. NULL or empty selects the default.
 	const char *cache_path;

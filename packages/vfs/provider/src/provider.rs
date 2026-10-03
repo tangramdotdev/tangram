@@ -73,6 +73,7 @@ pub struct Config {
 
 #[derive(Clone, Copy, Default)]
 pub enum CacheKind {
+	Fjall,
 	#[default]
 	Lmdb,
 	Rocksdb,
@@ -1330,6 +1331,7 @@ impl Fast {
 		// Open the cache.
 		let path = data_directory.join(&config.cache_path);
 		let (cache, secondary_path) = match config.cache_kind {
+			CacheKind::Fjall => return None,
 			CacheKind::Lmdb => {
 				let config = tangram_cache_lmdb::Config {
 					map_size: config.cache_map_size,
@@ -2496,6 +2498,18 @@ mod tests {
 			render_tag(2, &process, Some(".tg.ts")),
 			Bytes::from(format!("../{process}.tg.ts"))
 		);
+	}
+
+	#[test]
+	fn fjall_disables_the_fast_path() {
+		let temp = Temp::new().unwrap();
+		let config = Config {
+			cache_kind: CacheKind::Fjall,
+			cache_path: PathBuf::from("cache.fjall"),
+			..Config::default()
+		};
+		assert!(Fast::new(temp.path(), &config).is_none());
+		assert!(!temp.path().exists());
 	}
 
 	#[cfg(not(feature = "rocksdb"))]

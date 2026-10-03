@@ -19,6 +19,7 @@ path = "src/main.rs"
 
 [features]
 default = ["js", "lmdb", "sqlite", "tls", "typescript", "v8"]
+fjall = ["tangram_server/fjall"]
 foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_server/foundationdb"]
 js = ["tangram_server/js"]
 lmdb = ["tangram_server/lmdb"]

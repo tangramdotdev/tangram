@@ -754,6 +754,8 @@ pub struct IndexQueue {
 
 #[derive(Clone, Debug)]
 pub enum Cache {
+	Fjall(FjallCache),
+
 	Lmdb(LmdbCache),
 
 	Memory(MemoryCache),
@@ -761,6 +763,17 @@ pub enum Cache {
 	Rocksdb(RocksdbCache),
 
 	Scylla(ScyllaCache),
+}
+
+#[derive(Clone, Debug)]
+pub struct FjallCache {
+	pub path: PathBuf,
+
+	pub read_batch_size: usize,
+
+	pub read_concurrency: usize,
+
+	pub write_batch_size: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -1187,6 +1200,8 @@ pub struct SyncGetQueue {
 
 #[derive(Clone, Debug)]
 pub struct SyncGetStore {
+	pub fjall: SyncGetStoreObject,
+
 	pub lmdb: SyncGetStoreObject,
 
 	pub memory: SyncGetStoreObject,
@@ -1875,6 +1890,17 @@ impl Default for Cache {
 	}
 }
 
+impl Default for FjallCache {
+	fn default() -> Self {
+		Self {
+			path: PathBuf::from("cache.fjall"),
+			read_batch_size: 64,
+			read_concurrency: 4,
+			write_batch_size: 8_000,
+		}
+	}
+}
+
 impl Default for LmdbCache {
 	fn default() -> Self {
 		Self {
@@ -2145,6 +2171,11 @@ impl Default for SyncGetQueue {
 impl Default for SyncGetStore {
 	fn default() -> Self {
 		Self {
+			fjall: SyncGetStoreObject {
+				object_concurrency: 1,
+				object_max_batch: 1_000,
+				object_max_bytes: 1_000_000,
+			},
 			lmdb: SyncGetStoreObject {
 				object_concurrency: 1,
 				object_max_batch: 1_000,

@@ -196,6 +196,12 @@ impl Server {
 
 	fn cache(server: &crate::Server) -> Option<Cache> {
 		match &server.config.cache {
+			crate::config::Cache::Fjall(config) => Some(Cache {
+				kind: "fjall",
+				map_size: 0,
+				path: server.path.join(&config.path),
+				posix_sem_prefix: None,
+			}),
 			crate::config::Cache::Lmdb(config) => Some(Cache {
 				kind: "lmdb",
 				map_size: config.map_size.to_u64().unwrap(),

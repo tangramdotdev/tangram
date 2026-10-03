@@ -1136,6 +1136,8 @@ pub struct IndexQueue {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields, rename_all = "snake_case", tag = "kind")]
 pub enum Cache {
+	Fjall(FjallCache),
+
 	Lmdb(LmdbCache),
 
 	Memory(MemoryCache),
@@ -1143,6 +1145,23 @@ pub enum Cache {
 	Rocksdb(RocksdbCache),
 
 	Scylla(ScyllaCache),
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FjallCache {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_batch_size: Option<usize>,
 }
 
 #[serde_as]
@@ -1820,6 +1839,9 @@ pub struct SyncGetQueue {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct SyncGetStore {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub fjall: Option<SyncGetStoreObject>,
+
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub lmdb: Option<SyncGetStoreObject>,
 
@@ -3511,6 +3533,7 @@ fn resolve_index_queue(source: IndexQueue) -> server::IndexQueue {
 
 fn resolve_cache(source: Cache) -> tg::Result<server::Cache> {
 	let target = match source {
+		Cache::Fjall(source) => server::Cache::Fjall(resolve_fjall_cache(source)),
 		Cache::Lmdb(source) => server::Cache::Lmdb(resolve_lmdb_cache(source)),
 		Cache::Memory(_) => server::Cache::Memory(server::MemoryCache {}),
 		Cache::Rocksdb(source) => server::Cache::Rocksdb(resolve_rocksdb_cache(source)),
@@ -3518,6 +3541,23 @@ fn resolve_cache(source: Cache) -> tg::Result<server::Cache> {
 	};
 
 	Ok(target)
+}
+
+fn resolve_fjall_cache(source: FjallCache) -> server::FjallCache {
+	let mut target = server::FjallCache::default();
+	if let Some(value) = source.path {
+		target.path = value;
+	}
+	if let Some(value) = source.read_batch_size {
+		target.read_batch_size = value;
+	}
+	if let Some(value) = source.read_concurrency {
+		target.read_concurrency = value;
+	}
+	if let Some(value) = source.write_batch_size {
+		target.write_batch_size = value;
+	}
+	target
 }
 
 fn resolve_lmdb_cache(source: LmdbCache) -> server::LmdbCache {
@@ -4161,6 +4201,9 @@ fn resolve_sync_get_queue(source: SyncGetQueue) -> server::SyncGetQueue {
 
 fn resolve_sync_get_store(source: &SyncGetStore) -> server::SyncGetStore {
 	let mut target = server::SyncGetStore::default();
+	if let Some(source) = source.fjall {
+		target.fjall = resolve_sync_get_store_object(source, target.fjall);
+	}
 	if let Some(source) = source.lmdb {
 		target.lmdb = resolve_sync_get_store_object(source, target.lmdb);
 	}

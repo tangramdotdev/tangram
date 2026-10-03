@@ -563,7 +563,9 @@ impl Server {
 				));
 			}
 			match &config.cache {
-				self::config::Cache::Lmdb(_) | self::config::Cache::Rocksdb(_) => {},
+				self::config::Cache::Fjall(_)
+				| self::config::Cache::Lmdb(_)
+				| self::config::Cache::Rocksdb(_) => {},
 				self::config::Cache::Memory(_) => {
 					return Err(tg::error!("the memory cache does not report capacity"));
 				},
@@ -1086,6 +1088,20 @@ impl Server {
 
 		// Create the cache.
 		let cache = match &config.cache {
+			config::Cache::Fjall(fjall) => {
+				#[cfg(not(feature = "fjall"))]
+				{
+					let _ = fjall;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with fjall support"
+					));
+				}
+				#[cfg(feature = "fjall")]
+				{
+					self::cache::Cache::new_fjall(&path, fjall)
+						.map_err(|error| tg::error!(!error, "failed to create the cache"))?
+				}
+			},
 			config::Cache::Lmdb(lmdb) => {
 				#[cfg(not(feature = "lmdb"))]
 				{

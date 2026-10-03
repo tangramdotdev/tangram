@@ -52,6 +52,8 @@ impl Session {
 	) -> tg::Result<()> {
 		// Choose the batch parameters.
 		let store_config = match &self.server.cache {
+			#[cfg(feature = "fjall")]
+			crate::cache::Cache::Fjall(_) => &self.server.config.sync.get.store.fjall,
 			#[cfg(feature = "lmdb")]
 			crate::cache::Cache::Lmdb(_) => &self.server.config.sync.get.store.lmdb,
 			crate::cache::Cache::Memory(_) => &self.server.config.sync.get.store.memory,

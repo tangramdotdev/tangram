@@ -158,7 +158,7 @@ pub struct TgConfig {
 	pub node_ttl_secs: u64,
 	/// The map size with which to open the cache. It must be at least the server's, so the server sends its own.
 	pub cache_map_size: u64,
-	/// The local cache backend: zero selects LMDB, one selects `RocksDB`.
+	/// The local cache backend: zero selects LMDB, one selects `RocksDB`, and two disables the fast path for Fjall.
 	pub cache_kind: u32,
 	/// The cache's path within the data directory, a null-terminated UTF-8 string owned by the caller. A null pointer or an empty string selects the default.
 	pub cache_path: *const c_char,
@@ -261,6 +261,7 @@ fn config_from_c(config: &TgConfig) -> std::result::Result<Config, Status> {
 		cache_kind: match config.cache_kind {
 			0 => provider::CacheKind::Lmdb,
 			1 => provider::CacheKind::Rocksdb,
+			2 => provider::CacheKind::Fjall,
 			_ => return Err(Status::InvalidArgument),
 		},
 		cache_map_size: if config.cache_map_size == 0 {

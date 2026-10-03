@@ -14,6 +14,7 @@ version = { workspace = true }
 ignored = ["tangram_js", "tokio-postgres"]
 
 [features]
+fjall = ["dep:tangram_cache_fjall"]
 foundationdb = [
 	"dep:tangram_index_fdb",
 	"tangram_sandbox/foundationdb",
@@ -89,6 +90,7 @@ tangram_archive_s3 = { workspace = true }
 tangram_billing = { workspace = true }
 tangram_billing_stripe = { workspace = true }
 tangram_cache = { workspace = true }
+tangram_cache_fjall = { workspace = true, optional = true }
 tangram_cache_lmdb = { workspace = true, optional = true }
 tangram_cache_memory = { workspace = true }
 tangram_cache_rocksdb = { workspace = true, optional = true }

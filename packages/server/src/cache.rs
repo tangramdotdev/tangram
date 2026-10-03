@@ -6,6 +6,9 @@ pub use cache::{archive, index, log, object};
 #[try_unwrap(ref)]
 #[unwrap(ref)]
 pub enum Cache {
+	#[cfg(feature = "fjall")]
+	Fjall(tangram_cache_fjall::Cache),
+
 	#[cfg(feature = "lmdb")]
 	Lmdb(tangram_cache_lmdb::Cache),
 
@@ -19,6 +22,25 @@ pub enum Cache {
 }
 
 impl Cache {
+	#[cfg(feature = "fjall")]
+	pub fn new_fjall(
+		directory: &std::path::Path,
+		config: &crate::config::FjallCache,
+	) -> tg::Result<Self> {
+		let path = directory.join(&config.path);
+		let config = tangram_cache_fjall::Config {
+			path: path.clone(),
+			read_batch_size: config.read_batch_size,
+			read_concurrency: config.read_concurrency,
+			write_batch_size: config.write_batch_size,
+		};
+		let fjall = tangram_cache_fjall::Cache::new(&config).map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to create the fjall cache"),
+		)?;
+
+		Ok(Self::Fjall(fjall))
+	}
+
 	#[cfg(feature = "lmdb")]
 	pub fn new_lmdb(
 		directory: &std::path::Path,
@@ -113,11 +135,18 @@ impl Cache {
 	}
 
 	#[cfg_attr(
-		not(any(feature = "lmdb", feature = "rocksdb", feature = "scylla")),
+		not(any(
+			feature = "fjall",
+			feature = "lmdb",
+			feature = "rocksdb",
+			feature = "scylla"
+		)),
 		expect(clippy::unnecessary_wraps)
 	)]
 	pub fn put_object_sync(&self, arg: object::put::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.put_object_sync(arg)?,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_object_sync(arg)?,
 			Self::Memory(cache) => cache.put_object(arg)?,
@@ -135,6 +164,8 @@ impl Cache {
 		id: &tg::object::Id,
 	) -> tg::Result<Option<(u64, tg::object::Data)>> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.try_get_object_data_sync(id),
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_object_data_sync(id),
 			Self::Memory(cache) => cache.try_get_object_data(id),
@@ -146,11 +177,18 @@ impl Cache {
 	}
 
 	#[cfg_attr(
-		not(any(feature = "lmdb", feature = "rocksdb", feature = "scylla")),
+		not(any(
+			feature = "fjall",
+			feature = "lmdb",
+			feature = "rocksdb",
+			feature = "scylla"
+		)),
 		expect(clippy::unnecessary_wraps)
 	)]
 	pub fn try_get_object_sync(&self, arg: &object::get::Arg) -> tg::Result<object::get::Output> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.try_get_object_sync(arg),
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_object_sync(arg),
 			Self::Memory(cache) => Ok(cache.try_get_object_sync(arg)),
@@ -165,6 +203,8 @@ impl Cache {
 impl cache::Cache for Cache {
 	async fn delete_archive_queue_entry(&self, arg: archive::queue::delete::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.delete_archive_queue_entry(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_archive_queue_entry(arg).await,
 			Self::Memory(cache) => cache::Cache::delete_archive_queue_entry(cache, arg).await,
@@ -177,6 +217,8 @@ impl cache::Cache for Cache {
 
 	async fn delete_index_queue_fragment(&self, arg: index::queue::delete::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.delete_index_queue_fragment(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_index_queue_fragment(arg).await,
 			Self::Memory(cache) => cache::Cache::delete_index_queue_fragment(cache, arg).await,
@@ -189,6 +231,8 @@ impl cache::Cache for Cache {
 
 	async fn put_archive_queue_entry(&self, arg: archive::queue::put::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.put_archive_queue_entry(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_archive_queue_entry(arg).await,
 			Self::Memory(cache) => cache::Cache::put_archive_queue_entry(cache, arg).await,
@@ -201,6 +245,8 @@ impl cache::Cache for Cache {
 
 	async fn put_index_queue_fragment(&self, arg: index::queue::put::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.put_index_queue_fragment(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_index_queue_fragment(arg).await,
 			Self::Memory(cache) => cache::Cache::put_index_queue_fragment(cache, arg).await,
@@ -216,6 +262,8 @@ impl cache::Cache for Cache {
 		arg: archive::queue::get::Arg,
 	) -> tg::Result<Option<archive::queue::Entry>> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.try_get_archive_queue_entry(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_archive_queue_entry(arg).await,
 			Self::Memory(cache) => cache::Cache::try_get_archive_queue_entry(cache, arg).await,
@@ -231,6 +279,8 @@ impl cache::Cache for Cache {
 		arg: index::queue::get::Arg,
 	) -> tg::Result<Option<index::queue::Fragment>> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.try_get_index_queue_fragment(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_index_queue_fragment(arg).await,
 			Self::Memory(cache) => cache::Cache::try_get_index_queue_fragment(cache, arg).await,
@@ -243,6 +293,8 @@ impl cache::Cache for Cache {
 
 	async fn contains_object(&self, arg: object::contains::Arg) -> tg::Result<bool> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache::Cache::contains_object(cache, arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache::Cache::contains_object(cache, arg).await,
 			Self::Memory(cache) => cache::Cache::contains_object(cache, arg).await,
@@ -255,6 +307,8 @@ impl cache::Cache for Cache {
 
 	async fn delete_object_cache_entry(&self, arg: object::cache::delete::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.delete_object_cache_entry(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_object_cache_entry(arg).await,
 			Self::Memory(cache) => cache::Cache::delete_object_cache_entry(cache, arg).await,
@@ -267,6 +321,8 @@ impl cache::Cache for Cache {
 
 	async fn delete_log(&self, arg: log::delete::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.delete_log(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_log(arg).await,
 			Self::Memory(cache) => cache::Cache::delete_log(cache, arg).await,
@@ -279,6 +335,8 @@ impl cache::Cache for Cache {
 
 	async fn delete_object(&self, arg: object::delete::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.delete_object(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_object(arg).await,
 			Self::Memory(cache) => cache::Cache::delete_object(cache, arg).await,
@@ -291,6 +349,8 @@ impl cache::Cache for Cache {
 
 	async fn delete_object_batch(&self, args: Vec<object::delete::Arg>) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.delete_object_batch(args).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_object_batch(args).await,
 			Self::Memory(cache) => cache::Cache::delete_object_batch(cache, args).await,
@@ -306,6 +366,8 @@ impl cache::Cache for Cache {
 		arg: object::cache::get::Arg,
 	) -> tg::Result<Vec<object::cache::Entry>> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.get_object_cache_entries(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.get_object_cache_entries(arg).await,
 			Self::Memory(cache) => cache::Cache::get_object_cache_entries(cache, arg).await,
@@ -321,6 +383,8 @@ impl cache::Cache for Cache {
 		arg: archive::queue::get::batch::Arg,
 	) -> tg::Result<Vec<archive::queue::Entry>> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.get_archive_queue_entries(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.get_archive_queue_entries(arg).await,
 			Self::Memory(cache) => cache::Cache::get_archive_queue_entries(cache, arg).await,
@@ -336,6 +400,8 @@ impl cache::Cache for Cache {
 		arg: index::queue::get::batch::Arg,
 	) -> tg::Result<Vec<index::queue::Fragment>> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.get_index_queue_fragments(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.get_index_queue_fragments(arg).await,
 			Self::Memory(cache) => cache::Cache::get_index_queue_fragments(cache, arg).await,
@@ -348,6 +414,8 @@ impl cache::Cache for Cache {
 
 	async fn put_object_cache_entry(&self, arg: object::cache::put::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.put_object_cache_entry(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_object_cache_entry(arg).await,
 			Self::Memory(cache) => cache::Cache::put_object_cache_entry(cache, arg).await,
@@ -363,6 +431,8 @@ impl cache::Cache for Cache {
 		arg: object::cache::put::object::Arg,
 	) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.put_object_cache_entry_with_object(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_object_cache_entry_with_object(arg).await,
 			Self::Memory(cache) => {
@@ -377,6 +447,8 @@ impl cache::Cache for Cache {
 
 	async fn flush(&self) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.flush().await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.flush().await,
 			Self::Memory(cache) => cache::Cache::flush(cache).await,
@@ -389,6 +461,8 @@ impl cache::Cache for Cache {
 
 	async fn put_log(&self, arg: log::put::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.put_log(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_log(arg).await,
 			Self::Memory(cache) => cache::Cache::put_log(cache, arg).await,
@@ -401,6 +475,8 @@ impl cache::Cache for Cache {
 
 	async fn put_log_batch(&self, args: Vec<log::put::Arg>) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.put_log_batch(args).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_log_batch(args).await,
 			Self::Memory(cache) => cache::Cache::put_log_batch(cache, args).await,
@@ -413,6 +489,8 @@ impl cache::Cache for Cache {
 
 	async fn put_log_end(&self, arg: log::end::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache::Cache::put_log_end(cache, arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache::Cache::put_log_end(cache, arg).await,
 			Self::Memory(cache) => cache::Cache::put_log_end(cache, arg).await,
@@ -428,6 +506,8 @@ impl cache::Cache for Cache {
 		process: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::log::End>> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache::Cache::try_get_log_end(cache, process).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache::Cache::try_get_log_end(cache, process).await,
 			Self::Memory(cache) => cache::Cache::try_get_log_end(cache, process).await,
@@ -440,6 +520,8 @@ impl cache::Cache for Cache {
 
 	async fn put_object(&self, arg: object::put::Arg) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.put_object(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_object(arg).await,
 			Self::Memory(cache) => cache::Cache::put_object(cache, arg).await,
@@ -452,6 +534,8 @@ impl cache::Cache for Cache {
 
 	async fn put_object_batch(&self, args: Vec<object::put::Arg>) -> tg::Result<()> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.put_object_batch(args).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_object_batch(args).await,
 			Self::Memory(cache) => cache::Cache::put_object_batch(cache, args).await,
@@ -464,6 +548,8 @@ impl cache::Cache for Cache {
 
 	async fn try_get_log_length(&self, arg: log::length::Arg) -> tg::Result<Option<u64>> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.try_get_log_length(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_log_length(arg).await,
 			Self::Memory(cache) => cache::Cache::try_get_log_length(cache, arg).await,
@@ -476,6 +562,8 @@ impl cache::Cache for Cache {
 
 	async fn try_get_object(&self, arg: object::get::Arg) -> tg::Result<object::get::Output> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.try_get_object(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_object(arg).await,
 			Self::Memory(cache) => cache::Cache::try_get_object(cache, arg).await,
@@ -491,6 +579,8 @@ impl cache::Cache for Cache {
 		arg: object::get::batch::Arg,
 	) -> tg::Result<Vec<object::get::Output>> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.try_get_object_batch(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_object_batch(arg).await,
 			Self::Memory(cache) => cache::Cache::try_get_object_batch(cache, arg).await,
@@ -503,6 +593,8 @@ impl cache::Cache for Cache {
 
 	async fn try_get_capacity(&self) -> tg::Result<Option<cache::capacity::Capacity>> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache::Cache::try_get_capacity(cache).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache::Cache::try_get_capacity(cache).await,
 			Self::Memory(cache) => cache::Cache::try_get_capacity(cache).await,
@@ -518,6 +610,8 @@ impl cache::Cache for Cache {
 		arg: log::read::Arg,
 	) -> tg::Result<Vec<log::read::Entry<'static>>> {
 		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache.try_read_log(arg).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_read_log(arg).await,
 			Self::Memory(cache) => cache::Cache::try_read_log(cache, arg).await,

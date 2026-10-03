@@ -6,6 +6,7 @@ members = [
   "packages/billing",
   "packages/billing/stripe",
   "packages/cache",
+  "packages/cache/fjall",
   "packages/cache/lmdb",
   "packages/cache/memory",
   "packages/cache/rocksdb",
@@ -111,6 +112,7 @@ deno_core_icudata = "0.78"
 derive_more = { version = "2", features = ["full"] }
 env_logger = "0.11"
 fastcdc = { version = "5", features = ["tokio"] }
+fjall = "3.1"
 flate2 = "1"
 fnv = "1"
 foundationdb = { version = "0.11", features = ["fdb-7_3", "embedded-fdb-include"] }
@@ -210,6 +212,7 @@ tangram_archive_s3 = { path = "packages/archive/s3" }
 tangram_billing = { path = "packages/billing" }
 tangram_billing_stripe = { path = "packages/billing/stripe" }
 tangram_cache = { path = "packages/cache" }
+tangram_cache_fjall = { path = "packages/cache/fjall" }
 tangram_cache_lmdb = { path = "packages/cache/lmdb" }
 tangram_cache_memory = { path = "packages/cache/memory" }
 tangram_cache_rocksdb = { path = "packages/cache/rocksdb" }

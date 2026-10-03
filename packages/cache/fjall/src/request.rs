@@ -1,0 +1,16 @@
+pub(super) enum Request {
+	DeleteArchiveQueueEntry(tangram_cache::archive::queue::delete::Arg),
+	DeleteIndexQueueFragment(tangram_cache::index::queue::delete::Arg),
+	DeleteLog(tangram_cache::log::delete::Arg),
+	DeleteObject(super::delete::Request),
+	DeleteObjectBatch(Vec<super::delete::Request>),
+	DeleteObjectCacheEntry(tangram_cache::object::cache::delete::Arg),
+	PutArchiveQueueEntry(tangram_cache::archive::queue::put::Arg),
+	PutIndexQueueFragment(tangram_cache::index::queue::put::Arg),
+	PutLogBatch(Vec<tangram_cache::log::put::Arg>),
+	PutLogEnd(tangram_cache::log::end::Arg),
+	PutObject(super::put::Request),
+	PutObjectBatch(Vec<super::put::Request>),
+	PutObjectCacheEntry(tangram_cache::object::cache::put::Arg),
+	PutObjectCacheEntryWithObject(tangram_cache::object::cache::put::object::Arg),
+}
