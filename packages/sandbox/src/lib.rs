@@ -123,6 +123,25 @@ pub enum Isolation {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ContainerIsolation {
 	pub max_pids: Option<u64>,
+	pub seccomp: Option<SeccompPolicy>,
+}
+
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	derive_more::Display,
+	derive_more::FromStr,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+)]
+#[display(rename_all = "snake_case")]
+#[from_str(rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
+pub enum SeccompPolicy {
+	Default,
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]

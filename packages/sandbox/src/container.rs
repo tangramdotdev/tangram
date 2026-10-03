@@ -1,4 +1,5 @@
 mod cgroup;
+mod seccomp;
 mod spawn;
 mod util;
 mod validate;

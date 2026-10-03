@@ -230,6 +230,9 @@ pub(crate) async fn spawn(
 	if let Some(max_pids) = isolation.max_pids {
 		command.arg("--cgroup-pids").arg(max_pids.to_string());
 	}
+	if let Some(seccomp) = isolation.seccomp {
+		command.arg("--seccomp").arg(seccomp.to_string());
+	}
 	command
 		.arg("--")
 		.arg(Sandbox::guest_tangram_path_from_host_tangram_path(

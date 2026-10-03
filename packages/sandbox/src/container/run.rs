@@ -1,5 +1,5 @@
 use {
-	super::{cgroup, mount, util::CStringVec, validate::validate},
+	super::{cgroup, mount, seccomp, util::CStringVec, validate::validate},
 	num::ToPrimitive,
 	std::{
 		collections::BTreeMap,
@@ -48,6 +48,7 @@ pub struct Arg {
 	pub overlays: Vec<Overlay>,
 	pub procs: Vec<PathBuf>,
 	pub ro_binds: Vec<Bind>,
+	pub seccomp: Option<crate::SeccompPolicy>,
 	pub setenvs: Vec<SetEnv>,
 	pub tmpfs: Vec<PathBuf>,
 	pub uid: libc::uid_t,
@@ -326,6 +327,9 @@ fn child_main(
 	set_no_new_privs()?;
 	drop_capabilities()?;
 	close_non_std_fds()?;
+	if let Some(policy) = arg.seccomp {
+		seccomp::install(policy)?;
+	}
 	exec_command(arg)
 }
 

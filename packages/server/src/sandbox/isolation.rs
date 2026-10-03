@@ -15,6 +15,9 @@ impl Server {
 					Ok(tangram_sandbox::Isolation::Container(
 						tangram_sandbox::ContainerIsolation {
 							max_pids: container.max_pids(),
+							seccomp: container
+								.harden
+								.then_some(tangram_sandbox::SeccompPolicy::Default),
 						},
 					))
 				},
@@ -93,6 +96,9 @@ impl Server {
 			return Some(tangram_sandbox::Isolation::Container(
 				tangram_sandbox::ContainerIsolation {
 					max_pids: container.max_pids(),
+					seccomp: container
+						.harden
+						.then_some(tangram_sandbox::SeccompPolicy::Default),
 				},
 			));
 		}
