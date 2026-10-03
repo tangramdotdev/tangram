@@ -123,6 +123,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub unshare_all: bool,
+
+	#[arg(long)]
+	pub user_namespace_fd: Option<i32>,
 }
 
 impl Args {
@@ -190,6 +193,7 @@ impl Args {
 			tmpfs: self.tmpfs,
 			uid: self.uid,
 			unshare_all: self.unshare_all,
+			user_namespace_fd: self.user_namespace_fd,
 		}
 	}
 }

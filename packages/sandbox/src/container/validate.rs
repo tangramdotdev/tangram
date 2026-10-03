@@ -11,6 +11,9 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 		if arg.fuse_fd.is_some() {
 			return Err(tg::error!("--fuse-fd requires --unshare-all"));
 		}
+		if arg.user_namespace_fd.is_some() {
+			return Err(tg::error!("--user-namespace-fd requires --unshare-all"));
+		}
 		if has_mounts(arg) {
 			return Err(tg::error!("mount operations require --unshare-all"));
 		}
@@ -44,6 +47,11 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 	}
 	if arg.filesystem_fd.is_some_and(|fd| fd < 0) {
 		return Err(tg::error!("--filesystem-fd must be a valid descriptor"));
+	}
+	if arg.user_namespace_fd.is_some_and(|fd| fd < 0) {
+		return Err(tg::error!(
+			"--user-namespace-fd requires a valid descriptor"
+		));
 	}
 	if arg.command.is_empty() {
 		return Err(tg::error!("a command is required"));

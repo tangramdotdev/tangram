@@ -4,11 +4,12 @@ use {
 	std::{
 		ffi::{CStr, CString, OsStr},
 		fmt::Write as _,
+		io::{Read as _, Write as _},
 		mem::MaybeUninit,
 		net::Ipv4Addr,
 		os::{
-			fd::{AsRawFd as _, OwnedFd},
-			unix::ffi::OsStrExt as _,
+			fd::AsRawFd as _,
+			unix::{ffi::OsStrExt as _, net::UnixStream},
 		},
 		path::{Path, PathBuf},
 	},
@@ -82,8 +83,14 @@ pub(crate) async fn spawn(
 	} else {
 		arg.path.clone()
 	};
-	prepare_sandbox_directory(&arg.path, &filesystem_path, filesystem_limited)?;
+	prepare_sandbox_directory(
+		&arg.path,
+		&filesystem_path,
+		filesystem_limited,
+		isolation.uid_map.is_some(),
+	)?;
 	let user = prepare_etc_files(&arg.path, network.as_deref(), &arg.dns)?;
+	let user_namespace = prepare_user_namespace(isolation, &user)?;
 	let (filesystem_sendfd, filesystem_recvfd) = if filesystem_limited {
 		let (sendfd, recvfd) = rustix::net::socketpair(
 			rustix::net::AddressFamily::UNIX,
@@ -143,7 +150,13 @@ pub(crate) async fn spawn(
 		if let Some(size) = isolation.max_filesystem_size {
 			command.arg("--filesystem-size").arg(size.to_string());
 		}
-		inherit_fd(&mut command, filesystem_sendfd);
+		inherit_fd(&mut command, filesystem_sendfd.as_raw_fd());
+	}
+	if let Some((_, guest, _, _)) = &user_namespace {
+		command
+			.arg("--user-namespace-fd")
+			.arg(guest.as_raw_fd().to_string());
+		inherit_fd(&mut command, guest.as_raw_fd());
 	}
 	if let Some(network_arg) = &network_arg {
 		command.arg("--network").arg(network_arg);
@@ -176,21 +189,7 @@ pub(crate) async fn spawn(
 			.arg(fuse_fd.as_raw_fd().to_string())
 			.arg("--fuse-path")
 			.arg(&arg.store_path);
-		// Clear CLOEXEC on the FUSE socket after forking so only the sandbox inherits it.
-		let raw = fuse_fd.as_raw_fd();
-		// SAFETY: The pre_exec closure only calls async-signal-safe operations.
-		unsafe {
-			command.pre_exec(move || {
-				let flags = libc::fcntl(raw, libc::F_GETFD);
-				if flags < 0 {
-					return Err(std::io::Error::last_os_error());
-				}
-				if libc::fcntl(raw, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
-					return Err(std::io::Error::last_os_error());
-				}
-				Ok(())
-			});
-		}
+		inherit_fd(&mut command, fuse_fd.as_raw_fd());
 	}
 	if let Some(hostname) = &arg.hostname {
 		command.arg("--hostname").arg(hostname);
@@ -310,6 +309,18 @@ pub(crate) async fn spawn(
 	let child = command
 		.spawn()
 		.map_err(|error| tg::error!(!error, "failed to spawn sandbox container"))?;
+	if let Some((host, guest, uid_map, gid_map)) = user_namespace {
+		drop(guest);
+		let pid = child
+			.id()
+			.ok_or_else(|| tg::error!("no child pid available"))?;
+		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
+		tokio::task::spawn_blocking(move || {
+			configure_user_namespace(pid, host, &uid_map, &gid_map)
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "the user namespace mapping task panicked"))??;
+	}
 	drop(filesystem_sendfd);
 	let filesystem = match filesystem_recvfd {
 		Some(fd) => Some(
@@ -347,6 +358,7 @@ fn prepare_sandbox_directory(
 	sandbox_path: &Path,
 	filesystem_path: &Path,
 	filesystem_limited: bool,
+	mapped_identity: bool,
 ) -> tg::Result<()> {
 	let mut paths = vec![Sandbox::host_etc_path_from_root(sandbox_path)];
 	if !filesystem_limited {
@@ -383,12 +395,61 @@ fn prepare_sandbox_directory(
 				"failed to create the sandbox path"
 			)
 		})?;
+		if mapped_identity {
+			for path in [
+				Sandbox::host_output_path_from_root(filesystem_path),
+				Sandbox::host_scratch_path_from_root(filesystem_path),
+				Sandbox::host_upper_path_from_root(filesystem_path),
+				Sandbox::host_work_path_from_root(filesystem_path),
+			] {
+				let permissions =
+					<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o777);
+				std::fs::set_permissions(&path, permissions).map_err(|error| {
+					tg::error!(
+						!error,
+						path = %path.display(),
+						"failed to set mapped sandbox path permissions"
+					)
+				})?;
+			}
+		}
 	}
 	Ok(())
 }
 
-fn inherit_fd(command: &mut tokio::process::Command, fd: &OwnedFd) {
-	let raw = fd.as_raw_fd();
+fn prepare_user_namespace(
+	isolation: &crate::ContainerIsolation,
+	user: &User,
+) -> tg::Result<Option<(UnixStream, UnixStream, crate::IdMap, crate::IdMap)>> {
+	let (Some(uid_map), Some(gid_map)) = (&isolation.uid_map, &isolation.gid_map) else {
+		if isolation.uid_map.is_some() || isolation.gid_map.is_some() {
+			return Err(tg::error!(
+				"container uid and gid maps must be configured together"
+			));
+		}
+		return Ok(None);
+	};
+	if user.uid >= uid_map.count {
+		return Err(tg::error!(
+			count = %uid_map.count,
+			uid = %user.uid,
+			"the container uid map does not contain the workload uid"
+		));
+	}
+	if user.gid >= gid_map.count {
+		return Err(tg::error!(
+			count = %gid_map.count,
+			gid = %user.gid,
+			"the container gid map does not contain the workload gid"
+		));
+	}
+	let (host, guest) = UnixStream::pair()
+		.map_err(|error| tg::error!(!error, "failed to create a user namespace socket pair"))?;
+	let output = Some((host, guest, uid_map.clone(), gid_map.clone()));
+	Ok(output)
+}
+
+fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
 	// SAFETY: The pre_exec closure only calls async-signal-safe operations.
 	unsafe {
 		command.pre_exec(move || {
@@ -402,6 +463,64 @@ fn inherit_fd(command: &mut tokio::process::Command, fd: &OwnedFd) {
 			Ok(())
 		});
 	}
+}
+
+fn configure_user_namespace(
+	pid: libc::pid_t,
+	mut socket: UnixStream,
+	uid_map: &crate::IdMap,
+	gid_map: &crate::IdMap,
+) -> tg::Result<()> {
+	let mut buffer = [0];
+	socket
+		.read_exact(&mut buffer)
+		.map_err(|error| tg::error!(!error, "failed to wait for the user namespace"))?;
+	// SAFETY: This function has no preconditions.
+	if unsafe { libc::geteuid() } == 0 {
+		write_id_map(pid, "uid_map", uid_map)?;
+		write_id_map(pid, "gid_map", gid_map)?;
+	} else {
+		run_id_map_helper(pid, uid_map, "uid")?;
+		run_id_map_helper(pid, gid_map, "gid")?;
+	}
+	socket
+		.write_all(&[0])
+		.map_err(|error| tg::error!(!error, "failed to release the user namespace"))?;
+	Ok(())
+}
+
+fn write_id_map(pid: libc::pid_t, name: &str, map: &crate::IdMap) -> tg::Result<()> {
+	let path = PathBuf::from(format!("/proc/{pid}/{name}"));
+	let contents = format!("0 {} {}\n", map.host, map.count);
+	std::fs::write(&path, contents).map_err(
+		|error| tg::error!(!error, path = %path.display(), "failed to write the user namespace map"),
+	)?;
+	Ok(())
+}
+
+fn run_id_map_helper(pid: libc::pid_t, map: &crate::IdMap, kind: &str) -> tg::Result<()> {
+	let output = std::process::Command::new(&map.helper)
+		.arg(pid.to_string())
+		.arg("0")
+		.arg(map.host.to_string())
+		.arg(map.count.to_string())
+		.output()
+		.map_err(|error| {
+			tg::error!(
+				!error,
+				path = %map.helper.display(),
+				"failed to run the {kind} map helper"
+			)
+		})?;
+	if !output.status.success() {
+		let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+		return Err(tg::error!(
+			%stderr,
+			status = %output.status,
+			"the {kind} map helper failed"
+		));
+	}
+	Ok(())
 }
 
 fn prepare_etc_files(

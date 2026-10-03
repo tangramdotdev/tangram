@@ -985,6 +985,8 @@ pub struct RunnerIsolation {
 
 #[derive(Clone, Debug, Default)]
 pub struct ContainerRunnerIsolation {
+	pub gid_map: Option<ContainerRunnerIsolationIdMap>,
+
 	pub harden: bool,
 
 	pub max_filesystem_inodes: Option<u64>,
@@ -998,6 +1000,15 @@ pub struct ContainerRunnerIsolation {
 	pub memory_swap: Option<u64>,
 
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+
+	pub uid_map: Option<ContainerRunnerIsolationIdMap>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ContainerRunnerIsolationIdMap {
+	pub count: u32,
+	pub helper: PathBuf,
+	pub host: u32,
 }
 
 impl ContainerRunnerIsolation {
@@ -1033,6 +1044,47 @@ impl ContainerRunnerIsolation {
 		self.seccomp.or(self
 			.harden
 			.then_some(tangram_sandbox::SeccompPolicy::Default))
+	}
+}
+
+impl From<&ContainerRunnerIsolationIdMap> for tangram_sandbox::IdMap {
+	fn from(value: &ContainerRunnerIsolationIdMap) -> Self {
+		Self {
+			count: value.count,
+			helper: value.helper.clone(),
+			host: value.host,
+		}
+	}
+}
+
+impl ContainerRunnerIsolationIdMap {
+	pub(crate) fn validate(&self, id: u32, kind: &str) -> tg::Result<()> {
+		if self.count == 0 {
+			return Err(tg::error!(
+				"the container {kind} map count must be greater than zero"
+			));
+		}
+		if id >= self.count {
+			return Err(tg::error!(
+				count = %self.count,
+				id = %id,
+				"the container {kind} map does not contain the runner identity"
+			));
+		}
+		let end = self.host.checked_add(self.count).ok_or_else(|| {
+			tg::error!("the container {kind} map exceeds the host identity range")
+		})?;
+		if self.host <= id && id < end {
+			return Err(tg::error!(
+				"the container {kind} map must not contain the runner host identity"
+			));
+		}
+		if !self.helper.is_absolute() {
+			return Err(tg::error!(
+				"the container {kind} map helper path must be absolute"
+			));
+		}
+		Ok(())
 	}
 }
 

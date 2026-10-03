@@ -732,6 +732,24 @@ impl Server {
 				"the maximum container sandbox filesystem size must be greater than zero"
 			));
 		}
+		if container.harden && (container.uid_map.is_none() || container.gid_map.is_none()) {
+			return Err(tg::error!(
+				"container uid and gid maps are required when container hardening is enabled"
+			));
+		}
+		if container.uid_map.is_some() != container.gid_map.is_some() {
+			return Err(tg::error!(
+				"container uid and gid maps must be configured together"
+			));
+		}
+		if let Some(map) = &container.uid_map {
+			// SAFETY: This function has no preconditions.
+			map.validate(unsafe { libc::getuid() }, "uid")?;
+		}
+		if let Some(map) = &container.gid_map {
+			// SAFETY: This function has no preconditions.
+			map.validate(unsafe { libc::getgid() }, "gid")?;
+		}
 
 		// Validate the regions.
 		if config.region.as_ref().is_some_and(String::is_empty) {

@@ -1129,6 +1129,7 @@ fn build_cloud_hypervisor_mount_arg(
 		tmpfs: Vec::new(),
 		uid: 0,
 		unshare_all: false,
+		user_namespace_fd: None,
 	}
 }
 

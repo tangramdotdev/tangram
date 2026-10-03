@@ -1513,6 +1513,9 @@ pub struct RunnerIsolation {
 #[serde(deny_unknown_fields)]
 pub struct ContainerRunnerIsolation {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub gid_map: Option<ContainerRunnerIsolationIdMap>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub harden: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1532,6 +1535,21 @@ pub struct ContainerRunnerIsolation {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub uid_map: Option<ContainerRunnerIsolationIdMap>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerRunnerIsolationIdMap {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub count: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub helper: Option<PathBuf>,
+
+	pub host: u32,
 }
 
 #[serde_as]
@@ -3945,6 +3963,9 @@ fn resolve_runner_isolation(source: RunnerIsolation) -> server::RunnerIsolation 
 	let mut target = server::RunnerIsolation::default();
 	if let Some(source) = source.container {
 		target.container = server::ContainerRunnerIsolation {
+			gid_map: source
+				.gid_map
+				.map(|map| resolve_container_runner_isolation_id_map(map, "/usr/bin/newgidmap")),
 			harden: source.harden.unwrap_or_default(),
 			max_filesystem_inodes: source.max_filesystem_inodes,
 			max_filesystem_size: source.max_filesystem_size,
@@ -3952,9 +3973,23 @@ fn resolve_runner_isolation(source: RunnerIsolation) -> server::RunnerIsolation 
 			max_pids: source.max_pids,
 			memory_swap: source.memory_swap,
 			seccomp: source.seccomp,
+			uid_map: source
+				.uid_map
+				.map(|map| resolve_container_runner_isolation_id_map(map, "/usr/bin/newuidmap")),
 		};
 	}
 	target
+}
+
+fn resolve_container_runner_isolation_id_map(
+	source: ContainerRunnerIsolationIdMap,
+	helper: &str,
+) -> server::ContainerRunnerIsolationIdMap {
+	server::ContainerRunnerIsolationIdMap {
+		count: source.count.unwrap_or(65_536),
+		helper: source.helper.unwrap_or_else(|| helper.into()),
+		host: source.host,
+	}
 }
 
 fn resolve_javascript(source: JavaScript) -> server::JavaScript {

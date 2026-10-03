@@ -123,15 +123,24 @@ pub enum Isolation {
 	Vm(VmIsolation),
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ContainerIsolation {
 	pub cgroup_readonly: bool,
+	pub gid_map: Option<IdMap>,
 	pub max_filesystem_inodes: Option<u64>,
 	pub max_filesystem_size: Option<u64>,
 	pub max_open_files: Option<u64>,
 	pub max_pids: Option<u64>,
 	pub memory_swap: Option<u64>,
 	pub seccomp: Option<SeccompPolicy>,
+	pub uid_map: Option<IdMap>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct IdMap {
+	pub count: u32,
+	pub helper: PathBuf,
+	pub host: u32,
 }
 
 #[derive(

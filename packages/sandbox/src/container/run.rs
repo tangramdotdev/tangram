@@ -61,6 +61,7 @@ pub struct Arg {
 	pub tmpfs: Vec<PathBuf>,
 	pub uid: libc::uid_t,
 	pub unshare_all: bool,
+	pub user_namespace_fd: Option<i32>,
 }
 
 #[derive(Clone, Debug)]
@@ -112,7 +113,11 @@ pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
 		.map_err(|error| tg::error!(!error, "failed to create the cgroup"))?;
 	let mut _filesystem = None;
 	if arg.unshare_all {
-		enter_user_namespace(arg.uid, arg.gid)?;
+		if let Some(fd) = arg.user_namespace_fd {
+			enter_user_namespace_with_parent(fd)?;
+		} else {
+			enter_user_namespace(arg.uid, arg.gid)?;
+		}
 		_filesystem = prepare_filesystem(&mut arg)?;
 		match &arg.network {
 			Some(Network::Host) => (),
@@ -420,6 +425,44 @@ fn enter_user_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, "failed to deny setgroups"))?;
 	std::fs::write("/proc/self/gid_map", format!("{gid} {host_gid} 1\n"))
 		.map_err(|error| tg::error!(!error, "failed to write the gid map"))?;
+	Ok(())
+}
+
+fn enter_user_namespace_with_parent(fd: RawFd) -> tg::Result<()> {
+	if fd < 0 {
+		return Err(tg::error!(fd = %fd, "the user namespace requires a valid sync fd"));
+	}
+	unshare(libc::CLONE_NEWUSER, "failed to unshare the user namespace")?;
+	std::fs::write("/proc/self/setgroups", "deny")
+		.map_err(|error| tg::error!(!error, "failed to deny setgroups"))?;
+	// SAFETY: The descriptor is inherited from the parent and is exclusively owned here.
+	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+	let mut socket = UnixStream::from(fd);
+	socket
+		.write_all(&[0])
+		.map_err(|error| tg::error!(!error, "failed to signal user namespace readiness"))?;
+	let mut buffer = [0];
+	socket
+		.read_exact(&mut buffer)
+		.map_err(|error| tg::error!(!error, "failed to wait for the user namespace mapping"))?;
+	// SAFETY: The process has a configured user namespace and valid mapped root IDs.
+	let result = unsafe { libc::setresgid(0, 0, 0) };
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(
+			!error,
+			"failed to become root in the user namespace"
+		));
+	}
+	// SAFETY: The process has a configured user namespace and valid mapped root IDs.
+	let result = unsafe { libc::setresuid(0, 0, 0) };
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(
+			!error,
+			"failed to become root in the user namespace"
+		));
+	}
 	Ok(())
 }
 

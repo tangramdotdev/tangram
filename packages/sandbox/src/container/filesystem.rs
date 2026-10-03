@@ -87,6 +87,18 @@ pub fn prepare(fd: &OwnedFd) -> tg::Result<()> {
 			)
 		})?;
 	}
+	for name in ["output", "scratch", "upper", "work"] {
+		let path = root.join(name);
+		let permissions =
+			<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o777);
+		std::fs::set_permissions(&path, permissions).map_err(|error| {
+			tg::error!(
+				!error,
+				path = %path.display(),
+				"failed to set sandbox filesystem directory permissions"
+			)
+		})?;
+	}
 	let tmp = root.join("tmp");
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
