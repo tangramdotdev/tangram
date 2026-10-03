@@ -6,7 +6,6 @@ use {
 		collections::BTreeSet,
 		ops::ControlFlow,
 		panic::AssertUnwindSafe,
-		pin::pin,
 		sync::{Arc, Mutex},
 		time::Duration,
 	},
@@ -611,29 +610,26 @@ impl Session {
 							.map(|(_, stream)| stream.boxed())
 					}
 					.map_err(|error| tg::error!(!error, "failed to create the source stream"))?;
-					let mut source_output_stream = pin!(source_output_stream);
-					while let Some(message) = source_output_stream.try_next().await? {
-						match message {
+					let completed = forward(
+						source_output_stream.boxed(),
+						&source_output_sender,
+						|message| match message {
 							tg::sync::Message::Put(tg::sync::PutMessage::Progress(message)) => {
 								Self::push_or_pull_increment_progress(&progress, &message);
 								*output.lock().unwrap() += &message;
+								None
 							},
-							tg::sync::Message::End => {
-								return Ok::<_, tg::Error>(true);
-							},
-							_ => {
+							message => {
 								Self::push_or_pull_record_received_specifier(
 									&message,
 									received_specifiers.as_ref(),
 								);
-								source_output_sender
-									.send(message)
-									.await
-									.map_err(|_| tg::error!("failed to send the message"))?;
+								Some(message)
 							},
-						}
-					}
-					Ok(false)
+						},
+					)
+					.await?;
+					Ok(completed.then_some(()))
 				};
 
 				// Create the destination future.
@@ -670,36 +666,28 @@ impl Session {
 					}
 
 					let mut get_output = None;
-					let mut destination_output_stream = pin!(destination_output_stream);
-					while let Some(message) = destination_output_stream.try_next().await? {
-						match message {
+					let completed = forward(
+						destination_output_stream.boxed(),
+						&destination_output_sender,
+						|message| match message {
 							tg::sync::Message::Get(tg::sync::GetMessage::Output(message)) => {
 								get_output = Some(message);
+								None
 							},
 							tg::sync::Message::Get(tg::sync::GetMessage::Progress(message)) => {
 								Self::push_or_pull_increment_progress(&progress, &message);
 								*output.lock().unwrap() += &message;
+								None
 							},
-							tg::sync::Message::End => {
-								return Ok::<_, tg::Error>((true, sync_header, get_output));
-							},
-							_ => {
-								destination_output_sender
-									.send(message)
-									.await
-									.map_err(|_| tg::error!("failed to send the message"))?;
-							},
-						}
-					}
-					Ok((false, sync_header, get_output))
+							message => Some(message),
+						},
+					)
+					.await?;
+					Ok(completed.then_some((sync_header, get_output)))
 				};
 
-				let (source_completed, (destination_completed, sync_header, get_output)) =
-					future::try_join(source_future, destination_future)
-						.boxed()
-						.await?;
-
-				if source_completed && destination_completed {
+				let completed = join(source_future, destination_future).boxed().await?;
+				if let Some(((), (sync_header, get_output))) = completed {
 					let mut output = output.lock().unwrap().clone();
 					output.nodes = session.create_sync_output_nodes(&arg)?;
 					if let Some(sync) = sync_header.sync {
@@ -733,8 +721,6 @@ impl Session {
 					Ok(ControlFlow::Break(output))
 				} else {
 					Ok(ControlFlow::Continue(tg::error!(
-						destination_completed = %destination_completed,
-						source_completed = %source_completed,
 						"sync ended before receiving all end messages"
 					)))
 				}
@@ -934,5 +920,40 @@ impl Session {
 		let response = response.body(body).unwrap();
 
 		Ok(response)
+	}
+}
+
+async fn forward(
+	mut stream: BoxStream<'_, tg::Result<tg::sync::Message>>,
+	sender: &tokio::sync::mpsc::Sender<tg::sync::Message>,
+	mut handle: impl FnMut(tg::sync::Message) -> Option<tg::sync::Message>,
+) -> tg::Result<bool> {
+	let mut completed = false;
+	while let Some(message) = stream.try_next().await? {
+		if completed {
+			return Err(tg::error!("received a sync message after the end message"));
+		}
+		if matches!(message, tg::sync::Message::End) {
+			completed = true;
+			continue;
+		}
+		if let Some(message) = handle(message) {
+			sender.send(message).await.ok();
+		}
+	}
+	Ok(completed)
+}
+
+async fn join<L, R>(
+	left: impl Future<Output = tg::Result<Option<L>>> + Send,
+	right: impl Future<Output = tg::Result<Option<R>>> + Send,
+) -> tg::Result<Option<(L, R)>> {
+	match future::try_select(left.boxed(), right.boxed()).await {
+		Ok(future::Either::Left((Some(left), right))) => {
+			Ok(right.await?.map(|right| (left, right)))
+		},
+		Ok(future::Either::Right((Some(right), left))) => Ok(left.await?.map(|left| (left, right))),
+		Ok(future::Either::Left((None, _)) | future::Either::Right((None, _))) => Ok(None),
+		Err(future::Either::Left((error, _)) | future::Either::Right((error, _))) => Err(error),
 	}
 }
