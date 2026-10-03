@@ -21,7 +21,6 @@ mod wait;
 pub(super) mod lease;
 
 pub(super) struct PrepareOutput {
-	pub command: tg::Referent<tg::command::Id>,
 	pub parent_sandbox: Option<tg::sandbox::Id>,
 }
 
@@ -48,10 +47,21 @@ impl Session {
 				"unsandboxed processes cannot be spawned on the server"
 			));
 		}
-		let request_origin_sandbox = self
+		let request_origin = self
 			.server
 			.try_get_request_origin_sandbox(self.context.origin)?
-			.map(|sandbox| sandbox.id.clone());
+			.map(|sandbox| {
+				(
+					sandbox.id.clone(),
+					sandbox
+						.data
+						.arg
+						.host
+						.clone()
+						.unwrap_or_else(|| tg::host::current().to_owned()),
+				)
+			});
+		let (request_origin_sandbox, sandbox_host) = request_origin.unzip();
 		if let Some(origin) = &request_origin_sandbox
 			&& let Some(tg::process::spawn::SandboxArg::Existing(target)) = &arg.sandbox
 			&& &target.node != origin
@@ -78,15 +88,15 @@ impl Session {
 			_ => None,
 		};
 
-		// Resolve the command.
-		let sandbox_host = if request_origin_sandbox.is_some() {
-			authenticated_process
+		// Inherit the host from the authenticated parent without resolving a destination default.
+		if let tg::Either::Left(command) = &mut arg.command.node
+			&& command.host.is_none()
+		{
+			command.host = authenticated_process
 				.as_ref()
-				.map(|process| process.host.as_str())
-		} else {
-			None
-		};
-		let command = self.spawn_process_resolve_command(arg, sandbox_host)?;
+				.map(|process| process.host.clone())
+				.or(sandbox_host);
+		}
 
 		// If the authentication is from a process, then update the parent, location, and retry.
 		if let Some(process) = &authenticated_process
@@ -117,10 +127,7 @@ impl Session {
 				.map(|process| process.sandbox.clone())
 		});
 
-		let output = PrepareOutput {
-			command,
-			parent_sandbox,
-		};
+		let output = PrepareOutput { parent_sandbox };
 
 		Ok(output)
 	}
@@ -128,14 +135,12 @@ impl Session {
 	fn spawn_process_resolve_command(
 		&self,
 		arg: &mut tg::process::spawn::Arg,
-		sandbox_host: Option<&str>,
 	) -> tg::Result<tg::Referent<tg::command::Id>> {
 		let id = match &mut arg.command.node {
 			tg::Either::Left(command_arg) => {
 				let host = command_arg
 					.host
 					.clone()
-					.or_else(|| sandbox_host.map(str::to_owned))
 					.or_else(|| self.server.config.process.spawn.host.clone())
 					.unwrap_or_else(|| tg::host::current().to_owned());
 				command_arg.host = Some(host.clone());
@@ -157,10 +162,7 @@ impl Session {
 	) -> tg::Result<
 		BoxStream<'static, tg::Result<tg::progress::Event<Option<tg::process::spawn::Output>>>>,
 	> {
-		let PrepareOutput {
-			command,
-			parent_sandbox,
-		} = prepare_output;
+		let PrepareOutput { parent_sandbox } = prepare_output;
 
 		// Create the progress.
 		let progress = crate::progress::Handle::new();
@@ -170,7 +172,7 @@ impl Session {
 			let session = self.clone();
 			let progress = progress.clone();
 			async move |_| match session
-				.try_spawn_process_task(arg, command, parent_sandbox, &progress)
+				.try_spawn_process_task(arg, parent_sandbox, &progress)
 				.boxed()
 				.await
 			{
@@ -192,7 +194,6 @@ impl Session {
 	async fn try_spawn_process_task(
 		&self,
 		mut arg: tg::process::spawn::Arg,
-		command: tg::Referent<tg::command::Id>,
 		parent_sandbox: Option<tg::sandbox::Id>,
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
@@ -237,15 +238,9 @@ impl Session {
 		};
 
 		let mut output = if shortcut {
-			self.try_spawn_process_local(
-				arg.clone(),
-				command.clone(),
-				parent_sandbox,
-				allocation,
-				Some(&location),
-			)
-			.boxed()
-			.await?
+			self.try_spawn_process_local(arg.clone(), parent_sandbox, allocation, Some(&location))
+				.boxed()
+				.await?
 		} else {
 			let spawn_future = match location.clone() {
 				tg::Location::Local(tg::location::Local {
@@ -254,13 +249,7 @@ impl Session {
 					.try_spawn_process_region(arg.clone(), progress, region)
 					.boxed(),
 				tg::Location::Local(_) => self
-					.try_spawn_process_local(
-						arg.clone(),
-						command.clone(),
-						parent_sandbox.clone(),
-						None,
-						None,
-					)
+					.try_spawn_process_local(arg.clone(), parent_sandbox.clone(), None, None)
 					.boxed(),
 				tg::Location::Remote(tg::location::Remote {
 					name: remote,
@@ -288,7 +277,7 @@ impl Session {
 			.as_ref()
 			.and_then(|output| lease::LeaseGuard::new(self, output));
 		if let Some(output) = &output {
-			self.spawn_process_add_child(&arg, &command, output).await?;
+			self.spawn_process_add_child(&arg, output).await?;
 		}
 		if let Some(guard) = &mut lease_guard {
 			guard.disarm();
@@ -362,12 +351,13 @@ impl Session {
 
 	async fn try_spawn_process_local(
 		&self,
-		arg: tg::process::spawn::Arg,
-		command: tg::Referent<tg::command::Id>,
+		mut arg: tg::process::spawn::Arg,
 		parent_sandbox: Option<tg::sandbox::Id>,
 		allocation: Option<crate::runner::capacity::Allocation>,
 		cache_location: Option<&tg::Location>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
+		let command = self.spawn_process_resolve_command(&mut arg)?;
+
 		// Determine whether the process is cacheable.
 		let cacheable = Self::spawn_process_is_cacheable(&arg);
 		let write_command_permissions = cache_location.is_none_or(|location| !location.is_remote());
@@ -420,6 +410,8 @@ impl Session {
 			return Ok(None);
 		};
 		let mut lease_guard = lease::LeaseGuard::new(self, &output);
+
+		output.command = Some(command.node);
 
 		// Add tokens to the local output.
 		self.spawn_process_add_tokens(&mut output)?;
@@ -476,7 +468,7 @@ impl Session {
 			location: Some(location.clone().into()),
 			..arg
 		};
-		Self::update_spawn_process_arg_for_location(&mut arg, &location)?;
+		Self::update_spawn_process_arg_for_location(&mut arg, &location);
 		let stream = client
 			.try_spawn_process(arg)
 			.await
@@ -531,7 +523,7 @@ impl Session {
 			),
 			..arg
 		};
-		Self::update_spawn_process_arg_for_location(&mut arg, &destination)?;
+		Self::update_spawn_process_arg_for_location(&mut arg, &destination);
 		let stream = client
 			.try_spawn_process(arg)
 			.await
@@ -607,7 +599,7 @@ impl Session {
 					tokens.insert_authorization(location.clone(), token.clone());
 				}
 			}
-			Self::inherit_spawn_process_command_tokens(command, &tokens)?;
+			Self::inherit_spawn_process_command_tokens(command, &tokens);
 
 			return Ok(());
 		}
@@ -654,8 +646,8 @@ impl Session {
 	pub(super) fn update_spawn_process_arg_for_location(
 		arg: &mut tg::process::spawn::Arg,
 		location: &tg::Location,
-	) -> tg::Result<()> {
-		Self::update_spawn_process_command_for_location(&mut arg.command, location)?;
+	) {
+		Self::update_spawn_process_command_for_location(&mut arg.command, location);
 		if let Some(tg::process::spawn::SandboxArg::Existing(sandbox)) = &mut arg.sandbox {
 			sandbox.options.tokens = sandbox.options.tokens.for_location(location);
 			sandbox.options.location = arg
@@ -663,25 +655,17 @@ impl Session {
 				.as_ref()
 				.and_then(tg::location::Arg::to_location);
 		}
-		Ok(())
 	}
 
 	pub(super) fn update_spawn_process_command_for_location(
 		command: &mut tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
 		location: &tg::Location,
-	) -> tg::Result<()> {
+	) {
 		command.options.tokens = command.options.tokens.for_location(location);
 		let tg::Either::Left(command) = &mut command.node else {
-			return Ok(());
+			return;
 		};
-		let host = command
-			.host
-			.clone()
-			.ok_or_else(|| tg::error!("expected a resolved host"))?;
-		let data = tg::process::data::Command::new(command.clone(), host);
-		*command = data.for_location(location).to_spawn_arg();
-
-		Ok(())
+		*command = command.clone().for_location(location);
 	}
 
 	pub(super) fn update_spawn_process_output_referents_for_location(

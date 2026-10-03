@@ -110,6 +110,7 @@ export namespace Spawn {
 
 	export type Output = {
 		cached?: boolean;
+		command?: tg.Command.Id | null;
 		lease?: string | null;
 		location?: tg.Location | null;
 		outcome?: tg.Process.Outcome.Data | null;

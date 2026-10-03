@@ -61,7 +61,7 @@ impl Session {
 		let sync = output
 			.sync
 			.ok_or_else(|| tg::error!("the command sync did not produce a sync referent"))?;
-		Self::set_spawn_process_command_sync(command, location, &sync)?;
+		Self::set_spawn_process_command_sync(command, location, &sync);
 
 		// Keep transferring after the spawn response and its progress stream have been dropped.
 		let session = self.clone();
@@ -86,34 +86,26 @@ impl Session {
 		command: &mut tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
 		location: &tg::Location,
 		sync: &tg::Referent<tg::sync::Id>,
-	) -> tg::Result<()> {
+	) {
 		let mut tokens = tg::authorization::Tokens::default();
 		for token in sync.options.tokens.local_authorization() {
 			tokens.insert_authorization(location.clone(), token.clone());
 		}
-		Self::inherit_spawn_process_command_tokens(command, &tokens)?;
-		Ok(())
+		Self::inherit_spawn_process_command_tokens(command, &tokens);
 	}
 
 	pub(super) fn inherit_spawn_process_command_tokens(
 		command: &mut tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::command::Id>>,
 		tokens: &tg::authorization::Tokens,
-	) -> tg::Result<()> {
+	) {
 		let options = tg::referent::Options {
 			tokens: tokens.clone(),
 			..Default::default()
 		};
 		command.options.tokens.inherit(tokens);
 		if let tg::Either::Left(command) = &mut command.node {
-			let host = command
-				.host
-				.clone()
-				.ok_or_else(|| tg::error!("expected a resolved host"))?;
-			let mut data = tg::process::data::Command::new(command.clone(), host);
-			data.inherit_location_and_tokens(&options);
-			*command = data.to_spawn_arg();
+			command.inherit_location_and_tokens(&options);
 		}
-		Ok(())
 	}
 
 	async fn spawn_process_sync_command_task(

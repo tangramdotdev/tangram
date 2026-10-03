@@ -32,7 +32,7 @@ fn spawn_command_authorization_tokens_for_sync_survive_forwarding() {
 		cwd: None,
 		env: [("INPUT".into(), tg::command::data::Value::Value(env))].into(),
 		executable: tg::Referent::with_node(executable),
-		host: Some("aarch64-darwin".into()),
+		host: None,
 		stdin: Some(tg::Referent::with_node(blob)),
 		user: None,
 	};
@@ -52,8 +52,11 @@ fn spawn_command_authorization_tokens_for_sync_survive_forwarding() {
 		] {
 			let count = if node.is_left() { 4 } else { 1 };
 			let mut command = tg::Referent::with_node(node);
-			Session::set_spawn_process_command_sync(&mut command, &location, &sync).unwrap();
-			Session::update_spawn_process_command_for_location(&mut command, &location).unwrap();
+			Session::set_spawn_process_command_sync(&mut command, &location, &sync);
+			Session::update_spawn_process_command_for_location(&mut command, &location);
+			if let tg::Either::Left(command) = &command.node {
+				assert!(command.host.is_none());
+			}
 			assert_eq!(
 				command.options.tokens.local_authorization(),
 				std::slice::from_ref(&token)
@@ -118,8 +121,8 @@ fn spawn_command_uses_push_output_tokens() {
 		}
 
 		// Inherit the authorization tokens and rebase the command for the destination.
-		Session::inherit_spawn_process_command_tokens(&mut command, &tokens).unwrap();
-		Session::update_spawn_process_command_for_location(&mut command, &location).unwrap();
+		Session::inherit_spawn_process_command_tokens(&mut command, &tokens);
+		Session::update_spawn_process_command_for_location(&mut command, &location);
 
 		// Verify that each command object carries its authorization token from the push.
 		let objects = Session::spawn_process_command_nodes(&command).unwrap();

@@ -160,10 +160,7 @@ impl Session {
 		let tg::Either::Left(spawn_arg) = &mut arg.process else {
 			unreachable!()
 		};
-		let spawn::PrepareOutput {
-			command,
-			parent_sandbox,
-		} = prepare_output;
+		let spawn::PrepareOutput { parent_sandbox } = prepare_output;
 		let location = self.server.location(arg.location.as_ref())?;
 		let mut notify = self
 			.try_prepare_spawn_process_for_location(spawn_arg, &location, parent_sandbox.as_ref())
@@ -196,12 +193,7 @@ impl Session {
 		let mut sync_sender = None;
 		let start_command_sync = !arg.command_sync;
 		if start_command_sync {
-			crate::checkpoint!(
-				self.server,
-				"process.connect.command.push.started",
-				command = %command.node,
-			)
-			.await;
+			crate::checkpoint!(self.server, "process.connect.command.push.started").await;
 			let source = self
 				.connect_process_command_sync_source(&spawn_arg.command, input.take().unwrap())
 				.await?;
@@ -250,12 +242,7 @@ impl Session {
 				let sync_message = Self::connect_process_decode_sync_message(message)?;
 				if matches!(sync_message, tg::sync::Message::End) {
 					sync_sender = None;
-					crate::checkpoint!(
-						self.server,
-						"process.connect.command.push.finished",
-						command = %command.node,
-					)
-					.await;
+					crate::checkpoint!(self.server, "process.connect.command.push.finished").await;
 				} else {
 					sync_sender
 						.as_ref()
@@ -279,8 +266,7 @@ impl Session {
 					&response.output
 			{
 				notify = None;
-				self.spawn_process_add_child(&spawn_arg, &command, output)
-					.await?;
+				self.spawn_process_add_child(&spawn_arg, output).await?;
 				spawned.store(true, Ordering::SeqCst);
 			}
 			sender
@@ -420,14 +406,11 @@ impl Session {
 		let Options {
 			mut arg,
 			id: request_id,
-			mut prepare_output,
+			prepare_output,
 			wait_future,
 		} = options;
 		let mut sync_task = None;
 		if arg.command_sync {
-			let prepare_output = prepare_output
-				.as_mut()
-				.ok_or_else(|| tg::error!("command sync requires a spawn"))?;
 			let tg::Either::Left(spawn) = &arg.process else {
 				return Err(tg::error!("command sync requires a spawn"));
 			};
@@ -436,11 +419,6 @@ impl Session {
 				.await?;
 			input = destination.input;
 			// Attach the destination-minted tokens to the ephemeral command; process storage strips them.
-			prepare_output
-				.command
-				.options
-				.tokens
-				.inherit(&destination.sync.options.tokens);
 			let tg::Either::Left(spawn) = &mut arg.process else {
 				return Err(tg::error!("command sync requires a spawn"));
 			};
@@ -480,6 +458,7 @@ impl Session {
 				let location = wait_future.as_ref().unwrap().1.clone();
 				let output = tg::process::spawn::Output {
 					cached: false,
+					command: None,
 					lease: arg.lease,
 					location: Some(location.clone()),
 					outcome: None,
@@ -1411,14 +1390,13 @@ impl Session {
 			tg::process::connect::ClientMessage::Request(request),
 		))
 		.chain(input)
-		.and_then(move |mut message| {
-			let result = Self::update_connect_process_request_for_location(
+		.map_ok(move |mut message| {
+			Self::update_connect_process_request_for_location(
 				&mut message,
 				&destination,
 				&location,
-			)
-			.map(|()| message);
-			futures::future::ready(result)
+			);
+			message
 		})
 		.boxed();
 		(input, sender)
@@ -1491,9 +1469,9 @@ impl Session {
 		message: &mut tg::process::connect::ClientMessage,
 		destination: &tg::Location,
 		location: &tg::location::Arg,
-	) -> tg::Result<()> {
+	) {
 		let tg::process::connect::ClientMessage::Request(request) = message else {
-			return Ok(());
+			return;
 		};
 		let location = Some(location.clone());
 		match &mut request.arg {
@@ -1512,7 +1490,7 @@ impl Session {
 					Self::update_spawn_process_command_for_location(
 						&mut spawn.command,
 						destination,
-					)?;
+					);
 				}
 			},
 			tg::process::connect::ClientRequestArg::Read(arg) => {
@@ -1532,8 +1510,6 @@ impl Session {
 				arg.tokens = arg.tokens.for_location(destination);
 			},
 		}
-
-		Ok(())
 	}
 
 	pub(crate) async fn try_connect_process_request(

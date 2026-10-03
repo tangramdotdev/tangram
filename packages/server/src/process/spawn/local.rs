@@ -490,29 +490,32 @@ impl Session {
 	pub(in crate::process) async fn spawn_process_add_child(
 		&self,
 		arg: &tg::process::spawn::Arg,
-		command: &tg::Referent<tg::command::Id>,
 		output: &tg::process::spawn::Output,
 	) -> tg::Result<()> {
 		let Some(parent) = &arg.parent else {
 			return Ok(());
 		};
+		let command = output
+			.command
+			.as_ref()
+			.ok_or_else(|| tg::error!("expected the resolved spawn command"))?;
 		let child = output.process.as_ref().unwrap_right();
 		crate::checkpoint!(
 			self.server,
 			"process.spawn.child.add",
 			cached = output.cached,
 			child = %child,
-			command = %command.node,
+			command = %command,
 			parent = %parent,
 		)
 		.await;
 		self.add_process_child(AddProcessChildArg {
 			cached: output.cached,
 			child,
-			command: &command.node,
+			command,
 			lease: output.lease.as_deref(),
 			location: output.location.as_ref(),
-			options: &command.options,
+			options: &arg.command.options,
 			outcome: output.outcome.as_ref(),
 			parent,
 			tokens: &output.tokens,

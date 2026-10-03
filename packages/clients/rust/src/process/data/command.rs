@@ -91,16 +91,13 @@ impl Command {
 	}
 
 	fn update_options(&mut self, update: &Update<'_>) {
-		let resource = self.executable.node.artifact.clone().map(tg::Id::from);
-		update_options(&mut self.executable.options, update, resource.as_ref());
-		if let Some(stdin) = &mut self.stdin {
-			update_options(&mut stdin.options, update, Some(&stdin.node.clone().into()));
-		}
-		for value in self.args.iter_mut().chain(self.env.values_mut()) {
-			let (tg::command::data::Value::String(value) | tg::command::data::Value::Value(value)) =
-				value;
-			update_value_options(value, update);
-		}
+		update_command_options(
+			&mut self.args,
+			&mut self.env,
+			&mut self.executable,
+			&mut self.stdin,
+			update,
+		);
 	}
 
 	pub fn id(&self) -> tg::Result<tg::command::Id> {
@@ -213,6 +210,49 @@ impl tg::Referent<tg::Either<Box<Command>, tg::command::Id>> {
 		};
 		command.inherit_location_and_tokens(&self.options);
 		Ok(command)
+	}
+}
+
+impl tg::process::spawn::CommandArg {
+	pub fn inherit_location_and_tokens(&mut self, options: &tg::referent::Options) {
+		update_command_options(
+			&mut self.args,
+			&mut self.env,
+			&mut self.executable,
+			&mut self.stdin,
+			&Update::Inherit(options),
+		);
+	}
+
+	#[must_use]
+	pub fn for_location(mut self, location: &tg::Location) -> Self {
+		update_command_options(
+			&mut self.args,
+			&mut self.env,
+			&mut self.executable,
+			&mut self.stdin,
+			&Update::ForLocation(location),
+		);
+		self
+	}
+}
+
+fn update_command_options(
+	args: &mut [tg::command::data::Value],
+	env: &mut BTreeMap<String, tg::command::data::Value>,
+	executable: &mut tg::Referent<tg::command::data::Executable>,
+	stdin: &mut Option<tg::Referent<tg::blob::Id>>,
+	update: &Update<'_>,
+) {
+	let resource = executable.node.artifact.clone().map(tg::Id::from);
+	update_options(&mut executable.options, update, resource.as_ref());
+	if let Some(stdin) = stdin {
+		update_options(&mut stdin.options, update, Some(&stdin.node.clone().into()));
+	}
+	for value in args.iter_mut().chain(env.values_mut()) {
+		let (tg::command::data::Value::String(value) | tg::command::data::Value::Value(value)) =
+			value;
+		update_value_options(value, update);
 	}
 }
 

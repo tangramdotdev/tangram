@@ -27,6 +27,7 @@ impl MockConnection {
 		assert_eq!(arg.mode, Mode::Run);
 		let output = tg::process::spawn::Output {
 			cached: false,
+			command: None,
 			lease: None,
 			location: None,
 			outcome: None,
@@ -436,6 +437,7 @@ fn responses_preserve_errors_and_optional_null_outputs() {
 			assert_roundtrip(&ServerNotification::Outcome(outcome.clone()));
 			let output = tg::process::spawn::Output {
 				cached: true,
+				command: None,
 				lease: Some("lease".to_owned()),
 				location: Some("remote:test".parse().unwrap()),
 				outcome: Some(outcome),

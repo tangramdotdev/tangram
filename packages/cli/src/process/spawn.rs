@@ -409,6 +409,7 @@ impl Cli {
 		if args.verbose {
 			let output = tg::process::spawn::Output {
 				cached: output.node().cached().unwrap_or(false),
+				command: None,
 				lease: output.node().lease().cloned(),
 				location: output
 					.node()
@@ -733,7 +734,6 @@ impl Cli {
 							referent.options.tag.take();
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
-							let host = tg::host::current().to_owned();
 							let mut args = vec![
 								"js".into(),
 								"--export".into(),
@@ -752,10 +752,7 @@ impl Cli {
 								artifact: None,
 								path: Some("tg".into()),
 							};
-							tg::Command::builder()
-								.args(args)
-								.host(host.clone())
-								.executable(executable)
+							tg::Command::builder().args(args).executable(executable)
 						},
 
 						tg::Artifact::File(file) => {
@@ -781,7 +778,6 @@ impl Cli {
 								referent.options.tag.take();
 								let module = tg::Module { kind, referent };
 								let export = reference.export().unwrap_or("default").to_owned();
-								let host = tg::host::current().to_owned();
 								let mut args = vec![
 									"js".into(),
 									"--export".into(),
@@ -800,10 +796,7 @@ impl Cli {
 									artifact: None,
 									path: Some("tg".into()),
 								};
-								tg::Command::builder()
-									.args(args)
-									.host(host.clone())
-									.executable(executable)
+								tg::Command::builder().args(args).executable(executable)
 							} else {
 								let executable = tg::command::Executable {
 									artifact: Some(file.clone().into()),

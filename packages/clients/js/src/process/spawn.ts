@@ -5,7 +5,7 @@ import * as stdio from "./stdio.ts";
 
 export let builder = (...args: any): any => {
 	if (typeof args[0] === "function") {
-		let command = tg.Command.js(args[0], args.slice(1)).then((command) => ({
+		let command = tg.Command.jsArg(args[0], args.slice(1)).then((command) => ({
 			command,
 		}));
 		return new tg.Process.Builder("spawn", command);
@@ -73,7 +73,7 @@ let spawnArgFromResolvedWithSandbox = async (
 		}
 	}
 
-	let command_: tg.Command | undefined;
+	let command_: tg.Command | tg.Command.ResolvedArg | undefined;
 	let options: tg.Referent.Options = {};
 	if (arg.command !== undefined && arg.command !== null) {
 		if (
@@ -81,12 +81,12 @@ let spawnArgFromResolvedWithSandbox = async (
 			arg.command !== null &&
 			"node" in arg.command
 		) {
-			command_ = tg.Command.expect(arg.command.node);
+			command_ = arg.command.node;
 			options = { ...arg.command.options };
 		} else {
 			command_ = arg.command;
 		}
-		if (command_ !== undefined) {
+		if (command_ instanceof tg.Command) {
 			options.tokens ??= {};
 			tg.Authorization.Tokens.inherit(options.tokens, command_.state.tokens);
 		}
@@ -203,8 +203,6 @@ let spawnArgFromResolvedWithSandbox = async (
 	}
 	if (host !== null) {
 		command.host = host;
-	} else if (sandbox === undefined) {
-		command.host = tg.host.current;
 	}
 	if (stdin !== null) {
 		command.stdin = tg.Object.toReferent(stdin);

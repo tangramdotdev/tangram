@@ -157,6 +157,10 @@ pub struct Output {
 	pub cached: bool,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "Option::is_none")]
+	pub command: Option<tg::command::Id>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub lease: Option<String>,
 
@@ -447,6 +451,7 @@ impl<O: 'static> tg::Process<O> {
 			let process = Self::spawn_unsandboxed(&instance, arg).await?;
 			let output = tg::process::spawn::Output {
 				cached: process.cached().unwrap_or(false),
+				command: None,
 				lease: process.lease().cloned(),
 				location: process
 					.location()

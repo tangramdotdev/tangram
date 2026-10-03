@@ -1302,7 +1302,7 @@ export namespace Process {
 		checksum?: tg.Checksum | null;
 
 		/** The base command. */
-		command?: tg.MaybeReferent<tg.Command> | null;
+		command?: tg.MaybeReferent<tg.Command | tg.Command.ResolvedArg> | null;
 
 		/** The sandbox's CPU allocation. */
 		cpu?: number | null;
@@ -1791,6 +1791,8 @@ async function isJsProcessBuilderArg(
 					: command_;
 			if (node instanceof tg.Command) {
 				command = node;
+			} else if (tg.Command.Arg.isJs(node)) {
+				return true;
 			}
 		}
 		if (

@@ -686,7 +686,7 @@ impl Session {
 			location: Some(location.clone().into()),
 			..arg.clone()
 		};
-		Self::update_spawn_process_arg_for_location(&mut arg, &location)?;
+		Self::update_spawn_process_arg_for_location(&mut arg, &location);
 		let stream = client
 			.try_spawn_process(arg)
 			.await
@@ -752,7 +752,7 @@ impl Session {
 			),
 			..arg.clone()
 		};
-		Self::update_spawn_process_arg_for_location(&mut arg, &location)?;
+		Self::update_spawn_process_arg_for_location(&mut arg, &location);
 		let stream = client
 			.try_spawn_process(arg)
 			.await

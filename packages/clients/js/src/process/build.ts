@@ -34,7 +34,7 @@ export let builder = (...args: any): any => {
 		tty: false,
 	};
 	if (typeof args[0] === "function") {
-		let command = tg.Command.js(args[0], args.slice(1)).then((command) => ({
+		let command = tg.Command.jsArg(args[0], args.slice(1)).then((command) => ({
 			command,
 		}));
 		return new tg.Process.Builder("run", firstArg, command).validate(validate);

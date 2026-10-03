@@ -376,6 +376,7 @@ impl Session {
 		};
 		let output = tg::process::spawn::Output {
 			cached: output.cached,
+			command: None,
 			lease,
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			outcome,

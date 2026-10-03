@@ -127,11 +127,9 @@ export class Command<
 					tg.Artifact.is(arg) ||
 					arg instanceof tg.Template
 				) {
-					let host = tg.host.current;
 					output = {
 						args: ["-c", arg],
 						executable: "sh",
-						host,
 					};
 				} else if (arg instanceof tg.Command) {
 					output = await arg.object();
@@ -158,6 +156,18 @@ export class Command<
 		function_: Function,
 		args: Array<tg.Unresolved<tg.Command.Arg.Value>>,
 	): Promise<tg.Referent<tg.Command>> {
+		let command = await this.jsArg(function_, args);
+		let node = await tg.Command.new(command.node);
+		return {
+			node,
+			...(command.options === undefined ? {} : { options: command.options }),
+		};
+	}
+
+	static async jsArg(
+		function_: Function,
+		args: Array<tg.Unresolved<tg.Command.Arg.Value>>,
+	): Promise<tg.Referent<tg.Command.ResolvedArg>> {
 		let args_ = await Promise.all(args.map(tg.resolve));
 		let target = tg.host.magic(function_);
 		let module = tg.Module.fromData(target.module);
@@ -188,11 +198,10 @@ export class Command<
 				arg_,
 			);
 		}
-		let command = await tg.Command.new({
+		let command = {
 			args: commandArgs,
 			executable: "tg",
-			host: tg.host.current,
-		});
+		};
 
 		return { node: command, options };
 	}
@@ -428,6 +437,24 @@ export namespace Command {
 		| tg.Command.Arg.Object;
 
 	export namespace Arg {
+		export let isJs = (arg: tg.Command.Arg.Object): boolean => {
+			let executable = arg.executable;
+			let firstArg = arg.args?.[0];
+			return (
+				(executable === "tg" ||
+					(typeof executable === "object" &&
+						executable !== null &&
+						!tg.Artifact.is(executable) &&
+						(executable.artifact === undefined ||
+							executable.artifact === null) &&
+						executable.path === "tg")) &&
+				(firstArg === "js" ||
+					(firstArg instanceof tg.Command.Value &&
+						firstArg.kind === "string" &&
+						firstArg.value === "js"))
+			);
+		};
+
 		export type Value = tg.Value | tg.Command.Value;
 
 		export namespace Value {

@@ -158,6 +158,7 @@ impl Cli {
 			if options.verbose {
 				let output = tg::process::spawn::Output {
 					cached: process.node().cached().unwrap_or(false),
+					command: None,
 					lease: process.node().lease().cloned(),
 					location: process
 						.node()
