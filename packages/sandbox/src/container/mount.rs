@@ -97,7 +97,13 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 			nosuid: arg.unshare_all,
 			readonly,
 		};
-		mount_bind(bind, mount_root.as_raw_fd(), &target, attributes)?;
+		mount_bind(
+			bind,
+			arg.filesystem_mount_fd,
+			mount_root.as_raw_fd(),
+			&target,
+			attributes,
+		)?;
 	}
 
 	Ok(())
@@ -197,11 +203,12 @@ fn validate_target_path(root: &Path, target: &Path) -> tg::Result<()> {
 
 fn mount_bind(
 	bind: &Bind,
+	filesystem: Option<RawFd>,
 	root: RawFd,
 	target_path: &Path,
 	attributes: MountAttributes,
 ) -> tg::Result<()> {
-	let source = open_absolute_path(&bind.source).map_err(|error| {
+	let source = open_bind_source(&bind.source, filesystem).map_err(|error| {
 		tg::error!(
 			!error,
 			path = %bind.source.display(),
@@ -238,6 +245,26 @@ fn mount_bind(
 		)
 	})?;
 	Ok(())
+}
+
+fn open_bind_source(path: &Path, filesystem: Option<RawFd>) -> std::io::Result<OwnedFd> {
+	if let Some(filesystem) = filesystem {
+		let root = PathBuf::from(format!("/proc/self/fd/{filesystem}"));
+		if let Ok(path) = path.strip_prefix(root) {
+			let path = if path.as_os_str().is_empty() {
+				Path::new(".")
+			} else {
+				path
+			};
+			return openat2(
+				filesystem,
+				path,
+				libc::O_PATH | libc::O_CLOEXEC,
+				RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_SYMLINKS,
+			);
+		}
+	}
+	open_absolute_path(path)
 }
 
 fn mount_bind_path(bind: &Bind, target: &Path) -> tg::Result<()> {

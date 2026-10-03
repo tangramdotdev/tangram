@@ -37,6 +37,7 @@ pub struct Arg {
 	pub die_with_parent: bool,
 	pub filesystem_fd: Option<i32>,
 	pub filesystem_inodes: Option<u64>,
+	pub filesystem_mount_fd: Option<i32>,
 	pub filesystem_path: Option<PathBuf>,
 	pub filesystem_size: Option<u64>,
 	pub fuse_fd: Option<i32>,
@@ -254,6 +255,7 @@ fn prepare_filesystem(arg: &mut Arg) -> tg::Result<Option<OwnedFd>> {
 	};
 	let filesystem = super::filesystem::create(arg.filesystem_size, arg.filesystem_inodes)?;
 	super::filesystem::prepare(&filesystem)?;
+	arg.filesystem_mount_fd = Some(filesystem.as_raw_fd());
 	let target = super::filesystem::path(&filesystem);
 	for bind in arg.binds.iter_mut().chain(&mut arg.ro_binds) {
 		super::filesystem::relocate(&mut bind.source, &path, &target);

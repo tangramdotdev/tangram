@@ -166,6 +166,7 @@ impl Args {
 			die_with_parent: self.die_with_parent,
 			filesystem_fd: self.filesystem_fd,
 			filesystem_inodes: self.filesystem_inodes,
+			filesystem_mount_fd: None,
 			filesystem_path: self.filesystem_path,
 			filesystem_size: self.filesystem_size,
 			fuse_fd: self.fuse_fd,

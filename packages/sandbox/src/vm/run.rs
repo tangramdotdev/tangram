@@ -1105,6 +1105,7 @@ fn build_cloud_hypervisor_mount_arg(
 		die_with_parent: false,
 		filesystem_fd: None,
 		filesystem_inodes: None,
+		filesystem_mount_fd: None,
 		filesystem_path: None,
 		filesystem_size: None,
 		fuse_fd: None,
