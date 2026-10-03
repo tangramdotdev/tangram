@@ -138,6 +138,21 @@ export def foundationdb_cluster_description [] {
 	if $nu.os-info.name == 'linux' { 'local:local@127.0.0.1:4500' } else { 'docker:docker@127.0.0.1:4500' }
 }
 
+export def container_cgroup_parent [controllers: list<string>] {
+	let current = ^awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup | str trim
+	let current = $'/sys/fs/cgroup($current)'
+	for parent in [$current ($current | path dirname)] {
+		let path = $parent | path join cgroup.subtree_control
+		if not ($path | path exists) { continue }
+		let enabled = open --raw $path | str trim | split row ' '
+		if ($controllers | all { $in in $enabled }) {
+			let writable = ^sh -c 'test -w "$1" && test -w "$1/cgroup.procs"' _ $parent | complete
+			if $writable.exit_code == 0 { return $parent }
+		}
+	}
+	skip_test $'this test requires a delegated cgroup parent with ($controllers | str join ", ") enabled'
+}
+
 export def artifact [artifact] {
 	def inner [artifact: any, path: string] {
 		let artifact = if ($artifact | describe) == 'string' {
