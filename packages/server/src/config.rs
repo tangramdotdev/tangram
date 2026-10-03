@@ -987,13 +987,36 @@ pub struct RunnerIsolation {
 pub struct ContainerRunnerIsolation {
 	pub harden: bool,
 
+	pub max_open_files: Option<u64>,
+
 	pub max_pids: Option<u64>,
+
+	pub memory_swap: Option<u64>,
+
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
 }
 
 impl ContainerRunnerIsolation {
 	#[must_use]
+	pub fn max_open_files(&self) -> Option<u64> {
+		self.max_open_files.or(self.harden.then_some(4096))
+	}
+
+	#[must_use]
 	pub fn max_pids(&self) -> Option<u64> {
 		self.max_pids.or(self.harden.then_some(1024))
+	}
+
+	#[must_use]
+	pub fn memory_swap(&self) -> Option<u64> {
+		self.memory_swap.or(self.harden.then_some(0))
+	}
+
+	#[must_use]
+	pub fn seccomp(&self) -> Option<tangram_sandbox::SeccompPolicy> {
+		self.seccomp.or(self
+			.harden
+			.then_some(tangram_sandbox::SeccompPolicy::Default))
 	}
 }
 

@@ -122,7 +122,10 @@ pub enum Isolation {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ContainerIsolation {
+	pub cgroup_readonly: bool,
+	pub max_open_files: Option<u64>,
 	pub max_pids: Option<u64>,
+	pub memory_swap: Option<u64>,
 	pub seccomp: Option<SeccompPolicy>,
 }
 
@@ -691,6 +694,13 @@ fn validate_resources(
 }
 
 fn validate_options(arg: &Arg) -> tg::Result<()> {
+	if let Isolation::Container(container) = &arg.isolation
+		&& container.max_open_files == Some(0)
+	{
+		return Err(tg::error!(
+			"the maximum number of container sandbox open files must be greater than zero"
+		));
+	}
 	if let Isolation::Container(container) = &arg.isolation
 		&& container.max_pids == Some(0)
 	{

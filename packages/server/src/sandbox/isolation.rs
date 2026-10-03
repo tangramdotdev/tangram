@@ -14,10 +14,11 @@ impl Server {
 					let container = &self.config.runner.isolation.container;
 					Ok(tangram_sandbox::Isolation::Container(
 						tangram_sandbox::ContainerIsolation {
+							cgroup_readonly: container.harden,
+							max_open_files: container.max_open_files(),
 							max_pids: container.max_pids(),
-							seccomp: container
-								.harden
-								.then_some(tangram_sandbox::SeccompPolicy::Default),
+							memory_swap: container.memory_swap(),
+							seccomp: container.seccomp(),
 						},
 					))
 				},
@@ -95,10 +96,11 @@ impl Server {
 			let container = &self.config.runner.isolation.container;
 			return Some(tangram_sandbox::Isolation::Container(
 				tangram_sandbox::ContainerIsolation {
+					cgroup_readonly: container.harden,
+					max_open_files: container.max_open_files(),
 					max_pids: container.max_pids(),
-					seccomp: container
-						.harden
-						.then_some(tangram_sandbox::SeccompPolicy::Default),
+					memory_swap: container.memory_swap(),
+					seccomp: container.seccomp(),
 				},
 			));
 		}
