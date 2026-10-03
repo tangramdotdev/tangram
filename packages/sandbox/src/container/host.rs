@@ -9,6 +9,9 @@ use {
 };
 
 const AT_RECURSIVE: libc::c_uint = 0x8000;
+const FSCONFIG_CMD_CREATE: libc::c_uint = 6;
+const FSMOUNT_CLOEXEC: libc::c_uint = 1;
+const FSOPEN_CLOEXEC: libc::c_uint = 1;
 const MOUNT_ATTR_NODEV: u64 = 0x0000_0004;
 
 #[derive(Debug)]
@@ -19,7 +22,7 @@ struct NamespaceProbeError {
 
 pub fn validate() -> tg::Result<()> {
 	validate_user_namespaces()?;
-	validate_cgroup_v2(Path::new("/sys/fs/cgroup"), Path::new("/proc/self/cgroup"))?;
+	validate_cgroup_v2()?;
 	validate_seccomp()?;
 	validate_mount_syscalls()?;
 
@@ -164,6 +167,19 @@ fn probe_container_namespaces() -> Result<(), NamespaceProbeError> {
 				probe_child_fail(pipe[1], 9);
 			}
 			libc::close(mount.try_into().unwrap());
+			let filesystem = libc::syscall(libc::SYS_fsopen, c"tmpfs".as_ptr(), FSOPEN_CLOEXEC);
+			if filesystem < 0 {
+				probe_child_fail(pipe[1], 10);
+			}
+			if libc::syscall(libc::SYS_fsconfig, filesystem, FSCONFIG_CMD_CREATE, 0, 0, 0) != 0 {
+				probe_child_fail(pipe[1], 11);
+			}
+			let filesystem_mount = libc::syscall(libc::SYS_fsmount, filesystem, FSMOUNT_CLOEXEC, 0);
+			if filesystem_mount < 0 {
+				probe_child_fail(pipe[1], 12);
+			}
+			libc::close(filesystem_mount.try_into().unwrap());
+			libc::close(filesystem.try_into().unwrap());
 			libc::_exit(0);
 		}
 	}
@@ -230,6 +246,9 @@ fn namespace_probe_stage(stage: libc::c_int) -> &'static str {
 		7 => "cloning a detached mount with open_tree",
 		8 => "setting recursive mount attributes with mount_setattr",
 		9 => "attaching a detached mount with move_mount",
+		10 => "opening a tmpfs context with fsopen",
+		11 => "creating a tmpfs with fsconfig",
+		12 => "creating a detached tmpfs mount with fsmount",
 		_ => "starting the namespace probe",
 	}
 }
@@ -251,31 +270,25 @@ unsafe fn write_probe_file(path: &std::ffi::CStr, bytes: &[u8]) -> libc::c_int {
 	}
 }
 
-fn validate_cgroup_v2(root: &Path, proc_self_cgroup: &Path) -> tg::Result<()> {
-	let current = std::fs::read_to_string(proc_self_cgroup).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %proc_self_cgroup.display(),
-			"failed to read the current cgroup"
-		)
-	})?;
-	let current = parse_unified_cgroup(&current)?;
-	let current = root.join(current.trim_start_matches('/'));
-	let controllers_path = current.join("cgroup.subtree_control");
-	let controllers = std::fs::read_to_string(&controllers_path).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %controllers_path.display(),
-			"cgroup v2 is unavailable; run the hardened runner in a delegated cgroup v2 hierarchy"
-		)
-	})?;
-	validate_controllers(&controllers).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %controllers_path.display(),
-			"the hardened runner requires delegated cpu, memory, and pids cgroup v2 controllers"
-		)
-	})?;
+fn validate_cgroup_v2() -> tg::Result<()> {
+	// Probe a child so the hierarchy root need not expose per-cgroup limits itself.
+	let name = format!("tangram-probe-{:016x}", rand::random::<u64>());
+	let options = super::cgroup::Options {
+		cpu: Some(1),
+		memory: Some(64 * 1024 * 1024),
+		memory_oom_group: true,
+		memory_swap: Some(0),
+		pids: Some(32),
+	};
+	let cgroup = super::cgroup::Cgroup::new(&name, options)?;
+	let directory = cgroup.handle()?.open_fd()?;
+	let path = std::path::PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
+	validate_cgroup_features(&path)?;
+	cgroup.cleanup()?;
+	Ok(())
+}
+
+fn validate_cgroup_features(current: &Path) -> tg::Result<()> {
 	for name in [
 		"cgroup.events",
 		"cgroup.kill",
@@ -293,45 +306,6 @@ fn validate_cgroup_v2(root: &Path, proc_self_cgroup: &Path) -> tg::Result<()> {
 				"the hardened runner requires the cgroup v2 {name} feature"
 			));
 		}
-	}
-	let directory = std::fs::File::open(&current).map_err(
-		|error| tg::error!(!error, path = %current.display(), "failed to open the current cgroup"),
-	)?;
-	rustix::fs::accessat(
-		&directory,
-		".",
-		rustix::fs::Access::WRITE_OK | rustix::fs::Access::EXEC_OK,
-		rustix::fs::AtFlags::EACCESS,
-	)
-	.map_err(|error| {
-		tg::error!(
-			!error,
-			path = %current.display(),
-			"the hardened runner's cgroup is not delegated for creating sandbox cgroups"
-		)
-	})?;
-
-	Ok(())
-}
-
-fn parse_unified_cgroup(contents: &str) -> tg::Result<&str> {
-	contents
-		.lines()
-		.find_map(|line| line.strip_prefix("0::"))
-		.ok_or_else(|| tg::error!("the process is not running in a unified cgroup v2 hierarchy"))
-}
-
-fn validate_controllers(contents: &str) -> tg::Result<()> {
-	let controllers = contents.split_ascii_whitespace().collect::<Vec<_>>();
-	let missing = ["cpu", "memory", "pids"]
-		.into_iter()
-		.filter(|required| !controllers.contains(required))
-		.collect::<Vec<_>>();
-	if !missing.is_empty() {
-		return Err(tg::error!(
-			missing = %missing.join(", "),
-			"required cgroup controllers are not enabled"
-		));
 	}
 
 	Ok(())
@@ -401,26 +375,10 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn parse_unified_cgroup_path() {
-		assert_eq!(parse_unified_cgroup("0::/runner\n").unwrap(), "/runner");
-		assert!(parse_unified_cgroup("2:cpu:/runner\n").is_err());
-	}
-
-	#[test]
-	fn validate_required_controllers() {
-		validate_controllers("memory pids io cpu").unwrap();
-		let error = validate_controllers("memory cpu").unwrap_err();
-		assert!(error.trace().to_string().contains("pids"));
-	}
-
-	#[test]
 	fn validate_required_cgroup_features() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
 		let current = temp.path().join("runner");
 		std::fs::create_dir_all(&current).unwrap();
-		let proc_self_cgroup = temp.path().join("self.cgroup");
-		std::fs::write(&proc_self_cgroup, "0::/runner\n").unwrap();
-		std::fs::write(current.join("cgroup.subtree_control"), "cpu memory pids\n").unwrap();
 		for name in [
 			"cgroup.events",
 			"cgroup.kill",
@@ -434,9 +392,9 @@ mod tests {
 			std::fs::write(current.join(name), "").unwrap();
 		}
 
-		validate_cgroup_v2(temp.path(), &proc_self_cgroup).unwrap();
+		validate_cgroup_features(&current).unwrap();
 		std::fs::remove_file(current.join("cgroup.kill")).unwrap();
-		let error = validate_cgroup_v2(temp.path(), &proc_self_cgroup).unwrap_err();
+		let error = validate_cgroup_features(&current).unwrap_err();
 		assert!(error.trace().to_string().contains("cgroup.kill"));
 	}
 
