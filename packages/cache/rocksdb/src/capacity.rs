@@ -1,0 +1,32 @@
+use {super::Cache, tangram_cache::capacity::Capacity, tangram_client::prelude::*};
+
+impl Cache {
+	pub fn try_get_capacity(&self) -> tg::Result<Capacity> {
+		let available = 1;
+		let total = 1;
+		let capacity = Capacity { available, total };
+
+		Ok(capacity)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn reports_full_capacity() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let config = super::super::Config {
+			path: temp.path().join("test.rocksdb"),
+			read_batch_size: 64,
+			read_concurrency: 1,
+			write_batch_size: 8_000,
+		};
+		let cache = Cache::new(&config).unwrap();
+		let capacity = cache.try_get_capacity().unwrap();
+		assert_eq!(capacity.available, 1);
+		assert_eq!(capacity.total, 1);
+	}
+}

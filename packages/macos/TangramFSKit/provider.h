@@ -114,6 +114,8 @@ typedef struct {
 	uint64_t node_ttl_secs;
 	// The map size with which to open the store. It must be at least the server's.
 	uint64_t cache_map_size;
+	// The local cache backend: zero selects LMDB, one selects RocksDB.
+	uint32_t cache_kind;
 	// The store's path within the data directory. NULL or empty selects the default.
 	const char *cache_path;
 	// The prefix for the store's POSIX lock semaphores. It must match the server's. NULL or empty selects the default hash-derived names.

@@ -9,6 +9,9 @@ repository.workspace = true
 rust-version.workspace = true
 version.workspace = true
 
+[features]
+rocksdb = ["dep:tangram_cache_rocksdb"]
+
 [dependencies]
 bytes = { workspace = true }
 futures = { workspace = true }
@@ -18,16 +21,15 @@ num = { workspace = true }
 serde_json = { workspace = true }
 tangram_cache = { workspace = true }
 tangram_cache_lmdb = { workspace = true }
+tangram_cache_rocksdb = { workspace = true, optional = true }
 tangram_client = { workspace = true }
 tangram_uri = { workspace = true }
+tangram_util = { workspace = true }
 tangram_vfs = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-oslog = "0.3"
 tracing-subscriber = { workspace = true }
-
-[dev-dependencies]
-tangram_util = { workspace = true }
 
 [lints]
 workspace = true

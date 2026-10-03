@@ -55,6 +55,8 @@ impl Session {
 			#[cfg(feature = "lmdb")]
 			crate::cache::Cache::Lmdb(_) => &self.server.config.sync.get.store.lmdb,
 			crate::cache::Cache::Memory(_) => &self.server.config.sync.get.store.memory,
+			#[cfg(feature = "rocksdb")]
+			crate::cache::Cache::Rocksdb(_) => &self.server.config.sync.get.store.rocksdb,
 			#[cfg(feature = "scylla")]
 			crate::cache::Cache::Scylla(_) => &self.server.config.sync.get.store.scylla,
 		};

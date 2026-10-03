@@ -758,6 +758,8 @@ pub enum Cache {
 
 	Memory(MemoryCache),
 
+	Rocksdb(RocksdbCache),
+
 	Scylla(ScyllaCache),
 }
 
@@ -778,6 +780,17 @@ pub struct LmdbCache {
 
 #[derive(Clone, Debug, Default)]
 pub struct MemoryCache {}
+
+#[derive(Clone, Debug)]
+pub struct RocksdbCache {
+	pub path: PathBuf,
+
+	pub read_batch_size: usize,
+
+	pub read_concurrency: usize,
+
+	pub write_batch_size: usize,
+}
 
 #[derive(Clone, Debug)]
 pub struct ScyllaCache {
@@ -1183,6 +1196,8 @@ pub struct SyncGetStore {
 	pub process_batch_timeout: Duration,
 
 	pub process_concurrency: usize,
+
+	pub rocksdb: SyncGetStoreObject,
 
 	pub scylla: SyncGetStoreObject,
 }
@@ -1886,6 +1901,17 @@ impl LmdbCache {
 	}
 }
 
+impl Default for RocksdbCache {
+	fn default() -> Self {
+		Self {
+			path: PathBuf::from("cache.rocksdb"),
+			read_batch_size: 64,
+			read_concurrency: 4,
+			write_batch_size: 8_000,
+		}
+	}
+}
+
 impl Default for Process {
 	fn default() -> Self {
 		Self {
@@ -2132,6 +2158,11 @@ impl Default for SyncGetStore {
 			process_batch_size: 16,
 			process_batch_timeout: Duration::ZERO,
 			process_concurrency: 8,
+			rocksdb: SyncGetStoreObject {
+				object_concurrency: 1,
+				object_max_batch: 1_000,
+				object_max_bytes: 1_000_000,
+			},
 			scylla: SyncGetStoreObject {
 				object_concurrency: 64,
 				object_max_batch: 1_000,

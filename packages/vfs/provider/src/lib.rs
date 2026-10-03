@@ -158,6 +158,8 @@ pub struct TgConfig {
 	pub node_ttl_secs: u64,
 	/// The map size with which to open the cache. It must be at least the server's, so the server sends its own.
 	pub cache_map_size: u64,
+	/// The local cache backend: zero selects LMDB, one selects `RocksDB`.
+	pub cache_kind: u32,
 	/// The cache's path within the data directory, a null-terminated UTF-8 string owned by the caller. A null pointer or an empty string selects the default.
 	pub cache_path: *const c_char,
 	/// The prefix for the cache's POSIX lock semaphores, a null-terminated UTF-8 string owned by the caller. It must match the prefix the server opens the cache with so that the sandboxed provider and the server share the same lock. A null pointer or an empty string selects the default hash-derived names.
@@ -256,24 +258,10 @@ fn config_from_c(config: &TgConfig) -> std::result::Result<Config, Status> {
 
 	// Convert the configuration.
 	let config = Config {
-		data_directory: if config.data_directory.is_null() {
-			None
-		} else {
-			// SAFETY: The caller guarantees that the non-null configuration field points to a terminated C string.
-			unsafe { CStr::from_ptr(config.data_directory) }
-				.to_str()
-				.ok()
-				.map(PathBuf::from)
-		},
-		node_eviction_interval: if config.node_eviction_interval_secs == 0 {
-			default.node_eviction_interval
-		} else {
-			Duration::from_secs(config.node_eviction_interval_secs)
-		},
-		node_ttl: if config.node_ttl_secs == 0 {
-			default.node_ttl
-		} else {
-			Duration::from_secs(config.node_ttl_secs)
+		cache_kind: match config.cache_kind {
+			0 => provider::CacheKind::Lmdb,
+			1 => provider::CacheKind::Rocksdb,
+			_ => return Err(Status::InvalidArgument),
 		},
 		cache_map_size: if config.cache_map_size == 0 {
 			default.cache_map_size
@@ -299,6 +287,25 @@ fn config_from_c(config: &TgConfig) -> std::result::Result<Config, Status> {
 				.ok()
 				.filter(|prefix| !prefix.is_empty())
 				.map(ToOwned::to_owned)
+		},
+		data_directory: if config.data_directory.is_null() {
+			None
+		} else {
+			// SAFETY: The caller guarantees that the non-null configuration field points to a terminated C string.
+			unsafe { CStr::from_ptr(config.data_directory) }
+				.to_str()
+				.ok()
+				.map(PathBuf::from)
+		},
+		node_eviction_interval: if config.node_eviction_interval_secs == 0 {
+			default.node_eviction_interval
+		} else {
+			Duration::from_secs(config.node_eviction_interval_secs)
+		},
+		node_ttl: if config.node_ttl_secs == 0 {
+			default.node_ttl
+		} else {
+			Duration::from_secs(config.node_ttl_secs)
 		},
 		principal,
 		tokens,
@@ -1423,12 +1430,13 @@ mod tests {
 
 	fn config() -> TgConfig {
 		TgConfig {
-			data_directory: std::ptr::null(),
-			node_eviction_interval_secs: 0,
-			node_ttl_secs: 0,
+			cache_kind: 0,
 			cache_map_size: 0,
 			cache_path: std::ptr::null(),
 			cache_posix_sem_prefix: std::ptr::null(),
+			data_directory: std::ptr::null(),
+			node_eviction_interval_secs: 0,
+			node_ttl_secs: 0,
 			principal: std::ptr::null(),
 			tokens: std::ptr::null(),
 		}

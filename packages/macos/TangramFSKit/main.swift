@@ -304,6 +304,13 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 		// least as large as the writer's. A zero map size and an empty path select
 		// the defaults, which match the server's.
 		let options = mountOptions(options)
+		let cacheKind: UInt32
+		switch options["cache_kind"] {
+		case "rocksdb":
+			cacheKind = 1
+		default:
+			cacheKind = 0
+		}
 		let cacheMapSize = options["cache_map_size"].flatMap(UInt64.init) ?? 0
 		let cachePath = options["cache_path"] ?? ""
 
@@ -345,6 +352,7 @@ final class TangramVolume: FSVolume, FSVolume.Operations, FSVolume.OpenCloseOper
 									node_eviction_interval_secs: nodeEvictionIntervalSeconds,
 									node_ttl_secs: nodeTTLSeconds,
 									cache_map_size: cacheMapSize,
+									cache_kind: cacheKind,
 									cache_path: cachePath,
 									cache_posix_sem_prefix: cachePosixSemPrefix,
 									principal: principal,

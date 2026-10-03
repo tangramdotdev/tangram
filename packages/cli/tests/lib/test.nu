@@ -675,6 +675,12 @@ export def --env "server spawn" [
 		$default_config = $default_config | merge $config
 	}
 
+	# Replace the backend defaults when selecting another cache backend.
+	let cache_kind = $server_config.cache?.kind? | default $instance.config.cache?.kind?
+	if $cache_kind != null and $cache_kind != $default_config.cache.kind {
+		$default_config = $default_config | upsert cache { kind: $cache_kind }
+	}
+
 	# Write the config.
 	let config = $default_config
 		| merge deep --strategy append $instance.config

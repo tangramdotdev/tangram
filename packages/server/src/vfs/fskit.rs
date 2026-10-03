@@ -34,9 +34,11 @@ struct Request {
 	type_: &'static str,
 }
 
-/// The cache the fast path opens. It is sent only for an LMDB cache because the fast path can read no other kind.
+/// The local cache the fast path opens.
 #[derive(serde::Serialize)]
 struct Cache {
+	kind: &'static str,
+
 	#[serde(rename = "map_size")]
 	map_size: u64,
 
@@ -195,9 +197,16 @@ impl Server {
 	fn cache(server: &crate::Server) -> Option<Cache> {
 		match &server.config.cache {
 			crate::config::Cache::Lmdb(config) => Some(Cache {
+				kind: "lmdb",
 				map_size: config.map_size.to_u64().unwrap(),
 				path: server.path.join(&config.path),
 				posix_sem_prefix: config.resolved_posix_sem_prefix(),
+			}),
+			crate::config::Cache::Rocksdb(config) => Some(Cache {
+				kind: "rocksdb",
+				map_size: 0,
+				path: server.path.join(&config.path),
+				posix_sem_prefix: None,
 			}),
 			_ => None,
 		}
@@ -222,6 +231,7 @@ impl Server {
 			options.push(format!("socket={socket}"));
 		}
 		if let Some(cache) = cache {
+			options.push(format!("cache_kind={}", cache.kind));
 			options.push(format!("cache_map_size={}", cache.map_size));
 			let path = cache.path.display().to_string();
 			if path.contains(',') {

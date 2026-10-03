@@ -1080,6 +1080,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "bzip2-sys"
+version = "0.1.13+1.0.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "225bff33b2141874fe80d71e07d6eec4f85c5c216453dd96388240f96e1acc14"
+dependencies = [
+ "cc",
+ "pkg-config",
+]
+
+[[package]]
 name = "calendrical_calculations"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4011,6 +4021,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "librocksdb-sys"
+version = "0.19.0+11.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4f45e86edad8e88efe97dbf384b4e48e1ff0f111eabf154c7b09d7a1e5fb573c"
+dependencies = [
+ "bindgen 0.72.1",
+ "bzip2-sys",
+ "cc",
+ "libc",
+ "libz-sys",
+ "lz4-sys",
+ "rustflags",
+]
+
+[[package]]
 name = "libseccomp-sys"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4021,6 +4046,17 @@ name = "libsqlite3-sys"
 version = "0.38.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f1d20bef17f513b9b3004532233187769cd072d790971f4e4da0e346eb6401e8"
+dependencies = [
+ "cc",
+ "pkg-config",
+ "vcpkg",
+]
+
+[[package]]
+name = "libz-sys"
+version = "1.1.29"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85bc9657773828b90eeb625adff10eeac83cc21bbfd8e23a03eaa8a33c9e28d9"
 dependencies = [
  "cc",
  "pkg-config",
@@ -6733,6 +6769,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rocksdb"
+version = "0.25.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8d90add70d1d420ee487bce4a1449880a8d147451c6051b2ee5f8354553dcbf"
+dependencies = [
+ "libc",
+ "librocksdb-sys",
+]
+
+[[package]]
 name = "ropey"
 version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6871,6 +6917,12 @@ dependencies = [
  "rustc_version",
  "semver",
 ]
+
+[[package]]
+name = "rustflags"
+version = "0.1.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a39e0e9135d7a7208ee80aa4e3e4b88f0f5ad7be92153ed70686c38a03db2e63"
 
 [[package]]
 name = "rustix"
@@ -8018,6 +8070,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "tangram_cache_rocksdb"
+version = "0.0.0"
+dependencies = [
+ "bytes",
+ "foundationdb-tuple",
+ "num",
+ "num-derive 0.5.1",
+ "num-traits",
+ "rocksdb",
+ "tangram_cache",
+ "tangram_client",
+ "tangram_serialize",
+ "tangram_util",
+ "tokio",
+]
+
+[[package]]
 name = "tangram_cache_scylla"
 version = "0.0.0"
 dependencies = [
@@ -8656,6 +8725,7 @@ dependencies = [
  "tangram_cache",
  "tangram_cache_lmdb",
  "tangram_cache_memory",
+ "tangram_cache_rocksdb",
  "tangram_cache_scylla",
  "tangram_client",
  "tangram_compiler",
@@ -8795,6 +8865,7 @@ dependencies = [
  "serde_json",
  "tangram_cache",
  "tangram_cache_lmdb",
+ "tangram_cache_rocksdb",
  "tangram_client",
  "tangram_uri",
  "tangram_util",

@@ -1140,6 +1140,8 @@ pub enum Cache {
 
 	Memory(MemoryCache),
 
+	Rocksdb(RocksdbCache),
+
 	Scylla(ScyllaCache),
 }
 
@@ -1170,6 +1172,23 @@ pub struct LmdbCache {
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct MemoryCache {}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RocksdbCache {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub path: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_batch_size: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub read_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub write_batch_size: Option<usize>,
+}
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1816,6 +1835,9 @@ pub struct SyncGetStore {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process_concurrency: Option<usize>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub rocksdb: Option<SyncGetStoreObject>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub scylla: Option<SyncGetStoreObject>,
@@ -3491,6 +3513,7 @@ fn resolve_cache(source: Cache) -> tg::Result<server::Cache> {
 	let target = match source {
 		Cache::Lmdb(source) => server::Cache::Lmdb(resolve_lmdb_cache(source)),
 		Cache::Memory(_) => server::Cache::Memory(server::MemoryCache {}),
+		Cache::Rocksdb(source) => server::Cache::Rocksdb(resolve_rocksdb_cache(source)),
 		Cache::Scylla(source) => server::Cache::Scylla(resolve_scylla_cache(source)?),
 	};
 
@@ -3507,6 +3530,23 @@ fn resolve_lmdb_cache(source: LmdbCache) -> server::LmdbCache {
 	}
 	if let Some(value) = source.posix_sem_prefix {
 		target.posix_sem_prefix = Some(value);
+	}
+	if let Some(value) = source.read_batch_size {
+		target.read_batch_size = value;
+	}
+	if let Some(value) = source.read_concurrency {
+		target.read_concurrency = value;
+	}
+	if let Some(value) = source.write_batch_size {
+		target.write_batch_size = value;
+	}
+	target
+}
+
+fn resolve_rocksdb_cache(source: RocksdbCache) -> server::RocksdbCache {
+	let mut target = server::RocksdbCache::default();
+	if let Some(value) = source.path {
+		target.path = value;
 	}
 	if let Some(value) = source.read_batch_size {
 		target.read_batch_size = value;
@@ -4060,7 +4100,7 @@ fn resolve_sync_get(source: &SyncGet) -> server::SyncGet {
 		target.queue = resolve_sync_get_queue(source);
 	}
 	if let Some(source) = source.store {
-		target.store = resolve_sync_get_store(source);
+		target.store = resolve_sync_get_store(&source);
 	}
 	target
 }
@@ -4119,13 +4159,16 @@ fn resolve_sync_get_queue(source: SyncGetQueue) -> server::SyncGetQueue {
 	target
 }
 
-fn resolve_sync_get_store(source: SyncGetStore) -> server::SyncGetStore {
+fn resolve_sync_get_store(source: &SyncGetStore) -> server::SyncGetStore {
 	let mut target = server::SyncGetStore::default();
 	if let Some(source) = source.lmdb {
 		target.lmdb = resolve_sync_get_store_object(source, target.lmdb);
 	}
 	if let Some(source) = source.memory {
 		target.memory = resolve_sync_get_store_object(source, target.memory);
+	}
+	if let Some(source) = source.rocksdb {
+		target.rocksdb = resolve_sync_get_store_object(source, target.rocksdb);
 	}
 	if let Some(source) = source.scylla {
 		target.scylla = resolve_sync_get_store_object(source, target.scylla);

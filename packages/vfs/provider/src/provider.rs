@@ -43,6 +43,9 @@ const FUSE_DIRENT_HEADER_SIZE: usize = 24;
 /// The configuration for a provider.
 #[derive(Clone)]
 pub struct Config {
+	/// The backend used by the local cache.
+	pub cache_kind: CacheKind,
+
 	/// The map size with which to open the cache. LMDB requires a reader to use a map size at least as large as the writer's, so this must be at least the server's.
 	pub cache_map_size: usize,
 
@@ -68,6 +71,13 @@ pub struct Config {
 	pub tokens: Vec<tg::authorization::Token>,
 }
 
+#[derive(Clone, Copy, Default)]
+pub enum CacheKind {
+	#[default]
+	Lmdb,
+	Rocksdb,
+}
+
 pub struct Provider {
 	inner: Arc<Inner>,
 	runtime: tokio::runtime::Runtime,
@@ -86,8 +96,21 @@ struct Inner {
 
 /// The state the fast path requires. It reads the cache and the checkouts directory directly instead of sending a request to the server.
 struct Fast {
-	cache: tangram_cache_lmdb::Cache,
+	cache: Cache,
 	checkout_path: PathBuf,
+	secondary_path: Option<tangram_util::fs::Temp>,
+}
+
+enum Cache {
+	Lmdb(tangram_cache_lmdb::Cache),
+	#[cfg(feature = "rocksdb")]
+	Rocksdb(tangram_cache_rocksdb::Cache),
+}
+
+enum Transaction<'a> {
+	Lmdb(lmdb::RoTxn<'a, lmdb::WithTls>),
+	#[cfg(feature = "rocksdb")]
+	Rocksdb(tangram_cache_rocksdb::transaction::Transaction<'a>),
 }
 
 struct FileHandle {
@@ -1306,15 +1329,36 @@ impl Fast {
 	fn new(data_directory: &Path, config: &Config) -> Option<Self> {
 		// Open the cache.
 		let path = data_directory.join(&config.cache_path);
-		let config = tangram_cache_lmdb::Config {
-			map_size: config.cache_map_size,
-			path,
-			posix_sem_prefix: config.cache_posix_sem_prefix.clone(),
-			read_batch_size: 64,
-			read_concurrency: 1,
-			write_batch_size: 8_000,
+		let (cache, secondary_path) = match config.cache_kind {
+			CacheKind::Lmdb => {
+				let config = tangram_cache_lmdb::Config {
+					map_size: config.cache_map_size,
+					path,
+					posix_sem_prefix: config.cache_posix_sem_prefix.clone(),
+					read_batch_size: 64,
+					read_concurrency: 1,
+					write_batch_size: 8_000,
+				};
+				let cache = tangram_cache_lmdb::Cache::new_readonly(&config).map(Cache::Lmdb);
+				(cache, None)
+			},
+			#[cfg(feature = "rocksdb")]
+			CacheKind::Rocksdb => {
+				let config = tangram_cache_rocksdb::Config {
+					path,
+					read_batch_size: 64,
+					read_concurrency: 1,
+					write_batch_size: 8_000,
+				};
+				let temp = tangram_util::fs::Temp::new().ok()?;
+				let result = tangram_cache_rocksdb::Cache::new_readonly(&config, temp.path())
+					.map(Cache::Rocksdb);
+				(result, Some(temp))
+			},
+			#[cfg(not(feature = "rocksdb"))]
+			CacheKind::Rocksdb => return None,
 		};
-		let cache = match tangram_cache_lmdb::Cache::new_readonly(&config) {
+		let cache = match cache {
 			Err(error) => {
 				tracing::warn!(
 					error = %error.trace(),
@@ -1327,18 +1371,37 @@ impl Fast {
 
 		// Locate the checkouts directory.
 		let checkout_path = data_directory.join(CHECKOUTS_DIRECTORY_NAME);
-		tracing::info!(checkout_path = %checkout_path.display(), "enabled the fast path");
 		let fast = Self {
 			cache,
 			checkout_path,
+			secondary_path,
 		};
+
+		let secondary_path = fast
+			.secondary_path
+			.as_ref()
+			.map(tangram_util::fs::Temp::path);
+		tracing::info!(
+			checkout_path = %fast.checkout_path.display(),
+			?secondary_path,
+			"enabled the fast path",
+		);
 
 		Some(fast)
 	}
 
 	/// Begins a read transaction. Every request opens its own transaction, because the driver submits one request per batch.
-	fn transaction(&self) -> std::io::Result<lmdb::RoTxn<'_, lmdb::WithTls>> {
-		self.cache.env().read_txn().map_err(|error| {
+	fn transaction(&self) -> std::io::Result<Transaction<'_>> {
+		let result = match &self.cache {
+			Cache::Lmdb(cache) => cache
+				.env()
+				.read_txn()
+				.map(Transaction::Lmdb)
+				.map_err(|error| tg::error!(!error, "failed to begin a transaction")),
+			#[cfg(feature = "rocksdb")]
+			Cache::Rocksdb(cache) => Ok(Transaction::Rocksdb(cache.read_transaction())),
+		};
+		result.map_err(|error| {
 			tracing::debug!(?error, "failed to begin a transaction");
 			fallback()
 		})
@@ -1424,7 +1487,7 @@ impl Fast {
 
 	fn compute_attrs_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		artifact: Option<&tg::artifact::Id>,
 	) -> std::io::Result<vfs::Attrs> {
 		match artifact {
@@ -1451,7 +1514,7 @@ impl Fast {
 
 	fn try_get_object(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<cache::object::Object<'static>>> {
 		let arg = cache::object::get::Arg {
@@ -1459,25 +1522,42 @@ impl Fast {
 			id: id.clone(),
 			put: None,
 		};
-		self.cache
-			.try_get_object_with_transaction(transaction, &arg)
-			.map(|output| output.object)
-			.map_err(eio)
+		let output = match (&self.cache, transaction) {
+			(Cache::Lmdb(cache), Transaction::Lmdb(transaction)) => {
+				cache.try_get_object_with_transaction(transaction, &arg)
+			},
+			#[cfg(feature = "rocksdb")]
+			(Cache::Rocksdb(cache), Transaction::Rocksdb(transaction)) => {
+				cache.try_get_object_with_transaction(transaction, &arg)
+			},
+			#[cfg(feature = "rocksdb")]
+			_ => unreachable!(),
+		};
+		output.map(|output| output.object).map_err(eio)
 	}
 
 	fn try_get_data(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<(u64, tg::object::Data)>> {
-		self.cache
-			.try_get_object_data_with_transaction(transaction, id)
-			.map_err(eio)
+		let output = match (&self.cache, transaction) {
+			(Cache::Lmdb(cache), Transaction::Lmdb(transaction)) => {
+				cache.try_get_object_data_with_transaction(transaction, id)
+			},
+			#[cfg(feature = "rocksdb")]
+			(Cache::Rocksdb(cache), Transaction::Rocksdb(transaction)) => {
+				cache.try_get_object_data_with_transaction(transaction, id)
+			},
+			#[cfg(feature = "rocksdb")]
+			_ => unreachable!(),
+		};
+		output.map_err(eio)
 	}
 
 	fn artifact_data_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		artifact: &tg::artifact::Id,
 	) -> std::io::Result<tg::artifact::data::Artifact> {
 		let id: tg::object::Id = artifact.clone().into();
@@ -1492,7 +1572,7 @@ impl Fast {
 
 	fn graph_data_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		graph: &tg::graph::Id,
 	) -> std::io::Result<tg::graph::Data> {
 		let id: tg::object::Id = graph.clone().into();
@@ -1507,7 +1587,7 @@ impl Fast {
 
 	fn resolve_graph_node_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		pointer: &tg::graph::data::Pointer,
 	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
 		let graph = pointer.graph.clone();
@@ -1534,7 +1614,7 @@ impl Fast {
 
 	fn directory_node_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		directory: &tg::artifact::Id,
 	) -> std::io::Result<(tg::graph::data::Directory, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_with_transaction(transaction, directory)?;
@@ -1558,7 +1638,7 @@ impl Fast {
 
 	fn file_node_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		file: &tg::artifact::Id,
 	) -> std::io::Result<(tg::graph::data::File, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_with_transaction(transaction, file)?;
@@ -1582,7 +1662,7 @@ impl Fast {
 
 	fn symlink_node_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		symlink: &tg::artifact::Id,
 	) -> std::io::Result<(tg::graph::data::Symlink, Option<tg::graph::Id>)> {
 		let data = self.artifact_data_with_transaction(transaction, symlink)?;
@@ -1606,7 +1686,7 @@ impl Fast {
 
 	fn directory_entries_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		directory: &tg::artifact::Id,
 		default_graph: Option<&tg::graph::Id>,
 	) -> std::io::Result<BTreeMap<String, tg::artifact::Id>> {
@@ -1641,7 +1721,7 @@ impl Fast {
 
 	fn directory_lookup_entry_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		directory: &tg::artifact::Id,
 		name: &str,
 		default_graph: Option<&tg::graph::Id>,
@@ -1681,7 +1761,7 @@ impl Fast {
 
 	fn blob_length_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		id: &tg::blob::Id,
 	) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
@@ -1716,7 +1796,7 @@ impl Fast {
 
 	fn read_blob_range_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		id: &tg::blob::Id,
 		position: u64,
 		length: u64,
@@ -1832,7 +1912,7 @@ impl Fast {
 
 	fn artifact_id_from_edge(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		default_graph: Option<&tg::graph::Id>,
 	) -> std::io::Result<tg::artifact::Id> {
@@ -1852,7 +1932,7 @@ impl Fast {
 
 	fn artifact_id_from_directory_edge(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		edge: tg::graph::data::Edge<tg::directory::Id>,
 		default_graph: Option<&tg::graph::Id>,
 	) -> std::io::Result<tg::artifact::Id> {
@@ -1871,7 +1951,7 @@ impl Fast {
 	}
 	fn artifact_id_from_index_with_transaction(
 		&self,
-		transaction: &lmdb::RoTxn<'_>,
+		transaction: &Transaction<'_>,
 		index: usize,
 		graph: Option<&tg::graph::Id>,
 		expected_kind: Option<tg::artifact::Kind>,
@@ -2221,12 +2301,13 @@ impl ReaddirPlusPage {
 impl Default for Config {
 	fn default() -> Self {
 		Self {
-			data_directory: None,
-			node_eviction_interval: DEFAULT_NODE_EVICTION_INTERVAL,
-			node_ttl: DEFAULT_NODE_TTL,
+			cache_kind: CacheKind::Lmdb,
 			cache_map_size: DEFAULT_CACHE_MAP_SIZE,
 			cache_path: PathBuf::from(DEFAULT_CACHE_PATH),
 			cache_posix_sem_prefix: None,
+			data_directory: None,
+			node_eviction_interval: DEFAULT_NODE_EVICTION_INTERVAL,
+			node_ttl: DEFAULT_NODE_TTL,
 			principal: None,
 			tokens: Vec::new(),
 		}
@@ -2415,6 +2496,68 @@ mod tests {
 			render_tag(2, &process, Some(".tg.ts")),
 			Bytes::from(format!("../{process}.tg.ts"))
 		);
+	}
+
+	#[cfg(not(feature = "rocksdb"))]
+	#[test]
+	fn rocksdb_disables_the_fast_path_without_the_feature() {
+		let temp = Temp::new().unwrap();
+		let config = Config {
+			cache_kind: CacheKind::Rocksdb,
+			cache_path: PathBuf::from("cache.rocksdb"),
+			..Config::default()
+		};
+		assert!(Fast::new(temp.path(), &config).is_none());
+		assert!(!temp.path().exists());
+	}
+
+	#[cfg(feature = "rocksdb")]
+	#[test]
+	fn rocksdb_fast_path_catches_up_on_a_miss() {
+		let temp = Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let cache_path = PathBuf::from("cache.rocksdb");
+		let config = tangram_cache_rocksdb::Config {
+			path: temp.path().join(&cache_path),
+			read_batch_size: 64,
+			read_concurrency: 1,
+			write_batch_size: 8_000,
+		};
+		let cache = tangram_cache_rocksdb::Cache::new(&config).unwrap();
+		let config = Config {
+			cache_kind: CacheKind::Rocksdb,
+			cache_path,
+			..Config::default()
+		};
+		let fast = Fast::new(temp.path(), &config).unwrap();
+
+		// Publish an object after opening the secondary.
+		let data = tg::object::Data::from(tg::blob::Data::Leaf(tg::blob::data::Leaf {
+			bytes: Bytes::from_static(b"hello"),
+		}));
+		let bytes = data.serialize().unwrap();
+		let id = tg::object::Id::new(tg::object::Kind::Blob, &bytes);
+		let arg = cache::object::put::Arg {
+			bytes: Some(bytes.clone()),
+			checkout_pointer: None,
+			id: id.clone(),
+			length: Some(5),
+			put: [1; 16],
+		};
+		cache.put_object_sync(arg).unwrap();
+
+		// Leave an unflushed object for the provider to fetch through its server fallback.
+		let transaction = fast.transaction().unwrap();
+		assert!(fast.try_get_object(&transaction, &id).unwrap().is_none());
+		assert!(fast.try_get_data(&transaction, &id).unwrap().is_none());
+		cache.flush_sync().unwrap();
+
+		// Serve the flushed object through the fast path without contacting the server.
+		let transaction = fast.transaction().unwrap();
+		let (_, data) = fast.try_get_data(&transaction, &id).unwrap().unwrap();
+		assert_eq!(data.serialize().unwrap(), bytes);
+		let object = fast.try_get_object(&transaction, &id).unwrap().unwrap();
+		assert_eq!(object.bytes.unwrap().as_ref(), bytes.as_ref());
 	}
 
 	fn fixture(authorized: bool) -> Fixture {

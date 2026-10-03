@@ -8,6 +8,7 @@ members = [
   "packages/cache",
   "packages/cache/lmdb",
   "packages/cache/memory",
+  "packages/cache/rocksdb",
   "packages/cache/scylla",
   "packages/cli",
   "packages/clients/js/native",
@@ -183,6 +184,7 @@ reflink-copy = "0.1"
 rquickjs = { git = "https://github.com/tangramdotdev/rquickjs", features = ["full-async", "loader", "futures"] }
 regex = "1"
 reqwest = { version = "0.13", features = ["form", "json", "stream"] }
+rocksdb = { version = "0.25", default-features = false, features = ["bindgen-runtime", "lz4"] }
 rusqlite = { version = "0.40", default-features = false, features = ["bundled", "functions"] }
 rustix = { version = "1", features = ["fs", "net"] }
 rustls = "0.23"
@@ -210,6 +212,7 @@ tangram_billing_stripe = { path = "packages/billing/stripe" }
 tangram_cache = { path = "packages/cache" }
 tangram_cache_lmdb = { path = "packages/cache/lmdb" }
 tangram_cache_memory = { path = "packages/cache/memory" }
+tangram_cache_rocksdb = { path = "packages/cache/rocksdb" }
 tangram_cache_scylla = { path = "packages/cache/scylla" }
 tangram_client = { path = "packages/clients/rust" }
 tangram_compiler = { path = "packages/compiler" }

@@ -563,7 +563,7 @@ impl Server {
 				));
 			}
 			match &config.cache {
-				self::config::Cache::Lmdb(_) => {},
+				self::config::Cache::Lmdb(_) | self::config::Cache::Rocksdb(_) => {},
 				self::config::Cache::Memory(_) => {
 					return Err(tg::error!("the memory cache does not report capacity"));
 				},
@@ -1101,6 +1101,20 @@ impl Server {
 				}
 			},
 			config::Cache::Memory(_) => self::cache::Cache::new_memory(),
+			config::Cache::Rocksdb(rocksdb) => {
+				#[cfg(not(feature = "rocksdb"))]
+				{
+					let _ = rocksdb;
+					return Err(tg::error!(
+						"this version of tangram was not compiled with rocksdb support"
+					));
+				}
+				#[cfg(feature = "rocksdb")]
+				{
+					self::cache::Cache::new_rocksdb(&path, rocksdb)
+						.map_err(|error| tg::error!(!error, "failed to create the cache"))?
+				}
+			},
 			config::Cache::Scylla(scylla) => {
 				#[cfg(not(feature = "scylla"))]
 				{

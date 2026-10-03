@@ -1,5 +1,3 @@
-#[cfg(feature = "lmdb")]
-use std::path::Path;
 use {tangram_cache as cache, tangram_client::prelude::*};
 
 pub use cache::{archive, index, log, object};
@@ -13,13 +11,19 @@ pub enum Cache {
 
 	Memory(tangram_cache_memory::Cache),
 
+	#[cfg(feature = "rocksdb")]
+	Rocksdb(tangram_cache_rocksdb::Cache),
+
 	#[cfg(feature = "scylla")]
 	Scylla(tangram_cache_scylla::Cache),
 }
 
 impl Cache {
 	#[cfg(feature = "lmdb")]
-	pub fn new_lmdb(directory: &Path, config: &crate::config::LmdbCache) -> tg::Result<Self> {
+	pub fn new_lmdb(
+		directory: &std::path::Path,
+		config: &crate::config::LmdbCache,
+	) -> tg::Result<Self> {
 		let path = directory.join(&config.path);
 		let config = tangram_cache_lmdb::Config {
 			map_size: config.map_size,
@@ -39,6 +43,25 @@ impl Cache {
 	#[must_use]
 	pub fn new_memory() -> Self {
 		Self::Memory(tangram_cache_memory::Cache::new())
+	}
+
+	#[cfg(feature = "rocksdb")]
+	pub fn new_rocksdb(
+		directory: &std::path::Path,
+		config: &crate::config::RocksdbCache,
+	) -> tg::Result<Self> {
+		let path = directory.join(&config.path);
+		let config = tangram_cache_rocksdb::Config {
+			path: path.clone(),
+			read_batch_size: config.read_batch_size,
+			read_concurrency: config.read_concurrency,
+			write_batch_size: config.write_batch_size,
+		};
+		let rocksdb = tangram_cache_rocksdb::Cache::new(&config).map_err(
+			|error| tg::error!(!error, path = %path.display(), "failed to create the rocksdb cache"),
+		)?;
+
+		Ok(Self::Rocksdb(rocksdb))
 	}
 
 	#[cfg(feature = "scylla")]
@@ -90,7 +113,7 @@ impl Cache {
 	}
 
 	#[cfg_attr(
-		not(any(feature = "lmdb", feature = "scylla")),
+		not(any(feature = "lmdb", feature = "rocksdb", feature = "scylla")),
 		expect(clippy::unnecessary_wraps)
 	)]
 	pub fn put_object_sync(&self, arg: object::put::Arg) -> tg::Result<()> {
@@ -98,6 +121,8 @@ impl Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_object_sync(arg)?,
 			Self::Memory(cache) => cache.put_object(arg)?,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.put_object_sync(arg)?,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => return Err(tg::error!("unimplemented")),
 		}
@@ -113,13 +138,15 @@ impl Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_object_data_sync(id),
 			Self::Memory(cache) => cache.try_get_object_data(id),
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.try_get_object_data_sync(id),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
 	}
 
 	#[cfg_attr(
-		not(any(feature = "lmdb", feature = "scylla")),
+		not(any(feature = "lmdb", feature = "rocksdb", feature = "scylla")),
 		expect(clippy::unnecessary_wraps)
 	)]
 	pub fn try_get_object_sync(&self, arg: &object::get::Arg) -> tg::Result<object::get::Output> {
@@ -127,6 +154,8 @@ impl Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_object_sync(arg),
 			Self::Memory(cache) => Ok(cache.try_get_object_sync(arg)),
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.try_get_object_sync(arg),
 			#[cfg(feature = "scylla")]
 			Self::Scylla(_) => Err(tg::error!("unimplemented")),
 		}
@@ -139,6 +168,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_archive_queue_entry(arg).await,
 			Self::Memory(cache) => cache::Cache::delete_archive_queue_entry(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.delete_archive_queue_entry(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.delete_archive_queue_entry(arg).await,
 		}
@@ -149,6 +180,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_index_queue_fragment(arg).await,
 			Self::Memory(cache) => cache::Cache::delete_index_queue_fragment(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.delete_index_queue_fragment(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.delete_index_queue_fragment(arg).await,
 		}
@@ -159,6 +192,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_archive_queue_entry(arg).await,
 			Self::Memory(cache) => cache::Cache::put_archive_queue_entry(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.put_archive_queue_entry(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.put_archive_queue_entry(arg).await,
 		}
@@ -169,6 +204,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_index_queue_fragment(arg).await,
 			Self::Memory(cache) => cache::Cache::put_index_queue_fragment(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.put_index_queue_fragment(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.put_index_queue_fragment(arg).await,
 		}
@@ -182,6 +219,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_archive_queue_entry(arg).await,
 			Self::Memory(cache) => cache::Cache::try_get_archive_queue_entry(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.try_get_archive_queue_entry(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.try_get_archive_queue_entry(arg).await,
 		}
@@ -195,6 +234,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_index_queue_fragment(arg).await,
 			Self::Memory(cache) => cache::Cache::try_get_index_queue_fragment(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.try_get_index_queue_fragment(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.try_get_index_queue_fragment(arg).await,
 		}
@@ -205,6 +246,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache::Cache::contains_object(cache, arg).await,
 			Self::Memory(cache) => cache::Cache::contains_object(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache::Cache::contains_object(cache, arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache::Cache::contains_object(cache, arg).await,
 		}
@@ -215,6 +258,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_object_cache_entry(arg).await,
 			Self::Memory(cache) => cache::Cache::delete_object_cache_entry(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.delete_object_cache_entry(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.delete_object_cache_entry(arg).await,
 		}
@@ -225,6 +270,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_log(arg).await,
 			Self::Memory(cache) => cache::Cache::delete_log(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.delete_log(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.delete_log(arg).await,
 		}
@@ -235,6 +282,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_object(arg).await,
 			Self::Memory(cache) => cache::Cache::delete_object(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.delete_object(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.delete_object(arg).await,
 		}
@@ -245,6 +294,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.delete_object_batch(args).await,
 			Self::Memory(cache) => cache::Cache::delete_object_batch(cache, args).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.delete_object_batch(args).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.delete_object_batch(args).await,
 		}
@@ -258,6 +309,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.get_object_cache_entries(arg).await,
 			Self::Memory(cache) => cache::Cache::get_object_cache_entries(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.get_object_cache_entries(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.get_object_cache_entries(arg).await,
 		}
@@ -271,6 +324,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.get_archive_queue_entries(arg).await,
 			Self::Memory(cache) => cache::Cache::get_archive_queue_entries(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.get_archive_queue_entries(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.get_archive_queue_entries(arg).await,
 		}
@@ -284,6 +339,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.get_index_queue_fragments(arg).await,
 			Self::Memory(cache) => cache::Cache::get_index_queue_fragments(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.get_index_queue_fragments(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.get_index_queue_fragments(arg).await,
 		}
@@ -294,6 +351,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_object_cache_entry(arg).await,
 			Self::Memory(cache) => cache::Cache::put_object_cache_entry(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.put_object_cache_entry(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.put_object_cache_entry(arg).await,
 		}
@@ -309,6 +368,8 @@ impl cache::Cache for Cache {
 			Self::Memory(cache) => {
 				cache::Cache::put_object_cache_entry_with_object(cache, arg).await
 			},
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.put_object_cache_entry_with_object(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.put_object_cache_entry_with_object(arg).await,
 		}
@@ -319,6 +380,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.flush().await,
 			Self::Memory(cache) => cache::Cache::flush(cache).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.flush().await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.flush().await,
 		}
@@ -329,6 +392,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_log(arg).await,
 			Self::Memory(cache) => cache::Cache::put_log(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.put_log(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.put_log(arg).await,
 		}
@@ -339,6 +404,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_log_batch(args).await,
 			Self::Memory(cache) => cache::Cache::put_log_batch(cache, args).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.put_log_batch(args).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.put_log_batch(args).await,
 		}
@@ -349,6 +416,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache::Cache::put_log_end(cache, arg).await,
 			Self::Memory(cache) => cache::Cache::put_log_end(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache::Cache::put_log_end(cache, arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache::Cache::put_log_end(cache, arg).await,
 		}
@@ -362,6 +431,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache::Cache::try_get_log_end(cache, process).await,
 			Self::Memory(cache) => cache::Cache::try_get_log_end(cache, process).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache::Cache::try_get_log_end(cache, process).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache::Cache::try_get_log_end(cache, process).await,
 		}
@@ -372,6 +443,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_object(arg).await,
 			Self::Memory(cache) => cache::Cache::put_object(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.put_object(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.put_object(arg).await,
 		}
@@ -382,6 +455,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.put_object_batch(args).await,
 			Self::Memory(cache) => cache::Cache::put_object_batch(cache, args).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.put_object_batch(args).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.put_object_batch(args).await,
 		}
@@ -392,6 +467,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_log_length(arg).await,
 			Self::Memory(cache) => cache::Cache::try_get_log_length(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.try_get_log_length(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.try_get_log_length(arg).await,
 		}
@@ -402,6 +479,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_object(arg).await,
 			Self::Memory(cache) => cache::Cache::try_get_object(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.try_get_object(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.try_get_object(arg).await,
 		}
@@ -415,6 +494,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_get_object_batch(arg).await,
 			Self::Memory(cache) => cache::Cache::try_get_object_batch(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.try_get_object_batch(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.try_get_object_batch(arg).await,
 		}
@@ -425,6 +506,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache::Cache::try_get_capacity(cache).await,
 			Self::Memory(cache) => cache::Cache::try_get_capacity(cache).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache::Cache::try_get_capacity(cache).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache::Cache::try_get_capacity(cache).await,
 		}
@@ -438,6 +521,8 @@ impl cache::Cache for Cache {
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(cache) => cache.try_read_log(arg).await,
 			Self::Memory(cache) => cache::Cache::try_read_log(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache.try_read_log(arg).await,
 			#[cfg(feature = "scylla")]
 			Self::Scylla(cache) => cache.try_read_log(arg).await,
 		}

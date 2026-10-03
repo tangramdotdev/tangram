@@ -90,14 +90,15 @@ private struct VfsBrokerRequest: Decodable {
 	}
 }
 
-// The cache the file system extension's fast path opens. The server sends
-// it only if the cache is an lmdb cache.
+// The local cache the file system extension's fast path opens.
 private struct VfsBrokerCache: Decodable {
+	let kind: String
 	let mapSize: UInt64
 	let path: String
 	let posixSemPrefix: String?
 
 	private enum CodingKeys: String, CodingKey {
+		case kind
 		case mapSize = "map_size"
 		case path
 		case posixSemPrefix = "posix_sem_prefix"
@@ -352,6 +353,7 @@ private final class VfsBroker: @unchecked Sendable {
 			}
 		}
 		if let cache {
+			options.append("cache_kind=\(cache.kind)")
 			options.append("cache_map_size=\(cache.mapSize)")
 			if !cache.path.contains(",") {
 				options.append("cache_path=\(cache.path)")
