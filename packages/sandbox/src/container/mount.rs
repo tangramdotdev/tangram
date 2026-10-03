@@ -70,7 +70,10 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 	}
 
 	if arg.cgroup.is_some() {
-		mount_cgroup(&map_target(root, Path::new("/sys/fs/cgroup"))?)?;
+		mount_cgroup(
+			&map_target(root, Path::new("/sys/fs/cgroup"))?,
+			arg.cgroup_readonly,
+		)?;
 	}
 
 	for overlay in overlays
@@ -415,7 +418,7 @@ fn mount_proc(target: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn mount_cgroup(target: &Path) -> tg::Result<()> {
+fn mount_cgroup(target: &Path, readonly: bool) -> tg::Result<()> {
 	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
 			!error,
@@ -437,11 +440,15 @@ fn mount_cgroup(target: &Path) -> tg::Result<()> {
 	.map_err(|error| tg::error!(!error, "failed to create the cgroup underlay mount"))?;
 	let source = cstring("cgroup2");
 	let fstype = cstring("cgroup2");
+	let mut flags = libc::MS_NODEV | libc::MS_NOEXEC | libc::MS_NOSUID;
+	if readonly {
+		flags |= libc::MS_RDONLY;
+	}
 	mount_raw(
 		Some(&source),
 		&target,
 		Some(&fstype),
-		libc::MS_NODEV | libc::MS_NOEXEC | libc::MS_NOSUID,
+		flags,
 		std::ptr::null_mut(),
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the cgroup mount"))?;

@@ -27,7 +27,9 @@ pub struct Arg {
 	pub cgroup_cpu: Option<u64>,
 	pub cgroup_memory: Option<u64>,
 	pub cgroup_memory_oom_group: bool,
+	pub cgroup_memory_swap: Option<u64>,
 	pub cgroup_pids: Option<u64>,
+	pub cgroup_readonly: bool,
 	pub chdir: PathBuf,
 	pub clearenv: bool,
 	pub command: Vec<OsString>,
@@ -47,6 +49,7 @@ pub struct Arg {
 	pub overlay_sources: Vec<PathBuf>,
 	pub overlays: Vec<Overlay>,
 	pub procs: Vec<PathBuf>,
+	pub rlimit_nofile: Option<u64>,
 	pub ro_binds: Vec<Bind>,
 	pub seccomp: Option<crate::SeccompPolicy>,
 	pub setenvs: Vec<SetEnv>,
@@ -95,6 +98,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				cpu: arg.cgroup_cpu,
 				memory: arg.cgroup_memory,
 				memory_oom_group: arg.cgroup_memory_oom_group,
+				memory_swap: arg.cgroup_memory_swap,
 				pids: arg.cgroup_pids,
 			};
 			cgroup::Cgroup::new(name, entry)
@@ -231,10 +235,10 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			},
 		}
 	}
-	let status = wait_for_child(child)?;
-	if let Some(cgroup) = cgroup {
-		drop(cgroup);
-	}
+	let status = wait_for_child(child);
+	let cleanup = cgroup.map(cgroup::Cgroup::cleanup).transpose();
+	let status = status?;
+	cleanup?;
 	Ok(ExitCode::from(status))
 }
 
@@ -321,6 +325,7 @@ fn child_main(
 		mount::pivot_root_into(root)?;
 	}
 	mount::change_directory(&arg.chdir)?;
+	set_rlimit_nofile(arg.rlimit_nofile)?;
 	set_securebits()?;
 	setresgid(arg.gid)?;
 	setresuid(arg.uid)?;
@@ -331,6 +336,25 @@ fn child_main(
 		seccomp::install(policy)?;
 	}
 	exec_command(arg)
+}
+
+fn set_rlimit_nofile(limit: Option<u64>) -> tg::Result<()> {
+	let Some(limit) = limit else {
+		return Ok(());
+	};
+	let limit = libc::rlim_t::try_from(limit)
+		.map_err(|error| tg::error!(!error, "the open file limit is too large"))?;
+	let rlimit = libc::rlimit {
+		rlim_cur: limit,
+		rlim_max: limit,
+	};
+	let result = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const rlimit) };
+	if result < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the open file limit"));
+	}
+
+	Ok(())
 }
 
 fn prepare_root(arg: &Arg) -> tg::Result<Option<tangram_util::fs::Temp>> {
