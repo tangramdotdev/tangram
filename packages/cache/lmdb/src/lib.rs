@@ -55,7 +55,7 @@ impl Cache {
 		options.map_size(config.map_size).max_readers(1_000);
 		unsafe {
 			options.flags(
-				lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::WRITE_MAP | lmdb::EnvFlags::MAP_ASYNC,
+				lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::NO_SYNC | lmdb::EnvFlags::WRITE_MAP,
 			);
 		}
 		if let Some(prefix) = &config.posix_sem_prefix {

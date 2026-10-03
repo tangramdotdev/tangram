@@ -89,7 +89,7 @@ impl Index {
 		// SAFETY: The index writes to the mapped data only through LMDB transactions.
 		unsafe {
 			options.flags(
-				lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::WRITE_MAP | lmdb::EnvFlags::MAP_ASYNC,
+				lmdb::EnvFlags::NO_SUB_DIR | lmdb::EnvFlags::NO_SYNC | lmdb::EnvFlags::WRITE_MAP,
 			);
 		}
 		if let Some(prefix) = &config.posix_sem_prefix {
