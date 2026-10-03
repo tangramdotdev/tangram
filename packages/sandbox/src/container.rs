@@ -1,4 +1,5 @@
 mod cgroup;
+pub(crate) mod filesystem;
 mod seccomp;
 mod spawn;
 mod util;

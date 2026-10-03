@@ -987,6 +987,10 @@ pub struct RunnerIsolation {
 pub struct ContainerRunnerIsolation {
 	pub harden: bool,
 
+	pub max_filesystem_inodes: Option<u64>,
+
+	pub max_filesystem_size: Option<u64>,
+
 	pub max_open_files: Option<u64>,
 
 	pub max_pids: Option<u64>,
@@ -997,6 +1001,18 @@ pub struct ContainerRunnerIsolation {
 }
 
 impl ContainerRunnerIsolation {
+	#[must_use]
+	pub fn max_filesystem_inodes(&self) -> Option<u64> {
+		self.max_filesystem_inodes
+			.or(self.harden.then_some(262_144))
+	}
+
+	#[must_use]
+	pub fn max_filesystem_size(&self) -> Option<u64> {
+		self.max_filesystem_size
+			.or(self.harden.then_some(1_073_741_824))
+	}
+
 	#[must_use]
 	pub fn max_open_files(&self) -> Option<u64> {
 		self.max_open_files.or(self.harden.then_some(4096))

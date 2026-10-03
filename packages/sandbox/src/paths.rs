@@ -38,7 +38,7 @@ impl Sandbox {
 			path_maps.extend([
 				(
 					self.guest_tmp_path(),
-					Self::host_tmp_path_from_root(&self.0.arg.path),
+					Self::host_tmp_path_from_root(&self.host_filesystem_path()),
 				),
 				(self.guest_output_path(), self.host_output_path()),
 				(self.guest_store_path(), self.0.arg.store_path.clone()),
@@ -46,7 +46,7 @@ impl Sandbox {
 			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
 				path_maps.push((
 					PathBuf::from("/"),
-					Self::host_upper_path_from_root(&self.0.arg.path),
+					Self::host_upper_path_from_root(&self.host_filesystem_path()),
 				));
 			}
 			Self::map_path(
@@ -106,7 +106,7 @@ impl Sandbox {
 			}
 			path_maps.extend([
 				(
-					Self::host_tmp_path_from_root(&self.0.arg.path),
+					Self::host_tmp_path_from_root(&self.host_filesystem_path()),
 					self.guest_tmp_path(),
 				),
 				(self.host_output_path(), self.guest_output_path()),
@@ -114,7 +114,7 @@ impl Sandbox {
 			]);
 			if matches!(self.0.arg.isolation, Isolation::Container(_)) {
 				path_maps.push((
-					Self::host_upper_path_from_root(&self.0.arg.path),
+					Self::host_upper_path_from_root(&self.host_filesystem_path()),
 					PathBuf::from("/"),
 				));
 			}
@@ -144,7 +144,7 @@ impl Sandbox {
 
 	#[must_use]
 	pub fn host_output_path(&self) -> PathBuf {
-		Self::host_output_path_from_root(&self.0.arg.path)
+		Self::host_output_path_from_root(&self.host_filesystem_path())
 	}
 
 	#[must_use]
@@ -154,12 +154,21 @@ impl Sandbox {
 
 	#[must_use]
 	pub fn host_scratch_path(&self) -> PathBuf {
-		Self::host_scratch_path_from_root(&self.0.arg.path)
+		Self::host_scratch_path_from_root(&self.host_filesystem_path())
 	}
 
 	#[must_use]
 	pub fn host_tangram_socket_path(&self) -> PathBuf {
-		Self::host_tangram_socket_path_from_root(&self.0.arg.path)
+		Self::host_tangram_socket_path_from_root(&self.host_filesystem_path())
+	}
+
+	#[must_use]
+	fn host_filesystem_path(&self) -> PathBuf {
+		#[cfg(target_os = "linux")]
+		if let Some(filesystem) = &self.0.filesystem {
+			return filesystem.path();
+		}
+		self.0.arg.path.clone()
 	}
 
 	#[must_use]
@@ -264,6 +273,11 @@ impl Sandbox {
 	#[must_use]
 	pub(crate) fn host_etc_path_from_root(root_path: &Path) -> PathBuf {
 		root_path.join("etc")
+	}
+
+	#[must_use]
+	pub(crate) fn host_filesystem_path_from_root(root_path: &Path) -> PathBuf {
+		root_path.join("filesystem")
 	}
 
 	#[must_use]

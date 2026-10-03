@@ -15,6 +15,8 @@ impl Server {
 					Ok(tangram_sandbox::Isolation::Container(
 						tangram_sandbox::ContainerIsolation {
 							cgroup_readonly: container.harden,
+							max_filesystem_inodes: container.max_filesystem_inodes(),
+							max_filesystem_size: container.max_filesystem_size(),
 							max_open_files: container.max_open_files(),
 							max_pids: container.max_pids(),
 							memory_swap: container.memory_swap(),
@@ -97,6 +99,8 @@ impl Server {
 			return Some(tangram_sandbox::Isolation::Container(
 				tangram_sandbox::ContainerIsolation {
 					cgroup_readonly: container.harden,
+					max_filesystem_inodes: container.max_filesystem_inodes(),
+					max_filesystem_size: container.max_filesystem_size(),
 					max_open_files: container.max_open_files(),
 					max_pids: container.max_pids(),
 					memory_swap: container.memory_swap(),

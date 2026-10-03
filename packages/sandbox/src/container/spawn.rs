@@ -6,7 +6,10 @@ use {
 		fmt::Write as _,
 		mem::MaybeUninit,
 		net::Ipv4Addr,
-		os::{fd::AsRawFd as _, unix::ffi::OsStrExt as _},
+		os::{
+			fd::{AsRawFd as _, OwnedFd},
+			unix::ffi::OsStrExt as _,
+		},
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
@@ -29,11 +32,16 @@ enum UserQuery {
 	Uid(libc::uid_t),
 }
 
+pub(crate) struct Output {
+	pub filesystem: Option<super::filesystem::Filesystem>,
+	pub process: tokio::process::Child,
+}
+
 pub(crate) async fn spawn(
 	arg: &crate::Arg,
 	serve_arg: &crate::serve::Arg,
 	network: Option<&mut crate::network::Network>,
-) -> tg::Result<tokio::process::Child> {
+) -> tg::Result<Output> {
 	let crate::Isolation::Container(isolation) = &arg.isolation else {
 		unreachable!()
 	};
@@ -67,8 +75,27 @@ pub(crate) async fn spawn(
 		},
 		_ => None,
 	};
-	prepare_sandbox_directory(&arg.path)?;
+	let filesystem_limited =
+		isolation.max_filesystem_inodes.is_some() || isolation.max_filesystem_size.is_some();
+	let filesystem_path = if filesystem_limited {
+		Sandbox::host_filesystem_path_from_root(&arg.path)
+	} else {
+		arg.path.clone()
+	};
+	prepare_sandbox_directory(&arg.path, &filesystem_path, filesystem_limited)?;
 	let user = prepare_etc_files(&arg.path, network.as_deref(), &arg.dns)?;
+	let (filesystem_sendfd, filesystem_recvfd) = if filesystem_limited {
+		let (sendfd, recvfd) = rustix::net::socketpair(
+			rustix::net::AddressFamily::UNIX,
+			rustix::net::SocketType::STREAM,
+			rustix::net::SocketFlags::CLOEXEC,
+			None,
+		)
+		.map_err(|error| tg::error!(!error, "failed to create the filesystem socket pair"))?;
+		(Some(sendfd), Some(recvfd))
+	} else {
+		(None, None)
+	};
 	let stdio = matches!(serve_arg.url.scheme(), Some("http+stdio"));
 	let init_arg = super::init::Arg {
 		serve: serve_arg.clone(),
@@ -94,16 +121,30 @@ pub(crate) async fn spawn(
 		.arg("--overlay-src")
 		.arg(&arg.rootfs_path)
 		.arg("--overlay")
-		.arg(Sandbox::host_upper_path_from_root(&arg.path))
-		.arg(Sandbox::host_work_path_from_root(&arg.path))
+		.arg(Sandbox::host_upper_path_from_root(&filesystem_path))
+		.arg(Sandbox::host_work_path_from_root(&filesystem_path))
 		.arg("/")
 		.arg("--dev")
 		.arg("/dev")
 		.arg("--proc")
 		.arg("/proc")
 		.arg("--bind")
-		.arg(Sandbox::host_tmp_path_from_root(&arg.path))
+		.arg(Sandbox::host_tmp_path_from_root(&filesystem_path))
 		.arg(Sandbox::guest_tmp_path_from_root(&arg.path));
+	if let Some(filesystem_sendfd) = &filesystem_sendfd {
+		command
+			.arg("--filesystem-fd")
+			.arg(filesystem_sendfd.as_raw_fd().to_string())
+			.arg("--filesystem-path")
+			.arg(&filesystem_path);
+		if let Some(inodes) = isolation.max_filesystem_inodes {
+			command.arg("--filesystem-inodes").arg(inodes.to_string());
+		}
+		if let Some(size) = isolation.max_filesystem_size {
+			command.arg("--filesystem-size").arg(size.to_string());
+		}
+		inherit_fd(&mut command, filesystem_sendfd);
+	}
 	if let Some(network_arg) = &network_arg {
 		command.arg("--network").arg(network_arg);
 	}
@@ -189,7 +230,7 @@ pub(crate) async fn spawn(
 		)
 		.arg(Sandbox::guest_tangram_socket_path_from_root(&arg.path))
 		.arg("--bind")
-		.arg(Sandbox::host_output_path_from_root(&arg.path))
+		.arg(Sandbox::host_output_path_from_root(&filesystem_path))
 		.arg(Sandbox::guest_output_path_from_root(&arg.path));
 	if !stdio {
 		command
@@ -269,6 +310,15 @@ pub(crate) async fn spawn(
 	let child = command
 		.spawn()
 		.map_err(|error| tg::error!(!error, "failed to spawn sandbox container"))?;
+	drop(filesystem_sendfd);
+	let filesystem = match filesystem_recvfd {
+		Some(fd) => Some(
+			tokio::task::spawn_blocking(move || super::filesystem::receive(&fd))
+				.await
+				.map_err(|error| tg::error!(!error, "the filesystem task panicked"))??,
+		),
+		None => None,
+	};
 	if let Some(crate::network::Network::Pasta(network)) = network {
 		network.take_guest_pipe();
 		let pid = child
@@ -285,42 +335,73 @@ pub(crate) async fn spawn(
 		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
 		veth.connect(pid).await?;
 	}
-	Ok(child)
+	let output = Output {
+		filesystem,
+		process: child,
+	};
+
+	Ok(output)
 }
 
-fn prepare_sandbox_directory(sandbox_path: &Path) -> tg::Result<()> {
-	for path in [
-		Sandbox::host_output_path_from_root(sandbox_path),
-		Sandbox::host_scratch_path_from_root(sandbox_path),
-		Sandbox::host_tmp_path_from_root(sandbox_path),
-		Sandbox::host_etc_path_from_root(sandbox_path),
-		Sandbox::host_upper_path_from_root(sandbox_path),
-		Sandbox::host_work_path_from_root(sandbox_path),
-	] {
+fn prepare_sandbox_directory(
+	sandbox_path: &Path,
+	filesystem_path: &Path,
+	filesystem_limited: bool,
+) -> tg::Result<()> {
+	let mut paths = vec![Sandbox::host_etc_path_from_root(sandbox_path)];
+	if !filesystem_limited {
+		paths.extend([
+			Sandbox::host_output_path_from_root(filesystem_path),
+			Sandbox::host_scratch_path_from_root(filesystem_path),
+			Sandbox::host_tmp_path_from_root(filesystem_path),
+			Sandbox::host_upper_path_from_root(filesystem_path),
+			Sandbox::host_work_path_from_root(filesystem_path),
+		]);
+	}
+	for path in paths {
 		std::fs::create_dir_all(&path).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to create the sandbox path"),
 		)?;
 	}
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
-	let tmp_path = Sandbox::host_tmp_path_from_root(sandbox_path);
-	std::fs::set_permissions(&tmp_path, permissions).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %tmp_path.display(),
-			"failed to set sandbox path permissions"
-		)
-	})?;
-	let upper_path = Sandbox::host_upper_path_from_root(sandbox_path);
-	let tangram_path = upper_path.join("opt/tangram");
-	std::fs::create_dir_all(&tangram_path).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %tangram_path.display(),
-			"failed to create the sandbox path"
-		)
-	})?;
+	if !filesystem_limited {
+		let tmp_path = Sandbox::host_tmp_path_from_root(filesystem_path);
+		std::fs::set_permissions(&tmp_path, permissions).map_err(|error| {
+			tg::error!(
+				!error,
+				path = %tmp_path.display(),
+				"failed to set sandbox path permissions"
+			)
+		})?;
+		let upper_path = Sandbox::host_upper_path_from_root(filesystem_path);
+		let tangram_path = upper_path.join("opt/tangram");
+		std::fs::create_dir_all(&tangram_path).map_err(|error| {
+			tg::error!(
+				!error,
+				path = %tangram_path.display(),
+				"failed to create the sandbox path"
+			)
+		})?;
+	}
 	Ok(())
+}
+
+fn inherit_fd(command: &mut tokio::process::Command, fd: &OwnedFd) {
+	let raw = fd.as_raw_fd();
+	// SAFETY: The pre_exec closure only calls async-signal-safe operations.
+	unsafe {
+		command.pre_exec(move || {
+			let flags = libc::fcntl(raw, libc::F_GETFD);
+			if flags < 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			if libc::fcntl(raw, libc::F_SETFD, flags & !libc::FD_CLOEXEC) < 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			Ok(())
+		});
+	}
 }
 
 fn prepare_etc_files(

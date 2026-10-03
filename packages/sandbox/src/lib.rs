@@ -46,6 +46,9 @@ pub struct State {
 	client: Client,
 
 	#[cfg(target_os = "linux")]
+	filesystem: Option<crate::container::filesystem::Filesystem>,
+
+	#[cfg(target_os = "linux")]
 	#[expect(dead_code)]
 	network: Option<crate::network::Network>,
 
@@ -123,6 +126,8 @@ pub enum Isolation {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ContainerIsolation {
 	pub cgroup_readonly: bool,
+	pub max_filesystem_inodes: Option<u64>,
+	pub max_filesystem_size: Option<u64>,
 	pub max_open_files: Option<u64>,
 	pub max_pids: Option<u64>,
 	pub memory_swap: Option<u64>,
@@ -296,7 +301,7 @@ impl Sandbox {
 			url,
 		};
 		#[cfg(target_os = "linux")]
-		let (mut process, network) = match &arg.isolation {
+		let (mut process, network, filesystem) = match &arg.isolation {
 			Isolation::Container(_) => {
 				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
 				let mut network = crate::container::network::create(
@@ -308,8 +313,8 @@ impl Sandbox {
 					&arg.ip_pool,
 					ports,
 				)?;
-				let process = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
-				(process, network)
+				let output = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
+				(output.process, network, output.filesystem)
 			},
 			Isolation::Seatbelt(_) => {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
@@ -325,7 +330,7 @@ impl Sandbox {
 					ports,
 				)?;
 				let process = self::vm::spawn(&arg, &serve_arg, network.as_ref())?;
-				(process, network)
+				(process, network, None)
 			},
 		};
 
@@ -393,6 +398,8 @@ impl Sandbox {
 		let sandbox = Self(Arc::new(State {
 			arg,
 			client,
+			#[cfg(target_os = "linux")]
+			filesystem,
 			#[cfg(target_os = "linux")]
 			network,
 			next_process_index: AtomicU64::new(1),

@@ -20,6 +20,31 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 			"--fuse-fd and --fuse-path must be provided together"
 		));
 	}
+	let filesystem = arg.filesystem_fd.is_some()
+		|| arg.filesystem_inodes.is_some()
+		|| arg.filesystem_path.is_some()
+		|| arg.filesystem_size.is_some();
+	if filesystem
+		&& (arg.filesystem_fd.is_none()
+			|| arg.filesystem_path.is_none()
+			|| (arg.filesystem_inodes.is_none() && arg.filesystem_size.is_none()))
+	{
+		return Err(tg::error!(
+			"--filesystem-fd and --filesystem-path require --filesystem-inodes or --filesystem-size"
+		));
+	}
+	if filesystem && !arg.unshare_all {
+		return Err(tg::error!("filesystem limits require --unshare-all"));
+	}
+	if arg.filesystem_inodes == Some(0) {
+		return Err(tg::error!("--filesystem-inodes must be greater than zero"));
+	}
+	if arg.filesystem_size == Some(0) {
+		return Err(tg::error!("--filesystem-size must be greater than zero"));
+	}
+	if arg.filesystem_fd.is_some_and(|fd| fd < 0) {
+		return Err(tg::error!("--filesystem-fd must be a valid descriptor"));
+	}
 	if arg.command.is_empty() {
 		return Err(tg::error!("a command is required"));
 	}

@@ -35,6 +35,10 @@ pub struct Arg {
 	pub command: Vec<OsString>,
 	pub devs: Vec<PathBuf>,
 	pub die_with_parent: bool,
+	pub filesystem_fd: Option<i32>,
+	pub filesystem_inodes: Option<u64>,
+	pub filesystem_path: Option<PathBuf>,
+	pub filesystem_size: Option<u64>,
 	pub fuse_fd: Option<i32>,
 	pub fuse_path: Option<PathBuf>,
 	pub gateway_ip: Option<Ipv4Addr>,
@@ -84,8 +88,8 @@ pub struct SetEnv {
 	pub value: String,
 }
 
-pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
-	validate(arg)?;
+pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
+	validate(&arg)?;
 	if arg.die_with_parent {
 		crate::util::set_parent_death_signal(libc::SIGKILL)?;
 	}
@@ -105,8 +109,10 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		})
 		.transpose()
 		.map_err(|error| tg::error!(!error, "failed to create the cgroup"))?;
+	let mut _filesystem = None;
 	if arg.unshare_all {
 		enter_user_namespace(arg.uid, arg.gid)?;
+		_filesystem = prepare_filesystem(&mut arg)?;
 		match &arg.network {
 			Some(Network::Host) => (),
 			Some(Network::Pasta) => {
@@ -212,7 +218,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		set_hostname(hostname)?;
 	}
 
-	let root = prepare_root(arg)?;
+	let root = prepare_root(&arg)?;
 	let root_path = root.as_ref().map(|root| root.path().join("root"));
 
 	let (child, move_child_to_cgroup) = if let Some(cgroup) = &cgroup {
@@ -222,7 +228,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	};
 	if child == 0 {
 		match child_main(
-			arg,
+			&arg,
 			cgroup.as_ref(),
 			move_child_to_cgroup,
 			root_path.as_ref(),
@@ -240,6 +246,27 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 	let status = status?;
 	cleanup?;
 	Ok(ExitCode::from(status))
+}
+
+fn prepare_filesystem(arg: &mut Arg) -> tg::Result<Option<OwnedFd>> {
+	let (Some(path), Some(socket)) = (arg.filesystem_path.clone(), arg.filesystem_fd) else {
+		return Ok(None);
+	};
+	let filesystem = super::filesystem::create(arg.filesystem_size, arg.filesystem_inodes)?;
+	super::filesystem::prepare(&filesystem)?;
+	let target = super::filesystem::path(&filesystem);
+	for bind in arg.binds.iter_mut().chain(&mut arg.ro_binds) {
+		super::filesystem::relocate(&mut bind.source, &path, &target);
+	}
+	for overlay in &mut arg.overlays {
+		super::filesystem::relocate(&mut overlay.upperdir, &path, &target);
+		super::filesystem::relocate(&mut overlay.workdir, &path, &target);
+	}
+	// SAFETY: The descriptor is inherited from the parent and is exclusively owned here.
+	let socket = unsafe { OwnedFd::from_raw_fd(socket) };
+	super::filesystem::send(&socket, &filesystem)?;
+
+	Ok(Some(filesystem))
 }
 
 fn fork() -> tg::Result<libc::pid_t> {
