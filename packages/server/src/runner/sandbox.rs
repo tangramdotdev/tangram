@@ -656,6 +656,7 @@ impl Session {
 				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation {
 					cgroup_readonly: container.harden,
 					gid_map: container.gid_map.as_ref().map(Into::into),
+					max_duration: container.max_duration(),
 					max_filesystem_inodes: container.max_filesystem_inodes(),
 					max_filesystem_size: container.max_filesystem_size(),
 					max_open_files: container.max_open_files(),

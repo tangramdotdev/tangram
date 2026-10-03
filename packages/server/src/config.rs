@@ -989,6 +989,8 @@ pub struct ContainerRunnerIsolation {
 
 	pub harden: bool,
 
+	pub max_duration: Option<Duration>,
+
 	pub max_filesystem_inodes: Option<u64>,
 
 	pub max_filesystem_size: Option<u64>,
@@ -1012,6 +1014,12 @@ pub struct ContainerRunnerIsolationIdMap {
 }
 
 impl ContainerRunnerIsolation {
+	#[must_use]
+	pub fn max_duration(&self) -> Option<Duration> {
+		self.max_duration
+			.or(self.harden.then_some(Duration::from_hours(1)))
+	}
+
 	#[must_use]
 	pub fn max_filesystem_inodes(&self) -> Option<u64> {
 		self.max_filesystem_inodes

@@ -127,6 +127,7 @@ pub enum Isolation {
 pub struct ContainerIsolation {
 	pub cgroup_readonly: bool,
 	pub gid_map: Option<IdMap>,
+	pub max_duration: Option<Duration>,
 	pub max_filesystem_inodes: Option<u64>,
 	pub max_filesystem_size: Option<u64>,
 	pub max_open_files: Option<u64>,
@@ -414,6 +415,24 @@ impl Sandbox {
 			next_process_index: AtomicU64::new(1),
 			process: tokio::sync::Mutex::new(process),
 		}));
+		if let Isolation::Container(isolation) = &sandbox.0.arg.isolation
+			&& let Some(duration) = isolation.max_duration
+		{
+			let state = Arc::downgrade(&sandbox.0);
+			tokio::spawn(async move {
+				tokio::time::sleep(duration).await;
+				let Some(state) = state.upgrade() else {
+					return;
+				};
+				let sandbox = Sandbox(state);
+				if let Err(error) = sandbox.destroy().await {
+					tracing::warn!(
+						error = %error,
+						"failed to destroy a container sandbox after its maximum duration"
+					);
+				}
+			});
+		}
 
 		Ok(sandbox)
 	}

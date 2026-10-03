@@ -1509,6 +1509,7 @@ pub struct RunnerIsolation {
 	pub container: Option<ContainerRunnerIsolation>,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContainerRunnerIsolation {
@@ -1517,6 +1518,10 @@ pub struct ContainerRunnerIsolation {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub harden: Option<bool>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_duration: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_filesystem_inodes: Option<u64>,
@@ -3967,6 +3972,7 @@ fn resolve_runner_isolation(source: RunnerIsolation) -> server::RunnerIsolation 
 				.gid_map
 				.map(|map| resolve_container_runner_isolation_id_map(map, "/usr/bin/newgidmap")),
 			harden: source.harden.unwrap_or_default(),
+			max_duration: source.max_duration,
 			max_filesystem_inodes: source.max_filesystem_inodes,
 			max_filesystem_size: source.max_filesystem_size,
 			max_open_files: source.max_open_files,
@@ -4899,6 +4905,7 @@ mod tests {
 			"isolation": {
 				"container": {
 					"harden": true,
+					"max_duration": 123.5,
 					"max_open_files": 2048,
 					"max_pids": 1234,
 					"memory_swap": 0,
@@ -4911,6 +4918,7 @@ mod tests {
 		let container = target.isolation.container;
 
 		assert!(container.harden);
+		assert_eq!(container.max_duration, Some(Duration::from_millis(123_500)));
 		assert_eq!(container.max_open_files, Some(2048));
 		assert_eq!(container.max_pids, Some(1234));
 		assert_eq!(container.memory_swap, Some(0));

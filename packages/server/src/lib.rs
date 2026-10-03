@@ -217,6 +217,7 @@ impl Server {
 			tracing::info!(
 				cpu = config.scheduler.default_cpu,
 				harden = true,
+				max_duration = ?container.max_duration(),
 				max_open_files = ?container.max_open_files(),
 				max_pids = ?container.max_pids(),
 				memory = config.scheduler.default_memory,
@@ -715,6 +716,11 @@ impl Server {
 		if container.max_open_files == Some(0) {
 			return Err(tg::error!(
 				"the maximum number of container sandbox open files must be greater than zero"
+			));
+		}
+		if container.max_duration == Some(std::time::Duration::ZERO) {
+			return Err(tg::error!(
+				"the maximum container sandbox duration must be greater than zero"
 			));
 		}
 		if container.max_pids == Some(0) {
