@@ -7,6 +7,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import backend
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -36,12 +38,17 @@ def main():
         cwd=root,
         check=True,
     )
-    subprocess.run(
-        [str(python), "-m", "maturin", "develop", "--profile", args.profile],
-        cwd=directory,
-        env={**os.environ, "VIRTUAL_ENV": str(environment)},
-        check=True,
-    )
+    # Build the extension for its host interpreter rather than the embedded runtime.
+    with backend.environment():
+        subprocess.run(
+            [str(python), "-m", "maturin", "develop", "--profile", args.profile],
+            cwd=directory,
+            env={
+                **os.environ,
+                "VIRTUAL_ENV": str(environment),
+            },
+            check=True,
+        )
 
 
 if __name__ == "__main__":

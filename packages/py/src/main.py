@@ -13,6 +13,7 @@ import posixpath
 import sys
 import traceback
 from collections.abc import Sequence
+from copy import deepcopy
 from pathlib import Path
 from types import ModuleType
 from typing import Any, Protocol
@@ -22,32 +23,6 @@ class Host(Protocol):
     def inventory(self, module: str) -> str: ...
 
     def module(self, referrer: str, reference: str | None) -> tuple[str, str]: ...
-
-
-class Embedded(importlib.abc.MetaPathFinder, importlib.abc.Loader):
-    def __init__(self, sources: dict[str, list[Any]]):
-        self.sources = sources
-
-    def find_spec(
-        self,
-        fullname: str,
-        path: Sequence[str] | None = None,
-        target: ModuleType | None = None,
-    ) -> importlib.machinery.ModuleSpec | None:
-        source = self.sources.get(fullname)
-        if source is None:
-            return None
-        return importlib.util.spec_from_loader(fullname, self, is_package=source[1])
-
-    def create_module(self, spec: importlib.machinery.ModuleSpec) -> ModuleType | None:
-        return None
-
-    def exec_module(self, module: ModuleType) -> None:
-        text, _ = self.sources[module.__name__]
-        filename = f"<embedded {module.__name__}>"
-        module.__file__ = filename
-        linecache.cache[filename] = (len(text), None, text.splitlines(True), filename)
-        exec(compile(text, filename, "exec"), module.__dict__)
 
 
 class Loader(importlib.abc.Loader):
@@ -64,7 +39,7 @@ class Loader(importlib.abc.Loader):
         self.text = text
         self.package = package
         self.filename = filename
-        identity = json.loads(json.dumps(data))
+        identity = deepcopy(data)
         identity["referent"].get("options", {}).pop("tokens", None)
         self.identity = json.dumps(identity, sort_keys=True)
 
@@ -76,12 +51,13 @@ class Loader(importlib.abc.Loader):
             return
         self.finder.modules[self.identity] = module
         filename = self.filename
-        module.__file__ = filename
         module.__dict__["tg"] = self.finder.tg
         setattr(
             module, "__tangram_module__", self.finder.tg.Module.from_data(self.data)
         )
         self.finder.sources[filename] = self.data
+        if filename not in self.finder.linecache:
+            self.finder.linecache[filename] = linecache.cache.get(filename)
         linecache.cache[filename] = (
             len(self.text),
             None,
@@ -89,10 +65,12 @@ class Loader(importlib.abc.Loader):
             filename,
         )
         if self.package:
-            self.finder.packages[module.__name__] = self.data
-            module.__path__ = [str(Path(filename).parent)]
+            directory = Path(filename).parent
+            self.finder.packages[module.__name__] = (directory, self.data)
         try:
-            exec(compile(self.text, filename, "exec"), module.__dict__)
+            exec(
+                compile(self.text, filename, "exec", dont_inherit=True), module.__dict__
+            )
         except BaseException:
             self.finder.modules.pop(self.identity, None)
             self.finder.packages.pop(module.__name__, None)
@@ -114,10 +92,10 @@ class Finder(importlib.abc.MetaPathFinder):
         self.entry_path = (
             self.inventory["entry"] if self.inventory else entry["referent"]["node"]
         )
-        self.paths: dict[str, str] = {}
-        self.packages: dict[str, dict[str, Any]] = {}
+        self.packages: dict[str, tuple[Path, dict[str, Any]]] = {}
         self.modules: dict[str, ModuleType] = {}
         self.sources: dict[str, dict[str, Any]] = {}
+        self.linecache = {}
         self.root = "_tangram_entry"
 
     def find_spec(
@@ -127,10 +105,10 @@ class Finder(importlib.abc.MetaPathFinder):
         target: ModuleType | None = None,
     ) -> importlib.machinery.ModuleSpec | None:
         parent, _, name = fullname.rpartition(".")
-        referrer = self.packages.get(parent)
-        if referrer is None:
+        entry = self.packages.get(parent)
+        if entry is None:
             return None
-        directory = Path(self.paths[parent]).parent
+        directory, referrer = entry
         file = directory / f"{name}.tg.py"
         package = directory / name / "tangram.py"
         files = self.inventory["modules"] if self.inventory else None
@@ -151,10 +129,9 @@ class Finder(importlib.abc.MetaPathFinder):
         )
         if namespace:
             # Namespace packages anchor relative resolution without executing code.
-            data = json.loads(json.dumps(referrer))
+            data = deepcopy(referrer)
             data["referent"]["node"] = str(directory / name / "tangram.py")
-            self.packages[fullname] = data
-            self.paths[fullname] = str(directory / name / "tangram.py")
+            self.packages[fullname] = (directory / name, data)
             spec = importlib.machinery.ModuleSpec(fullname, None, is_package=True)
             spec.submodule_search_locations = [str(directory / name)]
             return spec
@@ -176,12 +153,9 @@ class Finder(importlib.abc.MetaPathFinder):
             serialized, text = self.host.module(json.dumps(referrer), reference)
             data = json.loads(serialized)
             filename = data["referent"]["node"]
-        self.paths[fullname] = filename
         loader = Loader(self, data, text, package, filename)
         spec = importlib.util.spec_from_loader(fullname, loader, is_package=package)
         assert spec is not None
-        spec.origin = filename
-        spec.has_location = True
         return spec
 
     def load_entry(self) -> ModuleType:
@@ -192,9 +166,7 @@ class Finder(importlib.abc.MetaPathFinder):
         else:
             name = path.name.removesuffix(".tg.py")
             if not name.isidentifier():
-                raise ImportError(
-                    "the entry module basename must be a Python identifier"
-                )
+                name = "<entry>"
             fullname = f"{self.root}.{name}"
             root = ModuleType(self.root)
             root.__package__ = self.root
@@ -204,8 +176,7 @@ class Finder(importlib.abc.MetaPathFinder):
             )
             root.__spec__.submodule_search_locations = root.__path__
             sys.modules[self.root] = root
-            self.packages[self.root] = self.entry
-            self.paths[self.root] = str(path)
+            self.packages[self.root] = (path.parent, self.entry)
         spec = self.spec(fullname, self.entry, None, package, str(path))
         module = importlib.util.module_from_spec(spec)
         sys.modules[fullname] = module
@@ -223,6 +194,12 @@ class Finder(importlib.abc.MetaPathFinder):
         for name in list(sys.modules):
             if name == self.root or name.startswith(self.root + "."):
                 del sys.modules[name]
+        for filename, entry in self.linecache.items():
+            if entry is None:
+                linecache.cache.pop(filename, None)
+            else:
+                linecache.cache[filename] = entry
+        self.linecache.clear()
 
     def error(
         self,
@@ -328,6 +305,9 @@ async def execute(
         if code is None:
             return 0, None, None
         if isinstance(code, int):
+            # CPython converts the code to a signed C long, using -1 on overflow.
+            if not -sys.maxsize - 1 <= code <= sys.maxsize:
+                return 255, None, None
             return code % 256, None, None
         print(code, file=sys.stderr)
         return 1, None, None
@@ -340,10 +320,8 @@ async def execute(
         sys.stderr.flush()
 
 
-def run(context: str, sources: str, host: Host) -> tuple[int, str | None, str | None]:
+def run(context: str, host: Host) -> tuple[int, str | None, str | None]:
     context = json.loads(context)
-    embedded = Embedded(json.loads(sources))
-    sys.meta_path.insert(0, embedded)
     finder = None
     try:
         tg = importlib.import_module("tangram")
@@ -367,6 +345,5 @@ def run(context: str, sources: str, host: Host) -> tuple[int, str | None, str | 
         if finder is not None:
             finder.close()
             sys.meta_path.remove(finder)
-        sys.meta_path.remove(embedded)
         sys.stdout.flush()
         sys.stderr.flush()

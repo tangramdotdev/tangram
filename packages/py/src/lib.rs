@@ -9,6 +9,8 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod import;
+
 static RUN: Mutex<()> = Mutex::new(());
 
 pub struct Arg {
@@ -57,7 +59,7 @@ pub fn run(arg: Arg) -> tg::Result<Outcome> {
 	};
 
 	// Initialize and execute Python on the calling runtime thread.
-	Python::initialize();
+	self::import::initialize()?;
 	let (exit, output, error) = Python::attach(|py| -> PyResult<_> {
 		let native = PyModule::new(py, "tangram._native")?;
 		tangram_py_native::_native(&native)?;
@@ -70,11 +72,7 @@ pub fn run(arg: Arg) -> tg::Result<Outcome> {
 		let runtime = PyModule::from_code(py, &source, &filename, &name)?;
 		runtime
 			.getattr("run")?
-			.call1((
-				context.to_string(),
-				include_str!(concat!(env!("OUT_DIR"), "/modules.json")),
-				host,
-			))?
+			.call1((context.to_string(), host))?
 			.extract::<(u8, Option<String>, Option<String>)>()
 	})
 	.map_err(|error| tg::error!(!error, "failed to execute the Python runtime"))?;

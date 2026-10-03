@@ -1,6 +1,7 @@
 [build-system]
 requires = ["maturin>=1.9.4,<2"]
-build-backend = "maturin"
+build-backend = "backend"
+backend-path = ["."]
 
 [project]
 name = "tangram"
@@ -14,3 +15,5 @@ dependencies = ["h2>=4.3,<5", "tomli-w>=1,<2", "PyYAML>=6,<7"]
 manifest-path = "native/Cargo.toml"
 module-name = "tangram._native"
 python-source = "src"
+
+include = [{ path = "backend.py", format = "sdist" }]

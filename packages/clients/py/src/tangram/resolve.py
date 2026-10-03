@@ -1,5 +1,7 @@
 """Resolve deeply nested awaitables while preserving atomic Tangram handles."""
 
+from __future__ import annotations
+
 import asyncio
 import inspect
 from collections.abc import Awaitable, Generator, Mapping, Sequence

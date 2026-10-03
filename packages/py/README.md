@@ -9,19 +9,47 @@ Every Tangram Python module receives `tg` in its globals, so `tg.file(...)` and 
 rest of the client API work without an import. Standalone scripts executed by
 Python directly use `import tangram as tg`.
 
-Install uv and Python 3.12 or later, then prepare the workspace and build:
+Install uv and Python 3.12 or later to prepare the workspace dependencies, then build:
 
 ```sh
 uv sync --locked --all-packages
 cargo build --all-features --bin tangram
 ```
 
-Cargo selects `.venv/bin/python` through `.cargo/config.toml`. `PYO3_PYTHON` can
-override that selection, but its major/minor version must match the workspace
-interpreter. The binary links to that CPython distribution and needs its standard
-library and native standard-library extensions at runtime. The Tangram client and
-its locked pure Python dependencies are embedded in the binary. Distribution
-packaging for CPython itself is separate work.
+`build.rs` downloads checksum-pinned CPython 3.14.8 full distributions from
+Astral's python-build-standalone release 20261003. It uses the pinned host
+interpreter to freeze only the import and encoding bootstrap. The remaining
+standard library, Tangram client, and locked pure Python dependencies are embedded
+as compressed source with `rust-embed`, including in debug builds. The loader
+decompresses and compiles modules in memory; it also supplies package resources
+and source inspection. No Python installation or extracted support directory is
+needed at runtime. Virtual library filenames start with `/tangram/python/`.
+
+CPython and native standard-library modules are linked statically into `tg`.
+macOS and Linux support aarch64 and x86_64. Linux musl supports both the default
+static CRT and `-C target-feature=-crt-static`; the distribution variant follows
+that setting. Optimized distributions contain LLVM bitcode, which the build
+converts to native objects using the Rust toolchain's LLVM library. CPython's
+mimalloc symbols are renamed to keep its allocator separate from Tangram's.
+
+Fully static musl builds still need static archives for Tangram's existing sandbox
+dependencies: set `LIBCAPNG_LINK_TYPE=static` and `LIBSECCOMP_LINK_TYPE=static`,
+with `LIBCAPNG_LIB_PATH` and `LIBSECCOMP_LIB_PATH` when their archives are outside
+Rust's library search paths. Dynamic musl builds use the normal shared sandbox
+dependencies. Neither mode links a shared libpython.
+
+The interpreter ignores `PYTHONHOME`, `PYTHONPATH`, site packages, and filesystem
+extension loading. Built-in extensions include SSL, SQLite, ctypes, and compression
+modules. Tk, curses, readline, and CPython test extensions are excluded. Python
+source files and resources load through the embedded finder, while Tangram modules
+use the referrer-aware resolver described below.
+
+Build prerequisites include `curl`, `tar` with zstd support, a C compiler, and the
+workspace's locked Python dependencies. Native musl objects also require
+`llvm-objcopy` or GNU `objcopy`. For offline builds,
+`TANGRAM_PYTHON_DISTRIBUTION` and `TANGRAM_PYTHON_HOST_DISTRIBUTION` can point to
+the extracted target and host `python` directories containing `PYTHON.json`;
+these overrides must match the pinned version, target, and ABI.
 
 ```sh
 tg py ./main.tg.py
@@ -66,10 +94,10 @@ dependency comments are not supported yet.
 Each invocation owns an asyncio runner, closes the default client connection, and
 cancels pending tasks when the runner closes. Invocations in one process are
 serialized because Python modules and the client process context are shared.
-Function commands and sandboxed CPython distribution packaging are separate work.
+Python function commands remain separate work.
 
 Run integration tests with:
 
 ```sh
-nu packages/cli/test.nu --no-cloud 'py/(run|runtime|relative|resolution|errors)'
+nu packages/cli/test.nu --no-cloud 'py/(run|runtime|relative|resolution|errors|library)'
 ```

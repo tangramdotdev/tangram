@@ -60,6 +60,12 @@ let exit = artifact {'main.tg.py': 'raise SystemExit(7)'}
 let output = tg py ($exit | path join main.tg.py) | complete
 assert equal $output.exit_code 7
 
+for code in ['2**100', '-(2**100)'] {
+    let exit = artifact {'main.tg.py': ('raise SystemExit(' + $code + ')')}
+    let output = tg py ($exit | path join main.tg.py) | complete
+    assert equal $output.exit_code 255
+}
+
 let plain = artifact {'main.py': 'print("wrong extension")'}
 let output = tg py ($plain | path join main.py) | complete
 failure $output

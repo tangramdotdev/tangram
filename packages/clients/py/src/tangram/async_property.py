@@ -1,5 +1,7 @@
 """Awaitable getters that can also accept an explicit client."""
 
+from __future__ import annotations
+
 from collections.abc import Awaitable, Callable, Generator
 from functools import partial
 from typing import Any, Concatenate, Self, cast, overload

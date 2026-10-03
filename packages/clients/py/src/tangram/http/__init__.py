@@ -1,5 +1,7 @@
 """HTTP types and transport framing."""
 
+from __future__ import annotations
+
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Self
 

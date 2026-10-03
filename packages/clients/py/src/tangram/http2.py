@@ -1,5 +1,7 @@
 """A duplex HTTP/2 transport using asyncio and hyper-h2."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import ssl
@@ -57,7 +59,7 @@ class Session:
         self.reader_task = asyncio.create_task(self._read())
 
     @classmethod
-    async def connect(cls, url: str) -> "Session":
+    async def connect(cls, url: str) -> Session:
         if url.startswith("http+unix://"):
             path = unquote(url.removeprefix("http+unix://"))
             reader, writer = await asyncio.open_unix_connection(path)

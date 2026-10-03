@@ -2,8 +2,8 @@
   "name": "@tangramdotdev/python-runtime",
   "private": true,
   "scripts": {
-    "check": "../../.venv/bin/python -m ruff check embed.py src tests && ../../.venv/bin/ty check src tests && ../../.venv/bin/python -m compileall -q src tests",
-    "format": "../../.venv/bin/python -m ruff format embed.py src tests",
+    "check": "../../.venv/bin/python -m ruff check . src tests && ../../.venv/bin/ty check src tests && ../../.venv/bin/python -m compileall -q src tests",
+    "format": "../../.venv/bin/python -m ruff format .",
     "test": "../../.venv/bin/python -m unittest discover -s tests -p 'test_*.py'"
   }
 }

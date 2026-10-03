@@ -1,5 +1,7 @@
 """Read Tangram process attributes stored as values or numbered shards."""
 
+from __future__ import annotations
+
 from .. import host
 
 ERROR_NAME = "user.tangram.error"

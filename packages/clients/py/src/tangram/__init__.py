@@ -1,5 +1,7 @@
 """Tangram's standalone Python client."""
 
+from __future__ import annotations
+
 from . import encoding, host, http, path
 from . import process as process
 from .args import Args

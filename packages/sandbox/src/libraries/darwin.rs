@@ -1,11 +1,4 @@
-use {
-	std::{
-		ffi::{CStr, OsStr},
-		os::unix::ffi::OsStrExt as _,
-		path::PathBuf,
-	},
-	tangram_client::prelude::*,
-};
+use {std::path::PathBuf, tangram_client::prelude::*};
 
 #[cfg(feature = "foundationdb")]
 const RUNTIME_LIBRARIES: &[&str] = &["libfdb_c", "liblzma.5"];
@@ -19,26 +12,7 @@ pub(super) fn resolve() -> tg::Result<Vec<PathBuf>> {
 		let path = resolve_library(stem)?;
 		libraries.push(path);
 	}
-	if let Some(path) = resolve_python_library() {
-		libraries.push(path);
-	}
 	Ok(libraries)
-}
-
-fn resolve_python_library() -> Option<PathBuf> {
-	// SAFETY: The symbol name is NUL-terminated, and querying the loader does not call the function or take ownership of its address.
-	let symbol = unsafe { libc::dlsym(libc::RTLD_DEFAULT, c"Py_Initialize".as_ptr()) };
-	if symbol.is_null() {
-		return None;
-	}
-	let mut info = std::mem::MaybeUninit::<libc::Dl_info>::uninit();
-	// SAFETY: The symbol belongs to a loaded image, and dladdr initializes info on success.
-	if unsafe { libc::dladdr(symbol, info.as_mut_ptr()) } == 0 {
-		return None;
-	}
-	// SAFETY: dladdr succeeded, and the loaded image's name remains valid while the image is loaded.
-	let name = unsafe { CStr::from_ptr(info.assume_init().dli_fname) };
-	Some(PathBuf::from(OsStr::from_bytes(name.to_bytes())))
 }
 
 fn resolve_library(stem: &str) -> tg::Result<PathBuf> {

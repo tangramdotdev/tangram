@@ -101,6 +101,7 @@ blake3 = "1"
 byte-unit = { version = "5", features = ["byte"] }
 byteorder = "1"
 bytes = { version = "1", features = ["serde"] }
+cc = "1"
 clap = { version = "4", features = ["derive", "env", "string", "unstable-v5"] }
 clap_complete = "4"
 clap_complete_nushell = "4"
@@ -194,6 +195,7 @@ regex = "1"
 reqwest = { version = "0.13", features = ["form", "json", "stream"] }
 rocksdb = { version = "0.25", default-features = false, features = ["bindgen-runtime", "lz4"] }
 rusqlite = { version = "0.40", default-features = false, features = ["bundled", "functions"] }
+rust-embed = { version = "8.12", features = ["compression", "debug-embed", "deterministic-timestamps", "interpolate-folder-path"] }
 rustix = { version = "1", features = ["fs", "net"] }
 rustls = "0.23"
 rustls-platform-verifier = "0.7"

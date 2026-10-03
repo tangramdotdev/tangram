@@ -1,5 +1,7 @@
 """Sleep using the active host."""
 
+from __future__ import annotations
+
 from . import host
 
 

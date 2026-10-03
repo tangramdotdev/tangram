@@ -1,5 +1,7 @@
 """POSIX paths with the same component handling as the JavaScript client."""
 
+from __future__ import annotations
+
 
 class Component:
     Current = "."

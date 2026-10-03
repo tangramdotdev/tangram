@@ -1,5 +1,7 @@
 """Resolve, map, and reduce constructor arguments, matching the JS Args module."""
 
+from __future__ import annotations
+
 import inspect
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import cast

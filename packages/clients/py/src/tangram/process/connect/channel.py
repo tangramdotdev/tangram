@@ -1,5 +1,7 @@
 """A streaming channel with independently bounded ordinary and priority queues."""
 
+from __future__ import annotations
+
 import asyncio
 from collections import deque
 from typing import Any

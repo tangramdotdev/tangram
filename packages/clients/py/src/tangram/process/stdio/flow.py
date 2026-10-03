@@ -1,5 +1,7 @@
 """Flow control for process stdio reads."""
 
+from __future__ import annotations
+
 import math
 
 chunk_size = 32 * 1024

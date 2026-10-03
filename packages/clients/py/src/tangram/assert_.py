@@ -1,5 +1,7 @@
 """The assertion helpers from assert.ts; ``assert`` is a Python keyword."""
 
+from __future__ import annotations
+
 from typing import Never
 
 

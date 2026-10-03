@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import json
 import math
@@ -33,7 +35,7 @@ class Response:
         self._body_source = body
 
     @staticmethod
-    async def from_stream(stream: ResponseStream) -> "Response":
+    async def from_stream(stream: ResponseStream) -> Response:
         chunks: deque[bytes] = deque()
         error = None
         failed = False

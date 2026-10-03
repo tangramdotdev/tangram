@@ -18,6 +18,8 @@ This uses the installed interpreter and creates the workspace environment at
 dependencies before compiling the native extension with the requested profile.
 You can also use `uv sync --locked --all-packages` to build the workspace with the
 backend's default release profile.
+The build backend configures PyO3 for the installed interpreter independently of
+the embedded runtime's pinned CPython version.
 Alternatively, install into an existing environment with
 `python3 -m pip install ./packages/clients/py`.
 
@@ -71,7 +73,7 @@ operations, process connections and stdio, local command execution, and builtins
 Process connections resume reads and replay writes using their original positions.
 `tg py` embeds the client and supports filesystem modules with relative `.tg.py`
 imports; see [the runtime](../../py/README.md). Python function commands, import
-attributes, dependency extraction, and compiler support are separate work.
+attributes and compiler support are separate work.
 
 Run checks and unit tests after building:
 

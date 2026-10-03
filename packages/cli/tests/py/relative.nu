@@ -54,9 +54,10 @@ assert equal ($output.stdout | str trim) 'relative modules completed'
 
 # A non-root entry gets the same relative package context.
 let entry = artifact {
-    'main.tg.py': 'from .helper import value; print(value)'
+    'my-script.v1.tg.py': 'from .helper import value; from .__entry__ import sentinel; assert sentinel == 7; print(value)'
+    '__entry__.tg.py': 'sentinel = 7'
     'helper.tg.py': 'value = 99'
 }
-let output = tg py ($entry | path join main.tg.py) | complete
+let output = tg py ($entry | path join my-script.v1.tg.py) | complete
 success $output
 assert equal ($output.stdout | str trim) '99'

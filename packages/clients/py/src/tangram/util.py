@@ -8,6 +8,8 @@ take the resulting type directly; recursive resolution is performed by
 ``tangram.resolve``, rather than inferred by these aliases.
 """
 
+from __future__ import annotations
+
 from collections.abc import Awaitable, Callable
 
 from .mutation import Mutation
