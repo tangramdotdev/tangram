@@ -216,6 +216,9 @@ impl Server {
 			let container = &config.runner.isolation.container;
 			tracing::info!(
 				cpu = config.scheduler.default_cpu,
+				filesystem_inodes = ?container.max_filesystem_inodes(),
+				filesystem_size = ?container.max_filesystem_size(),
+				gid_map = ?container.gid_map.as_ref().map(|map| (map.host, map.count)),
 				harden = true,
 				max_duration = ?container.max_duration(),
 				max_open_files = ?container.max_open_files(),
@@ -223,6 +226,7 @@ impl Server {
 				memory = config.scheduler.default_memory,
 				memory_swap = ?container.memory_swap(),
 				seccomp = ?container.seccomp(),
+				uid_map = ?container.uid_map.as_ref().map(|map| (map.host, map.count)),
 				"validated the hardened container isolation profile"
 			);
 		}

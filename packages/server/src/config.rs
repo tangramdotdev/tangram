@@ -1092,6 +1092,33 @@ impl ContainerRunnerIsolationIdMap {
 				"the container {kind} map helper path must be absolute"
 			));
 		}
+		// SAFETY: This function has no preconditions.
+		if unsafe { libc::geteuid() } == 0 {
+			return Ok(());
+		}
+		let metadata = std::fs::metadata(&self.helper).map_err(|error| {
+			tg::error!(
+				error = %error,
+				path = %self.helper.display(),
+				"failed to access the container {kind} map helper"
+			)
+		})?;
+		if !metadata.is_file() {
+			return Err(tg::error!(
+				path = %self.helper.display(),
+				"the container {kind} map helper must be a file"
+			));
+		}
+		#[cfg(unix)]
+		{
+			use std::os::unix::fs::PermissionsExt as _;
+			if metadata.permissions().mode() & 0o111 == 0 {
+				return Err(tg::error!(
+					path = %self.helper.display(),
+					"the container {kind} map helper must be executable"
+				));
+			}
+		}
 		Ok(())
 	}
 }

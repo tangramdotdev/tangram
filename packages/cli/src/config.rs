@@ -4904,12 +4904,14 @@ mod tests {
 		let source: Runner = serde_json::from_value(serde_json::json!({
 			"isolation": {
 				"container": {
+					"gid_map": { "host": 200_000 },
 					"harden": true,
 					"max_duration": 123.5,
 					"max_open_files": 2048,
 					"max_pids": 1234,
 					"memory_swap": 0,
-					"seccomp": "default"
+					"seccomp": "default",
+					"uid_map": { "count": 1000, "helper": "/opt/newuidmap", "host": 100_000 }
 				},
 			},
 		}))
@@ -4917,6 +4919,12 @@ mod tests {
 		let target = resolve_runner(source);
 		let container = target.isolation.container;
 
+		assert_eq!(container.gid_map.as_ref().unwrap().count, 65_536);
+		assert_eq!(
+			container.gid_map.as_ref().unwrap().helper,
+			Path::new("/usr/bin/newgidmap")
+		);
+		assert_eq!(container.gid_map.as_ref().unwrap().host, 200_000);
 		assert!(container.harden);
 		assert_eq!(container.max_duration, Some(Duration::from_millis(123_500)));
 		assert_eq!(container.max_open_files, Some(2048));
@@ -4926,6 +4934,12 @@ mod tests {
 			container.seccomp,
 			Some(tangram_sandbox::SeccompPolicy::Default)
 		);
+		assert_eq!(container.uid_map.as_ref().unwrap().count, 1000);
+		assert_eq!(
+			container.uid_map.as_ref().unwrap().helper,
+			Path::new("/opt/newuidmap")
+		);
+		assert_eq!(container.uid_map.as_ref().unwrap().host, 100_000);
 	}
 
 	#[test]
@@ -4940,7 +4954,9 @@ mod tests {
 		let container = target.isolation.container;
 
 		assert!(!container.harden);
+		assert!(container.gid_map.is_none());
 		assert_eq!(container.max_pids, None);
+		assert!(container.uid_map.is_none());
 	}
 
 	#[test]
