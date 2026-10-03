@@ -54,7 +54,7 @@ fn stringify_value(input: &str) -> PyResult<String> {
 }
 
 #[pymodule]
-fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+pub fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
 	module.add_function(wrap_pyfunction!(checksum, module)?)?;
 	module.add_function(wrap_pyfunction!(normalize_object, module)?)?;
 	module.add_function(wrap_pyfunction!(object_id, module)?)?;

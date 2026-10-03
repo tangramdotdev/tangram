@@ -33,6 +33,7 @@ members = [
   "packages/messenger/memory",
   "packages/messenger/nats",
   "packages/pool",
+  "packages/py",
   "packages/quickjs",
   "packages/sandbox",
   "packages/scylla/client",
@@ -187,6 +188,8 @@ ratatui = "0.30"
 reedline = "0.52"
 reflink-copy = "0.1"
 rquickjs = { git = "https://github.com/tangramdotdev/rquickjs", features = ["full-async", "loader", "futures"] }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev = "3265ed1f944c98bb4c04d632fbefb1257cdb583d" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev = "3265ed1f944c98bb4c04d632fbefb1257cdb583d" }
 regex = "1"
 reqwest = { version = "0.13", features = ["form", "json", "stream"] }
 rocksdb = { version = "0.25", default-features = false, features = ["bindgen-runtime", "lz4"] }
@@ -239,6 +242,8 @@ tangram_messenger = { path = "packages/messenger" }
 tangram_messenger_memory = { path = "packages/messenger/memory" }
 tangram_messenger_nats = { path = "packages/messenger/nats" }
 tangram_pool = { path = "packages/pool" }
+tangram_py = { path = "packages/py" }
+tangram_py_native = { path = "packages/clients/py/native" }
 tangram_quickjs = { path = "packages/quickjs" }
 tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }

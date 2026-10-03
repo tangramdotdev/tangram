@@ -43,6 +43,11 @@ if [ -n "${{DYLD_LIBRARY_PATH:-}}" ]; then
 else
 	export DYLD_LIBRARY_PATH='{libraries_path}'
 fi
+if [ -n "${{DYLD_FRAMEWORK_PATH:-}}" ]; then
+    export DYLD_FRAMEWORK_PATH='{libraries_path}':"$DYLD_FRAMEWORK_PATH"
+else
+    export DYLD_FRAMEWORK_PATH='{libraries_path}'
+fi
 if [ -n "${{DYLD_FALLBACK_LIBRARY_PATH:-}}" ]; then
 	export DYLD_FALLBACK_LIBRARY_PATH='{libraries_path}':"$DYLD_FALLBACK_LIBRARY_PATH"
 else

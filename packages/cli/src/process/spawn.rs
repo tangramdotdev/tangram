@@ -730,12 +730,19 @@ impl Cli {
 							let mut referent = referent.clone().map(|_| source);
 							referent.options.id.take();
 							referent.options.name.take();
-							referent.options.path.take();
+							if kind != tg::module::Kind::Py {
+								referent.options.path.take();
+							}
 							referent.options.tag.take();
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
 							let mut args = vec![
-								"js".into(),
+								if kind == tg::module::Kind::Py {
+									"py"
+								} else {
+									"js"
+								}
+								.into(),
 								"--export".into(),
 								export.into(),
 								tg::command::Value::Value(module.into()),
@@ -774,12 +781,19 @@ impl Cli {
 								let mut referent = referent.clone().map(|_| source);
 								referent.options.id.take();
 								referent.options.name.take();
-								referent.options.path.take();
+								if kind != tg::module::Kind::Py {
+									referent.options.path.take();
+								}
 								referent.options.tag.take();
 								let module = tg::Module { kind, referent };
 								let export = reference.export().unwrap_or("default").to_owned();
 								let mut args = vec![
-									"js".into(),
+									if kind == tg::module::Kind::Py {
+										"py"
+									} else {
+										"js"
+									}
+									.into(),
 									"--export".into(),
 									export.into(),
 									tg::command::Value::Value(module.into()),

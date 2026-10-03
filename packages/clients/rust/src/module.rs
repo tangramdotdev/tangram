@@ -13,7 +13,7 @@ pub mod load;
 pub mod resolve;
 
 /// The possible file names for the root module in a package.
-pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.ts"];
+pub const ROOT_MODULE_FILE_NAMES: &[&str] = &["tangram.js", "tangram.py", "tangram.ts"];
 
 /// The file name of a lockfile.
 pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
@@ -70,6 +70,9 @@ pub enum Kind {
 	#[tangram_serialize(id = 10)]
 	Command,
 
+	#[tangram_serialize(id = 12)]
+	Py,
+
 	#[tangram_serialize(id = 11)]
 	Error,
 }
@@ -85,6 +88,8 @@ pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Ki
 		Ok(tg::module::Kind::Js)
 	} else if name == "tangram.ts" || name.ends_with(".tg.ts") {
 		Ok(tg::module::Kind::Ts)
+	} else if name == "tangram.py" || name.ends_with(".tg.py") {
+		Ok(tg::module::Kind::Py)
 	} else {
 		Err(tg::error!(path = %path.display(), "unknown or missing file extension"))
 	}
@@ -100,6 +105,7 @@ pub fn is_module_path(path: &Path) -> bool {
 	};
 	tg::module::ROOT_MODULE_FILE_NAMES.contains(&name)
 		|| name.ends_with(".tg.js")
+		|| name.ends_with(".tg.py")
 		|| name.ends_with(".tg.ts")
 }
 
@@ -123,7 +129,7 @@ pub fn is_non_root_module_path(path: &Path) -> bool {
 		return false;
 	};
 	!tg::module::ROOT_MODULE_FILE_NAMES.contains(&name)
-		&& (name.ends_with(".tg.js") || name.ends_with(".tg.ts"))
+		&& (name.ends_with(".tg.js") || name.ends_with(".tg.py") || name.ends_with(".tg.ts"))
 }
 
 pub async fn try_get_root_module_file_name(

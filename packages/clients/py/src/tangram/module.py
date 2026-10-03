@@ -48,6 +48,7 @@ class Module:
 
     Kind = Literal[
         "js",
+        "py",
         "ts",
         "dts",
         "object",

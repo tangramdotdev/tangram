@@ -27,15 +27,7 @@ pub(crate) fn resolve() -> tg::Result<Vec<Library>> {
 	let sources = platform::resolve()?;
 	let mut libraries = BTreeMap::<OsString, PathBuf>::new();
 	for source in sources {
-		let name = source
-			.file_name()
-			.ok_or_else(|| {
-				tg::error!(
-					path = %source.display(),
-					"failed to get the dynamic library file name"
-				)
-			})?
-			.to_owned();
+		let name = library_name(&source)?;
 		let source = std::fs::canonicalize(&source).map_err(|error| {
 			tg::error!(
 				!error,
@@ -78,6 +70,9 @@ pub(crate) fn stage(target_dir: &Path, libraries: &[Library]) -> tg::Result<()> 
 		if target.exists() {
 			continue;
 		}
+		std::fs::create_dir_all(target.parent().unwrap()).map_err(|error| {
+			tg::error!(!error, "failed to create the runtime library directory")
+		})?;
 		if std::fs::hard_link(&library.source, &target).is_err() {
 			std::fs::copy(&library.source, &target).map_err(|error| {
 				tg::error!(
@@ -98,4 +93,43 @@ pub(crate) fn stage(target_dir: &Path, libraries: &[Library]) -> tg::Result<()> 
 		})?;
 	}
 	Ok(())
+}
+
+fn library_name(source: &Path) -> tg::Result<OsString> {
+	// Preserve framework paths so dyld can resolve staged framework dependencies.
+	#[cfg(target_os = "macos")]
+	if let Some(index) = source.components().position(|component| {
+		component
+			.as_os_str()
+			.to_string_lossy()
+			.ends_with(".framework")
+	}) {
+		let path: PathBuf = source.components().skip(index).collect();
+		return Ok(path.into_os_string());
+	}
+	let name = source
+		.file_name()
+		.ok_or_else(
+			|| tg::error!(path = %source.display(), "failed to get the dynamic library file name"),
+		)?
+		.to_owned();
+	Ok(name)
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn framework_library_names_preserve_the_version_path() {
+		let path = Path::new("/opt/python/Python.framework/Versions/3.14/Python");
+		assert_eq!(
+			library_name(path).unwrap(),
+			"Python.framework/Versions/3.14/Python"
+		);
+		assert_eq!(
+			library_name(Path::new("/opt/lib/libexample.dylib")).unwrap(),
+			"libexample.dylib"
+		);
+	}
 }

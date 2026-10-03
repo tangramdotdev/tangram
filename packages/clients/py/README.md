@@ -69,8 +69,9 @@ and implementation ownership.
 The client covers artifacts, values, graph pointers, authorization, HTTP endpoint
 operations, process connections and stdio, local command execution, and builtins.
 Process connections resume reads and replay writes using their original positions.
-The embedded Python runtime, Python function commands, custom imports, and compiler
-support are separate work.
+`tg py` embeds the client and supports filesystem modules with relative `.tg.py`
+imports; see [the runtime](../../py/README.md). Python function commands, import
+attributes, dependency extraction, and compiler support are separate work.
 
 Run checks and unit tests after building:
 

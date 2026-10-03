@@ -12,6 +12,8 @@ use {
 	tangram_client::prelude::*,
 };
 
+pub mod py;
+
 #[derive(Clone, Debug)]
 pub struct Analysis {
 	pub diagnostics: Vec<tg::diagnostic::Data>,

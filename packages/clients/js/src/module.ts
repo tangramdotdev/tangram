@@ -19,6 +19,7 @@ export class Module {
 export namespace Module {
 	export type Kind =
 		| "js"
+		| "py"
 		| "ts"
 		| "dts"
 		| "object"

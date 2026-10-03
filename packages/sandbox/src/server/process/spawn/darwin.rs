@@ -28,18 +28,19 @@ pub fn prepare_command_for_spawn(
 	if library_paths.is_empty() || !command_resolves_to_path(command, tangram_path) {
 		return Ok(());
 	}
-	let mut paths = library_paths.to_vec();
-	if let Some(existing) = command.env.get("DYLD_LIBRARY_PATH") {
-		paths.extend(std::env::split_paths(existing));
+	for variable in ["DYLD_FRAMEWORK_PATH", "DYLD_LIBRARY_PATH"] {
+		let mut paths = library_paths.to_vec();
+		if let Some(existing) = command.env.get(variable) {
+			paths.extend(std::env::split_paths(existing));
+		}
+		let path = std::env::join_paths(paths).map_err(
+			|error| tg::error!(!error, %variable, "failed to build the runtime library path"),
+		)?;
+		let path = path.to_str().ok_or_else(
+			|| tg::error!(%variable, "failed to encode the runtime library path as valid UTF-8"),
+		)?;
+		command.env.insert(variable.to_owned(), path.to_owned());
 	}
-	let path = std::env::join_paths(paths)
-		.map_err(|error| tg::error!(!error, "failed to build `DYLD_LIBRARY_PATH`"))?;
-	let path = path
-		.to_str()
-		.ok_or_else(|| tg::error!("failed to encode `DYLD_LIBRARY_PATH` as valid UTF-8"))?;
-	command
-		.env
-		.insert("DYLD_LIBRARY_PATH".to_owned(), path.to_owned());
 	Ok(())
 }
 

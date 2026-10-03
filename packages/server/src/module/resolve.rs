@@ -210,7 +210,7 @@ impl Session {
 		// Resolve the dependency edge to a module referent.
 		let referent = match (import.kind, &object) {
 			(
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
+				None | Some(tg::module::Kind::Js | tg::module::Kind::Py | tg::module::Kind::Ts),
 				tg::Object::Directory(directory),
 			) => {
 				let path = tg::module::try_get_root_module_file_name_with_instance(
@@ -274,6 +274,7 @@ impl Session {
 				None
 				| Some(
 					tg::module::Kind::Js
+					| tg::module::Kind::Py
 					| tg::module::Kind::Ts
 					| tg::module::Kind::Dts
 					| tg::module::Kind::File,
@@ -301,7 +302,13 @@ impl Session {
 				}
 			},
 			(
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Dts),
+				None
+				| Some(
+					tg::module::Kind::Js
+					| tg::module::Kind::Py
+					| tg::module::Kind::Ts
+					| tg::module::Kind::Dts,
+				),
 				_,
 			) => {
 				return Err(tg::error!("expected a file"));
@@ -422,7 +429,7 @@ impl Session {
 			if metadata.is_dir()
 				&& matches!(
 					import.kind,
-					None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
+					None | Some(tg::module::Kind::Js | tg::module::Kind::Py | tg::module::Kind::Ts)
 				) && let Some(root_module_name) =
 				tg::module::try_get_root_module_file_name_with_instance(
 					self,
@@ -537,7 +544,7 @@ impl Session {
 		};
 		let referent = match (import.kind, &object) {
 			(
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
+				None | Some(tg::module::Kind::Js | tg::module::Kind::Py | tg::module::Kind::Ts),
 				tg::Object::Directory(directory),
 			) => {
 				let path = tg::module::try_get_root_module_file_name_with_instance(
@@ -601,6 +608,7 @@ impl Session {
 				None
 				| Some(
 					tg::module::Kind::Js
+					| tg::module::Kind::Py
 					| tg::module::Kind::Ts
 					| tg::module::Kind::Dts
 					| tg::module::Kind::File,
@@ -622,7 +630,13 @@ impl Session {
 				options,
 			},
 			(
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Dts),
+				None
+				| Some(
+					tg::module::Kind::Js
+					| tg::module::Kind::Py
+					| tg::module::Kind::Ts
+					| tg::module::Kind::Dts,
+				),
 				_,
 			) => {
 				return Err(tg::error!("expected a file"));

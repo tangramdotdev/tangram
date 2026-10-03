@@ -1,6 +1,5 @@
 [package]
-name = "tangram_py_native"
-
+name = "tangram_py"
 description = { workspace = true }
 edition = { workspace = true }
 homepage = { workspace = true }
@@ -10,10 +9,6 @@ repository = { workspace = true }
 rust-version = { workspace = true }
 version = { workspace = true }
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-doctest = false
-
 [lints]
 workspace = true
 
@@ -22,5 +17,8 @@ pyo3-build-config = { workspace = true }
 
 [dependencies]
 pyo3 = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 tangram_client = { workspace = true }
+tangram_py_native = { workspace = true }
+tokio = { workspace = true }

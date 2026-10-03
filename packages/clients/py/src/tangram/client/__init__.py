@@ -534,7 +534,7 @@ class Client:
         if isinstance(arg, dict):
             resolved_options = _options(arg, options)
         else:
-            input = cast(AsyncIterable[StdioChunk], arg)
+            input = cast("AsyncIterable[StdioChunk]", arg)
         if complete is not None:
             resolved_options["complete"] = complete
         return await try_write_process_stdio(self, id, input, **resolved_options)
@@ -553,7 +553,7 @@ class Client:
         if isinstance(arg, dict):
             resolved_options = _options(arg, options)
         else:
-            input = cast(AsyncIterable[StdioChunk], arg)
+            input = cast("AsyncIterable[StdioChunk]", arg)
         if complete is not None:
             resolved_options["complete"] = complete
         return await write_process_stdio(self, id, input, **resolved_options)

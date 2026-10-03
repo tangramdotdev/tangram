@@ -60,13 +60,16 @@ pub(crate) fn spawn(
 		command.arg("--library-path").arg(path);
 	}
 	if !serve_arg.library_paths.is_empty() {
-		let mut paths = serve_arg.library_paths.clone();
-		if let Some(existing) = std::env::var_os("DYLD_LIBRARY_PATH") {
-			paths.extend(std::env::split_paths(&existing));
+		for variable in ["DYLD_FRAMEWORK_PATH", "DYLD_LIBRARY_PATH"] {
+			let mut paths = serve_arg.library_paths.clone();
+			if let Some(existing) = std::env::var_os(variable) {
+				paths.extend(std::env::split_paths(&existing));
+			}
+			let path = std::env::join_paths(paths).map_err(
+				|error| tg::error!(!error, %variable, "failed to build the runtime library path"),
+			)?;
+			command.env(variable, path);
 		}
-		let path = std::env::join_paths(paths)
-			.map_err(|error| tg::error!(!error, "failed to build `DYLD_LIBRARY_PATH`"))?;
-		command.env("DYLD_LIBRARY_PATH", path);
 	}
 	command
 		.kill_on_drop(true)

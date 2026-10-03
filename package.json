@@ -4,6 +4,7 @@
 		"packages/clients/js",
 		"packages/clients/py",
 		"packages/js",
+		"packages/py",
 		"packages/typescript",
 		"packages/vscode"
 	],

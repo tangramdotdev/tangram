@@ -37,9 +37,9 @@ impl Session {
 				})
 			},
 
-			// Handle a JS or TS module from a path.
+			// Handle a JS, Python, or TS module from a path.
 			tg::module::Data {
-				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
+				kind: tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Py,
 				referent:
 					tg::Referent {
 						node: tg::module::data::Source::Path(path),
@@ -57,9 +57,9 @@ impl Session {
 				})
 			},
 
-			// Handle a JS or TS module from an object.
+			// Handle a JS, Python, or TS module from an object.
 			tg::module::Data {
-				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
+				kind: tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Py,
 				referent:
 					tg::Referent {
 						node: tg::module::data::Source::Edge(edge),
