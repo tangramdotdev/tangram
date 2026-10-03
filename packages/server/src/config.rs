@@ -949,6 +949,8 @@ pub struct Runner {
 
 	pub id: Option<tg::runner::Id>,
 
+	pub isolation: RunnerIsolation,
+
 	pub javascript: JavaScript,
 
 	pub memory: Option<u64>,
@@ -976,6 +978,25 @@ pub struct Runner {
 	pub stdio_drain_timeout: Duration,
 
 	pub token: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RunnerIsolation {
+	pub container: ContainerRunnerIsolation,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ContainerRunnerIsolation {
+	pub harden: bool,
+
+	pub max_pids: Option<u64>,
+}
+
+impl ContainerRunnerIsolation {
+	#[must_use]
+	pub fn max_pids(&self) -> Option<u64> {
+		self.max_pids.or(self.harden.then_some(1024))
+	}
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -1056,9 +1077,7 @@ pub struct SandboxIsolation {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct ContainerSandboxIsolation {
-	pub max_pids: Option<u64>,
-}
+pub struct ContainerSandboxIsolation {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum SandboxIsolationDefault {
@@ -1981,6 +2000,7 @@ impl Default for Runner {
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
+			isolation: RunnerIsolation::default(),
 			javascript: JavaScript::default(),
 			memory: None,
 			process_control_connection_pool_size: 1,
