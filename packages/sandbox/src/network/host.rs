@@ -23,6 +23,15 @@ pub(crate) fn enable_route_localnet(interface: &str) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, %path, "failed to enable route_localnet"))
 }
 
+pub(crate) fn disable_ipv6(interface: &str) -> tg::Result<()> {
+	let path = format!("/proc/sys/net/ipv6/conf/{interface}/disable_ipv6");
+	match std::fs::write(&path, "1\n") {
+		Ok(()) => Ok(()),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+		Err(error) => Err(tg::error!(!error, %path, "failed to disable ipv6")),
+	}
+}
+
 pub(crate) fn setup_tap_networking(backend: crate::Firewall) -> tg::Result<()> {
 	match backend {
 		crate::Firewall::Iptables => iptables::setup_tap_networking(),
@@ -34,10 +43,11 @@ pub(crate) fn setup_bridge_networking(
 	backend: crate::Firewall,
 	bridge: &str,
 	addr: Ipv4Addr,
+	dns: &[Ipv4Addr],
 ) -> tg::Result<()> {
 	match backend {
-		crate::Firewall::Iptables => iptables::setup_bridge_networking(bridge, addr),
-		crate::Firewall::Nft => nft::setup_bridge_networking(bridge, addr),
+		crate::Firewall::Iptables => iptables::setup_bridge_networking(bridge, addr, dns),
+		crate::Firewall::Nft => nft::setup_bridge_networking(bridge, addr, dns),
 	}
 }
 

@@ -4,7 +4,9 @@ const FILTER_TABLE: &[&str] = &[];
 const IPTABLES_WAIT: &str = "-w";
 const NAT_TABLE: &[&str] = &["-t", "nat"];
 const TANGRAM_DNAT_CHAIN: &str = "TANGRAM-DNAT";
+const TANGRAM_BRIDGE_CHAIN: &str = "TANGRAM-BRIDGE";
 const TANGRAM_FORWARD_CHAIN: &str = "TANGRAM-FWD";
+const TANGRAM_INPUT_CHAIN: &str = "TANGRAM-INPUT";
 const TANGRAM_SNAT_CHAIN: &str = "TANGRAM-SNAT";
 const TANGRAM_RULE_COMMENT_PREFIX: &str = "tangram:sandbox_index=";
 
@@ -112,11 +114,19 @@ pub(crate) fn setup_tap_networking() -> tg::Result<()> {
 	Ok(())
 }
 
-pub(crate) fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr) -> tg::Result<()> {
+pub(crate) fn setup_bridge_networking(
+	bridge: &str,
+	addr: Ipv4Addr,
+	dns: &[Ipv4Addr],
+) -> tg::Result<()> {
 	if let Err(error) = cleanup_persistent_rules(Some(bridge)) {
 		tracing::warn!(%error, "failed to clean up persistent sandbox rules");
 	}
 	setup_port_forwarding()?;
+	ensure_iptables_chain(FILTER_TABLE, TANGRAM_BRIDGE_CHAIN)?;
+	ensure_iptables_chain(FILTER_TABLE, TANGRAM_INPUT_CHAIN)?;
+	flush_iptables_chain(FILTER_TABLE, TANGRAM_BRIDGE_CHAIN)?;
+	flush_iptables_chain(FILTER_TABLE, TANGRAM_INPUT_CHAIN)?;
 	let octets = addr.octets();
 	let subnet = Ipv4Addr::new(octets[0], octets[1], 0, 0);
 	let cidr = format!("{subnet}/16");
@@ -133,11 +143,80 @@ pub(crate) fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr) -> tg::Resul
 			"MASQUERADE",
 		],
 	)?;
-	get_or_set_iptables_rule(FILTER_TABLE, &["FORWARD", "-i", bridge, "-j", "ACCEPT"])?;
-	get_or_set_iptables_rule(
+	for rule in bridge_filter_rules(bridge, dns) {
+		let rule = rule.rule.iter().map(String::as_str).collect::<Vec<_>>();
+		append_iptables_rule(FILTER_TABLE, &rule)?;
+	}
+	for rule in bridge_input_rules(bridge, dns) {
+		let rule = rule.rule.iter().map(String::as_str).collect::<Vec<_>>();
+		append_iptables_rule(FILTER_TABLE, &rule)?;
+	}
+	replace_iptables_rule(
 		FILTER_TABLE,
-		&[
-			"FORWARD",
+		&["FORWARD", "-i", bridge, "-j", TANGRAM_BRIDGE_CHAIN],
+	)?;
+	replace_iptables_rule(
+		FILTER_TABLE,
+		&["FORWARD", "-o", bridge, "-j", TANGRAM_BRIDGE_CHAIN],
+	)?;
+	replace_iptables_rule(
+		FILTER_TABLE,
+		&["INPUT", "-i", bridge, "-j", TANGRAM_INPUT_CHAIN],
+	)?;
+	// Published ports must be considered before the bridge chain rejects unsolicited inbound traffic.
+	replace_iptables_rule(FILTER_TABLE, &["FORWARD", "-j", TANGRAM_FORWARD_CHAIN])?;
+	Ok(())
+}
+
+fn bridge_filter_rules(bridge: &str, dns: &[Ipv4Addr]) -> Vec<IptablesRule> {
+	let mut rules = vec![IptablesRule::new(
+		FILTER_TABLE,
+		[
+			TANGRAM_BRIDGE_CHAIN,
+			"-i",
+			bridge,
+			"-m",
+			"conntrack",
+			"--ctstate",
+			"ESTABLISHED,RELATED",
+			"-j",
+			"ACCEPT",
+		],
+	)];
+	for addr in dns {
+		for protocol in ["tcp", "udp"] {
+			rules.push(IptablesRule::with_rule(
+				FILTER_TABLE,
+				vec![
+					TANGRAM_BRIDGE_CHAIN.to_owned(),
+					"-i".to_owned(),
+					bridge.to_owned(),
+					"-d".to_owned(),
+					addr.to_string(),
+					"-p".to_owned(),
+					protocol.to_owned(),
+					"--dport".to_owned(),
+					"53".to_owned(),
+					"-j".to_owned(),
+					"ACCEPT".to_owned(),
+				],
+			));
+		}
+	}
+	for cidr in private_networks() {
+		rules.push(IptablesRule::new(
+			FILTER_TABLE,
+			[TANGRAM_BRIDGE_CHAIN, "-i", bridge, "-d", cidr, "-j", "DROP"],
+		));
+	}
+	rules.push(IptablesRule::new(
+		FILTER_TABLE,
+		[TANGRAM_BRIDGE_CHAIN, "-i", bridge, "-j", "ACCEPT"],
+	));
+	rules.push(IptablesRule::new(
+		FILTER_TABLE,
+		[
+			TANGRAM_BRIDGE_CHAIN,
 			"-o",
 			bridge,
 			"-m",
@@ -147,8 +226,69 @@ pub(crate) fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr) -> tg::Resul
 			"-j",
 			"ACCEPT",
 		],
-	)?;
-	Ok(())
+	));
+	rules.push(IptablesRule::new(
+		FILTER_TABLE,
+		[TANGRAM_BRIDGE_CHAIN, "-o", bridge, "-j", "DROP"],
+	));
+	rules
+}
+
+fn bridge_input_rules(bridge: &str, dns: &[Ipv4Addr]) -> Vec<IptablesRule> {
+	let mut rules = vec![IptablesRule::new(
+		FILTER_TABLE,
+		[
+			TANGRAM_INPUT_CHAIN,
+			"-i",
+			bridge,
+			"-m",
+			"conntrack",
+			"--ctstate",
+			"ESTABLISHED,RELATED",
+			"-j",
+			"ACCEPT",
+		],
+	)];
+	for addr in dns {
+		for protocol in ["tcp", "udp"] {
+			rules.push(IptablesRule::with_rule(
+				FILTER_TABLE,
+				vec![
+					TANGRAM_INPUT_CHAIN.to_owned(),
+					"-i".to_owned(),
+					bridge.to_owned(),
+					"-d".to_owned(),
+					addr.to_string(),
+					"-p".to_owned(),
+					protocol.to_owned(),
+					"--dport".to_owned(),
+					"53".to_owned(),
+					"-j".to_owned(),
+					"ACCEPT".to_owned(),
+				],
+			));
+		}
+	}
+	rules.push(IptablesRule::new(
+		FILTER_TABLE,
+		[TANGRAM_INPUT_CHAIN, "-i", bridge, "-j", "DROP"],
+	));
+	rules
+}
+
+fn private_networks() -> &'static [&'static str] {
+	&[
+		"0.0.0.0/8",
+		"10.0.0.0/8",
+		"100.64.0.0/10",
+		"127.0.0.0/8",
+		"169.254.0.0/16",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+		"198.18.0.0/15",
+		"224.0.0.0/4",
+		"240.0.0.0/4",
+	]
 }
 
 pub(crate) fn setup_port_forwarding() -> tg::Result<()> {
@@ -311,6 +451,27 @@ pub(crate) fn get_or_set_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Res
 		return Err(tg::error!(%stderr, %rule, "failed to install iptables rule"));
 	}
 	Ok(())
+}
+
+fn append_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
+	let mut append = iptables_args(table, "-A");
+	append.extend_from_slice(rule);
+	let output = std::process::Command::new("iptables")
+		.args(&append)
+		.stderr(std::process::Stdio::piped())
+		.output()
+		.map_err(|error| tg::error!(!error, "failed to spawn iptables"))?;
+	if !output.status.success() {
+		let stderr = String::from_utf8_lossy(&output.stderr);
+		let rule = rule.join(" ");
+		return Err(tg::error!(%stderr, %rule, "failed to append an iptables rule"));
+	}
+	Ok(())
+}
+
+fn replace_iptables_rule(table: &[&str], rule: &[&str]) -> tg::Result<()> {
+	delete_iptables_rule(table, rule)?;
+	insert_iptables_rule(table, rule)
 }
 
 pub(crate) fn add_port_forwarding_rules(
@@ -707,5 +868,62 @@ impl Drop for IptablesRuleGuard {
 				tracing::error!(%error, "failed to clean up the sandbox port forwarding rule");
 			},
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn bridge_filter_rules_restrict_private_and_inbound_traffic() {
+		let dns = Ipv4Addr::new(10, 0, 0, 2);
+		let rules = bridge_filter_rules("tangram0", &[dns])
+			.into_iter()
+			.map(|rule| rule.rule.join(" "))
+			.collect::<Vec<_>>();
+
+		assert_eq!(
+			rules[1],
+			"TANGRAM-BRIDGE -i tangram0 -d 10.0.0.2 -p tcp --dport 53 -j ACCEPT"
+		);
+		assert_eq!(
+			rules[2],
+			"TANGRAM-BRIDGE -i tangram0 -d 10.0.0.2 -p udp --dport 53 -j ACCEPT"
+		);
+		assert!(
+			rules
+				.iter()
+				.any(|rule| rule == "TANGRAM-BRIDGE -i tangram0 -d 169.254.0.0/16 -j DROP")
+		);
+		assert!(
+			rules
+				.iter()
+				.any(|rule| rule == "TANGRAM-BRIDGE -i tangram0 -d 172.16.0.0/12 -j DROP")
+		);
+		assert_eq!(
+			rules[rules.len() - 2],
+			"TANGRAM-BRIDGE -o tangram0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT"
+		);
+		assert_eq!(rules[rules.len() - 1], "TANGRAM-BRIDGE -o tangram0 -j DROP");
+	}
+
+	#[test]
+	fn bridge_input_rules_allow_replies_and_configured_dns() {
+		let dns = Ipv4Addr::new(192, 168, 1, 1);
+		let rules = bridge_input_rules("tangram0", &[dns])
+			.into_iter()
+			.map(|rule| rule.rule.join(" "))
+			.collect::<Vec<_>>();
+
+		assert_eq!(
+			rules,
+			[
+				"TANGRAM-INPUT -i tangram0 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT",
+				"TANGRAM-INPUT -i tangram0 -d 192.168.1.1 -p tcp --dport 53 -j ACCEPT",
+				"TANGRAM-INPUT -i tangram0 -d 192.168.1.1 -p udp --dport 53 -j ACCEPT",
+				"TANGRAM-INPUT -i tangram0 -j DROP",
+			]
+		);
 	}
 }

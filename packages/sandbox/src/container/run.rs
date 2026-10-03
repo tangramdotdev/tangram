@@ -165,6 +165,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				let guest_name = format!("tg-vc-{suffix}");
 				let mut nl = crate::netlink::Netlink::new()?;
 				nl.link_rename(&guest_name, "eth0")?;
+				crate::network::host::disable_ipv6("eth0")?;
 				nl.addr_add_v4("eth0", guest_ip, 16)?;
 				nl.link_set_up("eth0")?;
 				nl.link_set_up("lo")?;

@@ -73,7 +73,9 @@ impl Pair {
 		let mut netlink = Netlink::new()?;
 		netlink.link_add_veth_pair(&host_name, &guest_name)?;
 		netlink.link_set_master(&host_name, bridge_name)?;
+		host::disable_ipv6(&host_name)?;
 		netlink.link_set_up(&host_name)?;
+		isolate_bridge_port(&host_name)?;
 
 		let (host_pipe, guest_pipe) = tokio::net::UnixStream::pair()
 			.map_err(|error| tg::error!(!error, "failed to create socket pair"))?;
@@ -126,24 +128,36 @@ impl Pair {
 	}
 }
 
-pub(crate) fn setup(firewall: crate::Firewall) -> tg::Result<()> {
+pub(crate) fn setup(firewall: crate::Firewall, dns: &[Ipv4Addr]) -> tg::Result<()> {
 	static SETUP: std::sync::OnceLock<tg::Result<()>> = std::sync::OnceLock::new();
 	SETUP
-		.get_or_init(|| create_bridge(firewall, BRIDGE_NAME, gateway_ip()))
+		.get_or_init(|| create_bridge(firewall, BRIDGE_NAME, gateway_ip(), dns))
 		.clone()
 }
 
-pub(crate) fn create_bridge(firewall: crate::Firewall, name: &str, ip: Ipv4Addr) -> tg::Result<()> {
+pub(crate) fn create_bridge(
+	firewall: crate::Firewall,
+	name: &str,
+	ip: Ipv4Addr,
+	dns: &[Ipv4Addr],
+) -> tg::Result<()> {
 	let mut netlink = Netlink::new()?;
 	if !netlink.link_exists(name)? {
 		netlink.link_add_bridge(name)?;
 	}
+	host::disable_ipv6(name)?;
 	netlink.addr_replace_v4(name, ip, 16)?;
 	netlink.link_set_up(name)?;
 	host::enable_ipv4_forwarding()?;
 	host::enable_route_localnet(name)?;
-	host::setup_bridge_networking(firewall, name, ip)?;
+	host::setup_bridge_networking(firewall, name, ip, dns)?;
 	Ok(())
+}
+
+fn isolate_bridge_port(interface: &str) -> tg::Result<()> {
+	let path = format!("/sys/class/net/{interface}/brport/isolated");
+	std::fs::write(&path, "1\n")
+		.map_err(|error| tg::error!(!error, %interface, %path, "failed to isolate a bridge port"))
 }
 
 fn gateway_ip() -> Ipv4Addr {
