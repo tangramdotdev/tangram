@@ -66,23 +66,39 @@ impl Drop for Temp {
 	}
 }
 
+pub async fn canonicalize(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
+	let path = path.as_ref().to_owned();
+	let output = tokio::task::spawn_blocking(move || canonicalize_sync(path))
+		.await
+		.map_err(std::io::Error::other)??;
+	Ok(output)
+}
+
+pub fn canonicalize_sync(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
+	let path = path.as_ref();
+	#[cfg(target_os = "linux")]
+	if let Some(output) = try_canonicalize_descriptor_path(path)? {
+		return Ok(output);
+	}
+	std::fs::canonicalize(path)
+}
+
 pub async fn canonicalize_parent(path: impl AsRef<Path>) -> std::io::Result<PathBuf> {
 	let path = std::path::absolute(path)?;
 	let Some(parent) = path.parent() else {
 		return Ok(path);
 	};
 	let last = path.components().next_back().unwrap();
-	let mut path = tokio::fs::canonicalize(parent).await?;
+	if last == std::path::Component::ParentDir {
+		return canonicalize(&path).await;
+	}
+	let mut path = canonicalize(parent).await?;
 	match last {
 		std::path::Component::Prefix(_) | std::path::Component::RootDir => {
 			return Err(std::io::Error::other("invalid last component"));
 		},
 		std::path::Component::CurDir => (),
-		std::path::Component::ParentDir => {
-			if path != Path::new("/") {
-				path = path.parent().unwrap().to_owned();
-			}
-		},
+		std::path::Component::ParentDir => unreachable!(),
 		std::path::Component::Normal(component) => {
 			path.push(component);
 		},
@@ -96,17 +112,16 @@ pub fn canonicalize_parent_sync(path: impl AsRef<Path>) -> std::io::Result<PathB
 		return Ok(path);
 	};
 	let last = path.components().next_back().unwrap();
-	let mut path = std::fs::canonicalize(parent)?;
+	if last == std::path::Component::ParentDir {
+		return canonicalize_sync(&path);
+	}
+	let mut path = canonicalize_sync(parent)?;
 	match last {
 		std::path::Component::Prefix(_) | std::path::Component::RootDir => {
 			return Err(std::io::Error::other("invalid last component"));
 		},
 		std::path::Component::CurDir => (),
-		std::path::Component::ParentDir => {
-			if path != Path::new("/") {
-				path = path.parent().unwrap().to_owned();
-			}
-		},
+		std::path::Component::ParentDir => unreachable!(),
 		std::path::Component::Normal(component) => {
 			path.push(component);
 		},
@@ -227,4 +242,121 @@ pub fn sync_recursive_sync(path: impl AsRef<Path>) -> std::io::Result<()> {
 	}
 
 	inner(path.as_ref())
+}
+
+#[cfg(target_os = "linux")]
+fn try_canonicalize_descriptor_path(path: &Path) -> std::io::Result<Option<PathBuf>> {
+	use {
+		rustix::fs::{AtFlags, Mode, OFlags, StatxFlags},
+		std::os::fd::AsRawFd as _,
+	};
+
+	let Ok(suffix) = path.strip_prefix("/proc/self/fd") else {
+		return Ok(None);
+	};
+	let Some(std::path::Component::Normal(number)) = suffix.components().next() else {
+		return Ok(None);
+	};
+	if number
+		.to_str()
+		.and_then(|number| number.parse::<u32>().ok())
+		.is_none()
+	{
+		return Ok(None);
+	}
+
+	// Preserve the descriptor anchor when the resolved path stays in its mount.
+	// Detached mounts have no host pathname, so realpath would resolve their paths in the wrong filesystem.
+	let root = Path::new("/proc/self/fd").join(number);
+	let root_fd = rustix::fs::open(&root, OFlags::PATH | OFlags::CLOEXEC, Mode::empty())?;
+	let fd = rustix::fs::open(path, OFlags::PATH | OFlags::CLOEXEC, Mode::empty())?;
+	let root_stat = rustix::fs::statx(&root_fd, "", AtFlags::EMPTY_PATH, StatxFlags::MNT_ID)?;
+	let stat = rustix::fs::statx(
+		&fd,
+		"",
+		AtFlags::EMPTY_PATH,
+		StatxFlags::MNT_ID | StatxFlags::INO,
+	)?;
+	if root_stat.stx_mask & StatxFlags::MNT_ID.bits() == 0
+		|| stat.stx_mask & StatxFlags::MNT_ID.bits() == 0
+	{
+		return Err(std::io::Error::other(
+			"the filesystem does not report mount IDs",
+		));
+	}
+	let root_target = std::fs::read_link(format!("/proc/self/fd/{}", root_fd.as_raw_fd()))?;
+	let target = std::fs::read_link(format!("/proc/self/fd/{}", fd.as_raw_fd()))?;
+	if root_stat.stx_mnt_id == stat.stx_mnt_id
+		&& let Ok(suffix) = target.strip_prefix(root_target)
+	{
+		return Ok(Some(root.join(suffix)));
+	}
+
+	// A symlink can leave the anchor, but its target must have a reachable host path.
+	let output = std::fs::canonicalize(target)?;
+	let target_stat = rustix::fs::statx(
+		rustix::fs::CWD,
+		&output,
+		AtFlags::empty(),
+		StatxFlags::MNT_ID | StatxFlags::INO,
+	)?;
+	if target_stat.stx_mnt_id != stat.stx_mnt_id || target_stat.stx_ino != stat.stx_ino {
+		return Err(std::io::Error::other(
+			"the resolved path is outside the descriptor mount and has no matching host path",
+		));
+	}
+
+	Ok(Some(output))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+	use {
+		super::*,
+		std::os::{fd::AsRawFd as _, unix::fs::symlink},
+	};
+
+	#[test]
+	fn canonicalize_descriptor_paths() {
+		let temp = Temp::new().unwrap();
+		std::fs::create_dir_all(temp.path().join("directory")).unwrap();
+		std::fs::write(temp.path().join("directory/file"), b"contents").unwrap();
+		symlink("directory", temp.path().join("link")).unwrap();
+		symlink("missing", temp.path().join("dangling")).unwrap();
+		symlink("loop", temp.path().join("loop")).unwrap();
+		symlink("/dev/null", temp.path().join("outside")).unwrap();
+		let directory = std::fs::File::open(temp.path()).unwrap();
+		let root = PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
+
+		assert_eq!(
+			canonicalize_sync(root.join("link/../directory/file")).unwrap(),
+			root.join("directory/file")
+		);
+		assert_eq!(
+			canonicalize_parent_sync(root.join("link/new")).unwrap(),
+			root.join("directory/new")
+		);
+		assert_eq!(
+			canonicalize_parent_sync(root.join("directory/..")).unwrap(),
+			root
+		);
+		assert_eq!(
+			canonicalize_parent_sync(root.join("dangling")).unwrap(),
+			root.join("dangling")
+		);
+		assert_eq!(
+			canonicalize_sync(root.join("outside")).unwrap(),
+			Path::new("/dev/null")
+		);
+		assert_eq!(
+			canonicalize_sync(root.join("..")).unwrap(),
+			temp.path().parent().unwrap()
+		);
+		assert!(canonicalize_sync(root.join("dangling")).is_err());
+		assert!(canonicalize_sync(root.join("loop")).is_err());
+		assert_eq!(
+			canonicalize_sync(temp.path().join("link/file")).unwrap(),
+			temp.path().join("directory/file")
+		);
+	}
 }

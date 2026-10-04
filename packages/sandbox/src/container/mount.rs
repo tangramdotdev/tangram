@@ -38,7 +38,6 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 			)
 		})?;
 	}
-
 	let mut overlays = arg.overlays.iter().collect::<Vec<_>>();
 	overlays.sort_unstable_by_key(|overlay| path_depth(&overlay.target));
 	if let Some(overlay) = overlays
@@ -59,7 +58,7 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 	let mut devs = arg.devs.iter().collect::<Vec<_>>();
 	devs.sort_unstable_by_key(|path| path_depth(path));
 	for target in devs {
-		mount_dev(&map_path_target(root, target)?)?;
+		mount_dev(&map_path_target(root, target)?, arg.filesystem_mount_fd)?;
 	}
 
 	let mut procs = arg.procs.iter().collect::<Vec<_>>();
@@ -68,7 +67,7 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 		mount_proc(&map_path_target(root, target)?)?;
 	}
 
-	if arg.cgroup.is_some() {
+	if arg.cgroup.is_some() || arg.cgroup_fd.is_some() {
 		mount_cgroup(
 			&map_path_target(root, Path::new("/sys/fs/cgroup"))?,
 			arg.cgroup_readonly,
@@ -477,10 +476,24 @@ fn mount_bind_modern(
 	// SAFETY: The empty path selects the valid source descriptor for the syscall.
 	let mount = unsafe { libc::syscall(libc::SYS_open_tree, source, c"".as_ptr(), flags) };
 	if mount < 0 {
-		return Err(std::io::Error::last_os_error());
+		let error = std::io::Error::last_os_error();
+		return Err(std::io::Error::new(
+			error.kind(),
+			format!("open_tree failed: {error}"),
+		));
 	}
 	// SAFETY: A nonnegative result from open_tree is a newly owned descriptor.
 	let mount = unsafe { OwnedFd::from_raw_fd(mount.try_into().unwrap()) };
+	attach_mount(&mount, target, recursive, attributes)
+}
+
+fn attach_mount(
+	mount: &OwnedFd,
+	target: RawFd,
+	recursive: bool,
+	attributes: MountAttributes,
+) -> std::io::Result<()> {
+	let recursive_flag = if recursive { AT_RECURSIVE } else { 0 };
 	let attributes = mount_attributes(attributes);
 	if attributes != 0 {
 		let attributes = [attributes, 0, 0, 0];
@@ -497,7 +510,11 @@ fn mount_bind_modern(
 			)
 		};
 		if result != 0 {
-			return Err(std::io::Error::last_os_error());
+			let error = std::io::Error::last_os_error();
+			return Err(std::io::Error::new(
+				error.kind(),
+				format!("mount_setattr failed: {error}"),
+			));
 		}
 	}
 	let flags = libc::MOVE_MOUNT_F_EMPTY_PATH | libc::MOVE_MOUNT_T_EMPTY_PATH;
@@ -513,7 +530,11 @@ fn mount_bind_modern(
 		)
 	};
 	if result != 0 {
-		return Err(std::io::Error::last_os_error());
+		let error = std::io::Error::last_os_error();
+		return Err(std::io::Error::new(
+			error.kind(),
+			format!("move_mount failed: {error}"),
+		));
 	}
 	Ok(())
 }
@@ -662,7 +683,7 @@ fn mount_tmpfs(target: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn mount_dev(target: &Path) -> tg::Result<()> {
+fn mount_dev(target: &Path, filesystem: Option<RawFd>) -> tg::Result<()> {
 	let mut devices = Vec::new();
 	for path in [
 		"/dev/null",
@@ -718,18 +739,39 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 	let shm = target.join("shm");
 	std::fs::create_dir_all(&shm)
 		.map_err(|error| tg::error!(!error, "failed to create the shm mountpoint"))?;
-	let shm_source = cstring("tmpfs");
-	let shm_target = cstring(&shm);
-	let shm_fstype = cstring("tmpfs");
-	let shm_data = cstring("mode=1777");
-	mount_raw(
-		Some(&shm_source),
-		&shm_target,
-		Some(&shm_fstype),
-		libc::MS_NODEV | libc::MS_NOSUID,
-		shm_data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
-	)
-	.map_err(|error| tg::error!(!error, "failed to create the shm mount"))?;
+	if let Some(filesystem) = filesystem {
+		let source = PathBuf::from(format!("/proc/self/fd/{filesystem}/shm"));
+		let source = open_bind_source(&source, Some(filesystem))
+			.map_err(|error| tg::error!(!error, "failed to open the shared memory directory"))?;
+		let target = open_absolute_path(&shm)
+			.map_err(|error| tg::error!(!error, "failed to open the shared memory mountpoint"))?;
+		let attributes = MountAttributes {
+			nodev: true,
+			nosuid: true,
+			readonly: false,
+		};
+		mount_bind_modern(source.as_raw_fd(), target.as_raw_fd(), false, attributes).map_err(
+			|error| {
+				tg::error!(
+					!error,
+					"failed to mount the bounded shared memory directory"
+				)
+			},
+		)?;
+	} else {
+		let shm_source = cstring("tmpfs");
+		let shm_target = cstring(&shm);
+		let shm_fstype = cstring("tmpfs");
+		let shm_data = cstring("mode=1777");
+		mount_raw(
+			Some(&shm_source),
+			&shm_target,
+			Some(&shm_fstype),
+			libc::MS_NODEV | libc::MS_NOSUID,
+			shm_data.as_ptr().cast::<std::ffi::c_void>().cast_mut(),
+		)
+		.map_err(|error| tg::error!(!error, "failed to create the shm mount"))?;
+	}
 
 	for (path, file) in &devices {
 		let source = PathBuf::from(format!("/proc/self/fd/{}", file.as_raw_fd()));

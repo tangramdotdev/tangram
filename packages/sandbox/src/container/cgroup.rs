@@ -21,6 +21,10 @@ pub struct Cgroup {
 	removed: bool,
 }
 
+pub struct Handle {
+	directory: OwnedFd,
+}
+
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Options {
 	pub cpu: Option<u64>,
@@ -164,24 +168,15 @@ impl Cgroup {
 		Ok(cgroup)
 	}
 
-	pub fn open_fd(&self) -> tg::Result<OwnedFd> {
-		self.directory.try_clone().map_err(|error| {
+	pub fn handle(&self) -> tg::Result<Handle> {
+		let directory = self.directory.try_clone().map_err(|error| {
 			tg::error!(
 				!error,
 				path = %self.path.display(),
 				"failed to clone the cgroup directory descriptor",
 			)
-		})
-	}
-
-	pub fn move_self(&self) -> tg::Result<()> {
-		write_file_at(&self.directory, c"cgroup.procs", b"0\n").map_err(|error| {
-			tg::error!(
-				!error,
-				path = %self.path.display(),
-				"failed to move the process into the cgroup"
-			)
-		})
+		})?;
+		Ok(Handle { directory })
 	}
 
 	pub fn cleanup(mut self) -> tg::Result<()> {
@@ -230,6 +225,26 @@ impl Cgroup {
 			}
 			std::thread::sleep(CLEANUP_WAIT_INTERVAL);
 		}
+	}
+}
+
+impl Handle {
+	/// Takes ownership of a cgroup directory descriptor inherited from the parent.
+	pub unsafe fn from_raw_fd(fd: libc::c_int) -> Self {
+		// SAFETY: The caller guarantees ownership of the inherited descriptor.
+		let directory = unsafe { OwnedFd::from_raw_fd(fd) };
+		Self { directory }
+	}
+
+	pub fn open_fd(&self) -> tg::Result<OwnedFd> {
+		self.directory
+			.try_clone()
+			.map_err(|error| tg::error!(!error, "failed to clone the cgroup directory descriptor"))
+	}
+
+	pub fn move_self(&self) -> tg::Result<()> {
+		write_file_at(&self.directory, c"cgroup.procs", b"0\n")
+			.map_err(|error| tg::error!(!error, "failed to move the process into the cgroup"))
 	}
 }
 

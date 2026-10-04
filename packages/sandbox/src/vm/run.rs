@@ -1093,6 +1093,8 @@ fn build_cloud_hypervisor_mount_arg(
 		binds,
 		cgroup: None,
 		cgroup_cpu: None,
+		cgroup_entered: false,
+		cgroup_fd: None,
 		cgroup_memory: None,
 		cgroup_memory_oom_group: false,
 		cgroup_memory_swap: None,

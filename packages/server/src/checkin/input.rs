@@ -415,7 +415,7 @@ impl Session {
 						variant: ParentVariant::FileDependency(reference.clone()),
 					};
 					let referent = path.parent().unwrap().join(reference_path);
-					let referent = referent.canonicalize().map_err(
+					let referent = tangram_util::fs::canonicalize_sync(&referent).map_err(
 						|error| tg::error!(!error, path = %referent.display(), "failed to canonicalize the path"),
 					)?;
 					stack.push(Item {
@@ -513,7 +513,7 @@ impl Session {
 							|error| tg::error!(!error, path = %referent.display(), "failed to canonicalize the path"),
 						)
 					} else {
-						referent.canonicalize().map_err(
+						tangram_util::fs::canonicalize_sync(&referent).map_err(
 							|error| tg::error!(!error, path = %referent.display(), "failed to canonicalize the path"),
 						)
 					};

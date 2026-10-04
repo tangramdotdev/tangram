@@ -34,6 +34,7 @@ enum UserQuery {
 }
 
 pub(crate) struct Output {
+	pub cgroup: Option<super::cgroup::Cgroup>,
 	pub filesystem: Option<super::filesystem::Filesystem>,
 	pub process: tokio::process::Child,
 }
@@ -76,8 +77,13 @@ pub(crate) async fn spawn(
 		},
 		_ => None,
 	};
-	let filesystem_limited =
-		isolation.max_filesystem_inodes.is_some() || isolation.max_filesystem_size.is_some();
+	let filesystem_inodes = isolation
+		.max_filesystem_inodes
+		.or(isolation.uid_map.is_some().then_some(262_144));
+	let filesystem_size = isolation
+		.max_filesystem_size
+		.or(isolation.uid_map.is_some().then_some(1_073_741_824));
+	let filesystem_limited = filesystem_inodes.is_some() || filesystem_size.is_some();
 	let filesystem_path = if filesystem_limited {
 		Sandbox::host_filesystem_path_from_root(&arg.path)
 	} else {
@@ -91,6 +97,31 @@ pub(crate) async fn spawn(
 	)?;
 	let user = prepare_etc_files(&arg.path, network.as_deref(), &arg.dns)?;
 	let user_namespace = prepare_user_namespace(isolation, &user)?;
+	let cgroup_name = arg
+		.path
+		.file_name()
+		.and_then(|name| name.to_str())
+		.unwrap_or("sandbox");
+	let cgroup = if user_namespace.is_some() {
+		let options = super::cgroup::Options {
+			cpu: arg.cpu,
+			memory: arg.memory,
+			memory_oom_group: true,
+			memory_swap: isolation.memory_swap,
+			pids: isolation.max_pids,
+		};
+		Some(super::cgroup::Cgroup::new(cgroup_name, options)?)
+	} else {
+		None
+	};
+	let cgroup_handle = cgroup
+		.as_ref()
+		.map(super::cgroup::Cgroup::handle)
+		.transpose()?;
+	let cgroup_fd = cgroup_handle
+		.as_ref()
+		.map(super::cgroup::Handle::open_fd)
+		.transpose()?;
 	let (filesystem_sendfd, filesystem_recvfd) = if filesystem_limited {
 		let (sendfd, recvfd) = rustix::net::socketpair(
 			rustix::net::AddressFamily::UNIX,
@@ -108,6 +139,7 @@ pub(crate) async fn spawn(
 		serve: serve_arg.clone(),
 	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
+	command.env("TMPDIR", "/tmp");
 	command.arg("sandbox").arg("container").arg("run");
 	command
 		.arg("--index")
@@ -144,13 +176,16 @@ pub(crate) async fn spawn(
 			.arg(filesystem_sendfd.as_raw_fd().to_string())
 			.arg("--filesystem-path")
 			.arg(&filesystem_path);
-		if let Some(inodes) = isolation.max_filesystem_inodes {
+		if let Some(inodes) = filesystem_inodes {
 			command.arg("--filesystem-inodes").arg(inodes.to_string());
 		}
-		if let Some(size) = isolation.max_filesystem_size {
+		if let Some(size) = filesystem_size {
 			command.arg("--filesystem-size").arg(size.to_string());
 		}
 		inherit_fd(&mut command, filesystem_sendfd.as_raw_fd());
+	}
+	if let Some(cgroup_fd) = &cgroup_fd {
+		enter_cgroup_before_exec(&mut command, cgroup_fd.as_raw_fd());
 	}
 	if let Some((_, guest, _, _)) = &user_namespace {
 		command
@@ -194,10 +229,14 @@ pub(crate) async fn spawn(
 	if let Some(hostname) = &arg.hostname {
 		command.arg("--hostname").arg(hostname);
 	}
-	if let Some(cpu) = arg.cpu {
+	if cgroup.is_none()
+		&& let Some(cpu) = arg.cpu
+	{
 		command.arg("--cgroup-cpu").arg(cpu.to_string());
 	}
-	if let Some(memory) = arg.memory {
+	if cgroup.is_none()
+		&& let Some(memory) = arg.memory
+	{
 		command.arg("--cgroup-memory").arg(memory.to_string());
 	}
 	command
@@ -254,15 +293,19 @@ pub(crate) async fn spawn(
 			.arg(&mount.source)
 			.arg(&mount.target);
 	}
-	let cgroup_name = arg
-		.path
-		.file_name()
-		.and_then(|name| name.to_str())
-		.unwrap_or("sandbox");
-	command
-		.arg("--cgroup")
-		.arg(cgroup_name)
-		.arg("--cgroup-memory-oom-group");
+	if let Some(cgroup_fd) = &cgroup_fd {
+		command
+			.arg("--cgroup-entered")
+			.arg("--cgroup-fd")
+			.arg(cgroup_fd.as_raw_fd().to_string());
+		inherit_fd(&mut command, cgroup_fd.as_raw_fd());
+	}
+	if cgroup.is_none() {
+		command
+			.arg("--cgroup")
+			.arg(cgroup_name)
+			.arg("--cgroup-memory-oom-group");
+	}
 	if isolation.cgroup_readonly {
 		command.arg("--cgroup-readonly");
 	}
@@ -271,10 +314,14 @@ pub(crate) async fn spawn(
 			.arg("--rlimit-nofile")
 			.arg(max_open_files.to_string());
 	}
-	if let Some(max_pids) = isolation.max_pids {
+	if cgroup.is_none()
+		&& let Some(max_pids) = isolation.max_pids
+	{
 		command.arg("--cgroup-pids").arg(max_pids.to_string());
 	}
-	if let Some(memory_swap) = isolation.memory_swap {
+	if cgroup.is_none()
+		&& let Some(memory_swap) = isolation.memory_swap
+	{
 		command
 			.arg("--cgroup-memory-swap")
 			.arg(memory_swap.to_string());
@@ -306,30 +353,18 @@ pub(crate) async fn spawn(
 		.stdin(std::process::Stdio::piped())
 		.stdout(std::process::Stdio::piped())
 		.stderr(std::process::Stdio::inherit());
-	let child = command
-		.spawn()
-		.map_err(|error| tg::error!(!error, "failed to spawn sandbox container"))?;
-	if let Some((host, guest, uid_map, gid_map)) = user_namespace {
+	let user_namespace = user_namespace.map(|(host, guest, uid_map, gid_map)| {
+		let task = std::thread::spawn(move || configure_user_namespace(host, &uid_map, &gid_map));
+		(guest, task)
+	});
+	let child = command.spawn();
+	if let Some((guest, task)) = user_namespace {
 		drop(guest);
-		let pid = child
-			.id()
-			.ok_or_else(|| tg::error!("no child pid available"))?;
-		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
-		tokio::task::spawn_blocking(move || {
-			configure_user_namespace(pid, host, &uid_map, &gid_map)
-		})
-		.await
-		.map_err(|error| tg::error!(!error, "the user namespace mapping task panicked"))??;
+		task.join()
+			.map_err(|_| tg::error!("the user namespace mapping thread panicked"))??;
 	}
+	let child = child.map_err(|error| tg::error!(!error, "failed to spawn sandbox container"))?;
 	drop(filesystem_sendfd);
-	let filesystem = match filesystem_recvfd {
-		Some(fd) => Some(
-			tokio::task::spawn_blocking(move || super::filesystem::receive(&fd))
-				.await
-				.map_err(|error| tg::error!(!error, "the filesystem task panicked"))??,
-		),
-		None => None,
-	};
 	if let Some(crate::network::Network::Pasta(network)) = network {
 		network.take_guest_pipe();
 		let pid = child
@@ -346,7 +381,17 @@ pub(crate) async fn spawn(
 		let pid = i32::try_from(pid).map_err(|error| tg::error!(!error, "invalid child pid"))?;
 		veth.connect(pid).await?;
 	}
+	// The child prepares its filesystem only after the network handshake completes.
+	let filesystem = match filesystem_recvfd {
+		Some(fd) => Some(
+			tokio::task::spawn_blocking(move || super::filesystem::receive(&fd))
+				.await
+				.map_err(|error| tg::error!(!error, "the filesystem task panicked"))??,
+		),
+		None => None,
+	};
 	let output = Output {
+		cgroup,
 		filesystem,
 		process: child,
 	};
@@ -401,6 +446,7 @@ fn prepare_sandbox_directory(
 				Sandbox::host_scratch_path_from_root(filesystem_path),
 				Sandbox::host_upper_path_from_root(filesystem_path),
 				Sandbox::host_work_path_from_root(filesystem_path),
+				tangram_path,
 			] {
 				let permissions =
 					<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o777);
@@ -465,23 +511,50 @@ fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
 	}
 }
 
+fn enter_cgroup_before_exec(command: &mut tokio::process::Command, cgroup: libc::c_int) {
+	// SAFETY: The pre_exec closure only invokes async-signal-safe system calls.
+	unsafe {
+		command.pre_exec(move || {
+			let fd = libc::openat(
+				cgroup,
+				c"cgroup.procs".as_ptr(),
+				libc::O_WRONLY | libc::O_CLOEXEC,
+			);
+			if fd < 0 {
+				return Err(std::io::Error::last_os_error());
+			}
+			let bytes = b"0\n";
+			let result = libc::write(fd, bytes.as_ptr().cast(), bytes.len());
+			let error = std::io::Error::last_os_error();
+			libc::close(fd);
+			if result != isize::try_from(bytes.len()).unwrap() {
+				return Err(error);
+			}
+			Ok(())
+		});
+	}
+}
+
 fn configure_user_namespace(
-	pid: libc::pid_t,
 	mut socket: UnixStream,
 	uid_map: &crate::IdMap,
 	gid_map: &crate::IdMap,
 ) -> tg::Result<()> {
-	let mut buffer = [0];
+	let mut buffer = [0; std::mem::size_of::<libc::pid_t>()];
 	socket
 		.read_exact(&mut buffer)
 		.map_err(|error| tg::error!(!error, "failed to wait for the user namespace"))?;
+	let pid = libc::pid_t::from_ne_bytes(buffer);
 	// SAFETY: This function has no preconditions.
-	if unsafe { libc::geteuid() } == 0 {
-		write_id_map(pid, "uid_map", uid_map)?;
-		write_id_map(pid, "gid_map", gid_map)?;
+	let setup_uid = unsafe { libc::geteuid() };
+	// SAFETY: This function has no preconditions.
+	let setup_gid = unsafe { libc::getegid() };
+	if setup_uid == 0 {
+		write_id_map(pid, "uid_map", uid_map, setup_uid)?;
+		write_id_map(pid, "gid_map", gid_map, setup_gid)?;
 	} else {
-		run_id_map_helper(pid, uid_map, "uid")?;
-		run_id_map_helper(pid, gid_map, "gid")?;
+		run_id_map_helper(pid, uid_map, setup_uid, "uid")?;
+		run_id_map_helper(pid, gid_map, setup_gid, "gid")?;
 	}
 	socket
 		.write_all(&[0])
@@ -489,21 +562,29 @@ fn configure_user_namespace(
 	Ok(())
 }
 
-fn write_id_map(pid: libc::pid_t, name: &str, map: &crate::IdMap) -> tg::Result<()> {
+fn write_id_map(pid: libc::pid_t, name: &str, map: &crate::IdMap, setup: u32) -> tg::Result<()> {
 	let path = PathBuf::from(format!("/proc/{pid}/{name}"));
-	let contents = format!("0 {} {}\n", map.host, map.count);
+	let contents = format!("0 {} {}\n{} {} 1\n", map.host, map.count, map.count, setup);
 	std::fs::write(&path, contents).map_err(
 		|error| tg::error!(!error, path = %path.display(), "failed to write the user namespace map"),
 	)?;
 	Ok(())
 }
 
-fn run_id_map_helper(pid: libc::pid_t, map: &crate::IdMap, kind: &str) -> tg::Result<()> {
+fn run_id_map_helper(
+	pid: libc::pid_t,
+	map: &crate::IdMap,
+	setup: u32,
+	kind: &str,
+) -> tg::Result<()> {
 	let output = std::process::Command::new(&map.helper)
 		.arg(pid.to_string())
 		.arg("0")
 		.arg(map.host.to_string())
 		.arg(map.count.to_string())
+		.arg(map.count.to_string())
+		.arg(setup.to_string())
+		.arg("1")
 		.output()
 		.map_err(|error| {
 			tg::error!(

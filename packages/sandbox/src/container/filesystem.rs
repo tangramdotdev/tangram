@@ -9,9 +9,12 @@ use {
 	},
 	std::{
 		ffi::{CStr, CString},
-		io::{IoSlice, IoSliceMut},
+		io::{IoSlice, IoSliceMut, Read as _},
 		mem::MaybeUninit,
-		os::fd::{AsRawFd as _, FromRawFd as _},
+		os::{
+			fd::{AsRawFd as _, FromRawFd as _},
+			unix::net::UnixStream,
+		},
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
@@ -21,12 +24,13 @@ const FSCONFIG_CMD_CREATE: libc::c_uint = 6;
 const FSCONFIG_SET_STRING: libc::c_uint = 1;
 const FSMOUNT_CLOEXEC: libc::c_uint = 1;
 const FSOPEN_CLOEXEC: libc::c_uint = 1;
+const MOUNT_ATTR_IDMAP: u64 = 0x0010_0000;
 
 /// A detached tmpfs shared by the runner and its sandbox launcher.
 ///
 /// Keeping the filesystem detached avoids modifying the host mount namespace. The mount remains
 /// alive only while either process holds its descriptor, so an abrupt runner exit cannot leak it.
-/// Overlay upper/work, the output directory, and /tmp all reside on this filesystem and share its
+/// Overlay upper/work, the output directory, /dev/shm, and /tmp all reside on this filesystem and share its
 /// byte and inode limits.
 pub struct Filesystem {
 	fd: OwnedFd,
@@ -75,48 +79,151 @@ pub fn create(size: Option<u64>, inodes: Option<u64>) -> tg::Result<OwnedFd> {
 	Ok(mount)
 }
 
-pub fn prepare(fd: &OwnedFd) -> tg::Result<()> {
+/// Create a mapping from the workload IDs to the runner's host identity.
+pub fn host_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<OwnedFd> {
+	// The setup identity remains mapped to the runner in the parent user namespace.
+	// SAFETY: These functions have no preconditions.
+	let setup_uid = unsafe { libc::geteuid() };
+	let setup_gid = unsafe { libc::getegid() };
+	let (mut host, guest) = UnixStream::pair()
+		.map_err(|error| tg::error!(!error, "failed to create the host mapping socket pair"))?;
+	// SAFETY: The child only invokes async-signal-safe operations before exiting.
+	let pid = unsafe { libc::fork() };
+	if pid < 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			"failed to fork the host mapping process"
+		));
+	}
+	if pid == 0 {
+		// SAFETY: The sockets are live, the buffer is valid, and the child exits without running destructors.
+		unsafe {
+			libc::close(host.as_raw_fd());
+			let mut status = libc::unshare(libc::CLONE_NEWUSER);
+			if status < 0 {
+				status = std::io::Error::last_os_error()
+					.raw_os_error()
+					.unwrap_or(libc::EIO);
+			}
+			if libc::write(
+				guest.as_raw_fd(),
+				(&raw const status).cast(),
+				std::mem::size_of_val(&status),
+			) != std::mem::size_of_val(&status).cast_signed()
+			{
+				libc::_exit(1);
+			}
+			let mut byte = 0u8;
+			loop {
+				if libc::read(guest.as_raw_fd(), (&raw mut byte).cast(), 1) >= 0 {
+					break;
+				}
+				if std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+					break;
+				}
+			}
+			libc::_exit(0);
+		}
+	}
+	drop(guest);
+	let result = (|| {
+		let mut status = [0; std::mem::size_of::<libc::c_int>()];
+		host.read_exact(&mut status)
+			.map_err(|error| tg::error!(!error, "failed to wait for the host mapping namespace"))?;
+		let status = libc::c_int::from_ne_bytes(status);
+		if status != 0 {
+			return Err(tg::error!(
+				source = std::io::Error::from_raw_os_error(status),
+				"failed to create the host mapping namespace"
+			));
+		}
+		std::fs::write(
+			format!("/proc/{pid}/uid_map"),
+			format!("{uid} {setup_uid} 1\n"),
+		)
+		.map_err(|error| tg::error!(!error, "failed to write the host uid mapping"))?;
+		std::fs::write(
+			format!("/proc/{pid}/gid_map"),
+			format!("{gid} {setup_gid} 1\n"),
+		)
+		.map_err(|error| tg::error!(!error, "failed to write the host gid mapping"))?;
+		let namespace = std::fs::File::open(format!("/proc/{pid}/ns/user"))
+			.map_err(|error| tg::error!(!error, "failed to open the host mapping namespace"))?;
+		Ok(namespace.into())
+	})();
+
+	// Release and reap the helper even if configuring its mapping failed.
+	drop(host);
+	loop {
+		// SAFETY: The PID identifies our child and no wait status is requested.
+		if unsafe { libc::waitpid(pid, std::ptr::null_mut(), 0) } >= 0 {
+			break;
+		}
+		let error = std::io::Error::last_os_error();
+		if error.raw_os_error() != Some(libc::EINTR) {
+			return Err(tg::error!(
+				!error,
+				"failed to reap the host mapping process"
+			));
+		}
+	}
+
+	result
+}
+
+/// Return a detached host view without changing ownership in the workload's mount.
+pub fn host_mount(filesystem: &OwnedFd, namespace: &OwnedFd) -> tg::Result<OwnedFd> {
+	let flags = libc::OPEN_TREE_CLONE | libc::OPEN_TREE_CLOEXEC | libc::AT_EMPTY_PATH as u32;
+	let mount = syscall_fd(
+		libc::SYS_open_tree,
+		&[
+			raw_fd_arg(filesystem),
+			c"".as_ptr() as usize,
+			flags as usize,
+		],
+	)
+	.map_err(|error| tg::error!(!error, "failed to clone the sandbox filesystem mount"))?;
+	let attributes = [
+		MOUNT_ATTR_IDMAP,
+		0,
+		0,
+		u64::try_from(namespace.as_raw_fd()).unwrap(),
+	];
+	syscall(libc::SYS_mount_setattr, &[
+		raw_fd_arg(&mount), c"".as_ptr() as usize, libc::AT_EMPTY_PATH as usize,
+		attributes.as_ptr() as usize, std::mem::size_of_val(&attributes),
+	]).map_err(|error| tg::error!(!error, "failed to map the sandbox filesystem for the host; subordinate identities require ID-mapped tmpfs support (Linux 6.3 or newer)"))?;
+
+	Ok(mount)
+}
+
+pub fn prepare(fd: &OwnedFd, uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
 	let root = path(fd);
-	for name in ["output", "scratch", "tmp", "upper", "work"] {
+	// Keep every parent directory owned by the workload so the host mapping can also create and remove entries.
+	for (name, mode) in [
+		("", 0o755),
+		("output", 0o755),
+		("scratch", 0o755),
+		("shm", 0o1777),
+		("tmp", 0o1777),
+		("upper", 0o755),
+		("upper/opt", 0o755),
+		("upper/opt/tangram", 0o755),
+		("work", 0o755),
+	] {
 		let path = root.join(name);
-		std::fs::create_dir(&path).map_err(|error| {
-			tg::error!(
-				!error,
-				path = %path.display(),
-				"failed to create a sandbox filesystem directory"
-			)
+		std::fs::create_dir_all(&path).map_err(|error| {
+			tg::error!(!error, path = %path.display(), "failed to create a sandbox filesystem directory")
 		})?;
-	}
-	for name in ["output", "scratch", "upper", "work"] {
-		let path = root.join(name);
+		std::os::unix::fs::chown(&path, Some(uid), Some(gid)).map_err(|error| {
+			tg::error!(!error, path = %path.display(), "failed to set the sandbox filesystem directory owner")
+		})?;
 		let permissions =
-			<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o777);
+			<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(mode);
 		std::fs::set_permissions(&path, permissions).map_err(|error| {
-			tg::error!(
-				!error,
-				path = %path.display(),
-				"failed to set sandbox filesystem directory permissions"
-			)
+			tg::error!(!error, path = %path.display(), "failed to set the sandbox filesystem directory permissions")
 		})?;
 	}
-	let tmp = root.join("tmp");
-	let permissions =
-		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
-	std::fs::set_permissions(&tmp, permissions).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %tmp.display(),
-			"failed to set the sandbox tmp directory permissions"
-		)
-	})?;
-	let tangram = root.join("upper/opt/tangram");
-	std::fs::create_dir_all(&tangram).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %tangram.display(),
-			"failed to create the sandbox tangram directory"
-		)
-	})?;
 
 	Ok(())
 }
