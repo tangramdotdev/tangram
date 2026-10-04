@@ -1,7 +1,25 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
 impl Compiler {
-	pub fn format(text: &str) -> tg::Result<String> {
+	pub fn format(text: &str, kind: tg::module::Kind) -> tg::Result<String> {
+		match kind {
+			tg::module::Kind::Artifact
+			| tg::module::Kind::Blob
+			| tg::module::Kind::Command
+			| tg::module::Kind::Directory
+			| tg::module::Kind::Error
+			| tg::module::Kind::File
+			| tg::module::Kind::Graph
+			| tg::module::Kind::Object
+			| tg::module::Kind::Symlink => Err(tg::error!(%kind, "cannot format the module")),
+			tg::module::Kind::Dts | tg::module::Kind::Js | tg::module::Kind::Ts => {
+				Self::format_js(text)
+			},
+			tg::module::Kind::Py => Self::format_py(text),
+		}
+	}
+
+	fn format_js(text: &str) -> tg::Result<String> {
 		let allocator = oxc::allocator::Allocator::default();
 		let source_type = oxc::span::SourceType::ts();
 		let options = oxc_formatter::JsFormatOptions {
@@ -13,6 +31,15 @@ impl Compiler {
 			.map_err(|error| tg::error!(!error, "failed to format the module"))?
 			.print()
 			.map_err(|error| tg::error!(source = error, "failed to print the formatted module"))?
+			.into_code();
+		Ok(formatted)
+	}
+
+	fn format_py(text: &str) -> tg::Result<String> {
+		let options = ruff_python_formatter::PyFormatOptions::default()
+			.with_target_version(ruff_python_ast::PythonVersion::PY314);
+		let formatted = ruff_python_formatter::format_module_source(text, options)
+			.map_err(|error| tg::error!(!error, "failed to format the module"))?
 			.into_code();
 		Ok(formatted)
 	}
@@ -35,7 +62,7 @@ impl Compiler {
 			.ok_or_else(|| tg::error!("failed to create range"))?;
 
 		// Format the text.
-		let formatted_text = Self::format(&text)?;
+		let formatted_text = Self::format(&text, module.kind)?;
 
 		// Create the edit.
 		let edit = lsp::TextEdit {

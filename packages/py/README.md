@@ -65,6 +65,10 @@ outcome and empty `user.tangram.outcome` xattr as `tg js`. Ordinary stdout is re
 Exceptions produce exit status 1 and structured Tangram errors with source locations;
 `SystemExit` retains Python's process exit semantics.
 
+`tg format` formats `tangram.py` and `.tg.py` modules using Ruff, with four-space
+indentation and an 88-column line width. It accepts a file or directory and respects
+`.tangramignore`. The LSP document-formatting request uses the same formatter.
+
 Relative imports require a package context and use Python syntax:
 
 ```python

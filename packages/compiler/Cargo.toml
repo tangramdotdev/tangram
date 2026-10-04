@@ -44,6 +44,7 @@ oxc_formatter = { workspace = true }
 oxc_formatter_core = { workspace = true }
 pep440_rs = { workspace = true }
 ruff_python_ast = { workspace = true }
+ruff_python_formatter = { workspace = true }
 ruff_python_parser = { workspace = true }
 scopeguard = { workspace = true }
 serde = { workspace = true }
