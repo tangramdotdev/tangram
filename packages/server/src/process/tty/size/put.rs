@@ -18,7 +18,7 @@ impl Session {
 				id,
 				arg.location.as_ref(),
 				&arg.tokens,
-				tg::authorization::permission::process::Set::NODE,
+				tg::authorization::permission::process::Set::PARENT,
 			)
 			.await?
 		{
@@ -88,6 +88,17 @@ impl Session {
 			.as_ref()
 			.is_some_and(tg::Location::is_remote)
 		{
+			return Ok(None);
+		}
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		);
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
+		let authorized = self
+			.authorize(resource, permission)
+			.await?
+			.check_exhaustion()?;
+		if !authorized.permissions.contains(permission) {
 			return Ok(None);
 		}
 
