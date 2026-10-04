@@ -106,10 +106,11 @@ impl<'js> qjs::IntoJs<'js> for Uint8Array {
 impl<'js> qjs::FromJs<'js> for Uint8Array {
 	fn from_js(ctx: &qjs::Ctx<'js>, value: qjs::Value<'js>) -> qjs::Result<Self> {
 		let typed_array = qjs::TypedArray::<u8>::from_js(ctx, value.clone())?;
-		let slice = typed_array
-			.as_bytes()
-			.ok_or_else(|| qjs::Error::new_from_js("Uint8Array", "bytes"))?;
-		let bytes = slice.to_vec().into();
+		// SAFETY: The bytes are copied without running JavaScript while the slice is alive.
+		let bytes = unsafe { typed_array.as_bytes() }
+			.ok_or_else(|| qjs::Error::new_from_js("Uint8Array", "bytes"))?
+			.to_vec()
+			.into();
 		Ok(Self(bytes))
 	}
 }

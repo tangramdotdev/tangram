@@ -84,7 +84,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_> {
 				}
 			}
 			self.deserialize_f64(visitor)
-		} else if is_string(&self.value) {
+		} else if self.value.is_string() {
 			self.deserialize_string(visitor)
 		} else if self.value.type_of() == qjs::Type::Undefined || self.value.is_null() {
 			self.deserialize_unit(visitor)
@@ -241,10 +241,11 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_> {
 	{
 		let typed_array: qjs::TypedArray<u8> = qjs::TypedArray::from_value(self.value)
 			.map_err(|_| Error::custom("expected a Uint8Array"))?;
-		let bytes = typed_array
-			.as_bytes()
-			.ok_or_else(|| Error::custom("failed to get bytes from Uint8Array"))?;
-		visitor.visit_byte_buf(bytes.to_vec())
+		// SAFETY: The bytes are copied without running JavaScript while the slice is alive.
+		let bytes = unsafe { typed_array.as_bytes() }
+			.ok_or_else(|| Error::custom("failed to get bytes from Uint8Array"))?
+			.to_vec();
+		visitor.visit_byte_buf(bytes)
 	}
 
 	fn deserialize_option<V>(self, visitor: V) -> Result<V::Value, Self::Error>
@@ -367,7 +368,7 @@ impl<'de> serde::Deserializer<'de> for Deserializer<'_> {
 	where
 		V: serde::de::Visitor<'de>,
 	{
-		if is_string(&self.value) {
+		if self.value.is_string() {
 			visitor.visit_enum(EnumAccess {
 				ctx: self.ctx.clone(),
 				tag: self.value,
@@ -524,11 +525,4 @@ impl serde::de::Error for Error {
 	{
 		Self(msg.to_string().into())
 	}
-}
-
-fn is_string(value: &qjs::Value<'_>) -> bool {
-	// The binding's string predicate does not recognize QuickJS rope strings.
-	// SAFETY: The tag is read from a live QuickJS value without accessing its payload.
-	let tag = unsafe { qjs::qjs::JS_VALUE_GET_TAG(value.as_raw()) };
-	matches!(tag, qjs::qjs::JS_TAG_STRING | qjs::qjs::JS_TAG_STRING_ROPE)
 }

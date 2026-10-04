@@ -161,9 +161,11 @@ impl<'js> Deserialize<'js> for PathBuf {
 impl<'js> Deserialize<'js> for Bytes {
 	fn deserialize(ctx: &qjs::Ctx<'js>, value: qjs::Value<'js>) -> tg::Result<Self> {
 		let array = qjs::TypedArray::<u8>::from_js(ctx, value).map_err(error)?;
-		let bytes = array
-			.as_bytes()
-			.ok_or_else(|| tg::error!("expected a uint8array"))?;
-		Ok(bytes.to_vec().into())
+		// SAFETY: The bytes are copied without running JavaScript while the slice is alive.
+		let bytes = unsafe { array.as_bytes() }
+			.ok_or_else(|| tg::error!("expected a uint8array"))?
+			.to_vec()
+			.into();
+		Ok(bytes)
 	}
 }
