@@ -133,7 +133,7 @@ export let download = async (
 	checksum?: tg.Checksum | null,
 	options?: DownloadOptions | null,
 ): Promise<tg.Blob | tg.Artifact> => {
-	const checksum_ = checksum ?? "sha256:any";
+	const checksum_ = checksum ?? "sha512:none";
 	options = options ?? {};
 	options.checksum ??= tg.Checksum.algorithm(checksum_);
 	let mode = options.mode ?? "raw";

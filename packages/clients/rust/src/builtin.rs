@@ -494,6 +494,7 @@ where
 		}),
 		host: Some(tg::host::current().to_owned()),
 		name: Some("download".into()),
+		network: Some(tg::sandbox::Network::default()),
 		..Default::default()
 	};
 	let output = tg::process::build_with_instance(instance, arg).await?;

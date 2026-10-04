@@ -11,7 +11,7 @@ let local = server spawn
 
 let module = '
 	export default async function (url: string) {
-		let result = await tg.download(url, undefined, { mode: "extract" });
+		let result = await tg.download(url, "sha256:any", { mode: "extract" });
 		tg.assert(result instanceof tg.Directory);
 		const file = tg.File.expect(await result.get("file.txt"));
 		return await file.text;
