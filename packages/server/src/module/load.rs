@@ -10,6 +10,7 @@ impl Session {
 		&self,
 		arg: tg::module::load::Arg,
 	) -> tg::Result<tg::module::load::Output> {
+		self.verify_module_load(&arg.module)?;
 		match &arg.module {
 			// Handle a declaration.
 			tg::module::Data {
@@ -157,6 +158,16 @@ impl Session {
 		}
 	}
 
+	fn verify_module_load(&self, module: &tg::module::Data) -> tg::Result<()> {
+		if module.kind != tg::module::Kind::Dts
+			&& matches!(module.referent.node, tg::module::data::Source::Path(_))
+			&& !matches!(self.context.principal, tg::Principal::Root)
+		{
+			return Err(tg::error!("unauthorized"));
+		}
+		Ok(())
+	}
+
 	pub(crate) async fn load_module_request(
 		&self,
 		request: http::Request<BoxBody>,
@@ -172,6 +183,7 @@ impl Session {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
+		self.verify_module_load(&arg.module)?;
 		if !matches!(arg.module.kind, tg::module::Kind::Dts)
 			&& let tg::module::data::Source::Path(path) = &mut arg.module.referent.node
 		{
