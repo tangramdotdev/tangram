@@ -277,44 +277,6 @@ impl Session {
 			})
 			.collect::<tg::Result<_>>()?;
 
-		// Require local authorization before importing over an existing process.
-		let required = tg::authorization::permission::Set::Process(
-			tg::authorization::permission::process::Set::NODE,
-		);
-		let args = {
-			let graph = state.graph.lock().unwrap();
-			batch
-				.iter()
-				.map(|(id, _, _)| {
-					let tokens = tg::authorization::Tokens::with_local_entry(
-						graph.get_node_local_tokens(&id.clone().into()),
-					);
-					let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
-					(resource, required)
-				})
-				.collect::<Vec<_>>()
-		};
-		let authorizations = self.authorize_batch_initial(args, required).await?;
-		crate::authorization::check_exhaustion(&authorizations)?;
-		let modes = {
-			let graph = state.graph.lock().unwrap();
-			batch
-				.iter()
-				.zip(&authorizations)
-				.map(|((id, _, _), authorization)| {
-					let stored = graph
-						.nodes()
-						.get(&tg::Id::from(id.clone()))
-						.is_some_and(|node| node.unwrap_process_ref().marked());
-					if stored || authorization.permissions.contains(required) {
-						tangram_index::process::put::Mode::Import
-					} else {
-						tangram_index::process::put::Mode::Create
-					}
-				})
-				.collect::<Vec<_>>()
-		};
-
 		// Do not replace an existing compacted log and its metadata with an uncompacted copy.
 		let ids = batch
 			.iter()
@@ -347,8 +309,7 @@ impl Session {
 		let now = self.server.clock.unix_timestamp()?;
 		let put_processes: Vec<_> = batch
 			.iter()
-			.zip(modes)
-			.map(|((id, data, metadata), mode)| {
+			.map(|(id, data, metadata)| {
 				Ok(tangram_index::process::put::Arg {
 					cached: false,
 					children: data.children.clone(),
@@ -366,7 +327,6 @@ impl Session {
 					location: None,
 					log: None,
 					metadata: metadata.clone().unwrap_or_default(),
-					mode,
 					options: tg::referent::Options::default(),
 					output: None,
 					parent: None,

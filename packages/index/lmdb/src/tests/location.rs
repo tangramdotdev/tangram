@@ -18,7 +18,6 @@ async fn process_location_survives_partial_and_finished_updates() {
 			location: None,
 			log: None,
 			metadata: tg::process::Metadata::default(),
-			mode: tangram_index::process::put::Mode::Internal,
 			options: tg::referent::Options::default(),
 			output: None,
 			parent: None,

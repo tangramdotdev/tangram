@@ -673,7 +673,6 @@ impl Session {
 					location: Some(location),
 					log: None,
 					metadata: tg::process::Metadata::default(),
-					mode: tangram_index::process::put::Mode::Internal,
 					options,
 					output: None,
 					parent: parent.clone(),

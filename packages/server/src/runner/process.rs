@@ -1362,7 +1362,6 @@ impl Session {
 			defer_index: false,
 			enqueue_log_compaction: false,
 			location: Some(location.clone()),
-			mode: tangram_index::process::put::Mode::Internal,
 			store_data: location.is_remote(),
 			sync: None,
 		};
@@ -1903,7 +1902,6 @@ impl Session {
 			location: Some(location.clone()),
 			log: None,
 			metadata: tg::process::Metadata::default(),
-			mode: tangram_index::process::put::Mode::Internal,
 			options,
 			output: None,
 			parent: parent.cloned(),

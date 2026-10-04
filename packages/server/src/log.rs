@@ -222,7 +222,6 @@ impl Session {
 						location: None,
 						log: Some(Some(blob.clone().into())),
 						metadata: indexed.metadata,
-						mode: tangram_index::process::put::Mode::Internal,
 						options: tg::referent::Options::default(),
 						output: None,
 						parent: None,

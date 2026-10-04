@@ -280,7 +280,6 @@ impl Server {
 					defer_index: false,
 					enqueue_log_compaction: true,
 					location: None,
-					mode: tangram_index::process::put::Mode::Internal,
 					store_data: true,
 					sync: None,
 				};
@@ -317,7 +316,6 @@ impl Server {
 								location: None,
 								log: None,
 								metadata: indexed.metadata,
-								mode: tangram_index::process::put::Mode::Internal,
 								options: tg::referent::Options::default(),
 								output: None,
 								parent: None,

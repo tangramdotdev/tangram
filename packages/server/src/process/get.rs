@@ -743,18 +743,6 @@ impl Session {
 		location: Option<tg::location::Arg>,
 		tokens: tg::authorization::Tokens,
 	) -> tg::Result<()> {
-		// Caching must not replace a local process or grant access to an existing ID.
-		if self
-			.server
-			.index
-			.try_get_process(id)
-			.await
-			.map_err(|error| tg::error!(!error, %id, "failed to get the existing process"))?
-			.is_some()
-		{
-			return Ok(());
-		}
-
 		let children = if let Some(children) = data.children.take() {
 			children
 		} else {
@@ -780,7 +768,6 @@ impl Session {
 			defer_index: false,
 			enqueue_log_compaction: false,
 			location: location.and_then(|location| location.to_location()),
-			mode: tangram_index::process::put::Mode::Create,
 			store_data: true,
 			sync: None,
 		};
