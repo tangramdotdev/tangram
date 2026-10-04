@@ -18,9 +18,7 @@ let local = server spawn --config {
 	directory: $directory,
 	runner: {
 		isolation: {
-			container: {
-				harden: true,
-			},
+			container: ({ harden: true } | merge (container_id_maps)),
 		},
 	},
 }

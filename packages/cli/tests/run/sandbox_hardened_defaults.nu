@@ -6,19 +6,12 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
-let current_cgroup = ^awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup | str trim
-let subtree_control_path = $'/sys/fs/cgroup($current_cgroup)/cgroup.subtree_control'
-let controllers = open --raw $subtree_control_path | str trim | split row ' '
-if 'memory' not-in $controllers or 'pids' not-in $controllers {
-	skip_test 'this test requires the memory and pids cgroup controllers to be enabled'
-}
+let cgroup_parent = container_cgroup_parent [cpu memory pids]
 
-let local = server spawn --config {
+let local = server spawn --busybox --config {
 	runner: {
 		isolation: {
-			container: {
-				harden: true,
-			},
+			container: ({ harden: true } | merge (container_id_maps)),
 		},
 	},
 }
@@ -32,8 +25,21 @@ let script = r#'
 	test "$(stat -f -c %T /tmp)" = tmpfs
 	test "$(( $(stat -f -c %S /tmp) * $(stat -f -c %b /tmp) ))" = 1073741824
 	test "$(stat -f -c %c /tmp)" = 262144
+	test "$(stat -f -c %i /tmp)" = "$(stat -f -c %i /dev/shm)"
+	umask 077
+	printf private > /tmp/private
+	/opt/tangram/bin/tangram checkin /tmp/private > /dev/null
 	echo ok
 '#
-let output = tg run --sandbox --executable /bin/sh -- -c $script | complete
+let command = artifact {
+	tangram.ts: '
+		import busybox from "busybox";
+		export default (script: string) => tg.run({
+			executable: "/bin/sh",
+			args: ["-c", script],
+		}).env(tg.build(busybox)).sandbox();
+	',
+}
+let output = tg run $command --arg-string $script | complete
 success $output 'a plain sandboxed run should succeed with hardened defaults'
 assert equal ($output.stdout | str trim) 'ok'
