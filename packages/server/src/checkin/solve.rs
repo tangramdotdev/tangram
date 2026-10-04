@@ -615,12 +615,18 @@ impl Session {
 	) -> tg::Result<TagInnerOutput> {
 		// Check if a solution exists for the key.
 		if let Some(solution) = checkpoint.solutions.get(key) {
-			let Some(referent) = solution.referent.clone() else {
+			let Some(mut referent) = solution.referent.clone() else {
 				return Ok(TagInnerOutput::Unsolved);
 			};
 			if !pattern.matches_specifier_for_list(referent.tag().unwrap()) {
 				return Ok(TagInnerOutput::Conflicted);
 			}
+			// Preserve the selected tag while applying this import's member path.
+			referent.options.path = item
+				.variant
+				.try_unwrap_file_dependency_ref()
+				.ok()
+				.and_then(|reference| reference.options().get.clone());
 			let candidate_options = solution.candidate_options.clone();
 			let mut options = Self::checkin_solve_get_object_options_for_item(checkpoint, item);
 			options.inherit(&candidate_options);

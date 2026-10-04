@@ -65,7 +65,7 @@ outcome and empty `user.tangram.outcome` xattr as `tg js`. Ordinary stdout is re
 Exceptions produce exit status 1 and structured Tangram errors with source locations;
 `SystemExit` retains Python's process exit semantics.
 
-Relative imports use Python syntax:
+Relative imports require a package context and use Python syntax:
 
 ```python
 from .helper import value
@@ -74,30 +74,99 @@ from ..other import function
 ```
 
 `helper` resolves to `helper.tg.py`; `sub` resolves to `sub/tangram.py`. A directory
-without `tangram.py` is a namespace package for relative imports. Having both
+without `tangram.py`, imported within an existing package, is a namespace package.
+Standalone modules have an empty `__package__` and reject relative imports.
+An explicit `tangram.py` establishes a package. Package ancestry comes from the
+resolved `tg.Module` source path or its referent's `id` and `path`, independently
+of the import alias or order. Namespace ancestry in checked-in modules requires
+retained path information. Directory members retain the containing artifact in
+`id` and their member path in `path`; file check-ins retain the source path and
+recorded initializer dependencies. Bare files do not inherit package context
+from their importers. `..` follows
+package parents and cannot cross the top-level package or referent artifact root. Having both
 `helper.tg.py` and `helper/tangram.py` is an error. Plain `.py` siblings are not Tangram
 modules. Standard-library and client imports use their normal names. Relative
 resolution uses the importing package's directory, independent of the current
 working directory. Module descriptors are available as `__tangram_module__`.
-Python's import machinery registers modules before executing them and supports
-circular imports; the loader additionally caches by Tangram module identity, with
-tokens excluded from identity. Failed initializations are removed from the cache.
+The runtime uses the same resolve, cache, and load sequence as JS: the shared Rust
+resolver produces a descriptor, its token-free identity selects a cached module,
+and the shared module API loads source only when execution needs it. Cached
+descriptors receive refreshed authorization tokens. A recorded dependency is
+authoritative, including its referent options and unresolved state; directory
+member lookup applies only when no dependency was recorded. Entry graph pointers
+are prepared in the runtime for every invocation route. Modules register before
+execution to support cycles; failed initializations can be retried, and cached
+children look up their current parent by its canonical cache name. Resolver and
+loader failures preserve structured Tangram errors, as in JS.
+Child entries and declared child imports initialize an adjacent `tangram.py` before
+executing the child, for both filesystem and checked-in modules. Check-in records
+explicit ancestor package initializers as dependencies, including across namespace directories, so their
+exports remain available without the original source directory. Package exports
+take precedence over sibling module discovery. `find_spec` resolves the target
+without executing it; parent packages initialize when needed.
 
-Checkin marks `.tg.py` and `tangram.py` files as Python modules. Astral's Ruff parser and AST find
-ordinary relative `from` imports and records their existing module files and package
-initializers as dependencies. The runtime resolves and loads the checked-in module
-graph through Tangram's module APIs, so execution does not require the original
-source files. Absolute imports remain standard-library or embedded-client imports.
-Computed imports do not add checkin dependencies; import attributes and structured
-dependency comments are not supported yet.
+Declare dependencies in a [PEP 723](https://peps.python.org/pep-0723/) script block:
+
+```python
+# /// script
+# requires-python = ">=3.14,<3.15"
+# [tool.tangram.imports.debug]
+# specifier = "tools/^1"
+# attributes = { get = "debug/tangram.py" }
+# [tool.tangram.imports.release]
+# specifier = "tools/^1"
+# attributes = { get = "release/tangram.py" }
+# ///
+
+import debug
+from release import value
+```
+
+Each name belongs to the declaring module. Declarations use the same specifier and
+attribute conversion as JavaScript imports; identical specifiers with different
+attributes can resolve to different dependencies. Declared names also work with
+`__import__`, `importlib.import_module`, and `importlib.util.find_spec`. Package
+submodules and namespace packages load from the resolved directory artifact.
+Object imports, such as `attributes = { type = "file" }`, expose the Tangram object
+as `default`. As in the JS loader, filesystem object imports expose `None` until
+checked in. Python cannot execute JS, TS, or declaration modules.
+
+Checkin marks `.tg.py` and `tangram.py` files as Python modules. Astral's Ruff parser
+finds relative `from` imports and records their existing module files and package
+initializers as dependencies. The shared metadata parser records every declared
+import, including declarations used only by conditional or computed imports.
+The runtime follows dependencies per referring module, so colliding relative paths
+remain distinct and checked-in execution does not require the original source
+files. Computed relative imports require a recorded edge or a member of the resolved
+directory artifact. Undeclared absolute imports use the embedded libraries.
+
+Invalid metadata produces source locations. `requires-python` must accept the pinned
+embedded interpreter. Nonempty PEP 508 `dependencies` are rejected; Tangram imports
+belong in `tool.tangram.imports`. Unclosed blocks are ignored and duplicate completed
+blocks of the same type are rejected according to PEP 723.
 
 Each invocation owns an asyncio runner, closes the default client connection, and
 cancels pending tasks when the runner closes. Invocations in one process are
 serialized because Python modules and the client process context are shared.
-Python function commands remain separate work.
+Exported functions can create commands with `tg.command(function, *args)` or
+`await tg.Command.py(function, args)`. The latter returns an authorization-bearing
+command referent, like JS `Command.js`. `tg.host.magic(function)` identifies the
+function by its defining module and an export binding with the same object identity;
+renamed exports and decorators exposing `__wrapped__` are supported. Functions without a Tangram module or an export
+binding are rejected. Command and process builders encode fluent arguments with
+`-a` for explicit string arguments and `-A` for Tangram values. Shared awaitables
+resolve once, including those shared between initial arguments and builder setters.
+
+Filesystem modules are checked in before constructing a function command, so its
+dependencies and authorization survive execution in another process. Python
+commands retain the module's directory ID and path because package member
+loading needs them; the command referent retains the full original options. Callable
+return types propagate to command and process results. Python cannot currently map
+each callable parameter to its corresponding unresolved argument type, so callable
+arguments are checked as Tangram values rather than against the parameter tuple.
 
 Run integration tests with:
 
 ```sh
-nu packages/cli/test.nu --no-cloud 'py/(run|runtime|relative|resolution|errors|library)'
+nu packages/cli/test.nu --no-cloud 'py/'
 ```

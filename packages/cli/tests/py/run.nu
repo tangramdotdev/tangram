@@ -22,6 +22,7 @@ assert equal (open --raw $output_path) 'hello, world!'
 
 # Checked-in module graphs retain relative dependencies without the source files.
 let path = artifact {
+    'tangram.py': 'pass'
     'main.tg.py': '
         from .helper import value
         from . import cycle_a, sub

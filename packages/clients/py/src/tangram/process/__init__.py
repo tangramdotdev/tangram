@@ -727,7 +727,7 @@ class Builder[M: Mode, O: ValueType]:
         self.client = client or default_client
         self._memo = {}
         self._originals = capture([*args, options], self._memo)
-        self._js = None
+        self._module = None
         self.arguments = [
             capture(self.builder_arg(arg), self._memo) for arg in self._originals
         ]
@@ -902,10 +902,10 @@ class Builder[M: Mode, O: ValueType]:
     def exec(self, *args) -> Builder[Literal["exec"], Never]:
         return self._mode("exec", args)
 
-    async def _is_js(self):
+    async def _is_module(self):
         from ..command import CommandObject
 
-        if self._js is None:
+        if self._module is None:
 
             async def detect():
                 for arg in await resolve(self._originals):
@@ -920,33 +920,33 @@ class Builder[M: Mode, O: ValueType]:
                         command = command.node
                     if isinstance(command, dict) and "node" in command:
                         command = command["node"]
-                    if isinstance(command, Command) and CommandObject.is_js(
-                        await command.load(self.client)
-                    ):
-                        return True
+                    if isinstance(command, Command):
+                        object = await command.load(self.client)
+                        if CommandObject.is_js(object) or CommandObject.is_py(object):
+                            return True
                 return False
 
-            self._js = capture(detect(), self._memo)
-        return await resolve(self._js)
+            self._module = capture(detect(), self._memo)
+        return await resolve(self._module)
 
     async def builder_arg(self, arg):
-        from ..command import encode_js_args
+        from ..command import encode_module_args
 
         arg = await resolve(arg)
         if (
             isinstance(arg, dict)
             and isinstance(arg.get("args"), list)
-            and await self._is_js()
+            and await self._is_module()
         ):
-            return {**arg, "args": encode_js_args(arg["args"])}
+            return {**arg, "args": encode_module_args(arg["args"])}
         return arg
 
     async def args_arg(self, args):
-        from ..command import encode_js_args
+        from ..command import encode_module_args
 
         args = await resolve(args)
-        if args is not None and await self._is_js():
-            args = encode_js_args(args)
+        if args is not None and await self._is_module():
+            args = encode_module_args(args)
         return {"args": args}
 
     async def _create(self):

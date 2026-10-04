@@ -77,6 +77,12 @@ impl Module {
 		if let Source::Edge(edge) = &self.referent.node {
 			edge.children(children);
 		}
+		// Python package member loading depends on the containing directory.
+		if self.kind == Kind::Py
+			&& let Some(id) = &self.referent.options.id
+		{
+			children.insert(id.clone());
+		}
 	}
 
 	pub fn children_with_tokens(&self, children: &mut Vec<tg::Referent<tg::object::Id>>) {
@@ -226,5 +232,44 @@ impl std::fmt::Display for Location {
 			":{start_line}:{start_character}-{end_line}:{end_character}"
 		)?;
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn python_package_roots_are_dependencies() {
+		let root = tg::object::Id::new(
+			tg::object::Kind::Directory,
+			&bytes::Bytes::from_static(b"package"),
+		);
+		let file = tg::object::Id::new(
+			tg::object::Kind::File,
+			&bytes::Bytes::from_static(b"module"),
+		);
+		let options = tg::referent::Options {
+			id: Some(root.clone()),
+			..Default::default()
+		};
+		let referent = tg::Referent {
+			node: Source::Edge(tg::graph::data::Edge::Object(file.clone())),
+			options,
+		};
+		let data = Module {
+			kind: Kind::Py,
+			referent,
+		};
+		let mut children = BTreeSet::new();
+		data.children(&mut children);
+		assert_eq!(children, BTreeSet::from([file.clone(), root.clone()]));
+		let module = tg::Module::try_from_data(data).unwrap();
+		let children = module
+			.children()
+			.iter()
+			.map(tg::Object::id)
+			.collect::<BTreeSet<_>>();
+		assert_eq!(children, BTreeSet::from([file, root]));
 	}
 }

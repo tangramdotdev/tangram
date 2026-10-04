@@ -17,6 +17,7 @@ from ..http import Request, Response
 from . import default
 
 if TYPE_CHECKING:
+    from ..module import ModuleDataObject
     from ..object import ObjectWireData
     from ..value import ValueData
 
@@ -25,7 +26,7 @@ Stdio = Literal["inherit", "null", "pipe"]
 
 
 class MagicOutput(TypedDict):
-    module: dict[str, Any]
+    module: ModuleDataObject
     export: NotRequired[str | None]
 
 

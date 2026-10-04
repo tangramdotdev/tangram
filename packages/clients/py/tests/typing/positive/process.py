@@ -57,3 +57,23 @@ async def unresolved_fields(command: Command[list[str], str]):
         command.run(arg, process_arg).cwd(asyncio.sleep(0, result="/")),
         Builder[Literal["run"], str],
     )
+
+
+async def function_commands():
+    import asyncio
+
+    from tangram.command import command
+    from tangram.referent import Referent
+
+    def sync(value: str) -> str:
+        return value
+
+    async def async_(value: str) -> str:
+        return value
+
+    assert_type(command(sync, "hello"), CommandBuilder[str])
+    assert_type(command(async_, asyncio.sleep(0, result="hello")), CommandBuilder[str])
+    assert_type(await command(async_), Command[list[ValueType], str])
+    assert_type(
+        await Command.py(async_, ["hello"]), Referent[Command[list[ValueType], str]]
+    )

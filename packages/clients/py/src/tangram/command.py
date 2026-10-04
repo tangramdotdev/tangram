@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from .directory import Directory
     from .file import File
     from .process import Builder as ProcessBuilder
+    from .referent import Referent
     from .symlink import Symlink
     from .value import ValueData, ValueInput, ValueType
 
@@ -304,6 +305,60 @@ class Command[A, O: ValueType](Object):
             },
         )
 
+    @staticmethod
+    async def py[R: ValueType](
+        function_: Callable[..., Unresolved[R]],
+        args: Sequence[CommandArgument],
+        *,
+        client: Client | None = None,
+    ) -> Referent[Command[list[ValueType], R]]:
+        from . import host
+        from .module import Module
+        from .referent import Referent
+
+        args = await resolve(list(args))
+        target = host.magic(function_)
+        module = Module.from_data(target["module"])
+        if isinstance(module.referent.node, str):
+            from .client import client as default_client
+            from .client import last_output
+
+            client = client or default_client
+            output = await last_output(await client.checkin(module.referent.node))
+            if output is None:
+                raise ValueError("the checkin stream ended without output")
+            artifact = output["artifact"]
+            module = Module(
+                "py", Referent(Object.with_id(artifact.node), artifact.options)
+            )
+        options = deepcopy(module.referent.options or {})
+        # Retain the directory and path needed for package member loading.
+        module.referent.options = deepcopy(options)
+        for name in ("name", "tag"):
+            module.referent.options.pop(name, None)
+        command_args: list[CommandArgument] = [CommandValue.string("py")]
+        export = target.get("export")
+        if export is not None:
+            command_args.extend(
+                [
+                    CommandValue.string("--export"),
+                    CommandValue.string(export),
+                ]
+            )
+        command_args.append(CommandValue.value(module))
+        for arg in args:
+            value = arg if isinstance(arg, CommandValue) else CommandValue.value(arg)
+            command_args.extend(
+                [CommandValue.string("-a" if value.kind == "string" else "-A"), value]
+            )
+        arg: CommandArgObject = {
+            "args": command_args,
+            "executable": "tg",
+            "host": host.current,
+        }
+        command = await Command.new(arg, client=client)
+        return Referent(command, options)
+
     @async_property
     async def args(self, client: Client | None = None) -> list[CommandValue]:
         return (await self.load(client)).get("args", [])
@@ -506,6 +561,18 @@ class CommandObject:
             and bool(args)
             and args[0].kind == "string"
             and args[0].value == "js"
+        )
+
+    @staticmethod
+    def is_py(object):
+        executable = object["executable"]
+        args = object["args"]
+        return (
+            executable.get("artifact") is None
+            and executable.get("path") == "tg"
+            and bool(args)
+            and args[0].kind == "string"
+            and args[0].value == "py"
         )
 
     @staticmethod
@@ -712,7 +779,7 @@ class CommandBuilder[O: ValueType]:
         self._memo = {}
         originals = capture([*args, *([options] if options else [])], self._memo)
         self._originals = originals
-        self._js = None
+        self._module = None
         self.arguments = [
             capture(self.builder_arg(arg), self._memo) for arg in originals
         ]
@@ -779,10 +846,12 @@ class CommandBuilder[O: ValueType]:
     def __await__(self) -> Generator[Any, None, Command[list[ValueType], O]]:
         return Command.new(*self.arguments, client=self.client).__await__()
 
-    async def _is_js(self):
-        if self._js is None:
-            self._js = capture(is_js_command_builder_arg(self._originals), self._memo)
-        return await resolve(self._js)
+    async def _is_module(self):
+        if self._module is None:
+            self._module = capture(
+                is_module_command_builder_arg(self._originals), self._memo
+            )
+        return await resolve(self._module)
 
     async def builder_arg(self, arg):
         arg = await resolve(arg)
@@ -790,15 +859,15 @@ class CommandBuilder[O: ValueType]:
             isinstance(arg, Command)
             or not isinstance(arg, dict)
             or not isinstance(arg.get("args"), list)
-            or not await self._is_js()
+            or not await self._is_module()
         ):
             return arg
-        return {**arg, "args": encode_js_args(arg["args"])}
+        return {**arg, "args": encode_module_args(arg["args"])}
 
     async def args_arg(self, args):
         args = await resolve(args)
-        if args is not None and await self._is_js():
-            args = encode_js_args(args)
+        if args is not None and await self._is_module():
+            args = encode_module_args(args)
         return {"args": args}
 
     def env_arg(self, env):
@@ -812,29 +881,25 @@ class CommandBuilder[O: ValueType]:
         return capture(mapped(), self._memo)
 
 
-async def is_js_command_builder_arg(args):
+async def is_module_command_builder_arg(args):
     args = await resolve(args)
     for arg in args:
-        if isinstance(arg, Command) and CommandObject.is_js(await arg.object()):
-            return True
+        if isinstance(arg, Command):
+            object = await arg.object()
+            if CommandObject.is_js(object) or CommandObject.is_py(object):
+                return True
     return False
 
 
-def encode_js_args(args):
-    encoded = len(args) % 2 == 0 and all(
-        isinstance(value, CommandValue)
-        and (
-            index % 2 != 0
-            or value.kind == "string"
-            and value.value in ("-a", "-A")
-            and isinstance(args[index + 1], CommandValue)
-            and value.value == ("-a" if args[index + 1].kind == "string" else "-A")
-        )
-        for index, value in enumerate(args)
-    )
-    if encoded:
+class EncodedArgs(list[CommandValue]):
+    # Preserve the encoding through resolution and builder handoffs.
+    __tangram_atomic__ = None
+
+
+def encode_module_args(args):
+    if isinstance(args, EncodedArgs):
         return args
-    output = []
+    output = EncodedArgs()
     for value in args:
         value = value if isinstance(value, CommandValue) else CommandValue.value(value)
         output.extend(
@@ -849,6 +914,16 @@ class TemplateStrings(Protocol):
     def __getitem__(self, index: int) -> str: ...
 
     def __len__(self) -> int: ...
+
+
+# Python cannot map a callable's parameter tuple to unresolved argument types.
+@overload
+def command[R: ValueType](
+    function_: Callable[..., Unresolved[R]],
+    *args: CommandArgument,
+    client: Client | None = None,
+    **options: Unpack[CommandArgObject],
+) -> CommandBuilder[R]: ...
 
 
 @overload
@@ -872,7 +947,15 @@ def command(
     *args, client: Client | None = None, **options: Unpack[CommandArgObject]
 ) -> CommandBuilder[ValueType]:
     if args and callable(args[0]) and not hasattr(args[0], "__await__"):
-        raise TypeError("Python function commands require the embedded runtime")
+        function_ = cast("Callable[..., Unresolved[ValueType]]", args[0])
+
+        async def create():
+            referent = await Command.py(function_, function_args, client=client)
+            return referent.node
+
+        builder = CommandBuilder(create(), client=client, **options)
+        function_args = capture(args[1:], builder._memo)
+        return builder
     if args and isinstance(args[0], list) and hasattr(args[0], "raw"):
         from .assert_ import assert_
         from .process import env

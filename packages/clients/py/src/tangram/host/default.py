@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import errno
+import inspect
 import os
 import platform
 import signal as _signal
 from collections.abc import AsyncIterator, Awaitable, Generator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, Never, Self, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, Self, TypedDict
 
 from .. import _native
 from .. import http2 as http2
@@ -17,6 +18,7 @@ from .. import http2 as http2
 if TYPE_CHECKING:
     from ..object import ObjectWireData
     from ..value import ValueData
+    from . import MagicOutput
 
 
 class Outcome(TypedDict):
@@ -504,8 +506,24 @@ def stringify_value(value: ValueData) -> str:
     )
 
 
-def magic(value: Any) -> Never:
-    raise TypeError("Python function commands require the embedded runtime")
+def magic(value: Any) -> MagicOutput:
+    from ..module import Module
+
+    # Stop at the passed Python function; only traverse non-function callable wrappers.
+    function = inspect.unwrap(value, stop=inspect.isfunction)
+    if not callable(value) or not inspect.isfunction(function):
+        raise TypeError("expected a Python function")
+    namespace = function.__globals__
+    module = namespace.get("__tangram_module__")
+    if not isinstance(module, Module) or module.kind != "py":
+        raise ValueError("failed to find the Tangram module for the function")
+    name = function.__name__
+    if namespace.get(name) is not value:
+        names = sorted(name for name, export in namespace.items() if export is value)
+        if not names:
+            raise ValueError("failed to find an export for the function")
+        name = names[0]
+    return {"module": module.to_data(), "export": name}
 
 
 async def read_file(path: str) -> bytes:

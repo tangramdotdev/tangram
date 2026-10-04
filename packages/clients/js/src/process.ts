@@ -4,6 +4,7 @@ import type { Get as ProcessGet } from "./client/process/get.ts";
 import type { Put as ProcessPut } from "./client/process/put.ts";
 import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
 import type { Wait as ProcessWait } from "./client/process/wait.ts";
+import { encodeJsArgs } from "./command.ts";
 import * as tg from "./index.ts";
 import * as build from "./process/build.ts";
 import * as commandData from "./process/command.ts";
@@ -1820,35 +1821,4 @@ function commandReferentToData(
 	return typeof referent.node === "string"
 		? tg.Referent.toDataString({ ...referent, node: referent.node }, (id) => id)
 		: tg.Referent.toData(referent, (node) => node);
-}
-
-function encodeJsArgs(
-	args: Array<tg.Command.Arg.Value>,
-): Array<tg.Command.Value> {
-	let encoded =
-		args.length % 2 === 0 &&
-		args.every((value, index) => {
-			if (index % 2 !== 0) {
-				return value instanceof tg.Command.Value;
-			}
-			let next = args[index + 1];
-			return (
-				value instanceof tg.Command.Value &&
-				value.kind === "string" &&
-				(value.value === "-a" || value.value === "-A") &&
-				next instanceof tg.Command.Value &&
-				value.value === (next.kind === "string" ? "-a" : "-A")
-			);
-		});
-	if (encoded) {
-		return args as Array<tg.Command.Value>;
-	}
-	return args.flatMap((value) => {
-		let value_ =
-			value instanceof tg.Command.Value ? value : tg.Command.Value.value(value);
-		return [
-			tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
-			value_,
-		];
-	});
 }

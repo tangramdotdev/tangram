@@ -174,6 +174,7 @@ oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
 oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
 oxc_formatter_core = { git = "https://github.com/oxc-project/oxc" }
 percent-encoding = "2"
+pep440_rs = "0.7.3"
 petgraph = "0.8"
 pin-project = "1"
 postgres-protocol = "0.6"

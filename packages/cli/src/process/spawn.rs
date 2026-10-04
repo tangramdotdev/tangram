@@ -712,13 +712,18 @@ impl Cli {
 								.ok_or_else(
 									|| tg::error!(directory = %directory.id(), "failed to find a root module"),
 								)?;
+							let kind =
+								tg::module::module_kind_for_path(root_module_file_name).unwrap();
+							// Use an artifact member path for Python package context.
+							if kind == tg::module::Kind::Py && referent.options.id.is_none() {
+								referent.options.id = Some(directory.id().into());
+								referent.options.path = None;
+							}
 							if let Some(path) = &mut referent.options.path {
 								*path = path.join(root_module_file_name);
 							} else {
 								referent.options.path.replace(root_module_file_name.into());
 							}
-							let kind =
-								tg::module::module_kind_for_path(root_module_file_name).unwrap();
 							let edge = directory
 								.get_entry_edge_with_instance(&client, root_module_file_name)
 								.await
@@ -728,9 +733,9 @@ impl Cli {
 							let source = tg::module::Source::Edge(edge.into());
 							command_options = Some(referent.options.clone());
 							let mut referent = referent.clone().map(|_| source);
-							referent.options.id.take();
 							referent.options.name.take();
 							if kind != tg::module::Kind::Py {
+								referent.options.id.take();
 								referent.options.path.take();
 							}
 							referent.options.tag.take();
@@ -779,9 +784,9 @@ impl Cli {
 								let source = tg::module::Source::Edge(edge);
 								command_options = Some(referent.options.clone());
 								let mut referent = referent.clone().map(|_| source);
-								referent.options.id.take();
 								referent.options.name.take();
 								if kind != tg::module::Kind::Py {
+									referent.options.id.take();
 									referent.options.path.take();
 								}
 								referent.options.tag.take();

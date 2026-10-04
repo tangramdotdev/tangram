@@ -2,6 +2,7 @@ use ../lib/test.nu *
 
 let local = server spawn
 let path = artifact {
+    'tangram.py': 'pass'
     'main.tg.py': '
         from .helper import fail
         def run():
@@ -82,3 +83,21 @@ let output = with-env {TANGRAM_OUTPUT: $output_path} {
 failure $output
 let outcome = open --raw $output_path | from json
 assert equal $outcome.error.location.range.start {line: 1, character: 24}
+
+# Runtime parser errors retain the artifact module descriptor rather than its display filename.
+let source = artifact {
+    'tangram.ts': '
+        export default async function () {
+            const file = await tg.file("def broken(").module("py");
+            return new tg.Module({ kind: "py", referent: { node: file } });
+        }
+    '
+}
+let module = tg run $source
+let output_path = mktemp
+let output = with-env {TANGRAM_OUTPUT: $output_path} { tg py $module | complete }
+failure $output
+let outcome = open --raw $output_path | from json
+assert equal $outcome.error.location.range.start.line 0
+assert equal $outcome.error.location.file.value.kind 'py'
+assert ($outcome.error.location.file.value.referent.node | str starts-with 'fil_')

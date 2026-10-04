@@ -7,6 +7,65 @@ from tangram import host
 
 
 class Host(unittest.IsolatedAsyncioTestCase):
+    async def test_magic_uses_the_defining_module_and_export_identity(self):
+        from tangram.module import Module
+        from tangram.referent import Referent
+
+        module = Module("py", Referent("/test/main.tg.py"))
+        namespace = {"__tangram_module__": module}
+        exec("def original(): return 42\nalias = original", namespace)
+        function = namespace["original"]
+        self.assertEqual(
+            host.magic(function), {"module": module.to_data(), "export": "original"}
+        )
+        del namespace["original"]
+        self.assertEqual(host.magic(function)["export"], "alias")
+        del namespace["alias"]
+        with self.assertRaisesRegex(ValueError, "find an export"):
+            host.magic(function)
+        with self.assertRaisesRegex(ValueError, "Tangram module"):
+            host.magic(lambda: None)
+        with self.assertRaisesRegex(TypeError, "Python function"):
+            host.magic(object())
+
+    async def test_magic_preserves_the_exported_decorated_callable(self):
+        import functools
+
+        from tangram.module import Module
+        from tangram.referent import Referent
+
+        namespace = {"__tangram_module__": Module("py", Referent("/test/main.tg.py"))}
+        exec("def function(value): return value", namespace)
+        original = namespace["function"]
+        namespace["function"] = functools.cache(original)
+        self.assertEqual(host.magic(namespace["function"])["export"], "function")
+        with self.assertRaisesRegex(ValueError, "find an export"):
+            host.magic(original)
+
+    async def test_magic_uses_the_exported_wrapper_instead_of_the_wrapped_function(
+        self,
+    ):
+        from tangram.module import Module
+        from tangram.referent import Referent
+
+        helper = {"__tangram_module__": Module("py", Referent("/test/helper.tg.py"))}
+        exec("def original(): return 42", helper)
+        module = Module("py", Referent("/test/main.tg.py"))
+        namespace = {
+            "__tangram_module__": module,
+            "original": helper["original"],
+        }
+        exec(
+            "import functools\n@functools.wraps(original)\n"
+            "def wrapped(): return original() + 1",
+            namespace,
+        )
+        self.assertEqual(namespace["wrapped"](), 43)
+        self.assertEqual(
+            host.magic(namespace["wrapped"]),
+            {"module": module.to_data(), "export": "wrapped"},
+        )
+
     async def test_cancelled_read_does_not_consume_future_input(self):
         reader, writer = os.pipe()
         stopper = host.stopper_open()

@@ -458,11 +458,7 @@ impl Session {
 				watch: true,
 				..Default::default()
 			};
-			let path = if let Some(get) = import.reference.options().get.as_ref() {
-				referrer.node().parent().unwrap().join(get)
-			} else {
-				referrer.node().to_path_buf()
-			};
+			let path = referrer.node().to_path_buf();
 			let updates = Vec::new();
 			let arg = tg::checkin::Arg {
 				options,
@@ -473,24 +469,20 @@ impl Session {
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check in the path"))?;
 
-			// Get the watch and retrieve the edge from the graph.
-			let entry = self
+			// Find the watch graph containing the referring file.
+			let edge = self
 				.server
 				.watches
 				.iter()
-				.find(|entry| {
-					entry.key().principal == self.context.principal
-						&& referrer.node().starts_with(&entry.key().path)
+				.find_map(|entry| {
+					if entry.key().principal != self.context.principal {
+						return None;
+					}
+					let graph = entry.value().get_unindexed().graph;
+					let index = graph.paths.get(referrer.node())?;
+					graph.nodes.get(index)?.edge.clone()
 				})
 				.ok_or_else(|| tg::error!("failed to find a watch for the path"))?;
-			let graph = entry.value().get_unindexed().graph;
-			let index = graph
-				.paths
-				.get(referrer.node())
-				.ok_or_else(|| tg::error!("failed to find a node for the path"))?;
-			let node = graph.nodes.get(index).unwrap();
-			let edge = node.edge.as_ref().unwrap().clone();
-			drop(entry);
 
 			// Resolve.
 			let referrer = referrer.clone().map(|_| &edge);

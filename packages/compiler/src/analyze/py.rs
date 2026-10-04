@@ -8,6 +8,8 @@ use {
 	tangram_client::prelude::*,
 };
 
+pub mod metadata;
+
 struct Visitor {
 	references: BTreeSet<String>,
 }
@@ -45,6 +47,28 @@ pub fn analyze(path: &Path, text: &str) -> tg::Result<Analysis> {
 		.parent()
 		.ok_or_else(|| tg::error!("the Python module has no parent directory"))?;
 	let mut imports = std::collections::HashSet::default();
+	let metadata = metadata::parse(path, text)?;
+	imports.extend(metadata.imports.into_values());
+	// Capture explicit package initializers, including ancestors of namespace directories.
+	for (level, ancestor) in directory.ancestors().enumerate() {
+		if level == 0 && path.file_name().is_some_and(|name| name == "tangram.py") {
+			continue;
+		}
+		if !ancestor.join("tangram.py").is_file() {
+			continue;
+		}
+		let prefix = if level == 0 {
+			".".to_owned()
+		} else {
+			vec![".."; level].join("/")
+		};
+		let reference = format!("{prefix}/tangram.py").parse()?;
+		let import = tg::module::Import {
+			kind: Some(tg::module::Kind::Py),
+			reference,
+		};
+		imports.insert(import);
+	}
 	for reference in visitor.references {
 		let file = format!("{reference}.tg.py");
 		let package = format!("{reference}/tangram.py");

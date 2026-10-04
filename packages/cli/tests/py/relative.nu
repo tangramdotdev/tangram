@@ -52,8 +52,9 @@ let output = tg py --export default ($path | path join tangram.py) | complete
 success $output
 assert equal ($output.stdout | str trim) 'relative modules completed'
 
-# A non-root entry gets the same relative package context.
+# A non-root entry in an explicit package gets the same package context.
 let entry = artifact {
+    'tangram.py': 'pass'
     'my-script.v1.tg.py': 'from .helper import value; from .__entry__ import sentinel; assert sentinel == 7; print(value)'
     '__entry__.tg.py': 'sentinel = 7'
     'helper.tg.py': 'value = 99'
@@ -61,3 +62,18 @@ let entry = artifact {
 let output = tg py ($entry | path join my-script.v1.tg.py) | complete
 success $output
 assert equal ($output.stdout | str trim) '99'
+
+# A child entry initializes its package and shares the initializer's child import.
+let entry = artifact {
+    'tangram.py': 'value = 42; from . import child'
+    'child.tg.py': '
+        from . import value
+        calls = globals().get("calls", 0) + 1
+        def default():
+            assert calls == 1
+            print(value)
+    '
+}
+let output = tg py --export default ($entry | path join child.tg.py) | complete
+success $output
+assert equal ($output.stdout | str trim) '42'

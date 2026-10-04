@@ -236,6 +236,15 @@ export namespace Module {
 			typeof value.referent.node !== "string"
 				? tg.Graph.Edge.children(value.referent.node)
 				: [];
+		let root = value.referent.options?.id;
+		if (
+			value.kind === "py" &&
+			root !== undefined &&
+			root !== null &&
+			!children.some((child) => child.id === root)
+		) {
+			children.push(tg.Object.withId(root));
+		}
 		for (let child of children) {
 			tg.Object.inheritLocation(
 				child,
@@ -260,15 +269,29 @@ export namespace Module {
 
 	export namespace Data {
 		export let children = (data: tg.Module.Data): Array<tg.Object.Id> => {
-			let source =
-				typeof data.referent === "string" ? data.referent : data.referent.node;
-			if (
+			let referent =
+				typeof data.referent === "string"
+					? tg.Referent.fromDataString(
+							data.referent,
+							(node) => node as tg.Graph.Data.Edge<tg.Object.Id>,
+						)
+					: data.referent;
+			let source = referent.node;
+			let children =
 				typeof source === "string" &&
 				(source.startsWith(".") || source.startsWith("/"))
+					? []
+					: tg.Graph.Data.Edge.children(source);
+			let root = referent.options?.id;
+			if (
+				data.kind === "py" &&
+				root !== undefined &&
+				root !== null &&
+				!children.includes(root)
 			) {
-				return [];
+				children.push(root);
 			}
-			return tg.Graph.Data.Edge.children(source);
+			return children;
 		};
 
 		export let withoutLocationAndTokens = (

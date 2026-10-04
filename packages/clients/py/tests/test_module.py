@@ -54,6 +54,41 @@ class ModuleTests(unittest.TestCase):
         self.assertEqual(Module.from_data(module.to_data()).referent.node, pointer)
         self.assertEqual(Module.Data.children(module.to_data()), ["gph_example"])
 
+    def test_python_package_roots_are_dependencies(self):
+        child = File.with_id("fil_example")
+        module = Module(
+            "py",
+            Referent(
+                child,
+                {
+                    "id": "dir_example",
+                    "path": "tangram.py",
+                    "location": Location.from_data_string("local"),
+                },
+            ),
+        )
+        self.assertEqual(
+            [child.id for child in module.children()], ["fil_example", "dir_example"]
+        )
+        self.assertEqual(
+            Module.Data.children(module.to_data()), ["fil_example", "dir_example"]
+        )
+        self.assertTrue(
+            all(
+                child.state.location == Location.from_data_string("local")
+                for child in module.children()
+            )
+        )
+        self.assertEqual(
+            Module.Data.children(
+                {"kind": "py", "referent": "fil_example?id=dir_example"}
+            ),
+            ["fil_example", "dir_example"],
+        )
+        module = Module("py", Referent(child, {"id": child.id}))
+        self.assertEqual(module.children(), [child])
+        self.assertEqual(Module.Data.children(module.to_data()), [child.id])
+
     def test_data_namespaces_and_location(self):
         module = Module(
             "ts",

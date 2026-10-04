@@ -961,33 +961,24 @@ async function isJsCommandBuilderArg(
 	return false;
 }
 
-function encodeJsArgs(
+class EncodedArgs extends Array<tg.Command.Value> {
+	[Resolve.atomic] = null;
+}
+
+export function encodeJsArgs(
 	args: Array<tg.Command.Arg.Value>,
 ): Array<tg.Command.Value> {
-	let encoded =
-		args.length % 2 === 0 &&
-		args.every((value, index) => {
-			if (index % 2 !== 0) {
-				return value instanceof tg.Command.Value;
-			}
-			let next = args[index + 1];
-			return (
-				value instanceof tg.Command.Value &&
-				value.kind === "string" &&
-				(value.value === "-a" || value.value === "-A") &&
-				next instanceof tg.Command.Value &&
-				value.value === (next.kind === "string" ? "-a" : "-A")
-			);
-		});
-	if (encoded) {
-		return args as Array<tg.Command.Value>;
+	if (args instanceof EncodedArgs) {
+		return args;
 	}
-	return args.flatMap((value) => {
+	let output = new EncodedArgs();
+	for (let value of args) {
 		let value_ =
 			value instanceof tg.Command.Value ? value : tg.Command.Value.value(value);
-		return [
+		output.push(
 			tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
 			value_,
-		];
-	});
+		);
+	}
+	return output;
 }

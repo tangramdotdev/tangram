@@ -7,6 +7,87 @@ from tangram.mutation import Mutation
 
 
 class CommandTests(ObjectTestCase):
+    async def test_python_function_commands_resolve_shared_futures_and_fluent_args(
+        self,
+    ):
+        from tangram import host
+        from tangram.file import File
+        from tangram.module import Module
+        from tangram.referent import Referent
+
+        file = await File.new("module source")
+        module = Module("py", Referent(file, {"path": "main.tg.py", "tag": "tools/^1"}))
+        namespace = {"__tangram_module__": module}
+        exec("def run(*args): return args", namespace)
+        calls = 0
+
+        async def value():
+            nonlocal calls
+            calls += 1
+            return {"value": 42}
+
+        shared = value()
+        builder = command(namespace["run"], shared).arg(
+            shared, Command.Value.string("raw")
+        )
+        result = await builder
+        args = await result.args
+        self.assertEqual(args[0].value, "py")
+        self.assertEqual(args[1].value, "--export")
+        self.assertEqual(args[2].value, "run")
+        self.assertEqual(args[3].value.referent.options.get("path"), "main.tg.py")
+        self.assertIsNone(args[3].value.referent.options.get("tag"))
+        self.assertEqual(
+            [(arg.kind, arg.value) for arg in args[4:]],
+            [
+                ("string", "-A"),
+                ("value", {"value": 42}),
+                ("string", "-A"),
+                ("value", {"value": 42}),
+                ("string", "-a"),
+                ("string", "raw"),
+            ],
+        )
+        self.assertEqual(calls, 1)
+        self.assertEqual((await builder).id, result.id)
+        referent = await Command.py(namespace["run"], [])
+        self.assertEqual(referent.options.get("path"), "main.tg.py")
+        self.assertEqual(referent.options.get("tag"), "tools/^1")
+        self.assertEqual(
+            module.referent.options, {"path": "main.tg.py", "tag": "tools/^1"}
+        )
+        self.assertEqual(await referent.node.host, host.current)
+
+    async def test_python_function_arguments_are_always_encoded_individually(self):
+        from tangram.file import File
+        from tangram.module import Module
+        from tangram.referent import Referent
+
+        namespace = {
+            "__tangram_module__": Module("py", Referent(await File.new("module")))
+        }
+        exec("def run(*args): return args", namespace)
+        for flag, value in [
+            ("-a", Command.Value.string("raw")),
+            ("-A", Command.Value.value(42)),
+        ]:
+            args = [Command.Value.string(flag), value]
+            referent = await Command.py(namespace["run"], args)
+            for result in [
+                referent.node,
+                await command(namespace["run"], *args),
+                await command(namespace["run"]).arg(*args),
+            ]:
+                self.assertEqual(
+                    [(arg.kind, arg.value) for arg in (await result.args)[4:]],
+                    [
+                        ("string", "-a"),
+                        ("string", flag),
+                        ("string", flag),
+                        (value.kind, value.value),
+                    ],
+                )
+
     async def test_builder_resolves_nested_and_shared_futures(self):
         calls = 0
 
@@ -79,7 +160,16 @@ class CommandTests(ObjectTestCase):
             ],
         )
         result = await command(existing).args([Command.Value.string("-a"), value])
-        self.assertEqual(len(await result.args), 3)
+        self.assertEqual(
+            [(arg.kind, arg.value) for arg in await result.args],
+            [
+                ("string", "js"),
+                ("string", "-a"),
+                ("string", "-a"),
+                ("string", "-a"),
+                ("string", "text"),
+            ],
+        )
 
     async def test_namespace_wire_roundtrip(self):
         result = await Command.new(

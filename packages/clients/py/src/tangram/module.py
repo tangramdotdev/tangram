@@ -178,6 +178,13 @@ class Module:
         children = (
             [] if isinstance(self.referent.node, str) else objects(self.referent.node)
         )
+        root = (self.referent.options or {}).get("id")
+        if (
+            self.kind == "py"
+            and root is not None
+            and all(child.id != root for child in children)
+        ):
+            children.append(Object.with_id(root))
         for child in children:
             Object.inherit_location(
                 child, (self.referent.options or {}).get("location")
@@ -204,16 +211,23 @@ class Module:
             from .graph import Pointer
 
             referent = data["referent"]
-            source = referent if isinstance(referent, str) else referent["node"]
+            if isinstance(referent, str):
+                referent = Referent.from_data_string(referent).to_data()
+            source = referent["node"]
             if isinstance(source, str) and source.startswith((".", "/")):
-                return []
-            if isinstance(source, int) or (
+                children = []
+            elif isinstance(source, int) or (
                 isinstance(source, str) and source.isascii() and source.isdecimal()
             ):
-                return []
-            if isinstance(source, str) and "index=" not in source:
-                return [source]
-            return [Pointer.from_data(source).graph.id]
+                children = []
+            elif isinstance(source, str) and "index=" not in source:
+                children = [source]
+            else:
+                children = [Pointer.from_data(source).graph.id]
+            root = (referent.get("options") or {}).get("id")
+            if data["kind"] == "py" and root is not None and root not in children:
+                children.append(root)
+            return children
 
         @staticmethod
         def without_location_and_tokens(data):
