@@ -64,6 +64,7 @@ fn process_arg(
 		location: None,
 		log: None,
 		metadata: tg::process::Metadata::default(),
+		mode: tangram_index::process::put::Mode::Internal,
 		options: tg::referent::Options::default(),
 		output: None,
 		parent: None,
@@ -224,6 +225,7 @@ async fn process_children_are_stored_separately_from_data() {
 				location: None,
 				log: Some(None),
 				metadata: tg::process::Metadata::default(),
+				mode: tangram_index::process::put::Mode::Internal,
 				options: tg::referent::Options::default(),
 				output: Some(None),
 				parent: None,
@@ -334,6 +336,7 @@ async fn incomplete_process_children_have_values() {
 				location: None,
 				log: None,
 				metadata: tg::process::Metadata::default(),
+				mode: tangram_index::process::put::Mode::Internal,
 				options: tg::referent::Options::default(),
 				output: None,
 				parent: None,
@@ -353,6 +356,7 @@ async fn incomplete_process_children_have_values() {
 				location: None,
 				log: None,
 				metadata: tg::process::Metadata::default(),
+				mode: tangram_index::process::put::Mode::Internal,
 				options: child_data.process.options.clone(),
 				output: None,
 				parent: Some(parent.clone()),
@@ -404,6 +408,7 @@ async fn process_children_must_be_unique() {
 				location: None,
 				log: None,
 				metadata: tg::process::Metadata::default(),
+				mode: tangram_index::process::put::Mode::Internal,
 				options: tg::referent::Options::default(),
 				output: None,
 				parent: None,
@@ -454,6 +459,92 @@ async fn process_status_does_not_regress() {
 }
 
 #[tokio::test]
+async fn process_create_requires_finished_data() {
+	let (_dir, index) = new_index();
+	let id = tg::process::Id::new();
+	for data in [
+		None,
+		process_arg(id.clone(), tg::process::Status::Started).data,
+	] {
+		let mut process = process_arg(id.clone(), tg::process::Status::Finished);
+		process.data = data;
+		process.mode = tangram_index::process::put::Mode::Create;
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutProcess(process)],
+		};
+		let error = index.batch(arg).await.unwrap_err();
+		assert!(error.to_string().contains("expected a finished process"));
+		assert!(index.try_get_process(&id).await.unwrap().is_none());
+	}
+}
+
+#[tokio::test]
+async fn process_create_rejects_existing_ids() {
+	let (_dir, index) = new_index();
+	for status in [tg::process::Status::Finished, tg::process::Status::Started] {
+		let id = tg::process::Id::new();
+		let process = process_arg(id.clone(), status);
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutProcess(process)],
+		};
+		index.batch(arg).await.unwrap();
+		let mut process = process_arg(id.clone(), tg::process::Status::Finished);
+		process.mode = tangram_index::process::put::Mode::Create;
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::PutProcess(process)],
+		};
+		let error = index.batch(arg).await.unwrap_err();
+		assert!(error.to_string().contains("the process already exists"));
+		let stored = index.try_get_process(&id).await.unwrap().unwrap();
+		assert_eq!(stored.data.unwrap().status, status);
+	}
+}
+
+#[tokio::test]
+async fn process_create_collision_aborts_batch() {
+	let (_dir, index) = new_index();
+	let id = tg::process::Id::new();
+	let mut process = process_arg(id.clone(), tg::process::Status::Finished);
+	process.mode = tangram_index::process::put::Mode::Create;
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(process.clone())],
+	};
+	index.batch(arg).await.unwrap();
+	let before = tg::process::Id::new();
+	let after = tg::process::Id::new();
+	let arg = tangram_index::batch::Arg {
+		items: vec![
+			tangram_index::batch::Item::PutProcess(process_arg(
+				before.clone(),
+				tg::process::Status::Finished,
+			)),
+			tangram_index::batch::Item::PutProcess(process),
+			tangram_index::batch::Item::PutProcess(process_arg(
+				after.clone(),
+				tg::process::Status::Finished,
+			)),
+		],
+	};
+	assert!(index.batch(arg).await.is_err());
+	assert!(index.try_get_process(&before).await.unwrap().is_none());
+	assert!(index.try_get_process(&after).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn process_create_concurrent_collision() {
+	let (_dir, index) = new_index();
+	let id = tg::process::Id::new();
+	let mut process = process_arg(id.clone(), tg::process::Status::Finished);
+	process.mode = tangram_index::process::put::Mode::Create;
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(process)],
+	};
+	let (left, right) = tokio::join!(index.batch(arg.clone()), index.batch(arg));
+	assert_ne!(left.is_ok(), right.is_ok());
+	assert!(index.try_get_process(&id).await.unwrap().is_some());
+}
+
+#[tokio::test]
 async fn sandbox_status_does_not_regress() {
 	let (_dir, index) = new_index();
 	let id = tg::sandbox::Id::new();
@@ -494,6 +585,7 @@ async fn process_and_log_compaction_share_transaction() {
 				location: None,
 				log: Some(None),
 				metadata: tg::process::Metadata::default(),
+				mode: tangram_index::process::put::Mode::Internal,
 				options: tg::referent::Options::default(),
 				output: Some(None),
 				parent: None,

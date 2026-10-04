@@ -78,6 +78,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 			location: None,
 			log: None,
 			metadata: tg::process::Metadata::default(),
+			mode: tangram_index::process::put::Mode::Internal,
 			options: tg::referent::Options::default(),
 			output: None,
 			parent: None,

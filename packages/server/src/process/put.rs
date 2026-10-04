@@ -25,6 +25,7 @@ pub(crate) struct Options {
 	pub defer_index: bool,
 	pub enqueue_log_compaction: bool,
 	pub location: Option<tg::Location>,
+	pub mode: tangram_index::process::put::Mode,
 	pub store_data: bool,
 	pub sync: Option<tg::Referent<tg::sync::Id>>,
 }
@@ -48,6 +49,7 @@ impl Session {
 					defer_index: false,
 					enqueue_log_compaction: false,
 					location: None,
+					mode: tangram_index::process::put::Mode::Create,
 					store_data: true,
 					sync: None,
 				};
@@ -195,6 +197,7 @@ impl Session {
 			defer_index,
 			enqueue_log_compaction,
 			location,
+			mode,
 			store_data,
 			sync,
 		} = options;
@@ -324,6 +327,7 @@ impl Session {
 			location,
 			log: log_object,
 			metadata: tg::process::Metadata::default(),
+			mode,
 			options: tg::referent::Options::default(),
 			output: Some(output_objects),
 			parent: None,

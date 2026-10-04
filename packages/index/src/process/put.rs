@@ -43,6 +43,9 @@ pub struct Arg {
 	#[tangram_serialize(id = 6)]
 	pub metadata: tg::process::Metadata,
 
+	#[tangram_serialize(id = 18)]
+	pub mode: Mode,
+
 	#[tangram_serialize(id = 14)]
 	pub options: tg::referent::Options,
 
@@ -71,8 +74,29 @@ pub struct Arg {
 	pub touched_at: i64,
 }
 
+#[derive(
+	Clone, Copy, Debug, Eq, PartialEq, tangram_serialize::Deserialize, tangram_serialize::Serialize,
+)]
+pub enum Mode {
+	/// Create a finished process without replacing an existing ID.
+	#[tangram_serialize(id = 0)]
+	Create,
+
+	/// Update process data and relationships during internal lifecycle operations.
+	#[tangram_serialize(id = 1)]
+	Internal,
+}
+
 impl Arg {
 	pub fn validate(&self) -> tg::Result<()> {
+		if self.mode == Mode::Create
+			&& !self
+				.data
+				.as_ref()
+				.is_some_and(|data| data.status.is_finished())
+		{
+			return Err(tg::error!("expected a finished process"));
+		}
 		let Some(children) = &self.children else {
 			return Ok(());
 		};

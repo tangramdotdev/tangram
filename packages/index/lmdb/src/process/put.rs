@@ -20,8 +20,12 @@ impl Index {
 		let merge = !arg.complete();
 		let existing = db
 			.get(transaction, &key)
-			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-			.and_then(|bytes| tangram_index::process::Process::deserialize(bytes).ok());
+			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?;
+		if arg.mode == tangram_index::process::put::Mode::Create && existing.is_some() {
+			return Err(tg::error!(%id, "the process already exists"));
+		}
+		let existing =
+			existing.and_then(|bytes| tangram_index::process::Process::deserialize(bytes).ok());
 
 		// Preserve terminal data while still applying the initialization relationships.
 		let mut arg = std::borrow::Cow::Borrowed(arg);

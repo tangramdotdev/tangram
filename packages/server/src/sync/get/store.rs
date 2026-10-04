@@ -327,6 +327,7 @@ impl Session {
 					location: None,
 					log: None,
 					metadata: metadata.clone().unwrap_or_default(),
+					mode: tangram_index::process::put::Mode::Internal,
 					options: tg::referent::Options::default(),
 					output: None,
 					parent: None,

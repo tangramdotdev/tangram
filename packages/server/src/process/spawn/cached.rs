@@ -622,6 +622,7 @@ impl Session {
 			defer_index: false,
 			enqueue_log_compaction: false,
 			location: Some(location),
+			mode: tangram_index::process::put::Mode::Internal,
 			store_data: true,
 			sync: None,
 		};

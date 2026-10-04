@@ -108,6 +108,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 					location: None,
 					log: None,
 					metadata: tg::process::Metadata::default(),
+					mode: tangram_index::process::put::Mode::Internal,
 					options: tg::referent::Options::default(),
 					output: None,
 					parent: None,

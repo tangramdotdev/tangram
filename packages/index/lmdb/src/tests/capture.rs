@@ -395,6 +395,7 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 		location: None,
 		log: None,
 		metadata: tg::process::Metadata::default(),
+		mode: tangram_index::process::put::Mode::Internal,
 		options: tg::referent::Options::default(),
 		output: None,
 		parent: None,

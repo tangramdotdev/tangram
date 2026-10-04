@@ -768,6 +768,7 @@ impl Session {
 			defer_index: false,
 			enqueue_log_compaction: false,
 			location: location.and_then(|location| location.to_location()),
+			mode: tangram_index::process::put::Mode::Internal,
 			store_data: true,
 			sync: None,
 		};

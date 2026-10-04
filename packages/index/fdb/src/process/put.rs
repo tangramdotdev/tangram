@@ -21,8 +21,12 @@ impl Index {
 		let key = Self::pack(subspace, &key);
 
 		let result = txn.get(&key, false).await;
-		let existing = crate::retry!(result)
-			.and_then(|bytes| tangram_index::process::Process::deserialize(&bytes).ok());
+		let existing = crate::retry!(result);
+		if arg.mode == tangram_index::process::put::Mode::Create && existing.is_some() {
+			return Err(tg::error!(%id, "the process already exists"));
+		}
+		let existing =
+			existing.and_then(|bytes| tangram_index::process::Process::deserialize(&bytes).ok());
 		let merge = !arg.complete();
 
 		// Preserve terminal data while still applying the initialization relationships.

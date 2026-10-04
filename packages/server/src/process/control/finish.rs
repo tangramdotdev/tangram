@@ -19,6 +19,7 @@ impl Session {
 			defer_index: true,
 			enqueue_log_compaction: true,
 			location: None,
+			mode: tangram_index::process::put::Mode::Internal,
 			store_data: true,
 			sync: sync.cloned(),
 		};
