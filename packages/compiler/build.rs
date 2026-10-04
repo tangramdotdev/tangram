@@ -3,6 +3,7 @@ fn main() {
 
 	// Build the library.
 	self::library::build();
+	self::python::build();
 
 	#[cfg(feature = "typescript")]
 	self::typescript::build();
@@ -332,5 +333,34 @@ mod typescript {
 		}
 		let bytes = serde_json::to_vec(&json).unwrap();
 		std::fs::write(&path, bytes).unwrap();
+	}
+}
+
+mod python {
+	use std::{path::PathBuf, process::Command};
+
+	pub fn build() {
+		for path in [
+			"../clients/py/src",
+			"../clients/py/library.py",
+			"../clients/py/pyproject.toml",
+			"../../uv.lock",
+		] {
+			println!("cargo:rerun-if-changed={path}");
+		}
+		let output = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("py");
+		if output.exists() {
+			std::fs::remove_dir_all(&output).unwrap();
+		}
+		std::fs::create_dir_all(&output).unwrap();
+		let status = Command::new("../../.venv/bin/python")
+			.arg("../clients/py/library.py")
+			.arg(&output)
+			.status()
+			.unwrap();
+		assert!(
+			status.success(),
+			"failed to prepare the Python client library"
+		);
 	}
 }

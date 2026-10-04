@@ -2,8 +2,8 @@
 
 import csv
 import importlib.metadata
-import importlib.util
 import json
+import runpy
 import shutil
 import subprocess
 import sys
@@ -55,23 +55,7 @@ def main():
         target = library / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, target)
-    roots = [client / "tangram"]
-    for name in ["h2", "hpack", "hyperframe", "tomli_w", "yaml"]:
-        spec = importlib.util.find_spec(name)
-        if spec is None or spec.origin is None:
-            raise SystemExit(f"missing {name}: run uv sync --locked --all-packages")
-        roots.append(Path(spec.origin).parent)
-    for root in roots:
-        for path in sorted(root.rglob("*")):
-            if (
-                not path.is_file()
-                or "__pycache__" in path.parts
-                or path.suffix in {".so", ".pyc"}
-            ):
-                continue
-            target = library / path.relative_to(root.parent)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(path, target)
+    runpy.run_path(str(client.parent / "library.py"))["copy"](library)
 
     # Preserve distribution metadata for version checks and entry point discovery.
     for name in ["h2", "hpack", "hyperframe", "tomli-w", "PyYAML"]:

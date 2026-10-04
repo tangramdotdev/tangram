@@ -69,6 +69,29 @@ Exceptions produce exit status 1 and structured Tangram errors with source locat
 indentation and an 88-column line width. It accepts a file or directory and respects
 `.tangramignore`. The LSP document-formatting request uses the same formatter.
 
+`tg check ./main.tg.py` type-checks Python modules with ty. It checks imported
+modules once per canonical referent, resolves declared path and tag dependencies
+through Tangram, and reads checked-in source without executing Python. Diagnostics
+refer to the original modules and source positions, retaining explanatory notes.
+Unresolved imports produce diagnostics without suppressing other type errors.
+Standard-library imports use ty's bundled typeshed. The checker embeds the existing
+Python client's annotated source and its dependencies; the ambient `tg` name refers
+to that same package. No separate client declarations are maintained.
+
+The runtime and checker use the same Rust resolver for explicit packages
+(`tangram.py`), namespace packages, relative imports, and PEP 723 dependency aliases
+and attributes. Package ancestry, relative-import bounds, and recorded dependency
+edges are interpreted once, independently of execution or type inference.
+The shared resolver also decides whether a from-import keeps an existing export or
+resolves a child module. A failed recorded dependency remains an error even when
+the package initializer exports that name. Declared aliases take precedence over
+ordinary library imports, including names such as `sys`.
+Object imports use the runtime's synthetic module generator and expose typed
+`default` exports. Python LSP features remain outside this integration. Building it currently requires
+the modified ty checkout at `../ty/ruff`; Cargo uses local path dependencies for
+the resolver and checker crates. Ruff parsing and formatting retain their existing
+pinned revision.
+
 Relative imports require a package context and use Python syntax:
 
 ```python

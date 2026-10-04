@@ -42,6 +42,7 @@ pub mod inlay_hint;
 pub mod jsonrpc;
 pub mod metadata;
 pub mod prepare_rename;
+pub mod py;
 pub mod references;
 pub mod rename;
 pub mod selection_range;
@@ -79,7 +80,6 @@ pub struct State {
 	library_path: PathBuf,
 
 	/// A handle to the main tokio runtime.
-	#[cfg_attr(not(feature = "typescript"), expect(dead_code))]
 	main_runtime_handle: tokio::runtime::Handle,
 
 	/// The position encoding negotiated with the LSP client.

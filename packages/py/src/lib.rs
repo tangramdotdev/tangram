@@ -2,7 +2,6 @@ use {
 	pyo3::{exceptions::PyRuntimeError, prelude::*, types::PyModule},
 	std::{
 		ffi::CString,
-		fmt::Write as _,
 		path::{Path, PathBuf},
 		sync::{Mutex, mpsc},
 	},
@@ -35,13 +34,6 @@ pub struct Outcome {
 struct Host {
 	instance: tg::instance::dynamic::Instance,
 	main_runtime_handle: tokio::runtime::Handle,
-}
-
-#[derive(serde::Serialize)]
-struct Resolved {
-	data: tg::module::Data,
-	filename: PathBuf,
-	key: String,
 }
 
 pub fn run(arg: Arg) -> tg::Result<Outcome> {
@@ -123,67 +115,19 @@ impl Host {
 		serialize_module(module).map_err(|error| PyRuntimeError::new_err(error.to_string()))
 	}
 
-	fn resolve(&self, py: Python<'_>, referrer: &str, import: &str) -> PyResult<String> {
-		let referrer = serde_json::from_str::<tg::module::Data>(referrer)
-			.map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-		let import = serde_json::from_str::<tg::module::Import>(import)
-			.map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-		let arg = tg::module::resolve::Arg {
-			import,
-			referrer: Some(referrer),
-		};
-		let (sender, receiver) = mpsc::channel();
-		self.main_runtime_handle.spawn({
-			let instance = self.instance.clone();
-			async move {
-				let result = async {
-					let module = instance.resolve_module(arg).await?.module;
-					serialize_module(module)
-				}
-				.await;
-				let _ = sender.send(result);
-			}
-		});
-		let result = py
-			.detach(move || receiver.recv())
-			.map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-		result.map_err(|error| to_exception(py, &error))
-	}
-
-	fn resolve_path(
-		&self,
-		py: Python<'_>,
-		referrer: &str,
-		path: PathBuf,
-		kind: &str,
-	) -> PyResult<Option<String>> {
-		let referrer = serde_json::from_str::<tg::module::Data>(referrer)
-			.map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-		let kind = kind
-			.parse::<tg::module::Kind>()
+	fn resolve(&self, py: Python<'_>, request: &str) -> PyResult<String> {
+		let request = serde_json::from_str::<tangram_compiler::py::resolve::Request>(request)
 			.map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
 		let (sender, receiver) = mpsc::channel();
 		self.main_runtime_handle.spawn({
 			let instance = self.instance.clone();
 			async move {
-				let result = resolve_path(instance, referrer, path, kind).await;
-				let _ = sender.send(result);
-			}
-		});
-		let result = py
-			.detach(move || receiver.recv())
-			.map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-		result.map_err(|error| to_exception(py, &error))
-	}
-
-	fn namespace_exists(&self, py: Python<'_>, referrer: &str, path: PathBuf) -> PyResult<bool> {
-		let module = serde_json::from_str::<tg::module::Data>(referrer)
-			.map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-		let (sender, receiver) = mpsc::channel();
-		self.main_runtime_handle.spawn({
-			let instance = self.instance.clone();
-			async move {
-				let result = namespace_exists(instance, module, path).await;
+				let resolver = tangram_compiler::py::resolve::Resolver::new(instance);
+				let result = resolver.resolve(request).await.and_then(|output| {
+					serde_json::to_string(&output).map_err(|error| {
+						tg::error!(!error, "failed to serialize the Python resolution")
+					})
+				});
 				let _ = sender.send(result);
 			}
 		});
@@ -249,7 +193,7 @@ async fn prepare_module(
 			module.referent.node,
 			tg::module::data::Source::Edge(tg::graph::data::Edge::Object(_))
 		) {
-		let file = module_file(&module)?;
+		let file = tangram_compiler::py::resolve::module_file(&module)?;
 		if let tg::file::Object::Pointer(pointer) =
 			file.object_with_instance(instance).await?.as_ref()
 		{
@@ -266,20 +210,7 @@ async fn prepare_module(
 }
 
 fn serialize_module(module: tg::module::Data) -> tg::Result<String> {
-	let filename = match &module.referent.node {
-		tg::module::data::Source::Path(path) => path.clone(),
-		tg::module::data::Source::Edge(_) => module
-			.referent
-			.path()
-			.unwrap_or_else(|| Path::new("tangram.py"))
-			.to_owned(),
-	};
-	let key = module.without_token().to_string();
-	let resolved = Resolved {
-		data: module,
-		filename,
-		key,
-	};
+	let resolved = tangram_compiler::py::resolve::Module::new(module);
 	let output = serde_json::to_string(&resolved)
 		.map_err(|error| tg::error!(!error, "failed to serialize the Python module"))?;
 	Ok(output)
@@ -300,261 +231,8 @@ async fn load_module(
 				module.kind
 			));
 		},
-		_ => object_module(&module)?,
+		_ => tangram_compiler::py::load::object_module(&module)?,
 	};
-	Ok(text)
-}
-
-async fn resolve_path(
-	instance: tg::instance::dynamic::Instance,
-	module: tg::module::Data,
-	path: PathBuf,
-	kind: tg::module::Kind,
-) -> tg::Result<Option<String>> {
-	// Translate a Python path to an import before calling the shared resolver.
-	let (referrer, reference) = match &module.referent.node {
-		tg::module::data::Source::Path(source) => {
-			let source = source.parent().unwrap().join(&path);
-			let metadata = match tokio::fs::metadata(&source).await {
-				Ok(metadata) => metadata,
-				Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-				Err(error) => {
-					return Err(tg::error!(!error, "failed to inspect the Python import"));
-				},
-			};
-			if (kind == tg::module::Kind::Directory && !metadata.is_dir())
-				|| (kind == tg::module::Kind::Py && !metadata.is_file())
-			{
-				return Ok(None);
-			}
-			(Some(module.clone()), tg::Reference::with_path(path.clone()))
-		},
-		tg::module::data::Source::Edge(_) => {
-			let file = module_file(&module)?;
-			let dependencies = file.dependencies_with_instance(&instance).await?;
-			let dependency = dependencies.into_iter().find(|(reference, _)| {
-				let Ok(relative) = reference.node().try_unwrap_path_ref() else {
-					return false;
-				};
-				reference.without_token().options() == &tg::reference::Options::default()
-					&& tangram_util::path::normalize(relative)
-						== tangram_util::path::normalize(&path)
-			});
-			if let Some((reference, _)) = dependency {
-				(Some(module.clone()), reference)
-			} else {
-				let Some(member) =
-					package_member(instance.clone(), module, path.clone(), kind).await?
-				else {
-					return Ok(None);
-				};
-				let reference = member.to_string().parse().map_err(|error| {
-					tg::error!(!error, "failed to parse the Python member import")
-				})?;
-				(None, reference)
-			}
-		},
-	};
-	let import = tg::module::Import {
-		kind: Some(kind),
-		reference,
-	};
-	let arg = tg::module::resolve::Arg { import, referrer };
-	let module = instance.resolve_module(arg).await?.module;
-	let output = serialize_module(module)?;
-	Ok(Some(output))
-}
-
-async fn namespace_exists(
-	instance: tg::instance::dynamic::Instance,
-	module: tg::module::Data,
-	path: PathBuf,
-) -> tg::Result<bool> {
-	if !matches!(module.referent.node, tg::module::data::Source::Edge(_)) {
-		return Ok(false);
-	}
-	// A file-only checkin can retain a namespace's members without a directory object.
-	let path = tangram_util::path::normalize(&path);
-	let file = module_file(&module)?;
-	let dependencies = file.dependencies_with_instance(&instance).await?;
-	let exists = dependencies.into_iter().any(|(reference, dependency)| {
-		if reference.without_token().options() != &tg::reference::Options::default()
-			|| dependency.is_none()
-		{
-			return false;
-		}
-		let Ok(relative) = reference.node().try_unwrap_path_ref() else {
-			return false;
-		};
-		let relative = tangram_util::path::normalize(relative);
-		relative != path && relative.starts_with(&path)
-	});
-
-	Ok(exists)
-}
-
-fn module_file(module: &tg::module::Data) -> tg::Result<tg::File> {
-	let source = tg::Module::try_from_data(module.clone())?.referent.node;
-	let tg::module::Source::Edge(edge) = source else {
-		return Err(tg::error!("expected a checked-in Python module"));
-	};
-	let file = match edge {
-		tg::graph::Edge::Object(object) => object
-			.try_unwrap_file()
-			.map_err(|_| tg::error!("expected a Python module file"))?,
-		tg::graph::Edge::Pointer(pointer) => {
-			pointer
-				.graph
-				.state()
-				.set_location(module.referent.options.location.clone());
-			pointer
-				.graph
-				.state()
-				.set_tokens(module.referent.options.tokens.clone());
-			tg::Artifact::with_pointer(pointer)
-				.try_unwrap_file()
-				.map_err(|_| tg::error!("expected a Python module file"))?
-		},
-		tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
-	};
-	file.state()
-		.set_tokens(module.referent.options.tokens.clone());
-	file.state()
-		.set_location(module.referent.options.location.clone());
-	Ok(file)
-}
-
-async fn package_member(
-	instance: tg::instance::dynamic::Instance,
-	module: tg::module::Data,
-	path: PathBuf,
-	kind: tg::module::Kind,
-) -> tg::Result<Option<tg::Referent<tg::module::data::Source>>> {
-	// Locate package members within the resolved directory artifact.
-	let Some(id) = module.referent.options.id.clone() else {
-		return Ok(None);
-	};
-	let referent = tg::Referent::new(id, module.referent.options.clone());
-	let Ok(directory) = tg::Object::with_referent(referent).try_unwrap_directory() else {
-		return Ok(None);
-	};
-	let Some(parent) = module.referent.path().and_then(Path::parent) else {
-		return Ok(None);
-	};
-	let path = tangram_util::path::normalize(parent.join(path));
-	if path.is_absolute() || path.starts_with("..") {
-		return Ok(None);
-	}
-	if path.as_os_str().is_empty() || path == Path::new(".") {
-		if kind != tg::module::Kind::Directory {
-			return Ok(None);
-		}
-		let mut options = module.referent.options;
-		options.path = Some(path);
-		let node =
-			tg::module::data::Source::Edge(tg::graph::data::Edge::Object(directory.id().into()));
-		let referent = tg::Referent { node, options };
-		return Ok(Some(referent));
-	}
-	let mut current = directory;
-	let mut components = path.components().peekable();
-	let mut edge = None;
-	while let Some(component) = components.next() {
-		let name = component
-			.as_os_str()
-			.to_str()
-			.ok_or_else(|| tg::error!("invalid package member path"))?;
-		let Some(entry) = current
-			.try_get_entry_edge_with_instance(&instance, name)
-			.await?
-		else {
-			return Ok(None);
-		};
-		if components.peek().is_some() {
-			let artifact = tg::Artifact::with_edge(entry)?;
-			let Ok(directory) = artifact.try_unwrap_directory() else {
-				return Ok(None);
-			};
-			current = directory;
-		} else {
-			edge = Some(entry);
-		}
-	}
-	let Some(edge) = edge else {
-		return Ok(None);
-	};
-	let artifact = tg::Artifact::with_edge(edge.clone())?;
-	if !matches!(
-		(kind, artifact),
-		(tg::module::Kind::Directory, tg::Artifact::Directory(_))
-			| (tg::module::Kind::Py, tg::Artifact::File(_))
-	) {
-		return Ok(None);
-	}
-	let edge = match edge {
-		tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
-		tg::graph::Edge::Object(artifact) => tg::graph::Edge::Object(tg::Object::from(artifact)),
-		tg::graph::Edge::Pointer(pointer) => tg::graph::Edge::Pointer(pointer),
-	};
-	let mut options = module.referent.options;
-	options.path = Some(path);
-	let referent = tg::Referent {
-		node: tg::module::data::Source::Edge(edge.to_data()),
-		options,
-	};
-	Ok(Some(referent))
-}
-
-fn object_module(module: &tg::module::Data) -> tg::Result<String> {
-	let class = match module.kind {
-		tg::module::Kind::Artifact => "Artifact",
-		tg::module::Kind::Blob => "Blob",
-		tg::module::Kind::Command => "Command",
-		tg::module::Kind::Directory => "Directory",
-		tg::module::Kind::Error => "Error",
-		tg::module::Kind::File => "File",
-		tg::module::Kind::Graph => "Graph",
-		tg::module::Kind::Object => "Object",
-		tg::module::Kind::Symlink => "Symlink",
-		tg::module::Kind::Dts
-		| tg::module::Kind::Js
-		| tg::module::Kind::Py
-		| tg::module::Kind::Ts => return Err(tg::error!("expected an object module")),
-	};
-	let mut prefix = String::new();
-	let expression = match &module.referent.node {
-		tg::module::data::Source::Edge(edge) => match edge {
-			tg::graph::data::Edge::Index(_) => return Err(tg::error!("missing graph")),
-			tg::graph::data::Edge::Object(id) => {
-				let id = serde_json::to_string(&id.to_string()).unwrap();
-				format!("tg.{class}.with_id({id})")
-			},
-			tg::graph::data::Edge::Pointer(pointer) => {
-				let pointer = serde_json::to_string(&pointer.to_string()).unwrap();
-				prefix = format!("pointer = tg.Graph.Pointer.from_data_string({pointer})\n");
-				let class = if class == "Object" { "Artifact" } else { class };
-				format!("tg.{class}.with_pointer(pointer)")
-			},
-		},
-		tg::module::data::Source::Path(_) => "None".to_owned(),
-	};
-	let tokens = serde_json::to_string(&module.referent.options.tokens).unwrap();
-	let tokens = serde_json::to_string(&tokens).unwrap();
-	let mut text = format!("{prefix}default = {expression}\n");
-	if !matches!(module.referent.node, tg::module::data::Source::Path(_)) {
-		writeln!(
-			text,
-			"tg.Object.inherit_tokens(default, __import__('json').loads({tokens}))"
-		)
-		.unwrap();
-		text.push_str(
-			"tg.Object.inherit_location(default, __tangram_module__.referent.options.get(\"location\"))\n",
-		);
-		if !prefix.is_empty() {
-			text.push_str("tg.Object.inherit_location(pointer.graph, default.state.location)\n");
-			text.push_str("tg.Object.inherit_tokens(pointer.graph, default.state.tokens)\n");
-		}
-	}
 	Ok(text)
 }
 
@@ -611,7 +289,7 @@ mod tests {
 				kind: tg::module::Kind::Py,
 				referent,
 			};
-			let file = module_file(&module).unwrap();
+			let file = tangram_compiler::py::resolve::module_file(&module).unwrap();
 			assert_eq!(file.state().location(), Some(location.clone()));
 			if let Some(object) = file.state().object() {
 				let tg::file::Object::Pointer(pointer) = object.unwrap_file().as_ref().clone()

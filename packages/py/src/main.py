@@ -11,7 +11,6 @@ import importlib.util
 import inspect
 import json
 import linecache
-import posixpath
 import sys
 import traceback
 from collections.abc import Mapping, Sequence
@@ -23,11 +22,7 @@ from typing import Any, Protocol
 class Host(Protocol):
     def describe(self, module: str) -> str: ...
 
-    def resolve(self, referrer: str, import_: str) -> str: ...
-
-    def resolve_path(self, referrer: str, path: str, kind: str) -> str | None: ...
-
-    def namespace_exists(self, referrer: str, path: str) -> bool: ...
+    def resolve(self, request: str) -> str: ...
 
     def load(self, module: str) -> str: ...
 
@@ -40,9 +35,8 @@ class Module:
         self.key = resolved["key"]
         self.filename = resolved["filename"]
         self.name = "_tangram_modules.m" + hashlib.sha256(self.key.encode()).hexdigest()
-        self.package = (
-            self.data["kind"] == "py" and Path(self.filename).name == "tangram.py"
-        )
+        self.package = resolved["package"]
+        self.target = {"kind": "module", "value": resolved}
         self.namespace: ModuleType | None = None
         self.spec: importlib.machinery.ModuleSpec | None = None
         self.text = ""
@@ -52,17 +46,9 @@ class Module:
 
 
 class Package:
-    def __init__(
-        self,
-        namespace: ModuleType,
-        referrer: Module,
-        prefix: str,
-        parent: Package | None = None,
-    ) -> None:
+    def __init__(self, namespace: ModuleType, target: dict[str, Any]) -> None:
         self.namespace = namespace
-        self.referrer = referrer
-        self.prefix = prefix
-        self.parent = parent.namespace.__name__ if parent is not None else None
+        self.target = target
 
 
 class Loader(importlib.abc.Loader):
@@ -112,6 +98,7 @@ class Finder(importlib.abc.MetaPathFinder):
             self.names[module.name] = module
         else:
             module.data = resolved["data"]
+            module.target = {"kind": "module", "value": resolved}
             filename = self.filename(module)
             if filename in self.sources:
                 self.sources[filename] = module.data
@@ -121,15 +108,48 @@ class Finder(importlib.abc.MetaPathFinder):
                 )
         return module
 
-    def resolve(self, referrer: Module, import_: dict[str, Any]) -> Module:
-        serialized = self.host.resolve(json.dumps(referrer.data), json.dumps(import_))
-        return self.register(json.loads(serialized))
+    def resolve(self, request: dict[str, Any]) -> dict[str, Any] | None:
+        output = json.loads(self.host.resolve(json.dumps(request)))
+        if output["kind"] == "fallback":
+            return None
+        if output["kind"] == "missing":
+            error = output["value"]
+            if error["name"] is not None:
+                raise ModuleNotFoundError(error["message"], name=error["name"])
+            raise ImportError(error["message"])
+        return output["value"]
 
-    def resolve_path(
-        self, referrer: Module, path: str, kind: str = "py"
-    ) -> Module | None:
-        serialized = self.host.resolve_path(json.dumps(referrer.data), path, kind)
-        return self.register(json.loads(serialized)) if serialized is not None else None
+    def target_object(self, target: dict[str, Any]) -> Module | Package:
+        if target["kind"] == "module":
+            return self.register(target["value"])
+        value = target["value"]
+        name = "_tangram_modules.p" + hashlib.sha256(value["key"].encode()).hexdigest()
+        if name not in self.packages:
+            self.namespace(self.target_object(value["parent"]))
+            # Loading the parent may already have created this namespace.
+            if name not in self.packages:
+                spec = importlib.machinery.ModuleSpec(name, None, is_package=True)
+                spec.submodule_search_locations = []
+                namespace = importlib.util.module_from_spec(spec)
+                sys.modules[name] = namespace
+                self.packages[name] = Package(namespace, target)
+        return self.packages[name]
+
+    def resolution(
+        self, resolved: dict[str, Any]
+    ) -> tuple[Module | Package, ModuleType | None]:
+        steps = resolved["steps"]
+        for index, step in enumerate(steps):
+            parent = self.namespace(self.target_object(step["parent"]))
+            child = self.target_object(step["target"])
+            if isinstance(child, Module):
+                child.bindings[(parent.__name__, step["name"])] = parent
+            if index < len(steps) - 1:
+                setattr(parent, step["name"], self.namespace(child))
+        root = resolved["root"]
+        return self.target_object(resolved["target"]), (
+            self.namespace(self.target_object(root)) if root is not None else None
+        )
 
     def filename(self, module: Module) -> str:
         node = module.data["referent"]["node"]
@@ -201,18 +221,21 @@ class Finder(importlib.abc.MetaPathFinder):
         try:
             if module.data["kind"] == "py":
                 if module.package:
-                    package = self.packages.get(module.name)
-                    if package is None:
-                        package = Package(namespace, module, ".")
-                        self.packages[module.name] = package
+                    self.packages.setdefault(
+                        module.name, Package(namespace, module.target)
+                    )
                     namespace.__package__ = module.name
-                    if package.parent is None:
-                        parent = self.containing(module, "..")
-                        package.parent = parent.namespace.__name__ if parent else None
-                else:
-                    package = self.containing(module)
+                resolved = self.resolve(
+                    {"kind": "package", "module": module.data, "parent": module.package}
+                )
+                parent = (
+                    self.namespace(self.target_object(resolved["target"]))
+                    if resolved is not None
+                    else None
+                )
+                if not module.package:
                     namespace.__package__ = (
-                        package.namespace.__name__ if package else ""
+                        parent.__name__ if parent is not None else ""
                     )
             # A package initializer may have imported and executed this child already.
             if module.status in ("executing", "loaded"):
@@ -231,104 +254,6 @@ class Finder(importlib.abc.MetaPathFinder):
             raise
         return namespace
 
-    def containing(self, module: Module, prefix: str = ".") -> Package | None:
-        prefix = posixpath.normpath(prefix)
-        if prefix == "." and module.package:
-            return self.packages[module.name]
-        referent = module.data["referent"]
-        node = referent["node"]
-        source = node if isinstance(node, str) and node.startswith((".", "/")) else None
-        options = referent.get("options") or {}
-        path = source or options.get("path")
-        directory = (
-            posixpath.normpath(posixpath.join(posixpath.dirname(path), prefix))
-            if path is not None
-            else None
-        )
-        if source is None and options.get("id") is not None and directory is not None:
-            if (
-                posixpath.isabs(directory)
-                or directory == ".."
-                or directory.startswith("../")
-            ):
-                return None
-        initializer = self.resolve_path(module, posixpath.join(prefix, "tangram.py"))
-        if initializer is not None:
-            if initializer is module:
-                return None
-            self.load(initializer)
-            return self.packages[initializer.name]
-
-        # Derive namespace ancestry from the resolved source or artifact member path.
-        if directory is None:
-            return None
-        if directory in (".", "/") or directory.startswith("../") or directory == "..":
-            return None
-        parent = self.containing(module, posixpath.join(prefix, ".."))
-        if parent is None:
-            return None
-        return self.namespace_package(
-            module, prefix, parent, posixpath.basename(directory)
-        )
-
-    def namespace_package(
-        self, referrer: Module, path: str, parent: Package, name: str
-    ) -> Package:
-        directory = self.resolve_path(referrer, path, "directory")
-        key = (
-            directory.key
-            if directory is not None
-            else parent.namespace.__name__ + "/" + name
-        )
-        name = "_tangram_modules.p" + hashlib.sha256(key.encode()).hexdigest()
-        if name not in self.packages:
-            spec = importlib.machinery.ModuleSpec(name, None, is_package=True)
-            spec.submodule_search_locations = []
-            namespace = importlib.util.module_from_spec(spec)
-            sys.modules[name] = namespace
-            self.packages[name] = Package(namespace, referrer, path, parent)
-        return self.packages[name]
-
-    def package(self, referrer: Module) -> Package:
-        assert referrer.namespace is not None
-        name = referrer.namespace.__package__
-        if not name or name not in self.packages:
-            raise ImportError("attempted relative import with no known parent package")
-        return self.packages[name]
-
-    def ancestor(self, package: Package, level: int) -> Package:
-        for _ in range(level - 1):
-            if package.parent is None:
-                raise ImportError("attempted relative import beyond top-level package")
-            name = package.parent
-            module = self.names.get(name)
-            if module is not None:
-                self.load(module)
-            package = self.packages[name]
-        return package
-
-    def child(
-        self, referrer: Module, path: str, parent: Package | None = None
-    ) -> Module | Package | None:
-        file = self.resolve_path(referrer, path + ".tg.py")
-        initializer = self.resolve_path(referrer, path + "/tangram.py")
-        if file is not None and initializer is not None:
-            raise ImportError(
-                f"ambiguous Tangram module: {path}.tg.py and {path}/tangram.py"
-            )
-        module = file or initializer
-        if module is not None:
-            return module
-        directory = self.resolve_path(referrer, path, "directory")
-        if directory is not None or self.host.namespace_exists(
-            json.dumps(referrer.data), path
-        ):
-            assert parent is not None
-            return self.namespace_package(
-                referrer, path, parent, posixpath.basename(path)
-            )
-        return None
-
     def namespace(self, target: Module | Package) -> ModuleType:
         if isinstance(target, Package):
             return target.namespace
@@ -337,80 +262,59 @@ class Finder(importlib.abc.MetaPathFinder):
             setattr(parent, name, namespace)
         return namespace
 
-    def walk(
-        self, referrer: Module, prefix: str, name: str, parent: Package
-    ) -> tuple[Module | Package, ModuleType | None]:
-        if not name:
-            return parent, parent.namespace
-        root = None
-        parts = name.split(".")
-        for index, part in enumerate(parts):
-            prefix = posixpath.join(prefix, part)
-            child = self.child(referrer, prefix, parent)
-            if child is None:
-                raise ModuleNotFoundError(
-                    f"no Tangram module named {name!r}", name=name
-                )
-            if isinstance(child, Module):
-                child.bindings[(parent.namespace.__name__, part)] = parent.namespace
-            if index == len(parts) - 1:
-                return child, root
-            namespace = self.namespace(child)
-            if not hasattr(namespace, "__path__"):
-                raise ModuleNotFoundError(f"{part!r} is not a package", name=name)
-            setattr(parent.namespace, part, namespace)
-            root = namespace if root is None else root
-            parent = self.packages[namespace.__name__]
-        raise AssertionError("expected an import name")
-
     def context(self, globals: Mapping[str, Any] | None) -> Module | None:
         return self.names.get(globals.get("__name__")) if globals is not None else None
 
     def target(
         self, name: str, globals: Mapping[str, Any] | None, level: int = 0
-    ) -> tuple[Module | Package, ModuleType | None] | None:
+    ) -> dict[str, Any] | None:
         referrer = self.context(globals)
         if referrer is None:
             return None
-        if level:
-            prefix = "/".join([".."] * (level - 1)) or "."
-            parent = self.ancestor(self.package(referrer), level)
-            return self.walk(referrer, prefix, name, parent)
-        root, _, suffix = name.partition(".")
-        if root not in referrer.imports:
-            return None
-        module = self.resolve(referrer, referrer.imports[root])
-        if suffix:
-            if not module.package:
-                raise ModuleNotFoundError(f"{root!r} is not a package", name=name)
-            namespace = self.load(module)
-            target, _ = self.walk(module, ".", suffix, self.packages[module.name])
-            return target, namespace
-        return module, None
+        return self.resolve(
+            {
+                "kind": "import",
+                "imports": referrer.imports,
+                "level": level,
+                "name": name,
+                "referrer": referrer.data,
+            }
+        )
 
     def fromlist(
-        self, namespace: ModuleType, referrer: Module, prefix: str, names: Sequence[str]
+        self,
+        namespace: ModuleType,
+        context: dict[str, Any] | None,
+        names: Sequence[str],
     ) -> ModuleType:
-        module = self.names.get(namespace.__name__)
-        if module is not None and not module.package:
+        if context is None:
             return namespace
         names = getattr(namespace, "__all__", ()) if "*" in names else names
         output = namespace
         for name in names:
             value = getattr(namespace, name, None)
-            # Scalar and callable exports take precedence over sibling modules.
-            if hasattr(namespace, name) and not (
-                isinstance(value, ModuleType) and value.__name__ in self.names
-            ):
+            export = "absent"
+            if hasattr(namespace, name):
+                export = (
+                    "module"
+                    if isinstance(value, ModuleType) and value.__name__ in self.names
+                    else "value"
+                )
+            try:
+                resolved = self.resolve(
+                    {
+                        "kind": "member",
+                        "context": context,
+                        "export": export,
+                        "name": name,
+                    }
+                )
+            except ModuleNotFoundError:
                 continue
-            target = self.child(
-                referrer,
-                posixpath.join(prefix, name),
-                self.packages.get(namespace.__name__),
-            )
-            if target is None:
+            if resolved is None:
                 continue
-            value = self.namespace(target)
+            # A from-import binds its child below, preserving referrer-specific exports.
+            value = self.namespace(self.target_object(resolved["target"]))
             if hasattr(namespace, name) and getattr(namespace, name) is not value:
                 # Keep this edge from changing another module's package exports.
                 if output is namespace:
@@ -435,24 +339,15 @@ class Finder(importlib.abc.MetaPathFinder):
         target = self.target(name, globals, level)
         if target is None:
             return builtins.__import__(name, globals, locals, fromlist, level)
-        module, root = target
+        module, root = self.resolution(target)
         namespace = self.namespace(module)
         if fromlist:
-            referrer = self.context(globals)
-            assert referrer is not None
-            if level:
-                prefix = "/".join([".."] * (level - 1)) or "."
-                prefix = posixpath.join(prefix, name.replace(".", "/"))
-            elif isinstance(module, Module):
-                referrer, prefix = module, "."
-            else:
-                referrer, prefix = module.referrer, module.prefix
-            return self.fromlist(namespace, referrer, prefix, fromlist)
+            return self.fromlist(namespace, target["context"], fromlist)
         return root or namespace
 
     def dynamic_target(
         self, name: str, package: str | None, globals: Mapping[str, Any]
-    ) -> tuple[Module | Package, ModuleType | None] | None:
+    ) -> dict[str, Any] | None:
         if not name.startswith("."):
             return self.target(name, globals)
         if package not in self.packages:
@@ -465,15 +360,19 @@ class Finder(importlib.abc.MetaPathFinder):
             and package == referrer.namespace.__package__
         ):
             return self.target(name[level:], globals, level)
-        context = self.packages[package]
-        parent = self.ancestor(context, level)
-        prefix = posixpath.join(context.prefix, *([".."] * (level - 1)))
-        return self.walk(context.referrer, prefix, name[level:], parent)
+        return self.resolve(
+            {
+                "kind": "relative",
+                "level": level,
+                "name": name[level:],
+                "package": self.packages[package].target,
+            }
+        )
 
     def import_module(self, name: str, package: str | None = None) -> ModuleType:
         target = self.dynamic_target(name, package, sys._getframe(1).f_globals)
         return (
-            self.namespace(target[0])
+            self.namespace(self.resolution(target)[0])
             if target is not None
             else self.original_import_module(name, package)
         )
@@ -484,7 +383,7 @@ class Finder(importlib.abc.MetaPathFinder):
         target = self.dynamic_target(name, package, sys._getframe(1).f_globals)
         if target is None:
             return self.original_find_spec(name, package)
-        module = target[0]
+        module, _ = self.resolution(target)
         return (
             self.spec(module)
             if isinstance(module, Module)

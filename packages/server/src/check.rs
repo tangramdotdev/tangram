@@ -5,14 +5,6 @@ use {
 };
 
 impl Session {
-	#[cfg(not(feature = "typescript"))]
-	pub(crate) async fn check(&self, _arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
-		Err(tg::error!(
-			"this version of tangram was not compiled with typescript support"
-		))
-	}
-
-	#[cfg(feature = "typescript")]
 	pub(crate) async fn check(&self, arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
 		let location = self.server.location(arg.location.as_ref())?;
 
@@ -32,7 +24,6 @@ impl Session {
 		Ok(output)
 	}
 
-	#[cfg(feature = "typescript")]
 	async fn check_local(&self, arg: tg::check::Arg) -> tg::Result<tg::check::Output> {
 		if !self.server.checkouts_enabled() {
 			return Err(tg::error!("checkouts are disabled"));
@@ -60,7 +51,6 @@ impl Session {
 		Ok(output)
 	}
 
-	#[cfg(feature = "typescript")]
 	async fn check_region(
 		&self,
 		arg: tg::check::Arg,
@@ -83,7 +73,6 @@ impl Session {
 		Ok(output)
 	}
 
-	#[cfg(feature = "typescript")]
 	async fn check_remote(
 		&self,
 		arg: tg::check::Arg,

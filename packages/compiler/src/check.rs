@@ -13,6 +13,19 @@ pub struct Response {
 impl Compiler {
 	/// Get all diagnostics for the provided modules.
 	pub async fn check(&self, modules: Vec<tg::module::Data>) -> tg::Result<Vec<tg::Diagnostic>> {
+		// Check the Python modules.
+		let (python, modules): (Vec<_>, Vec<_>) = modules
+			.into_iter()
+			.partition(|module| module.kind == tg::module::Kind::Py);
+		let mut diagnostics = if python.is_empty() {
+			Vec::new()
+		} else {
+			self.check_py(python).await?
+		};
+		if modules.is_empty() {
+			return Ok(diagnostics);
+		}
+
 		// Create the request.
 		let request = super::Request::Check(Request { modules });
 
@@ -20,12 +33,13 @@ impl Compiler {
 		let response = self.request(request).await?.unwrap_check();
 
 		// Convert diagnostics from data to the non-serializable form.
-		let diagnostics = response
+		let javascript = response
 			.diagnostics
 			.into_iter()
 			.map(TryInto::try_into)
 			.collect::<tg::Result<Vec<_>>>()?;
 
+		diagnostics.extend(javascript);
 		Ok(diagnostics)
 	}
 }

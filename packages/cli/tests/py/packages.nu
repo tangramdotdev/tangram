@@ -69,3 +69,19 @@ assert equal ($output.stdout | str trim) '42'
 let output = tg run $checked_file | complete
 success $output
 assert equal ($output.stdout | str trim) '42'
+
+# Recorded dependencies cannot grant a package parent outside its directory referent.
+let builder = artifact {
+    'tangram.ts': '
+        export default async function () {
+            const outside = await tg.file("raise AssertionError(\"outside the artifact root\")").module("py");
+            const source = "try:\n    from .. import value\nexcept ImportError as error:\n    assert str(error) == \"attempted relative import beyond top-level package\"\nelse:\n    assert False\ndef default():\n    return 42";
+            const root = await tg.file(source).module("py").dependency("../tangram.py", { node: outside });
+            return await tg.directory({ "tangram.py": root });
+        }
+    '
+}
+let module = tg run $builder
+let output = tg run $module | complete
+success $output
+assert equal ($output.stdout | str trim) '42'

@@ -19,6 +19,7 @@ fn main() {
 		"native.py",
 		"src",
 		"../clients/py/src",
+		"../clients/py/library.py",
 		"../clients/py/pyproject.toml",
 		"../../uv.lock",
 	] {
