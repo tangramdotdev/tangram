@@ -82,6 +82,10 @@ pub enum Mode {
 	#[tangram_serialize(id = 0)]
 	Create,
 
+	/// Import finished data without changing an existing process's identity.
+	#[tangram_serialize(id = 2)]
+	Import,
+
 	/// Update process data and relationships during internal lifecycle operations.
 	#[tangram_serialize(id = 1)]
 	Internal,
@@ -89,7 +93,7 @@ pub enum Mode {
 
 impl Arg {
 	pub fn validate(&self) -> tg::Result<()> {
-		if self.mode == Mode::Create
+		if self.mode != Mode::Internal
 			&& !self
 				.data
 				.as_ref()
@@ -107,6 +111,62 @@ impl Arg {
 			}
 		}
 
+		Ok(())
+	}
+
+	pub fn validate_existing(&self, existing: &super::Process) -> tg::Result<()> {
+		if self.command_id != existing.command_id {
+			return Err(tg::error!(
+				"the process data conflicts with the existing process"
+			));
+		}
+		let Some(existing) = &existing.data else {
+			return Ok(());
+		};
+		let mut existing = existing.clone().without_location_and_tokens();
+		let mut data = self
+			.data
+			.clone()
+			.ok_or_else(|| tg::error!("expected process data"))?
+			.without_location_and_tokens();
+		existing.children = None;
+		data.children = None;
+		// A compacted log can arrive after the rest of the finished process.
+		if existing.log.is_none() || data.log.is_none() {
+			existing.log = None;
+			data.log = None;
+		}
+		let existing = serde_json::to_value(&existing)
+			.map_err(|error| tg::error!(!error, "failed to serialize the existing process"))?;
+		let data = serde_json::to_value(&data)
+			.map_err(|error| tg::error!(!error, "failed to serialize the process"))?;
+		if data != existing {
+			return Err(tg::error!(
+				"the process data conflicts with the existing process"
+			));
+		}
+		Ok(())
+	}
+
+	pub fn validate_children(&self, existing: &[tg::process::data::Child]) -> tg::Result<()> {
+		let Some(children) = &self.children else {
+			return Ok(());
+		};
+		let children = children
+			.iter()
+			.cloned()
+			.map(tg::process::data::Child::without_location_and_tokens)
+			.collect::<Vec<_>>();
+		let children = serde_json::to_value(&children)
+			.map_err(|error| tg::error!(!error, "failed to serialize the process children"))?;
+		let existing = serde_json::to_value(existing).map_err(|error| {
+			tg::error!(!error, "failed to serialize the existing process children")
+		})?;
+		if children != existing {
+			return Err(tg::error!(
+				"the process children conflict with the existing process"
+			));
+		}
 		Ok(())
 	}
 

@@ -27,8 +27,44 @@ impl Index {
 		let existing =
 			existing.and_then(|bytes| tangram_index::process::Process::deserialize(bytes).ok());
 
+		// Check imported data in the same transaction as the write.
+		if arg.mode == tangram_index::process::put::Mode::Import
+			&& let Some(existing) = &existing
+		{
+			arg.validate_existing(existing)?;
+			if existing.set.children
+				&& let Some(children) = &arg.children
+			{
+				let length = u64::try_from(children.len()).unwrap().saturating_add(1);
+				let children = Self::try_get_process_children_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					id,
+					std::io::SeekFrom::Start(0),
+					length,
+				)?
+				.unwrap_or_default();
+				arg.validate_children(&children)?;
+			}
+		}
+
 		// Preserve terminal data while still applying the initialization relationships.
 		let mut arg = std::borrow::Cow::Borrowed(arg);
+		if arg.mode == tangram_index::process::put::Mode::Import
+			&& let Some(log) = existing
+				.as_ref()
+				.and_then(|process| process.data.as_ref())
+				.and_then(|data| data.log.clone())
+		{
+			let arg = arg.to_mut();
+			if let Some(data) = &mut arg.data {
+				data.log = Some(log.clone());
+			}
+			if arg.log.is_some() {
+				arg.log = Some(Some(log.node.into()));
+			}
+		}
 		if arg
 			.data
 			.as_ref()

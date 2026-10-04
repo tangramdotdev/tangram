@@ -545,6 +545,71 @@ async fn process_create_concurrent_collision() {
 }
 
 #[tokio::test]
+async fn process_import_preserves_data_and_children() {
+	let (_dir, index) = new_index();
+	let id = tg::process::Id::new();
+	let mut process = process_arg(id.clone(), tg::process::Status::Finished);
+	process.children = Some(Vec::new());
+	process.mode = tangram_index::process::put::Mode::Create;
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(process.clone())],
+	};
+	index.batch(arg).await.unwrap();
+	process.mode = tangram_index::process::put::Mode::Import;
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(process.clone())],
+	};
+	index.batch(arg).await.unwrap();
+	let mut changed = process.clone();
+	changed.data.as_mut().unwrap().host = "changed".to_owned();
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(changed)],
+	};
+	assert!(index.batch(arg).await.is_err());
+	let mut changed = process;
+	changed.children = Some(vec![tg::process::data::Child {
+		cached: false,
+		process: tg::Referent::with_node(tg::process::Id::new()),
+	}]);
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(changed)],
+	};
+	assert!(index.batch(arg).await.is_err());
+	let stored = index.try_get_process(&id).await.unwrap().unwrap();
+	assert_eq!(stored.data.unwrap().host, "");
+	assert_eq!(
+		index.try_get_process_children_count(&id).await.unwrap(),
+		Some(0)
+	);
+}
+
+#[tokio::test]
+async fn process_import_preserves_compacted_log() {
+	let (_dir, index) = new_index();
+	let id = tg::process::Id::new();
+	let mut process = process_arg(id.clone(), tg::process::Status::Finished);
+	process.mode = tangram_index::process::put::Mode::Create;
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(process.clone())],
+	};
+	index.batch(arg).await.unwrap();
+	let log = tg::blob::Id::new(b"log");
+	process.mode = tangram_index::process::put::Mode::Import;
+	process.data.as_mut().unwrap().log = Some(tg::Referent::with_node(log.clone()));
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(process.clone())],
+	};
+	index.batch(arg).await.unwrap();
+	process.data.as_mut().unwrap().log = None;
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(process)],
+	};
+	index.batch(arg).await.unwrap();
+	let stored = index.try_get_process(&id).await.unwrap().unwrap();
+	assert_eq!(stored.data.unwrap().log.unwrap().node, log);
+}
+
+#[tokio::test]
 async fn sandbox_status_does_not_regress() {
 	let (_dir, index) = new_index();
 	let id = tg::sandbox::Id::new();

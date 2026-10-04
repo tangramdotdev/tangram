@@ -1187,7 +1187,7 @@ impl Session {
 							location: None,
 							log: Some(log_object),
 							metadata,
-							mode: tangram_index::process::put::Mode::Internal,
+							mode: tangram_index::process::put::Mode::Import,
 							options: tg::referent::Options::default(),
 							output: Some((!output_objects.is_empty()).then_some(output_objects)),
 							parent: None,
