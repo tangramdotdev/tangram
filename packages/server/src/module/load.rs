@@ -10,6 +10,13 @@ impl Session {
 		&self,
 		arg: tg::module::load::Arg,
 	) -> tg::Result<tg::module::load::Output> {
+		if arg.module.kind != tg::module::Kind::Dts
+			&& matches!(arg.module.referent.node, tg::module::data::Source::Path(_))
+			&& !matches!(self.context.principal, tg::Principal::Root)
+		{
+			return Err(tg::error!("unauthorized"));
+		}
+
 		match &arg.module {
 			// Handle a declaration.
 			tg::module::Data {
