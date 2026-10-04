@@ -26,10 +26,28 @@ impl Session {
 		name: &str,
 		arg: tg::remote::get::Arg,
 	) -> tg::Result<Option<tg::remote::get::Output>> {
-		if arg.principal.is_none() && matches!(self.context.principal, tg::Principal::Runner(_)) {
+		let mut output = self
+			.try_get_remote_for_principal(name, arg.principal)
+			.await?;
+		if matches!(
+			self.context.principal,
+			tg::Principal::Process(_) | tg::Principal::Sandbox(_)
+		) && let Some(output) = &mut output
+		{
+			output.data.token = None;
+		}
+		Ok(output)
+	}
+
+	pub(super) async fn try_get_remote_for_principal(
+		&self,
+		name: &str,
+		principal: Option<tg::principal::Selector>,
+	) -> tg::Result<Option<tg::remote::get::Output>> {
+		if principal.is_none() && matches!(self.context.principal, tg::Principal::Runner(_)) {
 			return self.try_get_remote_runner(name).await;
 		}
-		if arg.principal.is_none()
+		if principal.is_none()
 			&& matches!(
 				self.context.principal,
 				tg::Principal::Process(_) | tg::Principal::Sandbox(_)
@@ -44,14 +62,12 @@ impl Session {
 		{
 			return self.try_get_remote_runner(name).await;
 		}
-		let principal = self
-			.resolve_remote_arg_principal(arg.principal.clone())
-			.await?;
-		self.try_get_remote_for_principal(name, principal.as_ref())
+		let principal = self.resolve_remote_arg_principal(principal.clone()).await?;
+		self.try_get_remote_data_for_principal(name, principal.as_ref())
 			.await
 	}
 
-	async fn try_get_remote_for_principal(
+	async fn try_get_remote_data_for_principal(
 		&self,
 		name: &str,
 		principal: Option<&tg::Principal>,

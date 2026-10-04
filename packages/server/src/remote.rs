@@ -290,7 +290,7 @@ impl Session {
 
 	async fn try_get_remote_session_inner(&self, remote: &str) -> tg::Result<Option<tg::Session>> {
 		let Some(output) = self
-			.try_get_remote(remote, tg::remote::get::Arg::default())
+			.try_get_remote_for_principal(remote, None)
 			.await
 			.map_err(|error| tg::error!(!error, %remote, "failed to get the remote"))?
 		else {
