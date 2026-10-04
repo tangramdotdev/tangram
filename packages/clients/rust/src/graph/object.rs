@@ -70,7 +70,6 @@ pub struct Dependency(pub tg::Referent<Option<Edge<tg::Object>>>);
 #[try_unwrap(ref)]
 pub enum Edge<T> {
 	Index(usize),
-
 	Pointer(Pointer),
 	Object(T),
 }

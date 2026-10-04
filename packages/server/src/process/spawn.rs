@@ -63,7 +63,7 @@ impl Session {
 			});
 		let (request_origin_sandbox, sandbox_host) = request_origin.unzip();
 		if let Some(origin) = &request_origin_sandbox
-			&& let Some(tg::process::spawn::SandboxArg::Existing(target)) = &arg.sandbox
+			&& let Some(tg::Either::Right(target)) = &arg.sandbox
 			&& &target.node != origin
 		{
 			return Err(tg::error!(
@@ -73,7 +73,7 @@ impl Session {
 			));
 		}
 
-		if let Some(tg::process::spawn::SandboxArg::Existing(sandbox)) = &arg.sandbox {
+		if let Some(tg::Either::Right(sandbox)) = &arg.sandbox {
 			arg.location = sandbox
 				.options
 				.location
@@ -114,7 +114,7 @@ impl Session {
 				authenticated_process
 					.as_ref()
 					.map(|process| &process.sandbox)
-			}) && let Some(tg::process::spawn::SandboxArg::Create(sandbox)) = &arg.sandbox
+			}) && let Some(tg::Either::Left(sandbox)) = &arg.sandbox
 		{
 			self.validate_sandbox_create_arg_with_parent(sandbox, parent)
 				.await?;
@@ -199,18 +199,17 @@ impl Session {
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let location = self.server.location(arg.location.as_ref())?;
 		let runner_matches_location = self.spawn_process_runner_matches_location(&location);
-		let new_sandbox = matches!(arg.sandbox, Some(tg::process::spawn::SandboxArg::Create(_)));
-		let requested = if runner_matches_location
-			&& let Some(tg::process::spawn::SandboxArg::Create(sandbox)) = &arg.sandbox
-		{
-			let scheduler = &self.server.config.scheduler;
-			Some(tg::runner::Capacity {
-				cpus: sandbox.cpu.unwrap_or(scheduler.default_cpu),
-				memory: sandbox.memory.unwrap_or(scheduler.default_memory),
-			})
-		} else {
-			None
-		};
+		let new_sandbox = matches!(arg.sandbox, Some(tg::Either::Left(_)));
+		let requested =
+			if runner_matches_location && let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
+				let scheduler = &self.server.config.scheduler;
+				Some(tg::runner::Capacity {
+					cpus: sandbox.cpu.unwrap_or(scheduler.default_cpu),
+					memory: sandbox.memory.unwrap_or(scheduler.default_memory),
+				})
+			} else {
+				None
+			};
 		let has_parent = arg.parent.is_some() && parent_sandbox.is_some();
 		let shortcut_allowed = !location.is_remote() || has_parent;
 		let allocation = if shortcut_allowed
@@ -292,7 +291,7 @@ impl Session {
 		location: &tg::Location,
 		parent_sandbox: Option<&tg::sandbox::Id>,
 	) -> Option<BoxFuture<'static, ()>> {
-		let Some(tg::process::spawn::SandboxArg::Create(sandbox)) = &arg.sandbox else {
+		let Some(tg::Either::Left(sandbox)) = &arg.sandbox else {
 			return None;
 		};
 		let parent_sandbox = parent_sandbox?;
@@ -376,7 +375,7 @@ impl Session {
 			)
 			.boxed()
 			.await?;
-		if matches!(arg.sandbox, Some(tg::process::spawn::SandboxArg::Create(_)))
+		if matches!(arg.sandbox, Some(tg::Either::Left(_)))
 			&& let Some(output) = &mut output
 			&& !output.cached
 		{
@@ -648,7 +647,7 @@ impl Session {
 		location: &tg::Location,
 	) {
 		Self::update_spawn_process_command_for_location(&mut arg.command, location);
-		if let Some(tg::process::spawn::SandboxArg::Existing(sandbox)) = &mut arg.sandbox {
+		if let Some(tg::Either::Right(sandbox)) = &mut arg.sandbox {
 			sandbox.options.tokens = sandbox.options.tokens.for_location(location);
 			sandbox.options.location = arg
 				.location

@@ -19,4 +19,5 @@ workspace = true
 
 [dependencies]
 serde = { workspace = true }
+serde_with = { workspace = true }
 tangram_serialize = { workspace = true }

@@ -226,8 +226,7 @@ impl Session {
 	}
 
 	pub(super) fn spawn_process_is_cacheable(arg: &tg::process::spawn::Arg) -> bool {
-		let cacheable = if let Some(tg::process::spawn::SandboxArg::Create(sandbox)) = &arg.sandbox
-		{
+		let cacheable = if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
 			sandbox.mounts.is_empty() && sandbox.network.is_none()
 		} else {
 			false
@@ -244,7 +243,7 @@ impl Session {
 		&self,
 		arg: &tg::process::spawn::Arg,
 	) -> tg::Result<()> {
-		if let Some(tg::process::spawn::SandboxArg::Create(sandbox)) = &arg.sandbox {
+		if let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
 			self.authorize_owner(sandbox.owner.as_ref()).await?;
 		}
 		Ok(())
@@ -289,8 +288,8 @@ impl Session {
 		host: &str,
 	) -> tg::Result<Output> {
 		let requested_owner = match &arg.sandbox {
-			Some(tg::process::spawn::SandboxArg::Create(sandbox)) => sandbox.owner.clone(),
-			Some(tg::process::spawn::SandboxArg::Existing(sandbox)) => {
+			Some(tg::Either::Left(sandbox)) => sandbox.owner.clone(),
+			Some(tg::Either::Right(sandbox)) => {
 				// The verified request origin permits spawning in the same sandbox.
 				let origin_owner = self
 					.server
@@ -357,7 +356,7 @@ impl Session {
 		} else {
 			Some(self.context.principal.clone())
 		};
-		if matches!(arg.sandbox, Some(tg::process::spawn::SandboxArg::Create(_))) {
+		if matches!(arg.sandbox, Some(tg::Either::Left(_))) {
 			self.verify_billing(owner.as_ref()).await?;
 		}
 
@@ -368,7 +367,7 @@ impl Session {
 			.server
 			.create_process_authentication_token(id.clone())?;
 		let (sandbox, sandbox_arg, sandbox_token) = match &arg.sandbox {
-			Some(tg::process::spawn::SandboxArg::Create(sandbox_arg)) => {
+			Some(tg::Either::Left(sandbox_arg)) => {
 				let mut sandbox_arg = Self::normalize_sandbox_create_arg(sandbox_arg.clone())?;
 				sandbox_arg.host = Some(host.to_owned());
 				sandbox_arg.location.clone_from(&arg.location);
@@ -386,9 +385,7 @@ impl Session {
 					.create_sandbox_authentication_token(sandbox.clone())?;
 				(sandbox, Some(sandbox_arg), Some(token))
 			},
-			Some(tg::process::spawn::SandboxArg::Existing(sandbox)) => {
-				(sandbox.node.clone(), None, None)
-			},
+			Some(tg::Either::Right(sandbox)) => (sandbox.node.clone(), None, None),
 			None => return Err(tg::error!("expected the sandbox to be set")),
 		};
 		let tty = arg

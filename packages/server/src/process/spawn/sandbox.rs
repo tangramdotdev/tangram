@@ -21,7 +21,7 @@ impl Session {
 		}
 
 		match &arg.sandbox {
-			Some(tg::process::spawn::SandboxArg::Create(_)) if process.allocation.is_some() => {
+			Some(tg::Either::Left(_)) if process.allocation.is_some() => {
 				let ready_event = self
 					.spawn_process_in_new_sandbox(process)
 					.await?
@@ -32,7 +32,7 @@ impl Session {
 				process.data.sandbox = Some(ready_event.sandbox);
 				Self::spawn_process_apply_connected(process, connected_event);
 			},
-			Some(tg::process::spawn::SandboxArg::Create(_)) => {
+			Some(tg::Either::Left(_)) => {
 				let id = process.id.clone();
 				let mut process_connection_future = self.subscribe_process_connection(&id).await?;
 				let sandbox = process
@@ -79,7 +79,7 @@ impl Session {
 				};
 				process.lease = Some(connected.lease);
 			},
-			Some(tg::process::spawn::SandboxArg::Existing(_)) => {
+			Some(tg::Either::Right(_)) => {
 				let connected_event = self
 					.spawn_process_in_existing_sandbox(process, arg.location.as_ref())
 					.await?;

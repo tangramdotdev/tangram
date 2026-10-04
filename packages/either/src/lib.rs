@@ -243,6 +243,42 @@ where
 	}
 }
 
+impl<L, R, LA, RA> serde_with::SerializeAs<Either<L, R>> for Either<LA, RA>
+where
+	LA: serde_with::SerializeAs<L>,
+	RA: serde_with::SerializeAs<R>,
+{
+	fn serialize_as<S>(source: &Either<L, R>, serializer: S) -> Result<S::Ok, S::Error>
+	where
+		S: serde::Serializer,
+	{
+		match source {
+			Either::Left(left) => LA::serialize_as(left, serializer),
+			Either::Right(right) => RA::serialize_as(right, serializer),
+		}
+	}
+}
+
+impl<'de, L, R, LA, RA> serde_with::DeserializeAs<'de, Either<L, R>> for Either<LA, RA>
+where
+	LA: serde_with::DeserializeAs<'de, L>,
+	RA: serde_with::DeserializeAs<'de, R>,
+{
+	fn deserialize_as<D>(deserializer: D) -> Result<Either<L, R>, D::Error>
+	where
+		D: serde::Deserializer<'de>,
+	{
+		let value = <Either<
+			serde_with::de::DeserializeAsWrap<L, LA>,
+			serde_with::de::DeserializeAsWrap<R, RA>,
+		> as serde::Deserialize>::deserialize(deserializer)?;
+		let value = value
+			.map_left(serde_with::de::DeserializeAsWrap::into_inner)
+			.map_right(serde_with::de::DeserializeAsWrap::into_inner);
+		Ok(value)
+	}
+}
+
 impl<L, R> tangram_serialize::Serialize for Either<L, R>
 where
 	L: tangram_serialize::Serialize,

@@ -8506,6 +8506,7 @@ name = "tangram_either"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "serde_with",
  "tangram_serialize",
 ]
 
