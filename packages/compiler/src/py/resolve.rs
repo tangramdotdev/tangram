@@ -108,12 +108,12 @@ pub struct Namespace {
 pub fn module_file(module: &tg::module::Data) -> tg::Result<tg::File> {
 	let source = tg::Module::try_from_data(module.clone())?.referent.node;
 	let tg::module::Source::Edge(edge) = source else {
-		return Err(tg::error!("expected a checked-in Python module"));
+		return Err(tg::error!("expected a checked-in python module"));
 	};
 	let file = match edge {
 		tg::graph::Edge::Object(object) => object
 			.try_unwrap_file()
-			.map_err(|_| tg::error!("expected a Python module file"))?,
+			.map_err(|_| tg::error!("expected a python module file"))?,
 		tg::graph::Edge::Pointer(pointer) => {
 			pointer
 				.graph
@@ -125,7 +125,7 @@ pub fn module_file(module: &tg::module::Data) -> tg::Result<tg::File> {
 				.set_tokens(module.referent.options.tokens.clone());
 			tg::Artifact::with_pointer(pointer)
 				.try_unwrap_file()
-				.map_err(|_| tg::error!("expected a Python module file"))?
+				.map_err(|_| tg::error!("expected a python module file"))?
 		},
 		tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 	};
@@ -379,14 +379,14 @@ impl Resolver {
 		while let Some(part) = parts.next() {
 			context.prefix.push(part);
 			let target = match self.child(&context).await? {
-				Output::Resolved(resolution) => resolution.target,
-				Output::Missing { message, name } => return Ok(Output::Missing { message, name }),
 				Output::Fallback => {
 					return Ok(missing(
 						format!("no Tangram module named {name:?}"),
 						Some(name),
 					));
 				},
+				Output::Missing { message, name } => return Ok(Output::Missing { message, name }),
+				Output::Resolved(resolution) => resolution.target,
 			};
 			let step = Step {
 				name: part.to_owned(),
@@ -728,7 +728,7 @@ async fn resolve_path(
 				Ok(metadata) => metadata,
 				Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
 				Err(error) => {
-					return Err(tg::error!(!error, "failed to inspect the Python import"));
+					return Err(tg::error!(!error, "failed to inspect the python import"));
 				},
 			};
 			if (kind == tg::module::Kind::Directory && !metadata.is_dir())

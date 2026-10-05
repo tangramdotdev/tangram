@@ -34,7 +34,7 @@ pub fn packages(python: &Path, workspace: &Path, output: &Path) -> PathBuf {
 	if let Some(path) = std::env::var_os("TANGRAM_PYTHON_PACKAGES") {
 		return PathBuf::from(path)
 			.canonicalize()
-			.expect("invalid Python packages directory");
+			.expect("invalid python packages directory");
 	}
 	let result = Command::new(python)
 		.arg("-I")
@@ -43,10 +43,10 @@ pub fn packages(python: &Path, workspace: &Path, output: &Path) -> PathBuf {
 		.arg(output)
 		.stderr(std::process::Stdio::inherit())
 		.output()
-		.expect("failed to prepare the locked Python packages");
+		.expect("failed to prepare the locked python packages");
 	assert!(
 		result.status.success(),
-		"failed to prepare the locked Python packages"
+		"failed to prepare the locked python packages"
 	);
 	PathBuf::from(String::from_utf8(result.stdout).unwrap().trim())
 }
@@ -63,7 +63,7 @@ pub fn download(manifest: &Value, target: &str, output: &Path, variable: &str) -
 	}
 	let artifact = manifest["targets"]
 		.get(target)
-		.unwrap_or_else(|| panic!("unsupported Python target: {target}"));
+		.unwrap_or_else(|| panic!("unsupported python target: {target}"));
 	let lock = std::fs::File::create(output.join("distributions.lock")).unwrap();
 	lock.lock().unwrap();
 	let version = manifest["python"].as_str().unwrap();

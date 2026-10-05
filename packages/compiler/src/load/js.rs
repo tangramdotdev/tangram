@@ -20,7 +20,7 @@ pub(super) fn declarations(
 ) -> tg::Result<BTreeMap<String, Range<usize>>> {
 	let allocator = oxc::allocator::Allocator::default();
 	let parsed = oxc::parser::Parser::new(&allocator, text, oxc::span::SourceType::ts()).parse();
-	if let Some(error) = parsed.diagnostics.first() {
+	if let Some(error) = parsed.diagnostics.first().cloned() {
 		let span = error.labels.first().map_or(0..0, |label| {
 			label.offset() as usize..(label.offset() + label.len()) as usize
 		});
@@ -28,28 +28,35 @@ pub(super) fn declarations(
 			module,
 			text,
 			span,
-			tg::error!("failed to parse the JavaScript module: {error}"),
+			tg::error!(!error, "failed to parse the JavaScript module"),
 		));
 	}
 	let mut names = BTreeMap::new();
 	for statement in &parsed.program.body {
 		match statement {
+			Statement::ExportAllDeclaration(export)
+				if export.export_kind == ImportOrExportKind::Value =>
+			{
+				return Err(super::located_error(
+					module,
+					text,
+					export.span.start as usize..export.span.end as usize,
+					tg::error!(
+						"cross-language imports require named re-exports instead of export *"
+					),
+				));
+			},
 			Statement::ExportDeclaration(export) => match &export.declaration {
-				Declaration::FunctionDeclaration(function) if function.body.is_some() => {
-					if let Some(id) = &function.id {
+				Declaration::ClassDeclaration(class) if !class.declare => {
+					if let Some(id) = &class.id {
 						names.insert(
 							id.name.to_string(),
 							id.span.start as usize..id.span.end as usize,
 						);
 					}
 				},
-				Declaration::VariableDeclaration(declaration) if !declaration.declare => {
-					for declarator in &declaration.declarations {
-						bindings(&declarator.id, &mut names);
-					}
-				},
-				Declaration::ClassDeclaration(class) if !class.declare => {
-					if let Some(id) = &class.id {
+				Declaration::FunctionDeclaration(function) if function.body.is_some() => {
+					if let Some(id) = &function.id {
 						names.insert(
 							id.name.to_string(),
 							id.span.start as usize..id.span.end as usize,
@@ -61,6 +68,11 @@ pub(super) fn declarations(
 						declaration.id.name.to_string(),
 						declaration.id.span.start as usize..declaration.id.span.end as usize,
 					);
+				},
+				Declaration::VariableDeclaration(declaration) if !declaration.declare => {
+					for declarator in &declaration.declarations {
+						bindings(&declarator.id, &mut names);
+					}
 				},
 				_ => {},
 			},
@@ -75,43 +87,31 @@ pub(super) fn declarations(
 					);
 				}
 			},
-			Statement::ExportNamedDeclaration(export) => {
-				if export.export_kind == ImportOrExportKind::Value {
-					for specifier in &export.specifiers {
-						if specifier.export_kind == ImportOrExportKind::Value {
-							let span = specifier.exported.span();
-							names.insert(
-								specifier.exported.name().to_string(),
-								span.start as usize..span.end as usize,
-							);
-						}
-					}
-				}
-			},
-			Statement::ExportFromDeclaration(export) => {
-				if export.export_kind == ImportOrExportKind::Value {
-					for specifier in &export.specifiers {
-						if specifier.export_kind == ImportOrExportKind::Value {
-							let span = specifier.exported.span();
-							names.insert(
-								specifier.exported.name().to_string(),
-								span.start as usize..span.end as usize,
-							);
-						}
-					}
-				}
-			},
-			Statement::ExportAllDeclaration(export)
+			Statement::ExportFromDeclaration(export)
 				if export.export_kind == ImportOrExportKind::Value =>
 			{
-				return Err(super::located_error(
-					module,
-					text,
-					export.span.start as usize..export.span.end as usize,
-					tg::error!(
-						"cross-language imports require named re-exports instead of export *"
-					),
-				));
+				for specifier in &export.specifiers {
+					if specifier.export_kind == ImportOrExportKind::Value {
+						let span = specifier.exported.span();
+						names.insert(
+							specifier.exported.name().to_string(),
+							span.start as usize..span.end as usize,
+						);
+					}
+				}
+			},
+			Statement::ExportNamedDeclaration(export)
+				if export.export_kind == ImportOrExportKind::Value =>
+			{
+				for specifier in &export.specifiers {
+					if specifier.export_kind == ImportOrExportKind::Value {
+						let span = specifier.exported.span();
+						names.insert(
+							specifier.exported.name().to_string(),
+							span.start as usize..span.end as usize,
+						);
+					}
+				}
 			},
 			_ => {},
 		}
@@ -121,12 +121,6 @@ pub(super) fn declarations(
 
 fn bindings(pattern: &BindingPattern, names: &mut BTreeMap<String, Range<usize>>) {
 	match pattern {
-		BindingPattern::BindingIdentifier(identifier) => {
-			names.insert(
-				identifier.name.to_string(),
-				identifier.span.start as usize..identifier.span.end as usize,
-			);
-		},
 		BindingPattern::ArrayPattern(pattern) => {
 			for element in pattern.elements.iter().flatten() {
 				bindings(element, names);
@@ -136,6 +130,12 @@ fn bindings(pattern: &BindingPattern, names: &mut BTreeMap<String, Range<usize>>
 			}
 		},
 		BindingPattern::AssignmentPattern(pattern) => bindings(&pattern.left, names),
+		BindingPattern::BindingIdentifier(identifier) => {
+			names.insert(
+				identifier.name.to_string(),
+				identifier.span.start as usize..identifier.span.end as usize,
+			);
+		},
 		BindingPattern::ObjectPattern(pattern) => {
 			for property in &pattern.properties {
 				bindings(&property.value, names);
@@ -161,6 +161,7 @@ mod tests {
 			.unwrap_err()
 			.to_data_or_id()
 			.unwrap_left();
+		assert!(error.source.is_some());
 		let location = error.location.unwrap();
 		assert_eq!(location.range.start.line, 1);
 	}

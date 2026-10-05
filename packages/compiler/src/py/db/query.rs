@@ -19,7 +19,7 @@ impl Database {
 				.data
 				.map(serde_json::from_value)
 				.transpose()
-				.map_err(|error| tg::error!(!error, "invalid Python completion data"))?;
+				.map_err(|error| tg::error!(!error, "invalid python completion data"))?;
 			return Ok(Response::CompletionResolve(
 				crate::completion::ResolveResponse { entry },
 			));
@@ -37,7 +37,7 @@ impl Database {
 		}
 		let module = request
 			.module()
-			.ok_or_else(|| tg::error!("unsupported Python request"))?;
+			.ok_or_else(|| tg::error!("unsupported python request"))?;
 		let file = self.query_file(module)?;
 		if matches!(
 			request,
@@ -123,7 +123,7 @@ impl Database {
 			},
 			Request::Document(_) => {
 				return Err(tg::error!(
-					"Python documentation generation is not supported"
+					"python documentation generation is not supported"
 				));
 			},
 			Request::DocumentHighlight(request) => {
@@ -369,9 +369,9 @@ impl Database {
 		let text = source_text(self, file);
 		let offset = position
 			.try_to_byte_index_in_string(&text, encoding)
-			.ok_or_else(|| tg::error!("invalid Python source position"))?;
+			.ok_or_else(|| tg::error!("invalid python source position"))?;
 		let offset = u32::try_from(offset)
-			.map_err(|error| tg::error!(!error, "the Python source is too large"))?;
+			.map_err(|error| tg::error!(!error, "the python source is too large"))?;
 		Ok(offset.into())
 	}
 
@@ -387,7 +387,7 @@ impl Database {
 			usize::from(range.start())..usize::from(range.end()),
 			encoding,
 		)
-		.ok_or_else(|| tg::error!("invalid Python source range"))
+		.ok_or_else(|| tg::error!("invalid python source range"))
 	}
 
 	fn navigation_locations(

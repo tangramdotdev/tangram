@@ -15,14 +15,14 @@ def main():
     parser.add_argument("--profile", default="release")
     args = parser.parse_args()
     if sys.version_info < (3, 12):  # noqa: UP036
-        parser.error("the Python client requires Python 3.12 or later")
+        parser.error("the python client requires python 3.12 or later")
     directory = Path(__file__).resolve().parent
     root = directory.parents[2]
     environment = root / ".venv"
     python = environment / "bin/python"
     uv = shutil.which("uv")
     if uv is None:
-        parser.error("the Python workspace requires uv")
+        parser.error("the python workspace requires uv")
     subprocess.run(
         [
             uv,

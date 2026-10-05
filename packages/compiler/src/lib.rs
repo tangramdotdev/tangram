@@ -204,14 +204,15 @@ impl Request {
 			Self::CallHierarchyIncoming(request) => Some(&request.module),
 			Self::CallHierarchyOutgoing(request) => Some(&request.module),
 			Self::CallHierarchyPrepare(request) => Some(&request.module),
+			Self::Check(_) | Self::DocumentDiagnostics(_) | Self::WorkspaceSymbol(_) => None,
 			Self::CodeAction(request) => Some(&request.module),
 			Self::Completion(request) => Some(&request.module),
 			Self::CompletionResolve(request) => Some(&request.module),
 			Self::Declaration(request)
 			| Self::Definition(request)
 			| Self::TypeDefinition(request) => Some(&request.module),
-			Self::DocumentHighlight(request) => Some(&request.module),
 			Self::Document(request) => Some(&request.module),
+			Self::DocumentHighlight(request) => Some(&request.module),
 			Self::DocumentLink(request) => Some(&request.module),
 			Self::FoldingRange(request) => Some(&request.module),
 			Self::Hover(request) => Some(&request.module),
@@ -224,7 +225,6 @@ impl Request {
 			Self::SemanticTokens(request) => Some(&request.module),
 			Self::SignatureHelp(request) => Some(&request.module),
 			Self::Symbols(request) => Some(&request.module),
-			Self::Check(_) | Self::DocumentDiagnostics(_) | Self::WorkspaceSymbol(_) => None,
 		}
 	}
 }

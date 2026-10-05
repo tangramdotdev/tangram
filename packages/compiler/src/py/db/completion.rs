@@ -37,7 +37,7 @@ impl Database {
 					kind_modifiers: None,
 				};
 				let data = serde_json::to_value(details).map_err(|error| {
-					tg::error!(!error, "failed to serialize the Python completion")
+					tg::error!(!error, "failed to serialize the python completion")
 				})?;
 				let entry = crate::completion::Entry {
 					commit_characters: None,

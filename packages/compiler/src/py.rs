@@ -64,10 +64,10 @@ impl Service {
 			.as_ref()
 			.unwrap()
 			.send((request, sender))
-			.map_err(|error| tg::error!(!error, "failed to send the Python request"))?;
+			.map_err(|error| tg::error!(!error, "failed to send the python request"))?;
 		let response = receiver
 			.await
-			.map_err(|error| tg::error!(!error, "failed to receive the Python response"))??;
+			.map_err(|error| tg::error!(!error, "failed to receive the python response"))??;
 		Ok(response)
 	}
 
@@ -97,7 +97,7 @@ impl Compiler {
 	) -> tg::Result<Vec<tg::Diagnostic>> {
 		let Response::Check(diagnostics) = self.py.request(self, Request::Check(modules)).await?
 		else {
-			return Err(tg::error!("unexpected Python response"));
+			return Err(tg::error!("unexpected python response"));
 		};
 		Ok(diagnostics)
 	}
@@ -109,7 +109,7 @@ impl Compiler {
 			.request(self, Request::Query(request, encoding))
 			.await?
 		else {
-			return Err(tg::error!("unexpected Python response"));
+			return Err(tg::error!("unexpected python response"));
 		};
 		Ok(response)
 	}

@@ -37,44 +37,44 @@ pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
 #[display(rename_all = "snake_case")]
 #[from_str(rename_all = "snake_case")]
 pub enum Kind {
-	#[tangram_serialize(id = 0)]
-	Js,
-
-	#[tangram_serialize(id = 1)]
-	Ts,
-
-	#[tangram_serialize(id = 2)]
-	Dts,
-
-	#[tangram_serialize(id = 3)]
-	Object,
-
 	#[tangram_serialize(id = 4)]
 	Artifact,
 
 	#[tangram_serialize(id = 5)]
 	Blob,
 
+	#[tangram_serialize(id = 10)]
+	Command,
+
 	#[tangram_serialize(id = 6)]
 	Directory,
+
+	#[tangram_serialize(id = 2)]
+	Dts,
+
+	#[tangram_serialize(id = 11)]
+	Error,
 
 	#[tangram_serialize(id = 7)]
 	File,
 
-	#[tangram_serialize(id = 8)]
-	Symlink,
-
 	#[tangram_serialize(id = 9)]
 	Graph,
 
-	#[tangram_serialize(id = 10)]
-	Command,
+	#[tangram_serialize(id = 0)]
+	Js,
+
+	#[tangram_serialize(id = 3)]
+	Object,
 
 	#[tangram_serialize(id = 12)]
 	Py,
 
-	#[tangram_serialize(id = 11)]
-	Error,
+	#[tangram_serialize(id = 8)]
+	Symlink,
+
+	#[tangram_serialize(id = 1)]
+	Ts,
 }
 
 pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Kind> {

@@ -102,7 +102,7 @@ impl Database {
 		settings.python_version.version = PythonVersion::PY314;
 		settings.search_paths = search_paths
 			.to_search_paths(&system, ty_vendored::file_system(), &FallibleStrategy)
-			.map_err(|error| tg::error!(!error, "failed to configure the Python library"))?;
+			.map_err(|error| tg::error!(!error, "failed to configure the python library"))?;
 		let mut db = Self {
 			analysis: Arc::new(AnalysisSettings::default()),
 			compiler,
@@ -126,12 +126,12 @@ impl Database {
 		db.system
 			.memory
 			.create_directory_all("/project")
-			.map_err(|error| tg::error!(!error, "failed to create the Python project directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the python project directory"))?;
 		let metadata = ty_project::ProjectMetadata::new("tangram", "/project".into());
 		let (settings, diagnostics) = metadata
 			.to_merged_options()
 			.to_settings(&db, &FallibleStrategy)
-			.map_err(|error| tg::error!("failed to configure the Python project: {error:?}"))?;
+			.map_err(|error| tg::error!(!error, "failed to configure the python project"))?;
 		let project = ty_project::Project::builder(
 			Box::new(metadata),
 			Box::new(settings),
@@ -178,7 +178,7 @@ impl Database {
 			let (text, error) = if missing {
 				(
 					String::new(),
-					Some(tg::error!("the Python source file does not exist")),
+					Some(tg::error!("the python source file does not exist")),
 				)
 			} else {
 				match self.load(&entry.module) {
@@ -213,7 +213,7 @@ impl Database {
 				self.system
 					.memory
 					.write_file(&path, &updated.text)
-					.map_err(|error| tg::error!(!error, "failed to update the Python source"))?;
+					.map_err(|error| tg::error!(!error, "failed to update the python source"))?;
 			}
 			let index = self.modules.lock().unwrap().files[&entry.file];
 			self.modules.lock().unwrap().entries[index] = Arc::new(updated);
@@ -278,7 +278,7 @@ impl Database {
 			.compiler
 			.main_runtime_handle
 			.block_on(self.compiler.instance.load_module(arg))
-			.map_err(|error| tg::error!(!error, %module, "failed to load the Python module"))?
+			.map_err(|error| tg::error!(!error, %module, "failed to load the python module"))?
 			.text;
 		Ok(text)
 	}
@@ -311,13 +311,13 @@ impl Database {
 			vendored_path_to_file(
 				self,
 				path.to_str()
-					.ok_or_else(|| tg::error!("invalid Python library path"))?,
+					.ok_or_else(|| tg::error!("invalid python library path"))?,
 			)
 		} else {
 			return Ok(None);
 		};
 		file.map(Some)
-			.map_err(|error| tg::error!(!error, "failed to get the Python library file"))
+			.map_err(|error| tg::error!(!error, "failed to get the python library file"))
 	}
 
 	fn location(
@@ -345,13 +345,13 @@ impl Database {
 					.join("python/typeshed")
 					.join(path.as_str())
 			} else {
-				return Err(tg::error!("unknown Python definition file"));
+				return Err(tg::error!("unknown python definition file"));
 			};
 			std::fs::create_dir_all(path.parent().unwrap()).map_err(|error| {
-				tg::error!(!error, "failed to create the Python library directory")
+				tg::error!(!error, "failed to create the python library directory")
 			})?;
 			std::fs::write(&path, &*text).map_err(|error| {
-				tg::error!(!error, "failed to materialize the Python library file")
+				tg::error!(!error, "failed to materialize the python library file")
 			})?;
 			tg::module::Data {
 				kind: tg::module::Kind::Py,
@@ -363,7 +363,7 @@ impl Database {
 			usize::from(range.start())..usize::from(range.end()),
 			encoding,
 		)
-		.ok_or_else(|| tg::error!("invalid Python definition range"))?;
+		.ok_or_else(|| tg::error!("invalid python definition range"))?;
 		Ok(tg::module::data::Location { module, range })
 	}
 
@@ -444,13 +444,13 @@ impl Database {
 		self.system
 			.memory
 			.create_directory_all(path.parent().unwrap())
-			.map_err(|error| tg::error!(!error, "failed to create the Python module directory"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the python module directory"))?;
 		self.system
 			.memory
 			.write_file(&path, &text)
-			.map_err(|error| tg::error!(!error, "failed to load the Python module source"))?;
+			.map_err(|error| tg::error!(!error, "failed to load the python module source"))?;
 		let file = system_path_to_file(self, &path)
-			.map_err(|error| tg::error!(!error, "failed to create the Python source file"))?;
+			.map_err(|error| tg::error!(!error, "failed to create the python source file"))?;
 		let entry = Arc::new(Entry {
 			diagnostics,
 			error,
@@ -515,6 +515,168 @@ impl Database {
 		diagnostic.try_into()
 	}
 
+	#[must_use]
+	fn module_display_name<'db>(&'db self, module: Module<'db>) -> Option<Cow<'db, str>> {
+		self.revision.unwrap().value(self);
+		if let Some(entry) = module.file(self).and_then(|file| self.entry(file)) {
+			if matches!(
+				entry.module.referent.node,
+				tg::module::data::Source::Edge(_)
+			) && entry.module.referent.path().is_none()
+			{
+				return Some(Cow::Owned(entry.module.without_token().to_string()));
+			}
+			let descriptor = resolve::Module::new(entry.module.clone());
+			return Some(Cow::Owned(descriptor.filename.display().to_string()));
+		}
+		let modules = self.modules.lock().unwrap();
+		let (_, namespace) = modules
+			.namespaces
+			.values()
+			.find(|(name, _)| name == module.name(self))?;
+		let descriptor = resolve::Module::new(namespace.referrer.clone());
+		let directory = if namespace.referrer.kind == tg::module::Kind::Directory {
+			descriptor.filename
+		} else {
+			descriptor.filename.parent()?.to_owned()
+		};
+		let directory = directory.join(&namespace.prefix);
+		let directory = tangram_util::path::normalize(directory);
+		Some(Cow::Owned(directory.display().to_string()))
+	}
+
+	fn resolve_import_member<'db>(
+		&'db self,
+		importing_file: ImportingFile<'db>,
+		import: &ty_python_ast::StmtImportFrom,
+		member: &str,
+		export: Option<Module<'db>>,
+	) -> ModuleResolution<'db> {
+		self.revision.unwrap().value(self);
+		let Some(referrer) = self.entry(importing_file.file(self)) else {
+			return ModuleResolution::Fallback;
+		};
+		let request = resolve::Request::Import {
+			imports: referrer.imports.clone(),
+			level: import.level,
+			name: import.module.as_deref().unwrap_or_default().to_owned(),
+			referrer: referrer.module.clone(),
+		};
+		let resolve::Output::Resolved(resolution) =
+			self.resolve(importing_file.file(self), request)
+		else {
+			return ModuleResolution::Fallback;
+		};
+		let Some(context) = resolution.context else {
+			return ModuleResolution::Fallback;
+		};
+		let export = match export {
+			None => resolve::Export::Absent,
+			Some(module)
+				if module
+					.file(self)
+					.and_then(|file| self.entry(file))
+					.is_some() =>
+			{
+				resolve::Export::Module
+			},
+			Some(_) => resolve::Export::Value,
+		};
+		let request = resolve::Request::Member {
+			context,
+			export,
+			name: member.to_owned(),
+		};
+		self.result(
+			self.resolve(importing_file.file(self), request),
+			importing_file.resolver_file(self).environment(self),
+		)
+	}
+
+	fn resolve_module<'db>(
+		&'db self,
+		importing_file: ImportingFile<'db>,
+		name: Option<&ModuleName>,
+		level: u32,
+	) -> ModuleResolution<'db> {
+		self.revision.unwrap().value(self);
+		let Some(referrer) = self.entry(importing_file.file(self)) else {
+			return ModuleResolution::Fallback;
+		};
+		let environment = importing_file.resolver_file(self).environment(self);
+		let request = resolve::Request::Import {
+			imports: referrer.imports.clone(),
+			level,
+			name: name.map_or_else(String::new, |name| name.as_str().to_owned()),
+			referrer: referrer.module.clone(),
+		};
+		self.result(
+			self.resolve(importing_file.file(self), request),
+			environment,
+		)
+	}
+
+	fn resolve_submodule<'db>(
+		&'db self,
+		importing_file: ImportingFile<'db>,
+		parent: Module<'db>,
+		name: &ModuleName,
+	) -> ModuleResolution<'db> {
+		self.revision.unwrap().value(self);
+		let target = if let Some(entry) = parent.file(self).and_then(|file| self.entry(file)) {
+			resolve::Target::Module(resolve::Module::new(entry.module.clone()))
+		} else {
+			let modules = self.modules.lock().unwrap();
+			let Some((_, namespace)) = modules
+				.namespaces
+				.values()
+				.find(|(name, _)| name == parent.name(self))
+			else {
+				return ModuleResolution::Fallback;
+			};
+			resolve::Target::Namespace(namespace.clone())
+		};
+		let child = self
+			.modules
+			.lock()
+			.unwrap()
+			.children
+			.get(&(target.key().to_owned(), name.as_str().to_owned()))
+			.cloned();
+		if let Some(child) = child {
+			Self::target_keys(
+				&child,
+				self.modules
+					.lock()
+					.unwrap()
+					.links
+					.entry(importing_file.file(self))
+					.or_default(),
+			);
+			let environment = parent.resolver_environment(self);
+			return ModuleResolution::Resolved(self.target_module(&child, environment));
+		}
+		let Some(context) = target.context() else {
+			return ModuleResolution::NotFound;
+		};
+		let request = resolve::Request::Child {
+			context,
+			name: name.as_str().to_owned(),
+		};
+		self.result(
+			self.resolve(importing_file.file(self), request),
+			parent.resolver_environment(self),
+		)
+	}
+
+	fn file_to_module<'db>(&'db self, file: ResolverFile<'db>) -> ModuleResolution<'db> {
+		self.revision.unwrap().value(self);
+		match self.entry(file.file(self)) {
+			None => ModuleResolution::Fallback,
+			Some(entry) => ModuleResolution::Resolved(self.module(&entry, file.environment(self))),
+		}
+	}
+
 	fn entry(&self, file: File) -> Option<Arc<Entry>> {
 		let modules = self.modules.lock().unwrap();
 		modules
@@ -523,6 +685,7 @@ impl Database {
 			.map(|index| modules.entries[*index].clone())
 	}
 
+	#[must_use]
 	fn module<'db>(&'db self, entry: &Entry, environment: ResolverEnvironment<'db>) -> Module<'db> {
 		let kind = if entry.package {
 			ModuleKind::Package
@@ -558,6 +721,7 @@ impl Database {
 		Ok(())
 	}
 
+	#[must_use]
 	fn target_module<'db>(
 		&'db self,
 		target: &resolve::Target,
@@ -711,7 +875,7 @@ impl Database {
 					usize::from(range.start())..usize::from(range.end())
 				});
 				let range = tg::Range::try_from_byte_range_in_string(&entry.text, bytes, encoding)
-					.ok_or_else(|| tg::error!("invalid Python diagnostic source range"))?;
+					.ok_or_else(|| tg::error!("invalid python diagnostic source range"))?;
 				Ok(Some(tg::module::data::Location {
 					module: entry.module.without_token(),
 					range,
@@ -786,32 +950,7 @@ impl ruff_db::Db for Database {
 #[salsa::db]
 impl ty_module_resolver::Db for Database {
 	fn module_display_name<'db>(&'db self, module: Module<'db>) -> Option<Cow<'db, str>> {
-		self.revision.unwrap().value(self);
-		if let Some(entry) = module.file(self).and_then(|file| self.entry(file)) {
-			if matches!(
-				entry.module.referent.node,
-				tg::module::data::Source::Edge(_)
-			) && entry.module.referent.path().is_none()
-			{
-				return Some(Cow::Owned(entry.module.without_token().to_string()));
-			}
-			let descriptor = resolve::Module::new(entry.module.clone());
-			return Some(Cow::Owned(descriptor.filename.display().to_string()));
-		}
-		let modules = self.modules.lock().unwrap();
-		let (_, namespace) = modules
-			.namespaces
-			.values()
-			.find(|(name, _)| name == module.name(self))?;
-		let descriptor = resolve::Module::new(namespace.referrer.clone());
-		let directory = if namespace.referrer.kind == tg::module::Kind::Directory {
-			descriptor.filename
-		} else {
-			descriptor.filename.parent()?.to_owned()
-		};
-		let directory = directory.join(&namespace.prefix);
-		let directory = tangram_util::path::normalize(directory);
-		Some(Cow::Owned(directory.display().to_string()))
+		Self::module_display_name(self, module)
 	}
 
 	fn resolve_import_member<'db>(
@@ -823,45 +962,7 @@ impl ty_module_resolver::Db for Database {
 		export: Option<Module<'db>>,
 		_mode: ModuleResolveMode,
 	) -> ModuleResolution<'db> {
-		self.revision.unwrap().value(self);
-		let Some(referrer) = self.entry(importing_file.file(self)) else {
-			return ModuleResolution::Fallback;
-		};
-		let request = resolve::Request::Import {
-			imports: referrer.imports.clone(),
-			level: import.level,
-			name: import.module.as_deref().unwrap_or_default().to_owned(),
-			referrer: referrer.module.clone(),
-		};
-		let resolve::Output::Resolved(resolution) =
-			self.resolve(importing_file.file(self), request)
-		else {
-			return ModuleResolution::Fallback;
-		};
-		let Some(context) = resolution.context else {
-			return ModuleResolution::Fallback;
-		};
-		let export = match export {
-			None => resolve::Export::Absent,
-			Some(module)
-				if module
-					.file(self)
-					.and_then(|file| self.entry(file))
-					.is_some() =>
-			{
-				resolve::Export::Module
-			},
-			Some(_) => resolve::Export::Value,
-		};
-		let request = resolve::Request::Member {
-			context,
-			export,
-			name: member.to_owned(),
-		};
-		self.result(
-			self.resolve(importing_file.file(self), request),
-			importing_file.resolver_file(self).environment(self),
-		)
+		Self::resolve_import_member(self, importing_file, import, member, export)
 	}
 
 	fn resolve_module<'db>(
@@ -871,21 +972,7 @@ impl ty_module_resolver::Db for Database {
 		level: u32,
 		_mode: ModuleResolveMode,
 	) -> ModuleResolution<'db> {
-		self.revision.unwrap().value(self);
-		let Some(referrer) = self.entry(importing_file.file(self)) else {
-			return ModuleResolution::Fallback;
-		};
-		let environment = importing_file.resolver_file(self).environment(self);
-		let request = resolve::Request::Import {
-			imports: referrer.imports.clone(),
-			level,
-			name: name.map_or_else(String::new, |name| name.as_str().to_owned()),
-			referrer: referrer.module.clone(),
-		};
-		self.result(
-			self.resolve(importing_file.file(self), request),
-			environment,
-		)
+		Self::resolve_module(self, importing_file, name, level)
 	}
 
 	fn resolve_submodule<'db>(
@@ -895,59 +982,11 @@ impl ty_module_resolver::Db for Database {
 		name: &ModuleName,
 		_mode: ModuleResolveMode,
 	) -> ModuleResolution<'db> {
-		self.revision.unwrap().value(self);
-		let target = if let Some(entry) = parent.file(self).and_then(|file| self.entry(file)) {
-			resolve::Target::Module(resolve::Module::new(entry.module.clone()))
-		} else {
-			let modules = self.modules.lock().unwrap();
-			let Some((_, namespace)) = modules
-				.namespaces
-				.values()
-				.find(|(name, _)| name == parent.name(self))
-			else {
-				return ModuleResolution::Fallback;
-			};
-			resolve::Target::Namespace(namespace.clone())
-		};
-		let child = self
-			.modules
-			.lock()
-			.unwrap()
-			.children
-			.get(&(target.key().to_owned(), name.as_str().to_owned()))
-			.cloned();
-		if let Some(child) = child {
-			Self::target_keys(
-				&child,
-				self.modules
-					.lock()
-					.unwrap()
-					.links
-					.entry(importing_file.file(self))
-					.or_default(),
-			);
-			let environment = parent.resolver_environment(self);
-			return ModuleResolution::Resolved(self.target_module(&child, environment));
-		}
-		let Some(context) = target.context() else {
-			return ModuleResolution::NotFound;
-		};
-		let request = resolve::Request::Child {
-			context,
-			name: name.as_str().to_owned(),
-		};
-		self.result(
-			self.resolve(importing_file.file(self), request),
-			parent.resolver_environment(self),
-		)
+		Self::resolve_submodule(self, importing_file, parent, name)
 	}
 
 	fn file_to_module<'db>(&'db self, file: ResolverFile<'db>) -> ModuleResolution<'db> {
-		self.revision.unwrap().value(self);
-		match self.entry(file.file(self)) {
-			Some(entry) => ModuleResolution::Resolved(self.module(&entry, file.environment(self))),
-			None => ModuleResolution::Fallback,
-		}
+		Self::file_to_module(self, file)
 	}
 }
 

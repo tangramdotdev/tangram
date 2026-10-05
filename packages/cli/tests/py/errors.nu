@@ -48,7 +48,7 @@ x = )
 let output = tg checkin ($syntax | path join main.tg.py) | complete
 failure $output
 assert ($output.stderr | str contains 'main.tg.py:2:5')
-assert ($output.stderr | str contains 'failed to parse the Python module')
+assert ($output.stderr | str contains 'failed to parse the python module')
 
 let syntax = artifact {'main.tg.py': 'pass
 x = "🙂"; )

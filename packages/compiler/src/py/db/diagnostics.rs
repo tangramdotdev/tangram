@@ -23,10 +23,10 @@ impl Database {
 						let bytes = location
 							.range
 							.try_to_byte_range_in_string(&text, tg::position::Encoding::Utf8)
-							.ok_or_else(|| tg::error!("invalid Python diagnostic range"))?;
+							.ok_or_else(|| tg::error!("invalid python diagnostic range"))?;
 						location.range =
 							tg::Range::try_from_byte_range_in_string(&text, bytes, encoding)
-								.ok_or_else(|| tg::error!("invalid Python diagnostic range"))?;
+								.ok_or_else(|| tg::error!("invalid python diagnostic range"))?;
 					}
 					diagnostics.push(diagnostic);
 				}

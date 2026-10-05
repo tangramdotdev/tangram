@@ -38,7 +38,7 @@ pub fn validate_imports(module: &tg::module::Data, text: &str, body: &[Stmt]) ->
 	};
 	tg::error!(
 		{ object },
-		"star imports are not supported in Python modules; use explicit imports"
+		"star imports are not supported in python modules; use explicit imports"
 	);
 	Err(tg::Error::with_object(object))
 }
@@ -65,7 +65,7 @@ pub fn analyze(path: &Path, text: &str) -> tg::Result<Analysis> {
 			location: Some(location),
 			..Default::default()
 		};
-		tg::error!({ object }, !error, "failed to parse the Python module");
+		tg::error!({ object }, !error, "failed to parse the python module");
 		tg::Error::with_object(object)
 	})?;
 	let mut visitor = Visitor {
@@ -74,7 +74,7 @@ pub fn analyze(path: &Path, text: &str) -> tg::Result<Analysis> {
 	visitor.visit_body(&parsed.syntax().body);
 	let directory = path
 		.parent()
-		.ok_or_else(|| tg::error!("the Python module has no parent directory"))?;
+		.ok_or_else(|| tg::error!("the python module has no parent directory"))?;
 	let root = directory
 		.ancestors()
 		.filter(|ancestor| ancestor.join("tangram.py").is_file())
@@ -126,7 +126,7 @@ pub fn analyze(path: &Path, text: &str) -> tg::Result<Analysis> {
 		let file_exists = directory.join(&file).is_file();
 		let package_exists = directory.join(&package).is_file();
 		if file_exists && package_exists {
-			return Err(tg::error!("ambiguous Python module: {file} and {package}"));
+			return Err(tg::error!("ambiguous python module: {file} and {package}"));
 		}
 		let reference = if file_exists {
 			file

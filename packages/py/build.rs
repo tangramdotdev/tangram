@@ -89,7 +89,7 @@ fn main() {
 	);
 	assert!(
 		!pyo3_build_config::get().shared(),
-		"the embedded Python runtime requires the checked-in PyO3 configuration"
+		"the embedded python runtime requires the checked-in PyO3 configuration"
 	);
 
 	// Prepare the sources, frozen bootstrap, and native objects.
@@ -112,10 +112,10 @@ fn main() {
 		.arg(sysroot.trim())
 		.arg(&packages)
 		.status()
-		.expect("failed to run the downloaded host Python");
+		.expect("failed to run the downloaded host python");
 	assert!(
 		status.success(),
-		"failed to prepare the embedded Python runtime"
+		"failed to prepare the embedded python runtime"
 	);
 	let native: Value =
 		serde_json::from_reader(std::fs::File::open(output.join("native.json")).unwrap()).unwrap();

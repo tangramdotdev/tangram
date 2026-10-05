@@ -82,7 +82,7 @@ impl Cli {
 			args.module
 				.parse::<tg::Value>()?
 				.try_unwrap_module()
-				.map_err(|_| tg::error!("expected a Python module"))?
+				.map_err(|_| tg::error!("expected a python module"))?
 				.to_data()
 		} else {
 			let path = std::fs::canonicalize(&args.module)
@@ -100,7 +100,7 @@ impl Cli {
 			}
 		};
 		if module.kind != tg::module::Kind::Py {
-			return Err(tg::error!("expected a Python module"));
+			return Err(tg::error!("expected a python module"));
 		}
 
 		// Create the client.
@@ -134,7 +134,7 @@ impl Cli {
 			..
 		} = Self::spawn_thread(move || tangram_py::run(arg))
 			.await
-			.map_err(|error| tg::error!(!error, "the Python thread failed"))?;
+			.map_err(|error| tg::error!(!error, "the python thread failed"))?;
 
 		// Write the serialized outcome to the file and mark it with an empty attribute.
 		if let Ok(output_path) = std::env::var("TANGRAM_OUTPUT")

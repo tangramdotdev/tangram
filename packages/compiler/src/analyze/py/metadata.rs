@@ -53,7 +53,7 @@ pub fn parse(path: &Path, text: &str) -> tg::Result<Metadata> {
 			path,
 			text,
 			range,
-			&tg::error!(!source, "failed to parse the Python module"),
+			&tg::error!(!source, "failed to parse the python module"),
 		)
 	})?;
 	parse_module(path, text, &parsed)
@@ -198,7 +198,7 @@ fn parse_script(
 			return Err(locate(
 				requirement.span(),
 				tg::error!(
-					"the embedded Python {version} does not satisfy requires-python {}",
+					"the embedded python {version} does not satisfy requires-python {}",
 					requirement.get_ref()
 				),
 			));
@@ -212,7 +212,7 @@ fn parse_script(
 		if !valid {
 			return Err(locate(
 				declaration.span(),
-				tg::error!("invalid Python import name: {name}"),
+				tg::error!("invalid python import name: {name}"),
 			));
 		}
 		let value = declaration.get_ref();

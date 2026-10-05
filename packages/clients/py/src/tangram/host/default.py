@@ -512,7 +512,7 @@ def magic(value: Any) -> MagicOutput:
     # Stop at the passed Python function; only traverse non-function callable wrappers.
     function = inspect.unwrap(value, stop=inspect.isfunction)
     if not callable(value) or not inspect.isfunction(function):
-        raise TypeError("expected a Python function")
+        raise TypeError("expected a python function")
     namespace = function.__globals__
     module = namespace.get("__tangram_module__")
     if not isinstance(module, Module) or module.kind != "py":

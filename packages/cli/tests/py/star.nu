@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 let local = server spawn
-let message = 'star imports are not supported in Python modules; use explicit imports'
+let message = 'star imports are not supported in python modules; use explicit imports'
 for source in [
     'from math import *'
     'if False:

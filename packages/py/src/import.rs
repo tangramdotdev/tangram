@@ -49,7 +49,7 @@ pub fn initialize() -> tg::Result<()> {
 	});
 	result
 		.as_ref()
-		.map_err(|message| tg::error!("failed to initialize the Python runtime: {message}"))?;
+		.map_err(|message| tg::error!("failed to initialize the python runtime: {message}"))?;
 	Ok(())
 }
 

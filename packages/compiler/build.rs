@@ -371,7 +371,7 @@ mod python {
 			.unwrap();
 		assert!(
 			status.success(),
-			"failed to prepare the Python client library"
+			"failed to prepare the python client library"
 		);
 	}
 }

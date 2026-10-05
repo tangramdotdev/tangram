@@ -25,7 +25,7 @@ class Host(unittest.IsolatedAsyncioTestCase):
             host.magic(function)
         with self.assertRaisesRegex(ValueError, "Tangram module"):
             host.magic(lambda: None)
-        with self.assertRaisesRegex(TypeError, "Python function"):
+        with self.assertRaisesRegex(TypeError, "python function"):
             host.magic(object())
 
     async def test_magic_preserves_the_exported_decorated_callable(self):

@@ -11,7 +11,7 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 			module,
 			text,
 			range,
-			tg::error!(!error, "failed to parse the Python module"),
+			tg::error!(!error, "failed to parse the python module"),
 		)
 	})?;
 	crate::analyze::py::validate_imports(module, text, &parsed.syntax().body)?;
@@ -19,27 +19,6 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 	let mut all = None;
 	for statement in &parsed.syntax().body {
 		match statement {
-			Stmt::FunctionDef(function) => {
-				names.insert(function.name.to_string());
-			},
-			Stmt::ClassDef(class) => {
-				names.insert(class.name.to_string());
-			},
-			Stmt::Assign(assign) => {
-				for target in &assign.targets {
-					bindings(target, &mut names);
-					if matches!(target, Expr::Name(name) if name.id.as_str() == "__all__") {
-						all = Some(literal_names(&assign.value).map_err(|error| {
-							super::located_error(
-								module,
-								text,
-								usize::from(assign.range.start())..usize::from(assign.range.end()),
-								error,
-							)
-						})?);
-					}
-				}
-			},
 			Stmt::AnnAssign(assign) => {
 				if let Some(value) = &assign.value {
 					bindings(&assign.target, &mut names);
@@ -56,16 +35,29 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 					}
 				}
 			},
+			Stmt::Assign(assign) => {
+				for target in &assign.targets {
+					bindings(target, &mut names);
+					if matches!(target, Expr::Name(name) if name.id.as_str() == "__all__") {
+						all = Some(literal_names(&assign.value).map_err(|error| {
+							super::located_error(
+								module,
+								text,
+								usize::from(assign.range.start())..usize::from(assign.range.end()),
+								error,
+							)
+						})?);
+					}
+				}
+			},
 			Stmt::AugAssign(assign) if matches!(assign.target.as_ref(), Expr::Name(name) if name.id.as_str() == "__all__") =>
 			{
 				return Err(tg::error!(
 					"cross-language imports require a literal __all__ assignment"
 				));
 			},
-			Stmt::ImportFrom(import) => {
-				for alias in &import.names {
-					names.insert(alias.asname.as_ref().unwrap_or(&alias.name).to_string());
-				}
+			Stmt::ClassDef(class) => {
+				names.insert(class.name.to_string());
 			},
 			Stmt::Delete(delete) => {
 				let mut deleted = BTreeSet::new();
@@ -73,6 +65,14 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 					bindings(target, &mut deleted);
 				}
 				names.retain(|name| !deleted.contains(name));
+			},
+			Stmt::FunctionDef(function) => {
+				names.insert(function.name.to_string());
+			},
+			Stmt::ImportFrom(import) => {
+				for alias in &import.names {
+					names.insert(alias.asname.as_ref().unwrap_or(&alias.name).to_string());
+				}
 			},
 			_ => {},
 		}
@@ -86,20 +86,20 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 
 fn bindings(expression: &Expr, names: &mut BTreeSet<String>) {
 	match expression {
-		Expr::Name(name) => {
-			names.insert(name.id.to_string());
-		},
 		Expr::List(list) => {
 			for element in &list.elts {
 				bindings(element, names);
 			}
 		},
+		Expr::Name(name) => {
+			names.insert(name.id.to_string());
+		},
+		Expr::Starred(starred) => bindings(&starred.value, names),
 		Expr::Tuple(tuple) => {
 			for element in &tuple.elts {
 				bindings(element, names);
 			}
 		},
-		Expr::Starred(starred) => bindings(&starred.value, names),
 		_ => {},
 	}
 }

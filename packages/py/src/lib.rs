@@ -41,13 +41,13 @@ pub fn run(arg: Arg) -> tg::Result<Outcome> {
 	// Serialize invocations because CPython modules and process context are shared.
 	let _guard = RUN
 		.lock()
-		.map_err(|_| tg::error!("the Python runtime lock is poisoned"))?;
+		.map_err(|_| tg::error!("the python runtime lock is poisoned"))?;
 
 	// Preserve the entry's graph pointer before creating the process context and module cache.
 	let module = arg
 		.main_runtime_handle
 		.block_on(prepare_module(&arg.instance, arg.module))
-		.map_err(|error| tg::error!(!error, "failed to prepare the Python entry module"))?;
+		.map_err(|error| tg::error!(!error, "failed to prepare the python entry module"))?;
 
 	// Serialize the process context.
 	let context = serde_json::json!({
@@ -81,7 +81,7 @@ pub fn run(arg: Arg) -> tg::Result<Outcome> {
 			.call1((context.to_string(), host))?
 			.extract::<(u8, Option<String>, Option<String>)>()
 	})
-	.map_err(|error| tg::error!(!error, "failed to execute the Python runtime"))?;
+	.map_err(|error| tg::error!(!error, "failed to execute the python runtime"))?;
 
 	// Deserialize the outcome using the shared Tangram codecs.
 	let output = output
@@ -126,7 +126,7 @@ impl Host {
 				let resolver = tangram_compiler::py::resolve::Resolver::new(instance);
 				let result = resolver.resolve(request).await.and_then(|output| {
 					serde_json::to_string(&output).map_err(|error| {
-						tg::error!(!error, "failed to serialize the Python resolution")
+						tg::error!(!error, "failed to serialize the python resolution")
 					})
 				});
 				let _ = sender.send(result);
@@ -188,7 +188,7 @@ fn to_exception(py: Python<'_>, error: &tg::Error) -> PyErr {
 fn serialize_module(module: tg::module::Data) -> tg::Result<String> {
 	let resolved = tangram_compiler::py::resolve::Module::new(module);
 	let output = serde_json::to_string(&resolved)
-		.map_err(|error| tg::error!(!error, "failed to serialize the Python module"))?;
+		.map_err(|error| tg::error!(!error, "failed to serialize the python module"))?;
 	Ok(output)
 }
 

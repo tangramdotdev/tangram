@@ -21,7 +21,7 @@ pub fn module(
 			js::exports(module, text)
 		},
 		(Some(tg::module::load::Language::Py), tg::module::Kind::Dts) => {
-			return Err(tg::error!("cannot execute a declaration module in Python"));
+			return Err(tg::error!("cannot execute a declaration module in python"));
 		},
 		_ => return Ok(text.to_owned()),
 	};
@@ -58,7 +58,7 @@ pub fn module(
 			for name in &exports {
 				if name == "__all__" {
 					return Err(tg::error!(
-						"the export name __all__ is reserved by the Python loader"
+						"the export name __all__ is reserved by the python loader"
 					));
 				}
 				// Python cannot bind a JavaScript export whose name is not a Python identifier.
@@ -67,14 +67,14 @@ pub fn module(
 					tg::error!(
 						!error,
 						export = %name,
-						"the export name is not a Python identifier"
+						"the export name is not a python identifier"
 					)
 				})?;
 				if !matches!(parsed.syntax().body.as_slice(), [ruff_python_ast::Stmt::Assign(assign)] if matches!(assign.targets.as_slice(), [ruff_python_ast::Expr::Name(target)] if target.id.as_str() == name))
 				{
 					return Err(tg::error!(
 						export = %name,
-						"the export name is not a Python identifier"
+						"the export name is not a python identifier"
 					));
 				}
 				let quoted = serde_json::to_string(name).unwrap();

@@ -49,7 +49,7 @@ impl Database {
 						offset..offset + content.len(),
 						encoding,
 					)
-					.ok_or_else(|| tg::error!("invalid Python token range"))?;
+					.ok_or_else(|| tg::error!("invalid python token range"))?;
 					tokens.push(crate::semantic_tokens::Token {
 						length: range.end.character - range.start.character,
 						line: range.start.line,
