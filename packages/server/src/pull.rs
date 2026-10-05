@@ -153,7 +153,6 @@ impl Session {
 			.map(|(_, permissions)| *permissions)
 			.collect::<Vec<_>>();
 		let outputs = self.authorize_batch(args).await?;
-		crate::authorization::check_exhaustion(&outputs)?;
 		if !outputs
 			.iter()
 			.zip(&required)

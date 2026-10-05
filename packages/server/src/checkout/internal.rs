@@ -554,28 +554,20 @@ impl Session {
 				source: Some(source),
 				..Default::default()
 			};
-			if let Ok((_, stream)) = self.pull(arg).await {
-				progress.spinner("pull", "pull");
-				let mut stream = pin!(stream);
-				while let Some(event) = stream.try_next().await.ok().flatten() {
-					progress.forward(Ok(event));
+			let (_, stream) = self
+				.pull(arg)
+				.await
+				.map_err(|error| tg::error!(!error, "failed to pull the artifacts"))?;
+			progress.spinner("pull", "pull");
+			let mut stream = pin!(stream);
+			while let Some(event) = stream.try_next().await? {
+				if event.is_output() {
+					progress.finish_all();
+					return Ok(());
 				}
+				progress.forward(Ok(event));
 			}
-			let args = artifacts
-				.iter()
-				.map(|artifact| (artifact.clone(), permissions, storage));
-			if self
-				.verify_batch(args)
-				.await?
-				.into_iter()
-				.map(crate::verify::Output::check_exhaustion)
-				.collect::<tg::Result<Vec<_>>>()?
-				.iter()
-				.all(|output| output.outcome == crate::authorization::Outcome::Satisfied)
-			{
-				progress.finish_all();
-				return Ok(());
-			}
+			return Err(tg::error!("the artifact pull ended without an output"));
 		}
 		progress.finish_all();
 		verification?;
