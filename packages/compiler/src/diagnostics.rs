@@ -19,6 +19,11 @@ impl Compiler {
 			.into_iter()
 			.partition(|module| module.kind == tg::module::Kind::Py);
 		let mut diagnostics = Vec::new();
+		#[cfg(not(feature = "py"))]
+		if !python.is_empty() {
+			return Err(tg::error!("the py feature is not enabled"));
+		}
+		#[cfg(feature = "py")]
 		if !python.is_empty() {
 			let request = super::Request::DocumentDiagnostics(DocumentRequest { modules: python });
 			let response = self

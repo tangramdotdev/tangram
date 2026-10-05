@@ -18,13 +18,14 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-default = ["js", "lmdb", "sqlite", "tls", "typescript", "v8"]
+default = ["js", "lmdb", "py", "sqlite", "tls", "typescript", "v8"]
 fjall = ["tangram_server/fjall"]
 foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_server/foundationdb"]
 js = ["tangram_server/js"]
 lmdb = ["tangram_server/lmdb"]
 nats = ["tangram_server/nats"]
 postgres = ["tangram_server/postgres"]
+py = ["dep:tangram_py", "tangram_server/py"]
 quickjs = ["js", "tangram_server/quickjs", "tangram_js/quickjs"]
 rocksdb = ["tangram_server/rocksdb"]
 scylla = ["tangram_server/scylla"]
@@ -88,7 +89,7 @@ tangram_compiler = { workspace = true }
 tangram_fdb = { workspace = true, optional = true }
 tangram_futures = { workspace = true }
 tangram_js = { workspace = true }
-tangram_py = { workspace = true }
+tangram_py = { workspace = true, optional = true }
 tangram_pool = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_server = { workspace = true }

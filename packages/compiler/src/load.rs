@@ -1,9 +1,15 @@
+#[cfg(not(feature = "py"))]
+use tangram_client::prelude::*;
+#[cfg(feature = "py")]
 use {std::fmt::Write as _, tangram_client::prelude::*};
 
+#[cfg(feature = "py")]
 mod js;
+#[cfg(feature = "py")]
 mod py;
 
 /// Generate the consuming language's representation without changing the module's identity.
+#[cfg(feature = "py")]
 pub fn module(
 	module: &tg::module::Data,
 	text: &str,
@@ -85,6 +91,19 @@ pub fn module(
 	Ok(output)
 }
 
+#[cfg(not(feature = "py"))]
+pub fn module(
+	module: &tg::module::Data,
+	text: &str,
+	language: Option<tg::module::load::Language>,
+) -> tg::Result<String> {
+	if module.kind == tg::module::Kind::Py || language == Some(tg::module::load::Language::Py) {
+		return Err(tg::error!("the py feature is not enabled"));
+	}
+	Ok(text.to_owned())
+}
+
+#[cfg(feature = "py")]
 fn located_error(
 	module: &tg::module::Data,
 	text: &str,
@@ -109,7 +128,7 @@ fn located_error(
 	tg::Error::with_object(object)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "py"))]
 mod tests {
 	use super::*;
 

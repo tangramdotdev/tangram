@@ -43,6 +43,7 @@ pub mod jsonrpc;
 pub mod load;
 pub mod metadata;
 pub mod prepare_rename;
+#[cfg(feature = "py")]
 pub mod py;
 pub mod references;
 pub mod rename;
@@ -87,6 +88,7 @@ pub struct State {
 	position_encoding: RwLock<tg::position::Encoding>,
 
 	/// The Python service.
+	#[cfg(feature = "py")]
 	py: py::Service,
 
 	/// The outgoing request ID counter.
@@ -268,6 +270,7 @@ impl Compiler {
 			library_path,
 			main_runtime_handle,
 			position_encoding: RwLock::new(tg::position::Encoding::Utf8),
+			#[cfg(feature = "py")]
 			py: py::Service::new(),
 			request_id,
 			requests,
@@ -291,8 +294,11 @@ impl Compiler {
 					serve_task.wait().await.unwrap();
 				}
 
-				compiler.py.stop();
-				compiler.py.join().await;
+				#[cfg(feature = "py")]
+				{
+					compiler.py.stop();
+					compiler.py.join().await;
+				}
 				compiler.typescript7.stop().await;
 
 				// Stop and await the typescript service.
@@ -922,7 +928,10 @@ impl Compiler {
 			.module()
 			.is_some_and(|module| module.kind == tg::module::Kind::Py)
 		{
+			#[cfg(feature = "py")]
 			return self.request_py(request).await;
+			#[cfg(not(feature = "py"))]
+			return Err(tg::error!("the py feature is not enabled"));
 		}
 		if matches!(self.check_backend, CheckBackend::Typescript7)
 			&& let Request::Check(request) = request
@@ -1453,6 +1462,7 @@ impl Deref for Compiler {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
+		#[cfg(feature = "py")]
 		self.compiler.py.stop();
 		#[cfg(feature = "typescript")]
 		self.compiler.typescript6.stop();

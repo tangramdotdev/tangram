@@ -50,6 +50,7 @@ impl Compiler {
 			);
 		}
 
+		#[cfg(feature = "py")]
 		if self.py.is_started()
 			|| self
 				.documents

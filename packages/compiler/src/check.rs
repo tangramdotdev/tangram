@@ -17,6 +17,13 @@ impl Compiler {
 		let (python, modules): (Vec<_>, Vec<_>) = modules
 			.into_iter()
 			.partition(|module| module.kind == tg::module::Kind::Py);
+		#[cfg(not(feature = "py"))]
+		if !python.is_empty() {
+			return Err(tg::error!("the py feature is not enabled"));
+		}
+		#[cfg(not(feature = "py"))]
+		let mut diagnostics = Vec::new();
+		#[cfg(feature = "py")]
 		let mut diagnostics = if python.is_empty() {
 			Vec::new()
 		} else {

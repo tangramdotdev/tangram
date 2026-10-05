@@ -12,6 +12,7 @@ use {
 	tangram_client::prelude::*,
 };
 
+#[cfg(feature = "py")]
 pub mod py;
 
 #[derive(Clone, Debug)]

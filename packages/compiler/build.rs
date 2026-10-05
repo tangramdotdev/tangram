@@ -3,6 +3,7 @@ fn main() {
 
 	// Build the library.
 	self::library::build();
+	#[cfg(feature = "py")]
 	self::python::build();
 
 	#[cfg(feature = "typescript")]
@@ -336,6 +337,7 @@ mod typescript {
 	}
 }
 
+#[cfg(feature = "py")]
 mod python {
 	use std::{path::PathBuf, process::Command};
 

@@ -161,8 +161,8 @@ sources and revalidates recorded resolutions, including missing dependencies and
 tag changes. Unchanged sources retain their parsed and inferred results.
 Source locations use the negotiated UTF-8 or
 UTF-16 position encoding. Navigation into the client and typeshed materializes the
-corresponding embedded source, and navigation into JavaScript exports maps generated
-wrapper definitions back to their original declarations.
+corresponding embedded source, and navigation into JavaScript exports opens their
+generated Python wrapper definitions.
 
 Workspace queries cover open filesystem Python documents and their loaded
 filesystem dependencies.

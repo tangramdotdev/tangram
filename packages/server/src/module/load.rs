@@ -17,7 +17,15 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 
+		#[cfg(not(feature = "py"))]
+		if arg.module.kind == tg::module::Kind::Py
+			|| arg.language == Some(tg::module::load::Language::Py)
+		{
+			return Err(tg::error!("the py feature is not enabled"));
+		}
+
 		// Generate the Python representation of object modules.
+		#[cfg(feature = "py")]
 		if arg.language == Some(tg::module::load::Language::Py)
 			&& !matches!(
 				arg.module.kind,

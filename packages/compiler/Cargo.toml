@@ -11,6 +11,24 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
+py = [
+	"dep:pep440_rs",
+	"dep:ruff_db",
+	"dep:ruff_notebook",
+	"dep:ruff_python_ast",
+	"dep:ruff_python_formatter",
+	"dep:ruff_python_parser",
+	"dep:salsa",
+	"dep:tangram_py_build",
+	"dep:ty_ide",
+	"dep:ty_module_resolver",
+	"dep:ty_project",
+	"dep:ty_python_ast",
+	"dep:ty_python_core",
+	"dep:ty_python_semantic",
+	"dep:ty_text_size",
+	"dep:ty_vendored",
+]
 typescript = ["dep:tangram_v8", "dep:v8"]
 
 [lib]
@@ -20,7 +38,7 @@ doctest = false
 workspace = true
 
 [build-dependencies]
-tangram_py_build = { workspace = true }
+tangram_py_build = { workspace = true, optional = true }
 data-encoding = { workspace = true }
 glob = { workspace = true }
 indoc = { workspace = true }
@@ -43,13 +61,13 @@ num = { workspace = true }
 oxc = { workspace = true }
 oxc_formatter = { workspace = true }
 oxc_formatter_core = { workspace = true }
-pep440_rs = { workspace = true }
-ruff_db = { workspace = true }
-ruff_notebook = { workspace = true }
-ruff_python_ast = { workspace = true }
-ruff_python_formatter = { workspace = true }
-ruff_python_parser = { workspace = true }
-salsa = { workspace = true }
+pep440_rs = { workspace = true, optional = true }
+ruff_db = { workspace = true, optional = true }
+ruff_notebook = { workspace = true, optional = true }
+ruff_python_ast = { workspace = true, optional = true }
+ruff_python_formatter = { workspace = true, optional = true }
+ruff_python_parser = { workspace = true, optional = true }
+salsa = { workspace = true, optional = true }
 scopeguard = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -65,12 +83,12 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
-ty_ide = { workspace = true }
-ty_module_resolver = { workspace = true }
-ty_project = { workspace = true }
-ty_python_ast = { workspace = true }
-ty_python_core = { workspace = true }
-ty_python_semantic = { workspace = true }
-ty_text_size = { workspace = true }
-ty_vendored = { workspace = true }
+ty_ide = { workspace = true, optional = true }
+ty_module_resolver = { workspace = true, optional = true }
+ty_project = { workspace = true, optional = true }
+ty_python_ast = { workspace = true, optional = true }
+ty_python_core = { workspace = true, optional = true }
+ty_python_semantic = { workspace = true, optional = true }
+ty_text_size = { workspace = true, optional = true }
+ty_vendored = { workspace = true, optional = true }
 v8 = { workspace = true, optional = true }
