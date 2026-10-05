@@ -8,7 +8,7 @@ tg.directory({
             "mod.tg.ts": 1,
             "tangram.ts": tg.file({
               "contents": tg.blob(""),
-              "module": "ts",
+              "module": "typescript",
             }),
           },
         },
@@ -23,7 +23,7 @@ tg.directory({
               },
             },
           },
-          "module": "ts",
+          "module": "typescript",
         },
       ],
     }),

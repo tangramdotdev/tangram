@@ -33,7 +33,7 @@ impl Compiler {
 
 		// Create the hover.
 		let hover = lsp::Hover {
-			contents: if module.kind == tg::module::Kind::Py {
+			contents: if module.kind == tg::module::Kind::Python {
 				lsp::HoverContents::Markup(lsp::MarkupContent {
 					kind: lsp::MarkupKind::Markdown,
 					value: hover,

@@ -11,6 +11,6 @@ tg.directory({
         },
       },
     },
-    "module": "ts",
+    "module": "typescript",
   }),
 })

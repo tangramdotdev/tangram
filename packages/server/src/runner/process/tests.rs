@@ -11,7 +11,7 @@ fn rendering_preserves_module_tokens() {
 		kind: tg::artifact::Kind::File,
 	};
 	let module = tg::module::Data {
-		kind: tg::module::Kind::Ts,
+		kind: tg::module::Kind::TypeScript,
 		referent: tg::Referent::with_node_and_tokens(
 			tg::module::data::Source::Edge(tg::graph::data::Edge::Pointer(pointer)),
 			input.options.tokens.clone(),

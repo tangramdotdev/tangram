@@ -18,7 +18,7 @@ snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
 	    "contents": tg.blob(""),
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '

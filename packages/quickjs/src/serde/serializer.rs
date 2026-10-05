@@ -1,44 +1,44 @@
 use {num::ToPrimitive as _, rquickjs as qjs, serde::ser::Error as _};
 
-pub struct Serializer<'js> {
-	ctx: qjs::Ctx<'js>,
+pub struct Serializer<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
 }
 
-pub struct SerializeSeq<'js> {
-	ctx: qjs::Ctx<'js>,
-	array: qjs::Array<'js>,
+pub struct SerializeSeq<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	array: qjs::Array<'javascript>,
 }
 
-pub struct SerializeTuple<'js> {
-	ctx: qjs::Ctx<'js>,
-	array: qjs::Array<'js>,
+pub struct SerializeTuple<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	array: qjs::Array<'javascript>,
 }
 
-pub struct SerializeTupleStruct<'js> {
-	ctx: qjs::Ctx<'js>,
-	array: qjs::Array<'js>,
+pub struct SerializeTupleStruct<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	array: qjs::Array<'javascript>,
 }
 
-pub struct SerializeTupleVariant<'js> {
-	ctx: qjs::Ctx<'js>,
-	array: qjs::Array<'js>,
+pub struct SerializeTupleVariant<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	array: qjs::Array<'javascript>,
 	variant: &'static str,
 }
 
-pub struct SerializeMap<'js> {
-	ctx: qjs::Ctx<'js>,
-	key: Option<qjs::Value<'js>>,
-	object: qjs::Object<'js>,
+pub struct SerializeMap<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	key: Option<qjs::Value<'javascript>>,
+	object: qjs::Object<'javascript>,
 }
 
-pub struct SerializeStruct<'js> {
-	ctx: qjs::Ctx<'js>,
-	object: qjs::Object<'js>,
+pub struct SerializeStruct<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	object: qjs::Object<'javascript>,
 }
 
-pub struct SerializeStructVariant<'js> {
-	ctx: qjs::Ctx<'js>,
-	object: qjs::Object<'js>,
+pub struct SerializeStructVariant<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	object: qjs::Object<'javascript>,
 	variant: &'static str,
 }
 
@@ -57,22 +57,22 @@ impl std::error::Error for Error {
 	}
 }
 
-impl<'js> Serializer<'js> {
-	pub fn new(ctx: qjs::Ctx<'js>) -> Self {
+impl<'javascript> Serializer<'javascript> {
+	pub fn new(ctx: qjs::Ctx<'javascript>) -> Self {
 		Self { ctx }
 	}
 }
 
-impl<'js> serde::Serializer for Serializer<'js> {
-	type Ok = qjs::Value<'js>;
+impl<'javascript> serde::Serializer for Serializer<'javascript> {
+	type Ok = qjs::Value<'javascript>;
 	type Error = Error;
-	type SerializeSeq = SerializeSeq<'js>;
-	type SerializeTuple = SerializeTuple<'js>;
-	type SerializeTupleStruct = SerializeTupleStruct<'js>;
-	type SerializeTupleVariant = SerializeTupleVariant<'js>;
-	type SerializeMap = SerializeMap<'js>;
-	type SerializeStruct = SerializeStruct<'js>;
-	type SerializeStructVariant = SerializeStructVariant<'js>;
+	type SerializeSeq = SerializeSeq<'javascript>;
+	type SerializeTuple = SerializeTuple<'javascript>;
+	type SerializeTupleStruct = SerializeTupleStruct<'javascript>;
+	type SerializeTupleVariant = SerializeTupleVariant<'javascript>;
+	type SerializeMap = SerializeMap<'javascript>;
+	type SerializeStruct = SerializeStruct<'javascript>;
+	type SerializeStructVariant = SerializeStructVariant<'javascript>;
 
 	fn serialize_bool(self, v: bool) -> Result<Self::Ok, Self::Error> {
 		Ok(qjs::Value::new_bool(self.ctx, v))
@@ -291,8 +291,8 @@ impl<'js> serde::Serializer for Serializer<'js> {
 	}
 }
 
-impl<'js> serde::ser::SerializeSeq for SerializeSeq<'js> {
-	type Ok = qjs::Value<'js>;
+impl<'javascript> serde::ser::SerializeSeq for SerializeSeq<'javascript> {
+	type Ok = qjs::Value<'javascript>;
 	type Error = Error;
 
 	fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -312,8 +312,8 @@ impl<'js> serde::ser::SerializeSeq for SerializeSeq<'js> {
 	}
 }
 
-impl<'js> serde::ser::SerializeTuple for SerializeTuple<'js> {
-	type Ok = qjs::Value<'js>;
+impl<'javascript> serde::ser::SerializeTuple for SerializeTuple<'javascript> {
+	type Ok = qjs::Value<'javascript>;
 	type Error = Error;
 
 	fn serialize_element<T>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -333,8 +333,8 @@ impl<'js> serde::ser::SerializeTuple for SerializeTuple<'js> {
 	}
 }
 
-impl<'js> serde::ser::SerializeTupleStruct for SerializeTupleStruct<'js> {
-	type Ok = qjs::Value<'js>;
+impl<'javascript> serde::ser::SerializeTupleStruct for SerializeTupleStruct<'javascript> {
+	type Ok = qjs::Value<'javascript>;
 	type Error = Error;
 
 	fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -354,8 +354,8 @@ impl<'js> serde::ser::SerializeTupleStruct for SerializeTupleStruct<'js> {
 	}
 }
 
-impl<'js> serde::ser::SerializeTupleVariant for SerializeTupleVariant<'js> {
-	type Ok = qjs::Value<'js>;
+impl<'javascript> serde::ser::SerializeTupleVariant for SerializeTupleVariant<'javascript> {
+	type Ok = qjs::Value<'javascript>;
 	type Error = Error;
 
 	fn serialize_field<T>(&mut self, value: &T) -> Result<(), Self::Error>
@@ -380,8 +380,8 @@ impl<'js> serde::ser::SerializeTupleVariant for SerializeTupleVariant<'js> {
 	}
 }
 
-impl<'js> serde::ser::SerializeMap for SerializeMap<'js> {
-	type Ok = qjs::Value<'js>;
+impl<'javascript> serde::ser::SerializeMap for SerializeMap<'javascript> {
+	type Ok = qjs::Value<'javascript>;
 	type Error = Error;
 
 	fn serialize_key<T>(&mut self, key: &T) -> Result<(), Self::Error>
@@ -413,8 +413,8 @@ impl<'js> serde::ser::SerializeMap for SerializeMap<'js> {
 	}
 }
 
-impl<'js> serde::ser::SerializeStruct for SerializeStruct<'js> {
-	type Ok = qjs::Value<'js>;
+impl<'javascript> serde::ser::SerializeStruct for SerializeStruct<'javascript> {
+	type Ok = qjs::Value<'javascript>;
 	type Error = Error;
 
 	fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>
@@ -433,8 +433,8 @@ impl<'js> serde::ser::SerializeStruct for SerializeStruct<'js> {
 	}
 }
 
-impl<'js> serde::ser::SerializeStructVariant for SerializeStructVariant<'js> {
-	type Ok = qjs::Value<'js>;
+impl<'javascript> serde::ser::SerializeStructVariant for SerializeStructVariant<'javascript> {
+	type Ok = qjs::Value<'javascript>;
 	type Error = Error;
 
 	fn serialize_field<T>(&mut self, key: &'static str, value: &T) -> Result<(), Self::Error>

@@ -12,8 +12,8 @@ members = [
   "packages/cache/rocksdb",
   "packages/cache/scylla",
   "packages/cli",
-  "packages/clients/js/native",
-  "packages/clients/py/native",
+  "packages/clients/javascript/native",
+  "packages/clients/python/native",
   "packages/clients/rust",
   "packages/compiler",
   "packages/database",
@@ -28,13 +28,13 @@ members = [
   "packages/index",
   "packages/index/fdb",
   "packages/index/lmdb",
-  "packages/js",
+  "packages/javascript",
 	"packages/messenger",
   "packages/messenger/memory",
   "packages/messenger/nats",
   "packages/pool",
-  "packages/py",
-  "packages/py/build",
+  "packages/python",
+  "packages/python/build",
   "packages/quickjs",
   "packages/sandbox",
   "packages/scylla/client",
@@ -245,14 +245,14 @@ tangram_ignore = { path = "packages/ignore" }
 tangram_index = { path = "packages/index" }
 tangram_index_fdb = { path = "packages/index/fdb" }
 tangram_index_lmdb = { path = "packages/index/lmdb" }
-tangram_js = { path = "packages/js" }
+tangram_javascript = { path = "packages/javascript" }
 tangram_messenger = { path = "packages/messenger" }
 tangram_messenger_memory = { path = "packages/messenger/memory" }
 tangram_messenger_nats = { path = "packages/messenger/nats" }
 tangram_pool = { path = "packages/pool" }
-tangram_py = { path = "packages/py" }
-tangram_py_build = { path = "packages/py/build" }
-tangram_py_native = { path = "packages/clients/py/native" }
+tangram_python = { path = "packages/python" }
+tangram_python_build = { path = "packages/python/build" }
+tangram_python_native = { path = "packages/clients/python/native" }
 tangram_quickjs = { path = "packages/quickjs" }
 tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }

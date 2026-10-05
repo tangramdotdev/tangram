@@ -30,7 +30,7 @@ def main [
 	--no-progress-details # Show only the aggregate progress bar, without listing running tests.
 	--offline # Skip tests which require network access.
 	--print-passing-test-output # Print the output of passing tests.
-	--quickjs # Use QuickJS as the JS engine.
+	--quickjs # Use QuickJS as the JavaScript engine.
 	--release # Use a release build of tangram. Some bugs are only observable in release mode.
 	--review (-r) # Review snapshots.
 	--stress # Run the matching tests repeatedly until one fails.
@@ -198,8 +198,8 @@ def main [
 
 	# Tests that require an external language client live under its named directory.
 	let node = $tests | any { |test| $test.name | str starts-with 'node/' }
-	let py = $tests | any { |test| $test.name | str starts-with 'py/' }
-	let extension_args = if $node { ['--package' 'tangram_js_native'] } else { [] }
+	let python = $tests | any { |test| $test.name | str starts-with 'python/' }
+	let extension_args = if $node { ['--package' 'tangram_javascript_native'] } else { [] }
 
 	# Build and install the current macOS app and file system extension. Isolate
 	# its default-feature Cargo build from the all-features test binary.
@@ -254,10 +254,10 @@ def main [
 	}
 
 	# Build the Python client with an installed Python 3.12 or later.
-	if $py {
+	if $python {
 		let client_profile = if $release { 'release' } else { 'dev' }
 		let python_executable = $env.TANGRAM_PYTHON? | default 'python3'
-		^$python_executable packages/clients/py/build.py --profile $client_profile
+		^$python_executable packages/clients/python/build.py --profile $client_profile
 	}
 
 	if $cloud {

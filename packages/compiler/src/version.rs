@@ -22,9 +22,9 @@ impl Compiler {
 		// Get the path.
 		let tg::module::Data {
 			kind:
-				tg::module::Kind::Js
-				| tg::module::Kind::Py
-				| tg::module::Kind::Ts
+				tg::module::Kind::JavaScript
+				| tg::module::Kind::Python
+				| tg::module::Kind::TypeScript
 				| tg::module::Kind::Artifact
 				| tg::module::Kind::Directory
 				| tg::module::Kind::File

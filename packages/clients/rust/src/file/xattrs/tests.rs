@@ -112,7 +112,7 @@ fn write_and_replace() {
 	let token = token("file");
 	let required = [
 		Required::Lock(Some(b"{\"nodes\":[]}".as_slice())),
-		Required::Module(Some(b"ts".as_slice())),
+		Required::Module(Some(b"typescript".as_slice())),
 	];
 	let arg = Arg {
 		dependencies: Some(&references),
@@ -262,13 +262,16 @@ fn named_metadata() {
 	let references = vec!["./first".parse().unwrap(), "./second".parse().unwrap()];
 	let token = token("file");
 	write_lock(&temp, b"lock").unwrap();
-	write_module(&temp, tg::module::Kind::Ts).unwrap();
+	write_module(&temp, tg::module::Kind::TypeScript).unwrap();
 	write_token(&temp, &token).unwrap();
 	let options = Options { max_value_size: 4 };
 	write_dependencies(&temp, &references, options).unwrap();
 	assert_eq!(read_dependencies(&temp).unwrap(), Some(references));
 	assert_eq!(read_token(&temp).unwrap(), Some(token));
-	assert_eq!(read_module(&temp).unwrap(), Some(tg::module::Kind::Ts));
+	assert_eq!(
+		read_module(&temp).unwrap(),
+		Some(tg::module::Kind::TypeScript)
+	);
 	assert_eq!(read_lock(&temp).unwrap(), Some(b"lock".to_vec()));
 	write_dependencies(&temp, &[], Options::default()).unwrap();
 	assert_eq!(read_dependencies(&temp).unwrap(), Some(Vec::new()));

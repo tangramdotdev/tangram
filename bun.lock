@@ -12,7 +12,7 @@
         "typescript": "npm:@typescript/typescript6@^6.0.2",
       },
     },
-    "packages/clients/js": {
+    "packages/clients/javascript": {
       "name": "@tangramdotdev/client",
       "version": "0.0.0",
       "dependencies": {
@@ -23,11 +23,11 @@
         "@types/node": "^26.6.4",
       },
     },
-    "packages/clients/py": {
+    "packages/clients/python": {
       "name": "@tangramdotdev/python-client",
     },
-    "packages/js": {
-      "name": "@tangramdotdev/js",
+    "packages/javascript": {
+      "name": "@tangramdotdev/javascript",
       "dependencies": {
         "@tangramdotdev/client": "workspace:*",
       },
@@ -35,7 +35,7 @@
         "@types/node": "^26.6.4",
       },
     },
-    "packages/py": {
+    "packages/python": {
       "name": "@tangramdotdev/python-runtime",
     },
     "packages/typescript": {
@@ -250,13 +250,13 @@
 
     "@secretlint/types": ["@secretlint/types@10.2.2", "", {}, "sha512-Nqc90v4lWCXyakD6xNyNACBJNJ0tNCwj2WNk/7ivyacYHxiITVgmLUFXTBOeCdy79iz6HtN9Y31uw/jbLrdOAg=="],
 
-    "@tangramdotdev/client": ["@tangramdotdev/client@workspace:packages/clients/js"],
+    "@tangramdotdev/client": ["@tangramdotdev/client@workspace:packages/clients/javascript"],
 
-    "@tangramdotdev/js": ["@tangramdotdev/js@workspace:packages/js"],
+    "@tangramdotdev/javascript": ["@tangramdotdev/javascript@workspace:packages/javascript"],
 
-    "@tangramdotdev/python-client": ["@tangramdotdev/python-client@workspace:packages/clients/py"],
+    "@tangramdotdev/python-client": ["@tangramdotdev/python-client@workspace:packages/clients/python"],
 
-    "@tangramdotdev/python-runtime": ["@tangramdotdev/python-runtime@workspace:packages/py"],
+    "@tangramdotdev/python-runtime": ["@tangramdotdev/python-runtime@workspace:packages/python"],
 
     "@tangramdotdev/typescript": ["@tangramdotdev/typescript@workspace:packages/typescript"],
 

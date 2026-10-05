@@ -4,34 +4,34 @@ use {
 	serde::{Deserialize as _, Deserializer as _, de::Error as _},
 };
 
-pub struct Deserializer<'js> {
-	ctx: qjs::Ctx<'js>,
-	value: qjs::Value<'js>,
+pub struct Deserializer<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	value: qjs::Value<'javascript>,
 }
 
-struct SeqAccess<'js> {
-	ctx: qjs::Ctx<'js>,
-	array: qjs::Array<'js>,
+struct SeqAccess<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	array: qjs::Array<'javascript>,
 	index: usize,
 	length: usize,
 }
 
-struct MapAccess<'js> {
-	ctx: qjs::Ctx<'js>,
-	keys: Vec<qjs::Value<'js>>,
+struct MapAccess<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	keys: Vec<qjs::Value<'javascript>>,
 	index: usize,
-	object: qjs::Object<'js>,
+	object: qjs::Object<'javascript>,
 }
 
-struct EnumAccess<'js> {
-	ctx: qjs::Ctx<'js>,
-	tag: qjs::Value<'js>,
-	content: qjs::Value<'js>,
+struct EnumAccess<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	tag: qjs::Value<'javascript>,
+	content: qjs::Value<'javascript>,
 }
 
-struct VariantAccess<'js> {
-	ctx: qjs::Ctx<'js>,
-	value: qjs::Value<'js>,
+struct VariantAccess<'javascript> {
+	ctx: qjs::Ctx<'javascript>,
+	value: qjs::Value<'javascript>,
 }
 
 #[derive(Debug)]
@@ -49,8 +49,8 @@ impl std::error::Error for Error {
 	}
 }
 
-impl<'js> Deserializer<'js> {
-	pub fn new(ctx: qjs::Ctx<'js>, value: qjs::Value<'js>) -> Self {
+impl<'javascript> Deserializer<'javascript> {
+	pub fn new(ctx: qjs::Ctx<'javascript>, value: qjs::Value<'javascript>) -> Self {
 		Self { ctx, value }
 	}
 }
@@ -465,9 +465,9 @@ impl<'de> serde::de::MapAccess<'de> for MapAccess<'_> {
 	}
 }
 
-impl<'de, 'js> serde::de::EnumAccess<'de> for EnumAccess<'js> {
+impl<'de, 'javascript> serde::de::EnumAccess<'de> for EnumAccess<'javascript> {
 	type Error = Error;
-	type Variant = VariantAccess<'js>;
+	type Variant = VariantAccess<'javascript>;
 
 	fn variant_seed<V>(self, seed: V) -> Result<(V::Value, Self::Variant), Self::Error>
 	where

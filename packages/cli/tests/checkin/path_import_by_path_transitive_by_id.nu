@@ -44,19 +44,19 @@ snapshot $object '
 	              "../sibling?get=lib/utils.tg.ts": {
 	                "node": tg.file({
 	                  "contents": tg.blob("export function helper() { return \"helper\"; }"),
-	                  "module": "ts",
+	                  "module": "typescript",
 	                }),
 	                "options": {
 	                  "path": "../sibling/lib/utils.tg.ts",
 	                },
 	              },
 	            },
-	            "module": "ts",
+	            "module": "typescript",
 	          }),
 	        }),
 	      },
 	    },
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '

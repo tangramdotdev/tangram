@@ -1,5 +1,5 @@
 use {
-	crate::js::Engine,
+	crate::javascript::Engine,
 	nu_ansi_term::Color,
 	std::{borrow::Cow, path::PathBuf},
 	tangram_client::prelude::*,
@@ -11,7 +11,7 @@ const HISTORY_SIZE: usize = 10_000;
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	/// The JS engine to use.
+	/// The JavaScript engine to use.
 	#[arg(default_value = "auto", long)]
 	pub engine: Engine,
 }
@@ -38,7 +38,7 @@ impl crate::Cli {
 			.collect();
 		let export = None;
 		let module = tg::module::Data {
-			kind: tg::module::Kind::Js,
+			kind: tg::module::Kind::JavaScript,
 			referent: tg::Referent::with_node(tg::module::data::Source::Path(PathBuf::from(
 				"<repl>",
 			))),
@@ -48,7 +48,7 @@ impl crate::Cli {
 		let instance = tg::instance::dynamic::Instance::new(client);
 		let main_runtime_handle = tokio::runtime::Handle::current();
 		let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-		let arg = tangram_js::Arg {
+		let arg = tangram_javascript::Arg {
 			args,
 			cwd,
 			env,
@@ -70,19 +70,21 @@ impl crate::Cli {
 					#[allow(unreachable_patterns)]
 					#[cfg(feature = "v8")]
 					Engine::Auto | Engine::V8 => {
-						let mut runtime = tangram_js::v8::Runtime::new(arg)?;
+						let mut runtime = tangram_javascript::v8::Runtime::new(arg)?;
 						runtime.run().await?;
 					},
 					#[allow(unreachable_patterns)]
 					#[cfg(feature = "quickjs")]
 					Engine::Auto | Engine::QuickJs => {
-						let mut runtime = tangram_js::quickjs::Runtime::new(arg).await?;
+						let mut runtime = tangram_javascript::quickjs::Runtime::new(arg).await?;
 						runtime.run().await?;
 					},
 					#[allow(unreachable_patterns)]
 					_ => {
 						drop(arg);
-						return Err(tg::error!("the requested JS engine is not available"));
+						return Err(tg::error!(
+							"the requested JavaScript engine is not available"
+						));
 					},
 				}
 				Ok(())
@@ -125,7 +127,7 @@ impl crate::Cli {
 						break;
 					}
 					let (response, receiver) = tokio::sync::oneshot::channel();
-					let command = tangram_js::repl::Command { source, response };
+					let command = tangram_javascript::repl::Command { source, response };
 					if sender.send(command).is_err() {
 						return Err(tg::error!("the repl runtime stopped"));
 					}

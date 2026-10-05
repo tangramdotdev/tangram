@@ -23,7 +23,7 @@ snapshot $object '
 	    "foo": {
 	      "node": tg.file({
 	        "contents": tg.blob(""),
-	        "module": "ts",
+	        "module": "typescript",
 	      }),
 	      "options": {
 	        "id": "fil_01pt07w6c61hepxc7n76nskysszbn4n3g8m2xscm1d9tny4myfy9qg",
@@ -31,7 +31,7 @@ snapshot $object '
 	      },
 	    },
 	  },
-	  "module": "ts",
+	  "module": "typescript",
 	})
 '
 

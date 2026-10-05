@@ -22,7 +22,7 @@ for token in [null $alice.token $root_token] {
 	} else {
 		{ 'Content-Type': application/json, Authorization: $'Bearer ($token)' }
 	}
-	for kind in [js ts] {
+	for kind in [javascript typescript] {
 		let body = { module: { kind: $kind, referent: { node: $secret_path, options: {} } } }
 		let response = ($body | to json --raw)
 			| http post --allow-errors --full --headers $headers $'($local.url)/modules/load'
@@ -36,14 +36,14 @@ for token in [null $alice.token $root_token] {
 	}
 
 	# Declarations come from the embedded library, even for unauthenticated callers.
-	let body = { module: { kind: dts, referent: { node: './lib.es5.d.ts', options: {} } } }
+	let body = { module: { kind: typescript_declaration, referent: { node: './lib.es5.d.ts', options: {} } } }
 	let response = ($body | to json --raw)
 		| http post --allow-errors --full --headers $headers $'($local.url)/modules/load'
 	assert equal $response.status 200
 	assert ($response.body.text | str contains 'interface Object')
 
 	# Object-backed modules retain their normal resource authorization.
-	let body = { module: { kind: ts, referent: { node: $object, options: {} } } }
+	let body = { module: { kind: typescript, referent: { node: $object, options: {} } } }
 	let response = ($body | to json --raw)
 		| http post --allow-errors --full --headers $headers $'($local.url)/modules/load'
 	if $token == null {
@@ -54,7 +54,7 @@ for token in [null $alice.token $root_token] {
 	}
 
 	# Labeling an arbitrary filesystem path as a declaration must not bypass the restriction.
-	let body = { module: { kind: dts, referent: { node: $secret_path, options: {} } } }
+	let body = { module: { kind: typescript_declaration, referent: { node: $secret_path, options: {} } } }
 	let response = ($body | to json --raw)
 		| http post --allow-errors --full --headers $headers $'($local.url)/modules/load'
 	assert ($response.status != 200)

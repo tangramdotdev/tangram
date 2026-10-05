@@ -7,7 +7,7 @@ let dependency_path = artifact {
 		export default async function () {
 			const graph = await tg.graph({ nodes: [
 				{ kind: "directory", entries: { "module.tg.ts": 1 } },
-				{ kind: "file", contents: `export default function () { return "graph target"; }`, module: "ts" },
+				{ kind: "file", contents: `export default function () { return "graph target"; }`, module: "typescript" },
 			] });
 			return graph.get(0);
 		}

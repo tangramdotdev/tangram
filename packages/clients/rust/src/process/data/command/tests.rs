@@ -128,7 +128,7 @@ fn module_serialization_preserves_graph_tokens() {
 		kind: tg::artifact::Kind::File,
 	};
 	let module = tg::Module {
-		kind: tg::module::Kind::Ts,
+		kind: tg::module::Kind::TypeScript,
 		referent: tg::Referent::with_node(tg::module::Source::Edge(tg::graph::Edge::Pointer(
 			pointer,
 		))),

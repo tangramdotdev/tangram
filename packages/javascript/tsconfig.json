@@ -1,0 +1,22 @@
+{
+	"compilerOptions": {
+		"allowImportingTsExtensions": true,
+		"exactOptionalPropertyTypes": true,
+		"isolatedModules": true,
+		"lib": ["esnext"],
+		"module": "esnext",
+		"moduleDetection": "force",
+		"moduleResolution": "bundler",
+		"noEmit": true,
+		"noUncheckedIndexedAccess": true,
+		"noUncheckedSideEffectImports": true,
+		"paths": {
+			"@tangramdotdev/client": ["../clients/javascript/src/index.ts"]
+		},
+		"strict": true,
+		"target": "esnext",
+		"typeRoots": ["./node_modules/@types"],
+		"types": ["node"],
+		"verbatimModuleSyntax": true,
+	},
+}

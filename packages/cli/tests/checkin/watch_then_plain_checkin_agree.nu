@@ -28,7 +28,7 @@ snapshot $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
 	    "contents": tg.blob("export default () => \"two\";"),
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '

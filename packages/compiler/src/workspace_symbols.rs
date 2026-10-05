@@ -35,7 +35,7 @@ impl Compiler {
 		if self
 			.documents
 			.iter()
-			.any(|document| document.open && document.module.kind != tg::module::Kind::Py)
+			.any(|document| document.open && document.module.kind != tg::module::Kind::Python)
 		{
 			let request = super::Request::WorkspaceSymbol(Request {
 				query: query.clone(),
@@ -46,19 +46,22 @@ impl Compiler {
 					.symbols
 					.into_iter()
 					.flatten()
-					.filter(|symbol| symbol.module.kind != tg::module::Kind::Py),
+					.filter(|symbol| symbol.module.kind != tg::module::Kind::Python),
 			);
 		}
 
-		#[cfg(feature = "py")]
-		if self.py.is_started()
+		#[cfg(feature = "python")]
+		if self.python.is_started()
 			|| self
 				.documents
 				.iter()
-				.any(|document| document.module.kind == tg::module::Kind::Py)
+				.any(|document| document.module.kind == tg::module::Kind::Python)
 		{
 			let request = super::Request::WorkspaceSymbol(Request { query });
-			let response = self.request_py(request).await?.unwrap_workspace_symbol();
+			let response = self
+				.request_python(request)
+				.await?
+				.unwrap_workspace_symbol();
 			symbols.extend(response.symbols.into_iter().flatten());
 		}
 		Ok(Some(symbols))

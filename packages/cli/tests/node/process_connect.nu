@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 # A node process connects to its control stream and receives its result.
 
-const js_path = path self '../../../js'
-cd $js_path
+const javascript_path = path self '../../../javascript'
+cd $javascript_path
 
 # Receipt, operation completion, process exit, and read EOF are independent handshakes.
 let output = timeout 15 node --input-type=module -e '

@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 # Node standard input and output flow through the process streams.
 
-const js_path = path self '../../../js'
-cd $js_path
+const javascript_path = path self '../../../javascript'
+cd $javascript_path
 
 # A 4 MiB write pipelines two windows, and receipt acknowledgments do not release either window.
 let output = timeout 5 node --input-type=module -e '

@@ -17,14 +17,14 @@ for count in 1..8 {
 					options: { id: dependency.id, tag: name },
 				};
 			}
-			return tg.file({ contents: "input", dependencies, module: "ts" });
+			return tg.file({ contents: "input", dependencies, module: "typescript" });
 		}
 	' | str replace 'COUNT' ($count | into string)
 	let id = tg build (artifact { tangram.ts: $source })
 	let path = $tmp | path join ($count | into string)
 	tg checkout --lock=attr --dependencies=false $id --path $path
 
-	assert equal (xattr_read 'user.tangram.module' $path) 'ts'
+	assert equal (xattr_read 'user.tangram.module' $path) 'typescript'
 	let lock = xattr_read 'user.tangram.lock' $path | from json
 	assert equal ($lock.nodes | first | get dependencies | columns | length) $count
 

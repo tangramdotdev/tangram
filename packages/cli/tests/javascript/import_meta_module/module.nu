@@ -1,0 +1,12 @@
+use ../../lib/test.nu *
+
+# import.meta.module refers to the module's own source; empty referent options are omitted.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'export default function () { return import.meta.module; }'
+}
+
+let output = tg build --no-tokens $path
+snapshot --normalize-ids $output 'tg.module({"kind":"typescript","referent":{"node":fil_010000000000000000000000000000000000000000000000000000,"options":{"location":"local"}}})'

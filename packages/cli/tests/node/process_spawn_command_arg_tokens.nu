@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Command argument tokens remain scoped to the user who received them.
 
-const js_path = path self '../../../js'
+const javascript_path = path self '../../../javascript'
 
 # An unsandboxed inline spawn command authorizes its private executable from its referent tokens without traversing the authorization graph.
 
@@ -44,7 +44,7 @@ let server = $local | upsert config $config
 let server = server restart $local
 
 # Unsandboxed spawning happens in the client, not on the server.
-cd $js_path
+cd $javascript_path
 for mode in [none executable] {
 	let output = with-env { TANGRAM_TOKEN: $bob.token, TOKEN_MODE: $mode, EXECUTABLE_REFERENT: ($executable_referent | to json --raw) } {
 		node --input-type=module -e '

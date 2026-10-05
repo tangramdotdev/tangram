@@ -1,26 +1,29 @@
-#[cfg(not(feature = "py"))]
+#[cfg(not(feature = "python"))]
 use tangram_client::prelude::*;
-#[cfg(feature = "py")]
+#[cfg(feature = "python")]
 use {std::fmt::Write as _, tangram_client::prelude::*};
 
-#[cfg(feature = "py")]
-mod js;
-#[cfg(feature = "py")]
-mod py;
+#[cfg(feature = "python")]
+mod javascript;
+#[cfg(feature = "python")]
+mod python;
 
 /// Generate the consuming language's representation without changing the module's identity.
-#[cfg(feature = "py")]
+#[cfg(feature = "python")]
 pub fn module(
 	module: &tg::module::Data,
 	text: &str,
 	language: Option<tg::module::load::Language>,
 ) -> tg::Result<String> {
 	let exports = match (language, module.kind) {
-		(Some(tg::module::load::Language::Js), tg::module::Kind::Py) => py::exports(module, text),
-		(Some(tg::module::load::Language::Py), tg::module::Kind::Js | tg::module::Kind::Ts) => {
-			js::exports(module, text)
+		(Some(tg::module::load::Language::JavaScript), tg::module::Kind::Python) => {
+			python::exports(module, text)
 		},
-		(Some(tg::module::load::Language::Py), tg::module::Kind::Dts) => {
+		(
+			Some(tg::module::load::Language::Python),
+			tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
+		) => javascript::exports(module, text),
+		(Some(tg::module::load::Language::Python), tg::module::Kind::TypeScriptDeclaration) => {
 			return Err(tg::error!("cannot execute a declaration module in python"));
 		},
 		_ => return Ok(text.to_owned()),
@@ -29,14 +32,14 @@ pub fn module(
 
 	let mut output = String::new();
 	match language.unwrap() {
-		tg::module::load::Language::Js => {
+		tg::module::load::Language::JavaScript => {
 			for (index, name) in exports.iter().enumerate() {
 				let name = serde_json::to_string(name).unwrap();
 				writeln!(output, "const f{index} = {{\nasync {name}(...args: Array<tg.Value>): Promise<tg.Value> {{ return await tg.command(f{index}, ...args).build(); }}\n}}[{name}];\nexport {{ f{index} as {name} }};").unwrap();
 			}
 			output.push_str("export {};\n");
 		},
-		tg::module::load::Language::Py => {
+		tg::module::load::Language::Python => {
 			// Choose helper names that cannot shadow an export.
 			let mut prefix = "_tg".to_owned();
 			while exports.iter().any(|name| name.starts_with(&prefix)) {
@@ -78,19 +81,21 @@ pub fn module(
 	Ok(output)
 }
 
-#[cfg(not(feature = "py"))]
+#[cfg(not(feature = "python"))]
 pub fn module(
 	module: &tg::module::Data,
 	text: &str,
 	language: Option<tg::module::load::Language>,
 ) -> tg::Result<String> {
-	if module.kind == tg::module::Kind::Py || language == Some(tg::module::load::Language::Py) {
-		return Err(tg::error!("the py feature is not enabled"));
+	if module.kind == tg::module::Kind::Python
+		|| language == Some(tg::module::load::Language::Python)
+	{
+		return Err(tg::error!("the python feature is not enabled"));
 	}
 	Ok(text.to_owned())
 }
 
-#[cfg(feature = "py")]
+#[cfg(feature = "python")]
 fn located_error(
 	module: &tg::module::Data,
 	text: &str,
@@ -115,7 +120,7 @@ fn located_error(
 	tg::Error::with_object(object)
 }
 
-#[cfg(all(test, feature = "py"))]
+#[cfg(all(test, feature = "python"))]
 mod tests {
 	use super::*;
 
@@ -130,32 +135,32 @@ mod tests {
 
 	#[test]
 	fn preserves_original_source_without_translation() {
-		let source = source(tg::module::Kind::Py);
+		let source = source(tg::module::Kind::Python);
 		let text = "def default(): return 42\n";
 		assert_eq!(module(&source, text, None).unwrap(), text);
 		assert_eq!(
-			module(&source, text, Some(tg::module::load::Language::Py)).unwrap(),
+			module(&source, text, Some(tg::module::load::Language::Python)).unwrap(),
 			text
 		);
 	}
 
 	#[test]
 	fn generates_parseable_modules_in_both_languages() {
-		let source = source(tg::module::Kind::Py);
+		let source = source(tg::module::Kind::Python);
 		let text = module(
 			&source,
 			"def default(): return 42\ndef f0(): pass\n",
-			Some(tg::module::load::Language::Js),
+			Some(tg::module::load::Language::JavaScript),
 		)
 		.unwrap();
 		let result = crate::Compiler::transpile(&text, &source);
 		assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
 		let mut source = source;
-		source.kind = tg::module::Kind::Ts;
+		source.kind = tg::module::Kind::TypeScript;
 		let text = module(
 			&source,
 			"export default () => 42; export const _tg_client = () => 1;",
-			Some(tg::module::load::Language::Py),
+			Some(tg::module::load::Language::Python),
 		)
 		.unwrap();
 		assert!(ruff_python_parser::parse_module(&text).is_ok());
@@ -166,13 +171,13 @@ mod tests {
 
 	#[test]
 	fn rejects_unrepresentable_python_exports() {
-		let source = source(tg::module::Kind::Ts);
+		let source = source(tg::module::Kind::TypeScript);
 		for text in [
 			"const f = () => 42; export { f as 'not-an-identifier' };",
 			"export const __all__ = () => 42;",
 			"export const lambda = () => 42;",
 		] {
-			assert!(module(&source, text, Some(tg::module::load::Language::Py)).is_err());
+			assert!(module(&source, text, Some(tg::module::load::Language::Python)).is_err());
 		}
 	}
 }

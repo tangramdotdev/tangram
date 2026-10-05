@@ -31,7 +31,7 @@ snapshot --normalize-ids $tree '
 	│ ├╴args: array
 	│ │ ├╴map
 	│ │ │ ├╴kind: "string"
-	│ │ │ └╴value: "js"
+	│ │ │ └╴value: "javascript"
 	│ │ ├╴map
 	│ │ │ ├╴kind: "string"
 	│ │ │ └╴value: "--export"
@@ -43,7 +43,7 @@ snapshot --normalize-ids $tree '
 	│ │   └╴value: map
 	│ │     ├╴kind: "module"
 	│ │     └╴value: map
-	│ │       ├╴kind: "ts"
+	│ │       ├╴kind: "typescript"
 	│ │       └╴referent: map
 	│ │         ├╴node: "fil_010000000000000000000000000000000000000000000000000000"
 	│ │         └╴options: map
@@ -66,7 +66,7 @@ snapshot --normalize-ids $tree '
 	  │ ├╴args: array
 	  │ │ ├╴map
 	  │ │ │ ├╴kind: "string"
-	  │ │ │ └╴value: "js"
+	  │ │ │ └╴value: "javascript"
 	  │ │ ├╴map
 	  │ │ │ ├╴kind: "string"
 	  │ │ │ └╴value: "--export"
@@ -78,7 +78,7 @@ snapshot --normalize-ids $tree '
 	  │ │ │ └╴value: map
 	  │ │ │   ├╴kind: "module"
 	  │ │ │   └╴value: map
-	  │ │ │     ├╴kind: "ts"
+	  │ │ │     ├╴kind: "typescript"
 	  │ │ │     └╴referent: map
 	  │ │ │       ├╴node: "fil_011111111111111111111111111111111111111111111111111111"
 	  │ │ │       └╴options: map
@@ -111,7 +111,7 @@ snapshot --normalize-ids $tree '
 	      ├╴args: array
 	      │ ├╴map
 	      │ │ ├╴kind: "string"
-	      │ │ └╴value: "js"
+	      │ │ └╴value: "javascript"
 	      │ ├╴map
 	      │ │ ├╴kind: "string"
 	      │ │ └╴value: "--export"
@@ -123,7 +123,7 @@ snapshot --normalize-ids $tree '
 	      │   └╴value: map
 	      │     ├╴kind: "module"
 	      │     └╴value: map
-	      │       ├╴kind: "ts"
+	      │       ├╴kind: "typescript"
 	      │       └╴referent: map
 	      │         ├╴node: "fil_010000000000000000000000000000000000000000000000000000"
 	      │         └╴options: map

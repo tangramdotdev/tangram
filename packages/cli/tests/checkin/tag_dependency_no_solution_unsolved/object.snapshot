@@ -9,7 +9,7 @@ tg.directory({
             "dependencies": {
               "c/^1": null,
             },
-            "module": "ts",
+            "module": "typescript",
           }),
         }),
         "options": {
@@ -24,7 +24,7 @@ tg.directory({
             "dependencies": {
               "c/^2": null,
             },
-            "module": "ts",
+            "module": "typescript",
           }),
         }),
         "options": {
@@ -33,6 +33,6 @@ tg.directory({
         },
       },
     },
-    "module": "ts",
+    "module": "typescript",
   }),
 })

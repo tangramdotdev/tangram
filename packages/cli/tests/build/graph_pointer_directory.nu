@@ -15,7 +15,7 @@ let artifact = '
 			{
 				"kind": "file",
 				"contents": tg.blob("export default () => \"Hello, World!\";"),
-				"module": "ts",
+				"module": "typescript",
 			}
 		]
 	})

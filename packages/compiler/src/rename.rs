@@ -111,8 +111,8 @@ impl Compiler {
 		// A rename must never apply generated positions to a source in another language.
 		if response.locations.as_ref().is_some_and(|locations| {
 			locations.iter().any(|location| {
-				(location.module.kind == tg::module::Kind::Py)
-					!= (module.kind == tg::module::Kind::Py)
+				(location.module.kind == tg::module::Kind::Python)
+					!= (module.kind == tg::module::Kind::Python)
 					|| self.is_generated_module(&location.module)
 			})
 		}) {

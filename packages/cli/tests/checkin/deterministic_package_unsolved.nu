@@ -24,7 +24,7 @@ snapshot $object '
 	    "dependencies": {
 	      "a/^1": null,
 	    },
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 ';

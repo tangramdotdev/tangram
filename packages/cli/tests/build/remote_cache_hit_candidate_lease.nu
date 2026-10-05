@@ -27,7 +27,7 @@ tg wait $shared_process
 tg index
 tg push --eager --process-output-objects --process-children $shared_process
 
-let wrapper_ts = [
+let wrapper_typescript = [
 	$'import shared from "shared" with { source: "($shared)" };'
 	'export default async function (_name: string) {'
 	'	let process = await tg.build(shared).spawn().connection("run");'
@@ -35,7 +35,7 @@ let wrapper_ts = [
 	'	return process.id;'
 	'}'
 ] | str join "\n"
-let wrapper = artifact { tangram.ts: $wrapper_ts }
+let wrapper = artifact { tangram.ts: $wrapper_typescript }
 
 let local_fresh = server spawn --name local-fresh --config {
 	advanced: {

@@ -3,7 +3,7 @@ fn main() {
 
 	// Build the library.
 	self::library::build();
-	#[cfg(feature = "py")]
+	#[cfg(feature = "python")]
 	self::python::build();
 
 	#[cfg(feature = "typescript")]
@@ -47,18 +47,19 @@ mod library {
 		std::fs::create_dir_all(&lib_path).unwrap();
 
 		// Generate the Tangram declarations.
-		println!("cargo:rerun-if-changed=../../packages/js/src/tangram.d.ts");
-		println!("cargo:rerun-if-changed=../../packages/clients/js/package.json");
-		println!("cargo:rerun-if-changed=../../packages/clients/js/tsconfig.json");
-		println!("cargo:rerun-if-changed=../../packages/clients/js/src");
+		println!("cargo:rerun-if-changed=../../packages/javascript/src/tangram.d.ts");
+		println!("cargo:rerun-if-changed=../../packages/clients/javascript/package.json");
+		println!("cargo:rerun-if-changed=../../packages/clients/javascript/tsconfig.json");
+		println!("cargo:rerun-if-changed=../../packages/clients/javascript/src");
 		let tangram_declarations_path = lib_path.join("tangram");
 		if tangram_declarations_path.exists() {
 			std::fs::remove_dir_all(&tangram_declarations_path).unwrap();
 		}
 		let manifest_directory_path = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-		let client_path =
-			std::fs::canonicalize(manifest_directory_path.join("../../packages/clients/js"))
-				.unwrap();
+		let client_path = std::fs::canonicalize(
+			manifest_directory_path.join("../../packages/clients/javascript"),
+		)
+		.unwrap();
 		let mut compiler_options = json!({
 			"declaration": true,
 			"emitDeclarationOnly": true,
@@ -99,7 +100,7 @@ mod library {
 			.success()
 			.then_some(())
 			.unwrap();
-		let declarations = std::fs::read_to_string("../../packages/js/src/tangram.d.ts")
+		let declarations = std::fs::read_to_string("../../packages/javascript/src/tangram.d.ts")
 			.unwrap()
 			.replace(r#""@tangramdotdev/client""#, r#""./tangram/index.ts""#);
 		std::fs::write(lib_path.join("tangram.d.ts"), declarations).unwrap();
@@ -337,20 +338,20 @@ mod typescript {
 	}
 }
 
-#[cfg(feature = "py")]
+#[cfg(feature = "python")]
 mod python {
 	use std::{path::PathBuf, process::Command};
 
 	pub fn build() {
 		for path in [
-			"../clients/py/src",
-			"../py/build/library.py",
-			"../clients/py/pyproject.toml",
+			"../clients/python/src",
+			"../python/build/library.py",
+			"../clients/python/pyproject.toml",
 			"../../uv.lock",
 		] {
 			println!("cargo:rerun-if-changed={path}");
 		}
-		let output = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("py");
+		let output = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("python");
 		if output.exists() {
 			std::fs::remove_dir_all(&output).unwrap();
 		}
@@ -360,14 +361,14 @@ mod python {
 		let workspace =
 			PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
 		let host = std::env::var("HOST").unwrap();
-		let python = tangram_py_build::host(&build, &host);
-		let packages = tangram_py_build::packages(&python, &workspace, &build);
+		let python = tangram_python_build::host(&build, &host);
+		let packages = tangram_python_build::packages(&python, &workspace, &build);
 		let status = Command::new(python)
 			.arg("-I")
-			.arg("../py/build/library.py")
+			.arg("../python/build/library.py")
 			.arg(&output)
 			.arg(&packages)
-			.arg(workspace.join("packages/clients/py/src"))
+			.arg(workspace.join("packages/clients/python/src"))
 			.status()
 			.unwrap();
 		assert!(

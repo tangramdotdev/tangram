@@ -14,7 +14,7 @@ let dependency_path = artifact {
 						kind: "file",
 						contents: `import "dependency/^1";`,
 						dependencies: { "dependency/^1": null },
-						module: "ts",
+						module: "typescript",
 					},
 				],
 			});

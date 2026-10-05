@@ -1,0 +1,43 @@
+{
+	"name": "@tangramdotdev/client",
+	"version": "0.0.0",
+	"description": "The Tangram JavaScript client.",
+	"engines": {
+		"node": ">=24"
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/tangramdotdev/tangram",
+		"directory": "packages/clients/javascript"
+	},
+	"type": "module",
+	"main": "dist/index.js",
+	"types": "dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"default": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"publishConfig": {
+		"access": "public"
+	},
+	"scripts": {
+		"build": "node build.ts",
+		"check": "tsc --noEmit && oxlint build.ts src tests",
+		"format": "oxfmt --write build.ts src tests",
+		"prepack": "bun run build",
+		"test": "bun test tests"
+	},
+	"dependencies": {
+		"@noble/hashes": "^2.4.0",
+		"immutable": "^5.1.9"
+	},
+	"devDependencies": {
+		"@types/node": "^26.6.4"
+	}
+}

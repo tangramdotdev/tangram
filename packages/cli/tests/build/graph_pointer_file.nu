@@ -9,7 +9,7 @@ let artifact = '
 			{
 				"kind": "file",
 				"contents": tg.blob("export default () => \"Hello, World!\";"),
-				"module": "ts"
+				"module": "typescript"
 			}
 		]
 	})
@@ -24,7 +24,7 @@ snapshot ($output.stdout | str trim) '
 	    {
 	      "kind": "file",
 	      "contents": tg.blob("export default () => \"Hello, World!\";"),
-	      "module": "ts",
+	      "module": "typescript",
 	    },
 	  ],
 	})

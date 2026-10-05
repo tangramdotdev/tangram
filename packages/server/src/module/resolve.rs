@@ -210,7 +210,12 @@ impl Session {
 		// Resolve the dependency edge to a module referent.
 		let referent = match (import.kind, &object) {
 			(
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Py | tg::module::Kind::Ts),
+				None
+				| Some(
+					tg::module::Kind::JavaScript
+					| tg::module::Kind::Python
+					| tg::module::Kind::TypeScript,
+				),
 				tg::Object::Directory(directory),
 			) => {
 				let path = tg::module::try_get_root_module_file_name_with_instance(
@@ -273,10 +278,10 @@ impl Session {
 			(
 				None
 				| Some(
-					tg::module::Kind::Js
-					| tg::module::Kind::Py
-					| tg::module::Kind::Ts
-					| tg::module::Kind::Dts
+					tg::module::Kind::JavaScript
+					| tg::module::Kind::Python
+					| tg::module::Kind::TypeScript
+					| tg::module::Kind::TypeScriptDeclaration
 					| tg::module::Kind::File,
 				),
 				tg::Object::File(_),
@@ -304,10 +309,10 @@ impl Session {
 			(
 				None
 				| Some(
-					tg::module::Kind::Js
-					| tg::module::Kind::Py
-					| tg::module::Kind::Ts
-					| tg::module::Kind::Dts,
+					tg::module::Kind::JavaScript
+					| tg::module::Kind::Python
+					| tg::module::Kind::TypeScript
+					| tg::module::Kind::TypeScriptDeclaration,
 				),
 				_,
 			) => {
@@ -429,7 +434,11 @@ impl Session {
 			if metadata.is_dir()
 				&& matches!(
 					import.kind,
-					None | Some(tg::module::Kind::Js | tg::module::Kind::Py | tg::module::Kind::Ts)
+					None | Some(
+						tg::module::Kind::JavaScript
+							| tg::module::Kind::Python
+							| tg::module::Kind::TypeScript
+					)
 				) && let Some(root_module_name) =
 				tg::module::try_get_root_module_file_name_with_instance(
 					self,
@@ -526,7 +535,12 @@ impl Session {
 		};
 		let referent = match (import.kind, &object) {
 			(
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Py | tg::module::Kind::Ts),
+				None
+				| Some(
+					tg::module::Kind::JavaScript
+					| tg::module::Kind::Python
+					| tg::module::Kind::TypeScript,
+				),
 				tg::Object::Directory(directory),
 			) => {
 				let path = tg::module::try_get_root_module_file_name_with_instance(
@@ -589,10 +603,10 @@ impl Session {
 			(
 				None
 				| Some(
-					tg::module::Kind::Js
-					| tg::module::Kind::Py
-					| tg::module::Kind::Ts
-					| tg::module::Kind::Dts
+					tg::module::Kind::JavaScript
+					| tg::module::Kind::Python
+					| tg::module::Kind::TypeScript
+					| tg::module::Kind::TypeScriptDeclaration
 					| tg::module::Kind::File,
 				),
 				tg::Object::File(_),
@@ -614,10 +628,10 @@ impl Session {
 			(
 				None
 				| Some(
-					tg::module::Kind::Js
-					| tg::module::Kind::Py
-					| tg::module::Kind::Ts
-					| tg::module::Kind::Dts,
+					tg::module::Kind::JavaScript
+					| tg::module::Kind::Python
+					| tg::module::Kind::TypeScript
+					| tg::module::Kind::TypeScriptDeclaration,
 				),
 				_,
 			) => {
@@ -667,7 +681,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
 		if let Some(referrer) = &mut arg.referrer
-			&& !matches!(referrer.kind, tg::module::Kind::Dts)
+			&& !matches!(referrer.kind, tg::module::Kind::TypeScriptDeclaration)
 			&& let tg::module::data::Source::Path(path) = &mut referrer.referent.node
 		{
 			*path = self.host_path_for_guest_path(path)?;
@@ -698,7 +712,7 @@ impl Session {
 			.resolve_module(arg)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to resolve the module"))?;
-		if !matches!(output.module.kind, tg::module::Kind::Dts)
+		if !matches!(output.module.kind, tg::module::Kind::TypeScriptDeclaration)
 			&& let tg::module::data::Source::Path(path) = &mut output.module.referent.node
 		{
 			*path = self.guest_path_for_host_path(path)?;

@@ -13,7 +13,7 @@ tg.directory({
               },
             },
           },
-          "module": "ts",
+          "module": "typescript",
         },
         {
           "kind": "directory",

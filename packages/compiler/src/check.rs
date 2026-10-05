@@ -16,18 +16,18 @@ impl Compiler {
 		// Check the Python modules.
 		let (python, modules): (Vec<_>, Vec<_>) = modules
 			.into_iter()
-			.partition(|module| module.kind == tg::module::Kind::Py);
-		#[cfg(not(feature = "py"))]
+			.partition(|module| module.kind == tg::module::Kind::Python);
+		#[cfg(not(feature = "python"))]
 		if !python.is_empty() {
-			return Err(tg::error!("the py feature is not enabled"));
+			return Err(tg::error!("the python feature is not enabled"));
 		}
-		#[cfg(not(feature = "py"))]
+		#[cfg(not(feature = "python"))]
 		let mut diagnostics = Vec::new();
-		#[cfg(feature = "py")]
+		#[cfg(feature = "python")]
 		let mut diagnostics = if python.is_empty() {
 			Vec::new()
 		} else {
-			self.check_py(python).await?
+			self.check_python(python).await?
 		};
 		if modules.is_empty() {
 			return Ok(diagnostics);

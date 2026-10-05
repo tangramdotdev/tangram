@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The Node process reader uses file contents for empty output, error, and outcome attributes.
 
-const js_path = path self "../../../js"
+const javascript_path = path self "../../../javascript"
 let local = server spawn
 let input = artifact {
 	output: (file --xattrs { "user.tangram.output": '' } '"value"')
@@ -12,7 +12,7 @@ let input = artifact {
 	"null": (file --xattrs { "user.tangram.outcome": '' } '{"exit":0,"output":null}')
 	exit: (file --xattrs { "user.tangram.outcome": '' } '{"exit":7}')
 }
-cd $js_path
+cd $javascript_path
 let output = node --input-type=module -e '
 	import assert from "node:assert/strict";
 	import * as tg from "@tangramdotdev/client";

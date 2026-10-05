@@ -18,22 +18,22 @@ name = "tangram"
 path = "src/main.rs"
 
 [features]
-default = ["js", "lmdb", "py", "sqlite", "tls", "typescript", "v8"]
+default = ["javascript", "lmdb", "python", "sqlite", "tls", "typescript", "v8"]
 fjall = ["tangram_server/fjall"]
 foundationdb = ["dep:foundationdb", "dep:tangram_fdb", "tangram_server/foundationdb"]
-js = ["tangram_server/js"]
+javascript = ["tangram_server/javascript"]
 lmdb = ["tangram_server/lmdb"]
 nats = ["tangram_server/nats"]
 postgres = ["tangram_server/postgres"]
-py = ["dep:tangram_py", "tangram_server/py"]
-quickjs = ["js", "tangram_server/quickjs", "tangram_js/quickjs"]
+python = ["dep:tangram_python", "tangram_server/python"]
+quickjs = ["javascript", "tangram_server/quickjs", "tangram_javascript/quickjs"]
 rocksdb = ["tangram_server/rocksdb"]
 scylla = ["tangram_server/scylla"]
 sqlite = ["tangram_server/sqlite"]
 tls = ["tangram_client/tls", "tangram_server/tls"]
 turso = ["tangram_server/turso"]
 typescript = ["tangram_server/typescript", "v8"]
-v8 = ["dep:v8", "js", "tangram_server/v8", "tangram_js/v8"]
+v8 = ["dep:v8", "javascript", "tangram_server/v8", "tangram_javascript/v8"]
 vsock = ["tangram_client/vsock", "tangram_sandbox/vsock", "tangram_server/vsock"]
 
 [lints]
@@ -88,8 +88,8 @@ tangram_client = { workspace = true }
 tangram_compiler = { workspace = true }
 tangram_fdb = { workspace = true, optional = true }
 tangram_futures = { workspace = true }
-tangram_js = { workspace = true }
-tangram_py = { workspace = true, optional = true }
+tangram_javascript = { workspace = true }
+tangram_python = { workspace = true, optional = true }
 tangram_pool = { workspace = true }
 tangram_sandbox = { workspace = true }
 tangram_server = { workspace = true }

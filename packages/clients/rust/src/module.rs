@@ -6,6 +6,9 @@ pub use self::{
 	import::Import,
 };
 
+#[cfg(test)]
+mod tests;
+
 pub mod data;
 pub mod handle;
 pub mod import;
@@ -28,14 +31,12 @@ pub const LOCKFILE_FILE_NAME: &str = "tangram.lock";
 	PartialEq,
 	PartialOrd,
 	derive_more::Display,
-	derive_more::FromStr,
 	serde_with::DeserializeFromStr,
 	serde_with::SerializeDisplay,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
 #[display(rename_all = "snake_case")]
-#[from_str(rename_all = "snake_case")]
 pub enum Kind {
 	#[tangram_serialize(id = 4)]
 	Artifact,
@@ -49,9 +50,6 @@ pub enum Kind {
 	#[tangram_serialize(id = 6)]
 	Directory,
 
-	#[tangram_serialize(id = 2)]
-	Dts,
-
 	#[tangram_serialize(id = 11)]
 	Error,
 
@@ -62,19 +60,25 @@ pub enum Kind {
 	Graph,
 
 	#[tangram_serialize(id = 0)]
-	Js,
+	#[display("javascript")]
+	JavaScript,
 
 	#[tangram_serialize(id = 3)]
 	Object,
 
 	#[tangram_serialize(id = 12)]
-	Py,
+	Python,
 
 	#[tangram_serialize(id = 8)]
 	Symlink,
 
 	#[tangram_serialize(id = 1)]
-	Ts,
+	#[display("typescript")]
+	TypeScript,
+
+	#[tangram_serialize(id = 2)]
+	#[display("typescript_declaration")]
+	TypeScriptDeclaration,
 }
 
 pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Kind> {
@@ -83,13 +87,13 @@ pub fn module_kind_for_path(path: impl AsRef<Path>) -> tg::Result<tg::module::Ki
 		return Err(tg::error!(path = %path.display(), "invalid path"));
 	};
 	if name.ends_with(".d.ts") {
-		Ok(tg::module::Kind::Dts)
+		Ok(tg::module::Kind::TypeScriptDeclaration)
 	} else if name == "tangram.js" || name.ends_with(".tg.js") {
-		Ok(tg::module::Kind::Js)
+		Ok(tg::module::Kind::JavaScript)
 	} else if name == "tangram.ts" || name.ends_with(".tg.ts") {
-		Ok(tg::module::Kind::Ts)
+		Ok(tg::module::Kind::TypeScript)
 	} else if name == "tangram.py" || name.ends_with(".tg.py") {
-		Ok(tg::module::Kind::Py)
+		Ok(tg::module::Kind::Python)
 	} else {
 		Err(tg::error!(path = %path.display(), "unknown or missing file extension"))
 	}
@@ -182,4 +186,27 @@ pub fn try_get_root_module_file_name_sync(path: &Path) -> tg::Result<Option<&'st
 		}
 	}
 	Ok(name)
+}
+
+impl std::str::FromStr for Kind {
+	type Err = tg::Error;
+	fn from_str(value: &str) -> tg::Result<Self> {
+		let kind = match value {
+			"artifact" => Self::Artifact,
+			"blob" => Self::Blob,
+			"command" => Self::Command,
+			"directory" => Self::Directory,
+			"error" => Self::Error,
+			"file" => Self::File,
+			"graph" => Self::Graph,
+			"javascript" => Self::JavaScript,
+			"object" => Self::Object,
+			"python" => Self::Python,
+			"symlink" => Self::Symlink,
+			"typescript" => Self::TypeScript,
+			"typescript_declaration" => Self::TypeScriptDeclaration,
+			_ => return Err(tg::error!("invalid module kind")),
+		};
+		Ok(kind)
+	}
 }

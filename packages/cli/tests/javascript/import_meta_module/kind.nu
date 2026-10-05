@@ -1,0 +1,12 @@
+use ../../lib/test.nu *
+
+# import.meta.module reports the kind of the entry point module.
+
+let local = server spawn
+
+let path = artifact {
+	tangram.ts: 'export default function () { return import.meta.module.kind; }'
+}
+
+let output = tg build $path
+snapshot $output '"typescript"'

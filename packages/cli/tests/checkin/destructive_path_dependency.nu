@@ -21,7 +21,7 @@ snapshot $object '
 	  "bar": tg.directory({
 	    "tangram.ts": tg.file({
 	      "contents": tg.blob("export default function () { return \"bar\"; }"),
-	      "module": "ts",
+	      "module": "typescript",
 	    }),
 	  }),
 	  "foo": tg.directory({
@@ -32,7 +32,7 @@ snapshot $object '
 	          "node": tg.directory({
 	            "tangram.ts": tg.file({
 	              "contents": tg.blob("export default function () { return \"bar\"; }"),
-	              "module": "ts",
+	              "module": "typescript",
 	            }),
 	          }),
 	          "options": {
@@ -40,7 +40,7 @@ snapshot $object '
 	          },
 	        },
 	      },
-	      "module": "ts",
+	      "module": "typescript",
 	    }),
 	  }),
 	})

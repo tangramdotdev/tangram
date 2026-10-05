@@ -2,13 +2,13 @@ tg.directory({
   "bar": tg.directory({
     "tangram.ts": tg.file({
       "contents": tg.blob(""),
-      "module": "ts",
+      "module": "typescript",
     }),
   }),
   "foo": tg.directory({
     "tangram.ts": tg.file({
       "contents": tg.blob(""),
-      "module": "ts",
+      "module": "typescript",
     }),
   }),
 })

@@ -30,7 +30,7 @@ let lock = {
 					}
 				}
 			}
-			module: "ts"
+			module: "typescript"
 		},
 	]
 } | to json
@@ -53,7 +53,7 @@ snapshot $object '
 	    "dependencies": {
 	      "a/^1": null,
 	    },
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '

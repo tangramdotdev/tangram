@@ -20,7 +20,7 @@ snapshot --normalize-ids --redact $path $object '
 	tg.directory({
 	  "tangram.ts": tg.file({
 	    "contents": tg.blob("export default function () { return \"two\"; }"),
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '

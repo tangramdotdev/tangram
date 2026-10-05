@@ -26,7 +26,7 @@ snapshot $output.stdout '
 	            },
 	          },
 	        },
-	        "module": "ts",
+	        "module": "typescript",
 	      },
 	      {
 	        "kind": "file",
@@ -39,7 +39,7 @@ snapshot $output.stdout '
 	            },
 	          },
 	        },
-	        "module": "ts",
+	        "module": "typescript",
 	      },
 	    ],
 	  }),

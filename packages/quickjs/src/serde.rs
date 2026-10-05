@@ -24,7 +24,10 @@ impl<T> Serialize for Serde<T>
 where
 	T: serde::Serialize,
 {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		let serializer = Serializer::new(ctx.clone());
 		let value = self
 			.0
@@ -34,11 +37,14 @@ where
 	}
 }
 
-impl<'js, T> Deserialize<'js> for Serde<T>
+impl<'javascript, T> Deserialize<'javascript> for Serde<T>
 where
 	T: serde::de::DeserializeOwned,
 {
-	fn deserialize(ctx: &qjs::Ctx<'js>, value: qjs::Value<'js>) -> tg::Result<Self> {
+	fn deserialize(
+		ctx: &qjs::Ctx<'javascript>,
+		value: qjs::Value<'javascript>,
+	) -> tg::Result<Self> {
 		let deserializer = Deserializer::new(ctx.clone(), value);
 		let value = T::deserialize(deserializer)
 			.map_err(|error| tg::error!(!error, "failed to deserialize the value from quickjs"))?;
@@ -47,21 +53,21 @@ where
 	}
 }
 
-impl<'js, T> qjs::IntoJs<'js> for Serde<T>
+impl<'javascript, T> qjs::IntoJs<'javascript> for Serde<T>
 where
 	T: serde::Serialize,
 {
-	fn into_js(self, ctx: &qjs::Ctx<'js>) -> qjs::Result<qjs::Value<'js>> {
+	fn into_js(self, ctx: &qjs::Ctx<'javascript>) -> qjs::Result<qjs::Value<'javascript>> {
 		self.serialize(ctx)
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))
 	}
 }
 
-impl<'js, T> qjs::FromJs<'js> for Serde<T>
+impl<'javascript, T> qjs::FromJs<'javascript> for Serde<T>
 where
 	T: serde::de::DeserializeOwned,
 {
-	fn from_js(ctx: &qjs::Ctx<'js>, value: qjs::Value<'js>) -> qjs::Result<Self> {
+	fn from_js(ctx: &qjs::Ctx<'javascript>, value: qjs::Value<'javascript>) -> qjs::Result<Self> {
 		Self::deserialize(ctx, value).map_err(|error| qjs::Error::Io(std::io::Error::other(error)))
 	}
 }

@@ -3,10 +3,10 @@ use ../lib/lsp.nu
 
 let local = server spawn
 let first = artifact {'tangram.ts': 'export function greet() { return 42; }'}
-tg tag -p incremental-js/1.0.0 $first
+tg tag -p incremental-javascript/1.0.0 $first
 let path = artifact {
     'tangram.ts': 'export {};'
-    'main.tg.ts': 'import { greet } from "incremental-js/^1";
+    'main.tg.ts': 'import { greet } from "incremental-javascript/^1";
 const value = greet();'
 }
 tg checkin $path | ignore
@@ -25,7 +25,7 @@ assert equal $response.result.0.range.start {line: 0, character: 16}
 let second = artifact {'tangram.ts': '// The updated package.
 
 export function greet() { return 43; }'}
-tg tag -p incremental-js/1.1.0 $second
+tg tag -p incremental-javascript/1.1.0 $second
 tg index
 success (tg update $path | complete)
 python3 -c 'import os, sys; os.utime(sys.argv[1], ns=(946684800200000000, 946684800200000000))' ($path | path join tangram.lock)

@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 # A reverse stdout read resumes from the clipped position after losing its connection.
 
-const js_path = path self '../../../js'
-cd $js_path
+const javascript_path = path self '../../../javascript'
+cd $javascript_path
 
 # A reverse reader resumes the clipped window after losing the connection.
 let output = timeout 10 node --input-type=module -e '

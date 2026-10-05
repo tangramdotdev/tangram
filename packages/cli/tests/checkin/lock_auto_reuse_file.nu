@@ -28,7 +28,7 @@ let lock = {
 					}
 				}
 			}
-			module: "ts"
+			module: "typescript"
 		},
 	]
 } | to json

@@ -41,7 +41,7 @@ snapshot --normalize-ids $output '
 	      "file": {
 	        "kind": "module",
 	        "value": {
-	          "kind": "ts",
+	          "kind": "typescript",
 	          "referent": {
 	            "node": fil_010000000000000000000000000000000000000000000000000000,
 	          },
@@ -74,7 +74,7 @@ snapshot --normalize-ids (tg get --no-tokens $child_error --pretty) '
 	      "file": {
 	        "kind": "module",
 	        "value": {
-	          "kind": "ts",
+	          "kind": "typescript",
 	          "referent": {
 	            "node": fil_010000000000000000000000000000000000000000000000000000,
 	          },
