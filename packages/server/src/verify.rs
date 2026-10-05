@@ -545,6 +545,7 @@ impl Session {
 			.boxed();
 		tokio::pin!(index);
 		let mut index_done = false;
+		let mut refresh_index = false;
 		let mut retry_index = false;
 		let mut errors = vec![None; outputs.len()];
 		let poll_interval = self
@@ -564,12 +565,12 @@ impl Session {
 				}
 				if stored[*position].contains(resources[*position].1) && !arg.storage.is_empty() {
 					arg.storage = arg.storage.empty_like();
-					retry_index = true;
+					refresh_index = true;
 				}
 			}
 
-			// Apply scoped facts in a fresh search before accepting a partial result.
-			if index_done && retry_index {
+			// Apply new authorization or availability without waiting for a stale index attempt.
+			if refresh_index || index_done && retry_index {
 				index.set(
 					self.verify_index_batch(
 						index_args.clone(),
@@ -579,6 +580,7 @@ impl Session {
 					.boxed(),
 				);
 				index_done = false;
+				refresh_index = false;
 				retry_index = false;
 			}
 			let mut sufficient = true;
@@ -705,6 +707,7 @@ impl Session {
 								body.validate_at(now).map_err(|error| tg::error!(!error, "received an invalid authorization body from a sync"))?;
 								if !arg.tokens.contains(body) {
 									arg.tokens.push(body.clone());
+									refresh_index = true;
 								}
 							}
 						},
