@@ -2,7 +2,7 @@ FROM archlinux:base
 
 # Install dependencies.
 RUN \
-pacman -Syu --noconfirm ca-certificates curl passt && \
+pacman -Syu --noconfirm ca-certificates curl fuse3 passt && \
 pacman -Scc --noconfirm
 
 # Install Cloud Hypervisor.
