@@ -754,6 +754,7 @@ impl Indexer {
 			bytes.extend_from_slice(&fragment.payload);
 		}
 		let arg = tangram_index::batch::Arg::deserialize(&bytes)?;
+		drop(bytes);
 		let log_compaction = arg
 			.items
 			.iter()
