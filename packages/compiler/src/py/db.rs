@@ -1,5 +1,5 @@
 use {
-	super::{library, load, resolve, system::System},
+	super::{library, resolve, system::System},
 	crate::{Compiler, analyze::py::metadata},
 	ruff_db::{
 		diagnostic::{Diagnostic, Severity, UnifiedFile},
@@ -44,13 +44,15 @@ pub(super) struct Database {
 
 #[derive(Default)]
 struct Modules {
+	children: BTreeMap<(String, String), resolve::Target>,
 	entries: Vec<Arc<Entry>>,
 	files: HashMap<File, usize>,
 	keys: BTreeMap<String, usize>,
-	namespaces: BTreeMap<String, (ModuleName, resolve::Target)>,
+	namespaces: BTreeMap<String, (ModuleName, Box<resolve::Namespace>)>,
 }
 
 struct Entry {
+	diagnostics: Vec<tg::Diagnostic>,
 	file: File,
 	imports: BTreeMap<String, tg::module::Import>,
 	module: tg::module::Data,
@@ -100,6 +102,7 @@ impl Database {
 				break;
 			};
 			index += 1;
+			diagnostics.extend(entry.diagnostics.iter().cloned());
 			if entry.module.kind != tg::module::Kind::Py {
 				continue;
 			}
@@ -118,6 +121,10 @@ impl Database {
 	}
 
 	fn register(&self, module: tg::module::Data) -> tg::Result<Arc<Entry>> {
+		let module = self
+			.compiler
+			.main_runtime_handle
+			.block_on(resolve::prepare_module(&self.compiler.instance, module))?;
 		let key = module.without_token().to_string();
 		{
 			let modules = self.modules.lock().unwrap();
@@ -125,20 +132,27 @@ impl Database {
 				return Ok(modules.entries[*index].clone());
 			}
 		}
-		let text = match module.kind {
-			tg::module::Kind::Py => self
-				.compiler
-				.main_runtime_handle
-				.block_on(self.compiler.load_module(&module)),
-			_ => load::object_module(&module),
-		}
-		.map_err(|error| tg::error!(!error, %module, "failed to load the Python module"))?;
+		let text = self
+			.compiler
+			.main_runtime_handle
+			.block_on(
+				self.compiler
+					.load_module_with_language(&module, Some(tg::module::load::Language::Py)),
+			)
+			.map_err(|error| tg::error!(!error, %module, "failed to load the Python module"))?;
 		let descriptor = resolve::Module::new(module.clone());
 		let path = descriptor.filename.as_path();
 		let package = descriptor.package;
+		let mut diagnostics = Vec::new();
 		// Syntax diagnostics belong to ty; parse metadata only when the module is syntactically valid.
 		let imports = if ruff_python_parser::parse_module(&text).is_ok() {
-			metadata::parse(path, &text)?.imports
+			match metadata::parse(path, &text) {
+				Ok(metadata) => metadata.imports,
+				Err(error) => {
+					diagnostics.push(Self::metadata_diagnostic(&module, error)?);
+					BTreeMap::new()
+				},
+			}
 		} else {
 			BTreeMap::new()
 		};
@@ -161,6 +175,7 @@ impl Database {
 		let file = system_path_to_file(self, &path)
 			.map_err(|error| tg::error!(!error, "failed to create the Python source file"))?;
 		let entry = Arc::new(Entry {
+			diagnostics,
 			file,
 			imports,
 			module,
@@ -183,6 +198,34 @@ impl Database {
 			self.register_target(&resolution.target)?;
 		}
 		Ok(entry)
+	}
+
+	fn metadata_diagnostic(
+		module: &tg::module::Data,
+		error: tg::Error,
+	) -> tg::Result<tg::Diagnostic> {
+		let tg::Either::Left(data) = error.to_data_or_id() else {
+			return Err(error);
+		};
+		let Some(location) = data.location else {
+			return Err(error);
+		};
+		let location = tg::module::data::Location {
+			module: module.without_token(),
+			range: location.range,
+		};
+		let mut message = error.to_string();
+		let mut source = std::error::Error::source(&error);
+		while let Some(error) = source {
+			write!(message, "\n{error}").unwrap();
+			source = error.source();
+		}
+		let diagnostic = tg::diagnostic::Data {
+			location: Some(location),
+			message,
+			severity: tg::diagnostic::Severity::Error,
+		};
+		diagnostic.try_into()
 	}
 
 	fn entry(&self, file: File) -> Option<Arc<Entry>> {
@@ -210,11 +253,18 @@ impl Database {
 			resolve::Target::Namespace(namespace) => {
 				self.register_target(&namespace.parent)?;
 				let mut modules = self.modules.lock().unwrap();
-				if !modules.namespaces.contains_key(&namespace.key) {
+				if let Some((_, previous)) = modules.namespaces.get_mut(&namespace.key) {
+					// Match the runtime: retain directory lookup across later file-only resolutions.
+					if namespace.referrer.kind == tg::module::Kind::Directory
+						|| previous.referrer.kind != tg::module::Kind::Directory
+					{
+						*previous = namespace.clone();
+					}
+				} else {
 					let name = ModuleName::new(&format!("n{}", modules.namespaces.len())).unwrap();
 					modules
 						.namespaces
-						.insert(namespace.key.clone(), (name, target.clone()));
+						.insert(namespace.key.clone(), (name, namespace.clone()));
 				}
 			},
 		}
@@ -250,6 +300,10 @@ impl Database {
 			for step in &resolution.steps {
 				self.register_target(&step.parent)?;
 				self.register_target(&step.target)?;
+				self.modules.lock().unwrap().children.insert(
+					(step.parent.key().to_owned(), step.name.clone()),
+					step.target.clone(),
+				);
 			}
 			self.register_target(&resolution.target)?;
 			Ok(resolve::Output::Resolved(resolution))
@@ -391,15 +445,17 @@ impl ty_module_resolver::Db for Database {
 			return Some(Cow::Owned(descriptor.filename.display().to_string()));
 		}
 		let modules = self.modules.lock().unwrap();
-		let (_, target) = modules
+		let (_, namespace) = modules
 			.namespaces
 			.values()
 			.find(|(name, _)| name == module.name(self))?;
-		let resolve::Target::Namespace(namespace) = target else {
-			return None;
-		};
 		let descriptor = resolve::Module::new(namespace.referrer.clone());
-		let directory = descriptor.filename.parent()?.join(&namespace.prefix);
+		let directory = if namespace.referrer.kind == tg::module::Kind::Directory {
+			descriptor.filename
+		} else {
+			descriptor.filename.parent()?.to_owned()
+		};
+		let directory = directory.join(&namespace.prefix);
 		let directory = tangram_util::path::normalize(directory);
 		Some(Cow::Owned(directory.display().to_string()))
 	}
@@ -482,15 +538,26 @@ impl ty_module_resolver::Db for Database {
 			resolve::Target::Module(resolve::Module::new(entry.module.clone()))
 		} else {
 			let modules = self.modules.lock().unwrap();
-			let Some((_, target)) = modules
+			let Some((_, namespace)) = modules
 				.namespaces
 				.values()
 				.find(|(name, _)| name == parent.name(self))
 			else {
 				return ModuleResolution::Fallback;
 			};
-			target.clone()
+			resolve::Target::Namespace(namespace.clone())
 		};
+		let child = self
+			.modules
+			.lock()
+			.unwrap()
+			.children
+			.get(&(target.key().to_owned(), name.as_str().to_owned()))
+			.cloned();
+		if let Some(child) = child {
+			let environment = parent.resolver_environment(self);
+			return ModuleResolution::Resolved(self.target_module(&child, environment));
+		}
 		let Some(context) = target.context() else {
 			return ModuleResolution::NotFound;
 		};

@@ -1,6 +1,8 @@
 import * as tg from "./index.ts";
 import { Resolve } from "./resolve.ts";
 
+const functions = new WeakMap<Function, tg.Host.MagicOutput>();
+
 /** Create a command. */
 export function command<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
@@ -152,6 +154,21 @@ export class Command<
 		});
 	}
 
+	/** Create a callable export backed by a Tangram command. */
+	static function(
+		module: tg.Module,
+		name: string,
+	): (...args: Array<tg.Value>) => Promise<tg.Value> {
+		const function_ = async (...args: Array<tg.Value>): Promise<tg.Value> => {
+			return await tg.command(function_, ...args).build();
+		};
+		functions.set(function_, {
+			module: tg.Module.toData(module),
+			export: name,
+		});
+		return function_;
+	}
+
 	static async js(
 		function_: Function,
 		args: Array<tg.Unresolved<tg.Command.Arg.Value>>,
@@ -169,8 +186,21 @@ export class Command<
 		args: Array<tg.Unresolved<tg.Command.Arg.Value>>,
 	): Promise<tg.Referent<tg.Command.ResolvedArg>> {
 		let args_ = await Promise.all(args.map(tg.resolve));
-		let target = tg.host.magic(function_);
+		let target = functions.get(function_) ?? tg.host.magic(function_);
 		let module = tg.Module.fromData(target.module);
+		if (typeof module.referent.node === "string") {
+			const events = await tg.client.checkin({
+				path: module.referent.node,
+				options: {},
+				updates: [],
+			});
+			const output = await tg.Progress.lastOutput(events);
+			tg.assert(output !== null, "the checkin stream ended without output");
+			module.referent = {
+				node: tg.Object.withId(output.artifact.node),
+				options: output.artifact.options ?? {},
+			};
+		}
 		let options = { ...module.referent.options };
 		let {
 			id: _id,
@@ -181,7 +211,7 @@ export class Command<
 		} = module.referent.options ?? {};
 		module.referent.options = rest;
 		let commandArgs = [
-			tg.Command.Value.string("js"),
+			tg.Command.Value.string(module.kind === "py" ? "py" : "js"),
 			...(target.export === undefined || target.export === null
 				? []
 				: [
@@ -457,6 +487,24 @@ export namespace Command {
 			);
 		};
 
+		export let isPy = (arg: tg.Command.Arg.Object): boolean => {
+			let executable = arg.executable;
+			let firstArg = arg.args?.[0];
+			return (
+				(executable === "tg" ||
+					(typeof executable === "object" &&
+						executable !== null &&
+						!tg.Artifact.is(executable) &&
+						(executable.artifact === undefined ||
+							executable.artifact === null) &&
+						executable.path === "tg")) &&
+				(firstArg === "py" ||
+					(firstArg instanceof tg.Command.Value &&
+						firstArg.kind === "string" &&
+						firstArg.value === "py"))
+			);
+		};
+
 		export type Value = tg.Value | tg.Command.Value;
 
 		export namespace Value {
@@ -586,6 +634,16 @@ export namespace Command {
 				object.executable.path === "tg" &&
 				firstArg?.kind === "string" &&
 				firstArg.value === "js"
+			);
+		};
+
+		export let isPy = (object: tg.Command.Object): boolean => {
+			let firstArg = object.args[0];
+			return (
+				object.executable.artifact === null &&
+				object.executable.path === "tg" &&
+				firstArg?.kind === "string" &&
+				firstArg.value === "py"
 			);
 		};
 
@@ -770,17 +828,17 @@ export namespace Command {
 	> extends Function {
 		#args: tg.Args<tg.Command.Arg.Object>;
 		#envMapper: tg.Command.Builder.EnvMapper<E>;
-		#js: () => Promise<boolean>;
+		#module: () => Promise<boolean>;
 
 		constructor(...args: tg.Args<tg.Command.Arg.Object>) {
 			super();
 			this.#envMapper = ((env: tg.Command.Arg.Env) =>
 				env) as tg.Command.Builder.EnvMapper<E>;
-			let js: Promise<boolean> | undefined;
-			this.#js = () => {
-				js ??= isJsCommandBuilderArg(args);
+			let module: Promise<boolean> | undefined;
+			this.#module = () => {
+				module ??= isModuleCommandBuilderArg(args);
 
-				return js;
+				return module;
 			};
 			this.#args = args.map((arg) => this.builderArg(arg));
 			return new Proxy(this, {
@@ -905,11 +963,11 @@ export namespace Command {
 			) {
 				return arg_;
 			}
-			let js = await this.#js();
-			if (!js) {
+			let module = await this.#module();
+			if (!module) {
 				return arg_;
 			}
-			let args = encodeJsArgs(arg_.args);
+			let args = encodeModuleArgs(arg_.args);
 
 			return { ...arg_, args };
 		}
@@ -917,11 +975,14 @@ export namespace Command {
 		private async argsArg(
 			args: tg.Unresolved<Array<tg.Command.Arg.Value> | null>,
 		): Promise<tg.Command.Arg.Object> {
-			let [js, args_] = await Promise.all([this.#js(), tg.resolve(args)]);
-			if (!js || args_ === null) {
+			let [module, args_] = await Promise.all([
+				this.#module(),
+				tg.resolve(args),
+			]);
+			if (!module || args_ === null) {
 				return { args: args_ };
 			}
-			let output = encodeJsArgs(args_);
+			let output = encodeModuleArgs(args_);
 
 			return { args: output };
 		}
@@ -945,14 +1006,15 @@ export namespace Command {
 	}
 }
 
-async function isJsCommandBuilderArg(
+async function isModuleCommandBuilderArg(
 	args: tg.Args<tg.Command.Arg.Object>,
 ): Promise<boolean> {
 	let args_ = await Promise.all(args.map(tg.resolve));
 	for (let arg of args_) {
 		if (
 			arg instanceof tg.Command &&
-			tg.Command.Object.isJs(await arg.object())
+			(tg.Command.Object.isJs(await arg.object()) ||
+				tg.Command.Object.isPy(await arg.object()))
 		) {
 			return true;
 		}
@@ -965,7 +1027,7 @@ class EncodedArgs extends Array<tg.Command.Value> {
 	[Resolve.atomic] = null;
 }
 
-export function encodeJsArgs(
+export function encodeModuleArgs(
 	args: Array<tg.Command.Arg.Value>,
 ): Array<tg.Command.Value> {
 	if (args instanceof EncodedArgs) {

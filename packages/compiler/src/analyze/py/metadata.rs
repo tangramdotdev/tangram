@@ -56,6 +56,11 @@ pub fn parse(path: &Path, text: &str) -> tg::Result<Metadata> {
 			&tg::error!(!source, "failed to parse the Python module"),
 		)
 	})?;
+	let module = tg::module::Data {
+		kind: tg::module::Kind::Py,
+		referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
+	};
+	super::validate_imports(&module, text, &parsed.syntax().body)?;
 	let comments: BTreeSet<_> = parsed
 		.tokens()
 		.iter()
@@ -203,7 +208,7 @@ fn parse_script(
 				tg::error!("the import specifier cannot be empty"),
 			));
 		}
-		let mut import = tg::module::Import::with_specifier_and_attributes(
+		let import = tg::module::Import::with_specifier_and_attributes(
 			&value.specifier,
 			Some(value.attributes.clone()),
 		)
@@ -213,7 +218,6 @@ fn parse_script(
 				tg::error!(!source, "invalid import declaration: {name}"),
 			)
 		})?;
-		import.kind.get_or_insert(tg::module::Kind::Py);
 		imports.insert(name, import);
 	}
 	Ok(Metadata { imports })
@@ -250,6 +254,29 @@ fn located_error(path: &Path, text: &str, range: Range<usize>, error: &tg::Error
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn star_imports_have_source_locations() {
+		for text in [
+			"pass\nfrom . import *",
+			"if False:\n    from math import *",
+			"__all__ = ['default']\nfrom .other import *",
+		] {
+			let error = parse(Path::new("/test/main.tg.py"), text)
+				.err()
+				.unwrap()
+				.to_data_or_id()
+				.unwrap_left();
+			let location = error.location.unwrap();
+			assert_eq!(location.range.start.line, 1);
+			let range = location
+				.range
+				.try_to_byte_range_in_string(text, tg::position::Encoding::Utf8)
+				.unwrap();
+			assert!(text[range].starts_with("from "));
+		}
+		assert!(parse(Path::new("/test/main.tg.py"), "text = 'from . import *'").is_ok());
+	}
 
 	#[test]
 	fn declarations_preserve_attributed_imports() {

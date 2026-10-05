@@ -35,7 +35,7 @@ class CommandTests(ObjectTestCase):
         self.assertEqual(args[0].value, "py")
         self.assertEqual(args[1].value, "--export")
         self.assertEqual(args[2].value, "run")
-        self.assertEqual(args[3].value.referent.options.get("path"), "main.tg.py")
+        self.assertIsNone(args[3].value.referent.options.get("path"))
         self.assertIsNone(args[3].value.referent.options.get("tag"))
         self.assertEqual(
             [(arg.kind, arg.value) for arg in args[4:]],
@@ -57,6 +57,28 @@ class CommandTests(ObjectTestCase):
             module.referent.options, {"path": "main.tg.py", "tag": "tools/^1"}
         )
         self.assertEqual(await referent.node.host, host.current)
+
+    async def test_command_modules_exclude_referent_metadata(self):
+        from tangram.file import File
+        from tangram.module import Module
+        from tangram.referent import Referent
+
+        file = await File.new("module source")
+        options = {
+            "id": "dir_example",
+            "name": "alias",
+            "path": "task.tg.py",
+            "tag": "tools/^1",
+        }
+        for kind in ("ts", "py"):
+            module = Module(kind, Referent(file, options))
+            result = await Command.py(Command.function(module, "default"), [])
+            stored = (await result.node.args)[3].value
+            self.assertIsInstance(stored, Module)
+            for field, value in options.items():
+                self.assertIsNone(stored.referent.options.get(field))
+                self.assertEqual(result.options.get(field), value)
+            self.assertEqual(module.referent.options, options)
 
     async def test_python_function_arguments_are_always_encoded_individually(self):
         from tangram.file import File

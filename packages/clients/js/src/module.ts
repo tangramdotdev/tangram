@@ -236,15 +236,6 @@ export namespace Module {
 			typeof value.referent.node !== "string"
 				? tg.Graph.Edge.children(value.referent.node)
 				: [];
-		let root = value.referent.options?.id;
-		if (
-			value.kind === "py" &&
-			root !== undefined &&
-			root !== null &&
-			!children.some((child) => child.id === root)
-		) {
-			children.push(tg.Object.withId(root));
-		}
 		for (let child of children) {
 			tg.Object.inheritLocation(
 				child,
@@ -282,15 +273,6 @@ export namespace Module {
 				(source.startsWith(".") || source.startsWith("/"))
 					? []
 					: tg.Graph.Data.Edge.children(source);
-			let root = referent.options?.id;
-			if (
-				data.kind === "py" &&
-				root !== undefined &&
-				root !== null &&
-				!children.includes(root)
-			) {
-				children.push(root);
-			}
 			return children;
 		};
 

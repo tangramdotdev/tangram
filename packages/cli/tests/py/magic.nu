@@ -42,7 +42,7 @@ let path = artifact {
             assert await tg.command(pkg.read_child).build() == 42
             referent = await tg.Command.py(pkg.read, [])
             module = (await referent.node.args)[3].value
-            assert module.referent.options["id"] in tg.Value.Data.children(tg.Value.to_data(module))
+            assert all(module.referent.options.get(key) is None for key in ("id", "name", "path", "tag"))
             assert tg.host.magic(renamed)["export"] == "renamed"
             assert await tg.command(renamed, "hello").build() == "hello sync"
             for flag, value, expected in [("-a", tg.Command.Value.string("raw"), "raw"), ("-A", tg.Command.Value.value(42), 42)]:

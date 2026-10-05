@@ -178,13 +178,6 @@ class Module:
         children = (
             [] if isinstance(self.referent.node, str) else objects(self.referent.node)
         )
-        root = (self.referent.options or {}).get("id")
-        if (
-            self.kind == "py"
-            and root is not None
-            and all(child.id != root for child in children)
-        ):
-            children.append(Object.with_id(root))
         for child in children:
             Object.inherit_location(
                 child, (self.referent.options or {}).get("location")
@@ -224,9 +217,6 @@ class Module:
                 children = [source]
             else:
                 children = [Pointer.from_data(source).graph.id]
-            root = (referent.get("options") or {}).get("id")
-            if data["kind"] == "py" and root is not None and root not in children:
-                children.append(root)
             return children
 
         @staticmethod

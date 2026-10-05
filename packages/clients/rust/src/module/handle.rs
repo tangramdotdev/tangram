@@ -34,16 +34,10 @@ pub struct Location {
 impl Module {
 	#[must_use]
 	pub fn children(&self) -> Vec<tg::object::Handle> {
-		let mut children = match &self.referent.node {
+		let children = match &self.referent.node {
 			Source::Edge(edge) => edge.children(),
 			Source::Path(_) => vec![],
 		};
-		if self.kind == Kind::Py
-			&& let Some(id) = &self.referent.options.id
-			&& !children.iter().any(|child| child.id() == *id)
-		{
-			children.push(tg::Object::with_id(id.clone()));
-		}
 		for child in &children {
 			child.inherit_location(self.referent.options.location.as_ref());
 			child.inherit_tokens(&self.referent.options.tokens);

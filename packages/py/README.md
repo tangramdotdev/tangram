@@ -65,6 +65,50 @@ outcome and empty `user.tangram.outcome` xattr as `tg js`. Ordinary stdout is re
 Exceptions produce exit status 1 and structured Tangram errors with source locations;
 `SystemExit` retains Python's process exit semantics.
 
+## Cross-language imports
+
+Tangram JavaScript/TypeScript modules can import Python modules, and Python
+modules can import JavaScript/TypeScript through their PEP 723 dependency aliases.
+The shared module loader parses the original source with Oxc or Ruff and generates
+command-backed exports in the consuming language. Resolution and checkin preserve
+the original module kind and referent; no wrapper files are checked in.
+
+```typescript
+import { greet } from "./greeting.tg.py";
+export default async function () {
+    return await greet("world");
+}
+```
+
+```python
+# greeting.tg.py
+def greet(name):
+    return f"Hello, {name}"
+```
+
+Each generated export accepts positional Tangram values and returns an asynchronous
+Tangram value. Calls execute the original export in a child Tangram process through
+Tangram commands; artifacts, bytes, and structured values use the existing
+value encoding. `tg.command(imported_function)` also targets the original export,
+including when arguments are appended with fluent builders. The foreign module is
+not executed when its wrappers are imported. Its mutable state is not shared with
+the importing process. A non-callable value export can be retrieved by calling its
+wrapper with no arguments, as with selecting that export using `tg run`.
+
+The first pass deliberately gives every export the broad signature
+`(...args: Array<tg.Value>) => Promise<tg.Value>`, with the equivalent Python
+callable type. Both checkers load the same generated representations as their
+runtimes. Inferred cross-language signatures are deferred.
+
+JavaScript export discovery supports default exports, declarations, named aliases,
+and named re-exports, excluding explicit type-only exports. Use named re-exports
+instead of `export *`. Python uses a literal `__all__` list or tuple when present;
+otherwise it exposes public top-level function/class definitions, assignments,
+and named from-imports. Conditional or dynamically constructed exports must be
+listed in a literal `__all__`. Python star imports (`from ... import *`) are
+currently rejected; use explicit named imports.
+JavaScript export names imported by Python must be valid Python identifiers.
+
 `tg format` formats `tangram.py` and `.tg.py` modules using Ruff, with four-space
 indentation and an 88-column line width. It accepts a file or directory and respects
 `.tangramignore`. The LSP document-formatting request uses the same formatter.
@@ -103,14 +147,12 @@ from ..other import function
 `helper` resolves to `helper.tg.py`; `sub` resolves to `sub/tangram.py`. A directory
 without `tangram.py`, imported within an existing package, is a namespace package.
 Standalone modules have an empty `__package__` and reject relative imports.
-An explicit `tangram.py` establishes a package. Package ancestry comes from the
-resolved `tg.Module` source path or its referent's `id` and `path`, independently
-of the import alias or order. Namespace ancestry in checked-in modules requires
-retained path information. Directory members retain the containing artifact in
-`id` and their member path in `path`; file check-ins retain the source path and
-recorded initializer dependencies. Bare files do not inherit package context
-from their importers. `..` follows
-package parents and cannot cross the top-level package or referent artifact root. Having both
+An explicit `tangram.py` establishes a package. Source modules derive package
+ancestry from their filesystem paths. Checked-in modules derive it from their
+self-reference and recorded initializer dependencies, independently of the import
+alias or containing directory's ID. Bare files do not inherit package context
+from their importers. `..` follows package parents and cannot cross the top-level
+package. Having both
 `helper.tg.py` and `helper/tangram.py` is an error. Plain `.py` siblings are not Tangram
 modules. Standard-library and client imports use their normal names. Relative
 resolution uses the importing package's directory, independent of the current
@@ -153,19 +195,24 @@ Each name belongs to the declaring module. Declarations use the same specifier a
 attribute conversion as JavaScript imports; identical specifiers with different
 attributes can resolve to different dependencies. Declared names also work with
 `__import__`, `importlib.import_module`, and `importlib.util.find_spec`. Package
-submodules and namespace packages load from the resolved directory artifact.
+submodules and namespace packages can be selected from an explicitly imported directory artifact.
 Object imports, such as `attributes = { type = "file" }`, expose the Tangram object
 as `default`. As in the JS loader, filesystem object imports expose `None` until
-checked in. Python cannot execute JS, TS, or declaration modules.
+checked in. JS and TS exports load through generated Python command wrappers.
 
 Checkin marks `.tg.py` and `tangram.py` files as Python modules. Astral's Ruff parser
-finds relative `from` imports and records their existing module files and package
-initializers as dependencies. The shared metadata parser records every declared
-import, including declarations used only by conditional or computed imports.
+finds relative `from` imports and literal relative calls to
+`importlib.import_module` and `importlib.util.find_spec`, and records their existing
+module files and required package initializers as dependencies. A self-reference
+records each module's package-relative placement without capturing its directory.
+The shared metadata parser records every declared import, including declarations
+used only by conditional or computed imports.
 The runtime follows dependencies per referring module, so colliding relative paths
 remain distinct and checked-in execution does not require the original source
-files. Computed relative imports require a recorded edge or a member of the resolved
-directory artifact. Undeclared absolute imports use the embedded libraries.
+files. Computed relative imports require a recorded dependency. Package membership
+alone does not permit searching the containing directory. Explicit directory imports
+retain directory lookup and the corresponding directory dependency. Undeclared
+absolute imports use the embedded libraries.
 
 Invalid metadata produces source locations. `requires-python` must accept the pinned
 embedded interpreter. Nonempty PEP 508 `dependencies` are rejected; Tangram imports
@@ -185,10 +232,12 @@ binding are rejected. Command and process builders encode fluent arguments with
 resolve once, including those shared between initial arguments and builder setters.
 
 Filesystem modules are checked in before constructing a function command, so its
-dependencies and authorization survive execution in another process. Python
-commands retain the module's directory ID and path because package member
-loading needs them; the command referent retains the full original options. Callable
-return types propagate to command and process results. Python cannot currently map
+dependencies and authorization survive execution in another process. Both clients
+remove `id`, `name`, `path`, and `tag` from the module stored in a command's arguments;
+the command referent retains the original options. Required package relationships
+come from the file's dependencies, so unrelated package edits do not invalidate a
+file command. Callable return types propagate to command and process results.
+Python cannot currently map
 each callable parameter to its corresponding unresolved argument type, so callable
 arguments are checked as Tangram values rather than against the parameter tuple.
 

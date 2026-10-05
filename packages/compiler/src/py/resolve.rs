@@ -135,6 +135,68 @@ pub fn module_file(module: &tg::module::Data) -> tg::Result<tg::File> {
 	Ok(file)
 }
 
+/// Recover package placement from the module's checked-in self-reference.
+pub async fn prepare_module(
+	instance: &tg::instance::dynamic::Instance,
+	mut module: tg::module::Data,
+) -> tg::Result<tg::module::Data> {
+	if module.kind != tg::module::Kind::Py
+		|| matches!(module.referent.node, tg::module::data::Source::Path(_))
+	{
+		return Ok(module);
+	}
+	let file = module_file(&module)?;
+	if let tg::file::Object::Pointer(pointer) = file.object_with_instance(instance).await?.as_ref()
+	{
+		module.referent.node =
+			tg::module::data::Source::Edge(tg::graph::data::Edge::Pointer(pointer.to_data()));
+		module
+			.referent
+			.options
+			.tokens
+			.inherit(&pointer.graph.state().tokens());
+	}
+	let dependencies = file.dependencies_with_instance(instance).await?;
+	let mut paths = Vec::new();
+	for (reference, dependency) in dependencies {
+		if reference.without_token().options() != &tg::reference::Options::default() {
+			continue;
+		}
+		let Some(object) = dependency.and_then(|dependency| dependency.0.node) else {
+			continue;
+		};
+		if object.id() != tg::object::Id::from(file.id()) {
+			continue;
+		}
+		let Ok(path) = reference.node().try_unwrap_path_ref() else {
+			continue;
+		};
+		if path.is_absolute() {
+			continue;
+		}
+		let path: PathBuf = path
+			.components()
+			.skip_while(|component| {
+				matches!(
+					component,
+					std::path::Component::CurDir | std::path::Component::ParentDir
+				)
+			})
+			.collect();
+		paths.push(path);
+	}
+	if let Some(path) = paths
+		.into_iter()
+		.max_by_key(|path| path.components().count())
+	{
+		module.referent.options.id = None;
+		module.referent.options.name = None;
+		module.referent.options.path = Some(path);
+		module.referent.options.tag = None;
+	}
+	Ok(module)
+}
+
 impl Resolver {
 	#[must_use]
 	pub fn new(instance: tg::instance::dynamic::Instance) -> Self {
@@ -197,6 +259,7 @@ impl Resolver {
 		name: &str,
 		level: u32,
 	) -> tg::Result<Output> {
+		let referrer = prepare_module(&self.instance, referrer).await?;
 		if level > 0 {
 			let Some(parent) = self.containing(&referrer, PathBuf::from(".")).await? else {
 				return Ok(missing(
@@ -217,21 +280,55 @@ impl Resolver {
 		};
 		let arg = tg::module::resolve::Arg {
 			import: import.clone(),
-			referrer: Some(referrer),
+			referrer: Some(referrer.clone()),
 		};
 		let module = self.instance.resolve_module(arg).await?.module;
+		// Preserve directory lookup only when the import itself resolves to a directory.
+		let directory = if module.kind == tg::module::Kind::Py
+			&& matches!(module.referent.node, tg::module::data::Source::Edge(_))
+		{
+			let import = tg::module::Import {
+				kind: Some(tg::module::Kind::Object),
+				reference: import.reference.clone(),
+			};
+			let arg = tg::module::resolve::Arg {
+				import,
+				referrer: Some(referrer),
+			};
+			let mut module = self.instance.resolve_module(arg).await?.module;
+			let is_directory = match &module.referent.node {
+				tg::module::data::Source::Edge(tg::graph::data::Edge::Object(id)) => {
+					id.kind() == tg::object::Kind::Directory
+				},
+				tg::module::data::Source::Edge(tg::graph::data::Edge::Pointer(pointer)) => {
+					pointer.kind == tg::artifact::Kind::Directory
+				},
+				_ => false,
+			};
+			module.kind = tg::module::Kind::Directory;
+			is_directory.then_some(module)
+		} else {
+			None
+		};
+		let module = prepare_module(&self.instance, module).await?;
 		let target = Target::Module(Module::new(module));
+		let context = target.context().map(|mut context| {
+			if let Some(directory) = directory {
+				context.referrer = directory;
+			}
+			context
+		});
 		if suffix.is_empty() {
-			return Ok(Output::Resolved(Resolution::new(target)));
+			let mut resolution = Resolution::new(target);
+			resolution.context = context;
+			return Ok(Output::Resolved(resolution));
 		}
-		let Some(context) = target.context() else {
+		let Some(context) = context else {
 			return Ok(missing(format!("{root:?} is not a package"), Some(name)));
 		};
 		let mut output = self.walk(context, suffix).await?;
 		if let Output::Resolved(resolution) = &mut output {
 			resolution.root = Some(target);
-			// Absolute from-imports use the resolved target's canonical package context.
-			resolution.context = resolution.target.context();
 		}
 		Ok(output)
 	}
@@ -244,8 +341,15 @@ impl Resolver {
 					None,
 				));
 			};
-			context.parent = parent;
 			context.prefix.push("..");
+			// Leaving an explicitly imported directory follows the recorded parent package.
+			if context.referrer.kind == tg::module::Kind::Directory
+				&& tangram_util::path::normalize(&context.prefix).starts_with("..")
+			{
+				context = parent.context().unwrap();
+			} else {
+				context.parent = parent;
+			}
 		}
 		self.walk(context, name).await
 	}
@@ -278,6 +382,9 @@ impl Resolver {
 			};
 			steps.push(step);
 			context.parent = target.clone();
+			if let Target::Namespace(_) = &target {
+				context = target.context().unwrap();
+			}
 			if parts.peek().is_none() {
 				let context = target.is_package().then_some(context);
 				let resolution = Resolution {
@@ -347,13 +454,16 @@ impl Resolver {
 			return Ok(Output::Fallback);
 		};
 		let name = name.to_string_lossy();
-		let target = Self::namespace(
-			context.referrer.clone(),
-			path.clone(),
-			context.parent.clone(),
-			&name,
-			directory,
-		);
+		let (referrer, prefix) = match directory {
+			Some(directory)
+				if context.referrer.kind != tg::module::Kind::Directory
+					&& matches!(directory.referent.node, tg::module::data::Source::Edge(_)) =>
+			{
+				(directory, PathBuf::from("."))
+			},
+			_ => (context.referrer.clone(), path.clone()),
+		};
+		let target = Self::namespace(referrer, prefix, context.parent.clone(), &name);
 		Ok(Output::Resolved(Resolution::new(target)))
 	}
 
@@ -362,6 +472,8 @@ impl Resolver {
 		module: &tg::module::Data,
 		mut prefix: PathBuf,
 	) -> tg::Result<Option<Target>> {
+		let module = prepare_module(&self.instance, module.clone()).await?;
+		let module = &module;
 		let descriptor = Module::new(module.clone());
 		if prefix == Path::new(".") && descriptor.package {
 			return Ok(Some(Target::Module(descriptor)));
@@ -372,11 +484,11 @@ impl Resolver {
 			if prefix.as_os_str().is_empty() {
 				prefix.push(".");
 			}
-			let directory = module_path(module)
-				.and_then(Path::parent)
+			let directory = descriptor
+				.filename
+				.parent()
 				.map(|parent| tangram_util::path::normalize(parent.join(&prefix)));
 			if matches!(module.referent.node, tg::module::data::Source::Edge(_))
-				&& module.referent.options.id.is_some()
 				&& directory
 					.as_ref()
 					.is_some_and(|path| path.is_absolute() || path.starts_with(".."))
@@ -409,10 +521,7 @@ impl Resolver {
 			prefix.push("..");
 		};
 		for (prefix, name) in namespaces.into_iter().rev() {
-			let directory = self
-				.path(module, prefix.clone(), tg::module::Kind::Directory)
-				.await?;
-			target = Self::namespace(module.clone(), prefix, target, &name, directory);
+			target = Self::namespace(module.clone(), prefix, target, &name);
 		}
 		Ok(Some(target))
 	}
@@ -429,12 +538,8 @@ impl Resolver {
 		prefix: PathBuf,
 		parent: Target,
 		name: &str,
-		directory: Option<tg::module::Data>,
 	) -> Target {
-		let key = directory.map_or_else(
-			|| format!("namespace:{}/{name}", parent.key()),
-			|module| module.without_token().to_string(),
-		);
+		let key = format!("namespace:{}/{name}", parent.key());
 		let namespace = Namespace {
 			key,
 			parent,
@@ -539,8 +644,15 @@ async fn resolve_path(
 	path: PathBuf,
 	kind: tg::module::Kind,
 ) -> tg::Result<Option<tg::module::Data>> {
+	if module.kind == tg::module::Kind::Directory {
+		let Some(referent) = directory_member(instance.clone(), module, path, kind).await? else {
+			return Ok(None);
+		};
+		let module = tg::module::Data { kind, referent };
+		return Ok(Some(prepare_module(&instance, module).await?));
+	}
 	// Translate a Python path to an import before calling the shared resolver.
-	let (referrer, reference) = match &module.referent.node {
+	let reference = match &module.referent.node {
 		tg::module::data::Source::Path(source) => {
 			let source = source.parent().unwrap().join(&path);
 			let metadata = match tokio::fs::metadata(&source).await {
@@ -555,7 +667,7 @@ async fn resolve_path(
 			{
 				return Ok(None);
 			}
-			(Some(module.clone()), tg::Reference::with_path(path.clone()))
+			tg::Reference::with_path(path)
 		},
 		tg::module::data::Source::Edge(_) => {
 			let file = module_file(&module)?;
@@ -568,27 +680,22 @@ async fn resolve_path(
 					&& tangram_util::path::normalize(relative)
 						== tangram_util::path::normalize(&path)
 			});
-			if let Some((reference, _)) = dependency {
-				(Some(module.clone()), reference)
-			} else {
-				let Some(member) =
-					package_member(instance.clone(), module, path.clone(), kind).await?
-				else {
-					return Ok(None);
-				};
-				let reference = member.to_string().parse().map_err(|error| {
-					tg::error!(!error, "failed to parse the Python member import")
-				})?;
-				(None, reference)
-			}
+			let Some((reference, _)) = dependency else {
+				return Ok(None);
+			};
+			reference
 		},
 	};
 	let import = tg::module::Import {
 		kind: Some(kind),
 		reference,
 	};
-	let arg = tg::module::resolve::Arg { import, referrer };
+	let arg = tg::module::resolve::Arg {
+		import,
+		referrer: Some(module),
+	};
 	let module = instance.resolve_module(arg).await?.module;
+	let module = prepare_module(&instance, module).await?;
 	Ok(Some(module))
 }
 
@@ -597,7 +704,9 @@ async fn namespace_exists(
 	module: tg::module::Data,
 	path: PathBuf,
 ) -> tg::Result<bool> {
-	if !matches!(module.referent.node, tg::module::data::Source::Edge(_)) {
+	if module.kind == tg::module::Kind::Directory
+		|| !matches!(module.referent.node, tg::module::data::Source::Edge(_))
+	{
 		return Ok(false);
 	}
 	// A file-only checkin can retain a namespace's members without a directory object.
@@ -620,24 +729,32 @@ async fn namespace_exists(
 	Ok(exists)
 }
 
-async fn package_member(
+async fn directory_member(
 	instance: tg::instance::dynamic::Instance,
 	module: tg::module::Data,
 	path: PathBuf,
 	kind: tg::module::Kind,
 ) -> tg::Result<Option<tg::Referent<tg::module::data::Source>>> {
-	// Locate package members within the resolved directory artifact.
-	let Some(id) = module.referent.options.id.clone() else {
+	let source = tg::Module::try_from_data(module.clone())?.referent.node;
+	let tg::module::Source::Edge(edge) = source else {
 		return Ok(None);
 	};
-	let referent = tg::Referent::new(id, module.referent.options.clone());
-	let Ok(directory) = tg::Object::with_referent(referent).try_unwrap_directory() else {
-		return Ok(None);
+	let directory = match edge {
+		tg::graph::Edge::Object(object) => object
+			.try_unwrap_directory()
+			.map_err(|_| tg::error!("expected a directory"))?,
+		tg::graph::Edge::Pointer(pointer) => tg::Artifact::with_pointer(pointer)
+			.try_unwrap_directory()
+			.map_err(|_| tg::error!("expected a directory"))?,
+		tg::graph::Edge::Index(_) => return Err(tg::error!("missing graph")),
 	};
-	let Some(parent) = module.referent.path().and_then(Path::parent) else {
-		return Ok(None);
-	};
-	let path = tangram_util::path::normalize(parent.join(path));
+	directory
+		.state()
+		.set_location(module.referent.options.location.clone());
+	directory
+		.state()
+		.set_tokens(module.referent.options.tokens.clone());
+	let path = tangram_util::path::normalize(path);
 	if path.is_absolute() || path.starts_with("..") {
 		return Ok(None);
 	}

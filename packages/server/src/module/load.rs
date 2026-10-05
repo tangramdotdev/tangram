@@ -17,7 +17,28 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		match &arg.module {
+		// Generate the Python representation of object modules.
+		if arg.language == Some(tg::module::load::Language::Py)
+			&& !matches!(
+				arg.module.kind,
+				tg::module::Kind::Js
+					| tg::module::Kind::Ts
+					| tg::module::Kind::Dts
+					| tg::module::Kind::Py
+			) {
+			let text = tangram_compiler::py::load::object_module(&arg.module)?;
+			return Ok(tg::module::load::Output { text });
+		}
+		let output = self.load_module_inner(&arg.module).await?;
+		let text = tangram_compiler::load::module(&arg.module, &output.text, arg.language)?;
+		Ok(tg::module::load::Output { text })
+	}
+
+	async fn load_module_inner(
+		&self,
+		module: &tg::module::Data,
+	) -> tg::Result<tg::module::load::Output> {
+		match module {
 			// Handle a declaration.
 			tg::module::Data {
 				kind: tg::module::Kind::Dts,
@@ -110,7 +131,7 @@ impl Session {
 				},
 				..
 			} => {
-				let class = match arg.module.kind {
+				let class = match module.kind {
 					tg::module::Kind::Object => "Object",
 					tg::module::Kind::Blob => "Blob",
 					tg::module::Kind::Artifact => "Artifact",

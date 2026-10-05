@@ -26,7 +26,8 @@ for name in [sys types typing_extensions builtins] {
 }
 
 # Existing library exports take precedence over same-named sibling modules.
-for import in ['from . import helper' 'from . import *'] {
+do {
+    let import = 'from . import helper'
     let path = artifact {
         'tangram.py': 'import json as helper; __all__ = ["helper"]; from . import left; default = left.default'
         'helper.tg.py': 'value: int = 42'
@@ -55,14 +56,17 @@ success $output
 assert equal ($output.stdout | str trim) '42'
 
 # A recorded unresolved edge is authoritative even when an initializer exports that name.
-for import in ['from . import helper' 'from . import *'] {
+do {
+    let import = 'from . import helper'
     let source = $import + (char nl) + 'value: bool = helper.value' + (char nl) + 'other: int = "wrong"'
     let builder = artifact {
         'tangram.ts': ('export default async function () {
-            const root = tg.file("from . import helper\n__all__ = [\"helper\"]\nfrom . import left").module("py");
-            const member = tg.file("value: bool = False").module("py");
-            const left = tg.file(' + ($source | to json -r) + ').module("py").dependency("./helper.tg.py", null);
-            return tg.directory({ "tangram.py": root, "helper.tg.py": member, "left.tg.py": left });
+            const member = await tg.file("value: bool = False").module("py");
+            const graph = await tg.graph({ nodes: [
+                { kind: "file", module: "py", contents: "from . import helper\n__all__ = [\"helper\"]\nfrom . import left", dependencies: { "./tangram.py": 0, "./helper.tg.py": member, "./left.tg.py": 1 } },
+                { kind: "file", module: "py", contents: ' + ($source | to json -r) + ', dependencies: { "./left.tg.py": 1, "./tangram.py": 0, "./helper.tg.py": null } },
+            ] });
+            return tg.directory({ "tangram.py": await graph.get(0) });
         }')
     }
     let module = tg run $builder

@@ -77,12 +77,6 @@ impl Module {
 		if let Source::Edge(edge) = &self.referent.node {
 			edge.children(children);
 		}
-		// Python package member loading depends on the containing directory.
-		if self.kind == Kind::Py
-			&& let Some(id) = &self.referent.options.id
-		{
-			children.insert(id.clone());
-		}
 	}
 
 	pub fn children_with_tokens(&self, children: &mut Vec<tg::Referent<tg::object::Id>>) {
@@ -240,7 +234,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn python_package_roots_are_dependencies() {
+	fn module_metadata_is_not_a_dependency() {
 		let root = tg::object::Id::new(
 			tg::object::Kind::Directory,
 			&bytes::Bytes::from_static(b"package"),
@@ -263,13 +257,13 @@ mod tests {
 		};
 		let mut children = BTreeSet::new();
 		data.children(&mut children);
-		assert_eq!(children, BTreeSet::from([file.clone(), root.clone()]));
+		assert_eq!(children, BTreeSet::from([file.clone()]));
 		let module = tg::Module::try_from_data(data).unwrap();
 		let children = module
 			.children()
 			.iter()
 			.map(tg::Object::id)
 			.collect::<BTreeSet<_>>();
-		assert_eq!(children, BTreeSet::from([file, root]));
+		assert_eq!(children, BTreeSet::from([file]));
 	}
 }

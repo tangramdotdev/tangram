@@ -40,6 +40,7 @@ pub mod implementation;
 pub mod initialize;
 pub mod inlay_hint;
 pub mod jsonrpc;
+pub mod load;
 pub mod metadata;
 pub mod prepare_rename;
 pub mod py;
@@ -1284,21 +1285,27 @@ impl Compiler {
 		}
 	}
 
-	/// Load a module.
+	/// Load a module in its original language.
 	pub async fn load_module(&self, module: &tg::module::Data) -> tg::Result<String> {
-		// If there is an opened document, then return its contents.
+		self.load_module_with_language(module, None).await
+	}
+
+	/// Load a module for a runtime or checker.
+	pub async fn load_module_with_language(
+		&self,
+		module: &tg::module::Data,
+		language: Option<tg::module::load::Language>,
+	) -> tg::Result<String> {
 		if let Some(document) = self.documents.get(module)
 			&& document.open
 		{
-			return Ok(document.text.clone().unwrap());
+			return load::module(module, document.text.as_ref().unwrap(), language);
 		}
-
-		// Otherwise, load the module.
 		let arg = tg::module::load::Arg {
+			language,
 			module: module.clone(),
 		};
 		let output = self.instance.load_module(arg).await?;
-
 		Ok(output.text)
 	}
 

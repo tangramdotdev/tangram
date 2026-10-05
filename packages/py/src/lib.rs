@@ -6,6 +6,7 @@ use {
 		sync::{Mutex, mpsc},
 	},
 	tangram_client::prelude::*,
+	tangram_compiler::py::resolve::prepare_module,
 };
 
 mod import;
@@ -184,31 +185,6 @@ fn to_exception(py: Python<'_>, error: &tg::Error) -> PyErr {
 	}
 }
 
-async fn prepare_module(
-	instance: &tg::instance::dynamic::Instance,
-	mut module: tg::module::Data,
-) -> tg::Result<tg::module::Data> {
-	if module.kind == tg::module::Kind::Py
-		&& matches!(
-			module.referent.node,
-			tg::module::data::Source::Edge(tg::graph::data::Edge::Object(_))
-		) {
-		let file = tangram_compiler::py::resolve::module_file(&module)?;
-		if let tg::file::Object::Pointer(pointer) =
-			file.object_with_instance(instance).await?.as_ref()
-		{
-			module.referent.node =
-				tg::module::data::Source::Edge(tg::graph::data::Edge::Pointer(pointer.to_data()));
-			module
-				.referent
-				.options
-				.tokens
-				.inherit(&pointer.graph.state().tokens());
-		}
-	}
-	Ok(module)
-}
-
 fn serialize_module(module: tg::module::Data) -> tg::Result<String> {
 	let resolved = tangram_compiler::py::resolve::Module::new(module);
 	let output = serde_json::to_string(&resolved)
@@ -221,18 +197,10 @@ async fn load_module(
 	module: tg::module::Data,
 ) -> tg::Result<String> {
 	let arg = tg::module::load::Arg {
-		module: module.clone(),
+		language: Some(tg::module::load::Language::Py),
+		module,
 	};
-	let text = match module.kind {
-		tg::module::Kind::Py => instance.load_module(arg).await?.text,
-		tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Dts => {
-			return Err(tg::error!(
-				"cannot execute a {} module in Python",
-				module.kind
-			));
-		},
-		_ => tangram_compiler::py::load::object_module(&module)?,
-	};
+	let text = instance.load_module(arg).await?.text;
 	Ok(text)
 }
 

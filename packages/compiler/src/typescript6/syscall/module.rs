@@ -7,9 +7,12 @@ pub fn load(
 ) -> tg::Result<String> {
 	let (Serde(module),) = args;
 	compiler.main_runtime_handle.clone().block_on(async move {
-		let text = compiler.load_module(&module).await.map_err(
-			|error| tg::error!(!error, module = ?module.without_token(), "failed to load the module"),
-		)?;
+		let text = compiler
+			.load_module_with_language(&module, Some(tg::module::load::Language::Js))
+			.await
+			.map_err(
+				|error| tg::error!(!error, module = ?module.without_token(), "failed to load the module"),
+			)?;
 		Ok(text)
 	})
 }

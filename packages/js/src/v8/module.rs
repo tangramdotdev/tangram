@@ -135,6 +135,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 					let instance = state.instance.clone();
 					async move {
 						let arg = tg::module::load::Arg {
+							language: Some(tg::module::load::Language::Js),
 							module: module.clone(),
 						};
 						let output = instance.load_module(arg).await.map_err(|error| {
@@ -362,7 +363,10 @@ fn load_module_sync(scope: &mut v8::PinScope, module: &mut tg::module::Data) -> 
 		let instance = state.instance.clone();
 		let module = module.clone();
 		async move {
-			let arg = tg::module::load::Arg { module };
+			let arg = tg::module::load::Arg {
+				language: Some(tg::module::load::Language::Js),
+				module,
+			};
 			let result = instance.load_module(arg).await;
 			sender.send(result).unwrap();
 		}

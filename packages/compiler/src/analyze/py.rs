@@ -1,8 +1,8 @@
 use {
 	super::Analysis,
 	ruff_python_ast::{
-		Stmt,
-		statement_visitor::{self, StatementVisitor as _},
+		Expr, Stmt,
+		visitor::{self, Visitor as _},
 	},
 	std::{collections::BTreeSet, path::Path},
 	tangram_client::prelude::*,
@@ -12,6 +12,35 @@ pub mod metadata;
 
 struct Visitor {
 	references: BTreeSet<String>,
+}
+
+struct ImportValidator<'a> {
+	star: Option<&'a ruff_python_ast::StmtImportFrom>,
+}
+
+pub fn validate_imports(module: &tg::module::Data, text: &str, body: &[Stmt]) -> tg::Result<()> {
+	let mut visitor = ImportValidator { star: None };
+	visitor.visit_body(body);
+	let Some(import) = visitor.star else {
+		return Ok(());
+	};
+	let bytes = usize::from(import.range.start())..usize::from(import.range.end());
+	let range = tg::Range::try_from_byte_range_in_string(text, bytes, tg::position::Encoding::Utf8)
+		.unwrap();
+	let location = tg::error::Location {
+		file: tg::error::File::Module(tg::Module::try_from_data(module.without_token())?),
+		range,
+		symbol: None,
+	};
+	let mut object = tg::error::Object {
+		location: Some(location),
+		..Default::default()
+	};
+	tg::error!(
+		{ object },
+		"star imports are not supported in Python modules; use explicit imports"
+	);
+	Err(tg::Error::with_object(object))
 }
 
 pub fn analyze(path: &Path, text: &str) -> tg::Result<Analysis> {
@@ -46,7 +75,26 @@ pub fn analyze(path: &Path, text: &str) -> tg::Result<Analysis> {
 	let directory = path
 		.parent()
 		.ok_or_else(|| tg::error!("the Python module has no parent directory"))?;
+	let root = directory
+		.ancestors()
+		.filter(|ancestor| ancestor.join("tangram.py").is_file())
+		.last();
+	// Record the module's own package-relative path as a file dependency, without capturing a directory.
+	let root = root.unwrap_or(directory);
+	let depth = directory.strip_prefix(root).unwrap().components().count();
+	let prefix = if depth == 0 {
+		".".to_owned()
+	} else {
+		vec![".."; depth].join("/")
+	};
+	let reference =
+		tg::Reference::with_path(Path::new(&prefix).join(path.strip_prefix(root).unwrap()));
 	let mut imports = std::collections::HashSet::default();
+	let import = tg::module::Import {
+		kind: Some(tg::module::Kind::Py),
+		reference,
+	};
+	imports.insert(import);
 	let metadata = metadata::parse(path, text)?;
 	imports.extend(metadata.imports.into_values());
 	// Capture explicit package initializers, including ancestors of namespace directories.
@@ -69,7 +117,10 @@ pub fn analyze(path: &Path, text: &str) -> tg::Result<Analysis> {
 		};
 		imports.insert(import);
 	}
-	for reference in visitor.references {
+	for reference in &visitor.references {
+		if !tangram_util::path::normalize(directory.join(reference)).starts_with(root) {
+			continue;
+		}
 		let file = format!("{reference}.tg.py");
 		let package = format!("{reference}/tangram.py");
 		let file_exists = directory.join(&file).is_file();
@@ -81,6 +132,18 @@ pub fn analyze(path: &Path, text: &str) -> tg::Result<Analysis> {
 			file
 		} else if package_exists {
 			package
+		} else if directory.join(reference).is_dir()
+			&& !visitor
+				.references
+				.iter()
+				.any(|other| other.starts_with(&format!("{reference}/")))
+		{
+			let import = tg::module::Import {
+				kind: Some(tg::module::Kind::Directory),
+				reference: reference.parse()?,
+			};
+			imports.insert(import);
+			continue;
 		} else {
 			continue;
 		};
@@ -97,23 +160,31 @@ pub fn analyze(path: &Path, text: &str) -> tg::Result<Analysis> {
 	Ok(analysis)
 }
 
-impl<'a> statement_visitor::StatementVisitor<'a> for Visitor {
+impl Visitor {
+	fn reference(&mut self, level: usize, name: &str) -> String {
+		let mut reference = if level == 1 {
+			".".to_owned()
+		} else {
+			vec![".."; level - 1].join("/")
+		};
+		for part in name.split('.').filter(|part| !part.is_empty()) {
+			reference.push('/');
+			reference.push_str(part);
+			self.references.insert(reference.clone());
+		}
+		reference
+	}
+}
+
+impl<'a> visitor::Visitor<'a> for Visitor {
 	fn visit_stmt(&mut self, statement: &'a Stmt) {
 		if let Stmt::ImportFrom(import) = statement
 			&& import.level > 0
 		{
-			let mut reference = if import.level == 1 {
-				".".to_owned()
-			} else {
-				vec![".."; (import.level - 1) as usize].join("/")
-			};
-			if let Some(module) = &import.module {
-				for part in module.as_str().split('.') {
-					reference.push('/');
-					reference.push_str(part);
-					self.references.insert(reference.clone());
-				}
-			}
+			let reference = self.reference(
+				import.level as usize,
+				import.module.as_deref().unwrap_or_default(),
+			);
 			for alias in &import.names {
 				if alias.name.as_str() != "*" {
 					self.references
@@ -121,13 +192,58 @@ impl<'a> statement_visitor::StatementVisitor<'a> for Visitor {
 				}
 			}
 		}
-		statement_visitor::walk_stmt(self, statement);
+		visitor::walk_stmt(self, statement);
+	}
+	fn visit_expr(&mut self, expression: &'a Expr) {
+		if let Expr::Call(call) = expression
+			&& let Expr::Attribute(function) = call.func.as_ref()
+			&& matches!(function.attr.as_str(), "import_module" | "find_spec")
+			&& (matches!(function.value.as_ref(), Expr::Name(name) if name.id.as_str() == "importlib")
+				|| matches!(function.value.as_ref(), Expr::Attribute(attribute) if attribute.attr.as_str() == "util" && matches!(attribute.value.as_ref(), Expr::Name(name) if name.id.as_str() == "importlib")))
+			&& matches!(call.arguments.find_argument_value("package", 1), Some(Expr::Name(name)) if name.id.as_str() == "__package__")
+			&& let Some(Expr::StringLiteral(name)) = call.arguments.find_argument_value("name", 0)
+		{
+			let name = name.value.to_str();
+			let level = name.len() - name.trim_start_matches('.').len();
+			if level > 0 {
+				self.reference(level, &name[level..]);
+			}
+		}
+		visitor::walk_expr(self, expression);
+	}
+}
+
+impl<'a> visitor::Visitor<'a> for ImportValidator<'a> {
+	fn visit_stmt(&mut self, statement: &'a Stmt) {
+		if self.star.is_some() {
+			return;
+		}
+		if let Stmt::ImportFrom(import) = statement
+			&& import.names.iter().any(|name| name.name.as_str() == "*")
+		{
+			self.star = Some(import);
+			return;
+		}
+		visitor::walk_stmt(self, statement);
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[test]
+	fn python_self_reference_preserves_the_filename() {
+		let path = Path::new("/python-test/task?value#1.tg.py");
+		let analysis = analyze(path, "pass").unwrap();
+		let expected = tg::Reference::with_path(Path::new("./task?value#1.tg.py").to_owned());
+		assert!(
+			analysis
+				.imports
+				.iter()
+				.any(|import| import.reference == expected)
+		);
+	}
 
 	#[test]
 	fn python_parse_errors_have_source_locations() {
@@ -167,6 +283,11 @@ from .sub.child import value
 def default():
     from ..other import value
     from ... import parent
+importlib.import_module(".late.child", __package__)
+importlib.util.find_spec("..sibling", __package__)
+importlib.import_module(name=".keyword", package=__package__)
+importlib.util.find_spec(name=".spec", package=__package__)
+other.import_module(".not_an_import")
 "#;
 		let parsed = ruff_python_parser::parse_module(source).unwrap();
 		let mut visitor = Visitor {
@@ -178,6 +299,11 @@ def default():
 			"../other",
 			"../other/value",
 			"./helper",
+			"./keyword",
+			"./late",
+			"./late/child",
+			"../sibling",
+			"./spec",
 			"./sub",
 			"./sub/child",
 			"./sub/child/value",

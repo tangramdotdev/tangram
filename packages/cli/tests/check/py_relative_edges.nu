@@ -8,12 +8,12 @@ for annotation in [int str] {
                 const first = await tg.file("value: int = 42").module("py");
                 const second = await tg.file("value: str = \"abc\"").module("py");
                 const member = await tg.file("value: bool = False").module("py");
-                const left = await tg.file("from . import helper\nvalue: ' + $annotation + ' = helper.value")
-                    .module("py").dependency("./helper.tg.py", { node: first });
-                const right = await tg.file("from . import helper\nvalue: str = helper.value")
-                    .module("py").dependency("./helper.tg.py", { node: second });
-                const root = await tg.file("from . import helper, left, right\ndef default() -> int:\n    assert helper.value is False\n    return left.value + len(right.value)").module("py");
-                return await tg.directory({ "tangram.py": root, "left.tg.py": left, "right.tg.py": right, "helper.tg.py": member });
+                const graph = await tg.graph({ nodes: [
+                    { kind: "file", module: "py", contents: "from . import helper, left, right\ndef default() -> int:\n    assert helper.value is False\n    return left.value + len(right.value)", dependencies: { "./tangram.py": 0, "./left.tg.py": 1, "./right.tg.py": 2, "./helper.tg.py": member } },
+                    { kind: "file", module: "py", contents: "from . import helper\nvalue: ' + $annotation + ' = helper.value", dependencies: { "./left.tg.py": 1, "./tangram.py": 0, "./helper.tg.py": first } },
+                    { kind: "file", module: "py", contents: "from . import helper\nvalue: str = helper.value", dependencies: { "./right.tg.py": 2, "./tangram.py": 0, "./helper.tg.py": second } },
+                ] });
+                return await tg.directory({ "tangram.py": await graph.get(0) });
             }
         ')
     }

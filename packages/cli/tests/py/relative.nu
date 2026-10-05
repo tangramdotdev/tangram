@@ -77,3 +77,19 @@ let entry = artifact {
 let output = tg py --export default ($entry | path join child.tg.py) | complete
 success $output
 assert equal ($output.stdout | str trim) '42'
+
+# Explicit namespace directory imports retain directory traversal after checkin.
+let entry = artifact {
+    'tangram.py': '
+        import importlib
+        namespace = importlib.import_module(".namespace", __package__)
+        leaf = importlib.import_module(".leaf", namespace.__name__)
+        def default():
+            return leaf.value
+    '
+    namespace: {'leaf.tg.py': 'value = 42'}
+}
+success (tg py --export default ($entry | path join tangram.py) | complete)
+let checked = tg checkin ($entry | path join tangram.py)
+rm --recursive $entry
+assert equal (tg run $checked | str trim) '42'

@@ -44,15 +44,16 @@ let output = tg run $module | complete
 success $output
 assert equal ($output.stdout | str trim) '2'
 
-# The same file can have a distinct package context in a dependency referent.
+# A module gets its parent initializer from its own recorded dependency.
 let path = artifact {
     'tangram.ts': '
         export default async function () {
-            const helper = await tg.file("from . import value").module("py");
+            const other = await tg.file("value = 2").module("py");
+            const helper = await tg.file("from . import value").module("py")
+                .dependency("./tangram.py", { node: other });
             const root = await tg.file("value = 1\nfrom . import helper\ndef default():\n    return helper.value")
                 .module("py")
                 .dependency("./helper.tg.py", { node: helper, options: { path: "other/helper.tg.py" } });
-            const other = await tg.file("value = 2").module("py");
             return await tg.directory({
                 "tangram.py": root,
                 "helper.tg.py": helper,
@@ -100,6 +101,21 @@ let path = artifact {
             const initializer = await tg.file("try:\n    from . import helper\nexcept tg.Error as error:\n    assert error.to_data().get(\"source\") is not None\nelse:\n    raise AssertionError(\"resolved an unresolved dependency\")\ndef default():\n    return 42")
                 .module("py").dependency("./helper.tg.py", null);
             return await tg.directory({ "tangram.py": initializer, "helper.tg.py": helper });
+        }
+    '
+}
+let module = tg run $path
+let output = tg run $module | complete
+success $output
+assert equal ($output.stdout | str trim) '42'
+
+# An absent dependency also cannot be satisfied by a sibling in the containing directory.
+let path = artifact {
+    'tangram.ts': '
+        export default async function () {
+            const helper = await tg.file("value = 1").module("py");
+            const root = await tg.file("def default():\n    try:\n        from . import helper\n    except ImportError:\n        return 42\n    raise AssertionError(\"imported an unrecorded sibling\")").module("py");
+            return await tg.directory({ "tangram.py": root, "helper.tg.py": helper });
         }
     '
 }

@@ -54,7 +54,7 @@ class ModuleTests(unittest.TestCase):
         self.assertEqual(Module.from_data(module.to_data()).referent.node, pointer)
         self.assertEqual(Module.Data.children(module.to_data()), ["gph_example"])
 
-    def test_python_package_roots_are_dependencies(self):
+    def test_module_metadata_is_not_a_dependency(self):
         child = File.with_id("fil_example")
         module = Module(
             "py",
@@ -67,12 +67,8 @@ class ModuleTests(unittest.TestCase):
                 },
             ),
         )
-        self.assertEqual(
-            [child.id for child in module.children()], ["fil_example", "dir_example"]
-        )
-        self.assertEqual(
-            Module.Data.children(module.to_data()), ["fil_example", "dir_example"]
-        )
+        self.assertEqual([child.id for child in module.children()], ["fil_example"])
+        self.assertEqual(Module.Data.children(module.to_data()), ["fil_example"])
         self.assertTrue(
             all(
                 child.state.location == Location.from_data_string("local")
@@ -83,7 +79,7 @@ class ModuleTests(unittest.TestCase):
             Module.Data.children(
                 {"kind": "py", "referent": "fil_example?id=dir_example"}
             ),
-            ["fil_example", "dir_example"],
+            ["fil_example"],
         )
         module = Module("py", Referent(child, {"id": child.id}))
         self.assertEqual(module.children(), [child])

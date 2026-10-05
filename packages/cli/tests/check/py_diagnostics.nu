@@ -75,3 +75,17 @@ failure $output
 assert ($output.stderr | str contains 'fil_') $output.stderr
 assert ($output.stderr | str contains 'has no member `missing`') $output.stderr
 assert not ($output.stderr | str contains 'Module `m1`')
+
+# Validation errors in constructed artifacts preserve the module and other diagnostics.
+let builder = artifact {
+    'tangram.ts': 'export default () => tg.directory({
+        "tangram.py": tg.file("from math import *\nvalue: int = \"wrong\"").module("py"),
+    });'
+}
+let module = tg run $builder
+let output = tg check $module | complete
+failure $output
+assert ($output.stderr | str contains 'star imports are not supported') $output.stderr
+assert ($output.stderr | str contains 'tangram.py:1:1') $output.stderr
+assert ($output.stderr | str contains 'tangram.py:2:') $output.stderr
+assert not ($output.stderr | str contains '500 Internal Server Error')

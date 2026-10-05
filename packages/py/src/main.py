@@ -133,7 +133,14 @@ class Finder(importlib.abc.MetaPathFinder):
                 namespace = importlib.util.module_from_spec(spec)
                 sys.modules[name] = namespace
                 self.packages[name] = Package(namespace, target)
-        return self.packages[name]
+        package = self.packages[name]
+        # Keep directory lookup when file dependencies reuse the namespace.
+        if (
+            package.target["value"]["referrer"]["kind"] != "directory"
+            or value["referrer"]["kind"] == "directory"
+        ):
+            package.target = target
+        return package
 
     def resolution(
         self, resolved: dict[str, Any]
@@ -144,7 +151,7 @@ class Finder(importlib.abc.MetaPathFinder):
             child = self.target_object(step["target"])
             if isinstance(child, Module):
                 child.bindings[(parent.__name__, step["name"])] = parent
-            if index < len(steps) - 1:
+            if isinstance(child, Package) or index < len(steps) - 1:
                 setattr(parent, step["name"], self.namespace(child))
         root = resolved["root"]
         return self.target_object(resolved["target"]), (

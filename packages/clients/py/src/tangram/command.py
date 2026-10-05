@@ -16,12 +16,15 @@ from typing import (
     cast,
     overload,
 )
+from weakref import WeakKeyDictionary
 
 if TYPE_CHECKING:
     from .blob import Blob
     from .client import Client
     from .directory import Directory
     from .file import File
+    from .host import MagicOutput
+    from .module import Module
     from .process import Builder as ProcessBuilder
     from .referent import Referent
     from .symlink import Symlink
@@ -34,6 +37,12 @@ from .object import Object
 from .resolve import Unresolved, capture, resolve
 from .template import Template, TemplateInput
 from .value import Value
+
+_functions: WeakKeyDictionary[Callable[..., Any], MagicOutput] = WeakKeyDictionary()
+
+
+class CommandFunction(Protocol):
+    def __call__(self, *args: ValueType) -> Awaitable[ValueType]: ...
 
 
 class CommandValueWire(TypedDict):
@@ -306,6 +315,16 @@ class Command[A, O: ValueType](Object):
         )
 
     @staticmethod
+    def function(module: Module, name: str) -> CommandFunction:
+        """Create a callable export backed by a Tangram command."""
+
+        async def function_(*args: ValueType) -> ValueType:
+            return await command(function_, *args).build()
+
+        _functions[function_] = {"module": module.to_data(), "export": name}
+        return function_
+
+    @staticmethod
     async def py[R: ValueType](
         function_: Callable[..., Unresolved[R]],
         args: Sequence[CommandArgument],
@@ -317,7 +336,7 @@ class Command[A, O: ValueType](Object):
         from .referent import Referent
 
         args = await resolve(list(args))
-        target = host.magic(function_)
+        target = _functions.get(function_) or host.magic(function_)
         module = Module.from_data(target["module"])
         if isinstance(module.referent.node, str):
             from .client import client as default_client
@@ -329,14 +348,15 @@ class Command[A, O: ValueType](Object):
                 raise ValueError("the checkin stream ended without output")
             artifact = output["artifact"]
             module = Module(
-                "py", Referent(Object.with_id(artifact.node), artifact.options)
+                module.kind, Referent(Object.with_id(artifact.node), artifact.options)
             )
         options = deepcopy(module.referent.options or {})
-        # Retain the directory and path needed for package member loading.
         module.referent.options = deepcopy(options)
-        for name in ("name", "tag"):
+        for name in ("id", "name", "path", "tag"):
             module.referent.options.pop(name, None)
-        command_args: list[CommandArgument] = [CommandValue.string("py")]
+        command_args: list[CommandArgument] = [
+            CommandValue.string("py" if module.kind == "py" else "js")
+        ]
         export = target.get("export")
         if export is not None:
             command_args.extend(
