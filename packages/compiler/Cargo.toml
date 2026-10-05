@@ -20,6 +20,7 @@ doctest = false
 workspace = true
 
 [build-dependencies]
+tangram_py_build = { workspace = true }
 data-encoding = { workspace = true }
 glob = { workspace = true }
 indoc = { workspace = true }

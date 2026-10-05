@@ -353,9 +353,18 @@ mod python {
 			std::fs::remove_dir_all(&output).unwrap();
 		}
 		std::fs::create_dir_all(&output).unwrap();
-		let status = Command::new("../../.venv/bin/python")
+		println!("cargo:rerun-if-env-changed=TANGRAM_PYTHON_HOST_DISTRIBUTION");
+		let build = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+		let workspace =
+			PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+		let host = std::env::var("HOST").unwrap();
+		let python = tangram_py_build::host(&build, &host);
+		let packages = tangram_py_build::packages(&python, &workspace, &build);
+		let status = Command::new(python)
+			.arg("-I")
 			.arg("../clients/py/library.py")
 			.arg(&output)
+			.arg(&packages)
 			.status()
 			.unwrap();
 		assert!(

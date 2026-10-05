@@ -40,7 +40,7 @@ assert equal ((lsp result $responses 17) | length) 2
 # TypeScript does not enable inlay hints without preferences.
 assert equal (lsp result $responses 18) null
 assert (((lsp result $responses 19).data | length) > 0)
-assert ('size' in (lsp result $responses 20 | get items.label))
+assert ('size' in (lsp result $responses 20 | get label))
 assert equal (lsp result $responses 21) null
 assert equal (lsp result $responses 22).items []
 assert equal (lsp result $responses 23).0.location.uri $uri

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import math
 from collections import deque
@@ -150,5 +151,7 @@ class Response:
             self._close()
             self._close = None
         close = getattr(self._body_source, "aclose", None)
-        if close is not None:
+        # An active generator unwinds in its consumer after the transport closes.
+        running = inspect.isasyncgen(self._body_source) and self._body_source.ag_running
+        if close is not None and not running:
             await close()

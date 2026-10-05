@@ -6,7 +6,8 @@ from unittest.mock import Mock
 
 from h2.config import H2Configuration
 from h2.connection import H2Connection
-from h2.events import RequestReceived
+from h2.events import PingAckReceived, RequestReceived, StreamReset
+from h2.settings import SettingCodes
 
 from tangram.error import Error
 from tangram.http import Request
@@ -41,6 +42,260 @@ class Writer:
 
     async def wait_closed(self):
         pass
+
+
+class Peer:
+    def __init__(self, reader):
+        self.reader = reader
+        self.connection = H2Connection(
+            H2Configuration(client_side=False, header_encoding="utf-8")
+        )
+        self.connection.initiate_connection()
+        self.requests = asyncio.Queue()
+        self.resets = asyncio.Queue()
+        self.pings = asyncio.Queue()
+
+    def write(self, data):
+        for event in self.connection.receive_data(data):
+            if isinstance(event, RequestReceived):
+                self.requests.put_nowait(event.stream_id)
+            elif isinstance(event, StreamReset):
+                self.resets.put_nowait(event.stream_id)
+            elif isinstance(event, PingAckReceived):
+                self.pings.put_nowait(event)
+        self.flush()
+
+    def flush(self):
+        if data := self.connection.data_to_send():
+            self.reader.feed_data(data)
+
+    async def synchronize(self):
+        self.connection.ping(b"12345678")
+        self.flush()
+        await asyncio.wait_for(self.pings.get(), 1)
+
+    async def drain(self):
+        pass
+
+    def close(self):
+        pass
+
+    async def wait_closed(self):
+        pass
+
+
+class FlowControlTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        reader = asyncio.StreamReader()
+        self.peer = Peer(reader)
+        self.session = Session(reader, self.peer, "http", "localhost")
+        self.addAsyncCleanup(self.session.close)
+
+    async def response(self, body=None):
+        request = asyncio.create_task(
+            self.session.send(Request("POST", "/", body=body))
+        )
+        stream_id = await asyncio.wait_for(self.peer.requests.get(), 1)
+        self.peer.connection.send_headers(stream_id, [(":status", "200")])
+        self.peer.flush()
+        return stream_id, await asyncio.wait_for(request, 1)
+
+    async def fill_window(self, stream_id, *, end_stream=False):
+        # Padding consumes window credit just like payload bytes.
+        connection = self.peer.connection
+        while length := min(connection.local_flow_control_window(stream_id), 16384):
+            last = length == connection.local_flow_control_window(stream_id)
+            connection.send_data(
+                stream_id,
+                b"x" * (length - 1),
+                pad_length=0,
+                end_stream=end_stream and last,
+            )
+        self.peer.flush()
+        await self.peer.synchronize()
+        self.assertEqual(connection.outbound_flow_control_window, 0)
+
+    async def assert_connection_usable(self):
+        stream_id, response = await self.response()
+        self.assertEqual(
+            self.peer.connection.local_flow_control_window(stream_id), 65535
+        )
+        self.peer.connection.send_data(stream_id, b"success", end_stream=True)
+        self.peer.flush()
+        self.assertEqual(await asyncio.wait_for(response.collect(), 1), b"success")
+
+    async def test_closing_unread_responses_restores_connection_credit(self):
+        for end_stream in [False, True]:
+            with self.subTest(end_stream=end_stream):
+                stream_id, response = await self.response()
+                await self.fill_window(stream_id, end_stream=end_stream)
+                await response.close()
+                await response.close()
+                self.assertEqual(
+                    self.peer.connection.outbound_flow_control_window, 65535
+                )
+        await self.assert_connection_usable()
+
+    async def test_closing_partial_response_does_not_acknowledge_twice(self):
+        stream_id, response = await self.response()
+        await self.fill_window(stream_id)
+        body = response.body.__aiter__()
+        await anext(body)
+        await response.close()
+        await body.aclose()
+        self.assertEqual(self.peer.connection.outbound_flow_control_window, 65535)
+        await self.assert_connection_usable()
+
+    async def test_late_data_after_cancellation_is_acknowledged_once(self):
+        request = asyncio.create_task(self.session.send(Request("GET", "/")))
+        stream_id = await asyncio.wait_for(self.peer.requests.get(), 1)
+        connection = self.peer.connection
+        connection.send_headers(stream_id, [(":status", "200")])
+        while length := min(connection.local_flow_control_window(stream_id), 16384):
+            connection.send_data(stream_id, b"x" * length)
+        data = connection.data_to_send()
+        request.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await request
+        self.peer.reader.feed_data(data)
+        await self.peer.synchronize()
+        await self.assert_connection_usable()
+
+    async def test_reset_cancels_blocked_upload_and_restores_credit(self):
+        started = asyncio.Event()
+        closed = asyncio.Event()
+
+        async def body():
+            try:
+                started.set()
+                await asyncio.Event().wait()
+                yield b"unused"
+            finally:
+                closed.set()
+
+        stream_id, response = await self.response(body())
+        await started.wait()
+        await self.fill_window(stream_id)
+        self.peer.connection.reset_stream(stream_id)
+        self.peer.flush()
+        await asyncio.wait_for(closed.wait(), 1)
+        await self.assert_connection_usable()
+        with self.assertRaises(ConnectionError):
+            await response.collect()
+
+    async def test_upload_completion_wakes_requests_waiting_for_a_stream(self):
+        self.peer.connection.update_settings({SettingCodes.MAX_CONCURRENT_STREAMS: 1})
+        self.peer.flush()
+        await self.peer.synchronize()
+        finish = asyncio.Event()
+
+        async def body():
+            await finish.wait()
+            if False:
+                yield b""
+
+        stream_id, response = await self.response(body())
+        self.peer.connection.end_stream(stream_id)
+        self.peer.flush()
+        await self.peer.synchronize()
+        next_request = asyncio.create_task(self.session.send(Request("GET", "/next")))
+        self.addAsyncCleanup(self.cancel, next_request)
+        await asyncio.sleep(0)
+        finish.set()
+        next_id = await asyncio.wait_for(self.peer.requests.get(), 1)
+        self.peer.connection.send_headers(
+            next_id, [(":status", "200")], end_stream=True
+        )
+        self.peer.flush()
+        await (await next_request).close()
+        await response.close()
+
+    async def test_closing_response_unblocks_a_pending_body_read(self):
+        _, response = await self.response()
+        reading = asyncio.create_task(response.collect())
+        self.addAsyncCleanup(self.cancel, reading)
+        await asyncio.sleep(0)
+        await response.close()
+        self.assertEqual(await asyncio.wait_for(reading, 1), b"")
+        await self.assert_connection_usable()
+
+    async def test_upload_error_preserves_response_error_and_reclaims_credit(self):
+        fail = asyncio.Event()
+
+        async def body():
+            await fail.wait()
+            raise ValueError("upload failed")
+            yield b"unused"
+
+        stream_id, response = await self.response(body())
+        await self.fill_window(stream_id)
+        fail.set()
+        self.assertEqual(await asyncio.wait_for(self.peer.resets.get(), 1), stream_id)
+        with self.assertRaisesRegex(ValueError, "upload failed"):
+            await response.collect()
+        await self.assert_connection_usable()
+
+    async def test_canceled_producer_fails_request_without_waiting_for_headers(self):
+        async def body():
+            raise asyncio.CancelledError()
+            yield b"unused"
+
+        with self.assertRaises(asyncio.CancelledError):
+            await asyncio.wait_for(
+                self.session.send(Request("POST", "/", body=body())), 1
+            )
+        await self.peer.requests.get()
+        await self.assert_connection_usable()
+
+    async def test_connection_loss_stops_blocked_upload(self):
+        started = asyncio.Event()
+        closed = asyncio.Event()
+
+        async def body():
+            try:
+                started.set()
+                await asyncio.Event().wait()
+                yield b"unused"
+            finally:
+                closed.set()
+
+        _, response = await self.response(body())
+        await started.wait()
+        self.peer.reader.feed_eof()
+        await asyncio.wait_for(closed.wait(), 1)
+        with self.assertRaises(ConnectionError):
+            await response.collect()
+
+    async def test_session_close_waits_for_released_upload_cleanup(self):
+        started = asyncio.Event()
+        cleaning = asyncio.Event()
+        finished = asyncio.Event()
+        proceed = asyncio.Event()
+
+        async def body():
+            try:
+                started.set()
+                await asyncio.Event().wait()
+                yield b"unused"
+            finally:
+                cleaning.set()
+                await proceed.wait()
+                finished.set()
+
+        _, response = await self.response(body())
+        await started.wait()
+        await response.close()
+        await asyncio.wait_for(cleaning.wait(), 1)
+        closing = asyncio.create_task(self.session.close())
+        await asyncio.sleep(0)
+        self.assertFalse(closing.done())
+        proceed.set()
+        await asyncio.wait_for(closing, 1)
+        self.assertTrue(finished.is_set())
+
+    async def cancel(self, task):
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 class Http2Tests(unittest.IsolatedAsyncioTestCase):

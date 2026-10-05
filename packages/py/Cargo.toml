@@ -13,10 +13,10 @@ version = { workspace = true }
 workspace = true
 
 [build-dependencies]
+tangram_py_build = { workspace = true }
 cc = { workspace = true }
 pyo3-build-config = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
 
 [dependencies]
 pyo3 = { workspace = true }

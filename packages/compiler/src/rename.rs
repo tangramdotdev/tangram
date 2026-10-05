@@ -89,6 +89,10 @@ impl Compiler {
 		position: tg::Position,
 		new_name: String,
 	) -> tg::Result<Option<Vec<tg::module::Location>>> {
+		if self.is_generated_module(module) {
+			return Ok(None);
+		}
+
 		// Create the request.
 		let request = super::Request::Rename(Request {
 			module: module.clone(),
@@ -104,6 +108,17 @@ impl Compiler {
 			return Err(tg::error!("unexpected response type"));
 		};
 
+		// A rename must never apply generated positions to a source in another language.
+		if response.locations.as_ref().is_some_and(|locations| {
+			locations.iter().any(|location| {
+				(location.module.kind == tg::module::Kind::Py)
+					!= (module.kind == tg::module::Kind::Py)
+					|| self.is_generated_module(&location.module)
+			})
+		}) {
+			return Ok(None);
+		}
+
 		// Convert locations from data to the non-serializable form.
 		let locations = response
 			.locations
@@ -116,5 +131,9 @@ impl Compiler {
 			.transpose()?;
 
 		Ok(locations)
+	}
+
+	fn is_generated_module(&self, module: &tg::module::Data) -> bool {
+		matches!(&module.referent.node, tg::module::data::Source::Path(path) if path.starts_with(self.library_path.join("generated")))
 	}
 }

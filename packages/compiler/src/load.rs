@@ -3,19 +3,6 @@ use {std::fmt::Write as _, tangram_client::prelude::*};
 mod js;
 mod py;
 
-pub(crate) fn definition(
-	module: &tg::module::Data,
-	text: &str,
-	name: &str,
-) -> tg::Result<Option<std::ops::Range<usize>>> {
-	match module.kind {
-		tg::module::Kind::Js | tg::module::Kind::Ts => {
-			Ok(js::declarations(module, text)?.remove(name))
-		},
-		_ => Ok(None),
-	}
-}
-
 /// Generate the consuming language's representation without changing the module's identity.
 pub fn module(
 	module: &tg::module::Data,

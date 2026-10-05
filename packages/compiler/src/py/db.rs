@@ -327,30 +327,6 @@ impl Database {
 		encoding: tg::position::Encoding,
 	) -> tg::Result<tg::module::data::Location> {
 		let text = source_text(self, file);
-		if let Some(entry) = self.entry(file)
-			&& entry.module.kind != tg::module::Kind::Py
-		{
-			let name = &text[usize::from(range.start())..usize::from(range.end())];
-			let source = if let Some(document) = self.documents.get(&Key::new(&entry.module)) {
-				document.text.clone().unwrap()
-			} else {
-				let arg = tg::module::load::Arg {
-					language: None,
-					module: entry.module.clone(),
-				};
-				self.compiler
-					.main_runtime_handle
-					.block_on(self.compiler.instance.load_module(arg))?
-					.text
-			};
-			let bytes = crate::load::definition(&entry.module, &source, name)?.unwrap_or(0..0);
-			let range = tg::Range::try_from_byte_range_in_string(&source, bytes, encoding)
-				.ok_or_else(|| tg::error!("invalid cross-language definition range"))?;
-			return Ok(tg::module::data::Location {
-				module: entry.module.without_token(),
-				range,
-			});
-		}
 		let module = if let Some(entry) = self.entry(file) {
 			entry.module.without_token()
 		} else {

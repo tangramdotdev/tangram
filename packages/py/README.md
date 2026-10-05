@@ -9,15 +9,14 @@ Every Tangram Python module receives `tg` in its globals, so `tg.file(...)` and 
 rest of the client API work without an import. Standalone scripts executed by
 Python directly use `import tangram as tg`.
 
-Install uv and Python 3.12 or later to prepare the workspace dependencies, then build:
+Build with the normal Rust toolchain; no installed Python or virtual environment is needed:
 
 ```sh
-uv sync --locked --all-packages
 cargo build --all-features --bin tangram
 ```
 
-`build.rs` downloads checksum-pinned CPython 3.14.8 full distributions from
-Astral's python-build-standalone release 20261003. It uses the pinned host
+The shared `tangram_py_build` helper downloads checksum-pinned CPython 3.14.8 full
+distributions from Astral's python-build-standalone release 20261003. It uses the pinned host
 interpreter to freeze only the import and encoding bootstrap. The remaining
 standard library, Tangram client, and locked pure Python dependencies are embedded
 as compressed source with `rust-embed`, including in debug builds. The loader
@@ -44,12 +43,28 @@ modules. Tk, curses, readline, and CPython test extensions are excluded. Python
 source files and resources load through the embedded finder, while Tangram modules
 use the referrer-aware resolver described below.
 
-Build prerequisites include `curl`, `tar` with zstd support, a C compiler, and the
-workspace's locked Python dependencies. Native musl objects also require
+Build prerequisites include `curl`, `tar` with zstd support, a C compiler, and
+network access for the pinned interpreter and locked package downloads. Native
+musl objects also require
 `llvm-objcopy` or GNU `objcopy`. For offline builds,
 `TANGRAM_PYTHON_DISTRIBUTION` and `TANGRAM_PYTHON_HOST_DISTRIBUTION` can point to
 the extracted target and host `python` directories containing `PYTHON.json`;
 these overrides must match the pinned version, target, and ABI.
+Distribution overrides also accept a directory keyed by the manifest's target
+names, including the `+static` suffix for static musl builds.
+`TANGRAM_PYTHON_PACKAGES` can supply a directory containing the locked client
+dependencies and their distribution metadata. Otherwise, the shared build helper
+uses the downloaded host interpreter's pip to install wheels from `uv.lock`,
+verifying their hashes, into Cargo's build output. The compiler and runtime both
+use this preparation; neither reads the workspace virtual environment. Host-side
+checks, formatting, and standalone-client tests continue to use the uv workspace.
+
+The sandboxed `tangram.ts` build supplies these three artifacts, like its V8
+archive. It downloads the distributions using the checked-in manifest's checksums,
+wraps the build-host interpreter, and prepares the hash-verified wheels from
+`uv.lock` in a separate network-enabled step. Cargo's build scripts then use the
+provided artifacts without downloading anything. Both musl distribution variants
+are supplied so the Rust build script can select the one matching its CRT flags.
 
 ```sh
 tg py ./main.tg.py
@@ -156,10 +171,10 @@ wrappers and embedded libraries are not editable. Import insertion, import
 organization, and document links are not implemented for Python. Formatting uses
 Ruff through Tangram's existing formatting handler.
 
-Building it currently requires
-the modified ty checkout at `../ty/ruff`; Cargo uses local path dependencies for
-the resolver and checker crates. Ruff parsing and formatting retain their existing
-pinned revision.
+The resolver and checker crates use the `main` branch of
+[Tangram’s Ruff fork](https://github.com/tangramdotdev/ruff), with the exact commit
+recorded in `Cargo.lock`. Ruff parsing and formatting retain their existing pinned
+revision.
 
 Relative imports require a package context and use Python syntax:
 

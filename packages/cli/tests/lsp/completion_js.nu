@@ -18,7 +18,7 @@ for entry in [{extension: js, language: tangram-javascript}, {extension: ts, lan
     ]
     let response = lsp wait_result $session 10
     $session = $response.session
-    let item = $response.result.items | where label == 'greet' | get 0
+    let item = $response.result | where label == 'greet' | get 0
     $session = lsp send_all $session [
         (lsp request 11 'completionItem/resolve' $item)
         (lsp request 12 'textDocument/prepareCallHierarchy' {textDocument: {uri: $uri}, position: {line: 4, character: 18}})

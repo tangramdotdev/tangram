@@ -38,7 +38,19 @@ impl Compiler {
 			return Err(tg::error!("unexpected response type"));
 		};
 
-		Ok(response.prepare)
+		let Some(prepare) = response.prepare else {
+			return Ok(None);
+		};
+		// Reject the same cross-language edits as the rename request.
+		if self
+			.rename(module, position, prepare.placeholder.clone())
+			.await?
+			.is_none()
+		{
+			return Ok(None);
+		}
+
+		Ok(Some(prepare))
 	}
 }
 

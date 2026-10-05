@@ -13,7 +13,9 @@ import { libclang } from "llvm" with { source: "../packages/packages/llvm" };
 import openssl from "openssl" with {
 	source: "../packages/packages/openssl.tg.ts",
 };
-import { cargo } from "rust" with { source: "../packages/packages/rust" };
+import { cargo, rustTriple } from "rust" with {
+	source: "../packages/packages/rust",
+};
 import xz from "xz" with { source: "../packages/packages/xz.tg.ts" };
 import zlib from "zlib-ng" with {
 	source: "../packages/packages/zlib-ng.tg.ts",
@@ -57,7 +59,7 @@ export const run = async (...args: tg.Args<Arg>) => {
 	const host = host_ ?? std.triple.host();
 	const features = featureList(merged);
 
-	// Build scripts run on the host in hybrid mode, sharing a target directory with bare cargo, so this omits every variable they watch with `rerun-if-env-changed` that bare cargo does not set: NODE_PATH, and the V8 archive from `librustyv8`, which only the sandboxed `build` export needs.
+	// Hybrid builds share Cargo's target directory, so only sandboxed builds supply NODE_PATH and the V8 and Python artifacts watched by build scripts.
 	const env = await std.env.arg(env_ ?? null, bunEnvArg(host));
 
 	const output = cargo.run({
@@ -98,6 +100,7 @@ export const build = async (...args: tg.Args<Arg>) => {
 	const envs: tg.Args<std.env.Arg> = [
 		bunEnvArg(build),
 		librustyv8(cargoLock, build, host),
+		libpython(source_, build, host),
 		// `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`.
 		openssl({ build, host }),
 		sandboxRootfs(host),
@@ -507,6 +510,84 @@ const getRustyV8Version = async (lockfile: tg.File) => {
 		throw new Error("could not find the v8 package in the lockfile");
 	}
 	return v8.version;
+};
+
+const libpython = async (source: tg.Directory, build: string, host: string) => {
+	const manifest = await source
+		.get("packages/py/distributions.json")
+		.then(tg.File.expect)
+		.then((file) => file.text)
+		.then((text) => JSON.parse(text) as PythonDistributions);
+	const buildTriple = rustTriple(build);
+	const hostTriple = rustTriple(host);
+	const triples = new Set([buildTriple, hostTriple]);
+	if (hostTriple.endsWith("-musl")) {
+		triples.add(`${hostTriple}+static`);
+	}
+
+	// Supply both musl variants so the build script selects using Cargo's actual CRT flags.
+	const entries: Record<string, Promise<tg.Directory>> = {};
+	for (const triple of triples) {
+		const artifact = manifest.targets[triple];
+		if (artifact === undefined) {
+			throw new Error(`unsupported Python target ${triple}`);
+		}
+		entries[triple] = std.download
+			.extractArchive({
+				checksum: `sha256:${artifact.sha256}`,
+				url: artifact.url,
+			})
+			.then(tg.Directory.expect)
+			.then((directory) => directory.get("python"))
+			.then(tg.Directory.expect);
+	}
+	const distributions = await tg.directory(entries);
+	const distribution = await distributions
+		.get(buildTriple)
+		.then(tg.Directory.expect);
+	const metadata = await distribution
+		.get("PYTHON.json")
+		.then(tg.File.expect)
+		.then((file) => file.text)
+		.then((text) => JSON.parse(text) as { python_exe: string });
+
+	// Preserve the interpreter's directory context so isolated Python can locate its standard library.
+	const executable = await std.wrap({
+		executable: tg.symlink({
+			artifact: distribution,
+			path: metadata.python_exe,
+		}),
+		host: build,
+		libraryPaths: [{ path: tg`${distribution}/install/lib`, preserve: true }],
+	});
+	const hostDistribution = await tg.directory(distribution, {
+		[metadata.python_exe]: executable,
+	});
+	const python = tg`${hostDistribution}/${metadata.python_exe}`;
+
+	// Prepare the locked wheels separately, keeping Cargo's build scripts offline.
+	const workspace = tg.directory({
+		"uv.lock": source.get("uv.lock"),
+	});
+	const script = source.get("packages/py/build/packages.py");
+	const packages = await std.build`
+		packages=$(${python} -I ${script} ${workspace} "$PWD/packages" ${python})
+		cp -R "$packages" ${tg.output}
+	`
+		.host(build)
+		.checksum("sha256:any")
+		.network(true)
+		.then(tg.Directory.expect);
+
+	return {
+		TANGRAM_PYTHON_DISTRIBUTION: distributions,
+		TANGRAM_PYTHON_HOST_DISTRIBUTION: hostDistribution,
+		TANGRAM_PYTHON_PACKAGES: packages,
+	};
+};
+
+type PythonDistributions = {
+	targets: Record<string, { sha256: string; url: string }>;
 };
 
 type CargoLock = {

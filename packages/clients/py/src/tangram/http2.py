@@ -5,7 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import ssl
-from collections.abc import AsyncIterable, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterable, AsyncIterator
+from contextlib import aclosing
 from dataclasses import dataclass, field
 from urllib.parse import unquote, urlsplit
 
@@ -21,6 +22,7 @@ from h2.events import (
     TrailersReceived,
     WindowUpdated,
 )
+from h2.exceptions import NoSuchStreamError
 
 from .http import Request, Response
 
@@ -34,6 +36,7 @@ class Stream:
     )
     writer: asyncio.Task[None] | None = None
     ended: bool = False
+    unacknowledged: int = 0
 
 
 class Session:
@@ -52,6 +55,7 @@ class Session:
             H2Configuration(client_side=True, header_encoding="utf-8")
         )
         self.streams: dict[int, Stream] = {}
+        self.writers: set[asyncio.Task[None]] = set()
         self.changed = asyncio.Event()
         self.closed = False
         self.connection.initiate_connection()
@@ -119,6 +123,8 @@ class Session:
                 stream.writer = asyncio.create_task(
                     self._write_body(stream_id, stream, request.body)
                 )
+                self.writers.add(stream.writer)
+                stream.writer.add_done_callback(self.writers.discard)
             # Read response headers while the request body is still being produced.
             status, headers = await stream.headers
             return Response(
@@ -135,28 +141,35 @@ class Session:
         self, stream_id: int, stream: Stream, body: AsyncIterable[bytes]
     ) -> None:
         try:
-            async for chunk in coalesce(body, self.connection.max_outbound_frame_size):
-                offset = 0
-                while offset < len(chunk):
-                    self.changed.clear()
-                    if self.closed:
-                        raise ConnectionError("the HTTP/2 session is closed")
-                    length = min(
-                        self.connection.local_flow_control_window(stream_id),
-                        self.connection.max_outbound_frame_size,
-                    )
-                    if length <= 0:
-                        await self.changed.wait()
-                        continue
-                    data = chunk[offset : offset + length]
-                    self.connection.send_data(stream_id, data)
-                    offset += len(data)
-                    self._flush()
-                    await self.writer.drain()
-                    await asyncio.sleep(0)
+            async with aclosing(
+                coalesce(body, self.connection.max_outbound_frame_size)
+            ) as chunks:
+                async for chunk in chunks:
+                    offset = 0
+                    while offset < len(chunk):
+                        self.changed.clear()
+                        if self.closed:
+                            raise ConnectionError("the HTTP/2 session is closed")
+                        length = min(
+                            self.connection.local_flow_control_window(stream_id),
+                            self.connection.max_outbound_frame_size,
+                        )
+                        if length <= 0:
+                            await self.changed.wait()
+                            continue
+                        data = chunk[offset : offset + length]
+                        self.connection.send_data(stream_id, data)
+                        offset += len(data)
+                        self._flush()
+                        await self.writer.drain()
+                        await asyncio.sleep(0)
             self.connection.end_stream(stream_id)
             self._flush()
-        except asyncio.CancelledError:
+            self.changed.set()
+        except asyncio.CancelledError as error:
+            if self.streams.get(stream_id) is stream and not self.closed:
+                self._fail_stream(stream, error)
+                self._release(stream_id, stream)
             raise
         except Exception as error:
             self._fail_stream(stream, error)
@@ -174,7 +187,8 @@ class Session:
                 try:
                     yield data
                 finally:
-                    if not self.closed:
+                    if not self.closed and self.streams.get(stream_id) is stream:
+                        stream.unacknowledged -= length
                         self.connection.acknowledge_received_data(length, stream_id)
                         self._flush()
         finally:
@@ -208,6 +222,7 @@ class Session:
                                 (int(headers.pop(":status")), headers)
                             )
                     elif isinstance(event, DataReceived):
+                        stream.unacknowledged += event.flow_controlled_length
                         stream.chunks.put_nowait(
                             (event.data, event.flow_controlled_length)
                         )
@@ -235,7 +250,7 @@ class Session:
                                 f"the HTTP/2 stream reset: {event.error_code}"
                             ),
                         )
-                        self.changed.set()
+                        self._release(event.stream_id, stream)
                 self._flush()
                 await self.writer.drain()
             raise ConnectionError("the HTTP/2 connection closed")
@@ -247,6 +262,9 @@ class Session:
             for stream in list(self.streams.values()):
                 if not stream.ended:
                     self._fail_stream(stream, error)
+            for stream in self.streams.values():
+                if stream.writer and not stream.writer.cancelling():
+                    stream.writer.cancel()
             self.writer.close()
 
     def _flush(self) -> None:
@@ -261,38 +279,52 @@ class Session:
         stream.chunks.put_nowait(error)
 
     def _release(self, stream_id: int, stream: Stream) -> None:
-        self.streams.pop(stream_id, None)
-        if stream.writer and not stream.writer.done():
+        if self.streams.pop(stream_id, None) is None:
+            return
+        if (
+            stream.writer
+            and stream.writer is not asyncio.current_task()
+            and not stream.writer.done()
+            and not stream.writer.cancelling()
+        ):
             stream.writer.cancel()
         if not self.closed:
             try:
                 self.connection.reset_stream(stream_id)
-                self._flush()
-            except Exception:
-                # A fully closed stream does not need a reset.
+            except NoSuchStreamError:
+                # A closed or unopened stream does not need a reset.
                 pass
+            # Reclaim queued and yielded data exactly once.
+            if stream.unacknowledged:
+                self.connection.acknowledge_received_data(
+                    stream.unacknowledged, stream_id
+                )
+                stream.unacknowledged = 0
+            self._flush()
+        stream.chunks.put_nowait(None)
         self.changed.set()
 
     async def close(self) -> None:
         self.closed = True
         self.changed.set()
-        tasks = [self.reader_task]
+        tasks = [self.reader_task, *self.writers]
         for stream in self.streams.values():
             if not stream.ended:
                 self._fail_stream(
                     stream, ConnectionError("the HTTP/2 session is closed")
                 )
-            if stream.writer:
-                tasks.append(stream.writer)
         for task in tasks:
-            task.cancel()
+            if not task.cancelling():
+                task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
         self.streams.clear()
         self.writer.close()
         await self.writer.wait_closed()
 
 
-async def coalesce(body: AsyncIterable[bytes], size: int) -> AsyncIterator[bytes]:
+async def coalesce(
+    body: AsyncIterable[bytes], size: int
+) -> AsyncGenerator[bytes, None]:
     """Combine ready chunks and flush when the producer becomes pending."""
     iterator = body.__aiter__()
     pending = None

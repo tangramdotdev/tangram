@@ -1,12 +1,11 @@
 use {
 	serde_json::Value,
-	sha2::{Digest as _, Sha256},
 	std::{
 		collections::BTreeSet,
-		fmt::Write as _,
 		path::{Path, PathBuf},
 		process::Command,
 	},
+	tangram_py_build::download,
 };
 
 fn main() {
@@ -47,7 +46,7 @@ fn main() {
 	);
 	let host = std::env::var("HOST").unwrap();
 	let static_crt = static_crt(&target);
-	let manifest: Value = serde_json::from_str(include_str!("distributions.json")).unwrap();
+	let manifest = tangram_py_build::manifest();
 	let key = if target.ends_with("musl") && static_crt {
 		format!("{target}+static")
 	} else {
@@ -101,17 +100,19 @@ fn main() {
 		.unwrap();
 	assert!(sysroot.status.success());
 	let sysroot = String::from_utf8(sysroot.stdout).unwrap();
-	let status =
-		Command::new(host_distribution.join(host_metadata["python_exe"].as_str().unwrap()))
-			.args(["-E", "-s"])
-			.arg("embed.py")
-			.arg(&distribution)
-			.arg(&host_distribution)
-			.arg(&output)
-			.arg(root.join("packages/clients/py/src"))
-			.arg(sysroot.trim())
-			.status()
-			.expect("run uv sync --locked --all-packages before building the Python runtime");
+	let python = host_distribution.join(host_metadata["python_exe"].as_str().unwrap());
+	let packages = tangram_py_build::packages(&python, &root, &output);
+	let status = Command::new(&python)
+		.args(["-E", "-s"])
+		.arg("embed.py")
+		.arg(&distribution)
+		.arg(&host_distribution)
+		.arg(&output)
+		.arg(root.join("packages/clients/py/src"))
+		.arg(sysroot.trim())
+		.arg(&packages)
+		.status()
+		.expect("failed to run the downloaded host Python");
 	assert!(
 		status.success(),
 		"failed to prepare the embedded Python runtime"
@@ -206,53 +207,5 @@ fn relative_path(from: &Path, to: &Path) -> PathBuf {
 	for component in to.components().skip(common) {
 		path.push(component);
 	}
-	path
-}
-
-fn download(manifest: &Value, target: &str, output: &Path, variable: &str) -> PathBuf {
-	if let Some(path) = std::env::var_os(variable) {
-		return PathBuf::from(path);
-	}
-	let artifact = manifest["targets"]
-		.get(target)
-		.unwrap_or_else(|| panic!("unsupported Python target: {target}"));
-	let lock = std::fs::File::create(output.join("distributions.lock")).unwrap();
-	lock.lock().unwrap();
-	let version = manifest["python"].as_str().unwrap();
-	let release = manifest["release"].as_str().unwrap();
-	let directory = output.join(format!("cpython-{version}-{release}-{target}"));
-	let path = directory.join("python");
-	if path.join("PYTHON.json").is_file() {
-		return path;
-	}
-	let archive = output.join(format!("cpython-{target}.tar.zst"));
-	let status = Command::new("curl")
-		.args(["--location", "--fail", "--retry", "3", "--output"])
-		.arg(&archive)
-		.arg(artifact["url"].as_str().unwrap())
-		.status()
-		.unwrap();
-	assert!(status.success(), "failed to download CPython for {target}");
-	let digest = Sha256::digest(std::fs::read(&archive).unwrap());
-	let digest = digest.iter().fold(String::new(), |mut digest, byte| {
-		write!(digest, "{byte:02x}").unwrap();
-		digest
-	});
-	assert_eq!(
-		digest,
-		artifact["sha256"].as_str().unwrap(),
-		"the CPython archive checksum does not match"
-	);
-	let temporary = directory.with_extension("tmp");
-	std::fs::remove_dir_all(&temporary).ok();
-	std::fs::create_dir_all(&temporary).unwrap();
-	let status = Command::new("tar")
-		.args(["--extract", "--zstd", "--file"])
-		.arg(&archive)
-		.current_dir(&temporary)
-		.status()
-		.unwrap();
-	assert!(status.success(), "failed to extract CPython for {target}");
-	std::fs::rename(temporary, directory).unwrap();
 	path
 }

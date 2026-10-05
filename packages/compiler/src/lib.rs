@@ -1139,6 +1139,14 @@ impl Compiler {
 		}
 
 		// Handle a path in the library directory.
+		if path.starts_with(self.library_path.join("generated")) {
+			let kind = tg::module::module_kind_for_path(path)?;
+			let module = tg::module::Data {
+				kind,
+				referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
+			};
+			return Ok(module);
+		}
 		if path.starts_with(self.library_path.join("python")) {
 			let module = tg::module::Data {
 				kind: tg::module::Kind::Py,
@@ -1170,6 +1178,41 @@ impl Compiler {
 		};
 
 		Ok(module)
+	}
+
+	async fn lsp_uri_for_module_with_language(
+		&self,
+		module: &tg::module::Data,
+		kind: tg::module::Kind,
+	) -> tg::Result<lsp::Uri> {
+		let (language, extension) = match (kind, module.kind) {
+			(tg::module::Kind::Py, tg::module::Kind::Js | tg::module::Kind::Ts) => {
+				(tg::module::load::Language::Py, "py")
+			},
+			(tg::module::Kind::Js | tg::module::Kind::Ts, tg::module::Kind::Py) => {
+				(tg::module::load::Language::Js, "js")
+			},
+			_ => return self.lsp_uri_for_module(module).await,
+		};
+
+		// Materialize the representation whose positions the language service returned.
+		let text = self
+			.load_module_with_language(module, Some(language))
+			.await?;
+		let id = tg::blob::Id::new(text.as_bytes());
+		let directory = self.library_path.join("generated");
+		let path = directory.join(format!("{id}.tg.{extension}"));
+		tokio::fs::create_dir_all(&directory)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to create the generated module directory")
+			})?;
+		tokio::fs::write(&path, text)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to materialize the generated module"))?;
+		let uri = format!("file://{}", path.display()).parse().unwrap();
+
+		Ok(uri)
 	}
 
 	async fn lsp_uri_for_module(&self, module: &tg::module::Data) -> tg::Result<lsp::Uri> {

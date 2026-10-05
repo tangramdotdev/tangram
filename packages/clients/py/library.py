@@ -12,7 +12,7 @@ def copy(destination: Path) -> None:
     for name in ["h2", "hpack", "hyperframe", "tomli_w", "yaml"]:
         spec = importlib.util.find_spec(name)
         if spec is None or spec.origin is None:
-            raise SystemExit(f"missing {name}: run uv sync --locked --all-packages")
+            raise SystemExit(f"missing locked Python package: {name}")
         roots.append(Path(spec.origin).parent)
     for root in roots:
         for path in sorted(root.rglob("*")):
@@ -26,4 +26,5 @@ def copy(destination: Path) -> None:
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, sys.argv[2])
     copy(Path(sys.argv[1]))

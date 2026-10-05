@@ -14,6 +14,7 @@ for specifier in [$dependency 'lsp-js'] {
     let responses = lsp exchange [
         (lsp initialize 1)
         (lsp initialized)
+        (lsp did_open $uri $source)
         (lsp definition 10 $uri 1 16)
     ]
     let location = (lsp result $responses 10).0

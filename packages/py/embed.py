@@ -16,10 +16,8 @@ from native import namespace
 
 
 def main():
-    distribution, host, output, client, sysroot = map(Path, sys.argv[1:])
-    workspace = client.parents[3]
-    for path in sorted((workspace / ".venv/lib").glob("python*/site-packages")):
-        sys.path.insert(0, str(path))
+    distribution, host, output, client, sysroot, packages = map(Path, sys.argv[1:])
+    sys.path.insert(0, str(packages))
     metadata = json.loads((distribution / "PYTHON.json").read_text())
     host_metadata = json.loads((host / "PYTHON.json").read_text())
     stdlib = distribution / metadata["python_paths"]["stdlib"]
