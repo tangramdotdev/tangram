@@ -71,8 +71,8 @@ pub struct Compiler(Arc<State>);
 pub struct State {
 	check_backend: CheckBackend,
 
-	/// The documents.
-	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
+	/// The documents, keyed by source identity.
+	documents: DashMap<document::Key, Document, fnv::FnvBuildHasher>,
 
 	/// The Tangram instance.
 	instance: tg::instance::dynamic::Instance,
@@ -85,6 +85,9 @@ pub struct State {
 
 	/// The position encoding negotiated with the LSP client.
 	position_encoding: RwLock<tg::position::Encoding>,
+
+	/// The Python service.
+	py: py::Service,
 
 	/// The outgoing request ID counter.
 	request_id: AtomicI32,
@@ -193,6 +196,37 @@ enum Response {
 	WorkspaceSymbol(workspace_symbols::Response),
 }
 
+impl Request {
+	fn module(&self) -> Option<&tg::module::Data> {
+		match self {
+			Self::CallHierarchyIncoming(request) => Some(&request.module),
+			Self::CallHierarchyOutgoing(request) => Some(&request.module),
+			Self::CallHierarchyPrepare(request) => Some(&request.module),
+			Self::CodeAction(request) => Some(&request.module),
+			Self::Completion(request) => Some(&request.module),
+			Self::CompletionResolve(request) => Some(&request.module),
+			Self::Declaration(request)
+			| Self::Definition(request)
+			| Self::TypeDefinition(request) => Some(&request.module),
+			Self::DocumentHighlight(request) => Some(&request.module),
+			Self::Document(request) => Some(&request.module),
+			Self::DocumentLink(request) => Some(&request.module),
+			Self::FoldingRange(request) => Some(&request.module),
+			Self::Hover(request) => Some(&request.module),
+			Self::Implementation(request) => Some(&request.module),
+			Self::InlayHint(request) => Some(&request.module),
+			Self::PrepareRename(request) => Some(&request.module),
+			Self::References(request) => Some(&request.module),
+			Self::Rename(request) => Some(&request.module),
+			Self::SelectionRange(request) => Some(&request.module),
+			Self::SemanticTokens(request) => Some(&request.module),
+			Self::SignatureHelp(request) => Some(&request.module),
+			Self::Symbols(request) => Some(&request.module),
+			Self::Check(_) | Self::DocumentDiagnostics(_) | Self::WorkspaceSymbol(_) => None,
+		}
+	}
+}
+
 impl Shared {
 	pub fn stop(&self) {
 		self.task.stop();
@@ -234,6 +268,7 @@ impl Compiler {
 			library_path,
 			main_runtime_handle,
 			position_encoding: RwLock::new(tg::position::Encoding::Utf8),
+			py: py::Service::new(),
 			request_id,
 			requests,
 			sender,
@@ -256,6 +291,8 @@ impl Compiler {
 					serve_task.wait().await.unwrap();
 				}
 
+				compiler.py.stop();
+				compiler.py.join().await;
 				compiler.typescript7.stop().await;
 
 				// Stop and await the typescript service.
@@ -881,6 +918,12 @@ impl Compiler {
 	}
 
 	async fn request(&self, request: Request) -> tg::Result<Response> {
+		if request
+			.module()
+			.is_some_and(|module| module.kind == tg::module::Kind::Py)
+		{
+			return self.request_py(request).await;
+		}
 		if matches!(self.check_backend, CheckBackend::Typescript7)
 			&& let Request::Check(request) = request
 		{
@@ -1096,6 +1139,13 @@ impl Compiler {
 		}
 
 		// Handle a path in the library directory.
+		if path.starts_with(self.library_path.join("python")) {
+			let module = tg::module::Data {
+				kind: tg::module::Kind::Py,
+				referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
+			};
+			return Ok(module);
+		}
 		if let Ok(path) = path.strip_prefix(&self.library_path) {
 			let kind = tg::module::Kind::Dts;
 			let source = tg::module::data::Source::Path(path.to_owned());
@@ -1184,6 +1234,7 @@ impl Compiler {
 				let path = if let (Some(tag), Some(_)) = (&options.tag, &options.id) {
 					let extension = match kind {
 						tg::module::Kind::Js => Some(".tg.js".to_owned()),
+						tg::module::Kind::Py => Some(".tg.py".to_owned()),
 						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
 						_ => None,
 					};
@@ -1245,6 +1296,7 @@ impl Compiler {
 				} else {
 					let extension = match kind {
 						tg::module::Kind::Js => Some(".tg.js".to_owned()),
+						tg::module::Kind::Py => Some(".tg.py".to_owned()),
 						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
 						_ => None,
 					};
@@ -1296,7 +1348,7 @@ impl Compiler {
 		module: &tg::module::Data,
 		language: Option<tg::module::load::Language>,
 	) -> tg::Result<String> {
-		if let Some(document) = self.documents.get(module)
+		if let Some(document) = self.documents.get(&document::Key::new(module))
 			&& document.open
 		{
 			return load::module(module, document.text.as_ref().unwrap(), language);
@@ -1324,14 +1376,9 @@ impl Compiler {
 		// Get the lockfile's mtime.
 		let path = lockfile_path?;
 		let metadata = tokio::fs::symlink_metadata(&path).await.ok()?;
-		let mtime = metadata
-			.modified()
-			.ok()?
-			.duration_since(std::time::UNIX_EPOCH)
-			.ok()?
-			.as_secs();
+		let mtime = metadata.modified().ok()?;
 
-		let lockfile = document::Lockfile { path, mtime };
+		let lockfile = document::Lockfile { mtime, path };
 
 		Some(lockfile)
 	}
@@ -1363,6 +1410,7 @@ impl Deref for Compiler {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
+		self.compiler.py.stop();
 		#[cfg(feature = "typescript")]
 		self.compiler.typescript6.stop();
 	}

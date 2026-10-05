@@ -4,10 +4,17 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import sys
 from collections.abc import Awaitable, Generator, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import fields, is_dataclass
-from typing import Any, Protocol, overload
+from typing import Any, Never, Protocol, TypeGuard, overload
+
+if sys.version_info >= (3, 14):
+    from string.templatelib import Interpolation
+    from string.templatelib import Template as TemplateString
+else:
+    type TemplateString = Never
 
 # Python cannot express TypeScript's recursive mapped and conditional types.
 # These aliases describe the outer promise and the resolved result; resolve
@@ -51,6 +58,31 @@ class Deferred[T]:
         return wait().__await__()
 
 
+def is_template_string(value: object) -> TypeGuard[TemplateString]:
+    return sys.version_info >= (3, 14) and isinstance(value, TemplateString)
+
+
+def template_string(value: TemplateString, values: Sequence[object]) -> TemplateString:
+    if sys.version_info < (3, 14):
+        raise TypeError("t-strings require Python 3.14")
+    parts: list[str | Interpolation] = [value.strings[0]]
+    for interpolation, resolved, string in zip(
+        value.interpolations, values, value.strings[1:], strict=True
+    ):
+        parts.extend(
+            [
+                Interpolation(
+                    resolved,
+                    interpolation.expression,
+                    interpolation.conversion,
+                    interpolation.format_spec,
+                ),
+                string,
+            ]
+        )
+    return TemplateString(*parts)
+
+
 def capture(value: Any, memo: dict[int, tuple[Any, Any]] | None = None) -> Any:
     """Retain reusable coroutine inputs without starting work outside an event loop."""
     memo = {} if memo is None else memo
@@ -67,6 +99,13 @@ def capture(value: Any, memo: dict[int, tuple[Any, Any]] | None = None) -> Any:
         return result
     if inspect.isawaitable(value):
         return value
+    if is_template_string(value):
+        memo[identity] = (value, value)
+        result = template_string(
+            value, [capture(child, memo) for child in value.values]
+        )
+        memo[identity] = (value, result)
+        return result
     if is_dataclass(value) and not isinstance(value, type):
         result = type(value).__new__(type(value))
         memo[identity] = (value, result)
@@ -91,6 +130,10 @@ def capture(value: Any, memo: dict[int, tuple[Any, Any]] | None = None) -> Any:
         result.update((key, capture(child, memo)) for key, child in vars(value).items())
         return result
     return value
+
+
+@overload
+async def resolve(value: Unresolved[TemplateString]) -> TemplateString: ...
 
 
 @overload
@@ -147,6 +190,14 @@ async def resolve(value: object) -> Any:
         if identity in ancestors:
             raise ValueError(f"cycle detected{location}")
         ancestors = ancestors | {identity}
+        if is_template_string(value):
+            children = await asyncio.gather(
+                *(
+                    inner(child, ancestors, f"{path}.values[{index}]")
+                    for index, child in enumerate(value.values)
+                )
+            )
+            return template_string(value, children)
         if is_dataclass(value) and not isinstance(value, type):
             children = await asyncio.gather(
                 *(

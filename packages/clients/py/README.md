@@ -52,6 +52,26 @@ command = tg.command().executable("sh").arg("-c", "echo hello").env({"HELLO": "w
 output = await command.build()
 ```
 
+On Python 3.14 or later, builders also accept native t-strings:
+
+```python
+template = await tg.template(t"cat {input_file} > {tg.output}")
+file = await tg.file(t"""
+    Hello, {name}!
+""")
+```
+
+Template interpolations accept strings, artifacts, placeholders, other templates,
+and futures of those values. File interpolations must resolve to strings, matching
+JavaScript's tagged file constructor. Both builders remove indentation like their
+JavaScript counterparts and preserve futures across repeated awaits. Use
+`tg.Template.raw(t"...")` or `tg.File.Builder(True, t"...")` to preserve indentation.
+Conversions (`!s`, `!r`, `!a`, including implicit `!r` in debug expressions) and
+format specifications are rejected rather than stringifying artifact references.
+Ordinary f-strings interpolate immediately and cannot preserve those references.
+Python's native template type does not describe its interpolation types, so these
+constraints are checked at runtime.
+
 The client reads `TANGRAM_URL` and `TANGRAM_TOKEN`. `Client` also accepts explicit
 URL and token arguments. Use its async context manager or close it explicitly.
 Connections belong to the event loop that created them. Public Python names use

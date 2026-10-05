@@ -10,6 +10,10 @@ version = "0.0.0"
 repository = "https://github.com/tree-sitter/tree-sitter-javascript"
 rev = "58404d8cf191d69f2674a8fd507bd5776f46cb11"
 
+[grammars.python]
+repository = "https://github.com/tree-sitter/tree-sitter-python"
+rev = "d326e4cad262cf681656e130960e49dfc04c03ea"
+
 [grammars.typescript]
 repository = "https://github.com/tree-sitter/tree-sitter-typescript"
 rev = "75b3874edb2dc714fb1fd77a32013d0f8699989f"
@@ -17,4 +21,4 @@ path = "typescript"
 
 [language_servers.tangram]
 name = "Tangram"
-languages = ["Tangram JavaScript", "Tangram TypeScript"]
+languages = ["Tangram JavaScript", "Tangram Python", "Tangram TypeScript"]

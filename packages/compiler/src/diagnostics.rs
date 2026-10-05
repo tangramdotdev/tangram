@@ -2,7 +2,7 @@ use {super::Compiler, itertools::Itertools as _, lsp_types as lsp, tangram_clien
 
 #[derive(Debug, serde::Serialize)]
 pub struct DocumentRequest {
-	modules: Vec<tg::module::Data>,
+	pub modules: Vec<tg::module::Data>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -15,6 +15,27 @@ impl Compiler {
 		&self,
 		modules: Vec<tg::module::Data>,
 	) -> tg::Result<Vec<tg::Diagnostic>> {
+		let (python, modules): (Vec<_>, Vec<_>) = modules
+			.into_iter()
+			.partition(|module| module.kind == tg::module::Kind::Py);
+		let mut diagnostics = Vec::new();
+		if !python.is_empty() {
+			let request = super::Request::DocumentDiagnostics(DocumentRequest { modules: python });
+			let response = self
+				.request_py(request)
+				.await?
+				.unwrap_document_diagnostics();
+			diagnostics.extend(
+				response
+					.diagnostics
+					.into_iter()
+					.map(TryInto::try_into)
+					.collect::<tg::Result<Vec<_>>>()?,
+			);
+		}
+		if modules.is_empty() {
+			return Ok(diagnostics);
+		}
 		// Create the request.
 		let request = super::Request::DocumentDiagnostics(DocumentRequest { modules });
 
@@ -25,13 +46,16 @@ impl Compiler {
 		let super::Response::DocumentDiagnostics(response) = response else {
 			return Err(tg::error!("unexpected response type"));
 		};
-		let DocumentResponse { diagnostics } = response;
+		let DocumentResponse {
+			diagnostics: javascript,
+		} = response;
 
-		let diagnostics = diagnostics
+		let javascript = javascript
 			.into_iter()
 			.map(TryInto::try_into)
 			.collect::<tg::Result<Vec<_>>>()?;
 
+		diagnostics.extend(javascript);
 		Ok(diagnostics)
 	}
 }

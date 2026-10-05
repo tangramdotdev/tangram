@@ -82,6 +82,10 @@ class TangramLanguageClient {
 		let clientOptions: LanguageClientOptions = {
 			diagnosticCollectionName: "tangram",
 			documentSelector: [
+				{ language: "tangram-javascript", scheme: "file" },
+				{ language: "tangram-javascript", scheme: "tg" },
+				{ language: "tangram-python", scheme: "file" },
+				{ language: "tangram-python", scheme: "tg" },
 				{ language: "tangram-typescript", scheme: "file" },
 				{ language: "tangram-typescript", scheme: "tg" },
 			],

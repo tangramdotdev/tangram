@@ -1,12 +1,14 @@
 use {
-	super::{library, resolve, system::System},
-	crate::{Compiler, analyze::py::metadata},
+	super::{Documents, library, resolve, system::System},
+	crate::{Compiler, analyze::py::metadata, document::Key},
 	ruff_db::{
 		diagnostic::{Diagnostic, Severity, UnifiedFile},
-		files::{File, Files, system_path_to_file},
+		files::{File, Files, system_path_to_file, vendored_path_to_file},
+		source::source_text,
 		system::SystemPathBuf,
 		vendored::VendoredFileSystem,
 	},
+	salsa::Setter as _,
 	std::{
 		borrow::Cow,
 		collections::{BTreeMap, BTreeSet, HashMap},
@@ -27,19 +29,31 @@ use {
 	},
 };
 
+mod completion;
+mod diagnostics;
+mod query;
+mod symbols;
+mod tokens;
+
 #[salsa::db]
 #[derive(Clone)]
-// Each check owns an append-only source snapshot; loaded texts and resolution inputs never change.
+// The worker updates Salsa inputs between requests and retains query results across requests.
 pub(super) struct Database {
 	analysis: Arc<AnalysisSettings>,
 	compiler: Compiler,
+	documents: Arc<Documents>,
 	error: Arc<Mutex<Option<tg::Error>>>,
 	files: Files,
 	modules: Arc<Mutex<Modules>>,
+	project: Option<ty_project::Project>,
+	project_paths: Vec<SystemPathBuf>,
+	resolutions: Arc<Mutex<HashMap<File, BTreeMap<String, Resolution>>>>,
+	revision: Option<Revision>,
 	rules: Arc<RuleSelection>,
 	settings: Arc<ProgramSettings>,
 	storage: salsa::Storage<Self>,
 	system: System,
+	uv_environments: ty_project::UvEnvironments,
 }
 
 #[derive(Default)]
@@ -48,21 +62,36 @@ struct Modules {
 	entries: Vec<Arc<Entry>>,
 	files: HashMap<File, usize>,
 	keys: BTreeMap<String, usize>,
+	links: HashMap<File, BTreeSet<String>>,
 	namespaces: BTreeMap<String, (ModuleName, Box<resolve::Namespace>)>,
 }
 
+#[derive(Clone)]
 struct Entry {
 	diagnostics: Vec<tg::Diagnostic>,
+	error: Option<tg::Error>,
 	file: File,
 	imports: BTreeMap<String, tg::module::Import>,
 	module: tg::module::Data,
 	name: ModuleName,
 	package: bool,
 	text: String,
+	version: Option<u64>,
+}
+
+#[derive(Clone)]
+struct Resolution {
+	output: resolve::Output,
+	request: resolve::Request,
+}
+
+#[salsa::input]
+struct Revision {
+	value: u64,
 }
 
 impl Database {
-	pub(super) fn new(compiler: Compiler) -> tg::Result<Self> {
+	pub(super) fn new(compiler: Compiler, documents: Documents) -> tg::Result<Self> {
 		let system = System::default();
 		library::load(&system)?;
 		let mut search_paths = SearchPathSettings::empty();
@@ -74,45 +103,321 @@ impl Database {
 		settings.search_paths = search_paths
 			.to_search_paths(&system, ty_vendored::file_system(), &FallibleStrategy)
 			.map_err(|error| tg::error!(!error, "failed to configure the Python library"))?;
-		Ok(Self {
+		let mut db = Self {
 			analysis: Arc::new(AnalysisSettings::default()),
 			compiler,
+			documents: Arc::new(documents),
 			error: Arc::default(),
 			files: Files::default(),
 			modules: Arc::default(),
+			project: None,
+			project_paths: Vec::new(),
+			resolutions: Arc::default(),
+			revision: None,
 			rules: Arc::new(RuleSelection::from_registry(
 				ty_python_semantic::default_lint_registry(),
 			)),
 			settings: Arc::new(settings),
 			storage: salsa::Storage::default(),
 			system,
-		})
+			uv_environments: ty_project::UvEnvironments::default(),
+		};
+		// The project contains only explicitly supplied module files, including when that set is empty.
+		db.system
+			.memory
+			.create_directory_all("/project")
+			.map_err(|error| tg::error!(!error, "failed to create the Python project directory"))?;
+		let metadata = ty_project::ProjectMetadata::new("tangram", "/project".into());
+		let (settings, diagnostics) = metadata
+			.to_merged_options()
+			.to_settings(&db, &FallibleStrategy)
+			.map_err(|error| tg::error!("failed to configure the Python project: {error:?}"))?;
+		let project = ty_project::Project::builder(
+			Box::new(metadata),
+			Box::new(settings),
+			(*db.settings).clone(),
+			diagnostics,
+		)
+		.new(&db);
+		db.project = Some(project);
+		db.revision = Some(Revision::new(&db, 0));
+		tracing::debug!("created the Python database");
+		Ok(db)
+	}
+
+	pub(super) fn update(&mut self, documents: Documents) -> tg::Result<()> {
+		// Capture the editor state before loading any sources or resolving imports.
+		let mut changed = self.documents.keys().ne(documents.keys());
+		let previous_documents = std::mem::replace(&mut self.documents, Arc::new(documents));
+		self.error.lock().unwrap().take();
+		let entries = self.modules.lock().unwrap().entries.clone();
+		for entry in entries {
+			let key = Key::new(&entry.module);
+			if !matches!(
+				entry.module.referent.node,
+				tg::module::data::Source::Path(_)
+			) && !self.documents.contains_key(&key)
+				&& !previous_documents.contains_key(&key)
+			{
+				continue;
+			}
+			let version = self.version(&entry.module);
+			if version.is_some()
+				&& version == entry.version
+				&& !self.documents.contains_key(&key)
+				&& !previous_documents.contains_key(&key)
+			{
+				continue;
+			}
+			let missing = match &entry.module.referent.node {
+				tg::module::data::Source::Path(path) => {
+					!self.documents.contains_key(&key) && !path.exists()
+				},
+				tg::module::data::Source::Edge(_) => false,
+			};
+			let (text, error) = if missing {
+				(
+					String::new(),
+					Some(tg::error!("the Python source file does not exist")),
+				)
+			} else {
+				match self.load(&entry.module) {
+					Ok(text) => (text, None),
+					Err(error) => (String::new(), Some(error)),
+				}
+			};
+			let path = entry.file.path(self).as_system_path().unwrap().to_owned();
+			let exists = self.system.memory.metadata(&path).is_ok();
+			if text == entry.text
+				&& exists != missing
+				&& error.as_ref().map(ToString::to_string)
+					== entry.error.as_ref().map(ToString::to_string)
+			{
+				let mut updated = (*entry).clone();
+				updated.version = version;
+				let mut modules = self.modules.lock().unwrap();
+				let index = modules.files[&entry.file];
+				modules.entries[index] = Arc::new(updated);
+				continue;
+			}
+			let mut updated = (*entry).clone();
+			updated.version = version;
+			updated.text = text;
+			updated.error = error;
+			let (imports, diagnostics) = Self::metadata(&entry.module, &updated.text)?;
+			updated.imports = imports;
+			updated.diagnostics = diagnostics;
+			if missing {
+				self.system.memory.remove_file(&path).ok();
+			} else {
+				self.system
+					.memory
+					.write_file(&path, &updated.text)
+					.map_err(|error| tg::error!(!error, "failed to update the Python source"))?;
+			}
+			let index = self.modules.lock().unwrap().files[&entry.file];
+			self.modules.lock().unwrap().entries[index] = Arc::new(updated);
+			self.resolutions.lock().unwrap().remove(&entry.file);
+			self.modules.lock().unwrap().links.remove(&entry.file);
+			entry.file.sync(self);
+			changed = true;
+		}
+
+		// Revalidate external resolution inputs, including missing files and moved tags.
+		let resolutions = self.resolutions.lock().unwrap().clone();
+		for (file, records) in resolutions {
+			for (key, mut record) in records {
+				let output = self.resolve_inner(record.request.clone());
+				if output.without_token() != record.output.without_token() {
+					changed = true;
+				}
+				// Retain refreshed authorization even when the resolution identity is unchanged.
+				record.output = output;
+				self.resolutions
+					.lock()
+					.unwrap()
+					.entry(file)
+					.or_default()
+					.insert(key, record);
+			}
+		}
+		if changed {
+			self.resolutions.lock().unwrap().clear();
+			self.modules.lock().unwrap().links.clear();
+			self.modules.lock().unwrap().children.clear();
+			let revision = self.revision.unwrap();
+			let value = revision.value(self) + 1;
+			revision.set_value(self).to(value);
+		}
+		Ok(())
+	}
+
+	fn version(&self, module: &tg::module::Data) -> Option<u64> {
+		if let Some(document) = self.documents.get(&Key::new(module)) {
+			return Some(document.revision);
+		}
+		self.compiler
+			.main_runtime_handle
+			.block_on(self.compiler.get_module_version(module))
+			.ok()
+	}
+
+	fn load(&self, module: &tg::module::Data) -> tg::Result<String> {
+		if let Some(document) = self.documents.get(&Key::new(module)) {
+			return crate::load::module(
+				module,
+				document.text.as_ref().unwrap(),
+				Some(tg::module::load::Language::Py),
+			);
+		}
+		let arg = tg::module::load::Arg {
+			language: Some(tg::module::load::Language::Py),
+			module: module.clone(),
+		};
+		let text = self
+			.compiler
+			.main_runtime_handle
+			.block_on(self.compiler.instance.load_module(arg))
+			.map_err(|error| tg::error!(!error, %module, "failed to load the Python module"))?
+			.text;
+		Ok(text)
+	}
+
+	fn metadata(
+		module: &tg::module::Data,
+		text: &str,
+	) -> tg::Result<(BTreeMap<String, tg::module::Import>, Vec<tg::Diagnostic>)> {
+		let descriptor = resolve::Module::new(module.clone());
+		// Preserve dependency declarations while the editor contains incomplete Python syntax.
+		let output = match metadata::parse_unchecked(&descriptor.filename, text) {
+			Ok(metadata) => (metadata.imports, Vec::new()),
+			Err(error) => (
+				BTreeMap::new(),
+				vec![Self::metadata_diagnostic(module, error)?],
+			),
+		};
+		Ok(output)
+	}
+
+	fn library_file(&self, module: &tg::module::Data) -> tg::Result<Option<File>> {
+		let tg::module::data::Source::Path(path) = &module.referent.node else {
+			return Ok(None);
+		};
+		let root = self.compiler.library_path.join("python");
+		let file = if let Ok(path) = path.strip_prefix(root.join("client")) {
+			let path = SystemPathBuf::from(format!("/library/{}", path.display()));
+			system_path_to_file(self, &path)
+		} else if let Ok(path) = path.strip_prefix(root.join("typeshed")) {
+			vendored_path_to_file(
+				self,
+				path.to_str()
+					.ok_or_else(|| tg::error!("invalid Python library path"))?,
+			)
+		} else {
+			return Ok(None);
+		};
+		file.map(Some)
+			.map_err(|error| tg::error!(!error, "failed to get the Python library file"))
+	}
+
+	fn location(
+		&self,
+		file: File,
+		range: ty_text_size::TextRange,
+		encoding: tg::position::Encoding,
+	) -> tg::Result<tg::module::data::Location> {
+		let text = source_text(self, file);
+		if let Some(entry) = self.entry(file)
+			&& entry.module.kind != tg::module::Kind::Py
+		{
+			let name = &text[usize::from(range.start())..usize::from(range.end())];
+			let source = if let Some(document) = self.documents.get(&Key::new(&entry.module)) {
+				document.text.clone().unwrap()
+			} else {
+				let arg = tg::module::load::Arg {
+					language: None,
+					module: entry.module.clone(),
+				};
+				self.compiler
+					.main_runtime_handle
+					.block_on(self.compiler.instance.load_module(arg))?
+					.text
+			};
+			let bytes = crate::load::definition(&entry.module, &source, name)?.unwrap_or(0..0);
+			let range = tg::Range::try_from_byte_range_in_string(&source, bytes, encoding)
+				.ok_or_else(|| tg::error!("invalid cross-language definition range"))?;
+			return Ok(tg::module::data::Location {
+				module: entry.module.without_token(),
+				range,
+			});
+		}
+		let module = if let Some(entry) = self.entry(file) {
+			entry.module.without_token()
+		} else {
+			let path = file.path(self);
+			let path = if let Some(path) = path
+				.as_system_path()
+				.and_then(|path| path.strip_prefix("/library").ok())
+			{
+				self.compiler
+					.library_path
+					.join("python/client")
+					.join(path.as_str())
+			} else if let Some(path) = path.as_vendored_path() {
+				self.compiler
+					.library_path
+					.join("python/typeshed")
+					.join(path.as_str())
+			} else {
+				return Err(tg::error!("unknown Python definition file"));
+			};
+			std::fs::create_dir_all(path.parent().unwrap()).map_err(|error| {
+				tg::error!(!error, "failed to create the Python library directory")
+			})?;
+			std::fs::write(&path, &*text).map_err(|error| {
+				tg::error!(!error, "failed to materialize the Python library file")
+			})?;
+			tg::module::Data {
+				kind: tg::module::Kind::Py,
+				referent: tg::Referent::with_node(tg::module::data::Source::Path(path)),
+			}
+		};
+		let range = tg::Range::try_from_byte_range_in_string(
+			&text,
+			usize::from(range.start())..usize::from(range.end()),
+			encoding,
+		)
+		.ok_or_else(|| tg::error!("invalid Python definition range"))?;
+		Ok(tg::module::data::Location { module, range })
 	}
 
 	pub(super) fn check(&self, modules: Vec<tg::module::Data>) -> tg::Result<Vec<tg::Diagnostic>> {
-		for module in modules {
-			self.register(module)?;
-		}
+		let mut pending = modules
+			.into_iter()
+			.map(|module| self.register(module))
+			.collect::<tg::Result<Vec<_>>>()?;
+		let mut checked = BTreeSet::new();
 		let mut diagnostics = Vec::new();
-		let mut index = 0;
-		// Resolution can discover additional files; every canonical module is checked once.
-		loop {
-			let entry = self.modules.lock().unwrap().entries.get(index).cloned();
-			let Some(entry) = entry else {
-				break;
-			};
-			index += 1;
+		while let Some(entry) = pending.pop() {
+			if !checked.insert(entry.module.without_token().to_string()) {
+				continue;
+			}
+			if let Some(error) = &entry.error {
+				return Err(error.clone());
+			}
 			diagnostics.extend(entry.diagnostics.iter().cloned());
 			if entry.module.kind != tg::module::Kind::Py {
 				continue;
 			}
+			self.register_package(&entry)?;
 			let program = Program::from_settings(self, &self.settings);
 			let file = program.program_file(self, entry.file);
 			let results = ty_python_semantic::check_file(self, file)
 				.unwrap_or_else(|error| vec![error].into_boxed_slice());
 			for diagnostic in &results {
-				diagnostics.push(self.diagnostic(diagnostic)?);
+				diagnostics.push(self.diagnostic(diagnostic, tg::position::Encoding::Utf8)?);
 			}
+			pending.extend(self.dependencies(entry.file));
 		}
 		if let Some(error) = self.error.lock().unwrap().take() {
 			return Err(error);
@@ -129,41 +434,37 @@ impl Database {
 		{
 			let modules = self.modules.lock().unwrap();
 			if let Some(index) = modules.keys.get(&key) {
-				return Ok(modules.entries[*index].clone());
+				let entry = modules.entries[*index].clone();
+				if let Some(error) = &entry.error {
+					return Err(error.clone());
+				}
+				return Ok(entry);
 			}
 		}
-		let text = self
-			.compiler
-			.main_runtime_handle
-			.block_on(
-				self.compiler
-					.load_module_with_language(&module, Some(tg::module::load::Language::Py)),
-			)
-			.map_err(|error| tg::error!(!error, %module, "failed to load the Python module"))?;
-		let descriptor = resolve::Module::new(module.clone());
-		let path = descriptor.filename.as_path();
-		let package = descriptor.package;
-		let mut diagnostics = Vec::new();
-		// Syntax diagnostics belong to ty; parse metadata only when the module is syntactically valid.
-		let imports = if ruff_python_parser::parse_module(&text).is_ok() {
-			match metadata::parse(path, &text) {
-				Ok(metadata) => metadata.imports,
-				Err(error) => {
-					diagnostics.push(Self::metadata_diagnostic(&module, error)?);
-					BTreeMap::new()
-				},
-			}
-		} else {
-			BTreeMap::new()
+		let version = self.version(&module);
+		let (text, error) = match self.load(&module) {
+			Ok(text) => (text, None),
+			Err(error) => (String::new(), Some(error)),
 		};
+		let package = resolve::Module::new(module.clone()).package;
+		let (imports, diagnostics) = Self::metadata(&module, &text)?;
 		let mut modules = self.modules.lock().unwrap();
 		if let Some(index) = modules.keys.get(&key) {
-			return Ok(modules.entries[*index].clone());
+			let entry = modules.entries[*index].clone();
+			if let Some(error) = &entry.error {
+				return Err(error.clone());
+			}
+			return Ok(entry);
 		}
 		let index = modules.entries.len();
 		let name = ModuleName::new(&format!("m{index}")).unwrap();
 		let filename = if package { "__init__.py" } else { "module.py" };
-		let path = SystemPathBuf::from(format!("/modules/{index}/{filename}"));
+		let directory = if matches!(module.referent.node, tg::module::data::Source::Path(_)) {
+			"workspace"
+		} else {
+			"modules"
+		};
+		let path = SystemPathBuf::from(format!("/{directory}/{index}/{filename}"));
 		self.system
 			.memory
 			.create_directory_all(path.parent().unwrap())
@@ -176,28 +477,38 @@ impl Database {
 			.map_err(|error| tg::error!(!error, "failed to create the Python source file"))?;
 		let entry = Arc::new(Entry {
 			diagnostics,
+			error,
 			file,
 			imports,
 			module,
 			name,
 			package,
 			text,
+			version,
 		});
 		modules.files.insert(file, index);
 		modules.keys.insert(key, index);
 		modules.entries.push(entry.clone());
 		drop(modules);
+		if let Some(error) = &entry.error {
+			return Err(error.clone());
+		}
+		self.register_package(&entry)?;
+		Ok(entry)
+	}
+
+	fn register_package(&self, entry: &Entry) -> tg::Result<()> {
 		// The runtime loads containing package initializers before executing a module.
 		let request = resolve::Request::Package {
 			module: entry.module.clone(),
 			parent: entry.package,
 		};
 		if entry.module.kind == tg::module::Kind::Py
-			&& let resolve::Output::Resolved(resolution) = self.resolve(request)
+			&& let resolve::Output::Resolved(resolution) = self.resolve(entry.file, request)
 		{
 			self.register_target(&resolution.target)?;
 		}
-		Ok(entry)
+		Ok(())
 	}
 
 	fn metadata_diagnostic(
@@ -321,8 +632,74 @@ impl Database {
 		}
 	}
 
-	fn resolve(&self, request: resolve::Request) -> resolve::Output {
-		let resolver = resolve::Resolver::new(self.compiler.instance.clone());
+	fn dependencies(&self, file: File) -> Vec<Arc<Entry>> {
+		let mut keys = BTreeSet::new();
+		if let Some(records) = self.resolutions.lock().unwrap().get(&file) {
+			for record in records.values() {
+				if let resolve::Output::Resolved(resolution) = &record.output {
+					Self::target_keys(&resolution.target, &mut keys);
+					if let Some(root) = &resolution.root {
+						Self::target_keys(root, &mut keys);
+					}
+					for step in &resolution.steps {
+						Self::target_keys(&step.parent, &mut keys);
+						Self::target_keys(&step.target, &mut keys);
+					}
+				}
+			}
+		}
+		let modules = self.modules.lock().unwrap();
+		if let Some(links) = modules.links.get(&file) {
+			keys.extend(links.iter().cloned());
+		}
+		keys.into_iter()
+			.filter_map(|key| {
+				modules
+					.keys
+					.get(&key)
+					.map(|index| modules.entries[*index].clone())
+			})
+			.collect()
+	}
+
+	fn target_keys(target: &resolve::Target, keys: &mut BTreeSet<String>) {
+		match target {
+			resolve::Target::Module(module) => {
+				keys.insert(module.key.clone());
+			},
+			resolve::Target::Namespace(namespace) => Self::target_keys(&namespace.parent, keys),
+		}
+	}
+
+	fn resolve(&self, file: File, request: resolve::Request) -> resolve::Output {
+		let key = serde_json::to_string(&request).unwrap();
+		let output = self.resolve_inner(request.clone());
+		let resolution = Resolution {
+			output: output.clone(),
+			request,
+		};
+		self.resolutions
+			.lock()
+			.unwrap()
+			.entry(file)
+			.or_default()
+			.insert(key, resolution);
+		output
+	}
+
+	fn resolve_inner(&self, request: resolve::Request) -> resolve::Output {
+		let paths = self
+			.documents
+			.values()
+			.map(|document| &document.module)
+			.filter_map(|module| match &module.referent.node {
+				tg::module::data::Source::Path(path) if module.kind == tg::module::Kind::Py => {
+					Some(path.clone())
+				},
+				_ => None,
+			})
+			.collect();
+		let resolver = resolve::Resolver::with_paths(self.compiler.instance.clone(), paths);
 		match self
 			.compiler
 			.main_runtime_handle
@@ -331,7 +708,7 @@ impl Database {
 			Ok(output) => output,
 			Err(error) => {
 				// Match JS: let the checker report unresolved imports at their source locations.
-				tracing::debug!(error = %error, "Python module resolution failed");
+				tracing::debug!(error = %error.trace(), "Python module resolution failed");
 				resolve::Output::Missing {
 					message: "cannot find the module".to_owned(),
 					name: None,
@@ -340,7 +717,11 @@ impl Database {
 		}
 	}
 
-	fn diagnostic(&self, diagnostic: &Diagnostic) -> tg::Result<tg::Diagnostic> {
+	fn diagnostic(
+		&self,
+		diagnostic: &Diagnostic,
+		encoding: tg::position::Encoding,
+	) -> tg::Result<tg::Diagnostic> {
 		let location = diagnostic
 			.primary_span()
 			.map(|span| -> tg::Result<_> {
@@ -353,12 +734,8 @@ impl Database {
 				let bytes = span.range().map_or(0..0, |range| {
 					usize::from(range.start())..usize::from(range.end())
 				});
-				let range = tg::Range::try_from_byte_range_in_string(
-					&entry.text,
-					bytes,
-					tg::position::Encoding::Utf8,
-				)
-				.ok_or_else(|| tg::error!("invalid Python diagnostic source range"))?;
+				let range = tg::Range::try_from_byte_range_in_string(&entry.text, bytes, encoding)
+					.ok_or_else(|| tg::error!("invalid Python diagnostic source range"))?;
 				Ok(Some(tg::module::data::Location {
 					module: entry.module.without_token(),
 					range,
@@ -433,6 +810,7 @@ impl ruff_db::Db for Database {
 #[salsa::db]
 impl ty_module_resolver::Db for Database {
 	fn module_display_name<'db>(&'db self, module: Module<'db>) -> Option<Cow<'db, str>> {
+		self.revision.unwrap().value(self);
 		if let Some(entry) = module.file(self).and_then(|file| self.entry(file)) {
 			if matches!(
 				entry.module.referent.node,
@@ -469,6 +847,7 @@ impl ty_module_resolver::Db for Database {
 		export: Option<Module<'db>>,
 		_mode: ModuleResolveMode,
 	) -> ModuleResolution<'db> {
+		self.revision.unwrap().value(self);
 		let Some(referrer) = self.entry(importing_file.file(self)) else {
 			return ModuleResolution::Fallback;
 		};
@@ -478,7 +857,9 @@ impl ty_module_resolver::Db for Database {
 			name: import.module.as_deref().unwrap_or_default().to_owned(),
 			referrer: referrer.module.clone(),
 		};
-		let resolve::Output::Resolved(resolution) = self.resolve(request) else {
+		let resolve::Output::Resolved(resolution) =
+			self.resolve(importing_file.file(self), request)
+		else {
 			return ModuleResolution::Fallback;
 		};
 		let Some(context) = resolution.context else {
@@ -502,7 +883,7 @@ impl ty_module_resolver::Db for Database {
 			name: member.to_owned(),
 		};
 		self.result(
-			self.resolve(request),
+			self.resolve(importing_file.file(self), request),
 			importing_file.resolver_file(self).environment(self),
 		)
 	}
@@ -514,6 +895,7 @@ impl ty_module_resolver::Db for Database {
 		level: u32,
 		_mode: ModuleResolveMode,
 	) -> ModuleResolution<'db> {
+		self.revision.unwrap().value(self);
 		let Some(referrer) = self.entry(importing_file.file(self)) else {
 			return ModuleResolution::Fallback;
 		};
@@ -524,16 +906,20 @@ impl ty_module_resolver::Db for Database {
 			name: name.map_or_else(String::new, |name| name.as_str().to_owned()),
 			referrer: referrer.module.clone(),
 		};
-		self.result(self.resolve(request), environment)
+		self.result(
+			self.resolve(importing_file.file(self), request),
+			environment,
+		)
 	}
 
 	fn resolve_submodule<'db>(
 		&'db self,
-		_importing_file: ImportingFile<'db>,
+		importing_file: ImportingFile<'db>,
 		parent: Module<'db>,
 		name: &ModuleName,
 		_mode: ModuleResolveMode,
 	) -> ModuleResolution<'db> {
+		self.revision.unwrap().value(self);
 		let target = if let Some(entry) = parent.file(self).and_then(|file| self.entry(file)) {
 			resolve::Target::Module(resolve::Module::new(entry.module.clone()))
 		} else {
@@ -555,6 +941,15 @@ impl ty_module_resolver::Db for Database {
 			.get(&(target.key().to_owned(), name.as_str().to_owned()))
 			.cloned();
 		if let Some(child) = child {
+			Self::target_keys(
+				&child,
+				self.modules
+					.lock()
+					.unwrap()
+					.links
+					.entry(importing_file.file(self))
+					.or_default(),
+			);
 			let environment = parent.resolver_environment(self);
 			return ModuleResolution::Resolved(self.target_module(&child, environment));
 		}
@@ -565,10 +960,14 @@ impl ty_module_resolver::Db for Database {
 			context,
 			name: name.as_str().to_owned(),
 		};
-		self.result(self.resolve(request), parent.resolver_environment(self))
+		self.result(
+			self.resolve(importing_file.file(self), request),
+			parent.resolver_environment(self),
+		)
 	}
 
 	fn file_to_module<'db>(&'db self, file: ResolverFile<'db>) -> ModuleResolution<'db> {
+		self.revision.unwrap().value(self);
 		match self.entry(file.file(self)) {
 			Some(entry) => ModuleResolution::Resolved(self.module(&entry, file.environment(self))),
 			None => ModuleResolution::Fallback,
@@ -610,10 +1009,27 @@ impl ty_python_semantic::Db for Database {
 	fn verbose(&self) -> bool {
 		false
 	}
-	fn is_open_file(&self, _file: File) -> bool {
-		false
+	fn is_open_file(&self, file: File) -> bool {
+		self.revision.unwrap().value(self);
+		self.entry(file)
+			.is_some_and(|entry| self.documents.contains_key(&Key::new(&entry.module)))
 	}
 	fn dyn_clone(&self) -> Box<dyn ty_python_semantic::Db> {
+		Box::new(self.clone())
+	}
+}
+
+#[salsa::db]
+impl ty_project::Db for Database {
+	fn project(&self) -> ty_project::Project {
+		self.project.unwrap()
+	}
+
+	fn uv_environments(&self) -> &ty_project::UvEnvironments {
+		&self.uv_environments
+	}
+
+	fn dyn_clone(&self) -> Box<dyn ty_project::Db> {
 		Box::new(self.clone())
 	}
 }

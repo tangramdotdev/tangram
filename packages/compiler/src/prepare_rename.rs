@@ -14,8 +14,8 @@ pub struct Response {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct Prepare {
-	pub range: tg::Range,
 	pub placeholder: String,
+	pub range: tg::Range,
 }
 
 impl Compiler {

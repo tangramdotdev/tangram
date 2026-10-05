@@ -452,7 +452,7 @@ impl Session {
 		{
 			self.resolve_module_with_repl_referrer(import).await
 		} else {
-			// Perform a checkin to ensure the watch is available.
+			// Check in the referrer and resolve against that exact artifact.
 			let options = tg::checkin::Options {
 				unsolved_dependencies: true,
 				watch: true,
@@ -465,27 +465,17 @@ impl Session {
 				path,
 				updates,
 			};
-			tg::checkin::checkin_with_instance(self, arg)
+			let output = tg::checkin::checkin_with_instance(self, arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check in the path"))?;
 
-			// Find the watch graph containing the referring file.
-			let edge = self
-				.server
-				.watches
-				.iter()
-				.find_map(|entry| {
-					if entry.key().principal != self.context.principal {
-						return None;
-					}
-					let graph = entry.value().get_unindexed().graph;
-					let index = graph.paths.get(referrer.node())?;
-					graph.nodes.get(index)?.edge.clone()
-				})
-				.ok_or_else(|| tg::error!("failed to find a watch for the path"))?;
-
-			// Resolve.
-			let referrer = referrer.clone().map(|_| &edge);
+			// Another watch can contain an older version of the same path.
+			let edge = tg::graph::data::Edge::Object(output.artifact.node.into());
+			let mut referrer = referrer.clone().map(|_| &edge);
+			referrer
+				.options
+				.tokens
+				.inherit(&output.artifact.options.tokens);
 			let referent = self
 				.resolve_module_with_edge_referrer(&referrer, import)
 				.await

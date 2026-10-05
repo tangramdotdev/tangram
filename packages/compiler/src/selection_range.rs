@@ -14,9 +14,9 @@ pub struct Response {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct SelectionRange {
-	pub range: tg::Range,
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub parent: Option<Box<SelectionRange>>,
+	pub range: tg::Range,
 }
 
 impl Compiler {

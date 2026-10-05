@@ -33,16 +33,49 @@ pub struct Document {
 	pub dirty: bool,
 	pub lockfile: Option<Lockfile>,
 	pub modified: Option<std::time::SystemTime>,
+	pub module: tg::module::Data,
 	pub open: bool,
+	/// The source revision used by the checkers, independent of the editor version.
+	pub revision: u64,
 	pub text: Option<String>,
 	pub version: i32,
 }
 
+/// The source identity shared by all references to an editor document.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub(crate) struct Key {
+	kind: tg::module::Kind,
+	source: tg::module::data::Source,
+}
+
 /// The lockfile associated with a document.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Lockfile {
+	pub mtime: std::time::SystemTime,
 	pub path: std::path::PathBuf,
-	pub mtime: u64,
+}
+
+impl Key {
+	#[must_use]
+	pub fn new(module: &tg::module::Data) -> Self {
+		// A graph pointer and its materialized artifact identify the same source.
+		let source = match &module.referent.node {
+			tg::module::data::Source::Edge(tg::graph::data::Edge::Pointer(pointer)) => {
+				let pointer = tg::graph::Pointer {
+					graph: tg::Graph::with_id(pointer.graph.clone()),
+					index: pointer.index,
+					kind: pointer.kind,
+				};
+				let id = tg::Artifact::with_pointer(pointer).id();
+				tg::module::data::Source::Edge(tg::graph::data::Edge::Object(id.into()))
+			},
+			source => source.clone(),
+		};
+		Self {
+			kind: module.kind,
+			source,
+		}
+	}
 }
 
 impl Compiler {
@@ -51,7 +84,7 @@ impl Compiler {
 		self.documents
 			.iter()
 			.filter(|entry| entry.open)
-			.map(|entry| entry.key().clone())
+			.map(|entry| entry.module.clone())
 			.collect()
 	}
 
@@ -69,18 +102,27 @@ impl Compiler {
 			None
 		};
 
+		// Advance the source revision even when the editor restarts its version sequence.
+		let entry = self.documents.entry(Key::new(module));
+		let revision = match &entry {
+			dashmap::Entry::Occupied(entry) => entry.get().revision + 1,
+			dashmap::Entry::Vacant(_) => 1,
+		};
+
 		// Create the document.
 		let document = Document {
-			open: true,
 			dirty: false,
-			version,
-			modified: None,
-			text: Some(text),
 			lockfile,
+			modified: None,
+			module: module.clone(),
+			open: true,
+			revision,
+			text: Some(text),
+			version,
 		};
 
 		// Insert the document.
-		self.documents.insert(module.clone(), document);
+		entry.insert(document);
 
 		Ok(())
 	}
@@ -90,7 +132,7 @@ impl Compiler {
 		// Mark the document as clean.
 		let mut document = self
 			.documents
-			.get_mut(module)
+			.get_mut(&Key::new(module))
 			.ok_or_else(|| tg::error!("failed to get document"))?;
 		document.dirty = false;
 
@@ -100,7 +142,7 @@ impl Compiler {
 	/// Close a document.
 	pub async fn close_document(&self, module: &tg::module::Data) -> tg::Result<()> {
 		// Get the document.
-		let Some(mut document) = self.documents.get_mut(module) else {
+		let Some(mut document) = self.documents.get_mut(&Key::new(module)) else {
 			return Err(tg::error!("failed to find the document"));
 		};
 
@@ -115,16 +157,22 @@ impl Compiler {
 		// Mark the document as clean.
 		document.dirty = false;
 
-		// Clear the document's text.
+		// Switch back to the disk contents and invalidate the cached source text.
 		document.text = None;
+		document.revision += 1;
 
 		// Set the document's modified time if it is a path module.
 		let tg::module::data::Source::Path(path) = &module.referent.node else {
 			return Ok(());
 		};
-		let metadata = tokio::fs::symlink_metadata(&path)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the metadata"))?;
+		let metadata = match tokio::fs::symlink_metadata(&path).await {
+			Ok(metadata) => metadata,
+			Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+				document.modified = None;
+				return Ok(());
+			},
+			Err(error) => return Err(tg::error!(!error, "failed to get the metadata")),
+		};
 		let modified = metadata.modified().map_err(|error| {
 			tg::error!(source = error, "failed to get the last modification time")
 		})?;
@@ -158,7 +206,7 @@ impl Compiler {
 		let module = self.module_for_lsp_uri(&params.text_document.uri).await?;
 
 		// Get the document.
-		let Some(mut document) = self.documents.get_mut(&module) else {
+		let Some(mut document) = self.documents.get_mut(&Key::new(&module)) else {
 			return Err(tg::error!("failed to find the document"));
 		};
 
@@ -186,6 +234,7 @@ impl Compiler {
 
 		// Set the version.
 		document.version = params.text_document.version;
+		document.revision += 1;
 
 		// Drop the document.
 		drop(document);

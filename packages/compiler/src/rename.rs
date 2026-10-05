@@ -1,8 +1,10 @@
 use {super::Compiler, lsp_types as lsp, std::collections::HashMap, tangram_client::prelude::*};
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Request {
 	pub module: tg::module::Data,
+	pub new_name: String,
 	pub position: tg::Position,
 }
 
@@ -27,7 +29,9 @@ impl Compiler {
 		let new_text = &params.new_name;
 
 		// Get the references.
-		let locations = self.rename(&module, position.into()).await?;
+		let locations = self
+			.rename(&module, position.into(), params.new_name.clone())
+			.await?;
 
 		// If there are no references, then return None.
 		let Some(locations) = locations else {
@@ -41,14 +45,18 @@ impl Compiler {
 			// Create the URI.
 			let uri = self.lsp_uri_for_module(&location.module.to_data()).await?;
 
-			// Get the version.
-			let version = self.get_module_version(&location.module.to_data()).await?;
+			// Use the editor version for open documents and no version for closed documents.
+			let version = self
+				.documents
+				.get(&super::document::Key::new(&location.module.to_data()))
+				.filter(|document| document.open)
+				.map(|document| document.version);
 
 			if edit.get_mut(&uri).is_none() {
 				let entry = lsp::TextDocumentEdit {
 					text_document: lsp::OptionalVersionedTextDocumentIdentifier {
 						uri: uri.clone(),
-						version: Some(version),
+						version,
 					},
 					edits: Vec::<lsp::OneOf<lsp::TextEdit, lsp::AnnotatedTextEdit>>::new(),
 				};
@@ -79,10 +87,12 @@ impl Compiler {
 		&self,
 		module: &tg::module::Data,
 		position: tg::Position,
+		new_name: String,
 	) -> tg::Result<Option<Vec<tg::module::Location>>> {
 		// Create the request.
 		let request = super::Request::Rename(Request {
 			module: module.clone(),
+			new_name,
 			position,
 		});
 

@@ -278,10 +278,13 @@ tracing-tree = "0.4"
 turso = "0.8"
 unicode-segmentation = "1"
 unicode-width = "0.2"
+ty_ide = { path = "../ty/ruff/crates/ty_ide" }
 ty_module_resolver = { path = "../ty/ruff/crates/ty_module_resolver" }
+ty_project = { path = "../ty/ruff/crates/ty_project" }
 ty_python_ast = { package = "ruff_python_ast", path = "../ty/ruff/crates/ruff_python_ast" }
 ty_python_core = { path = "../ty/ruff/crates/ty_python_core" }
 ty_python_semantic = { path = "../ty/ruff/crates/ty_python_semantic" }
+ty_text_size = { package = "ruff_text_size", path = "../ty/ruff/crates/ruff_text_size" }
 ty_vendored = { path = "../ty/ruff/crates/ty_vendored" }
 uuid = { version = "1", features = ["v7"] }
 v8 = "152"

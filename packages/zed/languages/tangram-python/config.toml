@@ -1,0 +1,209 @@
+tab_size = 4
+name = "Tangram Python"
+grammar = "python"
+path_suffixes = [
+    "tangram.py",
+    "tg.py",
+]
+line_comments = ["# "]
+autoclose_before = ";:.,=}])>"
+auto_indent_using_last_non_empty_line = false
+increase_indent_pattern = '^[^#].*:\s*(#.*)?$'
+
+[[brackets]]
+start = 'f"'
+end = '"'
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = "f'"
+end = "'"
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = 'b"'
+end = '"'
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = "b'"
+end = "'"
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = 'u"'
+end = '"'
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = "u'"
+end = "'"
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = 'r"'
+end = '"'
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = "r'"
+end = "'"
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = 'rb"'
+end = '"'
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = "rb'"
+end = "'"
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = 't"'
+end = '"'
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = "t'"
+end = "'"
+close = true
+newline = false
+not_in = [
+    "string",
+    "comment",
+]
+
+[[brackets]]
+start = '"""'
+end = '"""'
+close = true
+newline = false
+not_in = ["string"]
+
+[[brackets]]
+start = "'''"
+end = "'''"
+close = true
+newline = false
+not_in = ["string"]
+
+[[brackets]]
+start = "{"
+end = "}"
+close = true
+newline = true
+
+[[brackets]]
+start = "["
+end = "]"
+close = true
+newline = true
+
+[[brackets]]
+start = "("
+end = ")"
+close = true
+newline = true
+
+[[brackets]]
+start = '"'
+end = '"'
+close = true
+newline = false
+not_in = ["string"]
+
+[[brackets]]
+start = "'"
+end = "'"
+close = true
+newline = false
+not_in = ["string"]
+
+[[decrease_indent_patterns]]
+pattern = '^\s*elif\b.*:\s*(#.*)?'
+valid_after = [
+    "if",
+    "elif",
+]
+
+[[decrease_indent_patterns]]
+pattern = '^\s*else\b.*:\s*(#.*)?'
+valid_after = [
+    "if",
+    "elif",
+    "for",
+    "while",
+    "except",
+]
+
+[[decrease_indent_patterns]]
+pattern = '^\s*except\b.*:\s*(#.*)?'
+valid_after = [
+    "try",
+    "except",
+]
+
+[[decrease_indent_patterns]]
+pattern = '^\s*finally\b.*:\s*(#.*)?'
+valid_after = [
+    "try",
+    "except",
+    "else",
+]

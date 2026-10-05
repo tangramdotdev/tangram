@@ -31,18 +31,36 @@ pub struct Symbol {
 
 impl Compiler {
 	pub async fn workspace_symbols(&self, query: String) -> tg::Result<Option<Vec<Symbol>>> {
-		// Create the request.
-		let request = super::Request::WorkspaceSymbol(Request { query });
+		let mut symbols = Vec::new();
+		if self
+			.documents
+			.iter()
+			.any(|document| document.open && document.module.kind != tg::module::Kind::Py)
+		{
+			let request = super::Request::WorkspaceSymbol(Request {
+				query: query.clone(),
+			});
+			let response = self.request(request).await?.unwrap_workspace_symbol();
+			symbols.extend(
+				response
+					.symbols
+					.into_iter()
+					.flatten()
+					.filter(|symbol| symbol.module.kind != tg::module::Kind::Py),
+			);
+		}
 
-		// Perform the request.
-		let response = self.request(request).await?;
-
-		// Get the response.
-		let super::Response::WorkspaceSymbol(response) = response else {
-			return Err(tg::error!("unexpected response type"));
-		};
-
-		Ok(response.symbols)
+		if self.py.is_started()
+			|| self
+				.documents
+				.iter()
+				.any(|document| document.module.kind == tg::module::Kind::Py)
+		{
+			let request = super::Request::WorkspaceSymbol(Request { query });
+			let response = self.request_py(request).await?.unwrap_workspace_symbol();
+			symbols.extend(response.symbols.into_iter().flatten());
+		}
+		Ok(Some(symbols))
 	}
 }
 

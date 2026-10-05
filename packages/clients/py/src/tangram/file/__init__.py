@@ -9,7 +9,7 @@ from ..builder import Builder
 from ..mutation import UNSET, Mutation
 from ..object import Object
 from ..referent import Referent
-from ..resolve import Unresolved, resolve
+from ..resolve import TemplateString, Unresolved, is_template_string, resolve
 
 if TYPE_CHECKING:
     from ..blob import Blob, BlobInput
@@ -26,7 +26,13 @@ class FileArgObject(TypedDict, total=False):
 
 type FileDependencyInput = Unresolved[Object | Referent | Pointer | None]
 type FileInput = Unresolved[
-    File | BlobInput | FileArgObject | Pointer | list[FileInput] | tuple[FileInput, ...]
+    File
+    | BlobInput
+    | FileArgObject
+    | Pointer
+    | TemplateString
+    | list[FileInput]
+    | tuple[FileInput, ...]
 ]
 
 
@@ -183,6 +189,10 @@ class File(Object):
 
             if arg is UNSET:
                 return {}
+            if is_template_string(arg):
+                from ..template import string_text
+
+                return {"contents": string_text(arg)}
             if isinstance(arg, cls):
                 return {
                     "contents": await arg.contents(client),
@@ -315,7 +325,11 @@ class FileBuilder(Builder[File]):
 
     @overload
     def __init__(
-        self, raw: bool, strings: list[str], *placeholders: str, **options
+        self,
+        raw: bool,
+        strings: list[str] | TemplateString,
+        *placeholders: str,
+        **options,
     ) -> None: ...
 
     def __init__(self, *args, **options) -> None:
@@ -324,6 +338,7 @@ class FileBuilder(Builder[File]):
         raw = False
         if args and isinstance(args[0], bool):
             raw, *args = args
+        self._raw = raw
         if args and isinstance(args[0], list) and hasattr(args[0], "raw"):
             strings, *placeholders = args
             components = []
@@ -335,6 +350,14 @@ class FileBuilder(Builder[File]):
                 string = "".join(unindent([string]))
             args = [string]
         super().__init__(*args, **options)
+
+    async def _create(self) -> File:
+        from ..template import string_text
+
+        args = await resolve(self._args)
+        if self._raw and args and is_template_string(args[0]):
+            args[0] = string_text(args[0], raw=True)
+        return await File.new(*args, client=self._client)
 
     def contents(self, contents: BlobInput) -> Self:
         return self._push({"contents": contents})

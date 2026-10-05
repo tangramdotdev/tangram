@@ -1,6 +1,6 @@
 use {
 	std::{
-		collections::BTreeMap,
+		collections::{BTreeMap, BTreeSet},
 		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
@@ -9,6 +9,7 @@ use {
 /// The Python import policy shared by the runtime and the type checker.
 pub struct Resolver {
 	instance: tg::instance::dynamic::Instance,
+	paths: BTreeSet<PathBuf>,
 }
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
@@ -48,7 +49,7 @@ pub enum Export {
 	Value,
 }
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Output {
 	Fallback,
@@ -59,7 +60,7 @@ pub enum Output {
 	Resolved(Resolution),
 }
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Resolution {
 	pub context: Option<Context>,
 	pub root: Option<Target>,
@@ -67,28 +68,28 @@ pub struct Resolution {
 	pub target: Target,
 }
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Context {
 	pub parent: Target,
 	pub prefix: PathBuf,
 	pub referrer: tg::module::Data,
 }
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Step {
 	pub name: String,
 	pub parent: Target,
 	pub target: Target,
 }
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Target {
 	Module(Module),
 	Namespace(Box<Namespace>),
 }
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Module {
 	pub data: tg::module::Data,
 	pub filename: PathBuf,
@@ -96,7 +97,7 @@ pub struct Module {
 	pub package: bool,
 }
 
-#[derive(Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct Namespace {
 	pub key: String,
 	pub parent: Target,
@@ -200,7 +201,19 @@ pub async fn prepare_module(
 impl Resolver {
 	#[must_use]
 	pub fn new(instance: tg::instance::dynamic::Instance) -> Self {
-		Self { instance }
+		Self {
+			instance,
+			paths: BTreeSet::new(),
+		}
+	}
+
+	/// Include unsaved editor files in the filesystem view used by relative imports.
+	#[must_use]
+	pub(crate) fn with_paths(
+		instance: tg::instance::dynamic::Instance,
+		paths: BTreeSet<PathBuf>,
+	) -> Self {
+		Self { instance, paths }
 	}
 
 	pub async fn resolve(&self, request: Request) -> tg::Result<Output> {
@@ -555,7 +568,46 @@ impl Resolver {
 		path: PathBuf,
 		kind: tg::module::Kind,
 	) -> tg::Result<Option<tg::module::Data>> {
+		if let tg::module::data::Source::Path(source) = &module.referent.node {
+			let target = tangram_util::path::normalize(source.parent().unwrap().join(&path));
+			let exists = match kind {
+				tg::module::Kind::Py => self.paths.contains(&target),
+				tg::module::Kind::Directory => self
+					.paths
+					.iter()
+					.any(|path| path != &target && path.starts_with(&target)),
+				_ => false,
+			};
+			if exists {
+				let module = tg::module::Data {
+					kind,
+					referent: tg::Referent::with_node(tg::module::data::Source::Path(target)),
+				};
+				return Ok(Some(module));
+			}
+		}
 		resolve_path(self.instance.clone(), module.clone(), path, kind).await
+	}
+}
+
+impl Output {
+	#[must_use]
+	pub(crate) fn without_token(&self) -> Self {
+		let mut output = self.clone();
+		if let Self::Resolved(resolution) = &mut output {
+			if let Some(context) = &mut resolution.context {
+				context.clear_tokens();
+			}
+			if let Some(root) = &mut resolution.root {
+				root.clear_tokens();
+			}
+			for step in &mut resolution.steps {
+				step.parent.clear_tokens();
+				step.target.clear_tokens();
+			}
+			resolution.target.clear_tokens();
+		}
+		output
 	}
 }
 
@@ -569,6 +621,13 @@ impl Resolution {
 			steps: Vec::new(),
 			target,
 		}
+	}
+}
+
+impl Context {
+	fn clear_tokens(&mut self) {
+		self.parent.clear_tokens();
+		self.referrer.referent.options.tokens.clear();
 	}
 }
 
@@ -601,6 +660,16 @@ impl Target {
 			prefix,
 			referrer,
 		})
+	}
+
+	fn clear_tokens(&mut self) {
+		match self {
+			Self::Module(module) => module.data.referent.options.tokens.clear(),
+			Self::Namespace(namespace) => {
+				namespace.parent.clear_tokens();
+				namespace.referrer.referent.options.tokens.clear();
+			},
+		}
 	}
 }
 

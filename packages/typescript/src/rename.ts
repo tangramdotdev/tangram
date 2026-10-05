@@ -6,6 +6,7 @@ import * as typescript from "./typescript.ts";
 
 export type Request = {
 	module: Module;
+	newName: string;
 	position: Position;
 };
 

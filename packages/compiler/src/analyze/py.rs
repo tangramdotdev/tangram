@@ -87,8 +87,8 @@ pub fn analyze(path: &Path, text: &str) -> tg::Result<Analysis> {
 	} else {
 		vec![".."; depth].join("/")
 	};
-	let reference =
-		tg::Reference::with_path(Path::new(&prefix).join(path.strip_prefix(root).unwrap()));
+	let reference = Path::new(&prefix).join(path.strip_prefix(root).unwrap());
+	let reference = tg::Reference::with_path(tangram_util::path::normalize(reference));
 	let mut imports = std::collections::HashSet::default();
 	let import = tg::module::Import {
 		kind: Some(tg::module::Kind::Py),
@@ -236,13 +236,23 @@ mod tests {
 	fn python_self_reference_preserves_the_filename() {
 		let path = Path::new("/python-test/task?value#1.tg.py");
 		let analysis = analyze(path, "pass").unwrap();
-		let expected = tg::Reference::with_path(Path::new("./task?value#1.tg.py").to_owned());
+		let expected = tg::Reference::with_path(Path::new("task?value#1.tg.py").to_owned());
 		assert!(
 			analysis
 				.imports
 				.iter()
 				.any(|import| import.reference == expected)
 		);
+	}
+
+	#[test]
+	fn python_self_reference_round_trips_through_a_lock() {
+		let analysis = analyze(Path::new("/python-test/tangram.py"), "pass").unwrap();
+		for import in analysis.imports {
+			let encoded = serde_json::to_string(&import.reference).unwrap();
+			let decoded: tg::Reference = serde_json::from_str(&encoded).unwrap();
+			assert_eq!(decoded, import.reference);
+		}
 	}
 
 	#[test]

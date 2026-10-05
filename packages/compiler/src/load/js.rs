@@ -2,11 +2,22 @@ use {
 	oxc::ast::ast::{
 		BindingPattern, Declaration, ExportDefaultDeclarationKind, ImportOrExportKind, Statement,
 	},
-	std::collections::BTreeSet,
+	oxc::span::GetSpan as _,
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		ops::Range,
+	},
 	tangram_client::prelude::*,
 };
 
 pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTreeSet<String>> {
+	Ok(declarations(module, text)?.into_keys().collect())
+}
+
+pub(super) fn declarations(
+	module: &tg::module::Data,
+	text: &str,
+) -> tg::Result<BTreeMap<String, Range<usize>>> {
 	let allocator = oxc::allocator::Allocator::default();
 	let parsed = oxc::parser::Parser::new(&allocator, text, oxc::span::SourceType::ts()).parse();
 	if let Some(error) = parsed.diagnostics.first() {
@@ -20,13 +31,16 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 			tg::error!("failed to parse the JavaScript module: {error}"),
 		));
 	}
-	let mut names = BTreeSet::new();
+	let mut names = BTreeMap::new();
 	for statement in &parsed.program.body {
 		match statement {
 			Statement::ExportDeclaration(export) => match &export.declaration {
 				Declaration::FunctionDeclaration(function) if function.body.is_some() => {
 					if let Some(id) = &function.id {
-						names.insert(id.name.to_string());
+						names.insert(
+							id.name.to_string(),
+							id.span.start as usize..id.span.end as usize,
+						);
 					}
 				},
 				Declaration::VariableDeclaration(declaration) if !declaration.declare => {
@@ -36,11 +50,17 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 				},
 				Declaration::ClassDeclaration(class) if !class.declare => {
 					if let Some(id) = &class.id {
-						names.insert(id.name.to_string());
+						names.insert(
+							id.name.to_string(),
+							id.span.start as usize..id.span.end as usize,
+						);
 					}
 				},
 				Declaration::TSEnumDeclaration(declaration) if !declaration.declare => {
-					names.insert(declaration.id.name.to_string());
+					names.insert(
+						declaration.id.name.to_string(),
+						declaration.id.span.start as usize..declaration.id.span.end as usize,
+					);
 				},
 				_ => {},
 			},
@@ -49,14 +69,21 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 					export.declaration,
 					ExportDefaultDeclarationKind::TSInterfaceDeclaration(_)
 				) {
-					names.insert("default".to_owned());
+					names.insert(
+						"default".to_owned(),
+						export.span.start as usize..export.span.end as usize,
+					);
 				}
 			},
 			Statement::ExportNamedDeclaration(export) => {
 				if export.export_kind == ImportOrExportKind::Value {
 					for specifier in &export.specifiers {
 						if specifier.export_kind == ImportOrExportKind::Value {
-							names.insert(specifier.exported.name().to_string());
+							let span = specifier.exported.span();
+							names.insert(
+								specifier.exported.name().to_string(),
+								span.start as usize..span.end as usize,
+							);
 						}
 					}
 				}
@@ -65,7 +92,11 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 				if export.export_kind == ImportOrExportKind::Value {
 					for specifier in &export.specifiers {
 						if specifier.export_kind == ImportOrExportKind::Value {
-							names.insert(specifier.exported.name().to_string());
+							let span = specifier.exported.span();
+							names.insert(
+								specifier.exported.name().to_string(),
+								span.start as usize..span.end as usize,
+							);
 						}
 					}
 				}
@@ -88,10 +119,13 @@ pub(super) fn exports(module: &tg::module::Data, text: &str) -> tg::Result<BTree
 	Ok(names)
 }
 
-fn bindings(pattern: &BindingPattern, names: &mut BTreeSet<String>) {
+fn bindings(pattern: &BindingPattern, names: &mut BTreeMap<String, Range<usize>>) {
 	match pattern {
 		BindingPattern::BindingIdentifier(identifier) => {
-			names.insert(identifier.name.to_string());
+			names.insert(
+				identifier.name.to_string(),
+				identifier.span.start as usize..identifier.span.end as usize,
+			);
 		},
 		BindingPattern::ArrayPattern(pattern) => {
 			for element in pattern.elements.iter().flatten() {

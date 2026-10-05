@@ -64,9 +64,12 @@ tokio = { workspace = true }
 tokio-util = { workspace = true }
 toml = { workspace = true }
 tracing = { workspace = true }
+ty_ide = { workspace = true }
 ty_module_resolver = { workspace = true }
+ty_project = { workspace = true }
 ty_python_ast = { workspace = true }
 ty_python_core = { workspace = true }
 ty_python_semantic = { workspace = true }
+ty_text_size = { workspace = true }
 ty_vendored = { workspace = true }
 v8 = { workspace = true, optional = true }

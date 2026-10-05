@@ -131,7 +131,32 @@ resolves a child module. A failed recorded dependency remains an error even when
 the package initializer exports that name. Declared aliases take precedence over
 ordinary library imports, including names such as `sys`.
 Object imports use the runtime's synthetic module generator and expose typed
-`default` exports. Python LSP features remain outside this integration. Building it currently requires
+`default` exports.
+
+Tangram's LSP uses `ty_ide` for hover, completion and completion details, signature
+help, definition/declaration/type/implementation navigation, references, rename,
+document and workspace symbols, call hierarchy, document highlights, folding,
+selection ranges, inlay hints, semantic tokens, and diagnostic suppression fixes.
+Document diagnostics use ty's checker. These requests use the same
+resolver, loader, and client types as `tg check`. Queries capture open document
+contents, so unsaved edits in both the requesting module and its dependencies are
+visible. A lazily started worker retains the ty project and Salsa database across
+checking and LSP requests. Before each request it synchronizes changed
+sources and revalidates recorded resolutions, including missing dependencies and
+tag changes. Unchanged sources retain their parsed and inferred results.
+Source locations use the negotiated UTF-8 or
+UTF-16 position encoding. Navigation into the client and typeshed materializes the
+corresponding embedded source, and navigation into JavaScript exports maps generated
+wrapper definitions back to their original declarations.
+
+Workspace queries cover open filesystem Python documents and their loaded
+filesystem dependencies.
+Rename is limited to Python source files in that project; generated foreign-language
+wrappers and embedded libraries are not editable. Import insertion, import
+organization, and document links are not implemented for Python. Formatting uses
+Ruff through Tangram's existing formatting handler.
+
+Building it currently requires
 the modified ty checkout at `../ty/ruff`; Cargo uses local path dependencies for
 the resolver and checker crates. Ruff parsing and formatting retain their existing
 pinned revision.

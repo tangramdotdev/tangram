@@ -6,7 +6,9 @@ use {
 };
 
 #[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Request {
+	pub include_declaration: bool,
 	pub module: tg::module::Data,
 	pub position: tg::Position,
 }
@@ -31,7 +33,9 @@ impl Compiler {
 		let position = params.text_document_position.position;
 
 		// Get the references.
-		let locations = self.references(&module, position.into()).await?;
+		let locations = self
+			.references(&module, position.into(), params.context.include_declaration)
+			.await?;
 		let Some(locations) = locations else {
 			return Ok(None);
 		};
@@ -61,9 +65,11 @@ impl Compiler {
 		&self,
 		module: &tg::module::Data,
 		position: tg::Position,
+		include_declaration: bool,
 	) -> tg::Result<Option<Vec<tg::module::Location>>> {
 		// Create the request.
 		let request = super::Request::References(Request {
+			include_declaration,
 			module: module.clone(),
 			position,
 		});

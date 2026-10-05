@@ -8,7 +8,7 @@ from .assert_ import assert_
 from .builder import Builder
 from .placeholder import Placeholder
 from .referent import Referent
-from .resolve import Unresolved, resolve
+from .resolve import TemplateString, Unresolved, is_template_string, resolve
 
 if TYPE_CHECKING:
     from .directory import Directory
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from .symlink import Symlink
 
 type TemplateComponent = str | Directory | File | Symlink | Placeholder
-type TemplateArg = None | TemplateComponent | Template
+type TemplateArg = None | TemplateComponent | Template | TemplateString
 type TemplateInput = Unresolved[TemplateArg]
 
 
@@ -126,7 +126,9 @@ class Template:
         return list(self._components)
 
     @staticmethod
-    def raw(strings: list[str], *placeholders: TemplateInput) -> TemplateBuilder:
+    def raw(
+        strings: list[str] | TemplateString, *placeholders: TemplateInput
+    ) -> TemplateBuilder:
         return TemplateBuilder(True, strings, *placeholders)
 
     @classmethod
@@ -140,6 +142,8 @@ class Template:
         for arg in args:
             if arg is None or arg is UNSET:
                 continue
+            if is_template_string(arg):
+                arg = cls._new_resolved(*string_components(arg))
             components_arg = arg.components if isinstance(arg, cls) else [arg]
             for component in components_arg:
                 if not isinstance(
@@ -178,6 +182,7 @@ class TemplateBuilder(Builder[Template]):
         raw = False
         if arguments and isinstance(arguments[0], bool):
             raw = arguments.pop(0)
+        self._raw = raw
         if (
             arguments
             and isinstance(arguments[0], list)
@@ -202,6 +207,8 @@ class TemplateBuilder(Builder[Template]):
 
     async def _create(self) -> Template:
         args = await resolve(self._args)
+        if self._raw and args and is_template_string(args[0]):
+            args[0] = Template._new_resolved(*string_components(args[0], raw=True))
         if getattr(self, "_join", False):
             separator, *args = args
             return Template._join_resolved(separator, *args)
@@ -234,8 +241,33 @@ class TemplateData:
         return {**data, "components": components}
 
 
-def raw(strings: list[str], *placeholders: TemplateInput) -> TemplateBuilder:
+def raw(
+    strings: list[str] | TemplateString, *placeholders: TemplateInput
+) -> TemplateBuilder:
     return TemplateBuilder(True, strings, *placeholders)
+
+
+def string_components(value: TemplateString, *, raw: bool = False) -> list[TemplateArg]:
+    for interpolation in value.interpolations:
+        if interpolation.conversion is not None or interpolation.format_spec:
+            raise ValueError(
+                "t-string conversions and format specifications are not supported"
+            )
+    strings = list(value.strings)
+    if not raw:
+        strings = unindent(strings)
+    components: list[TemplateArg] = [strings[0]]
+    for interpolation, string in zip(value.interpolations, strings[1:], strict=True):
+        components.extend([cast(TemplateArg, interpolation.value), string])
+    return components
+
+
+def string_text(value: TemplateString, *, raw: bool = False) -> str:
+    components = string_components(value, raw=True)
+    if any(not isinstance(component, str) for component in components):
+        raise TypeError("file t-string interpolations must resolve to strings")
+    text = "".join(cast(list[str], components))
+    return text if raw else "".join(unindent([text]))
 
 
 def unindent(strings: list[str]) -> list[str]:

@@ -56,6 +56,20 @@ pub fn parse(path: &Path, text: &str) -> tg::Result<Metadata> {
 			&tg::error!(!source, "failed to parse the Python module"),
 		)
 	})?;
+	parse_module(path, text, &parsed)
+}
+
+pub(crate) fn parse_unchecked(path: &Path, text: &str) -> tg::Result<Metadata> {
+	let parsed =
+		ruff_python_parser::parse_unchecked_source(text, ruff_python_ast::PySourceType::Python);
+	parse_module(path, text, &parsed)
+}
+
+fn parse_module(
+	path: &Path,
+	text: &str,
+	parsed: &ruff_python_parser::Parsed<ruff_python_ast::ModModule>,
+) -> tg::Result<Metadata> {
 	let module = tg::module::Data {
 		kind: tg::module::Kind::Py,
 		referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),

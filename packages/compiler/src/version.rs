@@ -1,18 +1,21 @@
 use {
-	super::{Compiler, document::Document},
+	super::{
+		Compiler,
+		document::{Document, Key},
+	},
 	tangram_client::prelude::*,
 };
 
 impl Compiler {
-	pub async fn get_module_version(&self, module: &tg::module::Data) -> tg::Result<i32> {
+	pub async fn get_module_version(&self, module: &tg::module::Data) -> tg::Result<u64> {
 		// Get the entry for the document.
-		let entry = self.documents.entry(module.clone());
+		let entry = self.documents.entry(Key::new(module));
 
 		// If there is an open document, then return its version.
 		if let dashmap::Entry::Occupied(entry) = &entry {
 			let document = entry.get();
 			if document.open {
-				return Ok(document.version);
+				return Ok(document.revision);
 			}
 		}
 
@@ -20,6 +23,7 @@ impl Compiler {
 		let tg::module::Data {
 			kind:
 				tg::module::Kind::Js
+				| tg::module::Kind::Py
 				| tg::module::Kind::Ts
 				| tg::module::Kind::Artifact
 				| tg::module::Kind::Directory
@@ -32,7 +36,10 @@ impl Compiler {
 			..
 		} = &module
 		else {
-			return Ok(0);
+			return Ok(match entry {
+				dashmap::Entry::Occupied(entry) => entry.get().revision,
+				dashmap::Entry::Vacant(_) => 0,
+			});
 		};
 
 		// Get the modified time.
@@ -49,19 +56,21 @@ impl Compiler {
 		// Get or create the document.
 		let mut document = entry.or_insert(Document {
 			dirty: false,
+			lockfile,
 			modified: Some(modified),
+			module: module.clone(),
 			open: false,
+			revision: 0,
 			text: None,
 			version: 0,
-			lockfile,
 		});
 
 		// Update the modified time if necessary.
-		if modified > document.modified.unwrap() {
+		if document.modified != Some(modified) {
 			document.modified = Some(modified);
-			document.version += 1;
+			document.revision += 1;
 		}
 
-		Ok(document.version)
+		Ok(document.revision)
 	}
 }

@@ -468,13 +468,15 @@ impl Session {
 			.await;
 		}
 
-		// Read the lock if it was not retrieved from the watcher and the lock option is set.
-		let lock = if let Some(lock) = lock {
-			Some(lock)
-		} else if arg.options.lock.is_some() {
-			Self::checkin_try_read_lock(root)
-				.map_err(|error| tg::error!(!error, "failed to read the lock"))?
-				.map(Arc::new)
+		// Revalidate the lock before reusing a watched graph because file events may still be queued.
+		let lock = if arg.options.lock.is_some() {
+			let current = Self::checkin_try_read_lock(root)
+				.map_err(|error| tg::error!(!error, "failed to read the lock"))?;
+			if lock.as_deref() != current.as_ref() {
+				graph = Graph::default();
+				solutions = Solutions::default();
+			}
+			current.map(Arc::new)
 		} else {
 			None
 		};

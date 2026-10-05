@@ -74,8 +74,8 @@ pub struct IncomingCall {
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OutgoingCall {
-	pub to: Item,
 	pub from_ranges: Vec<tg::Range>,
+	pub to: Item,
 }
 
 impl Compiler {
