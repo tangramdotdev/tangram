@@ -161,7 +161,7 @@ async fn inputs_run_concurrently_and_share_reads() {
 	let _receivers = (0..1024)
 		.map(|id| insert(&mut state, &id.to_string(), RequestState::new(true)))
 		.collect::<Vec<_>>();
-	let barrier = Arc::new(tokio::sync::Barrier::new(3));
+	let barrier = Arc::new(tokio::sync::Barrier::new(2));
 	let calls = Arc::new(AtomicUsize::new(0));
 	let calls_ = calls.clone();
 	let barrier_ = barrier.clone();
@@ -181,22 +181,15 @@ async fn inputs_run_concurrently_and_share_reads() {
 				Ok(Some(batch))
 			}
 		},
-		async {
-			reads.fetch_add(1, Ordering::Relaxed);
-			barrier.wait().await;
-			Ok(10)
-		},
-		async {
-			reads.fetch_add(1, Ordering::Relaxed);
-			Ok(Some(10))
-		},
+		async { panic!("compactions must be snapshotted after the indexers finish") },
+		async { panic!("compactions must be polled after the indexers finish") },
 	);
 	tokio::time::timeout(std::time::Duration::from_secs(5), poll)
 		.await
 		.unwrap()
 		.unwrap();
 	assert_eq!(calls.load(Ordering::Relaxed), 1);
-	assert_eq!(reads.load(Ordering::Relaxed), 3);
+	assert_eq!(reads.load(Ordering::Relaxed), 1);
 	let (ids, result) = state.indexer_waits.next().await.unwrap();
 	state.handle_indexer_wait(ids, &result);
 	assert!(state.waits.values().all(|request| matches!(
@@ -204,11 +197,11 @@ async fn inputs_run_concurrently_and_share_reads() {
 		RequestState::Inputs {
 			database_index_queue: Progress::Pending(()),
 			indexers: Progress::Complete,
-			log_compactions: Progress::Pending(10),
+			log_compactions: Progress::Ready,
 		}
 	)));
 
-	// Later polls share progress reads without repeating either snapshot.
+	// The first poll after indexing snapshots compactions once for all requests.
 	state
 		.poll_inputs(
 			|target| {
@@ -218,7 +211,10 @@ async fn inputs_run_concurrently_and_share_reads() {
 					Ok(None)
 				}
 			},
-			async { panic!("an existing compaction target must not be read again") },
+			async {
+				reads.fetch_add(1, Ordering::Relaxed);
+				Ok(10)
+			},
 			async {
 				reads.fetch_add(1, Ordering::Relaxed);
 				Ok(None)
@@ -226,7 +222,7 @@ async fn inputs_run_concurrently_and_share_reads() {
 		)
 		.await
 		.unwrap();
-	assert_eq!(reads.load(Ordering::Relaxed), 5);
+	assert_eq!(reads.load(Ordering::Relaxed), 4);
 	state
 		.set_update_target_transactions(async { Ok(20) })
 		.await
@@ -273,7 +269,13 @@ async fn updates_wait_for_every_input_in_any_completion_order() {
 			state
 				.poll_inputs(
 					|_| async { Ok((!complete[1]).then_some(batch)) },
-					async { panic!("an existing compaction target must not be read again") },
+					async {
+						assert!(
+							complete[0],
+							"compactions must be snapshotted after indexing"
+						);
+						Ok(10)
+					},
 					async { Ok((!complete[2]).then_some(10)) },
 				)
 				.await
@@ -342,7 +344,7 @@ async fn later_requests_keep_their_own_input_targets() {
 		RequestState::Inputs {
 			database_index_queue: Progress::Complete,
 			indexers: Progress::Complete,
-			log_compactions: Progress::Complete,
+			log_compactions: Progress::Pending(20),
 		}
 	));
 	assert!(matches!(
@@ -350,7 +352,7 @@ async fn later_requests_keep_their_own_input_targets() {
 		RequestState::Inputs {
 			database_index_queue: Progress::Ready,
 			indexers: Progress::Ready,
-			log_compactions: Progress::Pending(20),
+			log_compactions: Progress::Ready,
 		}
 	));
 	state.start_indexer_wait(async { Ok(()) });
@@ -363,8 +365,8 @@ async fn later_requests_keep_their_own_input_targets() {
 				assert!(target.is_none());
 				async { Ok(Some(second)) }
 			},
-			async { panic!("an existing compaction target must not be read again") },
-			async { Ok(Some(11)) },
+			async { Ok(30) },
+			async { Ok(Some(21)) },
 		)
 		.await
 		.unwrap();
@@ -374,7 +376,7 @@ async fn later_requests_keep_their_own_input_targets() {
 		RequestState::Inputs {
 			database_index_queue: Progress::Pending(()),
 			indexers: Progress::Complete,
-			log_compactions: Progress::Pending(20),
+			log_compactions: Progress::Pending(30),
 		}
 	));
 }

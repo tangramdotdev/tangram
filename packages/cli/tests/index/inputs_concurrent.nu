@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Start all three input waits before allowing any of them to finish.
+# Start the queue and indexer waits together, then snapshot compactions after indexing.
 let local = server spawn --config {
 	advanced: { checkpoints: true },
 	indexer: { request: { poll_interval: 0.01 } },
@@ -15,11 +15,14 @@ let request = job spawn {
 	let output = tg --url $local.url index | complete
 	$output | job send --tag $job_id 0
 }
-for watch in $watches {
+for watch in ($watches | first 2) {
 	tg --url $local.url checkpoint wait $watch.name $watch.watch 0 | ignore
 }
-for watch in $watches {
+for watch in ($watches | first 2) {
 	tg --url $local.url checkpoint unwatch $watch.name $watch.watch
 }
+let compactions = $watches | last
+tg --url $local.url checkpoint wait $compactions.name $compactions.watch 0 | ignore
+tg --url $local.url checkpoint unwatch $compactions.name $compactions.watch
 let output = job recv --tag $request --timeout 10sec
 success $output
