@@ -101,6 +101,7 @@ impl Session {
 		Ok(index)
 	}
 
+	#[tracing::instrument(name = "log.compact", level = "info", skip_all, fields(%process), err)]
 	pub(crate) async fn compact_process_log(&self, process: &tg::process::Id) -> tg::Result<()> {
 		let indexed = self.get_process_from_index(process).await?;
 		let data = indexed

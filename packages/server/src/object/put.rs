@@ -8,6 +8,7 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
+	tracing::Instrument as _,
 };
 
 impl Session {
@@ -418,6 +419,7 @@ impl Server {
 		Ok(())
 	}
 
+	#[tracing::instrument(name = "object.put_batch", level = "debug", skip_all, fields(count = args.len(), bytes = args.iter().filter_map(|arg| arg.bytes.as_ref()).map(bytes::Bytes::len).sum::<usize>()), err(level = "debug"))]
 	pub(crate) async fn put_object_batch(
 		&self,
 		args: Vec<crate::cache::object::put::Arg>,
@@ -456,12 +458,33 @@ impl Server {
 			.iter()
 			.map(|arg| (arg.id.clone(), arg.put))
 			.collect::<Vec<_>>();
+		let count = args.len();
 		let archive = future::try_join_all(
 			entries
 				.into_iter()
 				.map(|(id, put)| self.enqueue_object_archive(id, put)),
-		);
-		let object_put = self.cache.put_object_batch(args);
+		)
+		.map(|result| {
+			tracing::debug!(
+				count,
+				success = result.is_ok(),
+				"completed the archive enqueue batch"
+			);
+			result
+		})
+		.instrument(tracing::debug_span!("object.archive_enqueue_batch", count));
+		let object_put = self
+			.cache
+			.put_object_batch(args)
+			.map(|result| {
+				tracing::debug!(
+					count,
+					success = result.is_ok(),
+					"completed the cache write batch"
+				);
+				result
+			})
+			.instrument(tracing::debug_span!("object.cache_write_batch", count));
 		let (object_result, archive_result) = future::join(object_put, archive).await;
 		object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 		archive_result

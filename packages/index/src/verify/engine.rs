@@ -136,6 +136,9 @@ impl Batch {
 	where
 		E: Clone + Send + Sync + 'static,
 	{
+		let started = std::time::Instant::now();
+		tracing::debug!(target: "tangram_index::verify::timing", args = args.len(), "starting a verification batch");
+
 		// Read storage and prove permissions in the same index transaction.
 		let args = args.to_vec();
 		config.validate()?;
@@ -203,6 +206,13 @@ impl Batch {
 			},
 		};
 		let reads = client_for_reads.reads();
+		tracing::debug!(
+			target: "tangram_index::verify::timing",
+			args = args.len(),
+			reads,
+			elapsed_ms = started.elapsed().as_millis(),
+			"finished a verification batch"
+		);
 		for arg in &args {
 			tracing::debug!(
 				args = args.len(),

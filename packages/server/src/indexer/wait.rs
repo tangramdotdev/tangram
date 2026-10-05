@@ -34,6 +34,7 @@ pub(super) enum RequestState {
 }
 
 impl Indexer {
+	#[tracing::instrument(name = "indexer.wait", level = "info", skip_all, fields(%id), err)]
 	pub(in crate::indexer) async fn wait_for_indexing(
 		&self,
 		wait_sender: &Sender,
@@ -90,6 +91,12 @@ impl Indexer {
 						state.queues.target_sequences().1,
 					)
 				};
+				tracing::debug!(
+					read,
+					target,
+					waits = state.waits.len(),
+					"read the private index queue progress"
+				);
 				state.poll_queues(self.server.config.advanced.single_process, read, target);
 			}
 
@@ -169,8 +176,11 @@ impl State {
 			async move {
 				let request = ids.first().unwrap().clone();
 				crate::checkpoint!(server, "indexer.request.wait", request,).await;
+				tracing::debug!("waiting for object puts before indexing");
 				server.remote_object_put_tasks.wait().await;
+				tracing::debug!("waiting for index tasks");
 				server.index_tasks.wait().await;
+				tracing::debug!("finished waiting for index tasks");
 
 				ids
 			}

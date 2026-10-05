@@ -35,3 +35,4 @@ tangram_index = { workspace = true }
 tangram_serialize = { workspace = true }
 tangram_util = { workspace = true }
 tokio = { workspace = true }
+tracing = { workspace = true }

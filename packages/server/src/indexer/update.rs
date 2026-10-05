@@ -63,6 +63,13 @@ impl Indexer {
 				}
 			})
 			.await?;
+			if output.count > 0 {
+				tracing::debug!(
+					?kind,
+					count = output.count,
+					"processed an index update batch"
+				);
+			}
 			if output.count == 0 {
 				tokio::select! {
 					() = stopper.wait() => {},

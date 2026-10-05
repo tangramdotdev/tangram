@@ -105,6 +105,9 @@ impl Index {
 		};
 		let mut transaction = crate::Transaction::new(transaction);
 		loop {
+			let started = std::time::Instant::now();
+			let request_count = requests.len();
+			tracing::debug!(request_count, "starting an index read transaction");
 			let verification_fact_cache = tangram_index::verify::facts::Cache::new();
 			let (retry_error, mut retry_requests) = {
 				// Execute the pending requests concurrently.
@@ -157,12 +160,25 @@ impl Index {
 				(retry_error, retry_requests)
 			};
 			let Some(error) = retry_error else {
+				tracing::debug!(
+					request_count,
+					elapsed_ms = started.elapsed().as_millis(),
+					"finished an index read transaction"
+				);
 				return;
 			};
 			retry_requests.retain(|(_, sender)| !sender.is_closed());
 			if retry_requests.is_empty() {
 				return;
 			}
+
+			tracing::warn!(
+				code = error.code(),
+				request_count,
+				retry_requests = retry_requests.len(),
+				elapsed_ms = started.elapsed().as_millis(),
+				"retrying an index read transaction"
+			);
 
 			// Reset the transaction for the retryable requests.
 			let inner = match transaction.take() {

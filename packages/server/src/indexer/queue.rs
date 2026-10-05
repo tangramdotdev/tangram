@@ -132,12 +132,20 @@ impl Queues {
 		}
 	}
 
+	#[tracing::instrument(name = "indexer.recover_queues", level = "info", skip_all, fields(indexer = %indexer.id(), archive_start = self.archive.read_sequence, archive_end = self.archive.reserved_sequence_end, index_start = self.index.read_sequence, index_end = self.index.reserved_sequence_end), err(level = "debug"))]
 	pub async fn recover(
 		&mut self,
 		indexer: &Indexer,
 		archive_sender: &ArchiveMessageSender,
 		index_sender: &IndexMessageSender,
 	) -> tg::Result<()> {
+		tracing::debug!(
+			archive_start = self.archive.read_sequence,
+			archive_end = self.archive.reserved_sequence_end,
+			index_start = self.index.read_sequence,
+			index_end = self.index.reserved_sequence_end,
+			"recovering the queues"
+		);
 		let mut sequence_start = self.archive.read_sequence;
 		while sequence_start < self.archive.reserved_sequence_end {
 			let sequence_end = sequence_start
@@ -154,6 +162,12 @@ impl Queues {
 				.get_archive_queue_entries(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to recover archive queue entries"))?;
+			tracing::debug!(
+				count = entries.len(),
+				sequence_start,
+				sequence_end,
+				"recovered the archive queue batch"
+			);
 			let sequences = entries
 				.iter()
 				.map(|entry| entry.sequence)
@@ -182,12 +196,28 @@ impl Queues {
 				sequence_end,
 				sequence_start,
 			};
+			tracing::debug!(
+				sequence_start,
+				sequence_end,
+				"reading the index queue batch"
+			);
 			let fragments = indexer
 				.server
 				.cache
 				.get_index_queue_fragments(arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to recover index queue fragments"))?;
+			let bytes = fragments
+				.iter()
+				.map(|fragment| fragment.payload.len())
+				.sum::<usize>();
+			tracing::debug!(
+				bytes,
+				count = fragments.len(),
+				sequence_start,
+				sequence_end,
+				"recovered the index queue batch"
+			);
 			let sequences = fragments
 				.iter()
 				.map(|fragment| fragment.sequence)
@@ -714,6 +744,7 @@ impl Indexer {
 		Ok(())
 	}
 
+	#[tracing::instrument(name = "archive.process_entry", level = "debug", skip_all, fields(indexer = %self.id(), object = %entry.object, sequence = entry.sequence), err(level = "debug"))]
 	async fn process_archive_entry(
 		&self,
 		entry: &crate::cache::archive::queue::Entry,
@@ -740,6 +771,7 @@ impl Indexer {
 		Ok(())
 	}
 
+	#[tracing::instrument(name = "index.process_batch", level = "debug", skip_all, fields(indexer = %self.id(), fragments = fragments.len(), bytes = fragments.iter().map(|fragment| fragment.payload.len()).sum::<usize>()), err(level = "debug"))]
 	async fn process_index_batch(
 		&self,
 		fragments: &[crate::cache::index::queue::Fragment],
@@ -749,11 +781,18 @@ impl Indexer {
 			.iter()
 			.map(|fragment| fragment.payload.len())
 			.sum();
+		tracing::debug!(
+			bytes = len,
+			fragments = fragments.len(),
+			"reassembling the index batch"
+		);
 		let mut bytes = Vec::with_capacity(len);
 		for fragment in fragments {
 			bytes.extend_from_slice(&fragment.payload);
 		}
+		tracing::debug!(bytes = bytes.len(), "decoding the index batch");
 		let arg = tangram_index::batch::Arg::deserialize(&bytes)?;
+		tracing::debug!(items = arg.items.len(), "decoded the index batch");
 		drop(bytes);
 		let log_compaction = arg
 			.items

@@ -28,7 +28,7 @@ pub(crate) struct Request {
 	state: RequestState,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum RequestState {
 	Inputs {
 		database_index_queue: Progress<()>,
@@ -40,7 +40,7 @@ enum RequestState {
 	},
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Progress<T> {
 	Complete,
 	Pending(T),
@@ -48,6 +48,7 @@ enum Progress<T> {
 }
 
 impl Server {
+	#[tracing::instrument(name = "index.wait", level = "info", skip_all, err)]
 	pub(crate) async fn index_inner(&self) -> tg::Result<()> {
 		let (sender, receiver) = tokio::sync::oneshot::channel();
 		let request = Request {
@@ -303,6 +304,10 @@ impl State {
 		})
 		.await?;
 
+		for (id, request) in &self.waits {
+			tracing::debug!(%id, state = ?request.state, "waiting for indexing progress");
+		}
+
 		// Pending shared work needs a surviving indexer after the private waits finish.
 		if !server.config.advanced.single_process
 			&& self.waits.values().any(|request| {
@@ -390,6 +395,7 @@ impl State {
 
 		// Advance each input independently without admitting later requests to an older snapshot.
 		if let Some(batch) = database_index_queue {
+			tracing::debug!(?batch, "read the database index queue progress");
 			let pending = self.database_index_queue_batch_id.is_some();
 			for request in self.waits.values_mut() {
 				let RequestState::Inputs {
@@ -416,6 +422,7 @@ impl State {
 			}
 		}
 		if let Some((transaction_id, oldest)) = log_compactions {
+			tracing::debug!(?transaction_id, ?oldest, "read the log compaction progress");
 			for request in self.waits.values_mut() {
 				let RequestState::Inputs {
 					indexers: Progress::Complete,
@@ -506,6 +513,7 @@ impl State {
 			read(tangram_index::update::Kind::Usage),
 		)
 		.await?;
+		tracing::debug!(?oldests, "read the oldest index updates");
 		let ids = self
 			.waits
 			.iter()

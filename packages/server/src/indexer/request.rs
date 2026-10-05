@@ -9,6 +9,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_messenger::{Messenger as _, Payload},
+	tracing::Instrument as _,
 };
 
 pub(super) mod limits;
@@ -376,6 +377,7 @@ impl Indexer {
 		}
 	}
 
+	#[tracing::instrument(name = "archive.enqueue", level = "debug", skip_all, fields(indexer = %self.id(), object = %arg.object), err(level = "debug"))]
 	async fn handle_archive_request(
 		&self,
 		state: &Mutex<State>,
@@ -383,7 +385,9 @@ impl Indexer {
 		archive_sender: &queue::ArchiveMessageSender,
 		arg: ArchiveRequestArg,
 	) -> tg::Result<()> {
-		let sequence = Self::allocate_sequence(state, changed, queue::Kind::Archive).await?;
+		let sequence = Self::allocate_sequence(state, changed, queue::Kind::Archive)
+			.instrument(tracing::debug_span!("archive.reserve_sequence"))
+			.await?;
 		let entry = crate::cache::archive::queue::Entry {
 			indexer: self.id().clone(),
 			object: arg.object,
@@ -397,6 +401,7 @@ impl Indexer {
 			.server
 			.cache
 			.put_archive_queue_entry(arg)
+			.instrument(tracing::debug_span!("archive.store_queue_entry", sequence))
 			.await
 			.map_err(|source| tg::error!(!source, "failed to put an archive queue entry"));
 		let message = if result.is_ok() {
@@ -406,6 +411,7 @@ impl Indexer {
 		};
 		archive_sender
 			.send(message)
+			.instrument(tracing::debug_span!("archive.submit_queue_entry", sequence))
 			.await
 			.map_err(|_| tg::error!("the archive queue task stopped"))?;
 		result?;
