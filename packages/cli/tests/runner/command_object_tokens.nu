@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A remote build succeeds on a trusted runner whose verification search budget is zero, so every read of the command's objects must be authorized by a token.
+# A remote build succeeds on a trusted runner whose verification search budget is smaller than the package, so reads of the command's objects must be authorized by tokens.
 
 let root_token = random chars
 let remote = server spawn --cloud --preserve-keys --name remote --config {
@@ -17,11 +17,15 @@ let runner = server spawn --name runner --config {
 	verification: {
 		permissions: {
 			final: {
-				ancestor: { max_depth: 0, max_edges: 0, max_nodes: 0 }
-				descendant: { max_depth: 0, max_edges: 0, max_nodes: 0 }
-				subtree: { max_objects: 0 }
+				ancestor: { max_depth: 1, max_edges: 1, max_nodes: 1 }
+				descendant: { max_depth: 1, max_edges: 1, max_nodes: 1 }
+				subtree: { max_objects: 1 }
 			}
-			initial: false
+			initial: {
+				ancestor: { max_depth: 1, max_edges: 1, max_nodes: 1 }
+				descendant: { max_depth: 1, max_edges: 1, max_nodes: 1 }
+				subtree: { max_objects: 1 }
+			}
 		}
 	},
 }
