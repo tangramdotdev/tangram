@@ -57,7 +57,6 @@ impl Session {
 
 		// Sum the regional usage.
 		let mut aggregate = tg::usage::Aggregate::default();
-		let mut complete = true;
 		for output in outputs {
 			if output.account != account.id() || output.period != period.range() {
 				return Err(tg::error!(
@@ -73,9 +72,8 @@ impl Session {
 				sandbox_memory: output.sandbox_memory,
 			};
 			aggregate.checked_add(regional)?;
-			complete &= output.complete;
 		}
-		let output = usage_output(account, period, complete, aggregate);
+		let output = usage_output(account, period, aggregate);
 
 		Ok(output)
 	}
@@ -90,8 +88,7 @@ impl Session {
 		}
 		let now = self.server.clock.now()?;
 		let aggregate = self.server.index.get_usage(account, period, now).await?;
-		let complete = period.end() <= now;
-		let output = usage_output(account, period, complete, aggregate);
+		let output = usage_output(account, period, aggregate);
 		Ok(output)
 	}
 
@@ -256,12 +253,10 @@ impl Session {
 fn usage_output(
 	account: &tg::usage::Account,
 	period: tg::usage::Period,
-	complete: bool,
 	aggregate: tg::usage::Aggregate,
 ) -> tg::usage::Output {
 	tg::usage::Output {
 		account: account.id(),
-		complete,
 		object_count: aggregate.object_count,
 		object_size: aggregate.object_size,
 		period: period.range(),

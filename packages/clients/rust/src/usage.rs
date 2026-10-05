@@ -99,9 +99,6 @@ pub struct Range {
 pub struct Output {
 	pub account: tg::Id,
 
-	/// Whether the period has ended.
-	pub complete: bool,
-
 	/// The object usage in object-hours.
 	pub object_count: u64,
 
