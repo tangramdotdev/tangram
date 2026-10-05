@@ -716,6 +716,7 @@ where
 	}
 
 	pub(crate) async fn read(&self, mut request: Request) -> Response<E> {
+		tokio::task::consume_budget().await;
 		let Some(budget) = &self.budget else {
 			return self.read_inner(request).await;
 		};
