@@ -46,6 +46,8 @@ pub async fn run(args: Args) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, url = %args.url, "expected a success status"))?;
 	super::progress::write_message(&format!("downloading from \"{}\"", args.url))?;
 	let content_length = response.content_length();
+	let remote_addr = response.remote_addr();
+	let version = response.version();
 	let downloaded = Arc::new(AtomicU64::new(0));
 	let progress = super::progress::Progress::with_position(
 		"downloading",
@@ -58,7 +60,21 @@ pub async fn run(args: Args) -> tg::Result<()> {
 	});
 	let stream = response
 		.bytes_stream()
-		.map_err(std::io::Error::other)
+		.map_err({
+			let downloaded = downloaded.clone();
+			move |error| {
+				let downloaded_bytes = downloaded.load(std::sync::atomic::Ordering::Relaxed);
+				let error = tg::error!(
+					!error,
+					content_length = ?content_length,
+					%downloaded_bytes,
+					remote_addr = ?remote_addr,
+					version = ?version,
+					"failed to read the response body"
+				);
+				std::io::Error::other(error)
+			}
+		})
 		.inspect_ok({
 			let checksum = checksum.clone();
 			let downloaded = downloaded.clone();
