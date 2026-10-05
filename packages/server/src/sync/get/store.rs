@@ -262,7 +262,7 @@ impl Session {
 	) -> tg::Result<()> {
 		// Deserialize all processes.
 		let count = nodes.len();
-		let mut batch: Vec<(
+		let batch: Vec<(
 			tg::process::Id,
 			tg::process::Data,
 			Option<tg::process::Metadata>,
@@ -276,34 +276,6 @@ impl Session {
 				Ok((node.id, data, node.metadata))
 			})
 			.collect::<tg::Result<_>>()?;
-
-		// Do not replace an existing compacted log and its metadata with an uncompacted copy.
-		let ids = batch
-			.iter()
-			.map(|(id, _, _)| id.clone())
-			.collect::<Vec<_>>();
-		let existing = self
-			.server
-			.index
-			.try_get_processes(&ids)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to get the existing processes"))?;
-		for ((_, data, metadata), existing) in std::iter::zip(&mut batch, existing) {
-			let Some(existing) = existing else {
-				continue;
-			};
-			if data.log.is_some() {
-				continue;
-			}
-			let Some(log) = existing.data.and_then(|data| data.log) else {
-				continue;
-			};
-			data.log = Some(log);
-			match metadata {
-				Some(metadata) => metadata.merge(&existing.metadata),
-				None => *metadata = Some(existing.metadata),
-			}
-		}
 
 		// Write the processes to the index.
 		let now = self.server.clock.unix_timestamp()?;
@@ -330,6 +302,14 @@ impl Session {
 					options: tg::referent::Options::default(),
 					output: None,
 					parent: None,
+					permissions: [
+						self.sync_get_create_permission(&id.clone().into(), None)?,
+						self.sync_get_create_permission(&id.clone().into(), Some(&state.id))?,
+					]
+					.into_iter()
+					.flatten()
+					.collect(),
+					principal: self.context.principal.clone(),
 					sandbox: None,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: self.server.config.process.time_to_touch,
@@ -346,19 +326,34 @@ impl Session {
 					.collect(),
 			})
 			.await
+			.and_then(std::convert::identity)
 			.map_err(|error| tg::error!(!error, "failed to put the processes in the index"))?;
+
+		// Verify access after the validated submission grants have committed.
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		);
+		let authorizations = self
+			.authorize_batch(
+				batch
+					.iter()
+					.map(|(id, _, _)| (tg::Referent::with_node(id.clone()), permission.into()))
+					.collect::<Vec<_>>(),
+			)
+			.await?;
+		crate::authorization::check_exhaustion(&authorizations)?;
 
 		// Update the graph.
 		{
 			let mut graph = state.graph.lock().unwrap();
-			for (id, data, metadata) in &batch {
+			for ((id, data, metadata), authorization) in batch.iter().zip(&authorizations) {
 				let metadata = metadata.clone();
 				let arg = UpdateProcessLocalArg {
 					data: Some(data),
 					id,
 					marked: Some(true),
 					metadata,
-					permissions: None,
+					permissions: Some(authorization.permissions),
 					requested: None,
 					storage: Some(tg::process::storage::Set::NODE),
 				};

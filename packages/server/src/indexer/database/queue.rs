@@ -116,17 +116,13 @@ impl Indexer {
 			if !self.server.named_checkout_maintenance_enabled()
 				|| !Self::database_index_queue_batch_contains_named_node_mutation(&arg)
 			{
-				self.server.index.batch(arg).await.map_err(|error| {
-					tg::error!(!error, "failed to index a database index queue batch")
-				})?;
+				self.index_database_queue_batch(arg).await?;
 				continue;
 			}
 			crate::checkpoint!(self.server, "indexer.database_index_queue.named_node").await;
 			let guard = self.server.checkout_lock.acquire().await?;
 			if !self.server.named_checkout_maintenance_enabled() {
-				self.server.index.batch(arg).await.map_err(|error| {
-					tg::error!(!error, "failed to index a database index queue batch")
-				})?;
+				self.index_database_queue_batch(arg).await?;
 				continue;
 			}
 			let (arg, mut invalidations) = self.prepare_database_index_queue_batch(arg).await?;
@@ -141,9 +137,7 @@ impl Indexer {
 					)
 					.await?;
 			}
-			self.server.index.batch(arg).await.map_err(|error| {
-				tg::error!(!error, "failed to index a database index queue batch")
-			})?;
+			self.index_database_queue_batch(arg).await?;
 		}
 		let arg = crate::database::index::queue::DeleteArg {
 			batch,
@@ -156,6 +150,17 @@ impl Indexer {
 			.map_err(|error| tg::error!(!error, "failed to delete a database index queue batch"))?;
 
 		Ok(count)
+	}
+
+	async fn index_database_queue_batch(&self, arg: tangram_index::batch::Arg) -> tg::Result<()> {
+		let result =
+			self.server.index.batch(arg).await.map_err(|error| {
+				tg::error!(!error, "failed to index a database index queue batch")
+			})?;
+		if let Err(error) = result {
+			tracing::error!(error = %error.trace(), "discarding a rejected database index queue batch");
+		}
+		Ok(())
 	}
 
 	fn database_index_queue_batch_contains_named_node_mutation(

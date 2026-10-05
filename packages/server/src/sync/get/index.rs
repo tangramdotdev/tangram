@@ -1,7 +1,7 @@
 use {
 	crate::sync::graph::{Graph, Node, UpdateObjectLocalArg, UpdateProcessLocalArg},
 	crate::{Session, sync::get::State},
-	futures::{StreamExt as _, TryStreamExt as _},
+	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _},
 	num::ToPrimitive as _,
 	std::{
 		collections::BTreeSet,
@@ -11,6 +11,7 @@ use {
 	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
+	tangram_index::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 
@@ -621,10 +622,18 @@ impl Session {
 		graph: Arc<Mutex<Graph>>,
 		sync: &tg::sync::Id,
 	) -> tg::Result<()> {
-		let (put_sandbox_args, put_sandbox_permission_args) =
-			self.sync_get_index_sandbox_args(&graph, sync).await?;
-		self.sync_get_index_put_inner(graph, put_sandbox_args, put_sandbox_permission_args, sync)
+		let put_sandbox_args = self
+			.sync_get_index_sandbox_args(&graph, sync)
+			.boxed()
 			.await?;
+		let arg = tangram_index::batch::Arg {
+			items: put_sandbox_args
+				.into_iter()
+				.map(tangram_index::batch::Item::PutSandbox)
+				.collect(),
+		};
+		self.server.index.batch(arg).await??;
+		self.sync_get_index_put_inner(graph, sync).await?;
 
 		Ok(())
 	}
@@ -634,8 +643,7 @@ impl Session {
 		graph: Arc<Mutex<Graph>>,
 		sync: &tg::sync::Id,
 	) -> tg::Result<()> {
-		self.sync_get_index_put_inner(graph, Vec::new(), Vec::new(), sync)
-			.await?;
+		self.sync_get_index_put_inner(graph, sync).await?;
 
 		Ok(())
 	}
@@ -643,18 +651,11 @@ impl Session {
 	async fn sync_get_index_put_inner(
 		&self,
 		graph: Arc<Mutex<Graph>>,
-		put_sandbox_args: Vec<tangram_index::sandbox::put::Arg>,
-		put_sandbox_permission_args: Vec<tangram_index::permission::put::Arg>,
 		sync: &tg::sync::Id,
 	) -> tg::Result<()> {
 		let options = self.server.config.sync.retry.clone().into();
 		tangram_futures::retry(&options, || {
-			self.sync_get_index_put_attempt(
-				graph.clone(),
-				put_sandbox_args.clone(),
-				put_sandbox_permission_args.clone(),
-				sync,
-			)
+			self.sync_get_index_put_attempt(graph.clone(), sync)
 		})
 		.await?;
 
@@ -664,8 +665,6 @@ impl Session {
 	async fn sync_get_index_put_attempt(
 		&self,
 		graph: Arc<Mutex<Graph>>,
-		put_sandbox_args: Vec<tangram_index::sandbox::put::Arg>,
-		put_sandbox_permission_args: Vec<tangram_index::permission::put::Arg>,
 		sync: &tg::sync::Id,
 	) -> tg::Result<ControlFlow<(), tg::Error>> {
 		// Flush the cache.
@@ -754,7 +753,16 @@ impl Session {
 			put_permission_args.push(arg);
 		}
 
-		// Index the objects, processes, and sandboxes.
+		// Commit guarded process writes before enqueueing the remaining indexing work.
+		let arg = tangram_index::batch::Arg {
+			items: put_process_args
+				.into_iter()
+				.map(tangram_index::batch::Item::PutProcess)
+				.collect(),
+		};
+		self.server.index.batch(arg).await??;
+
+		// Index the objects and permissions.
 		let arg = tangram_index::batch::Arg {
 			items: put_checkout_args
 				.into_iter()
@@ -765,19 +773,8 @@ impl Session {
 						.map(tangram_index::batch::Item::PutObject),
 				)
 				.chain(
-					put_process_args
-						.into_iter()
-						.map(tangram_index::batch::Item::PutProcess),
-				)
-				.chain(
-					put_sandbox_args
-						.into_iter()
-						.map(tangram_index::batch::Item::PutSandbox),
-				)
-				.chain(
 					put_permission_args
 						.into_iter()
-						.chain(put_sandbox_permission_args)
 						.map(tangram_index::batch::Item::PutPermission),
 				)
 				.chain(permission_capture_items)
@@ -819,10 +816,7 @@ impl Session {
 		&self,
 		graph: &Arc<Mutex<Graph>>,
 		sync: &tg::sync::Id,
-	) -> tg::Result<(
-		Vec<tangram_index::sandbox::put::Arg>,
-		Vec<tangram_index::permission::put::Arg>,
-	)> {
+	) -> tg::Result<Vec<tangram_index::sandbox::put::Arg>> {
 		// Get the sandbox messages.
 		let messages = graph
 			.lock()
@@ -835,7 +829,7 @@ impl Session {
 			})
 			.collect::<Vec<_>>();
 		if messages.is_empty() {
-			return Ok((Vec::new(), Vec::new()));
+			return Ok(Vec::new());
 		}
 		if matches!(self.context.principal, tg::Principal::Anonymous) {
 			return Err(tg::error!("unauthorized"));
@@ -843,51 +837,34 @@ impl Session {
 
 		// Create the sandbox and permission args.
 		let touched_at = self.server.clock.unix_timestamp()?;
-		let mut put_permission_args = Vec::new();
 		let mut put_sandbox_args = Vec::with_capacity(messages.len());
 		for message in messages {
 			let account = match message.data.data.owner.as_ref() {
 				Some(owner) => self.usage_account(owner).await?,
 				None => None,
 			};
-			let existing = self
-				.try_get_sandbox_from_index(&message.id)
-				.await?
-				.is_some();
-			if existing {
-				let permission = tg::authorization::Permission::Sandbox(
-					tg::authorization::permission::sandbox::Permission::Write,
-				);
-				let authorized = self
-					.authorize(message.id.clone(), permission)
-					.await?
-					.check_exhaustion()?;
-				if !authorized.permissions.contains(permission) {
-					return Err(tg::error!("unauthorized"));
-				}
-			}
-			if let Some(arg) =
-				self.sync_get_create_permission(&message.id.clone().into(), Some(sync))?
-			{
-				put_permission_args.push(arg);
-			}
-			// Preserve the caller's write permission when the sandbox is synced again.
-			if let Some(arg) = self.sync_get_create_permission(&message.id.clone().into(), None)? {
-				put_permission_args.push(arg);
-			}
+			let permissions = [
+				self.sync_get_create_permission(&message.id.clone().into(), Some(sync))?,
+				self.sync_get_create_permission(&message.id.clone().into(), None)?,
+			]
+			.into_iter()
+			.flatten()
+			.collect();
 			put_sandbox_args.push(tangram_index::sandbox::put::Arg {
 				account,
 				created_at: message.created_at,
 				data: Some(message.data),
 				id: message.id,
 				location: None,
+				permissions,
+				principal: self.context.principal.clone(),
 				processes: Some(message.processes),
 				runner: None,
 				touched_at,
 			});
 		}
 
-		Ok((put_sandbox_args, put_permission_args))
+		Ok(put_sandbox_args)
 	}
 
 	fn sync_get_index_permission_capture_items(
@@ -1018,18 +995,11 @@ impl Session {
 					}
 				},
 				Node::Process(node) => {
-					let availability = node.local_availability().cloned().unwrap_or_default();
-					let mut permissions = if node.marked() {
-						Graph::process_permissions(&availability)
-					} else {
-						tg::authorization::permission::process::Set::empty()
-					};
-					let tg::authorization::permission::Set::Process(proven) =
+					let tg::authorization::permission::Set::Process(mut permissions) =
 						graph.process_local_permissions(&id.clone().try_into()?)
 					else {
 						return Err(tg::error!("expected process permissions"));
 					};
-					permissions.insert(proven);
 					Self::sync_get_index_remove_process_permissions_covered_by_ancestors(
 						&mut permissions,
 						process_covered[index],
@@ -1183,13 +1153,15 @@ impl Session {
 							command_id,
 							data: Some(data.clone().without_location_and_tokens()),
 							error: Some((!error_objects.is_empty()).then_some(error_objects)),
-							id,
+							id: id.clone(),
 							location: None,
 							log: Some(log_object),
 							metadata,
 							options: tg::referent::Options::default(),
 							output: Some((!output_objects.is_empty()).then_some(output_objects)),
 							parent: None,
+							permissions: Vec::new(),
+							principal: self.context.principal.clone(),
 							sandbox: None,
 							storage,
 							time_to_touch: self.server.config.process.time_to_touch,

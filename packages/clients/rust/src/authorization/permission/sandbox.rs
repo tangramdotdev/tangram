@@ -18,10 +18,10 @@
 #[from_str(rename_all = "snake_case")]
 pub enum Permission {
 	#[tangram_serialize(id = 0)]
-	Read,
+	Node,
 
 	#[tangram_serialize(id = 1)]
-	Write,
+	Parent,
 }
 
 #[derive(
@@ -42,8 +42,8 @@ pub enum Permission {
 pub struct Set(u8);
 
 impl Set {
-	pub const READ: Self = Self(1 << 0);
-	pub const WRITE: Self = Self(1 << 1);
+	pub const NODE: Self = Self(1 << 0);
+	pub const PARENT: Self = Self(1 << 1);
 }
 
 impl Permission {
@@ -51,7 +51,7 @@ impl Permission {
 	pub fn implies(self, needed: Self) -> bool {
 		matches!(
 			(self, needed),
-			(Self::Write, Self::Write | Self::Read) | (Self::Read, Self::Read)
+			(Self::Node, Self::Node) | (Self::Parent, Self::Node | Self::Parent)
 		)
 	}
 }
@@ -65,8 +65,8 @@ impl Set {
 	#[must_use]
 	pub fn from_permission(permission: Permission) -> Self {
 		match permission {
-			Permission::Read => Self::READ,
-			Permission::Write => Self::WRITE,
+			Permission::Node => Self::NODE,
+			Permission::Parent => Self::PARENT,
 		}
 	}
 
@@ -86,8 +86,8 @@ impl Set {
 
 	pub fn iter(self) -> impl Iterator<Item = Permission> {
 		[
-			self.contains(Self::READ).then_some(Permission::Read),
-			self.contains(Self::WRITE).then_some(Permission::Write),
+			self.contains(Self::NODE).then_some(Permission::Node),
+			self.contains(Self::PARENT).then_some(Permission::Parent),
 		]
 		.into_iter()
 		.flatten()

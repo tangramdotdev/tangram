@@ -30,7 +30,7 @@ impl Index {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::EnqueuePermissionCapture(arg)],
 		};
-		self.batch(arg).await?;
+		self.batch(arg).await??;
 		Ok(())
 	}
 

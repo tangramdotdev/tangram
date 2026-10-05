@@ -192,7 +192,7 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 			tangram_index::batch::Item::EnqueuePermissionCapture(arg.clone()),
 		],
 	};
-	index.batch(batch).await.unwrap();
+	index.batch(batch).await.unwrap().unwrap();
 	enqueue(&index, arg.clone()).await;
 	let entries = index.permission_capture_batch(1, 0, 1).await.unwrap();
 	let write = permission_args(
@@ -222,7 +222,7 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 			.map(tangram_index::batch::Item::PutPermission),
 	);
 	let batch = tangram_index::batch::Arg { items };
-	index.batch(batch).await.unwrap();
+	index.batch(batch).await.unwrap().unwrap();
 	let process_subject = tg::authorization::Subject::Process(process);
 	assert_eq!(permissions(&index, &object, &process_subject).len(), 1);
 	index.delete_tags(std::slice::from_ref(&id)).await.unwrap();
@@ -232,7 +232,7 @@ async fn stale_tag_permission_capture_cannot_restore_permissions_or_delegations(
 	let batch = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutDelegation(delegation)],
 	};
-	index.batch(batch).await.unwrap();
+	index.batch(batch).await.unwrap().unwrap();
 	enqueue(&index, arg).await;
 	assert_eq!(
 		permissions(
@@ -398,6 +398,8 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 		options: tg::referent::Options::default(),
 		output: None,
 		parent: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Process(process.clone()),
 		sandbox: None,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
@@ -406,7 +408,7 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 	let batch = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutProcess(process_arg.clone())],
 	};
-	index.batch(batch).await.unwrap();
+	index.batch(batch).await.unwrap().unwrap();
 	let children = index
 		.try_get_process_children_and_objects(&process)
 		.await
@@ -420,7 +422,7 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 	let batch = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutProcess(process_arg)],
 	};
-	index.batch(batch).await.unwrap();
+	index.batch(batch).await.unwrap().unwrap();
 	let children = index
 		.try_get_process_children_and_objects(&process)
 		.await

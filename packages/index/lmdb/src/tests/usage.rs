@@ -640,6 +640,8 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 		)),
 		id: sandbox.clone(),
 		location: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Sandbox(sandbox.clone()),
 		processes: None,
 		runner: None,
 		touched_at: 1,
@@ -649,6 +651,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 			items: vec![tangram_index::batch::Item::PutSandbox(started)],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 	let destroyed = tangram_index::sandbox::put::Arg {
 		account: Some(account.clone()),
@@ -662,8 +665,10 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 				memory: 456,
 			}),
 		)),
-		id: sandbox,
+		id: sandbox.clone(),
 		location: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Sandbox(sandbox.clone()),
 		processes: None,
 		runner: None,
 		touched_at: 2,
@@ -673,12 +678,14 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 			items: vec![tangram_index::batch::Item::PutSandbox(destroyed.clone())],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 	index
 		.batch(tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutSandbox(destroyed)],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 
 	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();
@@ -710,6 +717,8 @@ async fn records_compute_once_when_destroy_precedes_start() {
 			data: Some(sandbox_data(sandbox.clone(), owner.clone(), status, usage)),
 			id: sandbox.clone(),
 			location: None,
+			permissions: Vec::new(),
+			principal: tg::Principal::Sandbox(sandbox.clone()),
 			processes: None,
 			runner: None,
 			touched_at: 2,
@@ -717,7 +726,7 @@ async fn records_compute_once_when_destroy_precedes_start() {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutSandbox(arg)],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 	}
 	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();
 	let usage = index.get_usage(&account, hour(0), now).await.unwrap();
@@ -744,6 +753,8 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 		)),
 		id: sandbox.clone(),
 		location: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Sandbox(sandbox.clone()),
 		processes: None,
 		runner: None,
 		touched_at: 1,
@@ -753,6 +764,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 			items: vec![tangram_index::batch::Item::PutSandbox(started)],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 	let destroyed = tangram_index::sandbox::put::Arg {
 		account: None,
@@ -766,8 +778,10 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 				memory: 456,
 			}),
 		)),
-		id: sandbox,
+		id: sandbox.clone(),
 		location: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Sandbox(sandbox.clone()),
 		processes: None,
 		runner: None,
 		touched_at: 2,
@@ -777,6 +791,7 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 			items: vec![tangram_index::batch::Item::PutSandbox(destroyed)],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 
 	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();

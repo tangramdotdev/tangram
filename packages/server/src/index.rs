@@ -185,7 +185,7 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn batch(&self, arg: index::batch::Arg) -> tg::Result<()> {
+	async fn batch(&self, arg: index::batch::Arg) -> tg::Result<tg::Result<()>> {
 		match self {
 			#[cfg(feature = "foundationdb")]
 			Self::Fdb(index) => index.batch(arg).await,
@@ -978,14 +978,15 @@ impl Server {
 					)
 					.await;
 					let result = server.index_batch_inner(arg).await;
-					if let Err(error) = &result {
-						tracing::error!(error = %error.trace(), "failed to index a batch");
-					}
 					if result.is_ok() {
 						server.index_changed.notify_waiters();
 					}
 					if result.is_ok() && log_compaction {
 						server.spawn_publish_log_compaction_notification_task();
+					}
+					let result = result.and_then(std::convert::identity);
+					if let Err(error) = &result {
+						tracing::error!(error = %error.trace(), "failed to index a batch");
 					}
 					crate::checkpoint!(server, "index.batch.finished", command_object_permission)
 						.await;
@@ -998,7 +999,10 @@ impl Server {
 		Ok(())
 	}
 
-	pub(crate) async fn index_batch_inner(&self, arg: index::batch::Arg) -> tg::Result<()> {
+	pub(crate) async fn index_batch_inner(
+		&self,
+		arg: index::batch::Arg,
+	) -> tg::Result<tg::Result<()>> {
 		// Wake index-backed readers after the runner state has been persisted.
 		let sandboxes = arg
 			.items
@@ -1016,14 +1020,14 @@ impl Server {
 				_ => None,
 			})
 			.collect::<Vec<_>>();
-		self.index.batch(arg).await?;
+		let result = self.index.batch(arg).await?;
 		for id in sandboxes {
 			self.spawn_publish_sandbox_status_task(&id);
 		}
 		for id in processes {
 			self.spawn_publish_process_status_task(&id);
 		}
-		Ok(())
+		Ok(result)
 	}
 
 	async fn enqueue_index_batch(

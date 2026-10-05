@@ -402,8 +402,8 @@ impl Search {
 				let mut neighbors = Vec::with_capacity(2 * sandboxes.len());
 				for sandbox in sandboxes {
 					for permission in [
-						tg::authorization::permission::sandbox::Permission::Write,
-						tg::authorization::permission::sandbox::Permission::Read,
+						tg::authorization::permission::sandbox::Permission::Node,
+						tg::authorization::permission::sandbox::Permission::Parent,
 					] {
 						neighbors.push((
 							sandbox.clone(),
@@ -1457,14 +1457,14 @@ fn inherent_sources(principal: &tg::Principal) -> Vec<Key> {
 			(
 				tg::Id::from(sandbox.clone()),
 				tg::authorization::Permission::Sandbox(
-					tg::authorization::permission::sandbox::Permission::Read,
+					tg::authorization::permission::sandbox::Permission::Node,
 				),
 				None,
 			),
 			(
 				tg::Id::from(sandbox.clone()),
 				tg::authorization::Permission::Sandbox(
-					tg::authorization::permission::sandbox::Permission::Write,
+					tg::authorization::permission::sandbox::Permission::Parent,
 				),
 				None,
 			),

@@ -36,7 +36,7 @@ assert equal $hit.exit_code 124 "spawning in the current sandbox must not contac
 let sandbox = tg --url $remote.url --token $root_token sandbox create --no-tokens | referent node
 let alice = tg --url $runner.url login --verbose --name alice | from json
 tg --url $runner.url --token $alice.token remote put default $remote.url
-tg --url $runner.url --token $root_token grant $alice.user.id read $sandbox
+tg --url $runner.url --token $root_token grant $alice.user.id node $sandbox
 let socket = $runner.url | str replace 'http+unix://' '' | url decode
 let root_headers = { Authorization: $'Bearer ($root_token)', 'Content-Type': 'application/json' }
 let reader_headers = { Authorization: $'Bearer ($alice.token)', 'Content-Type': 'application/json' }
@@ -44,7 +44,7 @@ let output = http post --full --allow-errors --max-time 10sec --unix-socket $soc
 assert equal $output.status 404 "sandbox read permission must not authorize destruction"
 let output = http post --full --allow-errors --max-time 10sec --unix-socket $socket --headers $root_headers $'http://localhost/sandboxes/($sandbox)/destroy' '{"location":"local"}'
 assert equal $output.status 404 "an explicit local location must not match a remote-owned sandbox"
-tg --url $runner.url --token $root_token grant $alice.user.id write $sandbox
+tg --url $runner.url --token $root_token grant $alice.user.id parent $sandbox
 
 let watch = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.request --params '{"kind":"destroy"}' | from json | get watch
 let report = tg --url $remote.url --token $root_token checkpoint watch sandbox.control.destroy | from json | get watch

@@ -5,7 +5,7 @@ let local = server spawn --name local --config { authentication: { users: { prov
 let alice = tg login --verbose --name alice | from json
 let bob = tg login --verbose --name bob | from json
 let sandbox = tg --token $alice.token sandbox create --no-tokens | referent node
-tg --token $alice.token grant $bob.user.id write $sandbox
+tg --token $alice.token grant $bob.user.id parent $sandbox
 let path = artifact { tangram.ts: 'export default () => tg.file("creator-access");' }
 let process = tg --token $bob.token spawn --no-tokens $'--sandbox=($sandbox)' $path | referent node
 tg --token $bob.token wait --source=index $process | ignore

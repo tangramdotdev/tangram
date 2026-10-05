@@ -75,7 +75,7 @@ let sandbox = tg --token $alice.token sandbox create --no-network | str trim
 let tokens = $sandbox | referent tokens local
 assert equal ($tokens | length) 1
 assert equal ($tokens.0 | token body | get resource) ($sandbox | referent node)
-assert equal ($tokens.0 | token body | get permissions) [sandbox_read]
+assert equal ($tokens.0 | token body | get permissions) [sandbox_node]
 failure (tg --token $bob.token sandbox get ($sandbox | referent node) | complete)
 success (tg --token $bob.token sandbox get $sandbox | complete)
 tg --token $alice.token sandbox destroy ($sandbox | referent node)

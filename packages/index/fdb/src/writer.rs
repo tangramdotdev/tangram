@@ -201,6 +201,24 @@ impl Index {
 		let mut current_count: usize = 0;
 
 		for (request, sender) in requests {
+			// Keep dependent mutations in one ordered request across transaction splits.
+			let request = match request {
+				Request::PutProcesses(args) => {
+					let items = args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutProcess)
+						.collect();
+					Request::Batch(tangram_index::batch::Arg { items })
+				},
+				Request::PutSandboxes(args) => {
+					let items = args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutSandbox)
+						.collect();
+					Request::Batch(tangram_index::batch::Arg { items })
+				},
+				request => request,
+			};
 			let tracker = Arc::new(Mutex::new(RequestTracker {
 				remaining: 0,
 				response: Ok(Self::create_initial_response(&request)),
@@ -295,8 +313,10 @@ impl Index {
 			Request::ExpireUsage(_) => {
 				Response::ExpireUsageOutput(tangram_index::usage::expire::Output::default())
 			},
-			Request::Batch(_)
-			| Request::CompletePermissionCapture(_)
+			Request::Batch(_) | Request::PutProcesses(_) | Request::PutSandboxes(_) => {
+				Response::Mutation(Ok(()))
+			},
+			Request::CompletePermissionCapture(_)
 			| Request::CompleteLogCompaction(_)
 			| Request::DeletePermissions(_)
 			| Request::DeleteGroupMembers(_)
@@ -316,8 +336,6 @@ impl Index {
 			| Request::PutObjects(_)
 			| Request::PutOrganizationMembers(_)
 			| Request::PutOrganizations(_)
-			| Request::PutProcesses(_)
-			| Request::PutSandboxes(_)
 			| Request::PutTags(_)
 			| Request::PutUsers(_)
 			| Request::UpdateIndexer(_) => Response::Unit,
@@ -858,6 +876,11 @@ impl Index {
 			(Response::Checkouts(existing), Response::Checkouts(new)) => {
 				existing.extend(new);
 			},
+			(Response::Mutation(existing), Response::Mutation(new)) => {
+				if existing.is_ok() {
+					*existing = new;
+				}
+			},
 			(Response::Objects(existing), Response::Objects(new)) => {
 				existing.extend(new);
 			},
@@ -900,7 +923,7 @@ impl Index {
 				unreachable!();
 			};
 			match Self::execute_ordered_batch(database, subspace, arg, config).await {
-				Ok(()) => Self::complete_tracker(&tracker, Ok(Response::Unit)),
+				Ok(result) => Self::complete_tracker(&tracker, Ok(Response::Mutation(result))),
 				Err(error) => Self::fail_tracker(&tracker, &error),
 			}
 			return;
@@ -943,7 +966,7 @@ impl Index {
 					)),
 				};
 				match result {
-					Ok(()) => Self::complete_tracker(&tracker, Ok(Response::Unit)),
+					Ok(result) => Self::complete_tracker(&tracker, Ok(Response::Mutation(result))),
 					Err(error) => Self::fail_tracker(&tracker, &error),
 				}
 			},
@@ -966,7 +989,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: tangram_index::batch::Arg,
 		config: ExecutionConfig<'_>,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::Result<()>> {
 		let size = config.max_write_operation_batch_size;
 		let mut pending = if arg.items.len() > size {
 			Self::chunk_batch_arg(arg, size)
@@ -991,9 +1014,12 @@ impl Index {
 			.await;
 			match result {
 				Ok(responses) => {
-					let [Response::Unit] = responses.as_slice() else {
+					let [Response::Mutation(result)] = responses.as_slice() else {
 						return Err(tg::error!("unexpected write response"));
 					};
+					if let Err(error) = result {
+						return Ok(Err(error.clone()));
+					}
 				},
 				Err(TransactionError::FoundationDb(error)) if Self::is_split_error(error) => {
 					let Request::Batch(arg) = request else {
@@ -1018,7 +1044,7 @@ impl Index {
 			}
 		}
 
-		Ok(())
+		Ok(Ok(()))
 	}
 
 	async fn execute_transaction(
@@ -1026,7 +1052,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		requests: &[Request],
 		config: ExecutionConfig<'_>,
-	) -> std::result::Result<Vec<Response>, TransactionError> {
+	) -> Result<Vec<Response>, TransactionError> {
 		let start = std::time::Instant::now();
 		let mut attempt_count = 0;
 
@@ -1180,8 +1206,8 @@ impl Index {
 			Request::Batch(arg) => {
 				let result =
 					Self::batch_with_transaction(txn, subspace, arg, config.partition_totals).await;
-				crate::propagate!(result);
-				Response::Unit
+				let result = crate::propagate!(result);
+				Response::Mutation(result)
 			},
 			Request::Clean(crate::Clean {
 				batch_size,
@@ -1352,20 +1378,15 @@ impl Index {
 				let result =
 					Self::put_processes_with_transaction(txn, subspace, args, partition_totals)
 						.await;
-				crate::propagate!(result);
-				Response::Unit
+				let result = crate::propagate!(result);
+				Response::Mutation(result)
 			},
 			Request::PutSandboxes(args) => {
-				let result = Self::put_sandboxes_with_transaction(
-					txn,
-					subspace,
-					args,
-					partition_total,
-					usage_partition_total,
-				)
-				.await;
-				crate::propagate!(result);
-				Response::Unit
+				let result =
+					Self::put_sandboxes_with_transaction(txn, subspace, args, partition_totals)
+						.await;
+				let result = crate::propagate!(result);
+				Response::Mutation(result)
 			},
 			Request::PutTags(args) => {
 				let result =
@@ -1567,6 +1588,49 @@ impl Metrics {
 #[cfg(test)]
 mod tests {
 	use super::*;
+
+	#[tokio::test]
+	async fn split_request_preserves_the_first_logic_error() {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let tracker = Arc::new(Mutex::new(RequestTracker {
+			remaining: 3,
+			response: Ok(Response::Mutation(Ok(()))),
+			sender: Some(sender),
+		}));
+		Index::complete_tracker(
+			&tracker,
+			Ok(Response::Mutation(Err(tg::error!("first rejection")))),
+		);
+		Index::complete_tracker(&tracker, Ok(Response::Mutation(Ok(()))));
+		Index::complete_tracker(
+			&tracker,
+			Ok(Response::Mutation(Err(tg::error!("second rejection")))),
+		);
+		let Response::Mutation(result) = receiver.await.unwrap().unwrap() else {
+			panic!()
+		};
+		assert_eq!(
+			result.unwrap_err().message().as_deref(),
+			Some("first rejection")
+		);
+	}
+
+	#[tokio::test]
+	async fn transaction_failure_overrides_a_pending_logic_error() {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		let tracker = Arc::new(Mutex::new(RequestTracker {
+			remaining: 2,
+			response: Ok(Response::Mutation(Ok(()))),
+			sender: Some(sender),
+		}));
+		Index::complete_tracker(
+			&tracker,
+			Ok(Response::Mutation(Err(tg::error!("logic rejection")))),
+		);
+		Index::fail_tracker(&tracker, &tg::error!("transaction failure"));
+		let error = receiver.await.unwrap().err().unwrap();
+		assert_eq!(error.message().as_deref(), Some("transaction failure"));
+	}
 
 	#[test]
 	fn batch_arg_splitting_preserves_order() {

@@ -676,6 +676,8 @@ impl Session {
 					options,
 					output: None,
 					parent: parent.clone(),
+					permissions: Vec::new(),
+					principal: tg::Principal::Process(id.clone()),
 					sandbox: Some(sandbox_id.clone()),
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: session.server.config.process.time_to_touch,

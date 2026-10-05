@@ -442,7 +442,7 @@ impl Session {
 						},
 					));
 				}
-				self.server.index.batch(batch).await?;
+				self.server.index.batch(batch).await??;
 				crate::checkpoint!(self.server, "checkout.named.materialize").await;
 				self.server
 					.materialize_named_checkout_entries_with_lock(&guard, &entries, suffix)

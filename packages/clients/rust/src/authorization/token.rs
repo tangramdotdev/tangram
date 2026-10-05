@@ -382,7 +382,7 @@ mod tests {
 			(
 				tg::id::Kind::Sandbox,
 				tg::authorization::Permission::Sandbox(
-					tg::authorization::permission::sandbox::Permission::Read,
+					tg::authorization::permission::sandbox::Permission::Node,
 				),
 			),
 			(

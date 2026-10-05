@@ -51,7 +51,7 @@ async fn object_output_includes_the_deleted_put_and_touched_at() {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutObject(object)],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 		let arg = tangram_index::clean::Arg {
 			batch_size: 1,
 			max_object_touched_at: touched_at,
@@ -111,6 +111,8 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 					options: tg::referent::Options::default(),
 					output: None,
 					parent: None,
+					permissions: Vec::new(),
+					principal: tg::Principal::Process(process.clone()),
 					sandbox: None,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: std::time::Duration::ZERO,
@@ -141,6 +143,7 @@ async fn deleting_a_process_deletes_all_permissions_it_holds() {
 			],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 	assert_eq!(count_subject_permissions(&index, &subject), 2);
 
@@ -191,7 +194,7 @@ async fn account_and_entity_candidates_share_the_clean_batch() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert_eq!(count_clean_keys(&index), 2);
 
 	let output = index
@@ -272,7 +275,7 @@ async fn cleaning_respects_each_kind_cutoff() {
 		})
 		.collect();
 	let arg = tangram_index::batch::Arg { items };
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let arg = tangram_index::clean::Arg {
 		batch_size: 100,
 		max_object_touched_at: 7,

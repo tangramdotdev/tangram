@@ -21,6 +21,8 @@ async fn process_location_survives_partial_and_finished_updates() {
 			options: tg::referent::Options::default(),
 			output: None,
 			parent: None,
+			permissions: Vec::new(),
+			principal: tg::Principal::Process(id.clone()),
 			sandbox: None,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: std::time::Duration::from_secs(60),
@@ -29,14 +31,14 @@ async fn process_location_survives_partial_and_finished_updates() {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutProcess(process.clone())],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 
 		// A location-only update must be written even when the touch interval has not elapsed.
 		process.location = Some(location.clone());
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutProcess(process.clone())],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 		let indexed = index.try_get_process(&id).await.unwrap().unwrap();
 		assert_eq!(indexed.location, Some(location.clone()));
 		assert!(indexed.data.is_none());
@@ -59,7 +61,7 @@ async fn process_location_survives_partial_and_finished_updates() {
 				items: vec![tangram_index::batch::Item::PutProcess(process.clone())],
 			};
 			let arg = tangram_index::batch::Arg::deserialize(&arg.serialize().unwrap()).unwrap();
-			index.batch(arg).await.unwrap();
+			index.batch(arg).await.unwrap().unwrap();
 			let indexed = index.try_get_process(&id).await.unwrap().unwrap();
 			assert_eq!(indexed.location, Some(location.clone()));
 			assert!(indexed.data.unwrap().status.is_finished());
@@ -79,6 +81,8 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 			data: None,
 			id: id.clone(),
 			location: Some(location.clone()),
+			permissions: Vec::new(),
+			principal: tg::Principal::Sandbox(id.clone()),
 			processes: None,
 			runner: None,
 			touched_at: 1,
@@ -86,7 +90,7 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutSandbox(sandbox.clone())],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 		let indexed = index.try_get_sandbox(&id).await.unwrap().unwrap();
 		assert_eq!(indexed.location, Some(location.clone()));
 		assert!(indexed.data.is_none());
@@ -104,7 +108,7 @@ async fn sandbox_location_survives_partial_and_destroyed_updates() {
 				items: vec![tangram_index::batch::Item::PutSandbox(sandbox.clone())],
 			};
 			let arg = tangram_index::batch::Arg::deserialize(&arg.serialize().unwrap()).unwrap();
-			index.batch(arg).await.unwrap();
+			index.batch(arg).await.unwrap().unwrap();
 			let indexed = index.try_get_sandbox(&id).await.unwrap().unwrap();
 			assert_eq!(indexed.location, Some(location.clone()));
 			let data = indexed.data.unwrap();

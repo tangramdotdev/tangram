@@ -87,7 +87,7 @@ impl Session {
 			.authorize_sandbox_runner(
 				id,
 				arg.tokens.local_authorization(),
-				tg::authorization::permission::sandbox::Permission::Read,
+				tg::authorization::permission::sandbox::Permission::Node,
 			)
 			.await?
 		{
@@ -213,7 +213,7 @@ impl Session {
 			arg.tokens.local_authorization().to_vec(),
 		);
 		let permission = tg::authorization::Permission::Sandbox(
-			tg::authorization::permission::sandbox::Permission::Read,
+			tg::authorization::permission::sandbox::Permission::Node,
 		);
 		let permissions = self
 			.authorize(resource, permission)

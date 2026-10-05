@@ -260,7 +260,7 @@ async fn put(index: &Index, objects: Vec<tangram_index::object::put::Arg>) {
 		.map(tangram_index::batch::Item::PutObject)
 		.collect();
 	let arg = tangram_index::batch::Arg { items };
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 }
 
 async fn drain(index: &Index) {

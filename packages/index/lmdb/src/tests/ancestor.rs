@@ -34,7 +34,7 @@ async fn try_get_ancestors() {
 			}),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 
 	let ancestors = index
 		.try_get_ancestors(&child.clone().into())

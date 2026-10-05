@@ -51,13 +51,15 @@ fn process_arg(
 		command_id: command,
 		data: None,
 		error: Some(None),
-		id,
+		id: id.clone(),
 		location: None,
 		log: Some(None),
 		metadata: tg::process::Metadata::default(),
 		options: tg::referent::Options::default(),
 		output: Some(None),
 		parent: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Process(id),
 		sandbox: None,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
@@ -108,7 +110,7 @@ async fn command_objects_can_be_empty_or_multiple_without_a_stored_command() {
 			.collect::<Vec<_>>();
 		items.push(tangram_index::batch::Item::PutProcess(process));
 		let arg = tangram_index::batch::Arg { items };
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 		loop {
 			let output = index
 				.update_batch(tangram_index::update::Kind::StorageAndMetadata, 100)
@@ -173,7 +175,7 @@ async fn cleans_command_cache_key_without_command_objects() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutProcess(process)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.try_get_cached_processes(&command)
@@ -216,7 +218,7 @@ async fn object_put_touched_at_does_not_regress() {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutObject(arg)],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 		let object = index.try_get_object(&id).await.unwrap().unwrap();
 		assert_eq!(object.touched_at, touched_at.max(10));
 	}
@@ -266,7 +268,7 @@ async fn account_storage_deduplicates_a_diamond_and_cleans() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	loop {
 		let output = index
 			.update_batch(tangram_index::update::Kind::Usage, 100)
@@ -327,7 +329,7 @@ async fn account_storage_traverses_process_relationships() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	loop {
 		let output = index
 			.update_batch(tangram_index::update::Kind::Usage, 100)
@@ -364,6 +366,8 @@ async fn account_storage_traverses_new_process_relationships() {
 		options: tg::referent::Options::default(),
 		output: None,
 		parent: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Process(root.clone()),
 		sandbox: None,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
@@ -382,7 +386,7 @@ async fn account_storage_traverses_new_process_relationships() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	loop {
 		let output = index
 			.update_batch(tangram_index::update::Kind::Usage, 100)
@@ -403,7 +407,7 @@ async fn account_storage_traverses_new_process_relationships() {
 			tangram_index::batch::Item::PutProcess(root_arg),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	loop {
 		let output = index
 			.update_batch(tangram_index::update::Kind::Usage, 100)
@@ -437,7 +441,7 @@ async fn account_storage_traverses_objects_indexed_after_their_parents() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	loop {
 		let output = index
 			.update_batch(tangram_index::update::Kind::Usage, 100)
@@ -460,6 +464,7 @@ async fn account_storage_traverses_objects_indexed_after_their_parents() {
 			))],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 	loop {
 		let output = index
@@ -531,7 +536,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	loop {
 		let output = index
 			.update_batch(tangram_index::update::Kind::Usage, 100)
@@ -573,6 +578,7 @@ async fn account_storage_traverses_a_tagged_process_log_indexed_later() {
 			))],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 	loop {
 		let output = index
@@ -613,7 +619,7 @@ async fn account_storage_traverses_processes_indexed_after_their_parents() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	loop {
 		let output = index
 			.update_batch(tangram_index::update::Kind::Usage, 100)
@@ -636,6 +642,7 @@ async fn account_storage_traverses_processes_indexed_after_their_parents() {
 			))],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 	loop {
 		let output = index
@@ -697,7 +704,7 @@ async fn account_storage_is_retained_by_a_tag() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let output = index
 		.clean(tangram_index::clean::Arg {
 			batch_size: 100,
@@ -720,6 +727,7 @@ async fn account_storage_is_retained_by_a_tag() {
 			items: vec![tangram_index::batch::Item::DeleteTag(tag)],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 	for _ in 0..4 {
 		let output = index
@@ -827,7 +835,7 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 				items.push(tangram_index::batch::Item::PutPermission(arg));
 			}
 			let arg = tangram_index::batch::Arg { items };
-			index.batch(arg).await.unwrap();
+			index.batch(arg).await.unwrap().unwrap();
 			while index
 				.update_batch(tangram_index::update::Kind::Usage, 100)
 				.await
@@ -846,7 +854,7 @@ async fn account_storage_is_not_retained_by_a_tag_without_permissions() {
 			let arg = tangram_index::batch::Arg {
 				items: vec![associated],
 			};
-			index.batch(arg).await.unwrap();
+			index.batch(arg).await.unwrap().unwrap();
 
 			// Expire the push retention after a two-hour TTL.
 			for _ in 0..4 {
@@ -885,7 +893,7 @@ async fn touching_does_not_create_a_storage_entry() {
 			5,
 		))],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	index
 		.touch_objects_with_account(
 			std::slice::from_ref(&object),
@@ -916,7 +924,7 @@ async fn touching_an_object_with_its_account_updates_both_lifetimes() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let objects = index
 		.touch_objects_with_account(
 			std::slice::from_ref(&object),
@@ -968,7 +976,7 @@ async fn touching_a_process_with_its_account_updates_both_lifetimes() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let processes = index
 		.touch_processes_with_account(
 			std::slice::from_ref(&process),
@@ -1013,7 +1021,7 @@ async fn touching_with_an_account_honors_time_to_touch() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	index
 		.touch_objects_with_account(
 			std::slice::from_ref(&object),
@@ -1065,7 +1073,7 @@ async fn subtree_storage_requires_node_storage() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutObject(object.clone())],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	loop {
 		let output = index
 			.update_batch(tangram_index::update::Kind::StorageAndMetadata, 100)
@@ -1088,7 +1096,7 @@ async fn subtree_storage_requires_node_storage() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutObject(object)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	loop {
 		let output = index
 			.update_batch(tangram_index::update::Kind::StorageAndMetadata, 100)
@@ -1163,6 +1171,7 @@ async fn tag_account_transfer_uses_held_permissions_without_incoming_proofs() {
 			index
 				.batch(tangram_index::batch::Arg { items })
 				.await
+				.unwrap()
 				.unwrap();
 			while index
 				.update_batch(tangram_index::update::Kind::Usage, 100)
@@ -1268,7 +1277,7 @@ async fn tag_storage_follows_captured_object_permissions() {
 					}),
 				],
 			};
-			index.batch(arg).await.unwrap();
+			index.batch(arg).await.unwrap().unwrap();
 			for (object, permission) in [
 				(
 					root.clone(),
@@ -1488,7 +1497,7 @@ async fn tag_storage_follows_captured_process_permissions() {
 					}),
 				],
 			};
-			index.batch(arg).await.unwrap();
+			index.batch(arg).await.unwrap().unwrap();
 			let arg = tangram_index::permission::put::Arg {
 				created_at,
 				creator: None,
@@ -1518,7 +1527,7 @@ async fn tag_storage_follows_captured_process_permissions() {
 					tangram_index::batch::Item::PutObject(object_arg(output_child, [], 3)),
 				],
 			};
-			index.batch(arg).await.unwrap();
+			index.batch(arg).await.unwrap().unwrap();
 			while index
 				.update_batch(tangram_index::update::Kind::Usage, 100)
 				.await
@@ -1601,7 +1610,7 @@ async fn tag_storage_updates_permissions_after_push_retention_and_capture() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let mut permission = tangram_index::permission::put::Arg {
 		created_at,
 		creator: None,
@@ -1682,7 +1691,7 @@ async fn account_storage_uses_cached_references_until_a_parent_changes() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	while index
 		.update_batch(tangram_index::update::Kind::Usage, 100)
 		.await
@@ -1880,7 +1889,7 @@ async fn tag_storage_merges_queued_permissions_and_retains_the_other_tag() {
 		items.push(tangram_index::batch::Item::PutTag(arg));
 	}
 	let arg = tangram_index::batch::Arg { items };
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 
 	// Different permission additions at the same timestamp must both survive queueing.
 	for (tag, permission) in [
@@ -1988,7 +1997,7 @@ async fn tag_storage_expands_permissions_during_propagation() {
 	};
 	items.push(tangram_index::batch::Item::PutTag(arg));
 	let arg = tangram_index::batch::Arg { items };
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let mut permission = tangram_index::permission::put::Arg {
 		created_at: 3600,
 		creator: None,
@@ -2193,7 +2202,7 @@ async fn tag_storage_with_cleanup_before_a_queued_permission_addition(
 		items.push(tangram_index::batch::Item::PutTag(arg));
 	}
 	let arg = tangram_index::batch::Arg { items };
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let node = if processes {
 		tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,

@@ -13,20 +13,73 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::process::put::Arg,
 		partition_totals: crate::PartitionTotals,
-	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
-		arg.validate()?;
+		if let Err(error) = arg.validate() {
+			return Ok(ControlFlow::Break(Err(error)));
+		}
 		let id = &arg.id;
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 
 		let result = txn.get(&key, false).await;
 		let existing = crate::retry!(result)
-			.and_then(|bytes| tangram_index::process::Process::deserialize(&bytes).ok());
+			.map(|bytes| tangram_index::process::Process::deserialize(&bytes))
+			.transpose()?;
 		let merge = !arg.complete();
+
+		// Compare the authoritative contents in the transaction that writes them.
+		if let Some(existing) = &existing {
+			if let Err(error) = arg.validate_existing(existing)? {
+				return Ok(ControlFlow::Break(Err(error)));
+			}
+			if !arg.principal.is_root()
+				&& arg.principal != tg::Principal::Process(id.clone())
+				&& let Some(children) = &arg.children
+			{
+				if !existing.set.children {
+					return Ok(ControlFlow::Break(Err(tg::error!(
+						"cannot verify the existing process children"
+					))));
+				}
+				let children = crate::propagate!(
+					Self::try_get_process_children_page_with_transaction(
+						txn,
+						subspace,
+						id,
+						std::io::SeekFrom::Start(0),
+						children.len() as u64 + 1
+					)
+					.await
+				)
+				.unwrap_or_default();
+				if let Err(error) = arg.validate_children(&children)? {
+					return Ok(ControlFlow::Break(Err(error)));
+				}
+			}
+		}
+
+		// Grant permissions only after validating the complete submission.
+		if existing.is_none() || (arg.data.is_some() && arg.children.is_some()) {
+			crate::propagate!(
+				Self::put_permissions_with_transaction(
+					txn,
+					subspace,
+					&arg.permissions,
+					partition_totals
+				)
+				.await
+			);
+		}
 
 		// Preserve terminal data while still applying the initialization relationships.
 		let mut arg = std::borrow::Cow::Borrowed(arg);
+		if existing.is_some()
+			&& !arg.principal.is_root()
+			&& arg.principal != tg::Principal::Process(id.clone())
+		{
+			arg.to_mut().data = None;
+		}
 		if arg
 			.data
 			.as_ref()
@@ -122,7 +175,7 @@ impl Index {
 					|| existing.storage != storage
 			});
 		if !changed && !touch {
-			return Ok(ControlFlow::Break(()));
+			return Ok(ControlFlow::Break(Ok(())));
 		}
 
 		let value = tangram_index::process::Process {
@@ -130,7 +183,9 @@ impl Index {
 			data: data.clone(),
 			location,
 			metadata,
-			reference_count: 0,
+			reference_count: existing
+				.as_ref()
+				.map_or(0, |existing| existing.reference_count),
 			sandbox,
 			set,
 			storage,
@@ -373,7 +428,7 @@ impl Index {
 			);
 		}
 
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(Ok(())))
 	}
 
 	pub(crate) async fn put_processes_with_transaction(
@@ -381,10 +436,15 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::process::put::Arg],
 		partition_totals: crate::PartitionTotals,
-	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		for process in args {
-			crate::propagate!(Self::put_process(txn, subspace, process, partition_totals).await);
+			let result = crate::propagate!(
+				Self::put_process(txn, subspace, process, partition_totals).await
+			);
+			if let Err(error) = result {
+				return Ok(ControlFlow::Break(Err(error)));
+			}
 		}
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(Ok(())))
 	}
 }

@@ -57,6 +57,13 @@ pub struct Arg {
 	#[tangram_serialize(id = 8)]
 	pub parent: Option<tg::process::Id>,
 
+	/// Permissions granted when creating the record or submitting its complete contents.
+	#[tangram_serialize(id = 18)]
+	pub permissions: Vec<crate::permission::put::Arg>,
+
+	#[tangram_serialize(id = 19)]
+	pub principal: tg::Principal,
+
 	/// Register sandbox membership during verified process initialization; ordinary writes leave this unset.
 	#[tangram_serialize(id = 9)]
 	pub sandbox: Option<tg::sandbox::Id>,
@@ -73,6 +80,15 @@ pub struct Arg {
 
 impl Arg {
 	pub fn validate(&self) -> tg::Result<()> {
+		if !self.principal.is_root()
+			&& self.principal != tg::Principal::Process(self.id.clone())
+			&& self
+				.data
+				.as_ref()
+				.is_some_and(|data| !data.status.is_finished())
+		{
+			return Err(tg::error!("expected a finished process"));
+		}
 		let Some(children) = &self.children else {
 			return Ok(());
 		};
@@ -84,6 +100,56 @@ impl Arg {
 		}
 
 		Ok(())
+	}
+
+	pub fn validate_existing(&self, existing: &super::Process) -> tg::Result<tg::Result<()>> {
+		if self.principal.is_root() || self.principal == tg::Principal::Process(self.id.clone()) {
+			return Ok(Ok(()));
+		}
+		if self.command_id != existing.command_id {
+			return Ok(Err(tg::error!("cannot replace an existing process")));
+		}
+		if let Some(data) = &self.data {
+			let Some(existing) = &existing.data else {
+				return Ok(Err(tg::error!("cannot verify the existing process data")));
+			};
+			let mut data = data.clone().without_location_and_tokens();
+			data.children = None;
+			let mut existing = existing.clone().without_location_and_tokens();
+			existing.children = None;
+			let data = serde_json::to_value(data)
+				.map_err(|error| tg::error!(!error, "failed to serialize the process contents"))?;
+			let existing = serde_json::to_value(existing)
+				.map_err(|error| tg::error!(!error, "failed to serialize the process contents"))?;
+			if data != existing {
+				return Ok(Err(tg::error!("cannot replace an existing process")));
+			}
+		}
+		Ok(Ok(()))
+	}
+
+	pub fn validate_children(
+		&self,
+		existing: &[tg::process::data::Child],
+	) -> tg::Result<tg::Result<()>> {
+		let Some(children) = &self.children else {
+			return Ok(Ok(()));
+		};
+		let normalize = |children: &[tg::process::data::Child]| {
+			let children = children
+				.iter()
+				.cloned()
+				.map(tg::process::data::Child::without_location_and_tokens)
+				.collect::<Vec<_>>();
+			serde_json::to_value(children)
+				.map_err(|error| tg::error!(!error, "failed to serialize the process contents"))
+		};
+		if normalize(children)? != normalize(existing)? {
+			return Ok(Err(tg::error!(
+				"cannot replace the existing process children"
+			)));
+		}
+		Ok(Ok(()))
 	}
 
 	#[must_use]

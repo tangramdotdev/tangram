@@ -729,9 +729,9 @@ impl Indexer {
 	}
 
 	async fn process_index_batch_with_retry(&self, batch: &IndexBatch) -> tg::Result<()> {
-		tangram_futures::retry(&RETRY_OPTIONS, || async {
+		let result = tangram_futures::retry(&RETRY_OPTIONS, || async {
 			match self.process_index_batch(&batch.fragments).await {
-				Ok(()) => Ok(ControlFlow::Break(())),
+				Ok(result) => Ok(ControlFlow::Break(result)),
 				Err(error) => {
 					tracing::error!(error = %error.trace(), "failed to process an index queue batch");
 
@@ -740,6 +740,10 @@ impl Indexer {
 			}
 		})
 		.await?;
+
+		if let Err(error) = result {
+			tracing::error!(error = %error.trace(), "discarding a rejected index queue batch");
+		}
 
 		Ok(())
 	}
@@ -775,7 +779,7 @@ impl Indexer {
 	async fn process_index_batch(
 		&self,
 		fragments: &[crate::cache::index::queue::Fragment],
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::Result<()>> {
 		// Reassemble the encoded batch in fragment order before decoding it.
 		let len = fragments
 			.iter()
@@ -813,15 +817,15 @@ impl Indexer {
 			.await?;
 		if let Some((id, put)) = missing.first() {
 			tracing::error!(%id, ?put, missing_count = missing.len(), "discarding an index queue batch because an object put is absent from the cache");
-			return Ok(());
+			return Ok(Ok(()));
 		}
 		crate::checkpoint!(self.server, "index.batch").await;
-		self.server.index_batch_inner(arg).await?;
+		let result = self.server.index_batch_inner(arg).await?;
 		if log_compaction {
 			self.server.spawn_publish_log_compaction_notification_task();
 		}
 
-		Ok(())
+		Ok(result)
 	}
 
 	async fn delete_archive_sequence(&self, sequence: u64) -> tg::Result<()> {

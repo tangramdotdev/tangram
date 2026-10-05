@@ -226,6 +226,8 @@ impl Session {
 						options: tg::referent::Options::default(),
 						output: None,
 						parent: None,
+						permissions: Vec::new(),
+						principal: tg::Principal::Process(process.clone()),
 						sandbox: None,
 						storage: indexed.storage,
 						time_to_touch: self.server.config.process.time_to_touch,
@@ -249,6 +251,7 @@ impl Session {
 				],
 			})
 			.await
+			.and_then(std::convert::identity)
 			.map_err(|error| tg::error!(!error, %process, "failed to update the process log"))?;
 		self.server
 			.runner

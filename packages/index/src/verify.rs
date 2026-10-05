@@ -303,7 +303,7 @@ pub(crate) fn write_permission_for_resource(
 			tg::authorization::permission::process::Permission::Parent,
 		)),
 		tg::id::Kind::Sandbox => Ok(tg::authorization::Permission::Sandbox(
-			tg::authorization::permission::sandbox::Permission::Write,
+			tg::authorization::permission::sandbox::Permission::Parent,
 		)),
 		tg::id::Kind::Tag => Ok(tg::authorization::Permission::Tag(
 			tg::authorization::permission::tag::Permission::Write,
@@ -391,10 +391,10 @@ pub(crate) fn permissions_implied_by(
 		.collect(),
 		tg::authorization::Permission::Sandbox(_) => vec![
 			tg::authorization::Permission::Sandbox(
-				tg::authorization::permission::sandbox::Permission::Read,
+				tg::authorization::permission::sandbox::Permission::Node,
 			),
 			tg::authorization::Permission::Sandbox(
-				tg::authorization::permission::sandbox::Permission::Write,
+				tg::authorization::permission::sandbox::Permission::Parent,
 			),
 		],
 		tg::authorization::Permission::Tag(_) => vec![

@@ -11,8 +11,10 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::process::put::Arg,
-	) -> tg::Result<()> {
-		arg.validate()?;
+	) -> tg::Result<tg::Result<()>> {
+		if let Err(error) = arg.validate() {
+			return Ok(Err(error));
+		}
 		let id = &arg.id;
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
@@ -21,10 +23,51 @@ impl Index {
 		let existing = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
-			.and_then(|bytes| tangram_index::process::Process::deserialize(bytes).ok());
+			.map(tangram_index::process::Process::deserialize)
+			.transpose()?;
+
+		// Compare the authoritative contents in the transaction that writes them.
+		if let Some(existing) = &existing {
+			if let Err(error) = arg.validate_existing(existing)? {
+				return Ok(Err(error));
+			}
+			if !arg.principal.is_root()
+				&& arg.principal != tg::Principal::Process(id.clone())
+				&& let Some(children) = &arg.children
+			{
+				if !existing.set.children {
+					return Ok(Err(tg::error!(
+						"cannot verify the existing process children"
+					)));
+				}
+				let children = Self::try_get_process_children_page_with_transaction(
+					db,
+					subspace,
+					transaction,
+					id,
+					std::io::SeekFrom::Start(0),
+					children.len() as u64 + 1,
+				)?
+				.unwrap_or_default();
+				if let Err(error) = arg.validate_children(&children)? {
+					return Ok(Err(error));
+				}
+			}
+		}
+
+		// Grant permissions only after validating the complete submission.
+		if existing.is_none() || (arg.data.is_some() && arg.children.is_some()) {
+			Self::put_permissions_with_transaction(db, subspace, transaction, &arg.permissions)?;
+		}
 
 		// Preserve terminal data while still applying the initialization relationships.
 		let mut arg = std::borrow::Cow::Borrowed(arg);
+		if existing.is_some()
+			&& !arg.principal.is_root()
+			&& arg.principal != tg::Principal::Process(id.clone())
+		{
+			arg.to_mut().data = None;
+		}
 		if arg
 			.data
 			.as_ref()
@@ -120,7 +163,7 @@ impl Index {
 					|| existing.storage != storage
 			});
 		if !changed && !touch {
-			return Ok(());
+			return Ok(Ok(()));
 		}
 
 		let value = tangram_index::process::Process {
@@ -128,7 +171,9 @@ impl Index {
 			data: data.clone(),
 			location,
 			metadata,
-			reference_count: 0,
+			reference_count: existing
+				.as_ref()
+				.map_or(0, |existing| existing.reference_count),
 			sandbox,
 			set,
 			storage,
@@ -361,7 +406,7 @@ impl Index {
 			Self::enqueue_account_process_relationships(db, subspace, transaction, id, touched_at)?;
 		}
 
-		Ok(())
+		Ok(Ok(()))
 	}
 
 	pub(crate) fn put_processes_with_transaction(
@@ -369,10 +414,12 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		transaction: &mut lmdb::RwTxn<'_>,
 		args: &[tangram_index::process::put::Arg],
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::Result<()>> {
 		for process in args {
-			Self::put_process(db, subspace, transaction, process)?;
+			if let Err(error) = Self::put_process(db, subspace, transaction, process)? {
+				return Ok(Err(error));
+			}
 		}
-		Ok(())
+		Ok(Ok(()))
 	}
 }
