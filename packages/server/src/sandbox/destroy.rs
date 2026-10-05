@@ -11,6 +11,7 @@ use {
 };
 
 impl Session {
+	#[tracing::instrument(name = "sandbox.destroy_request", level = "info", skip_all, fields(sandbox = %id), err(level = "debug"))]
 	pub(crate) async fn try_destroy_sandbox(
 		&self,
 		id: &tg::sandbox::Id,

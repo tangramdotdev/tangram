@@ -4,6 +4,7 @@ use {
 	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
+	tracing::Instrument as _,
 };
 
 pub(super) struct RunProcessControlTtyTaskArg {
@@ -20,9 +21,11 @@ impl Session {
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
 		Task::spawn(move |_| {
-			async move { session.run_process_control_tty_task(arg).await }.inspect_err(
-				|error| tracing::error!(error = %error.trace(), "the process control tty task failed"),
-			)
+			async move { session.run_process_control_tty_task(arg).await }
+				.inspect_err(
+					|error| tracing::error!(error = %error.trace(), "the process control tty task failed"),
+				)
+				.in_current_span()
 		})
 	}
 

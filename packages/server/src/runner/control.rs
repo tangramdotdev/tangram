@@ -185,6 +185,7 @@ impl Session {
 							let Some(heartbeat) = heartbeat else {
 								break;
 							};
+							tracing::debug!(connection_index, index = heartbeat.heartbeat_index, "forwarding the runner heartbeat");
 							outstanding.insert(heartbeat.heartbeat_index);
 							unacknowledged_at.get_or_insert_with(tokio::time::Instant::now);
 							if heartbeat_acks_ended {
@@ -212,6 +213,7 @@ impl Session {
 							match result {
 								Ok(Some(message)) => {
 									let acknowledgement = message.payload.0;
+									tracing::debug!(connection_index, index = acknowledgement.heartbeat_index, "received the scheduler heartbeat acknowledgement");
 									if acknowledgement.connection_index == connection_index
 										&& outstanding.contains(&acknowledgement.heartbeat_index)
 									{
@@ -242,6 +244,11 @@ impl Session {
 				if heartbeat_receiver.is_closed() {
 					return;
 				}
+				tracing::warn!(
+					connection_index,
+					outstanding = outstanding.len(),
+					"the scheduler heartbeat acknowledgement expired"
+				);
 				scheduler_unavailable.store(true, Ordering::Release);
 				scheduler_unavailable_sender.send(()).ok();
 			}
@@ -274,6 +281,7 @@ impl Session {
 						tg::runner::control::ClientMessage::Notification(
 							tg::runner::control::ClientNotification::Heartbeat(heartbeat),
 						) => {
+							tracing::debug!(%runner, connection_index, index = heartbeat.index, "received the runner heartbeat");
 							let notification = crate::scheduler::HeartbeatNotification {
 								capacity: heartbeat.capacity,
 								connection_index,

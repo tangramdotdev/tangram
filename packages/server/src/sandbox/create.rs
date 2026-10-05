@@ -39,6 +39,7 @@ impl Session {
 		Ok(output)
 	}
 
+	#[tracing::instrument(name = "sandbox.schedule", level = "info", skip_all, fields(sandbox = tracing::field::Empty), err(level = "debug"))]
 	async fn create_sandbox_local(
 		&self,
 		mut arg: tg::sandbox::create::Arg,
@@ -68,6 +69,8 @@ impl Session {
 		)?;
 
 		let id = tg::sandbox::Id::new();
+		tracing::Span::current().record("sandbox", tracing::field::display(&id));
+		tracing::info!(sandbox = %id, "scheduling the sandbox");
 		let token = self
 			.server
 			.create_sandbox_authentication_token(id.clone())?;
@@ -103,6 +106,8 @@ impl Session {
 				"the scheduler heartbeat expired"
 			));
 		}
+
+		tracing::info!(sandbox = %id, "connected to the sandbox");
 
 		// Capture the initial sandbox state after its control connection is available.
 		let arg = tg::sandbox::get::Arg {

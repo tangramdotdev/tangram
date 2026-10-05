@@ -8,6 +8,7 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tracing::Instrument as _,
 };
 
 mod cached;
@@ -171,18 +172,24 @@ impl Session {
 		let task = Task::spawn({
 			let session = self.clone();
 			let progress = progress.clone();
-			async move |_| match session
-				.try_spawn_process_task(arg, parent_sandbox, &progress)
-				.boxed()
-				.await
-			{
-				Ok(output) => {
-					progress.output(output);
-				},
-				Err(error) => {
-					progress.error(error);
-					progress.output(None);
-				},
+			let span = tracing::Span::current();
+			move |_| {
+				async move {
+					match session
+						.try_spawn_process_task(arg, parent_sandbox, &progress)
+						.boxed()
+						.await
+					{
+						Ok(output) => {
+							progress.output(output);
+						},
+						Err(error) => {
+							progress.error(error);
+							progress.output(None);
+						},
+					}
+				}
+				.instrument(span)
 			}
 		});
 
@@ -191,6 +198,7 @@ impl Session {
 		Ok(stream)
 	}
 
+	#[tracing::instrument(name = "process.schedule", level = "info", skip_all, fields(parent = arg.parent.as_ref().map(ToString::to_string), process = tracing::field::Empty, process_index = tracing::field::Empty), err(level = "debug"))]
 	async fn try_spawn_process_task(
 		&self,
 		mut arg: tg::process::spawn::Arg,
@@ -198,6 +206,7 @@ impl Session {
 		progress: &crate::progress::Handle<Option<tg::process::spawn::Output>>,
 	) -> tg::Result<Option<tg::process::spawn::Output>> {
 		let location = self.server.location(arg.location.as_ref())?;
+		tracing::info!(location = %location, parent = arg.parent.as_ref().map(ToString::to_string), "scheduling the process");
 		let runner_matches_location = self.spawn_process_runner_matches_location(&location);
 		let new_sandbox = matches!(arg.sandbox, Some(tg::Either::Left(_)));
 		let requested =
@@ -276,6 +285,21 @@ impl Session {
 			.as_ref()
 			.and_then(|output| lease::LeaseGuard::new(self, output));
 		if let Some(output) = &output {
+			match &output.process {
+				tg::Either::Left(index) => {
+					tracing::Span::current().record("process_index", index);
+					tracing::info!(
+						cached = output.cached,
+						parent = arg.parent.as_ref().map(ToString::to_string),
+						process_index = index,
+						"scheduled the process"
+					);
+				},
+				tg::Either::Right(id) => {
+					tracing::Span::current().record("process", tracing::field::display(id));
+					tracing::info!(cached = output.cached, parent = arg.parent.as_ref().map(ToString::to_string), process = %id, "scheduled the process");
+				},
+			}
 			self.spawn_process_add_child(&arg, output).await?;
 		}
 		if let Some(guard) = &mut lease_guard {

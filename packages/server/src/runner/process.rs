@@ -21,6 +21,7 @@ use {
 	tangram_messenger::Messenger as _,
 	tokio::task::JoinSet,
 	tokio_stream::wrappers::UnboundedReceiverStream,
+	tracing::Instrument as _,
 };
 
 mod control;
@@ -266,34 +267,38 @@ impl Session {
 		let sandbox_ready_receiver = arg.sandbox_ready_receiver;
 		let sandbox_stopper = arg.process_stopper.clone();
 		let retention_stopper = arg.retention_stopper;
-		arg.process_tasks.spawn(async move {
-			let arg = ProcessTaskArg {
-				event_sender: event_sender.clone(),
-				guest_url,
-				location,
-				process,
-				processes,
-				retention_stopper,
-				sandbox,
-				sandbox_initialization,
-				sandbox_ready_receiver,
-				sandbox_stopper,
-			};
-			let result = if session.server.shutdown.borrow().is_some() {
-				Err(tg::error!("the server is shutting down"))
-			} else {
-				session.process_task(arg).boxed().await
-			};
-			if let Err(error) = &result {
-				event_sender.send(Err(error.clone())).ok();
+		arg.process_tasks.spawn(
+			async move {
+				let arg = ProcessTaskArg {
+					event_sender: event_sender.clone(),
+					guest_url,
+					location,
+					process,
+					processes,
+					retention_stopper,
+					sandbox,
+					sandbox_initialization,
+					sandbox_ready_receiver,
+					sandbox_stopper,
+				};
+				let result = if session.server.shutdown.borrow().is_some() {
+					Err(tg::error!("the server is shutting down"))
+				} else {
+					session.process_task(arg).boxed().await
+				};
+				if let Err(error) = &result {
+					event_sender.send(Err(error.clone())).ok();
+				}
+				result
 			}
-			result
-		});
+			.in_current_span(),
+		);
 		SpawnProcessTaskOutput {
 			events: event_receiver,
 		}
 	}
 
+	#[tracing::instrument(name = "process.lifecycle", level = "info", skip_all, fields(parent = arg.process.parent.as_ref().map(ToString::to_string), process = arg.process.id.as_ref().map(ToString::to_string), runner = self.server.runner.state.id().as_ref().map(ToString::to_string), sandbox = tracing::field::Empty), err(level = "debug"))]
 	async fn process_task(&self, arg: ProcessTaskArg) -> tg::Result<()> {
 		let ProcessTaskArg {
 			event_sender,
@@ -422,7 +427,8 @@ impl Session {
 				let process_stopper = process_stopper.clone();
 				let server = self.server.clone();
 				let process_id = id.clone();
-				let mut start_task = Task::spawn(move |_| async move {
+				let mut start_task = Task::spawn(move |_| {
+					async move {
 					let result = async {
 						// Push the command and wait for the push to complete before sending the start request.
 						let started = std::time::Instant::now();
@@ -458,6 +464,7 @@ impl Session {
 						tracing::error!(error = %error.trace(), "failed to start the process control connection");
 						process_stopper.stop();
 					}
+				}.in_current_span()
 				});
 				start_task.detach();
 				control_sender_high = connection.input;
@@ -470,6 +477,9 @@ impl Session {
 				));
 			},
 		};
+		tracing::Span::current().record("process", tracing::field::display(&id));
+		tracing::Span::current().record("sandbox", state.sandbox.as_ref().map(ToString::to_string));
+		tracing::info!(parent = parent.as_ref().map(ToString::to_string), process = %id, runner = self.server.runner.state.id().as_ref().map(ToString::to_string), sandbox = state.sandbox.as_ref().map(ToString::to_string), "initialized the process");
 		let context = crate::Context {
 			principal: tg::Principal::Process(id.clone()),
 			token: Some(inner_token.clone()),
@@ -494,10 +504,13 @@ impl Session {
 			}
 		}
 		let (index_result_sender, index_result_receiver) = tokio::sync::oneshot::channel();
-		let index_task = crate::process::IndexTask::spawn(move |_| async move {
-			index_result_receiver
-				.await
-				.map_err(|error| tg::error!(!error, "failed to receive the process index result"))?
+		let index_task = crate::process::IndexTask::spawn(move |_| {
+			async move {
+				index_result_receiver.await.map_err(|error| {
+					tg::error!(!error, "failed to receive the process index result")
+				})?
+			}
+			.in_current_span()
 		});
 		let sandbox_id = state
 			.sandbox
@@ -641,6 +654,7 @@ impl Session {
 				let command = tg::process::data::Command::with_command_data(data, &options);
 				Ok(command)
 			}
+			.instrument(tracing::debug_span!("process.command", process = %id))
 			.boxed()
 			.shared()
 		};
@@ -689,80 +703,84 @@ impl Session {
 				let process_stopper = process_stopper.clone();
 				let sandbox = sandbox.clone();
 				let mut sandbox_process = sandbox_process_receiver.clone();
-				move |_| async move {
-					let mut log_buffered_sender = Some(log_buffered_sender);
-					let result = async {
-						let sandbox_process = sandbox_process
-							.wait_for(Option::is_some)
-							.await
-							.ok()
-							.and_then(|process| process.as_ref().cloned());
-						let input = match sandbox_process {
-							None => {
-								// A process that never spawned still needs to drain progress and finish its log.
-								futures::stream::once(future::ok(
-									tangram_sandbox::stdio::read::Event::End,
-								))
-								.boxed()
-							},
-							Some(sandbox_process) => sandbox
-								.read_stdio(&sandbox_process, log_streams)
+				move |_| {
+					async move {
+						let mut log_buffered_sender = Some(log_buffered_sender);
+						let result = async {
+							let sandbox_process = sandbox_process
+								.wait_for(Option::is_some)
 								.await
-								.map_err(|error| {
-									tg::error!(!error, "failed to read process stdio")
-								})?
-								.boxed(),
-						};
+								.ok()
+								.and_then(|process| process.as_ref().cloned());
+							let input = match sandbox_process {
+								None => {
+									// A process that never spawned still needs to drain progress and finish its log.
+									futures::stream::once(future::ok(
+										tangram_sandbox::stdio::read::Event::End,
+									))
+									.boxed()
+								},
+								Some(sandbox_process) => sandbox
+									.read_stdio(&sandbox_process, log_streams)
+									.await
+									.map_err(|error| {
+										tg::error!(!error, "failed to read process stdio")
+									})?
+									.boxed(),
+							};
 
-						// Drain progress along with the process output.
-						let input = match log_progress {
-							Some(progress) => {
-								let progress = progress
-									.map_ok(|bytes| {
-										tangram_sandbox::stdio::read::Event::Chunk(
-											tangram_sandbox::stdio::Chunk {
-												bytes,
-												stream: tg::process::stdio::Stream::Stderr,
-											},
-										)
-									})
-									.boxed();
-								futures::stream::select(input, progress).boxed()
-							},
-							None => input,
-						};
-						let mut input = std::pin::pin!(input);
-						while let Some(event) = input.try_next().await? {
-							if matches!(event, tangram_sandbox::stdio::read::Event::End) {
-								if let Some(sender) = log_buffered_sender.take() {
-									sender.send(Ok(())).ok();
+							// Drain progress along with the process output.
+							let input = match log_progress {
+								Some(progress) => {
+									let progress = progress
+										.map_ok(|bytes| {
+											tangram_sandbox::stdio::read::Event::Chunk(
+												tangram_sandbox::stdio::Chunk {
+													bytes,
+													stream: tg::process::stdio::Stream::Stderr,
+												},
+											)
+										})
+										.boxed();
+									futures::stream::select(input, progress).boxed()
+								},
+								None => input,
+							};
+							let mut input = std::pin::pin!(input);
+							while let Some(event) = input.try_next().await? {
+								if matches!(event, tangram_sandbox::stdio::read::Event::End) {
+									if let Some(sender) = log_buffered_sender.take() {
+										sender.send(Ok(())).ok();
+									}
+
+									continue;
 								}
-
-								continue;
+								log_sender.send(event).await?;
 							}
-							log_sender.send(event).await?;
+							log_sender
+								.send(tangram_sandbox::stdio::read::Event::End)
+								.await?;
+
+							Ok::<_, tg::Error>(())
 						}
-						log_sender
-							.send(tangram_sandbox::stdio::read::Event::End)
-							.await?;
+						.await;
+						if let Some(sender) = log_buffered_sender {
+							let error = result.as_ref().err().cloned().unwrap_or_else(|| {
+								tg::error!("the sandbox stdio stream ended unexpectedly")
+							});
+							sender.send(Err(error)).ok();
+						}
+						if result.is_err() {
+							process_stopper.stop();
+						}
 
-						Ok::<_, tg::Error>(())
+						result
 					}
-					.await;
-					if let Some(sender) = log_buffered_sender {
-						let error = result.as_ref().err().cloned().unwrap_or_else(|| {
-							tg::error!("the sandbox stdio stream ended unexpectedly")
-						});
-						sender.send(Err(error)).ok();
-					}
-					if result.is_err() {
-						process_stopper.stop();
-					}
-
-					result
+					.in_current_span()
 				}
 			})),
 		};
+		let run_span = tracing::Span::current();
 		let run_task = Task::spawn({
 			let command = command.clone();
 			let guest_url = guest_url.clone();
@@ -774,23 +792,26 @@ impl Session {
 			let state = state.clone();
 			let stopper = sandbox_stopper.clone();
 			let token = token.clone();
-			move |_| async move {
-				let command = command.await?;
-				crate::checkpoint!(session.server, "runner.process.run", process = %id).await;
-				let arg = RunProcessArg {
-					command,
-					guest_url,
-					id,
-					process_stopper,
-					processes,
-					progress_sender,
-					sandbox,
-					sandbox_process_sender,
-					state,
-					stopper,
-					token,
-				};
-				session.run_process(arg).await
+			move |_| {
+				async move {
+					let command = command.await?;
+					crate::checkpoint!(session.server, "runner.process.run", process = %id).await;
+					let arg = RunProcessArg {
+						command,
+						guest_url,
+						id,
+						process_stopper,
+						processes,
+						progress_sender,
+						sandbox,
+						sandbox_process_sender,
+						state,
+						stopper,
+						token,
+					};
+					session.run_process(arg).await
+				}
+				.instrument(run_span)
 			}
 		});
 
@@ -816,9 +837,13 @@ impl Session {
 			state: state.clone(),
 			sync_receiver,
 		};
+		let finish_span = tracing::Span::current();
 		let finish_task = Task::spawn({
 			let session = session.clone();
-			move |_| async move { session.finish_process_run(finish_arg).boxed().await }
+			move |_| {
+				async move { session.finish_process_run(finish_arg).boxed().await }
+					.instrument(finish_span)
+			}
 		});
 
 		// Spawn the process control task.
@@ -845,31 +870,34 @@ impl Session {
 			let stdin = state.stdin.clone();
 			let stdout = state.stdout.clone();
 			let stderr = state.stderr.clone();
-			|_| async move {
-				let arg = RunProcessControlTaskArg {
-					control,
-					exited,
-					finish: finish_receiver,
-					local: control_receiver,
-					log,
-					push: push_receiver,
-					retention_stopper,
-					sandbox,
-					sandbox_process: sandbox_process_receiver,
-					stderr,
-					stderr_buffered: stderr_buffered_sender,
-					stderr_progress,
-					stdin,
-					stdout,
-					stdout_buffered: stdout_buffered_sender,
-				};
-				session
-					.run_process_control_task(arg)
-					.boxed()
-					.await
-					.inspect_err(|error| {
-						tracing::error!(error = %error.trace(), "the control task failed");
-					})
+			|_| {
+				async move {
+					let arg = RunProcessControlTaskArg {
+						control,
+						exited,
+						finish: finish_receiver,
+						local: control_receiver,
+						log,
+						push: push_receiver,
+						retention_stopper,
+						sandbox,
+						sandbox_process: sandbox_process_receiver,
+						stderr,
+						stderr_buffered: stderr_buffered_sender,
+						stderr_progress,
+						stdin,
+						stdout,
+						stdout_buffered: stdout_buffered_sender,
+					};
+					session
+						.run_process_control_task(arg)
+						.boxed()
+						.await
+						.inspect_err(|error| {
+							tracing::error!(error = %error.trace(), "the control task failed");
+						})
+				}
+				.in_current_span()
 			}
 		});
 
@@ -1002,38 +1030,41 @@ impl Session {
 			let event_sender = event_sender.clone();
 			let id = id.clone();
 			let server = session.server.clone();
-			move |_| async move {
-				let log_buffered = log_buffered_receiver
-					.await
-					.is_ok_and(|result| result.is_ok());
-				let stderr_buffered = stderr_buffered_receiver
-					.await
-					.is_ok_and(|result| result.is_ok());
-				let stdout_buffered = stdout_buffered_receiver
-					.await
-					.is_ok_and(|result| result.is_ok());
-				let buffered = log_buffered && stderr_buffered && stdout_buffered;
-				let event = if buffered {
-					crate::checkpoint!(
-						server,
-						"runner.process.buffered",
-						process = %id,
-					)
-					.await;
-					Event::Buffered
-				} else {
-					Event::Released
-				};
-				event_sender.send(Ok(event)).ok();
+			move |_| {
+				async move {
+					let log_buffered = log_buffered_receiver
+						.await
+						.is_ok_and(|result| result.is_ok());
+					let stderr_buffered = stderr_buffered_receiver
+						.await
+						.is_ok_and(|result| result.is_ok());
+					let stdout_buffered = stdout_buffered_receiver
+						.await
+						.is_ok_and(|result| result.is_ok());
+					let buffered = log_buffered && stderr_buffered && stdout_buffered;
+					let event = if buffered {
+						crate::checkpoint!(
+							server,
+							"runner.process.buffered",
+							process = %id,
+						)
+						.await;
+						Event::Buffered
+					} else {
+						Event::Released
+					};
+					event_sender.send(Ok(event)).ok();
 
-				Ok::<_, tg::Error>(())
+					Ok::<_, tg::Error>(())
+				}
+				.in_current_span()
 			}
 		});
 		let arg = FinishProcessTaskArg {
 			buffered_task,
 			control_task,
 			data,
-			id,
+			id: id.clone(),
 			location,
 			log_task,
 			processes: processes.clone(),
@@ -1047,6 +1078,7 @@ impl Session {
 			})??;
 		}
 		result?;
+		tracing::info!(process = %id, "completed the process cleanup");
 
 		Ok(())
 	}
@@ -1094,12 +1126,18 @@ impl Session {
 		Ok(connection)
 	}
 
+	#[tracing::instrument(name = "process.connect", level = "debug", skip_all, fields(process = arg.id.as_ref().map(ToString::to_string)), err(level = "debug"))]
 	async fn connect_process_control(
 		&self,
 		arg: tg::process::control::Arg,
 		responses: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 	) -> tg::Result<ControlConnection> {
-		crate::checkpoint!(self.server, "runner.process.control.connect", process = ?arg.id).await;
+		crate::checkpoint!(
+			self.server,
+			"runner.process.control.connect",
+			process = ?arg.id
+		)
+		.await;
 		let local_process_control = matches!(
 			self.server.location(arg.location.as_ref())?,
 			tg::Location::Local(tg::location::Local { region })
@@ -1129,6 +1167,7 @@ impl Session {
 		Ok((header, requests.boxed()))
 	}
 
+	#[tracing::instrument(name = "process.finish", level = "debug", skip_all, fields(process = %arg.id, sandbox = arg.state.sandbox.as_ref().map(ToString::to_string)), err(level = "debug"))]
 	async fn finish_process_run(
 		&self,
 		arg: FinishProcessRunArg,
@@ -1280,6 +1319,7 @@ impl Session {
 		data.output = outcome.output.as_ref().map(tg::Value::to_data);
 		data.status = tg::process::Status::Finished;
 		Self::validate_process_data(&data)?;
+		tracing::info!(exit, process = %id, sandbox = state.sandbox.as_ref().map(ToString::to_string), "collected the process output");
 
 		crate::checkpoint!(self.server, "runner.process.output.stored", process = %id).await;
 		let command_id = state.command.command_id()?;
@@ -1296,18 +1336,24 @@ impl Session {
 			location: location.clone(),
 		};
 		let session = self.clone();
-		let index_task = crate::process::IndexTask::spawn(move |_| async move {
-			index_receiver
-				.await
-				.map_err(|_| tg::error!("the process connection failed before indexing"))?;
-			let inner = session.clone();
-			session
-				.server
-				.index_tasks
-				.spawn(move |_| async move { inner.index_finished_process_task(arg).await })
-				.wait()
-				.await
-				.map_err(|_| tg::error!("the finished process index task panicked"))?
+		let index_task = crate::process::IndexTask::spawn(move |_| {
+			async move {
+				index_receiver
+					.await
+					.map_err(|_| tg::error!("the process connection failed before indexing"))?;
+				let inner = session.clone();
+				session
+					.server
+					.index_tasks
+					.spawn(move |_| {
+						async move { inner.index_finished_process_task(arg).boxed().await }
+							.in_current_span()
+					})
+					.wait()
+					.await
+					.map_err(|_| tg::error!("the finished process index task panicked"))?
+			}
+			.in_current_span()
 		});
 		self.publish_finished_process(&id, &processes, &data)
 			.await?;
@@ -1353,6 +1399,7 @@ impl Session {
 		Ok(output)
 	}
 
+	#[tracing::instrument(name = "process.index", level = "debug", skip_all, fields(process = %arg.id), err(level = "debug"))]
 	async fn index_finished_process_task(
 		&self,
 		arg: IndexFinishedProcessTaskArg,
@@ -1389,6 +1436,7 @@ impl Session {
 			tracing::error!(error = %error.trace(), process = %id, "failed to index the finished process");
 		}
 		result?;
+		tracing::debug!(process = %id, "indexed the finished process");
 
 		Ok(())
 	}
@@ -1638,6 +1686,7 @@ impl Session {
 		.boxed()
 	}
 
+	#[tracing::instrument(name = "process.retain", level = "debug", skip_all, fields(process = %arg.id), err(level = "debug"))]
 	async fn finish_process_task(&self, arg: FinishProcessTaskArg) -> tg::Result<()> {
 		let FinishProcessTaskArg {
 			buffered_task,
@@ -1684,6 +1733,7 @@ impl Session {
 		Ok::<_, tg::Error>(())
 	}
 
+	#[tracing::instrument(name = "process.push", level = "debug", skip_all, fields(process = %id), err(level = "debug"))]
 	async fn push_process_output(
 		&self,
 		id: &tg::process::Id,
@@ -1707,6 +1757,7 @@ impl Session {
 		if objects.is_empty() {
 			return Ok(());
 		}
+		tracing::debug!(process = %id, "pushing the process output");
 
 		// Push the objects.
 		crate::checkpoint!(
@@ -1748,6 +1799,7 @@ impl Session {
 			process = %id,
 		)
 		.await;
+		tracing::debug!(process = %id, "pushed the process output");
 
 		Ok(())
 	}
@@ -1946,6 +1998,7 @@ impl Session {
 		Ok(())
 	}
 
+	#[tracing::instrument(name = "process.run", level = "debug", skip_all, fields(command = tracing::field::Empty, process = %arg.id, sandbox = arg.state.sandbox.as_ref().map(ToString::to_string)), err(level = "debug"))]
 	async fn run_process(&self, arg: RunProcessArg) -> tg::Result<RunProcessOutcome> {
 		let RunProcessArg {
 			command,
@@ -1963,6 +2016,8 @@ impl Session {
 		let command = &command;
 		let state = &state;
 		let command_id = state.command.command_id()?;
+		tracing::Span::current().record("command", tracing::field::display(&command_id));
+		tracing::debug!(process = %id, sandbox = state.sandbox.as_ref().map(ToString::to_string), "checking out the process artifacts");
 
 		// Run the process.
 		let result = async {
@@ -1999,6 +2054,7 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to check out the children"))?;
 
+			tracing::debug!(process = %id, sandbox = state.sandbox.as_ref().map(ToString::to_string), "checked out the process artifacts");
 			let sandbox_process = sandbox.create_process();
 			let guest_store_path = sandbox.guest_store_path();
 			let guest_output_path = sandbox.guest_output_path_for_process(&sandbox_process);
@@ -2111,6 +2167,7 @@ impl Session {
 				.map_err(|error| {
 					tg::error!(!error, "failed to spawn the process in the sandbox")
 				})?;
+			tracing::info!(command = %command_id, process = %id, sandbox = state.sandbox.as_ref().map(ToString::to_string), "started the process");
 			let sandbox_process = Arc::new(sandbox_process);
 
 			// Provide the sandbox process to the control task.
@@ -2138,6 +2195,7 @@ impl Session {
 			let (exit, stdin) = future::join(self.wait_for_process(arg).boxed(), stdin).await;
 			stdin?;
 			let exit = exit?;
+			tracing::info!(exit, process = %id, sandbox = state.sandbox.as_ref().map(ToString::to_string), "exited the process");
 			crate::checkpoint!(
 				self.server,
 				"runner.process.exit",
@@ -2205,6 +2263,7 @@ impl Session {
 		Ok(())
 	}
 
+	#[tracing::instrument(name = "process.wait", level = "debug", skip_all, fields(sandbox_index = arg.sandbox.index()), err(level = "debug"))]
 	async fn wait_for_process(&self, arg: WaitForProcessArg<'_>) -> tg::Result<u8> {
 		let WaitForProcessArg {
 			process_stopper,
@@ -2249,6 +2308,7 @@ impl Session {
 		Ok(exit)
 	}
 
+	#[tracing::instrument(name = "process.collect", level = "debug", skip_all, fields(exit = arg.exit, sandbox = arg.state.sandbox.as_ref().map(ToString::to_string)), err(level = "debug"))]
 	async fn collect_process_outcome(
 		&self,
 		arg: CollectProcessOutcomeArg<'_>,
@@ -2374,6 +2434,7 @@ impl Session {
 		}
 	}
 
+	#[tracing::instrument(name = "process.checkout", level = "debug", skip_all, fields(sandbox = %sandbox), err(level = "debug"))]
 	async fn checkout_process_artifacts(
 		&self,
 		command: &tg::process::data::Command,

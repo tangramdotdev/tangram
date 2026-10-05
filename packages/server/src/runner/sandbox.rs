@@ -17,6 +17,7 @@ use {
 	tangram_futures::task::{Stopper, Task},
 	tokio::task::JoinSet,
 	tokio_stream::{StreamMap, wrappers::UnboundedReceiverStream},
+	tracing::Instrument as _,
 };
 
 mod control;
@@ -181,6 +182,7 @@ impl Server {
 					tracing::error!(error = %error.trace(), "the sandbox task failed");
 				}
 			}
+			.in_current_span()
 		});
 		task.detach();
 		SpawnSandboxTaskOutput {
@@ -236,6 +238,7 @@ impl Session {
 		Ok(())
 	}
 
+	#[tracing::instrument(name = "sandbox.lifecycle", level = "info", skip_all, fields(runner = self.server.runner.state.id().as_ref().map(ToString::to_string), sandbox = arg.id.as_ref().map(ToString::to_string)), err(level = "debug"))]
 	async fn sandbox_task(&self, arg: SandboxTaskArg) -> tg::Result<()> {
 		let SandboxTaskArg {
 			allocation,
@@ -365,39 +368,49 @@ impl Session {
 				.await?;
 			let sandbox_stopper = stopper.clone();
 			crate::checkpoint!(self.server, "runner.sandbox.control.create.sent", sandbox = %connection_.id).await;
-			let mut create_task = Task::spawn(move |_| async move {
-				let result = async {
-					let response = response
-						.await
-						.map_err(|_| tg::error!("the sandbox control response stream ended"))?;
-					let tg::sandbox::control::ServerMessage::Response(response) = response else {
-						return Err(tg::error!("expected a sandbox control create response"));
-					};
-					if let Some(error) = response.error {
-						let error = tg::Error::try_from(error).map_err(|source| {
-							tg::error!(!source, "failed to deserialize the error")
-						})?;
-						return Err(error);
-					}
-					response
-						.output
-						.ok_or_else(|| tg::error!("missing the sandbox control create response"))?
-						.try_unwrap_create()
-						.map_err(|_| tg::error!("expected a sandbox control create response"))?;
+			let mut create_task = Task::spawn(move |_| {
+				async move {
+					let result = async {
+						let response = response
+							.await
+							.map_err(|_| tg::error!("the sandbox control response stream ended"))?;
+						let tg::sandbox::control::ServerMessage::Response(response) = response
+						else {
+							return Err(tg::error!("expected a sandbox control create response"));
+						};
+						if let Some(error) = response.error {
+							let error = tg::Error::try_from(error).map_err(|source| {
+								tg::error!(!source, "failed to deserialize the error")
+							})?;
+							return Err(error);
+						}
+						response
+							.output
+							.ok_or_else(|| {
+								tg::error!("missing the sandbox control create response")
+							})?
+							.try_unwrap_create()
+							.map_err(|_| {
+								tg::error!("expected a sandbox control create response")
+							})?;
 
-					Ok::<_, tg::Error>(())
+						Ok::<_, tg::Error>(())
+					}
+					.await;
+					if let Err(error) = result {
+						tracing::error!(error = %error.trace(), "failed to create the sandbox control connection");
+						sandbox_stopper.stop();
+					}
 				}
-				.await;
-				if let Err(error) = result {
-					tracing::error!(error = %error.trace(), "failed to create the sandbox control connection");
-					sandbox_stopper.stop();
-				}
+				.in_current_span()
 			});
 			create_task.detach();
 			let identity = (connection_.id.clone(), connection_.token.clone());
 			connection = Some(SandboxControlConnectionKind::Pooled(connection_));
 			identity
 		};
+		tracing::Span::current().record("sandbox", tracing::field::display(&id));
+		tracing::info!(runner = self.server.runner.state.id().as_ref().map(ToString::to_string), sandbox = %id, "created the sandbox");
 		let process = process
 			.map(|process| Self::prepare_process(process, &id))
 			.transpose()?;
@@ -574,6 +587,12 @@ impl Session {
 		result
 	}
 
+	#[tracing::instrument(
+		name = "sandbox.acquire",
+		level = "debug",
+		skip_all,
+		err(level = "debug")
+	)]
 	async fn create_sandbox_with_pool(
 		&self,
 		arg: tg::sandbox::create::Arg,
@@ -610,9 +629,16 @@ impl Session {
 			}
 		}
 
+		tracing::debug!("creating a sandbox after a pool miss");
 		self.create_sandbox_inner(arg).await
 	}
 
+	#[tracing::instrument(
+		name = "sandbox.create",
+		level = "debug",
+		skip_all,
+		err(level = "debug")
+	)]
 	async fn create_sandbox_inner(
 		&self,
 		arg: tg::sandbox::create::Arg,
@@ -736,17 +762,20 @@ impl Session {
 				let vfs_task = Task::spawn({
 					let server = self.server.clone();
 					let mount_path = mount_path.clone();
-					move |_| async move {
-						crate::vfs::Server::start(
-							&server,
-							crate::vfs::Kind::Fuse,
-							&mount_path,
-							options,
-							Origin::Sandbox(index),
-							None,
-							Some(recvfd),
-						)
-						.await
+					move |_| {
+						async move {
+							crate::vfs::Server::start(
+								&server,
+								crate::vfs::Kind::Fuse,
+								&mount_path,
+								options,
+								Origin::Sandbox(index),
+								None,
+								Some(recvfd),
+							)
+							.await
+						}
+						.in_current_span()
 					}
 				});
 				(None, Some(vfs_task), Some(mount_path), Some(sendfd))
@@ -812,6 +841,7 @@ impl Session {
 			tangram_path: self.server.tangram_path.clone(),
 			tangram_socket_path,
 		};
+		tracing::debug!(sandbox_index = index, "creating the physical sandbox");
 		let sandbox = tangram_sandbox::Sandbox::new(arg)
 			.await
 			.map_err(|error| tg::error!(!error, %index, "failed to create the sandbox"))?;
@@ -837,10 +867,13 @@ impl Session {
 				tls: None,
 				url: guest_url.clone(),
 			};
-			move |stopper| async move {
-				server
-					.serve(listener, listener_config, Origin::Sandbox(index), stopper)
-					.await;
+			move |stopper| {
+				async move {
+					server
+						.serve(listener, listener_config, Origin::Sandbox(index), stopper)
+						.await;
+				}
+				.in_current_span()
 			}
 		});
 		let output = CreateSandboxOutput {
@@ -915,6 +948,7 @@ impl Session {
 		self.retain_sandbox_task(arg).boxed().await
 	}
 
+	#[tracing::instrument(name = "sandbox.run", level = "debug", skip_all, fields(sandbox = %arg.id), err(level = "debug"))]
 	async fn run_sandbox_task(
 		&self,
 		arg: RunSandboxTaskArg,
@@ -970,6 +1004,7 @@ impl Session {
 					}
 					let event = ReadyEvent { connected_event: None, sandbox: id.clone() };
 					event_sender.send(Ok(Event::Ready(event))).ok();
+					tracing::info!(sandbox = %id, "the sandbox is ready");
 					ready = true;
 				},
 				output = pending.next(), if !pending.is_empty() => {
@@ -997,6 +1032,7 @@ impl Session {
 					} else {
 						let event = ReadyEvent { connected_event: Some(connected_event), sandbox: id.clone() };
 						event_sender.send(Ok(Event::Ready(event))).ok();
+						tracing::info!(sandbox = %id, "the sandbox is ready");
 						ready = true;
 					}
 				},
@@ -1133,6 +1169,8 @@ impl Session {
 		}
 
 		let destroy = async {
+			tracing::info!(sandbox = %id, "destroying the sandbox");
+
 			// Stop and await the underlying processes.
 			process_stopper.stop();
 			while let Some((result, events, reply)) = pending.next().await {
@@ -1288,10 +1326,13 @@ impl Session {
 				sandbox = %id,
 			)
 			.await;
+			tracing::info!(sandbox = %id, "destroyed the sandbox");
 			event_sender.send(Ok(Event::Destroyed)).ok();
 			Ok::<_, tg::Error>(())
 		};
-		let mut destroy = destroy.boxed();
+		let mut destroy = destroy
+			.instrument(tracing::debug_span!("sandbox.destroy", sandbox = %id))
+			.boxed();
 		loop {
 			tokio::select! {
 				result = &mut destroy => {
@@ -1317,6 +1358,7 @@ impl Session {
 		Ok(output)
 	}
 
+	#[tracing::instrument(name = "sandbox.retain", level = "debug", skip_all, fields(sandbox = %arg.id), err(level = "debug"))]
 	async fn retain_sandbox_task(&self, arg: RetainSandboxTaskArg) -> tg::Result<()> {
 		let RetainSandboxTaskArg {
 			mut control,
@@ -1453,6 +1495,7 @@ impl Session {
 		Ok(connection)
 	}
 
+	#[tracing::instrument(name = "sandbox.connect", level = "debug", skip_all, fields(sandbox = arg.id.as_ref().map(ToString::to_string)), err(level = "debug"))]
 	async fn connect_sandbox_control(
 		&self,
 		arg: tg::sandbox::control::Arg,

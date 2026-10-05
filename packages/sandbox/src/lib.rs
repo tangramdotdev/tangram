@@ -195,6 +195,7 @@ pub enum Stdio {
 }
 
 impl Sandbox {
+	#[tracing::instrument(name = "sandbox.create_physical", level = "debug", skip_all, fields(sandbox_index = arg.index), err(level = "debug"))]
 	pub async fn new(arg: Arg) -> tg::Result<Self> {
 		validate_resources(&arg.isolation, arg.cpu, arg.memory)?;
 		validate_options(&arg)?;
@@ -524,6 +525,7 @@ impl Sandbox {
 		Ok((listener, guest_url))
 	}
 
+	#[tracing::instrument(name = "sandbox.destroy_physical", level = "debug", skip_all, fields(sandbox_index = self.index()), err(level = "debug"))]
 	pub async fn destroy(&self) -> tg::Result<()> {
 		let mut process = self.0.process.lock().await;
 		let status = process
@@ -573,6 +575,7 @@ impl Sandbox {
 		Process { index }
 	}
 
+	#[tracing::instrument(name = "sandbox.spawn_process", level = "debug", skip_all, fields(process_index = process.index, sandbox_index = self.index()), err(level = "debug"))]
 	pub async fn spawn(&self, process: &Process, arg: SpawnArg) -> tg::Result<()> {
 		let spawn_arg = crate::client::spawn::Arg {
 			command: arg.command,
@@ -614,6 +617,7 @@ impl Sandbox {
 		self.0.client.write_stdio(process.index, arg, input).await
 	}
 
+	#[tracing::instrument(name = "sandbox.kill_process", level = "debug", skip_all, fields(process_index = process.index, sandbox_index = self.index(), signal = %signal), err(level = "debug"))]
 	pub async fn kill(&self, process: &Process, signal: tg::process::Signal) -> tg::Result<()> {
 		let arg = crate::client::kill::Arg { signal };
 		self.0.client.kill(process.index, arg).await?;

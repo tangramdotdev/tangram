@@ -194,6 +194,7 @@ impl Session {
 		}
 	}
 
+	#[tracing::instrument(name = "process.spawn_existing", level = "debug", skip_all, fields(process = %output.id, sandbox = output.data.sandbox.as_ref().map(ToString::to_string)), err(level = "debug"))]
 	async fn spawn_process_in_existing_sandbox(
 		&self,
 		output: &Output,
@@ -248,6 +249,7 @@ impl Session {
 		Ok(connected_event)
 	}
 
+	#[tracing::instrument(name = "process.spawn_new", level = "debug", skip_all, fields(process = %output.id, sandbox = output.data.sandbox.as_ref().map(ToString::to_string)), err(level = "debug"))]
 	async fn spawn_process_in_new_sandbox(
 		&self,
 		output: &mut Output,

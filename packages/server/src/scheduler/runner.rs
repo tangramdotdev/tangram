@@ -83,6 +83,7 @@ impl State {
 		request: AddRunnerRequestArg,
 	) {
 		let connection_index = self.runners.next_connection_index();
+		tracing::info!(runner = %request.runner, connection_index, "registering the runner connection");
 		let completions = self.remove_runner(&request.runner);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
 		let runner = Runner {
@@ -140,6 +141,7 @@ impl State {
 			}
 			return;
 		}
+		tracing::info!(runner = %request.runner, connection_index = request.connection_index, "removing the runner connection");
 		let completions = self.remove_runner(&request.runner);
 		scheduler.send_dequeue_sandbox_completions(self, completions);
 		let scheduler = scheduler.clone();
@@ -215,6 +217,7 @@ impl Server {
 			self.index.get_runner_sandboxes(runner).await.map_err(
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
 			)?;
+		tracing::warn!(%runner, sandboxes = sandboxes.len(), "finishing the expired runner sandboxes");
 		for sandbox in sandboxes {
 			self.destroy_runner_sandbox(&sandbox, "heartbeat expired")
 				.await?;
@@ -228,6 +231,7 @@ impl Server {
 		id: &tg::sandbox::Id,
 		reason: &str,
 	) -> tg::Result<()> {
+		tracing::warn!(sandbox = %id, reason, "finishing the runner sandbox");
 		let now = self.clock.unix_timestamp()?;
 		let error = tg::error::Data {
 			code: Some(tg::error::Code::Internal),

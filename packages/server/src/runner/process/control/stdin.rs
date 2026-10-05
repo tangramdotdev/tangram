@@ -8,6 +8,7 @@ use {
 		process::stdio::{Chunk, Stream, write::Data},
 	},
 	tangram_futures::task::{Stopper, Task},
+	tracing::Instrument as _,
 };
 
 pub(super) struct RunProcessControlStdinTaskArg {
@@ -26,9 +27,11 @@ impl Session {
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
 		Task::spawn(move |_| {
-			async move { session.run_process_control_stdin_task(arg).await }.inspect_err(
-				|error| tracing::error!(error = %error.trace(), "the process control stdin task failed"),
-			)
+			async move { session.run_process_control_stdin_task(arg).await }
+				.inspect_err(
+					|error| tracing::error!(error = %error.trace(), "the process control stdin task failed"),
+				)
+				.in_current_span()
 		})
 	}
 

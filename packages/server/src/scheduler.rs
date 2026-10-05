@@ -352,14 +352,17 @@ impl Session {
 		}
 	}
 
+	#[tracing::instrument(name = "sandbox.enqueue", level = "debug", skip_all, fields(sandbox = %request.sandbox), err(level = "debug"))]
 	pub(crate) async fn enqueue_sandbox(
 		&self,
 		request: EnqueueSandboxRequestArg,
 	) -> tg::Result<tg::scheduler::Id> {
+		tracing::info!(sandbox = %request.sandbox, "enqueueing the sandbox");
 		let mut options = self.scheduler_message_options().retry;
 		options.max_retries = u64::MAX;
 		let result = tangram_futures::retry::retry(&options, || {
 			let request = request.clone();
+			let sandbox = request.sandbox.clone();
 			async move {
 				let target = if let Some(parent) = &request.parent {
 					let scheduler = request.scheduler.clone().ok_or_else(|| {
@@ -395,6 +398,7 @@ impl Session {
 					.try_unwrap_enqueue_sandbox()
 					.map_err(|_| Some(tg::error!("expected an enqueue sandbox response")))?;
 				if response.enqueued {
+					tracing::info!(%sandbox, %scheduler, "enqueued the sandbox");
 					Ok(ControlFlow::Break(scheduler))
 				} else {
 					Ok(ControlFlow::Continue(None::<tg::Error>))
@@ -988,6 +992,7 @@ impl Scheduler {
 		let now = tokio::time::Instant::now();
 		let expired = state.runners.expired(now, self.config.runner_ttl);
 		for (runner, connection_index) in expired {
+			tracing::warn!(%runner, connection_index, ttl_ms = self.config.runner_ttl.as_millis(), "the runner heartbeat expired");
 			let request = RemoveRunnerRequestArg {
 				connection_index,
 				runner,

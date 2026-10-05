@@ -19,6 +19,7 @@ use {
 		},
 	},
 	tangram_futures::task::Task,
+	tracing::Instrument as _,
 };
 
 #[cfg(test)]
@@ -94,9 +95,11 @@ impl Session {
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
 		Task::spawn(move |_| {
-			async move { session.run_process_control_output_task(arg).boxed().await }.inspect_err(
-				|error| tracing::error!(error = %error.trace(), "the process control output task failed"),
-			)
+			async move { session.run_process_control_output_task(arg).boxed().await }
+				.inspect_err(
+					|error| tracing::error!(error = %error.trace(), "the process control output task failed"),
+				)
+				.in_current_span()
 		})
 	}
 

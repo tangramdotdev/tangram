@@ -933,6 +933,7 @@ impl Placement {
 	}
 }
 
+#[tracing::instrument(name = "sandbox.assign", level = "debug", skip_all, fields(runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler), err(level = "debug"))]
 async fn create_sandbox(
 	session: &crate::Session,
 	scheduler: &tg::scheduler::Id,
@@ -942,6 +943,7 @@ async fn create_sandbox(
 	request: &EnqueueSandboxRequestArg,
 	timeout: std::time::Duration,
 ) -> tg::Result<tg::Result<bool>> {
+	tracing::info!(borrowed, runner = %runner.id, sandbox = %request.sandbox, scheduler = %scheduler, "assigned the sandbox to a runner");
 	let arg = tg::runner::control::ServerRequestArg::CreateSandbox(
 		tg::runner::control::CreateSandboxServerRequestArg {
 			arg: request.arg.clone(),

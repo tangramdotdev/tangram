@@ -389,6 +389,7 @@ impl Session {
 			else {
 				break;
 			};
+			tracing::info!(runner = %id, success = result.is_ok(), "the runner control connection ended");
 			self.server.runner.state.set_scheduler(None);
 			if let Err(error) = result {
 				tracing::error!(error = %error.trace(), "the runner task failed");
@@ -534,6 +535,8 @@ impl Session {
 			.boxed()
 			.await?;
 
+		tracing::info!(runner = %id, scheduler = %header.scheduler, previous_sandboxes = header.sandboxes.len(), "connected the runner to the scheduler");
+
 		// Destroy the previous sandboxes before accepting work.
 		let mut index = 1;
 		if *cleanup {
@@ -542,6 +545,7 @@ impl Session {
 				.await?;
 			*cleanup = false;
 		}
+		tracing::info!(runner = %id, "the runner is ready to accept work");
 		self.server
 			.runner
 			.state
@@ -806,6 +810,7 @@ impl Session {
 		} else {
 			self.server.runner.state.capacity.get()
 		};
+		tracing::debug!(target: "tangram_server::runner::control", index, cleanup, available_cpus = capacity.available.cpus, available_memory = capacity.available.memory, "sending the runner heartbeat");
 		tg::runner::control::HeartbeatClientNotification { capacity, index }
 	}
 

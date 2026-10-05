@@ -14,6 +14,7 @@ use {
 	std::sync::Arc,
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
+	tracing::Instrument as _,
 };
 
 mod output;
@@ -146,6 +147,7 @@ impl Session {
 		})
 	}
 
+	#[tracing::instrument(name = "process.control", level = "debug", skip_all, fields(process = %self.context.principal), err(level = "debug"))]
 	pub(super) async fn run_process_control_task(
 		&self,
 		arg: RunProcessControlTaskArg,
@@ -171,8 +173,9 @@ impl Session {
 		let log_task = log.map(|arg| {
 			let session = self.clone();
 			let sender = sender.clone();
-			Task::spawn(move |_| async move {
-				session.write_process_log_task(arg, sender).boxed().await
+			Task::spawn(move |_| {
+				async move { session.write_process_log_task(arg, sender).boxed().await }
+					.in_current_span()
 			})
 		});
 
@@ -238,13 +241,14 @@ impl Session {
 			.await
 			.map_err(|_| tg::error!("failed to receive the process finish response receiver"))?;
 		let started = std::time::Instant::now();
+		tracing::debug!(process = %self.context.principal, "waiting for the process finish response");
 		let output = Self::receive_process_control_client_response(receiver)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to receive the finish process response"))?;
 		output
 			.try_unwrap_finish()
 			.map_err(|_| tg::error!("expected a finish process response"))?;
-		tracing::debug!(elapsed = ?started.elapsed(), "received the process finish response");
+		tracing::info!(elapsed = ?started.elapsed(), process = %self.context.principal, "received the process finish response");
 		let log_result = if let Some(log_task) = log_task {
 			match log_task.wait().await {
 				Ok(result) => result,
@@ -341,9 +345,11 @@ impl Session {
 	) -> Task<tg::Result<()>> {
 		let session = self.clone();
 		Task::spawn(move |_| {
-			async move { session.run_process_control_handler_task(arg).boxed().await }.inspect_err(
-				|error| tracing::error!(error = %error.trace(), "the process control handler task failed"),
-			)
+			async move { session.run_process_control_handler_task(arg).boxed().await }
+				.in_current_span()
+				.inspect_err(
+					|error| tracing::error!(error = %error.trace(), "the process control handler task failed"),
+				)
 		})
 	}
 
