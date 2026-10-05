@@ -629,6 +629,19 @@ impl TokenSearch {
 		let mut state = State::default();
 		state.set_token_subject(subject);
 		state.set_process_parent_delegation(process_parent_delegation);
+
+		// Apply exact tokens before spending any graph search budget.
+		for root in &roots {
+			if let Some(expires_at) = tokens
+				.iter()
+				.filter(|token| token.resource == root.0 && token.authorizes(root.1))
+				.map(|token| token.expires_at)
+				.max()
+			{
+				state.verify_with_expiration(root.clone(), expires_at);
+			}
+		}
+
 		let initial =
 			AncestorOrDescendantSearch::new(config, principal, &roots, &tokens, &mut state);
 		let final_search = FinalSearch::new(roots.iter().cloned());
@@ -2266,6 +2279,44 @@ mod tests {
 		});
 
 		assert!(matches!(outcome[0], super::super::Outcome::Satisfied));
+	}
+
+	#[test]
+	fn exact_tokens_do_not_require_a_search_budget() {
+		let object = object(0);
+		let token = tg::authorization::Body {
+			expires_at: i64::MAX,
+			permissions: vec![tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree,
+			)],
+			resource: object.clone().into(),
+		};
+		let args = [
+			arg(object.clone().into(), Some(token)),
+			arg(object.into(), None),
+		];
+		let mut config = super::super::Config::default();
+		for search in [
+			&mut config.permissions.ancestor,
+			&mut config.permissions.descendant,
+		] {
+			search.max_depth = 0;
+			search.max_edges = 0;
+			search.max_nodes = 0;
+		}
+		config.permissions.subtree.max_depth = 0;
+		config.permissions.subtree.max_objects = 0;
+		let outcomes = run_with_config(
+			&args,
+			config,
+			&tg::Principal::Anonymous,
+			|read| match read {
+				Read::Resolve { .. } => default_output(read),
+				_ => panic!("exact tokens must not search the graph"),
+			},
+		);
+		assert_eq!(outcomes[0], super::super::Outcome::Satisfied);
+		assert_eq!(outcomes[1], super::super::Outcome::Exhausted);
 	}
 
 	#[test]
