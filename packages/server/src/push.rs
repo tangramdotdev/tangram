@@ -216,15 +216,20 @@ impl Session {
 		let get = get
 			.into_iter()
 			.map(|mut node| {
-				let tokens = std::mem::take(&mut node.options.tokens);
+				let original_tokens = std::mem::take(&mut node.options.tokens);
 				node.options.tokens = if destination.is_remote() {
-					tokens.for_location(&destination)
-				} else {
-					let mut relay = tg::authorization::Tokens::with_local(tokens.local().cloned());
-					if let Some(entry) = tokens.get(&source) {
-						relay.set(source.clone(), entry.clone());
+					let mut tokens = original_tokens.for_location(&destination);
+					if let Some(entry) = original_tokens.get(&source) {
+						tokens.set(destination.clone(), entry.clone());
 					}
-					relay
+					tokens
+				} else {
+					let mut tokens =
+						tg::authorization::Tokens::with_local(original_tokens.local().cloned());
+					if let Some(entry) = original_tokens.get(&source) {
+						tokens.set(source.clone(), entry.clone());
+					}
+					tokens
 				};
 				node
 			})
