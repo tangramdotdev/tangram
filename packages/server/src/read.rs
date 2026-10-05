@@ -240,20 +240,7 @@ impl Session {
 impl Reader {
 	pub async fn new(session: &Session, blob: tg::Blob) -> tg::Result<Self> {
 		let id = blob.id();
-		let permission = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Node,
-		);
-		let resource = tg::Referent::with_node_and_tokens(
-			tg::object::Id::from(id.clone()),
-			blob.state().tokens(),
-		);
-		let authorized = session
-			.authorize(resource, permission)
-			.await?
-			.check_exhaustion()?
-			.permissions
-			.contains(permission);
-		let checkout_pointer = if authorized && session.server.checkouts_enabled() {
+		let checkout_pointer = if session.server.checkouts_enabled() {
 			let arg = crate::cache::object::get::Arg {
 				bytes: true,
 				id: id.clone().into(),
@@ -267,6 +254,23 @@ impl Reader {
 				.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
 				.object
 				.and_then(|object| object.checkout_pointer)
+		} else {
+			None
+		};
+		let checkout_pointer = if let Some(checkout_pointer) = checkout_pointer {
+			let permission = tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Node,
+			);
+			let resource = tg::Referent::with_node_and_tokens(
+				tg::object::Id::from(id.clone()),
+				blob.state().tokens(),
+			);
+			let authorized = session
+				.authorize(resource, permission)
+				.await?
+				.permissions
+				.contains(permission);
+			authorized.then_some(checkout_pointer)
 		} else {
 			None
 		};
