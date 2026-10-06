@@ -745,15 +745,19 @@ impl<O: 'static> tg::Process<O> {
 		let output_path = output_path.unwrap_or_else(|| temp.path().join("output"));
 		let artifacts = checkout_artifacts(instance, &command).await?;
 		let mut env = render_env(instance, &command.env, &artifacts, &output_path)?;
-		let engine = std::env::var("TANGRAM_JS_ENGINE").unwrap_or_else(|_| "auto".to_owned());
-		env.insert("TANGRAM_JS_ENGINE".to_owned(), engine);
+		let engine =
+			std::env::var("TANGRAM_JAVASCRIPT_ENGINE").unwrap_or_else(|_| "auto".to_owned());
+		env.insert("TANGRAM_JAVASCRIPT_ENGINE".to_owned(), engine);
 		if let Some(debug) = arg.debug.as_ref() {
-			env.insert("TANGRAM_JS_DEBUG".to_owned(), "true".to_owned());
+			env.insert("TANGRAM_JAVASCRIPT_DEBUG".to_owned(), "true".to_owned());
 			if let Some(addr) = debug.addr {
-				env.insert("TANGRAM_JS_DEBUG_ADDR".to_owned(), addr.to_string());
+				env.insert("TANGRAM_JAVASCRIPT_DEBUG_ADDR".to_owned(), addr.to_string());
 			}
 			if debug.mode != tg::process::debug::Mode::Normal {
-				env.insert("TANGRAM_JS_DEBUG_MODE".to_owned(), debug.mode.to_string());
+				env.insert(
+					"TANGRAM_JAVASCRIPT_DEBUG_MODE".to_owned(),
+					debug.mode.to_string(),
+				);
 			}
 		}
 		let (executable, args) = render_command(&command, &artifacts, &output_path)?;
@@ -1197,10 +1201,10 @@ where
 	for key in [
 		"TANGRAM_CONFIG",
 		"TANGRAM_DIRECTORY",
-		"TANGRAM_JS_DEBUG",
-		"TANGRAM_JS_DEBUG_ADDR",
-		"TANGRAM_JS_DEBUG_MODE",
-		"TANGRAM_JS_ENGINE",
+		"TANGRAM_JAVASCRIPT_DEBUG",
+		"TANGRAM_JAVASCRIPT_DEBUG_ADDR",
+		"TANGRAM_JAVASCRIPT_DEBUG_MODE",
+		"TANGRAM_JAVASCRIPT_ENGINE",
 		"TANGRAM_MODE",
 		"TANGRAM_OUTPUT",
 		"TANGRAM_TOKEN",

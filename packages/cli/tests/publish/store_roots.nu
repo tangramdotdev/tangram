@@ -9,7 +9,7 @@ let module = artifact {
 			const leaf = await tg.directory({
 				"tangram.ts": tg.file({
 					contents: "export const metadata = { tag: \"test-leaf/1.0.0\" };",
-					module: "ts",
+					module: "typescript",
 				}),
 			});
 			const dependency = await tg.directory({
@@ -18,7 +18,7 @@ let module = artifact {
 					dependencies: {
 						"test-leaf?source=../leaf": { node: leaf, options: { path: "../leaf" } },
 					},
-					module: "ts",
+					module: "typescript",
 				}),
 			});
 			const root = await tg.directory({ leaf, pkg: dependency });
@@ -31,7 +31,7 @@ let module = artifact {
 							options: { id: root.id, path: "pkg" },
 						},
 					},
-					module: "ts",
+					module: "typescript",
 				}),
 			});
 			return tg.directory({ dependency: root, pkg: main });

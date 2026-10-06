@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A build parses each `--arg-value` value kind into the corresponding JS type, unlike `--arg-string` which always produces a string.
+# A build parses each `--arg-value` value kind into the corresponding JavaScript type, unlike `--arg-string` which always produces a string.
 
 let local = server spawn
 

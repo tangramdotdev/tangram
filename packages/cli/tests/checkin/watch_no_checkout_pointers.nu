@@ -21,7 +21,7 @@ snapshot $object1 '
 	    "dependencies": {
 	      "a/^1": null,
 	    },
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '
@@ -44,7 +44,7 @@ snapshot $object2 '
 	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": tg.blob(""),
-	            "module": "ts",
+	            "module": "typescript",
 	          }),
 	        }),
 	        "options": {
@@ -53,7 +53,7 @@ snapshot $object2 '
 	        },
 	      },
 	    },
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '

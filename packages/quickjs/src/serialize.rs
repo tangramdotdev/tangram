@@ -6,7 +6,10 @@ use {
 };
 
 pub trait Serialize {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>>;
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>>;
 }
 
 fn error(error: qjs::Error) -> tg::Error {
@@ -20,13 +23,19 @@ impl<T> Serialize for &T
 where
 	T: Serialize,
 {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		(*self).serialize(ctx)
 	}
 }
 
 impl Serialize for () {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		Ok(qjs::Value::new_undefined(ctx.clone()))
 	}
 }
@@ -35,7 +44,7 @@ macro_rules! impl_serialize_with_into_js {
 	($($type:ty),* $(,)?) => {
 		$(
 			impl Serialize for $type {
-				fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+				fn serialize<'javascript>(&self, ctx: &qjs::Ctx<'javascript>) -> tg::Result<qjs::Value<'javascript>> {
 					(*self).into_js(ctx).map_err(error)
 				}
 			}
@@ -51,7 +60,10 @@ impl<T> Serialize for Box<T>
 where
 	T: Serialize,
 {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		self.as_ref().serialize(ctx)
 	}
 }
@@ -60,7 +72,10 @@ impl<T> Serialize for Arc<T>
 where
 	T: Serialize,
 {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		self.as_ref().serialize(ctx)
 	}
 }
@@ -70,7 +85,10 @@ where
 	L: Serialize,
 	R: Serialize,
 {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		match self {
 			Self::Left(value) => value.serialize(ctx),
 			Self::Right(value) => value.serialize(ctx),
@@ -82,7 +100,10 @@ impl<T> Serialize for Option<T>
 where
 	T: Serialize,
 {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		match self {
 			Some(value) => value.serialize(ctx),
 			None => Ok(qjs::Value::new_null(ctx.clone())),
@@ -96,7 +117,7 @@ macro_rules! impl_serialize_tuple {
 		where
 			$($type: Serialize,)+
 		{
-			fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+			fn serialize<'javascript>(&self, ctx: &qjs::Ctx<'javascript>) -> tg::Result<qjs::Value<'javascript>> {
 				let array = qjs::Array::new(ctx.clone()).map_err(error)?;
 				$(array.set($index, self.$index.serialize(ctx)?).map_err(error)?;)+
 				Ok(array.into_value())
@@ -114,7 +135,10 @@ impl<T> Serialize for [T]
 where
 	T: Serialize,
 {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		let array = qjs::Array::new(ctx.clone()).map_err(error)?;
 		for (index, value) in self.iter().enumerate() {
 			array.set(index, value.serialize(ctx)?).map_err(error)?;
@@ -127,7 +151,10 @@ impl<T> Serialize for Vec<T>
 where
 	T: Serialize,
 {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		self.as_slice().serialize(ctx)
 	}
 }
@@ -137,7 +164,10 @@ where
 	K: ToString,
 	V: Serialize,
 {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		let object = qjs::Object::new(ctx.clone()).map_err(error)?;
 		for (key, value) in self {
 			object
@@ -149,7 +179,10 @@ where
 }
 
 impl Serialize for String {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		qjs::String::from_str(ctx.clone(), self)
 			.map(qjs::String::into_value)
 			.map_err(error)
@@ -157,13 +190,19 @@ impl Serialize for String {
 }
 
 impl Serialize for PathBuf {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		self.to_string_lossy().to_string().serialize(ctx)
 	}
 }
 
 impl Serialize for Bytes {
-	fn serialize<'js>(&self, ctx: &qjs::Ctx<'js>) -> tg::Result<qjs::Value<'js>> {
+	fn serialize<'javascript>(
+		&self,
+		ctx: &qjs::Ctx<'javascript>,
+	) -> tg::Result<qjs::Value<'javascript>> {
 		qjs::TypedArray::<u8>::new(ctx.clone(), self.as_ref())
 			.map(qjs::TypedArray::into_value)
 			.map_err(error)

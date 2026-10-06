@@ -107,7 +107,7 @@ fn referent_without_tokens_preserves_other_options() {
 
 fn print_values(options: tg::referent::Options) -> [String; 3] {
 	let module = tg::Module {
-		kind: tg::module::Kind::Ts,
+		kind: tg::module::Kind::TypeScript,
 		referent: tg::Referent::new(
 			tg::module::Source::Path("source.ts".into()),
 			options.clone(),

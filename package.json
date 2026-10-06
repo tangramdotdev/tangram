@@ -1,10 +1,10 @@
 {
 	"private": true,
 	"workspaces": [
-		"packages/clients/js",
-		"packages/clients/py",
-		"packages/js",
-		"packages/py",
+		"packages/clients/javascript",
+		"packages/clients/python",
+		"packages/javascript",
+		"packages/python",
 		"packages/typescript",
 		"packages/vscode"
 	],

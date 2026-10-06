@@ -41,7 +41,7 @@ let lock = {
 					}
 				}
 			}
-			module: "ts"
+			module: "typescript"
 		},
 	]
 } | to json
@@ -72,7 +72,7 @@ snapshot $object '
 	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": blb_01r6mwmke66z61dwjakzxtmgxnkwe8983mrvz4q5pskt4hn4n0xye0,
-	            "module": "ts",
+	            "module": "typescript",
 	          }),
 	        }),
 	        "options": {
@@ -83,7 +83,7 @@ snapshot $object '
 	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": blb_01fvxej6sm4nwrxep5554hdh2wbxf8q4zb7nbw8r0qhw746d5wd3dg,
-	            "module": "ts",
+	            "module": "typescript",
 	          }),
 	        }),
 	        "options": {
@@ -92,7 +92,7 @@ snapshot $object '
 	        },
 	      },
 	    },
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '

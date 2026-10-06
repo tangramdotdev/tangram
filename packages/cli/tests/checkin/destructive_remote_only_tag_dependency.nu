@@ -35,7 +35,7 @@ snapshot $object '
 	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": tg.blob("export default () => \"remote_only\";"),
-	            "module": "ts",
+	            "module": "typescript",
 	          }),
 	        }),
 	        "options": {
@@ -44,7 +44,7 @@ snapshot $object '
 	        },
 	      },
 	    },
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '

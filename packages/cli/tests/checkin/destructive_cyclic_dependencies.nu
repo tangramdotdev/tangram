@@ -39,7 +39,7 @@ snapshot $object '
 	              },
 	            },
 	          },
-	          "module": "ts",
+	          "module": "typescript",
 	        },
 	        {
 	          "kind": "file",
@@ -52,7 +52,7 @@ snapshot $object '
 	              },
 	            },
 	          },
-	          "module": "ts",
+	          "module": "typescript",
 	        },
 	        {
 	          "kind": "directory",
@@ -85,7 +85,7 @@ snapshot $object '
 	              },
 	            },
 	          },
-	          "module": "ts",
+	          "module": "typescript",
 	        },
 	        {
 	          "kind": "file",
@@ -98,7 +98,7 @@ snapshot $object '
 	              },
 	            },
 	          },
-	          "module": "ts",
+	          "module": "typescript",
 	        },
 	        {
 	          "kind": "directory",

@@ -12,8 +12,8 @@ use {
 	tangram_client::prelude::*,
 };
 
-#[cfg(feature = "py")]
-pub mod py;
+#[cfg(feature = "python")]
+pub mod python;
 
 #[derive(Clone, Debug)]
 pub struct Analysis {
@@ -34,26 +34,26 @@ impl Compiler {
 			| tg::module::Kind::Graph
 			| tg::module::Kind::Object
 			| tg::module::Kind::Symlink => Err(tg::error!(kind = %module.kind, "cannot analyze the module")),
-			tg::module::Kind::Dts | tg::module::Kind::Js | tg::module::Kind::Ts => {
-				Ok(Self::analyze_js(module, text))
-			},
-			tg::module::Kind::Py => {
-				#[cfg(feature = "py")]
+			tg::module::Kind::JavaScript
+			| tg::module::Kind::TypeScript
+			| tg::module::Kind::TypeScriptDeclaration => Ok(Self::analyze_javascript(module, text)),
+			tg::module::Kind::Python => {
+				#[cfg(feature = "python")]
 				{
 					let tg::module::data::Source::Path(path) = &module.referent.node else {
 						return Err(tg::error!("expected a python module source path"));
 					};
-					py::analyze(path, text)
+					python::analyze(path, text)
 				}
-				#[cfg(not(feature = "py"))]
+				#[cfg(not(feature = "python"))]
 				{
-					Err(tg::error!("the py feature is not enabled"))
+					Err(tg::error!("the python feature is not enabled"))
 				}
 			},
 		}
 	}
 
-	fn analyze_js(module: &tg::module::Data, text: &str) -> Analysis {
+	fn analyze_javascript(module: &tg::module::Data, text: &str) -> Analysis {
 		let allocator = oxc::allocator::Allocator::default();
 
 		let mut diagnostics = Vec::new();
@@ -286,7 +286,7 @@ mod tests {
 			"#
 		);
 		let module = tg::module::Data {
-			kind: tg::module::Kind::Ts,
+			kind: tg::module::Kind::TypeScript,
 			referent: tg::Referent::with_node(tg::module::data::Source::Path("test.tg.ts".into())),
 		};
 		let found = Compiler::analyze(&module, text).unwrap().imports;

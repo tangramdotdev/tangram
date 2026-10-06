@@ -4,6 +4,6 @@ tg.directory({
     "dependencies": {
       "a/^1.2": null,
     },
-    "module": "ts",
+    "module": "typescript",
   }),
 })

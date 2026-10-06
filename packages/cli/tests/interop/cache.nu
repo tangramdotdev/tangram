@@ -14,7 +14,7 @@ let package = artifact {
 }
 tg tag put -p tasks/1.0.0 $package
 tg tag put -p alias/1.0.0 $package
-let js = artifact {
+let javascript = artifact {
     'tangram.ts': '
         import task from "tasks/^1" with { get: "task.tg.py" };
         export default async function () {
@@ -27,7 +27,7 @@ let js = artifact {
         }
     '
 }
-let py = artifact {
+let python = artifact {
     'tangram.py': '
         # /// script
         # [tool.tangram.imports.task]
@@ -42,26 +42,26 @@ let py = artifact {
             return command
     '
 }
-let first = tg run $js | split row '?' | first
-assert equal (tg run $py | split row '?' | first) $first
+let first = tg run $javascript | split row '?' | first
+assert equal (tg run $python | split row '?' | first) $first
 assert equal (tg run $first | str trim) '42'
 
 # Retagging a package after an unrelated edit preserves its member command.
 'unused = 2' | save --force ($package | path join unused.tg.py)
 tg tag put -p tasks/1.0.1 $package
 tg tag put -p alias/1.0.1 $package
-tg update $js
-tg update $py
-assert equal (tg run $js | split row '?' | first) $first
-assert equal (tg run $py | split row '?' | first) $first
+tg update $javascript
+tg update $python
+assert equal (tg run $javascript | split row '?' | first) $first
+assert equal (tg run $python | split row '?' | first) $first
 
 # Required module changes alter both clients' command identities equally.
 'delta = 3' | save --force ($package | path join helper.tg.py)
 tg tag put -p tasks/1.0.2 $package
 tg tag put -p alias/1.0.2 $package
-tg update $js
-tg update $py
-let second = tg run $js | split row '?' | first
+tg update $javascript
+tg update $python
+let second = tg run $javascript | split row '?' | first
 assert ($second != $first)
-assert equal (tg run $py | split row '?' | first) $second
+assert equal (tg run $python | split row '?' | first) $second
 assert equal (tg run $second | str trim) '43'

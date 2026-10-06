@@ -197,7 +197,7 @@ impl Compiler {
 			})
 			.collect();
 
-		let response = if module.kind == tg::module::Kind::Py {
+		let response = if module.kind == tg::module::Kind::Python {
 			// ty filters completions against the typed prefix, so further typing needs a new query.
 			lsp::CompletionResponse::List(lsp::CompletionList {
 				is_incomplete: true,

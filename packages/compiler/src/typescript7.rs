@@ -261,7 +261,10 @@ impl Host<'_> {
 			match module {
 				Some(module) => Some(
 					self.compiler
-						.load_module_with_language(&module, Some(tg::module::load::Language::Js))
+						.load_module_with_language(
+							&module,
+							Some(tg::module::load::Language::JavaScript),
+						)
 						.await?,
 				),
 				None => None,
@@ -358,7 +361,7 @@ impl tangram_typescript_client::Host for Host<'_> {
 
 #[must_use]
 fn module_path(module: &tg::module::Data) -> String {
-	if let (tg::module::Kind::Dts, tg::module::data::Source::Path(path)) =
+	if let (tg::module::Kind::TypeScriptDeclaration, tg::module::data::Source::Path(path)) =
 		(&module.kind, &module.referent.node)
 	{
 		return format!(
@@ -368,7 +371,7 @@ fn module_path(module: &tg::module::Data) -> String {
 	}
 	let identity = module.without_token().to_string();
 	let identity = BASE64URL_NOPAD.encode(identity.as_bytes());
-	let extension = if module.kind == tg::module::Kind::Js {
+	let extension = if module.kind == tg::module::Kind::JavaScript {
 		"js"
 	} else {
 		"ts"
@@ -382,7 +385,7 @@ fn try_module_from_path(path: &str) -> tg::Result<Option<tg::module::Data>> {
 	if let Some(path) = path.strip_prefix("/__library__/") {
 		let referent = tg::Referent::with_node(tg::module::data::Source::Path(path.into()));
 		let module = tg::module::Data {
-			kind: tg::module::Kind::Dts,
+			kind: tg::module::Kind::TypeScriptDeclaration,
 			referent,
 		};
 		return Ok(Some(module));
@@ -461,7 +464,7 @@ mod tests {
 		let token = tg::authorization::Token::sign(body, &key).unwrap();
 		let referent = tg::Referent::with_node(tg::module::data::Source::Path("module.ts".into()));
 		let module = tg::module::Data {
-			kind: tg::module::Kind::Ts,
+			kind: tg::module::Kind::TypeScript,
 			referent,
 		};
 		let mut authorized = module.clone();
@@ -508,7 +511,7 @@ mod tests {
 		let modules = ["folder with spaces/λ?#.ts", "other.ts"].map(|path| {
 			let referent = tg::Referent::with_node(tg::module::data::Source::Path(path.into()));
 			tg::module::Data {
-				kind: tg::module::Kind::Ts,
+				kind: tg::module::Kind::TypeScript,
 				referent,
 			}
 		});
@@ -538,8 +541,11 @@ mod tests {
 	#[test]
 	fn javascript_and_declaration_paths_roundtrip() {
 		for (kind, path) in [
-			(tg::module::Kind::Js, "script.js"),
-			(tg::module::Kind::Dts, "tangram/index.d.ts"),
+			(tg::module::Kind::JavaScript, "script.js"),
+			(
+				tg::module::Kind::TypeScriptDeclaration,
+				"tangram/index.d.ts",
+			),
 		] {
 			let referent = tg::Referent::with_node(tg::module::data::Source::Path(path.into()));
 			let module = tg::module::Data { kind, referent };

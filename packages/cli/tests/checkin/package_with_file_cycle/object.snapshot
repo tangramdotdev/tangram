@@ -12,7 +12,7 @@ tg.file({
             },
           },
         },
-        "module": "ts",
+        "module": "typescript",
       },
       {
         "kind": "file",
@@ -25,7 +25,7 @@ tg.file({
             },
           },
         },
-        "module": "ts",
+        "module": "typescript",
       },
     ],
   }),

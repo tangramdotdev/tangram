@@ -487,7 +487,7 @@ export def --env "server spawn" [
 	--name (-n): string
 	--now: string # Set the server's simulated wall clock to an RFC 3339 timestamp.
 	--preserve-keys
-	--quickjs # Use QuickJS as the JS engine.
+	--quickjs # Use QuickJS as the JavaScript engine.
 	--region: string # Set the server's region.
 	--url (-u): string
 ] {
@@ -533,7 +533,7 @@ export def --env "server spawn" [
 	if $use_quickjs {
 		$default_config = $default_config | merge deep {
 			runner: {
-				js: {
+				javascript: {
 					engine: 'quickjs',
 				},
 			},

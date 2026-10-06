@@ -26,7 +26,7 @@ let path = artifact {
 	"example.tg.ts": '
 		export default async () => {
 			// Exercise the standalone spawn endpoint, whose runner shortcut pushes the command.
-			let command = await tg.Command.js(child, []);
+			let command = await tg.Command.javascript(child, []);
 			await command.node.store();
 			let object = await command.node.object();
 			let arg = {

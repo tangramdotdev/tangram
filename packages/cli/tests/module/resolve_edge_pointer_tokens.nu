@@ -19,8 +19,8 @@ let path = artifact {
 			const dependencyGraph = await tg.graph({
 				nodes: [
 					{ kind: "directory", entries: { "tangram.ts": 1 } },
-					{ kind: "file", contents: `import "./c"; export default 2;`, dependencies: { "./c": 2 }, module: "ts" },
-					{ kind: "file", contents: "export default 3;", module: "ts" },
+					{ kind: "file", contents: `import "./c"; export default 2;`, dependencies: { "./c": 2 }, module: "typescript" },
+					{ kind: "file", contents: "export default 3;", module: "typescript" },
 				],
 			});
 			const graph = await tg.graph({
@@ -29,13 +29,13 @@ let path = artifact {
 						kind: "file",
 						contents: `import "./b"; export default 1;`,
 						dependencies: { "./b": { graph: dependencyGraph, index: 0, kind: "directory" } },
-						module: "ts",
+						module: "typescript",
 					},
 				],
 			});
 			const pointer: tg.Graph.Pointer = { graph, index: 0, kind: "file" };
 			const module = new tg.Module({
-				kind: "ts",
+				kind: "typescript",
 				referent: { node: pointer, options: {} },
 			});
 			const command = await tg.command({

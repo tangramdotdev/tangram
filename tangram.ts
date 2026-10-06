@@ -36,15 +36,15 @@ export type Arg = cargo.Arg & {
 
 export const check = async () => {
 	await tg.run`cargo clippy --all-features --all-targets --workspace`;
-	await tg.run`cd packages/clients/js && bunx tsgo && bunx oxlint src`;
-	await tg.run`cd packages/js && bunx tsgo && bunx oxlint ./src/main.ts`;
+	await tg.run`cd packages/clients/javascript && bunx tsgo && bunx oxlint src`;
+	await tg.run`cd packages/javascript && bunx tsgo && bunx oxlint ./src/main.ts`;
 	await tg.run`cd packages/typescript && bunx tsgo && bunx oxlint src`;
 	await tg.run`cd packages/vscode && bunx tsgo && bunx oxlint extension.ts`;
 };
 
 export const format = async () => {
 	await tg.run`cargo fmt --all`;
-	await tg.run`bunx oxfmt --write packages/clients/js/src packages/js/src/tangram.d.ts packages/js/src/main.ts packages/typescript/src packages/vscode/extension.ts`;
+	await tg.run`bunx oxfmt --write packages/clients/javascript/src packages/javascript/src/tangram.d.ts packages/javascript/src/main.ts packages/typescript/src packages/vscode/extension.ts`;
 };
 
 export const run = async (...args: tg.Args<Arg>) => {
@@ -317,8 +317,8 @@ const nodeModules = async (hostArg?: string) => {
 	// Create subset of source relevant for bun install.
 	const packageJson = source.get("package.json").then(tg.File.expect);
 	const bunLock = source.get("bun.lock").then(tg.File.expect);
-	const clientsJs = source.get("packages/clients/js").then(tg.Directory.expect);
-	const js = source.get("packages/js").then(tg.Directory.expect);
+	const clientsJavaScript = source.get("packages/clients/javascript").then(tg.Directory.expect);
+	const javascript = source.get("packages/javascript").then(tg.Directory.expect);
 	const typescript = source
 		.get("packages/typescript")
 		.then(tg.Directory.expect);
@@ -329,9 +329,9 @@ const nodeModules = async (hostArg?: string) => {
 		"bun.lock": bunLock,
 		packages: {
 			clients: {
-				js: clientsJs,
+				javascript: clientsJavaScript,
 			},
-			js,
+			javascript,
 			typescript,
 			vscode,
 		},
@@ -342,8 +342,8 @@ const nodeModules = async (hostArg?: string) => {
 			chmod -R u+w ${tg.output}
 			cd ${tg.output}
 			bun install --frozen-lockfile --linker=hoisted || true
-			mkdir -p packages/js/node_modules/@tangramdotdev
-			ln -sf ../../../../clients/js packages/js/node_modules/@tangramdotdev/client
+			mkdir -p packages/javascript/node_modules/@tangramdotdev
+			ln -sf ../../../../clients/javascript packages/javascript/node_modules/@tangramdotdev/client
 		`
 		.checksum("sha256:any")
 		.network(true)
@@ -514,7 +514,7 @@ const getRustyV8Version = async (lockfile: tg.File) => {
 
 const libpython = async (source: tg.Directory, build: string, host: string) => {
 	const manifest = await source
-		.get("packages/py/build/distributions.json")
+		.get("packages/python/build/distributions.json")
 		.then(tg.File.expect)
 		.then((file) => file.text)
 		.then((text) => JSON.parse(text) as PythonDistributions);
@@ -569,7 +569,7 @@ const libpython = async (source: tg.Directory, build: string, host: string) => {
 	const workspace = tg.directory({
 		"uv.lock": source.get("uv.lock"),
 	});
-	const script = source.get("packages/py/build/packages.py");
+	const script = source.get("packages/python/build/packages.py");
 	const packages = await std.build`
 		packages=$(${python} -I ${script} ${workspace} "$PWD/packages" ${python})
 		cp -R "$packages" ${tg.output}

@@ -4,7 +4,7 @@ let local = server spawn
 let path = artifact {
 	tangram.ts: '
 		export default async () => {
-			const functionArg = await tg.Command.jsArg(child, []);
+			const functionArg = await tg.Command.javascriptArg(child, []);
 			tg.assert(functionArg.node.host === undefined);
 			const shellArg = await tg.Process.spawnArg({ executable: "sh", args: ["-c", "true"], sandbox: true });
 			tg.assert(shellArg.arg.command.node.host === undefined);
@@ -12,7 +12,7 @@ let path = artifact {
 			tg.assert(functionSpawn.arg.command.node.host === undefined);
 			const explicit = await tg.Process.spawnArg({ command: functionArg, host: "explicit-host", sandbox: true });
 			tg.assert(explicit.arg.command.node.host === "explicit-host");
-			const command = await tg.Command.js(child, []);
+			const command = await tg.Command.javascript(child, []);
 			const materialized = await tg.Process.spawnArg({ command, sandbox: true });
 			tg.assert(materialized.arg.command.node.host === tg.host.current);
 			return "ok";

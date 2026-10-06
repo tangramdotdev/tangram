@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # The node client reads and writes its protocol messages using the expected framing.
 
-const js_path = path self '../../../js'
+const javascript_path = path self '../../../javascript'
 
 # The compiled Node.js client uses the default host and connects to the server using the inherited Tangram URL.
 
@@ -13,7 +13,7 @@ let xattrs = artifact (file --xattrs {
 	"user.tangram.output.1": '"bin"}'
 } '')
 
-cd $js_path
+cd $javascript_path
 
 let output = node --input-type=module -e '
 	import assert from "node:assert/strict";

@@ -11,7 +11,7 @@ rust-version = { workspace = true }
 version = { workspace = true }
 
 [features]
-py = [
+python = [
 	"dep:pep440_rs",
 	"dep:ruff_db",
 	"dep:ruff_notebook",
@@ -19,7 +19,7 @@ py = [
 	"dep:ruff_python_formatter",
 	"dep:ruff_python_parser",
 	"dep:salsa",
-	"dep:tangram_py_build",
+	"dep:tangram_python_build",
 	"dep:ty_ide",
 	"dep:ty_module_resolver",
 	"dep:ty_project",
@@ -38,7 +38,7 @@ doctest = false
 workspace = true
 
 [build-dependencies]
-tangram_py_build = { workspace = true, optional = true }
+tangram_python_build = { workspace = true, optional = true }
 data-encoding = { workspace = true }
 glob = { workspace = true }
 indoc = { workspace = true }

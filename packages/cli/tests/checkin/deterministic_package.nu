@@ -35,7 +35,7 @@ let lock = {
 					}
 				}
 			}
-			module: "ts"
+			module: "typescript"
 		},
 	]
 } | to json
@@ -60,7 +60,7 @@ snapshot $object '
 	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": blb_01eywswh4akk7cwdacc6g728n2jj5cj4d3ay6nbxt694326b73qshg,
-	            "module": "ts",
+	            "module": "typescript",
 	          }),
 	        }),
 	        "options": {
@@ -69,7 +69,7 @@ snapshot $object '
 	        },
 	      },
 	    },
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '

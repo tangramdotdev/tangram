@@ -19,7 +19,7 @@ let id = tg build (artifact {
 				"file.txt": tg.file({
 					contents: "contents",
 					dependencies: { dependency },
-					module: "ts",
+					module: "typescript",
 				}),
 			});
 		}
@@ -31,5 +31,5 @@ let names = xattr_list $path | sort
 assert ($names == ['user.tangram.dependencies', 'user.tangram.module', 'user.tangram.token']) 'unexpected xattr names'
 let dependency = xattr_read 'user.tangram.dependencies' $path | from json | first
 assert equal ($dependency | split row '?' | first) 'dependency' 'unexpected dependency xattr'
-assert ((xattr_read 'user.tangram.module' $path) == 'ts') 'unexpected module xattr'
+assert ((xattr_read 'user.tangram.module' $path) == 'typescript') 'unexpected module xattr'
 assert (not (xattr_read 'user.tangram.token' $path | is-empty)) 'missing file token xattr'

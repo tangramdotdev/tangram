@@ -30,7 +30,7 @@ snapshot ($json | to json --indent 2) '
 	          },
 	          "location": {
 	            "module": {
-	              "kind": "ts",
+	              "kind": "typescript",
 	              "referent": {
 	                "node": "graph=gph_01ky68qhkg8cap44t3dh5h34tp7s3z3qykcj8n32bx7rsnyv30k4fg&index=0&kind=file",
 	                "options": {
@@ -56,7 +56,7 @@ snapshot ($json | to json --indent 2) '
 	                {
 	                  "location": {
 	                    "module": {
-	                      "kind": "ts",
+	                      "kind": "typescript",
 	                      "referent": {
 	                        "node": "graph=gph_01ky68qhkg8cap44t3dh5h34tp7s3z3qykcj8n32bx7rsnyv30k4fg&index=0&kind=file",
 	                        "options": {

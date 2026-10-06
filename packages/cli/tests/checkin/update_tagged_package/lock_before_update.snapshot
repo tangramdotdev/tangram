@@ -17,7 +17,7 @@
           }
         }
       },
-      "module": "ts"
+      "module": "typescript"
     }
   ]
 }

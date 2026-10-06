@@ -16,11 +16,11 @@ let bob = tg login --verbose --name bob | from json
 let path = artifact {
 	tangram.ts: '
 		export default async function () {
-			const c = await tg.file({ contents: "export default 3;", module: "ts" });
+			const c = await tg.file({ contents: "export default 3;", module: "typescript" });
 			const bModule = await tg.file({
 				contents: `import "./c"; export default 2;`,
 				dependencies: { "./c": c },
-				module: "ts",
+				module: "typescript",
 			});
 			const bChildDirectory = await tg.directory({ "tangram.ts": bModule });
 			const bDirectory = await tg.directory({
@@ -29,10 +29,10 @@ let path = artifact {
 			const a = await tg.file({
 				contents: `import "./b"; export default 1;`,
 				dependencies: { "./b": bDirectory },
-				module: "ts",
+				module: "typescript",
 			});
 			const module = new tg.Module({
-				kind: "ts",
+				kind: "typescript",
 				referent: { node: a, options: {} },
 			});
 			const command = await tg.command({

@@ -35,8 +35,8 @@ mod health;
 mod id;
 mod index;
 mod init;
-#[cfg(feature = "js")]
-mod js;
+#[cfg(feature = "javascript")]
+mod javascript;
 mod list;
 mod location;
 mod lsp;
@@ -54,11 +54,11 @@ mod publish;
 mod pull;
 mod push;
 mod put;
-#[cfg(feature = "py")]
-mod py;
+#[cfg(feature = "python")]
+mod python;
 mod read;
 mod remote;
-#[cfg(feature = "js")]
+#[cfg(feature = "javascript")]
 mod repl;
 mod runner;
 mod sandbox;
@@ -337,9 +337,9 @@ enum Command {
 
 	Init(self::init::Args),
 
-	#[cfg(feature = "js")]
-	#[command(hide = true)]
-	Js(self::js::Args),
+	#[cfg(feature = "javascript")]
+	#[command(name = "javascript", alias = "js", hide = true)]
+	JavaScript(self::javascript::Args),
 
 	#[command(alias = "ls")]
 	List(self::list::Args),
@@ -379,11 +379,12 @@ enum Command {
 
 	Push(self::push::Args),
 
-	#[cfg(feature = "py")]
-	Py(self::py::Args),
-
 	#[command(alias = "add")]
 	Put(self::put::Args),
+
+	#[cfg(feature = "python")]
+	#[command(alias = "py")]
+	Python(self::python::Args),
 
 	#[command(alias = "cat")]
 	Read(self::read::Args),
@@ -392,7 +393,7 @@ enum Command {
 
 	Revoke(self::grants::delete::Args),
 
-	#[cfg(feature = "js")]
+	#[cfg(feature = "javascript")]
 	Repl(self::repl::Args),
 
 	#[command(alias = "r")]
@@ -461,18 +462,18 @@ async fn main() -> std::process::ExitCode {
 	let result = match cli.args.command.clone() {
 		Command::Builtin(command_args) => Some(cli.command_builtin(command_args).await),
 
-		#[cfg(feature = "js")]
-		Command::Js(command_args) => {
+		#[cfg(feature = "javascript")]
+		Command::JavaScript(command_args) => {
 			#[cfg(feature = "v8")]
 			if command_args.engine.is_auto() || command_args.engine.is_v_8() {
 				Cli::initialize_v8(0);
 			}
-			let result = cli.command_js(command_args).await;
+			let result = cli.command_javascript(command_args).await;
 			Some(result)
 		},
 
-		#[cfg(feature = "py")]
-		Command::Py(command_args) => Some(cli.command_py(command_args).await),
+		#[cfg(feature = "python")]
+		Command::Python(command_args) => Some(cli.command_python(command_args).await),
 
 		Command::Sandbox(self::sandbox::Args {
 			command: self::sandbox::Command::Serve(command_args),
@@ -608,7 +609,7 @@ async fn main() -> std::process::ExitCode {
 	#[cfg(feature = "v8")]
 	let initialize_v8 = if server {
 		true
-	} else if let Command::Js(args) = &cli.args.command
+	} else if let Command::JavaScript(args) = &cli.args.command
 		&& (args.engine.is_auto() || args.engine.is_v_8())
 	{
 		true
@@ -696,8 +697,8 @@ impl Cli {
 			Command::Id(args) => self.command_id(args).boxed_local(),
 			Command::Index(args) => self.command_index(args).boxed_local(),
 			Command::Init(args) => self.command_init(args).boxed_local(),
-			#[cfg(feature = "js")]
-			Command::Js(args) => self.command_js(args).boxed_local(),
+			#[cfg(feature = "javascript")]
+			Command::JavaScript(args) => self.command_javascript(args).boxed_local(),
 			Command::List(args) => self.command_list(args).boxed_local(),
 			Command::Login(args) => self.command_user_login(args).boxed_local(),
 			Command::Log(args) => self.command_process_stdio_read(args).boxed_local(),
@@ -715,13 +716,13 @@ impl Cli {
 			Command::Publish(args) => self.command_publish(args).boxed_local(),
 			Command::Pull(args) => self.command_pull(args).boxed_local(),
 			Command::Push(args) => self.command_push(args).boxed_local(),
-			#[cfg(feature = "py")]
-			Command::Py(args) => self.command_py(args).boxed_local(),
+			#[cfg(feature = "python")]
+			Command::Python(args) => self.command_python(args).boxed_local(),
 			Command::Put(args) => self.command_put(args).boxed_local(),
 			Command::Read(args) => self.command_read(args).boxed_local(),
 			Command::Remote(args) => self.command_remote(args).boxed_local(),
 			Command::Revoke(args) => self.command_grants_delete(args).boxed_local(),
-			#[cfg(feature = "js")]
+			#[cfg(feature = "javascript")]
 			Command::Repl(args) => self.command_repl(args).boxed_local(),
 			Command::Run(args) => self.command_run(args).boxed_local(),
 			Command::Runner(args) => self.command_runner(args).boxed_local(),

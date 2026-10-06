@@ -5,7 +5,7 @@ use ../lib/test.nu *
 let local = server spawn
 
 let path = artifact {
-	"module.ts": (file --xattrs { "user.tangram.module": "ts" } 'export default function () { return "xattr module"; }')
+	"module.ts": (file --xattrs { "user.tangram.module": "typescript" } 'export default function () { return "xattr module"; }')
 }
 
 let id = tg checkin --no-tokens ($path | path join "module.ts") | referent node

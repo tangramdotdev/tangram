@@ -32,7 +32,7 @@ snapshot $object '
 	      "dir_01xgcmweyrtb2fbjzqrt5sgvtjnsf2thm6e8nqd21kyszykspf2nb0?get=lib/utils.tg.ts": {
 	        "node": tg.file({
 	          "contents": tg.blob("export function helper() { return \"helper\"; }"),
-	          "module": "ts",
+	          "module": "typescript",
 	        }),
 	        "options": {
 	          "id": "dir_01xgcmweyrtb2fbjzqrt5sgvtjnsf2thm6e8nqd21kyszykspf2nb0",
@@ -40,7 +40,7 @@ snapshot $object '
 	        },
 	      },
 	    },
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '

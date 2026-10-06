@@ -2078,26 +2078,29 @@ impl Session {
 
 			// Render the env.
 			let mut env = render_env(&command.env, &guest_store_path, &guest_output_path)?;
-			let engine = match self.server.config.runner.js.engine {
-				crate::config::JsEngine::Auto => "auto",
-				crate::config::JsEngine::QuickJs => "quickjs",
-				crate::config::JsEngine::V8 => "v8",
+			let engine = match self.server.config.runner.javascript.engine {
+				crate::config::JavaScriptEngine::Auto => "auto",
+				crate::config::JavaScriptEngine::QuickJs => "quickjs",
+				crate::config::JavaScriptEngine::V8 => "v8",
 			};
-			env.insert("TANGRAM_JS_ENGINE".to_owned(), engine.to_owned());
+			env.insert("TANGRAM_JAVASCRIPT_ENGINE".to_owned(), engine.to_owned());
 			for key in [
-				"TANGRAM_JS_DEBUG",
-				"TANGRAM_JS_DEBUG_ADDR",
-				"TANGRAM_JS_DEBUG_MODE",
+				"TANGRAM_JAVASCRIPT_DEBUG",
+				"TANGRAM_JAVASCRIPT_DEBUG_ADDR",
+				"TANGRAM_JAVASCRIPT_DEBUG_MODE",
 			] {
 				env.remove(key);
 			}
 			if let Some(debug) = state.debug.as_ref() {
-				env.insert("TANGRAM_JS_DEBUG".to_owned(), "true".to_owned());
+				env.insert("TANGRAM_JAVASCRIPT_DEBUG".to_owned(), "true".to_owned());
 				if let Some(addr) = debug.addr {
-					env.insert("TANGRAM_JS_DEBUG_ADDR".to_owned(), addr.to_string());
+					env.insert("TANGRAM_JAVASCRIPT_DEBUG_ADDR".to_owned(), addr.to_string());
 				}
 				if debug.mode != tg::process::debug::Mode::Normal {
-					env.insert("TANGRAM_JS_DEBUG_MODE".to_owned(), debug.mode.to_string());
+					env.insert(
+						"TANGRAM_JAVASCRIPT_DEBUG_MODE".to_owned(),
+						debug.mode.to_string(),
+					);
 				}
 			}
 

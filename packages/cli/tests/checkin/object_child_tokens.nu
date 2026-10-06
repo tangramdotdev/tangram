@@ -17,12 +17,12 @@ let fixture = artifact {
 			const b = await tg.file({
 				contents: "import replacement from \"replacement/^1\";",
 				dependencies: { "replacement/^1": null },
-				module: "ts",
+				module: "typescript",
 			});
 			const a = await tg.file({
 				contents: "import b from \"./b\";",
 				dependencies: { "./b": b },
-				module: "ts",
+				module: "typescript",
 			});
 			const graph = await tg.graph({ nodes: [
 				{ kind: "directory", entries: { a: 1 } },
@@ -30,7 +30,7 @@ let fixture = artifact {
 					kind: "file",
 					contents: "import a from \"./a\";",
 					dependencies: { "./a": a },
-					module: "ts",
+					module: "typescript",
 				},
 			] });
 			const symlink = await tg.symlink({ artifact: a });

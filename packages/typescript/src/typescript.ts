@@ -130,11 +130,11 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 				}
 			}
 			resolvedFileName = fileNameFromModule(resolvedModule);
-			if (resolvedModule.kind === "dts") {
+			if (resolvedModule.kind === "typescript_declaration") {
 				extension = ".d.ts";
-			} else if (resolvedModule.kind === "js") {
+			} else if (resolvedModule.kind === "javascript") {
 				extension = ".js";
-			} else if (resolvedModule.kind === "ts") {
+			} else if (resolvedModule.kind === "typescript") {
 				extension = ".ts";
 			} else {
 				extension = ".ts";
@@ -148,7 +148,7 @@ export let host: ts.LanguageServiceHost & ts.CompilerHost = {
 		});
 		try {
 			let module = moduleFromFileName(fileName);
-			if (module.kind !== "dts") {
+			if (module.kind !== "typescript_declaration") {
 				syscall("module_validate_resolutions", module);
 			}
 		} catch (error) {
@@ -170,7 +170,7 @@ let resolveLibraryModule = (
 	referrer: Module,
 	specifier: string,
 ): Module | null => {
-	if (referrer.kind !== "dts") {
+	if (referrer.kind !== "typescript_declaration") {
 		return null;
 	}
 	if (
@@ -202,7 +202,7 @@ let resolveLibraryModule = (
 		path = `${path}.d.ts`;
 	}
 	return {
-		kind: "dts",
+		kind: "typescript_declaration",
 		referent: {
 			node: `./${path}`,
 		},
@@ -297,14 +297,14 @@ let getImportAttributesFromImportExpression = (
 
 /** Convert a module to a TypeScript file name. */
 export let fileNameFromModule = (module: Module): string => {
-	if (module.kind === "dts") {
+	if (module.kind === "typescript_declaration") {
 		let source = module.referent.node;
 		assert(typeof source === "string");
 		let path = source.startsWith("./") ? source.slice(2) : source;
 		return `${libraryRoot}/${path}`;
 	}
 	let string = Module.toDataString(Module.withoutToken(module));
-	let extension = module.kind === "js" ? ".js" : ".ts";
+	let extension = module.kind === "javascript" ? ".js" : ".ts";
 	string += `&extension=${extension}`;
 	let fileName = `${moduleRoot}${string}`;
 	let tokens = module.referent.options?.tokens;
@@ -320,7 +320,7 @@ export let moduleFromFileName = (fileName: string): Module => {
 		let path = fileName.slice(libraryRoot.length + 1);
 		let source = `./${path}`;
 		return {
-			kind: "dts",
+			kind: "typescript_declaration",
 			referent: { node: source },
 		};
 	}

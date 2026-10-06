@@ -140,7 +140,7 @@ wheels = [
 [[package]]
 name = "tangram"
 version = "0.0.0"
-source = { editable = "packages/clients/py" }
+source = { editable = "packages/clients/python" }
 dependencies = [
     { name = "h2" },
     { name = "pyyaml" },

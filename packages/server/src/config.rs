@@ -949,7 +949,7 @@ pub struct Runner {
 
 	pub id: Option<tg::runner::Id>,
 
-	pub js: Js,
+	pub javascript: JavaScript,
 
 	pub memory: Option<u64>,
 
@@ -979,12 +979,12 @@ pub struct Runner {
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Js {
-	pub engine: JsEngine,
+pub struct JavaScript {
+	pub engine: JavaScriptEngine,
 }
 
 #[derive(Clone, Copy, Debug, Default)]
-pub enum JsEngine {
+pub enum JavaScriptEngine {
 	#[default]
 	Auto,
 
@@ -1981,7 +1981,7 @@ impl Default for Runner {
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
-			js: Js::default(),
+			javascript: JavaScript::default(),
 			memory: None,
 			process_control_connection_pool_size: 1,
 			process_control_connection_pool_ttl: Duration::from_secs(5),

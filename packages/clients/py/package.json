@@ -1,9 +1,0 @@
-{
-	"name": "@tangramdotdev/python-client",
-	"private": true,
-	"scripts": {
-		"build": "python3 build.py",
-		"check": "uv run --locked --package tangram python -m ruff check . ../../cli/tests/py && uv run --locked --package tangram ty check src && uv run --locked --package tangram python -m compileall -q src",
-		"format": "uv run --locked --package tangram python -m ruff format . ../../cli/tests/py"
-	}
-}

@@ -144,18 +144,22 @@ pub struct Options {
 
 #[derive(Clone, Debug, Default, clap::Args)]
 pub struct Debug {
-	#[arg(env = "TANGRAM_JS_DEBUG", id = "spawn.debug.enabled", long = "debug")]
+	#[arg(
+		env = "TANGRAM_JAVASCRIPT_DEBUG",
+		id = "spawn.debug.enabled",
+		long = "debug"
+	)]
 	enabled: bool,
 
 	#[arg(
-		env = "TANGRAM_JS_DEBUG_ADDR",
+		env = "TANGRAM_JAVASCRIPT_DEBUG_ADDR",
 		id = "spawn.debug.addr",
 		long = "debug-addr"
 	)]
 	addr: Option<std::net::SocketAddr>,
 
 	#[arg(
-		env = "TANGRAM_JS_DEBUG_MODE",
+		env = "TANGRAM_JAVASCRIPT_DEBUG_MODE",
 		long = "debug-mode",
 		id = "spawn.debug.mode"
 	)]
@@ -735,10 +739,10 @@ impl Cli {
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
 							let mut args = vec![
-								if kind == tg::module::Kind::Py {
-									"py"
+								if kind == tg::module::Kind::Python {
+									"python"
 								} else {
-									"js"
+									"javascript"
 								}
 								.into(),
 								"--export".into(),
@@ -784,10 +788,10 @@ impl Cli {
 								let module = tg::Module { kind, referent };
 								let export = reference.export().unwrap_or("default").to_owned();
 								let mut args = vec![
-									if kind == tg::module::Kind::Py {
-										"py"
+									if kind == tg::module::Kind::Python {
+										"python"
 									} else {
-										"js"
+										"javascript"
 									}
 									.into(),
 									"--export".into(),

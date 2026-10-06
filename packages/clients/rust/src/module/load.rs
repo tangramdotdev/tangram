@@ -13,8 +13,9 @@ pub struct Arg {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Language {
-	Js,
-	Py,
+	#[serde(rename = "javascript")]
+	JavaScript,
+	Python,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

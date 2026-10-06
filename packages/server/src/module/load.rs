@@ -10,31 +10,31 @@ impl Session {
 		&self,
 		arg: tg::module::load::Arg,
 	) -> tg::Result<tg::module::load::Output> {
-		if arg.module.kind != tg::module::Kind::Dts
+		if arg.module.kind != tg::module::Kind::TypeScriptDeclaration
 			&& matches!(arg.module.referent.node, tg::module::data::Source::Path(_))
 			&& !matches!(self.context.principal, tg::Principal::Root)
 		{
 			return Err(tg::error!("unauthorized"));
 		}
 
-		#[cfg(not(feature = "py"))]
-		if arg.module.kind == tg::module::Kind::Py
-			|| arg.language == Some(tg::module::load::Language::Py)
+		#[cfg(not(feature = "python"))]
+		if arg.module.kind == tg::module::Kind::Python
+			|| arg.language == Some(tg::module::load::Language::Python)
 		{
-			return Err(tg::error!("the py feature is not enabled"));
+			return Err(tg::error!("the python feature is not enabled"));
 		}
 
 		// Generate the Python representation of object modules.
-		#[cfg(feature = "py")]
-		if arg.language == Some(tg::module::load::Language::Py)
+		#[cfg(feature = "python")]
+		if arg.language == Some(tg::module::load::Language::Python)
 			&& !matches!(
 				arg.module.kind,
-				tg::module::Kind::Js
-					| tg::module::Kind::Ts
-					| tg::module::Kind::Dts
-					| tg::module::Kind::Py
+				tg::module::Kind::JavaScript
+					| tg::module::Kind::TypeScript
+					| tg::module::Kind::TypeScriptDeclaration
+					| tg::module::Kind::Python
 			) {
-			let text = tangram_compiler::py::load::object_module(&arg.module)?;
+			let text = tangram_compiler::python::load::object_module(&arg.module)?;
 			return Ok(tg::module::load::Output {
 				text,
 				tokens: tg::authorization::Tokens::default(),
@@ -53,7 +53,7 @@ impl Session {
 		match module {
 			// Handle a declaration.
 			tg::module::Data {
-				kind: tg::module::Kind::Dts,
+				kind: tg::module::Kind::TypeScriptDeclaration,
 				referent:
 					tg::Referent {
 						node: tg::module::data::Source::Path(path),
@@ -70,9 +70,12 @@ impl Session {
 				})
 			},
 
-			// Handle a JS, Python, or TS module from a path.
+			// Handle a JavaScript, Python, or TypeScript module from a path.
 			tg::module::Data {
-				kind: tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Py,
+				kind:
+					tg::module::Kind::JavaScript
+					| tg::module::Kind::TypeScript
+					| tg::module::Kind::Python,
 				referent:
 					tg::Referent {
 						node: tg::module::data::Source::Path(path),
@@ -90,9 +93,12 @@ impl Session {
 				})
 			},
 
-			// Handle a JS, Python, or TS module from an object.
+			// Handle a JavaScript, Python, or TypeScript module from an object.
 			tg::module::Data {
-				kind: tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Py,
+				kind:
+					tg::module::Kind::JavaScript
+					| tg::module::Kind::TypeScript
+					| tg::module::Kind::Python,
 				referent:
 					tg::Referent {
 						node: tg::module::data::Source::Edge(edge),
@@ -222,7 +228,7 @@ impl Session {
 			.json()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the request body"))?;
-		if !matches!(arg.module.kind, tg::module::Kind::Dts)
+		if !matches!(arg.module.kind, tg::module::Kind::TypeScriptDeclaration)
 			&& let tg::module::data::Source::Path(path) = &mut arg.module.referent.node
 		{
 			*path = self.host_path_for_guest_path(path)?;

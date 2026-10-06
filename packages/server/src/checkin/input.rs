@@ -949,13 +949,13 @@ impl Session {
 			return Ok(None);
 		};
 		if name == "tangram.js" || name.ends_with(".tg.js") {
-			return Ok(Some(tg::module::Kind::Js));
+			return Ok(Some(tg::module::Kind::JavaScript));
 		}
 		if name == "tangram.ts" || name.ends_with(".tg.ts") {
-			return Ok(Some(tg::module::Kind::Ts));
+			return Ok(Some(tg::module::Kind::TypeScript));
 		}
 		if name == "tangram.py" || name.ends_with(".tg.py") {
-			return Ok(Some(tg::module::Kind::Py));
+			return Ok(Some(tg::module::Kind::Python));
 		}
 		tg::file::xattrs::read_module(path)
 	}

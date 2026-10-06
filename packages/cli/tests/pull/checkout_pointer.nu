@@ -15,7 +15,7 @@ let executable = (
 )
 let eager_file = tg --url $remote.url put --no-tokens 'tg.file("eager checkout pointer")' | referent node
 let eager_skipped = (
-	tg --url $remote.url put --no-tokens 'tg.file({ "contents": tg.blob("pulled through a checkout pointer"), "module": "ts" })' | referent node
+	tg --url $remote.url put --no-tokens 'tg.file({ "contents": tg.blob("pulled through a checkout pointer"), "module": "typescript" })' | referent node
 	| str trim
 )
 let large_bytes = random binary 5000000
@@ -32,7 +32,7 @@ let large_executable = (
 	tg --url $remote.url put --no-tokens $large_executable_value | referent node
 	| str trim
 )
-let large_module_value = ['tg.file({"contents":' $large_blob ',"module":"ts"})'] | str join
+let large_module_value = ['tg.file({"contents":' $large_blob ',"module":"typescript"})'] | str join
 let large_module = (
 	tg --url $remote.url put --no-tokens $large_module_value | referent node
 	| str trim

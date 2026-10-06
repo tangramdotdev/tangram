@@ -35,12 +35,12 @@ snapshot $object '
 	        "node": tg.directory({
 	          "tangram.ts": tg.file({
 	            "contents": tg.blob("export default function () { return \"dep\"; }"),
-	            "module": "ts",
+	            "module": "typescript",
 	          }),
 	        }),
 	      },
 	    },
-	    "module": "ts",
+	    "module": "typescript",
 	  }),
 	})
 '

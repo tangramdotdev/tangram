@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# The check command succeeds when building the default export of a tagged dependency imported either as a directory or as a ts file, treating its return as a tg.Directory.
+# The check command succeeds when building the default export of a tagged dependency imported either as a directory or as a TypeScript file, treating its return as a tg.Directory.
 
 let local = server spawn
 
@@ -17,5 +17,5 @@ tg tag test-file ($temp | path join "dep.tg.ts")
 let test_directory = artifact { tangram.ts: 'import d from "test-dir"; const x: tg.Directory = await tg.build(d);' }
 tg check $test_directory
 
-let test_file = artifact { tangram.ts: 'import f from "test-file" with { type: "ts" }; const x: tg.Directory = await tg.build(f);' }
+let test_file = artifact { tangram.ts: 'import f from "test-file" with { type: "typescript" }; const x: tg.Directory = await tg.build(f);' }
 tg check $test_file

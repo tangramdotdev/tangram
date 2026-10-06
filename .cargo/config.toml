@@ -5,7 +5,7 @@
 
 [env]
 MACOSX_DEPLOYMENT_TARGET = "26.0"
-PYO3_CONFIG_FILE = { value = "packages/py/build/pyo3.txt", relative = true }
+PYO3_CONFIG_FILE = { value = "packages/python/build/pyo3.txt", relative = true }
 RUSTY_V8_MIRROR = "https://github.com/denoland/rusty_v8/releases/download"
 
 [profile.dev]

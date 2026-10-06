@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 # A node process reconnects to its control stream without losing pending events.
 
-const js_path = path self '../../../js'
-cd $js_path
+const javascript_path = path self '../../../javascript'
+cd $javascript_path
 
 # Reopen the selected process, preserve stdio positions, and cancel unused reads.
 let output = timeout 15 node --input-type=module -e '

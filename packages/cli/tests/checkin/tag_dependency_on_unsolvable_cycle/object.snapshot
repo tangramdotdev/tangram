@@ -17,7 +17,7 @@ tg.directory({
                     },
                   },
                 },
-                "module": "ts",
+                "module": "typescript",
               },
               {
                 "kind": "file",
@@ -30,7 +30,7 @@ tg.directory({
                     },
                   },
                 },
-                "module": "ts",
+                "module": "typescript",
               },
             ],
           }),
@@ -43,6 +43,6 @@ tg.directory({
         },
       },
     },
-    "module": "ts",
+    "module": "typescript",
   }),
 })

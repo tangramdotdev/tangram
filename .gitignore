@@ -6,10 +6,10 @@
 /.tangram
 /.venv
 /.ruff_cache
-/packages/clients/js/dist
-/packages/clients/py/.venv
-/packages/clients/py/.ruff_cache
-/packages/clients/py/src/tangram/_native*.so
+/packages/clients/javascript/dist
+/packages/clients/python/.venv
+/packages/clients/python/.ruff_cache
+/packages/clients/python/src/tangram/_native*.so
 __pycache__
 /packages/typescript/dist
 /release

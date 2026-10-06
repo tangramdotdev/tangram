@@ -1446,7 +1446,7 @@ pub struct Runner {
 	pub id: Option<tg::runner::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub js: Option<Js>,
+	pub javascript: Option<JavaScript>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory: Option<u64>,
@@ -1498,17 +1498,17 @@ pub struct Runner {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct Js {
+pub struct JavaScript {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub engine: Option<JsEngine>,
+	pub engine: Option<JavaScriptEngine>,
 }
 
 #[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum JsEngine {
+pub enum JavaScriptEngine {
 	Auto,
 
-	#[serde(alias = "quick_js", rename = "quickjs")]
+	#[serde(alias = "quick_javascript", rename = "quickjs")]
 	QuickJs,
 
 	V8,
@@ -2332,7 +2332,7 @@ impl Default for Tracing {
 				"tangram_client=info",
 				"tangram_compiler=info",
 				"tangram_database=info",
-				"tangram_js=info",
+				"tangram_javascript=info",
 				"tangram_messenger=info",
 				"tangram_server=info",
 				"tangram_cache=info",
@@ -3848,8 +3848,8 @@ fn resolve_remote_cache(source: RemoteCache) -> server::RemoteCache {
 
 fn resolve_runner(source: Runner) -> server::Runner {
 	let mut target = server::Runner::default();
-	if let Some(source) = source.js {
-		target.js = resolve_js(source);
+	if let Some(source) = source.javascript {
+		target.javascript = resolve_javascript(source);
 	}
 	if let Some(value) = source.heartbeat_interval {
 		target.heartbeat_interval = value;
@@ -3902,19 +3902,19 @@ fn resolve_runner(source: Runner) -> server::Runner {
 	target
 }
 
-fn resolve_js(source: Js) -> server::Js {
-	let mut target = server::Js::default();
+fn resolve_javascript(source: JavaScript) -> server::JavaScript {
+	let mut target = server::JavaScript::default();
 	if let Some(value) = source.engine {
-		target.engine = resolve_js_engine(value);
+		target.engine = resolve_javascript_engine(value);
 	}
 	target
 }
 
-fn resolve_js_engine(source: JsEngine) -> server::JsEngine {
+fn resolve_javascript_engine(source: JavaScriptEngine) -> server::JavaScriptEngine {
 	match source {
-		JsEngine::Auto => server::JsEngine::Auto,
-		JsEngine::QuickJs => server::JsEngine::QuickJs,
-		JsEngine::V8 => server::JsEngine::V8,
+		JavaScriptEngine::Auto => server::JavaScriptEngine::Auto,
+		JavaScriptEngine::QuickJs => server::JavaScriptEngine::QuickJs,
+		JavaScriptEngine::V8 => server::JavaScriptEngine::V8,
 	}
 }
 

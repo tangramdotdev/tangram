@@ -12,23 +12,23 @@ impl Compiler {
 			| tg::module::Kind::Graph
 			| tg::module::Kind::Object
 			| tg::module::Kind::Symlink => Err(tg::error!(%kind, "cannot format the module")),
-			tg::module::Kind::Dts | tg::module::Kind::Js | tg::module::Kind::Ts => {
-				Self::format_js(text)
-			},
-			tg::module::Kind::Py => {
-				#[cfg(feature = "py")]
+			tg::module::Kind::TypeScriptDeclaration
+			| tg::module::Kind::JavaScript
+			| tg::module::Kind::TypeScript => Self::format_javascript(text),
+			tg::module::Kind::Python => {
+				#[cfg(feature = "python")]
 				{
-					Self::format_py(text)
+					Self::format_python(text)
 				}
-				#[cfg(not(feature = "py"))]
+				#[cfg(not(feature = "python"))]
 				{
-					Err(tg::error!("the py feature is not enabled"))
+					Err(tg::error!("the python feature is not enabled"))
 				}
 			},
 		}
 	}
 
-	fn format_js(text: &str) -> tg::Result<String> {
+	fn format_javascript(text: &str) -> tg::Result<String> {
 		let allocator = oxc::allocator::Allocator::default();
 		let source_type = oxc::span::SourceType::ts();
 		let options = oxc_formatter::JsFormatOptions {
@@ -44,8 +44,8 @@ impl Compiler {
 		Ok(formatted)
 	}
 
-	#[cfg(feature = "py")]
-	fn format_py(text: &str) -> tg::Result<String> {
+	#[cfg(feature = "python")]
+	fn format_python(text: &str) -> tg::Result<String> {
 		let options = ruff_python_formatter::PyFormatOptions::default()
 			.with_target_version(ruff_python_ast::PythonVersion::PY314);
 		let formatted = ruff_python_formatter::format_module_source(text, options)

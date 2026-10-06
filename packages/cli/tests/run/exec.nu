@@ -20,18 +20,18 @@ let output = tg process exec $path | complete
 success $output
 snapshot --normalize --redact $path (($output.stdout | str trim)) 'cli-exec'
 
-let js_path = artifact {
+let javascript_path = artifact {
 	tangram.ts: '
 		export default async function () {
-			await tg.exec("echo js-client-exec");
+			await tg.exec("echo javascript-client-exec");
 			console.log("unreachable");
 		}
 	',
 }
 
-let output = tg run $js_path | complete
+let output = tg run $javascript_path | complete
 success $output
-snapshot --normalize --redact $path (($output.stdout | str trim)) 'js-client-exec'
+snapshot --normalize --redact $path (($output.stdout | str trim)) 'javascript-client-exec'
 
 let js_output_path = artifact {
 	tangram.ts: '
@@ -42,14 +42,14 @@ let js_output_path = artifact {
 
 		export function inner() {
 			return {
-				message: "js-client-exec-output",
+				message: "javascript-client-exec-output",
 			};
 		}
 	',
 }
 
 let output = tg run $js_output_path | from json
-assert ($output == { message: "js-client-exec-output" })
+assert ($output == { message: "javascript-client-exec-output" })
 
 let output = tg exec --sandbox $path | complete
 failure $output

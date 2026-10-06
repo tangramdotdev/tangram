@@ -33,7 +33,7 @@ let lock = {
 					}
 				}
 			}
-			module: ts
+			module: typescript
 		}
 	]
 }

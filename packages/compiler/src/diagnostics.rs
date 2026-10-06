@@ -17,17 +17,17 @@ impl Compiler {
 	) -> tg::Result<Vec<tg::Diagnostic>> {
 		let (python, modules): (Vec<_>, Vec<_>) = modules
 			.into_iter()
-			.partition(|module| module.kind == tg::module::Kind::Py);
+			.partition(|module| module.kind == tg::module::Kind::Python);
 		let mut diagnostics = Vec::new();
-		#[cfg(not(feature = "py"))]
+		#[cfg(not(feature = "python"))]
 		if !python.is_empty() {
-			return Err(tg::error!("the py feature is not enabled"));
+			return Err(tg::error!("the python feature is not enabled"));
 		}
-		#[cfg(feature = "py")]
+		#[cfg(feature = "python")]
 		if !python.is_empty() {
 			let request = super::Request::DocumentDiagnostics(DocumentRequest { modules: python });
 			let response = self
-				.request_py(request)
+				.request_python(request)
 				.await?
 				.unwrap_document_diagnostics();
 			diagnostics.extend(

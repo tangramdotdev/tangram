@@ -24,7 +24,7 @@
           }
         }
       },
-      "module": "ts"
+      "module": "typescript"
     },
     {
       "kind": "directory",
@@ -49,7 +49,7 @@
           }
         }
       },
-      "module": "ts"
+      "module": "typescript"
     },
     {
       "kind": "file",
@@ -62,7 +62,7 @@
           }
         }
       },
-      "module": "ts"
+      "module": "typescript"
     }
   ]
 }

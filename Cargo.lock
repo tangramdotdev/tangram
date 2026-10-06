@@ -9417,9 +9417,9 @@ dependencies = [
  "tangram_compiler",
  "tangram_fdb",
  "tangram_futures",
- "tangram_js",
+ "tangram_javascript",
  "tangram_pool",
- "tangram_py",
+ "tangram_python",
  "tangram_sandbox",
  "tangram_server",
  "tangram_uri",
@@ -9534,7 +9534,7 @@ dependencies = [
  "sourcemap",
  "tangram_client",
  "tangram_futures",
- "tangram_py_build",
+ "tangram_python_build",
  "tangram_typescript_client",
  "tangram_util",
  "tangram_v8",
@@ -9775,7 +9775,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_js"
+name = "tangram_javascript"
 version = "0.0.0"
 dependencies = [
  "axum",
@@ -9819,7 +9819,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_js_native"
+name = "tangram_javascript_native"
 version = "0.0.0"
 dependencies = [
  "napi",
@@ -9871,7 +9871,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_py"
+name = "tangram_python"
 version = "0.0.0"
 dependencies = [
  "cc",
@@ -9882,14 +9882,14 @@ dependencies = [
  "serde_json",
  "tangram_client",
  "tangram_compiler",
- "tangram_py_build",
- "tangram_py_native",
+ "tangram_python_build",
+ "tangram_python_native",
  "tangram_util",
  "tokio",
 ]
 
 [[package]]
-name = "tangram_py_build"
+name = "tangram_python_build"
 version = "0.0.0"
 dependencies = [
  "serde_json",
@@ -9897,7 +9897,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "tangram_py_native"
+name = "tangram_python_native"
 version = "0.0.0"
 dependencies = [
  "pyo3",
@@ -10058,7 +10058,7 @@ dependencies = [
  "tangram_index",
  "tangram_index_fdb",
  "tangram_index_lmdb",
- "tangram_js",
+ "tangram_javascript",
  "tangram_messenger",
  "tangram_messenger_memory",
  "tangram_messenger_nats",

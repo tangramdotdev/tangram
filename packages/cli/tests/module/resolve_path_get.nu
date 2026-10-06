@@ -16,11 +16,11 @@ let path = artifact {
 let socket = $local.url | str replace 'http+unix://' '' | url decode
 let headers = {'Accept': 'application/json', 'Content-Type': 'application/json'}
 let body = {
-    referrer: {kind: 'js', referent: {node: ($path | path join main.tg.js)}}
-    import: {kind: 'js', reference: 'tools/^1?get=module.tg.js'}
+    referrer: {kind: 'javascript', referent: {node: ($path | path join main.tg.js)}}
+    import: {kind: 'javascript', reference: 'tools/^1?get=module.tg.js'}
 } | to json --raw
 let output = $body | into binary | http post --headers $headers --unix-socket $socket 'http://localhost/modules/resolve'
-assert equal $output.module.kind 'js'
+assert equal $output.module.kind 'javascript'
 assert equal $output.module.referent.options.path 'module.tg.js'
 let body = {module: $output.module} | to json --raw
 let output = $body | into binary | http post --headers $headers --unix-socket $socket 'http://localhost/modules/load'

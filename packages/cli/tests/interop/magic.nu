@@ -8,7 +8,7 @@ let path = artifact {
             for (const name of ["default", "delete", "f0", "args", "tg"] as const) {
                 const function_ = functions[name];
                 const target = tg.host.magic(function_);
-                tg.assert(target.module.kind === "py");
+                tg.assert(target.module.kind === "python");
                 tg.assert(target.export === name);
                 tg.assert(await function_("direct") === `${name}:direct`);
                 tg.assert(await tg.build(function_, Promise.resolve("builder")) === `${name}:builder`);
@@ -33,7 +33,7 @@ let path = artifact {
             for name in ["default", "args", "tg", "_tg_client", "_tg_args"]:
                 function = getattr(functions, name)
                 target = tg.host.magic(function)
-                assert target["module"]["kind"] == "ts"
+                assert target["module"]["kind"] == "typescript"
                 assert target["export"] == name
                 assert await function("direct") == f"{name}:direct"
                 assert await tg.build(function, "builder") == f"{name}:builder"

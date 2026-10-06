@@ -7,7 +7,7 @@ tg.directory({
           "node": tg.directory({
             "tangram.ts": tg.file({
               "contents": tg.blob(""),
-              "module": "ts",
+              "module": "typescript",
             }),
           }),
           "options": {
@@ -15,13 +15,13 @@ tg.directory({
           },
         },
       },
-      "module": "ts",
+      "module": "typescript",
     }),
   }),
   "baz": tg.directory({
     "tangram.ts": tg.file({
       "contents": tg.blob(""),
-      "module": "ts",
+      "module": "typescript",
     }),
   }),
   "tangram.ts": tg.file({
@@ -36,7 +36,7 @@ tg.directory({
                 "node": tg.directory({
                   "tangram.ts": tg.file({
                     "contents": tg.blob(""),
-                    "module": "ts",
+                    "module": "typescript",
                   }),
                 }),
                 "options": {
@@ -44,7 +44,7 @@ tg.directory({
                 },
               },
             },
-            "module": "ts",
+            "module": "typescript",
           }),
         }),
         "options": {
@@ -55,7 +55,7 @@ tg.directory({
         "node": tg.directory({
           "tangram.ts": tg.file({
             "contents": tg.blob(""),
-            "module": "ts",
+            "module": "typescript",
           }),
         }),
         "options": {
@@ -63,6 +63,6 @@ tg.directory({
         },
       },
     },
-    "module": "ts",
+    "module": "typescript",
   }),
 })

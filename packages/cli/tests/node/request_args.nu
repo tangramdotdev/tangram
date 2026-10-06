@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 # Node requests preserve their arguments when dispatched to the process.
 
-const js_path = path self '../../../js'
-cd $js_path
+const javascript_path = path self '../../../javascript'
+cd $javascript_path
 
 # Token-bearing requests frame large arguments without consuming a streaming body.
 let output = timeout 10 node --input-type=module -e '

@@ -1,0 +1,30 @@
+use ../../lib/test.nu *
+
+# Errors thrown by the embedded runtime include source-mapped internal stack locations when enabled.
+
+let local = server spawn --config { advanced: { internal_error_locations: true } }
+
+let path = artifact {
+	tangram.ts: '
+		export default function () {
+			tg.assert(false);
+		}
+	'
+}
+
+let process_id = tg build --no-tokens --detach $path | referent node
+tg wait $process_id
+
+let process = tg get $process_id | from json
+let error = tg get --no-tokens --pretty $process.error
+let paths = $error
+	| parse --regex '"value": "(?<path>packages/[^"]+)"'
+	| get path
+	| uniq
+	| sort
+
+snapshot $paths '
+	packages/clients/javascript/src/assert.ts
+	packages/javascript/src/start.ts
+
+'

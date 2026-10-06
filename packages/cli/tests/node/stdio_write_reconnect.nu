@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 # A standard input write succeeds after the stream reconnects.
 
-const js_path = path self '../../../js'
-cd $js_path
+const javascript_path = path self '../../../javascript'
+cd $javascript_path
 
 # The JavaScript writer retains unconfirmed chunks and final positions across lost write and EOF responses.
 let output = timeout 10 node --input-type=module -e '

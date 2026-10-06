@@ -29,7 +29,7 @@ impl Cli {
 		// Get the module.
 		let module = if args.runtime {
 			tg::module::Data {
-				kind: tg::module::Kind::Dts,
+				kind: tg::module::Kind::TypeScriptDeclaration,
 				referent: tg::Referent::with_node(tg::module::data::Source::Path(
 					"tangram.d.ts".into(),
 				)),

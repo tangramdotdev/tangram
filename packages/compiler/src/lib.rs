@@ -43,8 +43,8 @@ pub mod jsonrpc;
 pub mod load;
 pub mod metadata;
 pub mod prepare_rename;
-#[cfg(feature = "py")]
-pub mod py;
+#[cfg(feature = "python")]
+pub mod python;
 pub mod references;
 pub mod rename;
 pub mod selection_range;
@@ -88,8 +88,8 @@ pub struct State {
 	position_encoding: RwLock<tg::position::Encoding>,
 
 	/// The Python service.
-	#[cfg(feature = "py")]
-	py: py::Service,
+	#[cfg(feature = "python")]
+	python: python::Service,
 
 	/// The outgoing request ID counter.
 	request_id: AtomicI32,
@@ -270,8 +270,8 @@ impl Compiler {
 			library_path,
 			main_runtime_handle,
 			position_encoding: RwLock::new(tg::position::Encoding::Utf8),
-			#[cfg(feature = "py")]
-			py: py::Service::new(),
+			#[cfg(feature = "python")]
+			python: python::Service::new(),
 			request_id,
 			requests,
 			sender,
@@ -294,10 +294,10 @@ impl Compiler {
 					serve_task.wait().await.unwrap();
 				}
 
-				#[cfg(feature = "py")]
+				#[cfg(feature = "python")]
 				{
-					compiler.py.stop();
-					compiler.py.join().await;
+					compiler.python.stop();
+					compiler.python.join().await;
 				}
 				compiler.typescript7.stop().await;
 
@@ -926,12 +926,12 @@ impl Compiler {
 	async fn request(&self, request: Request) -> tg::Result<Response> {
 		if request
 			.module()
-			.is_some_and(|module| module.kind == tg::module::Kind::Py)
+			.is_some_and(|module| module.kind == tg::module::Kind::Python)
 		{
-			#[cfg(feature = "py")]
-			return self.request_py(request).await;
-			#[cfg(not(feature = "py"))]
-			return Err(tg::error!("the py feature is not enabled"));
+			#[cfg(feature = "python")]
+			return self.request_python(request).await;
+			#[cfg(not(feature = "python"))]
+			return Err(tg::error!("the python feature is not enabled"));
 		}
 		if matches!(self.check_backend, CheckBackend::Typescript7)
 			&& let Request::Check(request) = request
@@ -1158,13 +1158,13 @@ impl Compiler {
 		}
 		if path.starts_with(self.library_path.join("python")) {
 			let module = tg::module::Data {
-				kind: tg::module::Kind::Py,
+				kind: tg::module::Kind::Python,
 				referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
 			};
 			return Ok(module);
 		}
 		if let Ok(path) = path.strip_prefix(&self.library_path) {
-			let kind = tg::module::Kind::Dts;
+			let kind = tg::module::Kind::TypeScriptDeclaration;
 			let source = tg::module::data::Source::Path(path.to_owned());
 			let referent = tg::Referent::with_node(source);
 			let module = tg::module::Data { kind, referent };
@@ -1195,12 +1195,14 @@ impl Compiler {
 		kind: tg::module::Kind,
 	) -> tg::Result<lsp::Uri> {
 		let (language, extension) = match (kind, module.kind) {
-			(tg::module::Kind::Py, tg::module::Kind::Js | tg::module::Kind::Ts) => {
-				(tg::module::load::Language::Py, "py")
-			},
-			(tg::module::Kind::Js | tg::module::Kind::Ts, tg::module::Kind::Py) => {
-				(tg::module::load::Language::Js, "js")
-			},
+			(
+				tg::module::Kind::Python,
+				tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
+			) => (tg::module::load::Language::Python, "py"),
+			(
+				tg::module::Kind::JavaScript | tg::module::Kind::TypeScript,
+				tg::module::Kind::Python,
+			) => (tg::module::load::Language::JavaScript, "js"),
 			_ => return self.lsp_uri_for_module(module).await,
 		};
 
@@ -1227,7 +1229,7 @@ impl Compiler {
 	async fn lsp_uri_for_module(&self, module: &tg::module::Data) -> tg::Result<lsp::Uri> {
 		match module {
 			tg::module::Data {
-				kind: tg::module::Kind::Dts,
+				kind: tg::module::Kind::TypeScriptDeclaration,
 				referent:
 					tg::Referent {
 						node: tg::module::data::Source::Path(path),
@@ -1285,9 +1287,9 @@ impl Compiler {
 				};
 				let path = if let (Some(tag), Some(_)) = (&options.tag, &options.id) {
 					let extension = match kind {
-						tg::module::Kind::Js => Some(".tg.js".to_owned()),
-						tg::module::Kind::Py => Some(".tg.py".to_owned()),
-						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
+						tg::module::Kind::JavaScript => Some(".tg.js".to_owned()),
+						tg::module::Kind::Python => Some(".tg.py".to_owned()),
+						tg::module::Kind::TypeScript => Some(".tg.ts".to_owned()),
 						_ => None,
 					};
 					let extension = options.path.is_none().then_some(extension).flatten();
@@ -1347,9 +1349,9 @@ impl Compiler {
 					output.join(path)
 				} else {
 					let extension = match kind {
-						tg::module::Kind::Js => Some(".tg.js".to_owned()),
-						tg::module::Kind::Py => Some(".tg.py".to_owned()),
-						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
+						tg::module::Kind::JavaScript => Some(".tg.js".to_owned()),
+						tg::module::Kind::Python => Some(".tg.py".to_owned()),
+						tg::module::Kind::TypeScript => Some(".tg.ts".to_owned()),
 						_ => None,
 					};
 					let referent_options = tg::referent::Options {
@@ -1462,8 +1464,8 @@ impl Deref for Compiler {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
-		#[cfg(feature = "py")]
-		self.compiler.py.stop();
+		#[cfg(feature = "python")]
+		self.compiler.python.stop();
 		#[cfg(feature = "typescript")]
 		self.compiler.typescript6.stop();
 	}

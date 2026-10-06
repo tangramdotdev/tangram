@@ -64,7 +64,7 @@ let astronomer = artifact {
     '
 }
 success (tg check $astronomer | complete)
-success (tg py --export default ($astronomer | path join tangram.py) | complete)
+success (tg python --export default ($astronomer | path join tangram.py) | complete)
 let checked = tg checkin $astronomer
 rm --recursive $astronomer
 success (tg check $checked | complete)

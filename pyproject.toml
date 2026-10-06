@@ -2,10 +2,10 @@
 dev = ["maturin>=1.9.4,<2", "ruff>=0.15,<1", "ty>=0.0.1,<1"]
 
 [tool.uv.workspace]
-members = ["packages/clients/py"]
+members = ["packages/clients/python"]
 
 [tool.ruff]
-src = ["packages/clients/py/src"]
+src = ["packages/clients/python/src"]
 target-version = "py312"
 
 [tool.ruff.lint]
