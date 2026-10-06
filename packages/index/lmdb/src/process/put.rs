@@ -19,7 +19,6 @@ impl Index {
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 
-		let merge = !arg.complete();
 		let existing = db
 			.get(transaction, &key)
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process"))?
@@ -79,7 +78,36 @@ impl Index {
 		{
 			arg.to_mut().data = None;
 		}
+
+		// Preserve the stored log blob when the submitted data omits it.
+		if let Some(existing) = &existing
+			&& arg.data.as_ref().is_some_and(|data| data.log.is_none())
+			&& let Some(log) = existing.data.as_ref().and_then(|data| data.log.as_ref())
+		{
+			let arg = arg.to_mut();
+			arg.data.as_mut().unwrap().log = Some(log.clone());
+			arg.log = Some(Some(log.node.clone().into()));
+			arg.metadata
+				.node
+				.log_objects
+				.clone_from(&existing.metadata.node.log_objects);
+			arg.metadata
+				.subtree
+				.log_objects
+				.clone_from(&existing.metadata.subtree.log_objects);
+			for storage in [
+				tg::process::storage::Set::NODE_LOG_OBJECTS,
+				tg::process::storage::Set::SUBTREE_LOG_OBJECTS,
+			] {
+				arg.storage.remove(storage);
+				if existing.storage.contains(storage) {
+					arg.storage.insert(storage);
+				}
+			}
+		}
+
 		let arg = arg.as_ref();
+		let merge = !arg.complete();
 
 		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
 		let touch = existing.as_ref().is_none_or(|existing| {

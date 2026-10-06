@@ -991,6 +991,100 @@ async fn process_put_preserves_existing_contents() {
 }
 
 #[tokio::test]
+async fn process_put_without_log_preserves_compacted_log() {
+	for root in [false, true] {
+		for complete in [false, true] {
+			for stored in [false, true] {
+				let (_dir, index) = new_index();
+				let id = tg::process::Id::new();
+				let log = tg::blob::Id::new(b"log");
+				let empty = tg::object::metadata::Subtree {
+					count: Some(0),
+					depth: Some(0),
+					size: Some(0),
+					solvable: Some(true),
+					solved: Some(true),
+				};
+				let metadata = tg::process::Metadata {
+					node: tg::process::metadata::Node {
+						command_objects: empty.clone(),
+						error_objects: empty.clone(),
+						log_objects: empty.clone(),
+						output_objects: empty.clone(),
+					},
+					subtree: tg::process::metadata::Subtree {
+						command_objects: empty.clone(),
+						count: Some(1),
+						depth: Some(1),
+						error_objects: empty.clone(),
+						log_objects: empty.clone(),
+						output_objects: empty,
+					},
+				};
+				let mut uncompacted = process_arg(id.clone(), tg::process::Status::Finished);
+				uncompacted.children = Some(Vec::new());
+				uncompacted.error = Some(None);
+				uncompacted.log = Some(None);
+				uncompacted.metadata = metadata;
+				uncompacted.output = Some(None);
+				uncompacted.storage = tg::process::storage::Set::all();
+				if root {
+					uncompacted.principal = tg::Principal::Root;
+				}
+				assert!(uncompacted.complete());
+
+				let mut compacted = uncompacted.clone();
+				compacted.data.as_mut().unwrap().log = Some(tg::Referent::with_node(log.clone()));
+				compacted.log = Some(Some(log.clone().into()));
+				let log_metadata = if complete {
+					tg::object::metadata::Subtree {
+						count: Some(1),
+						depth: Some(1),
+						size: Some(100),
+						solvable: Some(true),
+						solved: Some(true),
+					}
+				} else {
+					tg::object::metadata::Subtree::default()
+				};
+				compacted.metadata.node.log_objects = log_metadata.clone();
+				compacted.metadata.subtree.log_objects = log_metadata.clone();
+				let log_storage = tg::process::storage::Set::NODE_LOG_OBJECTS
+					| tg::process::storage::Set::SUBTREE_LOG_OBJECTS;
+				if !stored {
+					compacted.storage.remove(log_storage);
+				}
+				put_process(&index, compacted).await.unwrap();
+
+				// A regular user must not gain access by submitting data that omits the stored log blob.
+				let mut unauthorized = uncompacted.clone();
+				unauthorized.principal = tg::Principal::User(tg::user::Id::new());
+				assert!(put_process(&index, unauthorized).await.is_err());
+
+				// Both complete and incomplete writes retain the log without discarding other accepted changes.
+				for complete in [true, false] {
+					uncompacted.data.as_mut().unwrap().exit = Some(1);
+					if !complete {
+						uncompacted.log = None;
+						uncompacted.metadata = tg::process::Metadata::default();
+						uncompacted.storage = tg::process::storage::Set::NODE;
+					}
+					put_process(&index, uncompacted.clone()).await.unwrap();
+					let process = index.try_get_process(&id).await.unwrap().unwrap();
+					let data = process.data.unwrap();
+					assert_eq!(data.log.unwrap().node, log);
+					assert_eq!(data.exit, Some(1));
+					assert_eq!(process.metadata.node.log_objects, log_metadata);
+					assert_eq!(process.metadata.subtree.log_objects, log_metadata);
+					assert_eq!(process.storage.contains(log_storage), stored);
+					assert!(process.set.log_objects);
+				}
+			}
+		}
+	}
+}
+
+#[tokio::test]
 async fn sandbox_put_preserves_existing_contents_and_processes() {
 	let (_dir, index) = new_index();
 	let id = tg::sandbox::Id::new();
