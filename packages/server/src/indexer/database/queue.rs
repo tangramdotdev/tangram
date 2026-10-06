@@ -113,6 +113,7 @@ impl Indexer {
 
 		// Submit each queue entry sequentially to preserve transaction order.
 		for arg in args {
+			crate::checkpoint!(self.server, "indexer.database_index_queue.batch").await;
 			if !self.server.named_checkout_maintenance_enabled()
 				|| !Self::database_index_queue_batch_contains_named_node_mutation(&arg)
 			{

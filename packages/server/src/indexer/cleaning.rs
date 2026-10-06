@@ -100,6 +100,10 @@ impl Indexer {
 				match result {
 					Ok(output) => {
 						done &= output.done;
+						for object in output.objects {
+							crate::checkpoint!(self.server, "cleaning.object.delete", object = %object.id)
+								.await;
+						}
 						for process in output.processes {
 							crate::checkpoint!(self.server, "cleaning.process.delete", process = %process)
 								.await;

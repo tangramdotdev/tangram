@@ -73,6 +73,7 @@ impl Session {
 			.await?;
 		self.authorize_tag_puts(specifiers, arg.force, &ids_by_specifier)
 			.await?;
+		self.touch_tag_target(&arg.target, &arg.tokens).await?;
 		crate::checkpoint!(self.server, "tag.put.authorized", specifier = %arg.specifier).await;
 		let session = self.clone();
 		let output = self
@@ -97,6 +98,34 @@ impl Session {
 			.await?;
 
 		Ok(output)
+	}
+
+	pub(crate) async fn touch_tag_target(
+		&self,
+		target: &tg::tag::data::Target,
+		tokens: &tg::authorization::Tokens,
+	) -> tg::Result<()> {
+		// Refresh the regional retention window before queueing the tag reference.
+		let location = Some(tg::Location::Local(tg::location::Local::default()).into());
+		let touched = match target {
+			tg::tag::data::Target::Object(id) => {
+				let arg = tg::object::touch::Arg {
+					location,
+					tokens: tokens.clone(),
+				};
+				self.try_touch_object(id, arg).await?
+			},
+			tg::tag::data::Target::Process(id) => {
+				let arg = tg::process::touch::Arg {
+					location,
+					tokens: tokens.clone(),
+				};
+				self.try_touch_process(id, arg).await?
+			},
+		};
+		touched.ok_or_else(|| tg::error!("failed to touch the tag target"))?;
+
+		Ok(())
 	}
 
 	pub(crate) async fn authorize_tag_puts(

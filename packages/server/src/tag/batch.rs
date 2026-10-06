@@ -1,6 +1,6 @@
 use {
 	crate::Session,
-	futures::FutureExt as _,
+	futures::{FutureExt as _, TryStreamExt as _, stream},
 	std::{collections::BTreeMap, ops::ControlFlow},
 	tangram_client::prelude::*,
 	tangram_http::{
@@ -9,6 +9,8 @@ use {
 		response::{Ext as _, builder::Ext as _},
 	},
 };
+
+const TOUCH_CONCURRENCY: usize = 32;
 
 impl Session {
 	pub(crate) async fn post_tag_batch(&self, arg: tg::tag::batch::Arg) -> tg::Result<()> {
@@ -77,6 +79,11 @@ impl Session {
 			.try_get_ids_and_ancestors_for_specifiers(specifiers)
 			.await?;
 		self.authorize_tag_puts(specifiers, arg.force, &ids_by_specifier)
+			.await?;
+		stream::iter(arg.tags.iter().map(Ok::<_, tg::Error>))
+			.try_for_each_concurrent(TOUCH_CONCURRENCY, |item| {
+				self.touch_tag_target(&item.target, &item.tokens)
+			})
 			.await?;
 		let session = self.clone();
 		let output = self
