@@ -14,11 +14,21 @@ class Compiler:
             raise RuntimeError(
                 "the Rust toolchain does not contain a shared LLVM library"
             )
-        library = libraries[0]
+        error = None
+        for library in libraries:
+            try:
+                self.library = ctypes.CDLL(str(library))
+            except OSError as cause:
+                error = cause
+            else:
+                break
+        else:
+            raise RuntimeError(
+                "failed to load a shared LLVM library from the Rust toolchain"
+            ) from error
         self.identity = (
             str(library.resolve()).encode() + str(library.stat().st_mtime_ns).encode()
         )
-        self.library = ctypes.CDLL(str(library))
         self.pointer = ctypes.c_void_p
         self.error_pointer = ctypes.POINTER(ctypes.c_char_p)
         backend = "AArch64" if target.startswith("aarch64") else "X86"
