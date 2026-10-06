@@ -3,6 +3,7 @@ use {
 	indoc::formatdoc,
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
+	tokio::io::AsyncReadExt as _,
 };
 
 impl Session {
@@ -124,10 +125,23 @@ impl Session {
 					.try_unwrap_file()
 					.ok()
 					.ok_or_else(|| tg::error!("expected a file"))?;
-				let text = file
-					.text_with_instance(self)
+				let contents = file
+					.contents_with_instance(self)
 					.await
-					.map_err(|error| tg::error!(!error, "failed to get the file text"))?;
+					.map_err(|error| tg::error!(!error, "failed to get the file contents"))?;
+				// Retain the contents authorization even when the reader can use a checkout.
+				contents
+					.load_with_instance(self)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to load the module contents"))?;
+				let mut reader = crate::read::Reader::new(self, contents)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to create the module reader"))?;
+				let mut text = String::new();
+				reader
+					.read_to_string(&mut text)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to read the module text"))?;
 				let tokens = file.to_referent().options.tokens;
 				Ok(tg::module::load::Output { text, tokens })
 			},
