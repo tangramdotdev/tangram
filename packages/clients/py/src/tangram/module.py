@@ -21,12 +21,12 @@ class ModuleReferentArg(TypedDict):
 
 
 class ModuleConstructorArg(TypedDict):
-    kind: str
+    kind: Module.Kind
     referent: Referent[ModuleSource] | ModuleReferentArg
 
 
 class ModuleDataObject(TypedDict):
-    kind: str
+    kind: Module.Kind
     referent: ReferentData[str]
 
 
@@ -43,7 +43,7 @@ class ModuleLocationData(TypedDict):
 @dataclass(init=False)
 class Module:
     __tangram_atomic__ = True
-    kind: str
+    kind: Module.Kind
     referent: Referent[ModuleSource]
 
     Kind = Literal[
@@ -63,7 +63,7 @@ class Module:
 
     def __init__[T: ModuleSource](
         self,
-        kind: str | ModuleConstructorArg,
+        kind: Module.Kind | ModuleConstructorArg,
         referent: Referent[T] | ModuleReferentArg | None = None,
     ):
         if isinstance(kind, str):
@@ -170,7 +170,7 @@ class Module:
         referent = Referent.from_data_string(
             node + ("?" + "&".join(options) if options else ""), cls._decode_source
         )
-        return cls(kind, referent)
+        return cls(cast("Module.Kind", kind), referent)
 
     def children(self) -> list[Object]:
         from .object import Object, objects

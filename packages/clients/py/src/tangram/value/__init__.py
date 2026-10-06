@@ -6,7 +6,7 @@ import asyncio
 import base64
 import json
 import math
-from collections.abc import Awaitable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, Literal, TypedDict, TypeGuard, cast
 
 from .. import _native, authorization
@@ -63,6 +63,7 @@ type ValueInput = (
     | Template
     | Placeholder
     | Awaitable[ValueInput]
+    | Callable[..., ValueInput]
 )
 
 

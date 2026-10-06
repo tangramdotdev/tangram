@@ -5,10 +5,14 @@ from __future__ import annotations
 import asyncio
 import inspect
 import sys
-from collections.abc import Awaitable, Generator, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Generator, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import fields, is_dataclass
-from typing import Any, Never, Protocol, TypeGuard, overload
+from typing import TYPE_CHECKING, Any, Never, Protocol, TypeGuard, overload
+
+if TYPE_CHECKING:
+    from .command import Command
+    from .value import ValueInput, ValueType
 
 if sys.version_info >= (3, 14):
     from string.templatelib import Interpolation
@@ -130,6 +134,12 @@ def capture(value: Any, memo: dict[int, tuple[Any, Any]] | None = None) -> Any:
 
 
 @overload
+async def resolve(
+    value: Unresolved[Callable[..., ValueInput]],
+) -> Command[list[ValueType], ValueType]: ...
+
+
+@overload
 async def resolve(value: Unresolved[TemplateString]) -> TemplateString: ...
 
 
@@ -223,7 +233,9 @@ async def resolve(value: object) -> Any:
             )
             return dict(zip(value, children, strict=True))
         if callable(value):
-            raise TypeError("Python function commands require the embedded runtime")
+            from .command import command
+
+            return await command(value)
         if hasattr(value, "__dict__"):
             entries = vars(value)
             children = await asyncio.gather(

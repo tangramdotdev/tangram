@@ -10,6 +10,13 @@ async def main():
         tg.Client() as client,
         tg.Client(url="http://127.0.0.1:1") as unavailable,
     ):
+        command = await tg.command(
+            executable="sh", env={"GREETING": "hello"}, client=client
+        )
+        await command.store(client)
+        command = tg.Command.with_id(command.id)
+        assert (await command.env(client))["GREETING"].value == "hello"
+        assert (await command.env)["GREETING"].value == "hello"
         sandbox = await tg.Sandbox.create(client=client)
         sandbox.client = unavailable
         try:

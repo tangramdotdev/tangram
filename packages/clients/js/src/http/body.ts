@@ -80,20 +80,20 @@ export namespace Body {
 async function* decodeSse(
 	body: AsyncIterable<Uint8Array>,
 ): AsyncIterableIterator<Body.SseEvent> {
-	let buffer = "";
+	let buffer = new Uint8Array();
 	for await (let chunk of body) {
-		buffer += tg.encoding.utf8.decode(chunk);
+		buffer = concat([buffer, chunk]);
 		while (true) {
-			let index = buffer.indexOf("\n\n");
+			let index = delimiter(buffer, [10, 10]);
 			let length = 2;
 			if (index === -1) {
-				index = buffer.indexOf("\r\n\r\n");
+				index = delimiter(buffer, [13, 10, 13, 10]);
 				length = 4;
 			}
 			if (index === -1) {
 				break;
 			}
-			let block = buffer.slice(0, index);
+			let block = tg.encoding.utf8.decode(buffer.subarray(0, index));
 			buffer = buffer.slice(index + length);
 			let event = parseSse(block);
 			if (event !== undefined) {
@@ -101,10 +101,19 @@ async function* decodeSse(
 			}
 		}
 	}
-	let event = parseSse(buffer);
+	let event = parseSse(tg.encoding.utf8.decode(buffer));
 	if (event !== undefined) {
 		yield event;
 	}
+}
+
+function delimiter(bytes: Uint8Array, delimiter: Array<number>): number {
+	for (let index = 0; index <= bytes.length - delimiter.length; index++) {
+		if (delimiter.every((byte, offset) => bytes[index + offset] === byte)) {
+			return index;
+		}
+	}
+	return -1;
 }
 
 async function* encodeSse(

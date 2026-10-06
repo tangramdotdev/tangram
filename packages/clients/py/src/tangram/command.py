@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Generator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from copy import deepcopy
 from typing import (
     TYPE_CHECKING,
@@ -123,64 +123,6 @@ type CommandInput = Unresolved[
     | CommandObjectValue
     | None
 ]
-
-
-class BoundEnvironment:
-    def __init__(
-        self,
-        getter: Callable[
-            [str | None, Client | None],
-            Awaitable[dict[str, CommandValue] | CommandValue | None],
-        ],
-    ) -> None:
-        self.getter = getter
-
-    def __await__(self) -> Generator[Any, None, dict[str, CommandValue]]:
-        return cast(
-            "Awaitable[dict[str, CommandValue]]", self.getter(None, None)
-        ).__await__()
-
-    @overload
-    def __call__(
-        self, name: None = None, client: Client | None = None
-    ) -> Awaitable[dict[str, CommandValue]]: ...
-
-    @overload
-    def __call__(
-        self, name: str, client: Client | None = None
-    ) -> Awaitable[CommandValue | None]: ...
-
-    def __call__(
-        self, name: str | None = None, client: Client | None = None
-    ) -> Awaitable[dict[str, CommandValue] | CommandValue | None]:
-        return self.getter(name, client)
-
-
-class environment_property[S]:
-    def __init__(
-        self,
-        method: Callable[
-            [S, str | None, Client | None],
-            Awaitable[dict[str, CommandValue] | CommandValue | None],
-        ],
-    ) -> None:
-        self.method = method
-        self.__doc__ = method.__doc__
-
-    @overload
-    def __get__(self, instance: None, owner: type[S] | None = None) -> Self: ...
-
-    @overload
-    def __get__(
-        self, instance: S, owner: type[S] | None = None
-    ) -> BoundEnvironment: ...
-
-    def __get__(self, instance: S | None, owner: type[S] | None = None):
-        if instance is None:
-            return self
-        return BoundEnvironment(
-            lambda name, client: self.method(instance, name, client)
-        )
 
 
 class Command[A, O: ValueType](Object):
@@ -378,12 +320,9 @@ class Command[A, O: ValueType](Object):
     async def cwd(self, client: Client | None = None) -> str | None:
         return (await self.load(client)).get("cwd")
 
-    @environment_property
-    async def env(
-        self, name=None, client: Client | None = None
-    ) -> dict[str, CommandValue] | CommandValue | None:
-        env = (await self.load(client)).get("env", {})
-        return env if name is None else env.get(name)
+    @tg.property
+    async def env(self, client: Client | None = None) -> dict[str, CommandValue]:
+        return (await self.load(client)).get("env", {})
 
     @tg.property
     async def executable(self, client: Client | None = None) -> ExecutableObject:

@@ -14,6 +14,8 @@ let path = artifact {
                 return "chocolate"
 
             shared = flavor()
+            resolved = await tg.resolve({"command": cake})
+            assert isinstance(resolved["command"], tg.Command)
             return await tg.build(cake, shared).arg(shared)
     '
 }
