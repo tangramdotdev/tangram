@@ -96,7 +96,7 @@ struct Node {
 	name: Option<String>,
 	named: Option<NamedNodeInfo>,
 	parent: u64,
-	tokens: Vec<tg::authorization::Token>,
+	tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone)]
@@ -114,12 +114,12 @@ struct ArtifactState {
 	children_expires_at: Arc<Mutex<Option<i64>>>,
 	data: Option<tg::artifact::data::Artifact>,
 	id: tg::artifact::Id,
-	tokens: Arc<Mutex<Vec<tg::authorization::Token>>>,
+	tokens: Arc<Mutex<tg::authorization::Tokens>>,
 }
 
 struct BranchChild {
 	artifact: ArtifactState,
-	parent_tokens: Vec<tg::authorization::Token>,
+	parent_tokens: tg::authorization::Tokens,
 }
 
 #[derive(Clone)]
@@ -153,7 +153,7 @@ struct SnapshotLoad<'a> {
 
 pub struct FileHandle {
 	blob: tg::blob::Id,
-	tokens: Arc<Mutex<Vec<tg::authorization::Token>>>,
+	tokens: Arc<Mutex<tg::authorization::Tokens>>,
 }
 
 impl Provider {
@@ -210,13 +210,14 @@ impl Provider {
 		session: &Session,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<()> {
-		let tokens = tg::authorization::Tokens::with_authorization(
-			tokens
-				.local_authorization()
-				.iter()
-				.filter(|token| session.verify_token(token))
-				.cloned(),
-		);
+		let mut tokens = tokens.clone();
+		let authorization = tokens.remove_local_authorization();
+		for token in authorization
+			.into_iter()
+			.filter(|token| session.verify_token(token))
+		{
+			tokens.insert_local_authorization(token);
+		}
 		self.nodes.insert_tokens(session, &tokens)?;
 		Ok(())
 	}
@@ -636,6 +637,7 @@ impl Provider {
 			.tokens
 			.lock()
 			.unwrap()
+			.local_authorization()
 			.iter()
 			.filter(|token| token.body.resource == artifact.id.clone().into())
 			.max_by_key(|token| token.body.expires_at)
@@ -645,7 +647,7 @@ impl Provider {
 
 	fn file_dependency_references(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		file: &tg::graph::data::File,
 		graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
@@ -660,11 +662,7 @@ impl Provider {
 				continue;
 			};
 			let mut options = reference.options().clone();
-			options
-				.tokens
-				.inherit(&tg::authorization::Tokens::with_authorization(
-					dependency.tokens.lock().unwrap().clone(),
-				));
+			options.tokens.inherit(&dependency.tokens.lock().unwrap());
 			reference.set_options(options);
 			references.push(reference);
 		}
@@ -674,7 +672,7 @@ impl Provider {
 
 	fn file_dependency_artifact(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		dependency: Option<&tg::graph::data::Dependency>,
 		graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
@@ -1258,7 +1256,7 @@ impl Provider {
 
 	fn authorize(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		id: &tg::object::Id,
 	) -> std::io::Result<crate::authorization::Output> {
 		let principal = self.principal.lock().unwrap().clone();
@@ -1277,6 +1275,7 @@ impl Provider {
 		let expires_at = tokens
 			.lock()
 			.unwrap()
+			.local_authorization()
 			.iter()
 			.find(|token| {
 				token.body.resource == resource
@@ -1297,7 +1296,7 @@ impl Provider {
 
 	async fn authorize_inner(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		id: &tg::object::Id,
 	) -> std::io::Result<crate::authorization::Output> {
 		if let Ok(output) = self.authorize(tokens, id) {
@@ -1311,9 +1310,8 @@ impl Provider {
 		let mut available = self.nodes.state.lock().unwrap().nodes[&vfs::ROOT_NODE_ID]
 			.tokens
 			.clone();
-		available.extend(tokens.lock().unwrap().iter().cloned());
-		let tokens_arg = tg::authorization::Tokens::with_authorization(available);
-		let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens_arg);
+		available.inherit(&tokens.lock().unwrap());
+		let resource = tg::Referent::with_node_and_tokens(id.clone(), available);
 		let permission = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
@@ -1340,15 +1338,15 @@ impl Provider {
 				.clock
 				.unix_timestamp()
 				.map_err(|error| Self::map_cache_sync_error(&error))?;
-			tokens.retain(|token| token.body.expires_at >= now);
-			Self::insert_tokens(&mut tokens, &[token]);
+			Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
+			tokens.insert_local_authorization(token);
 		}
 		Ok(output)
 	}
 
 	fn authorize_sync(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		id: &tg::object::Id,
 	) -> std::io::Result<crate::authorization::Output> {
 		self.authorize(tokens, id)
@@ -1789,9 +1787,7 @@ impl Provider {
 			.await?;
 
 		// Create the stream.
-		let tokens = tg::authorization::Tokens::with_authorization(
-			file_handle.tokens.lock().unwrap().clone(),
-		);
+		let tokens = file_handle.tokens.lock().unwrap().clone();
 		let options = tg::read::Options {
 			length: Some(length),
 			position: Some(std::io::SeekFrom::Start(position)),
@@ -2591,7 +2587,7 @@ impl Provider {
 
 	fn artifact_from_directory_edge_inner(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		edge: tg::graph::data::Edge<tg::directory::Id>,
 		default_graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
@@ -2629,7 +2625,7 @@ impl Provider {
 
 	fn artifact_from_edge_inner(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		edge: tg::graph::data::Edge<tg::artifact::Id>,
 		default_graph: Option<&tg::graph::Id>,
 		transaction: Option<&Transaction<'_>>,
@@ -2659,7 +2655,7 @@ impl Provider {
 
 	fn artifact_from_pointer_inner(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		pointer: &tg::graph::data::Pointer,
 		expected_kind: Option<tg::artifact::Kind>,
 	) -> std::io::Result<ArtifactState> {
@@ -2686,13 +2682,8 @@ impl Provider {
 		let mut artifact = Self::artifact(id, tokens);
 		artifact.data = Some(data.clone());
 		{
-			let graph_tokens = tokens
-				.lock()
-				.unwrap()
-				.iter()
-				.filter(|token| token.body.resource == graph.clone().into())
-				.cloned()
-				.collect::<Vec<_>>();
+			let graph_tokens =
+				Self::tokens_for_resource(&tokens.lock().unwrap(), &graph.clone().into());
 			Self::insert_tokens(&mut artifact.tokens.lock().unwrap(), &graph_tokens);
 		}
 		self.register_data(
@@ -2889,7 +2880,7 @@ impl Provider {
 				.unix_timestamp()
 				.map_err(|error| Self::map_cache_sync_error(&error))?;
 			let mut tokens = entry.artifact.tokens.lock().unwrap();
-			tokens.retain(|token| token.body.expires_at >= now);
+			Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
 			Self::insert_tokens(&mut tokens, &parent_tokens);
 			drop(tokens);
 			entry.parent_tokens = parent_tokens;
@@ -2946,7 +2937,7 @@ impl Provider {
 
 	async fn graph_data_inner(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		graph: &tg::graph::Id,
 	) -> std::io::Result<tg::graph::Data> {
 		let id: tg::object::Id = graph.clone().into();
@@ -2961,7 +2952,7 @@ impl Provider {
 
 	async fn resolve_graph_node_inner(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		pointer: &tg::graph::data::Pointer,
 	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
 		let graph = pointer.graph.clone();
@@ -3009,18 +3000,8 @@ impl Provider {
 		}
 	}
 
-	fn artifact(
-		id: tg::artifact::Id,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
-	) -> ArtifactState {
-		let resource = tg::Id::from(id.clone());
-		let tokens = tokens
-			.lock()
-			.unwrap()
-			.iter()
-			.filter(|token| token.body.resource == resource)
-			.cloned()
-			.collect::<Vec<_>>();
+	fn artifact(id: tg::artifact::Id, tokens: &Mutex<tg::authorization::Tokens>) -> ArtifactState {
+		let tokens = Self::tokens_for_resource(&tokens.lock().unwrap(), &id.clone().into());
 		ArtifactState {
 			branch_children: Arc::default(),
 			children_expires_at: Arc::default(),
@@ -3031,42 +3012,55 @@ impl Provider {
 	}
 
 	fn register_output(
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		output: &tg::object::get::Output,
 	) {
-		let incoming = output
-			.tokens
-			.local_authorization()
-			.iter()
-			.chain(
-				output
-					.children
-					.values()
-					.flat_map(|child| child.tokens.local_authorization()),
-			)
-			.cloned()
-			.collect::<Vec<_>>();
-		Self::insert_tokens(&mut tokens.lock().unwrap(), &incoming);
+		let mut tokens = tokens.lock().unwrap();
+		tokens.inherit(&output.tokens);
+		for child in output.children.values() {
+			tokens.inherit(&child.tokens);
+		}
 	}
 
-	fn insert_tokens(
-		tokens: &mut Vec<tg::authorization::Token>,
-		incoming: &[tg::authorization::Token],
+	fn insert_tokens(tokens: &mut tg::authorization::Tokens, incoming: &tg::authorization::Tokens) {
+		tokens.inherit(incoming);
+	}
+
+	fn retain_tokens(
+		tokens: &mut tg::authorization::Tokens,
+		predicate: impl Fn(&tg::authorization::Token) -> bool,
 	) {
-		let mut entry = tg::authorization::tokens::Entry {
-			authorization: std::mem::take(tokens),
-		};
-		let incoming = tg::authorization::tokens::Entry {
-			authorization: incoming.to_vec(),
-		};
-		entry.inherit(&incoming);
-		*tokens = entry.authorization;
+		let mut retained = tg::authorization::Tokens::default();
+		for (location, entry) in tokens.iter() {
+			let mut entry = entry.clone();
+			entry.authorization.retain(&predicate);
+			if !entry.is_empty() {
+				retained.set(location.clone(), entry);
+			}
+		}
+		*tokens = retained;
+	}
+
+	fn tokens_for_resource(
+		tokens: &tg::authorization::Tokens,
+		resource: &tg::Id,
+	) -> tg::authorization::Tokens {
+		let mut tokens = tokens.clone();
+		let local = tokens.remove_local_authorization();
+		for token in local
+			.into_iter()
+			.filter(|token| &token.body.resource == resource)
+		{
+			tokens.insert_local_authorization(token);
+		}
+		tokens.normalize(Some(resource));
+		tokens
 	}
 
 	fn register_data(
 		&self,
 		children_expires_at: Option<&Mutex<Option<i64>>>,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		id: &tg::object::Id,
 		authorization: crate::authorization::Output,
 		data: &tg::object::Data,
@@ -3088,6 +3082,7 @@ impl Provider {
 		data.children(&mut children);
 		let current = tokens.lock().unwrap();
 		let resources = current
+			.local_authorization()
 			.iter()
 			.filter(|token| token.body.expires_at >= now)
 			.map(|token| &token.body.resource)
@@ -3095,8 +3090,11 @@ impl Provider {
 		let has_token = |id: &tg::object::Id| resources.contains(&tg::Id::from(id.clone()));
 		if has_token(id) && children.iter().all(has_token) {
 			if let Some(expires_at) = children_expires_at {
-				*expires_at.lock().unwrap() =
-					current.iter().map(|token| token.body.expires_at).min();
+				*expires_at.lock().unwrap() = current
+					.local_authorization()
+					.iter()
+					.map(|token| token.body.expires_at)
+					.min();
 			}
 			return Ok(());
 		}
@@ -3118,10 +3116,17 @@ impl Provider {
 			}
 		}
 		let mut tokens = tokens.lock().unwrap();
-		tokens.retain(|token| token.body.expires_at >= now);
-		Self::insert_tokens(&mut tokens, &incoming);
+		Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
+		Self::insert_tokens(
+			&mut tokens,
+			&tg::authorization::Tokens::with_authorization(incoming),
+		);
 		if let Some(expires_at) = children_expires_at {
-			*expires_at.lock().unwrap() = tokens.iter().map(|token| token.body.expires_at).min();
+			*expires_at.lock().unwrap() = tokens
+				.local_authorization()
+				.iter()
+				.map(|token| token.body.expires_at)
+				.min();
 		}
 		Ok(())
 	}
@@ -3129,7 +3134,7 @@ impl Provider {
 	async fn try_get_data_inner(
 		&self,
 		children_expires_at: Option<&Mutex<Option<i64>>>,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		id: &tg::object::Id,
 	) -> std::io::Result<Option<tg::object::Data>> {
 		let authorization = self.authorize_inner(tokens, id).await?;
@@ -3144,8 +3149,7 @@ impl Provider {
 			self.register_data(children_expires_at, tokens, id, authorization, &data)?;
 			return Ok(Some(data));
 		}
-		let request_tokens =
-			tg::authorization::Tokens::with_authorization(tokens.lock().unwrap().clone());
+		let request_tokens = tokens.lock().unwrap().clone();
 		let arg = tg::object::get::Arg {
 			tokens: request_tokens,
 			..Default::default()
@@ -3166,7 +3170,7 @@ impl Provider {
 
 	async fn blob_length_inner(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		id: &tg::blob::Id,
 	) -> std::io::Result<u64> {
 		let id: tg::object::Id = id.clone().into();
@@ -3256,7 +3260,7 @@ impl Provider {
 
 	fn graph_data_sync_inner(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		graph: &tg::graph::Id,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<tg::graph::Data> {
@@ -3273,7 +3277,7 @@ impl Provider {
 
 	fn resolve_graph_node_sync_inner(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		pointer: &tg::graph::data::Pointer,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<(tg::graph::data::Node, tg::graph::Id)> {
@@ -3352,7 +3356,7 @@ impl Provider {
 
 	fn read_blob_range_sync_inner(
 		&self,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		id: &tg::blob::Id,
 		position: u64,
 		length: u64,
@@ -3787,7 +3791,7 @@ impl Provider {
 	fn try_get_data(
 		&self,
 		children_expires_at: Option<&Mutex<Option<i64>>>,
-		tokens: &Mutex<Vec<tg::authorization::Token>>,
+		tokens: &Mutex<tg::authorization::Tokens>,
 		id: &tg::object::Id,
 		transaction: Option<&Transaction<'_>>,
 	) -> std::io::Result<Option<(u64, tg::object::Data)>> {
@@ -4013,7 +4017,7 @@ impl Nodes {
 			name: None,
 			named: None,
 			parent: vfs::ROOT_NODE_ID,
-			tokens: Vec::new(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		nodes.insert(vfs::ROOT_NODE_ID, entry);
 		let state = Mutex::new(State { next: 1000, nodes });
@@ -4027,33 +4031,66 @@ impl Nodes {
 	) -> tg::Result<()> {
 		let mut state = self.state.lock().unwrap();
 		let now = session.server.clock.unix_timestamp()?;
-		state
-			.nodes
-			.get_mut(&vfs::ROOT_NODE_ID)
-			.unwrap()
-			.tokens
-			.retain(|token| token.body.expires_at >= now);
+		Provider::retain_tokens(
+			&mut state.nodes.get_mut(&vfs::ROOT_NODE_ID).unwrap().tokens,
+			|token| token.body.expires_at >= now,
+		);
 		Provider::insert_tokens(
 			&mut state.nodes.get_mut(&vfs::ROOT_NODE_ID).unwrap().tokens,
-			tokens.local_authorization(),
+			tokens,
 		);
 		drop(state);
-		self.refresh_node_tokens(session, tokens.local_authorization())?;
+		self.refresh_node_tokens(session, tokens)?;
 		Ok(())
 	}
 
 	fn refresh_node_tokens(
 		&self,
 		session: &Session,
-		tokens: &[tg::authorization::Token],
+		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<()> {
 		let now = session.server.clock.unix_timestamp()?;
 		let state = self.state.lock().unwrap();
 		let subtree = tg::authorization::Permission::Object(
 			tg::authorization::permission::object::Permission::Subtree,
 		);
+		// Retain remote authorization on existing artifacts without renewing it locally.
+		for (location, entry) in tokens.iter().filter(|(location, _)| location.is_remote()) {
+			for token in &entry.authorization {
+				let name = token.body.resource.to_string();
+				let mut pending = state.nodes[&vfs::ROOT_NODE_ID]
+					.children
+					.iter()
+					.filter(|(component, _)| {
+						*component == &name
+							|| component
+								.strip_prefix(&name)
+								.is_some_and(|suffix| suffix.starts_with('.'))
+					})
+					.map(|(_, id)| *id)
+					.collect::<Vec<_>>();
+				while let Some(id) = pending.pop() {
+					let node = &state.nodes[&id];
+					for artifact in node.artifact.iter().chain(&node.dependencies) {
+						let mut tokens = artifact.tokens.lock().unwrap();
+						Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
+						tokens.insert_authorization(location.clone(), token.clone());
+					}
+					pending.extend(
+						node.children
+							.values()
+							.filter(|child| state.nodes[child].parent == id),
+					);
+				}
+			}
+		}
+
 		let mut pending = Vec::new();
-		for token in tokens.iter().filter(|token| token.body.authorizes(subtree)) {
+		for token in tokens
+			.local_authorization()
+			.iter()
+			.filter(|token| token.body.authorizes(subtree))
+		{
 			let name = token.body.resource.to_string();
 			for (component, id) in state.nodes[&vfs::ROOT_NODE_ID]
 				.children
@@ -4071,11 +4108,11 @@ impl Nodes {
 		}
 		while let Some((id, token)) = pending.pop() {
 			let node = state.nodes.get(&id).unwrap();
-			let incoming = [token.clone()];
+			let incoming = tg::authorization::Tokens::with_authorization([token.clone()]);
 			for dependency in &node.dependencies {
 				if token.body.resource == dependency.id.clone().into() {
 					let mut tokens = dependency.tokens.lock().unwrap();
-					tokens.retain(|token| token.body.expires_at >= now);
+					Provider::retain_tokens(&mut tokens, |token| token.body.expires_at >= now);
 					Provider::insert_tokens(&mut tokens, &incoming);
 				}
 			}
@@ -4088,6 +4125,7 @@ impl Nodes {
 			let expires_at = token.body.expires_at;
 			let mut tokens = artifact.tokens.lock().unwrap();
 			let improved = !tokens
+				.local_authorization()
 				.iter()
 				.any(|existing| existing.covers(&token) && existing.body.expires_at >= expires_at);
 			if improved {
@@ -4131,11 +4169,11 @@ impl Nodes {
 
 	fn refresh_tokens(
 		session: &Session,
-		tokens: &mut Vec<tg::authorization::Token>,
+		tokens: &mut tg::authorization::Tokens,
 		expires_at: i64,
 	) -> tg::Result<()> {
 		let mut renewed = Vec::new();
-		for token in tokens.iter() {
+		for token in tokens.local_authorization() {
 			if token.body.expires_at >= expires_at {
 				renewed.push(token.clone());
 				continue;
@@ -4148,7 +4186,10 @@ impl Nodes {
 				renewed.push(token);
 			}
 		}
-		*tokens = renewed;
+		tokens.remove_local_authorization();
+		for token in renewed {
+			tokens.insert_local_authorization(token);
+		}
 		Ok(())
 	}
 
@@ -4171,22 +4212,12 @@ impl Nodes {
 				.find(|artifact| &artifact.id == id)
 			{
 				let artifact = artifact.snapshot();
-				let tokens = root
-					.tokens
-					.iter()
-					.filter(|token| token.body.resource == id.clone().into())
-					.cloned()
-					.collect::<Vec<_>>();
+				let tokens = Provider::tokens_for_resource(&root.tokens, &id.clone().into());
 				Provider::insert_tokens(&mut artifact.tokens.lock().unwrap(), &tokens);
 				return artifact;
 			}
 		}
-		let tokens = root
-			.tokens
-			.iter()
-			.filter(|token| token.body.resource == id.clone().into())
-			.cloned()
-			.collect::<Vec<_>>();
+		let tokens = Provider::tokens_for_resource(&root.tokens, &id.clone().into());
 		ArtifactState {
 			branch_children: Arc::default(),
 			children_expires_at: Arc::default(),
@@ -4464,7 +4495,7 @@ impl Nodes {
 			name: Some(name.to_owned()),
 			named: None,
 			parent,
-			tokens: Vec::new(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		state.nodes.insert(id, entry);
 		state
@@ -4521,7 +4552,7 @@ impl Nodes {
 			name: Some(name.to_owned()),
 			named: Some(named_node),
 			parent,
-			tokens: Vec::new(),
+			tokens: tg::authorization::Tokens::default(),
 		};
 		state.nodes.insert(id, entry);
 		state
@@ -4945,29 +4976,26 @@ mod tests {
 	fn existing_children_inherit_tokens() {
 		let nodes = Nodes::new();
 		let original = artifact(b"tokens");
-		original.tokens.lock().unwrap()[0].body.expires_at = 300;
-		original.tokens.lock().unwrap()[0].body.permissions =
-			vec![tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Node,
-			)];
+		let mut entry = original.tokens.lock().unwrap().local_entry();
+		entry.authorization[0].body.expires_at = 300;
+		entry.authorization[0].body.permissions = vec![tg::authorization::Permission::Object(
+			tg::authorization::permission::object::Permission::Node,
+		)];
 		let name = original.id.to_string();
-		let mut expected = tg::authorization::tokens::Entry {
-			authorization: original.tokens.lock().unwrap().clone(),
-		};
+		original.tokens.lock().unwrap().set_local(entry);
+		let mut expected = original.tokens.lock().unwrap().clone();
 		let inode = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, original, 1, None, true)
 			.unwrap();
 		let incoming = artifact(b"tokens");
-		let entry = tg::authorization::tokens::Entry {
-			authorization: incoming.tokens.lock().unwrap().clone(),
-		};
+		let entry = incoming.tokens.lock().unwrap().clone();
 		expected.inherit(&entry);
 		let existing = nodes
 			.get_or_insert_child(vfs::ROOT_NODE_ID, &name, incoming, 1, None, true)
 			.unwrap();
 		assert_eq!(inode, existing);
 		let artifact = nodes.get_sync(inode).unwrap().artifact.unwrap();
-		assert_eq!(*artifact.tokens.lock().unwrap(), expected.authorization);
+		assert_eq!(*artifact.tokens.lock().unwrap(), expected);
 	}
 
 	fn artifact(bytes: &[u8]) -> ArtifactState {
@@ -4991,7 +5019,9 @@ mod tests {
 			children_expires_at: Arc::default(),
 			data: None,
 			id,
-			tokens: Arc::new(Mutex::new(vec![token])),
+			tokens: Arc::new(Mutex::new(tg::authorization::Tokens::with_authorization([
+				token,
+			]))),
 		}
 	}
 }
