@@ -757,10 +757,6 @@ impl Session {
 								}
 								log_sender.send(event).await?;
 							}
-							log_sender
-								.send(tangram_sandbox::stdio::read::Event::End)
-								.await?;
-
 							Ok::<_, tg::Error>(())
 						}
 						.await;
@@ -774,7 +770,12 @@ impl Session {
 							process_stopper.stop();
 						}
 
-						result
+						// Finish the received log even if the sandbox died while producing it.
+						let end_result = log_sender
+							.send(tangram_sandbox::stdio::read::Event::End)
+							.await;
+
+						result.and(end_result)
 					}
 					.in_current_span()
 				}
