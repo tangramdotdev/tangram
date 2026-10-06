@@ -107,6 +107,7 @@ class ExecTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(ValueError, "stdio must be inherit or null"):
             render_stdio("pipe")
 
-    def test_function_commands_require_the_runtime(self):
-        with self.assertRaisesRegex(TypeError, "require the embedded runtime"):
-            builder(lambda: None)
+    async def test_function_commands_require_a_tangram_module(self):
+        instance = builder(lambda: None)
+        with self.assertRaisesRegex(ValueError, "Tangram module"):
+            await resolve(instance.arguments)

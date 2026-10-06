@@ -146,7 +146,7 @@ async def download(
     *,
     client: "Client | None" = None,
 ) -> Blob | ArtifactValue:
-    checksum = "sha256:any" if checksum is None else checksum
+    checksum = "sha512:none" if checksum is None else checksum
     options = options if options is not None else {}
     if options.get("checksum") is None:
         from .checksum import Checksum

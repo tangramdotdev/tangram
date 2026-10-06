@@ -54,14 +54,14 @@ class AuthorizationTests(unittest.TestCase):
             ("process_subtree_output_objects", "process_node_output_objects"),
             ("organization_admin", "organization_write"),
             ("group_write", "group_read"),
-            ("sandbox_write", "sandbox_read"),
+            ("sandbox_parent", "sandbox_node"),
         ):
             proof = token("resource", [granted])
             self.assertTrue(authorization.Token.authorizes(proof, "resource", needed))
             self.assertFalse(authorization.Token.authorizes(proof, "other", needed))
         self.assertFalse(
             authorization.authorizes(
-                token("resource", ["sandbox_admin"]), "resource", "sandbox_read"
+                token("resource", ["sandbox_admin"]), "resource", "sandbox_node"
             )
         )
         self.assertFalse(
@@ -75,6 +75,19 @@ class AuthorizationTests(unittest.TestCase):
         self.assertEqual(
             authorization.Token.resource(token("resource", [])), "resource"
         )
+
+    def test_sandbox_permissions_match_the_server(self):
+        parent = token("sandbox", ["sandbox_parent"])
+        node = token("sandbox", ["sandbox_node"])
+        self.assertTrue(authorization.Token.covers(parent, node))
+        self.assertFalse(authorization.Token.covers(node, parent))
+        self.assertEqual(
+            authorization.normalize({"local": [parent, node]}), {"local": [parent]}
+        )
+        for old_permission in ("sandbox_read", "sandbox_write"):
+            self.assertFalse(
+                authorization.Token.authorizes(parent, "sandbox", old_permission)
+            )
 
     def test_tokens_namespace_and_mutation(self):
         proof = token("fil_one", ["object_node"])

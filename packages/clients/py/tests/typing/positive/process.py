@@ -77,3 +77,17 @@ async def function_commands():
     assert_type(
         await Command.py(async_, ["hello"]), Referent[Command[list[ValueType], str]]
     )
+
+
+async def function_results():
+    from tangram import build, run, spawn
+    from tangram.command import CommandArgObject
+    from tangram.referent import Referent
+
+    async def task(value: str) -> str:
+        return value
+
+    assert_type(build(task, "hello"), Builder[Literal["run"], str])
+    assert_type(run(task, "hello"), Builder[Literal["run"], str])
+    assert_type(spawn(task, "hello"), Builder[Literal["spawn"], str])
+    assert_type(await Command.py_arg(task, ["hello"]), Referent[CommandArgObject])

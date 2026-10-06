@@ -190,6 +190,12 @@ class Object:
         return {"kind": self._object_kind, "value": self._encode(self._value)}
 
     async def load(self, client: Client | None = None):
+        value = await self._load_inner(client)
+        for child in self._children():
+            child.state.inherit_tokens(self.tokens)
+        return value
+
+    async def _load_inner(self, client: Client | None = None):
         if self._value is not None:
             return self._value
         if self._loading is None:
@@ -234,7 +240,6 @@ class Object:
         children = self._children()
         for child in children:
             child.state.inherit_location(self._location)
-            child._inherit_tokens(self.tokens)
         return children
 
     def _children(self):

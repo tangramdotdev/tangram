@@ -92,7 +92,12 @@ class Symlink(Object):
         return await self.load(client)
 
     async def load(self, client: Client | None = None) -> SymlinkValue | Pointer:
-        return cast("SymlinkValue | Pointer", await super().load(client))
+        from .graph import Pointer
+
+        value = await super().load(client)
+        if isinstance(value, Pointer):
+            value.graph.state.inherit_location(self.state.location)
+        return cast("SymlinkValue | Pointer", value)
 
     @classmethod
     async def new(cls, *args: SymlinkInput, client: Client | None = None) -> Self:

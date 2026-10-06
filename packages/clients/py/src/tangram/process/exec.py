@@ -17,7 +17,19 @@ from . import ArgObject, Builder, process_arg_resolved, spawn
 
 def builder(*args, **options) -> Builder[Literal["exec"], Never]:
     if args and callable(args[0]) and not hasattr(args[0], "__await__"):
-        raise TypeError("Python function commands require the embedded runtime")
+        from ..resolve import capture
+
+        function_ = args[0]
+
+        async def command():
+            return {
+                "command": await Command.py_arg(function_, function_args, client=client)
+            }
+
+        client = options.get("client")
+        builder = Builder("exec", command(), **options)
+        function_args = capture(args[1:], builder._memo)
+        return builder
     if args and isinstance(args[0], list) and hasattr(args[0], "raw"):
         from . import env
 

@@ -275,12 +275,22 @@ class StdioHandleTests(unittest.IsolatedAsyncioTestCase):
             pass
         self.assertEqual(calls[0][1]["lease"], "lease_test")
 
+    async def test_completed_spawn_outcome_does_not_cancel_on_disposal(self):
+        from unittest.mock import AsyncMock
+
+        client = type("Client", (), {"cancel_process": AsyncMock()})()
+        async with Process(
+            "prc_test", client=client, lease="lease_test", outcome={"exit": 0}
+        ):
+            pass
+        client.cancel_process.assert_not_awaited()
+
     async def test_waited_process_does_not_cancel_on_disposal(self):
         class Client:
             async def cancel_process(self, id, options=None, **arg):
                 raise AssertionError("should not cancel a completed process")
 
         async with Process(
-            "prc_test", client=Client(), lease="lease_test", wait={"exit": 0}
+            "prc_test", client=Client(), lease="lease_test", outcome={"exit": 0}
         ) as process:
             await process.wait()

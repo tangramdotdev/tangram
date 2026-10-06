@@ -111,13 +111,13 @@ def implies(granted: str, needed: str) -> bool:
             "process_parent",
             needed.replace("process_node", "process_subtree"),
         )
-    for kind in ("group", "organization", "sandbox", "tag", "user"):
+    if needed == "sandbox_node":
+        return granted == "sandbox_parent"
+    for kind in ("group", "organization", "tag", "user"):
         if needed == f"{kind}_read":
-            return granted == f"{kind}_write" or (
-                kind != "sandbox" and granted == f"{kind}_admin"
-            )
+            return granted in (f"{kind}_write", f"{kind}_admin")
         if needed == f"{kind}_write":
-            return kind != "sandbox" and granted == f"{kind}_admin"
+            return granted == f"{kind}_admin"
     return False
 
 

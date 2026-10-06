@@ -23,6 +23,7 @@ class CommandArgObject(TypedDict):
     args: NotRequired[list[Any]]
     cwd: NotRequired[str | None]
     env: NotRequired[dict[str, Any]]
+    host: NotRequired[str | None]
     stdin: NotRequired[Referent[str] | None]
     user: NotRequired[str | None]
 
@@ -47,6 +48,7 @@ class ArgObject(TypedDict):
 class OutputObject(TypedDict):
     process: int | str
     cached: NotRequired[bool]
+    command: NotRequired[str | None]
     lease: NotRequired[str | None]
     location: NotRequired[LocationObject | None]
     outcome: NotRequired["Outcome.Data | None"]

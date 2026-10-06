@@ -124,7 +124,12 @@ class File(Object):
         return await self.load(client)
 
     async def load(self, client: Client | None = None) -> FileValue | Pointer:
-        return cast("FileValue | Pointer", await super().load(client))
+        from ..graph import Pointer
+
+        value = await super().load(client)
+        if isinstance(value, Pointer):
+            value.graph.state.inherit_location(self.state.location)
+        return cast("FileValue | Pointer", value)
 
     @classmethod
     async def new(

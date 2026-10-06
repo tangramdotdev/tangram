@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from collections.abc import AsyncGenerator, Generator, Mapping
+from collections.abc import AsyncGenerator, Callable, Generator, Mapping
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -22,7 +22,6 @@ from typing import (
 from ..args import Args
 from ..async_property import async_property
 from ..client import client as default_client
-from ..client import wait_from_data
 from ..client.process.cancel import Cancel as _Cancel
 from ..client.process.connect import Connect as _Connect
 from ..client.process.connect import TtyArg
@@ -33,6 +32,7 @@ from ..client.process.spawn import Spawn as _Spawn
 from ..command import (
     Command,
     CommandArgObject,
+    CommandArgument,
     CommandValue,
     ExecutableObject,
     FieldInput,
@@ -128,7 +128,9 @@ class ArgObject(CommandArgObject, total=False):
     cached: FieldInput[bool]
     cache_location: Unresolved[LocationArgObject | Mutation | None]
     checksum: FieldInput[str]
-    command: Unresolved[Command | Referent | None]
+    command: Unresolved[
+        Command | CommandArgObject | Referent[Command | CommandArgObject] | None
+    ]
     cpu: FieldInput[int | float]
     debug: Unresolved[bool | DebugObject | Mutation | None]
     location: Unresolved[LocationArgObject | Mutation | None]
@@ -179,7 +181,6 @@ class Process[O: ValueType]:
         tokens=None,
         options: ReferentOptions | None = None,
         state=None,
-        wait=None,
         outcome=None,
         promise=None,
         stdin=None,
@@ -202,11 +203,13 @@ class Process[O: ValueType]:
         self.options: ReferentOptions = {**(options or {})}
         self.spawn_output: Mapping[str, object] = {}
         self.state = state
-        self._wait_result = outcome if outcome is not None else wait
+        self._wait_result = outcome
         self._wait_promise = promise
         self._stdio_promise = stdio_promise
         self._stopper = stopper
-        self._owned = wait is None and lease is not None
+        self._owned = outcome is None and (
+            stopper is not None if isinstance(id, int) else lease is not None
+        )
         self._write_position = 0
         self._write_lock = asyncio.Lock()
         self.stdin = stdin if stdin is not None else Writer(self, "stdin")
@@ -239,15 +242,34 @@ class Process[O: ValueType]:
             lease=output.get("lease"),
             location=None if location is None else LocationArg.from_location(location),
             tokens=output.get("tokens"),
-            wait=wait_from_data(outcome) if outcome is not None else None,
+            outcome=Outcome.from_data(outcome) if outcome is not None else None,
         )
         result.spawn_output = output
         return result
 
+    @overload
+    @classmethod
+    def spawn[R: ValueType](
+        cls,
+        function_: Callable[..., Unresolved[R]],
+        *args: CommandArgument,
+        client: Client | None = None,
+        **options: Unpack[ArgObject],
+    ) -> _Builder[Literal["spawn"], R]: ...
+
+    @overload
     @classmethod
     def spawn(
         cls,
         *args: ProcessInput,
+        client: Client | None = None,
+        **options: Unpack[ArgObject],
+    ) -> Builder[Literal["spawn"], ValueType]: ...
+
+    @classmethod
+    def spawn(
+        cls,
+        *args,
         client: Client | None = None,
         **options: Unpack[ArgObject],
     ) -> Builder[Literal["spawn"], ValueType]:
@@ -255,10 +277,29 @@ class Process[O: ValueType]:
 
         return spawn(*args, client=client, **options)
 
+    @overload
+    @classmethod
+    def run[R: ValueType](
+        cls,
+        function_: Callable[..., Unresolved[R]],
+        *args: CommandArgument,
+        client: Client | None = None,
+        **options: Unpack[ArgObject],
+    ) -> _Builder[Literal["run"], R]: ...
+
+    @overload
     @classmethod
     def run(
         cls,
         *args: ProcessInput,
+        client: Client | None = None,
+        **options: Unpack[ArgObject],
+    ) -> Builder[Literal["run"], ValueType]: ...
+
+    @classmethod
+    def run(
+        cls,
+        *args,
         client: Client | None = None,
         **options: Unpack[ArgObject],
     ) -> Builder[Literal["run"], ValueType]:
@@ -266,10 +307,29 @@ class Process[O: ValueType]:
 
         return run(*args, client=client, **options)
 
+    @overload
+    @classmethod
+    def build[R: ValueType](
+        cls,
+        function_: Callable[..., Unresolved[R]],
+        *args: CommandArgument,
+        client: Client | None = None,
+        **options: Unpack[ArgObject],
+    ) -> _Builder[Literal["run"], R]: ...
+
+    @overload
     @classmethod
     def build(
         cls,
         *args: ProcessInput,
+        client: Client | None = None,
+        **options: Unpack[ArgObject],
+    ) -> Builder[Literal["run"], ValueType]: ...
+
+    @classmethod
+    def build(
+        cls,
+        *args,
         client: Client | None = None,
         **options: Unpack[ArgObject],
     ) -> Builder[Literal["run"], ValueType]:
@@ -280,7 +340,7 @@ class Process[O: ValueType]:
     @classmethod
     def exec(
         cls,
-        *args: ProcessInput,
+        *args: ProcessInput | Callable[..., Unresolved[ValueType]],
         client: Client | None = None,
         **options: Unpack[ArgObject],
     ) -> Builder[Literal["exec"], Never]:
@@ -920,6 +980,9 @@ class Builder[M: Mode, O: ValueType]:
                         command = command.node
                     if isinstance(command, dict) and "node" in command:
                         command = command["node"]
+                    if isinstance(command, dict):
+                        if Command.Arg.is_js(command) or Command.Arg.is_py(command):
+                            return True
                     if isinstance(command, Command):
                         object = await command.load(self.client)
                         if CommandObject.is_js(object) or CommandObject.is_py(object):
@@ -1012,6 +1075,8 @@ async def process_arg_resolved(*args, client: Client | None = None):
     )
 
 
+# Avoid the Process.Builder class attribute when resolving generic annotations.
+_Builder = Builder
 Process.Builder = Builder
 
 

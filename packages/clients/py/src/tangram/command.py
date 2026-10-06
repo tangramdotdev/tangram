@@ -295,9 +295,7 @@ class Command[A, O: ValueType](Object):
             if arg is None or arg is UNSET:
                 return {}
             if isinstance(arg, (str, File, Directory, Symlink, Template)):
-                from .host import current
-
-                arg = {"args": ["-c", arg], "executable": "sh", "host": current}
+                arg = {"args": ["-c", arg], "executable": "sh"}
             elif isinstance(arg, cls):
                 arg = await arg.load(client)
             arg = dict(arg)
@@ -331,6 +329,19 @@ class Command[A, O: ValueType](Object):
         *,
         client: Client | None = None,
     ) -> Referent[Command[list[ValueType], R]]:
+        from .referent import Referent
+
+        command = await Command.py_arg(function_, args, client=client)
+        node = await Command.new(command.node, client=client)
+        return Referent(node, command.options)
+
+    @staticmethod
+    async def py_arg[R: ValueType](
+        function_: Callable[..., Unresolved[R]],
+        args: Sequence[CommandArgument],
+        *,
+        client: Client | None = None,
+    ) -> Referent[CommandArgObject]:
         from . import host
         from .module import Module
         from .referent import Referent
@@ -374,10 +385,8 @@ class Command[A, O: ValueType](Object):
         arg: CommandArgObject = {
             "args": command_args,
             "executable": "tg",
-            "host": host.current,
         }
-        command = await Command.new(arg, client=client)
-        return Referent(command, options)
+        return Referent(arg, options)
 
     @async_property
     async def args(self, client: Client | None = None) -> list[CommandValue]:
@@ -550,6 +559,31 @@ class CommandValueData:
 
 
 class CommandArg:
+    @staticmethod
+    def is_js(arg):
+        return CommandArg._is_module(arg, "js")
+
+    @staticmethod
+    def is_py(arg):
+        return CommandArg._is_module(arg, "py")
+
+    @staticmethod
+    def _is_module(arg, language):
+        executable = arg.get("executable")
+        args = arg.get("args") or []
+        first_arg = args[0] if args else None
+        return (
+            executable == "tg"
+            or isinstance(executable, dict)
+            and executable.get("artifact") is None
+            and executable.get("path") == "tg"
+        ) and (
+            first_arg == language
+            or isinstance(first_arg, CommandValue)
+            and first_arg.kind == "string"
+            and first_arg.value == language
+        )
+
     class Value:
         to_value = staticmethod(command_value)
 

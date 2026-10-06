@@ -5,20 +5,27 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, cast, overload
 
 from .. import host
 from ..async_property import async_property
 from ..authorization import inherit
 from ..client import last_output
-from ..command import Command, CommandArgObject, CommandInput, command_value
+from ..command import (
+    Command,
+    CommandArgObject,
+    CommandArgument,
+    CommandInput,
+    command_value,
+)
 from ..directory import Directory
 from ..error import Error
 from ..file import File
 from ..file.xattrs import read_error, read_outcome, read_output
 from ..object import Object
 from ..referent import Referent, ReferentOptions
-from ..resolve import resolve
+from ..resolve import Unresolved, resolve
 from ..symlink import Symlink
 from ..value import Placeholder, Template, Value
 
@@ -46,7 +53,11 @@ async def _spawn_arg_from_resolved_with_sandbox(arg, sandbox, client):
         options["name"] = arg["name"]
     from . import env
 
-    if sandbox is not None and arg.get("executable") == env.get("SHELL"):
+    if (
+        sandbox is not None
+        and arg.get("executable") is not None
+        and arg["executable"] == env.get("SHELL")
+    ):
         arg = {**arg, "executable": "sh"}
     command_arg = {
         key: arg[key]
@@ -60,20 +71,47 @@ async def _spawn_arg_from_resolved_with_sandbox(arg, sandbox, client):
     elif "stdin" in arg:
         command_arg["stdin"] = stdin
     commands.append(cast(CommandArgObject, command_arg))
-    command = await Command.new(*commands, client=client)
-    await Value.store(await command.children(client), client)
-    data = command.to_data()["value"]
-    executable = await command.executable(client)
+    from ..blob import Blob
+    from ..command import CommandExecutable
+
+    command = await Command.arg(*commands, client=client)
+    executable = command.get("executable")
+    if isinstance(executable, (Directory, File, Symlink)):
+        executable = {"artifact": executable, "path": None}
+    elif isinstance(executable, str):
+        executable = {"artifact": None, "path": executable}
+    elif executable is not None:
+        executable = {
+            "artifact": executable.get("artifact"),
+            "path": executable.get("path"),
+        }
+    else:
+        raise ValueError("cannot create a command without an executable")
+    args = command.get("args") or []
+    env = command.get("env") or {}
+    stdin = command.get("stdin")
+    stdin = None if stdin is None else await Blob.new(stdin, client=client)
+    objects = [
+        *[child for value in args for child in Command.Value.children(value)],
+        *[child for value in env.values() for child in Command.Value.children(value)],
+        *CommandExecutable.children(executable),
+        *([] if stdin is None else [stdin]),
+    ]
+    await Value.store(objects, client)
     artifact = executable.get("artifact")
-    data["executable"] = Referent(
-        data["executable"],
-        artifact.to_referent().options if artifact is not None else {},
-    ).to_data()
-    if await command.stdin(client) is not None:
-        stdin = await command.stdin(client)
-        if stdin is None:
-            raise ValueError("expected the command stdin")
-        data["stdin"] = stdin.to_referent().to_data_string()
+    data = {
+        "args": [value.to_data() for value in args],
+        "env": {name: value.to_data() for name, value in env.items()},
+        "executable": Referent(
+            CommandExecutable.to_data(executable),
+            artifact.to_referent().options if artifact is not None else {},
+        ).to_data(),
+    }
+    for key in ("cwd", "host", "user"):
+        if command.get(key) is not None:
+            data[key] = command[key]
+    if stdin is not None:
+        data["stdin"] = stdin.to_referent().to_data()
     # The spawn endpoint accepts an inline command, preserving executable proofs.
     state = {
         "command": Referent(data, options),
@@ -254,6 +292,12 @@ async def spawn_sandboxed(
 
 
 @overload
+def builder[O: ValueType](
+    function_: Callable[..., Unresolved[O]], *args: CommandArgument, **options
+) -> Builder[Literal["spawn"], O]: ...
+
+
+@overload
 def builder[A, O: ValueType](
     command: Command[A, O], *args, **options
 ) -> Builder[Literal["spawn"], O]: ...
@@ -264,6 +308,20 @@ def builder(*args, **options) -> Builder[Literal["spawn"], ValueType]: ...
 
 
 def builder(*args, **options):
+    if args and callable(args[0]) and not hasattr(args[0], "__await__"):
+        from ..resolve import capture
+
+        function_ = args[0]
+
+        async def command():
+            return {
+                "command": await Command.py_arg(function_, function_args, client=client)
+            }
+
+        client = options.get("client")
+        builder = Builder("spawn", command(), **options)
+        function_args = capture(args[1:], builder._memo)
+        return builder
     if args and isinstance(args[0], list) and hasattr(args[0], "raw"):
         from ..assert_ import assert_
         from ..template import raw

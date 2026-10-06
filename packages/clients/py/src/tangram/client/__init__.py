@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from ..location import LocationObject
     from ..object import ObjectWireData
     from ..process import ProcessDataObject
-    from ..process.outcome import Outcome, ProcessOutcome
+    from ..process.outcome import ProcessOutcome
     from ..process.stdio import ReadArgObject, StdioChunk
     from ..sandbox import SandboxOutput
     from ..value import ValueData, ValueType
@@ -634,12 +634,6 @@ def response_locations(output: object) -> object:
     if isinstance(output, dict) and isinstance(output.get("location"), str):
         output = {**output, "location": Location.from_data_string(output["location"])}
     return output
-
-
-def wait_from_data(data: Outcome.Data) -> ProcessOutcome[ValueType]:
-    from ..process.outcome import Outcome
-
-    return Outcome.from_data(cast(Outcome.Data, response_locations(dict(data))))
 
 
 client = Client()

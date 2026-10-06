@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, overload
 
-from ..command import Command
+from ..command import Command, CommandArgument
 from ..error import Error
 from ..mutation import UNSET
-from ..resolve import resolve
+from ..resolve import Unresolved, resolve
 from ..template import raw
 
 if TYPE_CHECKING:
@@ -15,6 +16,12 @@ if TYPE_CHECKING:
 
 from . import ArgObject, Builder
 from .run import run_resolved
+
+
+@overload
+def build[O: ValueType](
+    function_: Callable[..., Unresolved[O]], *args: CommandArgument, **options
+) -> Builder[Literal["run"], O]: ...
 
 
 @overload
@@ -35,6 +42,22 @@ def build(*args, **options):
         "stdout": "log",
         "tty": False,
     }
+    if args and callable(args[0]) and not hasattr(args[0], "__await__"):
+        from ..resolve import capture
+
+        function_ = args[0]
+
+        async def command():
+            return {
+                "command": await Command.py_arg(function_, function_args, client=client)
+            }
+
+        client = options.get("client")
+        builder = Builder("run", first_arg, command(), **options).validate(
+            validate_build
+        )
+        function_args = capture(args[1:], builder._memo)
+        return builder
     if args and isinstance(args[0], list) and hasattr(args[0], "raw"):
         strings, *placeholders = args
         template = raw(strings, *placeholders)
