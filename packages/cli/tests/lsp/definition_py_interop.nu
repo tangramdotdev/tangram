@@ -33,7 +33,7 @@ assert ($generated | str ends-with '.tg.py')
 let text = open --raw $generated
 let line = $text | lines | get $location.range.start.line
 assert equal ($line | str substring $location.range.start.character..<$location.range.end.character) 'greet'
-assert ($line | str contains 'Command.function')
+assert ($line | str contains 'async def greet(')
 let other = (lsp result $responses 11).0
 assert equal $other.uri $location.uri
 assert equal ($text | lines | get $other.range.start.line | str substring $other.range.start.character..<$other.range.end.character) 'other'

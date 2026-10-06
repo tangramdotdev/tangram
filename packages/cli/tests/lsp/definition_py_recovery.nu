@@ -45,5 +45,5 @@ assert ($generated | str contains '/generated/')
 assert ($generated | str ends-with '.tg.py')
 let line = open --raw $generated | lines | get $location.range.start.line
 assert equal ($line | str substring $location.range.start.character..<$location.range.end.character) 'greet'
-assert ($line | str contains 'Command.function')
+assert ($line | str contains 'async def greet(')
 lsp stop $session

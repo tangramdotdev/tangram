@@ -515,7 +515,7 @@ def magic(value: Any) -> MagicOutput:
         raise TypeError("expected a python function")
     namespace = function.__globals__
     module = namespace.get("__tangram_module__")
-    if not isinstance(module, Module) or module.kind != "py":
+    if not isinstance(module, Module) or module.kind not in ("js", "py", "ts"):
         raise ValueError("failed to find the Tangram module for the function")
     name = function.__name__
     if namespace.get(name) is not value:

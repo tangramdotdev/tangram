@@ -72,7 +72,9 @@ class CommandTests(ObjectTestCase):
         }
         for kind in ("ts", "py"):
             module = Module(kind, Referent(file, options))
-            result = await Command.py(Command.function(module, "default"), [])
+            namespace = {"__tangram_module__": module}
+            exec("async def default(*args): pass", namespace)
+            result = await Command.py(namespace["default"], [])
             stored = (await result.node.args)[3].value
             self.assertIsInstance(stored, Module)
             for field, value in options.items():

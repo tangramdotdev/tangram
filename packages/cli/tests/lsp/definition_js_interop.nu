@@ -23,7 +23,7 @@ assert ($generated | str ends-with '.tg.js')
 let text = open --raw $generated
 let line = $text | lines | get $location.range.start.line
 assert equal ($line | str substring $location.range.start.character..<$location.range.end.character) 'f0'
-assert ($line | str contains 'Command.function')
+assert ($line | str contains 'const f0 =')
 assert equal (lsp result $responses 11) null
 assert equal (lsp result $responses 12) null
 assert equal (open --raw ($path | path join helper.tg.py)) (doc "def greet():\n    return \"a sufficiently long string\"\n")

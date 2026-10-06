@@ -16,15 +16,12 @@ from typing import (
     cast,
     overload,
 )
-from weakref import WeakKeyDictionary
 
 if TYPE_CHECKING:
     from .blob import Blob
     from .client import Client
     from .directory import Directory
     from .file import File
-    from .host import MagicOutput
-    from .module import Module
     from .process import Builder as ProcessBuilder
     from .referent import Referent
     from .symlink import Symlink
@@ -37,12 +34,6 @@ from .object import Object
 from .resolve import Unresolved, capture, resolve
 from .template import Template, TemplateInput
 from .value import Value
-
-_functions: WeakKeyDictionary[Callable[..., Any], MagicOutput] = WeakKeyDictionary()
-
-
-class CommandFunction(Protocol):
-    def __call__(self, *args: ValueType) -> Awaitable[ValueType]: ...
 
 
 class CommandValueWire(TypedDict):
@@ -313,16 +304,6 @@ class Command[A, O: ValueType](Object):
         )
 
     @staticmethod
-    def function(module: Module, name: str) -> CommandFunction:
-        """Create a callable export backed by a Tangram command."""
-
-        async def function_(*args: ValueType) -> ValueType:
-            return await command(function_, *args).build()
-
-        _functions[function_] = {"module": module.to_data(), "export": name}
-        return function_
-
-    @staticmethod
     async def py[R: ValueType](
         function_: Callable[..., Unresolved[R]],
         args: Sequence[CommandArgument],
@@ -347,7 +328,7 @@ class Command[A, O: ValueType](Object):
         from .referent import Referent
 
         args = await resolve(list(args))
-        target = _functions.get(function_) or host.magic(function_)
+        target = host.magic(function_)
         module = Module.from_data(target["module"])
         if isinstance(module.referent.node, str):
             from .client import client as default_client

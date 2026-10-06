@@ -34,7 +34,7 @@ for (const language of ["js", "py"]) {
 }
 
 for (const kind of ["ts", "py"] as const) {
-	test(`${kind} command modules exclude referent metadata`, async () => {
+	test(`${kind} command modules exclude referent metadata`, async (context) => {
 		const file = tg.File.withId("fil_example");
 		const options = {
 			id: "dir_example",
@@ -43,10 +43,11 @@ for (const kind of ["ts", "py"] as const) {
 			tag: "tools/^1",
 		};
 		const module = new tg.Module({ kind, referent: { node: file, options } });
-		const command = await tg.Command.jsArg(
-			tg.Command.function(module, "default"),
-			[],
-		);
+		context.mock.method(tg.host, "magic", () => ({
+			module: tg.Module.toData(module),
+			export: "default",
+		}));
+		const command = await tg.Command.jsArg(async () => {}, []);
 		const stored = command.node.args?.[3];
 		assert(stored instanceof tg.Command.Value);
 		assert(stored.value instanceof tg.Module);

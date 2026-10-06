@@ -27,14 +27,12 @@ pub fn module(
 	};
 	let exports = exports.map_err(|error| tg::error!(!error, module = ?module.without_token(), "failed to discover the cross-language exports"))?;
 
-	// Keep capabilities in the executable wrapper, just as for synthetic object modules.
-	let data = serde_json::to_string(module).unwrap();
 	let mut output = String::new();
 	match language.unwrap() {
 		tg::module::load::Language::Js => {
 			for (index, name) in exports.iter().enumerate() {
 				let name = serde_json::to_string(name).unwrap();
-				writeln!(output, "const f{index} = tg.Command.function(tg.Module.fromData({data}), {name});\nexport {{ f{index} as {name} }};").unwrap();
+				writeln!(output, "const f{index} = {{\nasync {name}(...args: Array<tg.Value>): Promise<tg.Value> {{ return await tg.command(f{index}, ...args).build(); }}\n}}[{name}];\nexport {{ f{index} as {name} }};").unwrap();
 			}
 			output.push_str("export {};\n");
 		},
@@ -44,17 +42,7 @@ pub fn module(
 			while exports.iter().any(|name| name.starts_with(&prefix)) {
 				prefix.push('_');
 			}
-			writeln!(
-				output,
-				"import json as {prefix}_json\nimport tangram as {prefix}_client"
-			)
-			.unwrap();
-			let data = serde_json::to_string(&data).unwrap();
-			writeln!(
-				output,
-				"{prefix}_module = {prefix}_client.Module.from_data({prefix}_json.loads({data}))"
-			)
-			.unwrap();
+			writeln!(output, "import tangram as {prefix}_client").unwrap();
 			for name in &exports {
 				if name == "__all__" {
 					return Err(tg::error!(
@@ -77,10 +65,9 @@ pub fn module(
 						"the export name is not a python identifier"
 					));
 				}
-				let quoted = serde_json::to_string(name).unwrap();
 				writeln!(
 					output,
-					"{name} = {prefix}_client.Command.function({prefix}_module, {quoted})"
+					"async def {name}(*{prefix}_args: {prefix}_client.Value.Type) -> {prefix}_client.Value.Type:\n    return await {prefix}_client.command({name}, *{prefix}_args).build()"
 				)
 				.unwrap();
 			}
@@ -173,8 +160,8 @@ mod tests {
 		.unwrap();
 		assert!(ruff_python_parser::parse_module(&text).is_ok());
 		assert!(!text.contains("import tangram as _tg_client\n"));
-		assert!(text.contains("_tg_client = "));
-		assert!(text.contains("default = "));
+		assert!(text.contains("async def _tg_client("));
+		assert!(text.contains("async def default("));
 	}
 
 	#[test]

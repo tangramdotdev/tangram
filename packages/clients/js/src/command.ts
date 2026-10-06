@@ -1,8 +1,6 @@
 import * as tg from "./index.ts";
 import { Resolve } from "./resolve.ts";
 
-const functions = new WeakMap<Function, tg.Host.MagicOutput>();
-
 /** Create a command. */
 export function command<
 	A extends tg.UnresolvedArgs<Array<tg.Value>>,
@@ -154,21 +152,6 @@ export class Command<
 		});
 	}
 
-	/** Create a callable export backed by a Tangram command. */
-	static function(
-		module: tg.Module,
-		name: string,
-	): (...args: Array<tg.Value>) => Promise<tg.Value> {
-		const function_ = async (...args: Array<tg.Value>): Promise<tg.Value> => {
-			return await tg.command(function_, ...args).build();
-		};
-		functions.set(function_, {
-			module: tg.Module.toData(module),
-			export: name,
-		});
-		return function_;
-	}
-
 	static async js(
 		function_: Function,
 		args: Array<tg.Unresolved<tg.Command.Arg.Value>>,
@@ -186,7 +169,7 @@ export class Command<
 		args: Array<tg.Unresolved<tg.Command.Arg.Value>>,
 	): Promise<tg.Referent<tg.Command.ResolvedArg>> {
 		let args_ = await Promise.all(args.map(tg.resolve));
-		let target = functions.get(function_) ?? tg.host.magic(function_);
+		let target = tg.host.magic(function_);
 		let module = tg.Module.fromData(target.module);
 		if (typeof module.referent.node === "string") {
 			const events = await tg.client.checkin({
