@@ -1,6 +1,6 @@
 use {
 	crate::{Server, Session},
-	futures::{FutureExt as _, TryStreamExt as _, future, stream},
+	futures::{FutureExt as _, future},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, ops::ControlFlow},
 	tangram_cache::prelude::*,
@@ -489,39 +489,6 @@ impl Server {
 		object_result.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
 		archive_result
 			.map_err(|error| tg::error!(!error, "failed to enqueue the objects for archiving"))?;
-
-		Ok(())
-	}
-
-	pub(crate) async fn put_object_batch_local(
-		&self,
-		args: Vec<crate::cache::object::put::Arg>,
-	) -> tg::Result<()> {
-		let future = self.put_object_batch_local_inner(args);
-		tokio::time::timeout(self.config.object.put_timeout, future)
-			.await
-			.map_err(|error| tg::error!(!error, "timed out storing and archiving the objects"))??;
-		Ok(())
-	}
-
-	async fn put_object_batch_local_inner(
-		&self,
-		args: Vec<crate::cache::object::put::Arg>,
-	) -> tg::Result<()> {
-		let archive_args = if self.archive.is_some() {
-			Self::object_archive_args(&args)
-		} else {
-			Vec::new()
-		};
-		self.cache
-			.put_object_batch(args)
-			.await
-			.map_err(|error| tg::error!(!error, "failed to put the objects"))?;
-		stream::iter(archive_args.into_iter().map(Ok))
-			.try_for_each_concurrent(self.config.object.archive_queue.concurrency, |arg| {
-				self.archive_object(arg)
-			})
-			.await?;
 
 		Ok(())
 	}

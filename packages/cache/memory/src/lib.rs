@@ -1,6 +1,6 @@
 use {
 	std::{
-		collections::{BTreeMap, HashMap},
+		collections::{BTreeMap, BTreeSet, HashMap},
 		sync::{Arc, Mutex, MutexGuard},
 	},
 	tangram_cache::{archive, index, object},
@@ -33,6 +33,7 @@ struct Log {
 struct State {
 	archive_queue: BTreeMap<(tg::indexer::Id, u64), tangram_cache::archive::queue::Entry>,
 	index_queue: BTreeMap<(tg::indexer::Id, u64), tangram_cache::index::queue::Fragment>,
+	log_cache: BTreeSet<(u64, i64, tg::process::Id)>,
 	logs: Logs,
 	object_cache: BTreeMap<(u64, [u8; 16]), (tg::object::Id, [u8; 16])>,
 	objects: Objects,
@@ -67,6 +68,27 @@ impl Default for Cache {
 }
 
 impl tangram_cache::Cache for Cache {
+	async fn delete_log_cache_entry(
+		&self,
+		arg: tangram_cache::log::cache::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_log_cache_entry(arg).await
+	}
+
+	async fn get_log_cache_entries(
+		&self,
+		arg: tangram_cache::log::cache::get::Arg,
+	) -> tg::Result<Vec<tangram_cache::log::cache::Entry>> {
+		self.get_log_cache_entries(arg).await
+	}
+
+	async fn put_log_cache_entry(
+		&self,
+		arg: tangram_cache::log::cache::put::Arg,
+	) -> tg::Result<()> {
+		self.put_log_cache_entry(arg).await
+	}
+
 	async fn contains_object(&self, arg: object::contains::Arg) -> tg::Result<bool> {
 		let arg = object::get::Arg {
 			bytes: false,

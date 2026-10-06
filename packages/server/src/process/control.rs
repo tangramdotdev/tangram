@@ -265,7 +265,7 @@ impl Session {
 		.into_iter()
 		.flatten()
 		.collect();
-		let compacted = write_data.log.is_some();
+		let finalized = write_data.log.is_some();
 		drop(write_data);
 		let index_arg = IndexProcessControlArg {
 			assign: shortcut,
@@ -293,7 +293,7 @@ impl Session {
 		let (write_sender, write_receiver) = tokio::sync::mpsc::channel(512);
 		let write_task =
 			session.spawn_process_control_write_task(self::write::RunProcessControlWriteTaskArg {
-				compacted,
+				finalized,
 				id: id.clone(),
 				receiver: write_receiver,
 				sender: control_sender.clone(),

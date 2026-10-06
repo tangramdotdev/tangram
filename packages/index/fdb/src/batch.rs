@@ -134,17 +134,6 @@ impl Index {
 						.await
 					);
 				},
-				tangram_index::batch::Item::EnqueueLogCompaction(process) => {
-					crate::propagate!(
-						Self::enqueue_log_compaction_with_transaction(
-							txn,
-							subspace,
-							process,
-							partition_totals.log_compaction,
-						)
-						.await
-					);
-				},
 				tangram_index::batch::Item::PutCheckout(arg) => {
 					crate::propagate!(Self::put_checkouts_with_transaction(
 						txn,

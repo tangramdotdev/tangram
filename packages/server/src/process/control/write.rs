@@ -20,7 +20,7 @@ pub(super) struct Request {
 }
 
 pub(super) struct RunProcessControlWriteTaskArg {
-	pub(super) compacted: bool,
+	pub(super) finalized: bool,
 	pub(super) id: tg::process::Id,
 	pub(super) receiver: tokio::sync::mpsc::Receiver<Request>,
 	pub(super) sender: super::ProcessControlSender,
@@ -53,7 +53,7 @@ impl Session {
 		arg: RunProcessControlWriteTaskArg,
 	) -> tg::Result<()> {
 		let RunProcessControlWriteTaskArg {
-			compacted,
+			finalized,
 			id,
 			receiver,
 			sender,
@@ -65,7 +65,7 @@ impl Session {
 			LOG_BATCH_DELAY,
 		);
 		let mut requests = pin!(requests);
-		let mut ended = compacted
+		let mut ended = finalized
 			|| streams.is_empty()
 			|| self.server.cache.try_get_log_end(&id).await?.is_some();
 		while let Some(requests) = requests.next().await {

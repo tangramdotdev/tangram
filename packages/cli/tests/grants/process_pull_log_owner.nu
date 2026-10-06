@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# An authorized caller can pull a compacted process log even when a runner cannot read it.
+# An authorized caller can pull a finished process log even when a runner cannot read it.
 
 let root_token = random chars
 let remote = server spawn --cloud --name remote --preserve-keys --config {
@@ -23,24 +23,8 @@ let path = artifact { tangram.ts: 'export default function () { console.log("ali
 let local_source = server spawn --name local-source --config {
 	remotes: { default: { url: $remote.url, token: $alice.token } },
 }
-let watch = tg --url $remote.url --token $root_token checkpoint watch process.log.compact.read | from json | get watch
 let process = tg --url $local_source.url build --no-tokens --remote --detach $path | referent node
-tg --url $local_source.url wait $process
-let hit = tg --url $remote.url --token $root_token checkpoint wait process.log.compact.read $watch 0 | from json
-assert equal $hit.params.process $process
-
-# The runner sends its indexed process data without fetching or compacting the remote log.
-for mode in [--eager --lazy] {
-	let remote_destination = server spawn --name remote-destination
-	tg --url $runner.url remote put destination $remote_destination.url
-	let pushed = tg --url $runner.url push $process --remote=destination --process-log-objects $mode | complete
-	success $pushed
-	assert equal (tg --url $remote_destination.url get $process | from json | get log?) null
-	assert equal (tg --url $runner.url get $process | from json | get log?) null
-}
-
-tg --url $remote.url --token $root_token checkpoint unwatch process.log.compact.read $watch
-tg --url $remote.url --token $root_token index
+success (timeout 30s tg --url $local_source.url wait $process | complete) "the process should finish"
 
 # Alice has her own server that talks to the remote as herself.
 let alice_local = server spawn --name alice-local --config {
@@ -48,12 +32,12 @@ let alice_local = server spawn --name alice-local --config {
 }
 
 # Alice pulls her own process with its logs.
-let pulled = tg --url $alice_local.url pull $process --process-log-objects | complete
+let pulled = timeout 30s tg --url $alice_local.url pull $process --process-log-objects | complete
 success $pulled "the owner should pull their process"
 
-# The compacted log is transferred and readable locally.
+# The finished log is transferred and readable locally.
 let log = tg --url $alice_local.url get $process | from json | get log?
-assert ($log | is-not-empty) "sync should send the compacted log"
-let log = tg --url $alice_local.url log $process --no-timeout | complete
+assert ($log | is-not-empty) "sync should send the finished log"
+let log = timeout 30s tg --url $alice_local.url log $process --no-timeout | complete
 success $log
 assert equal $log.stdout "alicesecret\n"

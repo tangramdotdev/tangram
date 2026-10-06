@@ -13,7 +13,6 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_index::Index as _,
 	tokio::io::{AsyncRead, AsyncWriteExt as _},
 };
 
@@ -123,59 +122,6 @@ impl Session {
 			permission_expires_at,
 		)?;
 		let blob = tg::Referent::with_node_and_local_tokens(blob.id.clone(), token);
-		let output = tg::write::Output { blob };
-
-		Ok(output)
-	}
-
-	pub(crate) async fn write_local(
-		&self,
-		reader: impl AsyncRead,
-	) -> tg::Result<tg::write::Output> {
-		// Get the timestamps.
-		let touched_at = self.server.clock.unix_timestamp()?;
-		let permission_expires_at = touched_at
-			+ self
-				.server
-				.config
-				.object
-				.permission_time_to_live
-				.as_secs()
-				.to_i64()
-				.unwrap();
-
-		// Persist the leaves without handing work back to the indexer queues.
-		let destination = Destination::Cache;
-		let concurrency = self.server.config.object.archive_queue.concurrency;
-		let blob = self
-			.write_inner_with_instance(reader, Some(&destination), concurrency, |arg| {
-				self.server.put_object_batch_local(vec![arg])
-			})
-			.await
-			.map_err(|error| tg::error!(!error, "failed to write the blob"))?;
-
-		// Persist the branches before applying the index batch.
-		let args = Self::write_cache_args(&blob, None);
-		self.server.put_object_batch_local(args).await?;
-		let arg = self
-			.write_index_arg(&blob, None, touched_at, permission_expires_at)
-			.await?;
-		self.server
-			.index
-			.batch(arg)
-			.await
-			.and_then(std::convert::identity)
-			.map_err(|error| tg::error!(!error, "failed to index the blob"))?;
-
-		// Create the output.
-		let token = self.create_token(
-			blob.id.clone().into(),
-			vec![tg::authorization::Permission::Object(
-				tg::authorization::permission::object::Permission::Subtree,
-			)],
-			permission_expires_at,
-		)?;
-		let blob = tg::Referent::with_node_and_local_tokens(blob.id, token);
 		let output = tg::write::Output { blob };
 
 		Ok(output)

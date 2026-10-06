@@ -12,6 +12,7 @@ pub(crate) type Sender = tokio::sync::mpsc::Sender<(Request, ResponseSender)>;
 pub(crate) enum Request {
 	GetArchiveQueueEntries(archive::queue::get::batch::Arg),
 	GetIndexQueueFragments(index::queue::get::batch::Arg),
+	GetLogCacheEntries(log::cache::get::Arg),
 	GetObjectCacheEntries(object::cache::get::Arg),
 	#[cfg(test)]
 	GetTransactionId,
@@ -25,6 +26,7 @@ pub(crate) enum Request {
 }
 
 pub(crate) enum Response {
+	GetLogCacheEntries(Vec<log::cache::Entry>),
 	GetArchiveQueueEntries(Vec<archive::queue::Entry>),
 	GetIndexQueueFragments(Vec<index::queue::Fragment>),
 	GetObjectCacheEntries(Vec<object::cache::Entry>),

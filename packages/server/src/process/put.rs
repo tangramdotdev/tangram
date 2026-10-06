@@ -23,7 +23,6 @@ pub(crate) enum ObjectPermissions {
 
 pub(crate) struct Options {
 	pub defer_index: bool,
-	pub enqueue_log_compaction: bool,
 	pub location: Option<tg::Location>,
 	pub store_data: bool,
 	pub sync: Option<tg::Referent<tg::sync::Id>>,
@@ -46,7 +45,6 @@ impl Session {
 			tg::Location::Local(_) => {
 				let options = Options {
 					defer_index: false,
-					enqueue_log_compaction: false,
 					location: None,
 					store_data: true,
 					sync: None,
@@ -193,7 +191,6 @@ impl Session {
 	) -> tg::Result<tg::process::put::Output> {
 		let Options {
 			defer_index,
-			enqueue_log_compaction,
 			location,
 			store_data,
 			sync,
@@ -228,10 +225,8 @@ impl Session {
 			.output
 			.as_ref()
 			.map(|_| output_objects.into_iter().collect::<Vec<_>>());
-		let log_needs_compaction = Self::process_log_needs_compaction(&arg.data);
 		let log_object: Option<Option<tg::object::Id>> =
-			(!log_needs_compaction).then(|| arg.data.log.clone().map(|log| log.node.into()));
-		let enqueue_log_compaction = enqueue_log_compaction && log_needs_compaction;
+			Some(arg.data.log.clone().map(|log| log.node.into()));
 		let principal = match &object_permissions {
 			ObjectPermissions::Authorized(_) => self.context.principal.clone(),
 			ObjectPermissions::Capture => tg::Principal::Process(id.clone()),
@@ -375,10 +370,6 @@ impl Session {
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
 				.chain(put_object_permissions)
-				.chain(
-					enqueue_log_compaction
-						.then(|| tangram_index::batch::Item::EnqueueLogCompaction(id.clone())),
-				)
 				.chain(account.map(|account| {
 					tangram_index::batch::Item::PutAccountProcess(
 						tangram_index::usage::storage::put::ProcessArg {
@@ -401,9 +392,7 @@ impl Session {
 		};
 		result
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;
-		if enqueue_log_compaction && !defer_index {
-			self.server.spawn_publish_log_compaction_notification_task();
-		}
+
 		// Only issue proofs for permissions the caller actually holds.
 		let tokens = if principal == tg::Principal::Process(id.clone()) && defer_index {
 			tg::authorization::Tokens::default()

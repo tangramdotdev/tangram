@@ -6,7 +6,6 @@ let root_token = random chars
 let local_owner = server spawn --name local-owner --config {
 	advanced: { checkpoints: true, single_process: false },
 	authentication: { root: { token: $root_token } },
-	indexer: { log_compaction: false },
 	roles: [api indexer scheduler],
 }
 let created = tg --url $local_owner.url --token $root_token runner create | from json

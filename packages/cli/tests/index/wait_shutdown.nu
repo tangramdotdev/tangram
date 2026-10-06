@@ -31,7 +31,6 @@ let config = {
 }
 let local_a = server spawn --name local-a --config ($config | merge deep {
 	indexer: {
-		log_compaction: { partitions: { start: 0, end: 0 } },
 		updates: {
 			permissions: { partitions: { start: 0, end: 0 } },
 			storage_and_metadata: { partitions: { start: 0, end: 0 } },

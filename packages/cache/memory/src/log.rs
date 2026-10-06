@@ -3,6 +3,8 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod cache;
+
 impl Cache {
 	#[expect(clippy::needless_pass_by_value)]
 	pub fn delete_log(&self, arg: log::delete::Arg) {

@@ -1,5 +1,6 @@
 use {indoc::indoc, std::collections::BTreeSet, tangram_client::prelude::*};
 
+mod cache;
 mod delete;
 mod end;
 mod put;
@@ -12,17 +13,47 @@ const STDOUT_KIND: i8 = 1;
 
 pub(super) struct Statements {
 	delete: scylla::statement::prepared::PreparedStatement,
+	delete_cache_entry: scylla::statement::prepared::PreparedStatement,
 	get_after: scylla::statement::prepared::PreparedStatement,
 	get_at_or_before: scylla::statement::prepared::PreparedStatement,
 	get_by_positions: scylla::statement::prepared::PreparedStatement,
+	get_cache_entries: scylla::statement::prepared::PreparedStatement,
 	get_end: scylla::statement::prepared::PreparedStatement,
 	get_last: scylla::statement::prepared::PreparedStatement,
 	put: scylla::statement::prepared::PreparedStatement,
+	put_cache_entry: scylla::statement::prepared::PreparedStatement,
 	put_end: scylla::statement::prepared::PreparedStatement,
 }
 
 impl Statements {
 	pub(super) async fn new(session: &scylla::client::session::Session) -> tg::Result<Self> {
+		let mut delete_cache_entry = session
+			.prepare(
+				"delete from log_cache where partition = ? and expires_at = ? and process = ?;",
+			)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to prepare the log cache delete statement")
+			})?;
+		let mut get_cache_entries = session
+			.prepare(
+				"select expires_at, process from log_cache where partition = ? and expires_at <= ? limit ?;",
+			)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to prepare the log cache get statement"))?;
+		let mut put_cache_entry = session
+			.prepare("insert into log_cache (partition, expires_at, process) values (?, ?, ?);")
+			.await
+			.map_err(|error| tg::error!(!error, "failed to prepare the log cache put statement"))?;
+		for statement in [
+			&mut delete_cache_entry,
+			&mut get_cache_entries,
+			&mut put_cache_entry,
+		] {
+			statement.set_consistency(scylla::statement::Consistency::LocalQuorum);
+			statement.set_is_idempotent(true);
+		}
+
 		let statement = indoc!(
 			"
 				delete from logs
@@ -132,12 +163,15 @@ impl Statements {
 		put_end.set_is_idempotent(true);
 		let statements = Self {
 			delete,
+			delete_cache_entry,
 			get_after,
 			get_at_or_before,
 			get_by_positions,
+			get_cache_entries,
 			get_end,
 			get_last,
 			put,
+			put_cache_entry,
 			put_end,
 		};
 

@@ -489,53 +489,6 @@ async fn sandbox_status_does_not_regress() {
 }
 
 #[tokio::test]
-async fn process_and_log_compaction_share_transaction() {
-	let (_dir, index) = new_index();
-	let process = tg::process::Id::new();
-	let before = index.get_transaction_id().await.unwrap();
-	let arg = tangram_index::batch::Arg {
-		items: vec![
-			tangram_index::batch::Item::PutProcess(tangram_index::process::put::Arg {
-				cached: false,
-				children: Some(Vec::new()),
-				command: Some(vec![tg::command::Id::new(b"command").into()]),
-				command_id: tg::command::Id::new(b"command").into(),
-				data: None,
-				error: Some(None),
-				id: process.clone(),
-				location: None,
-				log: Some(None),
-				metadata: tg::process::Metadata::default(),
-				options: tg::referent::Options::default(),
-				output: Some(None),
-				parent: None,
-				permissions: Vec::new(),
-				principal: tg::Principal::Process(process.clone()),
-				sandbox: None,
-				storage: tg::process::storage::Set::NODE,
-				time_to_touch: std::time::Duration::ZERO,
-				touched_at: 0,
-			}),
-			tangram_index::batch::Item::EnqueueLogCompaction(process.clone()),
-		],
-	};
-	index.batch(arg).await.unwrap().unwrap();
-	let after = index.get_transaction_id().await.unwrap();
-
-	assert_eq!(after, before + 1);
-	assert!(
-		index
-			.try_get_processes(std::slice::from_ref(&process))
-			.await
-			.unwrap()[0]
-			.is_some()
-	);
-	let entries = index.log_compaction_batch(1).await.unwrap();
-	assert_eq!(entries.len(), 1);
-	assert_eq!(entries[0].process, process);
-}
-
-#[tokio::test]
 async fn preserves_order_and_transaction_boundary() {
 	let (_dir, index) = new_index();
 	let id = tg::group::Id::new();
@@ -979,11 +932,11 @@ async fn process_put_preserves_existing_contents() {
 	assert_eq!(stored.data.unwrap().exit, Some(0));
 
 	// A regular user cannot change data.log from None to a blob ID.
-	let mut compacted = arg.clone();
-	compacted.data.as_mut().unwrap().log = Some(tg::Referent::with_node(tg::blob::Id::new(b"log")));
-	assert!(put_process(&index, compacted.clone()).await.is_err());
-	compacted.principal = tg::Principal::Process(id.clone());
-	put_process(&index, compacted).await.unwrap();
+	let mut with_log = arg.clone();
+	with_log.data.as_mut().unwrap().log = Some(tg::Referent::with_node(tg::blob::Id::new(b"log")));
+	assert!(put_process(&index, with_log.clone()).await.is_err());
+	with_log.principal = tg::Principal::Process(id.clone());
+	put_process(&index, with_log).await.unwrap();
 	changed.principal = tg::Principal::Process(id.clone());
 	put_process(&index, changed).await.unwrap();
 	let stored = index.try_get_process(&id).await.unwrap().unwrap();
@@ -991,96 +944,43 @@ async fn process_put_preserves_existing_contents() {
 }
 
 #[tokio::test]
-async fn process_put_without_log_preserves_compacted_log() {
+async fn process_log_updates_are_explicit_and_authorized() {
 	for root in [false, true] {
-		for complete in [false, true] {
-			for stored in [false, true] {
-				let (_dir, index) = new_index();
-				let id = tg::process::Id::new();
-				let log = tg::blob::Id::new(b"log");
-				let empty = tg::object::metadata::Subtree {
-					count: Some(0),
-					depth: Some(0),
-					size: Some(0),
-					solvable: Some(true),
-					solved: Some(true),
-				};
-				let metadata = tg::process::Metadata {
-					node: tg::process::metadata::Node {
-						command_objects: empty.clone(),
-						error_objects: empty.clone(),
-						log_objects: empty.clone(),
-						output_objects: empty.clone(),
-					},
-					subtree: tg::process::metadata::Subtree {
-						command_objects: empty.clone(),
-						count: Some(1),
-						depth: Some(1),
-						error_objects: empty.clone(),
-						log_objects: empty.clone(),
-						output_objects: empty,
-					},
-				};
-				let mut uncompacted = process_arg(id.clone(), tg::process::Status::Finished);
-				uncompacted.children = Some(Vec::new());
-				uncompacted.error = Some(None);
-				uncompacted.log = Some(None);
-				uncompacted.metadata = metadata;
-				uncompacted.output = Some(None);
-				uncompacted.storage = tg::process::storage::Set::all();
-				if root {
-					uncompacted.principal = tg::Principal::Root;
-				}
-				assert!(uncompacted.complete());
+		let (_dir, index) = new_index();
+		let id = tg::process::Id::new();
+		let log = tg::blob::Id::new(b"log");
+		let mut arg = process_arg(id.clone(), tg::process::Status::Finished);
+		arg.data.as_mut().unwrap().log = Some(tg::Referent::with_node(log.clone()));
+		arg.log = Some(Some(log.into()));
+		put_process(&index, arg.clone()).await.unwrap();
 
-				let mut compacted = uncompacted.clone();
-				compacted.data.as_mut().unwrap().log = Some(tg::Referent::with_node(log.clone()));
-				compacted.log = Some(Some(log.clone().into()));
-				let log_metadata = if complete {
-					tg::object::metadata::Subtree {
-						count: Some(1),
-						depth: Some(1),
-						size: Some(100),
-						solvable: Some(true),
-						solved: Some(true),
-					}
-				} else {
-					tg::object::metadata::Subtree::default()
-				};
-				compacted.metadata.node.log_objects = log_metadata.clone();
-				compacted.metadata.subtree.log_objects = log_metadata.clone();
-				let log_storage = tg::process::storage::Set::NODE_LOG_OBJECTS
-					| tg::process::storage::Set::SUBTREE_LOG_OBJECTS;
-				if !stored {
-					compacted.storage.remove(log_storage);
-				}
-				put_process(&index, compacted).await.unwrap();
+		// The finished log cannot be removed by an ordinary user.
+		arg.data.as_mut().unwrap().log = None;
+		arg.log = Some(None);
+		arg.principal = tg::Principal::User(tg::user::Id::new());
+		assert!(put_process(&index, arg.clone()).await.is_err());
+		assert!(
+			index
+				.try_get_process(&id)
+				.await
+				.unwrap()
+				.unwrap()
+				.data
+				.unwrap()
+				.log
+				.is_some()
+		);
 
-				// A regular user cannot write data.log: None when the stored data.log contains a blob ID.
-				let mut unauthorized = uncompacted.clone();
-				unauthorized.principal = tg::Principal::User(tg::user::Id::new());
-				assert!(put_process(&index, unauthorized).await.is_err());
-
-				// Writing data.log: None preserves the log and its metadata while still updating the exit code.
-				for complete in [true, false] {
-					uncompacted.data.as_mut().unwrap().exit = Some(1);
-					if !complete {
-						uncompacted.log = None;
-						uncompacted.metadata = tg::process::Metadata::default();
-						uncompacted.storage = tg::process::storage::Set::NODE;
-					}
-					put_process(&index, uncompacted.clone()).await.unwrap();
-					let process = index.try_get_process(&id).await.unwrap().unwrap();
-					let data = process.data.unwrap();
-					assert_eq!(data.log.unwrap().node, log);
-					assert_eq!(data.exit, Some(1));
-					assert_eq!(process.metadata.node.log_objects, log_metadata);
-					assert_eq!(process.metadata.subtree.log_objects, log_metadata);
-					assert_eq!(process.storage.contains(log_storage), stored);
-					assert!(process.set.log_objects);
-				}
-			}
-		}
+		// A privileged write replaces the log like any other process field.
+		arg.principal = if root {
+			tg::Principal::Root
+		} else {
+			tg::Principal::Process(id.clone())
+		};
+		put_process(&index, arg).await.unwrap();
+		let process = index.try_get_process(&id).await.unwrap().unwrap();
+		assert!(process.data.unwrap().log.is_none());
+		assert!(process.set.log_objects);
 	}
 }
 

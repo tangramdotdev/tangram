@@ -16,7 +16,6 @@ mod delegation;
 mod group;
 mod indexer;
 mod key;
-mod log;
 mod node;
 mod object;
 mod organization;
@@ -666,27 +665,6 @@ impl tangram_index::Index for Index {
 		self.delete_users(ids).await
 	}
 
-	async fn complete_log_compaction(&self, entry: &tangram_index::log::Entry) -> tg::Result<()> {
-		self.complete_log_compaction(entry).await
-	}
-
-	async fn enqueue_log_compaction(&self, process: &tg::process::Id) -> tg::Result<()> {
-		self.enqueue_log_compaction(process).await
-	}
-
-	async fn log_compaction_batch(
-		&self,
-		batch_size: usize,
-		_partition_start: u64,
-		_partition_end: u64,
-	) -> tg::Result<Vec<tangram_index::log::Entry>> {
-		Index::log_compaction_batch(self, batch_size).await
-	}
-
-	async fn try_get_oldest_log_compaction_transaction_id(&self) -> tg::Result<Option<u64>> {
-		self.try_get_oldest_log_compaction_transaction_id().await
-	}
-
 	async fn try_get_oldest_update_transaction_id(
 		&self,
 		kind: tangram_index::update::Kind,
@@ -724,10 +702,6 @@ impl tangram_index::Index for Index {
 	}
 
 	fn permission_update_partition_total(&self) -> u64 {
-		1
-	}
-
-	fn log_compaction_partition_total(&self) -> u64 {
 		1
 	}
 

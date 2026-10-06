@@ -122,6 +122,10 @@ impl Cache {
 					Self::get_index_queue_fragments_with_transaction(db, transaction, &arg)?;
 				crate::read::Response::GetIndexQueueFragments(output)
 			},
+			crate::read::Request::GetLogCacheEntries(arg) => {
+				let output = Self::get_log_cache_entries_with_transaction(db, transaction, &arg)?;
+				crate::read::Response::GetLogCacheEntries(output)
+			},
 			crate::read::Request::GetObjectCacheEntries(arg) => {
 				let output =
 					Self::get_object_cache_entries_with_transaction(db, transaction, &arg)?;

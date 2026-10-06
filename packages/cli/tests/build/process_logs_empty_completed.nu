@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Reading an empty completed process log returns an empty stream.
 
-let local = server spawn --config { advanced: { checkpoints: true }, indexer: { log_compaction: false }, runner: { process_state_ttl: 0.01 } }
+let local = server spawn --config { advanced: { checkpoints: true }, runner: { process_state_ttl: 0.01 } }
 let watch = tg checkpoint watch runner.process.control.finished | from json | get watch
 let path = artifact { tangram.ts: 'export default function () {}' }
 let id = tg build --no-tokens --detach $path | referent node

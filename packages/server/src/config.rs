@@ -493,8 +493,6 @@ pub struct FdbIndex {
 
 	pub instance: Option<String>,
 
-	pub log_compaction_partition_total: u64,
-
 	pub storage_and_metadata_update_partition_total: u64,
 
 	pub read_request_batch_size: usize,
@@ -540,7 +538,7 @@ pub struct Indexer {
 
 	pub id: Option<tg::indexer::Id>,
 
-	pub log_compaction: IndexerLogCompaction,
+	pub log_cache: IndexerLogCache,
 
 	pub object_cache_partitions: IndexerPartitions,
 
@@ -619,16 +617,12 @@ pub struct IndexerRequest {
 }
 
 #[derive(Clone, Debug)]
-pub struct IndexerLogCompaction {
+pub struct IndexerLogCache {
 	pub batch_size: usize,
-
 	pub concurrency: usize,
-
 	pub enabled: bool,
-
 	pub partitions: IndexerPartitions,
-
-	pub wakeup_interval: Duration,
+	pub poll_interval: Duration,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -869,6 +863,10 @@ pub struct Process {
 	pub await_push: bool,
 
 	pub children_wakeup_interval: Duration,
+
+	pub log_cache_partition_total: u64,
+
+	pub log_time_to_live: Duration,
 
 	pub permission_time_to_live: Duration,
 
@@ -1673,7 +1671,6 @@ impl Default for FdbIndex {
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
 			permission_update_partition_total: 1,
 			instance: None,
-			log_compaction_partition_total: 1,
 			storage_and_metadata_update_partition_total: 1,
 			read_request_batch_size: 64,
 			read_transaction_concurrency: 64,
@@ -1763,14 +1760,14 @@ impl Default for IndexerRequest {
 	}
 }
 
-impl Default for IndexerLogCompaction {
+impl Default for IndexerLogCache {
 	fn default() -> Self {
 		Self {
 			batch_size: 1024,
 			concurrency: 1,
 			enabled: true,
 			partitions: IndexerPartitions::default(),
-			wakeup_interval: Duration::from_mins(1),
+			poll_interval: Duration::from_mins(1),
 		}
 	}
 }
@@ -1943,6 +1940,8 @@ impl Default for Process {
 		Self {
 			await_push: false,
 			children_wakeup_interval: Duration::from_mins(1),
+			log_cache_partition_total: 1,
+			log_time_to_live: Duration::from_hours(1),
 			permission_time_to_live: default_process_permission_time_to_live(),
 			permission_time_to_touch: default_time_to_touch(),
 			spawn: Spawn::default(),

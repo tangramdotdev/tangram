@@ -42,9 +42,6 @@ pub enum Item {
 	#[tangram_serialize(id = 30)]
 	EnqueuePermissionCapture(crate::permission::capture::enqueue::Arg),
 
-	#[tangram_serialize(id = 16)]
-	EnqueueLogCompaction(tg::process::Id),
-
 	#[tangram_serialize(id = 8)]
 	PutCheckout(crate::checkout::put::Arg),
 
@@ -113,7 +110,6 @@ mod tests {
 	fn serialization_roundtrip() {
 		let group = tg::group::Id::new();
 		let organization = tg::organization::Id::new();
-		let process = tg::process::Id::new();
 		let sandbox = tg::sandbox::Id::new();
 		let tag = tg::tag::Id::new();
 		let user = tg::user::Id::new();
@@ -156,7 +152,6 @@ mod tests {
 				Item::DeleteOrganization(organization.clone()),
 				Item::DeleteTag(tag),
 				Item::DeleteUser(user.clone()),
-				Item::EnqueueLogCompaction(process.clone()),
 				Item::PutPermission(crate::permission::put::Arg {
 					created_at: 1,
 					creator: Some(tg::Principal::Root),
@@ -193,9 +188,8 @@ mod tests {
 		};
 		let bytes = arg.serialize().unwrap();
 		let arg = Arg::deserialize(&bytes).unwrap();
-		assert_eq!(arg.items.len(), 11);
-		assert!(matches!(&arg.items[6], Item::EnqueueLogCompaction(_)));
-		let Item::PutPermission(permission_arg) = &arg.items[7] else {
+		assert_eq!(arg.items.len(), 10);
+		let Item::PutPermission(permission_arg) = &arg.items[6] else {
 			panic!();
 		};
 		assert_eq!(

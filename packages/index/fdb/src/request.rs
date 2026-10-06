@@ -13,7 +13,6 @@ pub(super) enum Request {
 	Batch(tangram_index::batch::Arg),
 	Clean(Clean),
 	ExpireUsage(tangram_index::usage::expire::Arg),
-	CompleteLogCompaction(tangram_index::log::Entry),
 	CompletePermissionCapture(tangram_index::permission::capture::Entry),
 	DeletePermissions(Vec<tangram_index::permission::delete::Arg>),
 	DeleteGroupMembers(Vec<tangram_index::group::member::delete::Arg>),
@@ -24,7 +23,6 @@ pub(super) enum Request {
 	DeleteSandboxes(Vec<tg::sandbox::Id>),
 	DeleteTags(Vec<tg::tag::Id>),
 	DeleteUsers(Vec<tg::user::Id>),
-	EnqueueLogCompaction(tg::process::Id),
 	GetUsage {
 		account: tangram_index::usage::Account,
 		now: jiff::Timestamp,
@@ -96,7 +94,6 @@ pub(super) enum Item {
 	AggregateUsage,
 	Clean,
 	ExpireUsage,
-	CompleteLogCompaction(tangram_index::log::Entry),
 	DeletePermission(tangram_index::permission::delete::Arg),
 	DeleteGroup(tg::group::Id),
 	DeleteGroupMember(tangram_index::group::member::delete::Arg),
@@ -105,7 +102,6 @@ pub(super) enum Item {
 	DeleteSandbox(tg::sandbox::Id),
 	DeleteTag(tg::tag::Id),
 	DeleteUser(tg::user::Id),
-	EnqueueLogCompaction(tg::process::Id),
 	GetUsage,
 	PutCheckout(tangram_index::checkout::put::Arg),
 	PutPermission(tangram_index::permission::put::Arg),
@@ -135,7 +131,6 @@ pub(super) enum Kind {
 		partition_start: u64,
 	},
 	ExpireUsage(tangram_index::usage::expire::Arg),
-	CompleteLogCompaction,
 	DeletePermissions,
 	DeleteGroupMembers,
 	DeleteGroups,
@@ -144,7 +139,6 @@ pub(super) enum Kind {
 	DeleteSandboxes,
 	DeleteTags,
 	DeleteUsers,
-	EnqueueLogCompaction,
 	GetUsage {
 		account: tangram_index::usage::Account,
 		now: jiff::Timestamp,
@@ -188,8 +182,6 @@ impl Request {
 	pub(super) fn priority(&self) -> Priority {
 		match self {
 			Self::Batch(_)
-			| Self::CompleteLogCompaction(_)
-			| Self::EnqueueLogCompaction(_)
 			| Self::PutCheckouts(_)
 			| Self::PutPermissions(_)
 			| Self::PutGroupMembers(_)

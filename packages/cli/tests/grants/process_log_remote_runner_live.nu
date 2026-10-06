@@ -1,14 +1,13 @@
 use ../lib/test.nu *
 
-# A running process on a remote runner writes its log to the remote as the process principal while the owner reads it live from her own server. Reading the live log requires the log permission, just as reading it once compacted to a blob does: the owner reads it, a principal holding only the process node is denied, and granting the log permission restores access.
+# A running process on a remote runner writes its log to the remote as the process principal while the owner reads it live from her own server. Reading the live log requires the log permission, just as reading it once finished to a blob does: the owner reads it, a principal holding only the process node is denied, and granting the log permission restores access.
 
 let root_token = random chars
 
-# The remote authenticates users and schedules work but holds no runner role, so the build can only complete by way of the separate runner. Log compaction is disabled so the log stays live.
+# The remote authenticates users and schedules work but holds no runner role, so the build can only complete by way of the separate runner. The process stays running so its log remains live.
 let remote = server spawn --name remote --cloud --preserve-keys --config {
 	advanced: { single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
-	indexer: { log_compaction: false },
 	roles: [api indexer scheduler],
 }
 

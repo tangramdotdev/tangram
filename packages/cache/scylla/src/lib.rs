@@ -304,6 +304,27 @@ impl Cache {
 }
 
 impl tangram_cache::Cache for Cache {
+	async fn delete_log_cache_entry(
+		&self,
+		arg: tangram_cache::log::cache::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_log_cache_entry(arg).await
+	}
+
+	async fn get_log_cache_entries(
+		&self,
+		arg: tangram_cache::log::cache::get::Arg,
+	) -> tg::Result<Vec<tangram_cache::log::cache::Entry>> {
+		self.get_log_cache_entries(arg).await
+	}
+
+	async fn put_log_cache_entry(
+		&self,
+		arg: tangram_cache::log::cache::put::Arg,
+	) -> tg::Result<()> {
+		self.put_log_cache_entry(arg).await
+	}
+
 	async fn contains_object(&self, arg: object::contains::Arg) -> tg::Result<bool> {
 		self.contains_object(arg).await
 	}

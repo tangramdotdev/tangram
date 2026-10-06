@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# With concurrent pushes enabled, a remote runner queues Finish before control or initial indexing completes.
+# With concurrent pushes enabled, a process without logged stdio queues Finish before control or initial indexing completes.
 
 let root_token = random chars
 
@@ -40,7 +40,7 @@ for checkpoint in [runner.process.control.connect process.control.header process
 	let file = tg --url $local.url put --no-tokens $artifact | referent node
 	let build = job spawn {
 		let job_id = job id
-		let output = tg --url $local.url build --remote $file --arg-string $checkpoint | complete
+		let output = tg --url $local.url build --checksum sha256:any --stdout null --stderr null --remote $file --arg-string $checkpoint | complete
 		$output | job send --tag $job_id 0
 	}
 

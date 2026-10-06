@@ -14,8 +14,8 @@ mod billing;
 mod cache;
 mod capture;
 mod cleaning;
-mod compaction;
 mod database;
+mod log;
 mod object;
 mod partition;
 mod queue;
@@ -27,7 +27,6 @@ mod wait;
 pub(crate) use {
 	cache::Cache,
 	cleaning::CleanBatchArg,
-	compaction::log_compaction_subject,
 	database::database_index_queue_subject,
 	request::{ArchiveRequestArg, IndexRequestArg, RequestArg},
 };
@@ -71,7 +70,7 @@ struct Tasks {
 	permission_update: Task<tg::Result<()>>,
 	index_queue: SharedTask<tg::Result<()>>,
 	index_sequence_reservations: SharedTask<tg::Result<()>>,
-	log_compaction: Task<tg::Result<()>>,
+	log_cache: Task<tg::Result<()>>,
 	storage_and_metadata_update: Task<tg::Result<()>>,
 	object_cache: Task<tg::Result<()>>,
 	queue_checkpoints: SharedTask<tg::Result<()>>,
@@ -313,24 +312,11 @@ impl Server {
 			}
 		});
 
-		// Spawn the log compaction task.
-		let log_compaction_task = Task::spawn({
-			let config = config.clone();
+		// Spawn the log cache cleanup task.
+		let log_cache_task = Task::spawn({
+			let config = config.log_cache.clone();
 			let indexer = indexer.clone();
-			move |stopper| async move {
-				if !config.log_compaction.enabled {
-					stopper.wait().await;
-					return Ok(());
-				}
-				indexer
-					.log_compaction_task(
-						&config.log_compaction,
-						config.log_compaction.partitions.start,
-						config.log_compaction.partitions.end,
-						&stopper,
-					)
-					.await
-			}
+			move |stopper| async move { indexer.log_cache_task(&config, &stopper).await }
 		});
 
 		// Spawn the billing cleanup task.
@@ -497,7 +483,7 @@ impl Server {
 			permission_update: permission_update_task,
 			index_queue: index_queue_task,
 			index_sequence_reservations: index_sequence_reservations_task,
-			log_compaction: log_compaction_task,
+			log_cache: log_cache_task,
 			storage_and_metadata_update: storage_and_metadata_update_task,
 			object_cache: object_cache_task,
 			queue_checkpoints: queue_checkpoints_task,
@@ -603,7 +589,7 @@ impl Indexer {
 			permission_update,
 			index_queue,
 			index_sequence_reservations,
-			log_compaction,
+			log_cache,
 			storage_and_metadata_update,
 			object_cache,
 			queue_checkpoints,
@@ -636,7 +622,7 @@ impl Indexer {
 		cleaning.stop();
 		database_index_queue.stop();
 		permission_update.stop();
-		log_compaction.stop();
+		log_cache.stop();
 		storage_and_metadata_update.stop();
 		object_cache.stop();
 		usage_update.stop();
@@ -647,7 +633,7 @@ impl Indexer {
 			("cleaning", cleaning),
 			("database index queue", database_index_queue),
 			("permission update", permission_update),
-			("log compaction", log_compaction),
+			("log cache", log_cache),
 			("storage and metadata update", storage_and_metadata_update),
 			("object cache", object_cache),
 			("usage update", usage_update),

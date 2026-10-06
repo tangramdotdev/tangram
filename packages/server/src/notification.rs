@@ -48,11 +48,6 @@ impl Notifications {
 		}
 	}
 
-	pub(crate) fn notify_log_compaction(&self) {
-		let subject = crate::indexer::log_compaction_subject();
-		self.notify_deduplicated(Target::Current, subject);
-	}
-
 	pub(crate) fn notify_process_log(&self, id: &tg::process::Id) {
 		let subject = format!("processes.{id}.log");
 		self.notify_deduplicated(Target::Current, subject);
@@ -192,10 +187,6 @@ impl Notifications {
 impl Server {
 	pub(crate) fn spawn_publish_database_index_queue_notification_task(&self) {
 		self.notifications.notify_database_index_queue();
-	}
-
-	pub(crate) fn spawn_publish_log_compaction_notification_task(&self) {
-		self.notifications.notify_log_compaction();
 	}
 
 	pub(crate) fn spawn_publish_process_status_task(&self, id: &tg::process::Id) {

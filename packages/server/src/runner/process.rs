@@ -89,6 +89,7 @@ struct FinishProcessRunArg {
 	index_receiver: tokio::sync::oneshot::Receiver<()>,
 	initialization: Option<tokio::sync::oneshot::Receiver<()>>,
 	location: tg::Location,
+	log_task: Option<Task<tg::Result<tg::Referent<tg::blob::Id>>>>,
 	processes: Arc<crate::process::Processes>,
 	ready_receiver: tokio::sync::oneshot::Receiver<()>,
 	run_task: Task<tg::Result<RunProcessOutcome>>,
@@ -185,7 +186,7 @@ struct RunProcessArg {
 	token: String,
 }
 
-pub(super) struct WriteProcessLogTaskArg {
+struct WriteProcessLogTaskArg {
 	receiver: tokio::sync::mpsc::Receiver<LogEvent>,
 	started_at: i64,
 }
@@ -811,6 +812,26 @@ impl Session {
 		let (ready_sender, ready_receiver) = tokio::sync::oneshot::channel();
 		let (sync_sender, sync_receiver) = tokio::sync::oneshot::channel();
 
+		// Write the log concurrently with execution and output collection.
+		let log_write_task = log_receiver
+			.map(|receiver| {
+				let started_at = state
+					.started_at
+					.ok_or_else(|| tg::error!("expected the process to be started"))?;
+				let arg = WriteProcessLogTaskArg {
+					receiver,
+					started_at,
+				};
+				let session = session.clone();
+				let sender = control.sender();
+				let task = Task::spawn(move |_| {
+					async move { session.write_process_log_task(arg, sender).boxed().await }
+						.in_current_span()
+				});
+				Ok::<_, tg::Error>(task)
+			})
+			.transpose()?;
+
 		// Collect and store the output concurrently with the control connection.
 		let exited = Stopper::new();
 		let finish_arg = FinishProcessRunArg {
@@ -821,6 +842,7 @@ impl Session {
 			index_receiver,
 			initialization,
 			location: location.clone(),
+			log_task: log_write_task,
 			processes: processes.clone(),
 			ready_receiver,
 			run_task,
@@ -840,19 +862,6 @@ impl Session {
 		// Spawn the process control task.
 		let (stderr_buffered_sender, stderr_buffered_receiver) = tokio::sync::oneshot::channel();
 		let (stdout_buffered_sender, stdout_buffered_receiver) = tokio::sync::oneshot::channel();
-		let log = log_receiver
-			.map(|receiver| {
-				let started_at = state
-					.started_at
-					.ok_or_else(|| tg::error!("expected the process to be started"))?;
-				let arg = WriteProcessLogTaskArg {
-					receiver,
-					started_at,
-				};
-
-				Ok::<_, tg::Error>(arg)
-			})
-			.transpose()?;
 		let (push_sender, push_receiver) = tokio::sync::oneshot::channel();
 		let control_task = Task::spawn({
 			let session = session.clone();
@@ -868,7 +877,6 @@ impl Session {
 						exited,
 						finish: finish_receiver,
 						local: control_receiver,
-						log,
 						push: push_receiver,
 						retention_stopper,
 						sandbox,
@@ -1171,6 +1179,7 @@ impl Session {
 			index_receiver,
 			initialization,
 			location,
+			log_task,
 			processes,
 			ready_receiver,
 			run_task,
@@ -1306,13 +1315,36 @@ impl Session {
 		data.actual_checksum = outcome.checksum.clone();
 		data.error = error;
 		data.exit = Some(exit);
+		crate::checkpoint!(self.server, "runner.process.output.stored", process = %id).await;
+		let log = match log_task {
+			Some(task) => match task.wait().await {
+				Ok(result) => result.map(Some),
+				Err(error) => Err(tg::error!(!error, "the process log write task panicked")),
+			},
+			None => Ok(None),
+		};
+		data.log = match log {
+			Ok(log) => log,
+			Err(error) => {
+				let error = tg::error!(!error, "failed to store the process log");
+				data.cacheable = false;
+				data.error = Some(
+					self.store_process_error(
+						error.to_data_or_id().map_right(|_| error.to_referent()),
+					)
+					.await,
+				);
+				exit = 1;
+				data.exit = Some(exit);
+				None
+			},
+		};
 		data.finished_at = Some(self.server.clock.unix_timestamp()?);
 		data.output = outcome.output.as_ref().map(tg::Value::to_data);
 		data.status = tg::process::Status::Finished;
 		Self::validate_process_data(&data)?;
 		tracing::info!(exit, process = %id, sandbox = state.sandbox.as_ref().map(ToString::to_string), "collected the process output");
 
-		crate::checkpoint!(self.server, "runner.process.output.stored", process = %id).await;
 		let command_id = state.command.command_id()?;
 		crate::checkpoint!(self.server, "runner.process.finish", command = %command_id, process = %id).await;
 
@@ -1398,7 +1430,6 @@ impl Session {
 		let IndexFinishedProcessTaskArg { data, id, location } = arg;
 		let options = crate::process::put::Options {
 			defer_index: false,
-			enqueue_log_compaction: false,
 			location: Some(location.clone()),
 			store_data: location.is_remote(),
 			sync: None,
@@ -1446,6 +1477,7 @@ impl Session {
 		process_state.data.error = data.error.clone();
 		process_state.data.exit = data.exit;
 		process_state.data.finished_at = data.finished_at;
+		process_state.data.log = data.log.clone();
 		process_state.data.output = data.output.clone();
 		process_state.data.status = tg::process::Status::Finished;
 		process_state.changed.send_replace(());
@@ -1507,11 +1539,12 @@ impl Session {
 		&self,
 		arg: WriteProcessLogTaskArg,
 		sender: control::ProcessControlSender,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::Referent<tg::blob::Id>> {
 		let WriteProcessLogTaskArg {
 			mut receiver,
 			started_at,
 		} = arg;
+		let mut writer = crate::log::Writer::new(self);
 		let clock = self.server.clock.clone();
 		let mut position = 0_u64;
 		let mut stderr_position = 0_u64;
@@ -1569,24 +1602,28 @@ impl Session {
 					stream_position,
 					timestamp: Some(timestamp),
 				};
-				let arg = tg::process::control::ClientRequestArg::Write(
-					tg::process::control::WriteClientRequestArg::Chunk(chunk),
-				);
-
 				Ok((
-					arg,
+					chunk,
 					next_position,
 					next_stderr_position,
 					next_stdout_position,
 				))
 			})();
-			let (arg, next_position, next_stderr_position, next_stdout_position) = match prepared {
+			let (chunk, next_position, next_stderr_position, next_stdout_position) = match prepared
+			{
 				Ok(prepared) => prepared,
 				Err(error) => {
 					result = Err(error);
 					break;
 				},
 			};
+			if let Err(error) = writer.write(&chunk).await {
+				result = Err(error);
+				break;
+			}
+			let arg = tg::process::control::ClientRequestArg::Write(
+				tg::process::control::WriteClientRequestArg::Chunk(chunk),
+			);
 			position = next_position;
 			stderr_position = next_stderr_position;
 			stdout_position = next_stdout_position;
@@ -1635,8 +1672,10 @@ impl Session {
 			.into(),
 		};
 		Self::send_process_log_end(&sender, end).await?;
+		crate::checkpoint!(self.server, "runner.process.log.finish").await;
+		let blob = writer.end().await?;
 
-		Ok(())
+		Ok(blob)
 	}
 
 	async fn send_process_log_end(
@@ -1744,6 +1783,9 @@ impl Session {
 		if let Some(tg::Either::Right(id)) = &data.error {
 			let id = id.clone().map(tg::object::Id::Error);
 			objects.push(id);
+		}
+		if let Some(log) = &data.log {
+			objects.push(log.clone().map(tg::object::Id::from));
 		}
 		if objects.is_empty() {
 			return Ok(());

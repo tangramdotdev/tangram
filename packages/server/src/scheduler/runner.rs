@@ -3,7 +3,7 @@ use {
 		AddRunnerRequestArg, AddRunnerResponseOutput, Operation, RemoveRunnerRequestArg,
 		RemoveRunnerResponseOutput, Scheduler, State,
 	},
-	crate::{Server, Session},
+	crate::Server,
 	futures::FutureExt as _,
 	std::{
 		collections::{BTreeSet, HashMap, HashSet},
@@ -261,17 +261,21 @@ impl Server {
 			let mut data = indexed
 				.data
 				.ok_or_else(|| tg::error!(%process, "missing the process data"))?;
-			let log_needs_compaction = Session::process_log_needs_compaction(&data);
-			if log_needs_compaction {
-				self.end_expired_process_log(&process).boxed().await?;
-			}
 			let finish = data.status.is_started();
 			if finish {
+				if data.log.is_none() && (data.stdout.is_log() || data.stderr.is_log()) {
+					match self.finish_expired_process_log(&process).boxed().await {
+						Ok(log) => data.log = Some(log),
+						Err(error) => {
+							tracing::error!(error = %error.trace(), %process, "failed to recover the process log");
+						},
+					}
+				}
 				data.children.get_or_insert_default();
 				data.cacheable = false;
 				data.error = Some(tg::Either::Left(error.clone()));
 				data.exit = Some(1);
-				data.finished_at = Some(now);
+				data.finished_at = Some(self.clock.unix_timestamp()?);
 				data.status = tg::process::Status::Finished;
 				let mut context = self.context.clone();
 				context.principal = tg::Principal::Process(process.clone());
@@ -282,7 +286,6 @@ impl Server {
 				};
 				let options = crate::process::put::Options {
 					defer_index: false,
-					enqueue_log_compaction: true,
 					location: None,
 					store_data: true,
 					sync: None,
@@ -295,6 +298,10 @@ impl Server {
 						|source| tg::error!(!source, %process, "failed to store the finished process"),
 					)?;
 				let session = self.session(&self.context);
+				if let Err(error) = session.expire_process_log_cache(&process, &data).await {
+					tracing::error!(error = %error.trace(), %process, "failed to expire the process log cache");
+				}
+				self.notifications.notify_process_log(&process);
 				session.spawn_process_finish_tasks(&process);
 			} else {
 				// Remove the tokens before updating the index.
@@ -331,9 +338,6 @@ impl Server {
 								touched_at: now,
 							},
 						))
-						.chain(log_needs_compaction.then(|| {
-							tangram_index::batch::Item::EnqueueLogCompaction(process.clone())
-						}))
 						.collect(),
 					})
 					.await
@@ -341,12 +345,6 @@ impl Server {
 					.map_err(
 						|source| tg::error!(!source, %process, "failed to update the process in the index"),
 					)?;
-				if log_needs_compaction {
-					self.spawn_publish_log_compaction_notification_task();
-				}
-			}
-			if log_needs_compaction {
-				self.notifications.notify_process_log(&process);
 			}
 		}
 
@@ -405,6 +403,46 @@ impl Server {
 		Ok(())
 	}
 
+	async fn finish_expired_process_log(
+		&self,
+		process: &tg::process::Id,
+	) -> tg::Result<tg::Referent<tg::blob::Id>> {
+		self.end_expired_process_log(process).await?;
+		let session = self.session(&self.context);
+		let mut writer = crate::log::Writer::new(&session);
+		let mut position = 0;
+		let streams = BTreeSet::from([
+			tg::process::stdio::Stream::Stderr,
+			tg::process::stdio::Stream::Stdout,
+		]);
+		loop {
+			let arg = log::read::Arg {
+				length: 64 * 1024,
+				position,
+				process: process.clone(),
+				streams: streams.clone(),
+			};
+			let entries = self.cache.try_read_log(arg).await?;
+			if entries.is_empty() {
+				break;
+			}
+			for entry in entries {
+				let bytes = bytes::Bytes::copy_from_slice(&entry.bytes);
+				position = entry.position + u64::try_from(bytes.len()).unwrap();
+				let chunk = tg::process::stdio::Chunk {
+					bytes,
+					combined_position: entry.position,
+					stream: entry.stream,
+					stream_position: entry.stream_position,
+					timestamp: Some(entry.timestamp),
+				};
+				writer.write(&chunk).await?;
+			}
+		}
+		let log = writer.end().await?;
+		Ok(log)
+	}
+
 	async fn end_expired_process_log(&self, process: &tg::process::Id) -> tg::Result<()> {
 		if self.cache.try_get_log_end(process).await?.is_some() {
 			return Ok(());
@@ -442,7 +480,7 @@ impl Server {
 			process: process.clone(),
 		};
 
-		// Persist the marker before publishing completion or scheduling compaction.
+		// Persist the marker before publishing completion.
 		self.cache
 			.put_log_end(arg)
 			.await

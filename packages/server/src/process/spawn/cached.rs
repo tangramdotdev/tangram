@@ -620,7 +620,6 @@ impl Session {
 		});
 		let options = crate::process::put::Options {
 			defer_index: false,
-			enqueue_log_compaction: false,
 			location: Some(location),
 			store_data: true,
 			sync: None,

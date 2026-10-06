@@ -13,6 +13,9 @@ def test [...args] {
 	# Create a source server.
 	let local_source = server spawn --name local-source
 
+	# Configure destinations for copying complete log blobs.
+	tg --url $local_source.url remote put fixture-remote $remote.url
+
 	let path = artifact {
 		tangram.ts: '
 			export default function () {
@@ -76,7 +79,7 @@ def test [...args] {
 
 	# Put the log to the remote server.
 	let log_id = tg --url $local_source.url get $process_id | from json | get log
-	tg --url $local_source.url get --bytes $log_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
+	tg --url $local_source.url push $log_id --remote=fixture-remote --no-tokens
 
 	# Index.
 	tg --url $local.url index

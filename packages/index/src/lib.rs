@@ -6,7 +6,6 @@ pub mod clean;
 pub mod delegation;
 pub mod group;
 pub mod indexer;
-pub mod log;
 pub mod object;
 pub mod organization;
 pub mod permission;
@@ -541,27 +540,6 @@ pub trait Index {
 
 	fn delete_users(&self, ids: &[tg::user::Id]) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn complete_log_compaction(
-		&self,
-		entry: &crate::log::Entry,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn enqueue_log_compaction(
-		&self,
-		process: &tg::process::Id,
-	) -> impl Future<Output = tg::Result<()>> + Send;
-
-	fn log_compaction_batch(
-		&self,
-		batch_size: usize,
-		partition_start: u64,
-		partition_end: u64,
-	) -> impl Future<Output = tg::Result<Vec<crate::log::Entry>>> + Send;
-
-	fn try_get_oldest_log_compaction_transaction_id(
-		&self,
-	) -> impl Future<Output = tg::Result<Option<u64>>> + Send;
-
 	fn try_get_oldest_update_transaction_id(
 		&self,
 		kind: crate::update::Kind,
@@ -589,9 +567,6 @@ pub trait Index {
 
 	#[must_use]
 	fn permission_update_partition_total(&self) -> u64;
-
-	#[must_use]
-	fn log_compaction_partition_total(&self) -> u64;
 
 	#[must_use]
 	fn storage_and_metadata_update_partition_total(&self) -> u64;

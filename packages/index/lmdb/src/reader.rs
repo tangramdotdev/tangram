@@ -224,24 +224,6 @@ impl Index {
 				)?;
 				tangram_index::read::Response::TryGetProcessChildrenAndObjects(output)
 			},
-			tangram_index::read::Request::LogCompactionBatch {
-				batch_size,
-				partition_end,
-				partition_start,
-			} => {
-				if partition_start.is_some() || partition_end.is_some() {
-					return Err(tg::error!(
-						"the log compaction request has an unexpected partition range"
-					));
-				}
-				let output = Self::log_compaction_batch_with_transaction(
-					db,
-					subspace,
-					transaction,
-					batch_size,
-				)?;
-				tangram_index::read::Response::LogCompactionBatch(output)
-			},
 			tangram_index::read::Request::GetRequesterSubjects { principal } => {
 				let output = Self::requester_subjects_with_transaction(
 					db,
@@ -345,14 +327,6 @@ impl Index {
 				let output =
 					Self::try_get_objects_with_transaction(db, subspace, transaction, &ids)?;
 				tangram_index::read::Response::TryGetObjects(output)
-			},
-			tangram_index::read::Request::TryGetOldestLogCompactionTransactionId => {
-				let output = Self::try_get_oldest_log_compaction_transaction_id_with_transaction(
-					db,
-					subspace,
-					transaction,
-				)?;
-				tangram_index::read::Response::TryGetOldestLogCompactionTransactionId(output)
 			},
 			tangram_index::read::Request::TryGetOldestUpdateTransactionId { kind } => {
 				let output = Self::try_get_oldest_update_transaction_id_with_transaction(

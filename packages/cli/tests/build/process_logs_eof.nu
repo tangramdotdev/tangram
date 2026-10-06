@@ -2,8 +2,8 @@ use ../lib/test.nu *
 
 # Process log reads return the requested bytes at the end of a stream.
 
-for compaction in [false true] {
-	let local = server spawn --config { indexer: { log_compaction: $compaction } }
+do {
+	let local = server spawn
 	let path = artifact {
 		tangram.ts: '
 			export default function () {
@@ -16,9 +16,6 @@ for compaction in [false true] {
 	tg wait $id | ignore
 	let output = timeout 10 tg log --no-timeout $id | complete
 	success $output
-	if $compaction {
-		tg index
-	}
 
 	# Forward the resolved window through another server as well.
 	let local_reader = server spawn --name local-reader --config { remotes: { default: { url: $local.url } } }

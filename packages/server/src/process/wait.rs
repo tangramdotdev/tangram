@@ -404,7 +404,7 @@ impl Session {
 		}
 	}
 
-	fn retain_wait_object_tokens(
+	pub(super) fn retain_wait_object_tokens(
 		tokens: &mut tg::authorization::Tokens,
 		id: &tg::object::Id,
 		retain_sync: bool,
