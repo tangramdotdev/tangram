@@ -780,6 +780,36 @@ def test_available_during_authorization(messenger):
         release("verification.index", verification)
 
 
+def test_available_after_authorization_exhaustion(messenger):
+    blob = command("put", 'tg.blob("private source bytes")')
+    process = "pcs_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0"
+    data = {"children": [], "command": "cmd_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0",
+            "created_at": 0, "finished_at": 0, "host": "test", "output": 5,
+            "sandbox": "sbx_00041061050r3gg28a1c60t3gf20", "status": "finished"}
+    command("process", "put", process, json.dumps(data))
+    command("index")
+    for id, children in ((blob, False), (process, False), (process, True)):
+        arg = {"put": id}
+        if id == process:
+            arg.update(process_children=children, process_command_objects=True,
+                       process_error_objects=True, process_log_objects=True,
+                       process_output_objects=True)
+        sender = Sync(arg, token=reader_token)
+        message = sender.put_message()
+        if message == Variant(4, node_bytes(id)):
+            message = sender.put_message()
+        # Exhaustion must report Missing without sending the private node bytes.
+        assert message == Variant(1, {0: Variant(0, node_bytes(id))}), message
+        if id == process:
+            available = Variant(1, {0: node_bytes(id), **{field: True for field in range(1, 10)}})
+        else:
+            available = Variant(0, {0: node_bytes(id)})
+        sender.send(Variant(0, Variant(1, available)))
+        sender.send(Variant(0, Variant(3)))
+        assert sender.put_message() == Variant(3)
+        sender.close()
+
+
 def test_pending_missing(messenger):
     id = missing_id(100)
     sync = Sync({"put": id})

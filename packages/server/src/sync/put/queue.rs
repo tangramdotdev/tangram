@@ -597,7 +597,6 @@ impl Session {
 				if graph.object_remote_available(&resource.node) {
 					continue;
 				}
-				let output = output.check_exhaustion()?;
 				graph.update_object_local_permissions(&resource.node, output.permissions);
 			}
 			break;
@@ -763,7 +762,6 @@ impl Session {
 				if graph.process_remote_available(&resource.node) {
 					continue;
 				}
-				let output = output.check_exhaustion()?;
 				graph.update_process_local_permissions(&resource.node, output.permissions);
 			}
 			break;

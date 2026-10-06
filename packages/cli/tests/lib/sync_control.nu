@@ -32,6 +32,9 @@ export def test [case: string] {
 			},
 			put: { store: { object_batch_size: 1024 } },
 		},
+		verification: (if $case == 'available_after_authorization_exhaustion' {
+			{ permissions: { initial: false, final: false } }
+		} else { {} }),
 	}
 	let socket = $local.url | str replace 'http+unix://' '' | url decode
 	let local_source = server spawn --name local-source
