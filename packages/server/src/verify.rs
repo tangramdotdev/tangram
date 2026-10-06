@@ -362,6 +362,35 @@ impl Session {
 				exact_output = Some(output);
 			}
 
+			// Authorize a principal for its own node using its inherent permissions.
+			if let tg::Selector::Id(id) = &resource
+				&& subject.is_none()
+				&& self.context.principal.to_id().as_ref() == Some(id)
+				&& matches!(
+					(permissions, &self.context.principal),
+					(
+						tg::authorization::permission::Set::Process(_),
+						tg::Principal::Process(_)
+					) | (
+						tg::authorization::permission::Set::Sandbox(_),
+						tg::Principal::Sandbox(_)
+					) | (
+						tg::authorization::permission::Set::User(_),
+						tg::Principal::User(_)
+					)
+				) {
+				let output = Authorization {
+					expires_at: None,
+					outcome: Outcome::Satisfied,
+					permissions,
+				};
+				if stored[position].contains(storage) {
+					outputs.push(Some(output));
+					continue;
+				}
+				exact_output = Some(output);
+			}
+
 			// Authorize a sandbox for its own processes.
 			if let (
 				tg::Selector::Id(id),
