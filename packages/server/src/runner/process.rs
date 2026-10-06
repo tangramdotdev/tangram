@@ -637,18 +637,10 @@ impl Session {
 				let session = if local { command_session } else { session };
 
 				// Load the command.
-				let data = if local {
-					session.try_load_process_command_local(&command).await?
-				} else {
-					None
-				};
-				let data = match data {
-					Some(data) => data,
-					None => command
-						.data_with_instance(&session)
-						.await
-						.map_err(|error| tg::error!(!error, "failed to get the command data"))?,
-				};
+				let data = command
+					.data_with_instance(&session)
+					.await
+					.map_err(|error| tg::error!(!error, "failed to get the command data"))?;
 
 				let options = command.to_referent().options;
 				let command = tg::process::data::Command::with_command_data(data, &options);
@@ -1823,37 +1815,6 @@ impl Session {
 		let session = self.server.session(&context);
 
 		Some(session)
-	}
-
-	async fn try_load_process_command_local(
-		&self,
-		command: &tg::Command,
-	) -> tg::Result<Option<tg::command::Data>> {
-		let id = command.id();
-		let permission = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Node,
-		);
-		let resource = tg::Referent::with_node_and_local_tokens(
-			tg::object::Id::from(id.clone()),
-			command.state().tokens().local_authorization().to_vec(),
-		);
-		let authorized = self
-			.authorize(resource, permission)
-			.await?
-			.check_exhaustion()?;
-		if !authorized.permissions.contains(permission) {
-			return Ok(None);
-		}
-		let id = tg::object::Id::from(id);
-		let Some(output) = self.server.try_get_object_local(&id, false).await? else {
-			return Ok(None);
-		};
-		let data = tg::command::Data::deserialize(output.bytes)
-			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the command"))?;
-		let object = tg::command::Object::try_from_data(data.clone())?;
-		command.state().set_object(Arc::new(object));
-
-		Ok(Some(data))
 	}
 
 	async fn push_process_command(
