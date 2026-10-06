@@ -8,7 +8,7 @@ use {
 		},
 	},
 	std::{
-		ffi::{CStr, CString},
+		ffi::CString,
 		io::{IoSlice, IoSliceMut, Read as _},
 		mem::MaybeUninit,
 		os::{
@@ -20,17 +20,56 @@ use {
 	tangram_client::prelude::*,
 };
 
-const FSCONFIG_CMD_CREATE: libc::c_uint = 6;
-const FSCONFIG_SET_STRING: libc::c_uint = 1;
-const FSMOUNT_CLOEXEC: libc::c_uint = 1;
-const FSOPEN_CLOEXEC: libc::c_uint = 1;
+const EXT4_SUPER_MAGIC: libc::c_long = 0xef53;
+const FS_XFLAG_PROJINHERIT: u32 = 0x0000_0200;
+const PRJQUOTA: libc::c_int = 2;
 const MOUNT_ATTR_IDMAP: u64 = 0x0010_0000;
+const XFS_SUPER_MAGIC: libc::c_long = 0x5846_5342;
 
-/// A detached tmpfs shared by the runner and its sandbox launcher.
+#[repr(C)]
+struct FsXAttr {
+	xflags: u32,
+	extsize: u32,
+	nextents: u32,
+	project: u32,
+	cowextsize: u32,
+	pad: [u8; 8],
+}
+
+#[repr(C)]
+struct XfsDiskQuota {
+	version: i8,
+	flags: i8,
+	fieldmask: u16,
+	id: u32,
+	block_hard: u64,
+	block_soft: u64,
+	inode_hard: u64,
+	inode_soft: u64,
+	block_count: u64,
+	inode_count: u64,
+	inode_timer: i32,
+	block_timer: i32,
+	inode_warnings: u16,
+	block_warnings: u16,
+	inode_timer_high: i8,
+	block_timer_high: i8,
+	realtime_block_timer_high: i8,
+	padding2: i8,
+	realtime_block_hard: u64,
+	realtime_block_soft: u64,
+	realtime_block_count: u64,
+	realtime_block_timer: i32,
+	realtime_block_warnings: u16,
+	padding3: i16,
+	padding4: [u8; 8],
+}
+
+/// A detached view of a disk-backed directory shared by the runner and its sandbox launcher.
 ///
 /// Keeping the filesystem detached avoids modifying the host mount namespace. The mount remains
-/// alive only while either process holds its descriptor, so an abrupt runner exit cannot leak it.
-/// Overlay upper/work, the output directory, /dev/shm, and /tmp all reside on this filesystem and share its
+/// alive only while either process holds its descriptor, so an abrupt runner exit cannot leak a mount.
+/// Overlay upper/work, the output directory, and /tmp all reside on this filesystem and share its
 /// byte and inode limits.
 pub struct Filesystem {
 	fd: OwnedFd,
@@ -47,34 +86,92 @@ impl Filesystem {
 	}
 }
 
-pub fn create(size: Option<u64>, inodes: Option<u64>) -> tg::Result<OwnedFd> {
-	let fd = syscall_fd(
-		libc::SYS_fsopen,
-		&[c"tmpfs".as_ptr() as usize, FSOPEN_CLOEXEC as usize],
-	)
-	.map_err(|error| {
-		tg::error!(
-			!error,
-			"failed to create a filesystem context for the sandbox; hardened filesystem limits require Linux 5.2 or newer and user namespaces"
-		)
+pub fn create(path: &Path, project: u32, size: Option<u64>, inodes: Option<u64>) -> tg::Result<()> {
+	create_directory(path)?;
+	let directory = std::fs::File::open(path).map_err(|error| {
+		tg::error!(!error, path = %path.display(), "failed to open the sandbox filesystem directory")
 	})?;
-	configure(&fd, c"mode", "0755")?;
-	if let Some(size) = size {
-		configure(&fd, c"size", &size.to_string())?;
+	configure_quota(&directory, project, size, inodes)
+}
+
+pub fn create_directory(path: &Path) -> tg::Result<()> {
+	std::fs::create_dir(path).map_err(|error| {
+		tg::error!(!error, path = %path.display(), "failed to create the sandbox filesystem directory")
+	})?;
+
+	Ok(())
+}
+
+fn configure_quota(
+	directory: &std::fs::File,
+	project: u32,
+	size: Option<u64>,
+	inodes: Option<u64>,
+) -> tg::Result<()> {
+	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
+	// SAFETY: The descriptor and output pointer are valid.
+	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			"failed to inspect the sandbox filesystem"
+		));
 	}
-	if let Some(inodes) = inodes {
-		configure(&fd, c"nr_inodes", &inodes.to_string())?;
+	// SAFETY: fstatfs initialized the structure on success.
+	let statistics = unsafe { statistics.assume_init() };
+	if !matches!(statistics.f_type, EXT4_SUPER_MAGIC | XFS_SUPER_MAGIC) {
+		return Err(
+			tg::error!(filesystem = %statistics.f_type, "hardened filesystem limits require a disk-backed ext4 or XFS filesystem with project quotas enabled"),
+		);
 	}
-	syscall(
-		libc::SYS_fsconfig,
-		&[raw_fd_arg(&fd), FSCONFIG_CMD_CREATE as usize, 0, 0, 0],
-	)
-	.map_err(|error| tg::error!(!error, "failed to create the sandbox filesystem"))?;
+	let attributes = FsXAttr {
+		xflags: FS_XFLAG_PROJINHERIT,
+		extsize: 0,
+		nextents: 0,
+		project,
+		cowextsize: 0,
+		pad: [0; 8],
+	};
+	let request = ioctl_write_request(b'X', 32, std::mem::size_of::<FsXAttr>());
+	// SAFETY: The descriptor refers to the new directory and the attribute pointer is valid.
+	if unsafe { libc::ioctl(directory.as_raw_fd(), request, &raw const attributes) } != 0 {
+		return Err(
+			tg::error!(source = std::io::Error::last_os_error(), %project, "failed to assign the sandbox filesystem project; enable project quotas and grant CAP_SYS_ADMIN"),
+		);
+	}
+	set_quota(directory, statistics.f_type, project, size, inodes)?;
+
+	Ok(())
+}
+
+pub(crate) fn clear(path: &Path, project: u32) -> tg::Result<()> {
+	let directory = std::fs::File::open(path).map_err(|error| {
+		tg::error!(!error, path = %path.display(), "failed to open the sandbox filesystem directory")
+	})?;
+	let mut statistics = std::mem::MaybeUninit::<libc::statfs>::uninit();
+	// SAFETY: The descriptor and output pointer are valid.
+	if unsafe { libc::fstatfs(directory.as_raw_fd(), statistics.as_mut_ptr()) } != 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			"failed to inspect the sandbox filesystem"
+		));
+	}
+	// SAFETY: fstatfs initialized the structure on success.
+	let statistics = unsafe { statistics.assume_init() };
+	set_quota(&directory, statistics.f_type, project, Some(0), Some(0))
+}
+
+pub fn open(path: &Path) -> tg::Result<OwnedFd> {
+	let path = CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
+	let flags = libc::OPEN_TREE_CLONE | libc::OPEN_TREE_CLOEXEC;
 	let mount = syscall_fd(
-		libc::SYS_fsmount,
-		&[raw_fd_arg(&fd), FSMOUNT_CLOEXEC as usize, 0],
+		libc::SYS_open_tree,
+		&[
+			usize::from_ne_bytes(isize::try_from(libc::AT_FDCWD).unwrap().to_ne_bytes()),
+			path.as_ptr() as usize,
+			flags as usize,
+		],
 	)
-	.map_err(|error| tg::error!(!error, "failed to mount the sandbox filesystem"))?;
+	.map_err(|error| tg::error!(!error, "failed to open the sandbox filesystem mount"))?;
 
 	Ok(mount)
 }
@@ -192,7 +289,7 @@ pub fn host_mount(filesystem: &OwnedFd, namespace: &OwnedFd) -> tg::Result<Owned
 	syscall(libc::SYS_mount_setattr, &[
 		raw_fd_arg(&mount), c"".as_ptr() as usize, libc::AT_EMPTY_PATH as usize,
 		attributes.as_ptr() as usize, std::mem::size_of_val(&attributes),
-	]).map_err(|error| tg::error!(!error, "failed to map the sandbox filesystem for the host; subordinate identities require ID-mapped tmpfs support (Linux 6.3 or newer)"))?;
+	]).map_err(|error| tg::error!(!error, "failed to map the sandbox filesystem for the host; subordinate identities require ID-mapped mount support from the backing filesystem"))?;
 
 	Ok(mount)
 }
@@ -204,7 +301,6 @@ pub fn prepare(fd: &OwnedFd, uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<(
 		("", 0o755),
 		("output", 0o755),
 		("scratch", 0o755),
-		("shm", 0o1777),
 		("tmp", 0o1777),
 		("upper", 0o755),
 		("upper/opt", 0o755),
@@ -278,27 +374,123 @@ pub fn relocate(path: &mut PathBuf, from: &Path, to: &Path) {
 	*path = to.join(suffix);
 }
 
-fn configure(fd: &OwnedFd, key: &CStr, value: &str) -> tg::Result<()> {
-	let value = CString::new(value).unwrap();
-	syscall(
-		libc::SYS_fsconfig,
-		&[
-			raw_fd_arg(fd),
-			FSCONFIG_SET_STRING as usize,
-			key.as_ptr() as usize,
-			value.as_ptr() as usize,
-			0,
-		],
-	)
-	.map_err(|error| {
+fn set_quota(
+	directory: &std::fs::File,
+	filesystem: libc::c_long,
+	project: u32,
+	size: Option<u64>,
+	inodes: Option<u64>,
+) -> tg::Result<()> {
+	let result = if filesystem == XFS_SUPER_MAGIC {
+		let block_mask = if size.is_some() {
+			(1 << 2) | (1 << 3)
+		} else {
+			0
+		};
+		let inode_mask = if inodes.is_some() {
+			(1 << 0) | (1 << 1)
+		} else {
+			0
+		};
+		let limits = XfsDiskQuota {
+			version: 1,
+			flags: 1 << 1,
+			fieldmask: block_mask | inode_mask,
+			id: project,
+			block_hard: size.unwrap_or_default().div_ceil(512),
+			block_soft: size.unwrap_or_default().div_ceil(512),
+			inode_hard: inodes.unwrap_or_default(),
+			inode_soft: inodes.unwrap_or_default(),
+			block_count: 0,
+			inode_count: 0,
+			inode_timer: 0,
+			block_timer: 0,
+			inode_warnings: 0,
+			block_warnings: 0,
+			inode_timer_high: 0,
+			block_timer_high: 0,
+			realtime_block_timer_high: 0,
+			padding2: 0,
+			realtime_block_hard: 0,
+			realtime_block_soft: 0,
+			realtime_block_count: 0,
+			realtime_block_timer: 0,
+			realtime_block_warnings: 0,
+			padding3: 0,
+			padding4: [0; 8],
+		};
+		let command = libc::QCMD((u32::from(b'X') << 8).cast_signed() | 4, PRJQUOTA);
+		quota_control(directory, command, project, (&raw const limits).cast())
+	} else {
+		let limits = libc::dqblk {
+			dqb_bhardlimit: size.unwrap_or_default().div_ceil(1024),
+			dqb_bsoftlimit: size.unwrap_or_default().div_ceil(1024),
+			dqb_curspace: 0,
+			dqb_ihardlimit: inodes.unwrap_or_default(),
+			dqb_isoftlimit: inodes.unwrap_or_default(),
+			dqb_curinodes: 0,
+			dqb_btime: 0,
+			dqb_itime: 0,
+			dqb_valid: (u32::from(size.is_some()) * libc::QIF_BLIMITS)
+				| (u32::from(inodes.is_some()) * libc::QIF_ILIMITS),
+		};
+		let command = libc::QCMD(libc::Q_SETQUOTA, PRJQUOTA);
+		quota_control(directory, command, project, (&raw const limits).cast())
+	};
+	result.map_err(|error| {
 		tg::error!(
 			!error,
-			key = %key.to_string_lossy(),
-			"failed to configure the sandbox filesystem"
+			%project,
+			"failed to configure the sandbox filesystem project quota; enable project quota enforcement and grant CAP_SYS_ADMIN"
 		)
 	})?;
 
 	Ok(())
+}
+
+fn quota_control(
+	directory: &std::fs::File,
+	command: libc::c_int,
+	project: u32,
+	limits: *const libc::c_void,
+) -> std::io::Result<()> {
+	let result = syscall(
+		libc::SYS_quotactl_fd,
+		&[
+			raw_fd_arg(directory),
+			usize::try_from(command).unwrap(),
+			project as usize,
+			limits as usize,
+		],
+	)?;
+	debug_assert_eq!(result, 0);
+	Ok(())
+}
+
+const fn ioctl_write_request(group: u8, number: u8, size: usize) -> libc::c_ulong {
+	#[cfg(any(
+		target_arch = "mips",
+		target_arch = "mips32r6",
+		target_arch = "mips64",
+		target_arch = "mips64r6",
+		target_arch = "powerpc",
+		target_arch = "powerpc64"
+	))]
+	let (direction, direction_shift) = (4_u64, 29_u32);
+	#[cfg(not(any(
+		target_arch = "mips",
+		target_arch = "mips32r6",
+		target_arch = "mips64",
+		target_arch = "mips64r6",
+		target_arch = "powerpc",
+		target_arch = "powerpc64"
+	)))]
+	let (direction, direction_shift) = (1_u64, 30_u32);
+	let value = (direction << direction_shift)
+		| ((size as u64) << 16)
+		| ((group as u64) << 8)
+		| number as u64;
+	value as libc::c_ulong
 }
 
 fn syscall(number: libc::c_long, args: &[usize]) -> std::io::Result<libc::c_long> {
@@ -306,6 +498,7 @@ fn syscall(number: libc::c_long, args: &[usize]) -> std::io::Result<libc::c_long
 		match args {
 			[a, b] => libc::syscall(number, *a, *b),
 			[a, b, c] => libc::syscall(number, *a, *b, *c),
+			[a, b, c, d] => libc::syscall(number, *a, *b, *c, *d),
 			[a, b, c, d, e] => libc::syscall(number, *a, *b, *c, *d, *e),
 			_ => unreachable!(),
 		}
@@ -317,14 +510,14 @@ fn syscall(number: libc::c_long, args: &[usize]) -> std::io::Result<libc::c_long
 	Ok(result)
 }
 
-fn raw_fd_arg(fd: &OwnedFd) -> usize {
+fn raw_fd_arg(fd: &impl std::os::fd::AsRawFd) -> usize {
 	usize::try_from(fd.as_raw_fd()).unwrap()
 }
 
 fn syscall_fd(number: libc::c_long, args: &[usize]) -> std::io::Result<OwnedFd> {
 	let fd = syscall(number, args)?;
 	let fd = i32::try_from(fd).unwrap();
-	// SAFETY: A successful fsopen or fsmount syscall returns a new owned descriptor.
+	// SAFETY: A successful mount syscall returns a new owned descriptor.
 	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
 
 	Ok(fd)

@@ -985,6 +985,8 @@ pub struct RunnerIsolation {
 
 #[derive(Clone, Debug, Default)]
 pub struct ContainerRunnerIsolation {
+	pub filesystem_project_ids: ContainerRunnerIsolationProjectIds,
+
 	pub gid_map: Option<ContainerRunnerIsolationIdMap>,
 
 	pub harden: bool,
@@ -1011,6 +1013,21 @@ pub struct ContainerRunnerIsolationIdMap {
 	pub count: u32,
 	pub helper: PathBuf,
 	pub host: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ContainerRunnerIsolationProjectIds {
+	pub count: u32,
+	pub start: u32,
+}
+
+impl Default for ContainerRunnerIsolationProjectIds {
+	fn default() -> Self {
+		Self {
+			count: i32::MAX.cast_unsigned() - 1,
+			start: 1,
+		}
+	}
 }
 
 impl ContainerRunnerIsolation {
@@ -1062,6 +1079,32 @@ impl From<&ContainerRunnerIsolationIdMap> for tangram_sandbox::IdMap {
 			helper: value.helper.clone(),
 			host: value.host,
 		}
+	}
+}
+
+impl ContainerRunnerIsolationProjectIds {
+	pub(crate) fn validate(self) -> tg::Result<()> {
+		if self.count == 0 {
+			return Err(tg::error!(
+				"the container filesystem project ID count must be greater than zero"
+			));
+		}
+		if self.start == 0 {
+			return Err(tg::error!(
+				"the container filesystem project ID start must be greater than zero"
+			));
+		}
+		let end = self.start.checked_add(self.count).ok_or_else(|| {
+			tg::error!("the container filesystem project ID range exceeds the valid range")
+		})?;
+		// Reserve the highest supported project ID for the quota prerequisite probe.
+		if end > i32::MAX.cast_unsigned() {
+			return Err(tg::error!(
+				"the container filesystem project ID range exceeds the valid range"
+			));
+		}
+
+		Ok(())
 	}
 }
 

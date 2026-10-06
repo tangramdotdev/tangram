@@ -28,21 +28,19 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 			"--user-namespace-fd requires a valid descriptor"
 		));
 	}
-	let filesystem = arg.filesystem_fd.is_some()
-		|| arg.filesystem_inodes.is_some()
-		|| arg.filesystem_path.is_some()
-		|| arg.filesystem_size.is_some();
-	if filesystem
-		&& (arg.filesystem_fd.is_none()
-			|| arg.filesystem_path.is_none()
-			|| (arg.filesystem_inodes.is_none() && arg.filesystem_size.is_none()))
-	{
+	if arg.filesystem_fd.is_some() != arg.filesystem_path.is_some() {
 		return Err(tg::error!(
-			"--filesystem-fd and --filesystem-path require --filesystem-inodes or --filesystem-size"
+			"--filesystem-fd and --filesystem-path must be provided together"
 		));
 	}
-	if filesystem && !arg.unshare_all {
-		return Err(tg::error!("filesystem limits require --unshare-all"));
+	let filesystem_limited = arg.filesystem_inodes.is_some() || arg.filesystem_size.is_some();
+	if filesystem_limited && arg.filesystem_fd.is_none() {
+		return Err(tg::error!(
+			"--filesystem-inodes and --filesystem-size require --filesystem-fd and --filesystem-path"
+		));
+	}
+	if arg.filesystem_fd.is_some() && !arg.unshare_all {
+		return Err(tg::error!("filesystem setup requires --unshare-all"));
 	}
 	if arg.filesystem_inodes == Some(0) {
 		return Err(tg::error!("--filesystem-inodes must be greater than zero"));

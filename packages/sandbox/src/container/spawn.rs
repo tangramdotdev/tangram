@@ -77,22 +77,32 @@ pub(crate) async fn spawn(
 		},
 		_ => None,
 	};
-	let filesystem_inodes = isolation
-		.max_filesystem_inodes
-		.or(isolation.uid_map.is_some().then_some(262_144));
-	let filesystem_size = isolation
-		.max_filesystem_size
-		.or(isolation.uid_map.is_some().then_some(1_073_741_824));
+	let filesystem_inodes = isolation.max_filesystem_inodes;
+	let filesystem_size = isolation.max_filesystem_size;
 	let filesystem_limited = filesystem_inodes.is_some() || filesystem_size.is_some();
-	let filesystem_path = if filesystem_limited {
+	let filesystem_separate = filesystem_limited || isolation.uid_map.is_some();
+	let filesystem_path = if filesystem_separate {
 		Sandbox::host_filesystem_path_from_root(&arg.path)
 	} else {
 		arg.path.clone()
 	};
+	if filesystem_limited {
+		let project = isolation.filesystem_project_id.ok_or_else(|| {
+			tg::error!("missing a project ID for the limited container filesystem")
+		})?;
+		super::filesystem::create(
+			&filesystem_path,
+			project,
+			filesystem_size,
+			filesystem_inodes,
+		)?;
+	} else if filesystem_separate {
+		super::filesystem::create_directory(&filesystem_path)?;
+	}
 	prepare_sandbox_directory(
 		&arg.path,
 		&filesystem_path,
-		filesystem_limited,
+		filesystem_separate,
 		isolation.uid_map.is_some(),
 	)?;
 	let user = prepare_etc_files(&arg.path, network.as_deref(), &arg.dns)?;
@@ -122,7 +132,7 @@ pub(crate) async fn spawn(
 		.as_ref()
 		.map(super::cgroup::Handle::open_fd)
 		.transpose()?;
-	let (filesystem_sendfd, filesystem_recvfd) = if filesystem_limited {
+	let (filesystem_sendfd, filesystem_recvfd) = if filesystem_separate {
 		let (sendfd, recvfd) = rustix::net::socketpair(
 			rustix::net::AddressFamily::UNIX,
 			rustix::net::SocketType::STREAM,
@@ -402,11 +412,11 @@ pub(crate) async fn spawn(
 fn prepare_sandbox_directory(
 	sandbox_path: &Path,
 	filesystem_path: &Path,
-	filesystem_limited: bool,
+	filesystem_separate: bool,
 	mapped_identity: bool,
 ) -> tg::Result<()> {
 	let mut paths = vec![Sandbox::host_etc_path_from_root(sandbox_path)];
-	if !filesystem_limited {
+	if !filesystem_separate {
 		paths.extend([
 			Sandbox::host_output_path_from_root(filesystem_path),
 			Sandbox::host_scratch_path_from_root(filesystem_path),
@@ -422,7 +432,7 @@ fn prepare_sandbox_directory(
 	}
 	let permissions =
 		<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o1777);
-	if !filesystem_limited {
+	if !filesystem_separate {
 		let tmp_path = Sandbox::host_tmp_path_from_root(filesystem_path);
 		std::fs::set_permissions(&tmp_path, permissions).map_err(|error| {
 			tg::error!(

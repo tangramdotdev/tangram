@@ -129,6 +129,7 @@ pub enum Isolation {
 #[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ContainerIsolation {
 	pub cgroup_readonly: bool,
+	pub filesystem_project_id: Option<u32>,
 	pub gid_map: Option<IdMap>,
 	pub max_duration: Option<Duration>,
 	pub max_filesystem_inodes: Option<u64>,

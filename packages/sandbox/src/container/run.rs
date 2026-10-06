@@ -282,7 +282,7 @@ fn prepare_filesystem(
 	let (Some(path), Some(socket)) = (arg.filesystem_path.clone(), arg.filesystem_fd) else {
 		return Ok(None);
 	};
-	let filesystem = super::filesystem::create(arg.filesystem_size, arg.filesystem_inodes)?;
+	let filesystem = super::filesystem::open(&path)?;
 	super::filesystem::prepare(&filesystem, arg.uid, arg.gid)?;
 	arg.filesystem_mount_fd = Some(filesystem.as_raw_fd());
 	let target = super::filesystem::path(&filesystem);

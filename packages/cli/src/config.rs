@@ -1514,6 +1514,9 @@ pub struct RunnerIsolation {
 #[serde(deny_unknown_fields)]
 pub struct ContainerRunnerIsolation {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub filesystem_project_ids: Option<ContainerRunnerIsolationProjectIds>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub gid_map: Option<ContainerRunnerIsolationIdMap>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1555,6 +1558,13 @@ pub struct ContainerRunnerIsolationIdMap {
 	pub helper: Option<PathBuf>,
 
 	pub host: u32,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerRunnerIsolationProjectIds {
+	pub count: u32,
+	pub start: u32,
 }
 
 #[serde_as]
@@ -3968,6 +3978,9 @@ fn resolve_runner_isolation(source: RunnerIsolation) -> server::RunnerIsolation 
 	let mut target = server::RunnerIsolation::default();
 	if let Some(source) = source.container {
 		target.container = server::ContainerRunnerIsolation {
+			filesystem_project_ids: source
+				.filesystem_project_ids
+				.map_or_else(Default::default, Into::into),
 			gid_map: source
 				.gid_map
 				.map(|map| resolve_container_runner_isolation_id_map(map, "/usr/bin/newgidmap")),
@@ -3995,6 +4008,15 @@ fn resolve_container_runner_isolation_id_map(
 		count: source.count.unwrap_or(65_536),
 		helper: source.helper.unwrap_or_else(|| helper.into()),
 		host: source.host,
+	}
+}
+
+impl From<ContainerRunnerIsolationProjectIds> for server::ContainerRunnerIsolationProjectIds {
+	fn from(value: ContainerRunnerIsolationProjectIds) -> Self {
+		Self {
+			count: value.count,
+			start: value.start,
+		}
 	}
 }
 
@@ -4904,6 +4926,7 @@ mod tests {
 		let source: Runner = serde_json::from_value(serde_json::json!({
 			"isolation": {
 				"container": {
+					"filesystem_project_ids": { "count": 10_000, "start": 20_000 },
 					"gid_map": { "host": 200_000 },
 					"harden": true,
 					"max_duration": 123.5,
@@ -4919,6 +4942,8 @@ mod tests {
 		let target = resolve_runner(source);
 		let container = target.isolation.container;
 
+		assert_eq!(container.filesystem_project_ids.count, 10_000);
+		assert_eq!(container.filesystem_project_ids.start, 20_000);
 		assert_eq!(container.gid_map.as_ref().unwrap().count, 65_536);
 		assert_eq!(
 			container.gid_map.as_ref().unwrap().helper,
@@ -4954,6 +4979,11 @@ mod tests {
 		let container = target.isolation.container;
 
 		assert!(!container.harden);
+		assert_eq!(
+			container.filesystem_project_ids.count,
+			i32::MAX.cast_unsigned() - 1
+		);
+		assert_eq!(container.filesystem_project_ids.start, 1);
 		assert!(container.gid_map.is_none());
 		assert_eq!(container.max_pids, None);
 		assert!(container.uid_map.is_none());

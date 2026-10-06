@@ -9,9 +9,6 @@ use {
 };
 
 const AT_RECURSIVE: libc::c_uint = 0x8000;
-const FSCONFIG_CMD_CREATE: libc::c_uint = 6;
-const FSMOUNT_CLOEXEC: libc::c_uint = 1;
-const FSOPEN_CLOEXEC: libc::c_uint = 1;
 const MOUNT_ATTR_NODEV: u64 = 0x0000_0004;
 
 #[derive(Debug)]
@@ -20,13 +17,136 @@ struct NamespaceProbeError {
 	stage: libc::c_int,
 }
 
-pub fn validate() -> tg::Result<()> {
+pub fn validate(filesystem_path: &Path) -> tg::Result<()> {
 	validate_user_namespaces()?;
 	validate_cgroup_v2()?;
 	validate_seccomp()?;
 	validate_mount_syscalls()?;
+	validate_filesystem(filesystem_path)?;
 
 	Ok(())
+}
+
+fn validate_filesystem(root: &Path) -> tg::Result<()> {
+	const PROJECT: u32 = i32::MAX.cast_unsigned();
+
+	let name = format!("tangram-quota-probe-{:016x}", rand::random::<u64>());
+	let path = root.join(name);
+	let result = super::filesystem::create(&path, PROJECT, Some(64 * 1024), Some(4));
+	let enforcement_result = if result.is_ok() {
+		probe_filesystem_enforcement(&path)
+	} else {
+		Ok(())
+	};
+	let mut file_remove_result = Ok(());
+	for name in ["bytes", "inode-0", "inode-1", "inode-2", "inode-3"] {
+		if let Err(error) = remove_probe_file(&path.join(name))
+			&& file_remove_result.is_ok()
+		{
+			file_remove_result = Err(error);
+		}
+	}
+	let clear_result = if result.is_ok() {
+		super::filesystem::clear(&path, PROJECT)
+	} else {
+		Ok(())
+	};
+	let directory_remove_result = match std::fs::remove_dir(&path) {
+		Ok(()) => Ok(()),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+		Err(error) => Err(error),
+	};
+	result.map_err(|error| {
+		tg::error!(
+			!error,
+			path = %root.display(),
+			"the hardened container filesystem requires a disk-backed ext4 or XFS filesystem with project quotas"
+		)
+	})?;
+	enforcement_result.map_err(|error| {
+		tg::error!(
+			!error,
+			path = %root.display(),
+			"the hardened container filesystem project quota is not enforced"
+		)
+	})?;
+	file_remove_result.map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to remove a hardened container filesystem prerequisite probe file"
+		)
+	})?;
+	clear_result.map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to clear the hardened container filesystem prerequisite probe"
+		)
+	})?;
+	directory_remove_result.map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to remove the hardened container filesystem prerequisite probe"
+		)
+	})?;
+
+	Ok(())
+}
+
+fn probe_filesystem_enforcement(path: &Path) -> tg::Result<()> {
+	let byte_path = path.join("bytes");
+	let file = std::fs::File::create(&byte_path).map_err(|error| {
+		tg::error!(!error, path = %byte_path.display(), "failed to create the project byte quota probe")
+	})?;
+	// SAFETY: The descriptor is valid and the offset and length are nonnegative.
+	let result = unsafe { libc::fallocate(file.as_raw_fd(), 0, 0, 128 * 1024) };
+	if result == 0 {
+		return Err(tg::error!(
+			"the project byte quota was accepted but is not enforced"
+		));
+	}
+	let error = std::io::Error::last_os_error();
+	if error.raw_os_error() != Some(libc::EDQUOT) {
+		return Err(tg::error!(
+			!error,
+			"the project byte quota probe failed with an unexpected error"
+		));
+	}
+	drop(file);
+	remove_probe_file(&byte_path).map_err(|error| {
+		tg::error!(!error, path = %byte_path.display(), "failed to remove the project byte quota probe")
+	})?;
+
+	for index in 0..4 {
+		let path = path.join(format!("inode-{index}"));
+		match std::fs::File::create(&path) {
+			Ok(_) if index < 3 => {},
+			Ok(_) => {
+				return Err(tg::error!(
+					"the project inode quota was accepted but is not enforced"
+				));
+			},
+			Err(error) if index == 3 && error.raw_os_error() == Some(libc::EDQUOT) => {},
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					"the project inode quota probe failed with an unexpected error"
+				));
+			},
+		}
+	}
+
+	Ok(())
+}
+
+fn remove_probe_file(path: &Path) -> std::io::Result<()> {
+	match std::fs::remove_file(path) {
+		Ok(()) => Ok(()),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+		Err(error) => Err(error),
+	}
 }
 
 fn validate_user_namespaces() -> tg::Result<()> {
@@ -167,19 +287,6 @@ fn probe_container_namespaces() -> Result<(), NamespaceProbeError> {
 				probe_child_fail(pipe[1], 9);
 			}
 			libc::close(mount.try_into().unwrap());
-			let filesystem = libc::syscall(libc::SYS_fsopen, c"tmpfs".as_ptr(), FSOPEN_CLOEXEC);
-			if filesystem < 0 {
-				probe_child_fail(pipe[1], 10);
-			}
-			if libc::syscall(libc::SYS_fsconfig, filesystem, FSCONFIG_CMD_CREATE, 0, 0, 0) != 0 {
-				probe_child_fail(pipe[1], 11);
-			}
-			let filesystem_mount = libc::syscall(libc::SYS_fsmount, filesystem, FSMOUNT_CLOEXEC, 0);
-			if filesystem_mount < 0 {
-				probe_child_fail(pipe[1], 12);
-			}
-			libc::close(filesystem_mount.try_into().unwrap());
-			libc::close(filesystem.try_into().unwrap());
 			libc::_exit(0);
 		}
 	}
@@ -246,9 +353,6 @@ fn namespace_probe_stage(stage: libc::c_int) -> &'static str {
 		7 => "cloning a detached mount with open_tree",
 		8 => "setting recursive mount attributes with mount_setattr",
 		9 => "attaching a detached mount with move_mount",
-		10 => "opening a tmpfs context with fsopen",
-		11 => "creating a tmpfs with fsconfig",
-		12 => "creating a detached tmpfs mount with fsmount",
 		_ => "starting the namespace probe",
 	}
 }

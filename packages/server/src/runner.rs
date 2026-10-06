@@ -22,6 +22,8 @@ mod tests;
 
 pub(crate) mod capacity;
 pub(crate) mod process;
+#[cfg(target_os = "linux")]
+pub(crate) mod project;
 pub(crate) mod sandbox;
 
 pub mod control;
@@ -38,6 +40,8 @@ type CreateControlConnection<T> = Arc<dyn Fn() -> BoxFuture<'static, tg::Result<
 #[derive(Clone, Copy, Debug)]
 pub(super) struct Config {
 	pub capacity: tg::runner::Capacity,
+	#[cfg(target_os = "linux")]
+	pub filesystem_project_ids: crate::config::ContainerRunnerIsolationProjectIds,
 	pub process_control_connection_pool_size: usize,
 	pub process_control_connection_pool_ttl: Duration,
 	pub sandbox_control_connection_pool_size: usize,
@@ -68,6 +72,8 @@ pub struct Runner {
 
 pub struct State {
 	capacity: self::capacity::Pool,
+	#[cfg(target_os = "linux")]
+	filesystem_project_ids: self::project::Pool,
 	id: Mutex<Option<tg::runner::Id>>,
 	next_sandbox_index: AtomicU64,
 	process_for_token: dashmap::DashMap<String, (u64, tg::process::Id)>,
@@ -83,6 +89,8 @@ impl Runner {
 		let (scheduler, _) = tokio::sync::watch::channel(None);
 		let state = State {
 			capacity: self::capacity::Pool::new(config.capacity),
+			#[cfg(target_os = "linux")]
+			filesystem_project_ids: self::project::Pool::new(config.filesystem_project_ids),
 			id: Mutex::new(None),
 			next_sandbox_index: AtomicU64::new(1),
 			process_for_token: dashmap::DashMap::new(),
@@ -903,6 +911,13 @@ impl State {
 		assert_ne!(index, u64::MAX, "exhausted the sandbox indexes");
 
 		index
+	}
+
+	#[cfg(target_os = "linux")]
+	fn create_filesystem_project_id(&self) -> tg::Result<self::project::Id> {
+		self.filesystem_project_ids
+			.acquire()
+			.ok_or_else(|| tg::error!("the container filesystem project ID range is exhausted"))
 	}
 
 	#[must_use]

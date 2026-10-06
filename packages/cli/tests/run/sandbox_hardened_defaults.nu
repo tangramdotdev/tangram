@@ -6,9 +6,16 @@ if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
 }
 
+let root = $env.TANGRAM_TEST_PROJECT_QUOTA_PATH? | default ''
+if ($root | is-empty) {
+	skip_test 'TANGRAM_TEST_PROJECT_QUOTA_PATH is not set'
+}
+let directory = mktemp --directory --tmpdir-path $root
+
 let cgroup_parent = container_cgroup_parent [cpu memory pids]
 
 let local = server spawn --busybox --config {
+	directory: $directory,
 	runner: {
 		isolation: {
 			container: ({ harden: true } | merge (container_id_maps)),
@@ -22,10 +29,8 @@ let script = r#'
 	cgroup="$(awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup)"
 	test "$(cat "/sys/fs/cgroup${cgroup}/memory.swap.max")" = 0
 	test "$(cat "/sys/fs/cgroup${cgroup}/pids.max")" = 1024
-	test "$(stat -f -c %T /tmp)" = tmpfs
-	test "$(( $(stat -f -c %S /tmp) * $(stat -f -c %b /tmp) ))" = 1073741824
-	test "$(stat -f -c %c /tmp)" = 262144
-	test "$(stat -f -c %i /tmp)" = "$(stat -f -c %i /dev/shm)"
+	test "$(stat -f -c %T /tmp)" != tmpfs
+	test "$(stat -f -c %T /dev/shm)" = tmpfs
 	umask 077
 	printf private > /tmp/private
 	/opt/tangram/bin/tangram checkin /tmp/private > /dev/null

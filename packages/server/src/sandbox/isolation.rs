@@ -15,6 +15,7 @@ impl Server {
 					Ok(tangram_sandbox::Isolation::Container(
 						tangram_sandbox::ContainerIsolation {
 							cgroup_readonly: container.harden,
+							filesystem_project_id: None,
 							gid_map: container.gid_map.as_ref().map(Into::into),
 							max_duration: container.max_duration(),
 							max_filesystem_inodes: container.max_filesystem_inodes(),
@@ -102,6 +103,7 @@ impl Server {
 			return Some(tangram_sandbox::Isolation::Container(
 				tangram_sandbox::ContainerIsolation {
 					cgroup_readonly: container.harden,
+					filesystem_project_id: None,
 					gid_map: container.gid_map.as_ref().map(Into::into),
 					max_duration: container.max_duration(),
 					max_filesystem_inodes: container.max_filesystem_inodes(),

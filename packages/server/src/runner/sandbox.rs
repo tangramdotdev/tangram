@@ -643,7 +643,7 @@ impl Session {
 		&self,
 		mut arg: tg::sandbox::create::Arg,
 	) -> tg::Result<CreateSandboxOutput> {
-		let isolation = match &arg.isolation {
+		let mut isolation = match &arg.isolation {
 			Some(tg::sandbox::Isolation::Container) => {
 				self.server
 					.config()
@@ -655,6 +655,7 @@ impl Session {
 				let container = &self.server.config().runner.isolation.container;
 				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation {
 					cgroup_readonly: container.harden,
+					filesystem_project_id: None,
 					gid_map: container.gid_map.as_ref().map(Into::into),
 					max_duration: container.max_duration(),
 					max_filesystem_inodes: container.max_filesystem_inodes(),
@@ -739,8 +740,26 @@ impl Session {
 			tangram_sandbox::Isolation::Seatbelt(_) => self.server.sandbox_seatbelt_root.clone(),
 		};
 
+		// Allocate the filesystem project ID.
+		#[cfg(target_os = "linux")]
+		let filesystem_project_id = match &mut isolation {
+			tangram_sandbox::Isolation::Container(container)
+				if container.max_filesystem_inodes.is_some()
+					|| container.max_filesystem_size.is_some() =>
+			{
+				let project_id = self.server.runner.state.create_filesystem_project_id()?;
+				container.filesystem_project_id = Some(project_id.value());
+				Some(project_id)
+			},
+			_ => None,
+		};
+
 		// Create the temp.
-		let temp = Temp::new(&self.server);
+		let mut temp = Temp::new(&self.server);
+		#[cfg(target_os = "linux")]
+		if let Some(project_id) = filesystem_project_id {
+			temp.set_filesystem_project_id(project_id);
+		}
 		tokio::fs::create_dir_all(temp.path())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
