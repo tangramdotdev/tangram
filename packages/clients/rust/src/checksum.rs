@@ -70,7 +70,7 @@ impl Checksum {
 impl Default for Checksum {
 	fn default() -> Self {
 		Self {
-			algorithm: Algorithm::Sha512,
+			algorithm: Algorithm::Sha256,
 			body: Body::None,
 		}
 	}

@@ -77,7 +77,7 @@ class BuiltinTests(ObjectTestCase):
     async def test_download_positional_options_and_defaults(self):
         blob = Blob("download")
         for checksum, options, algorithm, mode in [
-            (None, None, "sha512", "raw"),
+            (None, None, "sha256", "raw"),
             (
                 "sha512-any",
                 {"checksum": "blake3", "mode": "extract"},
@@ -106,7 +106,7 @@ class BuiltinTests(ObjectTestCase):
                     "https://example.test",
                 ],
             )
-            self.assertEqual(builder.options["checksum"], checksum or "sha512:none")
+            self.assertEqual(builder.options["checksum"], checksum or "sha256:none")
             self.assertTrue(builder.options["network"])
             if options:
                 self.assertEqual(options["checksum"], "blake3")
