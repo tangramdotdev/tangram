@@ -2216,7 +2216,6 @@ impl Graph {
 			| Node::User(node) => node.local_message.is_some(),
 			Node::Object(_) => self.object_local_available(index),
 			Node::Process(node) => {
-				// Receiving identical bytes completes a write without granting permission to read them.
 				if node.marked {
 					self.process_stored(node.local_storage)
 				} else {

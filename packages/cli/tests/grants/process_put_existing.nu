@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Identical submissions grant access; conflicting submissions fail.
+# PUT with matching process data and children grants node permission. PUT with a different exit code fails.
 let root_token = random chars
 let local = server spawn --config { authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } } }
 let alice = tg login --verbose --name alice | from json

@@ -329,7 +329,7 @@ impl Session {
 			.and_then(std::convert::identity)
 			.map_err(|error| tg::error!(!error, "failed to put the processes in the index"))?;
 
-		// Verify access after the validated submission grants have committed.
+		// Check process_node permission after the index has committed the process writes and their permissions.
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);

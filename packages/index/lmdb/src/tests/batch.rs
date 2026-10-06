@@ -959,7 +959,7 @@ async fn process_put_preserves_existing_contents() {
 	arg.principal = tg::Principal::User(tg::user::Id::new());
 	put_process(&index, arg.clone()).await.unwrap();
 
-	// An identical submission may carry different transport hints.
+	// A different command location does not make the process data conflict.
 	let mut identical = arg.clone();
 	identical.data.as_mut().unwrap().command.options.location =
 		Some(tg::Location::Local(tg::location::Local::default()));
@@ -978,7 +978,7 @@ async fn process_put_preserves_existing_contents() {
 	let stored = index.try_get_process(&id).await.unwrap().unwrap();
 	assert_eq!(stored.data.unwrap().exit, Some(0));
 
-	// A regular user cannot replace an existing process with a compacted copy.
+	// A regular user cannot change data.log from None to a blob ID.
 	let mut compacted = arg.clone();
 	compacted.data.as_mut().unwrap().log = Some(tg::Referent::with_node(tg::blob::Id::new(b"log")));
 	assert!(put_process(&index, compacted.clone()).await.is_err());
@@ -1056,12 +1056,12 @@ async fn process_put_without_log_preserves_compacted_log() {
 				}
 				put_process(&index, compacted).await.unwrap();
 
-				// A regular user must not gain access by submitting data that omits the stored log blob.
+				// A regular user cannot write data.log: None when the stored data.log contains a blob ID.
 				let mut unauthorized = uncompacted.clone();
 				unauthorized.principal = tg::Principal::User(tg::user::Id::new());
 				assert!(put_process(&index, unauthorized).await.is_err());
 
-				// Both complete and incomplete writes retain the log without discarding other accepted changes.
+				// Writing data.log: None preserves the log and its metadata while still updating the exit code.
 				for complete in [true, false] {
 					uncompacted.data.as_mut().unwrap().exit = Some(1);
 					if !complete {

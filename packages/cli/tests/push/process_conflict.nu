@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Sync and process PUT apply the same comparison to an existing process.
+# A push with a different exit code must not change the stored process or grant node permission.
 let root_token = random chars
 let remote = server spawn --cloud --name remote --config {
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
@@ -27,7 +27,7 @@ let stored = tg --url $remote.url --token $alice.token process get $process | fr
 assert equal $stored.exit 0
 failure (tg --url $remote.url --token $bob.token process get $process | complete)
 
-# An identical copy grants access to the receiver's existing private process.
+# Pushing matching process data and children grants Bob node permission on the existing process.
 let copy = server spawn --name copy --config {
 	remotes: { default: { token: $bob.token, url: $remote.url } },
 }

@@ -122,8 +122,9 @@ pub trait Index {
 		principal: &tg::Principal,
 	) -> impl Future<Output = tg::Result<Vec<bool>>> + Send;
 
-	/// Apply an ordered batch, returning transaction failures in the outer result and logic rejections in the inner result.
-	/// A logic rejection stops the remaining items while allowing the successful prefix and unrelated requests to commit.
+	/// Apply the items in order, returning transaction failures in the outer result and write validation failures in the inner result.
+	/// A rejected write stops the remaining items in this batch.
+	/// Earlier items and other requests in the transaction may still commit.
 	fn batch(
 		&self,
 		arg: crate::batch::Arg,

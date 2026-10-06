@@ -13,7 +13,7 @@ pub struct Arg {
 	/// The sandbox location, or `None` to preserve the indexed location.
 	#[tangram_serialize(id = 6)]
 	pub location: Option<tg::Location>,
-	/// Permissions granted when creating the record or submitting its complete contents.
+	/// Permissions granted after validation if the sandbox is new or both `data` and `processes` are `Some`.
 	#[tangram_serialize(id = 8)]
 	pub permissions: Vec<crate::permission::put::Arg>,
 

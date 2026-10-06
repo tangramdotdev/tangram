@@ -25,7 +25,7 @@ impl Index {
 				.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
 				.transpose()?;
 
-			// Compare the authoritative contents in the transaction that writes them.
+			// Validate sandbox data and processes against the existing record in this write transaction.
 			if let Some(existing) = &existing {
 				if let Err(error) = arg.validate_existing(existing)? {
 					return Ok(ControlFlow::Break(Err(error)));
@@ -58,7 +58,6 @@ impl Index {
 				}
 			}
 
-			// Grant permissions only after validating the complete submission.
 			if existing.is_none() || (arg.data.is_some() && arg.processes.is_some()) {
 				crate::propagate!(
 					Self::put_permissions_with_transaction(

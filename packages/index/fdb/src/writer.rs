@@ -201,7 +201,7 @@ impl Index {
 		let mut current_count: usize = 0;
 
 		for (request, sender) in requests {
-			// Keep dependent mutations in one ordered request across transaction splits.
+			// Use an ordered batch so a rejected write prevents later writes in the same request.
 			let request = match request {
 				Request::PutProcesses(args) => {
 					let items = args

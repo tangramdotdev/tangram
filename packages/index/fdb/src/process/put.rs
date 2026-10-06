@@ -27,7 +27,7 @@ impl Index {
 			.map(|bytes| tangram_index::process::Process::deserialize(&bytes))
 			.transpose()?;
 
-		// Compare the authoritative contents in the transaction that writes them.
+		// Validate process data and children against the existing record in this write transaction.
 		if let Some(existing) = &existing {
 			if let Err(error) = arg.validate_existing(existing)? {
 				return Ok(ControlFlow::Break(Err(error)));
@@ -58,7 +58,6 @@ impl Index {
 			}
 		}
 
-		// Grant permissions only after validating the complete submission.
 		if existing.is_none() || (arg.data.is_some() && arg.children.is_some()) {
 			crate::propagate!(
 				Self::put_permissions_with_transaction(
@@ -91,7 +90,7 @@ impl Index {
 			arg.to_mut().data = None;
 		}
 
-		// Preserve the stored log blob when the submitted data omits it.
+		// Preserve the stored log blob when arg.data.log is None.
 		if let Some(existing) = &existing
 			&& arg.data.as_ref().is_some_and(|data| data.log.is_none())
 			&& let Some(log) = existing.data.as_ref().and_then(|data| data.log.as_ref())

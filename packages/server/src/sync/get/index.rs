@@ -753,7 +753,7 @@ impl Session {
 			put_permission_args.push(arg);
 		}
 
-		// Commit guarded process writes before enqueueing the remaining indexing work.
+		// Return process write errors to sync before enqueueing object and permission writes.
 		let arg = tangram_index::batch::Arg {
 			items: put_process_args
 				.into_iter()

@@ -24,7 +24,7 @@ impl Index {
 				.map(tangram_index::sandbox::Sandbox::deserialize)
 				.transpose()?;
 
-			// Compare the authoritative contents in the transaction that writes them.
+			// Validate sandbox data and processes against the existing record in this write transaction.
 			if let Some(existing) = &existing {
 				if let Err(error) = arg.validate_existing(existing)? {
 					return Ok(Err(error));
@@ -55,7 +55,6 @@ impl Index {
 				}
 			}
 
-			// Grant permissions only after validating the complete submission.
 			if existing.is_none() || (arg.data.is_some() && arg.processes.is_some()) {
 				Self::put_permissions_with_transaction(
 					db,

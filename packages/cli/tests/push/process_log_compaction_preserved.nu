@@ -44,7 +44,7 @@ success $output
 assert equal $output.stdout "stdout\n"
 assert equal $output.stderr "stderr\n"
 
-# The public PUT path applies the same index rule.
+# PUT with log: null must also retain the blob ID and leave stdout and stderr readable.
 tg process put $process ($uncompacted | to json)
 assert equal (tg get $process | from json | get log?) $log
 let output = timeout 10s tg log $process --no-timeout | complete
