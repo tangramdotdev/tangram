@@ -37,6 +37,7 @@ impl Session {
 			let text = tangram_compiler::py::load::object_module(&arg.module)?;
 			return Ok(tg::module::load::Output { text });
 		}
+
 		let output = self.load_module_inner(&arg.module).await?;
 		let text = tangram_compiler::load::module(&arg.module, &output.text, arg.language)?;
 		Ok(tg::module::load::Output { text })
