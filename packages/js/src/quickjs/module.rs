@@ -90,7 +90,7 @@ impl qjs::loader::Resolver for Resolver {
 				.referent
 				.options
 				.tokens
-				.clone_from(&module.referent.options.tokens);
+				.inherit(&module.referent.options.tokens);
 		} else {
 			state.modules.borrow_mut().push(Module {
 				module,
@@ -116,7 +116,7 @@ impl qjs::loader::Loader for Loader {
 		let module = name
 			.parse::<tg::module::Data>()
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
-		let module_data = state
+		let mut module_data = state
 			.modules
 			.borrow()
 			.iter()
@@ -130,17 +130,19 @@ impl qjs::loader::Loader for Loader {
 			let module = module_data.clone();
 			async move {
 				let arg = tg::module::load::Arg { module };
-				let result = instance.load_module(arg).await.map(|output| output.text);
+				let result = instance.load_module(arg).await;
 				sender.send(result).unwrap();
 			}
 		});
-		let source = receiver
+		let loaded = receiver
 			.recv()
 			.unwrap()
 			.map_err(|error| qjs::Error::Io(std::io::Error::other(error)))?;
 
+		module_data.referent.options.tokens.inherit(&loaded.tokens);
+
 		// Transpile the module.
-		let output = tangram_compiler::Compiler::transpile(&source, &module_data);
+		let output = tangram_compiler::Compiler::transpile(&loaded.text, &module_data);
 		if !output.diagnostics.is_empty() {
 			return Err(qjs::Error::Io(std::io::Error::other(tg::error!(
 				"failed to transpile module"
@@ -157,7 +159,14 @@ impl qjs::loader::Loader for Loader {
 			.iter()
 			.position(|entry| entry.module.has_same_identity(&module_data));
 		if let Some(index) = index {
-			state.modules.borrow_mut()[index].source_map = source_map;
+			let mut modules = state.modules.borrow_mut();
+			modules[index]
+				.module
+				.referent
+				.options
+				.tokens
+				.inherit(&loaded.tokens);
+			modules[index].source_map = source_map;
 		} else {
 			state.modules.borrow_mut().push(Module {
 				module: module_data.clone(),

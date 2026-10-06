@@ -127,7 +127,7 @@ pub fn host_import_module_dynamically_callback<'s>(
 					.referent
 					.options
 					.tokens
-					.clone_from(&module.referent.options.tokens);
+					.inherit(&module.referent.options.tokens);
 				let index = v8::Integer::new(scope, index.to_i32().unwrap());
 				return_value.set(index.into());
 			} else {
@@ -144,6 +144,8 @@ pub fn host_import_module_dynamically_callback<'s>(
 								"failed to load the module"
 							)
 						})?;
+						let mut module = module;
+						module.referent.options.tokens.inherit(&output.tokens);
 						Ok(Serde((module, output.text)))
 					}
 				});
@@ -272,7 +274,7 @@ fn resolve_module_callback<'s>(
 	let import = parse_import(scope, specifier, attributes, ImportKind::Static)?;
 
 	// Resolve the module.
-	let module = resolve_module_sync(scope, &module, &import)?;
+	let mut module = resolve_module_sync(scope, &module, &import)?;
 
 	// Get the module if it already exists. Otherwise, load and compile it.
 	let index = state
@@ -289,14 +291,14 @@ fn resolve_module_callback<'s>(
 				.referent
 				.options
 				.tokens
-				.clone_from(&module.referent.options.tokens);
+				.inherit(&module.referent.options.tokens);
 			entry.v8.as_ref().unwrap().clone()
 		};
 		let module = v8::Local::new(scope, v8_module);
 		Some(module)
 	} else {
 		// Load the module.
-		let text = load_module_sync(scope, &module)?;
+		let text = load_module_sync(scope, &mut module)?;
 
 		// Compile the module.
 		let module = compile_module(scope, &module, &text)?;
@@ -352,7 +354,7 @@ fn resolve_module_sync(
 }
 
 // Load a module synchronously.
-fn load_module_sync(scope: &mut v8::PinScope, module: &tg::module::Data) -> Option<String> {
+fn load_module_sync(scope: &mut v8::PinScope, module: &mut tg::module::Data) -> Option<String> {
 	let context = scope.get_current_context();
 	let state = context.get_slot::<State>().unwrap().clone();
 	let (sender, receiver) = std::sync::mpsc::channel();
@@ -361,22 +363,23 @@ fn load_module_sync(scope: &mut v8::PinScope, module: &tg::module::Data) -> Opti
 		let module = module.clone();
 		async move {
 			let arg = tg::module::load::Arg { module };
-			let result = instance.load_module(arg).await.map(|output| output.text);
+			let result = instance.load_module(arg).await;
 			sender.send(result).unwrap();
 		}
 	});
 	let result = receiver.recv().unwrap().map_err(
 		|error| tg::error!(!error, module = ?module.without_token(), "failed to load the module"),
 	);
-	let text = match result {
-		Ok(text) => text,
+	let output = match result {
+		Ok(output) => output,
 		Err(error) => {
 			let exception = error::to_exception(scope, &error)?;
 			scope.throw_exception(exception);
 			return None;
 		},
 	};
-	Some(text)
+	module.referent.options.tokens.inherit(&output.tokens);
+	Some(output.text)
 }
 
 /// Compile a module.

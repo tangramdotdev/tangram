@@ -31,7 +31,10 @@ impl Session {
 					.get_file(path)
 					.ok_or_else(|| tg::error!(?path, "failed to find the library module"))?;
 				let text = file.contents_utf8().unwrap().to_owned();
-				Ok(tg::module::load::Output { text })
+				Ok(tg::module::load::Output {
+					text,
+					tokens: tg::authorization::Tokens::default(),
+				})
 			},
 
 			// Handle a JS or TS module from a path.
@@ -48,7 +51,10 @@ impl Session {
 				let text = tokio::fs::read_to_string(&path).await.map_err(
 					|error| tg::error!(!error, path = %path.display(), "failed to read the file"),
 				)?;
-				Ok(tg::module::load::Output { text })
+				Ok(tg::module::load::Output {
+					text,
+					tokens: tg::authorization::Tokens::default(),
+				})
 			},
 
 			// Handle a JS or TS module from an object.
@@ -83,7 +89,8 @@ impl Session {
 					.text_with_instance(self)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to get the file text"))?;
-				Ok(tg::module::load::Output { text })
+				let tokens = file.to_referent().options.tokens;
+				Ok(tg::module::load::Output { text, tokens })
 			},
 
 			// Handle object modules.
@@ -157,7 +164,10 @@ impl Session {
 						)
 					},
 				};
-				Ok(tg::module::load::Output { text })
+				Ok(tg::module::load::Output {
+					text,
+					tokens: tg::authorization::Tokens::default(),
+				})
 			},
 
 			_ => Err(tg::error!("invalid module")),
