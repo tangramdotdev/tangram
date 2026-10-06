@@ -35,12 +35,15 @@ impl Session {
 					| tg::module::Kind::Py
 			) {
 			let text = tangram_compiler::py::load::object_module(&arg.module)?;
-			return Ok(tg::module::load::Output { text });
+			return Ok(tg::module::load::Output {
+				text,
+				tokens: tg::authorization::Tokens::default(),
+			});
 		}
 
-		let output = self.load_module_inner(&arg.module).await?;
-		let text = tangram_compiler::load::module(&arg.module, &output.text, arg.language)?;
-		Ok(tg::module::load::Output { text })
+		let mut output = self.load_module_inner(&arg.module).await?;
+		output.text = tangram_compiler::load::module(&arg.module, &output.text, arg.language)?;
+		Ok(output)
 	}
 
 	async fn load_module_inner(
