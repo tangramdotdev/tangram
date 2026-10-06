@@ -202,12 +202,12 @@ export class Directory {
 		return id;
 	}
 
-	async object(): Promise<tg.Directory.Object> {
-		return await this.load();
+	async object(client = tg.client): Promise<tg.Directory.Object> {
+		return await this.load(client);
 	}
 
-	async load(): Promise<tg.Directory.Object> {
-		let object = await this.#state.load();
+	async load(client = tg.client): Promise<tg.Directory.Object> {
+		let object = await this.#state.load(client);
 		tg.assert(object.kind === "directory");
 		if ("index" in object.value) {
 			object.value.graph.state.inheritLocation(this.#state.location);
@@ -220,13 +220,15 @@ export class Directory {
 	}
 
 	/** Store this directory. */
-	async store(): Promise<tg.Directory.Id> {
-		await tg.Value.store(this);
+	async store(client = tg.client): Promise<tg.Directory.Id> {
+		await tg.Value.store(this, client);
 		return this.id;
 	}
 
-	get children(): Promise<Array<tg.Object>> {
-		return this.#state.children;
+	get children(): tg.Property<Array<tg.Object>> {
+		return tg.property(async (client = tg.client) => {
+			return this.#state.children(client);
+		});
 	}
 
 	/** Get the child at the specified path. This method throws an error if the path does not exist. */
@@ -290,14 +292,14 @@ export class Directory {
 	}
 
 	/** Get this directory's entries. */
-	get entries(): Promise<{ [key: string]: tg.Artifact }> {
-		return (async () => {
+	get entries(): tg.Property<{ [key: string]: tg.Artifact }> {
+		return tg.property(async (client = tg.client) => {
 			let entries: { [key: string]: tg.Artifact } = {};
-			for await (let [name, artifact] of this) {
+			for await (let [name, artifact] of this[Symbol.asyncIterator](client)) {
 				entries[name] = artifact;
 			}
 			return entries;
-		})();
+		});
 	}
 
 	/** Get an async iterator of this directory's recursive entries. */
@@ -313,12 +315,14 @@ export class Directory {
 	}
 
 	/** Get an async iterator of this directory's entries. */
-	async *[Symbol.asyncIterator](): AsyncIterator<[string, tg.Artifact]> {
-		let object = await this.object();
+	async *[Symbol.asyncIterator](
+		client = tg.client,
+	): AsyncIterableIterator<[string, tg.Artifact]> {
+		let object = await this.object(client);
 		if (tg.Graph.Pointer.is(object)) {
 			let graph = object.graph;
 			tg.assert(graph !== undefined && graph !== null);
-			let nodes = await graph.nodes;
+			let nodes = await graph.nodes(client);
 			let node = nodes[object.index];
 			tg.assert(
 				node !== undefined && node.kind === "directory",
@@ -327,12 +331,12 @@ export class Directory {
 			if ("entries" in node) {
 				for (let [name, edge] of Object.entries(node.entries)) {
 					if (typeof edge === "number") {
-						let artifact = await graph.get(edge);
+						let artifact = await graph.get(edge, client);
 						tg.Object.inheritLocation(artifact, this.#state.location);
 						tg.Object.inheritTokens(artifact, this.#state.tokens);
 						yield [name, artifact];
 					} else if ("index" in edge) {
-						let artifact = await edge.graph.get(edge.index);
+						let artifact = await edge.graph.get(edge.index, client);
 						tg.Object.inheritLocation(artifact, this.#state.location);
 						tg.Object.inheritTokens(artifact, this.#state.tokens);
 						yield [name, artifact];
@@ -347,10 +351,13 @@ export class Directory {
 					let childDirectory = await Directory.resolveEdgeInGraph(
 						child.directory,
 						graph,
+						client,
 					);
 					childDirectory.state.inheritLocation(this.#state.location);
 					childDirectory.state.inheritTokens(this.#state.tokens);
-					for await (let entry of childDirectory) {
+					for await (let entry of childDirectory[Symbol.asyncIterator](
+						client,
+					)) {
 						yield entry;
 					}
 				}
@@ -359,7 +366,7 @@ export class Directory {
 			for (let [name, edge] of Object.entries(object.entries)) {
 				tg.assert(typeof edge === "object", "expected an object");
 				if (tg.Graph.Pointer.is(edge)) {
-					let artifact = await edge.graph.get(edge.index);
+					let artifact = await edge.graph.get(edge.index, client);
 					tg.Object.inheritLocation(artifact, this.#state.location);
 					tg.Object.inheritTokens(artifact, this.#state.tokens);
 					yield [name, artifact];
@@ -371,10 +378,13 @@ export class Directory {
 			}
 		} else {
 			for (let child of object.children) {
-				let childDirectory = await Directory.resolveEdge(child.directory);
+				let childDirectory = await Directory.resolveEdge(
+					child.directory,
+					client,
+				);
 				childDirectory.state.inheritLocation(this.#state.location);
 				childDirectory.state.inheritTokens(this.#state.tokens);
-				for await (let entry of childDirectory) {
+				for await (let entry of childDirectory[Symbol.asyncIterator](client)) {
 					yield entry;
 				}
 			}
@@ -383,10 +393,11 @@ export class Directory {
 
 	static async resolveEdge(
 		edge: tg.Graph.Edge<tg.Directory>,
+		client = tg.client,
 	): Promise<tg.Directory> {
 		tg.assert(typeof edge !== "number", "missing graph");
 		if (tg.Graph.Pointer.is(edge)) {
-			let artifact = await edge.graph.get(edge.index);
+			let artifact = await edge.graph.get(edge.index, client);
 			tg.assert(artifact instanceof tg.Directory, "expected a directory");
 			return artifact;
 		} else {
@@ -397,14 +408,15 @@ export class Directory {
 	static async resolveEdgeInGraph(
 		edge: tg.Graph.Edge<tg.Directory>,
 		graph: tg.Graph,
+		client = tg.client,
 	): Promise<tg.Directory> {
 		if (typeof edge === "number") {
-			let artifact = await graph.get(edge);
+			let artifact = await graph.get(edge, client);
 			tg.assert(artifact instanceof tg.Directory, "expected a directory");
 			return artifact;
 		} else if (tg.Graph.Pointer.is(edge)) {
 			let g = edge.graph;
-			let artifact = await g.get(edge.index);
+			let artifact = await g.get(edge.index, client);
 			tg.assert(artifact instanceof tg.Directory, "expected a directory");
 			return artifact;
 		} else {

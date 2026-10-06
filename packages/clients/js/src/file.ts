@@ -189,12 +189,12 @@ export class File {
 		return id;
 	}
 
-	async object(): Promise<tg.File.Object> {
-		return await this.load();
+	async object(client = tg.client): Promise<tg.File.Object> {
+		return await this.load(client);
 	}
 
-	async load(): Promise<tg.File.Object> {
-		let object = await this.#state.load();
+	async load(client = tg.client): Promise<tg.File.Object> {
+		let object = await this.#state.load(client);
 		tg.assert(object.kind === "file");
 		if ("index" in object.value) {
 			object.value.graph.state.inheritLocation(this.#state.location);
@@ -207,24 +207,26 @@ export class File {
 	}
 
 	/** Store this file. */
-	async store(): Promise<tg.File.Id> {
-		await tg.Value.store(this);
+	async store(client = tg.client): Promise<tg.File.Id> {
+		await tg.Value.store(this, client);
 		return this.id;
 	}
 
-	get children(): Promise<Array<tg.Object>> {
-		return this.#state.children;
+	get children(): tg.Property<Array<tg.Object>> {
+		return tg.property(async (client = tg.client) => {
+			return this.#state.children(client);
+		});
 	}
 
 	/** Get this file's contents. */
-	get contents(): Promise<tg.Blob> {
-		return (async () => {
-			let object = await this.object();
+	get contents(): tg.Property<tg.Blob> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			let contents: tg.Blob;
 			if ("index" in object) {
 				let graph = object.graph;
 				tg.assert(graph !== undefined && graph !== null);
-				let nodes = await graph.nodes;
+				let nodes = await graph.nodes(client);
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "file");
@@ -238,19 +240,19 @@ export class File {
 			tg.Object.inheritTokens(contents, this.#state.tokens);
 
 			return contents;
-		})();
+		});
 	}
 
 	/** Get this file's dependencies. */
-	get dependencies(): Promise<{
+	get dependencies(): tg.Property<{
 		[reference: tg.Reference.String]: tg.Referent<tg.Object | null> | null;
 	}> {
-		return (async () => {
-			let object = await this.object();
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			if ("index" in object) {
 				let graph = object.graph;
 				tg.assert(graph !== undefined && graph !== null);
-				let nodes = await graph.nodes;
+				let nodes = await graph.nodes(client);
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "file");
@@ -266,10 +268,11 @@ export class File {
 								if (dependency.node === null) {
 									object = null;
 								} else if (typeof dependency.node === "number") {
-									object = await graph.get(dependency.node);
+									object = await graph.get(dependency.node, client);
 								} else if ("index" in dependency.node) {
 									object = await dependency.node.graph.get(
 										dependency.node.index,
+										client,
 									);
 								} else {
 									object = dependency.node;
@@ -311,6 +314,7 @@ export class File {
 									if ("index" in dependency.node) {
 										object = await dependency.node.graph.get(
 											dependency.node.index,
+											client,
 										);
 									} else {
 										object = dependency.node;
@@ -337,13 +341,13 @@ export class File {
 					),
 				);
 			}
-		})();
+		});
 	}
 
 	/** Get this file's dependencies as an array. */
-	get dependencyObjects(): Promise<Array<tg.Object>> {
-		return (async () => {
-			let dependencies = await this.dependencies;
+	get dependencyObjects(): tg.Property<Array<tg.Object>> {
+		return tg.property(async (client = tg.client) => {
+			let dependencies = await this.dependencies(client);
 			if (dependencies === undefined) {
 				return [];
 			} else {
@@ -355,17 +359,17 @@ export class File {
 				}
 				return nodes;
 			}
-		})();
+		});
 	}
 
 	/** Get this file's executable bit. */
-	get executable(): Promise<boolean> {
-		return (async () => {
-			let object = await this.object();
+	get executable(): tg.Property<boolean> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			if ("index" in object) {
 				let graph = object.graph;
 				tg.assert(graph !== undefined && graph !== null);
-				let nodes = await graph.nodes;
+				let nodes = await graph.nodes(client);
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "file");
@@ -373,17 +377,17 @@ export class File {
 			} else {
 				return object.executable;
 			}
-		})();
+		});
 	}
 
 	/** Get this file's module kind. */
-	get module(): Promise<string | null> {
-		return (async () => {
-			let object = await this.object();
+	get module(): tg.Property<string | null> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			if ("index" in object) {
 				let graph = object.graph;
 				tg.assert(graph !== undefined && graph !== null);
-				let nodes = await graph.nodes;
+				let nodes = await graph.nodes(client);
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "file");
@@ -391,33 +395,36 @@ export class File {
 			} else {
 				return object.module ?? null;
 			}
-		})();
+		});
 	}
 
 	/** Get the length of this file's contents. */
-	get length(): Promise<number> {
-		return (async () => {
-			return (await this.contents).length;
-		})();
+	get length(): tg.Property<number> {
+		return tg.property(async (client = tg.client) => {
+			return (await this.contents(client)).length(client);
+		});
 	}
 
 	/** Read from this file. */
-	async read(options?: tg.Blob.ReadOptions | null): Promise<Uint8Array> {
-		return (await this.contents).read(options);
+	async read(
+		options?: tg.Blob.ReadOptions | null,
+		client = tg.client,
+	): Promise<Uint8Array> {
+		return (await this.contents(client)).read(options, client);
 	}
 
 	/** Get this file's contents as a `Uint8Array`. */
-	get bytes(): Promise<Uint8Array> {
-		return (async () => {
-			return (await this.contents).bytes;
-		})();
+	get bytes(): tg.Property<Uint8Array> {
+		return tg.property(async (client = tg.client) => {
+			return (await this.contents(client)).bytes(client);
+		});
 	}
 
 	/** Get this file's contents as a string. This method throws an error if the contents are not valid UTF-8. */
-	get text(): Promise<string> {
-		return (async () => {
-			return (await this.contents).text;
-		})();
+	get text(): tg.Property<string> {
+		return tg.property(async (client = tg.client) => {
+			return (await this.contents(client)).text(client);
+		});
 	}
 }
 

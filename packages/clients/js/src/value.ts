@@ -206,7 +206,10 @@ export namespace Value {
 		}
 	};
 
-	export let store = async (value: tg.Value): Promise<void> => {
+	export let store = async (
+		value: tg.Value,
+		client = tg.client,
+	): Promise<void> => {
 		while (true) {
 			// Collect all unstored states with children before parents.
 			let pending = new Set<Promise<void>>();
@@ -255,7 +258,7 @@ export namespace Value {
 			}
 
 			// Claim the states and start the store promise.
-			let promise = Promise.resolve().then(() => storeStates(states));
+			let promise = Promise.resolve().then(() => storeStates(states, client));
 			for (let state of states) {
 				state.startStorePromise(promise);
 			}
@@ -269,7 +272,10 @@ export namespace Value {
 		}
 	};
 
-	let storeStates = async (states: Array<tg.Object.State>): Promise<void> => {
+	let storeStates = async (
+		states: Array<tg.Object.State>,
+		client: typeof tg.client,
+	): Promise<void> => {
 		// Create the batch.
 		let objects: Array<tg.Object.Batch.Object> = [];
 		let stateGroupIndices = new Map<tg.Object.Id, number>();
@@ -281,7 +287,7 @@ export namespace Value {
 			let data = tg.Object.Data.withoutLocationAndTokens(
 				tg.Object.Object.toData(state.object),
 			);
-			let id = tg.client.objectId(data);
+			let id = client.objectId(data);
 			state.id = id;
 			let children = tg.Object.Object.children(state.object).map(
 				tg.Object.toReferent,
@@ -304,7 +310,7 @@ export namespace Value {
 		}
 
 		// Store the batch.
-		let output = await tg.client.postObjectBatch({ objects });
+		let output = await client.postObjectBatch({ objects });
 
 		// Update the states.
 		applyObjectBatchOutput(stateGroups, output);

@@ -166,12 +166,12 @@ export class Symlink {
 		return id;
 	}
 
-	async object(): Promise<tg.Symlink.Object> {
-		return await this.load();
+	async object(client = tg.client): Promise<tg.Symlink.Object> {
+		return await this.load(client);
 	}
 
-	async load(): Promise<tg.Symlink.Object> {
-		let object = await this.#state.load();
+	async load(client = tg.client): Promise<tg.Symlink.Object> {
+		let object = await this.#state.load(client);
 		tg.assert(object.kind === "symlink");
 		if ("index" in object.value) {
 			object.value.graph.state.inheritLocation(this.#state.location);
@@ -184,35 +184,37 @@ export class Symlink {
 	}
 
 	/** Store this symlink. */
-	async store(): Promise<tg.Symlink.Id> {
-		await tg.Value.store(this);
+	async store(client = tg.client): Promise<tg.Symlink.Id> {
+		await tg.Value.store(this, client);
 		return this.id;
 	}
 
-	get children(): Promise<Array<tg.Object>> {
-		return this.#state.children;
+	get children(): tg.Property<Array<tg.Object>> {
+		return tg.property(async (client = tg.client) => {
+			return this.#state.children(client);
+		});
 	}
 
 	/** Get this symlink's artifact. */
-	get artifact(): Promise<tg.Artifact | null> {
-		return (async () => {
-			let object = await this.object();
+	get artifact(): tg.Property<tg.Artifact | null> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			let artifact: tg.Artifact | null;
 			if ("index" in object) {
 				let graph = object.graph;
 				tg.assert(graph !== undefined && graph !== null);
-				let node = (await graph.nodes)[object.index];
+				let node = (await graph.nodes(client))[object.index];
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "symlink");
 				if (node.artifact === null) {
 					artifact = null;
 				} else if (typeof node.artifact === "number") {
-					artifact = await graph.get(node.artifact);
+					artifact = await graph.get(node.artifact, client);
 				} else if (
 					typeof node.artifact === "object" &&
 					"index" in node.artifact
 				) {
-					artifact = await node.artifact.graph.get(node.artifact.index);
+					artifact = await node.artifact.graph.get(node.artifact.index, client);
 				} else {
 					artifact = node.artifact;
 				}
@@ -224,7 +226,10 @@ export class Symlink {
 					typeof object.artifact === "object" &&
 					"index" in object.artifact
 				) {
-					artifact = await object.artifact.graph.get(object.artifact.index);
+					artifact = await object.artifact.graph.get(
+						object.artifact.index,
+						client,
+					);
 				} else {
 					artifact = object.artifact;
 				}
@@ -234,17 +239,17 @@ export class Symlink {
 				tg.Object.inheritTokens(artifact, this.#state.tokens);
 			}
 			return artifact;
-		})();
+		});
 	}
 
 	/** Get this symlink's path. */
-	get path(): Promise<string | null> {
-		return (async () => {
-			let object = await this.object();
+	get path(): tg.Property<string | null> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			if ("index" in object) {
 				let graph = object.graph;
 				tg.assert(graph !== undefined && graph !== null);
-				let nodes = await graph.nodes;
+				let nodes = await graph.nodes(client);
 				let node = nodes[object.index];
 				tg.assert(node !== undefined);
 				tg.assert(node.kind === "symlink");
@@ -252,7 +257,7 @@ export class Symlink {
 			} else {
 				return object.path ?? null;
 			}
-		})();
+		});
 	}
 
 	/** Resolve this symlink to the artifact it refers to, or return null if none is found. */

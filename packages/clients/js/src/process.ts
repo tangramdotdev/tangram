@@ -333,7 +333,7 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Load the process's state. */
-	async load(): Promise<void> {
+	async load(client = tg.client): Promise<void> {
 		if (typeof this.#id === "number") {
 			throw new Error("loading unsandboxed process state is not supported");
 		}
@@ -342,7 +342,7 @@ export class Process<O extends tg.Value = tg.Value> {
 			arg.location = this.#location;
 		}
 		arg.tokens = this.#tokens;
-		let output = await tg.client.getProcess(this.#id, arg);
+		let output = await client.getProcess(this.#id, arg);
 		if (
 			output.tokens !== undefined &&
 			output.tokens !== null &&
@@ -366,16 +366,16 @@ export class Process<O extends tg.Value = tg.Value> {
 		await this.load();
 	}
 
-	async #getSandbox(): Promise<tg.Sandbox.Data | null> {
+	async #getSandbox(client = tg.client): Promise<tg.Sandbox.Data | null> {
 		if (typeof this.#id === "number") {
 			return null;
 		}
-		await this.load();
+		await this.load(client);
 		let sandbox = this.#state!.sandbox;
 		if (sandbox === null) {
 			return null;
 		}
-		let output = await tg.client.getSandbox(sandbox);
+		let output = await client.getSandbox(sandbox);
 		return output.data;
 	}
 
@@ -413,9 +413,9 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's command. */
-	get command(): Promise<tg.Process.Data.Command | tg.Command> {
-		return (async () => {
-			await this.load();
+	get command(): tg.Property<tg.Process.Data.Command | tg.Command> {
+		return tg.property(async (client = tg.client) => {
+			await this.load(client);
 			let referent = this.#state!.command;
 			let options = {
 				...referent.options,
@@ -426,27 +426,27 @@ export class Process<O extends tg.Value = tg.Value> {
 				return tg.Command.withReferent({ node: referent.node, options });
 			}
 			return commandData.inheritOptions(referent.node, options);
-		})();
+		});
 	}
 
 	/** Get this process's command's args. */
-	get args(): Promise<Array<tg.Command.Value>> {
-		return (async () => {
-			let command = await this.command;
+	get args(): tg.Property<Array<tg.Command.Value>> {
+		return tg.property(async (client = tg.client) => {
+			let command = await this.command(client);
 			return command instanceof tg.Command
-				? await command.args
+				? await command.args(client)
 				: (command.args ?? []).map(tg.Command.Value.fromData);
-		})();
+		});
 	}
 
 	/** Get this process's command's cwd. */
-	get cwd(): Promise<string | null> {
-		return (async () => {
-			let command = await this.command;
+	get cwd(): tg.Property<string | null> {
+		return tg.property(async (client = tg.client) => {
+			let command = await this.command(client);
 			return command instanceof tg.Command
-				? await command.cwd
+				? await command.cwd(client)
 				: (command.cwd ?? null);
-		})();
+		});
 	}
 
 	/** Get this process's command's environment. */
@@ -475,11 +475,11 @@ export class Process<O extends tg.Value = tg.Value> {
 	}
 
 	/** Get this process's command's executable. */
-	get executable(): Promise<tg.Command.Executable> {
-		return (async () => {
-			let command = await this.command;
+	get executable(): tg.Property<tg.Command.Executable> {
+		return tg.property(async (client = tg.client) => {
+			let command = await this.command(client);
 			if (command instanceof tg.Command) {
-				return await command.executable;
+				return await command.executable(client);
 			}
 			let referent = tg.Referent.fromData(command.executable, (node) => node);
 			let executable = tg.Command.Executable.fromData(referent.node);
@@ -494,53 +494,53 @@ export class Process<O extends tg.Value = tg.Value> {
 				);
 			}
 			return executable;
-		})();
+		});
 	}
 
-	get mounts(): Promise<Array<tg.Sandbox.Mount>> {
-		return (async () => {
-			let sandbox = await this.#getSandbox();
+	get mounts(): tg.Property<Array<tg.Sandbox.Mount>> {
+		return tg.property(async (client = tg.client) => {
+			let sandbox = await this.#getSandbox(client);
 			return (sandbox?.mounts ?? []).map(tg.Sandbox.Mount.fromDataString);
-		})();
+		});
 	}
 
-	get network(): Promise<boolean> {
-		return (async () => {
-			let sandbox = await this.#getSandbox();
+	get network(): tg.Property<boolean> {
+		return tg.property(async (client = tg.client) => {
+			let sandbox = await this.#getSandbox(client);
 			return sandbox?.network !== undefined && sandbox.network !== null;
-		})();
+		});
 	}
 
-	get ports(): Promise<Array<tg.Sandbox.Port>> {
-		return (async () => {
-			let sandbox = await this.#getSandbox();
+	get ports(): tg.Property<Array<tg.Sandbox.Port>> {
+		return tg.property(async (client = tg.client) => {
+			let sandbox = await this.#getSandbox(client);
 			let network = sandbox?.network;
 			if (network?.kind !== "bridge") {
 				return [];
 			}
 			return (network.ports ?? []).map(tg.Sandbox.Port.fromDataString);
-		})();
+		});
 	}
 
 	/** Get this process's sandbox. */
-	get sandbox(): Promise<string | null> {
-		return (async () => {
+	get sandbox(): tg.Property<string | null> {
+		return tg.property(async (client = tg.client) => {
 			if (typeof this.#id === "number") {
 				return null;
 			}
-			await this.load();
+			await this.load(client);
 			return this.#state!.sandbox;
-		})();
+		});
 	}
 
 	/** Get this process's command's user. */
-	get user(): Promise<string | null> {
-		return (async () => {
-			let command = await this.command;
+	get user(): tg.Property<string | null> {
+		return tg.property(async (client = tg.client) => {
+			let command = await this.command(client);
 			return command instanceof tg.Command
-				? await command.user
+				? await command.user(client)
 				: (command.user ?? null);
-		})();
+		});
 	}
 
 	/** Get this process's stdin writer. */

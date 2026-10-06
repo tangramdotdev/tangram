@@ -271,14 +271,14 @@ export class Graph {
 		return id;
 	}
 
-	async object(): Promise<tg.Graph.Object> {
-		let object = await this.#state.load();
+	async object(client = tg.client): Promise<tg.Graph.Object> {
+		let object = await this.#state.load(client);
 		tg.assert(object.kind === "graph");
 		return object.value;
 	}
 
-	async load(): Promise<tg.Graph.Object> {
-		let object = await this.#state.load();
+	async load(client = tg.client): Promise<tg.Graph.Object> {
+		let object = await this.#state.load(client);
 		tg.assert(object.kind === "graph");
 		return object.value;
 	}
@@ -288,24 +288,26 @@ export class Graph {
 	}
 
 	/** Store this graph. */
-	async store(): Promise<tg.Graph.Id> {
-		await tg.Value.store(this);
+	async store(client = tg.client): Promise<tg.Graph.Id> {
+		await tg.Value.store(this, client);
 		return this.id;
 	}
 
-	get children(): Promise<Array<tg.Object>> {
-		return this.#state.children;
+	get children(): tg.Property<Array<tg.Object>> {
+		return tg.property(async (client = tg.client) => {
+			return this.#state.children(client);
+		});
 	}
 
 	/** Get this graph's nodes. */
-	get nodes(): Promise<Array<tg.Graph.Node>> {
-		return (async () => {
-			return (await this.object()).nodes;
-		})();
+	get nodes(): tg.Property<Array<tg.Graph.Node>> {
+		return tg.property(async (client = tg.client) => {
+			return (await this.object(client)).nodes;
+		});
 	}
 
-	async get(index: number): Promise<tg.Artifact> {
-		let nodes = await this.nodes;
+	async get(index: number, client = tg.client): Promise<tg.Artifact> {
+		let nodes = await this.nodes(client);
 		let node = nodes[index];
 		tg.assert(node !== undefined, "invalid graph index");
 		let artifact: tg.Artifact;

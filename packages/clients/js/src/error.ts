@@ -238,15 +238,15 @@ export class Error {
 	}
 
 	/** Get this error's object. */
-	async object(): Promise<tg.Error.Object> {
-		let object = await this.#state.load();
+	async object(client = tg.client): Promise<tg.Error.Object> {
+		let object = await this.#state.load(client);
 		tg.assert(object.kind === "error");
 		return object.value;
 	}
 
 	/** Load this error's object. */
-	async load(): Promise<tg.Error.Object> {
-		let object = await this.#state.load();
+	async load(client = tg.client): Promise<tg.Error.Object> {
+		let object = await this.#state.load(client);
 		tg.assert(object.kind === "error");
 		return object.value;
 	}
@@ -257,57 +257,61 @@ export class Error {
 	}
 
 	/** Store this error. */
-	async store(): Promise<tg.Error.Id> {
-		await tg.Value.store(this);
+	async store(client = tg.client): Promise<tg.Error.Id> {
+		await tg.Value.store(this, client);
 		return this.id;
 	}
 
 	/** Get this error's children. */
-	get children(): Promise<Array<tg.Object>> {
-		return this.#state.children;
+	get children(): tg.Property<Array<tg.Object>> {
+		return tg.property(async (client = tg.client) => {
+			return this.#state.children(client);
+		});
 	}
 
 	/** Get this error's code. */
-	get code(): Promise<string | null> {
-		return (async () => {
-			let object = await this.object();
+	get code(): tg.Property<string | null> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			return object.code ?? null;
-		})();
+		});
 	}
 
 	/** Get this error's diagnostics. */
-	get diagnostics(): Promise<Array<tg.Diagnostic> | null> {
-		return (async () => {
-			let object = await this.object();
+	get diagnostics(): tg.Property<Array<tg.Diagnostic> | null> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			return object.diagnostics ?? null;
-		})();
+		});
 	}
 
 	/** Get this error's kind without loading its sources. */
-	get kind(): Promise<tg.Error.Kind | null> {
-		return (async () => tg.Error.Object.kind(await this.object()))();
+	get kind(): tg.Property<tg.Error.Kind | null> {
+		return tg.property(async (client = tg.client) => {
+			return tg.Error.Object.kind(await this.object(client));
+		});
 	}
 
 	/** Get this error's location. */
-	get location(): Promise<tg.Error.Location | null> {
-		return (async () => {
-			let object = await this.object();
+	get location(): tg.Property<tg.Error.Location | null> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			return object.location ?? null;
-		})();
+		});
 	}
 
 	/** Get this error's message. */
-	get message(): Promise<string | null> {
-		return (async () => {
-			let object = await this.object();
+	get message(): tg.Property<string | null> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			return object.message ?? null;
-		})();
+		});
 	}
 
 	/** Get this error's source. */
-	get source(): Promise<tg.Referent<tg.Error> | null> {
-		return (async () => {
-			let object = await this.object();
+	get source(): tg.Property<tg.Referent<tg.Error> | null> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			if (object.source === null) {
 				return null;
 			}
@@ -319,23 +323,23 @@ export class Error {
 					node: tg.Error.withObject(object.source.node),
 				};
 			}
-		})();
+		});
 	}
 
 	/** Get this error's stack. */
-	get stack(): Promise<Array<tg.Error.Location> | null> {
-		return (async () => {
-			let object = await this.object();
+	get stack(): tg.Property<Array<tg.Error.Location> | null> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			return object.stack ?? null;
-		})();
+		});
 	}
 
 	/** Get this error's values. */
-	get values(): Promise<{ [key: string]: string }> {
-		return (async () => {
-			let object = await this.object();
+	get values(): tg.Property<{ [key: string]: string }> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			return object.values;
-		})();
+		});
 	}
 }
 

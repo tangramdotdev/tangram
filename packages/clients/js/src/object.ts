@@ -294,20 +294,20 @@ export namespace Object {
 			return tg.Object.Id.kind(this.#id!);
 		}
 
-		async load(): Promise<tg.Object.Object> {
-			let object = await this.#loadInner();
+		async load(client = tg.client): Promise<tg.Object.Object> {
+			let object = await this.#loadInner(client);
 			for (let child of tg.Object.Object.children(object)) {
 				child.state.inheritTokens(this.#tokens);
 			}
 			return object;
 		}
 
-		async #loadInner(): Promise<tg.Object.Object> {
+		async #loadInner(client = tg.client): Promise<tg.Object.Object> {
 			if (this.#object !== null) {
 				return this.#object;
 			}
 			if (this.#loadPromise === null) {
-				let promise = Promise.resolve().then(() => this.#load());
+				let promise = Promise.resolve().then(() => this.#load(client));
 				this.#loadPromise = promise;
 				promise.then(
 					() => this.#clearLoadPromise(promise),
@@ -318,7 +318,7 @@ export namespace Object {
 			return await this.#loadPromise;
 		}
 
-		async #load(): Promise<tg.Object.Object> {
+		async #load(client = tg.client): Promise<tg.Object.Object> {
 			let arg: tg.Object.Get.Arg = {
 				location:
 					this.#location === null
@@ -326,7 +326,7 @@ export namespace Object {
 						: tg.Location.Arg.fromLocation(this.#location),
 				tokens: tg.Authorization.Tokens.clone(this.#tokens),
 			};
-			let output = await tg.client.getObject(this.#id!, arg);
+			let output = await client.getObject(this.#id!, arg);
 			if (
 				output.tokens !== undefined &&
 				output.tokens !== null &&
@@ -359,15 +359,15 @@ export namespace Object {
 			}
 		}
 
-		get children(): Promise<Array<tg.Object>> {
-			return (async () => {
-				await this.load();
+		get children(): tg.Property<Array<tg.Object>> {
+			return tg.property(async (client = tg.client) => {
+				await this.load(client);
 				let children = tg.Object.Object.children(this.#object!);
 				for (let child of children) {
 					child.state.inheritLocation(this.#location);
 				}
 				return children;
-			})();
+			});
 		}
 	}
 

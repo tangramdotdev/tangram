@@ -47,12 +47,12 @@ export class Sandbox {
 	}
 
 	/** Load the sandbox's state. */
-	async load(): Promise<void> {
+	async load(client = tg.client): Promise<void> {
 		let arg: tg.Sandbox.Get.Arg = { tokens: this.#tokens };
 		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
-		let output = await tg.client.getSandbox(this.#id, arg);
+		let output = await client.getSandbox(this.#id, arg);
 		if (
 			output.tokens !== undefined &&
 			output.tokens !== null &&
@@ -70,17 +70,17 @@ export class Sandbox {
 	}
 
 	/** Reload the sandbox's state. */
-	async reload(): Promise<void> {
-		await this.load();
+	async reload(client = tg.client): Promise<void> {
+		await this.load(client);
 	}
 
 	/** Destroy this sandbox. */
-	async destroy(): Promise<void> {
+	async destroy(client = tg.client): Promise<void> {
 		let arg: tg.Sandbox.Destroy.Arg = {};
 		if (this.#location !== null) {
 			arg.location = this.#location;
 		}
-		await tg.client.destroySandbox(this.#id, arg);
+		await client.destroySandbox(this.#id, arg);
 		this.detach();
 	}
 

@@ -264,14 +264,14 @@ export class Command<
 	}
 
 	/** Get this command's object. */
-	async object(): Promise<tg.Command.Object> {
-		let object = await this.#state.load();
+	async object(client = tg.client): Promise<tg.Command.Object> {
+		let object = await this.#state.load(client);
 		tg.assert(object.kind === "command");
 		return object.value;
 	}
 
-	async load(): Promise<tg.Command.Object> {
-		let object = await this.#state.load();
+	async load(client = tg.client): Promise<tg.Command.Object> {
+		let object = await this.#state.load(client);
 		tg.assert(object.kind === "command");
 		return object.value;
 	}
@@ -281,61 +281,63 @@ export class Command<
 	}
 
 	/** Store this command. */
-	async store(): Promise<tg.Command.Id> {
-		await tg.Value.store(this);
+	async store(client = tg.client): Promise<tg.Command.Id> {
+		await tg.Value.store(this, client);
 		return this.id;
 	}
 
-	get children(): Promise<Array<tg.Object>> {
-		return this.#state.children;
+	get children(): tg.Property<Array<tg.Object>> {
+		return tg.property(async (client = tg.client) => {
+			return this.#state.children(client);
+		});
 	}
 
 	/** Get this command's arguments. */
-	get args(): Promise<Array<tg.Command.Value>> {
-		return (async () => {
-			return (await this.object()).args;
-		})();
+	get args(): tg.Property<Array<tg.Command.Value>> {
+		return tg.property(async (client = tg.client) => {
+			return (await this.object(client)).args;
+		});
 	}
 
 	/** Get this command's cwd. */
-	get cwd(): Promise<string | null> {
-		return (async () => {
-			return (await this.object()).cwd ?? null;
-		})();
+	get cwd(): tg.Property<string | null> {
+		return tg.property(async (client = tg.client) => {
+			return (await this.object(client)).cwd ?? null;
+		});
 	}
 
 	/** Get this command's environment. */
-	get env(): Promise<{ [key: string]: tg.Command.Value }> {
-		return (async () => {
-			return (await this.object()).env;
-		})();
+	get env(): tg.Property<{ [key: string]: tg.Command.Value }> {
+		return tg.property(async (client = tg.client) => {
+			return (await this.object(client)).env;
+		});
 	}
 
 	/** Get this command's executable. */
-	get executable(): Promise<tg.Command.Executable> {
-		return (async () => {
-			return (await this.object()).executable;
-		})();
+	get executable(): tg.Property<tg.Command.Executable> {
+		return tg.property(async (client = tg.client) => {
+			return (await this.object(client)).executable;
+		});
 	}
 
 	/** Get this command's host. */
-	get host(): Promise<string> {
-		return (async () => {
-			return (await this.object()).host;
-		})();
+	get host(): tg.Property<string> {
+		return tg.property(async (client = tg.client) => {
+			return (await this.object(client)).host;
+		});
 	}
 
-	get stdin(): Promise<tg.Blob | null> {
-		return (async () => {
-			return (await this.object()).stdin ?? null;
-		})();
+	get stdin(): tg.Property<tg.Blob | null> {
+		return tg.property(async (client = tg.client) => {
+			return (await this.object(client)).stdin ?? null;
+		});
 	}
 
 	/** Get this command's user. */
-	get user(): Promise<string | null> {
-		return (async () => {
-			return (await this.object()).user ?? null;
-		})();
+	get user(): tg.Property<string | null> {
+		return tg.property(async (client = tg.client) => {
+			return (await this.object(client)).user ?? null;
+		});
 	}
 
 	/** Build this command and return the process's output. */

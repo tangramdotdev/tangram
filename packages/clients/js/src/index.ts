@@ -14,7 +14,7 @@ import {
 	extract,
 } from "./builtin.ts";
 import { Checksum, checksum } from "./checksum.ts";
-import { client } from "./client.ts";
+import { Client, client } from "./client.ts";
 import { Command, command } from "./command.ts";
 import { Diagnostic } from "./diagnostic.ts";
 import { Directory, directory } from "./directory.ts";
@@ -32,6 +32,7 @@ import { path } from "./path.ts";
 import { output, Placeholder, placeholder } from "./placeholder.ts";
 import { Process, process, setProcess } from "./process.ts";
 import { Progress } from "./progress.ts";
+import { type Property, property } from "./property.ts";
 import type { Range } from "./range.ts";
 import { Reference } from "./reference.ts";
 import { Referent } from "./referent.ts";
@@ -68,6 +69,7 @@ export type {
 	MaybePromise,
 	MaybeReferent,
 	MutationMap,
+	Property,
 	Range,
 	Resolved,
 	ResolvedArgs,
@@ -98,6 +100,7 @@ export {
 	Artifact,
 	Blob,
 	Checksum,
+	Client,
 	Command,
 	Diagnostic,
 	Directory,
@@ -145,6 +148,7 @@ export {
 	path,
 	placeholder,
 	process,
+	property,
 	resolve,
 	run,
 	setEncoding,

@@ -157,14 +157,14 @@ export class Blob {
 		return id;
 	}
 
-	async object(): Promise<tg.Blob.Object> {
-		let object = await this.#state.load();
+	async object(client = tg.client): Promise<tg.Blob.Object> {
+		let object = await this.#state.load(client);
 		tg.assert(object.kind === "blob");
 		return object.value;
 	}
 
-	async load(): Promise<tg.Blob.Object> {
-		let object = await this.#state.load();
+	async load(client = tg.client): Promise<tg.Blob.Object> {
+		let object = await this.#state.load(client);
 		tg.assert(object.kind === "blob");
 		return object.value;
 	}
@@ -174,19 +174,21 @@ export class Blob {
 	}
 
 	/** Store this blob. */
-	async store(): Promise<tg.Blob.Id> {
-		await tg.Value.store(this);
+	async store(client = tg.client): Promise<tg.Blob.Id> {
+		await tg.Value.store(this, client);
 		return this.id;
 	}
 
-	get children(): Promise<Array<tg.Object>> {
-		return this.#state.children;
+	get children(): tg.Property<Array<tg.Object>> {
+		return tg.property(async (client = tg.client) => {
+			return this.#state.children(client);
+		});
 	}
 
 	/** Get this blob's length. */
-	get length(): Promise<number> {
-		return (async () => {
-			let object = await this.object();
+	get length(): tg.Property<number> {
+		return tg.property(async (client = tg.client) => {
+			let object = await this.object(client);
 			if ("children" in object) {
 				return object.children
 					.map(({ length }) => length)
@@ -194,27 +196,32 @@ export class Blob {
 			} else {
 				return object.bytes.byteLength;
 			}
-		})();
+		});
 	}
 
 	/** Read from this blob. */
-	async read(options?: tg.Blob.ReadOptions | null): Promise<Uint8Array> {
-		let id = await this.store();
+	async read(
+		options?: tg.Blob.ReadOptions | null,
+		client = tg.client,
+	): Promise<Uint8Array> {
+		let id = await this.store(client);
 		let arg: tg.Read.Arg = { blob: id, ...options };
 		arg.tokens = this.state.tokens;
-		return await tg.client.read(arg);
+		return await client.read(arg);
 	}
 
 	/** Read this entire blob to a `Uint8Array`. */
-	get bytes(): Promise<Uint8Array> {
-		return this.read();
+	get bytes(): tg.Property<Uint8Array> {
+		return tg.property(async (client = tg.client) => {
+			return this.read(undefined, client);
+		});
 	}
 
 	/** Read this entire blob to a string. */
-	get text(): Promise<string> {
-		return (async () => {
-			return tg.encoding.utf8.decode(await this.bytes);
-		})();
+	get text(): tg.Property<string> {
+		return tg.property(async (client = tg.client) => {
+			return tg.encoding.utf8.decode(await this.bytes(client));
+		});
 	}
 }
 
