@@ -1751,8 +1751,8 @@ impl Session {
 			value.children_with_tokens(&mut objects);
 		}
 		if let Some(tg::Either::Right(id)) = &data.error {
-			let id = tg::object::Id::Error(id.node.clone());
-			objects.push(tg::Referent::with_node(id));
+			let id = id.clone().map(tg::object::Id::Error);
+			objects.push(id);
 		}
 		if objects.is_empty() {
 			return Ok(());
