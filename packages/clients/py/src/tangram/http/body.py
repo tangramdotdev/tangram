@@ -122,23 +122,23 @@ class Body:
 
 
 async def decode_sse(body: AsyncIterable[bytes]) -> AsyncIterator[SseEvent]:
-    buffer = b""
+    buffer = ""
     async for chunk in body:
-        buffer += chunk
+        buffer += chunk.decode("utf-8-sig", errors="replace")
         while True:
-            index = buffer.find(b"\n\n")
+            index = buffer.find("\n\n")
             length = 2
             if index == -1:
-                index = buffer.find(b"\r\n\r\n")
+                index = buffer.find("\r\n\r\n")
                 length = 4
             if index == -1:
                 break
             block = buffer[:index]
             buffer = buffer[index + length :]
-            event = parse_sse(block.decode("utf-8-sig", errors="replace"))
+            event = parse_sse(block)
             if event is not None:
                 yield event
-    event = parse_sse(buffer.decode("utf-8-sig", errors="replace"))
+    event = parse_sse(buffer)
     if event is not None:
         yield event
 
