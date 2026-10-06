@@ -235,7 +235,11 @@ mod tests {
 	#[test]
 	fn python_self_reference_preserves_the_filename() {
 		let path = Path::new("/python-test/task?value#1.tg.py");
-		let analysis = analyze(path, "pass").unwrap();
+		let module = tg::module::Data {
+			kind: tg::module::Kind::Py,
+			referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
+		};
+		let analysis = crate::Compiler::analyze(&module, "pass").unwrap();
 		let expected = tg::Reference::with_path(Path::new("task?value#1.tg.py").to_owned());
 		assert!(
 			analysis
@@ -247,7 +251,13 @@ mod tests {
 
 	#[test]
 	fn python_self_reference_round_trips_through_a_lock() {
-		let analysis = analyze(Path::new("/python-test/tangram.py"), "pass").unwrap();
+		let module = tg::module::Data {
+			kind: tg::module::Kind::Py,
+			referent: tg::Referent::with_node(tg::module::data::Source::Path(
+				"/python-test/tangram.py".into(),
+			)),
+		};
+		let analysis = crate::Compiler::analyze(&module, "pass").unwrap();
 		for import in analysis.imports {
 			let encoded = serde_json::to_string(&import.reference).unwrap();
 			let decoded: tg::Reference = serde_json::from_str(&encoded).unwrap();
@@ -258,9 +268,13 @@ mod tests {
 	#[test]
 	fn python_parse_errors_have_source_locations() {
 		let path = Path::new("/test/main.tg.py");
+		let module = tg::module::Data {
+			kind: tg::module::Kind::Py,
+			referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
+		};
 		for source in ["pass\nx = )", "pass\nx = '🙂'; )", "pass\nx = ("] {
 			let parsed = ruff_python_parser::parse_module(source).unwrap_err();
-			let error = analyze(path, source)
+			let error = crate::Compiler::analyze(&module, source)
 				.err()
 				.unwrap()
 				.to_data_or_id()

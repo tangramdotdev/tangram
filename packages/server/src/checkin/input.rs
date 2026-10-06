@@ -482,18 +482,7 @@ impl Session {
 				kind,
 				referent: tg::Referent::with_node(tg::module::data::Source::Path(path.clone())),
 			};
-			let analysis = if kind == tg::module::Kind::Py {
-				#[cfg(feature = "py")]
-				{
-					tangram_compiler::analyze::py::analyze(&path, &text)?
-				}
-				#[cfg(not(feature = "py"))]
-				{
-					return Err(tg::error!("the py feature is not enabled"));
-				}
-			} else {
-				tangram_compiler::Compiler::analyze(&module, &text)
-			};
+			let analysis = tangram_compiler::Compiler::analyze(&module, &text)?;
 			for diagnostic in analysis.diagnostics {
 				state.progress.diagnostic(diagnostic);
 			}
