@@ -42,6 +42,9 @@ impl Session {
 				tokens.inherit(&authorization_tokens);
 			});
 		}
+		if let Some(log) = &mut data.log {
+			log.options.tokens.inherit(&authorization_tokens);
+		}
 		if let Some(tg::Either::Right(error)) = &mut data.error {
 			error.options.tokens.inherit(&authorization_tokens);
 		}

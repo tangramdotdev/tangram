@@ -303,8 +303,8 @@ impl Session {
 			.await?
 			.ok_or_else(|| tg::error!("expected the process to exist"))?;
 
-		let mut inner = if let Some(id) = output.data.log.map(|log| log.node) {
-			let blob = tg::Blob::with_id(id);
+		let mut inner = if let Some(log) = output.data.log {
+			let blob = tg::Blob::with_referent(log);
 			let mut reader = crate::read::Reader::new(self, blob).await?;
 			let index = self.read_log_index_from_blob(&mut reader).await?;
 			Inner::Blob(BlobInner {
@@ -537,10 +537,10 @@ impl Inner {
 		else {
 			return Ok(false);
 		};
-		let Some(blob_id) = output.data.log.map(|log| log.node) else {
+		let Some(log) = output.data.log else {
 			return Ok(false);
 		};
-		let blob = tg::Blob::with_id(blob_id);
+		let blob = tg::Blob::with_referent(log);
 		let mut reader = crate::read::Reader::new(&inner.session, blob).await?;
 		let index = inner.session.read_log_index_from_blob(&mut reader).await?;
 		*self = Inner::Blob(BlobInner {
