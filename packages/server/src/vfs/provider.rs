@@ -52,7 +52,6 @@ pub struct Inner {
 	nodes: Nodes,
 	origin: crate::Origin,
 	principal: Mutex<Option<tg::Principal>>,
-	remote_tokens: Mutex<tg::authorization::Tokens>,
 	runtime: tokio::runtime::Handle,
 	server: Server,
 }
@@ -175,7 +174,6 @@ impl Provider {
 		let file_handles = DashMap::default();
 		let handle_count = AtomicU64::new(1000);
 		let principal = Mutex::new(principal);
-		let remote_tokens = Mutex::new(tg::authorization::Tokens::default());
 		let runtime = tokio::runtime::Handle::current();
 		let server = server.clone();
 		let provider = Inner {
@@ -187,7 +185,6 @@ impl Provider {
 			nodes,
 			origin,
 			principal,
-			remote_tokens,
 			runtime,
 			server,
 		};
@@ -213,7 +210,6 @@ impl Provider {
 		session: &Session,
 		tokens: &tg::authorization::Tokens,
 	) -> tg::Result<()> {
-		self.inherit_remote_tokens(tokens);
 		let tokens = tg::authorization::Tokens::with_authorization(
 			tokens
 				.local_authorization()
@@ -223,12 +219,6 @@ impl Provider {
 		);
 		self.nodes.insert_tokens(session, &tokens)?;
 		Ok(())
-	}
-
-	fn inherit_remote_tokens(&self, tokens: &tg::authorization::Tokens) {
-		let mut incoming = tokens.clone();
-		incoming.remove_local();
-		self.remote_tokens.lock().unwrap().inherit(&incoming);
 	}
 
 	pub fn handle_batch(
@@ -1799,12 +1789,8 @@ impl Provider {
 			.await?;
 
 		// Create the stream.
-		let mut tokens = tg::authorization::Tokens::with_authorization(
+		let tokens = tg::authorization::Tokens::with_authorization(
 			file_handle.tokens.lock().unwrap().clone(),
-		);
-		tokens.inherit_with_resource(
-			&self.remote_tokens.lock().unwrap(),
-			Some(&file_handle.blob.clone().into()),
 		);
 		let options = tg::read::Options {
 			length: Some(length),
@@ -3045,14 +3031,9 @@ impl Provider {
 	}
 
 	fn register_output(
-		&self,
 		tokens: &Mutex<Vec<tg::authorization::Token>>,
 		output: &tg::object::get::Output,
 	) {
-		self.inherit_remote_tokens(&output.tokens);
-		for child in output.children.values() {
-			self.inherit_remote_tokens(&child.tokens);
-		}
 		let incoming = output
 			.tokens
 			.local_authorization()
@@ -3163,12 +3144,8 @@ impl Provider {
 			self.register_data(children_expires_at, tokens, id, authorization, &data)?;
 			return Ok(Some(data));
 		}
-		let mut request_tokens =
+		let request_tokens =
 			tg::authorization::Tokens::with_authorization(tokens.lock().unwrap().clone());
-		request_tokens.inherit_with_resource(
-			&self.remote_tokens.lock().unwrap(),
-			Some(&id.clone().into()),
-		);
 		let arg = tg::object::get::Arg {
 			tokens: request_tokens,
 			..Default::default()
@@ -3181,7 +3158,7 @@ impl Provider {
 		let Some(output) = output else {
 			return Ok(None);
 		};
-		self.register_output(tokens, &output);
+		Self::register_output(tokens, &output);
 		let data = tg::object::Data::deserialize(id.kind(), output.bytes)
 			.map_err(|error| Self::map_cache_sync_error(&error))?;
 		Ok(Some(data))
