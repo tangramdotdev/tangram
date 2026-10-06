@@ -4,9 +4,6 @@ use {crate::Cli, tangram_client::prelude::*};
 #[derive(Clone, Debug, clap::Args)]
 #[group(skip)]
 pub struct Args {
-	#[command(flatten)]
-	pub location: crate::location::Args,
-
 	/// If this flag is set, the lock will not be updated.
 	#[arg(long)]
 	pub locked: bool,
@@ -29,7 +26,7 @@ impl Cli {
 		// Check the modules.
 		let modules = modules.iter().map(tg::Module::to_data).collect();
 		let arg = tg::check::Arg {
-			location: args.location.get(),
+			location: None,
 			modules,
 		};
 		let output = client
