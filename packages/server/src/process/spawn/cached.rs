@@ -548,7 +548,7 @@ impl Session {
 			sandbox_arg: None,
 			sandbox_token: None,
 			scheduler: None,
-			tokens: token.into_iter().collect(),
+			tokens: tg::authorization::Tokens::with_authorization(token),
 		})
 	}
 
@@ -641,7 +641,7 @@ impl Session {
 			sandbox_arg: None,
 			sandbox_token: None,
 			scheduler: None,
-			tokens: output.tokens.local_authorization().to_vec(),
+			tokens: output.tokens,
 		})
 	}
 

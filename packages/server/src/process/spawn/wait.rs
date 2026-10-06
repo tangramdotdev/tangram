@@ -190,7 +190,7 @@ impl Session {
 	async fn spawn_process_wait_local(
 		&self,
 		id: Option<tg::process::Id>,
-		tokens: Vec<tg::authorization::Token>,
+		tokens: tg::authorization::Tokens,
 		outcome: Option<tg::process::outcome::Data>,
 		finished: bool,
 	) -> tg::Result<Option<tg::process::outcome::Data>> {
@@ -199,7 +199,7 @@ impl Session {
 		}
 		if let Some(id) = id {
 			let arg = tg::process::wait::Arg {
-				tokens: tg::authorization::Tokens::with_authorization(tokens),
+				tokens,
 				..Default::default()
 			};
 			let outcome = self
@@ -381,7 +381,7 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local::default())),
 			outcome,
 			process: tg::Either::Right(output.id),
-			tokens: tg::authorization::Tokens::with_authorization(output.tokens),
+			tokens: output.tokens,
 		};
 
 		Ok(output)

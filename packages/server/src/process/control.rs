@@ -867,6 +867,7 @@ impl Session {
 		let session = self.get_remote_session_for_process(&remote).await.map_err(
 			|error| tg::error!(!error, remote = %remote, ?id, "failed to get the remote client"),
 		)?;
+		let trusted = session.trusted();
 		let context = session.context().clone();
 		context.set_token(self.context.token.clone());
 		let session = session.client().session(&context);
@@ -895,7 +896,12 @@ impl Session {
 			})
 			.boxed();
 		let arg = tg::process::control::Arg {
-			location: Some(tg::Location::Local(tg::location::Local { region }).into()),
+			location: Some(
+				tg::Location::Local(tg::location::Local {
+					region: region.clone(),
+				})
+				.into(),
+			),
 			..arg
 		};
 		let output = session
@@ -904,11 +910,22 @@ impl Session {
 			.map_err(
 				|error| tg::error!(!error, remote = %remote, "failed to get the control stream"),
 			)?;
-		let output = output.map(|(header, stream)| {
-			let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
-			(header, stream)
+		let Some((mut header, stream)) = output else {
+			return Ok(None);
+		};
+		let location = tg::Location::Remote(tg::location::Remote {
+			name: remote,
+			region,
 		});
-		Ok(output)
+		self.update_tokens_and_location(
+			&mut header.process.options.tokens,
+			Some(&mut header.process.options.location),
+			&location,
+			trusted,
+		)?;
+		let stream = stream.with_stopper(self.context.stopper.clone()).boxed();
+
+		Ok(Some((header, stream)))
 	}
 
 	pub(crate) async fn request_process_control(

@@ -170,7 +170,7 @@ impl Session {
 		output: &mut Output,
 		connected_event: crate::runner::process::ConnectedEvent,
 	) {
-		let tokens = connected_event.process.local_tokens().to_vec();
+		let tokens = connected_event.process.options.tokens;
 		output.id = connected_event.process.node;
 		output.lease = Some(connected_event.lease);
 		if !tokens.is_empty() {

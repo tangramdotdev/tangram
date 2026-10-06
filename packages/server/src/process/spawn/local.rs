@@ -20,7 +20,7 @@ pub(super) struct Output {
 	pub sandbox_arg: Option<tg::sandbox::create::Arg>,
 	pub sandbox_token: Option<String>,
 	pub scheduler: Option<tg::scheduler::Id>,
-	pub tokens: Vec<tg::authorization::Token>,
+	pub tokens: tg::authorization::Tokens,
 }
 
 impl Output {
@@ -433,7 +433,7 @@ impl Session {
 			sandbox_arg,
 			sandbox_token,
 			scheduler: arg.scheduler.clone(),
-			tokens: token.into_iter().collect(),
+			tokens: tg::authorization::Tokens::with_authorization(token),
 		};
 		// Write the creator permissions independently of the sandbox and prepare command access.
 		let mut items = Vec::new();
