@@ -747,53 +747,6 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn complete_log_compaction(&self, entry: &index::log::Entry) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.complete_log_compaction(entry).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.complete_log_compaction(entry).await,
-		}
-	}
-
-	async fn enqueue_log_compaction(&self, process: &tg::process::Id) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.enqueue_log_compaction(process).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.enqueue_log_compaction(process).await,
-		}
-	}
-
-	async fn log_compaction_batch(
-		&self,
-		batch_size: usize,
-		partition_start: u64,
-		partition_end: u64,
-	) -> tg::Result<Vec<index::log::Entry>> {
-		#[cfg(not(feature = "foundationdb"))]
-		let _ = (partition_start, partition_end);
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => {
-				index
-					.log_compaction_batch(batch_size, partition_start, partition_end)
-					.await
-			},
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.log_compaction_batch(batch_size).await,
-		}
-	}
-
-	async fn try_get_oldest_log_compaction_transaction_id(&self) -> tg::Result<Option<u64>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_oldest_log_compaction_transaction_id().await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_oldest_log_compaction_transaction_id().await,
-		}
-	}
-
 	async fn try_get_oldest_update_transaction_id(
 		&self,
 		kind: index::update::Kind,
@@ -872,15 +825,6 @@ impl index::Index for Index {
 		}
 	}
 
-	fn log_compaction_partition_total(&self) -> u64 {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.log_compaction_partition_total(),
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.log_compaction_partition_total(),
-		}
-	}
-
 	fn storage_and_metadata_update_partition_total(&self) -> u64 {
 		match self {
 			#[cfg(feature = "foundationdb")]
@@ -948,10 +892,6 @@ impl Server {
 					if arg.output.is_some()
 			)
 		});
-		let log_compaction = arg
-			.items
-			.iter()
-			.any(|item| matches!(item, index::batch::Item::EnqueueLogCompaction(_)));
 		let destroyed_sandbox = arg.items.iter().any(|item| {
 			matches!(item, index::batch::Item::PutSandbox(arg)
 				if arg.data.as_ref().is_some_and(|data| data.data.status.is_destroyed()))
@@ -981,9 +921,7 @@ impl Server {
 					if result.is_ok() {
 						server.index_changed.notify_waiters();
 					}
-					if result.is_ok() && log_compaction {
-						server.spawn_publish_log_compaction_notification_task();
-					}
+
 					let result = result.and_then(std::convert::identity);
 					if let Err(error) = &result {
 						tracing::error!(error = %error.trace(), "failed to index a batch");

@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Verify that a large compacted log can be transferred and read completely without an early EOF.
+# Verify that a large finished log can be transferred and read completely without an early EOF.
 
 let local = server spawn --name local
 let remote = server spawn --name remote
@@ -22,7 +22,7 @@ tg --url $local.url remote put default $remote.url | complete
 tg --url $local.url push --process-log-objects $id
 
 let log = tg --url $remote.url get $id | from json | get log?
-assert ($log != null) "The completed log should be compacted and sent"
+assert ($log != null) "The completed log should be finished and sent"
 assert equal $log (tg --url $local.url get $id | from json | get log)
 
 let output = tg --url $remote.url log --no-timeout $id | complete

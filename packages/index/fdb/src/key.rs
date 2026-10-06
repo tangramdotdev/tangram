@@ -13,7 +13,6 @@ pub enum Key {
 	PermissionCapture { id: Vec<u8>, partition: u64 },
 	Group(crate::group::Key),
 	Indexer(crate::indexer::Key),
-	LogCompaction(crate::log::Key),
 	Node(crate::node::Key),
 	Object(crate::object::Key),
 	Organization(crate::organization::Key),
@@ -67,8 +66,6 @@ pub enum Kind {
 	ProcessSandbox = 41,
 	CreatorSandbox = 42,
 	OwnerSandbox = 43,
-	LogCompaction = 45,
-	LogCompactionVersion = 47,
 	AccountObject = 51,
 	ObjectAccount = 52,
 	AccountProcess = 53,
@@ -624,24 +621,6 @@ impl fdbt::TuplePack for Key {
 						.pack(w, tuple_depth),
 				}
 			},
-
-			Key::LogCompaction(crate::log::Key::Identity(process)) => (
-				Kind::LogCompaction.to_i32().unwrap(),
-				process.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
-
-			Key::LogCompaction(crate::log::Key::Version {
-				partition,
-				process,
-				version,
-			}) => (
-				Kind::LogCompactionVersion.to_i32().unwrap(),
-				partition,
-				version,
-				process.to_bytes().as_ref(),
-			)
-				.pack(w, tuple_depth),
 
 			Key::Update(crate::update::Key::PropagatedVersion { id, kind }) => {
 				let key_kind = match kind {
@@ -1661,30 +1640,6 @@ impl fdbt::TupleUnpack<'_> for Key {
 					},
 				};
 				let key = Key::Clean(key);
-				Ok((input, key))
-			},
-
-			Kind::LogCompaction => {
-				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let process = tg::process::Id::from_slice(&id)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				Ok((
-					input,
-					Key::LogCompaction(crate::log::Key::Identity(process)),
-				))
-			},
-
-			Kind::LogCompactionVersion => {
-				let (input, partition): (_, u64) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let (input, version) = fdbt::Versionstamp::unpack(input, tuple_depth)?;
-				let (input, id): (_, Vec<u8>) = fdbt::TupleUnpack::unpack(input, tuple_depth)?;
-				let process = tg::process::Id::from_slice(&id)
-					.map_err(|_| fdbt::PackError::Message("invalid process id".into()))?;
-				let key = Key::LogCompaction(crate::log::Key::Version {
-					partition,
-					process,
-					version,
-				});
 				Ok((input, key))
 			},
 

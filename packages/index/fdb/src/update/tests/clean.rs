@@ -11,7 +11,6 @@ async fn cleaning_supports_different_partition_totals() {
 	let partition_totals = crate::PartitionTotals {
 		cleaning: 1,
 		permission_update: 3,
-		log_compaction: 2,
 		storage_and_metadata_update: 4,
 		usage_update: 2,
 		usage: 1,

@@ -502,27 +502,21 @@ impl Session {
 						)
 						.await?;
 					}
-					let log_needs_compaction = Self::process_log_needs_compaction(&data);
 
 					// Update the graph with the storage, metadata, and data.
-					let (request, availability) = {
+					let availability = {
 						let mut graph = state.graph.lock().unwrap();
-						let request = state.arg.process_log_objects
-							&& log_needs_compaction
-							&& graph.get_process_requested(&node.id).is_none();
 						let arg = UpdateProcessLocalArg {
 							data: Some(&data),
 							id: &node.id,
 							marked: None,
 							metadata: Some(metadata.clone()),
 							permissions,
-							requested: request.then_some(Requested { eager: node.eager }),
+							requested: None,
 							storage: Some(*storage),
 						};
 						graph.update_process_local(arg);
-						let availability = graph.get_process_local_availability(&node.id);
-
-						(request, availability)
+						graph.get_process_local_availability(&node.id)
 					};
 
 					// Enqueue the children as necessary.
@@ -534,23 +528,6 @@ impl Session {
 						&node.local_tokens,
 						&node.remote_tokens,
 					);
-
-					// Request the process if its log is not available yet.
-					if request {
-						let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
-							descendants: true,
-							eager: node.eager,
-							selector: tg::Selector::Id(node.id.clone().into()),
-							tokens: tg::authorization::Tokens::with_local_entry(
-								node.remote_tokens.clone(),
-							),
-						});
-						state
-							.sender
-							.send(Ok(message))
-							.await
-							.map_err(|error| tg::error!(!error, "failed to send the message"))?;
-					}
 
 					// Send the available portions of the process.
 					if Graph::process_any_available(&availability) {

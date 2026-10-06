@@ -17,7 +17,6 @@ mod error;
 mod group;
 mod indexer;
 mod key;
-mod log;
 mod node;
 mod object;
 mod organization;
@@ -59,7 +58,6 @@ pub struct Options {
 	pub cluster: std::path::PathBuf,
 	pub permission_update_partition_total: u64,
 	pub instance: Option<String>,
-	pub log_compaction_partition_total: u64,
 	pub max_process_depth: Option<u64>,
 	pub storage_and_metadata_update_partition_total: u64,
 	pub read_request_batch_size: usize,
@@ -81,7 +79,6 @@ pub struct VerificationConfig {
 pub(crate) struct PartitionTotals {
 	pub cleaning: u64,
 	pub permission_update: u64,
-	pub log_compaction: u64,
 	pub storage_and_metadata_update: u64,
 	pub usage_update: u64,
 	pub usage: u64,
@@ -114,7 +111,6 @@ impl Index {
 		let partition_totals = PartitionTotals {
 			cleaning: options.cleaning_partition_total,
 			permission_update: options.permission_update_partition_total,
-			log_compaction: options.log_compaction_partition_total,
 			storage_and_metadata_update: options.storage_and_metadata_update_partition_total,
 			usage_update: options.usage_update_partition_total,
 			usage: options.usage_partition_total,
@@ -201,7 +197,6 @@ impl Index {
 				"permission update",
 				options.permission_update_partition_total,
 			),
-			("log compaction", options.log_compaction_partition_total),
 			(
 				"storage and metadata update",
 				options.storage_and_metadata_update_partition_total,
@@ -292,11 +287,6 @@ impl Index {
 	#[must_use]
 	pub fn permission_update_partition_total(&self) -> u64 {
 		self.partition_totals.permission_update
-	}
-
-	#[must_use]
-	pub fn log_compaction_partition_total(&self) -> u64 {
-		self.partition_totals.log_compaction
 	}
 
 	#[must_use]
@@ -721,28 +711,6 @@ impl tangram_index::Index for Index {
 		self.delete_users(ids).await
 	}
 
-	async fn complete_log_compaction(&self, entry: &tangram_index::log::Entry) -> tg::Result<()> {
-		self.complete_log_compaction(entry).await
-	}
-
-	async fn enqueue_log_compaction(&self, process: &tg::process::Id) -> tg::Result<()> {
-		self.enqueue_log_compaction(process).await
-	}
-
-	async fn log_compaction_batch(
-		&self,
-		batch_size: usize,
-		partition_start: u64,
-		partition_end: u64,
-	) -> tg::Result<Vec<tangram_index::log::Entry>> {
-		self.log_compaction_batch(batch_size, partition_start, partition_end)
-			.await
-	}
-
-	async fn try_get_oldest_log_compaction_transaction_id(&self) -> tg::Result<Option<u64>> {
-		self.try_get_oldest_log_compaction_transaction_id().await
-	}
-
 	async fn try_get_oldest_update_transaction_id(
 		&self,
 		kind: tangram_index::update::Kind,
@@ -782,10 +750,6 @@ impl tangram_index::Index for Index {
 
 	fn permission_update_partition_total(&self) -> u64 {
 		self.permission_update_partition_total()
-	}
-
-	fn log_compaction_partition_total(&self) -> u64 {
-		self.log_compaction_partition_total()
 	}
 
 	fn storage_and_metadata_update_partition_total(&self) -> u64 {

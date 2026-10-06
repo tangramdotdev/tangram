@@ -255,32 +255,6 @@ impl Index {
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::ContainsIds(output)
 			},
-			tangram_index::read::Request::LogCompactionBatch {
-				batch_size,
-				partition_end,
-				partition_start,
-			} => {
-				let Some(partition_end) = partition_end else {
-					return Err(tg::error!(
-						"the log compaction request is missing a partition end"
-					));
-				};
-				let Some(partition_start) = partition_start else {
-					return Err(tg::error!(
-						"the log compaction request is missing a partition start"
-					));
-				};
-				let result = Self::log_compaction_batch_with_transaction(
-					transaction,
-					subspace,
-					*batch_size,
-					*partition_start,
-					*partition_end,
-				)
-				.await;
-				let output = crate::propagate!(result);
-				tangram_index::read::Response::LogCompactionBatch(output)
-			},
 			tangram_index::read::Request::GetIndexers => {
 				let result = Self::get_indexers_with_transaction(transaction, subspace).await;
 				let output = crate::propagate!(result);
@@ -464,16 +438,6 @@ impl Index {
 					Self::try_get_objects_with_transaction(transaction, subspace, ids).await;
 				let output = crate::propagate!(result);
 				tangram_index::read::Response::TryGetObjects(output)
-			},
-			tangram_index::read::Request::TryGetOldestLogCompactionTransactionId => {
-				let result = Self::try_get_oldest_log_compaction_transaction_id_with_transaction(
-					transaction,
-					subspace,
-					partition_totals.log_compaction,
-				)
-				.await;
-				let output = crate::propagate!(result);
-				tangram_index::read::Response::TryGetOldestLogCompactionTransactionId(output)
 			},
 			tangram_index::read::Request::TryGetOldestUpdateTransactionId { kind } => {
 				let result = Self::try_get_oldest_update_transaction_id_with_transaction(

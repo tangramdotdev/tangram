@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Reproduces a bug where reading a compacted log with mid-entry position repeats endlessly.
+# Reproduces a bug where reading a finished log with mid-entry position repeats endlessly.
 
 let remote = server spawn --name remote
 

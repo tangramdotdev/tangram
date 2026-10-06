@@ -13,6 +13,9 @@ def test [...args] {
 	# Create a source server.
 	let local_source = server spawn --name local-source
 
+	# Configure destinations for copying complete log blobs.
+	tg --url $local_source.url remote put fixture-local $local.url
+
 	# Add the remote to the local server.
 	tg remote put default $remote.url
 
@@ -75,7 +78,7 @@ def test [...args] {
 
 	# Put the log to the local server.
 	let log_id = tg --url $local_source.url get $process_id | from json | get log
-	tg --url $local_source.url get --bytes $log_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
+	tg --url $local_source.url push $log_id --remote=fixture-local --no-tokens
 
 	# Confirm the module is not on the local server.
 	let output = tg --url $local.url get $module_id | complete

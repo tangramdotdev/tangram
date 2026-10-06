@@ -731,9 +731,6 @@ pub struct FdbIndex {
 	pub instance: Option<String>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub log_compaction_partition_total: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub storage_and_metadata_update_partition_total: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -804,7 +801,7 @@ pub struct Indexer {
 	pub id: Option<tg::indexer::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub log_compaction: Option<BoolOr<IndexerLogCompaction>>,
+	pub log_cache: Option<BoolOr<IndexerLogCache>>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub object_cache_partitions: Option<IndexerPartitions>,
@@ -931,7 +928,7 @@ pub struct IndexerRequest {
 #[serde_as]
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct IndexerLogCompaction {
+pub struct IndexerLogCache {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub batch_size: Option<usize>,
 
@@ -943,7 +940,7 @@ pub struct IndexerLogCompaction {
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub wakeup_interval: Option<Duration>,
+	pub poll_interval: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -1306,6 +1303,13 @@ pub struct Process {
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub children_wakeup_interval: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub log_cache_partition_total: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub log_time_to_live: Option<Duration>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3061,9 +3065,6 @@ fn resolve_fdb_index(source: FdbIndex) -> server::FdbIndex {
 	if let Some(value) = source.instance {
 		target.instance = Some(value);
 	}
-	if let Some(value) = source.log_compaction_partition_total {
-		target.log_compaction_partition_total = value;
-	}
 	if let Some(value) = source.storage_and_metadata_update_partition_total {
 		target.storage_and_metadata_update_partition_total = value;
 	}
@@ -3141,8 +3142,8 @@ fn resolve_indexer(source: &Indexer) -> server::Indexer {
 	if let Some(id) = &source.id {
 		target.id = Some(id.clone());
 	}
-	if let Some(source) = source.log_compaction {
-		target.log_compaction = resolve_indexer_log_compaction(source);
+	if let Some(source) = source.log_cache {
+		target.log_cache = resolve_indexer_log_cache(source);
 	}
 	if let Some(source) = source.object_cache_partitions {
 		target.object_cache_partitions = resolve_indexer_partitions(source);
@@ -3304,10 +3305,8 @@ fn resolve_capacity_threshold_direction<T>(
 	}
 }
 
-fn resolve_indexer_log_compaction(
-	source: BoolOr<IndexerLogCompaction>,
-) -> server::IndexerLogCompaction {
-	let mut target = server::IndexerLogCompaction::default();
+fn resolve_indexer_log_cache(source: BoolOr<IndexerLogCache>) -> server::IndexerLogCache {
+	let mut target = server::IndexerLogCache::default();
 	let (enabled, source) = match source {
 		BoolOr::Bool(enabled) => (enabled, None),
 		BoolOr::Value(source) => (true, Some(source)),
@@ -3323,8 +3322,8 @@ fn resolve_indexer_log_compaction(
 		if let Some(source) = source.partitions {
 			target.partitions = resolve_indexer_partitions(source);
 		}
-		if let Some(value) = source.wakeup_interval {
-			target.wakeup_interval = value;
+		if let Some(value) = source.poll_interval {
+			target.poll_interval = value;
 		}
 	}
 	target
@@ -3708,6 +3707,12 @@ fn resolve_process(source: Process) -> server::Process {
 	}
 	if let Some(value) = source.children_wakeup_interval {
 		target.children_wakeup_interval = value;
+	}
+	if let Some(value) = source.log_cache_partition_total {
+		target.log_cache_partition_total = value;
+	}
+	if let Some(value) = source.log_time_to_live {
+		target.log_time_to_live = value;
 	}
 	if let Some(value) = source.permission_time_to_live {
 		target.permission_time_to_live = value;
@@ -4788,7 +4793,7 @@ mod tests {
 		let source: Config = serde_json::from_value(serde_json::json!({
 			"checkouts": false,
 			"indexer": {
-				"log_compaction": false,
+				"log_cache": false,
 				"usage": { "aggregation": true },
 			},
 			"usage": true,
@@ -4800,7 +4805,7 @@ mod tests {
 		assert!(!target.checkouts);
 		assert!(server::Config::default().checkouts);
 		let indexer = source.indexer.unwrap();
-		assert!(matches!(indexer.log_compaction, Some(BoolOr::Bool(false))));
+		assert!(matches!(indexer.log_cache, Some(BoolOr::Bool(false))));
 		let usage = indexer.usage.unwrap();
 		assert!(matches!(usage.aggregation, Some(BoolOr::Bool(true))));
 	}
@@ -4930,6 +4935,8 @@ mod tests {
 			},
 			"process": {
 				"children_wakeup_interval": 0.4,
+				"log_cache_partition_total": 16,
+				"log_time_to_live": 1800,
 				"status_wakeup_interval": 0.5,
 				"stdio_wakeup_interval": 0.6,
 			},
@@ -4989,6 +4996,9 @@ mod tests {
 			target.process.children_wakeup_interval,
 			Duration::from_millis(400)
 		);
+		assert_eq!(target.process.log_cache_partition_total, 16);
+		assert_eq!(target.process.log_time_to_live, Duration::from_mins(30));
+
 		assert_eq!(
 			target.process.status_wakeup_interval,
 			Duration::from_millis(500)
@@ -5028,7 +5038,7 @@ mod tests {
 					},
 				},
 				"id": "idx_0000000000000000000000000000",
-				"log_compaction": {
+				"log_cache": {
 					"partitions": {
 						"end": 10,
 						"start": 4,
@@ -5086,8 +5096,8 @@ mod tests {
 		);
 		assert_eq!(target.indexer.cleaning.partitions.end, 9);
 		assert_eq!(target.indexer.cleaning.partitions.start, 3);
-		assert_eq!(target.indexer.log_compaction.partitions.end, 10);
-		assert_eq!(target.indexer.log_compaction.partitions.start, 4);
+		assert_eq!(target.indexer.log_cache.partitions.end, 10);
+		assert_eq!(target.indexer.log_cache.partitions.start, 4);
 		assert_eq!(target.indexer.object_cache_partitions.end, 8);
 		assert_eq!(target.indexer.object_cache_partitions.start, 2);
 		assert_eq!(target.indexer.request.concurrency, 43);
@@ -5195,37 +5205,34 @@ mod tests {
 	}
 
 	#[test]
-	fn resolves_indexer_log_compaction() {
+	fn resolves_indexer_log_cache() {
 		let source = Indexer {
-			log_compaction: Some(BoolOr::Value(IndexerLogCompaction {
+			log_cache: Some(BoolOr::Value(IndexerLogCache {
 				batch_size: Some(11),
 				concurrency: Some(2),
 				partitions: Some(IndexerPartitions {
 					end: Some(9),
 					start: Some(3),
 				}),
-				wakeup_interval: Some(Duration::from_millis(250)),
+				poll_interval: Some(Duration::from_millis(250)),
 			})),
 			..Indexer::default()
 		};
 		let target = resolve_indexer(&source);
 
-		assert_eq!(target.log_compaction.batch_size, 11);
-		assert_eq!(target.log_compaction.concurrency, 2);
-		assert!(target.log_compaction.enabled);
-		assert_eq!(target.log_compaction.partitions.end, 9);
-		assert_eq!(target.log_compaction.partitions.start, 3);
-		assert_eq!(
-			target.log_compaction.wakeup_interval,
-			Duration::from_millis(250)
-		);
+		assert_eq!(target.log_cache.batch_size, 11);
+		assert_eq!(target.log_cache.concurrency, 2);
+		assert!(target.log_cache.enabled);
+		assert_eq!(target.log_cache.partitions.end, 9);
+		assert_eq!(target.log_cache.partitions.start, 3);
+		assert_eq!(target.log_cache.poll_interval, Duration::from_millis(250));
 
 		let source = Indexer {
-			log_compaction: Some(BoolOr::Bool(false)),
+			log_cache: Some(BoolOr::Bool(false)),
 			..Indexer::default()
 		};
 		let target = resolve_indexer(&source);
-		assert!(!target.log_compaction.enabled);
+		assert!(!target.log_cache.enabled);
 	}
 
 	#[test]
@@ -5348,7 +5355,6 @@ mod tests {
 		let fdb = resolve_fdb_index(FdbIndex {
 			cleaning_partition_total: Some(128),
 			permission_update_partition_total: Some(256),
-			log_compaction_partition_total: Some(64),
 			storage_and_metadata_update_partition_total: Some(512),
 			usage_update_partition_total: Some(1_024),
 			usage_partition_total: Some(512),
@@ -5361,7 +5367,6 @@ mod tests {
 
 		assert_eq!(fdb.cleaning_partition_total, 128);
 		assert_eq!(fdb.permission_update_partition_total, 256);
-		assert_eq!(fdb.log_compaction_partition_total, 64);
 		assert_eq!(fdb.storage_and_metadata_update_partition_total, 512);
 		assert_eq!(fdb.usage_update_partition_total, 1_024);
 		assert_eq!(fdb.usage_partition_total, 512);

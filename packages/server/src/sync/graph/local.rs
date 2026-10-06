@@ -270,21 +270,11 @@ impl Graph {
 				if node.objects.is_some() {
 					let children_known = node.children.is_some();
 					let children = node.state.children.facts();
-					let mut objects = node.state.objects.map(super::state::Dependencies::facts);
-					let mut subtree_objects = node
+					let objects = node.state.objects.map(super::state::Dependencies::facts);
+					let subtree_objects = node
 						.state
 						.subtree_objects
 						.map(super::state::Dependencies::facts);
-					// The log metadata remains unknown until compaction; storage covers only existing object references.
-					if node
-						.data
-						.as_ref()
-						.is_some_and(crate::Session::process_log_needs_compaction)
-					{
-						objects.log_objects.metadata = tg::object::metadata::Subtree::default();
-						subtree_objects.log_objects.metadata =
-							tg::object::metadata::Subtree::default();
-					}
 					let storage = [
 						(
 							objects.command_objects.storage,

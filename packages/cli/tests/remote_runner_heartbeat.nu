@@ -8,7 +8,6 @@ let config = {
 		single_process: false,
 	},
 	authentication: { root: { token: $root_token } },
-	indexer: { log_compaction: false },
 	roles: [api indexer scheduler],
 	scheduler: {
 		runner_ttl: 3,
@@ -60,11 +59,6 @@ wait_until {
 }
 wait_until { (tg --url $remote.url --token $root_token process status $empty_process | from json | first) == "started" }
 
-# Simulate a process that finished before its writer could send the log end request.
-let data = tg --url $remote.url --token $root_token get $empty_process | from json
-let data = $data | upsert children [] | upsert exit 0 | upsert finished_at $data.started_at | upsert status finished
-$data | to json | tg --url $remote.url --token $root_token process put $empty_process
-
 let pid = open ($runner.directory | path join 'lock') | into int
 kill --signal 9 $pid
 
@@ -88,7 +82,7 @@ let output = http get --raw --unix-socket $socket --headers { Authorization: $'B
 let processes = $output | lines | where { $in starts-with 'data: ' } | each { str substring 6.. | from json | get data } | flatten
 assert ($process in $processes)
 
-# The stored markers close nonempty and empty logs without compaction, including after a restart.
+# Recovery finishes nonempty and empty log objects before publishing the failed processes.
 for restart in [false true] {
 	let remote = if $restart { server restart $remote } else { $remote }
 	let output = timeout 10 tg --url $remote.url --token $root_token log --no-timeout $process | complete

@@ -4,7 +4,6 @@ use ../lib/test.nu *
 
 let local = server spawn --config {
 	cache: { kind: 'fjall', read_batch_size: 2, write_batch_size: 2 }
-	indexer: { log_compaction: false }
 }
 let content = 'x' | fill --width 1024 --character 'x'
 let path = artifact {

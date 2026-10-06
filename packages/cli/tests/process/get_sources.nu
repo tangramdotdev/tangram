@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Live control requests do not wait for the index; finished process gets do so to preserve compacted logs.
+# Live control requests do not wait for the index; finished process gets do so to preserve finished logs.
 
 let root_token = random chars
 let local_owner = server spawn --name local-owner --config {
@@ -18,7 +18,7 @@ let runner = server spawn --name runner --config {
 }
 let finish_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.finish | from json | get watch
 let retention_watch = tg --url $runner.url --token $root_token checkpoint watch runner.process.control.retention.finished | from json | get watch
-let path = artifact { tangram.ts: 'export default () => { console.log("compacted log"); return "done"; };' }
+let path = artifact { tangram.ts: 'export default () => { console.log("finished log"); return "done"; };' }
 let process = tg --url $local_owner.url --token $root_token build --no-tokens --detach $path | referent node
 timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.finish $finish_watch 0 | ignore
 let params = { process: $process } | to json --raw
@@ -41,12 +41,12 @@ for operation in [get status children] {
 	tg --url $local_owner.url --token $root_token checkpoint unwatch process.get.index $watch
 }
 
-# Retain finished control state while the owner compacts its log.
+# Retain finished control state while the owner transfers its finished log.
 tg --url $runner.url --token $root_token checkpoint unwatch runner.process.finish $finish_watch
 timeout 30s tg --url $runner.url --token $root_token checkpoint wait runner.process.control.retention.finished $retention_watch 0 | ignore
 tg --url $local_owner.url --token $root_token index
 let indexed = tg --url $local_owner.url --token $root_token get $process | from json
-assert ($indexed.log? | is-not-empty) "the finished index must contain a compacted log"
+assert ($indexed.log? | is-not-empty) "the finished index must contain a finished log"
 
 # Status and wait use finished control data without waiting for the index.
 for operation in [status wait] {
@@ -86,9 +86,9 @@ let output = job recv --tag $get_job --timeout 10sec
 success $output
 assert equal ($output.stdout | from json | get log) $indexed.log
 
-# Retained local runner state must consult the owner for the compacted log too.
+# Retained local runner state must consult the owner for the finished log too.
 let output = tg --url $runner.url --token $root_token get --remote $process | from json
 assert equal ($output.log | split row '?' | first) ($indexed.log | split row '?' | first)
 let log = tg --url $local_owner.url --token $root_token process log $process | str trim
-assert equal $log 'compacted log'
+assert equal $log 'finished log'
 tg --url $runner.url --token $root_token checkpoint unwatch runner.process.control.retention.finished $retention_watch

@@ -493,8 +493,6 @@ pub struct FdbIndex {
 
 	pub instance: Option<String>,
 
-	pub log_compaction_partition_total: u64,
-
 	pub storage_and_metadata_update_partition_total: u64,
 
 	pub read_request_batch_size: usize,
@@ -541,8 +539,6 @@ pub struct Indexer {
 	pub id: Option<tg::indexer::Id>,
 
 	pub log_cache: IndexerLogCache,
-
-	pub log_compaction: IndexerLogCompaction,
 
 	pub object_cache_partitions: IndexerPartitions,
 
@@ -627,19 +623,6 @@ pub struct IndexerLogCache {
 	pub enabled: bool,
 	pub partitions: IndexerPartitions,
 	pub poll_interval: Duration,
-}
-
-#[derive(Clone, Debug)]
-pub struct IndexerLogCompaction {
-	pub batch_size: usize,
-
-	pub concurrency: usize,
-
-	pub enabled: bool,
-
-	pub partitions: IndexerPartitions,
-
-	pub wakeup_interval: Duration,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -1688,7 +1671,6 @@ impl Default for FdbIndex {
 			cluster: PathBuf::from("/etc/foundationdb/fdb.cluster"),
 			permission_update_partition_total: 1,
 			instance: None,
-			log_compaction_partition_total: 1,
 			storage_and_metadata_update_partition_total: 1,
 			read_request_batch_size: 64,
 			read_transaction_concurrency: 64,
@@ -1786,18 +1768,6 @@ impl Default for IndexerLogCache {
 			enabled: true,
 			partitions: IndexerPartitions::default(),
 			poll_interval: Duration::from_mins(1),
-		}
-	}
-}
-
-impl Default for IndexerLogCompaction {
-	fn default() -> Self {
-		Self {
-			batch_size: 1024,
-			concurrency: 1,
-			enabled: true,
-			partitions: IndexerPartitions::default(),
-			wakeup_interval: Duration::from_mins(1),
 		}
 	}
 }

@@ -112,14 +112,6 @@ impl Index {
 						std::slice::from_ref(id),
 					)?;
 				},
-				tangram_index::batch::Item::EnqueueLogCompaction(process) => {
-					Self::enqueue_log_compaction_with_transaction(
-						db,
-						subspace,
-						transaction,
-						process,
-					)?;
-				},
 				tangram_index::batch::Item::PutCheckout(arg) => {
 					Self::put_checkouts_with_transaction(
 						db,

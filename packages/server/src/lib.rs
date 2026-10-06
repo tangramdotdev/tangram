@@ -371,23 +371,7 @@ impl Server {
 			{
 				return Err(tg::error!("the log cache partition range is invalid"));
 			}
-			if indexer.log_compaction.enabled {
-				if indexer.log_compaction.batch_size == 0 {
-					return Err(tg::error!(
-						"the indexer log compaction batch size must be greater than zero"
-					));
-				}
-				if indexer.log_compaction.concurrency == 0 {
-					return Err(tg::error!(
-						"the indexer log compaction concurrency must be greater than zero"
-					));
-				}
-				if indexer.log_compaction.wakeup_interval.is_zero() {
-					return Err(tg::error!(
-						"the indexer log compaction wakeup interval must be greater than zero"
-					));
-				}
-			}
+
 			for (name, update) in [
 				("permission", &indexer.updates.permissions),
 				(
@@ -444,11 +428,6 @@ impl Server {
 						index.cleaning_partition_total,
 					),
 					(
-						"log compaction",
-						&indexer.log_compaction.partitions,
-						index.log_compaction_partition_total,
-					),
-					(
 						"permission update",
 						&indexer.updates.permissions.partitions,
 						index.permission_update_partition_total,
@@ -471,7 +450,6 @@ impl Server {
 				],
 				self::config::Index::Lmdb(index) => [
 					("cleaning", &indexer.cleaning.partitions, 1),
-					("log compaction", &indexer.log_compaction.partitions, 1),
 					(
 						"permission update",
 						&indexer.updates.permissions.partitions,
@@ -949,7 +927,6 @@ impl Server {
 						permission_update_partition_total: options
 							.permission_update_partition_total,
 						instance: options.instance.clone(),
-						log_compaction_partition_total: options.log_compaction_partition_total,
 						max_process_depth: config
 							.roles
 							.contains(&self::config::Role::Indexer)

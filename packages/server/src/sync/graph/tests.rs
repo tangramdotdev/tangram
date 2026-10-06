@@ -504,7 +504,7 @@ fn process_metadata_and_availability_settle_without_finalization() {
 }
 
 #[test]
-fn process_log_metadata_waits_for_compaction() {
+fn process_log_metadata_includes_the_finished_log() {
 	let arg = tg::sync::Arg::default();
 	let mut graph = Graph::new(&arg, false);
 	let parent = tg::process::Id::new();
@@ -514,20 +514,20 @@ fn process_log_metadata_waits_for_compaction() {
 	update_process(&mut graph, &parent, &parent_data);
 	let mut child_data = process_data(&command, Some(&[]));
 	child_data.stdout = tg::process::Stdio::Log;
+	let log = tg::blob::Id::new(b"log");
+	child_data.log = Some(tg::Referent::with_node(log.clone()));
 	update_process(&mut graph, &child, &child_data);
 	let node = graph.nodes()[&tg::Id::from(child.clone())].unwrap_process_ref();
 	assert_eq!(node.metadata().unwrap().node.log_objects.count, None);
 	assert!(
-		node.local_storage()
+		!node
+			.local_storage()
 			.contains(tg::process::storage::Set::NODE_LOG_OBJECTS)
 	);
 	let node = graph.nodes()[&tg::Id::from(parent.clone())].unwrap_process_ref();
 	assert_eq!(node.metadata().unwrap().subtree.log_objects.count, None);
-	assert!(node.local_availability().unwrap().subtree_log_objects);
+	assert!(!node.local_availability().unwrap().subtree_log_objects);
 
-	let log = tg::blob::Id::new(b"log");
-	child_data.log = Some(tg::Referent::with_node(log.clone()));
-	update_process(&mut graph, &child, &child_data);
 	update_object(&mut graph, &log.clone().into(), &[]);
 	let permissions = tg::authorization::permission::Set::Object(
 		tg::authorization::permission::object::Set::SUBTREE,

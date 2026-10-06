@@ -33,7 +33,6 @@ enum RequestState {
 	Inputs {
 		database_index_queue: Progress<()>,
 		indexers: Progress<()>,
-		log_compactions: Progress<u64>,
 	},
 	Updates {
 		transaction_id: Option<u64>,
@@ -54,7 +53,7 @@ impl Server {
 		let request = Request {
 			id: crate::control::id(),
 			sender,
-			state: RequestState::new(self.config.indexer.log_compaction.enabled),
+			state: RequestState::new(),
 		};
 		self.index_wait_sender
 			.send(request)
@@ -273,23 +272,15 @@ impl State {
 	}
 
 	async fn poll(&mut self, server: &Server) -> tg::Result<()> {
-		// Index batches can enqueue log compactions, so snapshot them after the indexers finish.
 		let region = server.config.region.clone().unwrap_or_default();
-		self.poll_inputs(
-			|batch| async move {
-				crate::checkpoint!(server, "index.wait.database_index_queue", ?batch).await;
-				let arg = crate::database::index::queue::TryGetBatchArg { batch, region };
-				server
-					.database
-					.try_get_index_queue_batch_at_or_before(arg)
-					.await
-			},
-			async {
-				crate::checkpoint!(server, "index.wait.compactions").await;
-				server.index.get_transaction_id().await
-			},
-			server.index.try_get_oldest_log_compaction_transaction_id(),
-		)
+		self.poll_inputs(|batch| async move {
+			crate::checkpoint!(server, "index.wait.database_index_queue", ?batch).await;
+			let arg = crate::database::index::queue::TryGetBatchArg { batch, region };
+			server
+				.database
+				.try_get_index_queue_batch_at_or_before(arg)
+				.await
+		})
 		.await?;
 
 		// Share each global progress read across all active wait requests.
@@ -330,8 +321,6 @@ impl State {
 	async fn poll_inputs<F>(
 		&mut self,
 		read_database_index_queue: impl FnOnce(Option<crate::database::index::queue::BatchId>) -> F,
-		read_transaction_id: impl Future<Output = tg::Result<u64>>,
-		read_log_compactions: impl Future<Output = tg::Result<Option<u64>>>,
 	) -> tg::Result<()>
 	where
 		F: Future<Output = tg::Result<Option<crate::database::index::queue::BatchId>>>,
@@ -356,42 +345,7 @@ impl State {
 			Ok(Some(batch))
 		};
 
-		// Share the compaction snapshot and progress read across all eligible requests.
-		let log_compactions = async {
-			let snapshot = self.waits.values().any(|request| {
-				matches!(
-					request.state,
-					RequestState::Inputs {
-						indexers: Progress::Complete,
-						log_compactions: Progress::Ready,
-						..
-					}
-				)
-			});
-			let poll = snapshot
-				|| self.waits.values().any(|request| {
-					matches!(
-						request.state,
-						RequestState::Inputs {
-							indexers: Progress::Complete,
-							log_compactions: Progress::Pending(_),
-							..
-						}
-					)
-				});
-			if !poll {
-				return Ok::<_, tg::Error>(None);
-			}
-			let transaction_id = if snapshot {
-				Some(read_transaction_id.await?)
-			} else {
-				None
-			};
-			let oldest = read_log_compactions.await?;
-			Ok(Some((transaction_id, oldest)))
-		};
-		let (database_index_queue, log_compactions) =
-			future::try_join(database_index_queue, log_compactions).await?;
+		let database_index_queue = database_index_queue.await?;
 
 		// Advance each input independently without admitting later requests to an older snapshot.
 		if let Some(batch) = database_index_queue {
@@ -421,27 +375,6 @@ impl State {
 				self.database_index_queue_batch_id = batch;
 			}
 		}
-		if let Some((transaction_id, oldest)) = log_compactions {
-			tracing::debug!(?transaction_id, ?oldest, "read the log compaction progress");
-			for request in self.waits.values_mut() {
-				let RequestState::Inputs {
-					indexers: Progress::Complete,
-					log_compactions,
-					..
-				} = &mut request.state
-				else {
-					continue;
-				};
-				if matches!(log_compactions, Progress::Ready) {
-					*log_compactions = Progress::Pending(transaction_id.unwrap());
-				}
-				if let Progress::Pending(transaction_id) = *log_compactions
-					&& oldest.is_none_or(|oldest| oldest > transaction_id)
-				{
-					*log_compactions = Progress::Complete;
-				}
-			}
-		}
 
 		Ok(())
 	}
@@ -450,14 +383,13 @@ impl State {
 		&mut self,
 		read: impl Future<Output = tg::Result<u64>>,
 	) -> tg::Result<()> {
-		// Capture the update cutoff only after all three inputs have completed.
+		// Capture the update cutoff only after both inputs have completed.
 		for request in self.waits.values_mut() {
 			if matches!(
 				request.state,
 				RequestState::Inputs {
 					database_index_queue: Progress::Complete,
 					indexers: Progress::Complete,
-					log_compactions: Progress::Complete,
 				}
 			) {
 				request.state = RequestState::Updates {
@@ -541,15 +473,10 @@ impl State {
 }
 
 impl RequestState {
-	fn new(log_compaction: bool) -> Self {
+	fn new() -> Self {
 		Self::Inputs {
 			database_index_queue: Progress::Ready,
 			indexers: Progress::Ready,
-			log_compactions: if log_compaction {
-				Progress::Ready
-			} else {
-				Progress::Complete
-			},
 		}
 	}
 }

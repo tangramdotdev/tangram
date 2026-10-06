@@ -5,7 +5,6 @@ mod clean;
 mod delegation;
 mod indexer;
 mod location;
-mod log;
 mod object;
 mod reader;
 mod storage;

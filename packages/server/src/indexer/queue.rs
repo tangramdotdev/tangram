@@ -798,10 +798,6 @@ impl Indexer {
 		let arg = tangram_index::batch::Arg::deserialize(&bytes)?;
 		tracing::debug!(items = arg.items.len(), "decoded the index batch");
 		drop(bytes);
-		let log_compaction = arg
-			.items
-			.iter()
-			.any(|item| matches!(item, tangram_index::batch::Item::EnqueueLogCompaction(_)));
 
 		// Wait for the object puts before indexing the batch.
 		let puts = arg
@@ -821,9 +817,6 @@ impl Indexer {
 		}
 		crate::checkpoint!(self.server, "index.batch").await;
 		let result = self.server.index_batch_inner(arg).await?;
-		if log_compaction {
-			self.server.spawn_publish_log_compaction_notification_task();
-		}
 
 		Ok(result)
 	}

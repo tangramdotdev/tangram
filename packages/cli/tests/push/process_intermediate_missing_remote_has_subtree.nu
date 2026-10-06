@@ -13,6 +13,10 @@ def test [...args] {
 	# Create a source server.
 	let local_source = server spawn --name local-source
 
+	# Configure destinations for copying complete log blobs.
+	tg --url $local_source.url remote put fixture-local $local.url
+	tg --url $local_source.url remote put fixture-remote $remote.url
+
 	# Create a module that spawns a chain of 4 child processes: A -> B -> C -> D.
 	# A calls B, B calls C, C calls D, D returns a file.
 	let path = artifact {
@@ -117,7 +121,7 @@ def test [...args] {
 	tg --url $local_source.url get --bytes $blob_d_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
 
 	# Put log A to the local server.
-	tg --url $local_source.url get --bytes $log_a_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
+	tg --url $local_source.url push $log_a_id --remote=fixture-local --no-tokens
 
 	# Local does NOT have process B (the intermediate process is missing locally).
 
@@ -160,9 +164,9 @@ def test [...args] {
 	tg --url $local_source.url get --bytes $blob_d_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
 
 	# Put logs B, C, D to the remote server.
-	tg --url $local_source.url get --bytes $log_b_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
-	tg --url $local_source.url get --bytes $log_c_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
-	tg --url $local_source.url get --bytes $log_d_id | tg --url $remote.url put --no-tokens --bytes --kind blob | referent node
+	tg --url $local_source.url push $log_b_id --remote=fixture-remote --no-tokens
+	tg --url $local_source.url push $log_c_id --remote=fixture-remote --no-tokens
+	tg --url $local_source.url push $log_d_id --remote=fixture-remote --no-tokens
 
 	# Confirm process B is not on the local server.
 	let output = tg --url $local.url get $process_b_id | complete

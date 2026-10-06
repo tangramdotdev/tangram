@@ -27,7 +27,6 @@ async fn run(test: impl AsyncFnOnce(&Index)) {
 	let partition_totals = crate::PartitionTotals {
 		cleaning: 2,
 		permission_update: 2,
-		log_compaction: 2,
 		storage_and_metadata_update: 2,
 		usage_update: 2,
 		usage: 1,
@@ -54,7 +53,6 @@ async fn run_with_partition_totals(
 			"index_update_test_{:032x}/",
 			rand::random::<u128>()
 		)),
-		log_compaction_partition_total: partition_totals.log_compaction,
 		max_process_depth: None,
 		storage_and_metadata_update_partition_total: partition_totals.storage_and_metadata_update,
 		read_request_batch_size: 1,

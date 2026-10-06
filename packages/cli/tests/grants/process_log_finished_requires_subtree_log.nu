@@ -1,24 +1,24 @@
 use ../lib/test.nu *
 
-# Once a process log is compacted, it becomes a blob object, so reading it requires a grant on that object rather than just the process node: process_node alone must not read the compacted log, but process_node plus process_subtree_log_objects must.
+# Once a process log is finished, it becomes a blob object, so reading it requires a grant on that object rather than just the process node: process_node alone must not read the finished log, but process_node plus process_subtree_log_objects must.
 
 let local = server spawn --config { authentication: { users: { providers: { insecure: true } } } }
 
 let alice = tg login --verbose --name alice | from json
 let eve = tg login --verbose --name eve | from json
 
-# Alice builds a process that logs a secret and waits for its log to be compacted.
+# Alice builds a process that logs a secret and waits for its log to be finished.
 let path = artifact { tangram.ts: 'export default async function () { console.log("loghello"); return 0 }' }
 let process = tg --token $alice.token build --no-tokens --detach $path | referent node
 tg --token $alice.token wait --source=index $process
 tg --token $alice.token index
 
-# Eve with only the process node must not read the compacted log; the log is now an object that the process node does not confer.
+# Eve with only the process node must not read the finished log; the log is now an object that the process node does not confer.
 tg --token $alice.token grant $eve.user.id process_node $process | ignore
 let node_only = tg --token $eve.token log $process | complete
 snapshot --normalize $node_only.stdout ''
 
-# With process_subtree_log_objects added, Eve can read the compacted log object.
+# With process_subtree_log_objects added, Eve can read the finished log object.
 tg --token $alice.token grant $eve.user.id process_subtree_log_objects $process | ignore
 let with_log = tg --token $eve.token log $process | complete
 snapshot --normalize $with_log.stdout '

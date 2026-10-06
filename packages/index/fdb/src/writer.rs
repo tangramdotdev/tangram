@@ -317,7 +317,6 @@ impl Index {
 				Response::Mutation(Ok(()))
 			},
 			Request::CompletePermissionCapture(_)
-			| Request::CompleteLogCompaction(_)
 			| Request::DeletePermissions(_)
 			| Request::DeleteGroupMembers(_)
 			| Request::DeleteGroups(_)
@@ -327,7 +326,6 @@ impl Index {
 			| Request::DeleteSandboxes(_)
 			| Request::DeleteTags(_)
 			| Request::DeleteUsers(_)
-			| Request::EnqueueLogCompaction(_)
 			| Request::PutCheckouts(_)
 			| Request::PutPermissions(_)
 			| Request::PutGroupMembers(_)
@@ -378,10 +376,6 @@ impl Index {
 				)
 			},
 			Request::ExpireUsage(arg) => (vec![Item::ExpireUsage], Kind::ExpireUsage(arg)),
-			Request::CompleteLogCompaction(entry) => (
-				vec![Item::CompleteLogCompaction(entry)],
-				Kind::CompleteLogCompaction,
-			),
 			Request::DeletePermissions(args) => {
 				let items = args.into_iter().map(Item::DeletePermission).collect();
 				(items, Kind::DeletePermissions)
@@ -417,10 +411,6 @@ impl Index {
 				let items = ids.into_iter().map(Item::DeleteUser).collect();
 				(items, Kind::DeleteUsers)
 			},
-			Request::EnqueueLogCompaction(process) => (
-				vec![Item::EnqueueLogCompaction(process)],
-				Kind::EnqueueLogCompaction,
-			),
 			Request::GetUsage {
 				account,
 				now,
@@ -576,13 +566,6 @@ impl Index {
 				};
 				Request::ExpireUsage(arg.clone())
 			},
-			Kind::CompleteLogCompaction => {
-				let items: [Item; 1] = items.try_into().ok().unwrap();
-				let [Item::CompleteLogCompaction(entry)] = items else {
-					unreachable!();
-				};
-				Request::CompleteLogCompaction(entry)
-			},
 			Kind::DeletePermissions => {
 				let args = items
 					.into_iter()
@@ -662,13 +645,6 @@ impl Index {
 					})
 					.collect();
 				Request::DeleteUsers(ids)
-			},
-			Kind::EnqueueLogCompaction => {
-				let items: [Item; 1] = items.try_into().ok().unwrap();
-				let [Item::EnqueueLogCompaction(process)] = items else {
-					unreachable!();
-				};
-				Request::EnqueueLogCompaction(process)
 			},
 			Kind::GetUsage {
 				account,
@@ -1064,8 +1040,6 @@ impl Index {
 					| Request::CompletePermissionCapture(_)
 					| Request::Clean(_)
 					| Request::ExpireUsage(_)
-					| Request::CompleteLogCompaction(_)
-					| Request::EnqueueLogCompaction(_)
 					| Request::GetUsage { .. }
 					| Request::PutCheckouts(_)
 					| Request::PutPermissions(_)
@@ -1241,12 +1215,6 @@ impl Index {
 				let output = crate::propagate!(result);
 				Response::ExpireUsageOutput(output)
 			},
-			Request::CompleteLogCompaction(entry) => {
-				let result =
-					Self::complete_log_compaction_with_transaction(txn, subspace, entry).await;
-				crate::propagate!(result);
-				Response::Unit
-			},
 			Request::DeletePermissions(args) => {
 				let result = Self::delete_permissions_with_transaction(
 					txn,
@@ -1299,17 +1267,6 @@ impl Index {
 			Request::DeleteTags(tags) => {
 				let result =
 					Self::delete_tags_with_transaction(txn, subspace, tags, partition_totals).await;
-				crate::propagate!(result);
-				Response::Unit
-			},
-			Request::EnqueueLogCompaction(process) => {
-				let result = Self::enqueue_log_compaction_with_transaction(
-					txn,
-					subspace,
-					process,
-					partition_totals.log_compaction,
-				)
-				.await;
 				crate::propagate!(result);
 				Response::Unit
 			},

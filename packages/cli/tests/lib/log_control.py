@@ -7,7 +7,7 @@ import subprocess
 import sys
 import time
 
-case, socket_path, tangram, url, parent, data_path, compaction = sys.argv[1:]
+case, socket_path, tangram, url, parent, data_path = sys.argv[1:]
 with open(data_path) as file:
     finished = json.load(file)
 finished.pop("log", None)
@@ -118,7 +118,7 @@ def early_finish():
     watches = {name: checkpoint("watch", name)["watch"] for name in (
         "process.control.header", "process.control.finish",
     )}
-    # End the synthetic writer's empty log before Finish queues compaction.
+    # End the synthetic writer's empty log before Finish.
     end = {"kind": "write", "value": {"kind": "end", "value": {
         "combined_position": 0, "stream_positions": {"stderr": 0, "stdout": 0},
     }}}
@@ -196,16 +196,7 @@ def reconnect():
     close(sock, response)
 
     command = [tangram, "--url", url]
-    if compaction == "true":
-        deadline = time.monotonic() + 10
-        while True:
-            process = json.loads(subprocess.check_output(command + ["get", id], timeout=10))
-            if process.get("log") is not None:
-                break
-            assert time.monotonic() < deadline, "the log did not compact"
-            time.sleep(0.05)
-
-    # Repeat End after losing its response, including after compaction.
+    # Repeat End after losing its response, after Finish.
     sock, response, _ = connect(arg, token)
     assert request(sock, response, "end", end)["value"] == {"closed": True, "length": 0}
     close(sock, response)

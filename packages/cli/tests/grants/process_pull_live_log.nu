@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Pulling a process with its logs must not let a node-only reader obtain a live log. Sync omits live logs, and the process is kept running so its log cannot be transferred as a compacted object.
+# Pulling a process with its logs must not let a node-only reader obtain a live log. Sync omits live logs, and the process is kept running so its log cannot be transferred as a finished object.
 
 let root_token = random chars
 let remote = server spawn --cloud --name remote --preserve-keys --config {
@@ -37,7 +37,7 @@ let eve_local = server spawn --name eve-local --config {
 	remotes: { default: { url: $remote.url, token: $eve.token } },
 }
 
-# Eve pulls the process with its logs. The remote must not compact and ship the log she cannot read.
+# Eve pulls the process with its logs. The remote must not transfer the log she cannot read.
 tg --url $eve_local.url pull $process --process-log-objects | complete
 
 # Eve must not be able to read Alice's private live log content on her own server.

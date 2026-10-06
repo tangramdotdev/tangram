@@ -726,7 +726,7 @@ impl Session {
 		};
 
 		// Spawn a task to put the process if it is finished.
-		if output.data.status.is_finished() && !Self::process_log_needs_compaction(&output.data) {
+		if output.data.status.is_finished() {
 			self.spawn_remote_process_put_task(
 				id,
 				&output.data,
@@ -797,7 +797,6 @@ impl Session {
 		};
 		let options = crate::process::put::Options {
 			defer_index: false,
-			enqueue_log_compaction: false,
 			location: location.and_then(|location| location.to_location()),
 			store_data: true,
 			sync: None,

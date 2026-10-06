@@ -18,47 +18,50 @@ impl Session {
 			Self::inherit_process_authorization_tokens_for_sync(&mut arg.data, sync);
 		}
 
-		// Prepare the cache expiration.
-		let log_cache_entry = if arg.data.log.is_some() {
-			let finished_at = arg
-				.data
-				.finished_at
-				.ok_or_else(|| tg::error!("missing the process finish timestamp"))?;
-			let expires_at = finished_at
-				+ i64::try_from(self.server.config.process.log_time_to_live.as_secs()).unwrap();
-			let partition = tg::id::BuildHasher.hash_one(id)
-				% self.server.config.process.log_cache_partition_total;
-			let entry = tangram_cache::log::cache::Entry {
-				expires_at,
-				partition,
-				process: id.clone(),
-			};
-			Some(entry)
-		} else {
-			None
-		};
+		let data = arg.data.clone();
 
 		let options = crate::process::put::Options {
 			defer_index: true,
-			enqueue_log_compaction: true,
 			location: None,
 			store_data: true,
 			sync: sync.cloned(),
 		};
 		self.put_finished_process_local(id, arg.data, options)
 			.await?;
-		// Register cache expiration before acknowledging Finish.
-		if let Some(entry) = log_cache_entry {
-			let arg = tangram_cache::log::cache::put::Arg { entry };
-			self.server.cache.put_log_cache_entry(arg).await.map_err(
-				|error| tg::error!(!error, %id, "failed to register the log cache expiration"),
-			)?;
-		}
+		self.expire_process_log_cache(id, &data).await?;
+
 		self.server
 			.spawn_publish_process_stdio_close_message_task(id, tg::process::stdio::Stream::Stdin);
 		crate::checkpoint!(self.server, "process.control.finish.submitted", process = %id).await;
 
 		Ok(tg::process::control::FinishServerResponseOutput {})
+	}
+
+	pub(crate) async fn expire_process_log_cache(
+		&self,
+		id: &tg::process::Id,
+		data: &tg::process::Data,
+	) -> tg::Result<()> {
+		if !data.stdout.is_log() && !data.stderr.is_log() {
+			return Ok(());
+		}
+		let finished_at = data
+			.finished_at
+			.ok_or_else(|| tg::error!("missing the process finish timestamp"))?;
+		let expires_at = finished_at
+			+ i64::try_from(self.server.config.process.log_time_to_live.as_secs()).unwrap();
+		let partition =
+			tg::id::BuildHasher.hash_one(id) % self.server.config.process.log_cache_partition_total;
+		let entry = tangram_cache::log::cache::Entry {
+			expires_at,
+			partition,
+			process: id.clone(),
+		};
+		let arg = tangram_cache::log::cache::put::Arg { entry };
+		self.server.cache.put_log_cache_entry(arg).await.map_err(
+			|error| tg::error!(!error, %id, "failed to register the log cache expiration"),
+		)?;
+		Ok(())
 	}
 
 	pub(crate) fn inherit_process_authorization_tokens_for_sync(

@@ -13,6 +13,9 @@ def test [...args] {
 	# Create a source server.
 	let local_source = server spawn --name local-source
 
+	# Configure destinations for copying complete log blobs.
+	tg --url $local_source.url remote put fixture-local $local.url
+
 	# Create a module that spawns multiple child processes.
 	let path = artifact {
 		tangram.ts: '
@@ -72,7 +75,7 @@ def test [...args] {
 
 	# Put the log to the local server.
 	let log_id = tg --url $local_source.url get $process_id | from json | get log
-	tg --url $local_source.url get --bytes $log_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
+	tg --url $local_source.url push $log_id --remote=fixture-local --no-tokens
 
 	# Put the main output to the local server.
 	tg --url $local_source.url get --bytes $main_output_id | tg --url $local.url put --no-tokens --bytes --kind dir | referent node
@@ -113,7 +116,7 @@ def test [...args] {
 		let child_log_id = $child_data.log
 
 		# Put the child's log to the local server.
-		tg --url $local_source.url get --bytes $child_log_id | tg --url $local.url put --no-tokens --bytes --kind blob | referent node
+		tg --url $local_source.url push $child_log_id --remote=fixture-local --no-tokens
 
 		# Put some child processes to local, some to remote (process root missing).
 		if ($i mod 4) == 0 {

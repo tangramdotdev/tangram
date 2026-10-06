@@ -385,40 +385,6 @@ impl Session {
 			// Validate the process before waiting for all of its children.
 			Self::validate_process_data(&output.data)?;
 
-			// Wait for a local log to be compacted, leaving an uncompacted remote log unset.
-			if node.descendants
-				&& state.arg.process_log_objects
-				&& Self::process_log_needs_compaction(&output.data)
-				&& output.location.as_ref().is_none_or(tg::Location::is_local)
-			{
-				let permission = tg::authorization::Permission::Process(
-					tg::authorization::permission::process::Permission::NodeLogObjects,
-				);
-				let permissions = state
-					.graph
-					.lock()
-					.unwrap()
-					.process_local_permissions(&node.id);
-				if !permissions.contains(permission) {
-					return Err(tg::error!("unauthorized"));
-				}
-
-				self.server.index_inner().await?;
-				output.data = self
-					.server
-					.try_get_process_local(&node.id, false)
-					.await?
-					.ok_or_else(
-						|| tg::error!(process = %node.id, "failed to get the process after indexing"),
-					)?
-					.data;
-				if Self::process_log_needs_compaction(&output.data) {
-					return Err(
-						tg::error!(process = %node.id, "the process log was not compacted"),
-					);
-				}
-			}
-
 			// Read the local children using the node permission already proven by the graph.
 			let permission = tg::authorization::Permission::Process(
 				tg::authorization::permission::process::Permission::Node,
