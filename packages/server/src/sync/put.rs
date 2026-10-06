@@ -25,8 +25,24 @@ struct State {
 	pending: Mutex<BTreeSet<tg::Id>>,
 	progress: Progress,
 	queue: self::queue::Queue,
+	remote_notify: tokio::sync::Notify,
 	resolve_sender: async_channel::Sender<self::resolve::Node>,
 	sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::PutMessage>>,
+}
+
+impl State {
+	async fn wait_remote(&self, available: impl Fn(&Graph) -> bool) {
+		loop {
+			// Register before checking the graph so an availability update cannot be missed.
+			let notified = self.remote_notify.notified();
+			tokio::pin!(notified);
+			notified.as_mut().enable();
+			if available(&self.graph.lock().unwrap()) {
+				return;
+			}
+			notified.await;
+		}
+	}
 }
 
 impl Session {
@@ -65,6 +81,7 @@ impl Session {
 			pending: Mutex::default(),
 			progress,
 			queue,
+			remote_notify: tokio::sync::Notify::new(),
 			resolve_sender,
 			sender,
 		});

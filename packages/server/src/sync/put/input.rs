@@ -51,6 +51,7 @@ impl Session {
 						None,
 						Some(&tg::object::Availability { subtree: true }),
 					);
+					state.remote_notify.notify_waiters();
 					state.queue.close_if_end();
 				},
 
@@ -76,6 +77,7 @@ impl Session {
 						None,
 						Some(&availability),
 					);
+					state.remote_notify.notify_waiters();
 					state.queue.close_if_end();
 				},
 

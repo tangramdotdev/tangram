@@ -258,10 +258,15 @@ impl Session {
 							tg::authorization::permission::object::Set::NODE,
 						);
 						let storage = tg::storage::Set::Object(tg::object::storage::Set::NODE);
-						let output = self
-							.verify(object.clone(), required, storage)
-							.await?
-							.check_exhaustion()?;
+						let args = [(object.clone(), required, Some(*permissions), storage)];
+						let mut outputs = self.verify_batch_inner(args, None, false).await?;
+						let output = outputs.pop().unwrap();
+						if !output.permissions.contains(required) {
+							output.check_exhaustion()?;
+							return Ok(None);
+						}
+
+						// The destination can supply the node if local sync discovery exhausts.
 						if output.outcome != crate::authorization::Outcome::Satisfied {
 							return Ok(None);
 						}
@@ -292,8 +297,15 @@ impl Session {
 					let mut futures = [local_future.boxed(), region_future.boxed()]
 						.into_iter()
 						.collect::<FuturesUnordered<_>>();
+					let available =
+						state.wait_remote(|graph| graph.object_remote_available(&object.node));
+					tokio::pin!(available);
 					let mut error = None;
-					while let Some(result) = futures.next().await {
+					while let Some(result) = tokio::select! {
+						biased;
+						() = &mut available => return Ok(None),
+						result = futures.next() => result,
+					} {
 						match result {
 							Ok(Some(output)) => return Ok(Some(output)),
 							Ok(None) => {},
@@ -657,10 +669,15 @@ impl Session {
 							tg::authorization::permission::process::Set::NODE,
 						);
 						let storage = tg::storage::Set::Process(tg::process::storage::Set::NODE);
-						let output = self
-							.verify(process.clone(), required, storage)
-							.await?
-							.check_exhaustion()?;
+						let args = [(process.clone(), required, Some(*permissions), storage)];
+						let mut outputs = self.verify_batch_inner(args, None, false).await?;
+						let output = outputs.pop().unwrap();
+						if !output.permissions.contains(required) {
+							output.check_exhaustion()?;
+							return Ok(None);
+						}
+
+						// The destination can supply the node if local sync discovery exhausts.
 						if output.outcome != crate::authorization::Outcome::Satisfied {
 							return Ok(None);
 						}
@@ -692,8 +709,15 @@ impl Session {
 					let mut futures = [local_future.boxed(), region_future.boxed()]
 						.into_iter()
 						.collect::<FuturesUnordered<_>>();
+					let available =
+						state.wait_remote(|graph| graph.process_remote_available(&process.node));
+					tokio::pin!(available);
 					let mut error = None;
-					while let Some(result) = futures.next().await {
+					while let Some(result) = tokio::select! {
+						biased;
+						() = &mut available => return Ok(None),
+						result = futures.next() => result,
+					} {
 						match result {
 							Ok(Some(output)) => return Ok(Some(output)),
 							Ok(None) => {},
