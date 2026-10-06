@@ -147,6 +147,12 @@ impl File {
 			return Ok(None);
 		};
 		let object = object.unwrap_file_ref().clone();
+		if let Object::Pointer(pointer) = object.as_ref() {
+			pointer
+				.graph
+				.state()
+				.inherit_location(self.state.location().as_ref());
+		}
 		Ok(Some(object))
 	}
 
@@ -231,10 +237,6 @@ impl File {
 		let contents = match object.as_ref() {
 			Object::Pointer(object) => {
 				let graph = &object.graph;
-				graph
-					.state()
-					.inherit_location(self.state.location().as_ref());
-				graph.state().inherit_tokens(&self.state.tokens());
 				let index = object.index;
 				let object = graph.object_with_instance(instance).await?;
 				let node = object

@@ -144,6 +144,12 @@ impl Directory {
 			return Ok(None);
 		};
 		let object = object.unwrap_directory_ref().clone();
+		if let Object::Pointer(pointer) = object.as_ref() {
+			pointer
+				.graph
+				.state()
+				.inherit_location(self.state.location().as_ref());
+		}
 		Ok(Some(object))
 	}
 

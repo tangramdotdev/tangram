@@ -190,14 +190,15 @@ export class File {
 	}
 
 	async object(): Promise<tg.File.Object> {
-		let object = await this.#state.load();
-		tg.assert(object.kind === "file");
-		return object.value;
+		return await this.load();
 	}
 
 	async load(): Promise<tg.File.Object> {
 		let object = await this.#state.load();
 		tg.assert(object.kind === "file");
+		if ("index" in object.value) {
+			object.value.graph.state.inheritLocation(this.#state.location);
+		}
 		return object.value;
 	}
 

@@ -397,6 +397,24 @@ impl State {
 	pub async fn try_load_with_arg_with_instance<I>(
 		&self,
 		instance: &I,
+		arg: tg::object::get::Arg,
+	) -> tg::Result<Option<tg::object::Object>>
+	where
+		I: tg::Instance,
+	{
+		let object = self.try_load_inner(instance, arg).await?;
+		if let Some(object) = &object {
+			let tokens = self.tokens();
+			for child in object.children() {
+				child.inherit_tokens(&tokens);
+			}
+		}
+		Ok(object)
+	}
+
+	async fn try_load_inner<I>(
+		&self,
+		instance: &I,
 		mut arg: tg::object::get::Arg,
 	) -> tg::Result<Option<tg::object::Object>>
 	where
@@ -507,14 +525,10 @@ impl State {
 	{
 		let object = self.load_with_instance(instance).await?;
 		let children = object.children();
-		let tokens = self.tokens();
 		let location = self.location();
-
 		for child in &children {
 			child.inherit_location(location.as_ref());
-			child.inherit_tokens(&tokens);
 		}
-
 		Ok(children)
 	}
 }

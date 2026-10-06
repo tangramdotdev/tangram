@@ -295,6 +295,14 @@ export namespace Object {
 		}
 
 		async load(): Promise<tg.Object.Object> {
+			let object = await this.#loadInner();
+			for (let child of tg.Object.Object.children(object)) {
+				child.state.inheritTokens(this.#tokens);
+			}
+			return object;
+		}
+
+		async #loadInner(): Promise<tg.Object.Object> {
 			if (this.#object !== null) {
 				return this.#object;
 			}
@@ -355,12 +363,9 @@ export namespace Object {
 			return (async () => {
 				await this.load();
 				let children = tg.Object.Object.children(this.#object!);
-
 				for (let child of children) {
 					child.state.inheritLocation(this.#location);
-					tg.Object.inheritTokens(child, this.#tokens);
 				}
-
 				return children;
 			})();
 		}

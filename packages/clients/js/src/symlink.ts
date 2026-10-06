@@ -167,14 +167,15 @@ export class Symlink {
 	}
 
 	async object(): Promise<tg.Symlink.Object> {
-		let object = await this.#state.load();
-		tg.assert(object.kind === "symlink");
-		return object.value;
+		return await this.load();
 	}
 
 	async load(): Promise<tg.Symlink.Object> {
 		let object = await this.#state.load();
 		tg.assert(object.kind === "symlink");
+		if ("index" in object.value) {
+			object.value.graph.state.inheritLocation(this.#state.location);
+		}
 		return object.value;
 	}
 

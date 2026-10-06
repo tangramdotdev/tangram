@@ -203,14 +203,15 @@ export class Directory {
 	}
 
 	async object(): Promise<tg.Directory.Object> {
-		let object = await this.#state.load();
-		tg.assert(object.kind === "directory");
-		return object.value;
+		return await this.load();
 	}
 
 	async load(): Promise<tg.Directory.Object> {
 		let object = await this.#state.load();
 		tg.assert(object.kind === "directory");
+		if ("index" in object.value) {
+			object.value.graph.state.inheritLocation(this.#state.location);
+		}
 		return object.value;
 	}
 
