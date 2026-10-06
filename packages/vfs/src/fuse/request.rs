@@ -818,7 +818,7 @@ where
 				dev_minor: 0,
 				gid: attr.attr.gid,
 				ino: attr.attr.ino,
-				mask: rustix::fs::StatxFlags::BASIC_STATS.bits(),
+				mask: libc::STATX_BASIC_STATS,
 				mode: attr.attr.mode.to_u16().unwrap(),
 				mtime: time(attr.attr.mtime, attr.attr.mtimensec),
 				nlink: attr.attr.nlink,
