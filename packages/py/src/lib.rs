@@ -200,8 +200,10 @@ async fn load_module(
 		language: Some(tg::module::load::Language::Py),
 		module,
 	};
-	let text = instance.load_module(arg).await?.text;
-	Ok(text)
+	let output = instance.load_module(arg).await?;
+	let output = serde_json::to_string(&output)
+		.map_err(|error| tg::error!(!error, "failed to serialize the python module load output"))?;
+	Ok(output)
 }
 
 #[cfg(test)]

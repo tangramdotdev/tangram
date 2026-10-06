@@ -68,7 +68,7 @@ class Loader(importlib.abc.Loader):
 
     def get_source(self, fullname: str) -> str:
         if self.module.status == "new":
-            return self.finder.host.load(json.dumps(self.module.data))
+            return self.finder.load_source(self.module)
         return self.module.text
 
     def get_filename(self, fullname: str) -> str:
@@ -97,7 +97,9 @@ class Finder(importlib.abc.MetaPathFinder):
             self.modules[key] = module
             self.names[module.name] = module
         else:
+            tokens = module.data["referent"].get("options", {}).get("tokens", {})
             module.data = resolved["data"]
+            self.inherit_tokens(module, tokens)
             module.target = {"kind": "module", "value": resolved}
             filename = self.filename(module)
             if filename in self.sources:
@@ -184,13 +186,25 @@ class Finder(importlib.abc.MetaPathFinder):
         module = self.names.get(fullname)
         return self.spec(module) if module is not None else None
 
+    def load_source(self, module: Module) -> str:
+        output = json.loads(self.host.load(json.dumps(module.data)))
+        self.inherit_tokens(module, output.get("tokens", {}))
+        return output["text"]
+
+    def inherit_tokens(self, module: Module, tokens: dict[str, list[str]]) -> None:
+        if tokens:
+            options = module.data["referent"].setdefault("options", {})
+            self.tg.Authorization.Tokens.inherit(
+                options.setdefault("tokens", {}), tokens
+            )
+
     def load(self, module: Module) -> ModuleType:
         if module.status in ("executing", "loaded"):
             assert module.namespace is not None
             return module.namespace
         if module.status == "new":
             # Load source after resolving the module and checking the cache.
-            module.text = self.host.load(json.dumps(module.data))
+            module.text = self.load_source(module)
             filename = self.filename(module)
             self.sources[filename] = module.data
             if filename not in self.linecache:

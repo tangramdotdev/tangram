@@ -368,11 +368,11 @@ class LocalProcess(Process):
         self._wait = asyncio.create_task(self._wait_inner())
 
     @tg.property
-    async def command(self):
+    async def command(self, client: Client | None = None):
         return self._command
 
-    async def _command_field(self, field, default=None):
-        return (await self._command.load(self.client)).get(field, default)
+    async def _command_field(self, field, default=None, client: Client | None = None):
+        return (await self._command.load(client or self.client)).get(field, default)
 
     async def read(self, stream="stdout", **options):
         reader = getattr(self.child, stream)

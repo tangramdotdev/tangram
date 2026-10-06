@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import linecache
+import runpy
 import subprocess
 import sys
 import unittest
@@ -16,6 +17,9 @@ spec = importlib.util.spec_from_file_location(
 assert spec is not None and spec.loader is not None
 main = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(main)
+Authorization = runpy.run_path(
+    str(Path(__file__).parents[2] / "clients/py/src/tangram/authorization.py")
+)["Authorization"]
 
 
 def describe(data, filename=None):
@@ -41,7 +45,7 @@ def source_host(data, source):
     host.describe.side_effect = lambda value: describe(json.loads(value))
     host.resolve.return_value = '{"kind": "fallback"}'
     host.metadata.return_value = '{"imports": {}}'
-    host.load.return_value = source
+    host.load.return_value = json.dumps({"text": source})
     return host
 
 
@@ -61,6 +65,7 @@ class StartupTests(unittest.TestCase):
             }
         )
         self.tg = ModuleType("tangram")
+        self.tg.__dict__["Authorization"] = Authorization
         self.tg.__dict__.update(
             process=SimpleNamespace(set_process=Mock()),
             Module=SimpleNamespace(from_data=lambda value: value),
@@ -116,7 +121,7 @@ class StartupTests(unittest.TestCase):
             with self.subTest(code=code):
                 source = f"raise SystemExit({code!r})"
                 expected = subprocess.run([sys.executable, "-c", source]).returncode
-                self.host.load.return_value = source
+                self.host.load.return_value = json.dumps({"text": source})
                 with patch.dict(sys.modules, {"tangram": self.tg}):
                     self.assertEqual(
                         main.run(self.context, self.host), (expected, None, None)
@@ -126,6 +131,7 @@ class StartupTests(unittest.TestCase):
 class SourceTests(unittest.TestCase):
     def test_user_modules_choose_their_annotation_semantics(self):
         tg = ModuleType("tangram")
+        tg.__dict__["Authorization"] = Authorization
         tg.__dict__["Module"] = SimpleNamespace(from_data=lambda value: value)
         data = {"kind": "py", "referent": {"node": "/test/main.tg.py"}}
         for future in [False, True]:
@@ -158,10 +164,16 @@ assert child is same and child.value == 42 and tg.calls == 1
 assert importlib.util.find_spec('child') is child.__spec__
 """
         host = source_host(entry, source)
-        host.load.side_effect = lambda serialized: (
-            source
-            if json.loads(serialized)["referent"]["node"] == "/test/main.tg.py"
-            else "tg.calls += 1\nvalue = 42\ndef fail():\n    raise ValueError('fail')"
+        host.load.side_effect = lambda serialized: json.dumps(
+            {
+                "text": source
+                if json.loads(serialized)["referent"]["node"] == "/test/main.tg.py"
+                else (
+                    "tg.calls += 1\nvalue = 42\ndef fail():\n"
+                    "    raise ValueError('fail')"
+                ),
+                "tokens": {"local": ["loaded"]},
+            }
         )
         host.metadata.return_value = json.dumps(
             {
@@ -201,6 +213,7 @@ assert importlib.util.find_spec('child') is child.__spec__
 
         host.resolve.side_effect = resolve
         tg = ModuleType("tangram")
+        tg.__dict__["Authorization"] = Authorization
         tg.__dict__.update(
             Error=RuntimeError,
             Module=SimpleNamespace(from_data=lambda value: value),
@@ -215,26 +228,29 @@ assert importlib.util.find_spec('child') is child.__spec__
                 namespace.child.fail()
             except ValueError as exception:
                 error = finder.error(exception)
-                self.assertEqual(
-                    error["location"]["file"]["value"]["referent"]["options"]["tokens"][
-                        "local"
-                    ],
-                    [str(host.resolve.call_count)],
+                self.assertTrue(
+                    {"loaded", str(host.resolve.call_count)}.issubset(
+                        error["location"]["file"]["value"]["referent"]["options"][
+                            "tokens"
+                        ]["local"]
+                    ),
                 )
             else:
                 self.fail("expected the child to raise")
             self.assertEqual(host.load.call_count, 2)
-            self.assertEqual(
-                namespace.child.__tangram_module__["referent"]["options"]["tokens"][
-                    "local"
-                ],
-                [str(host.resolve.call_count)],
+            self.assertTrue(
+                {"loaded", str(host.resolve.call_count)}.issubset(
+                    namespace.child.__tangram_module__["referent"]["options"]["tokens"][
+                        "local"
+                    ]
+                ),
             )
         finally:
             finder.close()
 
     def test_invocations_restore_the_source_cache(self):
         tg = ModuleType("tangram")
+        tg.__dict__["Authorization"] = Authorization
         tg.__dict__["Module"] = SimpleNamespace(from_data=lambda value: value)
         existing = (10, None, ["previous\n"], "/test/previous.tg.py")
         original = linecache.cache.copy()

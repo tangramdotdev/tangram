@@ -183,11 +183,12 @@ class Sandbox:
     def assert_(value: object) -> None:
         assert isinstance(value, Sandbox)
 
-    async def load(self) -> None:
+    async def load(self, client: Client | None = None) -> None:
+        client = client or self.client
         arg: SandboxGetArg = {"tokens": self._tokens}
         if self.location is not None:
             arg["location"] = self.location
-        output = await self.client.get_sandbox(self.id, **arg)
+        output = await client.get_sandbox(self.id, **arg)
         if output.get("tokens") is not None and not authorization.is_empty(
             output["tokens"] or {}
         ):
@@ -197,14 +198,15 @@ class Sandbox:
         self.location = _location_arg(output.get("location"))
         self.state = output
 
-    async def reload(self) -> None:
-        await self.load()
+    async def reload(self, client: Client | None = None) -> None:
+        await self.load(client)
 
-    async def destroy(self) -> None:
+    async def destroy(self, client: Client | None = None) -> None:
+        client = client or self.client
         arg: SandboxDestroyArg = {}
         if self.location is not None:
             arg["location"] = self.location
-        await self.client.destroy_sandbox(self.id, **arg)
+        await client.destroy_sandbox(self.id, **arg)
         self.detach()
 
     def detach(self) -> None:

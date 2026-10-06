@@ -389,12 +389,13 @@ class Process[O: ValueType]:
 
         Tokens.inherit(self._tokens, tokens)
 
-    async def load(self):
+    async def load(self, client: Client | None = None):
+        client = client or self.client
         if isinstance(self.id, int):
             raise ValueError("loading unsandboxed process state is not supported")
         from .. import authorization
 
-        output = await self.client.get_process(
+        output = await client.get_process(
             self.id, location=self.location, tokens=self.tokens
         )
         self.tokens = authorization.inherit(output.get("tokens") or {}, self.tokens)
@@ -411,10 +412,12 @@ class Process[O: ValueType]:
         return await self.load()
 
     @tg.property
-    async def command(self) -> Command[list[ValueType], O] | ProcessCommandData:
+    async def command(
+        self, client: Client | None = None
+    ) -> Command[list[ValueType], O] | ProcessCommandData:
         from ..command import Command
 
-        state = await self.load()
+        state = await self.load(client)
         referent = state["command"]
         if isinstance(referent.node, str):
             command = Command.with_referent(referent)
@@ -430,12 +433,13 @@ class Process[O: ValueType]:
 
         return inherit_options(referent.node, referent.options)
 
-    async def _command_field(self, field, default=None):
+    async def _command_field(self, field, default=None, client: Client | None = None):
+        client = client or self.client
         from ..command import Command, CommandValue
 
-        command = await self.command()
+        command = await self.command(client)
         if isinstance(command, Command):
-            return (await command.load(self.client)).get(field, default)
+            return (await command.load(client)).get(field, default)
         value = command.get(field, default)
         if field == "args":
             return [
@@ -465,12 +469,12 @@ class Process[O: ValueType]:
         return value
 
     @tg.property
-    async def args(self) -> list[CommandValue]:
-        return await self._command_field("args", [])
+    async def args(self, client: Client | None = None) -> list[CommandValue]:
+        return await self._command_field("args", [], client)
 
     @tg.property
-    async def cwd(self) -> str | None:
-        return await self._command_field("cwd")
+    async def cwd(self, client: Client | None = None) -> str | None:
+        return await self._command_field("cwd", client=client)
 
     @overload
     async def env(self, name: None = None) -> dict[str, CommandValue]: ...
@@ -483,42 +487,41 @@ class Process[O: ValueType]:
         return env if name is None else env.get(name)
 
     @tg.property
-    async def executable(self) -> ExecutableObject:
-        return await self._command_field("executable")
+    async def executable(self, client: Client | None = None) -> ExecutableObject:
+        return await self._command_field("executable", client=client)
 
     @tg.property
-    async def user(self) -> str | None:
-        return await self._command_field("user")
+    async def user(self, client: Client | None = None) -> str | None:
+        return await self._command_field("user", client=client)
 
     @tg.property
-    async def sandbox(self) -> str | None:
+    async def sandbox(self, client: Client | None = None) -> str | None:
         if isinstance(self.id, int):
             return None
-        state = await self.load()
+        state = await self.load(client)
         return state.get("sandbox")
 
-    async def _sandbox_data(self):
-        sandbox = await self.sandbox()
-        return (
-            {} if sandbox is None else (await self.client.get_sandbox(sandbox))["data"]
-        )
+    async def _sandbox_data(self, client: Client | None = None):
+        client = client or self.client
+        sandbox = await self.sandbox(client)
+        return {} if sandbox is None else (await client.get_sandbox(sandbox))["data"]
 
     @tg.property
-    async def mounts(self) -> list[MountValue]:
+    async def mounts(self, client: Client | None = None) -> list[MountValue]:
         from ..sandbox import Mount
 
         return [
             Mount.from_data_string(value)
-            for value in (await self._sandbox_data()).get("mounts") or []
+            for value in (await self._sandbox_data(client)).get("mounts") or []
         ]
 
     @tg.property
-    async def network(self) -> bool:
-        return (await self._sandbox_data()).get("network") is not None
+    async def network(self, client: Client | None = None) -> bool:
+        return (await self._sandbox_data(client)).get("network") is not None
 
     @tg.property
-    async def ports(self) -> list[str]:
-        network = (await self._sandbox_data()).get("network") or {}
+    async def ports(self, client: Client | None = None) -> list[str]:
+        network = (await self._sandbox_data(client)).get("network") or {}
         return (
             list(network.get("ports") or []) if network.get("kind") == "bridge" else []
         )
