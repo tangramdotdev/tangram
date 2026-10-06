@@ -1,11 +1,11 @@
 """Invalid consumer calls must remain type errors."""
 
-from tangram.async_property import async_property
+import tangram as tg
 from tangram.resolve import resolve
 
 
 class Record:
-    @async_property
+    @tg.property
     async def number(self, increment: int = 0) -> int:
         return 1 + increment
 

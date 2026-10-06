@@ -4,8 +4,8 @@ import hashlib
 import unittest
 from unittest.mock import AsyncMock, patch
 
+import tangram as tg
 from tangram import Blob, Checksum, File, host, output
-from tangram.async_property import async_property
 from tangram.checksum import checksum
 
 
@@ -15,7 +15,7 @@ class ChecksumTests(unittest.IsolatedAsyncioTestCase):
             contents = await file.contents(client)
             return (await contents.load(client))["bytes"].decode()
 
-        self.enterContext(patch.object(File, "text", async_property(text)))
+        self.enterContext(patch.object(File, "text", tg.property(text)))
 
     async def test_native_strings_and_bytes(self):
         for algorithm in ("sha256", "sha512"):

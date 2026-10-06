@@ -8,8 +8,9 @@ import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Literal, cast, overload
 
+import tangram as tg
+
 from .. import host
-from ..async_property import async_property
 from ..authorization import inherit
 from ..client import last_output
 from ..command import (
@@ -366,7 +367,7 @@ class LocalProcess(Process):
         self.pid = child.pid
         self._wait = asyncio.create_task(self._wait_inner())
 
-    @async_property
+    @tg.property
     async def command(self):
         return self._command
 

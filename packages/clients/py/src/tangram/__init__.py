@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+# Initialize the decorator before importing modules that use it.
+from .property import property as property
+
+# isort: split
+
 from . import encoding, host, http, path
 from . import process as process
 from .args import Args
@@ -158,6 +163,7 @@ __all__ = [
     "path",
     "placeholder",
     "process",
+    "property",
     "resolve",
     "run",
     "set_encoding",

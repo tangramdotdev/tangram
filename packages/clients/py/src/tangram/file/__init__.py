@@ -3,8 +3,9 @@ from __future__ import annotations
 import builtins
 from typing import TYPE_CHECKING, ClassVar, Required, Self, TypedDict, cast, overload
 
+import tangram as tg
+
 from ..args import Args
-from ..async_property import async_property
 from ..builder import Builder
 from ..mutation import UNSET, Mutation
 from ..object import Object
@@ -234,7 +235,7 @@ class File(Object):
             return Pointer.from_data(value)
         return Graph.File.from_data(value)
 
-    @async_property
+    @tg.property
     async def contents(self, client: Client | None = None) -> Blob:
         from ..object import dereference
 
@@ -243,11 +244,11 @@ class File(Object):
         Object.inherit_tokens(contents, self.state.tokens)
         return contents
 
-    @async_property
+    @tg.property
     async def text(self, client: Client | None = None) -> str:
         return await (await self.contents(client)).text(client)
 
-    @async_property
+    @tg.property
     async def executable(self, client: Client | None = None) -> bool:
         from ..object import dereference
 
@@ -255,7 +256,7 @@ class File(Object):
             "executable", False
         )
 
-    @async_property
+    @tg.property
     async def dependencies(
         self, client: Client | None = None
     ) -> dict[str, Referent | None]:
@@ -287,13 +288,13 @@ class File(Object):
             result[reference] = Referent(node, dependency.options)
         return result
 
-    @async_property
+    @tg.property
     async def module(self, client: Client | None = None) -> str | None:
         from ..object import dereference
 
         return (await dereference(await self.load(client), client)).get("module")
 
-    @async_property
+    @tg.property
     async def dependency_objects(self, client: Client | None = None) -> list[Object]:
         return [
             dependency.node
@@ -305,7 +306,7 @@ class File(Object):
     def raw(strings, *placeholders, **options):
         return FileBuilder(True, strings, *placeholders, **options)
 
-    @async_property
+    @tg.property
     async def length(self, client: Client | None = None) -> int:
         return await (await self.contents(client)).length(client)
 
@@ -317,7 +318,7 @@ class File(Object):
         options = {**(options or {}), **kwargs}
         return await (await self.contents(client)).read(options, client=client)
 
-    @async_property
+    @tg.property
     async def bytes(self, client: Client | None = None, **options) -> builtins.bytes:
         return await self.read(client, **options)
 

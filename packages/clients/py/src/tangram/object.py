@@ -16,8 +16,9 @@ from typing import (
     cast,
 )
 
+import tangram as tg
+
 from . import _native, authorization
-from .async_property import async_property
 from .module import Module
 from .mutation import Mutation
 from .referent import Referent
@@ -234,7 +235,7 @@ class Object:
     def _inherit_tokens(self, tokens):
         self.tokens = authorization.inherit(self.tokens, tokens or {}, self.id)
 
-    @async_property
+    @tg.property
     async def children(self, client: Client | None = None) -> list[Object]:
         await self.load(client)
         children = self._children()
@@ -370,7 +371,7 @@ class ObjectState:
     def kind(self):
         return self._object._object_kind
 
-    @async_property
+    @tg.property
     async def children(self, client: Client | None = None) -> list[Object]:
         return await self._object.children(client)
 

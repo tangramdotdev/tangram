@@ -8,8 +8,9 @@ from typing import TYPE_CHECKING, ClassVar, Required, Self, TypedDict, cast, ove
 if TYPE_CHECKING:
     from .client import Client
 
+import tangram as tg
+
 from .args import Args
-from .async_property import async_property
 from .builder import Builder
 from .mutation import Mutation
 from .object import Object
@@ -170,7 +171,7 @@ class Blob(Object):
     def _decode(self, value):
         return BlobObject.from_data(value)
 
-    @async_property
+    @tg.property
     async def length(self, client: Client | None = None) -> int:
         object_ = await self.object(client)
         if "children" in object_:
@@ -194,11 +195,11 @@ class Blob(Object):
             tokens=self.tokens,
         )
 
-    @async_property
+    @tg.property
     async def bytes(self, client: Client | None = None) -> builtins.bytes:
         return await self.read(client=client)
 
-    @async_property
+    @tg.property
     async def text(self, client: Client | None = None) -> str:
         return (await self.bytes(client)).decode(errors="replace")
 

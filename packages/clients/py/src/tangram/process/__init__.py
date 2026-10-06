@@ -19,8 +19,9 @@ from typing import (
     overload,
 )
 
+import tangram as tg
+
 from ..args import Args
-from ..async_property import async_property
 from ..client import client as default_client
 from ..client.process.cancel import Cancel as _Cancel
 from ..client.process.connect import Connect as _Connect
@@ -409,7 +410,7 @@ class Process[O: ValueType]:
     async def reload(self):
         return await self.load()
 
-    @async_property
+    @tg.property
     async def command(self) -> Command[list[ValueType], O] | ProcessCommandData:
         from ..command import Command
 
@@ -463,11 +464,11 @@ class Process[O: ValueType]:
             return executable
         return value
 
-    @async_property
+    @tg.property
     async def args(self) -> list[CommandValue]:
         return await self._command_field("args", [])
 
-    @async_property
+    @tg.property
     async def cwd(self) -> str | None:
         return await self._command_field("cwd")
 
@@ -481,15 +482,15 @@ class Process[O: ValueType]:
         env = await self._command_field("env", {})
         return env if name is None else env.get(name)
 
-    @async_property
+    @tg.property
     async def executable(self) -> ExecutableObject:
         return await self._command_field("executable")
 
-    @async_property
+    @tg.property
     async def user(self) -> str | None:
         return await self._command_field("user")
 
-    @async_property
+    @tg.property
     async def sandbox(self) -> str | None:
         if isinstance(self.id, int):
             return None
@@ -502,7 +503,7 @@ class Process[O: ValueType]:
             {} if sandbox is None else (await self.client.get_sandbox(sandbox))["data"]
         )
 
-    @async_property
+    @tg.property
     async def mounts(self) -> list[MountValue]:
         from ..sandbox import Mount
 
@@ -511,11 +512,11 @@ class Process[O: ValueType]:
             for value in (await self._sandbox_data()).get("mounts") or []
         ]
 
-    @async_property
+    @tg.property
     async def network(self) -> bool:
         return (await self._sandbox_data()).get("network") is not None
 
-    @async_property
+    @tg.property
     async def ports(self) -> list[str]:
         network = (await self._sandbox_data()).get("network") or {}
         return (

@@ -18,7 +18,8 @@ from typing import (
     overload,
 )
 
-from .async_property import async_property
+import tangram as tg
+
 from .builder import Builder
 from .mutation import UNSET
 from .object import Object
@@ -407,7 +408,7 @@ class Graph(Object):
     def assert_(cls, value: builtins.object) -> None:
         assert isinstance(value, cls)
 
-    @async_property
+    @tg.property
     async def nodes(self, client: Client | None = None) -> list[GraphNode]:
         return (await self.load(client))["nodes"]
 

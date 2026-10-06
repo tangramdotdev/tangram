@@ -9,8 +9,9 @@ if TYPE_CHECKING:
     from .module import ModuleDataObject
     from .range import Range
 
+import tangram as tg
+
 from .args import Args
-from .async_property import async_property
 from .builder import Builder
 from .diagnostic import Diagnostic
 from .module import Module
@@ -204,31 +205,31 @@ class Error(Object, Exception):
     def _children(self):
         return ErrorObject.children(self._value)
 
-    @async_property
+    @tg.property
     async def kind(self, client: Client | None = None) -> ErrorKind | None:
         return error_kind(await self.load(client))
 
-    @async_property
+    @tg.property
     async def location(
         self, client: Client | None = None
     ) -> ErrorLocationObject | None:
         return (await self.load(client)).get("location")
 
-    @async_property
+    @tg.property
     async def code(self, client: Client | None = None) -> str | None:
         return (await self.load(client)).get("code")
 
-    @async_property
+    @tg.property
     async def diagnostics(
         self, client: Client | None = None
     ) -> list[DiagnosticObject] | None:
         return (await self.load(client)).get("diagnostics")
 
-    @async_property
+    @tg.property
     async def message(self, client: Client | None = None) -> str | None:
         return (await self.load(client)).get("message")
 
-    @async_property
+    @tg.property
     async def source(self, client: Client | None = None) -> Referent[Error] | None:
         source = (await self.load(client)).get("source")
         if source is None:
@@ -238,13 +239,13 @@ class Error(Object, Exception):
             return source
         return Referent(Error.with_object(source.node), source.options)
 
-    @async_property
+    @tg.property
     async def stack(
         self, client: Client | None = None
     ) -> list[ErrorLocationObject] | None:
         return (await self.load(client)).get("stack")
 
-    @async_property
+    @tg.property
     async def values(self, client: Client | None = None) -> dict[str, str]:
         return (await self.load(client)).get("values") or {}
 

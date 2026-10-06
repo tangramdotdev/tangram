@@ -3,8 +3,9 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Mapping
 from typing import TYPE_CHECKING, ClassVar, Required, Self, TypedDict, cast, overload
 
+import tangram as tg
+
 from . import path
-from .async_property import async_property
 from .builder import Builder
 from .object import Object
 from .resolve import Unresolved, resolve
@@ -295,7 +296,7 @@ class Directory(Object):
                     raise ValueError("invalid symlink")
         return artifact
 
-    @async_property
+    @tg.property
     async def entries(self, client: Client | None = None) -> dict[str, ArtifactValue]:
         entries = {}
         async for name, artifact in self._iterate(client):

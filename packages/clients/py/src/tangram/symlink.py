@@ -3,7 +3,8 @@ from __future__ import annotations
 import builtins
 from typing import TYPE_CHECKING, ClassVar, Required, Self, TypedDict, cast, overload
 
-from .async_property import async_property
+import tangram as tg
+
 from .builder import Builder
 from .mutation import UNSET
 from .object import Object
@@ -187,7 +188,7 @@ class Symlink(Object):
     def _children(self):
         return SymlinkObject.children(self._value) if self._value is not None else []
 
-    @async_property
+    @tg.property
     async def artifact(self, client: Client | None = None) -> ArtifactValue | None:
         from .graph import Pointer
         from .object import dereference
@@ -204,7 +205,7 @@ class Symlink(Object):
             Object.inherit_tokens(artifact, self.state.tokens)
         return artifact
 
-    @async_property
+    @tg.property
     async def path(self, client: Client | None = None) -> str | None:
         from .object import dereference
 

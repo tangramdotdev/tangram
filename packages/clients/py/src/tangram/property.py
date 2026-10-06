@@ -20,7 +20,7 @@ class BoundAsyncProperty[**P, T]:
         return self.method(*args, **kwargs)
 
 
-class async_property[S, **P, T]:
+class property[S, **P, T]:
     def __init__(self, method: Callable[Concatenate[S, P], Awaitable[T]]) -> None:
         self.method = method
         self.__doc__ = method.__doc__

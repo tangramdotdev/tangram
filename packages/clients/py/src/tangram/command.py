@@ -27,8 +27,9 @@ if TYPE_CHECKING:
     from .symlink import Symlink
     from .value import ValueData, ValueInput, ValueType
 
+import tangram as tg
+
 from .args import Args
-from .async_property import async_property
 from .mutation import UNSET, Mutation
 from .object import Object
 from .resolve import Unresolved, capture, resolve
@@ -369,11 +370,11 @@ class Command[A, O: ValueType](Object):
         }
         return Referent(arg, options)
 
-    @async_property
+    @tg.property
     async def args(self, client: Client | None = None) -> list[CommandValue]:
         return (await self.load(client)).get("args", [])
 
-    @async_property
+    @tg.property
     async def cwd(self, client: Client | None = None) -> str | None:
         return (await self.load(client)).get("cwd")
 
@@ -384,19 +385,19 @@ class Command[A, O: ValueType](Object):
         env = (await self.load(client)).get("env", {})
         return env if name is None else env.get(name)
 
-    @async_property
+    @tg.property
     async def executable(self, client: Client | None = None) -> ExecutableObject:
         return (await self.load(client))["executable"]
 
-    @async_property
+    @tg.property
     async def host(self, client: Client | None = None) -> str:
         return (await self.load(client))["host"]
 
-    @async_property
+    @tg.property
     async def stdin(self, client: Client | None = None) -> Blob | None:
         return (await self.load(client)).get("stdin")
 
-    @async_property
+    @tg.property
     async def user(self, client: Client | None = None) -> str | None:
         return (await self.load(client)).get("user")
 
