@@ -1486,6 +1486,11 @@ impl Session {
 					read.tokens = read.tokens.for_location(destination);
 				}
 				if let tg::Either::Left(spawn) = &mut arg.process {
+					if let Some(tg::Either::Right(sandbox)) = &mut spawn.sandbox {
+						sandbox.options.tokens = sandbox.options.tokens.for_location(destination);
+						sandbox.options.location =
+							location.as_ref().and_then(tg::location::Arg::to_location);
+					}
 					spawn.location = location;
 					Self::update_spawn_process_command_for_location(
 						&mut spawn.command,
