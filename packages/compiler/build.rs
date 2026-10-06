@@ -344,7 +344,7 @@ mod python {
 	pub fn build() {
 		for path in [
 			"../clients/py/src",
-			"../clients/py/library.py",
+			"../py/build/library.py",
 			"../clients/py/pyproject.toml",
 			"../../uv.lock",
 		] {
@@ -364,9 +364,10 @@ mod python {
 		let packages = tangram_py_build::packages(&python, &workspace, &build);
 		let status = Command::new(python)
 			.arg("-I")
-			.arg("../clients/py/library.py")
+			.arg("../py/build/library.py")
 			.arg(&output)
 			.arg(&packages)
+			.arg(workspace.join("packages/clients/py/src"))
 			.status()
 			.unwrap();
 		assert!(

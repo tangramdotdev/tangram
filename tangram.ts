@@ -514,7 +514,7 @@ const getRustyV8Version = async (lockfile: tg.File) => {
 
 const libpython = async (source: tg.Directory, build: string, host: string) => {
 	const manifest = await source
-		.get("packages/py/distributions.json")
+		.get("packages/py/build/distributions.json")
 		.then(tg.File.expect)
 		.then((file) => file.text)
 		.then((text) => JSON.parse(text) as PythonDistributions);

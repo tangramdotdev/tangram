@@ -11,14 +11,9 @@ use {
 fn main() {
 	for path in [
 		"build.rs",
-		"distributions.json",
-		"embed.py",
-		"freeze.py",
-		"llvm.py",
-		"native.py",
+		"build",
 		"src",
 		"../clients/py/src",
-		"../clients/py/library.py",
 		"../clients/py/pyproject.toml",
 		"../../uv.lock",
 	] {
@@ -104,7 +99,7 @@ fn main() {
 	let packages = tangram_py_build::packages(&python, &root, &output);
 	let status = Command::new(&python)
 		.args(["-E", "-s"])
-		.arg("embed.py")
+		.arg("build/embed.py")
 		.arg(&distribution)
 		.arg(&host_distribution)
 		.arg(&output)

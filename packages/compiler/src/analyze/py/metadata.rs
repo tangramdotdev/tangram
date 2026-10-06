@@ -188,7 +188,7 @@ fn parse_script(
 				)
 			})?;
 		let distribution: serde_json::Value =
-			serde_json::from_str(include_str!("../../../../py/distributions.json")).unwrap();
+			serde_json::from_str(include_str!("../../../../py/build/distributions.json")).unwrap();
 		let version = distribution["python"]
 			.as_str()
 			.unwrap()

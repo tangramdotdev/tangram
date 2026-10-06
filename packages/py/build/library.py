@@ -6,9 +6,8 @@ import sys
 from pathlib import Path
 
 
-def copy(destination: Path) -> None:
-    client = Path(__file__).parent / "src" / "tangram"
-    roots = [client]
+def copy(client: Path, destination: Path) -> None:
+    roots = [client / "tangram"]
     for name in ["h2", "hpack", "hyperframe", "tomli_w", "yaml"]:
         spec = importlib.util.find_spec(name)
         if spec is None or spec.origin is None:
@@ -27,4 +26,4 @@ def copy(destination: Path) -> None:
 
 if __name__ == "__main__":
     sys.path.insert(0, sys.argv[2])
-    copy(Path(sys.argv[1]))
+    copy(Path(sys.argv[3]), Path(sys.argv[1]))

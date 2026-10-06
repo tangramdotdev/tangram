@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-Compiler = runpy.run_path(str(Path(__file__).resolve().parents[1] / "llvm.py"))[
+Compiler = runpy.run_path(str(Path(__file__).resolve().parents[1] / "build/llvm.py"))[
     "Compiler"
 ]
 

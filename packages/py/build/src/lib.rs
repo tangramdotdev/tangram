@@ -10,7 +10,7 @@ use {
 
 #[must_use]
 pub fn manifest() -> Value {
-	serde_json::from_str(include_str!("../../distributions.json")).unwrap()
+	serde_json::from_str(include_str!("../distributions.json")).unwrap()
 }
 
 #[must_use]

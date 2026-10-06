@@ -3,7 +3,6 @@
 import csv
 import importlib.metadata
 import json
-import runpy
 import shutil
 import subprocess
 import sys
@@ -11,6 +10,7 @@ import tomllib
 from email.message import Message
 from pathlib import Path
 
+from library import copy
 from llvm import Compiler
 from native import namespace
 
@@ -53,7 +53,7 @@ def main():
         target = library / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(path, target)
-    runpy.run_path(str(client.parent / "library.py"))["copy"](library)
+    copy(client, library)
 
     # Preserve distribution metadata for version checks and entry point discovery.
     for name in ["h2", "hpack", "hyperframe", "tomli-w", "PyYAML"]:
@@ -100,7 +100,7 @@ def main():
         [
             str(host / host_metadata["python_exe"]),
             "-I",
-            "freeze.py",
+            str(Path(__file__).with_name("freeze.py")),
             str(stdlib),
             str(output),
             metadata["python_version"],
