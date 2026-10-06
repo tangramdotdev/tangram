@@ -19,3 +19,7 @@ success (timeout 30s tg wait $process | complete) 'the process should finish aft
 
 let output = timeout 30s tg index | complete
 success $output 'the index wait should not block on the log compaction'
+
+let output = timeout 10s tg log --no-timeout $process | complete
+success $output 'the compacted log should be readable after its sandbox is killed'
+assert ($output.stdout | str contains 'ready') 'the compacted log should preserve the received output'
