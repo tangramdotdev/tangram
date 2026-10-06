@@ -6,6 +6,21 @@ pub mod object;
 pub mod prelude;
 
 pub trait Cache {
+	fn delete_log_cache_entry(
+		&self,
+		arg: log::cache::delete::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+
+	fn get_log_cache_entries(
+		&self,
+		arg: log::cache::get::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<Vec<log::cache::Entry>>> + Send;
+
+	fn put_log_cache_entry(
+		&self,
+		arg: log::cache::put::Arg,
+	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+
 	fn contains_object(
 		&self,
 		arg: object::contains::Arg,

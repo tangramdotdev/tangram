@@ -185,6 +185,8 @@ impl Cache {
 			Request::DeleteIndexQueueFragment(arg) => {
 				vec![(Request::DeleteIndexQueueFragment(arg), 1)]
 			},
+			Request::DeleteLogCacheEntry(arg) => vec![(Request::DeleteLogCacheEntry(arg), 1)],
+			Request::PutLogCacheEntry(arg) => vec![(Request::PutLogCacheEntry(arg), 1)],
 			Request::DeleteLog(arg) => vec![(Request::DeleteLog(arg), 1)],
 			Request::DeleteObject(request) => vec![(Request::DeleteObject(request), 1)],
 			Request::DeleteObjectBatch(requests) => {
@@ -245,6 +247,12 @@ impl Cache {
 			},
 			Request::DeleteIndexQueueFragment(arg) => {
 				Self::delete_index_queue_fragment_with_transaction(db, transaction, &arg)
+			},
+			Request::DeleteLogCacheEntry(arg) => {
+				Self::delete_log_cache_entry_with_transaction(db, transaction, arg)
+			},
+			Request::PutLogCacheEntry(arg) => {
+				Self::put_log_cache_entry_with_transaction(db, transaction, arg)
 			},
 			Request::DeleteLog(arg) => Self::delete_log_with_transaction(db, transaction, &arg),
 			Request::DeleteObject(request) => {

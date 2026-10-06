@@ -43,3 +43,10 @@ create table if not exists logs (
 	"timestamp" bigint,
 	primary key ((process), kind, position)
 ) with clustering order by (kind asc, position asc);
+
+create table if not exists log_cache (
+ partition bigint,
+ expires_at bigint,
+ process blob,
+ primary key ((partition), expires_at, process)
+) with clustering order by (expires_at asc, process asc);

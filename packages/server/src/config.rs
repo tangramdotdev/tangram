@@ -540,6 +540,8 @@ pub struct Indexer {
 
 	pub id: Option<tg::indexer::Id>,
 
+	pub log_cache: IndexerLogCache,
+
 	pub log_compaction: IndexerLogCompaction,
 
 	pub object_cache_partitions: IndexerPartitions,
@@ -616,6 +618,15 @@ pub struct IndexerRequest {
 	pub timeout: Duration,
 
 	pub wait_concurrency: usize,
+}
+
+#[derive(Clone, Debug)]
+pub struct IndexerLogCache {
+	pub batch_size: usize,
+	pub concurrency: usize,
+	pub enabled: bool,
+	pub partitions: IndexerPartitions,
+	pub poll_interval: Duration,
 }
 
 #[derive(Clone, Debug)]
@@ -869,6 +880,10 @@ pub struct Process {
 	pub await_push: bool,
 
 	pub children_wakeup_interval: Duration,
+
+	pub log_cache_partition_total: u64,
+
+	pub log_time_to_live: Duration,
 
 	pub permission_time_to_live: Duration,
 
@@ -1763,6 +1778,18 @@ impl Default for IndexerRequest {
 	}
 }
 
+impl Default for IndexerLogCache {
+	fn default() -> Self {
+		Self {
+			batch_size: 1024,
+			concurrency: 1,
+			enabled: true,
+			partitions: IndexerPartitions::default(),
+			poll_interval: Duration::from_mins(1),
+		}
+	}
+}
+
 impl Default for IndexerLogCompaction {
 	fn default() -> Self {
 		Self {
@@ -1943,6 +1970,8 @@ impl Default for Process {
 		Self {
 			await_push: false,
 			children_wakeup_interval: Duration::from_mins(1),
+			log_cache_partition_total: 1,
+			log_time_to_live: Duration::from_hours(1),
 			permission_time_to_live: default_process_permission_time_to_live(),
 			permission_time_to_touch: default_time_to_touch(),
 			spawn: Spawn::default(),

@@ -322,6 +322,12 @@ impl Server {
 		// Create the archive tasks.
 		let archive_tasks = tangram_futures::task::Set::default();
 
+		if config.process.log_cache_partition_total == 0 {
+			return Err(tg::error!(
+				"the log cache partition total must be greater than zero"
+			));
+		}
+
 		// Validate the indexer configuration.
 		if config.roles.contains(&self::config::Role::Indexer) {
 			let indexer = &config.indexer;
@@ -349,6 +355,21 @@ impl Server {
 				if let Some(capacity) = &indexer.cleaning.capacity {
 					validate_capacity_threshold(capacity, "indexer cleaning")?;
 				}
+			}
+			let log_cache = &indexer.log_cache;
+			if log_cache.enabled
+				&& (log_cache.batch_size == 0
+					|| log_cache.concurrency == 0
+					|| log_cache.poll_interval.is_zero())
+			{
+				return Err(tg::error!(
+					"the log cache batch size, concurrency, and poll interval must be greater than zero"
+				));
+			}
+			if log_cache.partitions.start > log_cache.partitions.end
+				|| log_cache.partitions.end > config.process.log_cache_partition_total
+			{
+				return Err(tg::error!("the log cache partition range is invalid"));
 			}
 			if indexer.log_compaction.enabled {
 				if indexer.log_compaction.batch_size == 0 {

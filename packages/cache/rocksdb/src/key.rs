@@ -11,6 +11,7 @@ pub enum Key<'a> {
 		sequence: u64,
 	},
 	Log(crate::log::Key<'a>),
+	LogCache(tangram_cache::log::cache::Entry),
 	Object(crate::object::Key<'a>),
 	ObjectCache(tangram_cache::object::cache::Entry),
 }
@@ -20,6 +21,7 @@ pub enum Key<'a> {
 pub enum Kind {
 	ArchiveQueue = 7,
 	IndexQueue = 8,
+	LogCache = 9,
 	LogEnd = 6,
 	LogEntry = 2,
 	LogStreamPosition = 3,
@@ -44,6 +46,13 @@ impl fdbt::TuplePack for Key<'_> {
 				Kind::IndexQueue.to_i32().unwrap(),
 				indexer.to_bytes().as_ref(),
 				sequence,
+			)
+				.pack(writer, tuple_depth),
+			Self::LogCache(entry) => (
+				Kind::LogCache.to_i32().unwrap(),
+				entry.partition,
+				entry.expires_at,
+				entry.process.to_bytes().as_ref(),
 			)
 				.pack(writer, tuple_depth),
 			Self::Log(crate::log::Key::End { position, process }) => (

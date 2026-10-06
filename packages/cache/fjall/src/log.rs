@@ -7,6 +7,7 @@ use {
 	tangram_client::prelude::*,
 };
 
+mod cache;
 mod key;
 
 pub(super) use key::Key;

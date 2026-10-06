@@ -201,6 +201,51 @@ impl Cache {
 }
 
 impl cache::Cache for Cache {
+	async fn delete_log_cache_entry(&self, arg: log::cache::delete::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache::Cache::delete_log_cache_entry(cache, arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(cache) => cache::Cache::delete_log_cache_entry(cache, arg).await,
+			Self::Memory(cache) => cache::Cache::delete_log_cache_entry(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache::Cache::delete_log_cache_entry(cache, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(cache) => cache::Cache::delete_log_cache_entry(cache, arg).await,
+		}
+	}
+
+	async fn get_log_cache_entries(
+		&self,
+		arg: log::cache::get::Arg,
+	) -> tg::Result<Vec<log::cache::Entry>> {
+		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache::Cache::get_log_cache_entries(cache, arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(cache) => cache::Cache::get_log_cache_entries(cache, arg).await,
+			Self::Memory(cache) => cache::Cache::get_log_cache_entries(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache::Cache::get_log_cache_entries(cache, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(cache) => cache::Cache::get_log_cache_entries(cache, arg).await,
+		}
+	}
+
+	async fn put_log_cache_entry(&self, arg: log::cache::put::Arg) -> tg::Result<()> {
+		match self {
+			#[cfg(feature = "fjall")]
+			Self::Fjall(cache) => cache::Cache::put_log_cache_entry(cache, arg).await,
+			#[cfg(feature = "lmdb")]
+			Self::Lmdb(cache) => cache::Cache::put_log_cache_entry(cache, arg).await,
+			Self::Memory(cache) => cache::Cache::put_log_cache_entry(cache, arg).await,
+			#[cfg(feature = "rocksdb")]
+			Self::Rocksdb(cache) => cache::Cache::put_log_cache_entry(cache, arg).await,
+			#[cfg(feature = "scylla")]
+			Self::Scylla(cache) => cache::Cache::put_log_cache_entry(cache, arg).await,
+		}
+	}
+
 	async fn delete_archive_queue_entry(&self, arg: archive::queue::delete::Arg) -> tg::Result<()> {
 		match self {
 			#[cfg(feature = "fjall")]
