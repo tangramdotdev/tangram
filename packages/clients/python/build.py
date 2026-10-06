@@ -65,6 +65,7 @@ def environment():
     contents = (
         f"implementation={implementation}\n"
         f"version={sys.version_info.major}.{sys.version_info.minor}\n"
+        f"ext_suffix={sysconfig.get_config_var('EXT_SUFFIX')}\n"
         f"shared=true\nbuild_flags={','.join(flags)}\n"
         f"pointer_width={sysconfig.get_config_var('SIZEOF_VOID_P') * 8}\n"
         "suppress_build_script_link_lines=true\n"
