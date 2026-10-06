@@ -40,7 +40,6 @@ pub(super) struct RunProcessControlTaskArg {
 	pub exited: Stopper,
 	pub finish: tokio::sync::oneshot::Receiver<ProcessControlResponseReceiver>,
 	pub local: tokio::sync::mpsc::Receiver<local::Message>,
-	pub log: Option<super::WriteProcessLogTaskArg>,
 	pub push: tokio::sync::oneshot::Receiver<()>,
 	pub retention_stopper: Stopper,
 	pub sandbox: tangram_sandbox::Sandbox,
@@ -157,7 +156,6 @@ impl Session {
 			exited,
 			finish,
 			local,
-			log,
 			push,
 			retention_stopper,
 			sandbox,
@@ -170,14 +168,6 @@ impl Session {
 			stdout_buffered,
 		} = arg;
 		let sender = control.sender();
-		let log_task = log.map(|arg| {
-			let session = self.clone();
-			let sender = sender.clone();
-			Task::spawn(move |_| {
-				async move { session.write_process_log_task(arg, sender).boxed().await }
-					.in_current_span()
-			})
-		});
 
 		let (output_sender, output_receiver) = tokio::sync::mpsc::channel::<output::Message>(256);
 		let output_task = self.spawn_process_control_output_task(RunProcessControlOutputTaskArg {
@@ -249,14 +239,6 @@ impl Session {
 			.try_unwrap_finish()
 			.map_err(|_| tg::error!("expected a finish process response"))?;
 		tracing::info!(elapsed = ?started.elapsed(), process = %self.context.principal, "received the process finish response");
-		let log_result = if let Some(log_task) = log_task {
-			match log_task.wait().await {
-				Ok(result) => result,
-				Err(error) => Err(tg::error!(!error, "the process control log task panicked")),
-			}
-		} else {
-			Ok(())
-		};
 
 		// Retain control so waits can obtain the authorization token for the output sync while its objects are in transit.
 		if !self.server.config.process.await_push {
@@ -287,7 +269,6 @@ impl Session {
 		tty_task.abort();
 
 		crate::checkpoint!(self.server, "runner.process.control.finished").await;
-		log_result?;
 
 		Ok(())
 	}
