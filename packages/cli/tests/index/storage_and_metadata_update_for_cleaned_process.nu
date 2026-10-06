@@ -2,7 +2,7 @@ use ../lib/test.nu *
 
 # Cleaning deletes a process while a storage and metadata update for it is still queued, because the two run independently. The indexer must tolerate the missing process. Failing the update instead leaves the entry at the head of the update queue, which blocks every later update and logs the failure on every retry, including after a restart.
 
-let local = server spawn --config {
+let local = server spawn --now '2026-01-01T00:00:00Z' --config {
 	advanced: {
 		checkpoints: true,
 	},
@@ -46,6 +46,7 @@ let delete_watch = (
 )
 
 # Wait for cleaning to delete the process, so that the queued storage and metadata update refers to a process that is gone.
+advance_time $local 2sec
 tg checkpoint wait cleaning.process.delete $delete_watch 0 | ignore
 tg checkpoint continue cleaning.process.delete $delete_watch 0
 tg checkpoint unwatch cleaning.process.delete $delete_watch

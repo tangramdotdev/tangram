@@ -4,6 +4,7 @@ use ../lib/test.nu *
 
 let root = random chars
 let local = server spawn --preserve-keys --config {
+	advanced: { checkpoints: true }
 	authentication: { root: { token: $root }, users: { providers: { insecure: true } } }
 	verification: {
 		index: { delay: null }
@@ -38,6 +39,8 @@ assert equal $denied.status 404 'Bob must not reach the command without the toke
 server stop $local
 let offset = open --raw $local.log | lines | length
 let server = server start $local
+let params = { resource: $granted } | to json --raw
+let capture = tg --token $root checkpoint watch permission_capture.advanced --params $params | from json | get watch
 
 def spawn [socket: string, headers: record, command: record] {
 	let arg = { command: $command, sandbox: {}, stderr: 'null', stdin: 'null', stdout: 'null' } | to json --raw
@@ -49,7 +52,10 @@ def spawn [socket: string, headers: record, command: record] {
 spawn $socket $headers { node: $proven, options: { tokens: { local: [$token] } } }
 spawn $socket $headers { node: $granted, options: {} }
 
-# Stopping the server drains the asynchronous grant writes.
+# Wait for the required capture search before stopping the server, which cancels capture work.
+tg --token $root checkpoint wait permission_capture.advanced $capture 0 | ignore
+tg --token $root checkpoint continue permission_capture.advanced $capture 0
+tg --token $root checkpoint unwatch permission_capture.advanced $capture
 server stop $local
 let searches = open --raw $local.log
 	| lines
