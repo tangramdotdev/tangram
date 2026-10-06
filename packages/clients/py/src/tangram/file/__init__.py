@@ -15,7 +15,7 @@ from ..resolve import TemplateString, Unresolved, is_template_string, resolve
 if TYPE_CHECKING:
     from ..blob import Blob, BlobInput
     from ..client import Client
-    from ..graph import FileWirePayload, Pointer, PointerWireData
+    from ..graph import GraphDataFile, GraphDataPointer, Pointer
 
 
 class FileArgObject(TypedDict, total=False):
@@ -44,7 +44,7 @@ class FileResolvedArgObject(TypedDict, total=False):
     module: str | None
 
 
-type FileWireData = FileWirePayload | PointerWireData
+type FileData = GraphDataFile | GraphDataPointer
 
 
 class FileValue(TypedDict):
@@ -66,7 +66,7 @@ class File(Object):
     ConstructorArg = FileConstructorArg
     Builder: ClassVar[type[FileBuilder]]
     Arg: ClassVar[type[FileArgNamespace]]
-    Data: ClassVar[type[FileData]]
+    Data: ClassVar[type[FileDataNamespace]]
     Object: ClassVar[type[FileObject]]
 
     @overload
@@ -389,13 +389,13 @@ class FileArgNamespace:
 
 class FileObject:
     @staticmethod
-    def to_data(object_) -> FileWireData:
+    def to_data(object_) -> FileData:
         from ..graph import Pointer
         from ..object import edge_string
 
         if isinstance(object_, Pointer):
             return object_.to_data()
-        data: FileWirePayload = {"contents": object_["contents"].id}
+        data: GraphDataFile = {"contents": object_["contents"].id}
         dependencies = object_.get("dependencies") or {}
         if dependencies:
             data["dependencies"] = {
@@ -413,7 +413,7 @@ class FileObject:
         return data
 
     @staticmethod
-    def from_data(data: FileWireData) -> FileValue | Pointer:
+    def from_data(data: FileData) -> FileValue | Pointer:
         return cast("FileValue | Pointer", File.from_data(data)._value)
 
     @staticmethod
@@ -427,9 +427,9 @@ class FileObject:
         )
 
 
-class FileData:
+class FileDataNamespace:
     @staticmethod
-    def children(data: FileWireData) -> list[str]:
+    def children(data: FileData) -> list[str]:
         from ..graph import Graph
 
         return (
@@ -466,6 +466,6 @@ class FileData:
 
 setattr(File, "Builder", FileBuilder)
 setattr(File, "Object", FileObject)
-setattr(File, "Data", FileData)
+setattr(File, "Data", FileDataNamespace)
 
 file = FileBuilder

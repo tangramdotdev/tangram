@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from tangram.client.process.connect import TtyArg
 
 from tangram.client.process.connect import TtySize
-from tangram.error import Error, ErrorDataObject
+from tangram.error import Error, ErrorData
 from tangram.http import Body, Request, percent_encode
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
@@ -59,6 +59,6 @@ async def try_set_process_tty_size(
         await response.close()
         return None
     elif response.status < 200 or response.status >= 300:
-        raise Error.from_data(cast(ErrorDataObject, await response.json()))
+        raise Error.from_data(cast(ErrorData, await response.json()))
     await response.close()
     return True

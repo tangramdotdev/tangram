@@ -10,7 +10,7 @@ from ..referent import Referent
 from ..value import Value
 
 if TYPE_CHECKING:
-    from ..error import ErrorDataObject
+    from ..error import ErrorData
     from ..location import LocationObject
     from ..value import ValueData, ValueType
 
@@ -23,7 +23,7 @@ class ProcessOutcome[O: ValueType](TypedDict):
 
 class Outcome:
     class Data(TypedDict):
-        error: NotRequired[ErrorDataObject | str | None]
+        error: NotRequired[ErrorData | str | None]
         exit: int
         output: NotRequired[ValueData]
 

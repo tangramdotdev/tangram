@@ -6,7 +6,7 @@ from copy import deepcopy
 from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 if TYPE_CHECKING:
-    from ..command import CommandValueWire
+    from ..command import CommandValueData
 
 from ..authorization import Tokens
 from ..module import Module
@@ -15,9 +15,9 @@ from ..value import Value
 
 
 class ProcessCommandData(TypedDict):
-    args: NotRequired[list[CommandValueWire]]
+    args: NotRequired[list[CommandValueData]]
     cwd: NotRequired[str | None]
-    env: NotRequired[dict[str, CommandValueWire]]
+    env: NotRequired[dict[str, CommandValueData]]
     executable: str | dict[str, object]
     host: str
     stdin: NotRequired[str | dict[str, object] | None]

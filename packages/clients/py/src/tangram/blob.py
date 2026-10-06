@@ -63,7 +63,7 @@ class ReadOptions(TypedDict, total=False):
 
 
 type BlobValue = BlobLeaf | BlobBranch
-type BlobWireData = BlobDataLeaf | BlobDataBranch
+type BlobData = BlobDataLeaf | BlobDataBranch
 type BlobArg = str | bytes | bytearray | memoryview | Blob | BlobArgObject | None
 type BlobInput = Unresolved[BlobArg | list[BlobInput] | tuple[BlobInput, ...]]
 
@@ -81,7 +81,7 @@ class Blob(Object):
     ReadOptions = ReadOptions
     Builder: ClassVar[type[BlobBuilder]]
     Arg: ClassVar[type[BlobArgNamespace]]
-    Data: ClassVar[type[BlobData]]
+    Data: ClassVar[type[BlobDataNamespace]]
     Object: ClassVar[type[BlobObject]]
 
     @overload
@@ -282,7 +282,7 @@ class BlobArgNamespace:
 
 class BlobObject:
     @staticmethod
-    def to_data(object_: BlobValue) -> BlobWireData:
+    def to_data(object_: BlobValue) -> BlobData:
         if "bytes" in object_:
             return {
                 "bytes": base64.b64encode(cast(BlobLeaf, object_)["bytes"]).decode()
@@ -295,7 +295,7 @@ class BlobObject:
         }
 
     @staticmethod
-    def from_data(data: BlobWireData) -> BlobValue:
+    def from_data(data: BlobData) -> BlobValue:
         if "bytes" in data:
             return {
                 "bytes": base64.b64decode(
@@ -314,15 +314,15 @@ class BlobObject:
         return [child["blob"] for child in object_.get("children", [])]
 
 
-class BlobData:
+class BlobDataNamespace:
     @staticmethod
-    def children(data: BlobWireData) -> list[str]:
+    def children(data: BlobData) -> list[str]:
         return [child["blob"] for child in data.get("children", [])]
 
 
 Blob.Arg = BlobArgNamespace
 Blob.Builder = BlobBuilder
-Blob.Data = BlobData
+Blob.Data = BlobDataNamespace
 Blob.Object = BlobObject
 
 blob = BlobBuilder

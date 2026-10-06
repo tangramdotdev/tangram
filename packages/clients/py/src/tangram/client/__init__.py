@@ -8,7 +8,7 @@ import random
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, Self, TypedDict, Unpack, cast, overload
 
-from ..error import Error, ErrorDataObject
+from ..error import Error, ErrorData
 from ..http import Body, Request, Response, Stream
 from ..http2 import Session
 from ..object import Object
@@ -19,7 +19,7 @@ from ..referent import Referent
 if TYPE_CHECKING:
     from ..location import ArgObject as LocationArgObject
     from ..location import LocationObject
-    from ..object import ObjectWireData
+    from ..object import ObjectData
     from ..process import ProcessDataObject
     from ..process.outcome import ProcessOutcome
     from ..process.stdio import ReadArgObject, StdioChunk
@@ -177,7 +177,7 @@ class Client:
         self._session = None
 
     @staticmethod
-    def object_id(data: ObjectWireData) -> str:
+    def object_id(data: ObjectData) -> str:
         from ..host import object_id
 
         return object_id(data)
@@ -276,7 +276,7 @@ class Client:
     async def put_object(
         self,
         id: str,
-        arg: Object.Put.Arg | ObjectWireData,
+        arg: Object.Put.Arg | ObjectData,
         *,
         children: list[Referent[str]] | None = None,
         location: LocationArgObject | LocationObject | str | None = None,
@@ -610,7 +610,7 @@ def _options(arg, options):
 
 async def check_response(response: Response) -> None:
     if not 200 <= response.status < 300:
-        raise Error.from_data(cast(ErrorDataObject, await response.json()))
+        raise Error.from_data(cast(ErrorData, await response.json()))
 
 
 def wire_arg(arg: Mapping[str, Any]) -> dict[str, Any]:

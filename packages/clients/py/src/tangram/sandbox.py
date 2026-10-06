@@ -45,7 +45,7 @@ class NetworkBridge(TypedDict, total=False):
 type NetworkValue = NetworkKind | NetworkBridge
 
 
-class NetworkWireData(TypedDict):
+class SandboxNetworkData(TypedDict):
     kind: NetworkKind
     ports: NotRequired[list[str]]
 
@@ -83,7 +83,7 @@ class SandboxData(TypedDict, total=False):
     isolation: dict[str, IsolationValue] | None
     memory: int | float | None
     mounts: list[str]
-    network: NetworkWireData | None
+    network: SandboxNetworkData | None
     owner: str | None
     ttl: int | float | None
     usage: SandboxUsage | None

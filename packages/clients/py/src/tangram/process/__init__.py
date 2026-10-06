@@ -61,7 +61,7 @@ from .stdio import ReadArgObject, Stdio, StdioChunk
 
 if TYPE_CHECKING:
     from ..client import Client
-    from ..error import ErrorDataObject
+    from ..error import ErrorData
     from ..http import Stream as HttpStream
     from ..location import LocationObject
     from ..value import ValueData, ValueType
@@ -108,7 +108,7 @@ class ProcessDataObject(TypedDict):
     command: ReferentData[ProcessCommandData | str] | str
     created_at: int | float
     debug: NotRequired[DebugObject | None]
-    error: NotRequired[ErrorDataObject | str | None]
+    error: NotRequired[ErrorData | str | None]
     exit: NotRequired[int | None]
     expected_checksum: NotRequired[str | None]
     finished_at: NotRequired[int | float | None]
@@ -1258,7 +1258,7 @@ class State:
 class Data:
     @staticmethod
     def without_location_and_tokens(data):
-        from ..object import ObjectData
+        from ..object import ObjectDataNamespace
         from .command import without_location_and_tokens
 
         output = dict(data)
@@ -1292,7 +1292,7 @@ class Data:
                     .without_location_and_tokens()
                     .to_data_string()
                     if isinstance(value, str)
-                    else ObjectData.without_location_and_tokens(
+                    else ObjectDataNamespace.without_location_and_tokens(
                         {"kind": "error", "value": value}
                     )["value"]
                 )

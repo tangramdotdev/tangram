@@ -25,14 +25,14 @@ from .referent import Referent
 from .template import Template
 
 if TYPE_CHECKING:
-    from .blob import BlobWireData
+    from .blob import BlobData
     from .client import Client
-    from .command import CommandDataObject
-    from .directory import DirectoryWireData
-    from .error import ErrorDataObject
-    from .file import FileWireData
-    from .graph import GraphWireData
-    from .symlink import SymlinkWireData
+    from .command import CommandData
+    from .directory import DirectoryData
+    from .error import ErrorData
+    from .file import FileData
+    from .graph import GraphData
+    from .symlink import SymlinkData
 
 
 class Object:
@@ -73,7 +73,7 @@ class Object:
     @property
     def id(self) -> str:
         if self._id is None:
-            data = ObjectData.without_location_and_tokens(Object.to_data(self))
+            data = ObjectDataNamespace.without_location_and_tokens(Object.to_data(self))
             self._id = _native.object_id(json.dumps(data, allow_nan=False))
         return self._id
 
@@ -563,7 +563,7 @@ class ObjectObject:
         return Object.with_object(object_)._children()
 
 
-class ObjectData:
+class ObjectDataNamespace:
     @staticmethod
     def children(data):
         namespace = _kind_type(data["kind"]).__dict__.get("Data")
@@ -685,52 +685,52 @@ def _error_location_without_location_and_tokens(data):
 
 Object.Id = ObjectId
 Object.Object = ObjectObject
-Object.Data = ObjectData
+Object.Data = ObjectDataNamespace
 
 
-class BlobWireObject(TypedDict):
+class ObjectDataBlob(TypedDict):
     kind: Literal["blob"]
-    value: BlobWireData
+    value: BlobData
 
 
-class CommandWireObject(TypedDict):
+class ObjectDataCommand(TypedDict):
     kind: Literal["command"]
-    value: CommandDataObject
+    value: CommandData
 
 
-class DirectoryWireObject(TypedDict):
+class ObjectDataDirectory(TypedDict):
     kind: Literal["directory"]
-    value: DirectoryWireData
+    value: DirectoryData
 
 
-class ErrorWireObject(TypedDict):
+class ObjectDataError(TypedDict):
     kind: Literal["error"]
-    value: ErrorDataObject
+    value: ErrorData
 
 
-class FileWireObject(TypedDict):
+class ObjectDataFile(TypedDict):
     kind: Literal["file"]
-    value: FileWireData
+    value: FileData
 
 
-class GraphWireObject(TypedDict):
+class ObjectDataGraph(TypedDict):
     kind: Literal["graph"]
-    value: GraphWireData
+    value: GraphData
 
 
-class SymlinkWireObject(TypedDict):
+class ObjectDataSymlink(TypedDict):
     kind: Literal["symlink"]
-    value: SymlinkWireData
+    value: SymlinkData
 
 
-type ObjectWireData = (
-    BlobWireObject
-    | CommandWireObject
-    | DirectoryWireObject
-    | ErrorWireObject
-    | FileWireObject
-    | GraphWireObject
-    | SymlinkWireObject
+type ObjectData = (
+    ObjectDataBlob
+    | ObjectDataCommand
+    | ObjectDataDirectory
+    | ObjectDataError
+    | ObjectDataFile
+    | ObjectDataGraph
+    | ObjectDataSymlink
 )
 
 
@@ -744,7 +744,7 @@ class ObjectGet:
         tokens: dict[str, list[str]] | None
 
     class Output(TypedDict):
-        data: ObjectWireData
+        data: ObjectData
         children: NotRequired[dict[str, ObjectGet.Child]]
         tokens: NotRequired[dict[str, list[str]] | None]
 
@@ -752,7 +752,7 @@ class ObjectGet:
 class ObjectBatch:
     class Object(TypedDict):
         id: str
-        data: ObjectWireData
+        data: ObjectData
         children: NotRequired[list[Referent] | None]
 
     class Arg(TypedDict):
@@ -765,7 +765,7 @@ class ObjectBatch:
 
 class ObjectPut:
     class Arg(TypedDict):
-        data: ObjectWireData
+        data: ObjectData
         children: NotRequired[list[Referent] | None]
         location: NotRequired[str | dict[str, builtins.object] | None]
 

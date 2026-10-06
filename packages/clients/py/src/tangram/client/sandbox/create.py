@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from tangram.client import Client
     from tangram.sandbox import SandboxData, SandboxOutput
 
-from tangram.error import Error, ErrorDataObject
+from tangram.error import Error, ErrorData
 from tangram.http import Body, Request
 from tangram.location import Location, LocationObject
 
@@ -42,7 +42,7 @@ async def create_sandbox(client: Client, arg: DataArgObject) -> SandboxOutput:
     )
     response = await client.send_with_retry(request)
     if response.status < 200 or response.status >= 300:
-        raise Error.from_data(cast(ErrorDataObject, await response.json()))
+        raise Error.from_data(cast(ErrorData, await response.json()))
     output = cast(WireOutput, await response.json())
     location = output.get("location")
     if isinstance(location, str):

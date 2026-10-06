@@ -8,7 +8,7 @@ if TYPE_CHECKING:
 
 from typing import Any, NotRequired
 
-from tangram.error import Error, ErrorDataObject
+from tangram.error import Error, ErrorData
 from tangram.http import Body, Request, percent_encode
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
@@ -60,5 +60,5 @@ async def put_process(
     )
     response = await client.send_with_retry(request)
     if response.status < 200 or response.status >= 300:
-        raise Error.from_data(cast(ErrorDataObject, await response.json()))
+        raise Error.from_data(cast(ErrorData, await response.json()))
     return cast(Put.Output, await response.json())

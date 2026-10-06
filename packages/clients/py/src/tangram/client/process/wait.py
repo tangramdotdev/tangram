@@ -9,7 +9,7 @@ import json
 from collections.abc import Awaitable, Callable
 from typing import NotRequired, TypedDict
 
-from tangram.error import Error, ErrorDataObject
+from tangram.error import Error, ErrorData
 from tangram.http import Request, percent_encode
 from tangram.location import Arg as LocationArg
 from tangram.location import ArgObject as LocationArgObject
@@ -80,7 +80,7 @@ async def wait_process_once(client: "Client", id, arg):
     if response.status == 404:
         raise ValueError("failed to find the process")
     elif response.status < 200 or response.status >= 300:
-        raise Error.from_data(cast(ErrorDataObject, await response.json()))
+        raise Error.from_data(cast(ErrorData, await response.json()))
     outcome = None
     async for event in response.sse():
         if event.get("event") == "outcome":

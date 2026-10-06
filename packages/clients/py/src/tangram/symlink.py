@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from .client import Client
     from .directory import Directory
     from .file import File
-    from .graph import Pointer, PointerWireData, SymlinkWirePayload
+    from .graph import GraphDataPointer, GraphDataSymlink, Pointer
 
 
 type ArtifactValue = Directory | File | Symlink
@@ -38,7 +38,7 @@ type SymlinkInput = Unresolved[
 ]
 
 
-type SymlinkWireData = SymlinkWirePayload | PointerWireData
+type SymlinkData = GraphDataSymlink | GraphDataPointer
 
 
 class SymlinkValue(TypedDict):
@@ -57,7 +57,7 @@ class Symlink(Object):
     kind = "symlink"
     Builder: ClassVar[type[SymlinkBuilder]]
     Arg: ClassVar[type[SymlinkArg]]
-    Data: ClassVar[type[SymlinkData]]
+    Data: ClassVar[type[SymlinkDataNamespace]]
     Object: ClassVar[type[SymlinkObject]]
     Id = str
     ConstructorArg = SymlinkConstructorArg
@@ -246,7 +246,7 @@ class SymlinkArg:
 
 class SymlinkObject:
     @staticmethod
-    def to_data(object_) -> SymlinkWireData:
+    def to_data(object_) -> SymlinkData:
         from .graph import Graph, Pointer
 
         if isinstance(object_, Pointer) or "index" in object_:
@@ -258,7 +258,7 @@ class SymlinkObject:
         return Graph.Symlink.to_data(object_)
 
     @staticmethod
-    def from_data(data: SymlinkWireData) -> SymlinkValue | Pointer:
+    def from_data(data: SymlinkData) -> SymlinkValue | Pointer:
         from .graph import Graph
 
         if Graph.Data.Pointer.is_(data):
@@ -278,9 +278,9 @@ class SymlinkObject:
         return Graph.Symlink.children(object_)
 
 
-class SymlinkData:
+class SymlinkDataNamespace:
     @staticmethod
-    def children(data: SymlinkWireData) -> list[str]:
+    def children(data: SymlinkData) -> list[str]:
         from .graph import Graph
 
         if Graph.Data.Pointer.is_(data):
@@ -291,6 +291,6 @@ class SymlinkData:
 setattr(Symlink, "Builder", SymlinkBuilder)
 setattr(Symlink, "Arg", SymlinkArg)
 setattr(Symlink, "Object", SymlinkObject)
-setattr(Symlink, "Data", SymlinkData)
+setattr(Symlink, "Data", SymlinkDataNamespace)
 
 symlink = SymlinkBuilder

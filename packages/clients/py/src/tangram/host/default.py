@@ -16,7 +16,7 @@ from .. import _native
 from .. import http2 as http2
 
 if TYPE_CHECKING:
-    from ..object import ObjectWireData
+    from ..object import ObjectData
     from ..value import ValueData
     from . import MagicOutput
 
@@ -42,7 +42,7 @@ def checksum(input: str | bytes, algorithm: str = "sha256") -> str:
     )
 
 
-def object_id(data: ObjectWireData) -> str:
+def object_id(data: ObjectData) -> str:
     import json
 
     return _native.object_id(json.dumps(data, allow_nan=False))

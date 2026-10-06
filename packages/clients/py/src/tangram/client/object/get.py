@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from tangram.client import Client
     from tangram.object import Object
 
-from ...error import Error, ErrorDataObject
+from ...error import Error, ErrorData
 from ...http import Request, percent_encode
 from ...location import Arg as LocationArg
 from ...location import Location
@@ -44,7 +44,7 @@ async def try_get_object(
         await response.close()
         return None
     elif not 200 <= response.status < 300:
-        raise Error.from_data(cast(ErrorDataObject, await response.json()))
+        raise Error.from_data(cast(ErrorData, await response.json()))
     return cast("Object.Get.Output", await response.json())
 
 

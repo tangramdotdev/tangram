@@ -11,7 +11,7 @@ import json
 from collections.abc import AsyncIterable, AsyncIterator
 from typing import Any, Literal, NotRequired, TypedDict, cast
 
-from ...error import Error, ErrorDataObject
+from ...error import Error, ErrorData
 from ...http import Body, Request, Stream, Uri
 from ...http.body import SseEvent
 from ...location import ArgObject as LocationArgObject
@@ -156,7 +156,7 @@ async def connect_process(
     )
     response = await client.send(request)
     if not 200 <= response.status < 300:
-        raise Error.from_data(cast(ErrorDataObject, await response.json()))
+        raise Error.from_data(cast(ErrorData, await response.json()))
     if response.headers.get("content-type", "").split(";", 1)[0] != "text/event-stream":
         await response.close()
         raise ValueError("invalid process connect content type")

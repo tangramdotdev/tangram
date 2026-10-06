@@ -15,10 +15,10 @@ if TYPE_CHECKING:
     from .client import Client
     from .file import File
     from .graph import (
-        DirectoryBranchWireData,
-        DirectoryLeafWireData,
+        GraphDataDirectoryBranch,
+        GraphDataDirectoryLeaf,
+        GraphDataPointer,
         Pointer,
-        PointerWireData,
     )
     from .symlink import Symlink
 
@@ -57,8 +57,8 @@ type DirectoryInput = Unresolved[
 ]
 
 
-type DirectoryWireData = (
-    DirectoryLeafWireData | DirectoryBranchWireData | PointerWireData
+type DirectoryData = (
+    GraphDataDirectoryLeaf | GraphDataDirectoryBranch | GraphDataPointer
 )
 
 
@@ -89,7 +89,7 @@ class DirectoryConstructorArg(TypedDict, total=False):
 class Directory(Object):
     Builder: ClassVar[type[DirectoryBuilder]]
     Arg: ClassVar[type[DirectoryArg]]
-    Data: ClassVar[type[DirectoryData]]
+    Data: ClassVar[type[DirectoryDataNamespace]]
     Object: ClassVar[type[DirectoryObject]]
     kind = "directory"
     ConstructorArg = DirectoryConstructorArg
@@ -418,11 +418,11 @@ class DirectoryArg:
 
 class DirectoryObject:
     @staticmethod
-    def to_data(object_) -> DirectoryWireData:
+    def to_data(object_) -> DirectoryData:
         return Directory.with_object(object_).to_data()["value"]
 
     @staticmethod
-    def from_data(data: DirectoryWireData) -> DirectoryValue:
+    def from_data(data: DirectoryData) -> DirectoryValue:
         return cast(DirectoryValue, Directory.from_data(data)._value)
 
     @staticmethod
@@ -430,15 +430,15 @@ class DirectoryObject:
         return Directory.with_object(object_)._children()
 
 
-class DirectoryData:
+class DirectoryDataNamespace:
     @staticmethod
-    def children(data: DirectoryWireData) -> list[str]:
+    def children(data: DirectoryData) -> list[str]:
         return [child.id for child in Directory.from_data(data)._children()]
 
 
 setattr(Directory, "Builder", DirectoryBuilder)
 setattr(Directory, "Arg", DirectoryArg)
 setattr(Directory, "Object", DirectoryObject)
-setattr(Directory, "Data", DirectoryData)
+setattr(Directory, "Data", DirectoryDataNamespace)
 
 directory = DirectoryBuilder

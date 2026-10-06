@@ -128,84 +128,83 @@ type GraphInput = Unresolved[
 ]
 
 
-class PointerWireObject(TypedDict):
+class GraphDataPointerObject(TypedDict):
     graph: str
     index: int
     kind: Literal["directory", "file", "symlink"]
 
 
-type PointerWireData = str | PointerWireObject
-type GraphDataEdge[T] = int | PointerWireData | T
-type EdgeWireData = GraphDataEdge[str]
+type GraphDataPointer = str | GraphDataPointerObject
+type GraphDataEdge[T] = int | GraphDataPointer | T
 
 
-class DependencyWireObject(TypedDict):
-    node: EdgeWireData | None
+class GraphDependencyDataObject(TypedDict):
+    node: GraphDataEdge[str] | None
     options: NotRequired[DataOptions]
 
 
-type DependencyWireData = str | DependencyWireObject
+type GraphDependencyData = str | GraphDependencyDataObject
 
 
-class DirectoryLeafWireData(TypedDict):
-    entries: dict[str, EdgeWireData]
+class GraphDataDirectoryLeaf(TypedDict):
+    entries: dict[str, GraphDataEdge[str]]
 
 
-class DirectoryChildWireData(TypedDict):
-    directory: EdgeWireData
+class GraphDataDirectoryChild(TypedDict):
+    directory: GraphDataEdge[str]
     count: int
     last: str
 
 
-class DirectoryBranchWireData(TypedDict):
-    children: list[DirectoryChildWireData]
+class GraphDataDirectoryBranch(TypedDict):
+    children: list[GraphDataDirectoryChild]
 
 
-class FileWirePayload(TypedDict, total=False):
+class GraphDataFile(TypedDict, total=False):
     contents: str | None
-    dependencies: dict[str, DependencyWireData | None]
+    dependencies: dict[str, GraphDependencyData | None]
     executable: bool
     module: str | None
 
 
-class SymlinkWirePayload(TypedDict, total=False):
-    artifact: EdgeWireData | None
+class GraphDataSymlink(TypedDict, total=False):
+    artifact: GraphDataEdge[str] | None
     path: str | None
 
 
-class DirectoryLeafNodeWireData(DirectoryLeafWireData):
+class GraphDataDirectoryLeafNode(GraphDataDirectoryLeaf):
     kind: Literal["directory"]
 
 
-class DirectoryBranchNodeWireData(DirectoryBranchWireData):
+class GraphDataDirectoryBranchNode(GraphDataDirectoryBranch):
     kind: Literal["directory"]
 
 
-class FileNodeWireData(FileWirePayload):
+class GraphDataFileNode(GraphDataFile):
     kind: Literal["file"]
 
 
-class SymlinkNodeWireData(SymlinkWirePayload):
+class GraphDataSymlinkNode(GraphDataSymlink):
     kind: Literal["symlink"]
 
 
-type GraphNodeWireData = (
-    DirectoryLeafNodeWireData
-    | DirectoryBranchNodeWireData
-    | FileNodeWireData
-    | SymlinkNodeWireData
+type GraphDataNode = (
+    GraphDataDirectoryLeafNode
+    | GraphDataDirectoryBranchNode
+    | GraphDataFileNode
+    | GraphDataSymlinkNode
 )
 
 
-class GraphWireData(TypedDict):
-    nodes: list[GraphNodeWireData]
+class GraphData(TypedDict):
+    nodes: list[GraphDataNode]
 
 
 class Graph(Object):
     kind = "graph"
     Builder: ClassVar[type[GraphBuilder]]
     Object: ClassVar[type[GraphObject]]
-    Data: ClassVar[type[GraphData]]
+    Data: ClassVar[type[GraphDataNamespace]]
     Arg: ClassVar[type[Arg]]
     Node: ClassVar[type[Node]]
     Directory: ClassVar[type[GraphDirectory]]
@@ -585,7 +584,7 @@ class Edge:
             return int(data)
         if isinstance(data, str):
             return Edge.from_data_string(data, f)
-        if DataPointer.is_(data):
+        if GraphDataPointerNamespace.is_(data):
             try:
                 return Pointer.from_data(data)
             except (ValueError, AssertionError, KeyError, TypeError):
@@ -646,11 +645,11 @@ class Dependency:
 
 class GraphObject:
     @staticmethod
-    def to_data(object_: GraphValue) -> GraphWireData:
+    def to_data(object_: GraphValue) -> GraphData:
         return {"nodes": [Node.to_data(node) for node in object_["nodes"]]}
 
     @staticmethod
-    def from_data(data: GraphWireData) -> GraphValue:
+    def from_data(data: GraphData) -> GraphValue:
         return {"nodes": [Node.from_data(node) for node in data["nodes"]]}
 
     @staticmethod
@@ -720,7 +719,7 @@ class GraphDirectory:
         from .artifact import Artifact
         from .directory import Directory
 
-        if DataDirectory.is_branch(data):
+        if GraphDataDirectoryNamespace.is_branch(data):
             return {
                 "children": [
                     {
@@ -856,17 +855,17 @@ class Arg:
     Pointer = ArgPointer
 
 
-class DataEdge:
+class GraphDataEdgeNamespace:
     @staticmethod
     def children(data):
         if is_number(data) or (isinstance(data, str) and re.fullmatch(r"[0-9]+", data)):
             return []
         if isinstance(data, str) and "index=" not in data:
             return [data]
-        return DataPointer.children(data)
+        return GraphDataPointerNamespace.children(data)
 
 
-class DataPointer:
+class GraphDataPointerNamespace:
     @staticmethod
     def is_(value):
         return isinstance(value, str) or (
@@ -884,11 +883,15 @@ class DataPointer:
         return [data["graph"]]
 
 
-class DataDependency:
+class GraphDataDependencyNamespace:
     @staticmethod
     def children(data):
         node = data.split("?", 1)[0] if isinstance(data, str) else data["node"]
-        return DataEdge.children(node) if node is not None and node != "" else []
+        return (
+            GraphDataEdgeNamespace.children(node)
+            if node is not None and node != ""
+            else []
+        )
 
     @staticmethod
     def without_location_and_tokens(data):
@@ -906,7 +909,7 @@ class DataDependency:
         return output
 
 
-class DataDirectory:
+class GraphDataDirectoryNamespace:
     is_leaf = staticmethod(GraphDirectory.is_leaf)
     is_branch = staticmethod(GraphDirectory.is_branch)
 
@@ -914,19 +917,19 @@ class DataDirectory:
     def children(data):
         edges = (
             [child["directory"] for child in data["children"]]
-            if DataDirectory.is_branch(data)
+            if GraphDataDirectoryNamespace.is_branch(data)
             else data["entries"].values()
         )
-        return [id for edge in edges for id in DataEdge.children(edge)]
+        return [id for edge in edges for id in GraphDataEdgeNamespace.children(edge)]
 
 
-class DataDirectoryChild:
+class GraphDataDirectoryChildNamespace:
     @staticmethod
     def children(data):
-        return DataEdge.children(data["directory"])
+        return GraphDataEdgeNamespace.children(data["directory"])
 
 
-class DataFile:
+class GraphDataFileNamespace:
     @staticmethod
     def children(data):
         return [
@@ -935,7 +938,7 @@ class DataFile:
                 id
                 for dependency in data.get("dependencies", {}).values()
                 if dependency is not None
-                for id in DataDependency.children(dependency)
+                for id in GraphDataDependencyNamespace.children(dependency)
             ],
         ]
 
@@ -948,63 +951,70 @@ class DataFile:
             output["dependencies"] = {
                 Reference.without_tokens(reference): None
                 if dependency is None
-                else DataDependency.without_location_and_tokens(dependency)
+                else GraphDataDependencyNamespace.without_location_and_tokens(
+                    dependency
+                )
                 for reference, dependency in data["dependencies"].items()
             }
         return output
 
 
-class DataSymlink:
+class GraphDataSymlinkNamespace:
     @staticmethod
     def children(data):
         return (
-            DataEdge.children(data["artifact"])
+            GraphDataEdgeNamespace.children(data["artifact"])
             if data.get("artifact") is not None
             else []
         )
 
 
-class DataNode:
+class GraphDataNodeNamespace:
     @staticmethod
     def children(data):
-        return {"directory": DataDirectory, "file": DataFile, "symlink": DataSymlink}[
-            data["kind"]
-        ].children(data)
+        return {
+            "directory": GraphDataDirectoryNamespace,
+            "file": GraphDataFileNamespace,
+            "symlink": GraphDataSymlinkNamespace,
+        }[data["kind"]].children(data)
 
     @staticmethod
     def without_location_and_tokens(data):
         return (
-            {**DataFile.without_location_and_tokens(data), "kind": "file"}
+            {**GraphDataFileNamespace.without_location_and_tokens(data), "kind": "file"}
             if data["kind"] == "file"
             else dict(data)
         )
 
 
-class GraphData:
-    Node = DataNode
-    Directory = DataDirectory
-    DirectoryChild = DataDirectoryChild
-    File = DataFile
-    Symlink = DataSymlink
-    Edge = DataEdge
-    Pointer = DataPointer
-    Dependency = DataDependency
-    DirectoryLeaf = DirectoryLeafWireData
-    DirectoryBranch = DirectoryBranchWireData
-    DirectoryNode = DirectoryLeafNodeWireData | DirectoryBranchNodeWireData
-    FileNode = FileNodeWireData
-    SymlinkNode = SymlinkNodeWireData
+class GraphDataNamespace:
+    Node = GraphDataNodeNamespace
+    Directory = GraphDataDirectoryNamespace
+    DirectoryChild = GraphDataDirectoryChildNamespace
+    File = GraphDataFileNamespace
+    Symlink = GraphDataSymlinkNamespace
+    Edge = GraphDataEdgeNamespace
+    Pointer = GraphDataPointerNamespace
+    Dependency = GraphDataDependencyNamespace
+    DirectoryLeaf = GraphDataDirectoryLeaf
+    DirectoryBranch = GraphDataDirectoryBranch
+    DirectoryNode = GraphDataDirectoryLeafNode | GraphDataDirectoryBranchNode
+    FileNode = GraphDataFileNode
+    SymlinkNode = GraphDataSymlinkNode
 
     @staticmethod
-    def children(data: GraphWireData) -> list[str]:
-        return [id for node in data["nodes"] for id in DataNode.children(node)]
+    def children(data: GraphData) -> list[str]:
+        return [
+            id for node in data["nodes"] for id in GraphDataNodeNamespace.children(node)
+        ]
 
     @staticmethod
-    def without_location_and_tokens(data: GraphWireData) -> GraphWireData:
+    def without_location_and_tokens(data: GraphData) -> GraphData:
         return {
             **data,
             "nodes": [
-                DataNode.without_location_and_tokens(node) for node in data["nodes"]
+                GraphDataNodeNamespace.without_location_and_tokens(node)
+                for node in data["nodes"]
             ],
         }
 
@@ -1018,7 +1028,7 @@ setattr(Graph, "Dependency", Dependency)
 setattr(Graph, "Symlink", GraphSymlink)
 setattr(Graph, "Edge", Edge)
 setattr(Graph, "Pointer", Pointer)
-setattr(Graph, "Data", GraphData)
+setattr(Graph, "Data", GraphDataNamespace)
 setattr(Graph, "Id", str)
 setattr(Graph, "ConstructorArg", GraphConstructorArg)
 setattr(Graph, "DirectoryNode", dict)

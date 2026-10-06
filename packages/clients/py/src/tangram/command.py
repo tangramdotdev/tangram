@@ -37,7 +37,7 @@ from .template import Template, TemplateInput
 from .value import Value
 
 
-class CommandValueWire(TypedDict):
+class CommandValueData(TypedDict):
     kind: Literal["string", "value"]
     value: ValueData
 
@@ -47,10 +47,10 @@ class ExecutableDataObject(TypedDict, total=False):
     path: str
 
 
-class CommandDataObject(TypedDict):
-    args: list[CommandValueWire]
+class CommandData(TypedDict):
+    args: list[CommandValueData]
     cwd: NotRequired[str]
-    env: dict[str, CommandValueWire]
+    env: dict[str, CommandValueData]
     executable: ExecutableDataObject
     host: str
     stdin: NotRequired[str]
@@ -190,7 +190,7 @@ class Command[A, O: ValueType](Object):
     Arg: ClassVar[type[CommandArg]]
     Object: ClassVar[type[CommandObject]]
     Executable: ClassVar[type[CommandExecutable]]
-    Data: ClassVar[type[CommandData]]
+    Data: ClassVar[type[CommandDataNamespace]]
 
     def __init__(
         self,
@@ -477,7 +477,7 @@ class _ValueDescriptor:
 
 class CommandValue[T]:
     __tangram_atomic__ = True
-    Data: ClassVar[type[CommandValueData]]
+    Data: ClassVar[type[CommandValueDataNamespace]]
 
     def __init__(self, kind: Literal["string", "value"], value: T):
         self.kind = kind
@@ -530,14 +530,14 @@ async def reduce_env(a, b):
     return output
 
 
-class CommandValueData:
+class CommandValueDataNamespace:
     @staticmethod
     def children(data):
-        return CommandData._value_children(data["value"])
+        return CommandDataNamespace._value_children(data["value"])
 
     @staticmethod
     def without_location_and_tokens(data):
-        return {**data, "value": CommandData._without_proofs(data["value"])}
+        return {**data, "value": CommandDataNamespace._without_proofs(data["value"])}
 
 
 class CommandArg:
@@ -627,7 +627,7 @@ class CommandObject:
         return output
 
     @staticmethod
-    def from_data(data: CommandDataObject) -> CommandObjectValue:
+    def from_data(data: CommandData) -> CommandObjectValue:
         return Command.with_object({})._decode(data)
 
     @staticmethod
@@ -674,7 +674,7 @@ class CommandExecutable:
         return [value["artifact"]] if value.get("artifact") is not None else []
 
 
-class CommandData:
+class CommandDataNamespace:
     class Executable:
         @staticmethod
         def children(data):
@@ -687,16 +687,16 @@ class CommandData:
     @staticmethod
     def children(data):
         return [
-            *CommandData.Executable.children(data["executable"]),
+            *CommandDataNamespace.Executable.children(data["executable"]),
             *[
                 child
                 for value in data.get("args", [])
-                for child in CommandValueData.children(value)
+                for child in CommandValueDataNamespace.children(value)
             ],
             *[
                 child
                 for value in data.get("env", {}).values()
-                for child in CommandValueData.children(value)
+                for child in CommandValueDataNamespace.children(value)
             ],
             *([data["stdin"]] if data.get("stdin") is not None else []),
         ]
@@ -706,16 +706,18 @@ class CommandData:
         output = dict(data)
         if "args" in data:
             output["args"] = [
-                CommandValueData.without_location_and_tokens(value)
+                CommandValueDataNamespace.without_location_and_tokens(value)
                 for value in data["args"]
             ]
         if "env" in data:
             output["env"] = {
-                key: CommandValueData.without_location_and_tokens(value)
+                key: CommandValueDataNamespace.without_location_and_tokens(value)
                 for key, value in data["env"].items()
             }
-        output["executable"] = CommandData.Executable.without_location_and_tokens(
-            data["executable"]
+        output["executable"] = (
+            CommandDataNamespace.Executable.without_location_and_tokens(
+                data["executable"]
+            )
         )
         return output
 
@@ -746,7 +748,7 @@ class CommandData:
             return output
 
         if isinstance(data, list):
-            return [CommandData._without_proofs(child) for child in data]
+            return [CommandDataNamespace._without_proofs(child) for child in data]
         if not isinstance(data, dict):
             return data
         kind = data.get("kind")
@@ -776,18 +778,21 @@ class CommandData:
         if kind == "mutation":
             mutation = dict(data["value"])
             if mutation["kind"] in ("set", "set_if_unset"):
-                mutation["value"] = CommandData._without_proofs(mutation["value"])
+                mutation["value"] = CommandDataNamespace._without_proofs(
+                    mutation["value"]
+                )
             elif mutation["kind"] in ("prepend", "append"):
                 mutation["values"] = [
-                    CommandData._without_proofs(value) for value in mutation["values"]
+                    CommandDataNamespace._without_proofs(value)
+                    for value in mutation["values"]
                 ]
             elif mutation["kind"] in ("prefix", "suffix"):
-                mutation["template"] = CommandData._without_proofs(
+                mutation["template"] = CommandDataNamespace._without_proofs(
                     {"kind": "template", "value": mutation["template"]}
                 )["value"]
             elif mutation["kind"] == "merge":
                 mutation["value"] = {
-                    key: CommandData._without_proofs(value)
+                    key: CommandDataNamespace._without_proofs(value)
                     for key, value in mutation["value"].items()
                 }
             return {**data, "value": mutation}
@@ -795,7 +800,7 @@ class CommandData:
             return {
                 **data,
                 "value": {
-                    key: CommandData._without_proofs(value)
+                    key: CommandDataNamespace._without_proofs(value)
                     for key, value in data["value"].items()
                 },
             }
@@ -1016,5 +1021,5 @@ Command.Value = CommandValue
 Command.Arg = CommandArg
 Command.Object = CommandObject
 Command.Executable = CommandExecutable
-Command.Data = CommandData
-CommandValue.Data = CommandValueData
+Command.Data = CommandDataNamespace
+CommandValue.Data = CommandValueDataNamespace

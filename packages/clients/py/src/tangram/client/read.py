@@ -10,7 +10,7 @@ import re
 from collections.abc import AsyncIterator
 from typing import Any, Literal, NotRequired
 
-from tangram.error import Error, ErrorDataObject
+from tangram.error import Error, ErrorData
 from tangram.http import Request, Stream
 
 
@@ -90,7 +90,7 @@ async def try_read_stream(
         await response.close()
         return None
     elif response.status < 200 or response.status >= 300:
-        raise Error.from_data(cast(ErrorDataObject, await response.json()))
+        raise Error.from_data(cast(ErrorData, await response.json()))
     return Stream(decode_read_events(response), response.close)
 
 

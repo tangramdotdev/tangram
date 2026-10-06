@@ -51,13 +51,13 @@ class ErrorLocationData(TypedDict):
     range: Range
 
 
-class ErrorDataObject(TypedDict, total=False):
+class ErrorData(TypedDict, total=False):
     code: str | None
     diagnostics: list[DiagnosticData] | None
     kind: ErrorKind | None
     location: ErrorLocationData | None
     message: str | None
-    source: ReferentData[ErrorDataObject | str] | str | None
+    source: ReferentData[ErrorData | str] | str | None
     stack: list[ErrorLocationData] | None
     values: dict[str, str]
 
@@ -184,12 +184,12 @@ class Error(Object, Exception):
             | {"values": "merge"},
         )
 
-    def to_data(self) -> ErrorDataObject:
+    def to_data(self) -> ErrorData:
         if self._value is None:
             raise ValueError("the error has not been loaded")
         return ErrorObject.to_data(self._value)
 
-    def to_data_or_id(self) -> ErrorDataObject | str:
+    def to_data_or_id(self) -> ErrorData | str:
         if self.state.stored:
             return self.to_referent().to_data_string()
         return self.to_data()
@@ -250,7 +250,7 @@ class Error(Object, Exception):
         return (await self.load(client)).get("values") or {}
 
     @classmethod
-    def from_data(cls, data: ErrorDataObject | str) -> Self:
+    def from_data(cls, data: ErrorData | str) -> Self:
         return (
             cls.with_referent(Referent.from_data_string(data))
             if isinstance(data, str)
@@ -357,8 +357,8 @@ class ErrorObject:
     kind = staticmethod(error_kind)
 
     @staticmethod
-    def to_data(object_: ErrorObjectValue) -> ErrorDataObject:
-        data: ErrorDataObject = {}
+    def to_data(object_: ErrorObjectValue) -> ErrorData:
+        data: ErrorData = {}
         for key in ("code", "kind", "message"):
             if object_.get(key) is not None:
                 data.update({key: object_[key]})
@@ -384,7 +384,7 @@ class ErrorObject:
         return data
 
     @staticmethod
-    def from_data(data: ErrorDataObject) -> ErrorObjectValue:
+    def from_data(data: ErrorData) -> ErrorObjectValue:
         object_ = empty_object()
         object_["code"] = data.get("code")
         object_["kind"] = data.get("kind")
@@ -487,7 +487,7 @@ class ErrorFile:
         return Module.children(value["value"]) if value["kind"] == "module" else []
 
 
-class ErrorData:
+class ErrorDataNamespace:
     Location: ClassVar[type[ErrorDataLocation]]
     File: ClassVar[type[ErrorDataFile]]
 
@@ -513,12 +513,12 @@ class ErrorData:
             elif isinstance(source["node"], str):
                 children.append(source["node"])
             else:
-                children.extend(ErrorData.children(source["node"]))
+                children.extend(ErrorDataNamespace.children(source["node"]))
         return children
 
     @staticmethod
-    def without_location_and_tokens(data) -> ErrorDataObject:
-        output: ErrorDataObject = {**data}
+    def without_location_and_tokens(data) -> ErrorData:
+        output: ErrorData = {**data}
         if data.get("diagnostics") is not None:
             output["diagnostics"] = [
                 Diagnostic.Data.without_location_and_tokens(item)
@@ -539,12 +539,12 @@ class ErrorData:
                 output["source"] = referent.to_data_string()
             else:
                 if not isinstance(source["node"], str):
-                    referent = cast("Referent[ErrorDataObject | str]", referent)
-                    referent.node = ErrorData.without_location_and_tokens(
+                    referent = cast("Referent[ErrorData | str]", referent)
+                    referent.node = ErrorDataNamespace.without_location_and_tokens(
                         source["node"]
                     )
                 output["source"] = cast(
-                    "ReferentData[ErrorDataObject | str]", referent.to_data()
+                    "ReferentData[ErrorData | str]", referent.to_data()
                 )
         if data.get("stack") is not None:
             output["stack"] = [
@@ -586,8 +586,8 @@ class ErrorArg(dict):
 Error.Arg = ErrorArg
 Error.ConstructorArg = ErrorConstructorArg
 Error.Object = ErrorObject
-Error.Data = ErrorData
+Error.Data = ErrorDataNamespace
 Error.Location = ErrorLocation
 Error.File = ErrorFile
-ErrorData.Location = ErrorDataLocation
-ErrorData.File = ErrorDataFile
+ErrorDataNamespace.Location = ErrorDataLocation
+ErrorDataNamespace.File = ErrorDataFile
