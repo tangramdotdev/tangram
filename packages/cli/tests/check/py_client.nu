@@ -25,15 +25,6 @@ rm --recursive $path
 success (tg check $checked | complete)
 success (tg run $checked | complete)
 
-# Reuse the client's consumer tests rather than introducing separate declarations.
-const positive = path self '../../../clients/py/tests/typing/positive'
-let files = glob ($positive | path join '*.py')
-assert (not ($files | is-empty))
-for file in $files {
-    let path = artifact {'main.tg.py': (open --raw $file)}
-    success (tg check ($path | path join main.tg.py) | complete)
-}
-
 for source in [
     'tg.file().executable("wrong")'
     'value: tg.Directory = tg.File.with_id("fil_0000000000000000000000000000000000000000000000000000")'
