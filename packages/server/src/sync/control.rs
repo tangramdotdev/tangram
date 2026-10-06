@@ -301,14 +301,6 @@ impl Server {
 		let attempt = if let Some(attempt) = state.clients.get(&request.client) {
 			attempt.clone()
 		} else {
-			// Leave a bounded window for callers racing with the end of the transfer.
-			if state
-				.finished
-				.as_ref()
-				.is_some_and(|(finished_at, _)| Instant::now() >= *finished_at + ttl)
-			{
-				return Ok(());
-			}
 			let mut bytes = [0; 16];
 			aws_lc_rs::rand::fill(&mut bytes)
 				.map_err(|error| tg::error!(!error, "failed to generate a sync attempt"))?;

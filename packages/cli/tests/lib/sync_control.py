@@ -1139,6 +1139,36 @@ def test_finish(messenger):
             sync.close()
 
 
+def test_finished_active_clients(messenger):
+    sync = Sync()
+    peer = Peer(messenger, sync.token)
+    attempt = peer.connect()
+    peer.send("missing", missing_id(1), attempt)
+    peer.retained("missing")
+    sync.finish()
+    response = peer.response("missing")
+    assert response[0] is None and response[3] == Variant(1, None), response
+    peer.acknowledge(response)
+
+    # Keep an existing client active beyond one attempt TTL after the transfer finishes.
+    started = time.monotonic()
+    index = 0
+    while time.monotonic() < started + TTL + 0.2:
+        time.sleep(0.1)
+        assert peer.connect(f"keepalive-{index}") == attempt
+        index += 1
+
+    # A retained responder must also serve a new verifier holding the sync token.
+    peer.send("new-heartbeat", client="new")
+    response = peer.response("new-heartbeat", timeout=1, client="new")
+    peer.acknowledge(response)
+    peer.send("new-read", missing_id(1), response[2], client="new")
+    response = peer.response("new-read", client="new")
+    assert response[0] is None and response[3] == Variant(1, None), response
+    peer.acknowledge(response)
+    sync.close()
+
+
 def test_index_handoff(messenger):
     for interruption in ("cancel", "failure", "enqueue"):
         text = "handoff " + interruption
