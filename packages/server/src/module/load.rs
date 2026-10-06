@@ -120,6 +120,7 @@ impl Session {
 					},
 					|object| Ok(tg::Object::with_id(object.clone())),
 				)?;
+				object.state().inherit_location(options.location.as_ref());
 				object.state().set_tokens(options.tokens.clone());
 				let file = object
 					.try_unwrap_file()

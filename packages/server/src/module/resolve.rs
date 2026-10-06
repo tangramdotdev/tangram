@@ -14,7 +14,8 @@ impl Session {
 
 		// Get the referent.
 		let referent = match referrer {
-			None => Self::resolve_module_without_referrer(&import)
+			None => self
+				.resolve_module_without_referrer(&import)
 				.map_err(|error| tg::error!(!error, "failed to resolve module without referrer"))?,
 			Some(referrer) => match referrer.referent.node() {
 				tg::module::data::Source::Edge(edge) => {
@@ -109,6 +110,7 @@ impl Session {
 	}
 
 	fn resolve_module_without_referrer(
+		&self,
 		import: &tg::module::Import,
 	) -> tg::Result<tg::Referent<tg::module::data::Source>> {
 		let edge = reference_node_to_object_edge(import.reference.node())
@@ -121,10 +123,15 @@ impl Session {
 		}
 		let source = tg::module::data::Source::Edge(edge);
 		let reference_options = import.reference.options();
+		let location = reference_options
+			.location
+			.as_ref()
+			.map(|location| self.server.location(Some(location)))
+			.transpose()?;
 		let options = tg::referent::Options {
 			artifact: reference_options.artifact.clone(),
 			id: reference_options.id.clone(),
-			location: None,
+			location,
 			name: reference_options.name.clone(),
 			path: reference_options.path.clone(),
 			tag: reference_options.tag.clone(),
@@ -156,7 +163,13 @@ impl Session {
 				(artifact, authorization)
 			},
 		};
+		artifact
+			.state()
+			.inherit_location(referrer.options.location.as_ref());
 		artifact.state().set_tokens(referrer.options.tokens.clone());
+		authorization
+			.state()
+			.inherit_location(referrer.options.location.as_ref());
 		authorization
 			.state()
 			.set_tokens(referrer.options.tokens.clone());
@@ -343,6 +356,13 @@ impl Session {
 				return Err(tg::error!("expected an error"));
 			},
 		};
+
+		// Retain the dependency's authorization before replacing its handles with IDs.
+		let mut referent = referent;
+		for child in referent.node.children() {
+			let options = child.to_referent().options;
+			referent.options.tokens.inherit(&options.tokens);
+		}
 
 		// Create the output referent and attach its exact token.
 		let mut referent = referent.map(|edge| tg::module::data::Source::Edge(edge.to_data()));

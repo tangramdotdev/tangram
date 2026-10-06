@@ -609,9 +609,7 @@ impl Session {
 
 		// Load the command concurrently with the control stream.
 		let command: CommandFuture = {
-			// Ignore the source-relative location when loading the command on the runner.
-			let mut command = state.command.clone();
-			command.options.location = None;
+			let command = state.command.clone();
 			let command_session = command_session.clone();
 			let session = session.clone();
 			let server = self.server.clone();
