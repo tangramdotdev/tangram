@@ -137,15 +137,15 @@ export namespace Authorization {
 					granted === needed.replace("process_node", "process_subtree")
 				);
 			}
-			for (let kind of ["group", "organization", "sandbox", "tag", "user"]) {
+			if (needed === "sandbox_node") {
+				return granted === "sandbox_parent";
+			}
+			for (let kind of ["group", "organization", "tag", "user"]) {
 				if (needed === `${kind}_read`) {
-					return (
-						granted === `${kind}_write` ||
-						(kind !== "sandbox" && granted === `${kind}_admin`)
-					);
+					return granted === `${kind}_write` || granted === `${kind}_admin`;
 				}
 				if (needed === `${kind}_write`) {
-					return kind !== "sandbox" && granted === `${kind}_admin`;
+					return granted === `${kind}_admin`;
 				}
 			}
 			return false;

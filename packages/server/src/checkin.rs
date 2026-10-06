@@ -48,7 +48,6 @@ pub struct TaskKey {
 #[derive(Clone)]
 pub struct TaskOutput {
 	pub graph: Graph,
-	pub path: PathBuf,
 }
 
 type IndexObjectArgs =
@@ -228,10 +227,10 @@ impl Session {
 					.map_or(node.permissions, |id| output.graph.object_permissions(id));
 
 				// Determine the id.
-				let id = if path != output.path
-					&& let tg::graph::data::Edge::Pointer(pointer) = node.edge.as_ref().unwrap()
+				let id = if let tg::graph::data::Edge::Pointer(pointer) =
+					node.edge.as_ref().unwrap()
 				{
-					// If the path differs from the output path and the edge is a pointer, then store and index a pointer artifact for the path.
+					// A reused watch may not have stored a pointer artifact for this graph member.
 					let result = session
 						.checkin_store_and_index_pointer_artifact(node, pointer, object_permissions)
 						.await;
@@ -468,13 +467,15 @@ impl Session {
 			.await;
 		}
 
-		// Read the lock if it was not retrieved from the watcher and the lock option is set.
-		let lock = if let Some(lock) = lock {
-			Some(lock)
-		} else if arg.options.lock.is_some() {
-			Self::checkin_try_read_lock(root)
-				.map_err(|error| tg::error!(!error, "failed to read the lock"))?
-				.map(Arc::new)
+		// Revalidate the lock before reusing a watched graph because file events may still be queued.
+		let lock = if arg.options.lock.is_some() {
+			let current = Self::checkin_try_read_lock(root)
+				.map_err(|error| tg::error!(!error, "failed to read the lock"))?;
+			if lock.as_deref() != current.as_ref() {
+				graph = Graph::default();
+				solutions = Solutions::default();
+			}
+			current.map(Arc::new)
 		} else {
 			None
 		};
@@ -536,10 +537,7 @@ impl Session {
 			if !current {
 				return Err(tg::error!("files were modified during checkin"));
 			}
-			let output = TaskOutput {
-				graph,
-				path: arg.path,
-			};
+			let output = TaskOutput { graph };
 
 			return Ok(output);
 		}
@@ -792,10 +790,7 @@ impl Session {
 				.map_err(|error| tg::error!(!error, "failed to index the checkin"))?;
 		}
 
-		let output = TaskOutput {
-			graph,
-			path: arg.path,
-		};
+		let output = TaskOutput { graph };
 
 		Ok(output)
 	}

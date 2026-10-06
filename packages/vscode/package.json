@@ -65,6 +65,11 @@
 				"editor.insertSpaces": true,
 				"editor.tabSize": 2
 			},
+			"[tangram-python]": {
+				"editor.detectIndentation": false,
+				"editor.insertSpaces": true,
+				"editor.tabSize": 4
+			},
 			"[tangram-typescript]": {
 				"editor.detectIndentation": false,
 				"editor.insertSpaces": true,
@@ -86,6 +91,14 @@
 				],
 				"path": "./tangram-javascript-jsdoc-injection.tmLanguage.json",
 				"scopeName": "documentation.injection.tg.js"
+			},
+			{
+				"embeddedLanguages": {
+					"source.python": "python"
+				},
+				"language": "tangram-python",
+				"path": "./tangram-python.tmLanguage.json",
+				"scopeName": "source.tg.py"
 			},
 			{
 				"embeddedLanguages": {
@@ -116,6 +129,19 @@
 					".tg.js"
 				],
 				"id": "tangram-javascript"
+			},
+			{
+				"aliases": [
+					"Tangram Python"
+				],
+				"configuration": "./tangram-python-language-configuration.json",
+				"filenames": [
+					"tangram.py"
+				],
+				"extensions": [
+					".tg.py"
+				],
+				"id": "tangram-python"
 			},
 			{
 				"aliases": [

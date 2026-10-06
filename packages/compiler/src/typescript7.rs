@@ -259,7 +259,11 @@ impl Host<'_> {
 		} else if path.starts_with("/__runtime__/") {
 			let module = self.files.lock().unwrap().try_module(path)?;
 			match module {
-				Some(module) => Some(self.compiler.load_module(&module).await?),
+				Some(module) => Some(
+					self.compiler
+						.load_module_with_language(&module, Some(tg::module::load::Language::Js))
+						.await?,
+				),
 				None => None,
 			}
 		} else {

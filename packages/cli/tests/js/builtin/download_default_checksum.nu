@@ -21,4 +21,4 @@ let path = artifact {
 let output = tg build $path $http.url | complete
 failure $output
 assert ($output.stderr | str contains 'checksum mismatch')
-assert ($output.stderr | str contains 'expected = sha512:none')
+assert ($output.stderr | str contains 'expected = sha256:none')

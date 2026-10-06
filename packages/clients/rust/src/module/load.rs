@@ -5,7 +5,16 @@ use {
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub language: Option<Language>,
 	pub module: tg::module::Data,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Language {
+	Js,
+	Py,
 }
 
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]

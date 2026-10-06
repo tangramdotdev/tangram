@@ -7,9 +7,12 @@ pub fn load(
 ) -> tg::Result<String> {
 	let (Serde(module),) = args;
 	compiler.main_runtime_handle.clone().block_on(async move {
-		let text = compiler.load_module(&module).await.map_err(
-			|error| tg::error!(!error, module = ?module.without_token(), "failed to load the module"),
-		)?;
+		let text = compiler
+			.load_module_with_language(&module, Some(tg::module::load::Language::Js))
+			.await
+			.map_err(
+				|error| tg::error!(!error, module = ?module.without_token(), "failed to load the module"),
+			)?;
 		Ok(text)
 	})
 }
@@ -27,50 +30,25 @@ pub fn invalidated_resolutions(
 		};
 
 		// Get or create the document.
-		let document =
-			compiler
-				.documents
-				.entry(module.clone())
-				.or_insert_with(|| crate::document::Document {
-					dirty: false,
-					lockfile: None,
-					modified: None,
-					open: false,
-					text: None,
-					version: 0,
-				});
+		let document = compiler
+			.documents
+			.entry(crate::document::Key::new(&module))
+			.or_insert_with(|| crate::document::Document {
+				dirty: false,
+				lockfile: None,
+				modified: None,
+				module: module.clone(),
+				open: false,
+				revision: 0,
+				text: None,
+				version: 0,
+			});
 
-		// If the document doesn't have a lockfile, search for one.
-		if document.lockfile.is_none() {
-			let lockfile = compiler.find_lockfile_for_path(module_path).await;
-			if lockfile.is_some() {
-				// A lockfile exists but we haven't cached it yet. Resolutions are invalidated.
-				return Ok(true);
-			}
-			// No lockfile exists.
-			return Ok(false);
-		}
-
-		// The document has a lockfile cached. Check if the mtime has changed.
-		let lockfile = document.lockfile.as_ref().unwrap();
-		let lockfile_path = &lockfile.path;
-		let cached_mtime = lockfile.mtime;
-
-		// Get the current mtime.
-		let current_mtime = tokio::fs::symlink_metadata(lockfile_path)
-			.await
-			.ok()
-			.and_then(|metadata| metadata.modified().ok())
-			.and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-			.map(|t| t.as_secs());
-
-		// If the mtime could not be read, then assume no change.
-		let Some(current_mtime) = current_mtime else {
-			return Ok(false);
-		};
-
-		// If the mtime has changed, return true without updating the state.
-		Ok(current_mtime != cached_mtime)
+		// Compare the path and full timestamp, including lockfile creation and removal.
+		let previous = document.lockfile.clone();
+		drop(document);
+		let current = compiler.find_lockfile_for_path(module_path).await;
+		Ok(current != previous)
 	})
 }
 
@@ -123,7 +101,10 @@ pub fn validate_resolutions(
 		let lockfile = compiler.find_lockfile_for_path(path).await;
 
 		// Update the document's lockfile state.
-		if let Some(mut document) = compiler.documents.get_mut(&module) {
+		if let Some(mut document) = compiler
+			.documents
+			.get_mut(&crate::document::Key::new(&module))
+		{
 			document.lockfile = lockfile;
 		}
 

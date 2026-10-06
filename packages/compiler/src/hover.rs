@@ -33,10 +33,17 @@ impl Compiler {
 
 		// Create the hover.
 		let hover = lsp::Hover {
-			contents: lsp::HoverContents::Scalar(lsp::MarkedString::from_language_code(
-				"typescript".into(),
-				hover,
-			)),
+			contents: if module.kind == tg::module::Kind::Py {
+				lsp::HoverContents::Markup(lsp::MarkupContent {
+					kind: lsp::MarkupKind::Markdown,
+					value: hover,
+				})
+			} else {
+				lsp::HoverContents::Scalar(lsp::MarkedString::from_language_code(
+					"typescript".into(),
+					hover,
+				))
+			},
 			range: None,
 		};
 

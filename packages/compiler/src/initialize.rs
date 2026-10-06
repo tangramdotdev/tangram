@@ -99,28 +99,16 @@ impl Compiler {
 						lsp::SemanticTokensOptions {
 							work_done_progress_options: lsp::WorkDoneProgressOptions::default(),
 							legend: lsp::SemanticTokensLegend {
-								token_types: vec![
-									lsp::SemanticTokenType::CLASS,
-									lsp::SemanticTokenType::ENUM,
-									lsp::SemanticTokenType::INTERFACE,
-									lsp::SemanticTokenType::NAMESPACE,
-									lsp::SemanticTokenType::TYPE_PARAMETER,
-									lsp::SemanticTokenType::TYPE,
-									lsp::SemanticTokenType::PARAMETER,
-									lsp::SemanticTokenType::VARIABLE,
-									lsp::SemanticTokenType::ENUM_MEMBER,
-									lsp::SemanticTokenType::PROPERTY,
-									lsp::SemanticTokenType::FUNCTION,
-									lsp::SemanticTokenType::METHOD,
-								],
-								token_modifiers: vec![
-									lsp::SemanticTokenModifier::DECLARATION,
-									lsp::SemanticTokenModifier::STATIC,
-									lsp::SemanticTokenModifier::ASYNC,
-									lsp::SemanticTokenModifier::READONLY,
-									lsp::SemanticTokenModifier::DEFAULT_LIBRARY,
-									"local".into(),
-								],
+								token_types: super::semantic_tokens::TYPES
+									.iter()
+									.copied()
+									.map(Into::into)
+									.collect(),
+								token_modifiers: super::semantic_tokens::MODIFIERS
+									.iter()
+									.copied()
+									.map(Into::into)
+									.collect(),
 							},
 							range: None,
 							full: Some(lsp::SemanticTokensFullOptions::Bool(true)),

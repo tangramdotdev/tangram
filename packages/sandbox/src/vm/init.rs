@@ -731,7 +731,10 @@ fn add_default_route(fd: libc::c_int, interface: &str, gateway_ip: Ipv4Addr) -> 
 	let interface = CString::new(interface)
 		.map_err(|error| tg::error!(!error, "failed to encode the network interface name"))?;
 	route.rt_dev = interface.as_ptr().cast_mut();
-	let result = unsafe { libc::ioctl(fd, libc::SIOCADDRT, std::ptr::addr_of!(route)) };
+	let request = libc::SIOCADDRT;
+	#[cfg(target_env = "musl")]
+	let request = libc::c_int::try_from(request).unwrap();
+	let result = unsafe { libc::ioctl(fd, request, std::ptr::addr_of!(route)) };
 	if result == 0 {
 		return Ok(());
 	}
@@ -816,6 +819,8 @@ fn set_interface_address(
 	let mut ifreq = unsafe { std::mem::zeroed::<libc::ifreq>() };
 	copy_interface_name(&mut ifreq, interface)?;
 	ifreq.ifr_ifru.ifru_addr = sockaddr_from_ipv4(address);
+	#[cfg(target_env = "musl")]
+	let request = libc::c_int::try_from(request).unwrap();
 	let result = unsafe { libc::ioctl(fd, request, std::ptr::addr_of_mut!(ifreq)) };
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
@@ -827,7 +832,10 @@ fn set_interface_address(
 fn set_interface_up(fd: libc::c_int, interface: &str) -> tg::Result<()> {
 	let mut ifreq = unsafe { std::mem::zeroed::<libc::ifreq>() };
 	copy_interface_name(&mut ifreq, interface)?;
-	let result = unsafe { libc::ioctl(fd, libc::SIOCGIFFLAGS, std::ptr::addr_of_mut!(ifreq)) };
+	let request = libc::SIOCGIFFLAGS;
+	#[cfg(target_env = "musl")]
+	let request = libc::c_int::try_from(request).unwrap();
+	let result = unsafe { libc::ioctl(fd, request, std::ptr::addr_of_mut!(ifreq)) };
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(
@@ -838,7 +846,10 @@ fn set_interface_up(fd: libc::c_int, interface: &str) -> tg::Result<()> {
 	unsafe {
 		ifreq.ifr_ifru.ifru_flags |= libc::c_short::try_from(libc::IFF_UP).unwrap();
 	}
-	let result = unsafe { libc::ioctl(fd, libc::SIOCSIFFLAGS, std::ptr::addr_of_mut!(ifreq)) };
+	let request = libc::SIOCSIFFLAGS;
+	#[cfg(target_env = "musl")]
+	let request = libc::c_int::try_from(request).unwrap();
+	let result = unsafe { libc::ioctl(fd, request, std::ptr::addr_of_mut!(ifreq)) };
 	if result != 0 {
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(

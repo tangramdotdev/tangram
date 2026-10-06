@@ -3,6 +3,8 @@ fn main() {
 
 	// Build the library.
 	self::library::build();
+	#[cfg(feature = "py")]
+	self::python::build();
 
 	#[cfg(feature = "typescript")]
 	self::typescript::build();
@@ -332,5 +334,45 @@ mod typescript {
 		}
 		let bytes = serde_json::to_vec(&json).unwrap();
 		std::fs::write(&path, bytes).unwrap();
+	}
+}
+
+#[cfg(feature = "py")]
+mod python {
+	use std::{path::PathBuf, process::Command};
+
+	pub fn build() {
+		for path in [
+			"../clients/py/src",
+			"../py/build/library.py",
+			"../clients/py/pyproject.toml",
+			"../../uv.lock",
+		] {
+			println!("cargo:rerun-if-changed={path}");
+		}
+		let output = PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("py");
+		if output.exists() {
+			std::fs::remove_dir_all(&output).unwrap();
+		}
+		std::fs::create_dir_all(&output).unwrap();
+		println!("cargo:rerun-if-env-changed=TANGRAM_PYTHON_HOST_DISTRIBUTION");
+		let build = PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+		let workspace =
+			PathBuf::from(std::env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../..");
+		let host = std::env::var("HOST").unwrap();
+		let python = tangram_py_build::host(&build, &host);
+		let packages = tangram_py_build::packages(&python, &workspace, &build);
+		let status = Command::new(python)
+			.arg("-I")
+			.arg("../py/build/library.py")
+			.arg(&output)
+			.arg(&packages)
+			.arg(workspace.join("packages/clients/py/src"))
+			.status()
+			.unwrap();
+		assert!(
+			status.success(),
+			"failed to prepare the python client library"
+		);
 	}
 }

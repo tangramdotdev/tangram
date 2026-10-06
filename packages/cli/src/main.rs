@@ -54,6 +54,8 @@ mod publish;
 mod pull;
 mod push;
 mod put;
+#[cfg(feature = "py")]
+mod py;
 mod read;
 mod remote;
 #[cfg(feature = "js")]
@@ -377,6 +379,9 @@ enum Command {
 
 	Push(self::push::Args),
 
+	#[cfg(feature = "py")]
+	Py(self::py::Args),
+
 	#[command(alias = "add")]
 	Put(self::put::Args),
 
@@ -465,6 +470,9 @@ async fn main() -> std::process::ExitCode {
 			let result = cli.command_js(command_args).await;
 			Some(result)
 		},
+
+		#[cfg(feature = "py")]
+		Command::Py(command_args) => Some(cli.command_py(command_args).await),
 
 		Command::Sandbox(self::sandbox::Args {
 			command: self::sandbox::Command::Serve(command_args),
@@ -707,6 +715,8 @@ impl Cli {
 			Command::Publish(args) => self.command_publish(args).boxed_local(),
 			Command::Pull(args) => self.command_pull(args).boxed_local(),
 			Command::Push(args) => self.command_push(args).boxed_local(),
+			#[cfg(feature = "py")]
+			Command::Py(args) => self.command_py(args).boxed_local(),
 			Command::Put(args) => self.command_put(args).boxed_local(),
 			Command::Read(args) => self.command_read(args).boxed_local(),
 			Command::Remote(args) => self.command_remote(args).boxed_local(),

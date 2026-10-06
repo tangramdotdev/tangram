@@ -63,7 +63,7 @@ pub struct LabelDetails {
 	pub description: Option<String>,
 }
 
-#[derive(Debug, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EntryDetails {
 	pub kind: String,
@@ -197,7 +197,16 @@ impl Compiler {
 			})
 			.collect();
 
-		Ok(Some(lsp::CompletionResponse::Array(entries)))
+		let response = if module.kind == tg::module::Kind::Py {
+			// ty filters completions against the typed prefix, so further typing needs a new query.
+			lsp::CompletionResponse::List(lsp::CompletionList {
+				is_incomplete: true,
+				items: entries,
+			})
+		} else {
+			lsp::CompletionResponse::Array(entries)
+		};
+		Ok(Some(response))
 	}
 
 	pub(super) async fn handle_completion_item_resolve_request(

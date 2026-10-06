@@ -127,27 +127,8 @@ fn collect_symbol_tree(symbol: Symbol) -> lsp::DocumentSymbol {
 
 	let children = children.map(|children| children.into_iter().map(collect_symbol_tree).collect());
 
-	let range = lsp::Range {
-		start: lsp::Position {
-			line: range.start.line,
-			character: range.end.character,
-		},
-		end: lsp::Position {
-			line: range.end.line,
-			character: range.end.character,
-		},
-	};
-
-	let selection_range = lsp::Range {
-		start: lsp::Position {
-			line: selection_range.start.line,
-			character: selection_range.end.character,
-		},
-		end: lsp::Position {
-			line: selection_range.end.line,
-			character: selection_range.end.character,
-		},
-	};
+	let range = range.into();
+	let selection_range = selection_range.into();
 
 	#[expect(deprecated)]
 	lsp::DocumentSymbol {

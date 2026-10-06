@@ -1,0 +1,19 @@
+[build-system]
+requires = ["maturin>=1.9.4,<2"]
+build-backend = "build"
+backend-path = ["."]
+
+[project]
+name = "tangram"
+version = "0.0.0"
+description = "The Tangram Python client."
+requires-python = ">=3.12"
+license = "MIT"
+dependencies = ["h2>=4.3,<5", "tomli-w>=1,<2", "PyYAML>=6,<7"]
+
+[tool.maturin]
+manifest-path = "native/Cargo.toml"
+module-name = "tangram._native"
+python-source = "src"
+
+include = [{ path = "build.py", format = "sdist" }]

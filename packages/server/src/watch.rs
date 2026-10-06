@@ -412,17 +412,6 @@ impl Watch {
 		}
 	}
 
-	pub fn get_unindexed(&self) -> Snapshot {
-		let state = self.state.lock().unwrap();
-		Snapshot {
-			graph: state.graph.clone(),
-			id: self.id,
-			lock: state.lock.clone(),
-			solutions: state.solutions.clone(),
-			version: state.version,
-		}
-	}
-
 	pub fn update<F>(&self, arg: UpdateArg<'_>, spawn_index_task: F) -> bool
 	where
 		F: FnOnce() -> Shared<tg::Result<()>>,

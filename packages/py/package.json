@@ -1,0 +1,8 @@
+{
+  "name": "@tangramdotdev/python-runtime",
+  "private": true,
+  "scripts": {
+    "check": "../../.venv/bin/python -m ruff check . src && ../../.venv/bin/ty check src && ../../.venv/bin/python -m compileall -q src",
+    "format": "../../.venv/bin/python -m ruff format ."
+  }
+}

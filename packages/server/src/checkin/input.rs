@@ -482,7 +482,7 @@ impl Session {
 				kind,
 				referent: tg::Referent::with_node(tg::module::data::Source::Path(path.clone())),
 			};
-			let analysis = tangram_compiler::Compiler::analyze(&module, &text);
+			let analysis = tangram_compiler::Compiler::analyze(&module, &text)?;
 			for diagnostic in analysis.diagnostics {
 				state.progress.diagnostic(diagnostic);
 			}
@@ -953,6 +953,9 @@ impl Session {
 		}
 		if name == "tangram.ts" || name.ends_with(".tg.ts") {
 			return Ok(Some(tg::module::Kind::Ts));
+		}
+		if name == "tangram.py" || name.ends_with(".tg.py") {
+			return Ok(Some(tg::module::Kind::Py));
 		}
 		tg::file::xattrs::read_module(path)
 	}

@@ -11,8 +11,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-const TUNSETIFF: libc::c_ulong = 0x4004_54ca;
-
 pub(crate) struct Network {
 	guest: ip::Lease,
 	host: ip::Lease,
@@ -161,7 +159,14 @@ fn open_tap(name: &str) -> tg::Result<OwnedFd> {
 		ifr.ifr_ifru.ifru_flags =
 			libc::c_short::try_from(libc::IFF_TAP | libc::IFF_NO_PI | libc::IFF_VNET_HDR).unwrap();
 	}
-	if unsafe { libc::ioctl(tap.as_raw_fd(), TUNSETIFF, std::ptr::addr_of_mut!(ifr)) } < 0 {
+	if unsafe {
+		libc::ioctl(
+			tap.as_raw_fd(),
+			libc::TUNSETIFF,
+			std::ptr::addr_of_mut!(ifr),
+		)
+	} < 0
+	{
 		let error = std::io::Error::last_os_error();
 		return Err(tg::error!(!error, "TUNSETIFF failed"));
 	}

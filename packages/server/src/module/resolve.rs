@@ -210,7 +210,7 @@ impl Session {
 		// Resolve the dependency edge to a module referent.
 		let referent = match (import.kind, &object) {
 			(
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
+				None | Some(tg::module::Kind::Js | tg::module::Kind::Py | tg::module::Kind::Ts),
 				tg::Object::Directory(directory),
 			) => {
 				let path = tg::module::try_get_root_module_file_name_with_instance(
@@ -274,6 +274,7 @@ impl Session {
 				None
 				| Some(
 					tg::module::Kind::Js
+					| tg::module::Kind::Py
 					| tg::module::Kind::Ts
 					| tg::module::Kind::Dts
 					| tg::module::Kind::File,
@@ -301,7 +302,13 @@ impl Session {
 				}
 			},
 			(
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Dts),
+				None
+				| Some(
+					tg::module::Kind::Js
+					| tg::module::Kind::Py
+					| tg::module::Kind::Ts
+					| tg::module::Kind::Dts,
+				),
 				_,
 			) => {
 				return Err(tg::error!("expected a file"));
@@ -422,7 +429,7 @@ impl Session {
 			if metadata.is_dir()
 				&& matches!(
 					import.kind,
-					None | Some(tg::module::Kind::Js | tg::module::Kind::Ts)
+					None | Some(tg::module::Kind::Js | tg::module::Kind::Py | tg::module::Kind::Ts)
 				) && let Some(root_module_name) =
 				tg::module::try_get_root_module_file_name_with_instance(
 					self,
@@ -445,48 +452,30 @@ impl Session {
 		{
 			self.resolve_module_with_repl_referrer(import).await
 		} else {
-			// Perform a checkin to ensure the watch is available.
+			// Check in the referrer and resolve against that exact artifact.
 			let options = tg::checkin::Options {
 				unsolved_dependencies: true,
 				watch: true,
 				..Default::default()
 			};
-			let path = if let Some(get) = import.reference.options().get.as_ref() {
-				referrer.node().parent().unwrap().join(get)
-			} else {
-				referrer.node().to_path_buf()
-			};
+			let path = referrer.node().to_path_buf();
 			let updates = Vec::new();
 			let arg = tg::checkin::Arg {
 				options,
 				path,
 				updates,
 			};
-			tg::checkin::checkin_with_instance(self, arg)
+			let output = tg::checkin::checkin_with_instance(self, arg)
 				.await
 				.map_err(|error| tg::error!(!error, "failed to check in the path"))?;
 
-			// Get the watch and retrieve the edge from the graph.
-			let entry = self
-				.server
-				.watches
-				.iter()
-				.find(|entry| {
-					entry.key().principal == self.context.principal
-						&& referrer.node().starts_with(&entry.key().path)
-				})
-				.ok_or_else(|| tg::error!("failed to find a watch for the path"))?;
-			let graph = entry.value().get_unindexed().graph;
-			let index = graph
-				.paths
-				.get(referrer.node())
-				.ok_or_else(|| tg::error!("failed to find a node for the path"))?;
-			let node = graph.nodes.get(index).unwrap();
-			let edge = node.edge.as_ref().unwrap().clone();
-			drop(entry);
-
-			// Resolve.
-			let referrer = referrer.clone().map(|_| &edge);
+			// Another watch can contain an older version of the same path.
+			let edge = tg::graph::data::Edge::Object(output.artifact.node.into());
+			let mut referrer = referrer.clone().map(|_| &edge);
+			referrer
+				.options
+				.tokens
+				.inherit(&output.artifact.options.tokens);
 			let referent = self
 				.resolve_module_with_edge_referrer(&referrer, import)
 				.await
@@ -537,7 +526,7 @@ impl Session {
 		};
 		let referent = match (import.kind, &object) {
 			(
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts),
+				None | Some(tg::module::Kind::Js | tg::module::Kind::Py | tg::module::Kind::Ts),
 				tg::Object::Directory(directory),
 			) => {
 				let path = tg::module::try_get_root_module_file_name_with_instance(
@@ -601,6 +590,7 @@ impl Session {
 				None
 				| Some(
 					tg::module::Kind::Js
+					| tg::module::Kind::Py
 					| tg::module::Kind::Ts
 					| tg::module::Kind::Dts
 					| tg::module::Kind::File,
@@ -622,7 +612,13 @@ impl Session {
 				options,
 			},
 			(
-				None | Some(tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Dts),
+				None
+				| Some(
+					tg::module::Kind::Js
+					| tg::module::Kind::Py
+					| tg::module::Kind::Ts
+					| tg::module::Kind::Dts,
+				),
 				_,
 			) => {
 				return Err(tg::error!("expected a file"));

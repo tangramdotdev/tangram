@@ -40,8 +40,11 @@ pub mod implementation;
 pub mod initialize;
 pub mod inlay_hint;
 pub mod jsonrpc;
+pub mod load;
 pub mod metadata;
 pub mod prepare_rename;
+#[cfg(feature = "py")]
+pub mod py;
 pub mod references;
 pub mod rename;
 pub mod selection_range;
@@ -69,8 +72,8 @@ pub struct Compiler(Arc<State>);
 pub struct State {
 	check_backend: CheckBackend,
 
-	/// The documents.
-	documents: DashMap<tg::module::Data, Document, fnv::FnvBuildHasher>,
+	/// The documents, keyed by source identity.
+	documents: DashMap<document::Key, Document, fnv::FnvBuildHasher>,
 
 	/// The Tangram instance.
 	instance: tg::instance::dynamic::Instance,
@@ -79,11 +82,14 @@ pub struct State {
 	library_path: PathBuf,
 
 	/// A handle to the main tokio runtime.
-	#[cfg_attr(not(feature = "typescript"), expect(dead_code))]
 	main_runtime_handle: tokio::runtime::Handle,
 
 	/// The position encoding negotiated with the LSP client.
 	position_encoding: RwLock<tg::position::Encoding>,
+
+	/// The Python service.
+	#[cfg(feature = "py")]
+	py: py::Service,
 
 	/// The outgoing request ID counter.
 	request_id: AtomicI32,
@@ -192,6 +198,37 @@ enum Response {
 	WorkspaceSymbol(workspace_symbols::Response),
 }
 
+impl Request {
+	fn module(&self) -> Option<&tg::module::Data> {
+		match self {
+			Self::CallHierarchyIncoming(request) => Some(&request.module),
+			Self::CallHierarchyOutgoing(request) => Some(&request.module),
+			Self::CallHierarchyPrepare(request) => Some(&request.module),
+			Self::Check(_) | Self::DocumentDiagnostics(_) | Self::WorkspaceSymbol(_) => None,
+			Self::CodeAction(request) => Some(&request.module),
+			Self::Completion(request) => Some(&request.module),
+			Self::CompletionResolve(request) => Some(&request.module),
+			Self::Declaration(request)
+			| Self::Definition(request)
+			| Self::TypeDefinition(request) => Some(&request.module),
+			Self::Document(request) => Some(&request.module),
+			Self::DocumentHighlight(request) => Some(&request.module),
+			Self::DocumentLink(request) => Some(&request.module),
+			Self::FoldingRange(request) => Some(&request.module),
+			Self::Hover(request) => Some(&request.module),
+			Self::Implementation(request) => Some(&request.module),
+			Self::InlayHint(request) => Some(&request.module),
+			Self::PrepareRename(request) => Some(&request.module),
+			Self::References(request) => Some(&request.module),
+			Self::Rename(request) => Some(&request.module),
+			Self::SelectionRange(request) => Some(&request.module),
+			Self::SemanticTokens(request) => Some(&request.module),
+			Self::SignatureHelp(request) => Some(&request.module),
+			Self::Symbols(request) => Some(&request.module),
+		}
+	}
+}
+
 impl Shared {
 	pub fn stop(&self) {
 		self.task.stop();
@@ -233,6 +270,8 @@ impl Compiler {
 			library_path,
 			main_runtime_handle,
 			position_encoding: RwLock::new(tg::position::Encoding::Utf8),
+			#[cfg(feature = "py")]
+			py: py::Service::new(),
 			request_id,
 			requests,
 			sender,
@@ -255,6 +294,11 @@ impl Compiler {
 					serve_task.wait().await.unwrap();
 				}
 
+				#[cfg(feature = "py")]
+				{
+					compiler.py.stop();
+					compiler.py.join().await;
+				}
 				compiler.typescript7.stop().await;
 
 				// Stop and await the typescript service.
@@ -880,6 +924,15 @@ impl Compiler {
 	}
 
 	async fn request(&self, request: Request) -> tg::Result<Response> {
+		if request
+			.module()
+			.is_some_and(|module| module.kind == tg::module::Kind::Py)
+		{
+			#[cfg(feature = "py")]
+			return self.request_py(request).await;
+			#[cfg(not(feature = "py"))]
+			return Err(tg::error!("the py feature is not enabled"));
+		}
 		if matches!(self.check_backend, CheckBackend::Typescript7)
 			&& let Request::Check(request) = request
 		{
@@ -1095,6 +1148,21 @@ impl Compiler {
 		}
 
 		// Handle a path in the library directory.
+		if path.starts_with(self.library_path.join("generated")) {
+			let kind = tg::module::module_kind_for_path(path)?;
+			let module = tg::module::Data {
+				kind,
+				referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
+			};
+			return Ok(module);
+		}
+		if path.starts_with(self.library_path.join("python")) {
+			let module = tg::module::Data {
+				kind: tg::module::Kind::Py,
+				referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
+			};
+			return Ok(module);
+		}
 		if let Ok(path) = path.strip_prefix(&self.library_path) {
 			let kind = tg::module::Kind::Dts;
 			let source = tg::module::data::Source::Path(path.to_owned());
@@ -1119,6 +1187,41 @@ impl Compiler {
 		};
 
 		Ok(module)
+	}
+
+	async fn lsp_uri_for_module_with_language(
+		&self,
+		module: &tg::module::Data,
+		kind: tg::module::Kind,
+	) -> tg::Result<lsp::Uri> {
+		let (language, extension) = match (kind, module.kind) {
+			(tg::module::Kind::Py, tg::module::Kind::Js | tg::module::Kind::Ts) => {
+				(tg::module::load::Language::Py, "py")
+			},
+			(tg::module::Kind::Js | tg::module::Kind::Ts, tg::module::Kind::Py) => {
+				(tg::module::load::Language::Js, "js")
+			},
+			_ => return self.lsp_uri_for_module(module).await,
+		};
+
+		// Materialize the representation whose positions the language service returned.
+		let text = self
+			.load_module_with_language(module, Some(language))
+			.await?;
+		let id = tg::blob::Id::new(text.as_bytes());
+		let directory = self.library_path.join("generated");
+		let path = directory.join(format!("{id}.tg.{extension}"));
+		tokio::fs::create_dir_all(&directory)
+			.await
+			.map_err(|error| {
+				tg::error!(!error, "failed to create the generated module directory")
+			})?;
+		tokio::fs::write(&path, text)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to materialize the generated module"))?;
+		let uri = format!("file://{}", path.display()).parse().unwrap();
+
+		Ok(uri)
 	}
 
 	async fn lsp_uri_for_module(&self, module: &tg::module::Data) -> tg::Result<lsp::Uri> {
@@ -1183,6 +1286,7 @@ impl Compiler {
 				let path = if let (Some(tag), Some(_)) = (&options.tag, &options.id) {
 					let extension = match kind {
 						tg::module::Kind::Js => Some(".tg.js".to_owned()),
+						tg::module::Kind::Py => Some(".tg.py".to_owned()),
 						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
 						_ => None,
 					};
@@ -1244,6 +1348,7 @@ impl Compiler {
 				} else {
 					let extension = match kind {
 						tg::module::Kind::Js => Some(".tg.js".to_owned()),
+						tg::module::Kind::Py => Some(".tg.py".to_owned()),
 						tg::module::Kind::Ts => Some(".tg.ts".to_owned()),
 						_ => None,
 					};
@@ -1284,21 +1389,27 @@ impl Compiler {
 		}
 	}
 
-	/// Load a module.
+	/// Load a module in its original language.
 	pub async fn load_module(&self, module: &tg::module::Data) -> tg::Result<String> {
-		// If there is an opened document, then return its contents.
-		if let Some(document) = self.documents.get(module)
+		self.load_module_with_language(module, None).await
+	}
+
+	/// Load a module for a runtime or checker.
+	pub async fn load_module_with_language(
+		&self,
+		module: &tg::module::Data,
+		language: Option<tg::module::load::Language>,
+	) -> tg::Result<String> {
+		if let Some(document) = self.documents.get(&document::Key::new(module))
 			&& document.open
 		{
-			return Ok(document.text.clone().unwrap());
+			return load::module(module, document.text.as_ref().unwrap(), language);
 		}
-
-		// Otherwise, load the module.
 		let arg = tg::module::load::Arg {
+			language,
 			module: module.clone(),
 		};
 		let output = self.instance.load_module(arg).await?;
-
 		Ok(output.text)
 	}
 
@@ -1317,14 +1428,9 @@ impl Compiler {
 		// Get the lockfile's mtime.
 		let path = lockfile_path?;
 		let metadata = tokio::fs::symlink_metadata(&path).await.ok()?;
-		let mtime = metadata
-			.modified()
-			.ok()?
-			.duration_since(std::time::UNIX_EPOCH)
-			.ok()?
-			.as_secs();
+		let mtime = metadata.modified().ok()?;
 
-		let lockfile = document::Lockfile { path, mtime };
+		let lockfile = document::Lockfile { mtime, path };
 
 		Some(lockfile)
 	}
@@ -1356,6 +1462,8 @@ impl Deref for Compiler {
 
 impl Drop for Owned {
 	fn drop(&mut self) {
+		#[cfg(feature = "py")]
+		self.compiler.py.stop();
 		#[cfg(feature = "typescript")]
 		self.compiler.typescript6.stop();
 	}

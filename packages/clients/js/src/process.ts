@@ -4,6 +4,7 @@ import type { Get as ProcessGet } from "./client/process/get.ts";
 import type { Put as ProcessPut } from "./client/process/put.ts";
 import { Spawn as ProcessSpawn } from "./client/process/spawn.ts";
 import type { Wait as ProcessWait } from "./client/process/wait.ts";
+import { encodeModuleArgs } from "./command.ts";
 import * as tg from "./index.ts";
 import * as build from "./process/build.ts";
 import * as commandData from "./process/command.ts";
@@ -902,7 +903,7 @@ export namespace Process {
 		#args: tg.Args<tg.Process.Arg>;
 		#connection: tg.Process.Connect.Mode = "spawn";
 		#envMapper: tg.Process.Builder.EnvMapper<E>;
-		#js: Promise<boolean>;
+		#module: Promise<boolean>;
 		#mode: M;
 		#validate?: (arg: tg.Process.ArgObject) => void;
 
@@ -910,7 +911,7 @@ export namespace Process {
 			super();
 			this.#envMapper = ((env: tg.Command.Arg.Env) =>
 				env) as tg.Process.Builder.EnvMapper<E>;
-			this.#js = isJsProcessBuilderArg(args);
+			this.#module = isModuleProcessBuilderArg(args);
 			this.#args = args.map((arg) => this.builderArg(arg));
 			this.#mode = mode;
 			return new Proxy(this, {
@@ -1188,9 +1189,9 @@ export namespace Process {
 		private async builderArg(
 			arg: tg.Unresolved<tg.ValueOrMaybeMutationMap<tg.Process.Arg>>,
 		): Promise<tg.ValueOrMaybeMutationMap<tg.Process.Arg>> {
-			let [js, arg_] = await Promise.all([this.#js, tg.resolve(arg)]);
+			let [module, arg_] = await Promise.all([this.#module, tg.resolve(arg)]);
 			if (
-				!js ||
+				!module ||
 				arg_ instanceof tg.Command ||
 				typeof arg_ !== "object" ||
 				arg_ === null ||
@@ -1199,7 +1200,7 @@ export namespace Process {
 			) {
 				return arg_;
 			}
-			let args = encodeJsArgs(arg_.args);
+			let args = encodeModuleArgs(arg_.args);
 
 			return { ...arg_, args };
 		}
@@ -1207,11 +1208,11 @@ export namespace Process {
 		private async argsArg(
 			args: tg.Unresolved<Array<tg.Command.Arg.Value> | null>,
 		): Promise<tg.Process.ArgObject> {
-			let [js, args_] = await Promise.all([this.#js, tg.resolve(args)]);
-			if (!js || args_ === null) {
+			let [module, args_] = await Promise.all([this.#module, tg.resolve(args)]);
+			if (!module || args_ === null) {
 				return { args: args_ };
 			}
-			let output = encodeJsArgs(args_);
+			let output = encodeModuleArgs(args_);
 
 			return { args: output };
 		}
@@ -1769,7 +1770,7 @@ export namespace Process {
 	}
 }
 
-async function isJsProcessBuilderArg(
+async function isModuleProcessBuilderArg(
 	args: tg.Args<tg.Process.Arg>,
 ): Promise<boolean> {
 	let args_ = await Promise.all(args.map(tg.resolve));
@@ -1791,13 +1792,14 @@ async function isJsProcessBuilderArg(
 					: command_;
 			if (node instanceof tg.Command) {
 				command = node;
-			} else if (tg.Command.Arg.isJs(node)) {
+			} else if (tg.Command.Arg.isJs(node) || tg.Command.Arg.isPy(node)) {
 				return true;
 			}
 		}
 		if (
 			command !== undefined &&
-			tg.Command.Object.isJs(await command.object())
+			(tg.Command.Object.isJs(await command.object()) ||
+				tg.Command.Object.isPy(await command.object()))
 		) {
 			return true;
 		}
@@ -1820,35 +1822,4 @@ function commandReferentToData(
 	return typeof referent.node === "string"
 		? tg.Referent.toDataString({ ...referent, node: referent.node }, (id) => id)
 		: tg.Referent.toData(referent, (node) => node);
-}
-
-function encodeJsArgs(
-	args: Array<tg.Command.Arg.Value>,
-): Array<tg.Command.Value> {
-	let encoded =
-		args.length % 2 === 0 &&
-		args.every((value, index) => {
-			if (index % 2 !== 0) {
-				return value instanceof tg.Command.Value;
-			}
-			let next = args[index + 1];
-			return (
-				value instanceof tg.Command.Value &&
-				value.kind === "string" &&
-				(value.value === "-a" || value.value === "-A") &&
-				next instanceof tg.Command.Value &&
-				value.value === (next.kind === "string" ? "-a" : "-A")
-			);
-		});
-	if (encoded) {
-		return args as Array<tg.Command.Value>;
-	}
-	return args.flatMap((value) => {
-		let value_ =
-			value instanceof tg.Command.Value ? value : tg.Command.Value.value(value);
-		return [
-			tg.Command.Value.string(value_.kind === "string" ? "-a" : "-A"),
-			value_,
-		];
-	});
 }

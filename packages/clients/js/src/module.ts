@@ -19,6 +19,7 @@ export class Module {
 export namespace Module {
 	export type Kind =
 		| "js"
+		| "py"
 		| "ts"
 		| "dts"
 		| "object"
@@ -259,15 +260,20 @@ export namespace Module {
 
 	export namespace Data {
 		export let children = (data: tg.Module.Data): Array<tg.Object.Id> => {
-			let source =
-				typeof data.referent === "string" ? data.referent : data.referent.node;
-			if (
+			let referent =
+				typeof data.referent === "string"
+					? tg.Referent.fromDataString(
+							data.referent,
+							(node) => node as tg.Graph.Data.Edge<tg.Object.Id>,
+						)
+					: data.referent;
+			let source = referent.node;
+			let children =
 				typeof source === "string" &&
 				(source.startsWith(".") || source.startsWith("/"))
-			) {
-				return [];
-			}
-			return tg.Graph.Data.Edge.children(source);
+					? []
+					: tg.Graph.Data.Edge.children(source);
+			return children;
 		};
 
 		export let withoutLocationAndTokens = (

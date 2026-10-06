@@ -13,6 +13,7 @@ members = [
   "packages/cache/scylla",
   "packages/cli",
   "packages/clients/js/native",
+  "packages/clients/py/native",
   "packages/clients/rust",
   "packages/compiler",
   "packages/database",
@@ -32,6 +33,8 @@ members = [
   "packages/messenger/memory",
   "packages/messenger/nats",
   "packages/pool",
+  "packages/py",
+  "packages/py/build",
   "packages/quickjs",
   "packages/sandbox",
   "packages/scylla/client",
@@ -99,6 +102,7 @@ blake3 = "1"
 byte-unit = { version = "5", features = ["byte"] }
 byteorder = "1"
 bytes = { version = "1", features = ["serde"] }
+cc = "1"
 clap = { version = "4", features = ["derive", "env", "string", "unstable-v5"] }
 clap_complete = "4"
 clap_complete_nushell = "4"
@@ -171,11 +175,14 @@ oxc = { git = "https://github.com/oxc-project/oxc", features = ["full"] }
 oxc_formatter = { git = "https://github.com/oxc-project/oxc" }
 oxc_formatter_core = { git = "https://github.com/oxc-project/oxc" }
 percent-encoding = "2"
+pep440_rs = "0.7.3"
 petgraph = "0.8"
 pin-project = "1"
 postgres-protocol = "0.6"
 pretty_assertions = "1"
 proc-macro2 = "1"
+pyo3 = "0.29.3"
+pyo3-build-config = "0.29.3"
 quick-xml = { version = "0.41", features = ["serialize"] }
 quote = "1"
 radix_trie = "0.3.0"
@@ -184,14 +191,21 @@ ratatui = "0.30"
 reedline = "0.52"
 reflink-copy = "0.1"
 rquickjs = { git = "https://github.com/tangramdotdev/rquickjs", features = ["full-async", "loader", "futures"] }
+ruff_db = { git = "https://github.com/tangramdotdev/ruff", branch = "main" }
+ruff_notebook = { git = "https://github.com/tangramdotdev/ruff", branch = "main" }
+ruff_python_ast = { git = "https://github.com/astral-sh/ruff", rev = "3265ed1f944c98bb4c04d632fbefb1257cdb583d" }
+ruff_python_formatter = { git = "https://github.com/astral-sh/ruff", rev = "3265ed1f944c98bb4c04d632fbefb1257cdb583d" }
+ruff_python_parser = { git = "https://github.com/astral-sh/ruff", rev = "3265ed1f944c98bb4c04d632fbefb1257cdb583d" }
 regex = "1"
 reqwest = { version = "0.13", features = ["form", "json", "stream"] }
 rocksdb = { version = "0.25", default-features = false, features = ["bindgen-runtime", "lz4"] }
 rusqlite = { version = "0.40", default-features = false, features = ["bundled", "functions"] }
+rust-embed = { version = "8.12", features = ["compression", "debug-embed", "deterministic-timestamps", "interpolate-folder-path"] }
 rustix = { version = "1", features = ["fs", "net"] }
 rustls = "0.23"
 rustls-platform-verifier = "0.7"
 rustls-pemfile = "2"
+salsa = "0.28.5"
 scopeguard = "1"
 scylla = { version = "1", features = ["metrics"] }
 serde = { version = "1", features = ["rc", "derive"] }
@@ -236,6 +250,9 @@ tangram_messenger = { path = "packages/messenger" }
 tangram_messenger_memory = { path = "packages/messenger/memory" }
 tangram_messenger_nats = { path = "packages/messenger/nats" }
 tangram_pool = { path = "packages/pool" }
+tangram_py = { path = "packages/py" }
+tangram_py_build = { path = "packages/py/build" }
+tangram_py_native = { path = "packages/clients/py/native" }
 tangram_quickjs = { path = "packages/quickjs" }
 tangram_sandbox = { path = "packages/sandbox" }
 tangram_serialize = { path = "packages/serialize" }
@@ -263,6 +280,14 @@ tracing-tree = "0.4"
 turso = "0.8"
 unicode-segmentation = "1"
 unicode-width = "0.2"
+ty_ide = { git = "https://github.com/tangramdotdev/ruff", branch = "main" }
+ty_module_resolver = { git = "https://github.com/tangramdotdev/ruff", branch = "main" }
+ty_project = { git = "https://github.com/tangramdotdev/ruff", branch = "main" }
+ty_python_ast = { package = "ruff_python_ast", git = "https://github.com/tangramdotdev/ruff", branch = "main" }
+ty_python_core = { git = "https://github.com/tangramdotdev/ruff", branch = "main" }
+ty_python_semantic = { git = "https://github.com/tangramdotdev/ruff", branch = "main" }
+ty_text_size = { package = "ruff_text_size", git = "https://github.com/tangramdotdev/ruff", branch = "main" }
+ty_vendored = { git = "https://github.com/tangramdotdev/ruff", branch = "main" }
 uuid = { version = "1", features = ["v7"] }
 v8 = "152"
 virtiofsd = { git = "https://github.com/tangramdotdev/virtiofsd" }

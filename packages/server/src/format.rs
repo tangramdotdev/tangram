@@ -94,7 +94,8 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to read the module"))?;
 
 		// Format the text.
-		let text = tangram_compiler::Compiler::format(&text).map_err(
+		let kind = tg::module::module_kind_for_path(path)?;
+		let text = tangram_compiler::Compiler::format(&text, kind).map_err(
 			|error| tg::error!(!error, path = %path.display(), "failed to format the module"),
 		)?;
 

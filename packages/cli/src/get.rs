@@ -440,12 +440,12 @@ impl Cli {
 				.ok_or_else(
 					|| tg::error!(directory = %directory.id(), "failed to find a root module"),
 				)?;
+				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
 				if let Some(path) = &mut referent.options.path {
 					*path = path.join(root_module_name);
 				} else {
 					referent.options.path.replace(root_module_name.into());
 				}
-				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
 				let edge = directory
 					.get_entry_edge_with_instance(&client, root_module_name)
 					.await
@@ -484,12 +484,12 @@ impl Cli {
 				.ok_or_else(
 					|| tg::error!(directory = %directory.id(), "failed to find a root module"),
 				)?;
+				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
 				if let Some(path) = &mut referent.options.path {
 					*path = path.join(root_module_name);
 				} else {
 					referent.options.path.replace(root_module_name.into());
 				}
-				let kind = tg::module::module_kind_for_path(root_module_name).unwrap();
 				let edge = directory
 					.get_entry_edge_with_instance(&client, root_module_name)
 					.await

@@ -26,8 +26,8 @@ pub struct Action {
 #[derive(Debug, serde::Deserialize)]
 pub struct Edit {
 	pub module: tg::module::Data,
-	pub range: tg::Range,
 	pub new_text: String,
+	pub range: tg::Range,
 }
 
 impl Compiler {

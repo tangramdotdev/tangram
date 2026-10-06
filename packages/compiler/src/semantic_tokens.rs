@@ -1,5 +1,40 @@
 use {super::Compiler, lsp_types as lsp, tangram_client::prelude::*};
 
+// Preserve the TypeScript service's token indices when adding Python classifications.
+pub(super) const TYPES: &[&str] = &[
+	"class",
+	"enum",
+	"interface",
+	"namespace",
+	"typeParameter",
+	"type",
+	"parameter",
+	"variable",
+	"enumMember",
+	"property",
+	"function",
+	"method",
+	"selfParameter",
+	"clsParameter",
+	"keyword",
+	"string",
+	"number",
+	"decorator",
+	"builtinConstant",
+	"operator",
+	"regexp",
+];
+pub(super) const MODIFIERS: &[&str] = &[
+	"declaration",
+	"static",
+	"async",
+	"readonly",
+	"defaultLibrary",
+	"local",
+	"definition",
+	"documentation",
+];
+
 #[derive(Debug, serde::Serialize)]
 pub struct Request {
 	pub module: tg::module::Data,

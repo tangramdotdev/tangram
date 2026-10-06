@@ -712,13 +712,13 @@ impl Cli {
 								.ok_or_else(
 									|| tg::error!(directory = %directory.id(), "failed to find a root module"),
 								)?;
+							let kind =
+								tg::module::module_kind_for_path(root_module_file_name).unwrap();
 							if let Some(path) = &mut referent.options.path {
 								*path = path.join(root_module_file_name);
 							} else {
 								referent.options.path.replace(root_module_file_name.into());
 							}
-							let kind =
-								tg::module::module_kind_for_path(root_module_file_name).unwrap();
 							let edge = directory
 								.get_entry_edge_with_instance(&client, root_module_file_name)
 								.await
@@ -728,14 +728,19 @@ impl Cli {
 							let source = tg::module::Source::Edge(edge.into());
 							command_options = Some(referent.options.clone());
 							let mut referent = referent.clone().map(|_| source);
-							referent.options.id.take();
 							referent.options.name.take();
+							referent.options.id.take();
 							referent.options.path.take();
 							referent.options.tag.take();
 							let module = tg::Module { kind, referent };
 							let export = reference.export().unwrap_or("default").to_owned();
 							let mut args = vec![
-								"js".into(),
+								if kind == tg::module::Kind::Py {
+									"py"
+								} else {
+									"js"
+								}
+								.into(),
 								"--export".into(),
 								export.into(),
 								tg::command::Value::Value(module.into()),
@@ -772,14 +777,19 @@ impl Cli {
 								let source = tg::module::Source::Edge(edge);
 								command_options = Some(referent.options.clone());
 								let mut referent = referent.clone().map(|_| source);
-								referent.options.id.take();
 								referent.options.name.take();
+								referent.options.id.take();
 								referent.options.path.take();
 								referent.options.tag.take();
 								let module = tg::Module { kind, referent };
 								let export = reference.export().unwrap_or("default").to_owned();
 								let mut args = vec![
-									"js".into(),
+									if kind == tg::module::Kind::Py {
+										"py"
+									} else {
+										"js"
+									}
+									.into(),
 									"--export".into(),
 									export.into(),
 									tg::command::Value::Value(module.into()),

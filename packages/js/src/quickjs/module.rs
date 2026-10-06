@@ -129,7 +129,10 @@ impl qjs::loader::Loader for Loader {
 			let instance = state.instance.clone();
 			let module = module_data.clone();
 			async move {
-				let arg = tg::module::load::Arg { module };
+				let arg = tg::module::load::Arg {
+					language: Some(tg::module::load::Language::Js),
+					module,
+				};
 				let result = instance.load_module(arg).await;
 				sender.send(result).unwrap();
 			}

@@ -17,7 +17,40 @@ impl Session {
 			return Err(tg::error!("unauthorized"));
 		}
 
-		match &arg.module {
+		#[cfg(not(feature = "py"))]
+		if arg.module.kind == tg::module::Kind::Py
+			|| arg.language == Some(tg::module::load::Language::Py)
+		{
+			return Err(tg::error!("the py feature is not enabled"));
+		}
+
+		// Generate the Python representation of object modules.
+		#[cfg(feature = "py")]
+		if arg.language == Some(tg::module::load::Language::Py)
+			&& !matches!(
+				arg.module.kind,
+				tg::module::Kind::Js
+					| tg::module::Kind::Ts
+					| tg::module::Kind::Dts
+					| tg::module::Kind::Py
+			) {
+			let text = tangram_compiler::py::load::object_module(&arg.module)?;
+			return Ok(tg::module::load::Output {
+				text,
+				tokens: tg::authorization::Tokens::default(),
+			});
+		}
+
+		let mut output = self.load_module_inner(&arg.module).await?;
+		output.text = tangram_compiler::load::module(&arg.module, &output.text, arg.language)?;
+		Ok(output)
+	}
+
+	async fn load_module_inner(
+		&self,
+		module: &tg::module::Data,
+	) -> tg::Result<tg::module::load::Output> {
+		match module {
 			// Handle a declaration.
 			tg::module::Data {
 				kind: tg::module::Kind::Dts,
@@ -37,9 +70,9 @@ impl Session {
 				})
 			},
 
-			// Handle a JS or TS module from a path.
+			// Handle a JS, Python, or TS module from a path.
 			tg::module::Data {
-				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
+				kind: tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Py,
 				referent:
 					tg::Referent {
 						node: tg::module::data::Source::Path(path),
@@ -57,9 +90,9 @@ impl Session {
 				})
 			},
 
-			// Handle a JS or TS module from an object.
+			// Handle a JS, Python, or TS module from an object.
 			tg::module::Data {
-				kind: tg::module::Kind::Js | tg::module::Kind::Ts,
+				kind: tg::module::Kind::Js | tg::module::Kind::Ts | tg::module::Kind::Py,
 				referent:
 					tg::Referent {
 						node: tg::module::data::Source::Edge(edge),
@@ -110,7 +143,7 @@ impl Session {
 				},
 				..
 			} => {
-				let class = match arg.module.kind {
+				let class = match module.kind {
 					tg::module::Kind::Object => "Object",
 					tg::module::Kind::Blob => "Blob",
 					tg::module::Kind::Artifact => "Artifact",
