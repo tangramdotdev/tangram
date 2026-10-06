@@ -535,7 +535,6 @@ impl Session {
 		// Collect the objects requiring authorization.
 		let required = Self::sync_put_object_permissions();
 		let mut authorization_args = Vec::new();
-		let mut authorization_ids = Vec::new();
 		for node in &nodes {
 			let requested = if node.descendants {
 				required
@@ -553,35 +552,55 @@ impl Session {
 			let tokens = tg::authorization::Tokens::with_local_entry(authorization.tokens);
 			let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
 			authorization_args.push((resource, requested));
-			authorization_ids.push(id);
 		}
 
-		// Authorize the objects.
-		let authorization = self.authorize_batch_with_required(
-			authorization_args,
-			Self::sync_put_object_node_permissions(),
-		);
-		tokio::pin!(authorization);
-		let outputs =
-			if let Some(outputs) = futures::future::poll_immediate(authorization.as_mut()).await {
-				outputs
-			} else {
-				for id in &authorization_ids {
-					self.sync_put_pending(state, id.clone().into()).await?;
-				}
-				authorization.await
-			}
-			.map_err(|error| tg::error!(!error, "failed to authorize the objects"))?;
-		crate::authorization::check_exhaustion(&outputs)?;
-		for (id, output) in std::iter::zip(authorization_ids, outputs) {
-			{
-				let permissions = output.permissions;
-				state
+		// Authorize only the nodes the destination still needs.
+		loop {
+			authorization_args.retain(|(resource, _)| {
+				!state
 					.graph
 					.lock()
 					.unwrap()
-					.update_object_local_permissions(&id, permissions);
+					.object_remote_available(&resource.node)
+			});
+			if authorization_args.is_empty() {
+				break;
 			}
+			let authorization = self.authorize_batch_with_required(
+				authorization_args.clone(),
+				Self::sync_put_object_node_permissions(),
+			);
+			tokio::pin!(authorization);
+			let outputs = if let Some(outputs) =
+				futures::future::poll_immediate(authorization.as_mut()).await
+			{
+				outputs
+			} else {
+				for (resource, _) in &authorization_args {
+					self.sync_put_pending(state, resource.node.clone().into())
+						.await?;
+				}
+				let available = state.wait_remote(|graph| {
+					authorization_args
+						.iter()
+						.any(|(resource, _)| graph.object_remote_available(&resource.node))
+				});
+				tokio::select! {
+					biased;
+					() = available => continue,
+					outputs = &mut authorization => outputs,
+				}
+			}
+			.map_err(|error| tg::error!(!error, "failed to authorize the objects"))?;
+			for ((resource, _), output) in std::iter::zip(&authorization_args, outputs) {
+				let mut graph = state.graph.lock().unwrap();
+				if graph.object_remote_available(&resource.node) {
+					continue;
+				}
+				let output = output.check_exhaustion()?;
+				graph.update_object_local_permissions(&resource.node, output.permissions);
+			}
+			break;
 		}
 
 		// Route the objects.
@@ -682,7 +701,6 @@ impl Session {
 		// Collect the processes requiring authorization.
 		let required = Self::sync_put_process_permissions(&state.arg);
 		let mut authorization_args = Vec::new();
-		let mut authorization_ids = Vec::new();
 		for node in &nodes {
 			let requested = if node.descendants {
 				required
@@ -700,35 +718,55 @@ impl Session {
 			let tokens = tg::authorization::Tokens::with_local_entry(authorization.tokens);
 			let resource = tg::Referent::with_node_and_tokens(id.clone(), tokens);
 			authorization_args.push((resource, requested));
-			authorization_ids.push(id);
 		}
 
-		// Authorize the processes.
-		let authorization = self.authorize_batch_with_required(
-			authorization_args,
-			Self::sync_put_process_node_permissions(),
-		);
-		tokio::pin!(authorization);
-		let outputs =
-			if let Some(outputs) = futures::future::poll_immediate(authorization.as_mut()).await {
-				outputs
-			} else {
-				for id in &authorization_ids {
-					self.sync_put_pending(state, id.clone().into()).await?;
-				}
-				authorization.await
-			}
-			.map_err(|error| tg::error!(!error, "failed to authorize the processes"))?;
-		crate::authorization::check_exhaustion(&outputs)?;
-		for (id, output) in std::iter::zip(authorization_ids, outputs) {
-			{
-				let permissions = output.permissions;
-				state
+		// Authorize only the nodes the destination still needs.
+		loop {
+			authorization_args.retain(|(resource, _)| {
+				!state
 					.graph
 					.lock()
 					.unwrap()
-					.update_process_local_permissions(&id, permissions);
+					.process_remote_available(&resource.node)
+			});
+			if authorization_args.is_empty() {
+				break;
 			}
+			let authorization = self.authorize_batch_with_required(
+				authorization_args.clone(),
+				Self::sync_put_process_node_permissions(),
+			);
+			tokio::pin!(authorization);
+			let outputs = if let Some(outputs) =
+				futures::future::poll_immediate(authorization.as_mut()).await
+			{
+				outputs
+			} else {
+				for (resource, _) in &authorization_args {
+					self.sync_put_pending(state, resource.node.clone().into())
+						.await?;
+				}
+				let available = state.wait_remote(|graph| {
+					authorization_args
+						.iter()
+						.any(|(resource, _)| graph.process_remote_available(&resource.node))
+				});
+				tokio::select! {
+					biased;
+					() = available => continue,
+					outputs = &mut authorization => outputs,
+				}
+			}
+			.map_err(|error| tg::error!(!error, "failed to authorize the processes"))?;
+			for ((resource, _), output) in std::iter::zip(&authorization_args, outputs) {
+				let mut graph = state.graph.lock().unwrap();
+				if graph.process_remote_available(&resource.node) {
+					continue;
+				}
+				let output = output.check_exhaustion()?;
+				graph.update_process_local_permissions(&resource.node, output.permissions);
+			}
+			break;
 		}
 
 		// Route the processes.

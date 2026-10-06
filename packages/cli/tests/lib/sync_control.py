@@ -745,6 +745,41 @@ def test_pending_process_available(messenger):
         release("verification.index", verification)
 
 
+def test_available_during_authorization(messenger):
+    blob = command("put", 'tg.blob("already at the destination")')
+    process = "pcs_01041061050r3gg28a1c60t3gf208h44rm2mb1e60s38dhr78y3wg0"
+    for id, children in ((blob, False), (process, False), (process, True)):
+        verification = watch("verification.index", resource=id, storage=False)
+        arg = {"put": id}
+        if id == process:
+            arg.update(process_children=children, process_command_objects=True,
+                       process_error_objects=True, process_log_objects=True,
+                       process_output_objects=True)
+        sender = Sync(arg, token=reader_token)
+        assert sender.put_message() == Variant(4, node_bytes(id))
+        reached("verification.index", verification)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            output = executor.submit(sender.put_message)
+            if id == process:
+                partial = {0: node_bytes(id), 1: True, 4: True, 7: True}
+                sender.send(Variant(0, Variant(1, Variant(1, partial))))
+                try:
+                    output.result(timeout=0.2)
+                except concurrent.futures.TimeoutError:
+                    pass
+                else:
+                    raise AssertionError("partial availability cancelled authorization")
+                complete = {0: node_bytes(id), **{field: True for field in range(1, 10)}}
+                available = Variant(1, complete)
+            else:
+                available = Variant(0, {0: node_bytes(id)})
+            sender.send(Variant(0, Variant(1, available)))
+            sender.send(Variant(0, Variant(3)))
+            assert output.result(timeout=5) == Variant(3)
+        sender.close()
+        release("verification.index", verification)
+
+
 def test_pending_missing(messenger):
     id = missing_id(100)
     sync = Sync({"put": id})
