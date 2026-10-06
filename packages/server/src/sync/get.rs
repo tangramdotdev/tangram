@@ -310,8 +310,11 @@ impl Session {
 			.checked_add(time_to_live)
 			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
 		let permission = match id.kind() {
-			tg::id::Kind::Sandbox if sync.is_some() => tg::authorization::Permission::Sandbox(
-				tg::authorization::permission::sandbox::Permission::Read,
+			tg::id::Kind::Process => tg::authorization::Permission::Process(
+				tg::authorization::permission::process::Permission::Node,
+			),
+			tg::id::Kind::Sandbox => tg::authorization::Permission::Sandbox(
+				tg::authorization::permission::sandbox::Permission::Node,
 			),
 			tg::id::Kind::Sync => tg::authorization::Permission::Sync(
 				tg::authorization::permission::sync::Permission::Read,

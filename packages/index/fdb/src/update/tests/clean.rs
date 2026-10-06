@@ -67,6 +67,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 	run(async |index| {
 		let object = directory(&[]);
 		let object_id = object.id.clone();
+		let id = tg::process::Id::new();
 		let process = tangram_index::process::put::Arg {
 			cached: false,
 			children: None,
@@ -74,13 +75,15 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 			command_id: object_id.clone(),
 			data: None,
 			error: None,
-			id: tg::process::Id::new(),
+			id: id.clone(),
 			location: None,
 			log: None,
 			metadata: tg::process::Metadata::default(),
 			options: tg::referent::Options::default(),
 			output: None,
 			parent: None,
+			permissions: Vec::new(),
+			principal: tg::Principal::Process(id),
 			sandbox: None,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: std::time::Duration::ZERO,
@@ -99,7 +102,7 @@ async fn cleans_versions_after_collecting_their_objects_and_processes() {
 				tangram_index::batch::Item::PutProcess(process),
 			],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 		for id in &ids {
 			for kind in &kinds {
 				enqueue(index, id, kind).await;

@@ -232,6 +232,10 @@ impl Session {
 		let log_object: Option<Option<tg::object::Id>> =
 			(!log_needs_compaction).then(|| arg.data.log.clone().map(|log| log.node.into()));
 		let enqueue_log_compaction = enqueue_log_compaction && log_needs_compaction;
+		let principal = match &object_permissions {
+			ObjectPermissions::Authorized(_) => self.context.principal.clone(),
+			ObjectPermissions::Capture => tg::Principal::Process(id.clone()),
+		};
 		let (subtree_objects, mut put_object_permissions) = match object_permissions {
 			ObjectPermissions::Authorized(authorization) => {
 				let Authorization {
@@ -306,7 +310,7 @@ impl Session {
 			put_object_permissions.push(tangram_index::batch::Item::PutPermission(arg));
 		}
 		let data = store_data.then(|| arg.data.clone());
-		let put_process_arg = tangram_index::process::put::Arg {
+		let mut put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
 			children,
 			command: Some(
@@ -327,6 +331,8 @@ impl Session {
 			options: tg::referent::Options::default(),
 			output: Some(output_objects),
 			parent: None,
+			permissions: Vec::new(),
+			principal: principal.clone(),
 			sandbox: None,
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: self.server.config.process.time_to_touch,
@@ -362,13 +368,13 @@ impl Session {
 				time_to_touch: Some(self.server.config.process.permission_time_to_touch),
 				version: None,
 			});
+		put_process_arg.permissions.extend(put_permission);
 		let account = self.usage_account(&self.context.principal).await?;
 
 		// Put the process in the index.
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
 				.chain(put_object_permissions)
-				.chain(put_permission.map(tangram_index::batch::Item::PutPermission))
 				.chain(
 					enqueue_log_compaction
 						.then(|| tangram_index::batch::Item::EnqueueLogCompaction(id.clone())),
@@ -387,24 +393,52 @@ impl Session {
 		let result = if defer_index {
 			self.server.index_batch(arg).await
 		} else {
-			self.server.index.batch(arg).await
+			self.server
+				.index
+				.batch(arg)
+				.await
+				.and_then(std::convert::identity)
 		};
 		result
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;
 		if enqueue_log_compaction && !defer_index {
 			self.server.spawn_publish_log_compaction_notification_task();
 		}
-		let permission = self.process_permission_for_data(&token_data);
-		let tokens = tg::authorization::Tokens::with_authorization(
-			self.create_token(
-				id.clone().into(),
-				permission
-					.iter()
-					.map(tg::authorization::Permission::Process)
-					.collect(),
-				permission_expires_at,
-			)?,
-		);
+		// Only issue proofs for permissions the caller actually holds.
+		let tokens = if principal == tg::Principal::Process(id.clone()) && defer_index {
+			tg::authorization::Tokens::default()
+		} else {
+			let permissions = self.process_permission_for_data(&token_data);
+			let authorization = self
+				.authorize(
+					id.clone(),
+					tg::authorization::permission::Set::Process(permissions),
+				)
+				.await?
+				.check_exhaustion()?;
+			let permissions = permissions
+				.iter()
+				.map(tg::authorization::Permission::Process)
+				.filter(|permission| authorization.permissions.contains(*permission))
+				.collect::<Vec<_>>();
+			let expires_at = authorization
+				.expires_at
+				.map_or(permission_expires_at, |expires_at| {
+					expires_at.min(permission_expires_at)
+				});
+			let token =
+				if !authorization
+					.permissions
+					.contains(tg::authorization::Permission::Process(
+						tg::authorization::permission::process::Permission::Node,
+					)) || permissions.is_empty()
+				{
+					None
+				} else {
+					self.create_token(id.clone().into(), permissions, expires_at)?
+				};
+			tg::authorization::Tokens::with_authorization(token)
+		};
 
 		Ok(tg::process::put::Output { tokens })
 	}

@@ -811,8 +811,8 @@ async fn verify_process_parent_delegates_only_read_like_permissions() {
 	let process_node_holder = tg::user::Id::new();
 	let process_parent_holder = tg::user::Id::new();
 	let sandbox = tg::sandbox::Id::new();
-	let sandbox_reader = tg::user::Id::new();
-	let sandbox_writer = tg::user::Id::new();
+	let sandbox_nodeer = tg::user::Id::new();
+	let sandbox_parentr = tg::user::Id::new();
 	let subtree_reader = tg::user::Id::new();
 	let target = tg::sandbox::Id::new();
 	let node = tg::authorization::Permission::Process(
@@ -821,11 +821,11 @@ async fn verify_process_parent_delegates_only_read_like_permissions() {
 	let process_parent = tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::Parent,
 	);
-	let sandbox_read = tg::authorization::Permission::Sandbox(
-		tg::authorization::permission::sandbox::Permission::Read,
+	let sandbox_node = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Node,
 	);
-	let sandbox_write = tg::authorization::Permission::Sandbox(
-		tg::authorization::permission::sandbox::Permission::Write,
+	let sandbox_parent = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Parent,
 	);
 	let process_subtree = tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::Subtree,
@@ -853,21 +853,21 @@ async fn verify_process_parent_delegates_only_read_like_permissions() {
 		&mut txn,
 		target.clone().into(),
 		&process,
-		sandbox_write,
+		sandbox_parent,
 	);
 	put_resource_permission(
 		&index,
 		&mut txn,
 		sandbox.clone().into(),
-		tg::authorization::Subject::User(sandbox_reader.clone()),
-		sandbox_read,
+		tg::authorization::Subject::User(sandbox_nodeer.clone()),
+		sandbox_node,
 	);
 	put_resource_permission(
 		&index,
 		&mut txn,
 		sandbox.clone().into(),
-		tg::authorization::Subject::User(sandbox_writer.clone()),
-		sandbox_write,
+		tg::authorization::Subject::User(sandbox_parentr.clone()),
+		sandbox_parent,
 	);
 	for (user, permission) in [
 		(node_reader.clone(), node),
@@ -896,8 +896,8 @@ async fn verify_process_parent_delegates_only_read_like_permissions() {
 		(tg::Principal::Process(process), true, true),
 		(tg::Principal::Sandbox(sandbox), true, false),
 		(tg::Principal::Sandbox(tg::sandbox::Id::new()), false, false),
-		(tg::Principal::User(sandbox_reader), false, false),
-		(tg::Principal::User(sandbox_writer), false, false),
+		(tg::Principal::User(sandbox_nodeer), false, false),
+		(tg::Principal::User(sandbox_parentr), false, false),
 		(tg::Principal::User(node_reader), false, false),
 		(tg::Principal::User(subtree_reader), false, false),
 		(tg::Principal::User(process_node_holder), false, false),
@@ -921,17 +921,17 @@ async fn verify_process_parent_delegates_only_read_like_permissions() {
 			expected_read,
 		);
 		assert_eq!(
-			is_verified(&index, target.clone().into(), sandbox_write, &principal,).await,
+			is_verified(&index, target.clone().into(), sandbox_parent, &principal,).await,
 			expected_write,
 		);
 		assert_eq!(
-			is_verified(&index, target.clone().into(), sandbox_read, &principal,).await,
+			is_verified(&index, target.clone().into(), sandbox_node, &principal,).await,
 			expected_read,
 		);
 	}
 
-	let read = tg::authorization::permission::Set::from(sandbox_read);
-	let write = tg::authorization::permission::Set::from(sandbox_write);
+	let read = tg::authorization::permission::Set::from(sandbox_node);
+	let write = tg::authorization::permission::Set::from(sandbox_parent);
 	let mut requested = read;
 	requested.insert(write);
 	let arg = tangram_index::verify::Arg {
@@ -1391,10 +1391,10 @@ async fn verify_sandbox_permissions_do_not_verify_processes() {
 	let sandbox = tg::sandbox::Id::new();
 	let writer = tg::user::Id::new();
 	let read = tg::authorization::Permission::Sandbox(
-		tg::authorization::permission::sandbox::Permission::Read,
+		tg::authorization::permission::sandbox::Permission::Node,
 	);
 	let write = tg::authorization::Permission::Sandbox(
-		tg::authorization::permission::sandbox::Permission::Write,
+		tg::authorization::permission::sandbox::Permission::Parent,
 	);
 	let mut txn = index.env.write_txn().unwrap();
 	put_sandbox(&index, &mut txn, &sandbox);
@@ -3621,11 +3621,11 @@ async fn sync_read_confers_only_read_like_permissions() {
 	let read =
 		tg::authorization::Permission::Sync(tg::authorization::permission::sync::Permission::Read);
 	let subtree = object_permission(tg::authorization::permission::object::Permission::Subtree);
-	let sandbox_read = tg::authorization::Permission::Sandbox(
-		tg::authorization::permission::sandbox::Permission::Read,
+	let sandbox_node = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Node,
 	);
-	let sandbox_write = tg::authorization::Permission::Sandbox(
-		tg::authorization::permission::sandbox::Permission::Write,
+	let sandbox_parent = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Parent,
 	);
 	let process_node = tg::authorization::Permission::Process(
 		tg::authorization::permission::process::Permission::Node,
@@ -3648,8 +3648,8 @@ async fn sync_read_confers_only_read_like_permissions() {
 	);
 	for (resource, permission) in [
 		(root.clone().into(), subtree),
-		(sandbox.clone().into(), sandbox_read),
-		(sandbox.clone().into(), sandbox_write),
+		(sandbox.clone().into(), sandbox_node),
+		(sandbox.clone().into(), sandbox_parent),
 		(process.clone().into(), process_node),
 		(process.clone().into(), process_parent),
 	] {
@@ -3699,8 +3699,8 @@ async fn sync_read_confers_only_read_like_permissions() {
 			for (resource, permission, read_like) in [
 				(root.clone().into(), subtree, true),
 				(child.clone().into(), subtree, true),
-				(sandbox.clone().into(), sandbox_read, true),
-				(sandbox.clone().into(), sandbox_write, false),
+				(sandbox.clone().into(), sandbox_node, true),
+				(sandbox.clone().into(), sandbox_parent, false),
 				(process.clone().into(), process_node, true),
 				(process.clone().into(), process_parent, false),
 			] {
@@ -3732,7 +3732,7 @@ async fn sync_read_confers_only_read_like_permissions() {
 }
 
 #[tokio::test]
-async fn verify_denies_sandbox_read_for_process_without_a_local_record() {
+async fn verify_denies_sandbox_node_for_process_without_a_local_record() {
 	let (_dir, index) = new_index();
 	let process = tg::process::Id::new();
 	let sandbox = tg::sandbox::Id::new();
@@ -3748,7 +3748,7 @@ async fn verify_denies_sandbox_read_for_process_without_a_local_record() {
 	)
 	.unwrap();
 	let read = tg::authorization::Permission::Sandbox(
-		tg::authorization::permission::sandbox::Permission::Read,
+		tg::authorization::permission::sandbox::Permission::Node,
 	);
 	put_resource_permission(
 		&index,

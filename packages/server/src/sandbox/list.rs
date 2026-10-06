@@ -185,7 +185,7 @@ impl Session {
 			})
 			.collect::<Vec<_>>();
 		let permission = tg::authorization::Permission::Sandbox(
-			tg::authorization::permission::sandbox::Permission::Read,
+			tg::authorization::permission::sandbox::Permission::Node,
 		);
 		let authorizations = data
 			.iter()

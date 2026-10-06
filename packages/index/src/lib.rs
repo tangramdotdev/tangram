@@ -122,7 +122,13 @@ pub trait Index {
 		principal: &tg::Principal,
 	) -> impl Future<Output = tg::Result<Vec<bool>>> + Send;
 
-	fn batch(&self, arg: crate::batch::Arg) -> impl Future<Output = tg::Result<()>> + Send;
+	/// Apply the items in order, returning transaction failures in the outer result and write validation failures in the inner result.
+	/// A rejected write stops the remaining items in this batch.
+	/// Earlier items and other requests in the transaction may still commit.
+	fn batch(
+		&self,
+		arg: crate::batch::Arg,
+	) -> impl Future<Output = tg::Result<tg::Result<()>>> + Send;
 
 	fn try_get_ancestors(
 		&self,

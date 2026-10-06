@@ -1296,9 +1296,38 @@ fn update_process(graph: &mut Graph, id: &tg::process::Id, data: &tg::process::D
 		id,
 		marked: Some(true),
 		metadata: None,
+		permissions: Some(tg::authorization::permission::Set::Process(
+			tg::authorization::permission::process::Set::NODE,
+		)),
+		requested: None,
+		storage: Some(tg::process::storage::Set::NODE),
+	};
+	graph.update_process_local(update);
+}
+
+#[test]
+fn stored_process_data_does_not_grant_permissions() {
+	let config = tg::sync::Arg {
+		process_error_objects: true,
+		process_output_objects: true,
+		..Default::default()
+	};
+	let mut graph = Graph::new(&config, false);
+	let id = tg::process::Id::new();
+	graph.insert_local_root(id.clone().into());
+	let command = tg::command::Id::new(b"command");
+	let data = process_data(&command, Some(&[]));
+	let update = UpdateProcessLocalArg {
+		data: Some(&data),
+		id: &id,
+		marked: Some(true),
+		metadata: None,
 		permissions: None,
 		requested: None,
 		storage: Some(tg::process::storage::Set::NODE),
 	};
 	graph.update_process_local(update);
+	assert!(graph.end_local());
+	assert!(graph.process_local_permissions(&id).is_empty());
+	assert!(!graph.get_process_local_availability(&id).subtree);
 }

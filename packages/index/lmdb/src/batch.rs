@@ -5,17 +5,17 @@ use {
 };
 
 impl Index {
-	pub async fn batch(&self, arg: tangram_index::batch::Arg) -> tg::Result<()> {
+	pub async fn batch(&self, arg: tangram_index::batch::Arg) -> tg::Result<tg::Result<()>> {
 		if arg.is_empty() {
-			return Ok(());
+			return Ok(Ok(()));
 		}
 		let request = Request::Batch(arg);
 		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
+		let Response::Mutation(result) = response else {
 			return Err(tg::error!("unexpected write response"));
 		};
 
-		Ok(())
+		Ok(result)
 	}
 
 	pub(crate) fn batch_with_transaction(
@@ -24,7 +24,7 @@ impl Index {
 		transaction: &mut lmdb::RwTxn<'_>,
 		arg: &tangram_index::batch::Arg,
 		usage_partition_total: u64,
-	) -> tg::Result<()> {
+	) -> tg::Result<tg::Result<()>> {
 		for item in &arg.items {
 			match item {
 				tangram_index::batch::Item::DeleteDelegations(subject) => {
@@ -202,21 +202,27 @@ impl Index {
 					)?;
 				},
 				tangram_index::batch::Item::PutProcess(arg) => {
-					Self::put_processes_with_transaction(
+					let result = Self::put_processes_with_transaction(
 						db,
 						subspace,
 						transaction,
 						std::slice::from_ref(arg),
 					)?;
+					if let Err(error) = result {
+						return Ok(Err(error));
+					}
 				},
 				tangram_index::batch::Item::PutSandbox(arg) => {
-					Self::put_sandboxes_with_transaction(
+					let result = Self::put_sandboxes_with_transaction(
 						db,
 						subspace,
 						transaction,
 						std::slice::from_ref(arg),
 						usage_partition_total,
 					)?;
+					if let Err(error) = result {
+						return Ok(Err(error));
+					}
 				},
 				tangram_index::batch::Item::PutTag(arg) => {
 					Self::put_tags_with_transaction(
@@ -237,6 +243,6 @@ impl Index {
 			}
 		}
 
-		Ok(())
+		Ok(Ok(()))
 	}
 }

@@ -115,7 +115,7 @@ impl Session {
 			.authorize_sandbox_runner(
 				id,
 				arg.tokens.local_authorization(),
-				tg::authorization::permission::sandbox::Permission::Read,
+				tg::authorization::permission::sandbox::Permission::Node,
 			)
 			.await?
 		{
@@ -209,7 +209,7 @@ impl Session {
 		deadline: tokio::time::Instant,
 	) -> tg::Result<Option<tg::sandbox::Data>> {
 		let permission = tg::authorization::Permission::Sandbox(
-			tg::authorization::permission::sandbox::Permission::Read,
+			tg::authorization::permission::sandbox::Permission::Node,
 		);
 		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
 		let authorize_future = self.authorize(resource, permission);

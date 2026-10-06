@@ -179,7 +179,7 @@ impl Index {
 						&arg,
 						usage_partition_total,
 					)
-					.map(|()| Response::Unit),
+					.map(Response::Mutation),
 					Request::Clean(crate::Clean {
 						batch_size,
 						max_object_touched_at,
@@ -343,7 +343,7 @@ impl Index {
 					.map(|()| Response::Unit),
 					Request::PutProcesses(args) => {
 						Self::put_processes_with_transaction(db, subspace, &mut transaction, &args)
-							.map(|()| Response::Unit)
+							.map(Response::Mutation)
 					},
 					Request::PutSandboxes(args) => Self::put_sandboxes_with_transaction(
 						db,
@@ -352,7 +352,7 @@ impl Index {
 						&args,
 						usage_partition_total,
 					)
-					.map(|()| Response::Unit),
+					.map(Response::Mutation),
 					Request::PutTags(tags) => {
 						Self::put_tags_with_transaction(db, subspace, &mut transaction, &tags)
 							.map(|()| Response::Unit)
@@ -498,6 +498,24 @@ impl Index {
 		let mut current_count: usize = 0;
 
 		for (request, sender) in requests {
+			// Use an ordered batch so a rejected write prevents later writes in the same request.
+			let request = match request {
+				Request::PutProcesses(args) => {
+					let items = args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutProcess)
+						.collect();
+					Request::Batch(tangram_index::batch::Arg { items })
+				},
+				Request::PutSandboxes(args) => {
+					let items = args
+						.into_iter()
+						.map(tangram_index::batch::Item::PutSandbox)
+						.collect();
+					Request::Batch(tangram_index::batch::Arg { items })
+				},
+				request => request,
+			};
 			let tracker_idx = trackers.len();
 			trackers.push(RequestTracker {
 				remaining: 0,
@@ -593,8 +611,10 @@ impl Index {
 			Request::ExpireUsage(_) => {
 				Response::ExpireUsageOutput(tangram_index::usage::expire::Output::default())
 			},
-			Request::Batch(_)
-			| Request::CompletePermissionCapture(_)
+			Request::Batch(_) | Request::PutProcesses(_) | Request::PutSandboxes(_) => {
+				Response::Mutation(Ok(()))
+			},
+			Request::CompletePermissionCapture(_)
 			| Request::CompleteLogCompaction(_)
 			| Request::DeletePermissions(_)
 			| Request::DeleteGroupMembers(_)
@@ -614,8 +634,6 @@ impl Index {
 			| Request::PutObjects(_)
 			| Request::PutOrganizationMembers(_)
 			| Request::PutOrganizations(_)
-			| Request::PutProcesses(_)
-			| Request::PutSandboxes(_)
 			| Request::PutTags(_)
 			| Request::PutUsers(_)
 			| Request::UpdateIndexer(_) => Response::Unit,
@@ -1129,6 +1147,11 @@ impl Index {
 			},
 			(Response::Checkouts(existing), Response::Checkouts(new)) => {
 				existing.extend(new);
+			},
+			(Response::Mutation(existing), Response::Mutation(new)) => {
+				if existing.is_ok() {
+					*existing = new;
+				}
 			},
 			(Response::Objects(existing), Response::Objects(new)) => {
 				existing.extend(new);

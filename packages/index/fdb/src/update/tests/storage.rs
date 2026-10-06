@@ -265,7 +265,7 @@ async fn associate(
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutAccountObject(arg)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 }
 
 async fn associated(

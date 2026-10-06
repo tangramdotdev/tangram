@@ -60,13 +60,15 @@ fn process_arg(
 		command_id: command.into(),
 		data: Some(data),
 		error: None,
-		id,
+		id: id.clone(),
 		location: None,
 		log: None,
 		metadata: tg::process::Metadata::default(),
 		options: tg::referent::Options::default(),
 		output: None,
 		parent: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Process(id),
 		sandbox: None,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: std::time::Duration::ZERO,
@@ -100,8 +102,10 @@ fn sandbox_arg(
 		account: None,
 		created_at: 0,
 		data: Some(data),
-		id,
+		id: id.clone(),
 		location: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Sandbox(id),
 		processes: None,
 		runner: None,
 		touched_at: 0,
@@ -139,7 +143,7 @@ async fn partial_account_updates_preserve_billing() {
 			}),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 
 	let arg = tangram_index::batch::Arg {
 		items: vec![
@@ -155,7 +159,7 @@ async fn partial_account_updates_preserve_billing() {
 			}),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 
 	assert!(
 		!try_get_organization(&index, &new_organization)
@@ -227,6 +231,8 @@ async fn process_children_are_stored_separately_from_data() {
 				options: tg::referent::Options::default(),
 				output: Some(None),
 				parent: None,
+				permissions: Vec::new(),
+				principal: tg::Principal::Process(process.clone()),
 				sandbox: None,
 				storage: tg::process::storage::Set::NODE,
 				time_to_touch: std::time::Duration::ZERO,
@@ -234,7 +240,7 @@ async fn process_children_are_stored_separately_from_data() {
 			},
 		)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 
 	let indexed = index
 		.try_get_processes(std::slice::from_ref(&process))
@@ -337,6 +343,8 @@ async fn incomplete_process_children_have_values() {
 				options: tg::referent::Options::default(),
 				output: None,
 				parent: None,
+				permissions: Vec::new(),
+				principal: tg::Principal::Process(parent.clone()),
 				sandbox: None,
 				storage: tg::process::storage::Set::NODE,
 				time_to_touch: std::time::Duration::ZERO,
@@ -356,6 +364,8 @@ async fn incomplete_process_children_have_values() {
 				options: child_data.process.options.clone(),
 				output: None,
 				parent: Some(parent.clone()),
+				permissions: Vec::new(),
+				principal: tg::Principal::Process(child.clone()),
 				sandbox: None,
 				storage: tg::process::storage::Set::NODE,
 				time_to_touch: std::time::Duration::ZERO,
@@ -363,7 +373,7 @@ async fn incomplete_process_children_have_values() {
 			}),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 
 	let process = index
 		.try_get_processes(std::slice::from_ref(&parent))
@@ -407,6 +417,8 @@ async fn process_children_must_be_unique() {
 				options: tg::referent::Options::default(),
 				output: None,
 				parent: None,
+				permissions: Vec::new(),
+				principal: tg::Principal::Root,
 				sandbox: None,
 				storage: tg::process::storage::Set::NODE,
 				time_to_touch: std::time::Duration::ZERO,
@@ -414,7 +426,7 @@ async fn process_children_must_be_unique() {
 			},
 		)],
 	};
-	let error = index.batch(arg).await.unwrap_err();
+	let error = index.batch(arg).await.unwrap().unwrap_err();
 	assert!(
 		error
 			.to_string()
@@ -435,7 +447,7 @@ async fn process_status_does_not_regress() {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutProcess(process)],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 	}
 
 	let process = index
@@ -466,7 +478,7 @@ async fn sandbox_status_does_not_regress() {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutSandbox(sandbox)],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 	}
 
 	let sandbox = index.try_get_sandbox(&id).await.unwrap().unwrap();
@@ -497,6 +509,8 @@ async fn process_and_log_compaction_share_transaction() {
 				options: tg::referent::Options::default(),
 				output: Some(None),
 				parent: None,
+				permissions: Vec::new(),
+				principal: tg::Principal::Process(process.clone()),
 				sandbox: None,
 				storage: tg::process::storage::Set::NODE,
 				time_to_touch: std::time::Duration::ZERO,
@@ -505,7 +519,7 @@ async fn process_and_log_compaction_share_transaction() {
 			tangram_index::batch::Item::EnqueueLogCompaction(process.clone()),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let after = index.get_transaction_id().await.unwrap();
 
 	assert_eq!(after, before + 1);
@@ -538,7 +552,7 @@ async fn preserves_order_and_transaction_boundary() {
 			tangram_index::batch::Item::DeleteGroup(id.clone()),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let after = index.get_transaction_id().await.unwrap();
 	assert_eq!(after, before + 1);
 	assert!(try_get_group(&index, &id).is_none());
@@ -550,7 +564,7 @@ async fn preserves_order_and_transaction_boundary() {
 			tangram_index::batch::Item::PutGroup(put_arg),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let after = index.get_transaction_id().await.unwrap();
 	assert_eq!(after, before + 1);
 	assert!(try_get_group(&index, &id).is_some());
@@ -579,7 +593,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			tangram_index::batch::Item::PutProcess(first_arg),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let processes = index
 		.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
 		.await
@@ -607,7 +621,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			tangram_index::batch::Item::PutProcess(first_membership),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
@@ -632,7 +646,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			tg::sandbox::Status::Destroyed,
 		))],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert!(
 		!index
 			.try_get_sandbox(&sandbox)
@@ -653,7 +667,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutSandbox(final_arg)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let indexed = index.try_get_sandbox(&sandbox).await.unwrap().unwrap();
 	assert!(indexed.serialize().unwrap().len() < 1000);
 	assert_eq!(
@@ -700,7 +714,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutSandbox(replay)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
@@ -717,7 +731,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutProcess(membership)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 4000)
@@ -781,7 +795,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 			tg::sandbox::Status::Started,
 		))],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.try_get_sandbox_processes_count(&sandbox)
@@ -796,7 +810,7 @@ async fn sandbox_processes_are_ordered_and_stored_separately() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutProcess(arg)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.try_get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 1)
@@ -822,7 +836,7 @@ async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
 		let arg = tangram_index::batch::Arg {
 			items: vec![tangram_index::batch::Item::PutProcess(process_arg.clone())],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 		assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_none());
 		let indexed = index.try_get_process(&process).await.unwrap().unwrap();
 		assert_eq!(indexed.sandbox, Some(sandbox.clone()));
@@ -849,7 +863,7 @@ async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutSandbox(membership)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert_eq!(
 		index
 			.get_sandbox_processes(&sandbox, std::io::SeekFrom::Start(0), 10)
@@ -870,16 +884,584 @@ async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutProcess(membership)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 
 	process_arg.touched_at = 2;
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::PutProcess(process_arg)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert!(index.try_get_sandbox(&sandbox).await.unwrap().is_none());
 	let transaction = index.env.read_txn().unwrap();
 	let key = crate::Key::Process(crate::process::Key::ProcessSandbox { process, sandbox });
 	let key = Index::pack(&index.subspace, &key);
 	assert!(index.db.get(&transaction, &key).unwrap().is_none());
+}
+
+#[tokio::test]
+async fn root_can_write_and_finish_existing_processes() {
+	let (_dir, index) = new_index();
+	let id = tg::process::Id::new();
+	let mut arg = process_arg(id.clone(), tg::process::Status::Started);
+	arg.principal = tg::Principal::Root;
+	put_process(&index, arg.clone()).await.unwrap();
+	arg.children = Some(Vec::new());
+	let data = arg.data.as_mut().unwrap();
+	data.exit = Some(1);
+	data.finished_at = Some(1);
+	data.status = tg::process::Status::Finished;
+	put_process(&index, arg.clone()).await.unwrap();
+	let stored = index.try_get_process(&id).await.unwrap().unwrap();
+	let data = stored.data.unwrap();
+	assert_eq!(data.status, tg::process::Status::Finished);
+	assert_eq!(data.exit, Some(1));
+	assert!(stored.set.children);
+
+	// Root must still submit unique children.
+	let child = tg::process::data::Child {
+		cached: false,
+		process: tg::Referent::with_node(tg::process::Id::new()),
+	};
+	arg.children = Some(vec![child.clone(), child]);
+	assert!(put_process(&index, arg).await.is_err());
+}
+
+#[tokio::test]
+async fn root_can_write_and_destroy_existing_sandboxes() {
+	let (_dir, index) = new_index();
+	let id = tg::sandbox::Id::new();
+	let mut arg = sandbox_arg(id.clone(), tg::sandbox::Status::Started);
+	arg.principal = tg::Principal::Root;
+	put_sandbox(&index, arg.clone()).await.unwrap();
+	arg.processes = Some(Vec::new());
+	let data = &mut arg.data.as_mut().unwrap().data;
+	data.hostname = Some("updated".into());
+	data.status = tg::sandbox::Status::Destroyed;
+	put_sandbox(&index, arg.clone()).await.unwrap();
+	let stored = index.try_get_sandbox(&id).await.unwrap().unwrap();
+	let data = stored.data.unwrap().data;
+	assert_eq!(data.status, tg::sandbox::Status::Destroyed);
+	assert_eq!(data.hostname.as_deref(), Some("updated"));
+	assert!(stored.set.processes);
+
+	// Root must still submit unique processes.
+	let process = tg::process::Id::new();
+	arg.processes = Some(vec![process.clone(), process]);
+	assert!(put_sandbox(&index, arg).await.is_err());
+}
+
+#[tokio::test]
+async fn process_put_preserves_existing_contents() {
+	let (_dir, index) = new_index();
+	let id = tg::process::Id::new();
+	let mut arg = process_arg(id.clone(), tg::process::Status::Finished);
+	arg.children = Some(Vec::new());
+	arg.principal = tg::Principal::User(tg::user::Id::new());
+	put_process(&index, arg.clone()).await.unwrap();
+
+	// A different command location does not make the process data conflict.
+	let mut identical = arg.clone();
+	identical.data.as_mut().unwrap().command.options.location =
+		Some(tg::Location::Local(tg::location::Local::default()));
+	put_process(&index, identical).await.unwrap();
+
+	let mut children = arg.clone();
+	children.children = Some(vec![tg::process::data::Child {
+		cached: false,
+		process: tg::Referent::with_node(tg::process::Id::new()),
+	}]);
+	assert!(put_process(&index, children).await.is_err());
+
+	let mut changed = arg.clone();
+	changed.data.as_mut().unwrap().exit = Some(1);
+	assert!(put_process(&index, changed.clone()).await.is_err());
+	let stored = index.try_get_process(&id).await.unwrap().unwrap();
+	assert_eq!(stored.data.unwrap().exit, Some(0));
+
+	// A regular user cannot change data.log from None to a blob ID.
+	let mut compacted = arg.clone();
+	compacted.data.as_mut().unwrap().log = Some(tg::Referent::with_node(tg::blob::Id::new(b"log")));
+	assert!(put_process(&index, compacted.clone()).await.is_err());
+	compacted.principal = tg::Principal::Process(id.clone());
+	put_process(&index, compacted).await.unwrap();
+	changed.principal = tg::Principal::Process(id.clone());
+	put_process(&index, changed).await.unwrap();
+	let stored = index.try_get_process(&id).await.unwrap().unwrap();
+	assert_eq!(stored.data.unwrap().exit, Some(1));
+}
+
+#[tokio::test]
+async fn process_put_without_log_preserves_compacted_log() {
+	for root in [false, true] {
+		for complete in [false, true] {
+			for stored in [false, true] {
+				let (_dir, index) = new_index();
+				let id = tg::process::Id::new();
+				let log = tg::blob::Id::new(b"log");
+				let empty = tg::object::metadata::Subtree {
+					count: Some(0),
+					depth: Some(0),
+					size: Some(0),
+					solvable: Some(true),
+					solved: Some(true),
+				};
+				let metadata = tg::process::Metadata {
+					node: tg::process::metadata::Node {
+						command_objects: empty.clone(),
+						error_objects: empty.clone(),
+						log_objects: empty.clone(),
+						output_objects: empty.clone(),
+					},
+					subtree: tg::process::metadata::Subtree {
+						command_objects: empty.clone(),
+						count: Some(1),
+						depth: Some(1),
+						error_objects: empty.clone(),
+						log_objects: empty.clone(),
+						output_objects: empty,
+					},
+				};
+				let mut uncompacted = process_arg(id.clone(), tg::process::Status::Finished);
+				uncompacted.children = Some(Vec::new());
+				uncompacted.error = Some(None);
+				uncompacted.log = Some(None);
+				uncompacted.metadata = metadata;
+				uncompacted.output = Some(None);
+				uncompacted.storage = tg::process::storage::Set::all();
+				if root {
+					uncompacted.principal = tg::Principal::Root;
+				}
+				assert!(uncompacted.complete());
+
+				let mut compacted = uncompacted.clone();
+				compacted.data.as_mut().unwrap().log = Some(tg::Referent::with_node(log.clone()));
+				compacted.log = Some(Some(log.clone().into()));
+				let log_metadata = if complete {
+					tg::object::metadata::Subtree {
+						count: Some(1),
+						depth: Some(1),
+						size: Some(100),
+						solvable: Some(true),
+						solved: Some(true),
+					}
+				} else {
+					tg::object::metadata::Subtree::default()
+				};
+				compacted.metadata.node.log_objects = log_metadata.clone();
+				compacted.metadata.subtree.log_objects = log_metadata.clone();
+				let log_storage = tg::process::storage::Set::NODE_LOG_OBJECTS
+					| tg::process::storage::Set::SUBTREE_LOG_OBJECTS;
+				if !stored {
+					compacted.storage.remove(log_storage);
+				}
+				put_process(&index, compacted).await.unwrap();
+
+				// A regular user cannot write data.log: None when the stored data.log contains a blob ID.
+				let mut unauthorized = uncompacted.clone();
+				unauthorized.principal = tg::Principal::User(tg::user::Id::new());
+				assert!(put_process(&index, unauthorized).await.is_err());
+
+				// Writing data.log: None preserves the log and its metadata while still updating the exit code.
+				for complete in [true, false] {
+					uncompacted.data.as_mut().unwrap().exit = Some(1);
+					if !complete {
+						uncompacted.log = None;
+						uncompacted.metadata = tg::process::Metadata::default();
+						uncompacted.storage = tg::process::storage::Set::NODE;
+					}
+					put_process(&index, uncompacted.clone()).await.unwrap();
+					let process = index.try_get_process(&id).await.unwrap().unwrap();
+					let data = process.data.unwrap();
+					assert_eq!(data.log.unwrap().node, log);
+					assert_eq!(data.exit, Some(1));
+					assert_eq!(process.metadata.node.log_objects, log_metadata);
+					assert_eq!(process.metadata.subtree.log_objects, log_metadata);
+					assert_eq!(process.storage.contains(log_storage), stored);
+					assert!(process.set.log_objects);
+				}
+			}
+		}
+	}
+}
+
+#[tokio::test]
+async fn sandbox_put_preserves_existing_contents_and_processes() {
+	let (_dir, index) = new_index();
+	let id = tg::sandbox::Id::new();
+	let mut arg = sandbox_arg(id.clone(), tg::sandbox::Status::Destroyed);
+	arg.principal = tg::Principal::User(tg::user::Id::new());
+	arg.processes = Some(vec![tg::process::Id::new(), tg::process::Id::new()]);
+	put_sandbox(&index, arg.clone()).await.unwrap();
+	put_sandbox(&index, arg.clone()).await.unwrap();
+
+	let mut changed = arg.clone();
+	changed.data.as_mut().unwrap().data.owner = Some(tg::Principal::User(tg::user::Id::new()));
+	assert!(put_sandbox(&index, changed.clone()).await.is_err());
+	let mut reordered = arg.clone();
+	reordered.processes.as_mut().unwrap().reverse();
+	assert!(put_sandbox(&index, reordered).await.is_err());
+	let stored = index.try_get_sandbox(&id).await.unwrap().unwrap();
+	assert!(stored.data.unwrap().data.owner.is_none());
+	changed.principal = tg::Principal::Sandbox(id);
+	put_sandbox(&index, changed).await.unwrap();
+}
+
+#[tokio::test]
+async fn concurrent_identical_process_puts_grant_both_callers() {
+	let (_dir, index) = new_index();
+	let id = tg::process::Id::new();
+	let alice = tg::Principal::User(tg::user::Id::new());
+	let bob = tg::Principal::User(tg::user::Id::new());
+	let permission = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Node,
+	);
+	let permission_arg = |principal: &tg::Principal| tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: Some(principal.clone()),
+		permissions: permission.into(),
+		resource: id.clone().into(),
+		source: tangram_index::permission::Source::Direct {
+			expires_at: Some(i64::MAX),
+		},
+		subject: principal.try_to_subject().unwrap(),
+		time_to_touch: None,
+		version: None,
+	};
+	let mut first = process_arg(id.clone(), tg::process::Status::Finished);
+	first.children = Some(Vec::new());
+	first.permissions = vec![permission_arg(&alice)];
+	first.principal = alice.clone();
+	let mut second = first.clone();
+	second.permissions = vec![permission_arg(&bob)];
+	second.principal = bob.clone();
+
+	let (first, second) = tokio::join!(put_process(&index, first), put_process(&index, second));
+	first.unwrap();
+	second.unwrap();
+	let arg = tangram_index::verify::Arg {
+		requested: permission.into(),
+		required: permission.into(),
+		resource: tg::Selector::Id(id.into()),
+		storage: tg::storage::Set::Process(tg::process::storage::Set::empty()),
+		subject: None,
+		tokens: Vec::new(),
+	};
+	let mut granted = 0;
+	for principal in [alice, bob] {
+		let output = index
+			.verify_batch(
+				std::slice::from_ref(&arg),
+				tangram_index::verify::Config::default(),
+				&principal,
+			)
+			.await
+			.unwrap();
+		granted += usize::from(output[0].permissions.contains(permission));
+	}
+	assert_eq!(granted, 2);
+}
+
+#[tokio::test]
+async fn identical_sandbox_put_grants_permissions_after_comparison() {
+	let (_dir, index) = new_index();
+	let id = tg::sandbox::Id::new();
+	let mut arg = sandbox_arg(id.clone(), tg::sandbox::Status::Destroyed);
+	arg.principal = tg::Principal::Root;
+	arg.processes = Some(Vec::new());
+	put_sandbox(&index, arg.clone()).await.unwrap();
+
+	let principal = tg::Principal::User(tg::user::Id::new());
+	let permission = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Node,
+	);
+	arg.permissions = vec![tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: Some(principal.clone()),
+		permissions: permission.into(),
+		resource: id.clone().into(),
+		source: tangram_index::permission::Source::Direct {
+			expires_at: Some(i64::MAX),
+		},
+		subject: principal.try_to_subject().unwrap(),
+		time_to_touch: None,
+		version: None,
+	}];
+	arg.principal = principal.clone();
+	let verify = tangram_index::verify::Arg {
+		requested: permission.into(),
+		required: permission.into(),
+		resource: tg::Selector::Id(id.into()),
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
+		tokens: Vec::new(),
+	};
+	for complete in [false, true] {
+		let mut submission = arg.clone();
+		if !complete {
+			submission.processes = None;
+		}
+		put_sandbox(&index, submission).await.unwrap();
+		if !complete {
+			let mut conflicting = arg.clone();
+			conflicting.data.as_mut().unwrap().data.hostname = Some("different".into());
+			assert!(put_sandbox(&index, conflicting).await.is_err());
+		}
+		let output = index
+			.verify_batch(
+				std::slice::from_ref(&verify),
+				tangram_index::verify::Config::default(),
+				&principal,
+			)
+			.await
+			.unwrap();
+		assert_eq!(output[0].permissions.contains(permission), complete);
+	}
+}
+
+async fn put_process(index: &Index, arg: tangram_index::process::put::Arg) -> tg::Result<()> {
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutProcess(arg)],
+	};
+	index.batch(arg).await??;
+	Ok(())
+}
+
+async fn put_sandbox(index: &Index, arg: tangram_index::sandbox::put::Arg) -> tg::Result<()> {
+	let arg = tangram_index::batch::Arg {
+		items: vec![tangram_index::batch::Item::PutSandbox(arg)],
+	};
+	index.batch(arg).await??;
+	Ok(())
+}
+
+#[tokio::test]
+async fn concurrent_sandbox_put_preserves_the_winner() {
+	let (_dir, index) = new_index();
+	let id = tg::sandbox::Id::new();
+	let mut first = sandbox_arg(id.clone(), tg::sandbox::Status::Destroyed);
+	first.principal = tg::Principal::User(tg::user::Id::new());
+	first.processes = Some(Vec::new());
+	let mut second = first.clone();
+	first.data.as_mut().unwrap().data.hostname = Some("first".into());
+	second.data.as_mut().unwrap().data.hostname = Some("second".into());
+	let (first, second) = tokio::join!(put_sandbox(&index, first), put_sandbox(&index, second));
+	assert_ne!(first.is_ok(), second.is_ok());
+	let stored = index.try_get_sandbox(&id).await.unwrap().unwrap();
+	assert_eq!(
+		stored.data.unwrap().data.hostname.as_deref(),
+		Some(if first.is_ok() { "first" } else { "second" })
+	);
+}
+
+fn execute_write_requests(
+	index: &Index,
+	requests: Vec<crate::Request>,
+	write_operation_batch_size: usize,
+) -> Vec<tg::Result<crate::Response>> {
+	let (sender_high, receiver_high) = crossbeam_channel::unbounded();
+	let (sender_medium, receiver_medium) = crossbeam_channel::unbounded();
+	let (sender_low, receiver_low) = crossbeam_channel::unbounded();
+	let mut receivers = Vec::new();
+	for request in requests {
+		let (sender, receiver) = tokio::sync::oneshot::channel();
+		sender_medium.send((request, sender)).unwrap();
+		receivers.push(receiver);
+	}
+	drop(sender_high);
+	drop(sender_medium);
+	drop(sender_low);
+	let arg = crate::writer::Arg {
+		db: &index.db,
+		env: &index.env,
+		max_process_depth: None,
+		receiver_high: &receiver_high,
+		receiver_low: &receiver_low,
+		receiver_medium: &receiver_medium,
+		subspace: &index.subspace,
+		usage_partition_total: index.usage_partition_total(),
+		write_operation_batch_size,
+	};
+	Index::writer_task(arg);
+	receivers
+		.iter_mut()
+		.map(|receiver| receiver.try_recv().unwrap())
+		.collect()
+}
+
+#[tokio::test]
+async fn process_rejection_commits_unrelated_requests_and_prior_items() {
+	let (_dir, index) = new_index();
+	let existing = tg::process::Id::new();
+	put_process(
+		&index,
+		process_arg(existing.clone(), tg::process::Status::Finished),
+	)
+	.await
+	.unwrap();
+	let before = tg::process::Id::new();
+	let after = tg::process::Id::new();
+	let unrelated = tg::process::Id::new();
+	let mut conflicting = process_arg(existing.clone(), tg::process::Status::Finished);
+	conflicting.principal = tg::Principal::User(tg::user::Id::new());
+	conflicting.data.as_mut().unwrap().host = "conflict".into();
+	let batch = tangram_index::batch::Arg {
+		items: vec![
+			tangram_index::batch::Item::PutProcess(process_arg(
+				before.clone(),
+				tg::process::Status::Finished,
+			)),
+			tangram_index::batch::Item::PutProcess(conflicting),
+			tangram_index::batch::Item::PutProcess(process_arg(
+				after.clone(),
+				tg::process::Status::Finished,
+			)),
+		],
+	};
+	let requests = vec![
+		crate::Request::Batch(batch),
+		crate::Request::PutProcesses(vec![process_arg(
+			unrelated.clone(),
+			tg::process::Status::Finished,
+		)]),
+	];
+	let results = execute_write_requests(&index, requests, 64);
+	assert!(matches!(&results[0], Ok(crate::Response::Mutation(Err(_)))));
+	assert!(matches!(&results[1], Ok(crate::Response::Mutation(Ok(())))));
+	assert!(index.try_get_process(&before).await.unwrap().is_some());
+	assert!(index.try_get_process(&after).await.unwrap().is_none());
+	assert!(index.try_get_process(&unrelated).await.unwrap().is_some());
+	assert_eq!(
+		index
+			.try_get_process(&existing)
+			.await
+			.unwrap()
+			.unwrap()
+			.data
+			.unwrap()
+			.host,
+		""
+	);
+}
+
+#[tokio::test]
+async fn process_rejection_skips_remaining_bulk_writes() {
+	let (_dir, index) = new_index();
+	let before = tg::process::Id::new();
+	let rejected = tg::process::Id::new();
+	let after = tg::process::Id::new();
+	let unrelated = tg::process::Id::new();
+	let mut unfinished = process_arg(rejected.clone(), tg::process::Status::Started);
+	unfinished.principal = tg::Principal::User(tg::user::Id::new());
+	let requests = vec![
+		crate::Request::PutProcesses(vec![
+			process_arg(before.clone(), tg::process::Status::Finished),
+			unfinished,
+			process_arg(after.clone(), tg::process::Status::Finished),
+		]),
+		crate::Request::PutProcesses(vec![process_arg(
+			unrelated.clone(),
+			tg::process::Status::Finished,
+		)]),
+	];
+	let results = execute_write_requests(&index, requests, 1);
+	assert!(matches!(&results[0], Ok(crate::Response::Mutation(Err(_)))));
+	assert!(matches!(&results[1], Ok(crate::Response::Mutation(Ok(())))));
+	assert!(index.try_get_process(&before).await.unwrap().is_some());
+	assert!(index.try_get_process(&rejected).await.unwrap().is_none());
+	assert!(index.try_get_process(&after).await.unwrap().is_none());
+	assert!(index.try_get_process(&unrelated).await.unwrap().is_some());
+}
+
+#[tokio::test]
+async fn unexpected_write_failure_aborts_all_coalesced_requests() {
+	let (_dir, index) = new_index();
+	let corrupt = tg::process::Id::new();
+	let key = crate::Key::Process(crate::process::Key::Process(corrupt.clone()));
+	let key = Index::pack(&index.subspace, &key);
+	let mut transaction = index.env.write_txn().unwrap();
+	index.db.put(&mut transaction, &key, &[255]).unwrap();
+	transaction.commit().unwrap();
+	let before = tg::process::Id::new();
+	let after = tg::process::Id::new();
+	let requests = [before.clone(), corrupt, after.clone()]
+		.into_iter()
+		.map(|id| {
+			crate::Request::PutProcesses(vec![process_arg(id, tg::process::Status::Finished)])
+		})
+		.collect();
+	let results = execute_write_requests(&index, requests, 64);
+	assert!(results.iter().all(Result::is_err));
+	assert!(index.try_get_process(&before).await.unwrap().is_none());
+	assert!(index.try_get_process(&after).await.unwrap().is_none());
+}
+
+#[tokio::test]
+async fn sandbox_rejection_preserves_permissions_and_unrelated_writes() {
+	let (_dir, index) = new_index();
+	let existing = tg::sandbox::Id::new();
+	let mut original = sandbox_arg(existing.clone(), tg::sandbox::Status::Destroyed);
+	original.principal = tg::Principal::Root;
+	original.processes = Some(Vec::new());
+	put_sandbox(&index, original.clone()).await.unwrap();
+	let principal = tg::Principal::User(tg::user::Id::new());
+	let permission = tg::authorization::Permission::Sandbox(
+		tg::authorization::permission::sandbox::Permission::Node,
+	);
+	let mut conflicting = original;
+	conflicting.principal = principal.clone();
+	conflicting.data.as_mut().unwrap().data.hostname = Some("conflict".into());
+	conflicting.permissions = vec![tangram_index::permission::put::Arg {
+		created_at: 0,
+		creator: Some(principal.clone()),
+		permissions: permission.into(),
+		resource: existing.clone().into(),
+		source: tangram_index::permission::Source::Direct {
+			expires_at: Some(i64::MAX),
+		},
+		subject: principal.try_to_subject().unwrap(),
+		time_to_touch: None,
+		version: None,
+	}];
+	let unrelated = tg::sandbox::Id::new();
+	let requests = vec![
+		crate::Request::PutSandboxes(vec![conflicting]),
+		crate::Request::PutSandboxes(vec![sandbox_arg(
+			unrelated.clone(),
+			tg::sandbox::Status::Destroyed,
+		)]),
+	];
+	let results = execute_write_requests(&index, requests, 64);
+	assert!(matches!(&results[0], Ok(crate::Response::Mutation(Err(_)))));
+	assert!(matches!(&results[1], Ok(crate::Response::Mutation(Ok(())))));
+	assert!(index.try_get_sandbox(&unrelated).await.unwrap().is_some());
+	assert_ne!(
+		index
+			.try_get_sandbox(&existing)
+			.await
+			.unwrap()
+			.unwrap()
+			.data
+			.unwrap()
+			.data
+			.hostname
+			.as_deref(),
+		Some("conflict")
+	);
+	let arg = tangram_index::verify::Arg {
+		requested: permission.into(),
+		required: permission.into(),
+		resource: tg::Selector::Id(existing.into()),
+		storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+		subject: None,
+		tokens: Vec::new(),
+	};
+	let output = index
+		.verify_batch(
+			std::slice::from_ref(&arg),
+			tangram_index::verify::Config::default(),
+			&principal,
+		)
+		.await
+		.unwrap();
+	assert!(!output[0].permissions.contains(permission));
 }

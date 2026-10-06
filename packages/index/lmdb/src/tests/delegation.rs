@@ -23,7 +23,7 @@ async fn delegation_traversal_and_propagation() {
 			permission(&root, &sync, false),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert!(verified(&index, &root, &process, false).await);
 	assert!(!verified(&index, &root, &process, true).await);
 	assert!(!verified(&index, &root, &tg::process::Id::new(), false).await);
@@ -31,7 +31,7 @@ async fn delegation_traversal_and_propagation() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![permission(&child, &sync, true)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert!(verified(&index, &root, &process, true).await);
 	drain(&index).await;
 	assert!(verified(&index, &root, &process, true).await);
@@ -51,6 +51,8 @@ async fn delegation_traversal_and_propagation() {
 		options: tg::referent::Options::default(),
 		output: None,
 		parent: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Process(process.clone()),
 		sandbox: None,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: Duration::ZERO,
@@ -61,6 +63,7 @@ async fn delegation_traversal_and_propagation() {
 			items: vec![tangram_index::batch::Item::PutProcess(arg)],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 	drain(&index).await;
 	let arg = tangram_index::clean::Arg {
@@ -101,7 +104,7 @@ async fn expired_delegations_remove_temporary_permissions() {
 			delegation(&root, &subject, &source),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	drain(&index).await;
 	assert!(verified(&index, &root, &process, true).await);
 	let arg = tangram_index::clean::Arg {
@@ -131,12 +134,12 @@ async fn removing_a_source_permission_does_not_leave_a_materialized_subtree() {
 			permission(&root, &source, false),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	drain(&index).await;
 	let arg = tangram_index::batch::Arg {
 		items: vec![delegation(&root, &subject, &source)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	drain(&index).await;
 	assert!(verified(&index, &root, &process, true).await);
 	let arg = tangram_index::permission::delete::Arg {
@@ -172,7 +175,7 @@ async fn node_permissions_wait_for_object_children() {
 				delegation(&root, &subject, &source),
 			],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 		drain(&index).await;
 		assert!(!verified(&index, &root, &process, true).await);
 
@@ -187,14 +190,14 @@ async fn node_permissions_wait_for_object_children() {
 				put_object(&child, BTreeSet::new()),
 			],
 		};
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 		drain(&index).await;
 		assert_eq!(verified(&index, &root, &process, true).await, !has_child);
 		if has_child {
 			let arg = tangram_index::batch::Arg {
 				items: vec![permission(&child, &source, true)],
 			};
-			index.batch(arg).await.unwrap();
+			index.batch(arg).await.unwrap().unwrap();
 			drain(&index).await;
 		}
 		clean(&index).await;
@@ -216,13 +219,13 @@ async fn explicit_subtree_permissions_do_not_wait_for_indexing() {
 			delegation(&root, &subject, &source),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	drain(&index).await;
 	clean(&index).await;
 	let arg = tangram_index::batch::Arg {
 		items: vec![put_object(&root, BTreeSet::new())],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	assert!(verified(&index, &root, &process, true).await);
 }
 
@@ -263,7 +266,7 @@ async fn process_parent_traverses_delegations_before_propagation() {
 				items.push(tangram_index::batch::Item::PutPermission(arg));
 			}
 			let arg = tangram_index::batch::Arg { items };
-			index.batch(arg).await.unwrap();
+			index.batch(arg).await.unwrap().unwrap();
 			let permission = tg::authorization::Permission::Object(
 				tg::authorization::permission::object::Permission::Subtree,
 			);
@@ -310,7 +313,7 @@ async fn node_requests_resolve_delegated_subtree_derivation() {
 			items.push(permission(&root, &source, true));
 		}
 		let arg = tangram_index::batch::Arg { items };
-		index.batch(arg).await.unwrap();
+		index.batch(arg).await.unwrap().unwrap();
 		for subtree in [false, true] {
 			assert_eq!(
 				verified(&index, &root, &process, subtree).await,
@@ -335,6 +338,8 @@ fn process_object(process: &tg::process::Id, root: &tg::object::Id) -> tangram_i
 		options: tg::referent::Options::default(),
 		output: None,
 		parent: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Process(process.clone()),
 		sandbox: None,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: Duration::ZERO,
@@ -484,7 +489,7 @@ async fn graph_delegation_preserves_individual_descendant_permissions() {
 			delegation(&root, &recipient, &middle),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	for propagate in [false, true] {
 		if propagate {
 			drain(&index).await;
@@ -522,7 +527,7 @@ async fn shared_ancestor_paths_are_bounded_by_states() {
 		delegation(&root, &recipient, &source),
 	]);
 	let arg = tangram_index::batch::Arg { items };
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let permission = tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Node,
 	);
@@ -567,13 +572,13 @@ async fn subject_deletion_removes_all_delegation_indexes() {
 			),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let arg = tangram_index::batch::Arg {
 		items: vec![tangram_index::batch::Item::DeleteDelegations(
 			subject.clone(),
 		)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	drain(&index).await;
 	assert!(!verified(&index, &root, &first, true).await);
 	assert!(verified(&index, &root, &second, true).await);
@@ -611,7 +616,7 @@ async fn sync_tokens_satisfy_dependencies_and_preserve_expiration() {
 			permission(&root, &source, false),
 		],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let subtree = tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Subtree,
 	);
@@ -686,7 +691,7 @@ async fn storage_discovery_runs_after_root_verification_and_without_permissions(
 	let arg = tangram_index::batch::Arg {
 		items: vec![delegation(&root, &recipient, &source)],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let node = tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Node,
 	);
@@ -743,7 +748,7 @@ async fn scoped_tag_verification_does_not_inherit_root_authority() {
 	let arg = tangram_index::batch::Arg {
 		items: vec![put_object(&root, BTreeSet::new())],
 	};
-	index.batch(arg).await.unwrap();
+	index.batch(arg).await.unwrap().unwrap();
 	let arg = tangram_index::verify::Arg {
 		requested: node.into(),
 		required: node.into(),
@@ -764,7 +769,7 @@ async fn scoped_tag_verification_does_not_inherit_root_authority() {
 	let put = tangram_index::batch::Arg {
 		items: vec![permission(&root, &tag, true)],
 	};
-	index.batch(put).await.unwrap();
+	index.batch(put).await.unwrap().unwrap();
 	let outcomes = index
 		.verify_batch(&[arg], config, &tg::Principal::Root)
 		.await
@@ -839,6 +844,8 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 		options: tg::referent::Options::default(),
 		output: Some(Some(vec![file.clone()])),
 		parent: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Process(process.clone()),
 		sandbox: None,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: Duration::ZERO,
@@ -851,7 +858,7 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 			delegation(&directory, &recipient, &parent),
 		],
 	};
-	index.batch(put).await.unwrap();
+	index.batch(put).await.unwrap().unwrap();
 	let subtree = tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Subtree,
 	);
@@ -886,7 +893,7 @@ async fn process_output_token_uses_permissions_inherited_on_an_input_descendant(
 	let put = tangram_index::batch::Arg {
 		items: vec![permission(&directory, &parent, true)],
 	};
-	index.batch(put).await.unwrap();
+	index.batch(put).await.unwrap().unwrap();
 	let results = index
 		.verify_batch(&[arg], config, &tg::Principal::Anonymous)
 		.await
@@ -922,6 +929,8 @@ async fn storage_discovery_uses_process_output_access_without_process_parent() {
 		options: tg::referent::Options::default(),
 		output: Some(Some(vec![output.clone()])),
 		parent: None,
+		permissions: Vec::new(),
+		principal: tg::Principal::Process(process.clone()),
 		sandbox: None,
 		storage: tg::process::storage::Set::NODE,
 		time_to_touch: Duration::ZERO,
@@ -941,7 +950,7 @@ async fn storage_discovery_uses_process_output_access_without_process_parent() {
 			arg.storage = tg::object::storage::Set::empty();
 		}
 	}
-	index.batch(put).await.unwrap();
+	index.batch(put).await.unwrap().unwrap();
 	let node = tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Node,
 	);
@@ -1030,7 +1039,7 @@ async fn process_output_aspect_preserves_permanent_descendant_node_permissions()
 		items.push(item);
 	}
 	let put = tangram_index::batch::Arg { items };
-	index.batch(put).await.unwrap();
+	index.batch(put).await.unwrap().unwrap();
 	let node = tg::authorization::Permission::Object(
 		tg::authorization::permission::object::Permission::Node,
 	);
@@ -1165,7 +1174,7 @@ async fn process_output_aspect_preserves_permanent_descendant_node_permissions()
 			permission(&file, &source, false),
 		],
 	};
-	index.batch(put).await.unwrap();
+	index.batch(put).await.unwrap().unwrap();
 	for descendant_enabled in [false, true] {
 		let mut config = tangram_index::verify::Config::default();
 		if !descendant_enabled {

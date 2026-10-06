@@ -411,7 +411,7 @@ impl tangram_index::Index for Index {
 		self.visible(ids, principal).await
 	}
 
-	async fn batch(&self, arg: tangram_index::batch::Arg) -> tg::Result<()> {
+	async fn batch(&self, arg: tangram_index::batch::Arg) -> tg::Result<tg::Result<()>> {
 		self.batch(arg).await
 	}
 

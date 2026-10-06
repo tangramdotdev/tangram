@@ -13,20 +13,71 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::process::put::Arg,
 		partition_totals: crate::PartitionTotals,
-	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
-		arg.validate()?;
+		if let Err(error) = arg.validate() {
+			return Ok(ControlFlow::Break(Err(error)));
+		}
 		let id = &arg.id;
 		let key = Key::Process(crate::process::Key::Process(id.clone()));
 		let key = Self::pack(subspace, &key);
 
 		let result = txn.get(&key, false).await;
 		let existing = crate::retry!(result)
-			.and_then(|bytes| tangram_index::process::Process::deserialize(&bytes).ok());
-		let merge = !arg.complete();
+			.map(|bytes| tangram_index::process::Process::deserialize(&bytes))
+			.transpose()?;
+
+		// Validate process data and children against the existing record in this write transaction.
+		if let Some(existing) = &existing {
+			if let Err(error) = arg.validate_existing(existing)? {
+				return Ok(ControlFlow::Break(Err(error)));
+			}
+			if !arg.principal.is_root()
+				&& arg.principal != tg::Principal::Process(id.clone())
+				&& let Some(children) = &arg.children
+			{
+				if !existing.set.children {
+					return Ok(ControlFlow::Break(Err(tg::error!(
+						"cannot verify the existing process children"
+					))));
+				}
+				let children = crate::propagate!(
+					Self::try_get_process_children_page_with_transaction(
+						txn,
+						subspace,
+						id,
+						std::io::SeekFrom::Start(0),
+						children.len() as u64 + 1
+					)
+					.await
+				)
+				.unwrap_or_default();
+				if let Err(error) = arg.validate_children(&children)? {
+					return Ok(ControlFlow::Break(Err(error)));
+				}
+			}
+		}
+
+		if existing.is_none() || (arg.data.is_some() && arg.children.is_some()) {
+			crate::propagate!(
+				Self::put_permissions_with_transaction(
+					txn,
+					subspace,
+					&arg.permissions,
+					partition_totals
+				)
+				.await
+			);
+		}
 
 		// Preserve terminal data while still applying the initialization relationships.
 		let mut arg = std::borrow::Cow::Borrowed(arg);
+		if existing.is_some()
+			&& !arg.principal.is_root()
+			&& arg.principal != tg::Principal::Process(id.clone())
+		{
+			arg.to_mut().data = None;
+		}
 		if arg
 			.data
 			.as_ref()
@@ -38,7 +89,36 @@ impl Index {
 		{
 			arg.to_mut().data = None;
 		}
+
+		// Preserve the stored log blob when arg.data.log is None.
+		if let Some(existing) = &existing
+			&& arg.data.as_ref().is_some_and(|data| data.log.is_none())
+			&& let Some(log) = existing.data.as_ref().and_then(|data| data.log.as_ref())
+		{
+			let arg = arg.to_mut();
+			arg.data.as_mut().unwrap().log = Some(log.clone());
+			arg.log = Some(Some(log.node.clone().into()));
+			arg.metadata
+				.node
+				.log_objects
+				.clone_from(&existing.metadata.node.log_objects);
+			arg.metadata
+				.subtree
+				.log_objects
+				.clone_from(&existing.metadata.subtree.log_objects);
+			for storage in [
+				tg::process::storage::Set::NODE_LOG_OBJECTS,
+				tg::process::storage::Set::SUBTREE_LOG_OBJECTS,
+			] {
+				arg.storage.remove(storage);
+				if existing.storage.contains(storage) {
+					arg.storage.insert(storage);
+				}
+			}
+		}
+
 		let arg = arg.as_ref();
+		let merge = !arg.complete();
 
 		let time_to_touch = i64::try_from(arg.time_to_touch.as_secs()).unwrap();
 		let touch = existing.as_ref().is_none_or(|existing| {
@@ -122,7 +202,7 @@ impl Index {
 					|| existing.storage != storage
 			});
 		if !changed && !touch {
-			return Ok(ControlFlow::Break(()));
+			return Ok(ControlFlow::Break(Ok(())));
 		}
 
 		let value = tangram_index::process::Process {
@@ -130,7 +210,9 @@ impl Index {
 			data: data.clone(),
 			location,
 			metadata,
-			reference_count: 0,
+			reference_count: existing
+				.as_ref()
+				.map_or(0, |existing| existing.reference_count),
 			sandbox,
 			set,
 			storage,
@@ -373,7 +455,7 @@ impl Index {
 			);
 		}
 
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(Ok(())))
 	}
 
 	pub(crate) async fn put_processes_with_transaction(
@@ -381,10 +463,15 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::process::put::Arg],
 		partition_totals: crate::PartitionTotals,
-	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		for process in args {
-			crate::propagate!(Self::put_process(txn, subspace, process, partition_totals).await);
+			let result = crate::propagate!(
+				Self::put_process(txn, subspace, process, partition_totals).await
+			);
+			if let Err(error) = result {
+				return Ok(ControlFlow::Break(Err(error)));
+			}
 		}
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(Ok(())))
 	}
 }

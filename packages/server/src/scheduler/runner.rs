@@ -323,6 +323,8 @@ impl Server {
 								options: tg::referent::Options::default(),
 								output: None,
 								parent: None,
+								permissions: Vec::new(),
+								principal: tg::Principal::Process(process.clone()),
 								sandbox: None,
 								storage: indexed.storage,
 								time_to_touch: self.config.process.time_to_touch,
@@ -335,6 +337,7 @@ impl Server {
 						.collect(),
 					})
 					.await
+					.and_then(std::convert::identity)
 					.map_err(
 						|source| tg::error!(!source, %process, "failed to update the process in the index"),
 					)?;
@@ -384,6 +387,8 @@ impl Server {
 						data: indexed.data,
 						id: id.clone(),
 						location: None,
+						permissions: Vec::new(),
+						principal: tg::Principal::Sandbox(id.clone()),
 						processes: Some(processes),
 						runner: indexed.runner,
 						touched_at: now,
@@ -391,6 +396,7 @@ impl Server {
 				)],
 			})
 			.await
+			.and_then(std::convert::identity)
 			.map_err(
 				|source| tg::error!(!source, %id, "failed to update the destroyed sandbox in the index"),
 			)?;

@@ -1035,14 +1035,6 @@ impl Graph {
 
 			if let Some(marked) = marked {
 				node.marked = marked;
-				if marked {
-					Self::merge_local_permissions(
-						&mut node.local_permissions,
-						tg::authorization::permission::Set::Process(
-							tg::authorization::permission::process::Set::NODE,
-						),
-					);
-				}
 			}
 
 			if let Some(requested) = requested {
@@ -2073,40 +2065,6 @@ impl Graph {
 		tg::authorization::permission::object::Set::from_permission(permission)
 	}
 
-	#[must_use]
-	pub fn process_permissions(
-		availability: &tg::process::Availability,
-	) -> tg::authorization::permission::process::Set {
-		let mut permissions = tg::authorization::permission::process::Set::empty();
-		if availability.subtree {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE);
-		} else {
-			permissions.insert(tg::authorization::permission::process::Set::NODE);
-		}
-		if availability.subtree_command_objects {
-			permissions
-				.insert(tg::authorization::permission::process::Set::SUBTREE_COMMAND_OBJECTS);
-		} else if availability.node_command_objects {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_COMMAND_OBJECTS);
-		}
-		if availability.subtree_error_objects {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_ERROR_OBJECTS);
-		} else if availability.node_error_objects {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_ERROR_OBJECTS);
-		}
-		if availability.subtree_log_objects {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_LOG_OBJECTS);
-		} else if availability.node_log_objects {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_LOG_OBJECTS);
-		}
-		if availability.subtree_output_objects {
-			permissions.insert(tg::authorization::permission::process::Set::SUBTREE_OUTPUT_OBJECTS);
-		} else if availability.node_output_objects {
-			permissions.insert(tg::authorization::permission::process::Set::NODE_OUTPUT_OBJECTS);
-		}
-		permissions
-	}
-
 	pub fn process_permissions_for_storage(
 		storage: tg::process::storage::Set,
 	) -> Option<tg::authorization::permission::Set> {
@@ -2257,8 +2215,50 @@ impl Graph {
 			| Node::Tag(node)
 			| Node::User(node) => node.local_message.is_some(),
 			Node::Object(_) => self.object_local_available(index),
-			Node::Process(_) => self.process_available(&self.process_local_availability(index)),
+			Node::Process(node) => {
+				if node.marked {
+					self.process_stored(node.local_storage)
+				} else {
+					self.process_available(&self.process_local_availability(index))
+				}
+			},
 		}
+	}
+
+	fn process_stored(&self, storage: tg::process::storage::Set) -> bool {
+		use tg::process::storage::Set;
+		let mut required = if self.process_children {
+			Set::SUBTREE
+		} else {
+			Set::NODE
+		};
+		for (requested, node, subtree) in [
+			(
+				self.process_command_objects,
+				Set::NODE_COMMAND_OBJECTS,
+				Set::SUBTREE_COMMAND_OBJECTS,
+			),
+			(
+				self.process_error_objects,
+				Set::NODE_ERROR_OBJECTS,
+				Set::SUBTREE_ERROR_OBJECTS,
+			),
+			(
+				self.process_log_objects,
+				Set::NODE_LOG_OBJECTS,
+				Set::SUBTREE_LOG_OBJECTS,
+			),
+			(
+				self.process_output_objects,
+				Set::NODE_OUTPUT_OBJECTS,
+				Set::SUBTREE_OUTPUT_OBJECTS,
+			),
+		] {
+			if requested {
+				required.insert(if self.process_children { subtree } else { node });
+			}
+		}
+		storage.contains(required)
 	}
 
 	fn update_remote_end(&mut self, index: usize) {

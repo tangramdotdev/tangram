@@ -6,17 +6,17 @@ use {
 };
 
 impl Index {
-	pub async fn batch(&self, arg: tangram_index::batch::Arg) -> tg::Result<()> {
+	pub async fn batch(&self, arg: tangram_index::batch::Arg) -> tg::Result<tg::Result<()>> {
 		if arg.is_empty() {
-			return Ok(());
+			return Ok(Ok(()));
 		}
 		let request = Request::Batch(arg);
 		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
+		let Response::Mutation(result) = response else {
 			return Err(tg::error!("unexpected write response"));
 		};
 
-		Ok(())
+		Ok(result)
 	}
 
 	pub(crate) async fn batch_with_transaction(
@@ -24,9 +24,8 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		arg: &tangram_index::batch::Arg,
 		partition_totals: crate::PartitionTotals,
-	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
-		let usage_partition_total = partition_totals.usage;
 		for item in &arg.items {
 			match item {
 				tangram_index::batch::Item::DeleteDelegations(subject) => {
@@ -238,7 +237,7 @@ impl Index {
 					));
 				},
 				tangram_index::batch::Item::PutProcess(arg) => {
-					crate::propagate!(
+					let result = crate::propagate!(
 						Self::put_processes_with_transaction(
 							txn,
 							subspace,
@@ -247,18 +246,23 @@ impl Index {
 						)
 						.await
 					);
+					if let Err(error) = result {
+						return Ok(ControlFlow::Break(Err(error)));
+					}
 				},
 				tangram_index::batch::Item::PutSandbox(arg) => {
-					crate::propagate!(
+					let result = crate::propagate!(
 						Self::put_sandboxes_with_transaction(
 							txn,
 							subspace,
 							std::slice::from_ref(arg),
-							partition_total,
-							usage_partition_total,
+							partition_totals,
 						)
 						.await
 					);
+					if let Err(error) = result {
+						return Ok(ControlFlow::Break(Err(error)));
+					}
 				},
 				tangram_index::batch::Item::PutTag(arg) => {
 					crate::propagate!(
@@ -280,6 +284,6 @@ impl Index {
 			}
 		}
 
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(Ok(())))
 	}
 }

@@ -192,7 +192,7 @@ impl Permission {
 				| process::Permission::SubtreeLogObjects
 				| process::Permission::SubtreeOutputObjects,
 			)
-			| Self::Sandbox(sandbox::Permission::Read)
+			| Self::Sandbox(sandbox::Permission::Node)
 			| Self::Sync(sync::Permission::Read)
 			| Self::Tag(tag::Permission::Read)
 			| Self::User(user::Permission::Read) => true,
@@ -201,7 +201,7 @@ impl Permission {
 				organization::Permission::Admin | organization::Permission::Write,
 			)
 			| Self::Process(process::Permission::Parent)
-			| Self::Sandbox(sandbox::Permission::Write)
+			| Self::Sandbox(sandbox::Permission::Parent)
 			| Self::Tag(tag::Permission::Admin | tag::Permission::Write)
 			| Self::User(user::Permission::Admin | user::Permission::Write) => false,
 		}
@@ -462,8 +462,8 @@ impl Set {
 
 	fn sandbox_entries(permissions: sandbox::Set) -> [Option<Permission>; 12] {
 		[
-			Self::sandbox_entry(permissions, sandbox::Permission::Read),
-			Self::sandbox_entry(permissions, sandbox::Permission::Write),
+			Self::sandbox_entry(permissions, sandbox::Permission::Node),
+			Self::sandbox_entry(permissions, sandbox::Permission::Parent),
 			None,
 			None,
 			None,
@@ -668,7 +668,7 @@ mod tests {
 				2,
 			),
 			(Set::Process(process::Set::NODE), "process", 3),
-			(Set::Sandbox(sandbox::Set::READ), "sandbox", 4),
+			(Set::Sandbox(sandbox::Set::NODE), "sandbox", 4),
 			(Set::Sync(sync::Set::READ), "sync", 7),
 			(Set::Tag(tag::Set::READ), "tag", 5),
 			(Set::User(user::Set::READ), "user", 6),
@@ -763,12 +763,12 @@ mod tests {
 				"process_subtree_output_objects",
 			),
 			(
-				Permission::Sandbox(sandbox::Permission::Read),
-				"sandbox_read",
+				Permission::Sandbox(sandbox::Permission::Node),
+				"sandbox_node",
 			),
 			(
-				Permission::Sandbox(sandbox::Permission::Write),
-				"sandbox_write",
+				Permission::Sandbox(sandbox::Permission::Parent),
+				"sandbox_parent",
 			),
 			(Permission::Sync(sync::Permission::Read), "sync_read"),
 			(Permission::Tag(tag::Permission::Admin), "tag_admin"),
@@ -870,7 +870,7 @@ mod tests {
 			Permission::Process(process::Permission::SubtreeErrorObjects),
 			Permission::Process(process::Permission::SubtreeLogObjects),
 			Permission::Process(process::Permission::SubtreeOutputObjects),
-			Permission::Sandbox(sandbox::Permission::Read),
+			Permission::Sandbox(sandbox::Permission::Node),
 			Permission::Sync(sync::Permission::Read),
 			Permission::Tag(tag::Permission::Read),
 			Permission::User(user::Permission::Read),
@@ -883,7 +883,7 @@ mod tests {
 			Permission::Organization(organization::Permission::Admin),
 			Permission::Organization(organization::Permission::Write),
 			Permission::Process(process::Permission::Parent),
-			Permission::Sandbox(sandbox::Permission::Write),
+			Permission::Sandbox(sandbox::Permission::Parent),
 			Permission::Tag(tag::Permission::Admin),
 			Permission::Tag(tag::Permission::Write),
 			Permission::User(user::Permission::Admin),

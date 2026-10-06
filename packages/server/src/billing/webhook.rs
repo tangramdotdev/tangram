@@ -66,7 +66,7 @@ impl Session {
 		};
 		self.server
 			.spawn_publish_database_index_queue_notification_task();
-		self.server.index.batch(batch).await?;
+		self.server.index.batch(batch).await??;
 
 		Ok(())
 	}

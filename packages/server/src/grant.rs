@@ -35,7 +35,10 @@ impl Session {
 		);
 		match &resource {
 			id if tg::object::Id::try_from(id.clone()).is_ok()
-				|| matches!(id.kind(), tg::id::Kind::Process | tg::id::Kind::Sync) =>
+				|| matches!(
+					id.kind(),
+					tg::id::Kind::Process | tg::id::Kind::Sandbox | tg::id::Kind::Sync
+				) =>
 			{
 				tangram_index::verify::validate(id, permissions)?;
 				if !self
@@ -151,9 +154,12 @@ impl Session {
 		);
 		match &resource {
 			id if tg::object::Id::try_from(id.clone()).is_ok()
-				|| matches!(id.kind(), tg::id::Kind::Process | tg::id::Kind::Sync) =>
+				|| matches!(
+					id.kind(),
+					tg::id::Kind::Process | tg::id::Kind::Sandbox | tg::id::Kind::Sync
+				) =>
 			{
-				// A grant on an object, process, or sync may be revoked only by its creator, which is enforced by the creator scoping in the transaction, so being able to read the resource confers no power to revoke another subject's grant.
+				// A grant on an object, process, sandbox, or sync may be revoked only by its creator, which is enforced by the creator scoping in the transaction, so being able to read the resource confers no power to revoke another subject's grant.
 			},
 			_ => {
 				// Revoking a grant on a user, group, organization, or tag requires admin permission on the resource.
@@ -560,7 +566,7 @@ impl Session {
 				tg::authorization::permission::process::Permission::Node,
 			)),
 			tg::id::Kind::Sandbox => Ok(tg::authorization::Permission::Sandbox(
-				tg::authorization::permission::sandbox::Permission::Read,
+				tg::authorization::permission::sandbox::Permission::Node,
 			)),
 			tg::id::Kind::Sync => Ok(tg::authorization::Permission::Sync(
 				tg::authorization::permission::sync::Permission::Read,
@@ -586,7 +592,7 @@ impl Session {
 				tg::authorization::permission::organization::Permission::Admin,
 			)),
 			tg::id::Kind::Sandbox => Ok(tg::authorization::Permission::Sandbox(
-				tg::authorization::permission::sandbox::Permission::Write,
+				tg::authorization::permission::sandbox::Permission::Parent,
 			)),
 			tg::id::Kind::Tag => Ok(tg::authorization::Permission::Tag(
 				tg::authorization::permission::tag::Permission::Admin,
@@ -612,7 +618,7 @@ impl Session {
 				tg::authorization::permission::process::Permission::Parent,
 			)),
 			tg::id::Kind::Sandbox => Ok(tg::authorization::Permission::Sandbox(
-				tg::authorization::permission::sandbox::Permission::Write,
+				tg::authorization::permission::sandbox::Permission::Parent,
 			)),
 			tg::id::Kind::Tag => Ok(tg::authorization::Permission::Tag(
 				tg::authorization::permission::tag::Permission::Write,
@@ -773,10 +779,12 @@ impl Session {
 		after: Option<&(String, String)>,
 		limit: u64,
 	) -> tg::Result<Option<tg::grant::list::Output>> {
-		// Listing the grants on an object, process, or sync requires the root principal.
+		// Listing the grants on an object, process, sandbox, or sync requires the root principal.
 		if let tg::Selector::Id(id) = &resource.node
-			&& (matches!(id.kind(), tg::id::Kind::Process | tg::id::Kind::Sync)
-				|| tg::object::Id::try_from(id.clone()).is_ok())
+			&& (matches!(
+				id.kind(),
+				tg::id::Kind::Process | tg::id::Kind::Sandbox | tg::id::Kind::Sync
+			) || tg::object::Id::try_from(id.clone()).is_ok())
 		{
 			if !matches!(self.context.principal, tg::Principal::Root) {
 				return Err(tg::error!("unauthorized"));

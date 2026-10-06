@@ -72,20 +72,7 @@ impl Session {
 					proven
 				}
 			},
-			Some(Node::Process(node)) => {
-				let mut permissions = if node.marked() {
-					let availability = node.local_availability().cloned().unwrap_or_default();
-					tg::authorization::permission::Set::Process(Graph::process_permissions(
-						&availability,
-					))
-				} else {
-					tg::authorization::permission::Set::Process(
-						tg::authorization::permission::process::Set::empty(),
-					)
-				};
-				permissions.insert(graph.process_local_permissions(&id.clone().try_into()?));
-				permissions
-			},
+			Some(Node::Process(_)) => graph.process_local_permissions(&id.clone().try_into()?),
 			Some(
 				Node::Group(_)
 				| Node::Organization(_)

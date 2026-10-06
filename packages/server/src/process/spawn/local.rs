@@ -300,7 +300,7 @@ impl Session {
 					owner
 				} else {
 					let permission = tg::authorization::Permission::Sandbox(
-						tg::authorization::permission::sandbox::Permission::Write,
+						tg::authorization::permission::sandbox::Permission::Parent,
 					);
 					self.authorize(sandbox.clone(), permission)
 						.await?

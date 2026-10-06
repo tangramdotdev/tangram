@@ -1555,6 +1555,8 @@ impl Session {
 			data,
 			id: id.clone(),
 			location: Some(location.clone()),
+			permissions: Vec::new(),
+			principal: tg::Principal::Sandbox(id.clone()),
 			processes: processes.map(<[_]>::to_vec),
 			runner: None,
 			touched_at,

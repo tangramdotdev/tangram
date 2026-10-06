@@ -975,8 +975,8 @@ impl Search {
 				(
 					tg::Principal::Sandbox(sandbox),
 					tg::authorization::Permission::Sandbox(
-						tg::authorization::permission::sandbox::Permission::Read
-						| tg::authorization::permission::sandbox::Permission::Write,
+						tg::authorization::permission::sandbox::Permission::Node
+						| tg::authorization::permission::sandbox::Permission::Parent,
 					),
 				) => tg::Id::from(sandbox.clone()) == *resource,
 				(tg::Principal::User(user), tg::authorization::Permission::User(_)) => {
@@ -992,8 +992,8 @@ impl Search {
 		if matches!(
 			permission,
 			tg::authorization::Permission::Sandbox(
-				tg::authorization::permission::sandbox::Permission::Read
-					| tg::authorization::permission::sandbox::Permission::Write
+				tg::authorization::permission::sandbox::Permission::Node
+					| tg::authorization::permission::sandbox::Permission::Parent
 			)
 		) && let Some(owner) = &facts.sandbox_owner
 			&& let Ok(subject) = owner.try_to_subject()

@@ -236,6 +236,7 @@ impl Session {
 					.index
 					.batch(arg)
 					.await
+					.and_then(std::convert::identity)
 					.map_err(|error| tg::error!(!error, "failed to index the checkin"));
 				if let Err(error) = &result {
 					tracing::error!(error = %error.trace(), "failed to index the checkin");

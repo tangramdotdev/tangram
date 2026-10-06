@@ -60,6 +60,8 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 					options: tg::referent::Options::default(),
 					output: None,
 					parent: None,
+					permissions: Vec::new(),
+					principal: tg::Principal::Process(process.clone()),
 					sandbox: None,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: std::time::Duration::ZERO,
@@ -68,6 +70,7 @@ async fn direct_permissions_become_non_expiring_when_a_process_relationship_is_a
 			)],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 	drain_permission_updates(&index).await;
 
@@ -166,6 +169,8 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 					options: tg::referent::Options::default(),
 					output: None,
 					parent: None,
+					permissions: Vec::new(),
+					principal: tg::Principal::Process(process.clone()),
 					sandbox: None,
 					storage: tg::process::storage::Set::NODE,
 					time_to_touch: std::time::Duration::ZERO,
@@ -184,6 +189,7 @@ async fn process_permissions_promote_to_non_expiring_direct_permissions() {
 			],
 		})
 		.await
+		.unwrap()
 		.unwrap();
 	drain_permission_updates(&index).await;
 

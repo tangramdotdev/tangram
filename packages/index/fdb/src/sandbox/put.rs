@@ -10,17 +10,77 @@ impl Index {
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,
 		args: &[tangram_index::sandbox::put::Arg],
-		partition_total: u64,
-		usage_partition_total: u64,
-	) -> tg::Result<ControlFlow<(), fdb::FdbError>> {
+		partition_totals: crate::PartitionTotals,
+	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
+		let partition_total = partition_totals.cleaning;
+		let usage_partition_total = partition_totals.usage;
 		for arg in args {
-			arg.validate()?;
+			if let Err(error) = arg.validate() {
+				return Ok(ControlFlow::Break(Err(error)));
+			}
 			let key = Key::Sandbox(crate::sandbox::Key::Sandbox(arg.id.clone()));
 			let key = Self::pack(subspace, &key);
 			let result = txn.get(&key, false).await;
 			let existing = crate::retry!(result)
 				.map(|bytes| tangram_index::sandbox::Sandbox::deserialize(&bytes))
 				.transpose()?;
+
+			// Validate sandbox data and processes against the existing record in this write transaction.
+			if let Some(existing) = &existing {
+				if let Err(error) = arg.validate_existing(existing)? {
+					return Ok(ControlFlow::Break(Err(error)));
+				}
+				if !arg.principal.is_root()
+					&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
+					&& let Some(processes) = &arg.processes
+				{
+					if !existing.set.processes {
+						return Ok(ControlFlow::Break(Err(tg::error!(
+							"cannot verify the existing sandbox processes"
+						))));
+					}
+					let existing = crate::propagate!(
+						Self::try_get_sandbox_processes_page_with_transaction(
+							txn,
+							subspace,
+							&arg.id,
+							std::io::SeekFrom::Start(0),
+							processes.len() as u64 + 1
+						)
+						.await
+					)
+					.unwrap_or_default();
+					if *processes != existing {
+						return Ok(ControlFlow::Break(Err(tg::error!(
+							"cannot replace the existing sandbox processes"
+						))));
+					}
+				}
+			}
+
+			if existing.is_none() || (arg.data.is_some() && arg.processes.is_some()) {
+				crate::propagate!(
+					Self::put_permissions_with_transaction(
+						txn,
+						subspace,
+						&arg.permissions,
+						partition_totals
+					)
+					.await
+				);
+			}
+
+			let mut arg = std::borrow::Cow::Borrowed(arg);
+			if let Some(existing) = &existing
+				&& !arg.principal.is_root()
+				&& arg.principal != tg::Principal::Sandbox(arg.id.clone())
+			{
+				let arg = arg.to_mut();
+				arg.account.clone_from(&existing.account);
+				arg.data = None;
+				arg.runner.clone_from(&existing.runner);
+			}
+			let arg = arg.as_ref();
 
 			let processes_changed = arg.processes.is_some()
 				&& existing
@@ -228,6 +288,6 @@ impl Index {
 				txn.set(&key, &[]);
 			}
 		}
-		Ok(ControlFlow::Break(()))
+		Ok(ControlFlow::Break(Ok(())))
 	}
 }

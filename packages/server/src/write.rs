@@ -164,6 +164,7 @@ impl Session {
 			.index
 			.batch(arg)
 			.await
+			.and_then(std::convert::identity)
 			.map_err(|error| tg::error!(!error, "failed to index the blob"))?;
 
 		// Create the output.

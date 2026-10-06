@@ -1957,6 +1957,8 @@ impl Session {
 			options,
 			output: None,
 			parent: parent.cloned(),
+			permissions: Vec::new(),
+			principal: tg::Principal::Process(id.clone()),
 			sandbox: Some(sandbox.clone()),
 			storage: tg::process::storage::Set::NODE,
 			time_to_touch: self.server.config.process.time_to_touch,
@@ -1993,6 +1995,7 @@ impl Session {
 			.index
 			.batch(arg)
 			.await
+			.and_then(std::convert::identity)
 			.map_err(|error| tg::error!(!error, "failed to index the remote process"))?;
 
 		Ok(())
