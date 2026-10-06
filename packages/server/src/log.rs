@@ -17,6 +17,10 @@ use {
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},
 };
 
+mod writer;
+
+pub(crate) use writer::Writer;
+
 enum Inner {
 	Blob(BlobInner),
 	Cache(CacheInner),
