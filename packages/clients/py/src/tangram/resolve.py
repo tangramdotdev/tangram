@@ -16,9 +16,6 @@ if sys.version_info >= (3, 14):
 else:
     type TemplateString = Never
 
-# Python cannot express TypeScript's recursive mapped and conditional types.
-# These aliases describe the outer promise and the resolved result; resolve
-# performs the recursive transformation at runtime.
 type Unresolved[T] = T | Awaitable[T]
 type Resolved[T] = T
 
