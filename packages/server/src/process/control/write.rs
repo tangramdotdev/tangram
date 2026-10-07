@@ -15,7 +15,7 @@ const LOG_BATCH_MAX_CHUNKS: usize = 64;
 const LOG_BATCH_SIZE: usize = 32 * 1024;
 
 pub(super) struct Request {
-	pub(super) arg: tg::process::control::WriteClientRequestArg,
+	pub(super) arg: tg::process::stdio::write::Data,
 	pub(super) id: String,
 }
 
@@ -93,7 +93,7 @@ impl Session {
 				id: request_id,
 			} = request;
 			match arg {
-				tg::process::control::WriteClientRequestArg::Chunk(chunk) => {
+				tg::process::stdio::write::Data::Chunk(chunk) => {
 					if *ended {
 						let error = tg::error!("the process log has ended");
 						Self::send_process_control_write_response(sender, request_id, Err(error))
@@ -128,7 +128,7 @@ impl Session {
 						},
 					}
 				},
-				tg::process::control::WriteClientRequestArg::End(end) => {
+				tg::process::stdio::write::Data::End(end) => {
 					self.flush_process_control_write_batch(id, &mut batch, sender)
 						.await?;
 					batch_length = 0;
@@ -165,7 +165,7 @@ impl Session {
 		let result = self.put_process_log_batch_local(id, entries).await;
 		for (request_id, length) in responses {
 			let result = match &result {
-				Ok(()) => Ok(tg::process::control::WriteServerResponseOutput {
+				Ok(()) => Ok(tg::process::stdio::write::Output {
 					closed: false,
 					length,
 				}),
@@ -200,7 +200,7 @@ impl Session {
 		id: &tg::process::Id,
 		streams: &BTreeSet<tg::process::stdio::Stream>,
 		end: tg::process::stdio::End,
-	) -> tg::Result<tg::process::control::WriteServerResponseOutput> {
+	) -> tg::Result<tg::process::stdio::write::Output> {
 		if end
 			.stream_positions
 			.contains_key(&tg::process::stdio::Stream::Stdin)
@@ -237,7 +237,7 @@ impl Session {
 			.await?
 			.and_then(|process| process.data);
 		if data.is_some_and(|data| data.log.is_some()) {
-			return Ok(tg::process::control::WriteServerResponseOutput {
+			return Ok(tg::process::stdio::write::Output {
 				closed: true,
 				length: 0,
 			});
@@ -267,7 +267,7 @@ impl Session {
 				.spawn_publish_process_stdio_close_message_task(id, stream);
 		}
 
-		Ok(tg::process::control::WriteServerResponseOutput {
+		Ok(tg::process::stdio::write::Output {
 			closed: true,
 			length: 0,
 		})
@@ -314,7 +314,7 @@ impl Session {
 	async fn send_process_control_write_response(
 		sender: &super::ProcessControlSender,
 		id: String,
-		result: tg::Result<tg::process::control::WriteServerResponseOutput>,
+		result: tg::Result<tg::process::stdio::write::Output>,
 	) -> tg::Result<()> {
 		let result = result.map(tg::process::control::ServerResponseOutput::Write);
 		let response = Self::process_control_server_response(id, result);

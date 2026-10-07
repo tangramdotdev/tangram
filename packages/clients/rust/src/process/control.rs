@@ -8,18 +8,6 @@ use {
 
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-control";
 
-pub type ReadClientResponseOutput = tg::process::stdio::read::Output;
-
-pub type ReadServerRequestArg = tg::process::stdio::read::Arg;
-
-pub type WriteClientRequestArg = tg::process::stdio::write::Data;
-
-pub type WriteServerRequestArg = tg::process::stdio::write::Data;
-
-pub type WriteClientResponseOutput = tg::process::stdio::write::Output;
-
-pub type WriteServerResponseOutput = tg::process::stdio::write::Output;
-
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -89,29 +77,6 @@ pub enum ClientMessage {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerMessage {
-	#[tangram_serialize(id = 1)]
-	Ack(ServerAck),
-
-	#[tangram_serialize(id = 2)]
-	Notification(ServerNotification),
-
-	#[tangram_serialize(id = 0)]
-	Request(ServerRequest),
-
-	#[tangram_serialize(id = 3)]
-	Response(ServerResponse),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
 pub struct ClientAck {
 	#[tangram_serialize(id = 0)]
 	pub id: String,
@@ -167,16 +132,12 @@ pub struct BorrowableCapacityClientNotification {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ClientRequestArg {
+pub struct ReadClientNotification {
 	#[tangram_serialize(id = 0)]
-	Finish(FinishClientRequestArg),
-
-	#[tangram_serialize(id = 2)]
-	Start(StartClientRequestArg),
+	pub event: tg::process::stdio::read::Event,
 
 	#[tangram_serialize(id = 1)]
-	Write(WriteClientRequestArg),
+	pub id: String,
 }
 
 #[derive(
@@ -203,234 +164,16 @@ pub struct ClientRequest {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct ClientResponse {
-	#[tangram_serialize(id = 1)]
-	pub error: Option<tg::error::Data>,
-
-	#[tangram_serialize(id = 0)]
-	pub id: String,
-
-	#[tangram_serialize(id = 2)]
-	pub output: Option<ClientResponseOutput>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	derive_more::TryUnwrap,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ClientResponseOutput {
-	#[tangram_serialize(id = 6)]
-	AcquireLease(AcquireLeaseClientResponseOutput),
-
-	#[tangram_serialize(id = 9)]
-	Close,
-
-	#[tangram_serialize(id = 5)]
-	Finish(FinishClientResponseOutput),
-
-	#[tangram_serialize(id = 4)]
-	Get(GetClientResponseOutput),
-
-	#[tangram_serialize(id = 8)]
-	GetChildren(GetChildrenClientResponseOutput),
-
+pub enum ClientRequestArg {
 	#[tangram_serialize(id = 0)]
-	Read(ReadClientResponseOutput),
-
-	#[tangram_serialize(id = 7)]
-	ReleaseLease(ReleaseLeaseClientResponseOutput),
+	Finish(FinishClientRequestArg),
 
 	#[tangram_serialize(id = 2)]
-	Signal(SignalClientResponseOutput),
-
-	#[tangram_serialize(id = 3)]
-	Tty(TtyClientResponseOutput),
+	Start(StartClientRequestArg),
 
 	#[tangram_serialize(id = 1)]
-	Write(WriteClientResponseOutput),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ServerAck {
-	#[tangram_serialize(id = 0)]
-	pub id: String,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerNotification {
-	#[tangram_serialize(id = 0)]
-	Read(ReadServerNotification),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerRequestArg {
-	#[tangram_serialize(id = 6)]
-	AcquireLease(AcquireLeaseServerRequestArg),
-
-	#[tangram_serialize(id = 9)]
-	Close(String),
-
-	#[tangram_serialize(id = 5)]
-	Finish(FinishServerRequestArg),
-
-	#[tangram_serialize(id = 4)]
-	Get(GetServerRequestArg),
-
-	#[tangram_serialize(id = 8)]
-	GetChildren(GetChildrenServerRequestArg),
-
-	#[tangram_serialize(id = 0)]
-	Read(ReadServerRequestArg),
-
-	#[tangram_serialize(id = 7)]
-	ReleaseLease(ReleaseLeaseServerRequestArg),
-
-	#[tangram_serialize(id = 2)]
-	Signal(SignalServerRequestArg),
-
-	#[tangram_serialize(id = 3)]
-	Tty(TtyServerRequestArg),
-
-	#[tangram_serialize(id = 1)]
-	Write(WriteServerRequestArg),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ServerRequest {
-	#[tangram_serialize(id = 2)]
-	pub arg: ServerRequestArg,
-
-	#[tangram_serialize(id = 0)]
-	pub id: String,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ServerResponse {
-	#[tangram_serialize(id = 1)]
-	pub error: Option<tg::error::Data>,
-
-	#[tangram_serialize(id = 0)]
-	pub id: String,
-
-	#[tangram_serialize(id = 2)]
-	pub output: Option<ServerResponseOutput>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	derive_more::TryUnwrap,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerResponseOutput {
-	#[tangram_serialize(id = 0)]
-	Finish(FinishServerResponseOutput),
-
-	#[tangram_serialize(id = 2)]
-	Start(StartServerResponseOutput),
-
-	#[tangram_serialize(id = 1)]
-	Write(WriteServerResponseOutput),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	Default,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct AcquireLeaseServerRequestArg {}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct AcquireLeaseClientResponseOutput {
-	#[tangram_serialize(id = 0)]
-	pub data: tg::process::Data,
-
-	#[tangram_serialize(id = 1)]
-	pub lease: Option<String>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ReleaseLeaseServerRequestArg {
-	#[tangram_serialize(id = 0)]
-	pub lease: String,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ReleaseLeaseClientResponseOutput {
-	#[tangram_serialize(id = 0)]
-	pub released: bool,
+	Write(tg::process::stdio::write::Data),
 }
 
 #[derive(
@@ -445,42 +188,6 @@ pub struct FinishClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	pub data: tg::process::Data,
 }
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct FinishServerRequestArg {
-	#[tangram_serialize(id = 0)]
-	pub error: Option<tg::error::Data>,
-
-	#[tangram_serialize(id = 1)]
-	pub exit: u8,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct FinishClientResponseOutput {}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct FinishServerResponseOutput {}
 
 #[derive(
 	Clone,
@@ -538,18 +245,84 @@ pub struct Sandbox {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct StartServerResponseOutput {}
+pub struct ClientResponse {
+	#[tangram_serialize(id = 1)]
+	pub error: Option<tg::error::Data>,
+
+	#[tangram_serialize(id = 0)]
+	pub id: String,
+
+	#[tangram_serialize(id = 2)]
+	pub output: Option<ClientResponseOutput>,
+}
 
 #[derive(
 	Clone,
 	Debug,
-	Default,
+	derive_more::TryUnwrap,
 	serde::Deserialize,
 	serde::Serialize,
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct GetServerRequestArg {}
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum ClientResponseOutput {
+	#[tangram_serialize(id = 6)]
+	AcquireLease(AcquireLeaseClientResponseOutput),
+
+	#[tangram_serialize(id = 9)]
+	Close,
+
+	#[tangram_serialize(id = 5)]
+	Finish(FinishClientResponseOutput),
+
+	#[tangram_serialize(id = 4)]
+	Get(GetClientResponseOutput),
+
+	#[tangram_serialize(id = 8)]
+	GetChildren(GetChildrenClientResponseOutput),
+
+	#[tangram_serialize(id = 0)]
+	Read(tg::process::stdio::read::Output),
+
+	#[tangram_serialize(id = 7)]
+	ReleaseLease(ReleaseLeaseClientResponseOutput),
+
+	#[tangram_serialize(id = 2)]
+	Signal(SignalClientResponseOutput),
+
+	#[tangram_serialize(id = 3)]
+	Tty(TtyClientResponseOutput),
+
+	#[tangram_serialize(id = 1)]
+	Write(tg::process::stdio::write::Output),
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct AcquireLeaseClientResponseOutput {
+	#[tangram_serialize(id = 0)]
+	pub data: tg::process::Data,
+
+	#[tangram_serialize(id = 1)]
+	pub lease: Option<String>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct FinishClientResponseOutput {}
 
 #[derive(
 	Clone,
@@ -576,6 +349,219 @@ pub struct GetClientResponseOutput {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+pub struct GetChildrenClientResponseOutput {
+	#[tangram_serialize(id = 0)]
+	pub children: Vec<tg::process::data::Child>,
+
+	#[tangram_serialize(id = 1)]
+	pub length: u64,
+
+	#[tangram_serialize(id = 2)]
+	pub status: tg::process::Status,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ReleaseLeaseClientResponseOutput {
+	#[tangram_serialize(id = 0)]
+	pub released: bool,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct SignalClientResponseOutput {}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct TtyClientResponseOutput {}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum ServerMessage {
+	#[tangram_serialize(id = 1)]
+	Ack(ServerAck),
+
+	#[tangram_serialize(id = 2)]
+	Notification(ServerNotification),
+
+	#[tangram_serialize(id = 0)]
+	Request(ServerRequest),
+
+	#[tangram_serialize(id = 3)]
+	Response(ServerResponse),
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ServerAck {
+	#[tangram_serialize(id = 0)]
+	pub id: String,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum ServerNotification {
+	#[tangram_serialize(id = 0)]
+	Read(ReadServerNotification),
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ReadServerNotification {
+	#[tangram_serialize(id = 0)]
+	pub id: String,
+
+	#[tangram_serialize(id = 1)]
+	pub progress: tg::process::stdio::read::Progress,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ServerRequest {
+	#[tangram_serialize(id = 2)]
+	pub arg: ServerRequestArg,
+
+	#[tangram_serialize(id = 0)]
+	pub id: String,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum ServerRequestArg {
+	#[tangram_serialize(id = 6)]
+	AcquireLease(AcquireLeaseServerRequestArg),
+
+	#[tangram_serialize(id = 9)]
+	Close(String),
+
+	#[tangram_serialize(id = 5)]
+	Finish(FinishServerRequestArg),
+
+	#[tangram_serialize(id = 4)]
+	Get(GetServerRequestArg),
+
+	#[tangram_serialize(id = 8)]
+	GetChildren(GetChildrenServerRequestArg),
+
+	#[tangram_serialize(id = 0)]
+	Read(tg::process::stdio::read::Arg),
+
+	#[tangram_serialize(id = 7)]
+	ReleaseLease(ReleaseLeaseServerRequestArg),
+
+	#[tangram_serialize(id = 2)]
+	Signal(SignalServerRequestArg),
+
+	#[tangram_serialize(id = 3)]
+	Tty(TtyServerRequestArg),
+
+	#[tangram_serialize(id = 1)]
+	Write(tg::process::stdio::write::Data),
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct AcquireLeaseServerRequestArg {}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct FinishServerRequestArg {
+	#[tangram_serialize(id = 0)]
+	pub error: Option<tg::error::Data>,
+
+	#[tangram_serialize(id = 1)]
+	pub exit: u8,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct GetServerRequestArg {}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct GetChildrenServerRequestArg {
 	#[tangram_serialize(id = 1)]
 	pub length: u64,
@@ -592,15 +578,9 @@ pub struct GetChildrenServerRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct GetChildrenClientResponseOutput {
+pub struct ReleaseLeaseServerRequestArg {
 	#[tangram_serialize(id = 0)]
-	pub children: Vec<tg::process::data::Child>,
-
-	#[tangram_serialize(id = 1)]
-	pub length: u64,
-
-	#[tangram_serialize(id = 2)]
-	pub status: tg::process::Status,
+	pub lease: String,
 }
 
 #[derive(
@@ -637,31 +617,36 @@ pub struct TtyServerRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct SignalClientResponseOutput {}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct TtyClientResponseOutput {}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ReadClientNotification {
-	#[tangram_serialize(id = 0)]
-	pub event: tg::process::stdio::read::Event,
+pub struct ServerResponse {
 	#[tangram_serialize(id = 1)]
+	pub error: Option<tg::error::Data>,
+
+	#[tangram_serialize(id = 0)]
 	pub id: String,
+
+	#[tangram_serialize(id = 2)]
+	pub output: Option<ServerResponseOutput>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	derive_more::TryUnwrap,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum ServerResponseOutput {
+	#[tangram_serialize(id = 0)]
+	Finish(FinishServerResponseOutput),
+
+	#[tangram_serialize(id = 2)]
+	Start(StartServerResponseOutput),
+
+	#[tangram_serialize(id = 1)]
+	Write(tg::process::stdio::write::Output),
 }
 
 #[derive(
@@ -672,12 +657,17 @@ pub struct ReadClientNotification {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct ReadServerNotification {
-	#[tangram_serialize(id = 0)]
-	pub id: String,
-	#[tangram_serialize(id = 1)]
-	pub progress: tg::process::stdio::read::Progress,
-}
+pub struct FinishServerResponseOutput {}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct StartServerResponseOutput {}
 
 impl tg::Session {
 	pub async fn try_get_process_control_stream(

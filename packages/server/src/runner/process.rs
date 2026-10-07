@@ -1622,7 +1622,7 @@ impl Session {
 				break;
 			}
 			let arg = tg::process::control::ClientRequestArg::Write(
-				tg::process::control::WriteClientRequestArg::Chunk(chunk),
+				tg::process::stdio::write::Data::Chunk(chunk),
 			);
 			position = next_position;
 			stderr_position = next_stderr_position;
@@ -1683,7 +1683,7 @@ impl Session {
 		end: tg::process::stdio::End,
 	) -> tg::Result<()> {
 		let arg = tg::process::control::ClientRequestArg::Write(
-			tg::process::control::WriteClientRequestArg::End(end),
+			tg::process::stdio::write::Data::End(end),
 		);
 		let output =
 			Self::send_process_control_client_request(sender, arg, crate::control::Priority::Low)

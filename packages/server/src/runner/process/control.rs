@@ -62,8 +62,7 @@ struct RunProcessControlHandlerTaskArg {
 	sender: ProcessControlSender,
 	signal_sender:
 		tokio::sync::mpsc::Sender<(String, tg::process::control::SignalServerRequestArg, Reply)>,
-	stdin_sender:
-		tokio::sync::mpsc::Sender<(String, tg::process::control::WriteServerRequestArg, Reply)>,
+	stdin_sender: tokio::sync::mpsc::Sender<(String, tg::process::stdio::write::Data, Reply)>,
 	tty_sender:
 		tokio::sync::mpsc::Sender<(String, tg::process::control::TtyServerRequestArg, Reply)>,
 }
@@ -181,11 +180,8 @@ impl Session {
 			stdout_buffered,
 		});
 
-		let (stdin_sender, stdin_receiver) = tokio::sync::mpsc::channel::<(
-			String,
-			tg::process::control::WriteServerRequestArg,
-			Reply,
-		)>(256);
+		let (stdin_sender, stdin_receiver) =
+			tokio::sync::mpsc::channel::<(String, tg::process::stdio::write::Data, Reply)>(256);
 		let stdin_task = self.spawn_process_control_stdin_task(RunProcessControlStdinTaskArg {
 			exited,
 			receiver: stdin_receiver,

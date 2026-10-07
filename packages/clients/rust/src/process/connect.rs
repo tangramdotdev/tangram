@@ -1,15 +1,3 @@
-//! A parent connection selects a process once and multiplexes its lifecycle operations.
-//!
-//! The first request is `Connect`. Spawn mode returns the selected process and closes;
-//! Run mode also starts waiting and the reads declared in the opening argument.
-//! Each stdio read request retains the shared read protocol, scoped by its request ID.
-//! An acknowledgment confirms receipt; only a response confirms an operation outcome.
-//! Completion does not imply stdio EOF. The server drains open reads before closing.
-//! Normal closure also waits for receipt acknowledgments of outstanding responses.
-//! A disconnected leased wait cancels the process. Detach must receive its response first.
-//! Subsequent operations reopen the selected process ID through one shared connection.
-//! Reads resume at their cursor; writes resend only requests without a completed outcome.
-
 use {
 	crate::prelude::*,
 	futures::{StreamExt as _, stream::BoxStream},
@@ -25,7 +13,6 @@ mod tests;
 
 pub use connection::Connection;
 
-/// Maximum requests awaiting receipt, excluding the opening request and one reserved detach.
 pub const REQUEST_WINDOW: usize = 128;
 
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-connect";
@@ -42,10 +29,13 @@ pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-connect"
 pub enum ClientMessage {
 	#[tangram_serialize(id = 0)]
 	Ack(Ack),
+
 	#[tangram_serialize(id = 1)]
 	Notification(ClientNotification),
+
 	#[tangram_serialize(id = 2)]
 	Request(ClientRequest),
+
 	#[tangram_serialize(id = 3)]
 	Sync(Vec<u8>),
 }
@@ -62,10 +52,13 @@ pub enum ClientMessage {
 pub enum ServerMessage {
 	#[tangram_serialize(id = 0)]
 	Ack(Ack),
+
 	#[tangram_serialize(id = 1)]
 	Notification(ServerNotification),
+
 	#[tangram_serialize(id = 2)]
 	Response(ServerResponse),
+
 	#[tangram_serialize(id = 3)]
 	Sync(Vec<u8>),
 }
@@ -105,9 +98,26 @@ pub enum ClientNotification {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
+pub struct ReadClientNotification {
+	#[tangram_serialize(id = 0)]
+	pub id: u64,
+
+	#[tangram_serialize(id = 1)]
+	pub progress: tg::process::stdio::read::Progress,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct ClientRequest {
 	#[tangram_serialize(id = 0)]
 	pub arg: ClientRequestArg,
+
 	#[tangram_serialize(id = 1)]
 	pub id: u64,
 }
@@ -124,83 +134,27 @@ pub struct ClientRequest {
 pub enum ClientRequestArg {
 	#[tangram_serialize(id = 0)]
 	Cancel(tg::process::cancel::Arg),
+
 	#[tangram_serialize(id = 1)]
 	Close(u64),
+
 	#[tangram_serialize(id = 2)]
 	Connect(Arg),
+
 	#[tangram_serialize(id = 3)]
 	Detach,
+
 	#[tangram_serialize(id = 4)]
 	Read(tg::process::stdio::read::Arg),
+
 	#[tangram_serialize(id = 5)]
 	Signal(tg::process::signal::post::Arg),
+
 	#[tangram_serialize(id = 6)]
 	Tty(tg::process::tty::size::put::Arg),
+
 	#[tangram_serialize(id = 7)]
 	Write(tg::process::stdio::write::Arg),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerNotification {
-	#[tangram_serialize(id = 2)]
-	Outcome(tg::process::outcome::Data),
-	#[tangram_serialize(id = 0)]
-	Progress(tg::progress::Event<()>),
-	#[tangram_serialize(id = 1)]
-	Read(ReadServerNotification),
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-pub struct ServerResponse {
-	#[tangram_serialize(id = 0)]
-	pub error: Option<tg::error::Data>,
-	#[tangram_serialize(id = 1)]
-	pub id: u64,
-	#[tangram_serialize(id = 2)]
-	pub output: Option<ServerResponseOutput>,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
-pub enum ServerResponseOutput {
-	#[tangram_serialize(id = 0)]
-	Cancel(tg::process::cancel::Output),
-	#[tangram_serialize(id = 1)]
-	Close,
-	#[tangram_serialize(id = 2)]
-	Connect(tg::process::spawn::Output),
-	#[tangram_serialize(id = 3)]
-	Detach,
-	#[tangram_serialize(id = 4)]
-	Read(tg::process::stdio::read::Output),
-	#[tangram_serialize(id = 5)]
-	Signal,
-	#[tangram_serialize(id = 6)]
-	Tty,
-	#[tangram_serialize(id = 7)]
-	Write(tg::process::stdio::write::Output),
 }
 
 #[derive(
@@ -261,17 +215,10 @@ pub struct Arg {
 pub enum Mode {
 	#[tangram_serialize(id = 0)]
 	Run,
+
 	#[default]
 	#[tangram_serialize(id = 1)]
 	Spawn,
-}
-
-#[derive(Clone, Debug, Default)]
-pub struct Options {
-	pub lease: Option<String>,
-	pub location: Option<tg::location::Arg>,
-	pub reads: Vec<tg::process::stdio::read::Options>,
-	pub tokens: tg::authorization::Tokens,
 }
 
 #[derive(
@@ -282,11 +229,16 @@ pub struct Options {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct ReadClientNotification {
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum ServerNotification {
+	#[tangram_serialize(id = 2)]
+	Outcome(tg::process::outcome::Data),
+
 	#[tangram_serialize(id = 0)]
-	pub id: u64,
+	Progress(tg::progress::Event<()>),
+
 	#[tangram_serialize(id = 1)]
-	pub progress: tg::process::stdio::read::Progress,
+	Read(ReadServerNotification),
 }
 
 #[derive(
@@ -300,8 +252,71 @@ pub struct ReadClientNotification {
 pub struct ReadServerNotification {
 	#[tangram_serialize(id = 1)]
 	pub event: tg::process::stdio::read::Event,
+
 	#[tangram_serialize(id = 0)]
 	pub id: u64,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct ServerResponse {
+	#[tangram_serialize(id = 0)]
+	pub error: Option<tg::error::Data>,
+
+	#[tangram_serialize(id = 1)]
+	pub id: u64,
+
+	#[tangram_serialize(id = 2)]
+	pub output: Option<ServerResponseOutput>,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum ServerResponseOutput {
+	#[tangram_serialize(id = 0)]
+	Cancel(tg::process::cancel::Output),
+
+	#[tangram_serialize(id = 1)]
+	Close,
+
+	#[tangram_serialize(id = 2)]
+	Connect(tg::process::spawn::Output),
+
+	#[tangram_serialize(id = 3)]
+	Detach,
+
+	#[tangram_serialize(id = 4)]
+	Read(tg::process::stdio::read::Output),
+
+	#[tangram_serialize(id = 5)]
+	Signal,
+
+	#[tangram_serialize(id = 6)]
+	Tty,
+
+	#[tangram_serialize(id = 7)]
+	Write(tg::process::stdio::write::Output),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Options {
+	pub lease: Option<String>,
+	pub location: Option<tg::location::Arg>,
+	pub reads: Vec<tg::process::stdio::read::Options>,
+	pub tokens: tg::authorization::Tokens,
 }
 
 pub async fn connect(id: tg::process::Id, options: Options) -> tg::Result<tg::Process> {

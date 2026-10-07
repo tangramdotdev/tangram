@@ -14,7 +14,7 @@ use {
 pub(super) struct RunProcessControlStdinTaskArg {
 	pub(super) exited: Stopper,
 	pub(super) receiver:
-		tokio::sync::mpsc::Receiver<(String, tg::process::control::WriteServerRequestArg, Reply)>,
+		tokio::sync::mpsc::Receiver<(String, tg::process::stdio::write::Data, Reply)>,
 	pub(super) sandbox: tangram_sandbox::Sandbox,
 	pub(super) sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
 	pub(super) stdin: tg::process::Stdio,
@@ -140,7 +140,7 @@ impl Session {
 	fn handle_closed_process_stdin_write_request(
 		request: &tg::process::stdio::Chunk,
 		position: u64,
-	) -> tg::Result<tg::process::control::WriteClientResponseOutput> {
+	) -> tg::Result<tg::process::stdio::write::Output> {
 		let chunk = request;
 		if chunk.stream != tg::process::stdio::Stream::Stdin {
 			return Err(tg::error!("invalid process stdio stream"));
@@ -153,7 +153,7 @@ impl Session {
 				"encountered a gap in the stdin stream"
 			));
 		}
-		let output = tg::process::control::WriteClientResponseOutput {
+		let output = tg::process::stdio::write::Output {
 			closed: true,
 			length: position
 				.saturating_sub(start)
@@ -169,7 +169,7 @@ impl Session {
 		request: &tg::process::stdio::Chunk,
 		position: &mut u64,
 		closed: &mut bool,
-	) -> tg::Result<tg::process::control::WriteClientResponseOutput> {
+	) -> tg::Result<tg::process::stdio::write::Output> {
 		let mut chunk = request.clone();
 		if chunk.stream != tg::process::stdio::Stream::Stdin {
 			return Err(tg::error!("invalid process stdio stream"));
@@ -188,7 +188,7 @@ impl Session {
 		if chunk.bytes.is_empty() {
 			Self::handle_process_control_stdin_close_request(sandbox, sandbox_process).await?;
 			*closed = true;
-			let output = tg::process::control::WriteClientResponseOutput {
+			let output = tg::process::stdio::write::Output {
 				closed: true,
 				length: 0,
 			};
@@ -196,7 +196,7 @@ impl Session {
 			return Ok(output);
 		}
 		if end <= *position {
-			let output = tg::process::control::WriteClientResponseOutput {
+			let output = tg::process::stdio::write::Output {
 				closed: false,
 				length: chunk.bytes.len().to_u64().unwrap(),
 			};
@@ -231,7 +231,7 @@ impl Session {
 		if *position < end {
 			*closed = true;
 		}
-		let output = tg::process::control::WriteClientResponseOutput {
+		let output = tg::process::stdio::write::Output {
 			closed: *closed,
 			length: position.saturating_sub(start).min(end - start),
 		};
