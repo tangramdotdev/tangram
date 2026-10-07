@@ -1,7 +1,10 @@
 use {
 	clap::Parser as _,
-	scylla::client::{session::Session, session_builder::SessionBuilder},
-	std::{error::Error, fs, path::PathBuf},
+	scylla::{
+		client::{session::Session, session_builder::SessionBuilder},
+		statement::unprepared::Statement,
+	},
+	std::{error::Error, fs, path::PathBuf, time::Duration},
 };
 
 #[cfg(test)]
@@ -24,8 +27,24 @@ struct Args {
 	#[arg(short, long)]
 	keyspace: Option<String>,
 
+	#[arg(
+		short = 'p',
+		long,
+		env = "SCYLLA_PASSWORD",
+		hide_env_values = true,
+		requires = "username"
+	)]
+	password: Option<String>,
+
 	#[arg(default_value_t = 9042, index = 2)]
 	port: u16,
+
+	/// Timeout in seconds for connecting and executing each statement.
+	#[arg(long, default_value_t = 30, value_parser = clap::value_parser!(u64).range(1..))]
+	request_timeout: u64,
+
+	#[arg(short = 'u', long, requires = "password")]
+	username: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -51,25 +70,34 @@ async fn main() -> Result<()> {
 
 	// Connect to ScyllaDB.
 	let address = format!("{}:{}", args.host, args.port);
-	let session = Box::pin(SessionBuilder::new().known_node(address).build()).await?;
+	let timeout = Duration::from_secs(args.request_timeout);
+	let mut builder = SessionBuilder::new()
+		.known_node(address)
+		.connection_timeout(timeout);
+	if let (Some(username), Some(password)) = (args.username, args.password) {
+		builder = builder.user(username, password);
+	}
+	let session = tokio::time::timeout(timeout, Box::pin(builder.build())).await??;
 	if let Some(keyspace) = args.keyspace {
-		session.use_keyspace(keyspace, true).await?;
+		tokio::time::timeout(timeout, session.use_keyspace(keyspace, true)).await??;
 	}
 
 	// Execute the statements.
 	for statement in split_statements(&source)? {
-		execute_statement(&session, &statement).await?;
+		execute_statement(&session, &statement, timeout).await?;
 	}
 
 	Ok(())
 }
 
-async fn execute_statement(session: &Session, statement: &str) -> Result<()> {
+async fn execute_statement(session: &Session, statement: &str, timeout: Duration) -> Result<()> {
 	let select_json = statement
 		.trim_start()
 		.get(..12)
 		.is_some_and(|prefix| prefix.eq_ignore_ascii_case("select json "));
-	let result = session.query_unpaged(statement, ()).await?;
+	let mut statement = Statement::new(statement);
+	statement.set_request_timeout(Some(timeout));
+	let result = tokio::time::timeout(timeout, session.query_unpaged(statement, ())).await??;
 	if select_json {
 		let rows = result.into_rows_result()?;
 		for row in rows.rows::<(String,)>()? {

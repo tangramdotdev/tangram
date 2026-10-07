@@ -30,3 +30,40 @@ fn split_rejects_unterminated_input() {
 		"the CQL input ended inside a quote or block comment"
 	);
 }
+
+#[test]
+fn parse_credentials_and_timeout() {
+	use clap::Parser as _;
+	let args = super::Args::try_parse_from([
+		"client",
+		"scylla",
+		"9042",
+		"--username",
+		"cassandra",
+		"--password",
+		"secret",
+		"--request-timeout",
+		"120",
+		"--execute",
+		"select release_version from system.local",
+	])
+	.unwrap();
+	assert_eq!(args.username.as_deref(), Some("cassandra"));
+	assert_eq!(args.password.as_deref(), Some("secret"));
+	assert_eq!(args.request_timeout, 120);
+}
+
+#[test]
+fn reject_zero_timeout() {
+	use clap::Parser as _;
+	assert!(
+		super::Args::try_parse_from([
+			"client",
+			"--request-timeout",
+			"0",
+			"--execute",
+			"select release_version from system.local",
+		])
+		.is_err()
+	);
+}
