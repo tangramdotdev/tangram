@@ -285,8 +285,9 @@ impl State {
 			pending.ids.push(id);
 			return;
 		}
-		if self.queue.len() + self.sandboxes.loading
-			>= scheduler.config.create_sandbox_queue_capacity
+		if !self.runners.entries.values().any(|runner| runner.ready)
+			|| self.queue.len() + self.sandboxes.loading
+				>= scheduler.config.create_sandbox_queue_capacity
 		{
 			let output = EnqueueSandboxResponseOutput { enqueued: false };
 			let response = scheduler.response(id, Ok(ResponseOutput::EnqueueSandbox(output)));
