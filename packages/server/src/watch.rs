@@ -195,7 +195,7 @@ impl Watch {
 					// Lock the state.
 					let mut state = state.lock().unwrap();
 
-					// Update the lock unless an internal write is pending.
+					// Retain the graph's lock so the next checkin detects the change and rebuilds it.
 					let mut lock_modified = false;
 					let mut modified = false;
 					if state.pending_lock_write_version.is_none()
@@ -205,14 +205,12 @@ impl Watch {
 							Ok(lock) => {
 								let lock = lock.map(Arc::new);
 								if state.lock != lock {
-									state.lock = lock;
 									lock_modified = true;
 									modified = true;
 								}
 							},
 							Err(error) => {
 								tracing::error!(%error, "failed to read the lock");
-								state.lock.take();
 								lock_modified = true;
 								modified = true;
 							},
