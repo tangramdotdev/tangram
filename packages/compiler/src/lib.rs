@@ -871,7 +871,7 @@ impl Compiler {
 	fn send_request<T>(
 		&self,
 		params: T::Params,
-	) -> impl std::future::Future<Output = Result<T::Result, tg::Error>>
+	) -> impl Future<Output = Result<T::Result, tg::Error>>
 	where
 		T: lsp::request::Request,
 		T::Result: serde::de::DeserializeOwned,

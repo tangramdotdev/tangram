@@ -5,9 +5,10 @@ use {
 		collections::{BTreeMap, BTreeSet},
 		sync::{Arc, Mutex},
 	},
-	tangram_client::{prelude::*, sync::control as protocol},
+	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_messenger::Messenger as _,
+	tg::sync::control as protocol,
 	tokio::time::Instant,
 };
 

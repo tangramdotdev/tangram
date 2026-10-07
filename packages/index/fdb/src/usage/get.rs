@@ -1,31 +1,15 @@
 use {
-	crate::{Index, Request, Response},
+	crate::Index,
 	foundationdb as fdb, foundationdb_tuple as fdbt,
-	futures::{FutureExt as _, future::BoxFuture, future::try_join_all},
+	futures::{
+		FutureExt as _,
+		future::{BoxFuture, try_join_all},
+	},
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
 impl Index {
-	pub async fn get_usage(
-		&self,
-		account: &tangram_index::usage::Account,
-		period: tangram_index::usage::Period,
-		now: jiff::Timestamp,
-	) -> tg::Result<tangram_index::usage::Aggregate> {
-		let request = Request::GetUsage {
-			account: account.clone(),
-			now,
-			period,
-		};
-		let response = self.send_write_request(request).await?;
-		let Response::Usage(output) = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) async fn get_usage_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,

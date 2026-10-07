@@ -2,7 +2,8 @@ use {
 	crate::Cli,
 	futures::prelude::*,
 	std::{fmt::Write as _, net::ToSocketAddrs as _, path::PathBuf, time::Duration},
-	tangram_client::{Client, prelude::*},
+	tangram_client::prelude::*,
+	tg::Client,
 };
 
 /// Spawn a process.

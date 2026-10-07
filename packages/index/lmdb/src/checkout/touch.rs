@@ -1,32 +1,11 @@
 use {
-	crate::{Db, Index, Key, Request, Response},
+	crate::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	std::time::Duration,
 	tangram_client::prelude::*,
 };
 
 impl Index {
-	pub async fn touch_checkouts(
-		&self,
-		ids: &[tg::Id],
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::checkout::Checkout>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let request = Request::TouchCheckouts(crate::TouchCheckouts {
-			ids: ids.to_vec(),
-			time_to_touch,
-			touched_at,
-		});
-		let response = self.send_write_request(request).await?;
-		let Response::Checkouts(checkouts) = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-		Ok(checkouts)
-	}
-
 	pub(crate) fn touch_checkouts_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

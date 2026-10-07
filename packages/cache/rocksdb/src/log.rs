@@ -1,14 +1,15 @@
 use {
-	super::{Cache, Key as CacheKey},
-	foundationdb_tuple::TuplePack as _,
+	crate::{Cache, Key as CacheKey, Kind},
+	foundationdb_tuple::{self as fdbt, TuplePack as _},
 	num::ToPrimitive as _,
 	std::borrow::Cow,
 	tangram_cache::log,
 	tangram_client::prelude::*,
 };
 
-mod cache;
 mod key;
+#[cfg(test)]
+mod tests;
 
 pub(super) use key::Key;
 
@@ -17,34 +18,6 @@ struct StreamPointer {
 	combined_position: u64,
 	length: u64,
 	stream_position: u64,
-}
-
-impl StreamPointer {
-	fn from_slice(value: &[u8]) -> tg::Result<Self> {
-		let value: &[u8; 24] = value
-			.try_into()
-			.map_err(|_| tg::error!("the log stream pointer is invalid"))?;
-		let combined_position = u64::from_le_bytes(value[0..8].try_into().unwrap());
-		let length = u64::from_le_bytes(value[8..16].try_into().unwrap());
-		let stream_position = u64::from_le_bytes(value[16..24].try_into().unwrap());
-		let pointer = Self {
-			combined_position,
-			length,
-			stream_position,
-		};
-
-		Ok(pointer)
-	}
-
-	#[must_use]
-	fn to_bytes(self) -> [u8; 24] {
-		let mut value = [0; 24];
-		value[0..8].copy_from_slice(&self.combined_position.to_le_bytes());
-		value[8..16].copy_from_slice(&self.length.to_le_bytes());
-		value[16..24].copy_from_slice(&self.stream_position.to_le_bytes());
-
-		value
-	}
 }
 
 impl Cache {
@@ -455,171 +428,174 @@ impl Cache {
 
 		Ok(output)
 	}
+
+	pub async fn delete_log_cache_entry(&self, arg: log::cache::delete::Arg) -> tg::Result<()> {
+		let request = crate::request::Request::DeleteLogCacheEntry(arg);
+		self.send_write_request(request).await?;
+		Ok(())
+	}
+
+	pub async fn get_log_cache_entries(
+		&self,
+		arg: log::cache::get::Arg,
+	) -> tg::Result<Vec<log::cache::Entry>> {
+		let request = crate::read::Request::GetLogCacheEntries(arg);
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::GetLogCacheEntries(output) = response else {
+			return Err(tg::error!("unexpected read response"));
+		};
+		Ok(output)
+	}
+
+	pub async fn put_log_cache_entry(&self, arg: log::cache::put::Arg) -> tg::Result<()> {
+		let request = crate::request::Request::PutLogCacheEntry(arg);
+		self.send_write_request(request).await?;
+		Ok(())
+	}
+
+	pub(crate) fn delete_log_cache_entry_with_transaction(
+		transaction: &mut crate::transaction::Transaction<'_>,
+		arg: log::cache::delete::Arg,
+	) -> tg::Result<()> {
+		let entry = arg.entry;
+		let arg = log::delete::Arg {
+			process: entry.process.clone(),
+		};
+		Self::delete_log_with_transaction(transaction, &arg)?;
+		let key = CacheKey::LogCache(entry).pack_to_vec();
+		transaction
+			.delete(&key)
+			.map_err(|error| tg::error!(!error, "failed to delete a log cache entry"))?;
+		Ok(())
+	}
+
+	pub(crate) fn get_log_cache_entries_with_transaction(
+		transaction: &crate::transaction::Transaction<'_>,
+		arg: &log::cache::get::Arg,
+	) -> tg::Result<Vec<log::cache::Entry>> {
+		let prefix = fdbt::pack(&(Kind::LogCache.to_i32().unwrap(), arg.partition));
+		let entries = transaction.prefix_iter(&prefix);
+		let mut output = Vec::new();
+		for entry in entries.take(arg.batch_size) {
+			let (key, _) =
+				entry.map_err(|error| tg::error!(!error, "failed to get a log cache entry"))?;
+			let (_, partition, expires_at, process): (i32, u64, i64, Vec<u8>) = fdbt::unpack(&key)
+				.map_err(|error| tg::error!(!error, "failed to unpack a log cache key"))?;
+			if expires_at > arg.now {
+				break;
+			}
+			let process = tg::process::Id::from_slice(&process)?;
+			let entry = log::cache::Entry {
+				expires_at,
+				partition,
+				process,
+			};
+			output.push(entry);
+		}
+
+		Ok(output)
+	}
+
+	pub(crate) fn put_log_cache_entry_with_transaction(
+		transaction: &mut crate::transaction::Transaction<'_>,
+		arg: log::cache::put::Arg,
+	) -> tg::Result<()> {
+		let key = CacheKey::LogCache(arg.entry).pack_to_vec();
+		transaction
+			.put(&key, &[])
+			.map_err(|error| tg::error!(!error, "failed to put a log cache entry"))?;
+		Ok(())
+	}
 }
 
-#[cfg(test)]
-mod tests {
-	use {
-		super::*,
-		bytes::Bytes,
-		std::{collections::BTreeSet, path::Path},
-	};
-
-	#[tokio::test]
-	async fn read_and_length() {
-		let temp = tangram_util::fs::Temp::new().unwrap();
-		std::fs::create_dir(temp.path()).unwrap();
-		let cache = cache(temp.path());
-		let process = tg::process::Id::new();
-		put(
-			&cache,
-			&process,
-			b"abc",
-			0,
-			tg::process::stdio::Stream::Stdout,
-			0,
-		)
-		.await;
-		put(
-			&cache,
-			&process,
-			b"de",
-			3,
-			tg::process::stdio::Stream::Stderr,
-			0,
-		)
-		.await;
-		put(
-			&cache,
-			&process,
-			b"fghi",
-			5,
-			tg::process::stdio::Stream::Stdout,
-			3,
-		)
-		.await;
-
-		let combined_streams = streams([
-			tg::process::stdio::Stream::Stderr,
-			tg::process::stdio::Stream::Stdout,
-		]);
-		let arg = log::read::Arg {
-			length: 6,
-			position: 1,
-			process: process.clone(),
-			streams: combined_streams.clone(),
-		};
-		let entries = cache.try_read_log(arg).await.unwrap();
-		assert_eq!(bytes(&entries), Bytes::from_static(b"bcdefg"));
-
-		let stdout_streams = streams([tg::process::stdio::Stream::Stdout]);
-		let arg = log::read::Arg {
-			length: 4,
-			position: 2,
-			process: process.clone(),
-			streams: stdout_streams.clone(),
-		};
-		let entries = cache.try_read_log(arg).await.unwrap();
-		assert_eq!(bytes(&entries), Bytes::from_static(b"cfgh"));
-
-		let arg = log::length::Arg {
-			process: process.clone(),
-			streams: combined_streams,
-		};
-		let length = cache.try_get_log_length(arg).await.unwrap();
-		assert_eq!(length, Some(9));
-		let arg = log::length::Arg {
-			process,
-			streams: stdout_streams,
-		};
-		let length = cache.try_get_log_length(arg).await.unwrap();
-		assert_eq!(length, Some(7));
-	}
-
-	#[tokio::test]
-	async fn retry_and_delete() {
-		let temp = tangram_util::fs::Temp::new().unwrap();
-		std::fs::create_dir(temp.path()).unwrap();
-		let cache = cache(temp.path());
-		let process = tg::process::Id::new();
-		for _ in 0..2 {
-			put(
-				&cache,
-				&process,
-				b"hello",
-				0,
-				tg::process::stdio::Stream::Stdout,
-				0,
-			)
-			.await;
-		}
-		let streams = streams([tg::process::stdio::Stream::Stdout]);
-		let arg = log::read::Arg {
-			length: u64::MAX,
-			position: 0,
-			process: process.clone(),
-			streams: streams.clone(),
-		};
-		let entries = cache.try_read_log(arg).await.unwrap();
-		assert_eq!(bytes(&entries), Bytes::from_static(b"hello"));
-
-		let arg = log::delete::Arg {
-			process: process.clone(),
-		};
-		cache.delete_log(arg).await.unwrap();
-		let arg = log::read::Arg {
-			length: u64::MAX,
-			position: 0,
-			process: process.clone(),
-			streams: streams.clone(),
-		};
-		let entries = cache.try_read_log(arg).await.unwrap();
-		assert!(entries.is_empty());
-		let arg = log::length::Arg { process, streams };
-		let length = cache.try_get_log_length(arg).await.unwrap();
-		assert_eq!(length, None);
-	}
-
-	fn cache(path: &Path) -> Cache {
-		let config = super::super::Config {
-			path: path.join("test.rocksdb"),
-			read_batch_size: 64,
-			read_concurrency: 4,
-			write_batch_size: 8_000,
-		};
-		Cache::new(&config).unwrap()
-	}
-
-	fn streams(
-		streams: impl IntoIterator<Item = tg::process::stdio::Stream>,
-	) -> BTreeSet<tg::process::stdio::Stream> {
-		streams.into_iter().collect()
-	}
-
-	async fn put(
-		cache: &Cache,
-		process: &tg::process::Id,
-		bytes: &'static [u8],
-		position: u64,
-		stream: tg::process::stdio::Stream,
-		stream_position: u64,
-	) {
-		let arg = log::put::Arg {
-			bytes: Bytes::from_static(bytes),
-			position,
-			process: process.clone(),
-			stream,
+impl StreamPointer {
+	fn from_slice(value: &[u8]) -> tg::Result<Self> {
+		let value: &[u8; 24] = value
+			.try_into()
+			.map_err(|_| tg::error!("the log stream pointer is invalid"))?;
+		let combined_position = u64::from_le_bytes(value[0..8].try_into().unwrap());
+		let length = u64::from_le_bytes(value[8..16].try_into().unwrap());
+		let stream_position = u64::from_le_bytes(value[16..24].try_into().unwrap());
+		let pointer = Self {
+			combined_position,
+			length,
 			stream_position,
-			timestamp: i64::try_from(position).unwrap(),
 		};
-		cache.put_log(arg).await.unwrap();
+
+		Ok(pointer)
 	}
 
-	fn bytes(entries: &[log::read::Entry<'_>]) -> Bytes {
-		entries
-			.iter()
-			.flat_map(|entry| entry.bytes.iter().copied())
-			.collect::<Vec<_>>()
-			.into()
+	#[must_use]
+	fn to_bytes(self) -> [u8; 24] {
+		let mut value = [0; 24];
+		value[0..8].copy_from_slice(&self.combined_position.to_le_bytes());
+		value[8..16].copy_from_slice(&self.length.to_le_bytes());
+		value[16..24].copy_from_slice(&self.stream_position.to_le_bytes());
+
+		value
+	}
+}
+
+impl tangram_cache::log::Cache for Cache {
+	async fn delete_log_cache_entry(
+		&self,
+		arg: tangram_cache::log::cache::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_log_cache_entry(arg).await
+	}
+
+	async fn get_log_cache_entries(
+		&self,
+		arg: tangram_cache::log::cache::get::Arg,
+	) -> tg::Result<Vec<tangram_cache::log::cache::Entry>> {
+		self.get_log_cache_entries(arg).await
+	}
+
+	async fn put_log_cache_entry(
+		&self,
+		arg: tangram_cache::log::cache::put::Arg,
+	) -> tg::Result<()> {
+		self.put_log_cache_entry(arg).await
+	}
+
+	async fn delete_log(&self, arg: tangram_cache::log::delete::Arg) -> tg::Result<()> {
+		self.delete_log(arg).await?;
+		Ok(())
+	}
+
+	async fn put_log(&self, arg: tangram_cache::log::put::Arg) -> tg::Result<()> {
+		self.put_log(arg).await?;
+		Ok(())
+	}
+
+	async fn put_log_batch(&self, args: Vec<tangram_cache::log::put::Arg>) -> tg::Result<()> {
+		self.put_log_batch(args).await?;
+		Ok(())
+	}
+
+	async fn put_log_end(&self, arg: tangram_cache::log::end::Arg) -> tg::Result<()> {
+		self.put_log_end(arg).await?;
+		Ok(())
+	}
+
+	async fn try_get_log_end(
+		&self,
+		process: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::log::End>> {
+		self.try_get_log_end(process).await
+	}
+
+	async fn try_get_log_length(
+		&self,
+		arg: tangram_cache::log::length::Arg,
+	) -> tg::Result<Option<u64>> {
+		self.try_get_log_length(arg).await
+	}
+
+	async fn try_read_log(
+		&self,
+		arg: tangram_cache::log::read::Arg,
+	) -> tg::Result<Vec<tangram_cache::log::read::Entry<'static>>> {
+		self.try_read_log(arg).await
 	}
 }

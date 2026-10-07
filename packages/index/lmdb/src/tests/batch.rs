@@ -2,7 +2,7 @@ use {
 	super::{super::Index, new_index},
 	std::str::FromStr as _,
 	tangram_client::prelude::*,
-	tangram_index::Index as _,
+	tangram_index::prelude::*,
 };
 
 fn try_get_group(index: &Index, id: &tg::group::Id) -> Option<tangram_index::group::Group> {

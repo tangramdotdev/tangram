@@ -5,8 +5,7 @@ use {
 	radix_trie::TrieCommon as _,
 	std::{
 		collections::{BTreeMap, BTreeSet, HashMap},
-		path::Path,
-		path::PathBuf,
+		path::{Path, PathBuf},
 	},
 	tangram_client::prelude::*,
 };
@@ -626,8 +625,8 @@ where
 	async fn visit_blob(
 		&mut self,
 		_instance: &I,
-		blob: tangram_client::Referent<&tangram_client::Blob>,
-	) -> tangram_client::Result<bool> {
+		blob: tg::Referent<&tg::Blob>,
+	) -> tg::Result<bool> {
 		if let Some(tag) = blob.tag() {
 			let node = blob.clone().map(|blob| blob.id().into());
 			self.tags.push((tag.clone(), node));
@@ -744,8 +743,8 @@ where
 	async fn visit_command(
 		&mut self,
 		_instance: &I,
-		command: tangram_client::Referent<&tangram_client::Command>,
-	) -> tangram_client::Result<bool> {
+		command: tg::Referent<&tg::Command>,
+	) -> tg::Result<bool> {
 		if let Some(tag) = command.tag() {
 			let node = command.clone().map(|command| command.id().into());
 			self.tags.push((tag.clone(), node));
@@ -756,8 +755,8 @@ where
 	async fn visit_graph(
 		&mut self,
 		_instance: &I,
-		graph: tangram_client::Referent<&tangram_client::Graph>,
-	) -> tangram_client::Result<bool> {
+		graph: tg::Referent<&tg::Graph>,
+	) -> tg::Result<bool> {
 		if let Some(tag) = graph.tag() {
 			let node = graph.clone().map(|graph| graph.id().into());
 			self.tags.push((tag.clone(), node));

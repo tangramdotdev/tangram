@@ -1,13 +1,516 @@
-use {std::borrow::Cow, tangram_client::prelude::*};
+use {
+	crate::{
+		Cache, Key as CacheKey, Kind,
+		object::{self as fjall_object, delete::Request, put::Request as PutRequest},
+	},
+	foundationdb_tuple::{self as fdbt, TuplePack as _},
+	num::ToPrimitive as _,
+	std::borrow::Cow,
+	tangram_cache::object,
+	tangram_client::prelude::*,
+};
 
 mod key;
 
 pub(super) use key::Key;
 
+pub(super) mod delete;
+pub(super) mod put;
+
 #[derive(tangram_serialize::Deserialize, tangram_serialize::Serialize)]
 pub(super) struct Value<'a> {
 	#[tangram_serialize(id = 0)]
 	pub object: tangram_cache::object::Object<'a>,
+}
+
+impl Cache {
+	pub(super) async fn contains_object(&self, arg: object::contains::Arg) -> tg::Result<bool> {
+		let arg = object::get::Arg {
+			bytes: false,
+			id: arg.id,
+			put: Some(arg.put),
+		};
+		let output = self.try_get_object(arg).await?;
+
+		Ok(output.object.is_some())
+	}
+
+	pub async fn delete_object_cache_entry(
+		&self,
+		arg: object::cache::delete::Arg,
+	) -> tg::Result<()> {
+		let request = crate::request::Request::DeleteObjectCacheEntry(arg);
+		self.send_write_request(request).await?;
+		Ok(())
+	}
+
+	pub(super) async fn delete_object(&self, arg: object::delete::Arg) -> tg::Result<()> {
+		let request = crate::request::Request::DeleteObject(Request {
+			id: arg.id,
+			put: arg.put,
+		});
+		self.send_write_request(request).await?;
+		Ok(())
+	}
+
+	pub(super) async fn delete_object_batch(
+		&self,
+		args: Vec<object::delete::Arg>,
+	) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let request = crate::request::Request::DeleteObjectBatch(
+			args.into_iter()
+				.map(|arg| Request {
+					id: arg.id,
+					put: arg.put,
+				})
+				.collect(),
+		);
+
+		self.send_write_request(request).await?;
+		Ok(())
+	}
+
+	pub async fn get_object_cache_entries(
+		&self,
+		arg: object::cache::get::Arg,
+	) -> tg::Result<Vec<object::cache::Entry>> {
+		let request = crate::read::Request::GetObjectCacheEntries(arg);
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::GetObjectCacheEntries(output) = response else {
+			return Err(tg::error!("received an unexpected read response"));
+		};
+		Ok(output)
+	}
+
+	pub async fn put_object_cache_entry(&self, arg: object::cache::put::Arg) -> tg::Result<()> {
+		let request = crate::request::Request::PutObjectCacheEntry(arg);
+		self.send_write_request(request).await?;
+		Ok(())
+	}
+
+	pub async fn put_object_cache_entry_with_object(
+		&self,
+		arg: object::cache::put::object::Arg,
+	) -> tg::Result<()> {
+		let request = crate::request::Request::PutObjectCacheEntryWithObject(arg);
+		self.send_write_request(request).await?;
+		Ok(())
+	}
+
+	pub(super) async fn put_object(&self, arg: object::put::Arg) -> tg::Result<()> {
+		let request = crate::request::Request::PutObject(PutRequest {
+			bytes: arg.bytes,
+			checkout_pointer: arg.checkout_pointer,
+			id: arg.id,
+			length: arg.length,
+			put: arg.put,
+		});
+		self.send_write_request(request).await?;
+		Ok(())
+	}
+
+	pub(super) async fn put_object_batch(&self, args: Vec<object::put::Arg>) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let request = crate::request::Request::PutObjectBatch(
+			args.into_iter()
+				.map(|arg| PutRequest {
+					bytes: arg.bytes,
+					checkout_pointer: arg.checkout_pointer,
+					id: arg.id,
+					length: arg.length,
+					put: arg.put,
+				})
+				.collect(),
+		);
+
+		self.send_write_request(request).await?;
+		Ok(())
+	}
+
+	pub(super) async fn try_get_object(
+		&self,
+		arg: object::get::Arg,
+	) -> tg::Result<object::get::Output> {
+		let request = crate::read::Request::TryGetObject(arg);
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetObject(output) = response else {
+			return Err(tg::error!("received an unexpected read response"));
+		};
+		Ok(output)
+	}
+
+	pub(super) async fn try_get_object_batch(
+		&self,
+		arg: object::get::batch::Arg,
+	) -> tg::Result<Vec<object::get::Output>> {
+		if arg.ids.is_empty() {
+			return Ok(vec![]);
+		}
+		let request = crate::read::Request::TryGetObjectBatch(arg);
+		let response = self.send_read_request(request).await?;
+		let crate::read::Response::TryGetObjectBatch(output) = response else {
+			return Err(tg::error!("received an unexpected read response"));
+		};
+
+		Ok(output)
+	}
+
+	pub(super) fn delete_object_cache_entry_with_transaction(
+		transaction: &mut crate::transaction::Transaction<'_>,
+		arg: object::cache::delete::Arg,
+	) -> tg::Result<()> {
+		let entry = arg.entry;
+		let object_key = CacheKey::Object(fjall_object::Key::Object(&entry.id)).pack_to_vec();
+		let value = transaction
+			.get(&object_key)
+			.map_err(|error| tg::error!(!error, id = %entry.id, "failed to get the object"))?
+			.map(|bytes| fjall_object::Value::deserialize(&bytes))
+			.transpose()
+			.map_err(
+				|error| tg::error!(!error, id = %entry.id, "failed to deserialize the object"),
+			)?;
+		if value.is_some_and(|value| value.object.put == entry.put) {
+			transaction.delete(&object_key).map_err(
+				|error| tg::error!(!error, id = %entry.id, "failed to delete the object"),
+			)?;
+		}
+		let key = CacheKey::ObjectCache(entry).pack_to_vec();
+		transaction
+			.delete(&key)
+			.map_err(|error| tg::error!(!error, "failed to delete an object cache entry"))?;
+
+		Ok(())
+	}
+
+	pub(super) fn get_object_cache_entries_with_transaction(
+		transaction: &crate::transaction::Transaction<'_>,
+		arg: &object::cache::get::Arg,
+	) -> tg::Result<Vec<object::cache::Entry>> {
+		let prefix = fdbt::pack(&(Kind::ObjectCache.to_i32().unwrap(), arg.partition));
+		let entries = transaction.prefix_iter(&prefix);
+		entries
+			.take(arg.batch_size)
+			.map(|entry| {
+				let (key, value) = entry
+					.map_err(|error| tg::error!(!error, "failed to get an object cache entry"))?;
+				let (_, partition, cache): (i32, u64, Vec<u8>) = fdbt::unpack(&key)
+					.map_err(|error| tg::error!(!error, "failed to unpack an object cache key"))?;
+				let (id, put): (Vec<u8>, Vec<u8>) = fdbt::unpack(&value).map_err(|error| {
+					tg::error!(!error, "failed to unpack an object cache value")
+				})?;
+				let cache = cache
+					.try_into()
+					.map_err(|_| tg::error!("the object cache id is invalid"))?;
+				let id = tg::object::Id::from_slice(&id)?;
+				let put = put
+					.try_into()
+					.map_err(|_| tg::error!("the object cache put is invalid"))?;
+				let entry = object::cache::Entry {
+					cache,
+					id,
+					partition,
+					put,
+				};
+
+				Ok(entry)
+			})
+			.collect()
+	}
+
+	pub(super) fn put_object_cache_entry_with_transaction(
+		transaction: &mut crate::transaction::Transaction<'_>,
+		arg: object::cache::put::Arg,
+	) -> tg::Result<()> {
+		let entry = object::cache::Entry {
+			cache: arg.cache,
+			id: arg.id,
+			partition: arg.partition,
+			put: arg.put,
+		};
+		let id = entry.id.to_bytes();
+		let value = fdbt::pack(&(id.as_ref(), entry.put.as_slice()));
+		let key = CacheKey::ObjectCache(entry).pack_to_vec();
+		transaction
+			.put(&key, &value)
+			.map_err(|error| tg::error!(!error, "failed to put an object cache entry"))?;
+
+		Ok(())
+	}
+
+	pub(super) fn put_object_cache_entry_with_object_with_transaction(
+		transaction: &mut crate::transaction::Transaction<'_>,
+		arg: object::cache::put::object::Arg,
+	) -> tg::Result<()> {
+		let object = arg.object;
+		let entry = object::cache::Entry {
+			cache: arg.cache,
+			id: object.id.clone(),
+			partition: arg.partition,
+			put: object.put,
+		};
+		let id = entry.id.to_bytes();
+		let entry_value = fdbt::pack(&(id.as_ref(), entry.put.as_slice()));
+		let key = CacheKey::ObjectCache(entry).pack_to_vec();
+		transaction
+			.put(&key, &entry_value)
+			.map_err(|error| tg::error!(!error, "failed to put an object cache entry"))?;
+
+		let key = CacheKey::Object(fjall_object::Key::Object(&object.id)).pack_to_vec();
+		let previous = transaction
+			.get(&key)
+			.map_err(|error| tg::error!(!error, id = %object.id, "failed to get the object"))?
+			.map(|bytes| fjall_object::Value::deserialize(&bytes))
+			.transpose()
+			.map_err(
+				|error| tg::error!(!error, id = %object.id, "failed to deserialize the object"),
+			)?;
+		if previous
+			.as_ref()
+			.is_some_and(|previous| previous.object.put > object.put)
+		{
+			return Ok(());
+		}
+		let value = object::Object {
+			bytes: object.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
+			checkout_pointer: object.checkout_pointer,
+			length: object.length,
+			put: object.put,
+		};
+		let value = fjall_object::Value::new(value).serialize()?;
+		transaction
+			.put(&key, &value)
+			.map_err(|error| tg::error!(!error, id = %object.id, "failed to put the object"))?;
+
+		Ok(())
+	}
+
+	pub fn delete_object_sync(&self, arg: object::delete::Arg) -> tg::Result<()> {
+		let mut transaction = self.db.write_transaction();
+		let request = Request {
+			id: arg.id,
+			put: arg.put,
+		};
+		Self::delete_inner_with_transaction(&mut transaction, request)?;
+		transaction
+			.commit()
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
+	pub fn delete_object_batch_sync(&self, args: Vec<object::delete::Arg>) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let mut transaction = self.db.write_transaction();
+		for arg in args {
+			let request = Request {
+				id: arg.id,
+				put: arg.put,
+			};
+			Self::delete_inner_with_transaction(&mut transaction, request)?;
+		}
+		transaction
+			.commit()
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
+	#[expect(clippy::needless_pass_by_value)]
+	pub(super) fn delete_inner_with_transaction(
+		transaction: &mut crate::transaction::Transaction<'_>,
+		request: Request,
+	) -> tg::Result<()> {
+		let id = &request.id;
+		let key = CacheKey::Object(fjall_object::Key::Object(id));
+		let key_bytes = key.pack_to_vec();
+
+		let Some(bytes) = transaction
+			.get(&key_bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+		else {
+			return Ok(());
+		};
+		let value = fjall_object::Value::deserialize(&bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
+		if value.object.put == request.put {
+			transaction
+				.delete(&key_bytes)
+				.map_err(|error| tg::error!(!error, %id, "failed to delete the object"))?;
+		}
+
+		Ok(())
+	}
+
+	pub fn try_get_object_sync(&self, arg: &object::get::Arg) -> tg::Result<object::get::Output> {
+		let transaction = self.db.read_transaction();
+		self.try_get_object_with_transaction(&transaction, arg)
+	}
+
+	pub fn try_get_object_with_transaction(
+		&self,
+		transaction: &crate::transaction::Transaction<'_>,
+		arg: &object::get::Arg,
+	) -> tg::Result<object::get::Output> {
+		Self::try_get_object_with_arg_with_transaction(transaction, arg)
+	}
+
+	pub(super) fn try_get_object_with_arg_with_transaction(
+		transaction: &crate::transaction::Transaction<'_>,
+		arg: &object::get::Arg,
+	) -> tg::Result<object::get::Output> {
+		let object =
+			Self::try_get_object_with_bytes_with_transaction(transaction, &arg.id, arg.bytes)?;
+		let object = object.filter(|object| arg.put.is_none_or(|put| object.put == put));
+		Ok(object::get::Output { object })
+	}
+
+	fn try_get_object_with_bytes_with_transaction(
+		transaction: &crate::transaction::Transaction<'_>,
+		id: &tg::object::Id,
+		include_bytes: bool,
+	) -> tg::Result<Option<object::Object<'static>>> {
+		let key = CacheKey::Object(fjall_object::Key::Object(id));
+		let key_bytes = key.pack_to_vec();
+		let Some(bytes) = transaction
+			.get(&key_bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+		else {
+			return Ok(None);
+		};
+		let value = fjall_object::Value::deserialize_with_bytes(&bytes, include_bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
+		Ok(Some(value.object))
+	}
+
+	pub fn try_get_object_batch_sync(
+		&self,
+		arg: &object::get::batch::Arg,
+	) -> tg::Result<Vec<object::get::Output>> {
+		let transaction = self.db.read_transaction();
+		Self::try_get_object_batch_with_transaction(&transaction, arg)
+	}
+
+	pub(super) fn try_get_object_batch_with_transaction(
+		transaction: &crate::transaction::Transaction<'_>,
+		arg: &object::get::batch::Arg,
+	) -> tg::Result<Vec<object::get::Output>> {
+		let mut outputs = Vec::with_capacity(arg.ids.len());
+		for id in &arg.ids {
+			let object =
+				Self::try_get_object_with_bytes_with_transaction(transaction, id, arg.bytes)?;
+			let output = object::get::Output { object };
+			outputs.push(output);
+		}
+
+		Ok(outputs)
+	}
+
+	pub fn try_get_object_data_sync(
+		&self,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<(u64, tg::object::Data)>> {
+		let transaction = self.db.read_transaction();
+		self.try_get_object_data_with_transaction(&transaction, id)
+	}
+
+	pub fn try_get_object_data_with_transaction(
+		&self,
+		transaction: &crate::transaction::Transaction<'_>,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<(u64, tg::object::Data)>> {
+		let kind = id.kind();
+		let Some(value) = Self::try_get_object_inner_with_transaction(transaction, id)? else {
+			return Ok(None);
+		};
+		let Some(bytes) = value.bytes else {
+			return Ok(None);
+		};
+		let size = bytes.len().to_u64().unwrap();
+		let data = tg::object::Data::deserialize(kind, &*bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object data"))?;
+		Ok(Some((size, data)))
+	}
+
+	pub(super) fn try_get_object_inner_with_transaction(
+		transaction: &crate::transaction::Transaction<'_>,
+		id: &tg::object::Id,
+	) -> tg::Result<Option<object::Object<'static>>> {
+		Self::try_get_object_with_bytes_with_transaction(transaction, id, true)
+	}
+
+	pub fn put_object_sync(&self, arg: object::put::Arg) -> tg::Result<()> {
+		let mut transaction = self.db.write_transaction();
+		let request = PutRequest {
+			bytes: arg.bytes,
+			checkout_pointer: arg.checkout_pointer,
+			id: arg.id,
+			length: arg.length,
+			put: arg.put,
+		};
+		Self::put_inner_with_transaction(&mut transaction, request)?;
+		transaction
+			.commit()
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
+	pub fn put_object_batch_sync(&self, args: Vec<object::put::Arg>) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let mut transaction = self.db.write_transaction();
+		for arg in args {
+			let request = PutRequest {
+				bytes: arg.bytes,
+				checkout_pointer: arg.checkout_pointer,
+				id: arg.id,
+				length: arg.length,
+				put: arg.put,
+			};
+			Self::put_inner_with_transaction(&mut transaction, request)?;
+		}
+		transaction
+			.commit()
+			.map_err(|error| tg::error!(!error, "failed to commit the transaction"))?;
+		Ok(())
+	}
+
+	pub(super) fn put_inner_with_transaction(
+		transaction: &mut crate::transaction::Transaction<'_>,
+		request: PutRequest,
+	) -> tg::Result<()> {
+		let id = &request.id;
+		let key = CacheKey::Object(fjall_object::Key::Object(id));
+		let key_bytes = key.pack_to_vec();
+		let previous = transaction
+			.get(&key_bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to get the object"))?
+			.map(|bytes| crate::object::Value::deserialize(&bytes))
+			.transpose()
+			.map_err(|error| tg::error!(!error, %id, "failed to deserialize the object"))?;
+		if previous.is_some_and(|object| object.object.put > request.put) {
+			return Ok(());
+		}
+
+		let value = object::Object {
+			bytes: request.bytes.map(|bytes| Cow::Owned(bytes.to_vec())),
+			checkout_pointer: request.checkout_pointer,
+			length: request.length,
+			put: request.put,
+		};
+		let value = crate::object::Value::new(value);
+		let value_bytes = value.serialize()?;
+		transaction
+			.put(&key_bytes, &value_bytes)
+			.map_err(|error| tg::error!(!error, %id, "failed to put the object"))?;
+
+		Ok(())
+	}
 }
 
 impl Value<'_> {
@@ -52,5 +555,79 @@ impl Value<'static> {
 		let object = value.object.into_static();
 
 		Ok(Self { object })
+	}
+}
+
+impl tangram_cache::object::Cache for Cache {
+	async fn contains_object(&self, arg: tangram_cache::object::contains::Arg) -> tg::Result<bool> {
+		self.contains_object(arg).await
+	}
+
+	async fn delete_object_cache_entry(
+		&self,
+		arg: tangram_cache::object::cache::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_object_cache_entry(arg).await?;
+		Ok(())
+	}
+
+	async fn delete_object(&self, arg: tangram_cache::object::delete::Arg) -> tg::Result<()> {
+		self.delete_object(arg).await?;
+		Ok(())
+	}
+
+	async fn delete_object_batch(
+		&self,
+		args: Vec<tangram_cache::object::delete::Arg>,
+	) -> tg::Result<()> {
+		self.delete_object_batch(args).await?;
+		Ok(())
+	}
+
+	async fn get_object_cache_entries(
+		&self,
+		arg: tangram_cache::object::cache::get::Arg,
+	) -> tg::Result<Vec<tangram_cache::object::cache::Entry>> {
+		self.get_object_cache_entries(arg).await
+	}
+
+	async fn put_object_cache_entry(
+		&self,
+		arg: tangram_cache::object::cache::put::Arg,
+	) -> tg::Result<()> {
+		self.put_object_cache_entry(arg).await?;
+		Ok(())
+	}
+
+	async fn put_object_cache_entry_with_object(
+		&self,
+		arg: tangram_cache::object::cache::put::object::Arg,
+	) -> tg::Result<()> {
+		self.put_object_cache_entry_with_object(arg).await?;
+		Ok(())
+	}
+
+	async fn put_object(&self, arg: tangram_cache::object::put::Arg) -> tg::Result<()> {
+		self.put_object(arg).await?;
+		Ok(())
+	}
+
+	async fn put_object_batch(&self, args: Vec<tangram_cache::object::put::Arg>) -> tg::Result<()> {
+		self.put_object_batch(args).await?;
+		Ok(())
+	}
+
+	async fn try_get_object(
+		&self,
+		arg: tangram_cache::object::get::Arg,
+	) -> tg::Result<tangram_cache::object::get::Output> {
+		self.try_get_object(arg).await
+	}
+
+	async fn try_get_object_batch(
+		&self,
+		arg: tangram_cache::object::get::batch::Arg,
+	) -> tg::Result<Vec<tangram_cache::object::get::Output>> {
+		self.try_get_object_batch(arg).await
 	}
 }

@@ -5,10 +5,8 @@ use {
 		collections::{BTreeMap, BTreeSet},
 		ops::ControlFlow,
 	},
-	tangram_cache::Cache as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
-	tangram_index::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 

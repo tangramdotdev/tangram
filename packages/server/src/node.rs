@@ -1,6 +1,6 @@
 use {
 	crate::Session, futures::TryStreamExt as _, std::pin::pin, tangram_client::prelude::*,
-	tangram_futures::stream::TryExt as _, tangram_index::Index as _,
+	tangram_futures::stream::TryExt as _, tangram_index::prelude::*,
 };
 
 mod named;

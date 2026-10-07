@@ -6,24 +6,6 @@ use {
 };
 
 impl Index {
-	pub async fn try_get_groups(
-		&self,
-		ids: &[tg::group::Id],
-	) -> tg::Result<Vec<Option<tangram_index::group::Group>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let request = tangram_index::read::Request::TryGetGroups {
-			ids: ids.to_owned(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetGroups(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) fn try_get_groups_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

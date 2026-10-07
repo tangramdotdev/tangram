@@ -1,5 +1,5 @@
 use {
-	crate::{Index, Key, Kind, Request, Response},
+	crate::{Index, Key, Kind},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	num::ToPrimitive as _,
 	std::ops::ControlFlow,
@@ -8,43 +8,6 @@ use {
 };
 
 impl Index {
-	pub async fn permission_capture_batch(
-		&self,
-		batch_size: usize,
-		partition_start: u64,
-		partition_end: u64,
-	) -> tg::Result<Vec<Entry>> {
-		let request = tangram_index::read::Request::PermissionCaptureBatch {
-			batch_size,
-			partition_end,
-			partition_start,
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::PermissionCaptureBatch(entries) = response else {
-			return Err(tg::error!("unexpected permission capture batch response"));
-		};
-		Ok(entries)
-	}
-
-	pub async fn enqueue_permission_capture(&self, arg: enqueue::Arg) -> tg::Result<()> {
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::EnqueuePermissionCapture(arg)],
-		};
-		self.batch(arg).await??;
-		Ok(())
-	}
-
-	pub async fn complete_permission_capture(&self, entry: &Entry) -> tg::Result<()> {
-		let request = Request::CompletePermissionCapture(entry.clone());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!(
-				"unexpected permission capture completion response"
-			));
-		};
-		Ok(())
-	}
-
 	pub(crate) async fn enqueue_permission_capture_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,

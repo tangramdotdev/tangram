@@ -2,7 +2,7 @@ use {
 	super::super::{Config, Index},
 	std::collections::BTreeSet,
 	tangram_client::prelude::*,
-	tangram_index::Index as _,
+	tangram_index::prelude::*,
 };
 
 fn object_id(value: u64) -> tg::object::Id {

@@ -13,16 +13,14 @@ use {
 			atomic::{AtomicBool, Ordering},
 		},
 	},
-	tangram_client::{
-		prelude::*,
-		process::stdio::{Stream, flow, write},
-	},
+	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
 		response::{Ext as _, builder::Ext as _},
 	},
+	tg::process::stdio::{Stream, flow, write},
 	tokio::sync::{mpsc, oneshot},
 	tokio_stream::wrappers::ReceiverStream,
 };

@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Db, Index, Key, Kind, Request, Response,
+		Db, Index, Key, Kind,
 		permission::{PermissionIndexEntry, PermissionSource, PermissionValue},
 	},
 	foundationdb_tuple as fdbt, heed as lmdb,
@@ -9,22 +9,6 @@ use {
 };
 
 impl Index {
-	pub async fn delete_permissions(
-		&self,
-		args: &[tangram_index::permission::delete::Arg],
-	) -> tg::Result<()> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		let request = Request::DeletePermissions(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(())
-	}
-
 	pub(crate) fn delete_subject_permissions_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

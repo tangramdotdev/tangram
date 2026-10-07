@@ -4,8 +4,9 @@ use {
 	num::ToPrimitive as _,
 	sourcemap::SourceMap,
 	std::collections::BTreeMap,
-	tangram_client::{Either, prelude::*},
+	tangram_client::prelude::*,
 	tangram_v8::{Deserialize as _, Serde, Serialize as _},
+	tg::Either,
 };
 
 pub(super) fn to_exception<'s>(

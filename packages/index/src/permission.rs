@@ -42,6 +42,35 @@ pub fn is_process_direct(
 		)
 }
 
+pub trait Index {
+	fn enqueue_permission_capture(
+		&self,
+		arg: crate::permission::capture::enqueue::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn permission_capture_batch(
+		&self,
+		batch_size: usize,
+		partition_start: u64,
+		partition_end: u64,
+	) -> impl Future<Output = tg::Result<Vec<crate::permission::capture::Entry>>> + Send;
+
+	fn complete_permission_capture(
+		&self,
+		entry: &crate::permission::capture::Entry,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn put_permissions(
+		&self,
+		args: &[crate::permission::put::Arg],
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn delete_permissions(
+		&self,
+		args: &[crate::permission::delete::Arg],
+	) -> impl Future<Output = tg::Result<()>> + Send;
+}
+
 impl Fact {
 	#[must_use]
 	pub fn is_process_direct(&self) -> bool {

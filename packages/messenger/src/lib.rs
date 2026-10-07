@@ -1,5 +1,3 @@
-use std::future::Future;
-
 pub use self::payload::Payload;
 
 pub mod either;

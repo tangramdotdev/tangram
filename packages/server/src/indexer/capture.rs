@@ -4,10 +4,7 @@ use {
 	std::collections::BTreeMap,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
-	tangram_index::{
-		Index as _,
-		permission::capture::{Entry, enqueue},
-	},
+	tangram_index::permission::capture::{Entry, enqueue},
 };
 
 impl Indexer {

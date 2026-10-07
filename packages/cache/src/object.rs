@@ -23,6 +23,63 @@ pub struct Object<'a> {
 	pub put: [u8; 16],
 }
 
+pub trait Cache {
+	fn contains_object(
+		&self,
+		arg: crate::object::contains::Arg,
+	) -> impl Future<Output = tg::Result<bool>> + Send;
+
+	fn delete_object_cache_entry(
+		&self,
+		arg: crate::object::cache::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn delete_object(
+		&self,
+		arg: crate::object::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn delete_object_batch(
+		&self,
+		args: Vec<crate::object::delete::Arg>,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn get_object_cache_entries(
+		&self,
+		arg: crate::object::cache::get::Arg,
+	) -> impl Future<Output = tg::Result<Vec<crate::object::cache::Entry>>> + Send;
+
+	fn put_object_cache_entry(
+		&self,
+		arg: crate::object::cache::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn put_object_cache_entry_with_object(
+		&self,
+		arg: crate::object::cache::put::object::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn put_object(
+		&self,
+		arg: crate::object::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn put_object_batch(
+		&self,
+		args: Vec<crate::object::put::Arg>,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_get_object(
+		&self,
+		arg: crate::object::get::Arg,
+	) -> impl Future<Output = tg::Result<crate::object::get::Output>> + Send;
+
+	fn try_get_object_batch(
+		&self,
+		arg: crate::object::get::batch::Arg,
+	) -> impl Future<Output = tg::Result<Vec<crate::object::get::Output>>> + Send;
+}
+
 impl Object<'_> {
 	pub fn serialize(&self) -> tg::Result<Bytes> {
 		let mut bytes = Vec::new();

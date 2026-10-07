@@ -110,28 +110,28 @@ impl Session {
 		progress.start(
 			"checkouts".into(),
 			"checkouts".into(),
-			tangram_client::progress::IndicatorFormat::Normal,
+			tg::progress::IndicatorFormat::Normal,
 			Some(0),
 			None,
 		);
 		progress.start(
 			"objects".into(),
 			"objects".into(),
-			tangram_client::progress::IndicatorFormat::Normal,
+			tg::progress::IndicatorFormat::Normal,
 			Some(0),
 			None,
 		);
 		progress.start(
 			"processes".into(),
 			"processes".into(),
-			tangram_client::progress::IndicatorFormat::Normal,
+			tg::progress::IndicatorFormat::Normal,
 			Some(0),
 			None,
 		);
 		progress.start(
 			"sandboxes".into(),
 			"sandboxes".into(),
-			tangram_client::progress::IndicatorFormat::Normal,
+			tg::progress::IndicatorFormat::Normal,
 			Some(0),
 			None,
 		);

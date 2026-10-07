@@ -7,7 +7,6 @@ use {
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tangram_index::prelude::*,
 };
 
 #[derive(serde::Deserialize, serde::Serialize)]

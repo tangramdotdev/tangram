@@ -2320,7 +2320,7 @@ impl vfs::Provider for Inner {
 	fn handle_batch(
 		&self,
 		requests: Vec<vfs::Request>,
-	) -> impl std::future::Future<Output = Vec<std::io::Result<vfs::Response>>> + Send {
+	) -> impl Future<Output = Vec<std::io::Result<vfs::Response>>> + Send {
 		Inner::handle_batch(self, requests)
 	}
 

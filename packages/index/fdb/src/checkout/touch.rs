@@ -1,5 +1,5 @@
 use {
-	crate::{Index, Key, Request, Response},
+	crate::{Index, Key},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	futures::future,
@@ -8,27 +8,6 @@ use {
 };
 
 impl Index {
-	pub async fn touch_checkouts(
-		&self,
-		ids: &[tg::Id],
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::checkout::Checkout>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let request = Request::TouchCheckouts(crate::TouchCheckouts {
-			ids: ids.to_vec(),
-			time_to_touch,
-			touched_at,
-		});
-		let response = self.send_write_request(request).await?;
-		let Response::Checkouts(checkouts) = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-		Ok(checkouts)
-	}
-
 	pub(crate) async fn touch_checkouts_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,

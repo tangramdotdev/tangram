@@ -12,7 +12,6 @@ use {
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,
 	},
-	tangram_index::Index as _,
 	tangram_messenger::prelude::*,
 	tokio_stream::wrappers::{IntervalStream, ReceiverStream},
 };

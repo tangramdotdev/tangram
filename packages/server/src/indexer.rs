@@ -7,7 +7,6 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Shared as SharedTask, Stopper, Task},
-	tangram_index::Index as _,
 };
 
 mod billing;

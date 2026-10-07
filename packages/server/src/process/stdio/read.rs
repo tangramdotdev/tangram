@@ -6,7 +6,6 @@ use {
 	},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, io::SeekFrom, time::Duration},
-	tangram_cache::Cache as _,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{

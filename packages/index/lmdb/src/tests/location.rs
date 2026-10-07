@@ -1,4 +1,4 @@
-use {super::new_index, tangram_client::prelude::*, tangram_index::Index as _};
+use {super::new_index, tangram_client::prelude::*, tangram_index::prelude::*};
 
 #[tokio::test]
 async fn process_location_survives_partial_and_finished_updates() {

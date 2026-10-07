@@ -1,4 +1,4 @@
-use tangram_client::prelude::*;
+use {futures::FutureExt as _, tangram_client::prelude::*};
 
 pub mod put;
 
@@ -17,6 +17,66 @@ pub struct Sandbox {
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]
 pub struct Set {
 	pub processes: bool,
+}
+
+pub trait Index {
+	fn list_sandboxes_for_creator(
+		&self,
+		creator: &tg::Principal,
+	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+
+	fn list_sandboxes_for_owner(
+		&self,
+		owner: &tg::Principal,
+	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+
+	fn get_runner_sandboxes(
+		&self,
+		runner: &tg::runner::Id,
+	) -> impl Future<Output = tg::Result<Vec<tg::sandbox::Id>>> + Send;
+
+	fn try_get_sandbox_processes_count(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<Option<u64>>> + Send;
+
+	fn try_get_sandbox_processes(
+		&self,
+		id: &tg::sandbox::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> impl Future<Output = tg::Result<Option<Vec<tg::process::Id>>>> + Send;
+
+	fn get_sandbox_processes(
+		&self,
+		id: &tg::sandbox::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> impl Future<Output = tg::Result<Vec<tg::process::Id>>> + Send {
+		self.try_get_sandbox_processes(id, position, length)
+			.map(|result| {
+				result.and_then(|option| {
+					option.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))
+				})
+			})
+	}
+
+	fn list_sandboxes(
+		&self,
+	) -> impl Future<Output = tg::Result<Vec<(tg::sandbox::Id, crate::sandbox::Sandbox)>>> + Send;
+
+	fn try_get_sandboxes(
+		&self,
+		ids: &[tg::sandbox::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::sandbox::Sandbox>>>> + Send;
+
+	fn try_get_sandbox(
+		&self,
+		id: &tg::sandbox::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::sandbox::Sandbox>>> + Send {
+		self.try_get_sandboxes(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
 }
 
 impl Sandbox {

@@ -13,7 +13,7 @@ impl crate::Provider for TestProvider {
 	fn handle_batch(
 		&self,
 		requests: Vec<Request>,
-	) -> impl std::future::Future<Output = Vec<crate::Result<Response>>> + Send {
+	) -> impl Future<Output = Vec<crate::Result<Response>>> + Send {
 		async move {
 			requests
 				.into_iter()
@@ -29,10 +29,7 @@ impl crate::Provider for TestProvider {
 			.collect()
 	}
 
-	fn listxattrs(
-		&self,
-		_id: u64,
-	) -> impl std::future::Future<Output = crate::Result<Vec<String>>> + Send
+	fn listxattrs(&self, _id: u64) -> impl Future<Output = crate::Result<Vec<String>>> + Send
 	where
 		Self: Sync,
 	{
@@ -45,7 +42,7 @@ impl crate::Provider for TestProvider {
 		_handle: u64,
 		offset: u64,
 		_length: u64,
-	) -> impl std::future::Future<Output = crate::Result<Vec<(String, u64, crate::EntryKind)>>> + Send
+	) -> impl Future<Output = crate::Result<Vec<(String, u64, crate::EntryKind)>>> + Send
 	where
 		Self: Sync,
 	{

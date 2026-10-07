@@ -1,39 +1,10 @@
 use {
-	crate::{Db, Index, Key, Request, Response},
+	crate::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
 impl Index {
-	pub async fn delete_groups(&self, ids: &[tg::group::Id]) -> tg::Result<()> {
-		if ids.is_empty() {
-			return Ok(());
-		}
-		let request = Request::DeleteGroups(ids.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(())
-	}
-
-	pub async fn delete_group_members(
-		&self,
-		args: &[tangram_index::group::member::delete::Arg],
-	) -> tg::Result<()> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		let request = Request::DeleteGroupMembers(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(())
-	}
-
 	pub(crate) fn delete_groups_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

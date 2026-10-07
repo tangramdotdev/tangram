@@ -3,7 +3,7 @@ use {
 	std::sync::{Arc, RwLock},
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
-	tangram_index::{self as index, Index as _},
+	tangram_index as index,
 };
 
 #[derive(Clone, Default)]

@@ -1,4 +1,7 @@
-use {bytes::Bytes, serde_with::serde_as, tangram_util::serde::BytesBase64};
+use {
+	bytes::Bytes, serde_with::serde_as, tangram_client::prelude::*,
+	tangram_util::serde::BytesBase64,
+};
 
 pub mod read;
 pub mod write;
@@ -9,5 +12,5 @@ pub struct Chunk {
 	#[serde_as(as = "BytesBase64")]
 	pub bytes: Bytes,
 
-	pub stream: tangram_client::process::stdio::Stream,
+	pub stream: tg::process::stdio::Stream,
 }

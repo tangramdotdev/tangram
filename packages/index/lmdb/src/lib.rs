@@ -1,5 +1,5 @@
 use {
-	self::{
+	crate::{
 		request::{Clean, Request, TouchCheckouts, TouchObjects, TouchProcesses, Update},
 		response::Response,
 	},
@@ -237,11 +237,6 @@ impl Index {
 		.map_err(|error| tg::error!(!error, "failed to join the task"))??;
 		Ok(())
 	}
-
-	#[must_use]
-	pub fn usage_partition_total(&self) -> u64 {
-		self.usage_partition_total
-	}
 }
 
 impl Drop for Index {
@@ -260,66 +255,6 @@ impl Drop for Index {
 }
 
 impl tangram_index::Index for Index {
-	async fn enqueue_permission_capture(
-		&self,
-		arg: tangram_index::permission::capture::enqueue::Arg,
-	) -> tg::Result<()> {
-		self.enqueue_permission_capture(arg).await
-	}
-
-	async fn permission_capture_batch(
-		&self,
-		batch_size: usize,
-		partition_start: u64,
-		partition_end: u64,
-	) -> tg::Result<Vec<tangram_index::permission::capture::Entry>> {
-		self.permission_capture_batch(batch_size, partition_start, partition_end)
-			.await
-	}
-
-	async fn complete_permission_capture(
-		&self,
-		entry: &tangram_index::permission::capture::Entry,
-	) -> tg::Result<()> {
-		self.complete_permission_capture(entry).await
-	}
-
-	async fn delete_indexer(&self, arg: tangram_index::indexer::delete::Arg) -> tg::Result<()> {
-		self.delete_indexer(arg).await
-	}
-
-	async fn get_indexers(&self) -> tg::Result<Vec<tangram_index::indexer::Indexer>> {
-		self.get_indexers().await
-	}
-
-	async fn put_indexer(&self, arg: tangram_index::indexer::put::Arg) -> tg::Result<()> {
-		self.put_indexer(arg).await
-	}
-
-	async fn try_get_indexer(
-		&self,
-		arg: tangram_index::indexer::get::Arg,
-	) -> tg::Result<Option<tangram_index::indexer::Indexer>> {
-		self.try_get_indexer(arg).await
-	}
-
-	async fn update_indexer(&self, arg: tangram_index::indexer::update::Arg) -> tg::Result<()> {
-		self.update_indexer(arg).await
-	}
-
-	async fn get_usage(
-		&self,
-		account: &tangram_index::usage::Account,
-		period: tangram_index::usage::Period,
-		now: jiff::Timestamp,
-	) -> tg::Result<tangram_index::usage::Aggregate> {
-		self.get_usage(account, period, now).await
-	}
-
-	async fn start_usage(&self, at: jiff::Timestamp) -> tg::Result<()> {
-		self.start_usage(at).await
-	}
-
 	async fn verify_batch(
 		&self,
 		args: &[tangram_index::verify::Arg],
@@ -331,24 +266,6 @@ impl tangram_index::Index for Index {
 
 	async fn contains_ids(&self, ids: &[tg::Id]) -> tg::Result<Vec<bool>> {
 		self.contains_ids(ids).await
-	}
-
-	async fn expire_usage(
-		&self,
-		arg: tangram_index::usage::expire::Arg,
-	) -> tg::Result<tangram_index::usage::expire::Output> {
-		self.expire_usage(arg).await
-	}
-
-	fn usage_partition_total(&self) -> u64 {
-		self.usage_partition_total()
-	}
-
-	async fn aggregate_usage(
-		&self,
-		arg: tangram_index::usage::aggregate::Arg,
-	) -> tg::Result<tangram_index::usage::aggregate::Output> {
-		self.aggregate_usage(arg).await
 	}
 
 	async fn visible(&self, ids: &[tg::Id], principal: &tg::Principal) -> tg::Result<Vec<bool>> {
@@ -363,112 +280,11 @@ impl tangram_index::Index for Index {
 		self.try_get_ancestors(id).await
 	}
 
-	async fn try_get_checkouts(
-		&self,
-		ids: &[tg::Id],
-	) -> tg::Result<Vec<Option<tangram_index::checkout::Checkout>>> {
-		self.try_get_checkouts(ids).await
-	}
-
-	async fn try_get_groups(
-		&self,
-		ids: &[tg::group::Id],
-	) -> tg::Result<Vec<Option<tangram_index::group::Group>>> {
-		self.try_get_groups(ids).await
-	}
-
 	async fn try_get_ids_for_specifiers(
 		&self,
 		specifiers: &[tg::Specifier],
 	) -> tg::Result<Vec<Option<tg::Id>>> {
 		self.try_get_ids_for_specifiers(specifiers).await
-	}
-
-	async fn try_get_organizations(
-		&self,
-		ids: &[tg::organization::Id],
-	) -> tg::Result<Vec<Option<tangram_index::organization::Organization>>> {
-		self.try_get_organizations(ids).await
-	}
-
-	async fn touch_checkouts(
-		&self,
-		ids: &[tg::Id],
-		touched_at: i64,
-		time_to_touch: std::time::Duration,
-	) -> tg::Result<Vec<Option<tangram_index::checkout::Checkout>>> {
-		self.touch_checkouts(ids, touched_at, time_to_touch).await
-	}
-
-	async fn try_get_object_children(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<Vec<tg::object::Id>>> {
-		self.try_get_object_children(id).await
-	}
-
-	async fn try_get_objects(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
-		self.try_get_objects(ids).await
-	}
-
-	async fn touch_objects(
-		&self,
-		ids: &[tg::object::Id],
-		touched_at: i64,
-		time_to_touch: std::time::Duration,
-	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
-		self.touch_objects(ids, touched_at, time_to_touch).await
-	}
-
-	async fn touch_objects_with_account(
-		&self,
-		ids: &[tg::object::Id],
-		account: Option<&tangram_index::usage::Account>,
-		touched_at: i64,
-		time_to_touch: std::time::Duration,
-	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
-		self.touch_objects_with_account(ids, account, touched_at, time_to_touch)
-			.await
-	}
-
-	async fn try_get_processes(
-		&self,
-		ids: &[tg::process::Id],
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		self.try_get_processes(ids).await
-	}
-
-	async fn try_get_process_children_count(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<u64>> {
-		self.try_get_process_children_count(id).await
-	}
-
-	async fn try_get_process_children(
-		&self,
-		id: &tg::process::Id,
-		position: std::io::SeekFrom,
-		length: u64,
-	) -> tg::Result<Option<Vec<tg::process::data::Child>>> {
-		self.try_get_process_children(id, position, length).await
-	}
-
-	async fn try_get_process_children_and_objects(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<tangram_index::process::NodeChildren>> {
-		self.try_get_process_children_and_objects(id).await
-	}
-
-	async fn try_get_cached_processes(
-		&self,
-		command: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, tangram_index::process::Process)>> {
-		self.try_get_cached_processes(command).await
 	}
 
 	async fn get_requester_subjects(
@@ -478,191 +294,11 @@ impl tangram_index::Index for Index {
 		self.get_requester_subjects(principal).await
 	}
 
-	async fn list_sandboxes_for_creator(
-		&self,
-		creator: &tg::Principal,
-	) -> tg::Result<Vec<(tg::sandbox::Id, tangram_index::sandbox::Sandbox)>> {
-		self.list_sandboxes_for_creator(creator).await
-	}
-
-	async fn list_sandboxes_for_owner(
-		&self,
-		owner: &tg::Principal,
-	) -> tg::Result<Vec<(tg::sandbox::Id, tangram_index::sandbox::Sandbox)>> {
-		self.list_sandboxes_for_owner(owner).await
-	}
-
-	async fn get_runner_sandboxes(
-		&self,
-		runner: &tg::runner::Id,
-	) -> tg::Result<Vec<tg::sandbox::Id>> {
-		self.get_runner_sandboxes(runner).await
-	}
-
-	async fn try_get_sandbox_processes_count(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<u64>> {
-		self.try_get_sandbox_processes_count(id).await
-	}
-
-	async fn try_get_sandbox_processes(
-		&self,
-		id: &tg::sandbox::Id,
-		position: std::io::SeekFrom,
-		length: u64,
-	) -> tg::Result<Option<Vec<tg::process::Id>>> {
-		self.try_get_sandbox_processes(id, position, length).await
-	}
-
-	async fn list_sandboxes(
-		&self,
-	) -> tg::Result<Vec<(tg::sandbox::Id, tangram_index::sandbox::Sandbox)>> {
-		self.list_sandboxes().await
-	}
-
-	async fn process_has_ancestor(
-		&self,
-		process: &tg::process::Id,
-		ancestor: &tg::process::Id,
-	) -> tg::Result<bool> {
-		self.process_has_ancestor(process, ancestor).await
-	}
-
-	async fn touch_processes(
-		&self,
-		ids: &[tg::process::Id],
-		touched_at: i64,
-		time_to_touch: std::time::Duration,
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		self.touch_processes(ids, touched_at, time_to_touch).await
-	}
-
-	async fn touch_processes_and_put_account(
-		&self,
-		ids: &[tg::process::Id],
-		account: &tangram_index::usage::Account,
-		touched_at: i64,
-		time_to_touch: std::time::Duration,
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		self.touch_processes_and_put_account(ids, account, touched_at, time_to_touch)
-			.await
-	}
-
-	async fn touch_processes_with_account(
-		&self,
-		ids: &[tg::process::Id],
-		account: Option<&tangram_index::usage::Account>,
-		touched_at: i64,
-		time_to_touch: std::time::Duration,
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		self.touch_processes_with_account(ids, account, touched_at, time_to_touch)
-			.await
-	}
-
-	async fn try_get_sandboxes(
-		&self,
-		ids: &[tg::sandbox::Id],
-	) -> tg::Result<Vec<Option<tangram_index::sandbox::Sandbox>>> {
-		self.try_get_sandboxes(ids).await
-	}
-
 	async fn try_get_specifiers_for_ids(
 		&self,
 		ids: &[tg::Id],
 	) -> tg::Result<Vec<Option<tg::Specifier>>> {
 		self.try_get_specifiers_for_ids(ids).await
-	}
-
-	async fn try_get_tags(
-		&self,
-		ids: &[tg::tag::Id],
-	) -> tg::Result<Vec<Option<tangram_index::tag::Tag>>> {
-		self.try_get_tags(ids).await
-	}
-
-	async fn try_get_users(
-		&self,
-		ids: &[tg::user::Id],
-	) -> tg::Result<Vec<Option<tangram_index::user::User>>> {
-		self.try_get_users(ids).await
-	}
-
-	async fn put_permissions(
-		&self,
-		args: &[tangram_index::permission::put::Arg],
-	) -> tg::Result<()> {
-		self.put_permissions(args).await
-	}
-
-	async fn delete_permissions(
-		&self,
-		args: &[tangram_index::permission::delete::Arg],
-	) -> tg::Result<()> {
-		self.delete_permissions(args).await
-	}
-
-	async fn put_groups(&self, args: &[tangram_index::group::put::Arg]) -> tg::Result<()> {
-		self.put_groups(args).await
-	}
-
-	async fn delete_groups(&self, ids: &[tg::group::Id]) -> tg::Result<()> {
-		self.delete_groups(ids).await
-	}
-
-	async fn put_group_members(
-		&self,
-		args: &[tangram_index::group::member::put::Arg],
-	) -> tg::Result<()> {
-		self.put_group_members(args).await
-	}
-
-	async fn delete_group_members(
-		&self,
-		args: &[tangram_index::group::member::delete::Arg],
-	) -> tg::Result<()> {
-		self.delete_group_members(args).await
-	}
-
-	async fn put_organizations(
-		&self,
-		args: &[tangram_index::organization::put::Arg],
-	) -> tg::Result<()> {
-		self.put_organizations(args).await
-	}
-
-	async fn delete_organizations(&self, ids: &[tg::organization::Id]) -> tg::Result<()> {
-		self.delete_organizations(ids).await
-	}
-
-	async fn put_organization_members(
-		&self,
-		args: &[tangram_index::organization::member::put::Arg],
-	) -> tg::Result<()> {
-		self.put_organization_members(args).await
-	}
-
-	async fn delete_organization_members(
-		&self,
-		args: &[tangram_index::organization::member::delete::Arg],
-	) -> tg::Result<()> {
-		self.delete_organization_members(args).await
-	}
-
-	async fn put_tags(&self, args: &[tangram_index::tag::put::Arg]) -> tg::Result<()> {
-		self.put_tags(args).await
-	}
-
-	async fn delete_tags(&self, ids: &[tg::tag::Id]) -> tg::Result<()> {
-		self.delete_tags(ids).await
-	}
-
-	async fn put_users(&self, args: &[tangram_index::user::put::Arg]) -> tg::Result<()> {
-		self.put_users(args).await
-	}
-
-	async fn delete_users(&self, ids: &[tg::user::Id]) -> tg::Result<()> {
-		self.delete_users(ids).await
 	}
 
 	async fn try_get_oldest_update_transaction_id(
@@ -679,14 +315,14 @@ impl tangram_index::Index for Index {
 		_partition_start: u64,
 		_partition_end: u64,
 	) -> tg::Result<tangram_index::update::Output> {
-		Index::update_batch(self, kind, batch_size).await
+		self.update_batch(kind, batch_size).await
 	}
 
 	async fn clean(
 		&self,
 		arg: tangram_index::clean::Arg,
 	) -> tg::Result<tangram_index::clean::Output> {
-		Index::clean(self, arg).await
+		self.clean(arg).await
 	}
 
 	async fn get_transaction_id(&self) -> tg::Result<u64> {

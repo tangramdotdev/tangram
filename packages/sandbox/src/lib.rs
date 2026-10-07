@@ -627,7 +627,7 @@ impl Sandbox {
 	pub async fn wait(
 		&self,
 		process: &Process,
-	) -> tg::Result<impl std::future::Future<Output = tg::Result<u8>> + Send + 'static> {
+	) -> tg::Result<impl Future<Output = tg::Result<u8>> + Send + 'static> {
 		let future = self.0.client.wait(process.index).await?;
 		Ok(async move {
 			let outcome = future

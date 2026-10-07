@@ -232,11 +232,7 @@ impl Session {
 		Ok((expected, lock_write_guard))
 	}
 
-	fn checkin_lock_changed(
-		graph: &Graph,
-		next: usize,
-		lock: &tangram_client::graph::Data,
-	) -> bool {
+	fn checkin_lock_changed(graph: &Graph, next: usize, lock: &tg::graph::Data) -> bool {
 		graph.nodes.range(next..).any(|(_, node)| {
 			if let Some(lock_index) = node.lock_index {
 				let lock_node = lock.nodes.get(lock_index).unwrap();

@@ -1,5 +1,5 @@
 use {
-	super::super::Indexer, futures::future, tangram_cache::Cache as _, tangram_client::prelude::*,
+	super::super::Indexer, futures::future, tangram_cache::prelude::*, tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 };
 

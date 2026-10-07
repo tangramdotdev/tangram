@@ -1,6 +1,6 @@
 use tangram_client::prelude::*;
 
-pub use tangram_client::usage::{Account, Aggregate, Period, PeriodKind};
+pub use tg::usage::{Account, Aggregate, Period, PeriodKind};
 
 pub mod aggregate;
 pub mod compute;
@@ -74,6 +74,30 @@ pub fn deserialize_timestamp(bytes: &[u8]) -> tg::Result<i64> {
 #[must_use]
 pub fn serialize_timestamp(timestamp: i64) -> [u8; 8] {
 	(timestamp.cast_unsigned() ^ (1 << 63)).to_le_bytes()
+}
+
+pub trait Index {
+	fn expire_usage(
+		&self,
+		arg: crate::usage::expire::Arg,
+	) -> impl Future<Output = tg::Result<crate::usage::expire::Output>> + Send;
+
+	fn aggregate_usage(
+		&self,
+		arg: crate::usage::aggregate::Arg,
+	) -> impl Future<Output = tg::Result<crate::usage::aggregate::Output>> + Send;
+
+	fn get_usage(
+		&self,
+		account: &crate::usage::Account,
+		period: crate::usage::Period,
+		now: jiff::Timestamp,
+	) -> impl Future<Output = tg::Result<crate::usage::Aggregate>> + Send;
+
+	fn start_usage(&self, at: jiff::Timestamp) -> impl Future<Output = tg::Result<()>> + Send;
+
+	#[must_use]
+	fn usage_partition_total(&self) -> u64;
 }
 
 impl PartitionAggregate {

@@ -8,7 +8,6 @@ use {
 	},
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
-	tangram_index::prelude::*,
 	tracing::Instrument as _,
 };
 

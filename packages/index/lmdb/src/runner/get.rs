@@ -6,21 +6,6 @@ use {
 };
 
 impl Index {
-	pub async fn get_runner_sandboxes(
-		&self,
-		runner: &tg::runner::Id,
-	) -> tg::Result<Vec<tg::sandbox::Id>> {
-		let request = tangram_index::read::Request::GetRunnerSandboxes {
-			runner: runner.clone(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::GetRunnerSandboxes(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) fn get_runner_sandboxes_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

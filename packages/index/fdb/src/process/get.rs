@@ -12,67 +12,6 @@ use {
 };
 
 impl Index {
-	pub async fn try_get_process_children_and_objects(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<tangram_index::process::NodeChildren>> {
-		let request =
-			tangram_index::read::Request::TryGetProcessChildrenAndObjects { id: id.clone() };
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetProcessChildrenAndObjects(output) = response
-		else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
-	pub async fn try_get_process_children_count(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<u64>> {
-		let request = tangram_index::read::Request::TryGetProcessChildrenCount { id: id.clone() };
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetProcessChildrenCount(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-		Ok(output)
-	}
-
-	pub async fn try_get_process_children(
-		&self,
-		id: &tg::process::Id,
-		position: std::io::SeekFrom,
-		length: u64,
-	) -> tg::Result<Option<Vec<tg::process::data::Child>>> {
-		let request = tangram_index::read::Request::TryGetProcessChildren {
-			id: id.clone(),
-			length,
-			position,
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetProcessChildren(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
-	pub async fn try_get_cached_processes(
-		&self,
-		command: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, tangram_index::process::Process)>> {
-		let request = tangram_index::read::Request::TryGetCachedProcesses {
-			command: command.clone(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetCachedProcesses(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) async fn try_get_cached_processes_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
@@ -142,26 +81,6 @@ impl Index {
 		Ok(ControlFlow::Break(output))
 	}
 
-	pub async fn process_has_ancestor(
-		&self,
-		process: &tg::process::Id,
-		ancestor: &tg::process::Id,
-	) -> tg::Result<bool> {
-		if process == ancestor {
-			return Ok(true);
-		}
-		let request = tangram_index::read::Request::ProcessHasAncestor {
-			ancestor: ancestor.clone(),
-			process: process.clone(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::ProcessHasAncestor(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) async fn process_has_ancestor_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,
@@ -198,24 +117,6 @@ impl Index {
 			}
 		}
 		Ok(ControlFlow::Break(false))
-	}
-
-	pub async fn try_get_processes(
-		&self,
-		ids: &[tg::process::Id],
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let request = tangram_index::read::Request::TryGetProcesses {
-			ids: ids.to_owned(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetProcesses(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
 	}
 
 	pub(crate) async fn try_get_processes_with_transaction(

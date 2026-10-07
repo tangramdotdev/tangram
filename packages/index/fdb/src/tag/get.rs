@@ -7,24 +7,6 @@ use {
 };
 
 impl Index {
-	pub async fn try_get_tags(
-		&self,
-		ids: &[tg::tag::Id],
-	) -> tg::Result<Vec<Option<tangram_index::tag::Tag>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let request = tangram_index::read::Request::TryGetTags {
-			ids: ids.to_owned(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetTags(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) async fn try_get_tags_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,

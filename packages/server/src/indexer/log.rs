@@ -1,7 +1,6 @@
 use {
 	super::{Indexer, partition},
 	futures::future,
-	tangram_cache::Cache as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 };

@@ -1,7 +1,4 @@
-use {
-	crate::Session, std::hash::BuildHasher as _, tangram_cache::Cache as _,
-	tangram_client::prelude::*,
-};
+use {crate::Session, std::hash::BuildHasher as _, tangram_client::prelude::*};
 
 impl Session {
 	pub(super) async fn finish_process_control_request(

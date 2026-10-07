@@ -7,7 +7,7 @@ use {
 	num::ToPrimitive as _,
 	std::{collections::VecDeque, path::Path},
 	tangram_client::prelude::*,
-	tangram_index::Index as _,
+	tangram_index::prelude::*,
 };
 
 pub(super) struct CheckinIndexArg<'a> {
