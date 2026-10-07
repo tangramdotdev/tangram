@@ -347,7 +347,7 @@ impl Cli {
 			};
 			let id = artifact.id();
 			let options = tg::checkout::Options {
-				dependencies: path.is_some(),
+				dependencies: true,
 				extension: None,
 				force: options.checkout_force,
 				lock: None,
