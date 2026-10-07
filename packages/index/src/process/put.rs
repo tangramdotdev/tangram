@@ -80,8 +80,7 @@ pub struct Arg {
 
 impl Arg {
 	pub fn validate(&self) -> tg::Result<()> {
-		if !self.principal.is_root()
-			&& self.principal != tg::Principal::Process(self.id.clone())
+		if self.principal != tg::Principal::Process(self.id.clone())
 			&& self
 				.data
 				.as_ref()
@@ -103,7 +102,12 @@ impl Arg {
 	}
 
 	pub fn validate_existing(&self, existing: &super::Process) -> tg::Result<tg::Result<()>> {
-		if self.principal.is_root() || self.principal == tg::Principal::Process(self.id.clone()) {
+		if self.principal == tg::Principal::Process(self.id.clone())
+			&& existing
+				.data
+				.as_ref()
+				.is_none_or(|data| !data.status.is_finished())
+		{
 			return Ok(Ok(()));
 		}
 		if self.command_id != existing.command_id {

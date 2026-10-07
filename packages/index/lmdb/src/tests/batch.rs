@@ -438,31 +438,22 @@ async fn process_children_must_be_unique() {
 async fn process_status_does_not_regress() {
 	let (_dir, index) = new_index();
 	let id = tg::process::Id::new();
-	let parent = tg::process::Id::new();
-	for status in [tg::process::Status::Finished, tg::process::Status::Started] {
-		let mut process = process_arg(id.clone(), status);
-		if status.is_started() {
-			process.parent = Some(parent.clone());
-		}
-		let arg = tangram_index::batch::Arg {
-			items: vec![tangram_index::batch::Item::PutProcess(process)],
-		};
-		index.batch(arg).await.unwrap().unwrap();
-	}
-
-	let process = index
-		.try_get_process(&id)
+	put_process(
+		&index,
+		process_arg(id.clone(), tg::process::Status::Finished),
+	)
+	.await
+	.unwrap();
+	assert!(
+		put_process(
+			&index,
+			process_arg(id.clone(), tg::process::Status::Started)
+		)
 		.await
-		.unwrap()
-		.unwrap()
-		.data
-		.unwrap();
-	assert!(process.status.is_finished());
-	let transaction = index.env.read_txn().unwrap();
-	let parents =
-		Index::get_process_parents_with_transaction(&index.db, &index.subspace, &transaction, &id)
-			.unwrap();
-	assert_eq!(parents, vec![parent]);
+		.is_err()
+	);
+	let process = index.try_get_process(&id).await.unwrap().unwrap();
+	assert!(process.data.unwrap().status.is_finished());
 }
 
 #[tokio::test]
@@ -852,31 +843,43 @@ async fn ordinary_process_writes_do_not_create_sandbox_relationships() {
 }
 
 #[tokio::test]
-async fn root_can_write_and_finish_existing_processes() {
+async fn only_the_process_can_write_and_finish_unfinished_data() {
 	let (_dir, index) = new_index();
 	let id = tg::process::Id::new();
 	let mut arg = process_arg(id.clone(), tg::process::Status::Started);
-	arg.principal = tg::Principal::Root;
+	for principal in [
+		tg::Principal::Root,
+		tg::Principal::User(tg::user::Id::new()),
+		tg::Principal::Process(tg::process::Id::new()),
+	] {
+		arg.principal = principal;
+		assert!(put_process(&index, arg.clone()).await.is_err());
+	}
+	arg.principal = tg::Principal::Process(id.clone());
+	put_process(&index, arg.clone()).await.unwrap();
+	arg.data.as_mut().unwrap().host = "updated".into();
 	put_process(&index, arg.clone()).await.unwrap();
 	arg.children = Some(Vec::new());
 	let data = arg.data.as_mut().unwrap();
 	data.exit = Some(1);
 	data.finished_at = Some(1);
 	data.status = tg::process::Status::Finished;
-	put_process(&index, arg.clone()).await.unwrap();
+	for principal in [
+		tg::Principal::Root,
+		tg::Principal::User(tg::user::Id::new()),
+		tg::Principal::Process(tg::process::Id::new()),
+	] {
+		arg.principal = principal;
+		assert!(put_process(&index, arg.clone()).await.is_err());
+	}
+	arg.principal = tg::Principal::Process(id.clone());
+	put_process(&index, arg).await.unwrap();
 	let stored = index.try_get_process(&id).await.unwrap().unwrap();
 	let data = stored.data.unwrap();
 	assert_eq!(data.status, tg::process::Status::Finished);
 	assert_eq!(data.exit, Some(1));
+	assert_eq!(data.host, "updated");
 	assert!(stored.set.children);
-
-	// Root must still submit unique children.
-	let child = tg::process::data::Child {
-		cached: false,
-		process: tg::Referent::with_node(tg::process::Id::new()),
-	};
-	arg.children = Some(vec![child.clone(), child]);
-	assert!(put_process(&index, arg).await.is_err());
 }
 
 #[tokio::test]
@@ -936,52 +939,55 @@ async fn process_put_preserves_existing_contents() {
 	with_log.data.as_mut().unwrap().log = Some(tg::Referent::with_node(tg::blob::Id::new(b"log")));
 	assert!(put_process(&index, with_log.clone()).await.is_err());
 	with_log.principal = tg::Principal::Process(id.clone());
-	put_process(&index, with_log).await.unwrap();
+	assert!(put_process(&index, with_log).await.is_err());
 	changed.principal = tg::Principal::Process(id.clone());
-	put_process(&index, changed).await.unwrap();
+	assert!(put_process(&index, changed).await.is_err());
 	let stored = index.try_get_process(&id).await.unwrap().unwrap();
-	assert_eq!(stored.data.unwrap().exit, Some(1));
+	assert_eq!(stored.data.unwrap().exit, Some(0));
 }
 
 #[tokio::test]
-async fn process_log_updates_are_explicit_and_authorized() {
-	for root in [false, true] {
-		let (_dir, index) = new_index();
-		let id = tg::process::Id::new();
-		let log = tg::blob::Id::new(b"log");
-		let mut arg = process_arg(id.clone(), tg::process::Status::Finished);
-		arg.data.as_mut().unwrap().log = Some(tg::Referent::with_node(log.clone()));
-		arg.log = Some(Some(log.into()));
+async fn finished_process_data_is_immutable_for_every_principal() {
+	let (_dir, index) = new_index();
+	let id = tg::process::Id::new();
+	let log = tg::blob::Id::new(b"log");
+	let mut arg = process_arg(id.clone(), tg::process::Status::Finished);
+	arg.children = Some(Vec::new());
+	arg.data.as_mut().unwrap().log = Some(tg::Referent::with_node(log.clone()));
+	arg.log = Some(Some(log.clone().into()));
+	arg.principal = tg::Principal::Root;
+	put_process(&index, arg.clone()).await.unwrap();
+
+	for principal in [
+		tg::Principal::Root,
+		tg::Principal::Process(id.clone()),
+		tg::Principal::User(tg::user::Id::new()),
+		tg::Principal::Process(tg::process::Id::new()),
+	] {
+		arg.principal = principal;
 		put_process(&index, arg.clone()).await.unwrap();
-
-		// The finished log cannot be removed by an ordinary user.
-		arg.data.as_mut().unwrap().log = None;
-		arg.log = Some(None);
-		arg.principal = tg::Principal::User(tg::user::Id::new());
-		assert!(put_process(&index, arg.clone()).await.is_err());
-		assert!(
-			index
-				.try_get_process(&id)
-				.await
-				.unwrap()
-				.unwrap()
-				.data
-				.unwrap()
-				.log
-				.is_some()
-		);
-
-		// A privileged write replaces the log like any other process field.
-		arg.principal = if root {
-			tg::Principal::Root
-		} else {
-			tg::Principal::Process(id.clone())
-		};
-		put_process(&index, arg).await.unwrap();
-		let process = index.try_get_process(&id).await.unwrap().unwrap();
-		assert!(process.data.unwrap().log.is_none());
-		assert!(process.set.log_objects);
+		let mut identical = arg.clone();
+		identical.data.as_mut().unwrap().command.options.location =
+			Some(tg::Location::Local(tg::location::Local::default()));
+		put_process(&index, identical).await.unwrap();
+		for replacement in [None, Some(tg::blob::Id::new(b"other log"))] {
+			let mut changed = arg.clone();
+			changed.data.as_mut().unwrap().log = replacement.clone().map(tg::Referent::with_node);
+			changed.log = Some(replacement.map(Into::into));
+			assert!(put_process(&index, changed).await.is_err());
+		}
+		let mut changed = arg.clone();
+		changed.data.as_mut().unwrap().exit = Some(1);
+		assert!(put_process(&index, changed).await.is_err());
+		let mut changed = arg.clone();
+		changed.data.as_mut().unwrap().status = tg::process::Status::Started;
+		assert!(put_process(&index, changed).await.is_err());
 	}
+	let process = index.try_get_process(&id).await.unwrap().unwrap();
+	let data = process.data.unwrap();
+	assert_eq!(data.log.unwrap().node, log);
+	assert_eq!(data.exit, Some(0));
+	assert!(data.status.is_finished());
 }
 
 #[tokio::test]

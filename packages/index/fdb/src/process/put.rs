@@ -70,22 +70,14 @@ impl Index {
 			);
 		}
 
-		// Preserve terminal data while still applying the initialization relationships.
+		// Preserve the stored data after validating an identical write.
 		let mut arg = std::borrow::Cow::Borrowed(arg);
-		if existing.is_some()
-			&& !arg.principal.is_root()
-			&& arg.principal != tg::Principal::Process(id.clone())
-		{
-			arg.to_mut().data = None;
-		}
-		if arg
-			.data
-			.as_ref()
-			.is_some_and(|data| data.status.is_started())
-			&& existing
-				.as_ref()
-				.and_then(|process| process.data.as_ref())
-				.is_some_and(|data| data.status.is_finished())
+		if let Some(existing) = &existing
+			&& (arg.principal != tg::Principal::Process(id.clone())
+				|| existing
+					.data
+					.as_ref()
+					.is_some_and(|data| data.status.is_finished()))
 		{
 			arg.to_mut().data = None;
 		}
