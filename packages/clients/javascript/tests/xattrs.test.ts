@@ -34,10 +34,9 @@ test("the Node host lists and reads raw xattrs", async () => {
 				path,
 			]);
 		}
-		assert.deepEqual(
-			await tg.host.getxattr(path, "user.tangram.outcome"),
-			new Uint8Array(),
-		);
+		let value = await tg.host.getxattr(path, "user.tangram.outcome");
+		assert(value instanceof Uint8Array);
+		assert.equal(value.byteLength, 0);
 		assert.equal(
 			new TextDecoder().decode(await readOutcome(path)),
 			"serialized contents",

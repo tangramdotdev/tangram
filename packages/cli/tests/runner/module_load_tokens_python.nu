@@ -41,11 +41,11 @@ assert equal ($output.stdout | str trim) '1'
 let path = artifact {
     'tangram.py': '
         value = 1
-        from .child import child
+        from .child import child as child_command
         async def default():
             from .child import child as again
-            assert again is child
-            return await tg.build(child)
+            assert again is child_command
+            return await tg.build(again)
     '
     'child.tg.py': '
         from . import value
