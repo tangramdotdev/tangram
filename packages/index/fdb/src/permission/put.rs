@@ -1,6 +1,6 @@
 use {
 	crate::{
-		Index, Key, Request, Response,
+		Index, Key,
 		permission::{PermissionIndexEntry, PermissionSource, PermissionValue},
 	},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
@@ -9,21 +9,6 @@ use {
 };
 
 impl Index {
-	pub async fn put_permissions(
-		&self,
-		args: &[tangram_index::permission::put::Arg],
-	) -> tg::Result<()> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		let request = Request::PutPermissions(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-		Ok(())
-	}
-
 	pub(crate) async fn put_permissions_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,

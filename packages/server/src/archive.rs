@@ -3,7 +3,6 @@ use {
 	futures::{TryStreamExt as _, stream},
 	std::ops::ControlFlow,
 	tangram_archive::{self as archive, Archive as _},
-	tangram_cache::Cache as _,
 	tangram_client::prelude::*,
 };
 

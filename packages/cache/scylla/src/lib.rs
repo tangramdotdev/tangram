@@ -1,12 +1,11 @@
-use {futures::FutureExt as _, indoc::indoc, tangram_cache::object, tangram_client::prelude::*};
+use {futures::FutureExt as _, indoc::indoc, tangram_client::prelude::*};
 
-mod cache;
+mod archive;
 mod capacity;
-mod delete;
 mod flush;
-mod get;
+mod index;
 mod log;
-mod put;
+mod object;
 mod queue;
 
 const OBJECT_CONCURRENCY: usize = 64;
@@ -52,6 +51,7 @@ pub struct Cache {
 }
 
 struct Statements {
+	archive: archive::Statements,
 	contains_object: scylla::statement::prepared::PreparedStatement,
 	delete_object: scylla::statement::prepared::PreparedStatement,
 	delete_object_cache_entry: scylla::statement::prepared::PreparedStatement,
@@ -60,10 +60,10 @@ struct Statements {
 	get_object_for_put: scylla::statement::prepared::PreparedStatement,
 	get_object_info: scylla::statement::prepared::PreparedStatement,
 	get_object_info_for_put: scylla::statement::prepared::PreparedStatement,
+	index: index::Statements,
 	log: log::Statements,
 	put_object: scylla::statement::prepared::PreparedStatement,
 	put_object_cache_entry: scylla::statement::prepared::PreparedStatement,
-	queue: queue::Statements,
 }
 
 impl Cache {
@@ -272,7 +272,8 @@ impl Cache {
 			}
 		}
 		let log = log::Statements::new(&session).await?;
-		let queue = queue::Statements::new(&session, execution_profile.as_ref()).await?;
+		let archive = archive::Statements::new(&session, execution_profile.as_ref()).await?;
+		let index = index::Statements::new(&session, execution_profile.as_ref()).await?;
 
 		let capacity = config
 			.capacity
@@ -283,6 +284,7 @@ impl Cache {
 			capacity,
 			partition_offset: config.partition_offset,
 			statements: Statements {
+				archive,
 				contains_object,
 				delete_object,
 				delete_object_cache_entry,
@@ -291,10 +293,10 @@ impl Cache {
 				get_object_for_put,
 				get_object_info,
 				get_object_info_for_put,
+				index,
 				log,
 				put_object,
 				put_object_cache_entry,
-				queue,
 			},
 			session,
 		};
@@ -304,185 +306,12 @@ impl Cache {
 }
 
 impl tangram_cache::Cache for Cache {
-	async fn delete_log_cache_entry(
-		&self,
-		arg: tangram_cache::log::cache::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_log_cache_entry(arg).await
-	}
-
-	async fn get_log_cache_entries(
-		&self,
-		arg: tangram_cache::log::cache::get::Arg,
-	) -> tg::Result<Vec<tangram_cache::log::cache::Entry>> {
-		self.get_log_cache_entries(arg).await
-	}
-
-	async fn put_log_cache_entry(
-		&self,
-		arg: tangram_cache::log::cache::put::Arg,
-	) -> tg::Result<()> {
-		self.put_log_cache_entry(arg).await
-	}
-
-	async fn contains_object(&self, arg: object::contains::Arg) -> tg::Result<bool> {
-		self.contains_object(arg).await
-	}
-
-	async fn delete_object_cache_entry(
-		&self,
-		arg: tangram_cache::object::cache::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_object_cache_entry(arg).await
-	}
-
-	async fn delete_archive_queue_entry(
-		&self,
-		arg: tangram_cache::archive::queue::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_archive_queue_entry(arg).await
-	}
-
-	async fn delete_log(&self, arg: tangram_cache::log::delete::Arg) -> tg::Result<()> {
-		self.delete_log_inner(arg).await
-	}
-
-	async fn delete_object(&self, arg: object::delete::Arg) -> tg::Result<()> {
-		self.delete_object(arg).await
-	}
-
-	async fn delete_object_batch(&self, args: Vec<object::delete::Arg>) -> tg::Result<()> {
-		self.delete_object_batch(args).await
-	}
-
-	async fn delete_index_queue_fragment(
-		&self,
-		arg: tangram_cache::index::queue::delete::Arg,
-	) -> tg::Result<()> {
-		self.delete_index_queue_fragment(arg).await
-	}
-
-	async fn get_object_cache_entries(
-		&self,
-		arg: tangram_cache::object::cache::get::Arg,
-	) -> tg::Result<Vec<tangram_cache::object::cache::Entry>> {
-		self.get_object_cache_entries(arg).await
-	}
-
-	async fn get_archive_queue_entries(
-		&self,
-		arg: tangram_cache::archive::queue::get::batch::Arg,
-	) -> tg::Result<Vec<tangram_cache::archive::queue::Entry>> {
-		self.get_archive_queue_entries(arg).await
-	}
-
-	async fn get_index_queue_fragments(
-		&self,
-		arg: tangram_cache::index::queue::get::batch::Arg,
-	) -> tg::Result<Vec<tangram_cache::index::queue::Fragment>> {
-		self.get_index_queue_fragments(arg).await
-	}
-
-	async fn put_object_cache_entry(
-		&self,
-		arg: tangram_cache::object::cache::put::Arg,
-	) -> tg::Result<()> {
-		self.put_object_cache_entry(arg).await
-	}
-
-	async fn put_object_cache_entry_with_object(
-		&self,
-		arg: tangram_cache::object::cache::put::object::Arg,
-	) -> tg::Result<()> {
-		self.put_object_cache_entry_with_object(arg).await
-	}
-
-	async fn put_archive_queue_entry(
-		&self,
-		arg: tangram_cache::archive::queue::put::Arg,
-	) -> tg::Result<()> {
-		self.put_archive_queue_entry(arg).await
-	}
-
-	async fn put_index_queue_fragment(
-		&self,
-		arg: tangram_cache::index::queue::put::Arg,
-	) -> tg::Result<()> {
-		self.put_index_queue_fragment(arg).await
-	}
-
 	async fn flush(&self) -> tg::Result<()> {
 		self.flush().await
 	}
 
-	async fn put_log(&self, arg: tangram_cache::log::put::Arg) -> tg::Result<()> {
-		self.put_log_inner(arg).await
-	}
-
-	async fn put_log_batch(&self, args: Vec<tangram_cache::log::put::Arg>) -> tg::Result<()> {
-		self.put_log_batch_inner(args).await
-	}
-
-	async fn put_log_end(&self, arg: tangram_cache::log::end::Arg) -> tg::Result<()> {
-		self.put_log_end_inner(arg).await
-	}
-
-	async fn try_get_log_end(
-		&self,
-		process: &tg::process::Id,
-	) -> tg::Result<Option<tg::process::log::End>> {
-		self.try_get_log_end_inner(process).await
-	}
-
-	async fn put_object(&self, arg: object::put::Arg) -> tg::Result<()> {
-		self.put_object(arg).await
-	}
-
-	async fn put_object_batch(&self, args: Vec<object::put::Arg>) -> tg::Result<()> {
-		self.put_object_batch(args).await
-	}
-
-	async fn try_get_log_length(
-		&self,
-		arg: tangram_cache::log::length::Arg,
-	) -> tg::Result<Option<u64>> {
-		self.try_get_log_length_inner(arg).await
-	}
-
-	async fn try_get_object(&self, arg: object::get::Arg) -> tg::Result<object::get::Output> {
-		self.try_get_object(arg).await
-	}
-
-	async fn try_get_archive_queue_entry(
-		&self,
-		arg: tangram_cache::archive::queue::get::Arg,
-	) -> tg::Result<Option<tangram_cache::archive::queue::Entry>> {
-		self.try_get_archive_queue_entry(arg).await
-	}
-
-	async fn try_get_object_batch(
-		&self,
-		arg: object::get::batch::Arg,
-	) -> tg::Result<Vec<object::get::Output>> {
-		self.try_get_object_batch(arg).await
-	}
-
-	async fn try_get_index_queue_fragment(
-		&self,
-		arg: tangram_cache::index::queue::get::Arg,
-	) -> tg::Result<Option<tangram_cache::index::queue::Fragment>> {
-		self.try_get_index_queue_fragment(arg).await
-	}
-
 	async fn try_get_capacity(&self) -> tg::Result<Option<tangram_cache::capacity::Capacity>> {
 		self.try_get_capacity().await
-	}
-
-	async fn try_read_log(
-		&self,
-		arg: tangram_cache::log::read::Arg,
-	) -> tg::Result<Vec<tangram_cache::log::read::Entry<'static>>> {
-		self.try_read_log_inner(arg).await
 	}
 }
 

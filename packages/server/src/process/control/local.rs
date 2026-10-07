@@ -1,11 +1,9 @@
 use {
 	crate::control,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
-	tangram_client::{
-		prelude::*,
-		process::stdio::{flow, read},
-	},
+	tangram_client::prelude::*,
 	tangram_futures::stream::Ext as _,
+	tg::process::stdio::{flow, read},
 };
 
 #[cfg(test)]

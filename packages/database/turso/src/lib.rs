@@ -21,7 +21,7 @@ pub mod value;
 pub type Initialize = Arc<
 	dyn for<'a> Fn(
 			&'a turso::Connection,
-		) -> Pin<Box<dyn std::future::Future<Output = Result<(), Error>> + Send + 'a>>
+		) -> Pin<Box<dyn Future<Output = Result<(), Error>> + Send + 'a>>
 		+ Send
 		+ Sync,
 >;

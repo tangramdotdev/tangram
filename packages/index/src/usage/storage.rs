@@ -1,6 +1,6 @@
-use tangram_client::{
-	authorization::permission::{Set, object, process},
-	prelude::*,
+use {
+	tangram_client::prelude::*,
+	tg::authorization::permission::{Set, object, process},
 };
 
 pub mod put;

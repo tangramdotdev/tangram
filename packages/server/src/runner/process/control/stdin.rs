@@ -3,11 +3,9 @@ use {
 	futures::{TryFutureExt as _, TryStreamExt as _, future, stream},
 	num::ToPrimitive as _,
 	std::{pin::pin, sync::Arc},
-	tangram_client::{
-		prelude::*,
-		process::stdio::{Chunk, Stream, write::Data},
-	},
+	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
+	tg::process::stdio::{Chunk, Stream, write::Data},
 	tracing::Instrument as _,
 };
 

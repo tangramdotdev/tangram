@@ -1,23 +1,22 @@
+use tangram_client::prelude::*;
+
 pub mod object;
 
 pub trait Archive {
 	fn delete_object(
 		&self,
 		arg: object::delete::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn delete_object_batch(
 		&self,
 		args: Vec<object::delete::Arg>,
-	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+	) -> impl Future<Output = tg::Result<()>> + Send;
 
-	fn put_object(
-		&self,
-		arg: object::put::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<()>> + Send;
+	fn put_object(&self, arg: object::put::Arg) -> impl Future<Output = tg::Result<()>> + Send;
 
 	fn try_get_object(
 		&self,
 		arg: object::get::Arg,
-	) -> impl std::future::Future<Output = tangram_client::Result<object::get::Output>> + Send;
+	) -> impl Future<Output = tg::Result<object::get::Output>> + Send;
 }

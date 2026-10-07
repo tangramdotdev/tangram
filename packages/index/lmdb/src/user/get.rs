@@ -5,24 +5,6 @@ use {
 };
 
 impl Index {
-	pub async fn try_get_users(
-		&self,
-		ids: &[tg::user::Id],
-	) -> tg::Result<Vec<Option<tangram_index::user::User>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let request = tangram_index::read::Request::TryGetUsers {
-			ids: ids.to_owned(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetUsers(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) fn try_get_users_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

@@ -6,52 +6,6 @@ use {
 };
 
 impl Index {
-	pub async fn try_get_sandbox_processes(
-		&self,
-		id: &tg::sandbox::Id,
-		position: std::io::SeekFrom,
-		length: u64,
-	) -> tg::Result<Option<Vec<tg::process::Id>>> {
-		let request = tangram_index::read::Request::TryGetSandboxProcesses {
-			id: id.clone(),
-			length,
-			position,
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetSandboxProcesses(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
-	pub async fn try_get_sandbox_processes_count(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<u64>> {
-		let request = tangram_index::read::Request::TryGetSandboxProcessesCount { id: id.clone() };
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetSandboxProcessesCount(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-		Ok(output)
-	}
-
-	pub async fn try_get_sandboxes(
-		&self,
-		ids: &[tg::sandbox::Id],
-	) -> tg::Result<Vec<Option<tangram_index::sandbox::Sandbox>>> {
-		let request = tangram_index::read::Request::TryGetSandboxes {
-			ids: ids.to_owned(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetSandboxes(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) fn try_get_sandboxes_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

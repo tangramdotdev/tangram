@@ -18,7 +18,6 @@ use {
 			atomic::{AtomicU64, Ordering},
 		},
 	},
-	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
 	tangram_vfs as vfs,
@@ -225,7 +224,7 @@ impl Provider {
 	pub fn handle_batch(
 		&self,
 		requests: Vec<vfs::Request>,
-	) -> impl std::future::Future<Output = Vec<std::io::Result<vfs::Response>>> + Send {
+	) -> impl Future<Output = Vec<std::io::Result<vfs::Response>>> + Send {
 		async move {
 			let mut responses = Vec::with_capacity(requests.len());
 			for request in requests {
@@ -4582,7 +4581,7 @@ impl vfs::Provider for Provider {
 	fn handle_batch(
 		&self,
 		requests: Vec<vfs::Request>,
-	) -> impl std::future::Future<Output = Vec<std::io::Result<vfs::Response>>> + Send {
+	) -> impl Future<Output = Vec<std::io::Result<vfs::Response>>> + Send {
 		Provider::handle_batch(self, requests)
 	}
 

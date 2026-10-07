@@ -3,7 +3,6 @@ use {
 	futures::{StreamExt as _, TryStreamExt as _},
 	std::sync::Arc,
 	tangram_client::prelude::*,
-	tangram_index::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 

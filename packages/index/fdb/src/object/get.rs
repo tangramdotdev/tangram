@@ -8,37 +8,6 @@ use {
 };
 
 impl Index {
-	pub async fn try_get_object_children(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<Vec<tg::object::Id>>> {
-		let request = tangram_index::read::Request::TryGetObjectChildren { id: id.clone() };
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetObjectChildren(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
-	pub async fn try_get_objects(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let request = tangram_index::read::Request::TryGetObjects {
-			ids: ids.to_owned(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetObjects(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) async fn try_get_objects_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,

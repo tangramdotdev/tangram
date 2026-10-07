@@ -17,7 +17,7 @@ use {
 		stream::TryExt as _,
 		task::{Stopper, Task},
 	},
-	tangram_index::Index as _,
+	tangram_index::prelude::*,
 	tangram_messenger::Messenger as _,
 	tokio::task::JoinSet,
 	tokio_stream::wrappers::UnboundedReceiverStream,

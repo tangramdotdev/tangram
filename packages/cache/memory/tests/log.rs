@@ -1,11 +1,9 @@
 use {
 	bytes::Bytes,
 	std::collections::BTreeSet,
-	tangram_cache::{log, log::read::Arg},
-	tangram_client::{
-		prelude::*,
-		process::stdio::Stream::{Stderr, Stdout},
-	},
+	tangram_cache::log::{self, read::Arg},
+	tangram_client::prelude::*,
+	tg::process::stdio::Stream::{Stderr, Stdout},
 };
 
 #[tokio::test]

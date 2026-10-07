@@ -3,12 +3,13 @@ use {
 	crate::indexer::State,
 	futures::StreamExt as _,
 	std::sync::{Arc, Mutex},
+	tangram_client::prelude::*,
 };
 
 #[test]
 fn subjects_address_an_idless_or_named_indexer() {
 	assert_eq!(Indexer::server_subject(None), "indexers.server");
-	let id = tangram_client::indexer::Id::new();
+	let id = tg::indexer::Id::new();
 	assert_eq!(
 		Indexer::server_subject(Some(&id)),
 		format!("indexers.{id}.server")
@@ -37,7 +38,7 @@ async fn draining_waits_for_writes_queue_completions_and_handlers() {
 		batch: crate::cache::index::queue::batch::Id::new([0; 16]),
 		fragment: 0,
 		fragments: 2,
-		indexer: tangram_client::indexer::Id::new(),
+		indexer: tg::indexer::Id::new(),
 		payload: bytes::Bytes::new(),
 		sequence,
 	};

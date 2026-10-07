@@ -1,68 +1,11 @@
 use {
-	crate::{Db, Index, Key, Request, Response},
+	crate::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	std::time::Duration,
 	tangram_client::prelude::*,
 };
 
 impl Index {
-	pub async fn touch_processes(
-		&self,
-		ids: &[tg::process::Id],
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		self.touch_processes_inner(ids, None, false, touched_at, time_to_touch)
-			.await
-	}
-
-	pub async fn touch_processes_and_put_account(
-		&self,
-		ids: &[tg::process::Id],
-		account: &tangram_index::usage::Account,
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		self.touch_processes_inner(ids, Some(account), true, touched_at, time_to_touch)
-			.await
-	}
-
-	pub async fn touch_processes_with_account(
-		&self,
-		ids: &[tg::process::Id],
-		account: Option<&tangram_index::usage::Account>,
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		self.touch_processes_inner(ids, account, false, touched_at, time_to_touch)
-			.await
-	}
-
-	async fn touch_processes_inner(
-		&self,
-		ids: &[tg::process::Id],
-		account: Option<&tangram_index::usage::Account>,
-		put_account: bool,
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::process::Process>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let request = Request::TouchProcesses(crate::TouchProcesses {
-			account: account.cloned(),
-			ids: ids.to_vec(),
-			put_account,
-			time_to_touch,
-			touched_at,
-		});
-		let response = self.send_write_request(request).await?;
-		let Response::Processes(processes) = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-		Ok(processes)
-	}
-
 	pub(crate) fn touch_processes_with_account_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

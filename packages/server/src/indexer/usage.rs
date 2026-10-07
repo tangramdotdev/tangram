@@ -4,7 +4,6 @@ use {
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
-	tangram_index::prelude::*,
 };
 
 impl Indexer {

@@ -9,7 +9,7 @@ use {
 		collections::{BTreeSet, VecDeque},
 		io::SeekFrom,
 	},
-	tangram_cache::{Cache as _, log},
+	tangram_cache::log,
 	tangram_client as tg,
 	tangram_futures::read::Ext as _,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _},

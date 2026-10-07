@@ -11,7 +11,6 @@ use {
 		task::Poll,
 	},
 	sync_wrapper::SyncWrapper,
-	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{

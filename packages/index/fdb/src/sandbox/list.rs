@@ -8,49 +8,6 @@ use {
 };
 
 impl Index {
-	pub async fn list_sandboxes_for_creator(
-		&self,
-		creator: &tg::Principal,
-	) -> tg::Result<Vec<(tg::sandbox::Id, tangram_index::sandbox::Sandbox)>> {
-		let request = tangram_index::read::Request::ListSandboxesForCreator {
-			creator: creator.clone(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::ListSandboxes(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
-	pub async fn list_sandboxes_for_owner(
-		&self,
-		owner: &tg::Principal,
-	) -> tg::Result<Vec<(tg::sandbox::Id, tangram_index::sandbox::Sandbox)>> {
-		let request = tangram_index::read::Request::ListSandboxesForOwner {
-			owner: owner.clone(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::ListSandboxes(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
-	pub async fn list_sandboxes(
-		&self,
-	) -> tg::Result<Vec<(tg::sandbox::Id, tangram_index::sandbox::Sandbox)>> {
-		let response = self
-			.send_read_request(tangram_index::read::Request::ListSandboxes)
-			.await?;
-		let tangram_index::read::Response::ListSandboxes(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) async fn list_sandboxes_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,

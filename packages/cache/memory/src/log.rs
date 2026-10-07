@@ -1,9 +1,9 @@
 use {
-	super::Cache, num::ToPrimitive as _, std::borrow::Cow, tangram_cache::log,
+	crate::Cache, num::ToPrimitive as _, std::borrow::Cow, tangram_cache::log,
 	tangram_client::prelude::*,
 };
-
-mod cache;
+#[cfg(test)]
+mod tests;
 
 impl Cache {
 	#[expect(clippy::needless_pass_by_value)]
@@ -114,47 +114,108 @@ impl Cache {
 
 		builder.finish()
 	}
-}
 
-#[cfg(test)]
-mod tests {
-	use {super::*, bytes::Bytes, std::collections::BTreeSet};
-
-	fn collect_bytes(entries: Vec<log::read::Entry<'_>>) -> Bytes {
-		entries
-			.into_iter()
-			.flat_map(|entry| entry.bytes.to_vec())
-			.collect::<Vec<_>>()
-			.into()
+	pub async fn delete_log_cache_entry(&self, arg: log::cache::delete::Arg) -> tg::Result<()> {
+		let mut state = self.state();
+		let entry = arg.entry;
+		state.logs.remove(&entry.process);
+		state
+			.log_cache
+			.remove(&(entry.partition, entry.expires_at, entry.process));
+		Ok(())
 	}
 
-	#[test]
-	fn put_retry_is_idempotent() {
-		let cache = Cache::new();
-		let process = tg::process::Id::new();
-		let arg = log::put::Arg {
-			bytes: Bytes::from_static(b"hello"),
-			position: 0,
-			process: process.clone(),
-			stream: tg::process::stdio::Stream::Stdout,
-			stream_position: 0,
-			timestamp: 1,
-		};
-		cache.put_log(arg.clone());
-		cache.put_log(arg);
-		let entries = cache.try_read_log(log::read::Arg {
-			length: u64::MAX,
-			position: 0,
-			process: process.clone(),
-			streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
-		});
-		assert_eq!(collect_bytes(entries), Bytes::from_static(b"hello"));
-		assert_eq!(
-			cache.try_get_log_length(&log::length::Arg {
-				process,
-				streams: BTreeSet::from([tg::process::stdio::Stream::Stdout]),
-			}),
-			Some(5)
-		);
+	pub async fn get_log_cache_entries(
+		&self,
+		arg: log::cache::get::Arg,
+	) -> tg::Result<Vec<log::cache::Entry>> {
+		let state = self.state();
+		let output = state
+			.log_cache
+			.iter()
+			.filter(|(partition, expires_at, _)| {
+				*partition == arg.partition && *expires_at <= arg.now
+			})
+			.take(arg.batch_size)
+			.map(|(partition, expires_at, process)| log::cache::Entry {
+				expires_at: *expires_at,
+				partition: *partition,
+				process: process.clone(),
+			})
+			.collect();
+
+		Ok(output)
+	}
+
+	pub async fn put_log_cache_entry(&self, arg: log::cache::put::Arg) -> tg::Result<()> {
+		let entry = arg.entry;
+		self.state()
+			.log_cache
+			.insert((entry.partition, entry.expires_at, entry.process));
+		Ok(())
+	}
+}
+
+impl tangram_cache::log::Cache for Cache {
+	async fn delete_log_cache_entry(
+		&self,
+		arg: tangram_cache::log::cache::delete::Arg,
+	) -> tg::Result<()> {
+		self.delete_log_cache_entry(arg).await
+	}
+
+	async fn get_log_cache_entries(
+		&self,
+		arg: tangram_cache::log::cache::get::Arg,
+	) -> tg::Result<Vec<tangram_cache::log::cache::Entry>> {
+		self.get_log_cache_entries(arg).await
+	}
+
+	async fn put_log_cache_entry(
+		&self,
+		arg: tangram_cache::log::cache::put::Arg,
+	) -> tg::Result<()> {
+		self.put_log_cache_entry(arg).await
+	}
+
+	async fn delete_log(&self, arg: tangram_cache::log::delete::Arg) -> tg::Result<()> {
+		self.delete_log(arg);
+		Ok(())
+	}
+
+	async fn put_log(&self, arg: tangram_cache::log::put::Arg) -> tg::Result<()> {
+		self.put_log(arg);
+		Ok(())
+	}
+
+	async fn put_log_batch(&self, args: Vec<tangram_cache::log::put::Arg>) -> tg::Result<()> {
+		self.put_log_batch(args);
+		Ok(())
+	}
+
+	async fn put_log_end(&self, arg: tangram_cache::log::end::Arg) -> tg::Result<()> {
+		self.put_log_end(arg);
+		Ok(())
+	}
+
+	async fn try_get_log_end(
+		&self,
+		process: &tg::process::Id,
+	) -> tg::Result<Option<tg::process::log::End>> {
+		Ok(self.try_get_log_end(process))
+	}
+
+	async fn try_get_log_length(
+		&self,
+		arg: tangram_cache::log::length::Arg,
+	) -> tg::Result<Option<u64>> {
+		Ok(self.try_get_log_length(&arg))
+	}
+
+	async fn try_read_log(
+		&self,
+		arg: tangram_cache::log::read::Arg,
+	) -> tg::Result<Vec<tangram_cache::log::read::Entry<'static>>> {
+		Ok(self.try_read_log(arg))
 	}
 }

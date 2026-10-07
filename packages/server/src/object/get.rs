@@ -12,7 +12,6 @@ use {
 		path::PathBuf,
 	},
 	tangram_archive::Archive as _,
-	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,

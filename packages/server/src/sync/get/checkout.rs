@@ -8,9 +8,7 @@ use {
 		path::PathBuf,
 		sync::{Arc, Mutex},
 	},
-	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
-	tangram_index::prelude::*,
 	tokio::io::{AsyncReadExt as _, AsyncSeekExt as _, AsyncWriteExt as _},
 };
 

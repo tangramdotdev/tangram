@@ -11,14 +11,12 @@ use {
 		sync::Arc,
 		task::Poll,
 	},
-	tangram_client::{
-		prelude::*,
-		process::stdio::{
-			flow,
-			read::{Event, Output, ServerMessage},
-		},
-	},
+	tangram_client::prelude::*,
 	tangram_futures::task::Task,
+	tg::process::stdio::{
+		flow,
+		read::{Event, Output, ServerMessage},
+	},
 	tracing::Instrument as _,
 };
 

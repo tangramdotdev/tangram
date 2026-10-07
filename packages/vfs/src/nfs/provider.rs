@@ -131,7 +131,7 @@ where
 	fn handle_batch(
 		&self,
 		requests: Vec<crate::Request>,
-	) -> impl std::future::Future<Output = Vec<Result<crate::Response>>> + Send {
+	) -> impl Future<Output = Vec<Result<crate::Response>>> + Send {
 		async move {
 			let mut responses = Vec::with_capacity(requests.len());
 			for request in requests {

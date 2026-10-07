@@ -1,3 +1,9 @@
+use {
+	crate::{Index, Request, Response},
+	tangram_client::prelude::*,
+	tangram_index::permission::capture::{Entry, enqueue},
+};
+
 mod capture;
 mod delete;
 mod get;
@@ -52,38 +58,105 @@ pub(crate) struct PermissionValue {
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[allow(clippy::option_option)]
 pub(crate) struct PermissionEntry {
-	pub creator: Option<tangram_client::Principal>,
+	pub creator: Option<tg::Principal>,
 	pub grant: bool,
 	pub direct: Option<Option<i64>>,
 	pub materialized: Option<Option<i64>>,
-	pub permission: tangram_client::authorization::Permission,
-	pub subject: tangram_client::authorization::Subject,
+	pub permission: tg::authorization::Permission,
+	pub subject: tg::authorization::Subject,
 }
 
 #[derive(Clone)]
 pub(crate) struct PermissionIndexEntry<'a> {
-	pub creator: Option<&'a tangram_client::Principal>,
+	pub creator: Option<&'a tg::Principal>,
 	pub expires_at: Option<i64>,
-	pub permission: tangram_client::authorization::Permission,
-	pub subject: &'a tangram_client::authorization::Subject,
-	pub resource: &'a tangram_client::Id,
+	pub permission: tg::authorization::Permission,
+	pub subject: &'a tg::authorization::Subject,
+	pub resource: &'a tg::Id,
+}
+
+impl Index {
+	pub async fn enqueue_permission_capture(&self, arg: enqueue::Arg) -> tg::Result<()> {
+		let arg = tangram_index::batch::Arg {
+			items: vec![tangram_index::batch::Item::EnqueuePermissionCapture(arg)],
+		};
+		self.batch(arg).await??;
+		Ok(())
+	}
+
+	pub async fn permission_capture_batch(
+		&self,
+		batch_size: usize,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<Vec<Entry>> {
+		let request = tangram_index::read::Request::PermissionCaptureBatch {
+			batch_size,
+			partition_end,
+			partition_start,
+		};
+		let response = self.send_read_request(request).await?;
+		let tangram_index::read::Response::PermissionCaptureBatch(entries) = response else {
+			return Err(tg::error!("unexpected permission capture batch response"));
+		};
+		Ok(entries)
+	}
+
+	pub async fn complete_permission_capture(&self, entry: &Entry) -> tg::Result<()> {
+		let request = Request::CompletePermissionCapture(entry.clone());
+		let response = self.send_write_request(request).await?;
+		let Response::Unit = response else {
+			return Err(tg::error!(
+				"unexpected permission capture completion response"
+			));
+		};
+		Ok(())
+	}
+
+	pub async fn put_permissions(
+		&self,
+		args: &[tangram_index::permission::put::Arg],
+	) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let request = Request::PutPermissions(args.to_vec());
+		let response = self.send_write_request(request).await?;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected write response"));
+		};
+		Ok(())
+	}
+
+	pub async fn delete_permissions(
+		&self,
+		args: &[tangram_index::permission::delete::Arg],
+	) -> tg::Result<()> {
+		if args.is_empty() {
+			return Ok(());
+		}
+		let request = Request::DeletePermissions(args.to_vec());
+		let response = self.send_write_request(request).await?;
+		let Response::Unit = response else {
+			return Err(tg::error!("unexpected write response"));
+		};
+		Ok(())
+	}
 }
 
 impl PermissionValue {
-	pub(crate) fn deserialize(bytes: &[u8]) -> tangram_client::Result<Self> {
-		tangram_serialize::from_slice(bytes).map_err(|error| {
-			tangram_client::error!(!error, "failed to deserialize the permission value")
-		})
+	pub(crate) fn deserialize(bytes: &[u8]) -> tg::Result<Self> {
+		tangram_serialize::from_slice(bytes)
+			.map_err(|error| tg::error!(!error, "failed to deserialize the permission value"))
 	}
 
 	pub(crate) fn is_empty(&self) -> bool {
 		!self.grant && self.direct.is_none() && self.materialized.is_none()
 	}
 
-	pub(crate) fn serialize(&self) -> tangram_client::Result<Vec<u8>> {
-		tangram_serialize::to_vec(self).map_err(|error| {
-			tangram_client::error!(!error, "failed to serialize the permission value")
-		})
+	pub(crate) fn serialize(&self) -> tg::Result<Vec<u8>> {
+		tangram_serialize::to_vec(self)
+			.map_err(|error| tg::error!(!error, "failed to serialize the permission value"))
 	}
 
 	#[allow(clippy::option_option)]
@@ -228,6 +301,46 @@ pub(crate) fn max_expires_at(left: Option<i64>, right: Option<i64>) -> Option<i6
 	match (left, right) {
 		(None, _) | (_, None) => None,
 		(Some(left), Some(right)) => Some(left.max(right)),
+	}
+}
+
+impl tangram_index::permission::Index for Index {
+	async fn enqueue_permission_capture(
+		&self,
+		arg: tangram_index::permission::capture::enqueue::Arg,
+	) -> tg::Result<()> {
+		self.enqueue_permission_capture(arg).await
+	}
+
+	async fn permission_capture_batch(
+		&self,
+		batch_size: usize,
+		partition_start: u64,
+		partition_end: u64,
+	) -> tg::Result<Vec<tangram_index::permission::capture::Entry>> {
+		self.permission_capture_batch(batch_size, partition_start, partition_end)
+			.await
+	}
+
+	async fn complete_permission_capture(
+		&self,
+		entry: &tangram_index::permission::capture::Entry,
+	) -> tg::Result<()> {
+		self.complete_permission_capture(entry).await
+	}
+
+	async fn put_permissions(
+		&self,
+		args: &[tangram_index::permission::put::Arg],
+	) -> tg::Result<()> {
+		self.put_permissions(args).await
+	}
+
+	async fn delete_permissions(
+		&self,
+		args: &[tangram_index::permission::delete::Arg],
+	) -> tg::Result<()> {
+		self.delete_permissions(args).await
 	}
 }
 

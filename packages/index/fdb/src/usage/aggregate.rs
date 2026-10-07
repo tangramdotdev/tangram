@@ -1,5 +1,5 @@
 use {
-	crate::{Index, Key, Kind, Request, Response},
+	crate::{Index, Key, Kind},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
@@ -18,20 +18,6 @@ struct Deltas {
 }
 
 impl Index {
-	pub async fn aggregate_usage(
-		&self,
-		arg: tangram_index::usage::aggregate::Arg,
-	) -> tg::Result<tangram_index::usage::aggregate::Output> {
-		let response = self
-			.send_write_request(Request::AggregateUsage(arg))
-			.await?;
-		let Response::AggregateUsageOutput(output) = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) async fn aggregate_usage_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,

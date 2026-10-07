@@ -1,4 +1,4 @@
-use tangram_client::prelude::*;
+use {futures::FutureExt as _, tangram_client::prelude::*};
 
 pub mod put;
 
@@ -11,6 +11,28 @@ pub struct User {
 
 	#[tangram_serialize(id = 0)]
 	pub specifier: tg::Specifier,
+}
+
+pub trait Index {
+	fn try_get_users(
+		&self,
+		ids: &[tg::user::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::user::User>>>> + Send;
+
+	fn try_get_user(
+		&self,
+		id: &tg::user::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::user::User>>> + Send {
+		self.try_get_users(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn put_users(
+		&self,
+		args: &[crate::user::put::Arg],
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn delete_users(&self, ids: &[tg::user::Id]) -> impl Future<Output = tg::Result<()>> + Send;
 }
 
 impl User {

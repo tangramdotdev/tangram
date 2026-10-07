@@ -5,7 +5,6 @@ use {
 		ops::ControlFlow,
 		sync::{Arc, Mutex},
 	},
-	tangram_cache::Cache as _,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_messenger::{Messenger as _, Payload},

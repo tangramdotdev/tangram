@@ -1,5 +1,5 @@
 use {
-	crate::{Index, Key, Kind, Request, Response},
+	crate::{Index, Key, Kind},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	futures::TryStreamExt as _,
 	num_traits::ToPrimitive as _,
@@ -8,18 +8,6 @@ use {
 };
 
 impl Index {
-	pub async fn expire_usage(
-		&self,
-		arg: tangram_index::usage::expire::Arg,
-	) -> tg::Result<tangram_index::usage::expire::Output> {
-		let response = self.send_write_request(Request::ExpireUsage(arg)).await?;
-		let Response::ExpireUsageOutput(output) = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) async fn expire_usage_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,

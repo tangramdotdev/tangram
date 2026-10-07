@@ -3,10 +3,10 @@ use {
 	futures::{FutureExt as _, StreamExt as _},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, mem, pin::pin, time::Duration},
-	tangram_cache::{Cache as _, log},
+	tangram_cache::log,
 	tangram_client::prelude::*,
 	tangram_futures::task::Task,
-	tangram_index::Index as _,
+	tangram_index::prelude::*,
 	tokio_stream::wrappers::ReceiverStream,
 };
 

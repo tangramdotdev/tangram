@@ -9,7 +9,7 @@ use {
 		collections::{BTreeSet, HashMap, HashSet},
 		time::Duration,
 	},
-	tangram_cache::{Cache as _, log},
+	tangram_cache::log,
 	tangram_client::prelude::*,
 	tangram_index::prelude::*,
 };

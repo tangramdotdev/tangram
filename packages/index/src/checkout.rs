@@ -1,4 +1,7 @@
-use {tangram_client::prelude::*, tangram_util::serde::is_default};
+use {
+	futures::FutureExt as _, std::time::Duration, tangram_client::prelude::*,
+	tangram_util::serde::is_default,
+};
 
 pub mod put;
 
@@ -11,6 +14,38 @@ pub struct Checkout {
 
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "is_default")]
 	pub touched_at: i64,
+}
+
+pub trait Index {
+	fn try_get_checkouts(
+		&self,
+		ids: &[tg::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::checkout::Checkout>>>> + Send;
+
+	fn try_get_checkout(
+		&self,
+		id: &tg::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::checkout::Checkout>>> + Send {
+		self.try_get_checkouts(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn touch_checkouts(
+		&self,
+		ids: &[tg::Id],
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::checkout::Checkout>>>> + Send;
+
+	fn touch_checkout(
+		&self,
+		id: &tg::Id,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Option<crate::checkout::Checkout>>> + Send {
+		self.touch_checkouts(std::slice::from_ref(id), touched_at, time_to_touch)
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
 }
 
 impl Checkout {

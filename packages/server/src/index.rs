@@ -1,13 +1,24 @@
 use {
 	crate::{Server, Session},
 	futures::{FutureExt as _, Stream, StreamExt as _, future},
-	std::{ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc, time::Duration},
+	std::{ops::ControlFlow, panic::AssertUnwindSafe, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
 	tangram_index::{self as index, Index as _},
 };
 
+mod checkout;
+mod group;
+mod indexer;
+mod object;
+mod organization;
+mod permission;
+mod process;
+mod sandbox;
+mod tag;
+mod usage;
+mod user;
 mod wait;
 
 pub(crate) use self::wait::Sender as WaitSender;
@@ -35,100 +46,6 @@ impl Index {
 }
 
 impl index::Index for Index {
-	async fn enqueue_permission_capture(
-		&self,
-		arg: index::permission::capture::enqueue::Arg,
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.enqueue_permission_capture(arg).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.enqueue_permission_capture(arg).await,
-		}
-	}
-
-	async fn permission_capture_batch(
-		&self,
-		batch_size: usize,
-		partition_start: u64,
-		partition_end: u64,
-	) -> tg::Result<Vec<index::permission::capture::Entry>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => {
-				index
-					.permission_capture_batch(batch_size, partition_start, partition_end)
-					.await
-			},
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => {
-				index
-					.permission_capture_batch(batch_size, partition_start, partition_end)
-					.await
-			},
-		}
-	}
-
-	async fn complete_permission_capture(
-		&self,
-		entry: &index::permission::capture::Entry,
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.complete_permission_capture(entry).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.complete_permission_capture(entry).await,
-		}
-	}
-
-	async fn delete_indexer(&self, arg: index::indexer::delete::Arg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.delete_indexer(arg).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.delete_indexer(arg).await,
-		}
-	}
-
-	async fn get_indexers(&self) -> tg::Result<Vec<index::indexer::Indexer>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_indexers().await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_indexers().await,
-		}
-	}
-
-	async fn put_indexer(&self, arg: index::indexer::put::Arg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.put_indexer(arg).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.put_indexer(arg).await,
-		}
-	}
-
-	async fn try_get_indexer(
-		&self,
-		arg: index::indexer::get::Arg,
-	) -> tg::Result<Option<index::indexer::Indexer>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_indexer(arg).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_indexer(arg).await,
-		}
-	}
-
-	async fn update_indexer(&self, arg: index::indexer::update::Arg) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.update_indexer(arg).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.update_indexer(arg).await,
-		}
-	}
-
 	async fn verify_batch(
 		&self,
 		args: &[index::verify::Arg],
@@ -149,30 +66,6 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.contains_ids(ids).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.contains_ids(ids).await,
-		}
-	}
-
-	async fn expire_usage(
-		&self,
-		arg: index::usage::expire::Arg,
-	) -> tg::Result<index::usage::expire::Output> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.expire_usage(arg).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.expire_usage(arg).await,
-		}
-	}
-
-	async fn aggregate_usage(
-		&self,
-		arg: index::usage::aggregate::Arg,
-	) -> tg::Result<index::usage::aggregate::Output> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.aggregate_usage(arg).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.aggregate_usage(arg).await,
 		}
 	}
 
@@ -203,30 +96,6 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn try_get_checkouts(
-		&self,
-		ids: &[tg::Id],
-	) -> tg::Result<Vec<Option<index::checkout::Checkout>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_checkouts(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_checkouts(ids).await,
-		}
-	}
-
-	async fn try_get_groups(
-		&self,
-		ids: &[tg::group::Id],
-	) -> tg::Result<Vec<Option<index::group::Group>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_groups(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_groups(ids).await,
-		}
-	}
-
 	async fn try_get_ids_for_specifiers(
 		&self,
 		specifiers: &[tg::Specifier],
@@ -236,178 +105,6 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.try_get_ids_for_specifiers(specifiers).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.try_get_ids_for_specifiers(specifiers).await,
-		}
-	}
-
-	async fn try_get_organizations(
-		&self,
-		ids: &[tg::organization::Id],
-	) -> tg::Result<Vec<Option<index::organization::Organization>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_organizations(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_organizations(ids).await,
-		}
-	}
-
-	async fn get_usage(
-		&self,
-		account: &index::usage::Account,
-		period: index::usage::Period,
-		now: jiff::Timestamp,
-	) -> tg::Result<index::usage::Aggregate> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_usage(account, period, now).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_usage(account, period, now).await,
-		}
-	}
-
-	async fn start_usage(&self, at: jiff::Timestamp) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.start_usage(at).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.start_usage(at).await,
-		}
-	}
-
-	async fn touch_checkouts(
-		&self,
-		ids: &[tg::Id],
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<index::checkout::Checkout>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.touch_checkouts(ids, touched_at, time_to_touch).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.touch_checkouts(ids, touched_at, time_to_touch).await,
-		}
-	}
-
-	async fn try_get_object_children(
-		&self,
-		id: &tg::object::Id,
-	) -> tg::Result<Option<Vec<tg::object::Id>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_object_children(id).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_object_children(id).await,
-		}
-	}
-
-	async fn try_get_objects(
-		&self,
-		ids: &[tg::object::Id],
-	) -> tg::Result<Vec<Option<index::object::Object>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_objects(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_objects(ids).await,
-		}
-	}
-
-	async fn touch_objects(
-		&self,
-		ids: &[tg::object::Id],
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<index::object::Object>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.touch_objects(ids, touched_at, time_to_touch).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.touch_objects(ids, touched_at, time_to_touch).await,
-		}
-	}
-
-	async fn touch_objects_with_account(
-		&self,
-		ids: &[tg::object::Id],
-		account: Option<&index::usage::Account>,
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<index::object::Object>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => {
-				index
-					.touch_objects_with_account(ids, account, touched_at, time_to_touch)
-					.await
-			},
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => {
-				index
-					.touch_objects_with_account(ids, account, touched_at, time_to_touch)
-					.await
-			},
-		}
-	}
-
-	async fn try_get_processes(
-		&self,
-		ids: &[tg::process::Id],
-	) -> tg::Result<Vec<Option<index::process::Process>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_processes(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_processes(ids).await,
-		}
-	}
-
-	async fn try_get_process_children_count(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<u64>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_process_children_count(id).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_process_children_count(id).await,
-		}
-	}
-
-	async fn try_get_process_children(
-		&self,
-		id: &tg::process::Id,
-		position: std::io::SeekFrom,
-		length: u64,
-	) -> tg::Result<Option<Vec<tg::process::data::Child>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_process_children(id, position, length).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_process_children(id, position, length).await,
-		}
-	}
-
-	async fn try_get_process_children_and_objects(
-		&self,
-		id: &tg::process::Id,
-	) -> tg::Result<Option<tangram_index::process::NodeChildren>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_process_children_and_objects(id).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_process_children_and_objects(id).await,
-		}
-	}
-
-	async fn try_get_cached_processes(
-		&self,
-		command: &tg::object::Id,
-	) -> tg::Result<Vec<(tg::process::Id, index::process::Process)>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_cached_processes(command).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_cached_processes(command).await,
 		}
 	}
 
@@ -423,162 +120,6 @@ impl index::Index for Index {
 		}
 	}
 
-	async fn list_sandboxes_for_creator(
-		&self,
-		creator: &tg::Principal,
-	) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.list_sandboxes_for_creator(creator).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.list_sandboxes_for_creator(creator).await,
-		}
-	}
-
-	async fn list_sandboxes_for_owner(
-		&self,
-		owner: &tg::Principal,
-	) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.list_sandboxes_for_owner(owner).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.list_sandboxes_for_owner(owner).await,
-		}
-	}
-
-	async fn get_runner_sandboxes(
-		&self,
-		runner: &tg::runner::Id,
-	) -> tg::Result<Vec<tg::sandbox::Id>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.get_runner_sandboxes(runner).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.get_runner_sandboxes(runner).await,
-		}
-	}
-
-	async fn try_get_sandbox_processes_count(
-		&self,
-		id: &tg::sandbox::Id,
-	) -> tg::Result<Option<u64>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_sandbox_processes_count(id).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_sandbox_processes_count(id).await,
-		}
-	}
-
-	async fn try_get_sandbox_processes(
-		&self,
-		id: &tg::sandbox::Id,
-		position: std::io::SeekFrom,
-		length: u64,
-	) -> tg::Result<Option<Vec<tg::process::Id>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_sandbox_processes(id, position, length).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_sandbox_processes(id, position, length).await,
-		}
-	}
-
-	async fn list_sandboxes(&self) -> tg::Result<Vec<(tg::sandbox::Id, index::sandbox::Sandbox)>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.list_sandboxes().await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.list_sandboxes().await,
-		}
-	}
-
-	async fn process_has_ancestor(
-		&self,
-		process: &tg::process::Id,
-		ancestor: &tg::process::Id,
-	) -> tg::Result<bool> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.process_has_ancestor(process, ancestor).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.process_has_ancestor(process, ancestor).await,
-		}
-	}
-
-	async fn touch_processes(
-		&self,
-		ids: &[tg::process::Id],
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<index::process::Process>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.touch_processes(ids, touched_at, time_to_touch).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.touch_processes(ids, touched_at, time_to_touch).await,
-		}
-	}
-
-	async fn touch_processes_and_put_account(
-		&self,
-		ids: &[tg::process::Id],
-		account: &index::usage::Account,
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<index::process::Process>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => {
-				index
-					.touch_processes_and_put_account(ids, account, touched_at, time_to_touch)
-					.await
-			},
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => {
-				index
-					.touch_processes_and_put_account(ids, account, touched_at, time_to_touch)
-					.await
-			},
-		}
-	}
-
-	async fn touch_processes_with_account(
-		&self,
-		ids: &[tg::process::Id],
-		account: Option<&index::usage::Account>,
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<index::process::Process>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => {
-				index
-					.touch_processes_with_account(ids, account, touched_at, time_to_touch)
-					.await
-			},
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => {
-				index
-					.touch_processes_with_account(ids, account, touched_at, time_to_touch)
-					.await
-			},
-		}
-	}
-
-	async fn try_get_sandboxes(
-		&self,
-		ids: &[tg::sandbox::Id],
-	) -> tg::Result<Vec<Option<index::sandbox::Sandbox>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_sandboxes(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_sandboxes(ids).await,
-		}
-	}
-
 	async fn try_get_specifiers_for_ids(
 		&self,
 		ids: &[tg::Id],
@@ -588,162 +129,6 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.try_get_specifiers_for_ids(ids).await,
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.try_get_specifiers_for_ids(ids).await,
-		}
-	}
-
-	async fn try_get_tags(&self, ids: &[tg::tag::Id]) -> tg::Result<Vec<Option<index::tag::Tag>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_tags(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_tags(ids).await,
-		}
-	}
-
-	async fn try_get_users(
-		&self,
-		ids: &[tg::user::Id],
-	) -> tg::Result<Vec<Option<index::user::User>>> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.try_get_users(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.try_get_users(ids).await,
-		}
-	}
-
-	async fn put_permissions(&self, args: &[index::permission::put::Arg]) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.put_permissions(args).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.put_permissions(args).await,
-		}
-	}
-
-	async fn delete_permissions(&self, args: &[index::permission::delete::Arg]) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.delete_permissions(args).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.delete_permissions(args).await,
-		}
-	}
-
-	async fn put_groups(&self, args: &[index::group::put::Arg]) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.put_groups(args).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.put_groups(args).await,
-		}
-	}
-
-	async fn delete_groups(&self, ids: &[tg::group::Id]) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.delete_groups(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.delete_groups(ids).await,
-		}
-	}
-
-	async fn put_group_members(&self, args: &[index::group::member::put::Arg]) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.put_group_members(args).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.put_group_members(args).await,
-		}
-	}
-
-	async fn delete_group_members(
-		&self,
-		args: &[index::group::member::delete::Arg],
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.delete_group_members(args).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.delete_group_members(args).await,
-		}
-	}
-
-	async fn put_organizations(&self, args: &[index::organization::put::Arg]) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.put_organizations(args).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.put_organizations(args).await,
-		}
-	}
-
-	async fn delete_organizations(&self, ids: &[tg::organization::Id]) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.delete_organizations(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.delete_organizations(ids).await,
-		}
-	}
-
-	async fn put_organization_members(
-		&self,
-		args: &[index::organization::member::put::Arg],
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.put_organization_members(args).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.put_organization_members(args).await,
-		}
-	}
-
-	async fn delete_organization_members(
-		&self,
-		args: &[index::organization::member::delete::Arg],
-	) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.delete_organization_members(args).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.delete_organization_members(args).await,
-		}
-	}
-
-	async fn put_tags(&self, args: &[index::tag::put::Arg]) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.put_tags(args).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.put_tags(args).await,
-		}
-	}
-
-	async fn delete_tags(&self, ids: &[tg::tag::Id]) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.delete_tags(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.delete_tags(ids).await,
-		}
-	}
-
-	async fn put_users(&self, args: &[index::user::put::Arg]) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.put_users(args).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.put_users(args).await,
-		}
-	}
-
-	async fn delete_users(&self, ids: &[tg::user::Id]) -> tg::Result<()> {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.delete_users(ids).await,
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.delete_users(ids).await,
 		}
 	}
 
@@ -840,15 +225,6 @@ impl index::Index for Index {
 			Self::Fdb(index) => index.usage_update_partition_total(),
 			#[cfg(feature = "lmdb")]
 			Self::Lmdb(index) => index.usage_update_partition_total(),
-		}
-	}
-
-	fn usage_partition_total(&self) -> u64 {
-		match self {
-			#[cfg(feature = "foundationdb")]
-			Self::Fdb(index) => index.usage_partition_total(),
-			#[cfg(feature = "lmdb")]
-			Self::Lmdb(index) => index.usage_partition_total(),
 		}
 	}
 }

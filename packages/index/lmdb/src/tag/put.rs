@@ -1,23 +1,10 @@
 use {
-	crate::{Db, Index, Key, Request, Response},
+	crate::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
 impl Index {
-	pub async fn put_tags(&self, args: &[tangram_index::tag::put::Arg]) -> tg::Result<()> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		let request = Request::PutTags(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(())
-	}
-
 	pub(crate) fn put_tags_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

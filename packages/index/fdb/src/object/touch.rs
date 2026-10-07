@@ -1,5 +1,5 @@
 use {
-	crate::{Index, Key, Request, Response},
+	crate::{Index, Key},
 	foundationdb as fdb,
 	foundationdb_tuple::Subspace,
 	futures::future,
@@ -8,39 +8,6 @@ use {
 };
 
 impl Index {
-	pub async fn touch_objects(
-		&self,
-		ids: &[tg::object::Id],
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
-		self.touch_objects_with_account(ids, None, touched_at, time_to_touch)
-			.await
-	}
-
-	pub async fn touch_objects_with_account(
-		&self,
-		ids: &[tg::object::Id],
-		account: Option<&tangram_index::usage::Account>,
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let request = Request::TouchObjects(crate::TouchObjects {
-			account: account.cloned(),
-			ids: ids.to_vec(),
-			time_to_touch,
-			touched_at,
-		});
-		let response = self.send_write_request(request).await?;
-		let Response::Objects(objects) = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-		Ok(objects)
-	}
-
 	pub(crate) async fn touch_objects_with_account_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,

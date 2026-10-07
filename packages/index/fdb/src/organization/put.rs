@@ -1,43 +1,13 @@
 #![allow(clippy::unnecessary_wraps)]
 
 use {
-	crate::{Index, Key, Request, Response},
+	crate::{Index, Key},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
 impl Index {
-	pub async fn put_organizations(
-		&self,
-		args: &[tangram_index::organization::put::Arg],
-	) -> tg::Result<()> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		let request = Request::PutOrganizations(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-		Ok(())
-	}
-
-	pub async fn put_organization_members(
-		&self,
-		args: &[tangram_index::organization::member::put::Arg],
-	) -> tg::Result<()> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		let request = Request::PutOrganizationMembers(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-		Ok(())
-	}
-
 	pub(crate) async fn put_organizations_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,

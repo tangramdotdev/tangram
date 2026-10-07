@@ -168,3 +168,28 @@ impl Index {
 		Ok(())
 	}
 }
+
+impl tangram_index::indexer::Index for Index {
+	async fn delete_indexer(&self, arg: tangram_index::indexer::delete::Arg) -> tg::Result<()> {
+		self.delete_indexer(arg).await
+	}
+
+	async fn get_indexers(&self) -> tg::Result<Vec<tangram_index::indexer::Indexer>> {
+		self.get_indexers().await
+	}
+
+	async fn put_indexer(&self, arg: tangram_index::indexer::put::Arg) -> tg::Result<()> {
+		self.put_indexer(arg).await
+	}
+
+	async fn try_get_indexer(
+		&self,
+		arg: tangram_index::indexer::get::Arg,
+	) -> tg::Result<Option<tangram_index::indexer::Indexer>> {
+		self.try_get_indexer(arg).await
+	}
+
+	async fn update_indexer(&self, arg: tangram_index::indexer::update::Arg) -> tg::Result<()> {
+		self.update_indexer(arg).await
+	}
+}

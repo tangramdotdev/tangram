@@ -1,4 +1,6 @@
 use {
+	futures::FutureExt as _,
+	std::time::Duration,
 	tangram_client::prelude::*,
 	tangram_util::serde::{is_default, is_false},
 };
@@ -82,6 +84,114 @@ pub struct Set {
 	#[serde(default, skip_serializing_if = "is_false")]
 	#[tangram_serialize(default, id = 3, skip_serializing_if = "is_false")]
 	pub output_objects: bool,
+}
+
+pub trait Index {
+	fn try_get_processes(
+		&self,
+		ids: &[tg::process::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
+
+	fn try_get_process_children_count(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<u64>>> + Send;
+
+	fn try_get_process_children(
+		&self,
+		id: &tg::process::Id,
+		position: std::io::SeekFrom,
+		length: u64,
+	) -> impl Future<Output = tg::Result<Option<Vec<tg::process::data::Child>>>> + Send;
+
+	fn try_get_process_children_and_objects(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::process::NodeChildren>>> + Send;
+
+	fn try_get_cached_processes(
+		&self,
+		command: &tg::object::Id,
+	) -> impl Future<Output = tg::Result<Vec<(tg::process::Id, crate::process::Process)>>> + Send;
+
+	fn process_has_ancestor(
+		&self,
+		process: &tg::process::Id,
+		ancestor: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<bool>> + Send;
+
+	fn try_get_process(
+		&self,
+		id: &tg::process::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
+		self.try_get_processes(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn touch_processes(
+		&self,
+		ids: &[tg::process::Id],
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
+
+	fn touch_processes_and_put_account(
+		&self,
+		ids: &[tg::process::Id],
+		account: &crate::usage::Account,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
+
+	fn touch_processes_with_account(
+		&self,
+		ids: &[tg::process::Id],
+		account: Option<&crate::usage::Account>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::process::Process>>>> + Send;
+
+	fn touch_process(
+		&self,
+		id: &tg::process::Id,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
+		self.touch_processes(std::slice::from_ref(id), touched_at, time_to_touch)
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn touch_process_and_put_account(
+		&self,
+		id: &tg::process::Id,
+		account: &crate::usage::Account,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
+		self.touch_processes_and_put_account(
+			std::slice::from_ref(id),
+			account,
+			touched_at,
+			time_to_touch,
+		)
+		.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn touch_process_with_account(
+		&self,
+		id: &tg::process::Id,
+		account: Option<&crate::usage::Account>,
+		touched_at: i64,
+		time_to_touch: Duration,
+	) -> impl Future<Output = tg::Result<Option<crate::process::Process>>> + Send {
+		self.touch_processes_with_account(
+			std::slice::from_ref(id),
+			account,
+			touched_at,
+			time_to_touch,
+		)
+		.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
 }
 
 impl Process {

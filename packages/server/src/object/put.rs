@@ -3,7 +3,6 @@ use {
 	futures::{FutureExt as _, future},
 	num::ToPrimitive as _,
 	std::{collections::BTreeSet, ops::ControlFlow},
-	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_http::{
 		body::Boxed as BoxBody, request::Ext as _, response::Ext as _, response::builder::Ext as _,

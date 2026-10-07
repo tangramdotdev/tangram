@@ -1,4 +1,4 @@
-use tangram_client::prelude::*;
+use {futures::FutureExt as _, tangram_client::prelude::*};
 
 pub mod put;
 
@@ -22,6 +22,28 @@ pub struct Tag {
 	pub target: tg::Either<tg::object::Id, tg::process::Id>,
 	#[tangram_serialize(id = 6)]
 	pub version: String,
+}
+
+pub trait Index {
+	fn try_get_tags(
+		&self,
+		ids: &[tg::tag::Id],
+	) -> impl Future<Output = tg::Result<Vec<Option<crate::tag::Tag>>>> + Send;
+
+	fn try_get_tag(
+		&self,
+		id: &tg::tag::Id,
+	) -> impl Future<Output = tg::Result<Option<crate::tag::Tag>>> + Send {
+		self.try_get_tags(std::slice::from_ref(id))
+			.map(|result| result.map(|mut output| output.pop().unwrap()))
+	}
+
+	fn put_tags(
+		&self,
+		args: &[crate::tag::put::Arg],
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn delete_tags(&self, ids: &[tg::tag::Id]) -> impl Future<Output = tg::Result<()>> + Send;
 }
 
 impl Tag {

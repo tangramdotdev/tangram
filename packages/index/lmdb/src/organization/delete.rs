@@ -1,39 +1,10 @@
 use {
-	crate::{Db, Index, Key, Request, Response},
+	crate::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
 impl Index {
-	pub async fn delete_organizations(&self, ids: &[tg::organization::Id]) -> tg::Result<()> {
-		if ids.is_empty() {
-			return Ok(());
-		}
-		let request = Request::DeleteOrganizations(ids.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(())
-	}
-
-	pub async fn delete_organization_members(
-		&self,
-		args: &[tangram_index::organization::member::delete::Arg],
-	) -> tg::Result<()> {
-		if args.is_empty() {
-			return Ok(());
-		}
-		let request = Request::DeleteOrganizationMembers(args.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(())
-	}
-
 	pub(crate) fn delete_organizations_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

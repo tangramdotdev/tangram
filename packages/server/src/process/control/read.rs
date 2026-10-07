@@ -3,14 +3,12 @@ use {
 	crate::Session,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
 	std::time::Duration,
-	tangram_client::{
-		prelude::*,
-		process::{
-			control,
-			stdio::{flow, read},
-		},
-	},
+	tangram_client::prelude::*,
 	tangram_messenger::Messenger as _,
+	tg::process::{
+		control,
+		stdio::{flow, read},
+	},
 };
 
 impl Session {

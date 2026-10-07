@@ -33,6 +33,31 @@ struct Data {
 	index_write_sequence: u64,
 }
 
+pub trait Index {
+	fn delete_indexer(
+		&self,
+		arg: crate::indexer::delete::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn get_indexers(&self)
+	-> impl Future<Output = tg::Result<Vec<crate::indexer::Indexer>>> + Send;
+
+	fn put_indexer(
+		&self,
+		arg: crate::indexer::put::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+
+	fn try_get_indexer(
+		&self,
+		arg: crate::indexer::get::Arg,
+	) -> impl Future<Output = tg::Result<Option<crate::indexer::Indexer>>> + Send;
+
+	fn update_indexer(
+		&self,
+		arg: crate::indexer::update::Arg,
+	) -> impl Future<Output = tg::Result<()>> + Send;
+}
+
 impl Indexer {
 	#[must_use]
 	pub fn new(id: tg::indexer::Id) -> Self {

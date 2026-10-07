@@ -1,6 +1,5 @@
 use {
-	super::Indexer, futures::StreamExt as _, std::collections::BTreeSet, tangram_cache::Cache as _,
-	tangram_client::prelude::*,
+	super::Indexer, futures::StreamExt as _, std::collections::BTreeSet, tangram_client::prelude::*,
 };
 
 mod cache;

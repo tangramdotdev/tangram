@@ -1,7 +1,6 @@
 use {
 	crate::{Error, Message, Messenger, Payload},
 	futures::{FutureExt as _, TryFutureExt as _},
-	std::future::Future,
 	tangram_either::Either,
 };
 

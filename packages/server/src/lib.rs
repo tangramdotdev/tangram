@@ -22,7 +22,6 @@ use {
 	tangram_client::prelude::*,
 	tangram_database::{self as db, prelude::*},
 	tangram_futures::task::Task,
-	tangram_index::Index as _,
 	tangram_uri::Uri,
 	tangram_util::fs::remove,
 	tokio::io::AsyncWriteExt as _,

@@ -5,7 +5,6 @@ use {
 	num::ToPrimitive as _,
 	std::{path::Path, time::Duration},
 	tangram_archive::Archive as _,
-	tangram_cache::prelude::*,
 	tangram_client::prelude::*,
 	tangram_futures::task::Stopper,
 	tangram_index::prelude::*,

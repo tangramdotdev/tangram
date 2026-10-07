@@ -1,29 +1,10 @@
 use {
-	crate::{Db, Index, Request, Response},
+	crate::{Db, Index},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	tangram_client::prelude::*,
 };
 
 impl Index {
-	pub async fn get_usage(
-		&self,
-		account: &tangram_index::usage::Account,
-		period: tangram_index::usage::Period,
-		now: jiff::Timestamp,
-	) -> tg::Result<tangram_index::usage::Aggregate> {
-		let request = Request::GetUsage {
-			account: account.clone(),
-			now,
-			period,
-		};
-		let response = self.send_write_request(request).await?;
-		let Response::Usage(output) = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) fn get_usage_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,

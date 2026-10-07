@@ -7,24 +7,6 @@ use {
 };
 
 impl Index {
-	pub async fn try_get_checkouts(
-		&self,
-		ids: &[tg::Id],
-	) -> tg::Result<Vec<Option<tangram_index::checkout::Checkout>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let request = tangram_index::read::Request::TryGetCheckouts {
-			ids: ids.to_owned(),
-		};
-		let response = self.send_read_request(request).await?;
-		let tangram_index::read::Response::TryGetCheckouts(output) = response else {
-			return Err(tg::error!("unexpected read response"));
-		};
-
-		Ok(output)
-	}
-
 	pub(crate) async fn try_get_checkouts_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &Subspace,

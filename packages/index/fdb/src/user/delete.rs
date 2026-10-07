@@ -1,25 +1,13 @@
 #![allow(clippy::unnecessary_wraps)]
 
 use {
-	crate::{Index, Key, Request, Response},
+	crate::{Index, Key},
 	foundationdb as fdb, foundationdb_tuple as fdbt,
 	std::ops::ControlFlow,
 	tangram_client::prelude::*,
 };
 
 impl Index {
-	pub async fn delete_users(&self, ids: &[tg::user::Id]) -> tg::Result<()> {
-		if ids.is_empty() {
-			return Ok(());
-		}
-		let request = Request::DeleteUsers(ids.to_vec());
-		let response = self.send_write_request(request).await?;
-		let Response::Unit = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-		Ok(())
-	}
-
 	pub(crate) async fn delete_users_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,

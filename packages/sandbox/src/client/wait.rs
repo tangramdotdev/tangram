@@ -1,7 +1,6 @@
 use {
 	super::Client,
 	futures::{StreamExt as _, TryFutureExt as _, TryStreamExt as _, future},
-	std::future::Future,
 	tangram_client::prelude::*,
 	tangram_futures::stream::TryExt as _,
 	tangram_http::{request::builder::Ext as _, response::Ext as _},

@@ -8,7 +8,8 @@ use {
 		collections::{BTreeMap, BTreeSet},
 		sync::{Arc, Mutex},
 	},
-	tangram_client::{prelude::*, sync::control as protocol},
+	tangram_client::prelude::*,
+	tg::sync::control as protocol,
 	tokio::time::Instant,
 };
 

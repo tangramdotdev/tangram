@@ -1,44 +1,11 @@
 use {
-	crate::{Db, Index, Key, Request, Response},
+	crate::{Db, Index, Key},
 	foundationdb_tuple as fdbt, heed as lmdb,
 	std::time::Duration,
 	tangram_client::prelude::*,
 };
 
 impl Index {
-	pub async fn touch_objects(
-		&self,
-		ids: &[tg::object::Id],
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
-		self.touch_objects_with_account(ids, None, touched_at, time_to_touch)
-			.await
-	}
-
-	pub async fn touch_objects_with_account(
-		&self,
-		ids: &[tg::object::Id],
-		account: Option<&tangram_index::usage::Account>,
-		touched_at: i64,
-		time_to_touch: Duration,
-	) -> tg::Result<Vec<Option<tangram_index::object::Object>>> {
-		if ids.is_empty() {
-			return Ok(vec![]);
-		}
-		let request = Request::TouchObjects(crate::TouchObjects {
-			account: account.cloned(),
-			ids: ids.to_vec(),
-			time_to_touch,
-			touched_at,
-		});
-		let response = self.send_write_request(request).await?;
-		let Response::Objects(objects) = response else {
-			return Err(tg::error!("unexpected write response"));
-		};
-		Ok(objects)
-	}
-
 	pub(crate) fn touch_objects_with_account_with_transaction(
 		db: &Db,
 		subspace: &fdbt::Subspace,
