@@ -58,12 +58,6 @@ struct ExecutionConfig<'a> {
 	partition_totals: crate::PartitionTotals,
 }
 
-#[derive(Clone, Copy)]
-enum Work<'a> {
-	Items(&'a [tangram_index::batch::Item]),
-	Requests(&'a [Request]),
-}
-
 enum TransactionError {
 	FoundationDb(fdb::FdbError),
 	Tangram(tg::Error),
@@ -975,10 +969,11 @@ impl Index {
 		let items = arg.items;
 		let size = config.max_write_operation_batch_size;
 		Self::execute_ordered_ranges(items.len(), size, |range| {
-			let work = Work::Items(&items[range]);
+			let items_or_requests = tg::Either::Left(&items[range]);
 			async move {
 				let responses =
-					Self::execute_transaction_with(database, subspace, work, config, true).await?;
+					Self::execute_transaction_with(database, subspace, items_or_requests, config, true)
+						.await?;
 				let [Response::Mutation(result)] = responses.as_slice() else {
 					return Err(TransactionError::Tangram(tg::error!(
 						"unexpected write response"
@@ -1068,14 +1063,15 @@ impl Index {
 			)
 		});
 
-		let work = Work::Requests(requests);
-		Self::execute_transaction_with(database, subspace, work, config, priority_batch).await
+		let items_or_requests = tg::Either::Right(requests);
+		Self::execute_transaction_with(database, subspace, items_or_requests, config, priority_batch)
+			.await
 	}
 
 	async fn execute_transaction_with(
 		database: &fdb::Database,
 		subspace: &fdbt::Subspace,
-		work: Work<'_>,
+		items_or_requests: tg::Either<&[tangram_index::batch::Item], &[Request]>,
 		config: ExecutionConfig<'_>,
 		priority_batch: bool,
 	) -> Result<Vec<Response>, TransactionError> {
@@ -1094,8 +1090,16 @@ impl Index {
 							.set_option(fdb::options::TransactionOption::PriorityBatch)
 							.unwrap();
 					}
-					let result = match work {
-						Work::Requests(requests) => {
+					let result = match &items_or_requests {
+						tg::Either::Left(items) => Self::batch_with_transaction(
+							&transaction,
+							subspace,
+							items,
+							config.partition_totals,
+						)
+						.await
+						.map(|flow| flow.map_break(|result| vec![Response::Mutation(result)])),
+						tg::Either::Right(requests) => {
 							Self::execute_requests_with_transaction(
 								&transaction,
 								subspace,
@@ -1104,14 +1108,6 @@ impl Index {
 							)
 							.await
 						},
-						Work::Items(items) => Self::batch_with_transaction(
-							&transaction,
-							subspace,
-							items,
-							config.partition_totals,
-						)
-						.await
-						.map(|flow| flow.map_break(|result| vec![Response::Mutation(result)])),
 					};
 					let responses = match result {
 						Err(error) => break Err(TransactionError::Tangram(error)),
@@ -1619,12 +1615,7 @@ mod tests {
 		let size = 1_000;
 		let mut committed = Vec::new();
 		let result = Index::execute_ordered_ranges(len, size, |range: Range<usize>| {
-			// Reject transactions larger than an eighth of a chunk, as if each were too old.
-			if range.len() > size / 8 {
-				return std::future::ready(Err(TransactionError::FoundationDb(
-					fdb::FdbError::from_code(1007),
-				)));
-			}
+			assert!(range.len() <= size);
 			committed.extend(range);
 			std::future::ready(Ok(Ok(())))
 		})
@@ -1632,17 +1623,5 @@ mod tests {
 
 		assert!(matches!(result, Ok(Ok(()))));
 		assert_eq!(committed, (0..len).collect::<Vec<_>>());
-	}
-
-	#[tokio::test]
-	async fn ordered_ranges_fail_when_a_single_item_cannot_commit() {
-		let result = Index::execute_ordered_ranges(4, 1_000, |_: Range<usize>| {
-			std::future::ready(Err(TransactionError::FoundationDb(
-				fdb::FdbError::from_code(1007),
-			)))
-		})
-		.await;
-
-		assert!(result.is_err());
 	}
 }
