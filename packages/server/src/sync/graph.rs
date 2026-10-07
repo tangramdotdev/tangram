@@ -22,6 +22,7 @@ pub struct Graph {
 	checkouts: BTreeMap<tg::artifact::Id, Vec<tg::Id>>,
 	control: Option<tokio::sync::mpsc::WeakUnboundedSender<super::control::Event>>,
 	get_end_received: bool,
+	get_open: bool,
 	local_pending_roots: usize,
 	local_queue: VecDeque<usize>,
 	local_queued: HashSet<usize, fnv::FnvBuildHasher>,
@@ -208,6 +209,7 @@ impl Graph {
 			checkouts: BTreeMap::new(),
 			control: None,
 			get_end_received: false,
+			get_open: false,
 			local_pending_roots: 0,
 			local_queue: VecDeque::new(),
 			local_queued: HashSet::default(),
@@ -313,7 +315,7 @@ impl Graph {
 		self.checkout_queued_objects.remove(id);
 	}
 
-	fn update_root_tokens(
+	pub(super) fn update_root_tokens(
 		&mut self,
 		id: &tg::Id,
 		local: &tg::authorization::tokens::Entry,
@@ -333,6 +335,10 @@ impl Graph {
 			},
 			_ => {},
 		}
+	}
+
+	pub fn set_get_open(&mut self, open: bool) {
+		self.get_open = open;
 	}
 
 	pub fn mark_get_end_received(&mut self) {
@@ -1721,7 +1727,7 @@ impl Graph {
 
 	#[must_use]
 	pub fn end_local(&self) -> bool {
-		self.local_pending_roots == 0 && self.local_selectors.is_empty()
+		!self.get_open && self.local_pending_roots == 0 && self.local_selectors.is_empty()
 	}
 
 	#[must_use]

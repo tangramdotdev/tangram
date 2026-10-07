@@ -16,6 +16,7 @@ mod checkout;
 mod database;
 mod index;
 mod input;
+mod nodes;
 mod output;
 mod pending;
 mod queue;
@@ -47,10 +48,11 @@ impl Session {
 	pub(super) async fn sync_get(
 		&self,
 		arg: tg::sync::Arg,
+		get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 		graph: Arc<Mutex<Graph>>,
 		stream: BoxStream<'static, tg::sync::PutMessage>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::GetMessage>>,
-		verify_object_ids: bool,
+		trust: bool,
 	) -> tg::Result<()> {
 		// Create the progress.
 		let progress = Progress::new();
@@ -107,160 +109,131 @@ impl Session {
 				}
 			}
 		});
-		let result =
-			async {
-				// Enqueue the nodes.
-				for node in &state.arg.get {
-					let tokens = node.options.tokens.clone();
-					match &node.node {
-						tg::Selector::Id(id) => {
-							let local_tokens = tokens.local_entry();
-							let remote_tokens = tokens.remote_entry();
-							state.queue.enqueue(
-								state.arg.eager,
-								id.clone(),
-								local_tokens,
-								remote_tokens,
-							)?;
-						},
-						tg::Selector::Specifier(specifier) => {
-							let message = tg::sync::GetMessage::Node(tg::sync::GetNodeMessage {
-								descendants: true,
-								eager: state.arg.eager,
-								selector: tg::Selector::Specifier(specifier.clone()),
-								tokens,
-							});
-							state.sender.send(Ok(message)).await.map_err(|error| {
-								tg::error!(!error, "failed to send the message")
-							})?;
-						},
-					}
-				}
+		let result = async {
+			// Receive the initial and additional nodes.
+			let nodes_future =
+				Self::sync_get_nodes(&state.arg, &state.graph, &state.queue, &state.sender, get);
 
-				// Close the queue if there are no nodes.
-				if state.arg.get.is_empty() {
-					state.queue.close();
-				}
+			// Create the channels.
+			let (store_object_sender, store_object_receiver) =
+				tokio::sync::mpsc::channel::<self::store::ObjectNode>(256);
+			let (store_process_sender, store_process_receiver) =
+				tokio::sync::mpsc::channel::<self::store::ProcessNode>(256);
+			let (checkout_sender, checkout_receiver) =
+				tokio::sync::mpsc::channel::<self::checkout::ObjectNode>(64);
+			let (index_object_sender, index_object_receiver) =
+				tokio::sync::mpsc::channel::<self::index::ObjectNode>(256);
+			let (index_process_sender, index_process_receiver) =
+				tokio::sync::mpsc::channel::<self::index::ProcessNode>(256);
 
-				// Create the channels.
-				let (store_object_sender, store_object_receiver) =
-					tokio::sync::mpsc::channel::<self::store::ObjectNode>(256);
-				let (store_process_sender, store_process_receiver) =
-					tokio::sync::mpsc::channel::<self::store::ProcessNode>(256);
-				let (checkout_sender, checkout_receiver) =
-					tokio::sync::mpsc::channel::<self::checkout::ObjectNode>(64);
-				let (index_object_sender, index_object_receiver) =
-					tokio::sync::mpsc::channel::<self::index::ObjectNode>(256);
-				let (index_process_sender, index_process_receiver) =
-					tokio::sync::mpsc::channel::<self::index::ProcessNode>(256);
-
-				// Create the input future.
-				let input_future = {
-					let session = self.clone();
-					let arg = self::input::SyncGetInputArg {
-						checkout_sender: checkout_sender.clone(),
-						index_object_sender,
-						index_process_sender,
-						state: state.clone(),
-						store_object_sender: store_object_sender.clone(),
-						store_process_sender,
-						stream,
-						verify_object_ids,
-					};
-					async move { session.sync_get_input(arg).await }
-						.instrument(tracing::Span::current())
+			// Create the input future.
+			let input_future = {
+				let session = self.clone();
+				let arg = self::input::SyncGetInputArg {
+					checkout_sender: checkout_sender.clone(),
+					index_object_sender,
+					index_process_sender,
+					state: state.clone(),
+					store_object_sender: store_object_sender.clone(),
+					store_process_sender,
+					stream,
+					trust,
 				};
+				async move { session.sync_get_input(arg).await }
+					.instrument(tracing::Span::current())
+			};
 
-				// Create the queue future.
-				let queue_future = self
-					.sync_get_queue(
-						state.clone(),
-						checkout_sender.clone(),
-						queue_database_receiver,
-						queue_object_receiver,
-						queue_process_receiver,
-						queue_sandbox_receiver,
-					)
-					.instrument(tracing::Span::current());
+			// Create the queue future.
+			let queue_future = self
+				.sync_get_queue(
+					state.clone(),
+					checkout_sender.clone(),
+					queue_database_receiver,
+					queue_object_receiver,
+					queue_process_receiver,
+					queue_sandbox_receiver,
+				)
+				.instrument(tracing::Span::current());
 
-				// Create the checkout future.
-				let checkout_future = self
-					.sync_get_checkout(
-						state.clone(),
-						checkout_receiver,
-						store_object_sender.clone(),
-					)
-					.instrument(tracing::Span::current());
+			// Create the checkout future.
+			let checkout_future = self
+				.sync_get_checkout(
+					state.clone(),
+					checkout_receiver,
+					store_object_sender.clone(),
+				)
+				.instrument(tracing::Span::current());
 
-				// Create the index future.
-				let index_future = self
-					.sync_get_index(
-						state.clone(),
-						checkout_sender,
-						index_object_receiver,
-						index_process_receiver,
-					)
-					.instrument(tracing::Span::current());
+			// Create the index future.
+			let index_future = self
+				.sync_get_index(
+					state.clone(),
+					checkout_sender,
+					index_object_receiver,
+					index_process_receiver,
+				)
+				.instrument(tracing::Span::current());
 
-				// Create the store future.
-				let store_future = {
-					let session = self.clone();
-					let state = state.clone();
+			// Create the store future.
+			let store_future = {
+				let session = self.clone();
+				let state = state.clone();
+				async move {
+					session
+						.sync_get_store(&state, store_object_receiver, store_process_receiver)
+						.await
+				}
+				.instrument(tracing::Span::current())
+			};
+			drop(store_object_sender);
+
+			// Spawn the progress task.
+			let progress_task = Task::spawn({
+				let session = self.clone();
+				let state = state.clone();
+				|stop| {
 					async move {
 						session
-							.sync_get_store(&state, store_object_receiver, store_process_receiver)
-							.await
+							.sync_get_progress_task(&state.progress, stop, &state.sender)
+							.await;
 					}
 					.instrument(tracing::Span::current())
-				};
-				drop(store_object_sender);
+				}
+			});
 
-				// Spawn the progress task.
-				let progress_task = Task::spawn({
-					let session = self.clone();
-					let state = state.clone();
-					|stop| {
-						async move {
-							session
-								.sync_get_progress_task(&state.progress, stop, &state.sender)
-								.await;
-						}
-						.instrument(tracing::Span::current())
-					}
-				});
+			// Await the futures.
+			let (get, (), (), (), (), ()) = futures::try_join!(
+				nodes_future,
+				checkout_future,
+				index_future,
+				input_future,
+				queue_future,
+				store_future
+			)?;
 
-				// Await the futures.
-				futures::try_join!(
-					checkout_future,
-					index_future,
-					input_future,
-					queue_future,
-					store_future
-				)?;
+			// Send the get output before indexing.
+			self.sync_get_output(&state, &get).await?;
 
-				// Send the get output before indexing.
-				self.sync_get_output(&state).await?;
+			// Index the objects, processes, and sandboxes and update the graph permissions.
+			self.sync_get_index_put(state.graph.clone(), &state.id)
+				.await?;
+			completion.enqueued = true;
 
-				// Index the objects, processes, and sandboxes and update the graph permissions.
-				self.sync_get_index_put(state.graph.clone(), &state.id)
-					.await?;
-				completion.enqueued = true;
+			// Stop and await the progress task.
+			progress_task.stop();
+			progress_task
+				.wait()
+				.await
+				.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
 
-				// Stop and await the progress task.
-				progress_task.stop();
-				progress_task
-					.wait()
-					.await
-					.map_err(|error| tg::error!(!error, "the progress task panicked"))?;
+			// Commit the database nodes.
+			self.sync_get_database(&state.graph, state.arg.force)
+				.await?;
 
-				// Commit the database nodes.
-				self.sync_get_database(&state.graph, state.arg.force)
-					.await?;
-
-				Ok(())
-			}
-			.boxed()
-			.await;
+			Ok(())
+		}
+		.boxed()
+		.await;
 		completion.result = result.clone();
 		result
 	}

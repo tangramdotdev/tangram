@@ -40,7 +40,12 @@ impl Session {
 		};
 		let (sender, receiver) = mpsc::channel(1024);
 		let input = ReceiverStream::new(receiver).boxed();
-		let (_, stream) = self.sync_for_process(arg, input).await?;
+		let arg = crate::sync::InnerArg {
+			arg,
+			process: true,
+			..Default::default()
+		};
+		let (_, stream) = self.sync_inner(arg, input).await?;
 
 		// Associate the spawn objects with the destination sync before sending the spawn request.
 		let get = nodes
@@ -57,7 +62,12 @@ impl Session {
 			process_command_objects: true,
 			..Default::default()
 		};
-		let (output, stream) = self.sync_for_process(arg, stream.boxed()).await?;
+		let arg = crate::sync::InnerArg {
+			arg,
+			process: true,
+			..Default::default()
+		};
+		let (output, stream) = self.sync_inner(arg, stream.boxed()).await?;
 		let sync = output
 			.sync
 			.ok_or_else(|| tg::error!("the command sync did not produce a sync referent"))?;

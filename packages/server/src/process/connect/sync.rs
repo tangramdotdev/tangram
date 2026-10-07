@@ -107,7 +107,12 @@ impl Session {
 			location: Some(tg::Location::Local(tg::location::Local::default()).into()),
 			..Default::default()
 		};
-		let (output, mut sync_output) = self.sync_for_process(arg, sync_input).await?;
+		let arg = crate::sync::InnerArg {
+			arg,
+			process: true,
+			..Default::default()
+		};
+		let (output, mut sync_output) = self.sync_inner(arg, sync_input).await?;
 		let sync = output
 			.sync
 			.ok_or_else(|| tg::error!("the command sync did not produce a sync"))?;
@@ -161,7 +166,12 @@ impl Session {
 		};
 		let (sender, receiver) = mpsc::channel(1024);
 		let sync_input = ReceiverStream::new(receiver).boxed();
-		let (_, sync_output) = self.sync_for_process(arg, sync_input).await?;
+		let arg = crate::sync::InnerArg {
+			arg,
+			process: true,
+			..Default::default()
+		};
+		let (_, sync_output) = self.sync_inner(arg, sync_input).await?;
 
 		// Add the source sync messages to the process connection.
 		let sync_output = sync_output.map(|message| {

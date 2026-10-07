@@ -492,7 +492,7 @@ impl Session {
 			source_session,
 			sync,
 		} = task_arg;
-		let source_trusted = source_session.as_ref().is_some_and(tg::Session::trusted);
+		let trust = source_session.as_ref().is_some_and(tg::Session::trusted);
 		let retry = &self.server.config.sync.retry;
 		let retry = tangram_futures::retry::Options {
 			backoff: retry.backoff,
@@ -603,14 +603,14 @@ impl Session {
 							.sync(source_arg, source_input_stream)
 							.await
 							.map(|(_, stream)| stream.boxed())
-					} else if process {
-						session
-							.sync_for_process(source_arg, source_input_stream)
-							.await
-							.map(|(_, stream)| stream.boxed())
 					} else {
+						let arg = crate::sync::InnerArg {
+							arg: source_arg,
+							process,
+							..Default::default()
+						};
 						session
-							.sync(source_arg, source_input_stream)
+							.sync_inner(arg, source_input_stream)
 							.await
 							.map(|(_, stream)| stream.boxed())
 					}
@@ -639,13 +639,14 @@ impl Session {
 
 				// Create the destination future.
 				let destination_future = async {
+					let inner_arg = crate::sync::InnerArg {
+						arg: destination_arg,
+						process,
+						trust,
+						..Default::default()
+					};
 					let (sync_header, destination_output_stream) = session
-						.sync_with_source_trust(
-							destination_arg,
-							process,
-							destination_input_stream,
-							source_trusted,
-						)
+						.sync_inner(inner_arg, destination_input_stream)
 						.await
 						.map_err(|error| {
 							tg::error!(!error, "failed to create the destination stream")

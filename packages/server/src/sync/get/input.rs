@@ -15,7 +15,7 @@ pub(super) struct SyncGetInputArg {
 	pub store_object_sender: tokio::sync::mpsc::Sender<super::store::ObjectNode>,
 	pub store_process_sender: tokio::sync::mpsc::Sender<super::store::ProcessNode>,
 	pub stream: BoxStream<'static, tg::sync::PutMessage>,
-	pub verify_object_ids: bool,
+	pub trust: bool,
 }
 
 impl Session {
@@ -29,7 +29,7 @@ impl Session {
 			store_object_sender,
 			store_process_sender,
 			mut stream,
-			verify_object_ids,
+			trust,
 		} = arg;
 		let mut pending = super::pending::Pending::default();
 		let state = &state;
@@ -76,7 +76,7 @@ impl Session {
 						tg::object::Data::deserialize(message.id.kind(), message.bytes.as_ref())?
 					};
 
-					if verify_object_ids {
+					if !trust {
 						// Validate the ID.
 						let actual = tg::object::Id::new(message.id.kind(), &message.bytes);
 						if message.id != actual {

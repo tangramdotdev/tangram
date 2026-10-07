@@ -23,6 +23,14 @@ pub(crate) use self::graph::Graph;
 
 pub(crate) mod control;
 
+#[derive(Default)]
+pub(crate) struct InnerArg {
+	pub arg: tg::sync::Arg,
+	pub get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
+	pub process: bool,
+	pub trust: bool,
+}
+
 impl Session {
 	#[tracing::instrument(fields(get_count = arg.get.len(), put_count = arg.put.len()), level = "trace", name = "sync", skip_all)]
 	pub(crate) async fn sync(
@@ -33,53 +41,40 @@ impl Session {
 		tg::sync::Header,
 		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
 	)> {
-		self.sync_inner(arg, false, stream, true).await
+		let arg = InnerArg {
+			arg,
+			..Default::default()
+		};
+		self.sync_inner(arg, stream).await
 	}
 
-	pub(crate) async fn sync_for_process(
+	pub(crate) async fn sync_inner(
 		&self,
-		arg: tg::sync::Arg,
+		arg: InnerArg,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-	) -> tg::Result<(
-		tg::sync::Header,
-		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
-	)> {
-		self.sync_inner(arg, true, stream, true).await
-	}
-
-	pub(crate) async fn sync_with_source_trust(
-		&self,
-		arg: tg::sync::Arg,
-		process: bool,
-		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-		source_trusted: bool,
-	) -> tg::Result<(
-		tg::sync::Header,
-		impl Stream<Item = tg::Result<tg::sync::Message>> + Send + use<>,
-	)> {
-		self.sync_inner(arg, process, stream, !source_trusted).await
-	}
-
-	async fn sync_inner(
-		&self,
-		arg: tg::sync::Arg,
-		process: bool,
-		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-		verify_object_ids: bool,
 	) -> tg::Result<(
 		tg::sync::Header,
 		BoxStream<'static, tg::Result<tg::sync::Message>>,
 	)> {
+		let InnerArg {
+			arg,
+			get,
+			process,
+			trust,
+		} = arg;
 		let location = self.server.location(arg.location.as_ref())?;
 
 		let (header, stream) = match location {
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) if Some(region.as_str()) != self.server.config.region.as_deref() => {
+				if get.is_some() {
+					return Err(tg::error!("additional get nodes require a local sync"));
+				}
 				self.sync_region(arg, process, stream, region).await?
 			},
 			tg::Location::Local(_) => {
-				let (header, stream) = self.sync_local(arg, stream, verify_object_ids).await?;
+				let (header, stream) = self.sync_local(arg, get, stream, trust).await?;
 				let stream = stream.with_stopper(self.context.stopper.clone());
 				(header, stream)
 			},
@@ -87,6 +82,9 @@ impl Session {
 				name: remote,
 				region,
 			}) => {
+				if get.is_some() {
+					return Err(tg::error!("additional get nodes require a local sync"));
+				}
 				self.sync_remote(arg, process, stream, remote, region)
 					.await?
 			},
@@ -98,8 +96,9 @@ impl Session {
 	async fn sync_local(
 		&self,
 		mut arg: tg::sync::Arg,
+		get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
-		verify_object_ids: bool,
+		trust: bool,
 	) -> tg::Result<(
 		tg::sync::Header,
 		BoxStream<'static, tg::Result<tg::sync::Message>>,
@@ -118,9 +117,10 @@ impl Session {
 				async move {
 					let future = AssertUnwindSafe(session.sync_task(
 						arg,
+						get,
 						stream,
 						sender.clone(),
-						verify_object_ids,
+						trust,
 					))
 					.catch_unwind()
 					.instrument(tracing::Span::current());
@@ -248,15 +248,16 @@ impl Session {
 	async fn sync_task(
 		&self,
 		arg: tg::sync::Arg,
+		get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 		stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
-		verify_object_ids: bool,
+		trust: bool,
 	) -> tg::Result<()> {
 		let mut session = self.clone();
 		session.sync = arg.sync.as_ref().map(|sync| sync.node.clone());
 		session.sync_control = Some(Arc::new(control::Client::default()));
 		session
-			.sync_task_inner(arg, stream, sender, verify_object_ids)
+			.sync_task_inner(arg, get, stream, sender, trust)
 			.await?;
 		Ok(())
 	}
@@ -264,13 +265,16 @@ impl Session {
 	async fn sync_task_inner(
 		&self,
 		arg: tg::sync::Arg,
+		get: Option<tokio::sync::mpsc::Receiver<tg::Referent<tg::Selector<tg::Id>>>>,
 		mut stream: BoxStream<'static, tg::Result<tg::sync::Message>>,
 		sender: tokio::sync::mpsc::Sender<tg::Result<tg::sync::Message>>,
-		verify_object_ids: bool,
+		trust: bool,
 	) -> tg::Result<()> {
 		// Create the graph.
 		let checkout_pointers = self.sync_get_checkout_pointers_enabled();
-		let graph = Arc::new(Mutex::new(Graph::new(&arg, checkout_pointers)));
+		let mut graph = Graph::new(&arg, checkout_pointers);
+		graph.set_get_open(true);
+		let graph = Arc::new(Mutex::new(graph));
 
 		// Spawn the input task to receive the input.
 		let (get_input_sender, get_input_receiver) =
@@ -326,7 +330,7 @@ impl Session {
 			let sender = get_output_sender.clone();
 			async move {
 				let future = session
-					.sync_get(arg, graph, stream, get_output_sender, verify_object_ids)
+					.sync_get(arg, get, graph, stream, get_output_sender, trust)
 					.instrument(tracing::debug_span!("get"));
 				match future.boxed().await {
 					Ok(()) => Ok(()),

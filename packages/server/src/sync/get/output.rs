@@ -11,8 +11,12 @@ use {
 };
 
 impl Session {
-	pub(super) async fn sync_get_output(&self, state: &State) -> tg::Result<()> {
-		if state.arg.get.is_empty() {
+	pub(super) async fn sync_get_output(
+		&self,
+		state: &State,
+		get: &[tg::Referent<tg::Selector<tg::Id>>],
+	) -> tg::Result<()> {
+		if get.is_empty() {
 			return Ok(());
 		}
 
@@ -28,10 +32,7 @@ impl Session {
 				.unwrap();
 		let nodes = {
 			let graph = state.graph.lock().unwrap();
-			state
-				.arg
-				.get
-				.iter()
+			get.iter()
 				.filter_map(|node| match &node.node {
 					tg::Selector::Id(id) => Some(id),
 					tg::Selector::Specifier(_) => None,
