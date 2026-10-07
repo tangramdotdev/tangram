@@ -34,7 +34,7 @@ for token in [$alice.token $bob.token] {
 let stored = tg --token $alice.token process get $process | from json
 assert equal $stored.exit 0
 
-# Root may modify an existing process.
-tg --token $root_token process put $process ($data | upsert exit 1 | to json)
+# Root cannot modify a finished process.
+failure (tg --token $root_token process put $process ($data | upsert exit 1 | to json) | complete)
 let stored = tg --token $alice.token process get $process | from json
-assert equal $stored.exit 1
+assert equal $stored.exit 0

@@ -60,12 +60,8 @@ impl Index {
 
 		// Preserve the stored data after validating an identical write.
 		let mut arg = std::borrow::Cow::Borrowed(arg);
-		if let Some(existing) = &existing
-			&& (arg.principal != tg::Principal::Process(id.clone())
-				|| existing
-					.data
-					.as_ref()
-					.is_some_and(|data| data.status.is_finished()))
+		if let Some(data) = existing.as_ref().and_then(|existing| existing.data.as_ref())
+			&& (arg.principal != tg::Principal::Process(id.clone()) || data.status.is_finished())
 		{
 			arg.to_mut().data = None;
 		}

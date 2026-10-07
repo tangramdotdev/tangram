@@ -113,10 +113,7 @@ impl Arg {
 		if self.command_id != existing.command_id {
 			return Ok(Err(tg::error!("cannot replace an existing process")));
 		}
-		if let Some(data) = &self.data {
-			let Some(existing) = &existing.data else {
-				return Ok(Err(tg::error!("cannot verify the existing process data")));
-			};
+		if let (Some(data), Some(existing)) = (&self.data, &existing.data) {
 			let mut data = data.clone().without_location_and_tokens();
 			data.children = None;
 			let mut existing = existing.clone().without_location_and_tokens();
