@@ -11,7 +11,6 @@ let path = artifact {
 			let errorOmitsNull =
 				!errorPrint.includes(`"code":`) &&
 				!errorPrint.includes(`"diagnostics":`) &&
-				!errorPrint.includes(`"location":`) &&
 				!errorPrint.includes(`"source":`);
 			let executable = await tg.file("run");
 			let command = await tg.command({

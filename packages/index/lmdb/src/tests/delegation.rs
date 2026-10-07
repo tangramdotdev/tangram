@@ -629,6 +629,12 @@ async fn sync_tokens_satisfy_dependencies_and_preserve_expiration() {
 		tokens: Vec::new(),
 	};
 	let config = tangram_index::verify::Config::default();
+	let denied = index
+		.verify_batch(&[arg.clone()], config, &tg::Principal::Anonymous)
+		.await
+		.unwrap();
+	assert_eq!(denied[0].syncs, []);
+
 	let principal = tg::Principal::Process(process);
 	let outcomes = index
 		.verify_batch(&[arg.clone()], config, &principal)

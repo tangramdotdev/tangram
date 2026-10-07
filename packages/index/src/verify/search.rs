@@ -355,7 +355,6 @@ pub(crate) struct State {
 	newly_evaluated: BTreeSet<Key>,
 	process_facts: HashMap<tg::process::Id, Arc<ProcessFacts>>,
 	process_parent_delegation: bool,
-	sync_keys: BTreeSet<Key>,
 	token_subject: Option<tg::authorization::Subject>,
 	subject_key_dependents: BTreeMap<
 		(
@@ -900,48 +899,6 @@ impl State {
 		facts
 	}
 
-	#[must_use]
-	pub(crate) fn syncs(&self, root: &Key) -> std::collections::BTreeSet<super::Sync> {
-		if self.sync_keys.is_empty() {
-			return BTreeSet::new();
-		}
-		let mut syncs = BTreeSet::new();
-		let mut seen = BTreeSet::new();
-		let mut pending = vec![root.clone()];
-		while let Some(key) = pending.pop() {
-			if !seen.insert(key.clone()) {
-				continue;
-			}
-			if let Some(tg::authorization::Subject::Sync(sync)) = &key.2
-				&& matches!(
-					key.1,
-					tg::authorization::Permission::Object(_)
-						| tg::authorization::Permission::Process(_)
-				) {
-				syncs.insert(super::Sync {
-					permission: key.1,
-					resource: key.0.clone(),
-					sync: sync.clone(),
-				});
-			}
-			pending.extend(
-				self.verification_dependencies
-					.get(&key)
-					.into_iter()
-					.flatten()
-					.cloned(),
-			);
-			pending.extend(
-				self.derived_dependencies
-					.get(&key)
-					.into_iter()
-					.flatten()
-					.cloned(),
-			);
-		}
-		syncs
-	}
-
 	pub(crate) fn has_graph_scopes(&self) -> bool {
 		self.ancestor_facts
 			.values()
@@ -1096,9 +1053,6 @@ impl State {
 	}
 
 	pub(crate) fn add_verification_dependency(&mut self, dependency: &Key, dependent: Key) -> bool {
-		if matches!(dependency.2, Some(tg::authorization::Subject::Sync(_))) {
-			self.sync_keys.insert(dependency.clone());
-		}
 		let inserted = self
 			.verification_dependents
 			.entry(dependency.clone())
@@ -1141,11 +1095,6 @@ impl State {
 		second: &Key,
 		dependent: &Key,
 	) {
-		for dependency in [first, second] {
-			if matches!(dependency.2, Some(tg::authorization::Subject::Sync(_))) {
-				self.sync_keys.insert(dependency.clone());
-			}
-		}
 		for (dependency, other) in [(first, second), (second, first)] {
 			self.verification_conjunctions
 				.entry(dependency.clone())
@@ -1163,9 +1112,6 @@ impl State {
 	}
 
 	pub(crate) fn add_derived_dependency(&mut self, dependency: &Key, dependent: Key) {
-		if matches!(dependency.2, Some(tg::authorization::Subject::Sync(_))) {
-			self.sync_keys.insert(dependency.clone());
-		}
 		let inserted = self
 			.derived_dependents
 			.entry(dependency.clone())
@@ -1357,9 +1303,6 @@ impl State {
 	}
 
 	pub(crate) fn verify_with_expiration(&mut self, key: Key, expires_at: i64) {
-		if matches!(key.2, Some(tg::authorization::Subject::Sync(_))) {
-			self.sync_keys.insert(key.clone());
-		}
 		let mut stack = vec![(key, expires_at)];
 		while let Some((key, expires_at)) = stack.pop() {
 			let evaluation = self.evaluation_mut(&key);

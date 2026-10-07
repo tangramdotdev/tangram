@@ -407,29 +407,14 @@ impl Batch {
 			.outcomes
 			.as_ref()
 			.ok_or_else(|| tg::error!("the verification batch is incomplete"))?;
-		let results = std::iter::zip(&self.args, outcomes)
-			.enumerate()
-			.map(|(index, (arg, outcome))| {
-				let mut syncs = std::collections::BTreeSet::new();
-				if let Some(Resolution::Complete(Some((id, _)))) = self.resources.get(index) {
-					for permission in arg.requested.iter() {
-						if let Some(index) = self
-							.search_indices
-							.get(&context(arg, permission.is_read_like()))
-						{
-							let search = &self.searches[*index];
-							let key = (id.clone(), permission, arg.subject.clone());
-							syncs.extend(search.state.syncs(&key));
-						}
-					}
-				}
-				super::Output {
-					expires_at: outcome.expires_at,
-					outcome: outcome.outcome,
-					permissions: outcome.permissions,
-					storage: outcome.storage,
-					syncs: syncs.into_iter().collect(),
-				}
+		let results = outcomes
+			.iter()
+			.map(|outcome| super::Output {
+				expires_at: outcome.expires_at,
+				outcome: outcome.outcome,
+				permissions: outcome.permissions,
+				storage: outcome.storage,
+				syncs: Vec::new(),
 			})
 			.collect();
 		Ok(results)
