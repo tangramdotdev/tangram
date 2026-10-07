@@ -11,6 +11,7 @@ use {
 mod ancestor;
 mod descendant;
 mod subtree;
+mod sync;
 
 pub(crate) use {
 	crate::permission::Fact as Permission,
@@ -226,6 +227,14 @@ pub(crate) enum Read {
 		index: usize,
 		selector: tg::Selector<tg::Id>,
 	},
+	StorageChildren {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		key: Key,
+		limit: usize,
+		objects: bool,
+	},
+
 	SubjectPermissions {
 		after: Option<Vec<u8>>,
 		depth: usize,
@@ -355,6 +364,14 @@ pub(crate) struct State {
 	newly_evaluated: BTreeSet<Key>,
 	process_facts: HashMap<tg::process::Id, Arc<ProcessFacts>>,
 	process_parent_delegation: bool,
+	pub(crate) storage: BTreeSet<Key>,
+	pub(crate) storage_children: BTreeSet<Key>,
+	pub(crate) storage_exhausted: BTreeSet<Key>,
+	sync_access: BTreeSet<Key>,
+	sync_dependents: BTreeMap<Key, BTreeSet<Key>>,
+	sync_reads: BTreeMap<Key, BTreeSet<(Key, tg::sync::Id)>>,
+	syncs: BTreeMap<Key, BTreeSet<crate::verify::Sync>>,
+
 	token_subject: Option<tg::authorization::Subject>,
 	subject_key_dependents: BTreeMap<
 		(
@@ -630,8 +647,7 @@ impl AncestorOrDescendantSearch {
 		let roots = roots
 			.iter()
 			.filter(|root| {
-				state.ancestor_or_descendant(root) == Outcome::Pending
-					&& seen.insert((*root).clone())
+				state.search_outcome(root) == Outcome::Pending && seen.insert((*root).clone())
 			})
 			.cloned()
 			.collect::<Vec<_>>();
@@ -699,7 +715,8 @@ impl AncestorOrDescendantSearch {
 			}
 
 			if self.roots.iter().all(|root| {
-				state.ancestor_or_descendant(root) != Outcome::Pending
+				(state.ancestor_or_descendant(root) != Outcome::Pending
+					&& (!state.storage.contains(root) || self.ancestor.is_none()))
 					|| (self.ancestor_exhausted.contains(root)
 						&& self.descendant_exhausted.contains(root))
 			}) {
@@ -751,6 +768,9 @@ impl AncestorOrDescendantSearch {
 				if ancestor_reads.is_empty() {
 					let mut search = self.ancestor.take().unwrap();
 					search.finish(state);
+					for key in &search.incomplete {
+						state.exhaust_syncs(key);
+					}
 					for root in &self.roots {
 						if state.is_verified(root) {
 							continue;
@@ -785,7 +805,8 @@ impl AncestorOrDescendantSearch {
 			| Read::GroupMembers { .. }
 			| Read::ObjectParents { .. }
 			| Read::OrganizationMembers { .. }
-			| Read::ProcessParents { .. }) => self
+			| Read::ProcessParents { .. }
+			| Read::StorageChildren { .. }) => self
 				.ancestor
 				.as_mut()
 				.ok_or_else(|| tg::error!("received a read after the ancestor search completed"))?
@@ -1064,6 +1085,7 @@ impl State {
 				.or_default()
 				.insert(dependency.clone());
 		}
+		self.inherit_syncs(dependency, &dependent);
 		if self.is_verified(dependency) {
 			let expires_at = self.expires_at(dependency).min(
 				self.verification_expirations
@@ -1105,6 +1127,12 @@ impl State {
 				.or_default()
 				.insert(dependency.clone());
 		}
+		if self.is_verified(first) {
+			self.inherit_syncs(second, dependent);
+		}
+		if self.is_verified(second) {
+			self.inherit_syncs(first, dependent);
+		}
 		if self.is_verified(first) && self.is_verified(second) {
 			let expires_at = self.expires_at(first).min(self.expires_at(second));
 			self.verify_with_expiration(dependent.clone(), expires_at);
@@ -1130,6 +1158,7 @@ impl State {
 				*unresolved = unresolved.saturating_add(1);
 			}
 		}
+		self.inherit_derived_syncs(dependency, &dependent);
 		self.propagate_derived_outcome(dependency);
 		self.try_verify_derived(dependent);
 	}
@@ -1316,6 +1345,7 @@ impl State {
 				self.verification_log.push(key.clone());
 			}
 			self.newly_evaluated.insert(key.clone());
+			self.activate_syncs(&key);
 			stack.extend(
 				crate::verify::permissions_implied_by(key.1)
 					.into_iter()
@@ -1440,7 +1470,10 @@ impl FinalSearch {
 			match state.outcome(&key) {
 				Outcome::Verified => {
 					self.deferred.remove(&key);
-					self.outcomes.insert(key, Outcome::Verified);
+					self.outcomes.insert(key.clone(), Outcome::Verified);
+					if state.storage.contains(&key) {
+						self.enqueue_dependencies(state, &key);
+					}
 				},
 				Outcome::Denied => {
 					self.outcomes.insert(key.clone(), Outcome::Denied);
@@ -1491,7 +1524,7 @@ impl FinalSearch {
 
 	fn enqueue_dependencies(&mut self, state: &State, key: &Key) {
 		for dependency in state.verification_dependencies(key) {
-			if dependency.2.is_some()
+			if (dependency.2.is_some() || state.sync_access.contains(&dependency))
 				&& !self.outcomes.contains_key(&dependency)
 				&& self.queued.insert(dependency.clone())
 			{

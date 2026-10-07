@@ -595,6 +595,7 @@ impl Search {
 			| Read::Process { .. }
 			| Read::ProcessObjects { .. }
 			| Read::ProcessParents { .. }
+			| Read::StorageChildren { .. }
 			| Read::Resolve { .. }
 			| Read::SubtreeObjectChildren { .. }
 			| Read::SubtreeProcessChildren { .. } => {
@@ -1383,6 +1384,7 @@ impl Search {
 			| Read::Process { .. }
 			| Read::ProcessObjects { .. }
 			| Read::ProcessParents { .. }
+			| Read::StorageChildren { .. }
 			| Read::Resolve { .. }
 			| Read::SubtreeObjectChildren { .. }
 			| Read::SubtreeProcessChildren { .. } => {

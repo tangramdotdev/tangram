@@ -460,6 +460,7 @@ async fn verify_overlapping_exhausted_secs(
 	depth: usize,
 	leaves: &[tg::object::Id],
 	user: &tg::user::Id,
+	storage: tg::object::storage::Set,
 ) -> f64 {
 	let ancestor = tangram_index::verify::SearchConfig {
 		max_depth: depth / 2,
@@ -484,7 +485,7 @@ async fn verify_overlapping_exhausted_secs(
 	let args = leaves
 		.iter()
 		.map(|leaf| tangram_index::verify::Arg {
-			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			storage: tg::storage::Set::Object(storage),
 			subject: None,
 			requested: node,
 			required: node,
@@ -1734,20 +1735,42 @@ async fn verify_overlapping_exhausted_ancestor_batch_scales_linearly() {
 	let base_leaves = put_overlapping_ancestor_component(&index, &mut transaction, 0, BASE, BASE);
 	let deep_leaves =
 		put_overlapping_ancestor_component(&index, &mut transaction, 10_000, DEEP, DEEP);
+	// Include object records so the same graph can exercise storage requests.
+	let record = tangram_index::object::Object {
+		checkout: None,
+		metadata: tg::object::Metadata::default(),
+		put: [0; 16],
+		reference_count: 0,
+		storage: tg::object::storage::Set::empty(),
+		touched_at: 0,
+	};
+	let bytes = record.serialize().unwrap();
+	for leaf in base_leaves.iter().chain(&deep_leaves) {
+		let key = Key::Object(ObjectKey::Object(leaf.clone()));
+		put_value(&index, &mut transaction, &key, &bytes);
+	}
+
 	transaction.commit().unwrap();
 
-	let base = verify_overlapping_exhausted_secs(&index, BASE, &base_leaves, &user).await;
-	let deep = verify_overlapping_exhausted_secs(&index, DEEP, &deep_leaves, &user).await;
-	let ratio = deep / base;
-	eprintln!(
-		"overlapping exhausted ancestor batch: {BASE} leaves = {:.1}ms, {DEEP} leaves = {:.1}ms, ratio = {ratio:.1}x",
-		base * 1e3,
-		deep * 1e3,
-	);
-	assert!(
-		ratio < 8.0,
-		"verification compounded {ratio:.1}x over a 4x larger overlapping exhausted graph: ancestor work was repeated per root"
-	);
+	for storage in [
+		tg::object::storage::Set::empty(),
+		tg::object::storage::Set::NODE,
+	] {
+		let base =
+			verify_overlapping_exhausted_secs(&index, BASE, &base_leaves, &user, storage).await;
+		let deep =
+			verify_overlapping_exhausted_secs(&index, DEEP, &deep_leaves, &user, storage).await;
+		let ratio = deep / base;
+		eprintln!(
+			"overlapping exhausted ancestor batch ({storage:?}): {BASE} leaves = {:.1}ms, {DEEP} leaves = {:.1}ms, ratio = {ratio:.1}x",
+			base * 1e3,
+			deep * 1e3,
+		);
+		assert!(
+			ratio < 8.0,
+			"verification compounded {ratio:.1}x over a 4x larger overlapping exhausted graph: ancestor work was repeated per root"
+		);
+	}
 }
 
 #[tokio::test]

@@ -744,6 +744,207 @@ async fn storage_discovery_runs_after_root_verification_and_without_permissions(
 }
 
 #[tokio::test]
+async fn storage_discovery_preserves_descendant_sync_resources() {
+	let (_dir, index) = super::new_index();
+	let root = object(123);
+	let child = object(124);
+	let sync = tg::sync::Id::new();
+	let source = tg::authorization::Subject::Sync(sync.clone());
+	let recipient = tg::authorization::Subject::Public;
+	let arg = tangram_index::batch::Arg {
+		items: vec![
+			put_object(&root, BTreeSet::from([child.clone()])),
+			delegation(&child, &recipient, &source),
+		],
+	};
+	index.batch(arg).await.unwrap().unwrap();
+	let subtree = tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Subtree,
+	);
+	let arg = tangram_index::verify::Arg {
+		requested: subtree.into(),
+		required: subtree.into(),
+		resource: tg::Selector::Id(root.into()),
+		storage: tg::storage::Set::Object(tg::object::storage::Set::SUBTREE),
+		subject: None,
+		tokens: Vec::new(),
+	};
+	let outputs = index
+		.verify_batch(
+			&[arg],
+			tangram_index::verify::Config::default(),
+			&tg::Principal::Root,
+		)
+		.await
+		.unwrap();
+	assert_eq!(outputs[0].permissions, subtree.into());
+	assert_eq!(
+		outputs[0].outcome,
+		tangram_index::verify::Outcome::Unsatisfied
+	);
+	assert!(outputs[0].syncs.contains(&tangram_index::verify::Sync {
+		permission: subtree,
+		resource: child.into(),
+		sync,
+	}));
+}
+
+#[tokio::test]
+async fn storage_discovery_follows_process_children_and_objects() {
+	let (_dir, index) = super::new_index();
+	let object = object(128);
+	let parent = tg::process::Id::new();
+	let child = tg::process::Id::new();
+	let sync = tg::sync::Id::new();
+	let mut items = vec![delegation(
+		&object,
+		&tg::authorization::Subject::Public,
+		&tg::authorization::Subject::Sync(sync.clone()),
+	)];
+	for id in [&parent, &child] {
+		let arg = tangram_index::process::put::Arg {
+			cached: false,
+			children: Some(if id == &parent {
+				vec![tg::process::data::Child {
+					cached: false,
+					process: tg::Referent::with_node(child.clone()),
+				}]
+			} else {
+				Vec::new()
+			}),
+			command: None,
+			command_id: object.clone(),
+			data: None,
+			error: None,
+			id: id.clone(),
+			location: None,
+			log: Some((id == &child).then(|| object.clone())),
+			metadata: tg::process::Metadata::default(),
+			options: tg::referent::Options::default(),
+			output: None,
+			parent: None,
+			permissions: Vec::new(),
+			principal: tg::Principal::Root,
+			sandbox: None,
+			storage: tg::process::storage::Set::NODE,
+			time_to_touch: Duration::ZERO,
+			touched_at: 0,
+		};
+		items.push(tangram_index::batch::Item::PutProcess(arg));
+	}
+	let arg = tangram_index::batch::Arg { items };
+	index.batch(arg).await.unwrap().unwrap();
+	for (id, permission, storage) in [
+		(
+			parent,
+			tg::authorization::permission::process::Permission::SubtreeLogObjects,
+			tg::process::storage::Set::SUBTREE_LOG_OBJECTS,
+		),
+		(
+			child,
+			tg::authorization::permission::process::Permission::NodeLogObjects,
+			tg::process::storage::Set::NODE_LOG_OBJECTS,
+		),
+	] {
+		let permission = tg::authorization::Permission::Process(permission);
+		let arg = tangram_index::verify::Arg {
+			requested: permission.into(),
+			required: permission.into(),
+			resource: tg::Selector::Id(id.into()),
+			storage: tg::storage::Set::Process(storage),
+			subject: None,
+			tokens: Vec::new(),
+		};
+		let outputs = index
+			.verify_batch(
+				&[arg],
+				tangram_index::verify::Config::default(),
+				&tg::Principal::Root,
+			)
+			.await
+			.unwrap();
+		assert_eq!(outputs[0].permissions, permission.into());
+		assert_eq!(
+			outputs[0].outcome,
+			tangram_index::verify::Outcome::Unsatisfied
+		);
+		assert!(outputs[0].syncs.contains(&tangram_index::verify::Sync {
+			permission: tg::authorization::Permission::Object(
+				tg::authorization::permission::object::Permission::Subtree
+			),
+			resource: object.clone().into(),
+			sync: sync.clone(),
+		}));
+	}
+}
+
+#[tokio::test]
+async fn sync_discovery_shares_ancestors_without_sharing_authorization_contexts() {
+	let (_dir, index) = super::new_index();
+	let root = object(125);
+	let leaves = [object(126), object(127)];
+	let process = tg::process::Id::new();
+	let recipient = tg::authorization::Subject::Process(process.clone());
+	let sync = tg::sync::Id::new();
+	let source = tg::authorization::Subject::Sync(sync.clone());
+	let arg = tangram_index::batch::Arg {
+		items: vec![
+			put_object(&root, leaves.iter().cloned().collect()),
+			put_object(&leaves[0], BTreeSet::new()),
+			put_object(&leaves[1], BTreeSet::new()),
+			delegation(&root, &recipient, &source),
+		],
+	};
+	index.batch(arg).await.unwrap().unwrap();
+	let node = tg::authorization::Permission::Object(
+		tg::authorization::permission::object::Permission::Node,
+	);
+	let parent = tg::authorization::Permission::Process(
+		tg::authorization::permission::process::Permission::Parent,
+	);
+	let token = tg::authorization::Body {
+		expires_at: 100,
+		permissions: vec![parent],
+		resource: process.into(),
+	};
+	let mut args = leaves
+		.iter()
+		.map(|leaf| tangram_index::verify::Arg {
+			requested: node.into(),
+			required: node.into(),
+			resource: tg::Selector::Id(leaf.clone().into()),
+			storage: tg::storage::Set::Object(tg::object::storage::Set::empty()),
+			subject: None,
+			tokens: vec![token.clone()],
+		})
+		.collect::<Vec<_>>();
+	let mut without_token = args[0].clone();
+	without_token.tokens.clear();
+	args.push(without_token);
+	let mut other_subject = args[0].clone();
+	other_subject.subject = Some(tg::authorization::Subject::User(tg::user::Id::new()));
+	other_subject.tokens.clear();
+	args.push(other_subject);
+	let principal = tg::Principal::User(tg::user::Id::new());
+	let outputs = index
+		.verify_batch(&args, tangram_index::verify::Config::default(), &principal)
+		.await
+		.unwrap();
+	for (output, leaf) in outputs.iter().zip(&leaves) {
+		assert_eq!(
+			output.syncs,
+			vec![tangram_index::verify::Sync {
+				permission: node,
+				resource: leaf.clone().into(),
+				sync: sync.clone(),
+			}]
+		);
+	}
+	assert_eq!(outputs[2].syncs, []);
+	assert_eq!(outputs[3].syncs, []);
+}
+
+#[tokio::test]
 async fn scoped_tag_verification_does_not_inherit_root_authority() {
 	let (_dir, index) = super::new_index();
 	let root = object(130);

@@ -1,6 +1,5 @@
 use tangram_client::prelude::*;
 
-mod discover;
 mod engine;
 pub use engine::Batch;
 #[doc(hidden)]

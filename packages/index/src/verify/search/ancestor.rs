@@ -3,7 +3,10 @@ use {
 		AncestorCandidate, AncestorChecks, AncestorNodeFacts, AncestorNodeRead, Budget,
 		DelegationRead, Key, Outcome, Read, ReadOutput, State,
 	},
-	std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+	std::{
+		collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque},
+		sync::Arc,
+	},
 	tangram_client::prelude::*,
 };
 
@@ -50,6 +53,13 @@ enum AncestorTask {
 		permission: tg::authorization::permission::process::Permission,
 		process: tg::process::Id,
 	},
+	StorageChildren {
+		after: Option<Vec<u8>>,
+		depth: usize,
+		key: Key,
+		objects: bool,
+	},
+
 	Subject {
 		dependent: Key,
 		depth: usize,
@@ -71,12 +81,15 @@ struct MembershipPage {
 pub(super) struct Search {
 	verification_revision: usize,
 	budget: Budget,
+	fact_budget: usize,
+	incomplete_nodes: HashSet<tg::Id>,
 	delegation_search_started: bool,
 	dormant: HashMap<Key, Vec<AncestorTask>>,
 	pub(super) incomplete: HashSet<Key>,
 	// Reference counting prunes acyclic stale branches; cycles remain live conservatively.
 	live_references: HashMap<Key, usize>,
 	node_checks_started: HashSet<Key>,
+	storage_children_started: HashSet<Key>,
 	pending_nodes: HashMap<tg::Id, PendingAncestorNode>,
 	principal: tg::Principal,
 	queues: BTreeMap<usize, VecDeque<AncestorTask>>,
@@ -100,6 +113,7 @@ impl AncestorTask {
 			| Self::ObjectParents { dependent: key, .. }
 			| Self::OrganizationMembers { dependent: key, .. }
 			| Self::ProcessParents { dependent: key, .. }
+			| Self::StorageChildren { key, .. }
 			| Self::Subject { dependent: key, .. } => key,
 		}
 	}
@@ -115,6 +129,7 @@ impl AncestorTask {
 			| Self::ObjectParents { depth, .. }
 			| Self::OrganizationMembers { depth, .. }
 			| Self::ProcessParents { depth, .. }
+			| Self::StorageChildren { depth, .. }
 			| Self::Subject { depth, .. } => *depth,
 		}
 	}
@@ -149,12 +164,15 @@ impl Search {
 
 		let mut search = Self {
 			verification_revision,
+			fact_budget: budget.config.max_edges,
+			incomplete_nodes: HashSet::new(),
 			budget,
 			delegation_search_started: false,
 			dormant: HashMap::new(),
 			incomplete,
 			live_references: HashMap::new(),
 			node_checks_started: HashSet::new(),
+			storage_children_started: HashSet::new(),
 			pending_nodes: HashMap::new(),
 			principal: principal.clone(),
 			queues,
@@ -208,6 +226,18 @@ impl Search {
 				continue;
 			}
 			match task {
+				AncestorTask::StorageChildren {
+					after,
+					depth,
+					key,
+					objects,
+				} => reads.push(Read::StorageChildren {
+					after,
+					depth,
+					key,
+					limit: self.budget.config.page_size,
+					objects,
+				}),
 				AncestorTask::Checks(checks) => reads.push(Read::AncestorChecks(checks)),
 				AncestorTask::Delegation {
 					after,
@@ -242,7 +272,33 @@ impl Search {
 					});
 				},
 				AncestorTask::Node { depth, key } => {
-					match state.ancestor_or_descendant(&key) {
+					if state.storage_children.contains(&key)
+						&& self.storage_children_started.insert(key.clone())
+					{
+						if key.1 == key.1.subtree() {
+							self.queues.entry(depth).or_default().push_back(
+								AncestorTask::StorageChildren {
+									after: None,
+									depth,
+									key: key.clone(),
+									objects: false,
+								},
+							);
+						}
+						if matches!(key.1, tg::authorization::Permission::Process(permission) if !matches!(permission, tg::authorization::permission::process::Permission::Node | tg::authorization::permission::process::Permission::Subtree))
+						{
+							self.queues.entry(depth).or_default().push_back(
+								AncestorTask::StorageChildren {
+									after: None,
+									depth,
+									key: key.clone(),
+									objects: true,
+								},
+							);
+						}
+					}
+
+					match state.search_outcome(&key) {
 						Outcome::Verified | Outcome::Denied => continue,
 						Outcome::Exhausted => unreachable!(),
 						Outcome::Pending => {},
@@ -251,7 +307,7 @@ impl Search {
 						self.queue_node_checks(depth, &key)?;
 						continue;
 					}
-					match state.ancestor_or_descendant(&key) {
+					match state.search_outcome(&key) {
 						Outcome::Verified | Outcome::Denied => {},
 						Outcome::Exhausted => unreachable!(),
 						Outcome::Pending => {
@@ -259,11 +315,11 @@ impl Search {
 								for dependency in state.verification_dependencies(&key) {
 									let dependency_depth = depth + 1;
 									self.add_dependency(state, &key, dependency, dependency_depth);
-									if state.is_verified(&key) {
+									if state.search_verified(&key) {
 										break;
 									}
 								}
-								if !state.is_verified(&key) {
+								if !state.search_verified(&key) {
 									self.queue_parents(state, depth, &key)?;
 								}
 							} else if let Some(facts) = state.ancestor_facts(&key.0) {
@@ -285,7 +341,7 @@ impl Search {
 					depth,
 					object,
 				} => {
-					if state.is_verified(&dependent) {
+					if state.search_verified(&dependent) {
 						continue;
 					}
 					let limit = self.budget.config.page_size;
@@ -319,7 +375,7 @@ impl Search {
 					permission,
 					process,
 				} => {
-					if state.is_verified(&dependent) {
+					if state.search_verified(&dependent) {
 						continue;
 					}
 					let limit = self.budget.config.page_size;
@@ -356,6 +412,67 @@ impl Search {
 		output: ReadOutput,
 	) -> tg::Result<()> {
 		match read {
+			Read::StorageChildren {
+				after: _,
+				depth,
+				key,
+				limit: _,
+				objects,
+			} => {
+				let (after, children) = match output {
+					ReadOutput::ProcessObjects { after, objects } => {
+						let children = objects
+							.into_iter()
+							.filter(|(_, kind)| {
+								key.1.implies(tg::authorization::Permission::Process(
+									crate::verify::process_object_permission(*kind),
+								))
+							})
+							.map(|(object, _)| {
+								(
+									object.into(),
+									tg::authorization::Permission::Object(
+										tg::authorization::permission::object::Permission::Subtree,
+									),
+									key.2.clone(),
+								)
+							})
+							.collect::<Vec<_>>();
+						(after, children)
+					},
+					output => {
+						let (after, ids) = output.into_ids()?;
+						(
+							after,
+							ids.into_iter()
+								.map(|id| (id, key.1, key.2.clone()))
+								.collect(),
+						)
+					},
+				};
+				for child in children {
+					if !self.budget.add_edge() {
+						self.incomplete.insert(key.clone());
+						return Ok(());
+					}
+					state.storage.insert(child.clone());
+					state.storage_children.insert(child.clone());
+					state.add_sync_dependency(&child, &key);
+					self.add_live_dependency(state, &key, &child);
+					self.queue_dependency(state, &key, child, depth + 1);
+				}
+				if let Some(after) = after {
+					self.queues.entry(depth).or_default().push_back(
+						AncestorTask::StorageChildren {
+							after: Some(after),
+							depth,
+							key,
+							objects,
+						},
+					);
+				}
+			},
+
 			Read::AncestorChecks(checks) => {
 				let values = output.into_bools()?;
 				self.apply_checks(state, checks, values);
@@ -372,8 +489,16 @@ impl Search {
 						let ReadOutput::Delegations { after, delegations } = output else {
 							return Err(tg::error!("expected delegation facts"));
 						};
+						self.fact_budget = self
+							.fact_budget
+							.saturating_sub(delegations.len().saturating_add(1));
 						self.apply_delegations(state, depth, &dependent, &delegations);
-						after
+						if self.fact_budget == 0 && after.is_some() {
+							self.incomplete.insert(dependent.clone());
+							None
+						} else {
+							after
+						}
 					},
 					DelegationRead::ObjectParents | DelegationRead::ProcessParents => {
 						let (after, parents) = output.into_ids()?;
@@ -464,7 +589,7 @@ impl Search {
 				..
 			} => {
 				let (after, parents) = output.into_ids()?;
-				if state.is_verified(&dependent) {
+				if state.search_verified(&dependent) {
 					return Ok(());
 				}
 				for parent in parents {
@@ -476,7 +601,7 @@ impl Search {
 					if !self.add_dependency(state, &dependent, dependency, dependency_depth) {
 						return Ok(());
 					}
-					if state.is_verified(&dependent) {
+					if state.search_verified(&dependent) {
 						return Ok(());
 					}
 				}
@@ -524,7 +649,7 @@ impl Search {
 				..
 			} => {
 				let (after, parents) = output.into_ids()?;
-				if state.is_verified(&dependent) {
+				if state.search_verified(&dependent) {
 					return Ok(());
 				}
 				for parent in parents {
@@ -535,7 +660,7 @@ impl Search {
 					if !self.add_dependency(state, &dependent, dependency, dependency_depth) {
 						return Ok(());
 					}
-					if state.is_verified(&dependent) {
+					if state.search_verified(&dependent) {
 						return Ok(());
 					}
 				}
@@ -598,7 +723,7 @@ impl Search {
 				&checks.dependent,
 				candidate.dependency,
 				checks.depth + 1,
-			) || state.is_verified(&checks.dependent)
+			) || state.search_verified(&checks.dependent)
 			{
 				return;
 			}
@@ -746,7 +871,7 @@ impl Search {
 		depth: usize,
 		page: MembershipPage,
 	) -> tg::Result<()> {
-		if state.is_verified(dependent) {
+		if state.search_verified(dependent) {
 			return Ok(());
 		}
 		let next_depth = depth + 1;
@@ -760,7 +885,7 @@ impl Search {
 				return Ok(());
 			}
 			state.add_membership_dependency(&member, page.container.clone(), dependent.2.as_ref());
-			if state.is_verified(dependent) {
+			if state.search_verified(dependent) {
 				return Ok(());
 			}
 			self.queue_subject(state, dependent, next_depth, member);
@@ -783,6 +908,13 @@ impl Search {
 		read: AncestorNodeRead,
 		output: ReadOutput,
 	) -> tg::Result<()> {
+		let count = match &output {
+			ReadOutput::Delegations { delegations, .. } => delegations.len(),
+			ReadOutput::Permissions { permissions, .. } => permissions.len(),
+			ReadOutput::ObjectProcesses { processes, .. } => processes.len(),
+			_ => 1,
+		};
+		self.fact_budget = self.fact_budget.saturating_sub(count.saturating_add(1));
 		let resource = key.0.clone();
 		let pending = self
 			.pending_nodes
@@ -839,6 +971,12 @@ impl Search {
 				pending.facts.parent = output.into_tag()?.and_then(|tag| tag.parent);
 			},
 		}
+		if self.fact_budget == 0 && !next.is_empty() {
+			self.incomplete.insert(key.clone());
+			self.incomplete_nodes.insert(resource.clone());
+			next.clear();
+		}
+
 		pending.remaining = pending
 			.remaining
 			.checked_sub(1)
@@ -862,7 +1000,11 @@ impl Search {
 		}
 		if complete {
 			let pending = self.pending_nodes.remove(&resource).unwrap();
-			let facts = state.set_ancestor_facts(resource, pending.facts);
+			let facts = if self.incomplete_nodes.contains(&resource) {
+				Arc::new(pending.facts)
+			} else {
+				state.set_ancestor_facts(resource, pending.facts)
+			};
 			self.expand_node(state, depth, key, &facts)?;
 		}
 
@@ -931,10 +1073,18 @@ impl Search {
 			.into_iter()
 			.collect::<Vec<_>>();
 		while let Some(key) = stack.pop() {
-			if state.is_verified(&key) || !incomplete.insert(key.clone()) {
+			if state.search_verified(&key) || !incomplete.insert(key.clone()) {
 				continue;
 			}
 			stack.extend(state.verification_dependents(&key));
+			stack.extend(
+				state
+					.sync_dependents
+					.get(&key)
+					.into_iter()
+					.flatten()
+					.cloned(),
+			);
 		}
 		self.incomplete = incomplete;
 
@@ -1001,7 +1151,8 @@ impl Search {
 		{
 			return Ok(());
 		}
-		if principal_is_resource
+		if (key.2.is_none() && matches!(self.principal, tg::Principal::Root))
+			|| principal_is_resource
 			|| scoped_principal
 				.as_ref()
 				.is_some_and(|principal| matches!(principal, tg::Principal::Root))
@@ -1011,7 +1162,7 @@ impl Search {
 			let expires_at = self.source_expiration(key).unwrap();
 			state.verify_with_expiration(key.clone(), expires_at);
 		}
-		if state.is_verified(key) {
+		if state.search_verified(key) {
 			return Ok(());
 		}
 
@@ -1085,11 +1236,15 @@ impl Search {
 			if !self.add_dependency(state, key, dependency, dependency_depth) {
 				return Ok(());
 			}
-			if state.is_verified(key) {
+			if state.search_verified(key) {
 				return Ok(());
 			}
 		}
-		state.complete_ancestor_node(key);
+		if self.incomplete_nodes.contains(&key.0) {
+			self.incomplete.insert(key.clone());
+		} else {
+			state.complete_ancestor_node(key);
+		}
 		self.queue_parents(state, depth, key)?;
 
 		Ok(())
@@ -1103,7 +1258,9 @@ impl Search {
 		delegations: &[crate::delegation::put::Arg],
 	) {
 		for delegation in delegations {
-			if !state.is_subject_verified(&delegation.subject, key.2.as_ref()) {
+			if !(state.is_subject_verified(&delegation.subject, key.2.as_ref())
+				|| (key.2.is_none() && matches!(self.principal, tg::Principal::Root)))
+			{
 				if key.1.is_read_like()
 					&& let tg::authorization::Subject::Tag(tag) = &delegation.subject
 				{
@@ -1147,7 +1304,7 @@ impl Search {
 				return;
 			}
 			if self.delegation_search_started
-				&& !state.is_verified(&dependency)
+				&& !state.search_verified(&dependency)
 				&& self
 					.visited_delegations
 					.insert((dependency.clone(), dependency.0.clone()))
@@ -1174,7 +1331,7 @@ impl Search {
 			self.incomplete.insert(dependent.clone());
 			return;
 		}
-		if state.is_verified(dependent) {
+		if state.search_verified(dependent) {
 			return;
 		}
 		self.queues
@@ -1250,12 +1407,9 @@ impl Search {
 			let permission = tg::authorization::Permission::Sync(
 				tg::authorization::permission::sync::Permission::Read,
 			);
-			return self.add_dependency(
-				state,
-				dependent,
-				(sync.clone().into(), permission, dependent.2.clone()),
-				depth + 1,
-			);
+			let access = (sync.clone().into(), permission, dependent.2.clone());
+			state.register_sync_read(dependent, sync, &access);
+			return self.add_dependency(state, dependent, access, depth + 1);
 		}
 		let source = (
 			permission.resource.clone(),
@@ -1303,7 +1457,7 @@ impl Search {
 			state.verify_subject(subject.clone(), dependent.2.as_ref());
 		}
 		state.add_subject_dependency(&subject, source);
-		if !state.is_verified(dependent) {
+		if !state.search_verified(dependent) {
 			self.queue_subject(state, dependent, depth, subject);
 		}
 
@@ -1349,7 +1503,7 @@ impl Search {
 		depth: usize,
 		subject: tg::authorization::Subject,
 	) {
-		if state.is_verified(&dependent) {
+		if state.search_verified(&dependent) {
 			return;
 		}
 		let task = match subject {
@@ -1469,6 +1623,8 @@ impl Search {
 		if dependency.2.is_none() {
 			dependency.2.clone_from(&dependent.2);
 		}
+		state.inherit_storage(dependent, &dependency);
+		state.register_sync_scope(&dependency);
 		let edge_known = state.has_verification_dependency(&dependency, dependent);
 		if !edge_known {
 			if !self.budget.add_edge() {
@@ -1491,6 +1647,10 @@ impl Search {
 		second: Key,
 		depth: usize,
 	) -> bool {
+		state.sync_access.insert(first.clone());
+		state.inherit_storage(dependent, &second);
+		state.register_sync_scope(&first);
+		state.register_sync_scope(&second);
 		if !state.has_verification_conjunction(&first, &second, dependent) {
 			if !self.budget.add_edge() || !self.budget.add_edge() {
 				self.incomplete.insert(dependent.clone());
@@ -1512,7 +1672,7 @@ impl Search {
 		dependency: Key,
 		depth: usize,
 	) -> bool {
-		match state.ancestor_or_descendant(&dependency) {
+		match state.search_outcome(&dependency) {
 			Outcome::Verified | Outcome::Denied => return true,
 			Outcome::Exhausted => unreachable!(),
 			Outcome::Pending => {},
@@ -1576,6 +1736,9 @@ impl Search {
 
 	fn remove_verified(&mut self, state: &State, verified: Vec<Key>) {
 		for key in verified {
+			if state.storage.contains(&key) {
+				continue;
+			}
 			if self.unresolved.remove(&key) {
 				self.remove_live_reference(state, &key);
 			}

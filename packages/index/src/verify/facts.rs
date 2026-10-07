@@ -12,8 +12,6 @@ use {
 	tangram_client::prelude::*,
 };
 
-const BUDGET_EXHAUSTED: &str = "the verification discovery budget is exhausted";
-
 pub type Receiver<E> = mpsc::Receiver<Message<E>>;
 pub type Response<E> = Result<ControlFlow<Output, E>, tg::Error>;
 
@@ -272,15 +270,10 @@ struct CacheMissGuard<E> {
 }
 
 pub struct Client<E> {
-	budget: Option<Arc<Budget>>,
 	cache: Cache<E>,
 	concurrency: usize,
 	reads: Arc<AtomicUsize>,
 	sender: mpsc::Sender<Message<E>>,
-}
-
-struct Budget {
-	remaining: AtomicUsize,
 }
 
 #[cfg(test)]
@@ -294,7 +287,6 @@ pub fn channel_with_cache<E>(concurrency: usize, cache: Cache<E>) -> (Client<E>,
 	let concurrency = concurrency.max(1);
 	let (sender, receiver) = mpsc::channel(concurrency);
 	let client = Client {
-		budget: None,
 		cache,
 		concurrency,
 		reads: Arc::new(AtomicUsize::new(0)),
@@ -322,38 +314,6 @@ where
 }
 
 impl Request {
-	fn limit_mut(&mut self) -> Option<&mut usize> {
-		match self {
-			Self::Delegations { limit, .. }
-			| Self::GroupMembers { limit, .. }
-			| Self::MemberGroups { limit, .. }
-			| Self::MemberOrganizations { limit, .. }
-			| Self::ObjectChildren { limit, .. }
-			| Self::ObjectParents { limit, .. }
-			| Self::ObjectProcesses { limit, .. }
-			| Self::OrganizationMembers { limit, .. }
-			| Self::OwnerSandboxes { limit, .. }
-			| Self::ProcessChildren { limit, .. }
-			| Self::ProcessObjects { limit, .. }
-			| Self::ProcessParents { limit, .. }
-			| Self::ResourcePermissions { limit, .. }
-			| Self::SubjectPermissions { limit, .. }
-			| Self::TargetTags { limit, .. } => Some(limit),
-			Self::Group { .. }
-			| Self::Id { .. }
-			| Self::ObjectChild { .. }
-			| Self::ObjectIndexed { .. }
-			| Self::Process { .. }
-			| Self::ProcessChild { .. }
-			| Self::ProcessObject { .. }
-			| Self::ProcessObjectPermission { .. }
-			| Self::SandboxOwner { .. }
-			| Self::Specifier { .. }
-			| Self::Storage { .. }
-			| Self::Tag { .. } => None,
-		}
-	}
-
 	#[must_use]
 	fn cache_key(&self) -> Option<CacheKey> {
 		let key = match self {
@@ -472,27 +432,6 @@ impl Request {
 }
 
 impl Output {
-	fn fact_count(&self) -> usize {
-		match self {
-			Self::Delegations { delegations, .. } => delegations.len(),
-			Self::Permissions { permissions, .. } => permissions.len(),
-			Self::Ids { ids, .. } => ids.len(),
-			Self::MemberGroups { groups, .. } => groups.len(),
-			Self::MemberOrganizations { organizations, .. } => organizations.len(),
-			Self::ObjectProcesses { processes, .. } => processes.len(),
-			Self::ProcessObjectKinds(kinds) => kinds.len(),
-			Self::ProcessObjects { objects, .. } => objects.len(),
-			Self::Tags { tags, .. } => tags.len(),
-			Self::Bool(_)
-			| Self::Group(_)
-			| Self::Id(_)
-			| Self::Process(_)
-			| Self::SandboxOwner(_)
-			| Self::Storage(_)
-			| Self::Tag(_) => 1,
-		}
-	}
-
 	pub(crate) fn into_bool(self) -> tg::Result<bool> {
 		let Self::Bool(value) = self else {
 			return Err(tg::error!("received a non-boolea verification fact"));
@@ -701,61 +640,8 @@ where
 		self.reads.load(Ordering::Relaxed)
 	}
 
-	#[must_use]
-	pub(super) fn with_budget(&self, limit: usize) -> Self {
-		let mut client = self.clone();
-		client.budget = Some(Arc::new(Budget {
-			remaining: AtomicUsize::new(limit),
-		}));
-		client
-	}
-
-	#[must_use]
-	pub(super) fn is_budget_exhausted(error: &tg::Error) -> bool {
-		error.message().as_deref() == Some(BUDGET_EXHAUSTED)
-	}
-
-	pub(crate) async fn read(&self, mut request: Request) -> Response<E> {
+	pub(crate) async fn read(&self, request: Request) -> Response<E> {
 		tokio::task::consume_budget().await;
-		let Some(budget) = &self.budget else {
-			return self.read_inner(request).await;
-		};
-		let maximum = if let Some(limit) = request.limit_mut() {
-			*limit
-		} else if matches!(request, Request::ProcessObject { .. }) {
-			4
-		} else {
-			1
-		};
-		let amount = maximum.saturating_add(1);
-		let available = budget
-			.remaining
-			.try_update(Ordering::Relaxed, Ordering::Relaxed, |remaining| {
-				Some(remaining.saturating_sub(amount))
-			})
-			.unwrap();
-		let reserved = available.min(amount);
-		if let Some(limit) = request.limit_mut() {
-			if reserved < 2 {
-				return Err(tg::error!("{BUDGET_EXHAUSTED}"));
-			}
-			*limit = reserved - 1;
-		} else if reserved < amount {
-			return Err(tg::error!("{BUDGET_EXHAUSTED}"));
-		}
-
-		// Share the page and fact budget across cached reads and nested verification searches.
-		let response = self.read_inner(request).await;
-		if let Ok(ControlFlow::Break(output)) = &response {
-			let used = output.fact_count().saturating_add(1);
-			budget
-				.remaining
-				.fetch_add(reserved.saturating_sub(used), Ordering::Relaxed);
-		}
-		response
-	}
-
-	async fn read_inner(&self, request: Request) -> Response<E> {
 		let Some(key) = request.cache_key() else {
 			self.record_read(&request);
 
@@ -831,7 +717,6 @@ where
 impl<E> Clone for Client<E> {
 	fn clone(&self) -> Self {
 		Self {
-			budget: self.budget.clone(),
 			cache: self.cache.clone(),
 			concurrency: self.concurrency,
 			reads: self.reads.clone(),
