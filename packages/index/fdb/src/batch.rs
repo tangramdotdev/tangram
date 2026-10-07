@@ -22,11 +22,11 @@ impl Index {
 	pub(crate) async fn batch_with_transaction(
 		txn: &crate::Transaction,
 		subspace: &fdbt::Subspace,
-		arg: &tangram_index::batch::Arg,
+		items: &[tangram_index::batch::Item],
 		partition_totals: crate::PartitionTotals,
 	) -> tg::Result<ControlFlow<tg::Result<()>, fdb::FdbError>> {
 		let partition_total = partition_totals.cleaning;
-		for item in &arg.items {
+		for item in items {
 			match item {
 				tangram_index::batch::Item::DeleteDelegations(subject) => {
 					crate::propagate!(

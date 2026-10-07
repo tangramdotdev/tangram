@@ -7,7 +7,7 @@ use {
 	futures::{StreamExt as _, stream},
 	opentelemetry as otel,
 	std::{
-		ops::ControlFlow,
+		ops::{ControlFlow, Range},
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
@@ -56,6 +56,12 @@ struct ExecutionConfig<'a> {
 	max_write_operation_batch_size: usize,
 	metrics: &'a Metrics,
 	partition_totals: crate::PartitionTotals,
+}
+
+#[derive(Clone, Copy)]
+enum Work<'a> {
+	Items(&'a [tangram_index::batch::Item]),
+	Requests(&'a [Request]),
 }
 
 enum TransactionError {
@@ -966,42 +972,51 @@ impl Index {
 		arg: tangram_index::batch::Arg,
 		config: ExecutionConfig<'_>,
 	) -> tg::Result<tg::Result<()>> {
+		let items = arg.items;
 		let size = config.max_write_operation_batch_size;
-		let mut pending = if arg.items.len() > size {
-			Self::chunk_batch_arg(arg, size)
-		} else {
-			let Some((left, right)) = Self::try_split_batch_arg(arg) else {
-				return Err(tg::error!(
-					"cannot split an index batch with fewer than two items"
-				));
-			};
+		Self::execute_ordered_ranges(items.len(), size, |range| {
+			let work = Work::Items(&items[range]);
+			async move {
+				let responses =
+					Self::execute_transaction_with(database, subspace, work, config, true).await?;
+				let [Response::Mutation(result)] = responses.as_slice() else {
+					return Err(TransactionError::Tangram(tg::error!(
+						"unexpected write response"
+					)));
+				};
+				Ok(result.clone())
+			}
+		})
+		.await
+	}
+
+	async fn execute_ordered_ranges<F, Fut>(
+		len: usize,
+		size: usize,
+		mut execute: F,
+	) -> tg::Result<tg::Result<()>>
+	where
+		F: FnMut(Range<usize>) -> Fut,
+		Fut: Future<Output = Result<tg::Result<()>, TransactionError>>,
+	{
+		let mut pending = if len > size {
+			(0..len)
+				.step_by(size.max(1))
+				.map(|start| start..(start + size.max(1)).min(len))
+				.collect::<Vec<_>>()
+		} else if let Some((left, right)) = Self::try_split_range(0..len) {
 			vec![left, right]
+		} else {
+			vec![0..len]
 		};
-		// Reverse the chunks so they are popped, and therefore committed, in order.
+		// Reverse the ranges so they are popped, and therefore committed, in order.
 		pending.reverse();
-		while let Some(arg) = pending.pop() {
-			let request = Request::Batch(arg);
-			let result = Self::execute_transaction(
-				database,
-				subspace,
-				std::slice::from_ref(&request),
-				config,
-			)
-			.await;
-			match result {
-				Ok(responses) => {
-					let [Response::Mutation(result)] = responses.as_slice() else {
-						return Err(tg::error!("unexpected write response"));
-					};
-					if let Err(error) = result {
-						return Ok(Err(error.clone()));
-					}
-				},
+		while let Some(range) = pending.pop() {
+			match execute(range.clone()).await {
+				Ok(Ok(())) => {},
+				Ok(Err(error)) => return Ok(Err(error)),
 				Err(TransactionError::FoundationDb(error)) if Self::is_split_error(error) => {
-					let Request::Batch(arg) = request else {
-						unreachable!();
-					};
-					let Some((left, right)) = Self::try_split_batch_arg(arg) else {
+					let Some((left, right)) = Self::try_split_range(range) else {
 						return Err(tg::error!(!error, "failed to execute an index batch item"));
 					};
 					// Preserve the order when another adaptive split is required.
@@ -1029,9 +1044,6 @@ impl Index {
 		requests: &[Request],
 		config: ExecutionConfig<'_>,
 	) -> Result<Vec<Response>, TransactionError> {
-		let start = std::time::Instant::now();
-		let mut attempt_count = 0;
-
 		let priority_batch = requests.iter().all(|request| {
 			matches!(
 				request,
@@ -1056,6 +1068,20 @@ impl Index {
 			)
 		});
 
+		let work = Work::Requests(requests);
+		Self::execute_transaction_with(database, subspace, work, config, priority_batch).await
+	}
+
+	async fn execute_transaction_with(
+		database: &fdb::Database,
+		subspace: &fdbt::Subspace,
+		work: Work<'_>,
+		config: ExecutionConfig<'_>,
+		priority_batch: bool,
+	) -> Result<Vec<Response>, TransactionError> {
+		let start = std::time::Instant::now();
+		let mut attempt_count = 0;
+
 		let transaction = database.create_trx();
 		let result = match transaction {
 			Err(error) => Err(TransactionError::FoundationDb(error)),
@@ -1063,14 +1089,30 @@ impl Index {
 				let mut transaction = crate::Transaction::new(transaction);
 				loop {
 					attempt_count += 1;
-					let result = Self::execute_requests_with_transaction(
-						&transaction,
-						subspace,
-						requests,
-						config,
-						priority_batch,
-					)
-					.await;
+					if priority_batch {
+						transaction
+							.set_option(fdb::options::TransactionOption::PriorityBatch)
+							.unwrap();
+					}
+					let result = match work {
+						Work::Requests(requests) => {
+							Self::execute_requests_with_transaction(
+								&transaction,
+								subspace,
+								requests,
+								config,
+							)
+							.await
+						},
+						Work::Items(items) => Self::batch_with_transaction(
+							&transaction,
+							subspace,
+							items,
+							config.partition_totals,
+						)
+						.await
+						.map(|flow| flow.map_break(|result| vec![Response::Mutation(result)])),
+					};
 					let responses = match result {
 						Err(error) => break Err(TransactionError::Tangram(error)),
 						Ok(ControlFlow::Break(responses)) => responses,
@@ -1138,12 +1180,7 @@ impl Index {
 		subspace: &fdbt::Subspace,
 		requests: &[Request],
 		config: ExecutionConfig<'_>,
-		priority_batch: bool,
 	) -> tg::Result<ControlFlow<Vec<Response>, fdb::FdbError>> {
-		if priority_batch {
-			txn.set_option(fdb::options::TransactionOption::PriorityBatch)
-				.unwrap();
-		}
 		let mut responses = Vec::with_capacity(requests.len());
 		for request in requests {
 			let result = Self::execute_request(txn, subspace, request, config).await;
@@ -1178,8 +1215,13 @@ impl Index {
 				Response::AggregateUsageOutput(output)
 			},
 			Request::Batch(arg) => {
-				let result =
-					Self::batch_with_transaction(txn, subspace, arg, config.partition_totals).await;
+				let result = Self::batch_with_transaction(
+					txn,
+					subspace,
+					&arg.items,
+					config.partition_totals,
+				)
+				.await;
 				let result = crate::propagate!(result);
 				Response::Mutation(result)
 			},
@@ -1433,16 +1475,13 @@ impl Index {
 		Ok(ControlFlow::Break(response))
 	}
 
-	fn try_split_batch_arg(
-		mut arg: tangram_index::batch::Arg,
-	) -> Option<(tangram_index::batch::Arg, tangram_index::batch::Arg)> {
-		if arg.items.len() <= 1 {
+	fn try_split_range(range: Range<usize>) -> Option<(Range<usize>, Range<usize>)> {
+		if range.len() <= 1 {
 			return None;
 		}
-		let right_items = arg.items.split_off(arg.items.len() / 2);
-		let right = tangram_index::batch::Arg { items: right_items };
+		let mid = range.start + range.len() / 2;
 
-		Some((arg, right))
+		Some((range.start..mid, mid..range.end))
 	}
 
 	fn is_transaction_too_large(error: fdb::FdbError) -> bool {
@@ -1455,21 +1494,6 @@ impl Index {
 
 	fn is_split_error(error: fdb::FdbError) -> bool {
 		Self::is_transaction_too_large(error) || Self::is_transaction_too_old(error)
-	}
-
-	fn chunk_batch_arg(
-		mut arg: tangram_index::batch::Arg,
-		size: usize,
-	) -> Vec<tangram_index::batch::Arg> {
-		let mut chunks = Vec::new();
-		while arg.items.len() > size {
-			let rest = arg.items.split_off(size);
-			chunks.push(tangram_index::batch::Arg {
-				items: std::mem::replace(&mut arg.items, rest),
-			});
-		}
-		chunks.push(arg);
-		chunks
 	}
 
 	fn complete_tracker(tracker: &Arc<Mutex<RequestTracker>>, result: tg::Result<Response>) {
@@ -1589,37 +1613,36 @@ mod tests {
 		assert_eq!(error.message().as_deref(), Some("transaction failure"));
 	}
 
-	#[test]
-	fn batch_arg_splitting_preserves_order() {
-		let ids = (0..9).map(|_| tg::group::Id::new()).collect::<Vec<_>>();
-		let arg = tangram_index::batch::Arg {
-			items: ids
-				.iter()
-				.cloned()
-				.map(tangram_index::batch::Item::DeleteGroup)
-				.collect(),
-		};
-		let mut pending = vec![arg];
-		let mut items = Vec::new();
-		while let Some(arg) = pending.pop() {
-			if arg.items.len() <= 2 {
-				items.extend(arg.items);
-				continue;
+	#[tokio::test]
+	async fn ordered_ranges_commit_every_item_in_order() {
+		let len = 10_007;
+		let size = 1_000;
+		let mut committed = Vec::new();
+		let result = Index::execute_ordered_ranges(len, size, |range: Range<usize>| {
+			// Reject transactions larger than an eighth of a chunk, as if each were too old.
+			if range.len() > size / 8 {
+				return std::future::ready(Err(TransactionError::FoundationDb(
+					fdb::FdbError::from_code(1007),
+				)));
 			}
-			let (left, right) = Index::try_split_batch_arg(arg).unwrap();
-			pending.push(right);
-			pending.push(left);
-		}
-		let actual = items
-			.into_iter()
-			.map(|item| {
-				let tangram_index::batch::Item::DeleteGroup(id) = item else {
-					panic!();
-				};
-				id
-			})
-			.collect::<Vec<_>>();
+			committed.extend(range);
+			std::future::ready(Ok(Ok(())))
+		})
+		.await;
 
-		assert_eq!(actual, ids);
+		assert!(matches!(result, Ok(Ok(()))));
+		assert_eq!(committed, (0..len).collect::<Vec<_>>());
+	}
+
+	#[tokio::test]
+	async fn ordered_ranges_fail_when_a_single_item_cannot_commit() {
+		let result = Index::execute_ordered_ranges(4, 1_000, |_: Range<usize>| {
+			std::future::ready(Err(TransactionError::FoundationDb(
+				fdb::FdbError::from_code(1007),
+			)))
+		})
+		.await;
+
+		assert!(result.is_err());
 	}
 }
