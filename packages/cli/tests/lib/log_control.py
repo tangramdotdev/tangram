@@ -6,6 +6,7 @@ import socket
 import subprocess
 import sys
 import time
+import urllib.parse
 
 case, socket_path, tangram, url, parent, data_path = sys.argv[1:]
 with open(data_path) as file:
@@ -153,7 +154,10 @@ def early_finish():
     process = json.loads(subprocess.check_output(command + ["get", arg["id"]], timeout=10))
     value = process.get("output") or process["error"]
     referent = value["value"] if isinstance(value, dict) else value
-    assert "?" not in referent, value
+    params = urllib.parse.parse_qs(urllib.parse.urlsplit(referent).query)
+    tokens = [token for name, values in params.items() if name.startswith("tokens[") for token in values]
+    bodies = [json.loads(base64.b64decode(token.split(".")[1])) for token in tokens]
+    assert any(body["resource"] == sync["node"] and "sync_read" in body["permissions"] for body in bodies), value
     assert process["status"] == "finished", process
 
 

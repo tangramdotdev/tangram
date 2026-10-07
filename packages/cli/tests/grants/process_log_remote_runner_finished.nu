@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Once a process run by a remote runner has its log finished, the log becomes a blob object on the remote, so reading it requires a grant on that object rather than just the process node. The log entries were written by the runner as the process principal and the blob was created by the runner, so the owner reaches it only through the process log link.
+# A finished process retains the sync token for its log, so a process node reader can read the log across servers.
 
 let root_token = random chars
 
@@ -49,16 +49,12 @@ snapshot --normalize $owner.stdout '
 '
 assert ($owner.stderr | str contains 'logerror') "the owner must read the finished stderr."
 
-# Eve with only the process node must not read the finished log; the log is now an object that the process node does not confer.
+# Eve reads the finished log using node permission and the stored sync token.
 tg --url $remote.url --token $alice.token grant $eve.user.id process_node $process | ignore
 let node_only = tg --url $remote.url --token $eve.token log $process | complete
-snapshot --normalize $node_only.stdout ''
-
-# With process_subtree_log_objects added, Eve can read the finished log object.
-tg --url $remote.url --token $alice.token grant $eve.user.id process_subtree_log_objects $process | ignore
-let with_log = tg --url $remote.url --token $eve.token log $process | complete
-snapshot --normalize $with_log.stdout '
+success $node_only "node permission must allow reading the finished log through its sync token."
+snapshot --normalize $node_only.stdout '
 	loghello
 
 '
-assert ($with_log.stderr | str contains 'logerror') "process_subtree_log_objects must confer the finished stderr."
+assert ($node_only.stderr | str contains 'logerror') "node permission must allow reading the finished stderr through its sync token."

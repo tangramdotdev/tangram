@@ -196,9 +196,9 @@ mod tests {
 			permission_arg.time_to_touch,
 			Some(std::time::Duration::new(30, 456))
 		);
-		assert!(matches!(&arg.items[8], Item::PutGroupMember(_)));
-		assert!(matches!(&arg.items[9], Item::PutOrganizationMember(_)));
-		let Item::PutSandbox(sandbox_arg) = &arg.items[10] else {
+		assert!(matches!(&arg.items[7], Item::PutGroupMember(_)));
+		assert!(matches!(&arg.items[8], Item::PutOrganizationMember(_)));
+		let Item::PutSandbox(sandbox_arg) = &arg.items[9] else {
 			panic!();
 		};
 		let data = sandbox_arg.data.as_ref().unwrap();
