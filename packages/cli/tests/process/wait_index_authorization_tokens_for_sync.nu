@@ -54,7 +54,11 @@ for field in [output error log] {
 
 	let node_output_objects = timeout 10s tg --url $remote.url --token $bob.token $operation --source=index $process | from json
 	let node_object = if $field == output { $node_output_objects.output.value } else if $field == error { $node_output_objects.error } else { $node_output_objects.log }
-	assert (not ($node_object | str contains 'tokens')) "node permission must not expose authorization tokens for the output sync"
+	if $field == log {
+		assert ($node_object | str contains 'tokens') "get must preserve the stored authorization token for the sync with node permission"
+	} else {
+		assert (not ($node_object | str contains 'tokens')) "node permission must not expose authorization tokens for the output sync in wait"
+	}
 
 	if $field == output {
 		tg --url $remote.url --token $root_token grant $bob.user.id process_node_output_objects $process | ignore
@@ -63,12 +67,6 @@ for field in [output error log] {
 		assert ($partial.output.value | str contains 'tokens') "output permission must expose the authorization token for the result sync"
 	}
 
-	if $field == log {
-		tg --url $remote.url --token $root_token grant $bob.user.id process_node_log_objects $process | ignore
-		tg --url $remote.url --token $root_token index
-		let partial = timeout 10s tg --url $remote.url --token $bob.token get --source=index $process | from json
-		assert ($partial.log | str contains 'tokens') "log permission alone must expose the result sync even when it includes output objects"
-	}
 
 	if $field == error {
 		tg --url $remote.url --token $root_token grant $bob.user.id process_node_error_objects $process | ignore

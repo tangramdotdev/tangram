@@ -574,7 +574,6 @@ impl Session {
 		location: Option<tg::Location>,
 		metadata: Option<tg::process::Metadata>,
 	) -> tg::process::get::Output {
-		let data = data.without_location_and_tokens();
 		let location = location.unwrap_or_else(|| {
 			tg::Location::Local(tg::location::Local {
 				region: self.server.config.region.clone(),

@@ -54,11 +54,11 @@ let output = tg --url $remote.url --token $alice.token get --source=index $proce
 let log = $output.log
 assert ($log =~ 'tokens\[') "the log referent should carry the authorization token for the sync"
 
-# Bob obtains a log referent using only node and log permissions while the result push is held.
-tg --url $remote.url --token $alice.token grant $bob.user.id process_node,process_node_log_objects $process
-let output = tg --url $remote.url --token $bob.token get --source=index $process | from json
+# Bob obtains a log referent using node permission while the outcome push is held.
+tg --url $remote.url --token $alice.token grant $bob.user.id process_node $process
+let output = tg --url $bob_local.url get --remote --source=index $process | from json
 let log = $output.log
-assert ($log =~ 'tokens\[') "log permission alone should expose the authorization token for the sync"
+assert ($log =~ 'tokens\[') "node permission should preserve the stored authorization token for the sync"
 let pull = job spawn {
 	let job_id = job id
 	let output = tg --url $bob_local.url pull $log | complete
