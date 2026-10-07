@@ -88,15 +88,21 @@ def environment():
                 os.link(pending, config)
             except FileExistsError:
                 pass
-    previous = os.environ.get("PYO3_CONFIG_FILE")
-    os.environ["PYO3_CONFIG_FILE"] = str(config)
+    # The custom backend delegates to maturin after configuring the host interpreter.
+    variables = {
+        "MATURIN_NO_MISSING_BUILD_BACKEND_WARNING": "1",
+        "PYO3_CONFIG_FILE": str(config),
+    }
+    previous = {name: os.environ.get(name) for name in variables}
+    os.environ.update(variables)
     try:
         yield
     finally:
-        if previous is None:
-            os.environ.pop("PYO3_CONFIG_FILE", None)
-        else:
-            os.environ["PYO3_CONFIG_FILE"] = previous
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def __getattr__(name):
