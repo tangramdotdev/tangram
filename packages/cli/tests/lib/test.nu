@@ -298,6 +298,7 @@ export def "stream header" [] {
 }
 
 export def --env snapshot [
+	--entries: list<string>
 	--name: string
 	--normalize (-n)
 	--normalize-ids
@@ -307,7 +308,7 @@ export def --env snapshot [
 	inline?: string
 ] {
 	let value = if $path {
-		snapshot_path $value | to json -i 2
+		snapshot_path --entries $entries $value | to json -i 2
 	} else {
 		$value | to text
 	}
@@ -439,11 +440,12 @@ def --env snapshot_file [
 	}
 }
 
-def snapshot_path [path: string] {
+def snapshot_path [path: string, --entries: list<string>] {
 	let $type = $path | path type
 	if $type == 'dir' {
 		let entries = ls -a $path
 			| where name != ($path | path join '.') and name != ($path | path join '..')
+			| where { |entry| $entries == null or ($entry.name | path basename) in $entries }
 			| each { |entry|
 					let name = $entry.name | path basename
 					let artifact = snapshot_path $entry.name

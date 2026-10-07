@@ -18,7 +18,7 @@ let runner = server spawn --name runner --config {
 	process: { await_push: true },
 	remotes: { default: { token: $created.token.token, url: $remote.url } },
 	roles: [api indexer runner],
-	runner: { id: $created.data.id, remote: 'default', token: $created.token.token },
+	runner: { id: $created.data.id, process_control_connection_pool_size: 0, remote: 'default', token: $created.token.token },
 }
 
 # Create user credentials and spawn the local server.
@@ -36,11 +36,12 @@ for checkpoint in [runner.process.control.connect process.control.header] {
 	let sent_watch = tg --url $runner.url checkpoint watch runner.process.control.finish.sent | from json | get watch
 	let received_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.finish | from json | get watch
 
+	# Exercise the artifact outcome without waiting for log writes on the held connection.
 	let artifact = 'tg.file({ "contents": tg.blob("#!/bin/sh\nprintf \"%s\" \"$1\" > \"$TANGRAM_OUTPUT\""), "executable": true })'
 	let file = tg --url $local.url put --no-tokens $artifact | referent node
 	let build = job spawn {
 		let job_id = job id
-		let output = tg --url $local.url build --remote $file --arg-string $checkpoint | complete
+		let output = tg --url $local.url run --sandbox --no-tty --remote --stdout null --stderr null $file --arg-string $checkpoint | complete
 		$output | job send --tag $job_id 0
 	}
 

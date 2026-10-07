@@ -21,10 +21,10 @@ let path = artifact {
 	'#
 }
 let id = tg build --no-checkout-pointers $path
-rm --recursive --force $local.checkout_directory
-mkdir $local.checkout_directory
 
 # Check out.
 tg checkout $id
 
-snapshot --path $local.checkout_directory
+snapshot --path --entries [
+	dir_01m8h84t7pgq9dzea9zvwvtm7hr2wfkkf1nxbcpvyrwk3xa75r55c0
+] $local.checkout_directory

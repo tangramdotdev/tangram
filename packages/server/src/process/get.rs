@@ -127,21 +127,23 @@ impl Session {
 		let Some(runner) = self.try_get_process_runner_inner(id, arg.location.as_ref()) else {
 			return Ok(None);
 		};
-		let mut requested = tg::authorization::permission::process::Set::NODE;
-		requested.insert(tg::authorization::permission::process::Set::NODE_LOG_OBJECTS);
-		let Some(tg::authorization::permission::Set::Process(permissions)) = self
-			.authorize_process_runner(id, &arg.tokens, requested)
+		if self
+			.authorize_process_runner(
+				id,
+				&arg.tokens,
+				tg::authorization::permission::process::Set::NODE,
+			)
 			.await?
-		else {
+			.is_none()
+		{
 			return Ok(None);
-		};
+		}
 		let Some(data) = runner.processes.get(id).map(|process| process.data()) else {
 			return Ok(None);
 		};
 
 		let mut output =
 			self.create_process_get_output(id, data, Some(runner.location.clone()), None);
-		Self::retain_process_get_log_tokens(&mut output.data, permissions);
 		output.tokens = arg.tokens.clone();
 		if let Some(token) = self.create_process_get_token(id, None)? {
 			output.tokens.insert_local_authorization(token);
@@ -193,15 +195,8 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		let tg::authorization::permission::Set::Process(permissions) = permissions else {
-			return Ok(None);
-		};
-		Self::retain_process_get_log_tokens(&mut output.data, permissions);
 		if let Some(metadata) = output.metadata.take() {
-			output.metadata = Self::mask_process_metadata_with_permissions(
-				&metadata,
-				tg::authorization::permission::Set::Process(permissions),
-			);
+			output.metadata = Self::mask_process_metadata_with_permissions(&metadata, permissions);
 		}
 		Ok(Some(output))
 	}
@@ -218,12 +213,10 @@ impl Session {
 		let permission = tg::authorization::Permission::Process(
 			tg::authorization::permission::process::Permission::Node,
 		);
-		let mut requested = tg::authorization::permission::process::Set::NODE;
-		requested.insert(tg::authorization::permission::process::Set::NODE_LOG_OBJECTS);
 		let authorize_future = self
 			.authorize_with_permissions(
 				resource.clone(),
-				tg::authorization::permission::Set::Process(requested),
+				permission.into(),
 				permission.into(),
 				tg::authorization::permission::Set::Process(
 					tg::authorization::permission::process::Set::empty(),
@@ -262,11 +255,6 @@ impl Session {
 		let Some(mut output) = output else {
 			return Ok(None);
 		};
-		let tg::authorization::permission::Set::Process(permissions) = authorization.permissions
-		else {
-			return Ok(None);
-		};
-		Self::retain_process_get_log_tokens(&mut output.data, permissions);
 		if let Some(token) = self.create_process_get_token(id, authorization.expires_at)? {
 			output.tokens.insert_local_authorization(token);
 		}
@@ -586,9 +574,7 @@ impl Session {
 		location: Option<tg::Location>,
 		metadata: Option<tg::process::Metadata>,
 	) -> tg::process::get::Output {
-		let log = data.log.clone();
-		let mut data = data.without_location_and_tokens();
-		data.log = log;
+		let data = data.without_location_and_tokens();
 		let location = location.unwrap_or_else(|| {
 			tg::Location::Local(tg::location::Local {
 				region: self.server.config.region.clone(),
@@ -601,23 +587,6 @@ impl Session {
 			location: Some(location),
 			metadata,
 			tokens: tg::authorization::Tokens::default(),
-		}
-	}
-
-	fn retain_process_get_log_tokens(
-		data: &mut tg::process::Data,
-		permissions: tg::authorization::permission::process::Set,
-	) {
-		if let Some(log) = &mut data.log {
-			if permissions.contains(tg::authorization::permission::process::Set::NODE_LOG_OBJECTS) {
-				Self::retain_wait_object_tokens(
-					&mut log.options.tokens,
-					&log.node.clone().into(),
-					true,
-				);
-			} else {
-				log.options.clear_location_and_tokens();
-			}
 		}
 	}
 

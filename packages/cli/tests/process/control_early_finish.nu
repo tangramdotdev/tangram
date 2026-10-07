@@ -23,6 +23,6 @@ for source in ['export default () => tg.file("control output");' 'export default
 		sleep 100ms
 	}
 	assert ((open --raw $data | from json | get status) == 'finished')
-	let output = python3 $driver early_finish ($local.directory | path join socket) $tangram $local.url $id $data false | complete
+	let output = python3 $driver early_finish ($local.directory | path join socket) $tangram $local.url $id $data | complete
 	success $output
 }

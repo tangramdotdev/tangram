@@ -36,9 +36,9 @@ snapshot --name local_metadata $metadata '
 	      "solved": true
 	    },
 	    "log_objects": {
-	      "count": 1,
-	      "depth": 1,
-	      "size": 14,
+	      "count": 3,
+	      "depth": 2,
+	      "size": 110,
 	      "solvable": false,
 	      "solved": true
 	    },
@@ -66,9 +66,9 @@ snapshot --name local_metadata $metadata '
 	      "solved": true
 	    },
 	    "log_objects": {
-	      "count": 1,
-	      "depth": 1,
-	      "size": 14,
+	      "count": 3,
+	      "depth": 2,
+	      "size": 110,
 	      "solvable": false,
 	      "solved": true
 	    },
