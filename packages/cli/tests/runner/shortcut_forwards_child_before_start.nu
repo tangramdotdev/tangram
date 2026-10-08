@@ -12,6 +12,7 @@ let root_token = random chars
 let remote = server spawn --preserve-keys --name remote --config {
 	advanced: { checkpoints: true, single_process: false },
 	authentication: { root: { token: $root_token }, users: { providers: { insecure: true } } },
+	control: { read_timeout: 60 },
 	roles: [api indexer scheduler],
 }
 let created = tg --url $remote.url --token $root_token runner create | from json
@@ -24,8 +25,8 @@ let runner = server spawn --name runner --config {
 	runner: { cpus: 1, id: $created.data.id, remote: default, token: $created.token.token },
 }
 
-# Hold the shortcut process's command push so the remote does not start it.
-let push_watch = tg --url $runner.url checkpoint watch runner.process.command.push.started | from json | get watch
+# Hold Start on the server while the shortcut process runs on the runner.
+let start_watch = tg --url $remote.url --token $root_token checkpoint watch process.control.start.received | from json | get watch
 let finished_watch = tg --url $runner.url checkpoint watch runner.process.finished | from json | get watch
 
 let path = artifact {
@@ -58,22 +59,22 @@ let build = job spawn {
 }
 
 # The shortcut process runs and forwards its child spawn while its own start is held.
-success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 0 | complete) "the shortcut process should reach its command push"
+success (timeout 60s tg --url $remote.url --token $root_token checkpoint wait process.control.start.received $start_watch 0 | complete) "the server should receive Start"
 
-# Let the grandchild that borrows the lease on the runner push its command.
-let pushed = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 1 | complete
-if $pushed.exit_code == 0 {
-	tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 1
+# Let the grandchild that borrows the lease on the runner start if it is ready.
+let started = timeout 2s tg --url $remote.url --token $root_token checkpoint wait process.control.start.received $start_watch 1 | complete
+if $started.exit_code == 0 {
+	tg --url $remote.url --token $root_token checkpoint continue process.control.start.received $start_watch 1
 }
-let finished = timeout 30s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete
+let finished = timeout 2s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete
 if $finished.exit_code == 0 {
 	tg --url $runner.url checkpoint continue runner.process.finished $finished_watch 0
 }
 tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch
 
-# Release the push so the shortcut process can start and finish.
-tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 0
-tg --url $runner.url checkpoint unwatch runner.process.command.push.started $push_watch
+# Release Start so the server can initialize the shortcut process.
+tg --url $remote.url --token $root_token checkpoint continue process.control.start.received $start_watch 0
+tg --url $remote.url --token $root_token checkpoint unwatch process.control.start.received $start_watch
 
 let output = job recv --tag $build --timeout 60sec
 assert (not ($output.stderr | str contains "invalid owner")) "the forwarded child must not be owned by the shortcut process"

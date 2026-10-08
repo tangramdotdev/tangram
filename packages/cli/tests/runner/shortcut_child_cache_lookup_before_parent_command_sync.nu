@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A shortcut child's cache lookup on the remote must not fail while its shortcut parent's start is still pending.
+# A shortcut child's cache lookup on the remote must succeed while its parent's command sync is pending.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
@@ -56,21 +56,21 @@ tg --url $remote.url --token $root_token index
 server stop $runner
 let runner = server spawn --name runner-fresh --config $runner_config
 
-# Hold the parent's command push so the remote does not start the parent.
-let push_watch = tg --url $runner.url checkpoint watch runner.process.command.push.started | from json | get watch
+# Hold the parent's command sync while Start proceeds independently.
+let sync_watch = tg --url $runner.url checkpoint watch runner.process.command.sync.started | from json | get watch
 let spawned = tg --url $remote.url --token $root_token build --detach --verbose $"($path)#second" | from json
 let grandparent = $spawned.process | split row '?' | first
-success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 0 | complete) "the parent should reach its command push"
+success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 0 | complete) "the parent should reach its command sync"
 
-# Keep the parent's start pending while the child attempts its required cache lookup.
-let pushed = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 1 | complete
+# Keep the parent's command sync pending while the child attempts its required cache lookup.
+let pushed = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 1 | complete
 if $pushed.exit_code == 0 {
-	tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 1
+	tg --url $runner.url checkpoint continue runner.process.command.sync.started $sync_watch 1
 }
 
-# Release the parent's push.
-tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 0
-tg --url $runner.url checkpoint unwatch runner.process.command.push.started $push_watch
+# Release the parent's command sync.
+tg --url $runner.url checkpoint continue runner.process.command.sync.started $sync_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $sync_watch
 
 let output = timeout 60s tg --url $remote.url --token $root_token wait $grandparent | complete
 success $output "the second build should finish"

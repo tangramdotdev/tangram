@@ -74,11 +74,19 @@ impl Session {
 			}));
 		}
 
-		let Some(process) = self.try_get_process_from_index(id).await? else {
-			return Ok(None);
-		};
-		let Some(data) = process.data else {
-			return Ok(None);
+		let indexed = self.try_get_process_from_index(id).await?;
+		let data = if let Some(data) = indexed.and_then(|process| process.data) {
+			data
+		} else {
+			// A request can arrive before Start has submitted the process to the index.
+			let Some(process) = self
+				.try_get_process_local_inner(id, false, tg::process::Source::Auto)
+				.boxed()
+				.await?
+			else {
+				return Ok(None);
+			};
+			process.data
 		};
 		let location = self
 			.server
@@ -153,12 +161,6 @@ impl Session {
 				};
 				if location.name != remote {
 					return Ok(None);
-				}
-				if let Some(mut started) = self.server.runner.state().try_get_process_started(id) {
-					started
-						.wait_for(|started| *started)
-						.await
-						.map_err(|_| tg::error!(%id, "the process failed to start"))?;
 				}
 				Ok(process.inner_token)
 			},

@@ -253,7 +253,7 @@ impl Session {
 							&process.data,
 							permissions,
 							false,
-							process.sync.as_ref(),
+							None,
 							&runner.location,
 						)?;
 						Ok(Some(outcome))

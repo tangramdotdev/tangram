@@ -7,7 +7,10 @@ use {
 	std::{
 		marker::PhantomData,
 		pin::Pin,
-		sync::Arc,
+		sync::{
+			Arc,
+			atomic::{AtomicU64, Ordering},
+		},
 		task::{Context, Poll},
 		time::Duration,
 	},
@@ -61,6 +64,7 @@ pub(crate) struct Sender<I, O> {
 	outbox: Arc<DashMap<String, OutboxEntry<O>>>,
 	outbox_ttl: Option<Duration>,
 	responses: Arc<DashMap<String, tokio::sync::oneshot::Sender<I>>>,
+	sequence: Arc<AtomicU64>,
 }
 
 pub(crate) struct Response<I, O> {
@@ -74,6 +78,7 @@ struct OutboxEntry<O> {
 	acknowledged: bool,
 	message: O,
 	priority: Priority,
+	sequence: u64,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -164,6 +169,7 @@ where
 			outbox: Arc::new(DashMap::new()),
 			outbox_ttl,
 			responses: Arc::new(DashMap::new()),
+			sequence: Arc::new(AtomicU64::new(0)),
 		};
 		let send_tasks = [Priority::High, Priority::Low].map(|priority| {
 			let retry = retry.clone();
@@ -354,6 +360,7 @@ impl<I, O> Clone for Sender<I, O> {
 			outbox: self.outbox.clone(),
 			outbox_ttl: self.outbox_ttl,
 			responses: self.responses.clone(),
+			sequence: self.sequence.clone(),
 		}
 	}
 }
@@ -401,6 +408,7 @@ where
 				acknowledged: false,
 				message: message.clone(),
 				priority,
+				sequence: self.sequence.fetch_add(1, Ordering::Relaxed),
 			};
 			let previous = self.outbox.insert(id.clone(), entry);
 			if previous.is_none()
@@ -495,11 +503,14 @@ where
 	}
 
 	fn messages(&self, priority: Priority) -> Vec<O> {
-		self.outbox
+		let mut messages = self
+			.outbox
 			.iter()
 			.filter(|entry| !entry.value().acknowledged && entry.value().priority == priority)
-			.map(|entry| entry.value().message.clone())
-			.collect()
+			.map(|entry| (entry.value().sequence, entry.value().message.clone()))
+			.collect::<Vec<_>>();
+		messages.sort_unstable_by_key(|(sequence, _)| *sequence);
+		messages.into_iter().map(|(_, message)| message).collect()
 	}
 }
 

@@ -40,21 +40,21 @@ let path = artifact {
 	'
 }
 
-# Hold the output push.
+# Hold the outcome sync.
 let push_watch = (
-	tg --url $runner.url checkpoint watch runner.process.output.push.started
+	tg --url $runner.url checkpoint watch runner.process.outcome.sync.started
 	| from json
 	| get watch
 )
 
-# Start the first build and wait for it to reach its output push.
+# Start the first build and wait for it to reach its outcome sync.
 let process = tg --url $local_first.url build --no-tokens --detach --remote --user $alice.user.id $path | referent node
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.output.push.started $push_watch 0 | complete
-success $output "the first build should reach its output push"
+let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome.sync.started $push_watch 0 | complete
+success $output "the first build should reach its outcome sync"
 
-# The second build must be a cache hit for the first process while its output push is held.
+# The second build must be a cache hit for the first process while its outcome sync is held.
 let cached = tg --url $local_second.url build --no-tokens --detach --remote --user $alice.user.id $path | referent node
-assert equal $cached $process "the second build should reuse the first process while its output push is held"
+assert equal $cached $process "the second build should reuse the first process while its outcome sync is held"
 
 # The cached process's wait completes and names the output file.
 let output = timeout 30s tg --url $local_second.url wait $cached | from json
@@ -71,9 +71,9 @@ if $output != null {
 	error make { msg: $"the output read should wait while the push is held: ($output)" }
 }
 
-# Release the push. The read carries the authorization token for the output sync, so it retries until the contents land.
-tg --url $runner.url checkpoint continue runner.process.output.push.started $push_watch 0
-tg --url $runner.url checkpoint unwatch runner.process.output.push.started $push_watch
+# Release the sync. The read carries the authorization token for the process sync, so it retries until the contents land.
+tg --url $runner.url checkpoint continue runner.process.outcome.sync.started $push_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.started $push_watch
 
 # The read completes with the pushed contents.
 let output = job recv --tag $read --timeout 30sec

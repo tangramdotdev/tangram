@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A sibling's cache-hit query and module loads must stay correct while every command push is delayed.
+# A sibling's cache-hit query and module loads must stay correct while every command sync is delayed.
 
 let root_token = random chars
 
@@ -28,15 +28,15 @@ let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
 
-# Watch the command pushes so they can be held.
+# Watch the command synces so they can be held.
 let push_watch = (
-	tg --url $runner.url checkpoint watch runner.process.command.push.started
+	tg --url $runner.url checkpoint watch runner.process.command.sync.started
 	| from json
 	| get watch
 )
 
 # tangram.ts and dep.tg.ts import each other. foo and bar both build dep, so one of them receives
-# it as a cache hit while dep's command push is still held.
+# it as a cache hit while dep's command sync is still held.
 let path = artifact {
 	tangram.ts: '
 		import dep from "./dep.tg.ts";
@@ -73,18 +73,18 @@ let build = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-# Hold every command push across dep's build window, then release them all by unwatching.
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 0 | complete
+# Hold every command sync across dep's build window, then release them all by unwatching.
+let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.sync.started $push_watch 0 | complete
 success $output "the runner must push a child command on the shortcut path"
 sleep 8sec
-tg --url $runner.url checkpoint unwatch runner.process.command.push.started $push_watch
+tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $push_watch
 
 # The build must complete and the user must read the output.
 let result = try { job recv --tag $build --timeout 60sec } catch { null }
 if $result == null {
-	error make { msg: "the build did not complete after the command pushes were released" }
+	error make { msg: "the build did not complete after the command synces were released" }
 }
-success $result "the build must succeed with delayed command pushes"
+success $result "the build must succeed with delayed command synces"
 
 let directory = $result.stdout | str trim
 let read = tg --url $local.url get $directory --depth inf | complete

@@ -137,18 +137,17 @@ def early_finish():
                 checkpoint("wait", name, watches[name], 0)
             checkpoint("unwatch", "process.control.header", watches.pop("process.control.header"))
             sock, response, output = pending.result(timeout=10)
-            sync = output["sync"]
-            assert sync, output
+            assert "sync" not in output, output
             receive(response, "ack", request_id)
             close(sock, response)
         finally:
             for name, watch in watches.items():
                 checkpoint("unwatch", name, watch)
 
-    # Reconnect after losing an acknowledged request, preserving the sync referent for the eventual push.
-    arg = {"id": output["process"]["node"], "lease": "test", "sync": sync}
+    # Reconnect after losing an acknowledged Finish; the server owns the sync.
+    arg = {"id": output["process"]["node"], "lease": "test"}
     sock, response, reconnected = connect(arg, output["token"])
-    assert reconnected["sync"] == sync, reconnected
+    assert "sync" not in reconnected, reconnected
     request(sock, response, request_id, finish)
     close(sock, response)
     process = json.loads(subprocess.check_output(command + ["get", arg["id"]], timeout=10))
@@ -157,7 +156,7 @@ def early_finish():
     params = urllib.parse.parse_qs(urllib.parse.urlsplit(referent).query)
     tokens = [token for name, values in params.items() if name.startswith("tokens[") for token in values]
     bodies = [json.loads(base64.b64decode(token.split(".")[1])) for token in tokens]
-    assert any(body["resource"] == sync["node"] and "sync_read" in body["permissions"] for body in bodies), value
+    assert any(body["resource"].startswith("syn_") and "sync_read" in body["permissions"] for body in bodies), value
     assert process["status"] == "finished", process
 
 
