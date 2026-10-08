@@ -2,7 +2,7 @@ use {
 	crate::prelude::*,
 	futures::{StreamExt as _, TryStreamExt as _, future, stream::BoxStream},
 	serde_with::{DurationSecondsWithFrac, serde_as},
-	std::time::Duration,
+	std::{collections::BTreeSet, time::Duration},
 	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_uri::Uri,
 	tangram_util::serde::is_default,
@@ -95,6 +95,7 @@ pub enum ServerResponseOutput {
 pub struct HeartbeatClientNotification {
 	pub capacity: Capacity,
 	pub index: u64,
+	pub sandboxes: BTreeSet<tg::sandbox::Id>,
 }
 
 #[derive(Clone, Copy, Debug, Default, serde::Deserialize, serde::Serialize)]

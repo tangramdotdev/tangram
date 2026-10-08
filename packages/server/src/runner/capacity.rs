@@ -235,6 +235,11 @@ impl Reservations {
 
 impl Allocation {
 	#[must_use]
+	pub fn capacity(&self) -> tg::runner::Capacity {
+		self.capacity
+	}
+
+	#[must_use]
 	pub fn try_borrow(
 		parent: tokio::sync::OwnedMutexGuard<Option<Self>>,
 		requested: tg::runner::Capacity,

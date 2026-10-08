@@ -629,6 +629,12 @@ impl Allocation {
 		Ok(())
 	}
 
+	pub(crate) fn retain(self) {
+		// Withhold runner admission when a live reservation cannot be released safely.
+		self.lease.0.pool.0.allocations.lock().unwrap().poisoned = true;
+		std::mem::forget(self);
+	}
+
 	#[must_use]
 	pub(crate) fn lease(&self) -> Lease {
 		self.lease.clone()
@@ -910,6 +916,25 @@ mod tests {
 		assert!(!pool.healthy());
 		assert!(pool.allocate(1.into()).is_err());
 		assert!(pool.borrow(&parent.lease(), 1.into()).is_err());
+	}
+
+	#[test]
+	fn retained_live_allocations_disable_admission_and_keep_ancestor_reservations() {
+		let pool = pool(1, 4);
+		let cpu = tg::sandbox::Cpu {
+			dedicated: 1,
+			shared: 0,
+		};
+		let parent = pool.allocate(cpu).unwrap();
+		let lease = parent.lease();
+		let child = pool.borrow(&lease, 4.into()).unwrap();
+		child.retain();
+		drop(parent);
+		assert!(!pool.healthy());
+		assert!(pool.allocate(cpu).is_err());
+		assert!(pool.borrow(&lease, 1.into()).is_err());
+		drop(lease);
+		assert_eq!(pool.0.allocations.lock().unwrap().entries.len(), 2);
 	}
 
 	#[test]

@@ -117,6 +117,7 @@ impl Session {
 			.sandboxes()
 			.get_by_id(parent_sandbox)
 			.ok_or_else(|| tg::error!(%parent_sandbox, "failed to find the parent sandbox"))?;
+		let capacity = sandbox.capacity;
 		let allocation = sandbox.allocation.clone().ok_or_else(
 			|| tg::error!(%parent_sandbox, "failed to find the parent sandbox allocation"),
 		)?;
@@ -142,6 +143,22 @@ impl Session {
 		drop(sandbox);
 		loop {
 			let scheduler = self.server.runner.state().wait_for_scheduler().await;
+			if !self.server.runner.state().healthy()
+				|| !capacity.contains(requested, self.server.config.runner.cpu_oversubscription)
+			{
+				return Ok(());
+			}
+			// Report potential capacity before waiting for an outstanding borrower to finish.
+			let notification = tg::process::control::BorrowableCapacityClientNotification {
+				available: false,
+				capacity,
+				heartbeat_index: self.server.runner.state().heartbeat_index(),
+				parent: parent_sandbox.clone(),
+				runner: runner.clone(),
+				scheduler: scheduler.clone(),
+			};
+			self.spawn_process_send_borrowable_capacity(&control, notification)
+				.await?;
 			let allocation = allocation.clone().lock_owned().await;
 			if !self.server.runner.state().healthy() {
 				return Ok(());
@@ -153,24 +170,28 @@ impl Session {
 				.reservations()
 				.reserve(allocation, parent_sandbox.clone(), requested)
 			else {
-				return Ok(());
-			};
-			let notification = tg::process::control::ClientNotification::BorrowableCapacity(
-				tg::process::control::BorrowableCapacityClientNotification {
-					capacity,
+				let notification = tg::process::control::BorrowableCapacityClientNotification {
+					available: false,
+					capacity: tg::runner::Capacity::default(),
+					heartbeat_index: self.server.runner.state().heartbeat_index(),
 					parent: parent_sandbox.clone(),
 					runner: runner.clone(),
 					scheduler: scheduler.clone(),
-				},
-			);
-			control
-				.send(tg::process::control::ClientMessage::Notification(
-					notification,
-				))
-				.await
-				.map_err(
-					|error| tg::error!(!error, %parent, "failed to send the borrowable capacity notification"),
-				)?;
+				};
+				self.spawn_process_send_borrowable_capacity(&control, notification)
+					.await?;
+				return Ok(());
+			};
+			let notification = tg::process::control::BorrowableCapacityClientNotification {
+				available: true,
+				capacity,
+				heartbeat_index: self.server.runner.state().heartbeat_index(),
+				parent: parent_sandbox.clone(),
+				runner: runner.clone(),
+				scheduler: scheduler.clone(),
+			};
+			self.spawn_process_send_borrowable_capacity(&control, notification)
+				.await?;
 			let wait_future = reservation.wait();
 			let wait_future = pin!(wait_future);
 			let scheduler_change_future = self
@@ -181,6 +202,25 @@ impl Session {
 			let scheduler_change_future = pin!(scheduler_change_future);
 			future::select(wait_future, scheduler_change_future).await;
 		}
+	}
+
+	async fn spawn_process_send_borrowable_capacity(
+		&self,
+		control: &tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
+		notification: tg::process::control::BorrowableCapacityClientNotification,
+	) -> tg::Result<()> {
+		let parent = notification.parent.clone();
+		let notification =
+			tg::process::control::ClientNotification::BorrowableCapacity(notification);
+		control
+			.send(tg::process::control::ClientMessage::Notification(
+				notification,
+			))
+			.await
+			.map_err(
+				|error| tg::error!(!error, %parent, "failed to send the borrowable capacity notification"),
+			)?;
+		Ok(())
 	}
 
 	pub(super) async fn spawn_process_get_command(

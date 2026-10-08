@@ -80,6 +80,7 @@ pub struct State {
 	capacity: self::capacity::Pool,
 	#[cfg(target_os = "linux")]
 	filesystem_project_ids: self::project::Pool,
+	heartbeat_index: AtomicU64,
 	id: Mutex<Option<tg::runner::Id>>,
 	next_sandbox_index: AtomicU64,
 	process_for_token: dashmap::DashMap<String, (u64, tg::process::Id)>,
@@ -99,6 +100,7 @@ impl Runner {
 			capacity: self::capacity::Pool::new(config.capacity, config.cpu_oversubscription),
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: self::project::Pool::new(config.filesystem_project_ids),
+			heartbeat_index: AtomicU64::new(0),
 			id: Mutex::new(None),
 			next_sandbox_index: AtomicU64::new(1),
 			process_for_token: dashmap::DashMap::new(),
@@ -821,13 +823,32 @@ impl Session {
 		index: u64,
 		cleanup: bool,
 	) -> tg::runner::control::HeartbeatClientNotification {
+		// Publish the snapshot index before reading the state so later capacity hints can reject older snapshots.
+		self.server
+			.runner
+			.state
+			.heartbeat_index
+			.store(index, Ordering::Release);
 		let capacity = if cleanup || !self.server.runner.state.healthy() {
 			tg::runner::control::Capacity::default()
 		} else {
 			self.server.runner.state.capacity.get()
 		};
 		tracing::debug!(target: "tangram_server::runner::control", index, cleanup, available_dedicated_cpus = capacity.available.cpu.dedicated, available_shared_cpus = capacity.available.cpu.shared, available_memory = capacity.available.memory, "sending the runner heartbeat");
-		tg::runner::control::HeartbeatClientNotification { capacity, index }
+		let sandboxes = self
+			.server
+			.runner
+			.state
+			.sandboxes
+			.iter()
+			.filter(|sandbox| !cleanup && sandbox.allocation.is_some())
+			.map(|sandbox| sandbox.id.clone())
+			.collect();
+		tg::runner::control::HeartbeatClientNotification {
+			capacity,
+			index,
+			sandboxes,
+		}
 	}
 
 	#[must_use]
@@ -866,6 +887,11 @@ impl State {
 			return pool.healthy();
 		}
 		true
+	}
+
+	#[must_use]
+	pub(crate) fn heartbeat_index(&self) -> u64 {
+		self.heartbeat_index.load(Ordering::Acquire)
 	}
 
 	#[must_use]
@@ -919,6 +945,7 @@ impl State {
 	}
 
 	pub fn set_scheduler(&self, scheduler: Option<tg::scheduler::Id>) {
+		self.heartbeat_index.store(0, Ordering::Release);
 		self.scheduler.send_replace(scheduler);
 	}
 

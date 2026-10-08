@@ -436,6 +436,7 @@ impl Session {
 		// Store the identified sandbox state before starting any processes.
 		#[cfg(target_os = "linux")]
 		allocation.set_cpu_lease(create_output.sandbox.cpu_lease().await);
+		let capacity = allocation.capacity();
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
 		let index = create_output.sandbox.index();
 		let processes = Arc::new(crate::process::Processes::default());
@@ -443,6 +444,7 @@ impl Session {
 		let entry = crate::sandbox::State {
 			allocation: Some(allocation),
 			authorization_tokens: tg::authorization::Tokens::default(),
+			capacity,
 			changed: tokio::sync::watch::channel(()).0,
 			control_sender,
 			data: control_data,

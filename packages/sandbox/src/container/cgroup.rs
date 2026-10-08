@@ -314,7 +314,7 @@ impl Drop for Cgroup {
 			tracing::error!(%error, path = %self.path.display(), "failed to stop the cgroup");
 			// Retain the core reservation when processes could still be executing on it.
 			if let Some(allocation) = self.allocation.take() {
-				std::mem::forget(allocation);
+				allocation.retain();
 			}
 			return;
 		}

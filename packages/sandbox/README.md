@@ -87,9 +87,10 @@ whole cores for dedicated requests. Existing placements are retained where
 possible, and dedicated requests prefer idle cores. Live CPU-set updates keep
 sandboxes runnable while shared workloads move; dedicated cores remain in each
 sandbox's CPU set throughout the transition. Dedicated cores return to shared
-eligibility when released after their cgroups empty. Mixed accounting monitors every potential shared core, so
-CPU-set changes preserve execution accounting. Failed recovery disables pool
-admission and causes runner heartbeats to advertise zero capacity until restart.
+eligibility when released after their cgroups empty. Mixed accounting monitors
+every potential shared core, so CPU-set changes preserve execution accounting.
+Failed teardown or recovery disables pool admission and causes runner heartbeats
+to advertise zero capacity until restart.
 
 Runner capacity uses `cpu: { dedicated, shared }`: free exclusive cores and free
 slots on currently shared cores. These are convertible resources. For example,
@@ -103,7 +104,10 @@ only shared child slots. A borrowed child receives its requested capacity and
 cannot lend more to its own children. CPU leases keep ancestor reservations
 alive until their borrowers finish, and borrowed cgroups follow ancestor CPU
 placement changes. Borrowing can place multiple shared slots on one physical
-core; these slots do not promise simultaneous execution on distinct cores.
+core; these slots do not promise simultaneous execution on distinct cores. The
+runner advertises potential parent capacity before waiting for a current borrower
+to finish. The scheduler keeps eligible children queued until that capacity can
+be lent, and newer runner heartbeats remove hints for parents that have stopped.
 
 Sandbox prewarming is disabled for exclusive pools because unclaimed sandboxes would consume physical slots outside admission.
 Without an exclusive pool, `runner.cpus` selects the shared CPU base capacity, and the factor determines the shared admission limit.
