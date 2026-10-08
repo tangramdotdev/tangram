@@ -458,7 +458,7 @@ fn quota_control(
 		libc::SYS_quotactl_fd,
 		&[
 			raw_fd_arg(directory),
-			usize::try_from(command).unwrap(),
+			usize::try_from(command.cast_unsigned()).unwrap(),
 			project as usize,
 			limits as usize,
 		],

@@ -12,8 +12,7 @@ if ($root | is-empty) {
 }
 let directory = mktemp --directory --tmpdir-path $root
 
-let local = server spawn --busybox --config {
-	directory: $directory,
+let local = server spawn --busybox --directory $directory --config {
 	runner: {
 		isolation: {
 			container: {

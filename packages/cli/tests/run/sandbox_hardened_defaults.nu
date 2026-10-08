@@ -14,8 +14,7 @@ let directory = mktemp --directory --tmpdir-path $root
 
 let cgroup_parent = container_cgroup_parent [cpu memory pids]
 
-let local = server spawn --busybox --config {
-	directory: $directory,
+let local = server spawn --busybox --directory $directory --config {
 	runner: {
 		isolation: {
 			container: ({ harden: true } | merge (container_id_maps)),
