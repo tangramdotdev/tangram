@@ -19,10 +19,10 @@ let alice = tg --url $remote.url login --verbose --name alice | from json
 let local = server spawn --name local --config {
 	remotes: { default: { token: $alice.token, url: $remote.url } },
 }
-let watch = tg --url $runner.url checkpoint watch runner.process.output.push.finished | from json | get watch
+let watch = tg --url $runner.url checkpoint watch runner.process.outcome.sync.finished | from json | get watch
 let path = artifact { tangram.ts: 'export default async () => { throw await tg.error({ message: "expected build failure", stack: null }); };' }
 let process = tg --url $local.url build --remote --detach $path
-success (timeout 15s tg --url $runner.url checkpoint wait runner.process.output.push.finished $watch 0 | complete) 'the runner should successfully push the error'
-tg --url $runner.url checkpoint unwatch runner.process.output.push.finished $watch
+success (timeout 15s tg --url $runner.url checkpoint wait runner.process.outcome.sync.finished $watch 0 | complete) 'the runner should successfully push the error'
+tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.finished $watch
 let output = timeout 15s tg --url $local.url process output $process | complete
 assert ($output.stderr | str contains 'expected build failure') 'the original build error should be readable'

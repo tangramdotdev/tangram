@@ -20,6 +20,7 @@ use {
 mod output;
 mod signal;
 mod stdin;
+mod sync;
 mod tty;
 
 pub(super) type ProcessControlSender = crate::control::Sender<
@@ -40,7 +41,6 @@ pub(super) struct RunProcessControlTaskArg {
 	pub exited: Stopper,
 	pub finish: tokio::sync::oneshot::Receiver<ProcessControlResponseReceiver>,
 	pub local: tokio::sync::mpsc::Receiver<local::Message>,
-	pub push: tokio::sync::oneshot::Receiver<()>,
 	pub retention_stopper: Stopper,
 	pub sandbox: tangram_sandbox::Sandbox,
 	pub sandbox_process: tokio::sync::watch::Receiver<Option<Arc<tangram_sandbox::Process>>>,
@@ -50,6 +50,7 @@ pub(super) struct RunProcessControlTaskArg {
 	pub stdin: tg::process::Stdio,
 	pub stdout: tg::process::Stdio,
 	pub stdout_buffered: tokio::sync::oneshot::Sender<tg::Result<()>>,
+	pub sync: tokio::sync::watch::Receiver<bool>,
 }
 
 struct RunProcessControlHandlerTaskArg {
@@ -155,7 +156,6 @@ impl Session {
 			exited,
 			finish,
 			local,
-			push,
 			retention_stopper,
 			sandbox,
 			sandbox_process,
@@ -165,6 +165,7 @@ impl Session {
 			stdin,
 			stdout,
 			stdout_buffered,
+			mut sync,
 		} = arg;
 		let sender = control.sender();
 
@@ -236,10 +237,12 @@ impl Session {
 			.map_err(|_| tg::error!("expected a finish process response"))?;
 		tracing::info!(elapsed = ?started.elapsed(), process = %self.context.principal, "received the process finish response");
 
-		// Retain control so waits can obtain the authorization token for the output sync while its objects are in transit.
-		if !self.server.config.process.await_push {
-			push.await.ok();
-		}
+		crate::checkpoint!(self.server, "runner.process.control.finish.succeeded").await;
+
+		// Retain control until the command and outcome sync completes.
+		sync.wait_for(|complete| *complete)
+			.await
+			.map_err(|_| tg::error!("the process sync failed"))?;
 
 		let stdio_task = async {
 			output_task.wait().await.map_err(|error| {
@@ -526,6 +529,9 @@ impl Session {
 					}
 				},
 				tg::process::control::ServerMessage::Response(_) => {},
+				tg::process::control::ServerMessage::Sync(_) => {
+					return Err(tg::error!("unexpected sync message"));
+				},
 				tg::process::control::ServerMessage::Ack(_) => unreachable!(),
 				tg::process::control::ServerMessage::Notification(notification) => {
 					match notification {

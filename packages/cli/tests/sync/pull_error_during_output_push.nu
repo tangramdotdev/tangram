@@ -36,17 +36,17 @@ let path = artifact {
 	'
 }
 
-# Hold the output push.
+# Hold the outcome sync.
 let push_watch = (
-	tg --url $runner.url checkpoint watch runner.process.output.push.started
+	tg --url $runner.url checkpoint watch runner.process.outcome.sync.started
 	| from json
 	| get watch
 )
 
-# Start the build and wait for it to reach its output push.
+# Start the build and wait for it to reach its outcome sync.
 let process = tg --url $alice_local.url build --no-tokens --detach --remote --user $alice.user.id $path | referent node
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.output.push.started $push_watch 0 | complete
-success $output "the build should reach its output push"
+let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome.sync.started $push_watch 0 | complete
+success $output "the build should reach its outcome sync"
 
 # The process finishes before its push, and its wait names the error with the authorization token for the sync.
 let output = timeout 30s tg --url $alice_local.url wait $process | from json
@@ -65,9 +65,9 @@ if $output != null {
 	error make { msg: $"the pull should wait while the push is held: ($output)" }
 }
 
-# Release the push. The pull completes and Bob reads the error.
-tg --url $runner.url checkpoint continue runner.process.output.push.started $push_watch 0
-tg --url $runner.url checkpoint unwatch runner.process.output.push.started $push_watch
+# Release the sync. The pull completes and Bob reads the error.
+tg --url $runner.url checkpoint continue runner.process.outcome.sync.started $push_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.started $push_watch
 success (job recv --tag $pull --timeout 30sec) "bob's pull should complete"
 let output = tg --url $bob_local.url get ($error | split row '?' | first) | complete
 success $output "bob should read the error"

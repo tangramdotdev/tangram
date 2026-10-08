@@ -1,7 +1,7 @@
 use ../lib/test.nu *
 
 # A sandboxed child checkout must use a process-aware pull when local authorization is insufficient.
-# The first run stores the child command and its executable on the runner. The checkpoints order the second run so that only Node access to the command has been established locally before the child starts.
+# The first run stores the child command and its executable on the runner. The second run holds command sync while the runner indexes the command permissions.
 
 let root_token = random chars
 let remote = server spawn --cloud --name remote --config {
@@ -25,7 +25,7 @@ let local = server spawn --name local --config {
 let path = artifact {
 	"example.tg.ts": '
 		export default async () => {
-			// Exercise the standalone spawn endpoint, whose runner shortcut pushes the command.
+			// Exercise the standalone spawn endpoint, whose runner shortcut syncs the command.
 			let command = await tg.Command.javascript(child, []);
 			await command.node.store();
 			let object = await command.node.object();
@@ -81,8 +81,8 @@ if $output == null {
 success $output "the initial process should succeed"
 
 # Hold the reused child command until its permissions are indexed.
-let command_push_watch = (
-	tg --url $runner.url checkpoint watch runner.process.command.push.finished
+let command_sync_watch = (
+	tg --url $runner.url checkpoint watch runner.process.command.sync.started
 	| from json
 	| get watch
 )
@@ -100,10 +100,10 @@ let output = timeout 30s tg --url $runner.url checkpoint wait index.batch.finish
 success $output "the child command permissions should finish indexing"
 tg --url $runner.url checkpoint continue index.batch.finished $index_batch_watch 0
 tg --url $runner.url checkpoint unwatch index.batch.finished $index_batch_watch
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.push.finished $command_push_watch 0 | complete
-success $output "the child command push should finish"
-tg --url $runner.url checkpoint continue runner.process.command.push.finished $command_push_watch 0
-tg --url $runner.url checkpoint unwatch runner.process.command.push.finished $command_push_watch
+let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.command.sync.started $command_sync_watch 0 | complete
+success $output "the child command sync should start"
+tg --url $runner.url checkpoint continue runner.process.command.sync.started $command_sync_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $command_sync_watch
 
 let output = try { job recv --tag $run --timeout 30sec } catch { null }
 if $output == null {

@@ -108,7 +108,7 @@ for location in [local remote] {
 			}
 		}
 		if $location == remote {
-			assert ($params | any {|param| $param.key == 'tokens[remote][0]' }) $"the authorization token for the result sync must be associated with its issuer: ($field)"
+			assert ($params | all {|param| $param.key !~ '^tokens\[remote\]' }) "the runner must not receive the server's process sync token"
 			if $field == error {
 				assert ($output.output? == null) "an error-only outcome must not contain output objects"
 			}

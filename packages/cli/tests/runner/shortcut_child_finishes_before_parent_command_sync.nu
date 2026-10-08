@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A shortcut child whose command push and start reach the remote before its shortcut parent's must still be recorded as the parent's child with access to its command.
+# A shortcut child must finish while its parent's command sync is held and be recorded under the parent on the remote.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
@@ -25,7 +25,7 @@ let runner = server spawn --name runner --config {
 }
 
 let inserted_watch = tg --url $runner.url checkpoint watch runner.process.state.inserted | from json | get watch
-let push_watch = tg --url $runner.url checkpoint watch runner.process.command.push.started | from json | get watch
+let sync_watch = tg --url $runner.url checkpoint watch runner.process.command.sync.started | from json | get watch
 let finished_watch = tg --url $runner.url checkpoint watch runner.process.finished | from json | get watch
 
 let path = artifact {
@@ -58,29 +58,28 @@ success $output "the parent should enter the runner state"
 let parent = $output.stdout | from json | get params.process
 tg --url $runner.url checkpoint continue runner.process.state.inserted $inserted_watch 1
 
-# Hold the parent's command push so the remote does not start the parent.
-success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 0 | complete) "the parent should reach its command push"
+# Hold the parent's command sync while Start proceeds independently.
+success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 0 | complete) "the parent should reach its command sync"
 
-# Let the child's push through so its start can reach the remote first.
+# Let the child's command sync proceed while its parent's command sync is held.
 let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.state.inserted $inserted_watch 2 | complete
 success $output "the child should enter the runner state"
 let child = $output.stdout | from json | get params.process
 tg --url $runner.url checkpoint continue runner.process.state.inserted $inserted_watch 2
-success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 1 | complete) "the child should reach its command push"
-tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 1
+success (timeout 60s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 1 | complete) "the child should reach its command sync"
+tg --url $runner.url checkpoint continue runner.process.command.sync.started $sync_watch 1
 
-# The child runs to completion while the parent's start is held.
+# The child runs to completion while the parent's command sync is held.
 let finished = timeout 30s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete
-if $finished.exit_code == 0 {
-	assert equal ($finished.stdout | from json | get params.process) $child "the child should finish first"
-	tg --url $runner.url checkpoint continue runner.process.finished $finished_watch 0
-}
+success $finished "the child should finish while its parent command sync is held"
+assert equal ($finished.stdout | from json | get params.process) $child "the child should finish first"
+tg --url $runner.url checkpoint continue runner.process.finished $finished_watch 0
 tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch
 tg --url $runner.url checkpoint unwatch runner.process.state.inserted $inserted_watch
 
-# Release the parent's push.
-tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 0
-tg --url $runner.url checkpoint unwatch runner.process.command.push.started $push_watch
+# Release the parent's command sync.
+tg --url $runner.url checkpoint continue runner.process.command.sync.started $sync_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $sync_watch
 
 let output = job recv --tag $build --timeout 60sec
 success $output "the build should succeed"

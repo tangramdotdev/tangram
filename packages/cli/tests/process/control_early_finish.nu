@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Finish is acknowledged before the header, and reconnects preserve the authorization token for the output/error sync.
+# Finish is acknowledged before the header, and reconnects leave sync management on the server.
 const driver = path self ../lib/log_control.py
 if (which python3 | is-empty) {
 	skip_test "this test requires python3"

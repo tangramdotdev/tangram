@@ -16,6 +16,7 @@ use {
 pub(crate) mod finish;
 pub(crate) mod local;
 pub(crate) mod read;
+pub(crate) mod sync;
 pub(crate) mod write;
 
 pub(super) type ProcessControlSender = crate::control::Sender<
@@ -101,6 +102,27 @@ impl Session {
 			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
 		)>,
 	> {
+		if let Some(completion) = &self.process_control_sync {
+			return self
+				.process_control_sync_source(arg, stream, completion.clone())
+				.boxed()
+				.await;
+		}
+		self.try_get_process_control_stream_inner(arg, stream)
+			.boxed()
+			.await
+	}
+
+	pub(crate) async fn try_get_process_control_stream_inner(
+		&self,
+		arg: tg::process::control::Arg,
+		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
+	) -> tg::Result<
+		Option<(
+			tg::process::control::Header,
+			BoxStream<'static, tg::Result<tg::process::control::ServerMessage>>,
+		)>,
+	> {
 		let location = self.server.location(arg.location.as_ref())?;
 		let output = match location {
 			tg::Location::Local(tg::location::Local {
@@ -137,6 +159,7 @@ impl Session {
 			stream,
 			None,
 			self.local_process_control,
+			None,
 		)
 		.boxed()
 		.await
@@ -148,6 +171,7 @@ impl Session {
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 		start: Option<(String, Option<tg::process::control::Sandbox>)>,
 		local_process_control: bool,
+		control_sync: Option<sync::Destination>,
 	) -> tg::Result<
 		Option<(
 			tg::process::control::Header,
@@ -186,17 +210,25 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
-		let data = arg.data;
+		let mut data = arg.data;
 		let lease = arg.lease;
 		let mut options = arg.options;
 		options.tokens.clear();
 		let parent = arg.parent;
-		// An in-process runner stores its output locally without starting an incoming sync.
-		let sync = if local_process_control {
-			None
+		let (control_sync, stream, sync_output) = if let Some(sync) = control_sync {
+			(Some(sync), stream, futures::stream::empty().boxed())
+		} else if local_process_control {
+			(None, stream, futures::stream::empty().boxed())
 		} else {
-			Some(session.prepare_sync(arg.sync)?)
+			let (sync, stream, output) = session
+				.process_control_sync_destination(&id, data.as_ref(), assign, stream)
+				.await?;
+			(Some(sync), stream, output)
 		};
+		let sync = control_sync.as_ref().map(|sync| sync.referent.clone());
+		if let (Some(sync), Some(data)) = (&sync, &mut data) {
+			data.command.options.tokens.inherit(&sync.options.tokens);
+		}
 		if !arg.start {
 			if assign && !matches!(self.context.principal, tg::Principal::Runner(_)) {
 				return Err(tg::error!(
@@ -215,18 +247,15 @@ impl Session {
 				None
 			};
 			let process = tg::Referent::with_node_and_local_tokens(id.clone(), wait_token);
-			let header = tg::process::control::Header {
-				process,
-				sync: sync.clone(),
-				token,
-			};
+			let header = tg::process::control::Header { process, token };
 			let stream = session.wait_for_process_control_start(
 				id,
 				arg.location,
 				stream,
-				sync,
 				local_process_control,
+				control_sync,
 			);
+			let stream = sync::merge(stream, sync_output);
 			crate::checkpoint!(self.server, "process.control.header", process = %header.process.node).await;
 
 			return Ok(Some((header, stream)));
@@ -357,6 +386,9 @@ impl Session {
 			move |_| async move {
 				while let Some(message) = control.recv_without_ack().await? {
 					match message {
+						tg::process::control::ClientMessage::Sync(_) => {
+							return Err(tg::error!("unexpected sync message"));
+						},
 						tg::process::control::ClientMessage::Ack(ack) => {
 							if forwarded_requests.contains(&ack.id) {
 								session.publish_process_control_ack(&id, ack).await?;
@@ -506,15 +538,12 @@ impl Session {
 			None
 		};
 		let process = tg::Referent::with_node_and_local_tokens(id, wait_token);
-		let header = tg::process::control::Header {
-			process,
-			sync,
-			token,
-		};
+		let header = tg::process::control::Header { process, token };
 
 		crate::checkpoint!(self.server, "process.control.header", process = %header.process.node)
 			.await;
 
+		let stream = sync::merge(stream, sync_output);
 		Ok(Some((header, stream)))
 	}
 
@@ -523,8 +552,8 @@ impl Session {
 		id: tg::process::Id,
 		location: Option<tg::location::Arg>,
 		mut stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-		sync: Option<tg::Referent<tg::sync::Id>>,
 		local_process_control: bool,
+		control_sync: Option<sync::Destination>,
 	) -> BoxStream<'static, tg::Result<tg::process::control::ServerMessage>> {
 		let session = self.clone();
 		futures::stream::once(async move {
@@ -566,7 +595,6 @@ impl Session {
 				options,
 				parent: Some(parent),
 				start: true,
-				sync,
 			};
 			let stream = futures::stream::iter(buffered).chain(stream).boxed();
 			let output = session
@@ -575,6 +603,7 @@ impl Session {
 					stream,
 					Some((request.id.clone(), sandbox)),
 					local_process_control,
+					control_sync,
 				)
 				.boxed()
 				.await;
@@ -1115,7 +1144,7 @@ impl crate::control::Output for tg::process::control::ClientMessage {
 
 	fn id(&self) -> Option<&str> {
 		match self {
-			Self::Ack(_) | Self::Notification(_) => None,
+			Self::Ack(_) | Self::Notification(_) | Self::Sync(_) => None,
 			Self::Request(request) => Some(&request.id),
 			Self::Response(response) => Some(&response.id),
 		}
@@ -1128,7 +1157,9 @@ impl crate::control::Input<tg::process::control::ServerMessage>
 	fn kind(&self) -> crate::control::InputKind<'_> {
 		match self {
 			Self::Ack(ack) => crate::control::InputKind::Ack { id: &ack.id },
-			Self::Notification(_) => crate::control::InputKind::Message { id: None },
+			Self::Notification(_) | Self::Sync(_) => {
+				crate::control::InputKind::Message { id: None }
+			},
 			Self::Request(request) => crate::control::InputKind::Message {
 				id: Some(&request.id),
 			},
@@ -1143,10 +1174,11 @@ impl crate::control::Input<tg::process::control::ServerMessage>
 	fn priority(&self) -> crate::control::Priority {
 		let low = matches!(
 			self,
-			Self::Request(tg::process::control::ClientRequest {
-				arg: tg::process::control::ClientRequestArg::Write(_),
-				..
-			}) | Self::Response(tg::process::control::ClientResponse {
+			Self::Sync(_)
+				| Self::Request(tg::process::control::ClientRequest {
+					arg: tg::process::control::ClientRequestArg::Write(_),
+					..
+				}) | Self::Response(tg::process::control::ClientResponse {
 				output: Some(
 					tg::process::control::ClientResponseOutput::Read(_)
 						| tg::process::control::ClientResponseOutput::Write(_),
@@ -1169,7 +1201,7 @@ impl crate::control::Output for tg::process::control::ServerMessage {
 
 	fn id(&self) -> Option<&str> {
 		match self {
-			Self::Ack(_) | Self::Notification(_) => None,
+			Self::Ack(_) | Self::Notification(_) | Self::Sync(_) => None,
 			Self::Request(request) => Some(&request.id),
 			Self::Response(response) => Some(&response.id),
 		}
@@ -1182,7 +1214,9 @@ impl crate::control::Input<tg::process::control::ClientMessage>
 	fn kind(&self) -> crate::control::InputKind<'_> {
 		match self {
 			Self::Ack(ack) => crate::control::InputKind::Ack { id: &ack.id },
-			Self::Notification(_) => crate::control::InputKind::Message { id: None },
+			Self::Notification(_) | Self::Sync(_) => {
+				crate::control::InputKind::Message { id: None }
+			},
 			Self::Request(request) => crate::control::InputKind::Message {
 				id: Some(&request.id),
 			},
@@ -1197,12 +1231,13 @@ impl crate::control::Input<tg::process::control::ClientMessage>
 	fn priority(&self) -> crate::control::Priority {
 		let low = matches!(
 			self,
-			Self::Request(tg::process::control::ServerRequest {
-				arg: tg::process::control::ServerRequestArg::Close(_)
-					| tg::process::control::ServerRequestArg::Read(_)
-					| tg::process::control::ServerRequestArg::Write(_),
-				..
-			}) | Self::Response(tg::process::control::ServerResponse {
+			Self::Sync(_)
+				| Self::Request(tg::process::control::ServerRequest {
+					arg: tg::process::control::ServerRequestArg::Close(_)
+						| tg::process::control::ServerRequestArg::Read(_)
+						| tg::process::control::ServerRequestArg::Write(_),
+					..
+				}) | Self::Response(tg::process::control::ServerResponse {
 				output: Some(tg::process::control::ServerResponseOutput::Write(_)),
 				..
 			})

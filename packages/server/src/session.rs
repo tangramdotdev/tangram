@@ -24,6 +24,7 @@ mod watch;
 pub(crate) struct Session {
 	pub context: Context,
 	pub local_process_control: bool,
+	pub process_control_sync: Option<tokio::sync::watch::Sender<bool>>,
 	pub server: Server,
 	pub sync: Option<tg::sync::Id>,
 	pub sync_control: Option<std::sync::Arc<crate::sync::control::Client>>,
@@ -35,6 +36,7 @@ impl Session {
 		Self {
 			context,
 			local_process_control: false,
+			process_control_sync: None,
 			server,
 			sync: None,
 			sync_control: None,

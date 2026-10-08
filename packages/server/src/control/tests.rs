@@ -155,6 +155,31 @@ async fn priority_stream() {
 	assert_eq!(output, vec![3, 1, 2]);
 }
 
+#[tokio::test]
+async fn retries_preserve_request_order_within_each_priority() {
+	let (output, _received) = tokio::sync::mpsc::channel(8);
+	let control = Stream::<Message, Message>::new(
+		futures::stream::pending().boxed(),
+		output,
+		stream_options(),
+	);
+	let sender = control.sender();
+	let start = Message::Request {
+		id: "start".into(),
+		position: 0,
+	};
+	let finish = Message::Request {
+		id: "finish".into(),
+		position: 1,
+	};
+	let _start = sender.request(start.clone(), Priority::High).await.unwrap();
+	let _finish = sender
+		.request(finish.clone(), Priority::High)
+		.await
+		.unwrap();
+	assert_eq!(sender.messages(Priority::High), vec![start, finish]);
+}
+
 impl Input<Self> for Message {
 	fn kind(&self) -> InputKind<'_> {
 		match self {

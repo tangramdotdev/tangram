@@ -29,24 +29,24 @@ let bob_local = server spawn --name bob-local --config {
 	remotes: { default: { token: $bob.token, url: $remote.url } },
 }
 
-# The build writes a log that the runner includes in its result push.
+# The build writes a log that the runner includes in its outcome sync.
 let path = artifact {
 	tangram.ts: '
 		export default () => { console.log("hello"); return tg.file("output"); };
 	'
 }
 
-# Hold the output push.
+# Hold the outcome sync.
 let push_watch = (
-	tg --url $runner.url checkpoint watch runner.process.output.push.started
+	tg --url $runner.url checkpoint watch runner.process.outcome.sync.started
 	| from json
 	| get watch
 )
 
-# Start the build and wait for it to reach its output push.
+# Start the build and wait for it to reach its outcome sync.
 let process = tg --url $alice_local.url build --no-tokens --detach --remote --user $alice.user.id $path | referent node
-let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.output.push.started $push_watch 0 | complete
-success $output "the build should reach its output push"
+let output = timeout 30s tg --url $runner.url checkpoint wait runner.process.outcome.sync.started $push_watch 0 | complete
+success $output "the build should reach its outcome sync"
 
 # Finish includes a log referent with the authorization token for the pending sync.
 timeout 30s tg --url $alice_local.url wait $process | ignore
@@ -54,7 +54,7 @@ let output = tg --url $remote.url --token $alice.token get --source=index $proce
 let log = $output.log
 assert ($log =~ 'tokens\[') "the log referent should carry the authorization token for the sync"
 
-# Bob obtains a log referent using node permission while the outcome push is held.
+# Bob obtains a log referent using node permission while the outcome sync is held.
 tg --url $remote.url --token $alice.token grant $bob.user.id process_node $process
 let output = tg --url $bob_local.url get --remote --source=index $process | from json
 let log = $output.log
@@ -69,9 +69,9 @@ if $output != null {
 	error make { msg: $"the pull should wait while the push is held: ($output)" }
 }
 
-# Release the push. The pull completes and Bob reads the log.
-tg --url $runner.url checkpoint continue runner.process.output.push.started $push_watch 0
-tg --url $runner.url checkpoint unwatch runner.process.output.push.started $push_watch
+# Release the sync. The pull completes and Bob reads the log.
+tg --url $runner.url checkpoint continue runner.process.outcome.sync.started $push_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.outcome.sync.started $push_watch
 success (job recv --tag $pull --timeout 30sec) "bob's pull should complete"
 let output = tg --url $bob_local.url log $process --no-timeout | complete
 success $output "bob should read the finished log"

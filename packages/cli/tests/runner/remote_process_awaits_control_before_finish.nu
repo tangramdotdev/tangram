@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Awaiting pushes waits for the authorization token for the remote control sync before pushing the output and sending Finish.
+# Finish can be queued before the control response, including with await_push enabled.
 
 let root_token = random chars
 
@@ -51,10 +51,9 @@ for checkpoint in [runner.process.control.connect process.control.header] {
 	tg --url $runner.url checkpoint unwatch runner.process.output.stored $stored_watch
 	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete) "completion should not wait for the control connection or indexing"
 	tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch
-	let output = timeout 1s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete
-	assert equal $output.exit_code 124 $"Finish must wait for the authorization token for the control sync: ($output.stderr)"
+	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "Finish must not wait for the control response"
 	tg --url $receiver.url --token $receiver_token checkpoint unwatch $checkpoint $control_watch
-	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "Finish should follow the control connection and output push"
+	success (timeout 30s tg --url $runner.url checkpoint wait runner.process.control.finish.sent $sent_watch 0 | complete) "Finish should remain queued"
 	tg --url $runner.url checkpoint unwatch runner.process.control.finish.sent $sent_watch
 
 	success (timeout 30s tg --url $remote.url --token $root_token checkpoint wait process.control.finish $received_watch 0 | complete) "the runner should send Finish"

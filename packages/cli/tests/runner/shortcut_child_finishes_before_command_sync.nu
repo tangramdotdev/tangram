@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A shortcut child that finishes before the runner has started it on the remote must still deliver its result to the guest client.
+# A shortcut child must deliver its outcome while command sync is still held.
 
 if $nu.os-info.name != 'linux' {
 	skip_test 'this test requires linux'
@@ -33,9 +33,9 @@ let runner = server spawn --name runner --config {
 
 let dir = tg --url $remote.url --token $root_token put --no-tokens -k directory 'tg.directory({})' | referent node
 
-# Hold the child's command push so the remote does not learn about the child, and hold the spawn reply so the child finishes before the guest client can wait for it.
-let push_watch = (
-	tg --url $runner.url checkpoint watch runner.process.command.push.started
+# Hold command sync and the spawn reply so the child finishes before the guest client can wait for it.
+let sync_watch = (
+	tg --url $runner.url checkpoint watch runner.process.command.sync.started
 	| from json
 	| get watch
 )
@@ -57,32 +57,32 @@ let run = job spawn {
 	$output | job send --tag $job_id 0
 }
 
-# The child's push and spawn reply are held while the child runs to completion.
-let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.command.push.started $push_watch 0 | complete
-success $output "the child should reach its command push"
+# The child's command sync and spawn reply are held while it runs to completion.
+let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.command.sync.started $sync_watch 0 | complete
+success $output "the child should reach its command sync"
 let output = timeout 60s tg --url $runner.url checkpoint wait process.spawn.child.add $spawn_watch 0 | complete
 success $output "the child spawn should reach its reply"
 let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 0 | complete
-success $output "the child should finish while its push and spawn reply are held"
+success $output "the child should finish while command sync and the spawn reply are held"
 tg --url $runner.url checkpoint continue runner.process.finished $finished_watch 0
 
-# Release the spawn reply: the guest client now waits for a child that finished before the remote knows it.
+# Release the spawn reply so the guest client can wait for the finished child.
 tg --url $runner.url checkpoint continue process.spawn.child.add $spawn_watch 0
 tg --url $runner.url checkpoint unwatch process.spawn.child.add $spawn_watch
 
-# The parent finishes only after the child's result reached the guest client.
+# The parent finishes only after the child's outcome reaches the guest client.
 let output = timeout 60s tg --url $runner.url checkpoint wait runner.process.finished $finished_watch 1 | complete
 success $output "the parent should finish"
 tg --url $runner.url checkpoint continue runner.process.finished $finished_watch 1
 tg --url $runner.url checkpoint unwatch runner.process.finished $finished_watch
 
-# Release the push.
-tg --url $runner.url checkpoint continue runner.process.command.push.started $push_watch 0
-tg --url $runner.url checkpoint unwatch runner.process.command.push.started $push_watch
+# Release the sync.
+tg --url $runner.url checkpoint continue runner.process.command.sync.started $sync_watch 0
+tg --url $runner.url checkpoint unwatch runner.process.command.sync.started $sync_watch
 
 let output = try { job recv --tag $run --timeout 60sec } catch { null }
 if $output == null {
 	error make { msg: "the run did not complete" }
 }
-success $output "the child spawned from inside the sandbox should succeed when it finishes before the remote starts it"
+success $output "the child spawned from inside the sandbox should succeed while command sync is held"
 assert ($output.stdout | str contains "hello-from-child") "the child output should reach the client"

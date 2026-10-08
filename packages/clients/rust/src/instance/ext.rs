@@ -666,7 +666,6 @@ pub trait Ext: tg::Instance {
 			let arg = tg::process::control::Arg {
 				data: None,
 				id: Some(header.process.node.clone()),
-				sync: header.sync.clone(),
 				..arg
 			};
 
