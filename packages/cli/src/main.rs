@@ -442,12 +442,35 @@ enum Command {
 	Write(self::write::Args),
 }
 
-#[tokio::main(flavor = "current_thread")]
-async fn main() -> std::process::ExitCode {
+fn main() -> std::process::ExitCode {
 	// Parse the args.
 	let matches = Args::command().get_matches();
 	let args = Args::from_arg_matches(&matches).unwrap();
+	#[cfg(target_os = "linux")]
+	if let Command::Sandbox(self::sandbox::Args {
+		command:
+			self::sandbox::Command::Container(self::sandbox::container::Args {
+				command: self::sandbox::container::Command::Run(args),
+			}),
+		..
+	}) = args.command.clone()
+	{
+		return match Cli::command_sandbox_container_run(args) {
+			Ok(exit) => exit,
+			Err(error) => {
+				Cli::print_error_basic(tg::Referent::with_node(error), false);
+				std::process::ExitCode::FAILURE
+			},
+		};
+	}
+	let runtime = tokio::runtime::Builder::new_current_thread()
+		.enable_all()
+		.build()
+		.unwrap();
+	runtime.block_on(main_inner(matches, args))
+}
 
+async fn main_inner(matches: clap::ArgMatches, args: Args) -> std::process::ExitCode {
 	// Create the CLI.
 	let mut cli = Cli {
 		args,

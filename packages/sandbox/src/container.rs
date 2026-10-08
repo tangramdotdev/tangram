@@ -1,4 +1,4 @@
-mod cgroup;
+pub(crate) mod cgroup;
 pub(crate) mod filesystem;
 mod seccomp;
 mod spawn;

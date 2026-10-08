@@ -203,29 +203,6 @@ impl Server {
 		verification_search_config(&config.verification.permissions.final_)
 			.validate()
 			.map_err(|error| tg::error!(!error, "invalid final verification configuration"))?;
-		#[cfg(target_os = "linux")]
-		if config.roles.contains(&self::config::Role::Runner)
-			&& config.runner.isolation.container.harden
-		{
-			tangram_sandbox::container::host::validate().map_err(|error| {
-				tg::error!(
-					!error,
-					"the host does not satisfy the hardened container prerequisites"
-				)
-			})?;
-			let container = &config.runner.isolation.container;
-			tracing::info!(
-				cpu = config.scheduler.default_cpu,
-				harden = true,
-				max_open_files = ?container.max_open_files(),
-				max_pids = ?container.max_pids(),
-				memory = config.scheduler.default_memory,
-				memory_swap = ?container.memory_swap(),
-				seccomp = ?container.seccomp(),
-				"validated the hardened container isolation profile"
-			);
-		}
-
 		// Get or create the directory.
 		let directory = config.directory.clone().unwrap_or_else(|| {
 			let id = uuid::Uuid::now_v7();
@@ -299,6 +276,34 @@ impl Server {
 		tokio::fs::create_dir_all(&temp_path)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
+
+		#[cfg(target_os = "linux")]
+		if config.roles.contains(&self::config::Role::Runner)
+			&& config.runner.isolation.container.harden
+		{
+			tangram_sandbox::container::host::validate(&temp_path).map_err(|error| {
+				tg::error!(
+					!error,
+					"the host does not satisfy the hardened container prerequisites"
+				)
+			})?;
+			let container = &config.runner.isolation.container;
+			tracing::info!(
+				cpu = config.scheduler.default_cpu,
+				filesystem_inodes = ?container.max_filesystem_inodes(),
+				filesystem_size = ?container.max_filesystem_size(),
+				gid_map = ?container.gid_map.as_ref().map(|map| (map.host, map.count)),
+				harden = true,
+				max_duration = ?container.max_duration(),
+				max_open_files = ?container.max_open_files(),
+				max_pids = ?container.max_pids(),
+				memory = config.scheduler.default_memory,
+				memory_swap = ?container.memory_swap(),
+				seccomp = ?container.seccomp(),
+				uid_map = ?container.uid_map.as_ref().map(|map| (map.host, map.count)),
+				"validated the hardened container isolation profile"
+			);
+		}
 
 		// Get the available parallelism.
 		let parallelism =
@@ -712,9 +717,15 @@ impl Server {
 			}
 		}
 		let container = &config.runner.isolation.container;
+		container.filesystem_project_ids.validate()?;
 		if container.max_open_files == Some(0) {
 			return Err(tg::error!(
 				"the maximum number of container sandbox open files must be greater than zero"
+			));
+		}
+		if container.max_duration == Some(std::time::Duration::ZERO) {
+			return Err(tg::error!(
+				"the maximum container sandbox duration must be greater than zero"
 			));
 		}
 		if container.max_pids == Some(0) {
@@ -731,6 +742,32 @@ impl Server {
 			return Err(tg::error!(
 				"the maximum container sandbox filesystem size must be greater than zero"
 			));
+		}
+		if config.advanced.preserve_temp_directories
+			&& (container.max_filesystem_inodes().is_some()
+				|| container.max_filesystem_size().is_some())
+		{
+			return Err(tg::error!(
+				"container filesystem limits are incompatible with preserving temp directories"
+			));
+		}
+		if container.harden && (container.uid_map.is_none() || container.gid_map.is_none()) {
+			return Err(tg::error!(
+				"container uid and gid maps are required when container hardening is enabled"
+			));
+		}
+		if container.uid_map.is_some() != container.gid_map.is_some() {
+			return Err(tg::error!(
+				"container uid and gid maps must be configured together"
+			));
+		}
+		if let Some(map) = &container.uid_map {
+			// SAFETY: This function has no preconditions.
+			map.validate(unsafe { libc::getuid() }, "uid")?;
+		}
+		if let Some(map) = &container.gid_map {
+			// SAFETY: This function has no preconditions.
+			map.validate(unsafe { libc::getgid() }, "gid")?;
 		}
 
 		// Validate the regions.
@@ -828,6 +865,8 @@ impl Server {
 		};
 		let runner_config = self::runner::Config {
 			capacity,
+			#[cfg(target_os = "linux")]
+			filesystem_project_ids: config.runner.isolation.container.filesystem_project_ids,
 			process_control_connection_pool_size: config
 				.runner
 				.process_control_connection_pool_size,

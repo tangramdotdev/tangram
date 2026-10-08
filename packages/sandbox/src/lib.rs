@@ -43,6 +43,9 @@ pub struct Sandbox(Arc<State>);
 pub struct State {
 	arg: Arg,
 
+	#[cfg(target_os = "linux")]
+	cgroup: tokio::sync::Mutex<Option<crate::container::cgroup::Cgroup>>,
+
 	client: Client,
 
 	#[cfg(target_os = "linux")]
@@ -123,15 +126,26 @@ pub enum Isolation {
 	Vm(VmIsolation),
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct ContainerIsolation {
 	pub cgroup_readonly: bool,
+	pub filesystem_project_id: Option<u32>,
+	pub gid_map: Option<IdMap>,
+	pub max_duration: Option<Duration>,
 	pub max_filesystem_inodes: Option<u64>,
 	pub max_filesystem_size: Option<u64>,
 	pub max_open_files: Option<u64>,
 	pub max_pids: Option<u64>,
 	pub memory_swap: Option<u64>,
 	pub seccomp: Option<SeccompPolicy>,
+	pub uid_map: Option<IdMap>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct IdMap {
+	pub count: u32,
+	pub helper: PathBuf,
+	pub host: u32,
 }
 
 #[derive(
@@ -301,7 +315,7 @@ impl Sandbox {
 			url,
 		};
 		#[cfg(target_os = "linux")]
-		let (mut process, network, filesystem) = match &arg.isolation {
+		let (mut process, network, filesystem, cgroup) = match &arg.isolation {
 			Isolation::Container(_) => {
 				let ports = arg.network.as_ref().map(Network::ports).unwrap_or_default();
 				let mut network = crate::container::network::create(
@@ -314,7 +328,7 @@ impl Sandbox {
 					ports,
 				)?;
 				let output = self::container::spawn(&arg, &serve_arg, network.as_mut()).await?;
-				(output.process, network, output.filesystem)
+				(output.process, network, output.filesystem, output.cgroup)
 			},
 			Isolation::Seatbelt(_) => {
 				return Err(tg::error!("seatbelt isolation is not supported on linux"));
@@ -330,7 +344,7 @@ impl Sandbox {
 					ports,
 				)?;
 				let process = self::vm::spawn(&arg, &serve_arg, network.as_ref())?;
-				(process, network, None)
+				(process, network, None, None)
 			},
 		};
 
@@ -397,6 +411,8 @@ impl Sandbox {
 
 		let sandbox = Self(Arc::new(State {
 			arg,
+			#[cfg(target_os = "linux")]
+			cgroup: tokio::sync::Mutex::new(cgroup),
 			client,
 			#[cfg(target_os = "linux")]
 			filesystem,
@@ -405,6 +421,24 @@ impl Sandbox {
 			next_process_index: AtomicU64::new(1),
 			process: tokio::sync::Mutex::new(process),
 		}));
+		if let Isolation::Container(isolation) = &sandbox.0.arg.isolation
+			&& let Some(duration) = isolation.max_duration
+		{
+			let state = Arc::downgrade(&sandbox.0);
+			tokio::spawn(async move {
+				tokio::time::sleep(duration).await;
+				let Some(state) = state.upgrade() else {
+					return;
+				};
+				let sandbox = Sandbox(state);
+				if let Err(error) = sandbox.destroy().await {
+					tracing::warn!(
+						error = %error,
+						"failed to destroy a container sandbox after its maximum duration"
+					);
+				}
+			});
+		}
 
 		Ok(sandbox)
 	}
@@ -561,6 +595,8 @@ impl Sandbox {
 			.try_wait()
 			.map_err(|error| tg::error!(!error, "failed to query the sandbox process"))?;
 		if status.is_some() {
+			drop(process);
+			self.cleanup_cgroup().await?;
 			return Ok(());
 		}
 
@@ -575,6 +611,8 @@ impl Sandbox {
 		})
 		.await;
 		if matches!(result, Ok(Ok(()))) {
+			drop(process);
+			self.cleanup_cgroup().await?;
 			return Ok(());
 		}
 
@@ -592,7 +630,26 @@ impl Sandbox {
 			.wait()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to wait for the sandbox process"))?;
+		drop(process);
+		self.cleanup_cgroup().await?;
 
+		Ok(())
+	}
+
+	#[cfg(target_os = "linux")]
+	async fn cleanup_cgroup(&self) -> tg::Result<()> {
+		let cgroup = self.0.cgroup.lock().await.take();
+		let Some(cgroup) = cgroup else {
+			return Ok(());
+		};
+		tokio::task::spawn_blocking(move || cgroup.cleanup())
+			.await
+			.map_err(|error| tg::error!(!error, "the cgroup cleanup task panicked"))??;
+		Ok(())
+	}
+
+	#[cfg(not(target_os = "linux"))]
+	async fn cleanup_cgroup(&self) -> tg::Result<()> {
 		Ok(())
 	}
 
@@ -613,7 +670,20 @@ impl Sandbox {
 			tty: arg.tty,
 			url: arg.url,
 		};
-		self.0.client.spawn(spawn_arg).await?;
+		if let Err(error) = self.0.client.spawn(spawn_arg).await {
+			let status = self
+				.0
+				.process
+				.lock()
+				.await
+				.try_wait()
+				.map_err(|source| tg::error!(!source, "failed to query the sandbox process"))?;
+			return Err(tg::error!(
+				!error,
+				status = ?status,
+				"failed to spawn a process in the sandbox"
+			));
+		}
 		Ok(())
 	}
 

@@ -38,7 +38,6 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 			)
 		})?;
 	}
-
 	let mut overlays = arg.overlays.iter().collect::<Vec<_>>();
 	overlays.sort_unstable_by_key(|overlay| path_depth(&overlay.target));
 	if let Some(overlay) = overlays
@@ -68,7 +67,7 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 		mount_proc(&map_path_target(root, target)?)?;
 	}
 
-	if arg.cgroup.is_some() {
+	if arg.cgroup.is_some() || arg.cgroup_fd.is_some() {
 		mount_cgroup(
 			&map_path_target(root, Path::new("/sys/fs/cgroup"))?,
 			arg.cgroup_readonly,
@@ -477,10 +476,24 @@ fn mount_bind_modern(
 	// SAFETY: The empty path selects the valid source descriptor for the syscall.
 	let mount = unsafe { libc::syscall(libc::SYS_open_tree, source, c"".as_ptr(), flags) };
 	if mount < 0 {
-		return Err(std::io::Error::last_os_error());
+		let error = std::io::Error::last_os_error();
+		return Err(std::io::Error::new(
+			error.kind(),
+			format!("open_tree failed: {error}"),
+		));
 	}
 	// SAFETY: A nonnegative result from open_tree is a newly owned descriptor.
 	let mount = unsafe { OwnedFd::from_raw_fd(mount.try_into().unwrap()) };
+	attach_mount(&mount, target, recursive, attributes)
+}
+
+fn attach_mount(
+	mount: &OwnedFd,
+	target: RawFd,
+	recursive: bool,
+	attributes: MountAttributes,
+) -> std::io::Result<()> {
+	let recursive_flag = if recursive { AT_RECURSIVE } else { 0 };
 	let attributes = mount_attributes(attributes);
 	if attributes != 0 {
 		let attributes = [attributes, 0, 0, 0];
@@ -497,7 +510,11 @@ fn mount_bind_modern(
 			)
 		};
 		if result != 0 {
-			return Err(std::io::Error::last_os_error());
+			let error = std::io::Error::last_os_error();
+			return Err(std::io::Error::new(
+				error.kind(),
+				format!("mount_setattr failed: {error}"),
+			));
 		}
 	}
 	let flags = libc::MOVE_MOUNT_F_EMPTY_PATH | libc::MOVE_MOUNT_T_EMPTY_PATH;
@@ -513,7 +530,11 @@ fn mount_bind_modern(
 		)
 	};
 	if result != 0 {
-		return Err(std::io::Error::last_os_error());
+		let error = std::io::Error::last_os_error();
+		return Err(std::io::Error::new(
+			error.kind(),
+			format!("move_mount failed: {error}"),
+		));
 	}
 	Ok(())
 }

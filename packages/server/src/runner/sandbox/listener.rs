@@ -33,8 +33,31 @@ impl Server {
 		Option<std::path::PathBuf>,
 	)> {
 		match isolation {
-			tangram_sandbox::Isolation::Container(_) => {
-				Self::run_create_unix_listener(root_path).await
+			tangram_sandbox::Isolation::Container(isolation) => {
+				let output = Self::run_create_unix_listener(root_path).await?;
+				if isolation.uid_map.is_some() {
+					// Restrict host access before allowing the mapped workload to connect to its API socket.
+					let permissions =
+						<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(
+							0o700,
+						);
+					tokio::fs::set_permissions(root_path, permissions)
+						.await
+						.map_err(|error| {
+							tg::error!(!error, "failed to restrict the sandbox directory")
+						})?;
+					let path = output.2.as_ref().unwrap();
+					let permissions =
+						<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(
+							0o666,
+						);
+					tokio::fs::set_permissions(path, permissions)
+						.await
+						.map_err(|error| {
+							tg::error!(!error, "failed to set the sandbox API socket permissions")
+						})?;
+				}
+				Ok(output)
 			},
 			tangram_sandbox::Isolation::Seatbelt(_) => {
 				Err(tg::error!("seatbelt isolation is not supported on linux"))

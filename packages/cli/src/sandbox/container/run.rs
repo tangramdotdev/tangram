@@ -20,6 +20,12 @@ pub struct Args {
 	pub cgroup_cpu: Option<u64>,
 
 	#[arg(long)]
+	pub cgroup_entered: bool,
+
+	#[arg(long)]
+	pub cgroup_fd: Option<i32>,
+
+	#[arg(long)]
 	pub cgroup_memory: Option<u64>,
 
 	#[arg(long)]
@@ -123,6 +129,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub unshare_all: bool,
+
+	#[arg(long)]
+	pub user_namespace_fd: Option<i32>,
 }
 
 impl Args {
@@ -154,6 +163,8 @@ impl Args {
 			binds,
 			cgroup: self.cgroup,
 			cgroup_cpu: self.cgroup_cpu,
+			cgroup_entered: self.cgroup_entered,
+			cgroup_fd: self.cgroup_fd,
 			cgroup_memory: self.cgroup_memory,
 			cgroup_memory_oom_group: self.cgroup_memory_oom_group,
 			cgroup_memory_swap: self.cgroup_memory_swap,
@@ -190,6 +201,7 @@ impl Args {
 			tmpfs: self.tmpfs,
 			uid: self.uid,
 			unshare_all: self.unshare_all,
+			user_namespace_fd: self.user_namespace_fd,
 		}
 	}
 }

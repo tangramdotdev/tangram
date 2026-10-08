@@ -11,6 +11,9 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 		if arg.fuse_fd.is_some() {
 			return Err(tg::error!("--fuse-fd requires --unshare-all"));
 		}
+		if arg.user_namespace_fd.is_some() {
+			return Err(tg::error!("--user-namespace-fd requires --unshare-all"));
+		}
 		if has_mounts(arg) {
 			return Err(tg::error!("mount operations require --unshare-all"));
 		}
@@ -20,21 +23,24 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 			"--fuse-fd and --fuse-path must be provided together"
 		));
 	}
-	let filesystem = arg.filesystem_fd.is_some()
-		|| arg.filesystem_inodes.is_some()
-		|| arg.filesystem_path.is_some()
-		|| arg.filesystem_size.is_some();
-	if filesystem
-		&& (arg.filesystem_fd.is_none()
-			|| arg.filesystem_path.is_none()
-			|| (arg.filesystem_inodes.is_none() && arg.filesystem_size.is_none()))
-	{
+	if arg.user_namespace_fd.is_some_and(|fd| fd < 0) {
 		return Err(tg::error!(
-			"--filesystem-fd and --filesystem-path require --filesystem-inodes or --filesystem-size"
+			"--user-namespace-fd requires a valid descriptor"
 		));
 	}
-	if filesystem && !arg.unshare_all {
-		return Err(tg::error!("filesystem limits require --unshare-all"));
+	if arg.filesystem_fd.is_some() != arg.filesystem_path.is_some() {
+		return Err(tg::error!(
+			"--filesystem-fd and --filesystem-path must be provided together"
+		));
+	}
+	let filesystem_limited = arg.filesystem_inodes.is_some() || arg.filesystem_size.is_some();
+	if filesystem_limited && arg.filesystem_fd.is_none() {
+		return Err(tg::error!(
+			"--filesystem-inodes and --filesystem-size require --filesystem-fd and --filesystem-path"
+		));
+	}
+	if arg.filesystem_fd.is_some() && !arg.unshare_all {
+		return Err(tg::error!("filesystem setup requires --unshare-all"));
 	}
 	if arg.filesystem_inodes == Some(0) {
 		return Err(tg::error!("--filesystem-inodes must be greater than zero"));
@@ -54,22 +60,34 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 			"the working directory must be an absolute path"
 		));
 	}
-	if arg.cgroup_memory_oom_group && arg.cgroup.is_none() {
+	if arg.cgroup.is_some() && arg.cgroup_fd.is_some() {
+		return Err(tg::error!(
+			"--cgroup and --cgroup-fd are mutually exclusive"
+		));
+	}
+	if arg.cgroup_fd.is_some_and(|fd| fd < 0) {
+		return Err(tg::error!("--cgroup-fd requires a valid descriptor"));
+	}
+	if arg.cgroup_entered && arg.cgroup_fd.is_none() {
+		return Err(tg::error!("--cgroup-entered requires --cgroup-fd"));
+	}
+	let cgroup = arg.cgroup.is_some() || arg.cgroup_fd.is_some();
+	if arg.cgroup_memory_oom_group && !cgroup {
 		return Err(tg::error!("--cgroup-memory-oom-group requires --cgroup"));
 	}
-	if arg.cgroup_cpu.is_some() && arg.cgroup.is_none() {
+	if arg.cgroup_cpu.is_some() && !cgroup {
 		return Err(tg::error!("--cgroup-cpu requires --cgroup"));
 	}
-	if arg.cgroup_memory.is_some() && arg.cgroup.is_none() {
+	if arg.cgroup_memory.is_some() && !cgroup {
 		return Err(tg::error!("--cgroup-memory requires --cgroup"));
 	}
-	if arg.cgroup_memory_swap.is_some() && arg.cgroup.is_none() {
+	if arg.cgroup_memory_swap.is_some() && !cgroup {
 		return Err(tg::error!("--cgroup-memory-swap requires --cgroup"));
 	}
-	if arg.cgroup_pids.is_some() && arg.cgroup.is_none() {
+	if arg.cgroup_pids.is_some() && !cgroup {
 		return Err(tg::error!("--cgroup-pids requires --cgroup"));
 	}
-	if arg.cgroup_readonly && arg.cgroup.is_none() {
+	if arg.cgroup_readonly && !cgroup {
 		return Err(tg::error!("--cgroup-readonly requires --cgroup"));
 	}
 	if arg.cgroup_cpu == Some(0) {
@@ -223,6 +241,7 @@ fn validate_mount_target(path: &std::path::Path) -> tg::Result<()> {
 fn has_mounts(arg: &Arg) -> bool {
 	!arg.binds.is_empty()
 		|| arg.cgroup.is_some()
+		|| arg.cgroup_fd.is_some()
 		|| !arg.ro_binds.is_empty()
 		|| !arg.devs.is_empty()
 		|| !arg.overlay_sources.is_empty()

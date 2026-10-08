@@ -17,13 +17,136 @@ struct NamespaceProbeError {
 	stage: libc::c_int,
 }
 
-pub fn validate() -> tg::Result<()> {
+pub fn validate(filesystem_path: &Path) -> tg::Result<()> {
 	validate_user_namespaces()?;
-	validate_cgroup_v2(Path::new("/sys/fs/cgroup"), Path::new("/proc/self/cgroup"))?;
+	validate_cgroup_v2()?;
 	validate_seccomp()?;
 	validate_mount_syscalls()?;
+	validate_filesystem(filesystem_path)?;
 
 	Ok(())
+}
+
+fn validate_filesystem(root: &Path) -> tg::Result<()> {
+	const PROJECT: u32 = i32::MAX.cast_unsigned();
+
+	let name = format!("tangram-quota-probe-{:016x}", rand::random::<u64>());
+	let path = root.join(name);
+	let result = super::filesystem::create(&path, PROJECT, Some(64 * 1024), Some(4));
+	let enforcement_result = if result.is_ok() {
+		probe_filesystem_enforcement(&path)
+	} else {
+		Ok(())
+	};
+	let mut file_remove_result = Ok(());
+	for name in ["bytes", "inode-0", "inode-1", "inode-2", "inode-3"] {
+		if let Err(error) = remove_probe_file(&path.join(name))
+			&& file_remove_result.is_ok()
+		{
+			file_remove_result = Err(error);
+		}
+	}
+	let clear_result = if result.is_ok() {
+		super::filesystem::clear(&path, PROJECT)
+	} else {
+		Ok(())
+	};
+	let directory_remove_result = match std::fs::remove_dir(&path) {
+		Ok(()) => Ok(()),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+		Err(error) => Err(error),
+	};
+	result.map_err(|error| {
+		tg::error!(
+			!error,
+			path = %root.display(),
+			"the hardened container filesystem requires a disk-backed ext4 or XFS filesystem with project quotas"
+		)
+	})?;
+	enforcement_result.map_err(|error| {
+		tg::error!(
+			!error,
+			path = %root.display(),
+			"the hardened container filesystem project quota is not enforced"
+		)
+	})?;
+	file_remove_result.map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to remove a hardened container filesystem prerequisite probe file"
+		)
+	})?;
+	clear_result.map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to clear the hardened container filesystem prerequisite probe"
+		)
+	})?;
+	directory_remove_result.map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to remove the hardened container filesystem prerequisite probe"
+		)
+	})?;
+
+	Ok(())
+}
+
+fn probe_filesystem_enforcement(path: &Path) -> tg::Result<()> {
+	let byte_path = path.join("bytes");
+	let file = std::fs::File::create(&byte_path).map_err(|error| {
+		tg::error!(!error, path = %byte_path.display(), "failed to create the project byte quota probe")
+	})?;
+	// SAFETY: The descriptor is valid and the offset and length are nonnegative.
+	let result = unsafe { libc::fallocate(file.as_raw_fd(), 0, 0, 128 * 1024) };
+	if result == 0 {
+		return Err(tg::error!(
+			"the project byte quota was accepted but is not enforced"
+		));
+	}
+	let error = std::io::Error::last_os_error();
+	if error.raw_os_error() != Some(libc::EDQUOT) {
+		return Err(tg::error!(
+			!error,
+			"the project byte quota probe failed with an unexpected error"
+		));
+	}
+	drop(file);
+	remove_probe_file(&byte_path).map_err(|error| {
+		tg::error!(!error, path = %byte_path.display(), "failed to remove the project byte quota probe")
+	})?;
+
+	for index in 0..4 {
+		let path = path.join(format!("inode-{index}"));
+		match std::fs::File::create(&path) {
+			Ok(_) if index < 3 => {},
+			Ok(_) => {
+				return Err(tg::error!(
+					"the project inode quota was accepted but is not enforced"
+				));
+			},
+			Err(error) if index == 3 && error.raw_os_error() == Some(libc::EDQUOT) => {},
+			Err(error) => {
+				return Err(tg::error!(
+					!error,
+					"the project inode quota probe failed with an unexpected error"
+				));
+			},
+		}
+	}
+
+	Ok(())
+}
+
+fn remove_probe_file(path: &Path) -> std::io::Result<()> {
+	match std::fs::remove_file(path) {
+		Ok(()) => Ok(()),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+		Err(error) => Err(error),
+	}
 }
 
 fn validate_user_namespaces() -> tg::Result<()> {
@@ -251,31 +374,25 @@ unsafe fn write_probe_file(path: &std::ffi::CStr, bytes: &[u8]) -> libc::c_int {
 	}
 }
 
-fn validate_cgroup_v2(root: &Path, proc_self_cgroup: &Path) -> tg::Result<()> {
-	let current = std::fs::read_to_string(proc_self_cgroup).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %proc_self_cgroup.display(),
-			"failed to read the current cgroup"
-		)
-	})?;
-	let current = parse_unified_cgroup(&current)?;
-	let current = root.join(current.trim_start_matches('/'));
-	let controllers_path = current.join("cgroup.subtree_control");
-	let controllers = std::fs::read_to_string(&controllers_path).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %controllers_path.display(),
-			"cgroup v2 is unavailable; run the hardened runner in a delegated cgroup v2 hierarchy"
-		)
-	})?;
-	validate_controllers(&controllers).map_err(|error| {
-		tg::error!(
-			!error,
-			path = %controllers_path.display(),
-			"the hardened runner requires delegated cpu, memory, and pids cgroup v2 controllers"
-		)
-	})?;
+fn validate_cgroup_v2() -> tg::Result<()> {
+	// Probe a child so the hierarchy root need not expose per-cgroup limits itself.
+	let name = format!("tangram-probe-{:016x}", rand::random::<u64>());
+	let options = super::cgroup::Options {
+		cpu: Some(1),
+		memory: Some(64 * 1024 * 1024),
+		memory_oom_group: true,
+		memory_swap: Some(0),
+		pids: Some(32),
+	};
+	let cgroup = super::cgroup::Cgroup::new(&name, options)?;
+	let directory = cgroup.handle()?.open_fd()?;
+	let path = std::path::PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
+	validate_cgroup_features(&path)?;
+	cgroup.cleanup()?;
+	Ok(())
+}
+
+fn validate_cgroup_features(current: &Path) -> tg::Result<()> {
 	for name in [
 		"cgroup.events",
 		"cgroup.kill",
@@ -293,45 +410,6 @@ fn validate_cgroup_v2(root: &Path, proc_self_cgroup: &Path) -> tg::Result<()> {
 				"the hardened runner requires the cgroup v2 {name} feature"
 			));
 		}
-	}
-	let directory = std::fs::File::open(&current).map_err(
-		|error| tg::error!(!error, path = %current.display(), "failed to open the current cgroup"),
-	)?;
-	rustix::fs::accessat(
-		&directory,
-		".",
-		rustix::fs::Access::WRITE_OK | rustix::fs::Access::EXEC_OK,
-		rustix::fs::AtFlags::EACCESS,
-	)
-	.map_err(|error| {
-		tg::error!(
-			!error,
-			path = %current.display(),
-			"the hardened runner's cgroup is not delegated for creating sandbox cgroups"
-		)
-	})?;
-
-	Ok(())
-}
-
-fn parse_unified_cgroup(contents: &str) -> tg::Result<&str> {
-	contents
-		.lines()
-		.find_map(|line| line.strip_prefix("0::"))
-		.ok_or_else(|| tg::error!("the process is not running in a unified cgroup v2 hierarchy"))
-}
-
-fn validate_controllers(contents: &str) -> tg::Result<()> {
-	let controllers = contents.split_ascii_whitespace().collect::<Vec<_>>();
-	let missing = ["cpu", "memory", "pids"]
-		.into_iter()
-		.filter(|required| !controllers.contains(required))
-		.collect::<Vec<_>>();
-	if !missing.is_empty() {
-		return Err(tg::error!(
-			missing = %missing.join(", "),
-			"required cgroup controllers are not enabled"
-		));
 	}
 
 	Ok(())
@@ -401,26 +479,10 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn parse_unified_cgroup_path() {
-		assert_eq!(parse_unified_cgroup("0::/runner\n").unwrap(), "/runner");
-		assert!(parse_unified_cgroup("2:cpu:/runner\n").is_err());
-	}
-
-	#[test]
-	fn validate_required_controllers() {
-		validate_controllers("memory pids io cpu").unwrap();
-		let error = validate_controllers("memory cpu").unwrap_err();
-		assert!(error.trace().to_string().contains("pids"));
-	}
-
-	#[test]
 	fn validate_required_cgroup_features() {
 		let temp = tangram_util::fs::Temp::new().unwrap();
 		let current = temp.path().join("runner");
 		std::fs::create_dir_all(&current).unwrap();
-		let proc_self_cgroup = temp.path().join("self.cgroup");
-		std::fs::write(&proc_self_cgroup, "0::/runner\n").unwrap();
-		std::fs::write(current.join("cgroup.subtree_control"), "cpu memory pids\n").unwrap();
 		for name in [
 			"cgroup.events",
 			"cgroup.kill",
@@ -434,9 +496,9 @@ mod tests {
 			std::fs::write(current.join(name), "").unwrap();
 		}
 
-		validate_cgroup_v2(temp.path(), &proc_self_cgroup).unwrap();
+		validate_cgroup_features(&current).unwrap();
 		std::fs::remove_file(current.join("cgroup.kill")).unwrap();
-		let error = validate_cgroup_v2(temp.path(), &proc_self_cgroup).unwrap_err();
+		let error = validate_cgroup_features(&current).unwrap_err();
 		assert!(error.trace().to_string().contains("cgroup.kill"));
 	}
 

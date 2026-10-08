@@ -15,12 +15,16 @@ impl Server {
 					Ok(tangram_sandbox::Isolation::Container(
 						tangram_sandbox::ContainerIsolation {
 							cgroup_readonly: container.harden,
+							filesystem_project_id: None,
+							gid_map: container.gid_map.as_ref().map(Into::into),
+							max_duration: container.max_duration(),
 							max_filesystem_inodes: container.max_filesystem_inodes(),
 							max_filesystem_size: container.max_filesystem_size(),
 							max_open_files: container.max_open_files(),
 							max_pids: container.max_pids(),
 							memory_swap: container.memory_swap(),
 							seccomp: container.seccomp(),
+							uid_map: container.uid_map.as_ref().map(Into::into),
 						},
 					))
 				},
@@ -99,12 +103,16 @@ impl Server {
 			return Some(tangram_sandbox::Isolation::Container(
 				tangram_sandbox::ContainerIsolation {
 					cgroup_readonly: container.harden,
+					filesystem_project_id: None,
+					gid_map: container.gid_map.as_ref().map(Into::into),
+					max_duration: container.max_duration(),
 					max_filesystem_inodes: container.max_filesystem_inodes(),
 					max_filesystem_size: container.max_filesystem_size(),
 					max_open_files: container.max_open_files(),
 					max_pids: container.max_pids(),
 					memory_swap: container.memory_swap(),
 					seccomp: container.seccomp(),
+					uid_map: container.uid_map.as_ref().map(Into::into),
 				},
 			));
 		}

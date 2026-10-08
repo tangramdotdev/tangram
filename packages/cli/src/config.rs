@@ -1509,11 +1509,22 @@ pub struct RunnerIsolation {
 	pub container: Option<ContainerRunnerIsolation>,
 }
 
+#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct ContainerRunnerIsolation {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub filesystem_project_ids: Option<ContainerRunnerIsolationProjectIds>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub gid_map: Option<ContainerRunnerIsolationIdMap>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub harden: Option<bool>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_duration: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_filesystem_inodes: Option<u64>,
@@ -1532,6 +1543,28 @@ pub struct ContainerRunnerIsolation {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub uid_map: Option<ContainerRunnerIsolationIdMap>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerRunnerIsolationIdMap {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub count: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub helper: Option<PathBuf>,
+
+	pub host: u32,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerRunnerIsolationProjectIds {
+	pub count: u32,
+	pub start: u32,
 }
 
 #[serde_as]
@@ -3945,16 +3978,46 @@ fn resolve_runner_isolation(source: RunnerIsolation) -> server::RunnerIsolation 
 	let mut target = server::RunnerIsolation::default();
 	if let Some(source) = source.container {
 		target.container = server::ContainerRunnerIsolation {
+			filesystem_project_ids: source
+				.filesystem_project_ids
+				.map_or_else(Default::default, Into::into),
+			gid_map: source
+				.gid_map
+				.map(|map| resolve_container_runner_isolation_id_map(map, "/usr/bin/newgidmap")),
 			harden: source.harden.unwrap_or_default(),
+			max_duration: source.max_duration,
 			max_filesystem_inodes: source.max_filesystem_inodes,
 			max_filesystem_size: source.max_filesystem_size,
 			max_open_files: source.max_open_files,
 			max_pids: source.max_pids,
 			memory_swap: source.memory_swap,
 			seccomp: source.seccomp,
+			uid_map: source
+				.uid_map
+				.map(|map| resolve_container_runner_isolation_id_map(map, "/usr/bin/newuidmap")),
 		};
 	}
 	target
+}
+
+fn resolve_container_runner_isolation_id_map(
+	source: ContainerRunnerIsolationIdMap,
+	helper: &str,
+) -> server::ContainerRunnerIsolationIdMap {
+	server::ContainerRunnerIsolationIdMap {
+		count: source.count.unwrap_or(65_536),
+		helper: source.helper.unwrap_or_else(|| helper.into()),
+		host: source.host,
+	}
+}
+
+impl From<ContainerRunnerIsolationProjectIds> for server::ContainerRunnerIsolationProjectIds {
+	fn from(value: ContainerRunnerIsolationProjectIds) -> Self {
+		Self {
+			count: value.count,
+			start: value.start,
+		}
+	}
 }
 
 fn resolve_javascript(source: JavaScript) -> server::JavaScript {
@@ -4863,11 +4926,15 @@ mod tests {
 		let source: Runner = serde_json::from_value(serde_json::json!({
 			"isolation": {
 				"container": {
+					"filesystem_project_ids": { "count": 10_000, "start": 20_000 },
+					"gid_map": { "host": 200_000 },
 					"harden": true,
+					"max_duration": 123.5,
 					"max_open_files": 2048,
 					"max_pids": 1234,
 					"memory_swap": 0,
-					"seccomp": "default"
+					"seccomp": "default",
+					"uid_map": { "count": 1000, "helper": "/opt/newuidmap", "host": 100_000 }
 				},
 			},
 		}))
@@ -4875,7 +4942,16 @@ mod tests {
 		let target = resolve_runner(source);
 		let container = target.isolation.container;
 
+		assert_eq!(container.filesystem_project_ids.count, 10_000);
+		assert_eq!(container.filesystem_project_ids.start, 20_000);
+		assert_eq!(container.gid_map.as_ref().unwrap().count, 65_536);
+		assert_eq!(
+			container.gid_map.as_ref().unwrap().helper,
+			Path::new("/usr/bin/newgidmap")
+		);
+		assert_eq!(container.gid_map.as_ref().unwrap().host, 200_000);
 		assert!(container.harden);
+		assert_eq!(container.max_duration, Some(Duration::from_millis(123_500)));
 		assert_eq!(container.max_open_files, Some(2048));
 		assert_eq!(container.max_pids, Some(1234));
 		assert_eq!(container.memory_swap, Some(0));
@@ -4883,6 +4959,12 @@ mod tests {
 			container.seccomp,
 			Some(tangram_sandbox::SeccompPolicy::Default)
 		);
+		assert_eq!(container.uid_map.as_ref().unwrap().count, 1000);
+		assert_eq!(
+			container.uid_map.as_ref().unwrap().helper,
+			Path::new("/opt/newuidmap")
+		);
+		assert_eq!(container.uid_map.as_ref().unwrap().host, 100_000);
 	}
 
 	#[test]
@@ -4897,7 +4979,14 @@ mod tests {
 		let container = target.isolation.container;
 
 		assert!(!container.harden);
+		assert_eq!(
+			container.filesystem_project_ids.count,
+			i32::MAX.cast_unsigned() - 1
+		);
+		assert_eq!(container.filesystem_project_ids.start, 1);
+		assert!(container.gid_map.is_none());
 		assert_eq!(container.max_pids, None);
+		assert!(container.uid_map.is_none());
 	}
 
 	#[test]

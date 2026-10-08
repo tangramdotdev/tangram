@@ -985,7 +985,13 @@ pub struct RunnerIsolation {
 
 #[derive(Clone, Debug, Default)]
 pub struct ContainerRunnerIsolation {
+	pub filesystem_project_ids: ContainerRunnerIsolationProjectIds,
+
+	pub gid_map: Option<ContainerRunnerIsolationIdMap>,
+
 	pub harden: bool,
+
+	pub max_duration: Option<Duration>,
 
 	pub max_filesystem_inodes: Option<u64>,
 
@@ -998,9 +1004,39 @@ pub struct ContainerRunnerIsolation {
 	pub memory_swap: Option<u64>,
 
 	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+
+	pub uid_map: Option<ContainerRunnerIsolationIdMap>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ContainerRunnerIsolationIdMap {
+	pub count: u32,
+	pub helper: PathBuf,
+	pub host: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ContainerRunnerIsolationProjectIds {
+	pub count: u32,
+	pub start: u32,
+}
+
+impl Default for ContainerRunnerIsolationProjectIds {
+	fn default() -> Self {
+		Self {
+			count: i32::MAX.cast_unsigned() - 1,
+			start: 1,
+		}
+	}
 }
 
 impl ContainerRunnerIsolation {
+	#[must_use]
+	pub fn max_duration(&self) -> Option<Duration> {
+		self.max_duration
+			.or(self.harden.then_some(Duration::from_hours(1)))
+	}
+
 	#[must_use]
 	pub fn max_filesystem_inodes(&self) -> Option<u64> {
 		self.max_filesystem_inodes
@@ -1033,6 +1069,100 @@ impl ContainerRunnerIsolation {
 		self.seccomp.or(self
 			.harden
 			.then_some(tangram_sandbox::SeccompPolicy::Default))
+	}
+}
+
+impl From<&ContainerRunnerIsolationIdMap> for tangram_sandbox::IdMap {
+	fn from(value: &ContainerRunnerIsolationIdMap) -> Self {
+		Self {
+			count: value.count,
+			helper: value.helper.clone(),
+			host: value.host,
+		}
+	}
+}
+
+impl ContainerRunnerIsolationProjectIds {
+	pub(crate) fn validate(self) -> tg::Result<()> {
+		if self.count == 0 {
+			return Err(tg::error!(
+				"the container filesystem project ID count must be greater than zero"
+			));
+		}
+		if self.start == 0 {
+			return Err(tg::error!(
+				"the container filesystem project ID start must be greater than zero"
+			));
+		}
+		let end = self.start.checked_add(self.count).ok_or_else(|| {
+			tg::error!("the container filesystem project ID range exceeds the valid range")
+		})?;
+		// Reserve the highest supported project ID for the quota prerequisite probe.
+		if end > i32::MAX.cast_unsigned() {
+			return Err(tg::error!(
+				"the container filesystem project ID range exceeds the valid range"
+			));
+		}
+
+		Ok(())
+	}
+}
+
+impl ContainerRunnerIsolationIdMap {
+	pub(crate) fn validate(&self, id: u32, kind: &str) -> tg::Result<()> {
+		if self.count == 0 {
+			return Err(tg::error!(
+				"the container {kind} map count must be greater than zero"
+			));
+		}
+		if id >= self.count {
+			return Err(tg::error!(
+				count = %self.count,
+				id = %id,
+				"the container {kind} map does not contain the runner identity"
+			));
+		}
+		let end = self.host.checked_add(self.count).ok_or_else(|| {
+			tg::error!("the container {kind} map exceeds the host identity range")
+		})?;
+		if self.host <= id && id < end {
+			return Err(tg::error!(
+				"the container {kind} map must not contain the runner host identity"
+			));
+		}
+		if !self.helper.is_absolute() {
+			return Err(tg::error!(
+				"the container {kind} map helper path must be absolute"
+			));
+		}
+		// SAFETY: This function has no preconditions.
+		if unsafe { libc::geteuid() } == 0 {
+			return Ok(());
+		}
+		let metadata = std::fs::metadata(&self.helper).map_err(|error| {
+			tg::error!(
+				error = %error,
+				path = %self.helper.display(),
+				"failed to access the container {kind} map helper"
+			)
+		})?;
+		if !metadata.is_file() {
+			return Err(tg::error!(
+				path = %self.helper.display(),
+				"the container {kind} map helper must be a file"
+			));
+		}
+		#[cfg(unix)]
+		{
+			use std::os::unix::fs::PermissionsExt as _;
+			if metadata.permissions().mode() & 0o111 == 0 {
+				return Err(tg::error!(
+					path = %self.helper.display(),
+					"the container {kind} map helper must be executable"
+				));
+			}
+		}
+		Ok(())
 	}
 }
 
