@@ -668,6 +668,12 @@ pub struct Http {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub coalescing_target_size: Option<usize>,
 
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub http2_connection_window_size: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub http2_stream_window_size: Option<u32>,
+
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub idle_timeout: Option<Duration>,
@@ -2998,6 +3004,12 @@ fn resolve_http(source: Http) -> tg::Result<server::Http> {
 			));
 		}
 		target.coalescing_target_size = value;
+	}
+	if let Some(value) = source.http2_connection_window_size {
+		target.http2_connection_window_size = Some(value);
+	}
+	if let Some(value) = source.http2_stream_window_size {
+		target.http2_stream_window_size = Some(value);
 	}
 	if let Some(listeners) = source.listeners {
 		target.listeners = listeners

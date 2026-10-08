@@ -202,7 +202,7 @@ impl Server {
 
 		// Create the task tracker.
 		let task_tracker = tokio_util::task::TaskTracker::new();
-		let idle_timeout = self.http_idle_timeout();
+		let http = self.config().http.clone();
 
 		// Create the active connections counter.
 		let active_connections = opentelemetry::global::meter("tangram_http")
@@ -249,6 +249,7 @@ impl Server {
 				})
 			};
 			task_tracker.spawn({
+				let http = http.clone();
 				let service = service.clone();
 				let stopper = stopper.clone();
 				#[cfg(feature = "tls")]
@@ -256,20 +257,15 @@ impl Server {
 				async move {
 					match stream {
 						Stream::Stdio(stream) => {
-							Server::serve_connection(stream, service, idle_timeout, stopper).await;
+							Server::serve_connection(stream, service, http, stopper).await;
 						},
 						Stream::Tcp(stream) => {
 							#[cfg(feature = "tls")]
 							if let Some(tls) = tls {
 								match tls.accept(stream).await {
 									Ok(stream) => {
-										Server::serve_connection(
-											stream,
-											service,
-											idle_timeout,
-											stopper,
-										)
-										.await;
+										Server::serve_connection(stream, service, http, stopper)
+											.await;
 									},
 									Err(error) => {
 										tracing::error!(
@@ -279,18 +275,17 @@ impl Server {
 									},
 								}
 							} else {
-								Server::serve_connection(stream, service, idle_timeout, stopper)
-									.await;
+								Server::serve_connection(stream, service, http, stopper).await;
 							}
 							#[cfg(not(feature = "tls"))]
-							Server::serve_connection(stream, service, idle_timeout, stopper).await;
+							Server::serve_connection(stream, service, http, stopper).await;
 						},
 						Stream::Unix(stream) => {
-							Server::serve_connection(stream, service, idle_timeout, stopper).await;
+							Server::serve_connection(stream, service, http, stopper).await;
 						},
 						#[cfg(feature = "vsock")]
 						Stream::Vsock(stream) => {
-							Server::serve_connection(stream, service, idle_timeout, stopper).await;
+							Server::serve_connection(stream, service, http, stopper).await;
 						},
 					}
 					drop(guard);
@@ -375,16 +370,16 @@ impl Server {
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 	{
 		let service = self.service(origin, stopper.clone());
-		let idle_timeout = self.http_idle_timeout();
-		Server::serve_connection(stream, service, idle_timeout, stopper).await;
+		let http = self.config().http.clone();
+		Server::serve_connection(stream, service, http, stopper).await;
 	}
 
-	fn http_idle_timeout(&self) -> Duration {
-		self.config().http.idle_timeout
-	}
-
-	async fn serve_connection<S, T>(stream: S, service: T, idle_timeout: Duration, stopper: Stopper)
-	where
+	async fn serve_connection<S, T>(
+		stream: S,
+		service: T,
+		http: crate::config::Http,
+		stopper: Stopper,
+	) where
 		S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 		T: tower::Service<
 				http::Request<BoxBody>,
@@ -395,11 +390,13 @@ impl Server {
 			+ 'static,
 		T::Future: Send + 'static,
 	{
-		let idle = tangram_http::idle::Idle::new(idle_timeout);
+		let idle = tangram_http::idle::Idle::new(http.idle_timeout);
 		let executor = hyper_util::rt::TokioExecutor::new();
 		let mut builder = hyper_util::server::conn::auto::Builder::new(executor);
 		builder
 			.http2()
+			.initial_connection_window_size(http.http2_connection_window_size)
+			.initial_stream_window_size(http.http2_stream_window_size)
 			.max_concurrent_streams(None)
 			.max_pending_accept_reset_streams(None)
 			.max_local_error_reset_streams(None);

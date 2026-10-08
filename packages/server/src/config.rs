@@ -452,6 +452,10 @@ pub struct TursoDatabase {
 pub struct Http {
 	pub coalescing_target_size: usize,
 
+	pub http2_connection_window_size: Option<u32>,
+
+	pub http2_stream_window_size: Option<u32>,
+
 	pub idle_timeout: Duration,
 
 	pub listeners: Vec<HttpListener>,
@@ -1617,6 +1621,8 @@ impl Default for Http {
 	fn default() -> Self {
 		Self {
 			coalescing_target_size: tangram_http::body::coalesce::DEFAULT_COALESCING_TARGET_SIZE,
+			http2_connection_window_size: None,
+			http2_stream_window_size: None,
 			idle_timeout: Duration::from_secs(30),
 			listeners: Vec::new(),
 		}

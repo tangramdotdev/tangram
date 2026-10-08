@@ -218,6 +218,7 @@ impl Server {
 				|error| tg::error!(!error, %runner, "failed to get the runner sandboxes"),
 			)?;
 		tracing::warn!(%runner, sandboxes = sandboxes.len(), "finishing the expired runner sandboxes");
+		crate::checkpoint!(self, "scheduler.runner.expired", %runner).await;
 		for sandbox in sandboxes {
 			self.destroy_runner_sandbox(&sandbox, "heartbeat expired")
 				.await?;
