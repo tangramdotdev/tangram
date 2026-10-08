@@ -1,3 +1,4 @@
+import type { Diagnostic } from "./diagnostics.ts";
 import type { Module } from "./module.ts";
 
 declare global {
@@ -35,6 +36,13 @@ declare global {
 
 	/** Write to the log. */
 	function syscall(syscall: "log", value: string): void;
+
+	/** Get the diagnostics that the compiler reports for a module. */
+	function syscall(
+		syscall: "module_diagnostics",
+		module: Module,
+		text: string,
+	): Array<Diagnostic>;
 
 	/** Return if a module's resolutions are invalidated. */
 	function syscall(

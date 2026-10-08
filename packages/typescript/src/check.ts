@@ -9,7 +9,6 @@ export type Request = {
 
 export type Response = {
 	diagnostics: Array<Diagnostic>;
-	modules: Array<Module>;
 };
 
 export let handle = (request: Request): Response => {
@@ -34,8 +33,13 @@ export let handle = (request: Request): Response => {
 		].map(typescript.convertDiagnostic),
 	);
 
-	let modules = program
-		.getSourceFiles()
-		.map((file) => typescript.moduleFromFileName(file.fileName));
-	return { diagnostics, modules };
+	// Collect the diagnostics that the compiler reports for each module, such as warnings about exports.
+	for (let file of program.getSourceFiles()) {
+		if (!file.isDeclarationFile) {
+			let module = typescript.moduleFromFileName(file.fileName);
+			diagnostics.push(...syscall("module_diagnostics", module, file.text));
+		}
+	}
+
+	return { diagnostics };
 };

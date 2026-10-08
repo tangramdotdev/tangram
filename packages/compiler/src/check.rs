@@ -9,11 +9,9 @@ pub struct Request {
 	pub modules: Vec<tg::module::Data>,
 }
 
-#[derive(Debug, Default, serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 pub struct Response {
 	pub diagnostics: Vec<tg::diagnostic::Data>,
-	/// The modules visited by the checker, including dependencies.
-	pub modules: Vec<tg::module::Data>,
 }
 
 impl Compiler {
@@ -28,33 +26,43 @@ impl Compiler {
 			return Err(tg::error!("the python feature is not enabled"));
 		}
 		#[cfg(not(feature = "python"))]
-		let mut response = Response::default();
+		let mut diagnostics = Vec::new();
 		#[cfg(feature = "python")]
-		let mut response = if python.is_empty() {
-			Response::default()
+		let mut diagnostics = if python.is_empty() {
+			Vec::new()
 		} else {
 			self.check_python(python).await?
 		};
-
-		// Check the JavaScript modules.
-		if !modules.is_empty() {
-			let request = super::Request::Check(Request { modules });
-			let javascript = self.request(request).await?.unwrap_check();
-			response.diagnostics.extend(javascript.diagnostics);
-			response.modules.extend(javascript.modules);
+		if modules.is_empty() {
+			return Ok(diagnostics);
 		}
 
-		// Warn about exports throughout the checked dependency graph.
-		let mut diagnostics = self
-			.get_export_diagnostics(&response.modules, tg::position::Encoding::Utf8)
-			.await?;
-		let checked = response
+		// Create the request.
+		let request = super::Request::Check(Request { modules });
+
+		// Perform the request.
+		let response = self.request(request).await?.unwrap_check();
+
+		// Convert diagnostics from data to the non-serializable form.
+		let javascript = response
 			.diagnostics
 			.into_iter()
 			.map(TryInto::try_into)
 			.collect::<tg::Result<Vec<_>>>()?;
 
-		diagnostics.extend(checked);
+		diagnostics.extend(javascript);
+
+		// Remove the diagnostics that both checkers report, such as warnings about the exports of a module that both reach.
+		let mut reported = BTreeSet::new();
+		diagnostics.retain(|diagnostic| {
+			let data = diagnostic.to_data();
+			let location = data.location.map(|location| {
+				let tg::Range { start, end } = location.range;
+				let key = document::Key::new(&location.module);
+				(key, start.line, start.character, end.line, end.character)
+			});
+			reported.insert((location, data.message))
+		});
 
 		Ok(diagnostics)
 	}
@@ -69,13 +77,11 @@ impl Compiler {
 		if !cfg!(feature = "python") {
 			return Ok(diagnostics);
 		}
-		let mut visited = BTreeSet::new();
 		for module in modules {
 			if !matches!(
 				module.kind,
 				tg::module::Kind::JavaScript | tg::module::Kind::TypeScript
-			) || !visited.insert(document::Key::new(module))
-			{
+			) {
 				continue;
 			}
 			// The checker reports a module that cannot be loaded.

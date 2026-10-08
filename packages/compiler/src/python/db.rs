@@ -367,10 +367,7 @@ impl Database {
 		Ok(tg::module::data::Location { module, range })
 	}
 
-	pub(super) fn check(
-		&self,
-		modules: Vec<tg::module::Data>,
-	) -> tg::Result<crate::check::Response> {
+	pub(super) fn check(&self, modules: Vec<tg::module::Data>) -> tg::Result<Vec<tg::Diagnostic>> {
 		let mut pending = modules
 			.into_iter()
 			.map(|module| self.register(module))
@@ -403,12 +400,15 @@ impl Database {
 		if let Some(error) = self.error.lock().unwrap().take() {
 			return Err(error);
 		}
-		let diagnostics = diagnostics.iter().map(tg::Diagnostic::to_data).collect();
-		let response = crate::check::Response {
-			diagnostics,
-			modules,
-		};
-		Ok(response)
+
+		// Warn about the exports of the checked modules.
+		let warnings = self.compiler.main_runtime_handle.block_on(
+			self.compiler
+				.get_export_diagnostics(&modules, tg::position::Encoding::Utf8),
+		)?;
+		diagnostics.extend(warnings);
+
+		Ok(diagnostics)
 	}
 
 	fn register(&self, module: tg::module::Data) -> tg::Result<Arc<Entry>> {

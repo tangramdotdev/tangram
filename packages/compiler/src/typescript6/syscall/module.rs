@@ -17,6 +17,17 @@ pub fn load(
 	})
 }
 
+pub fn diagnostics(
+	_compiler: &Compiler,
+	_scope: &mut v8::PinScope<'_, '_>,
+	args: (Serde<tg::module::Data>, String),
+) -> tg::Result<Serde<Vec<tg::diagnostic::Data>>> {
+	let (Serde(module), text) = args;
+	// The check command prints ranges as UTF-8.
+	let diagnostics = crate::load::diagnostics(&module, &text, tg::position::Encoding::Utf8);
+	Ok(Serde(diagnostics))
+}
+
 pub fn invalidated_resolutions(
 	compiler: &Compiler,
 	_scope: &mut v8::PinScope<'_, '_>,

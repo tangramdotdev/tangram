@@ -31,6 +31,7 @@ pub fn syscall<'s>(
 		"encoding_yaml_decode" => sync(scope, &args, self::encoding::yaml_decode),
 		"encoding_yaml_encode" => sync(scope, &args, self::encoding::yaml_encode),
 		"log" => sync(scope, &args, self::log::log),
+		"module_diagnostics" => sync(scope, &args, self::module::diagnostics),
 		"module_invalidated_resolutions" => {
 			sync(scope, &args, self::module::invalidated_resolutions)
 		},
