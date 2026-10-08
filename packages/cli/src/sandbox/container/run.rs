@@ -50,6 +50,18 @@ pub struct Args {
 	pub die_with_parent: bool,
 
 	#[arg(long)]
+	pub filesystem_fd: Option<i32>,
+
+	#[arg(long)]
+	pub filesystem_inodes: Option<u64>,
+
+	#[arg(long)]
+	pub filesystem_path: Option<PathBuf>,
+
+	#[arg(long)]
+	pub filesystem_size: Option<u64>,
+
+	#[arg(long)]
 	pub fuse_fd: Option<i32>,
 
 	#[arg(long)]
@@ -152,6 +164,11 @@ impl Args {
 			command: self.command,
 			devs: self.devs,
 			die_with_parent: self.die_with_parent,
+			filesystem_fd: self.filesystem_fd,
+			filesystem_inodes: self.filesystem_inodes,
+			filesystem_mount_fd: None,
+			filesystem_path: self.filesystem_path,
+			filesystem_size: self.filesystem_size,
 			fuse_fd: self.fuse_fd,
 			fuse_path: self.fuse_path,
 			gateway_ip: self.gateway_ip,
@@ -180,6 +197,6 @@ impl Args {
 impl Cli {
 	pub fn command_sandbox_container_run(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = args.into_arg();
-		tangram_sandbox::container::run::run(&arg)
+		tangram_sandbox::container::run::run(arg)
 	}
 }

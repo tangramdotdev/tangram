@@ -402,47 +402,6 @@ fn create_rootfs_mountpoints(rootfs_path: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-#[allow(dead_code)]
-pub(crate) fn ensure_mount_target(
-	rootfs_path: &Path,
-	upper_path: &Path,
-	mount: &tg::sandbox::Mount,
-) -> tg::Result<()> {
-	let source_metadata = std::fs::metadata(&mount.source).map_err(|error| {
-		tg::error!(
-			!error,
-			error = %mount.source.display(),
-			"failed to stat the mount error"
-		)
-	})?;
-	let target_path = map_guest_path(rootfs_path, &mount.target)?;
-	if let Ok(target_metadata) = std::fs::metadata(&target_path) {
-		if source_metadata.is_dir() != target_metadata.is_dir() {
-			let expected = if source_metadata.is_dir() {
-				"a directory"
-			} else {
-				"a file"
-			};
-			let found = if target_metadata.is_dir() {
-				"a directory"
-			} else {
-				"a file"
-			};
-			return Err(tg::error!(
-				path = %mount.target.display(),
-				"expected mount target to be {expected}, but found {found}"
-			));
-		}
-		return Ok(());
-	}
-	if source_metadata.is_dir() {
-		create_guest_directory(upper_path, &mount.target)?;
-	} else {
-		create_guest_file(upper_path, &mount.target)?;
-	}
-	Ok(())
-}
-
 fn create_guest_directory(root_path: &Path, guest_path: &Path) -> tg::Result<()> {
 	let path = map_guest_path(root_path, guest_path)?;
 	std::fs::create_dir_all(&path).map_err(|error| {

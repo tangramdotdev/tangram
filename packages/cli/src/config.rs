@@ -1516,6 +1516,12 @@ pub struct ContainerRunnerIsolation {
 	pub harden: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_filesystem_inodes: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_filesystem_size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_open_files: Option<u64>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3940,6 +3946,8 @@ fn resolve_runner_isolation(source: RunnerIsolation) -> server::RunnerIsolation 
 	if let Some(source) = source.container {
 		target.container = server::ContainerRunnerIsolation {
 			harden: source.harden.unwrap_or_default(),
+			max_filesystem_inodes: source.max_filesystem_inodes,
+			max_filesystem_size: source.max_filesystem_size,
 			max_open_files: source.max_open_files,
 			max_pids: source.max_pids,
 			memory_swap: source.memory_swap,

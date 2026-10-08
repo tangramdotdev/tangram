@@ -700,6 +700,16 @@ impl Server {
 				"the maximum number of container sandbox pids must be greater than zero"
 			));
 		}
+		if config.runner.isolation.container.max_filesystem_inodes == Some(0) {
+			return Err(tg::error!(
+				"the maximum number of container sandbox filesystem inodes must be greater than zero"
+			));
+		}
+		if config.runner.isolation.container.max_filesystem_size == Some(0) {
+			return Err(tg::error!(
+				"the maximum container sandbox filesystem size must be greater than zero"
+			));
+		}
 
 		// Validate the regions.
 		if config.region.as_ref().is_some_and(String::is_empty) {
