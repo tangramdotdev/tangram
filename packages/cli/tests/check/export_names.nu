@@ -28,19 +28,90 @@ let path = artifact {
 }
 let output = tg check $path | complete
 success $output
-assert ($output.stderr | str contains 'python names the export assert as assert_') $output.stderr
-assert ($output.stderr | str contains 'python cannot bind the export $') $output.stderr
-assert ($output.stderr | str contains 'python cannot bind the export __all__') $output.stderr
-assert not ($output.stderr | str contains 'export match') $output.stderr
-assert not ($output.stderr | str contains 'export default') $output.stderr
+snapshot --normalize --redact $path $output.stderr '
+	warning python cannot bind the export $: the export name is not a python identifier
+	   ╭─[<redacted>/tools.tg.ts:2:14]
+	 1 │ export const assert = () => "assert";
+	 2 │ export const $ = () => "dollar";
+	   ·              ┬
+	   ·              ╰── python cannot bind the export $: the export name is not a python identifier
+	 3 │ export const __all__ = () => "reserved";
+	   ╰────
+	warning python cannot bind the export __all__: the export name __all__ is reserved by the python loader
+	   ╭─[<redacted>/tools.tg.ts:3:14]
+	 2 │ export const $ = () => "dollar";
+	 3 │ export const __all__ = () => "reserved";
+	   ·              ───┬───
+	   ·                 ╰── python cannot bind the export __all__: the export name __all__ is reserved by the python loader
+	 4 │ export const match = () => "match";
+	   ╰────
+	warning python names the export assert as assert_
+	   ╭─[<redacted>/tools.tg.ts:1:14]
+	 1 │ export const assert = () => "assert";
+	   ·              ───┬──
+	   ·                 ╰── python names the export assert as assert_
+	 2 │ export const $ = () => "dollar";
+	   ╰────
+
+'
 
 # A Python root reports warnings from its foreign dependencies as well.
 let file = $path | path join main.tg.py
 let output = tg check $file | complete
 success $output
-assert ($output.stderr | str contains 'python names the export assert as assert_') $output.stderr
+snapshot --normalize --redact $path $output.stderr '
+	warning python cannot bind the export $: the export name is not a python identifier
+	   ╭─[./tools.tg.ts:2:14]
+	 1 │ export const assert = () => "assert";
+	 2 │ export const $ = () => "dollar";
+	   ·              ┬
+	   ·              ╰── python cannot bind the export $: the export name is not a python identifier
+	 3 │ export const __all__ = () => "reserved";
+	   ╰────
+	warning python cannot bind the export __all__: the export name __all__ is reserved by the python loader
+	   ╭─[./tools.tg.ts:3:14]
+	 2 │ export const $ = () => "dollar";
+	 3 │ export const __all__ = () => "reserved";
+	   ·              ───┬───
+	   ·                 ╰── python cannot bind the export __all__: the export name __all__ is reserved by the python loader
+	 4 │ export const match = () => "match";
+	   ╰────
+	warning python names the export assert as assert_
+	   ╭─[./tools.tg.ts:1:14]
+	 1 │ export const assert = () => "assert";
+	   ·              ───┬──
+	   ·                 ╰── python names the export assert as assert_
+	 2 │ export const $ = () => "dollar";
+	   ╰────
+
+'
 
 # Roots in both languages that reach the same module report its warnings once.
 let output = tg check $path $file | complete
 success $output
-assert equal ($output.stderr | lines | where { $in | str contains 'warning python names the export assert as assert_' } | length) 1
+snapshot --normalize --redact $path $output.stderr '
+	warning python cannot bind the export $: the export name is not a python identifier
+	   ╭─[./tools.tg.ts:2:14]
+	 1 │ export const assert = () => "assert";
+	 2 │ export const $ = () => "dollar";
+	   ·              ┬
+	   ·              ╰── python cannot bind the export $: the export name is not a python identifier
+	 3 │ export const __all__ = () => "reserved";
+	   ╰────
+	warning python cannot bind the export __all__: the export name __all__ is reserved by the python loader
+	   ╭─[./tools.tg.ts:3:14]
+	 2 │ export const $ = () => "dollar";
+	 3 │ export const __all__ = () => "reserved";
+	   ·              ───┬───
+	   ·                 ╰── python cannot bind the export __all__: the export name __all__ is reserved by the python loader
+	 4 │ export const match = () => "match";
+	   ╰────
+	warning python names the export assert as assert_
+	   ╭─[./tools.tg.ts:1:14]
+	 1 │ export const assert = () => "assert";
+	   ·              ───┬──
+	   ·                 ╰── python names the export assert as assert_
+	 2 │ export const $ = () => "dollar";
+	   ╰────
+
+'
