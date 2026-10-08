@@ -18,7 +18,7 @@ pub(crate) fn create(
 	match network {
 		crate::Network::Bridge(_) | crate::Network::Default => {
 			if crate::network::root() {
-				crate::network::veth::setup(firewall)?;
+				crate::network::veth::setup(firewall, dns)?;
 				let guest = reserve_veth_guest(pool)?;
 				let network =
 					crate::network::veth::Network::new(index, identity, firewall, guest, ports)?;
