@@ -41,6 +41,7 @@ type CreateControlConnection<T> = Arc<dyn Fn() -> BoxFuture<'static, tg::Result<
 #[cfg_attr(not(target_os = "linux"), derive(Copy))]
 pub(super) struct Config {
 	pub capacity: tg::runner::Capacity,
+	pub cpu_oversubscription: u64,
 	#[cfg(target_os = "linux")]
 	pub cpu_pool: Option<tangram_sandbox::cpu::Pool>,
 	#[cfg(target_os = "linux")]
@@ -95,7 +96,7 @@ impl Runner {
 		let state = State {
 			#[cfg(target_os = "linux")]
 			cpu_pool: config.cpu_pool,
-			capacity: self::capacity::Pool::new(config.capacity),
+			capacity: self::capacity::Pool::new(config.capacity, config.cpu_oversubscription),
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: self::project::Pool::new(config.filesystem_project_ids),
 			id: Mutex::new(None),
@@ -825,7 +826,7 @@ impl Session {
 		} else {
 			self.server.runner.state.capacity.get()
 		};
-		tracing::debug!(target: "tangram_server::runner::control", index, cleanup, available_cpus = capacity.available.cpus, available_memory = capacity.available.memory, "sending the runner heartbeat");
+		tracing::debug!(target: "tangram_server::runner::control", index, cleanup, available_dedicated_cpus = capacity.available.cpu.dedicated, available_shared_cpus = capacity.available.cpu.shared, available_memory = capacity.available.memory, "sending the runner heartbeat");
 		tg::runner::control::HeartbeatClientNotification { capacity, index }
 	}
 

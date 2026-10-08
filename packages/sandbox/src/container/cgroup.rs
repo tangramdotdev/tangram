@@ -22,6 +22,7 @@ pub struct Cgroup {
 	removed: bool,
 }
 
+#[derive(Debug)]
 pub struct Handle {
 	directory: OwnedFd,
 }
@@ -124,11 +125,7 @@ impl Cgroup {
 				.map_err(|error| tg::error!(!error, "failed to read the CPU pool memory nodes"))?;
 			write_file(&path.join("cpuset.mems"), mems.as_bytes())
 				.map_err(|error| tg::error!(!error, "failed to set the sandbox memory nodes"))?;
-			write_file(
-				&path.join("cpuset.cpus"),
-				crate::cpu::format_list(&allocation.cpus()).as_bytes(),
-			)
-			.map_err(|error| tg::error!(!error, "failed to assign the sandbox CPUs"))?;
+			allocation.bind(cgroup.handle()?)?;
 		}
 
 		if let Some(cpu) = options.cpu {
@@ -209,6 +206,8 @@ impl Cgroup {
 
 	pub fn cleanup(mut self) -> tg::Result<()> {
 		self.stop()?;
+		// Release the stopped allocation before unlinking its cgroup so concurrent reassignments cannot access a removed directory.
+		drop(self.allocation.take());
 		unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR).map_err(|error| {
 			tg::error!(
 				!error,
@@ -282,6 +281,12 @@ impl Handle {
 		Ok(contents)
 	}
 
+	pub(crate) fn write(&self, name: &CStr, bytes: &[u8]) -> tg::Result<()> {
+		write_file_at(&self.directory, name, bytes)
+			.map_err(|error| tg::error!(!error, "failed to update the sandbox cgroup"))?;
+		Ok(())
+	}
+
 	pub fn move_self(&self) -> tg::Result<()> {
 		write_file_at(&self.directory, c"cgroup.procs", b"0\n")
 			.map_err(|error| tg::error!(!error, "failed to move the process into the cgroup"))
@@ -301,6 +306,7 @@ impl Drop for Cgroup {
 			}
 			return;
 		}
+		drop(self.allocation.take());
 		if let Err(error) = unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR) {
 			tracing::error!(%error, path = %self.path.display(), "failed to remove cgroup");
 		}

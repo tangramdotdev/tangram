@@ -22,7 +22,12 @@ let shared = $cpus | where { $in not-in $siblings }
 if ($shared | is-empty) {
 	skip_test 'this test requires a shared CPU outside the dedicated core'
 }
-let cpus = $siblings | append ($shared | first) | sort | str join ','
+let shared_core = $shared | first
+let shared_siblings = cpu_list (open --raw $'/sys/devices/system/cpu/cpu($shared_core)/topology/thread_siblings_list')
+if not ($shared_siblings | all { $in in $cpus }) {
+	skip_test 'this test requires every SMT sibling of the shared core'
+}
+let cpus = $siblings | append $shared_siblings | uniq | sort | str join ','
 let pool = $parent | path join $'tangram_test_((random uuid))'
 mkdir $pool
 
@@ -43,7 +48,7 @@ try {
 let local = try { server spawn --config {
 	runner: {
 		cpu_pool: $pool,
-		dedicated_cpus: [$dedicated],
+		cpu_oversubscription: 4,
 		memory_sampling_interval: 0.05,
 		sandbox_pool_size: 0,
 	},
