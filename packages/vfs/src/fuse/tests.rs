@@ -213,10 +213,19 @@ fn parses_possible_cpu_sets() {
 
 #[test]
 fn external_mounts_use_lightweight_ring_configs() {
-	let config = Server::<TestProvider>::ring_config(4096, true).unwrap();
+	for (queue_count, available_parallelism) in [(1, 1), (14, 8), (256, 256)] {
+		let config = Server::<TestProvider>::ring_config_with_cpu_counts(
+			4096,
+			true,
+			queue_count,
+			available_parallelism,
+		)
+		.unwrap();
 
-	assert_eq!(config.slots_per_queue, 1);
-	assert_eq!(config.worker_count, 1);
+		assert_eq!(config.queue_count, queue_count);
+		assert_eq!(config.slots_per_queue, 1);
+		assert_eq!(config.worker_count, 1);
+	}
 }
 
 #[test]

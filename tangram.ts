@@ -9,7 +9,9 @@ import libcapNg from "libcap-ng" with {
 import libseccomp from "libseccomp" with {
 	source: "../packages/packages/libseccomp.tg.ts",
 };
-import { libclang } from "llvm" with { source: "../packages/packages/llvm" };
+import { libclang, metadata as llvmMetadata } from "llvm" with {
+	source: "../packages/packages/llvm",
+};
 import openssl from "openssl" with {
 	source: "../packages/packages/openssl.tg.ts",
 };
@@ -96,58 +98,21 @@ export const build = async (...args: tg.Args<Arg>) => {
 	const features = featureList(merged);
 	const cargoLock = await source_.get("Cargo.lock").then(tg.File.expect);
 
-	// Collect environment.
-	const envs: tg.Args<std.env.Arg> = [
-		bunEnvArg(build),
-		librustyv8(cargoLock, build, host),
-		libpython(source_, build, host),
-		// `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`.
-		openssl({ build, host }),
-		sandboxRootfs(host),
-	];
-
-	// On Linux `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp.
-	if (std.triple.os(host) === "linux") {
-		envs.push(libcapNg({ build, host }), libseccomp({ build, host }));
-	}
-
-	if (build !== host) {
-		envs.push({
-			[`CC_${host}`]: `${host}-cc`,
-			[`CXX_${host}`]: `${host}-c++`,
-		});
-	}
-
-	// Build node_modules and set NODE_PATH for esbuild and build scripts.
-	const nodeModulesArtifact = nodeModules(build);
-	envs.push({
-		NODE_PATH: tg`${nodeModulesArtifact}/node_modules`,
-		PATH: tg.Mutation.suffix(tg`${nodeModulesArtifact}/node_modules/.bin`, ":"),
+	const { env, pre } = await toolchain({
+		build,
+		cargoLock,
+		foundationdb: useFoundationdb,
+		host,
+		...std.args.optional("sdk", sdk),
+		source: source_,
 	});
 
-	// Configure foundationdb.
-	let pre: tg.Unresolved<tg.Template.Arg> = null;
-	if (useFoundationdb) {
-		const fdbArtifact = foundationdb({ build, host });
-		envs.push(fdbArtifact, {
-			LIBCLANG_PATH: tg`${libclang({ build, host, ...std.args.optional("sdk", sdk) })}/lib`,
-			FDB_LIB_PATH: tg`${fdbArtifact}/lib`,
-		});
-		if (std.triple.os(host) === "linux") {
-			pre = tg`
-				export LD_LIBRARY_PATH=$LIBRARY_PATH
-				export CPATH=$CPATH:$(gcc -print-sysroot)/include
-			`;
-		}
-	}
-
 	// Build tangram.
-	const env = std.env.arg(...envs, env_ ?? null);
 	const output = cargo.build({
 		...(await std.triple.rotate({ build, host })),
 		captureStderr,
 		disableDefaultFeatures,
-		env,
+		env: std.env.arg(env, env_ ?? null),
 		features,
 		pre,
 		proxy,
@@ -257,6 +222,8 @@ export const release = async () => {
 
 // Test targets.
 
+export { testRust } from "./test.tg.ts";
+
 export const test = async () => {
 	await assertHelp(build());
 };
@@ -311,14 +278,87 @@ const assertHelp = async (env: tg.Unresolved<std.env.Arg>) => {
 	tg.assert(output.includes("Usage:"));
 };
 
+/** Shared configuration for sandboxed Cargo builds and tests. */
+export const toolchain = async (arg: {
+	build: string;
+	cargoLock: tg.File;
+	foundationdb?: boolean;
+	host: string;
+	sdk?: std.sdk.Arg;
+	source: tg.Directory;
+}) => {
+	const {
+		build,
+		cargoLock,
+		foundationdb: useFoundationdb = false,
+		host,
+		sdk,
+		source,
+	} = arg;
+	const nodeModulesArtifact = nodeModules(build);
+	const envs: tg.Args<std.env.Arg> = [
+		bunEnvArg(build),
+		librustyv8(cargoLock, build, host),
+		libpython(source, build, host),
+		// `openssl-sys` locates openssl with pkg-config on behalf of the `native-tls` that `oauth2` pulls into `tangram_server`.
+		openssl({ build, host }),
+		sandboxRootfs(host),
+		{
+			NODE_PATH: tg`${nodeModulesArtifact}/node_modules`,
+			PATH: tg.Mutation.suffix(
+				tg`${nodeModulesArtifact}/node_modules/.bin`,
+				":",
+			),
+		},
+	];
+
+	// On Linux `tangram_vfs` links virtiofsd, which needs libcap-ng and libseccomp.
+	if (std.triple.os(host) === "linux") {
+		envs.push(libcapNg({ build, host }), libseccomp({ build, host }));
+	}
+
+	if (build !== host) {
+		envs.push({
+			[`CC_${host}`]: `${host}-cc`,
+			[`CXX_${host}`]: `${host}-c++`,
+		});
+	}
+
+	// Bindgen needs libclang and the SDK headers, and FoundationDB must not download its library during the build.
+	let pre: tg.Unresolved<tg.Template.Arg> = null;
+	if (useFoundationdb) {
+		const clang = libclang({ build, host, ...std.args.optional("sdk", sdk) });
+		const clangVersion = llvmMetadata.version.split(".")[0];
+		const fdbArtifact = foundationdb({ build, host });
+		envs.push(fdbArtifact, zlib({ build, host }), {
+			BINDGEN_EXTRA_CLANG_ARGS: tg`-resource-dir=${clang}/lib/clang/${clangVersion}`,
+			FDB_LIB_PATH: tg`${fdbArtifact}/lib`,
+			LIBCLANG_PATH: tg`${clang}/lib`,
+		});
+		if (std.triple.os(host) === "linux") {
+			pre = tg`
+				export LD_LIBRARY_PATH=$LIBRARY_PATH
+				export CPATH=$CPATH:$(gcc -print-sysroot)/include
+			`;
+		}
+	}
+
+	const env = await std.env.arg(...envs);
+	return { env, pre };
+};
+
 const nodeModules = async (hostArg?: string) => {
 	const host = hostArg ?? std.triple.host();
 
 	// Create subset of source relevant for bun install.
 	const packageJson = source.get("package.json").then(tg.File.expect);
 	const bunLock = source.get("bun.lock").then(tg.File.expect);
-	const clientsJavaScript = source.get("packages/clients/javascript").then(tg.Directory.expect);
-	const javascript = source.get("packages/javascript").then(tg.Directory.expect);
+	const clientsJavaScript = source
+		.get("packages/clients/javascript")
+		.then(tg.Directory.expect);
+	const javascript = source
+		.get("packages/javascript")
+		.then(tg.Directory.expect);
 	const typescript = source
 		.get("packages/typescript")
 		.then(tg.Directory.expect);

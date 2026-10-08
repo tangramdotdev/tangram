@@ -548,12 +548,17 @@ async fn mock_server(
 	async_channel::Receiver<MockConnection>,
 	tangram_futures::task::Task<()>,
 ) {
-	let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-	let url = format!("http://{}", listener.local_addr().unwrap())
-		.parse()
+	let socket = tangram_util::fs::Temp::new().unwrap();
+	let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+	let url = tg::Uri::builder()
+		.scheme("http+unix")
+		.authority(socket.path().to_str().unwrap())
+		.path("")
+		.build()
 		.unwrap();
 	let (sender, receiver) = async_channel::unbounded();
 	let server = tangram_futures::task::Task::spawn(move |_| async move {
+		let _socket = socket;
 		let mut tasks = tokio::task::JoinSet::new();
 		while let Ok((socket, _)) = listener.accept().await {
 			let sender = sender.clone();

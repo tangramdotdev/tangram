@@ -36,9 +36,13 @@ async fn decode_transport_failure_ends_the_attempt() {
 #[tokio::test]
 async fn reconnect_preserves_the_resolved_reverse_window() {
 	for (position, length) in [(4, -3), (50, -49), (100, -99)] {
-		let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-		let url = format!("http://{}", listener.local_addr().unwrap())
-			.parse()
+		let socket = tangram_util::fs::Temp::new().unwrap();
+		let listener = tokio::net::UnixListener::bind(&socket).unwrap();
+		let url = tg::Uri::builder()
+			.scheme("http+unix")
+			.authority(socket.path().to_str().unwrap())
+			.path("")
+			.build()
 			.unwrap();
 		let (sender, receiver) = async_channel::unbounded();
 		let requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
