@@ -941,7 +941,22 @@ impl Cli {
 					.await?;
 				Some(tg::process::SandboxArg::Arg(
 					tg::process::SandboxCreateArg {
-						cpu: options.sandbox.arg.cpu,
+						cpu: options
+							.sandbox
+							.arg
+							.cpu
+							.map(|shared| tg::sandbox::Cpu {
+								dedicated: options.sandbox.arg.dedicated_cpu.unwrap_or(0),
+								shared,
+							})
+							.or_else(|| {
+								options.sandbox.arg.dedicated_cpu.map(|dedicated| {
+									tg::sandbox::Cpu {
+										dedicated,
+										shared: 0,
+									}
+								})
+							}),
 						hostname: options.sandbox.arg.hostname.clone(),
 						isolation: options.sandbox.arg.isolation,
 						location: None,

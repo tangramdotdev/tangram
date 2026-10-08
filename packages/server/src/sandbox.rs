@@ -175,12 +175,12 @@ impl Server {
 
 	pub(crate) fn validate_sandbox_resources(
 		isolation: &tangram_sandbox::Isolation,
-		cpu: Option<u64>,
+		cpu: Option<tg::sandbox::Cpu>,
 		memory: Option<u64>,
 		hostname: Option<&str>,
 	) -> tg::Result<()> {
-		if cpu == Some(0) {
-			return Err(tg::error!("sandbox cpu must be greater than zero"));
+		if let Some(cpu) = cpu {
+			cpu.validate()?;
 		}
 		if memory == Some(0) {
 			return Err(tg::error!("sandbox memory must be greater than zero"));

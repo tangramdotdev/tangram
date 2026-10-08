@@ -50,8 +50,13 @@ class SandboxNetworkData(TypedDict):
     ports: NotRequired[list[str]]
 
 
+class Cpu(TypedDict, total=False):
+    dedicated: int
+    shared: int
+
+
 class SandboxArg(TypedDict, total=False):
-    cpu: Unresolved[int | float | Mutation | None]
+    cpu: Unresolved[int | Cpu | Mutation | None]
     host: Unresolved[str | Mutation | None]
     hostname: Unresolved[str | Mutation | None]
     isolation: Unresolved[IsolationValue | Mutation | None]
@@ -70,14 +75,14 @@ type SandboxInput = Unresolved[
 
 
 class SandboxUsage(TypedDict):
-    cpu: int | float
+    cpu: Cpu
     memory: int | float
 
 
 class SandboxData(TypedDict, total=False):
     id: Required[str]
     status: Required[Literal["created", "started", "destroyed"]]
-    cpu: int | float | None
+    cpu: Cpu | None
     creator: str | None
     hostname: str | None
     isolation: dict[str, IsolationValue] | None
@@ -107,6 +112,7 @@ class Sandbox:
     Arg: ClassVar[type[Arg]]
     Builder: ClassVar[type[Builder]]
     Create: ClassVar[type[Create]]
+    Cpu = Cpu
     Data = SandboxData
     DataArg = dict
     Destroy: ClassVar[type[Destroy]]
@@ -247,7 +253,7 @@ class Builder:
         self._args.append(capture({name: value}, self._memo))
         return self
 
-    def cpu(self, value: Unresolved[int | float | Mutation | None]) -> Self:
+    def cpu(self, value: Unresolved[int | Cpu | Mutation | None]) -> Self:
         return self._push("cpu", value)
 
     def host(self, value: Unresolved[str | Mutation | None]) -> Self:
@@ -369,6 +375,8 @@ def arg_to_data(arg):
     network = normalize_network(arg.get("network"), arg.get("ports") or [])
     if network is not None:
         output["network"] = network
+    if "cpu" in output and isinstance(output["cpu"], (int, float)):
+        output["cpu"] = {"shared": output["cpu"]}
     return output
 
 

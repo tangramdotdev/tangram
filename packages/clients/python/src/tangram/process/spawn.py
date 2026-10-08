@@ -775,7 +775,11 @@ def normalize_sandbox(arg):
     output.pop("host", None)
     for key in ("cpu", "memory", "owner"):
         if key in fields:
-            output[key] = fields[key]
+            output[key] = (
+                {"shared": fields[key]}
+                if key == "cpu" and isinstance(fields[key], (int, float))
+                else fields[key]
+            )
     if mounts:
         output["mounts"] = [
             *(output.get("mounts") or []),

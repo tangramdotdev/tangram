@@ -941,7 +941,11 @@ pub struct RemoteCache {
 
 #[derive(Clone, Debug)]
 pub struct Runner {
+	pub cpu_pool: Option<PathBuf>,
+
 	pub cpus: Option<u64>,
+
+	pub dedicated_cpus: Vec<u32>,
 
 	pub heartbeat_interval: Duration,
 
@@ -952,6 +956,8 @@ pub struct Runner {
 	pub javascript: JavaScript,
 
 	pub memory: Option<u64>,
+
+	pub memory_sampling_interval: Duration,
 
 	pub process_control_connection_pool_size: usize,
 
@@ -2165,12 +2171,15 @@ impl Default for RemoteCache {
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
+			cpu_pool: None,
 			cpus: None,
+			dedicated_cpus: Vec::new(),
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
 			isolation: RunnerIsolation::default(),
 			javascript: JavaScript::default(),
 			memory: None,
+			memory_sampling_interval: Duration::from_secs(1),
 			process_control_connection_pool_size: 1,
 			process_control_connection_pool_ttl: Duration::from_secs(5),
 			process_state_ttl: Duration::from_mins(1),

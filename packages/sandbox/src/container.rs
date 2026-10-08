@@ -5,7 +5,7 @@ mod spawn;
 mod util;
 mod validate;
 
-pub(crate) use self::spawn::spawn;
+pub(crate) use self::spawn::{enter_cgroup_before_exec, spawn};
 
 pub(crate) mod mount;
 pub(crate) mod network;

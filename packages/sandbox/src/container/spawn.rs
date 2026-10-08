@@ -112,18 +112,16 @@ pub(crate) async fn spawn(
 		.file_name()
 		.and_then(|name| name.to_str())
 		.unwrap_or("sandbox");
-	let cgroup = if user_namespace.is_some() {
-		let options = super::cgroup::Options {
-			cpu: arg.cpu,
-			memory: arg.memory,
-			memory_oom_group: true,
-			memory_swap: isolation.memory_swap,
-			pids: isolation.max_pids,
-		};
-		Some(super::cgroup::Cgroup::new(cgroup_name, options)?)
-	} else {
-		None
+	let options = super::cgroup::Options {
+		cpu: arg.cpu.map(tg::sandbox::Cpu::total).transpose()?,
+		cpu_pool: arg.cpu_pool.clone(),
+		cpu_request: arg.cpu,
+		memory: arg.memory,
+		memory_oom_group: true,
+		memory_swap: isolation.memory_swap,
+		pids: isolation.max_pids,
 	};
+	let cgroup = Some(super::cgroup::Cgroup::new(cgroup_name, &options)?);
 	let cgroup_handle = cgroup
 		.as_ref()
 		.map(super::cgroup::Cgroup::handle)
@@ -242,7 +240,7 @@ pub(crate) async fn spawn(
 	if cgroup.is_none()
 		&& let Some(cpu) = arg.cpu
 	{
-		command.arg("--cgroup-cpu").arg(cpu.to_string());
+		command.arg("--cgroup-cpu").arg(cpu.total()?.to_string());
 	}
 	if cgroup.is_none()
 		&& let Some(memory) = arg.memory
@@ -316,7 +314,7 @@ pub(crate) async fn spawn(
 			.arg(cgroup_name)
 			.arg("--cgroup-memory-oom-group");
 	}
-	if isolation.cgroup_readonly {
+	if isolation.cgroup_readonly || arg.cpu_pool.is_some() {
 		command.arg("--cgroup-readonly");
 	}
 	if let Some(max_open_files) = isolation.max_open_files {
@@ -521,7 +519,7 @@ fn inherit_fd(command: &mut tokio::process::Command, raw: libc::c_int) {
 	}
 }
 
-fn enter_cgroup_before_exec(command: &mut tokio::process::Command, cgroup: libc::c_int) {
+pub(crate) fn enter_cgroup_before_exec(command: &mut tokio::process::Command, cgroup: libc::c_int) {
 	// SAFETY: The pre_exec closure only invokes async-signal-safe system calls.
 	unsafe {
 		command.pre_exec(move || {

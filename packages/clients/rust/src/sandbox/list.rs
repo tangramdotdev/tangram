@@ -35,7 +35,7 @@ pub struct Output {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct Item {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub cpu: Option<u64>,
+	pub cpu: Option<tg::sandbox::Cpu>,
 
 	pub id: tg::sandbox::Id,
 

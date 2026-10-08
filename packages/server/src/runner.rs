@@ -37,9 +37,11 @@ type RunnerSender =
 
 type CreateControlConnection<T> = Arc<dyn Fn() -> BoxFuture<'static, tg::Result<T>> + Send + Sync>;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub(super) struct Config {
 	pub capacity: tg::runner::Capacity,
+	#[cfg(target_os = "linux")]
+	pub cpu_pool: Option<tangram_sandbox::cpu::Pool>,
 	#[cfg(target_os = "linux")]
 	pub filesystem_project_ids: crate::config::ContainerRunnerIsolationProjectIds,
 	pub process_control_connection_pool_size: usize,
@@ -71,6 +73,8 @@ pub struct Runner {
 }
 
 pub struct State {
+	#[cfg(target_os = "linux")]
+	cpu_pool: Option<tangram_sandbox::cpu::Pool>,
 	capacity: self::capacity::Pool,
 	#[cfg(target_os = "linux")]
 	filesystem_project_ids: self::project::Pool,
@@ -88,6 +92,8 @@ impl Runner {
 	pub fn new(config: Config) -> Self {
 		let (scheduler, _) = tokio::sync::watch::channel(None);
 		let state = State {
+			#[cfg(target_os = "linux")]
+			cpu_pool: config.cpu_pool,
 			capacity: self::capacity::Pool::new(config.capacity),
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: self::project::Pool::new(config.filesystem_project_ids),

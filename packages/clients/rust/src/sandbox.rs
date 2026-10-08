@@ -1,4 +1,5 @@
 mod builder;
+mod cpu;
 mod data;
 mod id;
 mod isolation;
@@ -8,6 +9,7 @@ mod network;
 pub use {
 	self::{
 		builder::Builder,
+		cpu::Cpu,
 		data::{Data, Usage},
 		handle::{Options, Sandbox as Handle},
 		id::Id,

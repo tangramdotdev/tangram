@@ -34,3 +34,45 @@ test("sandbox reads send authorization tokens and the requested source", async (
 		tg.encoding.utf8 = utf8;
 	}
 });
+
+test("CPU shorthand normalizes to shared and mixed requests retain both counts", () => {
+	assert.deepEqual(tg.Sandbox.Arg.toData({ cpu: 2 }), { cpu: { shared: 2 } });
+	assert.deepEqual(
+		tg.Sandbox.Arg.toData({ cpu: { dedicated: 2, shared: 4 } }),
+		{ cpu: { dedicated: 2, shared: 4 } },
+	);
+	assert.deepEqual(tg.Sandbox.Arg.toData({ cpu: { dedicated: 2 } }), {
+		cpu: { dedicated: 2 },
+	});
+	for (let cpu of [
+		0,
+		-1,
+		0.5,
+		NaN,
+		Infinity,
+		{ dedicated: -1 },
+		{},
+		{ shared: Number.MAX_SAFE_INTEGER, dedicated: 1 },
+	]) {
+		assert.throws(() => tg.Sandbox.Arg.toData({ cpu }));
+	}
+});
+
+test("sandbox CPU builders resolve the numeric shorthand and mixed objects", async () => {
+	let createSandbox = tg.client.createSandbox;
+	let requests: Array<tg.Sandbox.Create.Arg> = [];
+	tg.client.createSandbox = async (arg) => {
+		requests.push(arg);
+		return { data: { id: "sbx_test", status: "started" } };
+	};
+	try {
+		await tg.Sandbox.create().cpu(Promise.resolve(2));
+		await tg.Sandbox.create().cpu({ dedicated: 2, shared: 4 });
+		assert.deepEqual(
+			requests.map((arg) => arg.cpu),
+			[{ shared: 2 }, { dedicated: 2, shared: 4 }],
+		);
+	} finally {
+		tg.client.createSandbox = createSandbox;
+	}
+});

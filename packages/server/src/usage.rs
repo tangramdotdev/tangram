@@ -69,6 +69,7 @@ impl Session {
 				process_count: output.process_count,
 				sandbox_count: output.sandbox_count,
 				sandbox_cpu: output.sandbox_cpu,
+				sandbox_cpu_dedicated: output.sandbox_cpu_dedicated,
 				sandbox_memory: output.sandbox_memory,
 			};
 			aggregate.checked_add(regional)?;
@@ -263,6 +264,7 @@ fn usage_output(
 		process_count: aggregate.process_count,
 		sandbox_count: aggregate.sandbox_count,
 		sandbox_cpu: aggregate.sandbox_cpu,
+		sandbox_cpu_dedicated: aggregate.sandbox_cpu_dedicated,
 		sandbox_memory: aggregate.sandbox_memory,
 	}
 }

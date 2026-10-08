@@ -141,7 +141,7 @@ class ArgObject(CommandArgObject, total=False):
     command: Unresolved[
         Command | CommandArgObject | Referent[Command | CommandArgObject] | None
     ]
-    cpu: FieldInput[int | float]
+    cpu: FieldInput[int | float | dict[str, int]]
     debug: Unresolved[bool | DebugObject | Mutation | None]
     location: Unresolved[LocationArgObject | Mutation | None]
     memory: FieldInput[int | float]
@@ -918,7 +918,9 @@ class Builder[M: Mode, O: ValueType]:
             self.with_options(ports=value)
         return self
 
-    def cpu(self, value: Unresolved[int | float | Mutation | None]) -> Self:
+    def cpu(
+        self, value: Unresolved[int | float | dict[str, int] | Mutation | None]
+    ) -> Self:
         return self.with_options(cpu=value)
 
     def memory(self, value: Unresolved[int | float | Mutation | None]) -> Self:

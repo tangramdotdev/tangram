@@ -833,6 +833,35 @@ impl Server {
 			}
 		}
 
+		// Create the exclusive CPU pool and validate the sampling interval.
+		if config.runner.memory_sampling_interval.is_zero() {
+			return Err(tg::error!(
+				"the memory sampling interval must be greater than zero"
+			));
+		}
+		#[cfg(target_os = "linux")]
+		let cpu_pool = if config.roles.contains(&self::config::Role::Runner) {
+			config
+				.runner
+				.cpu_pool
+				.clone()
+				.map(|parent| {
+					tangram_sandbox::cpu::Pool::new(parent, &config.runner.dedicated_cpus)
+				})
+				.transpose()?
+		} else {
+			None
+		};
+		if config.runner.cpu_pool.is_none() && !config.runner.dedicated_cpus.is_empty() {
+			return Err(tg::error!(
+				"dedicated CPUs require an exclusive sandbox CPU pool"
+			));
+		}
+		#[cfg(target_os = "macos")]
+		if config.runner.cpu_pool.is_some() || !config.runner.dedicated_cpus.is_empty() {
+			return Err(tg::error!("dedicated CPU pools are not supported on macos"));
+		}
+
 		// Create the runner state.
 		let capacity = if config.roles.contains(&self::config::Role::Runner) {
 			let runner = &config.runner;
@@ -843,8 +872,23 @@ impl Server {
 			let memory = runner
 				.memory
 				.unwrap_or_else(|| default_memory.saturating_mul(cpus));
-			let capacity = tg::runner::Capacity { cpus, memory };
-			if capacity.cpus == 0 {
+			let mut capacity = tg::runner::Capacity {
+				cpus,
+				dedicated_cpus: 0,
+				memory,
+			};
+			#[cfg(target_os = "linux")]
+			if let Some(pool) = &cpu_pool {
+				let cpus = pool.capacity();
+				capacity.cpus = runner.cpus.unwrap_or(cpus.cpus);
+				capacity.dedicated_cpus = cpus.dedicated_cpus;
+				if capacity.cpus > cpus.cpus {
+					return Err(tg::error!(
+						"the runner shared CPU capacity exceeds the sandbox CPU pool"
+					));
+				}
+			}
+			if capacity.cpus == 0 && capacity.dedicated_cpus == 0 {
 				return Err(tg::error!(
 					"the runner CPU capacity must be greater than zero"
 				));
@@ -865,6 +909,8 @@ impl Server {
 		};
 		let runner_config = self::runner::Config {
 			capacity,
+			#[cfg(target_os = "linux")]
+			cpu_pool,
 			#[cfg(target_os = "linux")]
 			filesystem_project_ids: config.runner.isolation.container.filesystem_project_ids,
 			process_control_connection_pool_size: config

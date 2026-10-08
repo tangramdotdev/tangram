@@ -25,6 +25,9 @@ pub struct Capacity {
 	#[tangram_serialize(id = 0)]
 	pub cpus: u64,
 
+	#[tangram_serialize(id = 2)]
+	pub dedicated_cpus: u64,
+
 	#[tangram_serialize(id = 1)]
 	pub memory: u64,
 }
