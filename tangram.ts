@@ -15,7 +15,7 @@ import { libclang, metadata as llvmMetadata } from "llvm" with {
 import openssl from "openssl" with {
 	source: "../packages/packages/openssl.tg.ts",
 };
-import { cargo, rustTriple } from "rust" with {
+import { cargo, rustTriple, self as rust } from "rust" with {
 	source: "../packages/packages/rust",
 };
 import xz from "xz" with { source: "../packages/packages/xz.tg.ts" };
@@ -109,6 +109,7 @@ export const build = async (...args: tg.Args<Arg>) => {
 
 	// Build tangram.
 	const output = cargo.build({
+		...merged,
 		...(await std.triple.rotate({ build, host })),
 		captureStderr,
 		disableDefaultFeatures,
@@ -118,7 +119,7 @@ export const build = async (...args: tg.Args<Arg>) => {
 		proxy,
 		...std.args.optional("sdk", sdk),
 		source: source_,
-		useCargoVendor: true,
+		useCargoVendor: false,
 	});
 
 	// Add xz library path.
@@ -222,7 +223,7 @@ export const release = async () => {
 
 // Test targets.
 
-export { testRust } from "./test.tg.ts";
+export { testCli, testRust } from "./test.tg.ts";
 
 export const test = async () => {
 	await assertHelp(build());
@@ -329,6 +330,7 @@ export const toolchain = async (arg: {
 	if (useFoundationdb) {
 		const clang = libclang({ build, host, ...std.args.optional("sdk", sdk) });
 		const clangVersion = llvmMetadata.version.split(".")[0];
+		tg.assert(clangVersion !== undefined);
 		const fdbArtifact = foundationdb({ build, host });
 		envs.push(fdbArtifact, zlib({ build, host }), {
 			BINDGEN_EXTRA_CLANG_ARGS: tg`-resource-dir=${clang}/lib/clang/${clangVersion}`,
@@ -343,8 +345,37 @@ export const toolchain = async (arg: {
 		}
 	}
 
+	const git = gitDependencies(source, build);
+	pre = tg.Template.join(
+		"\n",
+		tg`cp -R ${git} "$CARGO_HOME/git"
+		chmod -R u+w "$CARGO_HOME/git"
+		cd "$TGRUSTC_SOURCE_DIR"`,
+		pre,
+	);
 	const env = await std.env.arg(...envs);
 	return { env, pre };
+};
+
+const gitDependencies = async (source: tg.Directory, host: string) => {
+	// Cargo vendor cannot represent the two Ruff sources with identical package names and versions.
+	const manifests = await tg.build(cargo.extractCargoManifests, source);
+	const certFile = tg`${std.caCertificates()}/cacert.pem`;
+	const dependencies = await std.build`
+		export CARGO_HOME="${tg.output}"
+		mkdir -p "$CARGO_HOME"
+		cargo fetch --locked --manifest-path ${manifests}/Cargo.toml
+	`
+		.checksum("sha256:any")
+		.named("fetch-rust-dependencies")
+		.network(true)
+		.env(std.sdk({ host }), rust({ host }), {
+			CARGO_HTTP_CAINFO: certFile,
+			CARGO_REGISTRIES_CRATES_IO_PROTOCOL: "sparse",
+			SSL_CERT_FILE: certFile,
+		})
+		.then(tg.Directory.expect);
+	return dependencies.get("git").then(tg.Directory.expect);
 };
 
 const nodeModules = async (hostArg?: string) => {
