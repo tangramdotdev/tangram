@@ -38,14 +38,23 @@ pub fn validate(arg: &Arg) -> tg::Result<()> {
 	if arg.cgroup_memory.is_some() && arg.cgroup.is_none() {
 		return Err(tg::error!("--cgroup-memory requires --cgroup"));
 	}
+	if arg.cgroup_memory_swap.is_some() && arg.cgroup.is_none() {
+		return Err(tg::error!("--cgroup-memory-swap requires --cgroup"));
+	}
 	if arg.cgroup_pids.is_some() && arg.cgroup.is_none() {
 		return Err(tg::error!("--cgroup-pids requires --cgroup"));
+	}
+	if arg.cgroup_readonly && arg.cgroup.is_none() {
+		return Err(tg::error!("--cgroup-readonly requires --cgroup"));
 	}
 	if arg.cgroup_cpu == Some(0) {
 		return Err(tg::error!("--cgroup-cpu must be greater than zero"));
 	}
 	if arg.cgroup_memory == Some(0) {
 		return Err(tg::error!("--cgroup-memory must be greater than zero"));
+	}
+	if arg.rlimit_nofile == Some(0) {
+		return Err(tg::error!("--rlimit-nofile must be greater than zero"));
 	}
 	if arg.cgroup_pids == Some(0) {
 		return Err(tg::error!("--cgroup-pids must be greater than zero"));

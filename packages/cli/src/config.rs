@@ -1516,7 +1516,16 @@ pub struct ContainerRunnerIsolation {
 	pub harden: Option<bool>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_open_files: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub max_pids: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub memory_swap: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
 }
 
 #[serde_as]
@@ -3931,7 +3940,10 @@ fn resolve_runner_isolation(source: RunnerIsolation) -> server::RunnerIsolation 
 	if let Some(source) = source.container {
 		target.container = server::ContainerRunnerIsolation {
 			harden: source.harden.unwrap_or_default(),
+			max_open_files: source.max_open_files,
 			max_pids: source.max_pids,
+			memory_swap: source.memory_swap,
+			seccomp: source.seccomp,
 		};
 	}
 	target
@@ -4842,7 +4854,13 @@ mod tests {
 	fn parses_and_resolves_container_runner_isolation() {
 		let source: Runner = serde_json::from_value(serde_json::json!({
 			"isolation": {
-				"container": { "harden": true, "max_pids": 1234 },
+				"container": {
+					"harden": true,
+					"max_open_files": 2048,
+					"max_pids": 1234,
+					"memory_swap": 0,
+					"seccomp": "default"
+				},
 			},
 		}))
 		.unwrap();
@@ -4850,7 +4868,13 @@ mod tests {
 		let container = target.isolation.container;
 
 		assert!(container.harden);
+		assert_eq!(container.max_open_files, Some(2048));
 		assert_eq!(container.max_pids, Some(1234));
+		assert_eq!(container.memory_swap, Some(0));
+		assert_eq!(
+			container.seccomp,
+			Some(tangram_sandbox::SeccompPolicy::Default)
+		);
 	}
 
 	#[test]

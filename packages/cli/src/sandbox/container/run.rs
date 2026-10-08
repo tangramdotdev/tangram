@@ -26,7 +26,13 @@ pub struct Args {
 	pub cgroup_memory_oom_group: bool,
 
 	#[arg(long)]
+	pub cgroup_memory_swap: Option<u64>,
+
+	#[arg(long)]
 	pub cgroup_pids: Option<u64>,
+
+	#[arg(long)]
+	pub cgroup_readonly: bool,
 
 	#[arg(default_value = "/", long)]
 	pub chdir: PathBuf,
@@ -85,6 +91,9 @@ pub struct Args {
 	#[arg(action = clap::ArgAction::Append, long = "proc", num_args = 1)]
 	pub procs: Vec<PathBuf>,
 
+	#[arg(long)]
+	pub rlimit_nofile: Option<u64>,
+
 	#[arg(action = clap::ArgAction::Append, long = "ro-bind", num_args = 2)]
 	pub ro_binds: Vec<PathBuf>,
 
@@ -135,7 +144,9 @@ impl Args {
 			cgroup_cpu: self.cgroup_cpu,
 			cgroup_memory: self.cgroup_memory,
 			cgroup_memory_oom_group: self.cgroup_memory_oom_group,
+			cgroup_memory_swap: self.cgroup_memory_swap,
 			cgroup_pids: self.cgroup_pids,
+			cgroup_readonly: self.cgroup_readonly,
 			chdir: self.chdir,
 			clearenv: self.clearenv,
 			command: self.command,
@@ -155,6 +166,7 @@ impl Args {
 			overlay_sources: self.overlay_sources,
 			overlays,
 			procs: self.procs,
+			rlimit_nofile: self.rlimit_nofile,
 			ro_binds,
 			seccomp: self.seccomp,
 			setenvs,

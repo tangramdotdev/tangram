@@ -227,8 +227,21 @@ pub(crate) async fn spawn(
 		.arg("--cgroup")
 		.arg(cgroup_name)
 		.arg("--cgroup-memory-oom-group");
+	if isolation.cgroup_readonly {
+		command.arg("--cgroup-readonly");
+	}
+	if let Some(max_open_files) = isolation.max_open_files {
+		command
+			.arg("--rlimit-nofile")
+			.arg(max_open_files.to_string());
+	}
 	if let Some(max_pids) = isolation.max_pids {
 		command.arg("--cgroup-pids").arg(max_pids.to_string());
+	}
+	if let Some(memory_swap) = isolation.memory_swap {
+		command
+			.arg("--cgroup-memory-swap")
+			.arg(memory_swap.to_string());
 	}
 	if let Some(seccomp) = isolation.seccomp {
 		command.arg("--seccomp").arg(seccomp.to_string());

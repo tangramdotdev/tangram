@@ -689,7 +689,13 @@ impl Server {
 				));
 			}
 		}
-		if config.runner.isolation.container.max_pids == Some(0) {
+		let container = &config.runner.isolation.container;
+		if container.max_open_files == Some(0) {
+			return Err(tg::error!(
+				"the maximum number of container sandbox open files must be greater than zero"
+			));
+		}
+		if container.max_pids == Some(0) {
 			return Err(tg::error!(
 				"the maximum number of container sandbox pids must be greater than zero"
 			));
