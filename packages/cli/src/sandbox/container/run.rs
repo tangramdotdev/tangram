@@ -88,6 +88,9 @@ pub struct Args {
 	#[arg(action = clap::ArgAction::Append, long = "ro-bind", num_args = 2)]
 	pub ro_binds: Vec<PathBuf>,
 
+	#[arg(long)]
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+
 	#[arg(action = clap::ArgAction::Append, long = "setenv", num_args = 2)]
 	pub setenvs: Vec<String>,
 
@@ -153,6 +156,7 @@ impl Args {
 			overlays,
 			procs: self.procs,
 			ro_binds,
+			seccomp: self.seccomp,
 			setenvs,
 			tmpfs: self.tmpfs,
 			uid: self.uid,

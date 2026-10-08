@@ -1116,6 +1116,7 @@ fn build_cloud_hypervisor_mount_arg(
 		overlays: Vec::new(),
 		procs: Vec::new(),
 		ro_binds,
+		seccomp: None,
 		setenvs: Vec::new(),
 		tmpfs: Vec::new(),
 		uid: 0,

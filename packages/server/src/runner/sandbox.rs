@@ -655,6 +655,9 @@ impl Session {
 				let container = &self.server.config().runner.isolation.container;
 				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation {
 					max_pids: container.max_pids(),
+					seccomp: container
+						.harden
+						.then_some(tangram_sandbox::SeccompPolicy::Default),
 				})
 			},
 			Some(tg::sandbox::Isolation::Seatbelt) => {
