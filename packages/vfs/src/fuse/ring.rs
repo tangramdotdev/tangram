@@ -50,11 +50,27 @@ where
 	P: Provider + Send + Sync + 'static,
 {
 	pub(super) fn ring_config(page_size: usize, external_mount: bool) -> Result<RingConfig> {
+		let queue_count = Self::possible_cpu_count()?;
+		let available_parallelism =
+			std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+		Self::ring_config_with_cpu_counts(
+			page_size,
+			external_mount,
+			queue_count,
+			available_parallelism,
+		)
+	}
+
+	pub(super) fn ring_config_with_cpu_counts(
+		page_size: usize,
+		external_mount: bool,
+		queue_count: usize,
+		available_parallelism: usize,
+	) -> Result<RingConfig> {
 		// Derive the per-queue payload budget.
 		if page_size == 0 {
 			return Err(Error::other("the system page size is zero"));
 		}
-		let queue_count = Self::possible_cpu_count()?;
 		let max_payload_size = IO_URING_PAYLOAD_MEMORY_BUDGET
 			.checked_div(queue_count)
 			.ok_or_else(|| Error::other("the io_uring queue count is zero"))?;
@@ -78,8 +94,6 @@ where
 		};
 
 		// Derive the worker count.
-		let available_parallelism =
-			std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
 		let worker_count = if external_mount {
 			1
 		} else {

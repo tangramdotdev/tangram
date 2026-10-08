@@ -151,15 +151,16 @@ impl Cache {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
+	use {
+		super::*,
+		tangram_util::fs::Temp,
+		tokio::io::{AsyncReadExt as _, AsyncWriteExt as _},
+	};
 
 	#[tokio::test]
 	async fn caches_capacity_results_until_the_ttl_expires() {
-		let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-			.await
-			.unwrap();
-		let address = listener.local_addr().unwrap();
+		let socket = Temp::new().unwrap();
+		let listener = tokio::net::UnixListener::bind(&socket).unwrap();
 		let server = tokio::spawn(async move {
 			for _ in 0..2 {
 				let (mut stream, _) = listener.accept().await.unwrap();
@@ -178,9 +179,13 @@ mod tests {
 			available_query: "sum(available)".into(),
 			total_query: "sum(total)".into(),
 			ttl: Duration::from_secs(1),
-			url: format!("http://{address}"),
+			url: "http://prometheus".into(),
 		};
-		let client = Client::new(&config).unwrap();
+		let mut client = Client::new(&config).unwrap();
+		client.http = reqwest::Client::builder()
+			.unix_socket(socket.path())
+			.build()
+			.unwrap();
 
 		let first = client.get().await.unwrap();
 		let second = client.get().await.unwrap();
