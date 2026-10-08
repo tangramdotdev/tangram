@@ -24,6 +24,7 @@ def main [
 	--jobs (-j): int # The number of concurrent tests to run.
 	--kernel-path: path # The path to the linux kernel image to use with --vm. Required when --vm is set.
 	--no-cloud # Use local backends for test instances.
+	--no-clients # Skip the external Node.js and Python client suites.
 	--preserve-failing-temps # Keep the temporary directories for failed tests.
 	--preserve-temps # Keep the temporary directories.
 	--no-capture # Do not capture the output of each test. This sets --jobs to 1.
@@ -191,6 +192,8 @@ def main [
 			path: $path,
 			name: ($path | path relative-to $tests_path)
 		}
+	} | where { |test|
+		not $no_clients or ($test.name !~ '^(node|python)/')
 	}
 	if ($tests | is-empty) {
 		error make { msg: 'no tests matched the provided filters' }

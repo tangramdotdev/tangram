@@ -1,16 +1,110 @@
+import bun from "bun" with { source: "../packages/packages/bun.tg.ts" };
 import cargoNextest from "cargo-nextest" with {
 	source: "../packages/packages/cargo-nextest.tg.ts",
 };
-import { cargo, self as rust } from "rust" with {
+import fd from "fd" with { source: "../packages/packages/fd.tg.ts" };
+import nushell from "nushell" with {
+	source: "../packages/packages/nushell.tg.ts",
+};
+import procps from "procps" with {
+	source: "../packages/packages/procps.tg.ts",
+};
+import { cargo } from "rust" with {
 	source: "../packages/packages/rust",
 };
 import * as std from "std" with { source: "../packages/packages/std" };
 
 import source from "." with { type: "directory" };
 
-import { toolchain } from "./tangram.ts";
+import { build as buildTangram, toolchain } from "./tangram.ts";
 
 export type Arg = cargo.Arg;
+
+export type CliArg = {
+	/** Arguments for building the CLI binary. */
+	build?: cargo.Arg;
+	env?: std.env.Arg;
+	/** Test name filters, as accepted by packages/cli/test.nu. */
+	filters?: Array<string>;
+	host?: string;
+	jobs?: number;
+	/** Disable network access and skip tests that download fixtures. */
+	offline?: boolean;
+	source?: tg.Directory;
+	/** A prebuilt CLI installation, with bin/tangram. */
+	tangram?: tg.Directory;
+	timeout?: string;
+};
+
+/** Run the local-backend CLI suite in a sandbox. External Node and Python client tests are excluded. */
+export const testCli = async (arg: CliArg = {}) => {
+	const {
+		build = {},
+		env,
+		filters = [],
+		host = std.triple.host(),
+		jobs = 2,
+		offline = false,
+		source: source_ = source,
+		tangram: tangram_,
+		timeout = "2min",
+	} = arg;
+	tg.assert(
+		std.triple.os(host) === "linux",
+		"testCli currently requires Linux",
+	);
+	tg.assert(
+		Number.isInteger(jobs) && jobs > 0,
+		"jobs must be a positive integer",
+	);
+	const tangram =
+		tangram_ ??
+		buildTangram({
+			features: ["fjall", "quickjs", "rocksdb", "turso"],
+			foundationdb: true,
+			packages: ["tangram_cli"],
+			parallelJobs: jobs,
+			...build,
+			host,
+			source: source_,
+		});
+	const options = tg.file(JSON.stringify({ filters, jobs, offline, timeout }));
+	const runner = tg.file`
+		def main [options_path: path, tangram_path: path] {
+			let options = open --raw $options_path | from json
+			let offline = if $options.offline { ['--offline'] } else { [] }
+			nu packages/cli/test.nu --no-cloud --no-clients --no-progress-details --preserve-failing-temps --tangram-path $tangram_path --jobs $options.jobs --timeout ($options.timeout | into duration) ...$offline ...$options.filters
+		}
+	`;
+	const output = await std.build`
+		mkdir -p ${tg.output}
+		cp -R ${source_}/. work
+		chmod -R u+w work
+		cd work
+		status=0
+		nu ${runner} ${options} ${tangram}/bin/tangram > ${tg.output}/tests.log 2>&1 || status=$?
+		cat ${tg.output}/tests.log
+		exit "$status"
+	`
+		.named("test-cli")
+		.network(!offline)
+		.checksum(offline ? null : "sha256:any")
+		.env(
+			std.env.arg(
+				std.sdk({ host }),
+				nushell({ host }),
+				fd({ host }),
+				procps({ host }),
+				bun({ host }),
+				{
+					SSL_CERT_FILE: tg`${std.caCertificates()}/cacert.pem`,
+				},
+				env ?? null,
+			),
+		)
+		.then(tg.Directory.expect);
+	return output;
+};
 
 /** Run the Rust test suite in a sandbox without mounts or network access by default. */
 export const testRust = async (...args: tg.Args<Arg>) => {
@@ -33,7 +127,6 @@ export const testRust = async (...args: tg.Args<Arg>) => {
 		...std.args.optional("sdk", sdk),
 		source: source_,
 	});
-	const git = gitDependencies(source_, build);
 
 	// Nextest uses --cargo-profile for Cargo's profile. Insta needs writable sources for pending snapshots.
 	const output = await cargo.build(rest, {
@@ -45,14 +138,7 @@ export const testRust = async (...args: tg.Args<Arg>) => {
 			env_ ?? null,
 		),
 		host,
-		pre: tg.Template.join(
-			"\n",
-			tg`cp -R ${git} "$CARGO_HOME/git"
-			chmod -R u+w "$CARGO_HOME/git"
-			cd "$TGRUSTC_SOURCE_DIR"`,
-			pre,
-			pre_ ?? null,
-		),
+		pre: tg.Template.join("\n", pre, pre_ ?? null),
 		processName: "test-rust",
 		profileFlag: "--cargo-profile",
 		...std.args.optional("sdk", sdk),
@@ -65,24 +151,3 @@ export const testRust = async (...args: tg.Args<Arg>) => {
 };
 
 export default testRust;
-
-const gitDependencies = async (source: tg.Directory, host: string) => {
-	// Cargo vendor cannot represent the two Ruff sources with identical package names and versions.
-	const manifests = await tg.build(cargo.extractCargoManifests, source);
-	const certFile = tg`${std.caCertificates()}/cacert.pem`;
-	const dependencies = await std.build`
-		export CARGO_HOME="${tg.output}"
-		mkdir -p "$CARGO_HOME"
-		cargo fetch --locked --manifest-path ${manifests}/Cargo.toml
-	`
-		.checksum("sha256:any")
-		.named("fetch-rust-dependencies")
-		.network(true)
-		.env(std.sdk({ host }), rust({ host }), {
-			CARGO_HTTP_CAINFO: certFile,
-			CARGO_REGISTRIES_CRATES_IO_PROTOCOL: "sparse",
-			SSL_CERT_FILE: certFile,
-		})
-		.then(tg.Directory.expect);
-	return dependencies.get("git").then(tg.Directory.expect);
-};
