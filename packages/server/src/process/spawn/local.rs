@@ -48,6 +48,9 @@ impl Session {
 		parent: Option<&tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
 	) -> Option<crate::runner::capacity::Allocation> {
+		if !self.server.runner.state().healthy() {
+			return None;
+		}
 		if let Some(parent) = parent
 			&& let Some(sandbox) = self.server.runner.state().sandboxes().get_by_id(parent)
 			&& let Some(allocation) = sandbox.allocation.clone()
@@ -66,6 +69,9 @@ impl Session {
 		parent: Option<&tg::sandbox::Id>,
 		requested: tg::runner::Capacity,
 	) -> Option<crate::runner::capacity::Allocation> {
+		if !self.server.runner.state().healthy() {
+			return None;
+		}
 		if borrowed {
 			let parent = parent?;
 			return self
@@ -85,6 +91,9 @@ impl Session {
 		parent: &tg::sandbox::Id,
 		requested: tg::runner::Capacity,
 	) -> Option<crate::runner::capacity::Allocation> {
+		if !self.server.runner.state().healthy() {
+			return None;
+		}
 		let sandbox = self.server.runner.state().sandboxes().get_by_id(parent)?;
 		let allocation = sandbox.allocation.clone()?;
 		let parent = allocation.try_lock_owned().ok()?;
@@ -98,6 +107,9 @@ impl Session {
 		parent_sandbox: &tg::sandbox::Id,
 		requested: tg::runner::Capacity,
 	) -> tg::Result<()> {
+		if !self.server.runner.state().healthy() {
+			return Ok(());
+		}
 		let sandbox = self
 			.server
 			.runner
@@ -131,6 +143,9 @@ impl Session {
 		loop {
 			let scheduler = self.server.runner.state().wait_for_scheduler().await;
 			let allocation = allocation.clone().lock_owned().await;
+			if !self.server.runner.state().healthy() {
+				return Ok(());
+			}
 			let Some((capacity, mut reservation)) = self
 				.server
 				.runner

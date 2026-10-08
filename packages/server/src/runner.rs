@@ -821,7 +821,7 @@ impl Session {
 		index: u64,
 		cleanup: bool,
 	) -> tg::runner::control::HeartbeatClientNotification {
-		let capacity = if cleanup {
+		let capacity = if cleanup || !self.server.runner.state.healthy() {
 			tg::runner::control::Capacity::default()
 		} else {
 			self.server.runner.state.capacity.get()
@@ -859,6 +859,15 @@ impl Session {
 }
 
 impl State {
+	#[must_use]
+	pub(crate) fn healthy(&self) -> bool {
+		#[cfg(target_os = "linux")]
+		if let Some(pool) = &self.cpu_pool {
+			return pool.healthy();
+		}
+		true
+	}
+
 	#[must_use]
 	pub(crate) fn capacity(&self) -> &self::capacity::Pool {
 		&self.capacity

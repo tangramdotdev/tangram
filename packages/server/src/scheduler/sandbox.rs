@@ -462,7 +462,8 @@ impl State {
 			.unwrap_or(0);
 		runner.heartbeat_at = tokio::time::Instant::now();
 		runner.heartbeat_index = notification.heartbeat_index;
-		runner.ready = true;
+		runner.ready =
+			runner.capacity.total.cpu.dedicated != 0 || runner.capacity.total.cpu.shared != 0;
 		self.queue.wake();
 
 		true

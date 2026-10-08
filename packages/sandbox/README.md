@@ -83,10 +83,13 @@ excluding all siblings of dedicated cores from other sandboxes.
 can serve at most that many shared sandbox CPU allocations. Shared requests use
 distinct physical cores, preserving their requested parallelism. The allocator
 packs shared requests, moves them by updating their cgroup CPU sets, and frees
-whole cores for dedicated requests. Affected cgroups are briefly frozen during
-reassignment. Dedicated cores return to shared eligibility when released after
-their cgroups empty. Mixed accounting monitors every potential shared core, so
-CPU-set changes preserve execution accounting.
+whole cores for dedicated requests. Existing placements are retained where
+possible, and dedicated requests prefer idle cores. Live CPU-set updates keep
+sandboxes runnable while shared workloads move; dedicated cores remain in each
+sandbox's CPU set throughout the transition. Dedicated cores return to shared
+eligibility when released after their cgroups empty. Mixed accounting monitors every potential shared core, so
+CPU-set changes preserve execution accounting. Failed recovery disables pool
+admission and causes runner heartbeats to advertise zero capacity until restart.
 
 Runner capacity uses `cpu: { dedicated, shared }`: free exclusive cores and free
 slots on currently shared cores. These are convertible resources. For example,
