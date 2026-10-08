@@ -30,6 +30,7 @@ pub struct Handle {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub cpu: Option<u64>,
+	pub cpu_parent: Option<crate::cpu::Lease>,
 	pub cpu_pool: Option<crate::cpu::Pool>,
 	pub cpu_request: Option<tg::sandbox::Cpu>,
 	pub memory: Option<u64>,
@@ -67,7 +68,13 @@ impl Cgroup {
 		let allocation = options
 			.cpu_pool
 			.as_ref()
-			.map(|pool| pool.allocate(options.cpu_request.unwrap_or(1.into())))
+			.map(|pool| {
+				let cpu = options.cpu_request.unwrap_or(1.into());
+				match &options.cpu_parent {
+					Some(parent) => pool.borrow(parent, cpu),
+					None => pool.allocate(cpu),
+				}
+			})
 			.transpose()?;
 		if allocation.is_some() {
 			controllers.push("cpuset");
@@ -191,6 +198,11 @@ impl Cgroup {
 		}
 
 		Ok(cgroup)
+	}
+
+	#[must_use]
+	pub(crate) fn cpu_lease(&self) -> Option<crate::cpu::Lease> {
+		self.allocation.as_ref().map(crate::cpu::Allocation::lease)
 	}
 
 	pub fn handle(&self) -> tg::Result<Handle> {

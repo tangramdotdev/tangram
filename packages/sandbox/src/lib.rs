@@ -83,6 +83,8 @@ pub struct SpawnArg {
 pub struct Arg {
 	pub cpu: Option<tg::sandbox::Cpu>,
 	#[cfg(target_os = "linux")]
+	pub cpu_parent: Option<cpu::Lease>,
+	#[cfg(target_os = "linux")]
 	pub cpu_pool: Option<cpu::Pool>,
 	pub dns: Vec<Ipv4Addr>,
 	#[cfg(target_os = "linux")]
@@ -365,6 +367,7 @@ impl Sandbox {
 				)?;
 				let options = crate::container::cgroup::Options {
 					cpu: arg.cpu.map(tg::sandbox::Cpu::total).transpose()?,
+					cpu_parent: arg.cpu_parent.clone(),
 					cpu_pool: arg.cpu_pool.clone(),
 					cpu_request: arg.cpu,
 					memory_oom_group: true,
@@ -378,9 +381,10 @@ impl Sandbox {
 			},
 		};
 
-		// Drop the FUSE socket now that the sandbox has inherited it.
+		// Release the temporary parent lease and the inherited FUSE socket.
 		#[cfg(target_os = "linux")]
 		let arg = Arg {
+			cpu_parent: None,
 			fuse_fd: None,
 			..arg
 		};
@@ -473,6 +477,16 @@ impl Sandbox {
 		}
 
 		Ok(sandbox)
+	}
+
+	#[cfg(target_os = "linux")]
+	pub async fn cpu_lease(&self) -> Option<cpu::Lease> {
+		self.0
+			.cgroup
+			.lock()
+			.await
+			.as_ref()
+			.and_then(container::cgroup::Cgroup::cpu_lease)
 	}
 
 	/// Begin accounting when a sandbox is claimed, before spawning its workloads.

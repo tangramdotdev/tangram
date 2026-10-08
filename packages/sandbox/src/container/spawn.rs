@@ -114,6 +114,7 @@ pub(crate) async fn spawn(
 		.unwrap_or("sandbox");
 	let options = super::cgroup::Options {
 		cpu: arg.cpu.map(tg::sandbox::Cpu::total).transpose()?,
+		cpu_parent: arg.cpu_parent.clone(),
 		cpu_pool: arg.cpu_pool.clone(),
 		cpu_request: arg.cpu,
 		memory: arg.memory,

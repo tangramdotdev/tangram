@@ -699,8 +699,10 @@ impl State {
 				.0
 				.get(parent)
 				.and_then(|parent| parent.borrowable.as_ref())
-			&& contains(borrowable.capacity, sandbox.capacity)
 			&& let Some(runner) = self.runners.entries.get(&borrowable.runner)
+			&& borrowable
+				.capacity
+				.contains(sandbox.capacity, runner.capacity.cpu_oversubscription)
 			&& borrowable
 				.connection_index
 				.is_none_or(|connection_index| connection_index == runner.connection_index)
@@ -1030,12 +1032,6 @@ fn shared_cpu_limit(runner: &Runner) -> u64 {
 		.shared_cpu_limit
 		.saturating_sub(runner.reserved.cpu.dedicated)
 		.saturating_sub(runner.committed.cpu.dedicated)
-}
-
-fn contains(capacity: tg::runner::Capacity, requested: tg::runner::Capacity) -> bool {
-	capacity.cpu.shared >= requested.cpu.shared
-		&& capacity.cpu.dedicated >= requested.cpu.dedicated
-		&& capacity.memory >= requested.memory
 }
 
 fn matches_host(runner: &Runner, request: &EnqueueSandboxRequestArg) -> bool {

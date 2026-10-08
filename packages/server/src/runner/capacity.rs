@@ -16,6 +16,11 @@ pub struct Pool {
 
 pub struct Allocation {
 	capacity: tg::runner::Capacity,
+	#[cfg(target_os = "linux")]
+	cpu_lease: Option<tangram_sandbox::cpu::Lease>,
+	#[cfg(target_os = "linux")]
+	cpu_parent: Option<tangram_sandbox::cpu::Lease>,
+	oversubscription: u64,
 	source: AllocationSource,
 }
 
@@ -136,6 +141,11 @@ impl Pool {
 		let pool = self.clone();
 		Some(Allocation {
 			capacity,
+			#[cfg(target_os = "linux")]
+			cpu_lease: None,
+			#[cfg(target_os = "linux")]
+			cpu_parent: None,
+			oversubscription: self.state.oversubscription,
 			source: AllocationSource::Pool { index, pool },
 		})
 	}
@@ -170,15 +180,8 @@ impl Reservations {
 		requested: tg::runner::Capacity,
 	) -> Option<(tg::runner::Capacity, ReservationGuard)> {
 		let parent_allocation = allocation.as_ref()?;
-		// A borrowed child would create a second cgroup assignment for the same pool slots.
-		if parent_allocation.exclusive_pool() {
-			return None;
-		}
 		let capacity = parent_allocation.capacity;
-		if capacity.cpu.dedicated != 0 || requested.cpu.dedicated != 0 {
-			return None;
-		}
-		if !contains(capacity, requested) {
+		if !capacity.contains(requested, parent_allocation.oversubscription) {
 			return None;
 		}
 		let index = self.state.next_index.fetch_add(1, Ordering::Relaxed);
@@ -214,7 +217,10 @@ impl Reservations {
 		let mut entries = self.state.entries.lock().unwrap();
 		let reservation = entries.remove(parent)?;
 		let allocation = reservation.allocation.as_ref()?;
-		if !contains(allocation.capacity, requested) {
+		if !allocation
+			.capacity
+			.contains(requested, allocation.oversubscription)
+		{
 			entries.insert(parent.clone(), reservation);
 			return None;
 		}
@@ -234,26 +240,37 @@ impl Allocation {
 		requested: tg::runner::Capacity,
 	) -> Option<Self> {
 		let allocation = parent.as_ref()?;
-		if allocation.exclusive_pool() {
+		if !allocation
+			.capacity
+			.contains(requested, allocation.oversubscription)
+		{
 			return None;
 		}
-		if allocation.capacity.cpu.dedicated != 0 || requested.cpu.dedicated != 0 {
-			return None;
-		}
-		if !contains(allocation.capacity, requested) {
-			return None;
-		}
-		let capacity = allocation.capacity;
+		let capacity = requested;
+		#[cfg(target_os = "linux")]
+		let cpu_parent = allocation.cpu_lease.clone();
+		let oversubscription = allocation.oversubscription;
 		Some(Self {
 			capacity,
+			#[cfg(target_os = "linux")]
+			cpu_lease: None,
+			#[cfg(target_os = "linux")]
+			cpu_parent,
+			oversubscription,
 			source: AllocationSource::Parent(parent),
 		})
 	}
-	fn exclusive_pool(&self) -> bool {
-		match &self.source {
-			AllocationSource::Parent(parent) => parent.as_ref().is_some_and(Self::exclusive_pool),
-			AllocationSource::Pool { pool, .. } => pool.state.total.cpu.dedicated != 0,
-		}
+
+	#[cfg(target_os = "linux")]
+	#[must_use]
+	pub fn cpu_parent(&self) -> Option<tangram_sandbox::cpu::Lease> {
+		self.cpu_parent.clone()
+	}
+
+	#[cfg(target_os = "linux")]
+	pub fn set_cpu_lease(&mut self, lease: Option<tangram_sandbox::cpu::Lease>) {
+		self.cpu_lease = lease;
+		self.cpu_parent.take();
 	}
 }
 
@@ -283,12 +300,6 @@ impl Drop for Allocation {
 	}
 }
 
-fn contains(capacity: tg::runner::Capacity, requested: tg::runner::Capacity) -> bool {
-	capacity.cpu.shared >= requested.cpu.shared
-		&& capacity.cpu.dedicated >= requested.cpu.dedicated
-		&& capacity.memory >= requested.memory
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -296,6 +307,67 @@ mod tests {
 	fn capacity(dedicated: u64, shared: u64) -> tg::runner::Capacity {
 		let cpu = tg::sandbox::Cpu { dedicated, shared };
 		tg::runner::Capacity { cpu, memory: 1 }
+	}
+
+	#[test]
+	fn dedicated_capacity_can_be_borrowed_as_shared_without_extra_admission() {
+		let pool = Pool::new(capacity(1, 0), 4);
+		let parent = pool.try_acquire(capacity(1, 0)).unwrap();
+		let parent = Arc::new(tokio::sync::Mutex::new(Some(parent)));
+		let before = pool.get().available;
+		let guard = parent.clone().try_lock_owned().unwrap();
+		let child = Allocation::try_borrow(guard, capacity(0, 4)).unwrap();
+		assert_eq!(child.capacity, capacity(0, 4));
+		assert_eq!(pool.get().available, before);
+		let child = Arc::new(tokio::sync::Mutex::new(Some(child)));
+		let guard = child.clone().try_lock_owned().unwrap();
+		assert!(Allocation::try_borrow(guard, capacity(1, 0)).is_none());
+		let guard = child.clone().try_lock_owned().unwrap();
+		let grandchild = Allocation::try_borrow(guard, capacity(0, 4)).unwrap();
+		drop(grandchild);
+		drop(child);
+		assert!(parent.clone().try_lock_owned().is_ok());
+		drop(parent);
+		assert_eq!(pool.get().available, capacity(1, 0));
+	}
+
+	#[test]
+	fn reservations_apply_the_same_conversion_rules_as_shortcuts() {
+		let pool = Pool::new(capacity(1, 0), 4);
+		let parent = pool.try_acquire(capacity(1, 0)).unwrap();
+		let parent = Arc::new(tokio::sync::Mutex::new(Some(parent)));
+		let reservations = Reservations::new();
+		let id = tg::sandbox::Id::new();
+		let guard = parent.clone().try_lock_owned().unwrap();
+		assert!(
+			reservations
+				.reserve(guard, id.clone(), capacity(0, 5))
+				.is_none()
+		);
+		let guard = parent.clone().try_lock_owned().unwrap();
+		let (advertised, reservation) = reservations
+			.reserve(guard, id.clone(), capacity(0, 4))
+			.unwrap();
+		assert_eq!(advertised, capacity(1, 0));
+		let child = reservations.try_acquire(&id, capacity(0, 4)).unwrap();
+		assert_eq!(child.capacity, capacity(0, 4));
+		drop(child);
+		drop(reservation);
+		let guard = parent.clone().try_lock_owned().unwrap();
+		assert!(Allocation::try_borrow(guard, capacity(1, 0)).is_some());
+	}
+
+	#[test]
+	fn shared_capacity_cannot_be_promoted_or_oversubscribed_again() {
+		let pool = Pool::new(capacity(1, 0), 4);
+		let parent = pool.try_acquire(capacity(0, 1)).unwrap();
+		let parent = Arc::new(tokio::sync::Mutex::new(Some(parent)));
+		let guard = parent.clone().try_lock_owned().unwrap();
+		assert!(Allocation::try_borrow(guard, capacity(1, 0)).is_none());
+		let guard = parent.clone().try_lock_owned().unwrap();
+		assert!(Allocation::try_borrow(guard, capacity(0, 2)).is_none());
+		let guard = parent.clone().try_lock_owned().unwrap();
+		assert!(Allocation::try_borrow(guard, capacity(0, 1)).is_some());
 	}
 
 	#[test]

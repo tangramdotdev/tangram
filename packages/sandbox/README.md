@@ -93,11 +93,17 @@ slots on currently shared cores. These are convertible resources. For example,
 four idle cores advertise `{ dedicated: 4, shared: 0 }`; admitting one shared CPU
 at factor 4 leaves `{ dedicated: 3, shared: 3 }`. Scheduler reservations account
 for that conversion, mixed requests, memory, and the distinct-core requirement.
-Children in exclusive pools receive separate allocations rather than borrowing
-their parents' CPU slots. Sandbox prewarming is disabled for exclusive pools
-because unclaimed sandboxes would consume physical slots outside admission.
-Without an exclusive pool, `runner.cpus` selects the
-shared CPU base capacity, and the factor determines the shared admission limit.
+Children can borrow their parents' reservations without consuming additional
+runner capacity. Each dedicated parent core can supply one dedicated child CPU
+or up to `cpu_oversubscription` shared child slots. Shared parent slots can supply
+only shared child slots. A borrowed child receives its requested capacity and
+cannot lend more to its own children. CPU leases keep ancestor reservations
+alive until their borrowers finish, and borrowed cgroups follow ancestor CPU
+placement changes. Borrowing can place multiple shared slots on one physical
+core; these slots do not promise simultaneous execution on distinct cores.
+
+Sandbox prewarming is disabled for exclusive pools because unclaimed sandboxes would consume physical slots outside admission.
+Without an exclusive pool, `runner.cpus` selects the shared CPU base capacity, and the factor determines the shared admission limit.
 
 This reserves CPU scheduling capacity. Frequency scaling, thermal limits, memory
 bandwidth, and interrupts can still affect performance.
