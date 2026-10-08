@@ -689,13 +689,7 @@ impl Server {
 				));
 			}
 		}
-		if config
-			.sandbox
-			.isolation
-			.container
-			.as_ref()
-			.is_some_and(|container| container.max_pids == Some(0))
-		{
+		if config.runner.isolation.container.max_pids == Some(0) {
 			return Err(tg::error!(
 				"the maximum number of container sandbox pids must be greater than zero"
 			));

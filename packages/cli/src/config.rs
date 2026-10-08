@@ -1450,6 +1450,9 @@ pub struct Runner {
 	pub id: Option<tg::runner::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub isolation: Option<RunnerIsolation>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub javascript: Option<JavaScript>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1497,6 +1500,23 @@ pub struct Runner {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunnerIsolation {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub container: Option<ContainerRunnerIsolation>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerRunnerIsolation {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub harden: Option<bool>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_pids: Option<u64>,
 }
 
 #[serde_as]
@@ -1632,13 +1652,9 @@ pub enum SandboxIsolationDefault {
 	Vm,
 }
 
-#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ContainerSandboxIsolation {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_pids: Option<u64>,
-}
+pub struct ContainerSandboxIsolation {}
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -3853,6 +3869,9 @@ fn resolve_remote_cache(source: RemoteCache) -> server::RemoteCache {
 
 fn resolve_runner(source: Runner) -> server::Runner {
 	let mut target = server::Runner::default();
+	if let Some(source) = source.isolation {
+		target.isolation = resolve_runner_isolation(source);
+	}
 	if let Some(source) = source.javascript {
 		target.javascript = resolve_javascript(source);
 	}
@@ -3903,6 +3922,17 @@ fn resolve_runner(source: Runner) -> server::Runner {
 	}
 	if let Some(value) = source.token {
 		target.token = Some(value);
+	}
+	target
+}
+
+fn resolve_runner_isolation(source: RunnerIsolation) -> server::RunnerIsolation {
+	let mut target = server::RunnerIsolation::default();
+	if let Some(source) = source.container {
+		target.container = server::ContainerRunnerIsolation {
+			harden: source.harden.unwrap_or_default(),
+			max_pids: source.max_pids,
+		};
 	}
 	target
 }
@@ -4002,10 +4032,8 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 
 fn resolve_sandbox_isolation(source: SandboxIsolation) -> tg::Result<server::SandboxIsolation> {
 	let mut target = server::SandboxIsolation::default();
-	if let Some(source) = source.container {
-		let max_pids = source.max_pids;
-		let container = server::ContainerSandboxIsolation { max_pids };
-		target.container = Some(container);
+	if source.container.is_some() {
+		target.container = Some(server::ContainerSandboxIsolation {});
 	}
 	if source.seatbelt.is_some() {
 		target.seatbelt = Some(server::SeatbeltSandboxIsolation {});
@@ -4811,30 +4839,32 @@ mod tests {
 	}
 
 	#[test]
-	fn parses_and_resolves_container_max_pids() {
-		let source: Sandbox = serde_json::from_value(serde_json::json!({
+	fn parses_and_resolves_container_runner_isolation() {
+		let source: Runner = serde_json::from_value(serde_json::json!({
 			"isolation": {
-				"container": { "max_pids": 1234 },
+				"container": { "harden": true, "max_pids": 1234 },
 			},
 		}))
 		.unwrap();
-		let target = resolve_sandbox(source).unwrap();
-		let container = target.isolation.container.unwrap();
+		let target = resolve_runner(source);
+		let container = target.isolation.container;
 
+		assert!(container.harden);
 		assert_eq!(container.max_pids, Some(1234));
 	}
 
 	#[test]
-	fn resolves_container_max_pids_as_optional() {
-		let source: Sandbox = serde_json::from_value(serde_json::json!({
+	fn resolves_container_runner_isolation_as_optional() {
+		let source: Runner = serde_json::from_value(serde_json::json!({
 			"isolation": {
 				"container": {},
 			},
 		}))
 		.unwrap();
-		let target = resolve_sandbox(source).unwrap();
-		let container = target.isolation.container.unwrap();
+		let target = resolve_runner(source);
+		let container = target.isolation.container;
 
+		assert!(!container.harden);
 		assert_eq!(container.max_pids, None);
 	}
 

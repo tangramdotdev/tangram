@@ -641,20 +641,20 @@ impl Session {
 	)]
 	async fn create_sandbox_inner(
 		&self,
-		arg: tg::sandbox::create::Arg,
+		mut arg: tg::sandbox::create::Arg,
 	) -> tg::Result<CreateSandboxOutput> {
 		let isolation = match &arg.isolation {
 			Some(tg::sandbox::Isolation::Container) => {
-				let container = self
-					.server
+				self.server
 					.config()
 					.sandbox
 					.isolation
 					.container
 					.as_ref()
 					.ok_or_else(|| tg::error!("container isolation is not configured"))?;
+				let container = &self.server.config().runner.isolation.container;
 				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation {
-					max_pids: container.max_pids,
+					max_pids: container.max_pids(),
 				})
 			},
 			Some(tg::sandbox::Isolation::Seatbelt) => {
@@ -701,6 +701,19 @@ impl Session {
 			},
 			None => self.server.resolve_sandbox_isolation()?,
 		};
+		if matches!(&isolation, tangram_sandbox::Isolation::Container(_))
+			&& self.server.config().runner.isolation.container.harden
+		{
+			if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
+				return Err(tg::error!(
+					"host networking is not allowed for hardened container isolation"
+				));
+			}
+			arg.cpu
+				.get_or_insert(self.server.config().scheduler.default_cpu);
+			arg.memory
+				.get_or_insert(self.server.config().scheduler.default_memory);
+		}
 
 		#[cfg(target_os = "linux")]
 		self.ensure_vm_isolation(&isolation).await?;
