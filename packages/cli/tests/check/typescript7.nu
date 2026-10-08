@@ -13,7 +13,7 @@ let local = server spawn --config {
 }
 
 let path = artifact {
-	value.tg.ts: 'export const value = 42;'
+	value.tg.ts: 'export const value = 42; export const assert = () => 42; export const assert_ = () => 43;'
 	tangram.ts: '
 		import { value } from "./value.tg.ts";
 		const number: number = value;
@@ -21,7 +21,9 @@ let path = artifact {
 	'
 }
 
-success (tg check $path | complete)
+let output = tg check $path | complete
+success $output
+assert ($output.stderr | str contains 'python names the export assert as assert__') $output.stderr
 
 'export const value: number = "wrong";' | save --force ($path | path join value.tg.ts)
 let output = tg check $path | complete

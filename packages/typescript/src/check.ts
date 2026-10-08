@@ -9,6 +9,7 @@ export type Request = {
 
 export type Response = {
 	diagnostics: Array<Diagnostic>;
+	modules: Array<Module>;
 };
 
 export let handle = (request: Request): Response => {
@@ -33,5 +34,8 @@ export let handle = (request: Request): Response => {
 		].map(typescript.convertDiagnostic),
 	);
 
-	return { diagnostics };
+	let modules = program
+		.getSourceFiles()
+		.map((file) => typescript.moduleFromFileName(file.fileName));
+	return { diagnostics, modules };
 };

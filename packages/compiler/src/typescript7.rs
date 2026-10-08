@@ -130,7 +130,18 @@ impl Service {
 			.map_err(|error| tg::error!(!error, "failed to release the typescript 7 resolver"))?;
 		guard.replace(client);
 
-		let response = check::Response { diagnostics };
+		let modules = {
+			let files = host.files.lock().unwrap();
+			files
+				.texts
+				.keys()
+				.filter_map(|path| files.try_module(path).transpose())
+				.collect::<tg::Result<Vec<_>>>()?
+		};
+		let response = check::Response {
+			diagnostics,
+			modules,
+		};
 
 		Ok(response)
 	}

@@ -367,13 +367,17 @@ impl Database {
 		Ok(tg::module::data::Location { module, range })
 	}
 
-	pub(super) fn check(&self, modules: Vec<tg::module::Data>) -> tg::Result<Vec<tg::Diagnostic>> {
+	pub(super) fn check(
+		&self,
+		modules: Vec<tg::module::Data>,
+	) -> tg::Result<crate::check::Response> {
 		let mut pending = modules
 			.into_iter()
 			.map(|module| self.register(module))
 			.collect::<tg::Result<Vec<_>>>()?;
 		let mut checked = BTreeSet::new();
 		let mut diagnostics = Vec::new();
+		let mut modules = Vec::new();
 		while let Some(entry) = pending.pop() {
 			if !checked.insert(entry.module.without_token().to_string()) {
 				continue;
@@ -381,6 +385,7 @@ impl Database {
 			if let Some(error) = &entry.error {
 				return Err(error.clone());
 			}
+			modules.push(entry.module.clone());
 			diagnostics.extend(entry.diagnostics.iter().cloned());
 			if entry.module.kind != tg::module::Kind::Python {
 				continue;
@@ -398,7 +403,12 @@ impl Database {
 		if let Some(error) = self.error.lock().unwrap().take() {
 			return Err(error);
 		}
-		Ok(diagnostics)
+		let diagnostics = diagnostics.iter().map(tg::Diagnostic::to_data).collect();
+		let response = crate::check::Response {
+			diagnostics,
+			modules,
+		};
+		Ok(response)
 	}
 
 	fn register(&self, module: tg::module::Data) -> tg::Result<Arc<Entry>> {

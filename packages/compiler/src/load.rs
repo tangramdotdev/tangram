@@ -1,7 +1,13 @@
 #[cfg(not(feature = "python"))]
 use tangram_client::prelude::*;
 #[cfg(feature = "python")]
-use {std::fmt::Write as _, tangram_client::prelude::*};
+use {
+	std::{
+		collections::{BTreeMap, BTreeSet},
+		fmt::Write as _,
+	},
+	tangram_client::prelude::*,
+};
 
 #[cfg(feature = "python")]
 mod javascript;
@@ -40,41 +46,35 @@ pub fn module(
 			output.push_str("export {};\n");
 		},
 		tg::module::load::Language::Python => {
-			// Choose helper names that cannot shadow an export.
+			// Bind each export to a name in the consuming language.
+			let bindings = exports
+				.iter()
+				.map(|name| python::binding(name, &exports).map(|binding| (binding, name)))
+				.collect::<tg::Result<BTreeMap<_, _>>>()?;
+
+			// Choose helper names that cannot shadow a binding.
 			let mut prefix = "_tg".to_owned();
-			while exports.iter().any(|name| name.starts_with(&prefix)) {
+			while bindings.keys().any(|binding| binding.starts_with(&prefix)) {
 				prefix.push('_');
 			}
+
+			// Generate a function for each binding.
 			writeln!(output, "import tangram as {prefix}_client").unwrap();
-			for name in &exports {
-				if name == "__all__" {
-					return Err(tg::error!(
-						"the export name __all__ is reserved by the python loader"
-					));
-				}
-				// Python cannot bind a JavaScript export whose name is not a Python identifier.
-				let binding = format!("{name} = None");
-				let parsed = ruff_python_parser::parse_module(&binding).map_err(|error| {
-					tg::error!(
-						!error,
-						export = %name,
-						"the export name is not a python identifier"
-					)
-				})?;
-				if !matches!(parsed.syntax().body.as_slice(), [ruff_python_ast::Stmt::Assign(assign)] if matches!(assign.targets.as_slice(), [ruff_python_ast::Expr::Name(target)] if target.id.as_str() == name))
-				{
-					return Err(tg::error!(
-						export = %name,
-						"the export name is not a python identifier"
-					));
-				}
+			for (binding, name) in &bindings {
 				writeln!(
 					output,
-					"async def {name}(*{prefix}_args: {prefix}_client.Value.Type) -> {prefix}_client.Value.Type:\n    return await {prefix}_client.command({name}, *{prefix}_args).build()"
+					"async def {binding}(*{prefix}_args: {prefix}_client.Value.Type) -> {prefix}_client.Value.Type:\n    return await {prefix}_client.command({binding}, *{prefix}_args).build()"
 				)
 				.unwrap();
+				// Record the export name so that the function targets the export rather than the binding.
+				if binding != *name {
+					let name = serde_json::to_string(name).unwrap();
+					writeln!(output, "{binding}.__tangram_export__ = {name}").unwrap();
+				}
 			}
-			let names = serde_json::to_string(&exports).unwrap();
+
+			let names = bindings.keys().collect::<Vec<_>>();
+			let names = serde_json::to_string(&names).unwrap();
 			writeln!(output, "__all__ = {names}").unwrap();
 		},
 	}
@@ -93,6 +93,65 @@ pub fn module(
 		return Err(tg::error!("the python feature is not enabled"));
 	}
 	Ok(text.to_owned())
+}
+
+/// Warn about exports that another language must rename or cannot bind.
+#[cfg(feature = "python")]
+#[must_use]
+pub fn diagnostics(
+	module: &tg::module::Data,
+	text: &str,
+	encoding: tg::position::Encoding,
+) -> Vec<tg::diagnostic::Data> {
+	// Only Python renames exports. JavaScript writes every name that a Python module exports as `module.name`.
+	if !matches!(
+		module.kind,
+		tg::module::Kind::JavaScript | tg::module::Kind::TypeScript
+	) {
+		return Vec::new();
+	}
+
+	// The checker reports a module that cannot be parsed.
+	let Ok(names) = javascript::declarations(module, text) else {
+		return Vec::new();
+	};
+
+	let exports = names.keys().cloned().collect::<BTreeSet<_>>();
+	names
+		.into_iter()
+		.filter_map(|(name, range)| {
+			let message = match python::binding(&name, &exports) {
+				Ok(binding) if binding == name => return None,
+				Ok(binding) => {
+					format!("python names the export {name} as {binding}")
+				},
+				Err(error) => {
+					format!("python cannot bind the export {name}: {error}")
+				},
+			};
+			let range = tg::Range::try_from_byte_range_in_string(text, range, encoding)?;
+			let location = tg::module::data::Location {
+				module: module.without_token(),
+				range,
+			};
+			let diagnostic = tg::diagnostic::Data {
+				location: Some(location),
+				message,
+				severity: tg::diagnostic::Severity::Warning,
+			};
+			Some(diagnostic)
+		})
+		.collect()
+}
+
+#[cfg(not(feature = "python"))]
+#[must_use]
+pub fn diagnostics(
+	_module: &tg::module::Data,
+	_text: &str,
+	_encoding: tg::position::Encoding,
+) -> Vec<tg::diagnostic::Data> {
+	Vec::new()
 }
 
 #[cfg(feature = "python")]
@@ -170,14 +229,102 @@ mod tests {
 	}
 
 	#[test]
+	fn renames_python_keyword_exports() {
+		let source = source(tg::module::Kind::TypeScript);
+		let text = module(
+			&source,
+			"export const lambda = () => 42; export const match = () => 42; export const type = () => 42; export const _ = () => 42; export default () => 42;",
+			Some(tg::module::load::Language::Python),
+		)
+		.unwrap();
+		assert!(ruff_python_parser::parse_module(&text).is_ok());
+		assert!(text.contains("async def lambda_("));
+		assert!(text.contains("lambda_.__tangram_export__ = \"lambda\"\n"));
+		// Python writes a soft keyword and the default export's name as attributes, so they keep their names.
+		for name in ["match", "type", "_", "default"] {
+			assert!(text.contains(&format!("async def {name}(")), "{text}");
+			assert!(
+				!text.contains(&format!("\n{name}.__tangram_export__")),
+				"{text}"
+			);
+		}
+		assert!(text.contains("__all__ = [\"_\",\"default\",\"lambda_\",\"match\",\"type\"]\n"));
+	}
+
+	#[test]
+	fn renames_colliding_python_exports() {
+		let source = source(tg::module::Kind::TypeScript);
+		let text = module(
+			&source,
+			"export const lambda = () => 42; export const lambda_ = () => 42; export const lambda__ = () => 42;",
+			Some(tg::module::load::Language::Python),
+		)
+		.unwrap();
+		assert!(ruff_python_parser::parse_module(&text).is_ok());
+		// The export's own name takes precedence over the escaped name of another export.
+		assert!(text.contains("async def lambda_("));
+		assert!(!text.contains("lambda_.__tangram_export__"));
+		assert!(text.contains("async def lambda__("));
+		assert!(text.contains("async def lambda___("));
+		assert!(text.contains("lambda___.__tangram_export__ = \"lambda\"\n"));
+		assert!(text.contains("__all__ = [\"lambda_\",\"lambda__\",\"lambda___\"]\n"));
+	}
+
+	#[test]
 	fn rejects_unrepresentable_python_exports() {
 		let source = source(tg::module::Kind::TypeScript);
 		for text in [
+			"export const $ = () => 42;",
 			"const f = () => 42; export { f as 'not-an-identifier' };",
 			"export const __all__ = () => 42;",
-			"export const lambda = () => 42;",
 		] {
 			assert!(module(&source, text, Some(tg::module::load::Language::Python)).is_err());
 		}
+	}
+
+	#[test]
+	fn warns_about_renamed_exports() {
+		let text = "export const lambda = () => 42;\nexport const $ = () => 42;\nexport const match = () => 42;\nexport default () => 42;\n";
+		let warnings = diagnostics(
+			&source(tg::module::Kind::TypeScript),
+			text,
+			tg::position::Encoding::Utf8,
+		);
+		let warnings = warnings
+			.iter()
+			.map(|diagnostic| {
+				let range = diagnostic.location.as_ref().unwrap().range;
+				assert!(diagnostic.severity.is_warning());
+				(
+					range.start.line,
+					range.start.character,
+					range.end.character,
+					diagnostic.message.as_str(),
+				)
+			})
+			.collect::<Vec<_>>();
+		assert_eq!(
+			warnings,
+			[
+				(
+					1,
+					13,
+					14,
+					"python cannot bind the export $: the export name is not a python identifier"
+				),
+				(0, 13, 19, "python names the export lambda as lambda_"),
+			]
+		);
+
+		// JavaScript writes every name that a Python module exports.
+		let text = "def new(): pass\ndef delete(): pass\n";
+		assert!(
+			diagnostics(
+				&source(tg::module::Kind::Python),
+				text,
+				tg::position::Encoding::Utf8
+			)
+			.is_empty()
+		);
 	}
 }

@@ -31,7 +31,7 @@ enum Request {
 }
 
 enum Response {
-	Check(Vec<tg::Diagnostic>),
+	Check(crate::check::Response),
 	Query(crate::Response),
 }
 
@@ -94,13 +94,12 @@ impl Compiler {
 	pub(super) async fn check_python(
 		&self,
 		modules: Vec<tg::module::Data>,
-	) -> tg::Result<Vec<tg::Diagnostic>> {
-		let Response::Check(diagnostics) =
-			self.python.request(self, Request::Check(modules)).await?
+	) -> tg::Result<crate::check::Response> {
+		let Response::Check(response) = self.python.request(self, Request::Check(modules)).await?
 		else {
 			return Err(tg::error!("unexpected python response"));
 		};
-		Ok(diagnostics)
+		Ok(response)
 	}
 
 	pub(super) async fn request_python(
