@@ -2,15 +2,14 @@ use crate::prelude::*;
 
 #[derive(Clone, Debug)]
 pub struct State {
-	pub actual_checksum: Option<tg::Checksum>,
 	pub cacheable: bool,
+	pub checksum: tg::process::Checksum,
 	pub children: Option<Vec<Child>>,
 	pub command: tg::Referent<tg::Either<Box<tg::process::data::Command>, tg::command::Id>>,
 	pub created_at: i64,
 	pub debug: Option<tg::process::Debug>,
 	pub error: Option<tg::Error>,
 	pub exit: Option<u8>,
-	pub expected_checksum: Option<tg::Checksum>,
 	pub finished_at: Option<i64>,
 	pub host: String,
 	pub log: Option<tg::Blob>,
@@ -81,8 +80,8 @@ impl State {
 
 	#[must_use]
 	pub fn to_data(&self) -> tg::process::Data {
-		let actual_checksum = self.actual_checksum.clone();
 		let cacheable = self.cacheable;
+		let checksum = self.checksum.clone();
 		let children = self
 			.children
 			.as_ref()
@@ -95,7 +94,6 @@ impl State {
 			.as_ref()
 			.map(|error| error.to_data_or_id().map_right(|_| error.to_referent()));
 		let exit = self.exit;
-		let expected_checksum = self.expected_checksum.clone();
 		let finished_at = self.finished_at;
 		let host = self.host.clone();
 		let log = self.log.as_ref().map(tg::Blob::to_referent);
@@ -109,15 +107,14 @@ impl State {
 		let stdout = self.stdout.clone();
 		let tty = self.tty;
 		tg::process::Data {
-			actual_checksum,
 			cacheable,
+			checksum,
 			children,
 			command,
 			created_at,
 			debug,
 			error,
 			exit,
-			expected_checksum,
 			finished_at,
 			host,
 			log,
@@ -134,8 +131,8 @@ impl State {
 	}
 
 	pub fn try_from_data(value: tg::process::Data) -> tg::Result<Self> {
-		let actual_checksum = value.actual_checksum;
 		let cacheable = value.cacheable;
+		let checksum = value.checksum;
 		let children = value
 			.children
 			.map(|children| {
@@ -159,7 +156,6 @@ impl State {
 			})
 			.transpose()?;
 		let exit = value.exit;
-		let expected_checksum = value.expected_checksum;
 		let finished_at = value.finished_at;
 		let host = value.host;
 		let log = value.log.map(tg::Blob::with_referent);
@@ -173,15 +169,14 @@ impl State {
 		let stdout = value.stdout;
 		let tty = value.tty;
 		Ok(Self {
-			actual_checksum,
 			cacheable,
+			checksum,
 			children,
 			command,
 			created_at,
 			debug,
 			error,
 			exit,
-			expected_checksum,
 			finished_at,
 			host,
 			log,

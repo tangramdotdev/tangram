@@ -6,6 +6,7 @@ pub mod data;
 
 #[derive(Clone, Debug)]
 pub struct Outcome {
+	pub checksum: Option<tg::Checksum>,
 	pub error: Option<tg::Error>,
 	pub exit: u8,
 	pub output: Option<tg::Value>,
@@ -62,6 +63,7 @@ impl Outcome {
 			})
 			.transpose()?;
 		Ok(Self {
+			checksum: data.checksum,
 			error,
 			exit: data.exit,
 			output: data.output.map(TryInto::try_into).transpose()?,
@@ -71,6 +73,7 @@ impl Outcome {
 	#[must_use]
 	pub fn to_data(&self) -> Data {
 		Data {
+			checksum: self.checksum.clone(),
 			error: self
 				.error
 				.as_ref()

@@ -887,6 +887,7 @@ impl<O: 'static> tg::Process<O> {
 			.map_err(|error| tg::error!(!error, "failed to wait for the process"))?;
 		let exit = exit_status_to_code(status)?;
 		let mut outcome = tg::process::outcome::Data {
+			checksum: None,
 			error: None,
 			exit,
 			output: None,
@@ -905,6 +906,7 @@ impl<O: 'static> tg::Process<O> {
 		if let Some(bytes) = outcome_bytes {
 			let data = serde_json::from_slice::<tg::process::outcome::Data>(&bytes)
 				.map_err(|error| tg::error!(!error, "failed to parse the outcome xattr"))?;
+			outcome.checksum = data.checksum;
 			outcome.error = data.error;
 			outcome.output = data.output;
 		} else if exists {
@@ -941,6 +943,19 @@ impl<O: 'static> tg::Process<O> {
 					tg::Error::with_referent(referent)
 				};
 				outcome.error = Some(error.to_data_or_id().map_right(|_| error.to_referent()));
+			}
+		}
+
+		if outcome.checksum.is_none() && exists {
+			let bytes = tg::file::xattrs::read_checksum(&output_path)
+				.map_err(|error| tg::error!(!error, "failed to read the checksum xattr"))?;
+			if let Some(bytes) = bytes {
+				let checksum = String::from_utf8(bytes)
+					.map_err(|error| tg::error!(!error, "failed to decode the checksum xattr"))?;
+				let checksum = checksum
+					.parse()
+					.map_err(|error| tg::error!(!error, "failed to parse the checksum xattr"))?;
+				outcome.checksum = Some(checksum);
 			}
 		}
 

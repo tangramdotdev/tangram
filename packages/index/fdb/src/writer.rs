@@ -971,9 +971,14 @@ impl Index {
 		Self::execute_ordered_ranges(items.len(), size, |range| {
 			let items_or_requests = tg::Either::Left(&items[range]);
 			async move {
-				let responses =
-					Self::execute_transaction_with(database, subspace, items_or_requests, config, true)
-						.await?;
+				let responses = Self::execute_transaction_with(
+					database,
+					subspace,
+					items_or_requests,
+					config,
+					true,
+				)
+				.await?;
 				let [Response::Mutation(result)] = responses.as_slice() else {
 					return Err(TransactionError::Tangram(tg::error!(
 						"unexpected write response"
@@ -1002,7 +1007,7 @@ impl Index {
 		} else if let Some((left, right)) = Self::try_split_range(0..len) {
 			vec![left, right]
 		} else {
-			vec![0..len]
+			std::iter::once(0..len).collect::<Vec<_>>()
 		};
 		// Reverse the ranges so they are popped, and therefore committed, in order.
 		pending.reverse();
@@ -1064,8 +1069,14 @@ impl Index {
 		});
 
 		let items_or_requests = tg::Either::Right(requests);
-		Self::execute_transaction_with(database, subspace, items_or_requests, config, priority_batch)
-			.await
+		Self::execute_transaction_with(
+			database,
+			subspace,
+			items_or_requests,
+			config,
+			priority_batch,
+		)
+		.await
 	}
 
 	async fn execute_transaction_with(

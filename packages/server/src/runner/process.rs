@@ -1259,7 +1259,7 @@ impl Session {
 		) {
 			data.cacheable = false;
 		}
-		if let Some(expected) = &data.expected_checksum
+		if let Some(expected) = &data.checksum.expected
 			&& exit == 0
 		{
 			if let Some(actual) = &outcome.checksum
@@ -1280,7 +1280,7 @@ impl Session {
 				return Err(tg::error!(?id, "the actual checksum was not set"));
 			}
 		}
-		data.actual_checksum = outcome.checksum.clone();
+		data.checksum.actual = outcome.checksum.clone();
 		data.error = error;
 		data.exit = Some(exit);
 		crate::checkpoint!(self.server, "runner.process.output.stored", process = %id).await;
@@ -1421,7 +1421,7 @@ impl Session {
 		let mut process_state = processes
 			.get_mut(id)
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		process_state.data.actual_checksum = data.actual_checksum.clone();
+		process_state.data.checksum = data.checksum.clone();
 		process_state.data.cacheable = data.cacheable;
 		process_state.data.error = data.error.clone();
 		process_state.data.exit = data.exit;
@@ -2143,15 +2143,6 @@ impl Session {
 			.await
 			.map_err(|error| tg::error!(!error, "failed to determine if the output path exists"))?;
 
-		// Try to read the user.tangram.checksum xattr.
-		if let Ok(Some(bytes)) = tg::file::xattrs::read_checksum(&path) {
-			let checksum = String::from_utf8(bytes)
-				.map_err(|error| tg::error!(!error, "failed to parse the checksum xattr"))
-				.and_then(|string| string.parse::<tg::Checksum>())
-				.map_err(|error| tg::error!(!error, "failed to parse the checksum string"))?;
-			outcome.checksum = Some(checksum);
-		}
-
 		// Read the combined outcome before the separate output and error attributes.
 		let outcome_bytes = if exists {
 			tg::file::xattrs::read_outcome(&path)?
@@ -2163,6 +2154,7 @@ impl Session {
 			let data = serde_json::from_slice::<tg::process::outcome::Data>(&bytes)
 				.map_err(|error| tg::error!(!error, "failed to parse the outcome xattr"))?;
 			let value = tg::process::Outcome::try_from(data)?;
+			outcome.checksum = value.checksum;
 			outcome.error = value.error;
 			outcome.output = value.output;
 		} else if exists {
@@ -2191,6 +2183,17 @@ impl Session {
 				};
 				outcome.error = Some(error);
 			}
+		}
+
+		// Try to read the user.tangram.checksum xattr.
+		if outcome.checksum.is_none()
+			&& let Ok(Some(bytes)) = tg::file::xattrs::read_checksum(&path)
+		{
+			let checksum = String::from_utf8(bytes)
+				.map_err(|error| tg::error!(!error, "failed to parse the checksum xattr"))
+				.and_then(|string| string.parse::<tg::Checksum>())
+				.map_err(|error| tg::error!(!error, "failed to parse the checksum string"))?;
+			outcome.checksum = Some(checksum);
 		}
 
 		// Check in the output.
@@ -2224,7 +2227,7 @@ impl Session {
 
 		// Compute the checksum if necessary.
 		if let (Some(checksum), None, Some(value)) =
-			(&state.expected_checksum, &outcome.checksum, &outcome.output)
+			(&state.checksum.expected, &outcome.checksum, &outcome.output)
 		{
 			let algorithm = checksum.algorithm();
 			let checksum = self

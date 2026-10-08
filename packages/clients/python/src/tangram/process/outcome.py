@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 
 class ProcessOutcome[O: ValueType](TypedDict):
+    checksum: str | None
     error: Error | None
     exit: int
     output: NotRequired[O]
@@ -23,6 +24,7 @@ class ProcessOutcome[O: ValueType](TypedDict):
 
 class Outcome:
     class Data(TypedDict):
+        checksum: NotRequired[str | None]
         error: NotRequired[ErrorData | str | None]
         exit: int
         output: NotRequired[ValueData]
@@ -39,7 +41,11 @@ class Outcome:
             if error is not None
             else None
         )
-        output: ProcessOutcome[ValueType] = {"error": error, "exit": data["exit"]}
+        output: ProcessOutcome[ValueType] = {
+            "checksum": data.get("checksum"),
+            "error": error,
+            "exit": data["exit"],
+        }
         if "output" in data:
             output["output"] = Value.from_data(data["output"])
         return output
@@ -65,6 +71,8 @@ class Outcome:
     @staticmethod
     def to_data[O: ValueType](value: ProcessOutcome[O]) -> Outcome.Data:
         output: Outcome.Data = {"exit": value["exit"]}
+        if value.get("checksum") is not None:
+            output["checksum"] = value["checksum"]
         error = value.get("error")
         if error is not None:
             output["error"] = Error.to_data_or_id(error)

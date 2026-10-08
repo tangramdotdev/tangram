@@ -34,6 +34,7 @@ impl Output {
 			.exit
 			.ok_or_else(|| tg::error!(process = %self.id, "expected the exit to be set"))?;
 		Ok(Some(tg::process::outcome::Data {
+			checksum: self.data.checksum.actual.clone(),
 			error,
 			exit,
 			output: self.data.output.clone(),
@@ -398,16 +399,19 @@ impl Session {
 					.ok_or_else(|| tg::error!("invalid tty"))
 			})
 			.transpose()?;
+		let checksum = tg::process::Checksum {
+			actual: None,
+			expected: arg.checksum.clone(),
+		};
 		let data = tg::process::Data {
-			actual_checksum: None,
 			cacheable,
+			checksum,
 			children: None,
 			command: command.clone(),
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: None,
 			exit: None,
-			expected_checksum: arg.checksum.clone(),
 			finished_at: None,
 			host: host.to_owned(),
 			log: None,

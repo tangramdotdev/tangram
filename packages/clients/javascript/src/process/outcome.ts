@@ -1,6 +1,7 @@
 import * as tg from "../index.ts";
 
 export type Outcome = {
+	checksum: tg.Checksum | null;
 	error: tg.Error | null;
 	exit: number;
 	output?: tg.Value;
@@ -8,6 +9,7 @@ export type Outcome = {
 
 export namespace Outcome {
 	export type Data = {
+		checksum?: tg.Checksum | null;
 		error?: tg.Error.Data | string | null;
 		exit: number;
 		output?: tg.Value.Data;
@@ -15,6 +17,7 @@ export namespace Outcome {
 
 	export let fromData = (data: tg.Process.Outcome.Data): tg.Process.Outcome => {
 		let outcome: Outcome = {
+			checksum: data.checksum ?? null,
 			error:
 				data.error !== undefined && data.error !== null
 					? typeof data.error === "string"
@@ -62,6 +65,9 @@ export namespace Outcome {
 		let outcome: Data = {
 			exit: value.exit,
 		};
+		if (value.checksum !== null) {
+			outcome.checksum = value.checksum;
+		}
 		if (value.error !== null) {
 			outcome.error = tg.Error.toDataOrId(value.error);
 		}
