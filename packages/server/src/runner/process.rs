@@ -1396,12 +1396,7 @@ impl Session {
 		)
 		.await;
 		let result = self
-			.put_process_local_inner(
-				&id,
-				arg,
-				crate::process::put::ObjectPermissions::Capture,
-				options,
-			)
+			.put_process_local_inner(&id, arg, tg::Principal::Process(id.clone()), options)
 			.await;
 		if let Err(error) = &result {
 			tracing::error!(error = %error.trace(), process = %id, "failed to index the finished process");

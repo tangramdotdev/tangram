@@ -872,6 +872,7 @@ impl Server {
 			let memory = runner
 				.memory
 				.unwrap_or_else(|| default_memory.saturating_mul(cpus));
+			#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
 			let mut capacity = tg::runner::Capacity {
 				cpus,
 				dedicated_cpus: 0,

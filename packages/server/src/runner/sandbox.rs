@@ -645,6 +645,7 @@ impl Session {
 		&self,
 		mut arg: tg::sandbox::create::Arg,
 	) -> tg::Result<CreateSandboxOutput> {
+		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
 		let mut isolation = match &arg.isolation {
 			Some(tg::sandbox::Isolation::Container) => {
 				self.server
@@ -761,6 +762,7 @@ impl Session {
 		};
 
 		// Create the temp.
+		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
 		let mut temp = Temp::new(&self.server);
 		#[cfg(target_os = "linux")]
 		if let Some(project_id) = filesystem_project_id {
