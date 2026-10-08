@@ -50,11 +50,29 @@ where
 		external_mount: bool,
 		options: &Options,
 	) -> Result<RingConfig> {
+		let queue_count = Self::possible_cpu_count()?;
+		let available_parallelism =
+			std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
+		Self::ring_config_with_cpu_counts(
+			page_size,
+			external_mount,
+			options,
+			queue_count,
+			available_parallelism,
+		)
+	}
+
+	pub(super) fn ring_config_with_cpu_counts(
+		page_size: usize,
+		external_mount: bool,
+		options: &Options,
+		queue_count: usize,
+		available_parallelism: usize,
+	) -> Result<RingConfig> {
 		// Derive the per-queue payload budget.
 		if page_size == 0 {
 			return Err(Error::other("the system page size is zero"));
 		}
-		let queue_count = Self::possible_cpu_count()?;
 		let max_payload_size = options
 			.io_uring_payload_memory_budget
 			.checked_div(queue_count)
@@ -80,8 +98,6 @@ where
 		};
 
 		// Derive the worker count.
-		let available_parallelism =
-			std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
 		let worker_count = if external_mount {
 			1
 		} else {
