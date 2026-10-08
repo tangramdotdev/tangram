@@ -46,11 +46,14 @@ pub fn module(
 			output.push_str("export {};\n");
 		},
 		tg::module::load::Language::Python => {
-			// Bind each export to a name in the consuming language.
+			// Bind each export that Python can name. The checker warns about the others.
 			let bindings = exports
 				.iter()
-				.map(|name| python::binding(name, &exports).map(|binding| (binding, name)))
-				.collect::<tg::Result<BTreeMap<_, _>>>()?;
+				.filter_map(|name| {
+					let binding = python::binding(name, &exports).ok()?;
+					Some((binding, name))
+				})
+				.collect::<BTreeMap<_, _>>();
 
 			// Choose helper names that cannot shadow a binding.
 			let mut prefix = "_tg".to_owned();
@@ -111,7 +114,7 @@ pub fn diagnostics(
 		return Vec::new();
 	}
 
-	// The checker reports a module that cannot be parsed.
+	// A module whose exports cannot be discovered fails when Python imports it, so there is nothing to warn about.
 	let Ok(names) = javascript::declarations(module, text) else {
 		return Vec::new();
 	};
@@ -271,15 +274,18 @@ mod tests {
 	}
 
 	#[test]
-	fn rejects_unrepresentable_python_exports() {
+	fn omits_unbindable_python_exports() {
 		let source = source(tg::module::Kind::TypeScript);
-		for text in [
-			"export const $ = () => 42;",
-			"const f = () => 42; export { f as 'not-an-identifier' };",
-			"export const __all__ = () => 42;",
-		] {
-			assert!(module(&source, text, Some(tg::module::load::Language::Python)).is_err());
-		}
+		let text = module(
+			&source,
+			"export const $ = () => 42; export const __all__ = () => 42; export const value = () => 42;",
+			Some(tg::module::load::Language::Python),
+		)
+		.unwrap();
+		assert!(ruff_python_parser::parse_module(&text).is_ok());
+		assert!(!text.contains('$'), "{text}");
+		assert!(!text.contains("def __all__("), "{text}");
+		assert!(text.contains("__all__ = [\"value\"]\n"), "{text}");
 	}
 
 	#[test]
