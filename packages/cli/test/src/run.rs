@@ -46,6 +46,10 @@ pub struct Args {
 	#[arg(long)]
 	no_capture: bool,
 
+	/// Skip the external Node.js and Python client suites.
+	#[arg(long)]
+	no_clients: bool,
+
 	/// Show only the aggregate progress bar, without listing running tests.
 	#[arg(long)]
 	no_progress_details: bool,
@@ -125,7 +129,7 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 	}
 
 	// Select the tests.
-	let tests = discover(&args.filters)?;
+	let tests = discover(&args.filters, args.no_clients)?;
 	if tests.is_empty() {
 		return Err("no tests matched the provided filters".into());
 	}
@@ -234,7 +238,7 @@ pub async fn run(args: Args) -> Result<ExitCode> {
 }
 
 /// Find the test files whose paths match any of the filters.
-fn discover(filters: &[String]) -> Result<Vec<Test>> {
+fn discover(filters: &[String], no_clients: bool) -> Result<Vec<Test>> {
 	let pattern = if filters.is_empty() {
 		".*".to_owned()
 	} else {
@@ -257,6 +261,9 @@ fn discover(filters: &[String]) -> Result<Vec<Test>> {
 		.filter_map(|path| {
 			let name = path.strip_prefix(&tests_path).ok()?.to_str()?.to_owned();
 			if name.starts_with("lib/") || !regex.is_match(path.to_str()?) {
+				return None;
+			}
+			if no_clients && (name.starts_with("node/") || name.starts_with("python/")) {
 				return None;
 			}
 			Some(Test { name, path })
