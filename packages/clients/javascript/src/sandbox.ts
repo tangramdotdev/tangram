@@ -150,7 +150,7 @@ export namespace Sandbox {
 	export type Id = string;
 
 	export type DataArg = {
-		cpu?: number | null;
+		cpu?: tg.Sandbox.Cpu | null;
 		host?: string | null;
 		hostname?: string | null;
 		isolation?: tg.Sandbox.Isolation.Data | null;
@@ -163,7 +163,7 @@ export namespace Sandbox {
 	};
 
 	export type Data = {
-		cpu?: number | null;
+		cpu?: tg.Sandbox.Cpu | null;
 		creator?: string | null;
 		hostname?: string | null;
 		id: tg.Sandbox.Id;
@@ -178,9 +178,38 @@ export namespace Sandbox {
 	};
 
 	export type Usage = {
-		cpu: number;
+		cpu: { dedicated: number; shared: number };
 		memory: number;
 	};
+
+	export type Cpu = { dedicated?: number; shared?: number };
+
+	export namespace Cpu {
+		export let from = (value: number | Cpu): Cpu => {
+			let cpu = typeof value === "number" ? { shared: value } : value;
+			for (let key of Object.keys(cpu)) {
+				tg.assert(
+					key === "dedicated" || key === "shared",
+					`unknown CPU property: ${key}`,
+				);
+			}
+			for (let count of [cpu.dedicated, cpu.shared]) {
+				tg.assert(
+					count === undefined || (Number.isSafeInteger(count) && count >= 0),
+					"CPU counts must be nonnegative safe integers",
+				);
+			}
+			tg.assert(
+				(cpu.dedicated ?? 0) + (cpu.shared ?? 0) > 0,
+				"CPU must be greater than zero",
+			);
+			tg.assert(
+				Number.isSafeInteger((cpu.dedicated ?? 0) + (cpu.shared ?? 0)),
+				"CPU is too large",
+			);
+			return { ...cpu };
+		};
+	}
 
 	export type Source = tg.Process.Source;
 
@@ -205,7 +234,7 @@ export namespace Sandbox {
 	}
 
 	export type Arg = {
-		cpu?: number | null;
+		cpu?: number | tg.Sandbox.Cpu | null;
 		host?: string | null;
 		hostname?: string | null;
 		isolation?: tg.Sandbox.Isolation | null;
@@ -222,7 +251,7 @@ export namespace Sandbox {
 		export let toData = (arg: tg.Sandbox.Arg): tg.Sandbox.DataArg => {
 			let output: tg.Sandbox.DataArg = {};
 			if (arg.cpu !== undefined) {
-				output.cpu = arg.cpu;
+				output.cpu = arg.cpu === null ? null : tg.Sandbox.Cpu.from(arg.cpu);
 			}
 			if (arg.host !== undefined) {
 				output.host = arg.host;
@@ -269,7 +298,9 @@ export namespace Sandbox {
 			this.#args = args;
 		}
 
-		cpu(cpu: tg.Unresolved<tg.MaybeMutation<number> | null>): this {
+		cpu(
+			cpu: tg.Unresolved<tg.MaybeMutation<number | tg.Sandbox.Cpu> | null>,
+		): this {
 			this.#args.push({ cpu });
 			return this;
 		}

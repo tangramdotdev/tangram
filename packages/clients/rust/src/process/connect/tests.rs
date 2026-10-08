@@ -333,7 +333,7 @@ fn spawn_metadata_uses_native_types() {
 		"public": true,
 		"retry": true,
 		"sandbox": {
-			"cpu": 2,
+			"cpu": {"dedicated": 0, "shared": 2},
 			"host": "aarch64-darwin",
 			"hostname": "test",
 			"isolation": {"kind": "seatbelt"},

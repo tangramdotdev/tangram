@@ -648,6 +648,7 @@ impl Scheduler {
 			create_sandbox_timeout: config.create_sandbox_timeout,
 			default_capacity: tg::runner::Capacity {
 				cpus: config.default_cpu,
+				dedicated_cpus: 0,
 				memory: config.default_memory,
 			},
 			heartbeat_interval: config.heartbeat_interval,

@@ -5,13 +5,9 @@ use {
 			Arc, Mutex,
 			atomic::{AtomicU64, Ordering},
 		},
-		time::Duration,
 	},
 	tangram_client::prelude::*,
 };
-
-const BYTES_PER_MEBIBYTE: u128 = 1_048_576;
-const NANOSECONDS_PER_MILLISECOND: u128 = 1_000_000;
 
 #[derive(Clone)]
 pub struct Pool {
@@ -33,12 +29,6 @@ pub struct ReservationGuard {
 	index: u64,
 	parent: tg::sandbox::Id,
 	reservations: Reservations,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) struct Usage {
-	pub(crate) cpu: u64,
-	pub(crate) memory: u64,
 }
 
 struct State {
@@ -91,6 +81,7 @@ impl Pool {
 			return None;
 		}
 		available.cpus -= capacity.cpus;
+		available.dedicated_cpus -= capacity.dedicated_cpus;
 		available.memory -= capacity.memory;
 		drop(available);
 		self.state.changed.notify_one();
@@ -107,6 +98,7 @@ impl Pool {
 	fn release(&self, capacity: tg::runner::Capacity) {
 		let mut available = self.state.available.lock().unwrap();
 		available.cpus += capacity.cpus;
+		available.dedicated_cpus += capacity.dedicated_cpus;
 		available.memory += capacity.memory;
 		drop(available);
 		self.state.changed.notify_one();
@@ -133,6 +125,9 @@ impl Reservations {
 		requested: tg::runner::Capacity,
 	) -> Option<(tg::runner::Capacity, ReservationGuard)> {
 		let capacity = allocation.as_ref()?.capacity;
+		if capacity.dedicated_cpus != 0 || requested.dedicated_cpus != 0 {
+			return None;
+		}
 		if !contains(capacity, requested) {
 			return None;
 		}
@@ -183,30 +178,15 @@ impl Reservations {
 }
 
 impl Allocation {
-	pub fn usage(&self, duration: Duration) -> tg::Result<Usage> {
-		let milliseconds = duration.as_nanos().div_ceil(NANOSECONDS_PER_MILLISECOND);
-		let cpu = u128::from(self.capacity.cpus)
-			.checked_mul(milliseconds)
-			.ok_or_else(|| tg::error!("the compute CPU usage overflowed"))?;
-		let cpu =
-			u64::try_from(cpu).map_err(|_| tg::error!("the compute CPU usage is out of range"))?;
-		let memory = u128::from(self.capacity.memory)
-			.checked_mul(milliseconds)
-			.ok_or_else(|| tg::error!("the compute memory usage overflowed"))?
-			.div_ceil(BYTES_PER_MEBIBYTE);
-		let memory = u64::try_from(memory)
-			.map_err(|_| tg::error!("the compute memory usage is out of range"))?;
-		let usage = Usage { cpu, memory };
-
-		Ok(usage)
-	}
-
 	#[must_use]
 	pub fn try_borrow(
 		parent: tokio::sync::OwnedMutexGuard<Option<Self>>,
 		requested: tg::runner::Capacity,
 	) -> Option<Self> {
 		let allocation = parent.as_ref()?;
+		if allocation.capacity.dedicated_cpus != 0 || requested.dedicated_cpus != 0 {
+			return None;
+		}
 		if !contains(allocation.capacity, requested) {
 			return None;
 		}
@@ -245,5 +225,7 @@ impl Drop for Allocation {
 }
 
 fn contains(capacity: tg::runner::Capacity, requested: tg::runner::Capacity) -> bool {
-	capacity.cpus >= requested.cpus && capacity.memory >= requested.memory
+	capacity.cpus >= requested.cpus
+		&& capacity.dedicated_cpus >= requested.dedicated_cpus
+		&& capacity.memory >= requested.memory
 }

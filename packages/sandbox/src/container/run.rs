@@ -104,12 +104,14 @@ pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
 		.map(|name| {
 			let entry = cgroup::Options {
 				cpu: arg.cgroup_cpu,
+				cpu_pool: None,
+				cpu_request: None,
 				memory: arg.cgroup_memory,
 				memory_oom_group: arg.cgroup_memory_oom_group,
 				memory_swap: arg.cgroup_memory_swap,
 				pids: arg.cgroup_pids,
 			};
-			cgroup::Cgroup::new(name, entry)
+			cgroup::Cgroup::new(name, &entry)
 		})
 		.transpose()
 		.map_err(|error| tg::error!(!error, "failed to create the cgroup"))?;

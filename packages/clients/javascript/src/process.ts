@@ -969,7 +969,9 @@ export namespace Process {
 			return this;
 		}
 
-		cpu(cpu: tg.Unresolved<tg.MaybeMutation<number> | null>): this {
+		cpu(
+			cpu: tg.Unresolved<tg.MaybeMutation<number | tg.Sandbox.Cpu> | null>,
+		): this {
 			this.#args.push({ cpu });
 			return this;
 		}
@@ -1306,7 +1308,7 @@ export namespace Process {
 		command?: tg.MaybeReferent<tg.Command | tg.Command.ResolvedArg> | null;
 
 		/** The sandbox's CPU allocation. */
-		cpu?: number | null;
+		cpu?: number | tg.Sandbox.Cpu | null;
 
 		/** The command's working directory. */
 		cwd?: string | null;

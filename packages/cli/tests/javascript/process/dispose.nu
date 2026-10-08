@@ -29,6 +29,6 @@ assert ($outcome.error? | is-not-empty) "the cancelled process should have an er
 tg wait $sandbox
 let state = tg sandbox get $sandbox | from json | get data
 assert equal $state.status "destroyed" "the sandbox should be destroyed with the process"
-assert ($state.usage.cpu > 0) "the sandbox should record allocated CPU time"
-assert ($state.usage.memory > 0) "the sandbox should record allocated memory time"
+assert ($state.usage.cpu.shared > 0) "the sandbox should record actual shared CPU time"
+assert ($state.usage.memory > 0) "the sandbox should record actual memory time"
 assert equal $state.ttl 0 "an implicit process sandbox should have a zero TTL"

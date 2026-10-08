@@ -1066,7 +1066,8 @@ let normalizeSandbox = (
 	let sandboxNetwork: boolean | tg.Sandbox.Network | null | undefined;
 	if (isSandboxArg(sandbox)) {
 		if (sandbox.cpu !== undefined) {
-			output.cpu = sandbox.cpu;
+			output.cpu =
+				sandbox.cpu === null ? null : tg.Sandbox.Cpu.from(sandbox.cpu);
 		}
 		if (sandbox.hostname !== undefined) {
 			output.hostname = sandbox.hostname;
@@ -1110,7 +1111,7 @@ let normalizeSandbox = (
 		}
 	}
 	if (cpu !== undefined && cpu !== null) {
-		output.cpu = cpu;
+		output.cpu = tg.Sandbox.Cpu.from(cpu);
 	}
 	if (memory !== undefined && memory !== null) {
 		output.memory = memory;

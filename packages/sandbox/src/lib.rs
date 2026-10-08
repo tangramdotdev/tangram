@@ -22,12 +22,15 @@ mod netlink;
 mod paths;
 mod pty;
 mod server;
+mod usage;
 mod util;
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[cfg(target_os = "linux")]
 pub mod container;
+#[cfg(target_os = "linux")]
+pub mod cpu;
 #[cfg(target_os = "linux")]
 pub mod network;
 #[cfg(target_os = "macos")]
@@ -41,12 +44,15 @@ pub mod vm;
 pub struct Sandbox(Arc<State>);
 
 pub struct State {
+	accounting: tokio::sync::Mutex<Option<usage::Accounting>>,
 	arg: Arg,
 
 	#[cfg(target_os = "linux")]
 	cgroup: tokio::sync::Mutex<Option<crate::container::cgroup::Cgroup>>,
 
 	client: Client,
+
+	destroy: tokio::sync::Mutex<()>,
 
 	#[cfg(target_os = "linux")]
 	filesystem: Option<crate::container::filesystem::Filesystem>,
@@ -75,7 +81,9 @@ pub struct SpawnArg {
 
 #[derive(Clone, Debug)]
 pub struct Arg {
-	pub cpu: Option<u64>,
+	pub cpu: Option<tg::sandbox::Cpu>,
+	#[cfg(target_os = "linux")]
+	pub cpu_pool: Option<cpu::Pool>,
 	pub dns: Vec<Ipv4Addr>,
 	#[cfg(target_os = "linux")]
 	pub firewall: Firewall,
@@ -88,6 +96,7 @@ pub struct Arg {
 	pub ip_pool: crate::network::ip::Pool,
 	pub isolation: Isolation,
 	pub memory: Option<u64>,
+	pub memory_sampling_interval: Duration,
 	pub mounts: Vec<tg::sandbox::Mount>,
 	pub network: Option<Network>,
 	pub nice: u8,
@@ -96,6 +105,11 @@ pub struct Arg {
 	pub store_path: PathBuf,
 	pub tangram_path: PathBuf,
 	pub tangram_socket_path: Option<PathBuf>,
+}
+
+#[derive(Clone, Debug)]
+pub struct Output {
+	pub usage: tg::sandbox::Usage,
 }
 
 #[derive(Clone, Copy, Debug, Default, derive_more::Display, derive_more::FromStr)]
@@ -240,6 +254,12 @@ impl Sandbox {
 	pub async fn new(arg: Arg) -> tg::Result<Self> {
 		validate_resources(&arg.isolation, arg.cpu, arg.memory)?;
 		validate_options(&arg)?;
+		#[cfg(target_os = "linux")]
+		if arg.cpu.is_some_and(|cpu| cpu.dedicated > 0) && arg.cpu_pool.is_none() {
+			return Err(tg::error!(
+				"dedicated CPUs require an exclusive sandbox CPU pool"
+			));
+		}
 
 		// Validate the mounts.
 		let mut targets = BTreeSet::new();
@@ -343,8 +363,18 @@ impl Sandbox {
 					&arg.ip_pool,
 					ports,
 				)?;
-				let process = self::vm::spawn(&arg, &serve_arg, network.as_ref())?;
-				(process, network, None, None)
+				let options = crate::container::cgroup::Options {
+					cpu: arg.cpu.map(tg::sandbox::Cpu::total).transpose()?,
+					cpu_pool: arg.cpu_pool.clone(),
+					cpu_request: arg.cpu,
+					memory_oom_group: true,
+					..Default::default()
+				};
+				let name = format!("sandbox-vm-{}-{:016x}", arg.index, rand::random::<u64>());
+				let cgroup = crate::container::cgroup::Cgroup::new(&name, &options)?;
+				let process =
+					self::vm::spawn(&arg, &serve_arg, network.as_ref(), &cgroup.handle()?)?;
+				(process, network, None, Some(cgroup))
 			},
 		};
 
@@ -410,10 +440,12 @@ impl Sandbox {
 		};
 
 		let sandbox = Self(Arc::new(State {
+			accounting: tokio::sync::Mutex::new(None),
 			arg,
 			#[cfg(target_os = "linux")]
 			cgroup: tokio::sync::Mutex::new(cgroup),
 			client,
+			destroy: tokio::sync::Mutex::new(()),
 			#[cfg(target_os = "linux")]
 			filesystem,
 			#[cfg(target_os = "linux")]
@@ -441,6 +473,66 @@ impl Sandbox {
 		}
 
 		Ok(sandbox)
+	}
+
+	/// Begin accounting when a sandbox is claimed, before spawning its workloads.
+	pub async fn start(&self) -> tg::Result<()> {
+		let _destroy = self.0.destroy.lock().await;
+		let mut accounting = self.0.accounting.lock().await;
+		if accounting.is_some() {
+			return Ok(());
+		}
+		#[cfg(target_os = "linux")]
+		let (source, dedicated_started_at) = {
+			let cgroup = self.0.cgroup.lock().await;
+			let cgroup = cgroup
+				.as_ref()
+				.ok_or_else(|| tg::error!("the sandbox accounting cgroup is missing"))?;
+			let cpu = self.0.arg.cpu.unwrap_or(1.into());
+			let source = usage::Source::new(
+				cgroup.handle()?,
+				cgroup.shared_cpus(),
+				cpu.dedicated > 0 && cpu.shared > 0,
+			)?;
+			(source, cgroup.dedicated_started_at())
+		};
+		#[cfg(target_os = "macos")]
+		let (source, dedicated_started_at) = {
+			let process = self.0.process.lock().await;
+			let pid = process
+				.id()
+				.ok_or_else(|| tg::error!("the sandbox process has exited"))?
+				.try_into()
+				.map_err(|_| tg::error!("the sandbox process ID is too large"))?;
+			(usage::Source::new(pid), std::time::Instant::now())
+		};
+		let cpu = self.0.arg.cpu.unwrap_or(1.into());
+		*accounting = Some(usage::Accounting::new(
+			source,
+			cpu,
+			self.0.arg.memory_sampling_interval,
+			dedicated_started_at,
+		)?);
+		Ok(())
+	}
+
+	/// Return the current sandbox CPU and memory usage without stopping accounting.
+	pub async fn usage(&self) -> tg::Result<tg::sandbox::Usage> {
+		let mut accounting = self.0.accounting.lock().await;
+		let accounting = accounting
+			.as_mut()
+			.ok_or_else(|| tg::error!("the sandbox accounting has not started"))?;
+		let usage = accounting.usage().await?;
+		Ok(usage)
+	}
+
+	async fn finish_accounting(&self) -> tg::Result<Option<tg::sandbox::Usage>> {
+		let mut accounting = self.0.accounting.lock().await;
+		let Some(accounting) = accounting.as_mut() else {
+			return Ok(None);
+		};
+		let usage = accounting.finish().await?;
+		Ok(Some(usage))
 	}
 
 	#[must_use]
@@ -589,7 +681,23 @@ impl Sandbox {
 	}
 
 	#[tracing::instrument(name = "sandbox.destroy_physical", level = "debug", skip_all, fields(sandbox_index = self.index()), err(level = "debug"))]
-	pub async fn destroy(&self) -> tg::Result<()> {
+	pub async fn destroy(&self) -> tg::Result<Output> {
+		let _destroy = self.0.destroy.lock().await;
+		self.destroy_inner().await?;
+		let usage = self
+			.finish_accounting()
+			.await?
+			.unwrap_or(tg::sandbox::Usage {
+				cpu: tg::sandbox::Cpu::default(),
+				memory: 0,
+			});
+		let output = Output { usage };
+		Ok(output)
+	}
+
+	async fn destroy_inner(&self) -> tg::Result<()> {
+		#[cfg(target_os = "macos")]
+		self.finish_accounting().await?;
 		let mut process = self.0.process.lock().await;
 		let status = process
 			.try_wait()
@@ -642,9 +750,18 @@ impl Sandbox {
 		let Some(cgroup) = cgroup else {
 			return Ok(());
 		};
+		let cgroup = tokio::task::spawn_blocking(move || {
+			cgroup.stop()?;
+			Ok::<_, tg::Error>(cgroup)
+		})
+		.await
+		.map_err(|error| tg::error!(!error, "the cgroup stop task panicked"))??;
+
+		let usage = self.finish_accounting().await;
 		tokio::task::spawn_blocking(move || cgroup.cleanup())
 			.await
 			.map_err(|error| tg::error!(!error, "the cgroup cleanup task panicked"))??;
+		usage?;
 		Ok(())
 	}
 
@@ -753,11 +870,11 @@ impl Process {
 
 fn validate_resources(
 	isolation: &Isolation,
-	cpu: Option<u64>,
+	cpu: Option<tg::sandbox::Cpu>,
 	memory: Option<u64>,
 ) -> tg::Result<()> {
-	if cpu == Some(0) {
-		return Err(tg::error!("sandbox cpu must be greater than zero"));
+	if let Some(cpu) = cpu {
+		cpu.validate()?;
 	}
 	if memory == Some(0) {
 		return Err(tg::error!("sandbox memory must be greater than zero"));

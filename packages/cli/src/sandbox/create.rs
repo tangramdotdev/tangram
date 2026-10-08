@@ -50,7 +50,20 @@ impl Cli {
 		let network = crate::sandbox::normalize_network(&args.arg.network, ports)?;
 		let owner = self.resolve_owner(&client, &args.arg.owner).await?;
 		let sandbox = tg::Sandbox::builder()
-			.cpu(args.arg.cpu)
+			.cpu(
+				args.arg
+					.cpu
+					.map(|shared| tg::sandbox::Cpu {
+						dedicated: args.arg.dedicated_cpu.unwrap_or(0),
+						shared,
+					})
+					.or_else(|| {
+						args.arg.dedicated_cpu.map(|dedicated| tg::sandbox::Cpu {
+							dedicated,
+							shared: 0,
+						})
+					}),
+			)
 			.host(args.host)
 			.hostname(args.arg.hostname)
 			.isolation(args.arg.isolation)

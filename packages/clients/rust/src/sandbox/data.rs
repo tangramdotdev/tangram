@@ -16,7 +16,7 @@ use {
 pub struct Data {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub cpu: Option<u64>,
+	pub cpu: Option<tg::sandbox::Cpu>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
@@ -75,9 +75,11 @@ pub struct Data {
 	tangram_serialize::Serialize,
 )]
 pub struct Usage {
+	/// Shared CPU execution milliseconds and dedicated physical core-milliseconds.
 	#[tangram_serialize(id = 0)]
-	pub cpu: u64,
+	pub cpu: tg::sandbox::Cpu,
 
+	/// The integral of actual memory use in mebibyte-milliseconds.
 	#[tangram_serialize(id = 1)]
 	pub memory: u64,
 }

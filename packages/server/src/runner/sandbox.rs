@@ -12,7 +12,7 @@ use {
 		future::{self, BoxFuture},
 		stream::{BoxStream, FuturesUnordered},
 	},
-	std::{collections::BTreeMap, pin::pin, sync::Arc, time::Instant},
+	std::{collections::BTreeMap, pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
 	tokio::task::JoinSet,
@@ -138,7 +138,6 @@ struct RunSandboxTaskArg {
 	processes: Arc<crate::process::Processes>,
 	sandbox: tangram_sandbox::Sandbox,
 	serve_task: Task<()>,
-	started_at: Instant,
 	state: tg::sandbox::get::Output,
 	stopper: Stopper,
 }
@@ -470,6 +469,9 @@ impl Session {
 			provider.set_principal(tg::Principal::Sandbox(id.clone()));
 		}
 
+		// Begin accounting before starting any workload processes.
+		create_output.sandbox.start().await?;
+
 		// Spawn the process before waiting for the control stream.
 		let mut process_tasks = JoinSet::new();
 		let process_stopper = Stopper::new();
@@ -725,10 +727,14 @@ impl Session {
 				));
 			}
 			arg.cpu
-				.get_or_insert(self.server.config().scheduler.default_cpu);
+				.get_or_insert(self.server.config().scheduler.default_cpu.into());
 			arg.memory
 				.get_or_insert(self.server.config().scheduler.default_memory);
 		}
+
+		#[cfg(target_os = "linux")]
+		arg.cpu
+			.get_or_insert(self.server.config.scheduler.default_cpu.into());
 
 		#[cfg(target_os = "linux")]
 		self.ensure_vm_isolation(&isolation).await?;
@@ -861,6 +867,8 @@ impl Session {
 		};
 		let arg = tangram_sandbox::Arg {
 			cpu: arg.cpu,
+			#[cfg(target_os = "linux")]
+			cpu_pool: self.server.runner.state.cpu_pool.clone(),
 			dns: self.server.config.sandbox.network.dns.clone(),
 			#[cfg(target_os = "linux")]
 			firewall: match self.server.config.sandbox.network.firewall {
@@ -878,6 +886,7 @@ impl Session {
 			ip_pool: self.server.ip_pool.clone(),
 			isolation,
 			memory: arg.memory,
+			memory_sampling_interval: self.server.config.runner.memory_sampling_interval,
 			mounts,
 			network,
 			nice: self.server.config.sandbox.nice,
@@ -958,7 +967,6 @@ impl Session {
 			mut vfs,
 		} = create_output;
 
-		let started_at = Instant::now();
 		let arg = RunSandboxTaskArg {
 			connected,
 			control,
@@ -972,7 +980,6 @@ impl Session {
 			processes,
 			sandbox,
 			serve_task,
-			started_at,
 			state,
 			stopper,
 		};
@@ -1013,7 +1020,6 @@ impl Session {
 			processes,
 			sandbox,
 			serve_task,
-			started_at,
 			state,
 			stopper,
 		} = arg;
@@ -1243,13 +1249,6 @@ impl Session {
 				}
 			}
 
-			// Release the sandbox's capacity once all of its underlying processes have exited.
-			crate::checkpoint!(
-				self.server,
-				"runner.sandbox.capacity.release",
-				sandbox = %id,
-			)
-			.await;
 			let allocation = {
 				let mut state = self
 					.server
@@ -1263,30 +1262,6 @@ impl Session {
 					.take()
 					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox allocation"))?
 			};
-			let usage = {
-				let mut allocation = allocation.lock().await;
-				let duration = started_at.elapsed();
-				let usage = allocation
-					.as_ref()
-					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox allocation"))?
-					.usage(duration)?;
-				drop(allocation.take());
-
-				usage
-			};
-			let mut state = self
-				.server
-				.runner
-				.state
-				.sandboxes
-				.get_mut_by_id(&id)
-				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-			state.usage = Some(tg::sandbox::Usage {
-				cpu: usage.cpu,
-				memory: usage.memory,
-			});
-			drop(state);
-
 			// Stop the VFS while the sandbox still owns its mount namespace.
 			#[cfg(target_os = "linux")]
 			if let Some(vfs) = vfs.take() {
@@ -1295,9 +1270,28 @@ impl Session {
 			}
 
 			// Destroy the sandbox while retaining its process and control state.
-			sandbox.destroy().await.map_err(
+			let output = sandbox.destroy().await.map_err(
 				|error| tg::error!(!error, %id, "failed to destroy the sandbox process"),
 			)?;
+
+			let usage = output.usage;
+			// Release the sandbox's capacity after its cgroup is stopped and accounted.
+			crate::checkpoint!(
+				self.server,
+				"runner.sandbox.capacity.release",
+				sandbox = %id,
+			)
+			.await;
+			drop(allocation.lock().await.take());
+			let mut state = self
+				.server
+				.runner
+				.state
+				.sandboxes
+				.get_mut_by_id(&id)
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+			state.usage = Some(usage);
+			drop(state);
 
 			// Stop and await the serve task.
 			serve_task.stop();

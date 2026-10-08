@@ -379,12 +379,14 @@ fn validate_cgroup_v2() -> tg::Result<()> {
 	let name = format!("tangram-probe-{:016x}", rand::random::<u64>());
 	let options = super::cgroup::Options {
 		cpu: Some(1),
+		cpu_pool: None,
+		cpu_request: None,
 		memory: Some(64 * 1024 * 1024),
 		memory_oom_group: true,
 		memory_swap: Some(0),
 		pids: Some(32),
 	};
-	let cgroup = super::cgroup::Cgroup::new(&name, options)?;
+	let cgroup = super::cgroup::Cgroup::new(&name, &options)?;
 	let directory = cgroup.handle()?.open_fd()?;
 	let path = std::path::PathBuf::from(format!("/proc/self/fd/{}", directory.as_raw_fd()));
 	validate_cgroup_features(&path)?;

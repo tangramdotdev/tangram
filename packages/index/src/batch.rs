@@ -115,7 +115,7 @@ mod tests {
 		let user = tg::user::Id::new();
 		let data = tg::sandbox::get::Output {
 			data: tg::sandbox::Data {
-				cpu: Some(2),
+				cpu: Some(2.into()),
 				creator: Some(tg::Principal::User(user.clone())),
 				hostname: Some("host".into()),
 				id: sandbox.clone(),
@@ -129,7 +129,7 @@ mod tests {
 				status: tg::sandbox::Status::Destroyed,
 				ttl: Some(std::time::Duration::new(60, 123)),
 				usage: Some(tg::sandbox::Usage {
-					cpu: 123,
+					cpu: 123.into(),
 					memory: 456,
 				}),
 			},
@@ -202,9 +202,9 @@ mod tests {
 			panic!();
 		};
 		let data = sandbox_arg.data.as_ref().unwrap();
-		assert_eq!(data.data.cpu, Some(2));
+		assert_eq!(data.data.cpu, Some(2.into()));
 		assert_eq!(data.data.ttl, Some(std::time::Duration::new(60, 123)));
-		assert_eq!(data.data.usage.as_ref().unwrap().cpu, 123);
+		assert_eq!(data.data.usage.as_ref().unwrap().cpu.shared, 123);
 		assert_eq!(data.data.usage.as_ref().unwrap().memory, 456);
 		assert_eq!(data.data.network.as_ref().unwrap().ports().len(), 1);
 	}

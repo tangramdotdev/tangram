@@ -12,6 +12,7 @@ struct Deltas {
 	process_count: i128,
 	sandbox_count: i128,
 	sandbox_cpu: i128,
+	sandbox_cpu_dedicated: i128,
 	sandbox_memory: i128,
 }
 
@@ -166,6 +167,8 @@ impl Index {
 			hour,
 			partition,
 		)?;
+		let sandbox_cpu_dedicated = u128::try_from(deltas.sandbox_cpu_dedicated)
+			.map_err(|_| tg::error!("the dedicated CPU usage is out of range"))?;
 		let sandbox_cpu = u128::try_from(deltas.sandbox_cpu)
 			.map_err(|_| tg::error!("the sandbox CPU usage is out of range"))?;
 		let sandbox_memory = u128::try_from(deltas.sandbox_memory)
@@ -176,6 +179,7 @@ impl Index {
 			process_count: apply_delta(previous.process_count, deltas.process_count)?,
 			sandbox_count: deltas.sandbox_count,
 			sandbox_cpu,
+			sandbox_cpu_dedicated,
 			sandbox_memory,
 		};
 		if !clear_aggregation {
@@ -485,6 +489,9 @@ impl Index {
 				tangram_index::usage::DeltaKind::ProcessCount => &mut deltas.process_count,
 				tangram_index::usage::DeltaKind::SandboxCount => &mut deltas.sandbox_count,
 				tangram_index::usage::DeltaKind::SandboxCpu => &mut deltas.sandbox_cpu,
+				tangram_index::usage::DeltaKind::SandboxCpuDedicated => {
+					&mut deltas.sandbox_cpu_dedicated
+				},
 				tangram_index::usage::DeltaKind::SandboxMemory => &mut deltas.sandbox_memory,
 			};
 			*target = target

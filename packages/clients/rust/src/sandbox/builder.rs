@@ -26,7 +26,7 @@ impl Builder {
 	}
 
 	#[must_use]
-	pub fn cpu(mut self, cpu: impl Into<Option<u64>>) -> Self {
+	pub fn cpu(mut self, cpu: impl Into<Option<tg::sandbox::Cpu>>) -> Self {
 		self.arg.cpu = cpu.into();
 		self
 	}

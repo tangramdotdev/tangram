@@ -14,6 +14,7 @@ const CLEANUP_TIMEOUT: Duration = Duration::from_secs(5);
 const CLEANUP_WAIT_INTERVAL: Duration = Duration::from_millis(10);
 
 pub struct Cgroup {
+	allocation: Option<crate::cpu::Allocation>,
 	directory: OwnedFd,
 	name: String,
 	parent: OwnedFd,
@@ -25,9 +26,11 @@ pub struct Handle {
 	directory: OwnedFd,
 }
 
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub cpu: Option<u64>,
+	pub cpu_pool: Option<crate::cpu::Pool>,
+	pub cpu_request: Option<tg::sandbox::Cpu>,
 	pub memory: Option<u64>,
 	pub memory_oom_group: bool,
 	pub memory_swap: Option<u64>,
@@ -35,7 +38,7 @@ pub struct Options {
 }
 
 impl Cgroup {
-	pub fn new(name: &str, options: Options) -> tg::Result<Self> {
+	pub fn new(name: &str, options: &Options) -> tg::Result<Self> {
 		use std::os::unix::fs::OpenOptionsExt as _;
 		let root = Path::new("/sys/fs/cgroup");
 		if !root.join("cgroup.controllers").exists() {
@@ -60,7 +63,19 @@ impl Cgroup {
 		if options.pids.is_some() {
 			controllers.push("pids");
 		}
-		let current = resolve_parent(root, &current, &controllers)?;
+		let allocation = options
+			.cpu_pool
+			.as_ref()
+			.map(|pool| pool.allocate(options.cpu_request.unwrap_or(1.into())))
+			.transpose()?;
+		if allocation.is_some() {
+			controllers.push("cpuset");
+		}
+		let current = if let Some(allocation) = &allocation {
+			allocation.parent().to_owned()
+		} else {
+			resolve_parent(root, &current, &controllers)?
+		};
 		let name = sanitize_name(name);
 		// Hold the parent directory open so the cgroup can be removed even after the sandbox replaces the cgroup mount it was resolved through.
 		let parent = std::fs::OpenOptions::new()
@@ -96,12 +111,25 @@ impl Cgroup {
 			})?;
 		let directory = OwnedFd::from(directory);
 		let cgroup = Self {
+			allocation,
 			directory,
 			name,
 			parent,
 			path: path.clone(),
 			removed: false,
 		};
+
+		if let Some(allocation) = &cgroup.allocation {
+			let mems = std::fs::read_to_string(current.join("cpuset.mems.effective"))
+				.map_err(|error| tg::error!(!error, "failed to read the CPU pool memory nodes"))?;
+			write_file(&path.join("cpuset.mems"), mems.as_bytes())
+				.map_err(|error| tg::error!(!error, "failed to set the sandbox memory nodes"))?;
+			write_file(
+				&path.join("cpuset.cpus"),
+				crate::cpu::format_list(&allocation.cpus()).as_bytes(),
+			)
+			.map_err(|error| tg::error!(!error, "failed to assign the sandbox CPUs"))?;
+		}
 
 		if let Some(cpu) = options.cpu {
 			let quota = cpu
@@ -180,18 +208,7 @@ impl Cgroup {
 	}
 
 	pub fn cleanup(mut self) -> tg::Result<()> {
-		match write_file_at(&self.directory, c"cgroup.kill", b"1\n") {
-			Ok(()) => (),
-			Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
-			Err(error) => {
-				return Err(tg::error!(
-					!error,
-					path = %self.path.display(),
-					"failed to kill the processes in the cgroup"
-				));
-			},
-		}
-		self.wait_until_empty(CLEANUP_TIMEOUT)?;
+		self.stop()?;
 		unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR).map_err(|error| {
 			tg::error!(
 				!error,
@@ -202,6 +219,23 @@ impl Cgroup {
 		self.removed = true;
 
 		Ok(())
+	}
+
+	pub(crate) fn stop(&self) -> tg::Result<()> {
+		write_file_at(&self.directory, c"cgroup.kill", b"1\n")
+			.map_err(|error| tg::error!(!error, "failed to stop the sandbox cgroup"))?;
+		self.wait_until_empty(CLEANUP_TIMEOUT)?;
+		Ok(())
+	}
+
+	pub(crate) fn dedicated_started_at(&self) -> Instant {
+		self.allocation
+			.as_ref()
+			.map_or_else(Instant::now, crate::cpu::Allocation::started_at)
+	}
+
+	pub(crate) fn shared_cpus(&self) -> Option<&std::collections::BTreeSet<u32>> {
+		self.allocation.as_ref().map(crate::cpu::Allocation::shared)
 	}
 
 	fn wait_until_empty(&self, timeout: Duration) -> tg::Result<()> {
@@ -242,6 +276,12 @@ impl Handle {
 			.map_err(|error| tg::error!(!error, "failed to clone the cgroup directory descriptor"))
 	}
 
+	pub(crate) fn read(&self, name: &CStr) -> tg::Result<String> {
+		let contents = read_file_at(&self.directory, name)
+			.map_err(|error| tg::error!(!error, "failed to read the sandbox usage"))?;
+		Ok(contents)
+	}
+
 	pub fn move_self(&self) -> tg::Result<()> {
 		write_file_at(&self.directory, c"cgroup.procs", b"0\n")
 			.map_err(|error| tg::error!(!error, "failed to move the process into the cgroup"))
@@ -251,6 +291,14 @@ impl Handle {
 impl Drop for Cgroup {
 	fn drop(&mut self) {
 		if self.removed {
+			return;
+		}
+		if let Err(error) = self.stop() {
+			tracing::error!(%error, path = %self.path.display(), "failed to stop the cgroup");
+			// Retain the core reservation when processes could still be executing on it.
+			if let Some(allocation) = self.allocation.take() {
+				std::mem::forget(allocation);
+			}
 			return;
 		}
 		if let Err(error) = unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR) {

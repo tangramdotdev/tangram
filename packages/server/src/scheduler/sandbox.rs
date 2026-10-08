@@ -355,13 +355,14 @@ impl State {
 			cpus: request
 				.arg
 				.cpu
-				.unwrap_or(scheduler.config.default_capacity.cpus),
+				.map_or(scheduler.config.default_capacity.cpus, |cpu| cpu.shared),
+			dedicated_cpus: request.arg.cpu.map_or(0, |cpu| cpu.dedicated),
 			memory: request
 				.arg
 				.memory
 				.unwrap_or(scheduler.config.default_capacity.memory),
 		};
-		if capacity.cpus == 0 {
+		if capacity.cpus == 0 && capacity.dedicated_cpus == 0 {
 			return Err(tg::error!("the sandbox CPU must be greater than zero"));
 		}
 		if capacity.memory == 0 {
@@ -989,6 +990,7 @@ async fn create_sandbox(
 
 fn add(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
 	capacity.cpus = capacity.cpus.saturating_add(value.cpus);
+	capacity.dedicated_cpus = capacity.dedicated_cpus.saturating_add(value.dedicated_cpus);
 	capacity.memory = capacity.memory.saturating_add(value.memory);
 }
 
@@ -1001,7 +1003,9 @@ fn available(runner: &Runner) -> tg::runner::Capacity {
 }
 
 fn contains(capacity: tg::runner::Capacity, requested: tg::runner::Capacity) -> bool {
-	capacity.cpus >= requested.cpus && capacity.memory >= requested.memory
+	capacity.cpus >= requested.cpus
+		&& capacity.dedicated_cpus >= requested.dedicated_cpus
+		&& capacity.memory >= requested.memory
 }
 
 fn matches_host(runner: &Runner, request: &EnqueueSandboxRequestArg) -> bool {
@@ -1037,5 +1041,6 @@ fn score(
 
 fn subtract(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
 	capacity.cpus = capacity.cpus.saturating_sub(value.cpus);
+	capacity.dedicated_cpus = capacity.dedicated_cpus.saturating_sub(value.dedicated_cpus);
 	capacity.memory = capacity.memory.saturating_sub(value.memory);
 }

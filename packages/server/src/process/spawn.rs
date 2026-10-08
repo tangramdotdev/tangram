@@ -213,7 +213,8 @@ impl Session {
 			if runner_matches_location && let Some(tg::Either::Left(sandbox)) = &arg.sandbox {
 				let scheduler = &self.server.config.scheduler;
 				Some(tg::runner::Capacity {
-					cpus: sandbox.cpu.unwrap_or(scheduler.default_cpu),
+					cpus: sandbox.cpu.map_or(scheduler.default_cpu, |cpu| cpu.shared),
+					dedicated_cpus: sandbox.cpu.map_or(0, |cpu| cpu.dedicated),
 					memory: sandbox.memory.unwrap_or(scheduler.default_memory),
 				})
 			} else {
@@ -329,7 +330,8 @@ impl Session {
 		}
 		let scheduler = &self.server.config.scheduler;
 		let requested = tg::runner::Capacity {
-			cpus: sandbox.cpu.unwrap_or(scheduler.default_cpu),
+			cpus: sandbox.cpu.map_or(scheduler.default_cpu, |cpu| cpu.shared),
+			dedicated_cpus: sandbox.cpu.map_or(0, |cpu| cpu.dedicated),
 			memory: sandbox.memory.unwrap_or(scheduler.default_memory),
 		};
 		let session = self.clone();
