@@ -28,7 +28,10 @@ def send(event, value):
     chunk(f"event: {event}\ndata: {json.dumps(value)}\n\n".encode())
 
 
-capacity = {"available": {"cpus": 0, "memory": 0}, "total": {"cpus": 0, "memory": 0}}
+capacity = {
+    "available": {"cpus": 0, "dedicated_cpus": 0, "memory": 0},
+    "total": {"cpus": 0, "dedicated_cpus": 0, "memory": 0},
+}
 arg = {"heartbeat": {"capacity": capacity, "index": 0}, "host": "test", "id": runner, "scheduler_ttl": 300}
 payload = json.dumps(arg).encode()
 length = len(payload)

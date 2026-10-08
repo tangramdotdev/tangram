@@ -573,8 +573,6 @@ async fn send_request_body_frame(
 	let Some(sender) = sender else {
 		return Err(tg::error!("the HTTP/2 stream request body is closed"));
 	};
-	sender
-		.send(Ok(http_body::Frame::data(bytes)))
-		.await
-		.map_err(|_| tg::error!("the HTTP/2 stream request body is closed"))
+	sender.send(Ok(http_body::Frame::data(bytes))).await.ok();
+	Ok(())
 }

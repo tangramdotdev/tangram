@@ -795,6 +795,9 @@ impl Sandbox {
 				.await
 				.try_wait()
 				.map_err(|source| tg::error!(!source, "failed to query the sandbox process"))?;
+			let Some(status) = status else {
+				return Err(error);
+			};
 			return Err(tg::error!(
 				!error,
 				status = ?status,

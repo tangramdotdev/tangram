@@ -147,7 +147,6 @@ pub(crate) async fn spawn(
 		serve: serve_arg.clone(),
 	};
 	let mut command = tokio::process::Command::new(&arg.tangram_path);
-	command.env("TMPDIR", "/tmp");
 	command.arg("sandbox").arg("container").arg("run");
 	command
 		.arg("--index")
