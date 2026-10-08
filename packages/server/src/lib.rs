@@ -203,6 +203,28 @@ impl Server {
 		verification_search_config(&config.verification.permissions.final_)
 			.validate()
 			.map_err(|error| tg::error!(!error, "invalid final verification configuration"))?;
+		#[cfg(target_os = "linux")]
+		if config.roles.contains(&self::config::Role::Runner)
+			&& config.runner.isolation.container.harden
+		{
+			tangram_sandbox::container::host::validate().map_err(|error| {
+				tg::error!(
+					!error,
+					"the host does not satisfy the hardened container prerequisites"
+				)
+			})?;
+			let container = &config.runner.isolation.container;
+			tracing::info!(
+				cpu = config.scheduler.default_cpu,
+				harden = true,
+				max_open_files = ?container.max_open_files(),
+				max_pids = ?container.max_pids(),
+				memory = config.scheduler.default_memory,
+				memory_swap = ?container.memory_swap(),
+				seccomp = ?container.seccomp(),
+				"validated the hardened container isolation profile"
+			);
+		}
 
 		// Get or create the directory.
 		let directory = config.directory.clone().unwrap_or_else(|| {
