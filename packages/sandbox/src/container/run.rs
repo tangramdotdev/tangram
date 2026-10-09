@@ -132,6 +132,14 @@ pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
 		} else {
 			enter_user_namespace(arg.uid, arg.gid)?;
 		}
+		if arg.cgroup_entered && !arg.cgroup_readonly {
+			// Delegate before entering the PID namespace so the launcher is not left in the namespace root.
+			unshare(
+				libc::CLONE_NEWCGROUP,
+				"failed to unshare the cgroup namespace",
+			)?;
+			cgroup_handle.as_ref().unwrap().delegate()?;
+		}
 		// Create the host mapping before entering the PID namespace and dropping setup privileges.
 		let host_namespace = if arg.user_namespace_fd.is_some() && arg.filesystem_fd.is_some() {
 			Some(super::filesystem::host_namespace(arg.uid, arg.gid)?)
@@ -390,11 +398,13 @@ fn child_main(
 		if move_self {
 			cgroup.move_self()?;
 		}
-		// Unshare the cgroup namespace only once the process is in its cgroup, so that cgroup becomes the namespace root and the mount below exposes nothing above it.
-		unshare(
-			libc::CLONE_NEWCGROUP,
-			"failed to unshare the cgroup namespace",
-		)?;
+		if !arg.cgroup_entered || arg.cgroup_readonly {
+			// Preserve the delegated namespace root when the launcher already created it.
+			unshare(
+				libc::CLONE_NEWCGROUP,
+				"failed to unshare the cgroup namespace",
+			)?;
+		}
 	}
 	if arg.new_session {
 		start_session()?;

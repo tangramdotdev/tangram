@@ -1,5 +1,5 @@
 use {
-	rustix::fs::{AtFlags, unlinkat},
+	rustix::fs::{AtFlags, Dir, FileType, Mode, OFlags, mkdirat, openat, unlinkat},
 	std::{
 		ffi::CStr,
 		io::{Read as _, Write as _},
@@ -220,13 +220,7 @@ impl Cgroup {
 		self.stop()?;
 		// Release the stopped allocation before unlinking its cgroup so concurrent reassignments cannot access a removed directory.
 		drop(self.allocation.take());
-		unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR).map_err(|error| {
-			tg::error!(
-				!error,
-				path = %self.path.display(),
-				"failed to remove the cgroup"
-			)
-		})?;
+		self.remove()?;
 		self.removed = true;
 
 		Ok(())
@@ -236,6 +230,18 @@ impl Cgroup {
 		write_file_at(&self.directory, c"cgroup.kill", b"1\n")
 			.map_err(|error| tg::error!(!error, "failed to stop the sandbox cgroup"))?;
 		self.wait_until_empty(CLEANUP_TIMEOUT)?;
+		Ok(())
+	}
+
+	fn remove(&self) -> tg::Result<()> {
+		remove_descendants(&self.directory)?;
+		unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR).map_err(|error| {
+			tg::error!(
+				!error,
+				path = %self.path.display(),
+				"failed to remove the cgroup"
+			)
+		})?;
 		Ok(())
 	}
 
@@ -287,6 +293,37 @@ impl Handle {
 			.map_err(|error| tg::error!(!error, "failed to clone the cgroup directory descriptor"))
 	}
 
+	pub fn delegate(&self) -> tg::Result<()> {
+		// Keep the namespace root empty so that nested sandboxes can use its resource controllers.
+		mkdirat(&self.directory, c"processes", Mode::RWXU)
+			.map_err(|error| tg::error!(!error, "failed to create the sandbox process cgroup"))?;
+		write_file_at(&self.directory, c"processes/cgroup.procs", b"0\n").map_err(|error| {
+			tg::error!(
+				!error,
+				"failed to move the launcher into the process cgroup"
+			)
+		})?;
+		let controllers =
+			read_file_at(&self.directory, c"cgroup.controllers").map_err(|error| {
+				tg::error!(!error, "failed to read the available cgroup controllers")
+			})?;
+		let controllers = controllers
+			.split_ascii_whitespace()
+			.map(|controller| format!("+{controller}"))
+			.collect::<Vec<_>>()
+			.join(" ");
+		if !controllers.is_empty() {
+			write_file_at(
+				&self.directory,
+				c"cgroup.subtree_control",
+				controllers.as_bytes(),
+			)
+			.map_err(|error| tg::error!(!error, "failed to delegate the cgroup controllers"))?;
+		}
+
+		Ok(())
+	}
+
 	pub(crate) fn read(&self, name: &CStr) -> tg::Result<String> {
 		let contents = read_file_at(&self.directory, name)
 			.map_err(|error| tg::error!(!error, "failed to read the sandbox usage"))?;
@@ -319,7 +356,7 @@ impl Drop for Cgroup {
 			return;
 		}
 		drop(self.allocation.take());
-		if let Err(error) = unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR) {
+		if let Err(error) = self.remove() {
 			tracing::error!(%error, path = %self.path.display(), "failed to remove cgroup");
 		}
 	}
@@ -340,6 +377,42 @@ fn parse_populated(contents: &str) -> tg::Result<bool> {
 		})
 		.transpose()?
 		.ok_or_else(|| tg::error!("cgroup.events does not contain populated"))
+}
+
+fn remove_descendants(directory: &OwnedFd) -> tg::Result<()> {
+	// Resolve descendants through directory descriptors because the sandbox can replace its cgroup mount.
+	let flags = OFlags::CLOEXEC | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::RDONLY;
+	let directory = openat(directory, c".", flags, Mode::empty())
+		.map_err(|error| tg::error!(!error, "failed to open the cgroup directory"))?;
+	let entries = Dir::read_from(&directory)
+		.map_err(|error| tg::error!(!error, "failed to read the cgroup directory"))?;
+	let mut current = (directory, entries, c".".to_owned());
+	let mut parents = Vec::<(OwnedFd, Dir, std::ffi::CString)>::new();
+	loop {
+		if let Some(entry) = current.1.next() {
+			let entry = entry
+				.map_err(|error| tg::error!(!error, "failed to read a cgroup directory entry"))?;
+			let name = entry.file_name();
+			if entry.file_type() != FileType::Directory || name == c"." || name == c".." {
+				continue;
+			}
+			let directory = openat(&current.0, name, flags, Mode::empty())
+				.map_err(|error| tg::error!(!error, "failed to open a descendant cgroup"))?;
+			let entries = Dir::read_from(&directory)
+				.map_err(|error| tg::error!(!error, "failed to read a descendant cgroup"))?;
+			parents.push(current);
+			current = (directory, entries, name.to_owned());
+		} else {
+			let Some(parent) = parents.pop() else {
+				break;
+			};
+			unlinkat(&parent.0, &*current.2, AtFlags::REMOVEDIR)
+				.map_err(|error| tg::error!(!error, "failed to remove a descendant cgroup"))?;
+			current = parent;
+		}
+	}
+
+	Ok(())
 }
 
 fn sanitize_name(name: &str) -> String {
