@@ -18,12 +18,12 @@ let path = artifact {
 # Alice builds parent a publicly, creating the public child.
 let a = tg --token $alice.token build --detach --verbose --public $"($path)#a" | from json
 tg --token $alice.token wait $a.process | complete
-let a_child = tg --token $alice.token process children $a.process | from json | get 0.process
+let a_child = tg --token $alice.token process children $a.process | from json | get 0.process | referent node
 
 # Eve builds the distinct parent b publicly; it reuses the common public child.
 let b = tg --token $eve.token build --detach --verbose --public $"($path)#b" | from json
 tg --token $eve.token wait $b.process | complete
-let b_child = tg --token $eve.token process children $b.process | from json | get 0.process
+let b_child = tg --token $eve.token process children $b.process | from json | get 0.process | referent node
 
 assert ($a.process != $b.process) "the distinct parents must not be reused"
 assert equal $a_child $b_child "the common public child must be reused across the unshared parents"

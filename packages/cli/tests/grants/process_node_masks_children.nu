@@ -12,7 +12,7 @@ let path = artifact { tangram.ts: 'export default function () { return tg.build(
 let parent = tg --token $alice.token build --no-tokens --detach $path | referent node
 tg --token $alice.token wait $parent
 tg --token $alice.token index
-let child = (tg --token $alice.token get $parent | from json | get children | get 0.process)
+let child = tg --token $alice.token get $parent | from json | get children | get 0.process | referent node
 
 # Alice grants Eve only the process node of the parent.
 tg --token $alice.token grant $eve.user.id process_node $parent | ignore

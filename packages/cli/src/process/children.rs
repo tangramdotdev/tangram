@@ -103,11 +103,19 @@ impl Cli {
 			source: options.source,
 			timeout: options.timeout.get(),
 		};
+		let tokens = options.print.tokens.get();
 		let stream = process
 			.children_with_instance(&client, options_)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to get the process children"))?
-			.map_ok(|child| child.to_data());
+			.map_ok(move |child| {
+				let child = child.to_data();
+				if tokens {
+					child
+				} else {
+					child.without_location_and_tokens()
+				}
+			});
 		self.print_serde_stream(stream.boxed(), options.print)
 			.await?;
 		Ok(())

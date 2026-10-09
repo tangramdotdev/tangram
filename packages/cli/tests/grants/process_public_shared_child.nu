@@ -24,11 +24,11 @@ let path = artifact {
 # Alice builds the first parent publicly; its shared child is public too.
 let first = tg --token $alice.token build --detach --verbose --public $"($path)#first" | from json
 tg --token $alice.token wait $first.process | complete
-let first_shared = tg --token $alice.token process children $first.process | from json | get 0.process
+let first_shared = tg --token $alice.token process children $first.process | from json | get 0.process | referent node
 
 # Eve builds the second parent, which depends on the same child and reuses Alice's public child.
 let second = tg --token $eve.token build --detach --verbose $"($path)#second" | from json
 tg --token $eve.token wait $second.process | complete
-let second_shared = tg --token $eve.token process children $second.process | from json | get 0.process
+let second_shared = tg --token $eve.token process children $second.process | from json | get 0.process | referent node
 
 assert equal $first_shared $second_shared "Eve should reuse the public shared child from Alice's public build."

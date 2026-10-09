@@ -20,7 +20,7 @@ let path = artifact {
 let process = tg --url $remote.url build --no-tokens --detach $path | referent node
 tg --url $remote.url wait $process
 tg --url $remote.url push --process-log-objects $process
-let remote_children = tg --url $remote.url process children --local $process | from json
+let remote_children = tg --url $remote.url process children --local $process | from json | get process | each { referent node }
 assert equal ($remote_children | length) 1 "the remote process should have a child"
 
 failure (tg process get --local $process | complete) "the process should initially be absent locally"
@@ -30,5 +30,5 @@ wait_until {
 	(tg process get --local $process | complete).exit_code == 0
 } --timeout 30sec "getting the remote process should index it locally"
 
-let local_children = tg process children --local $process | from json
+let local_children = tg process children --local $process | from json | get process | each { referent node }
 assert equal $local_children $remote_children "the indexed process should retain its remote children"

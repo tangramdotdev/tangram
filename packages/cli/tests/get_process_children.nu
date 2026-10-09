@@ -35,13 +35,13 @@ let foo = $children | get 0 | to json
 snapshot --normalize-ids $foo '
 	{
 	  "cached": true,
-	  "process": "pcs_0000000000000000000000000000?location=local&name=foo"
+	  "process": "pcs_0000000000000000000000000000?location=local&name=foo&tokens[local][0]=<token>"
 	}
 '
 
 let bar = $children | get 1 | to json
 snapshot --normalize-ids $bar '
 	{
-	  "process": "pcs_0000000000000000000000000000?location=local&name=bar"
+	  "process": "pcs_0000000000000000000000000000?location=local&name=bar&tokens[local][0]=<token>"
 	}
 '

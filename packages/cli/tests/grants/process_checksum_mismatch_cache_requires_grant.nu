@@ -34,7 +34,7 @@ let path = artifact {
 let alice_first = tg --token $alice.token build --no-tokens --detach $"($path)#first" | referent node
 tg --token $alice.token wait $alice_first | complete
 let alice_root = tg --token $alice.token process children $alice_first | from json | get 0.process
-let alice_child = tg --token $alice.token process children $alice_root | from json | get 0.process
+let alice_child = tg --token $alice.token process children $alice_root | from json | get 0.process | referent node
 
 # Eve cannot read Alice's child process before building.
 let before = tg --token $eve.token get $alice_child | complete
@@ -44,7 +44,7 @@ failure $before "Eve should not read Alice's child process before building."
 let eve_second = tg --token $eve.token build --no-tokens --detach $"($path)#second" | referent node
 tg --token $eve.token wait $eve_second | complete
 let eve_root = tg --token $eve.token process children $eve_second | from json | get 0.process
-let eve_child = tg --token $eve.token process children $eve_root | from json | get 0.process
+let eve_child = tg --token $eve.token process children $eve_root | from json | get 0.process | referent node
 
 # Eve must get her own child process, not a copy of Alice's checksum-mismatch process subtree.
 assert ($eve_child != $alice_child) ("Eve must not copy Alice's checksum-mismatch child: eve=" + $eve_child + " alice=" + $alice_child)
