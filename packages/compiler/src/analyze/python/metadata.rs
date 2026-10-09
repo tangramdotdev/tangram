@@ -11,9 +11,9 @@ use {
 
 #[derive(Default, serde::Serialize)]
 pub struct Metadata {
-	pub imports: BTreeMap<String, tg::module::Import>,
 	#[serde(skip)]
-	pub warnings: Vec<tg::Error>,
+	pub diagnostics: Vec<tg::Diagnostic>,
+	pub imports: BTreeMap<String, tg::module::Import>,
 }
 
 #[derive(Default, serde::Deserialize)]
@@ -72,11 +72,11 @@ fn parse_module(
 	text: &str,
 	parsed: &ruff_python_parser::Parsed<ruff_python_ast::ModModule>,
 ) -> tg::Result<Metadata> {
-	let module = tg::module::Data {
+	let module = tg::Module {
 		kind: tg::module::Kind::Python,
-		referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
+		referent: tg::Referent::with_node(tg::module::Source::Path(path.to_owned())),
 	};
-	super::validate_imports(&module, text, &parsed.syntax().body)?;
+	super::validate_imports(&module.to_data(), text, &parsed.syntax().body)?;
 	let comments: BTreeSet<_> = parsed
 		.tokens()
 		.iter()
@@ -97,8 +97,19 @@ fn parse_module(
 	// PEP 723 requires tools to ignore unclosed blocks, so warn at the opening line of each one.
 	let unclosed = |name: &str, beginning: usize| {
 		let range = beginning..beginning + "# /// ".len() + name.len();
-		let error = tg::error!("the {name} metadata block is not closed and will be ignored");
-		located_error(path, text, range, &error)
+		let range =
+			tg::Range::try_from_byte_range_in_string(text, range, tg::position::Encoding::Utf8)
+				.unwrap();
+		let location = tg::module::Location {
+			module: module.clone(),
+			range,
+		};
+		let message = format!("the {name} metadata block is not closed and will be ignored");
+		tg::Diagnostic {
+			location: Some(location),
+			message,
+			severity: tg::diagnostic::Severity::Warning,
+		}
 	};
 	let mut block: Option<(String, usize, String, Vec<(usize, usize)>)> = None;
 	let mut types = BTreeSet::new();
@@ -154,13 +165,13 @@ fn parse_module(
 				contents.push_str(content);
 				contents.push('\n');
 			} else {
-				output.warnings.push(unclosed(name, *beginning));
+				output.diagnostics.push(unclosed(name, *beginning));
 				block = None;
 			}
 		}
 	}
 	if let Some((name, beginning, _, _)) = &block {
-		output.warnings.push(unclosed(name, *beginning));
+		output.diagnostics.push(unclosed(name, *beginning));
 	}
 	Ok(output)
 }
