@@ -41,12 +41,20 @@ impl Server {
 						<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(
 							0o700,
 						);
-					tokio::fs::set_permissions(root_path, permissions)
+					tokio::fs::set_permissions(root_path, permissions.clone())
 						.await
 						.map_err(|error| {
 							tg::error!(!error, "failed to restrict the sandbox directory")
 						})?;
 					let path = output.2.as_ref().unwrap();
+					tokio::fs::set_permissions(path.parent().unwrap(), permissions)
+						.await
+						.map_err(|error| {
+							tg::error!(
+								!error,
+								"failed to restrict the sandbox API socket directory"
+							)
+						})?;
 					let permissions =
 						<std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(
 							0o666,
@@ -155,6 +163,21 @@ impl Server {
 					.parse::<tangram_uri::Uri>()
 					.map_err(|error| tg::error!(!error, "failed to parse the URL"))?
 			},
+		};
+		let host_socket_path = match &listener {
+			crate::http::Listener::Tcp(_) => host_socket_path,
+			crate::http::Listener::Unix { guard, .. } => {
+				if guard.indirect() {
+					tokio::fs::remove_file(guard.entry())
+						.await
+						.map_err(|error| {
+							tg::error!(!error, "failed to remove the socket symlink")
+						})?;
+				}
+				guard.path().to_owned()
+			},
+			#[cfg(feature = "vsock")]
+			crate::http::Listener::Vsock(_) => host_socket_path,
 		};
 		Ok((listener, guest_url, Some(host_socket_path)))
 	}
