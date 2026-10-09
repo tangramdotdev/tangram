@@ -18,7 +18,7 @@
 		"cloud:deinit": "nu scripts/cloud/deinit.nu",
 		"cloud:server": "nu scripts/cloud/server.nu",
 		"cloud:runner": "nu scripts/cloud/runner.nu",
-		"cloud:tg": ".tangram/cloud/tangram -c \"$PWD/.tangram/cloud/client.json\" -d \"$PWD/.tangram/cloud/client\" -m client",
+		"cloud:tg": ".tangram/cloud/tangram -c \"$PWD/.tangram/cloud/client.json\" -d \"$PWD/.tangram/cloud/client/.tangram\" -m client",
 		"format": "cargo fmt --all && bun run --parallel --filter \"*\" format",
 		"image:build": "cargo build --all-features --release && docker build -t ghcr.io/tangramdotdev/tangram:latest .",
 		"image:push": "docker push ghcr.io/tangramdotdev/tangram:latest",

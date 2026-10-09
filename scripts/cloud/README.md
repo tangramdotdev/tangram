@@ -11,8 +11,11 @@ backends. The client uses its own directory and sends `--remote` builds to that 
    ```
 
    Install the missing programs reported by the command. On Linux this uses
-   native database servers; on macOS it also requires Docker. Tangram needs a
-   FoundationDB client library compatible with the running server.
+   native database servers; on macOS it also requires Docker. The macOS supervisor
+   runs FoundationDB 7.3.68. Use a matching 7.3 client: the build links
+   `/usr/local/lib/libfdb_c.dylib` when present. A newer client cannot connect to
+   that container, causing timeouts and hanging remote builds. On Linux, match the
+   client library to the native server version.
 
 2. Build the binaries and initialize the stores once, then start the API:
 
@@ -45,11 +48,14 @@ This requires a systemd user session with systemd 254 or newer. Clear any
 `TANGRAM_*` environment overrides before using these scripts.
 
 State lives in a temporary directory linked at `.tangram/cloud` to keep Unix socket
-paths short. The API listens on `127.0.0.1:8476` without user authentication.
-Stop the client with `bun run cloud:tg server stop` and stop
+paths short. The runner and client data directories are named `.tangram` because
+std's wrapper locates the store by that name on macOS. The API listens on
+`127.0.0.1:8476` without user authentication. Stop the client with
+`bun run cloud:tg server stop` and stop
 the API and runner with Ctrl-C. Restart with the same commands; runner registration
 and signing keys are retained. To reset, stop all three servers and run
-`bun run cloud:deinit` while the databases are still running (`fdbcli` required).
+`bun run cloud:deinit` while the databases are still running. This requires `fdbcli`
+on the host unless using the macOS test container, which supplies its own client.
 This removes only the `tangram_cloud` database, keyspace, FoundationDB prefix, and
 local state. Reset before restarting the temporary database supervisor or using
 `test.nu --clean`, then initialize again.
