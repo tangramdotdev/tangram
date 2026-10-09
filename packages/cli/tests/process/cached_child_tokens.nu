@@ -44,6 +44,8 @@ failure (tg --url $local.url --token $bob.token wait --source=index --remote $ch
 let children = tg --url $local.url --token $carol.token process children --source=index --local $parent | from json
 assert equal ($children | length) 1
 assert ($children.0.process | referent tokens remote | is-empty) "a node reader must not receive the child's parent authorization token"
+let data = tg --url $local.url --token $carol.token process get --source=index --local $parent | from json
+assert equal $data.children $children "process get must also strip child authorization tokens for a node reader"
 
 # A parent reader can use the persisted token even without credentials for the remote owner.
 let children = tg --url $local.url --token $bob.token process children --source=index --local $parent | from json
@@ -57,7 +59,9 @@ assert equal $body.resource $child
 assert equal $body.permissions [process_parent]
 let location = $'http://localhost/($children.0.process)' | url parse | get params | where key == location | get value | first
 assert equal $location remote "the indexed child should retain its remote location"
-let outcome = tg --url $local.url --token $bob.token wait --source=index $children.0.process | from json
+let data = tg --url $local.url --token $bob.token process get --source=index --local $parent | from json
+assert equal $data.children $children "process get must preserve child authorization tokens for a parent reader"
+let outcome = tg --url $local.url --token $bob.token wait --source=index $data.children.0.process | from json
 let output = tg --url $local.url --token $bob.token cat $outcome.output.value | complete
 success $output "the stored child token should authorize its remote output"
 assert equal $output.stdout 'private cached output'
