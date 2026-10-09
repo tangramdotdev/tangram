@@ -59,6 +59,8 @@ let other_sandbox = tg sandbox create --no-tokens --no-network | referent node
 let output = tg run $"--sandbox=($sandbox)" $different_sandbox_path --arg-string $other_sandbox | complete
 failure $output
 assert ($output.stderr | str contains 'the target sandbox does not match the request origin sandbox')
+tg sandbox destroy $sandbox
+tg sandbox destroy $other_sandbox
 
 let network_path = artifact {
 	tangram.ts: '
