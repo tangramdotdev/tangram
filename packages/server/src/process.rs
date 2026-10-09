@@ -90,12 +90,22 @@ impl Session {
 			.authorize(resource, permission)
 			.await?
 			.check_exhaustion()?;
-		if !authorization.permissions.contains(permission) {
+		Self::mask_process_child_tokens_with_permissions(children, authorization.permissions);
+		Ok(())
+	}
+
+	pub(crate) fn mask_process_child_tokens_with_permissions(
+		children: &mut [tg::process::data::Child],
+		permissions: tg::authorization::permission::Set,
+	) {
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		);
+		if !permissions.contains(permission) {
 			for child in children {
 				child.process.options.tokens.clear();
 			}
 		}
-		Ok(())
 	}
 
 	pub(crate) fn process_permission_for_data(

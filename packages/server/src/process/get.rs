@@ -147,8 +147,7 @@ impl Session {
 			return Ok(None);
 		};
 		if let Some(children) = &mut data.children {
-			self.mask_process_child_tokens(id, &arg.tokens, children)
-				.await?;
+			Self::mask_process_child_tokens_with_permissions(children, authorization.permissions);
 		}
 
 		let mut output =
@@ -298,9 +297,7 @@ impl Session {
 				.await?;
 		}
 		if let Some(children) = &mut output.data.children {
-			let tokens = tg::authorization::Tokens::with_authorization(tokens.iter().cloned());
-			self.mask_process_child_tokens(id, &tokens, children)
-				.await?;
+			Self::mask_process_child_tokens_with_permissions(children, authorization.permissions);
 		}
 		let permissions = authorization.permissions;
 		self.add_tokens_to_process_get_output(id, authorization, &mut output)?;
@@ -328,6 +325,7 @@ impl Session {
 			tg::authorization::permission::process::Permission::Node,
 		);
 		let mut requested = tg::authorization::permission::process::Set::NODE;
+		requested.insert(tg::authorization::permission::process::Set::PARENT);
 		if metadata
 			|| availability
 			|| self.context.principal.is_root()
