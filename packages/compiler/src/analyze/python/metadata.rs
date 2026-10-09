@@ -11,8 +11,7 @@ use {
 
 #[derive(Default, serde::Serialize)]
 pub struct Metadata {
-	#[serde(skip)]
-	pub diagnostics: Vec<tg::Diagnostic>,
+	pub diagnostics: Vec<tg::diagnostic::Data>,
 	pub imports: BTreeMap<String, tg::module::Import>,
 }
 
@@ -72,11 +71,11 @@ fn parse_module(
 	text: &str,
 	parsed: &ruff_python_parser::Parsed<ruff_python_ast::ModModule>,
 ) -> tg::Result<Metadata> {
-	let module = tg::Module {
+	let module = tg::module::Data {
 		kind: tg::module::Kind::Python,
-		referent: tg::Referent::with_node(tg::module::Source::Path(path.to_owned())),
+		referent: tg::Referent::with_node(tg::module::data::Source::Path(path.to_owned())),
 	};
-	super::validate_imports(&module.to_data(), text, &parsed.syntax().body)?;
+	super::validate_imports(&module, text, &parsed.syntax().body)?;
 	let comments: BTreeSet<_> = parsed
 		.tokens()
 		.iter()
@@ -100,12 +99,12 @@ fn parse_module(
 		let range =
 			tg::Range::try_from_byte_range_in_string(text, range, tg::position::Encoding::Utf8)
 				.unwrap();
-		let location = tg::module::Location {
+		let location = tg::module::data::Location {
 			module: module.clone(),
 			range,
 		};
 		let message = format!("the {name} metadata block is not closed and will be ignored");
-		tg::Diagnostic {
+		tg::diagnostic::Data {
 			location: Some(location),
 			message,
 			severity: tg::diagnostic::Severity::Warning,

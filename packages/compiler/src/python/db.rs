@@ -290,13 +290,18 @@ impl Database {
 		let descriptor = resolve::Module::new(module.clone());
 		// Preserve dependency declarations while the editor contains incomplete Python syntax.
 		let output = match metadata::parse_unchecked(&descriptor.filename, text) {
-			Ok(mut metadata) => {
-				for diagnostic in &mut metadata.diagnostics {
-					if let Some(location) = &mut diagnostic.location {
-						location.module = tg::Module::try_from_data(module.without_token())?;
-					}
-				}
-				(metadata.imports, metadata.diagnostics)
+			Ok(metadata) => {
+				let diagnostics = metadata
+					.diagnostics
+					.into_iter()
+					.map(|mut diagnostic| {
+						if let Some(location) = &mut diagnostic.location {
+							location.module = module.without_token();
+						}
+						diagnostic.try_into()
+					})
+					.collect::<tg::Result<_>>()?;
+				(metadata.imports, diagnostics)
 			},
 			Err(error) => (
 				BTreeMap::new(),
