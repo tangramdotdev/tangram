@@ -28,6 +28,8 @@ export type CliArg = {
 	filters?: Array<string>;
 	host?: string;
 	jobs?: number;
+	/** Memory limit in bytes for the test sandbox. Defaults to 2 GiB per worker. */
+	memory?: number;
 	/** Disable network access and skip tests that download fixtures. */
 	offline?: boolean;
 	source?: tg.Directory;
@@ -44,6 +46,7 @@ export const testCli = async (arg: CliArg = {}) => {
 		filters = [],
 		host = std.triple.host(),
 		jobs = 2,
+		memory = jobs * 2 * 1024 ** 3,
 		offline = false,
 		source: source_ = source,
 		tangram: tangram_,
@@ -56,6 +59,10 @@ export const testCli = async (arg: CliArg = {}) => {
 	tg.assert(
 		Number.isInteger(jobs) && jobs > 0,
 		"jobs must be a positive integer",
+	);
+	tg.assert(
+		Number.isSafeInteger(memory) && memory > 0,
+		"memory must be a positive safe integer",
 	);
 	const tangram =
 		tangram_ ??
@@ -87,13 +94,15 @@ export const testCli = async (arg: CliArg = {}) => {
 		exit "$status"
 	`
 		.named("test-cli")
+		.cpu(jobs)
+		.memory(memory)
 		.network(!offline)
 		.checksum(offline ? null : "sha256:any")
 		.env(
 			std.env.arg(
 				std.sdk({ host }),
-				nushell({ host }),
-				fd({ host }),
+				nushell({ host, parallelJobs: jobs }),
+				fd({ host, parallelJobs: jobs }),
 				procps({ host }),
 				bun({ host }),
 				{
