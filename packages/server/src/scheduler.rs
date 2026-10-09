@@ -530,18 +530,7 @@ impl Session {
 		let client_subject = Scheduler::client_subject(&id);
 		let expected_scheduler = scheduler.cloned();
 		let server = self.server.clone();
-		let server_subject = if scheduler.is_none()
-			&& matches!(
-				&message,
-				Message::Request(Request {
-					arg: RequestArg::EnqueueSandbox(_),
-					..
-				})
-			) {
-			"schedulers.sandbox".to_owned()
-		} else {
-			scheduler_server_subject(scheduler)
-		};
+		let server_subject = scheduler_server_subject(scheduler);
 
 		let result = tangram_futures::retry::retry(&options.retry, || {
 			let client_subject = client_subject.clone();
@@ -709,35 +698,15 @@ impl Scheduler {
 
 	async fn message_handler_task(&self, mut stream: MessageStream) -> tg::Result<()> {
 		let mut state = State::new();
-		let mut sandbox_stream: Option<MessageStream> = None;
 		let mut cleaner_interval = tokio::time::interval(self.config.runner_ttl);
 		cleaner_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		let mut heartbeat_interval = tokio::time::interval(self.config.heartbeat_interval);
 		heartbeat_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 		loop {
-			// Subscribe to sandbox requests only while a runner is ready.
-			let ready = state.runners.entries.values().any(|runner| runner.ready);
-			if ready && sandbox_stream.is_none() {
-				let stream = self
-					.server
-					.messenger
-					.queue_subscribe::<Message>(
-						"schedulers.sandbox".to_owned(),
-						"schedulers".to_owned(),
-					)
-					.await
-					.map_err(|source| {
-						tg::error!(!source, "failed to get the sandbox scheduler stream")
-					})?;
-				sandbox_stream = Some(stream.boxed());
-			} else if !ready {
-				sandbox_stream = None;
-			}
 			let event = self
 				.next_event(
 					&mut state,
 					&mut stream,
-					&mut sandbox_stream,
 					&mut cleaner_interval,
 					&mut heartbeat_interval,
 				)
@@ -766,7 +735,6 @@ impl Scheduler {
 		&self,
 		state: &mut State,
 		stream: &mut MessageStream,
-		sandbox_stream: &mut Option<MessageStream>,
 		cleaner_interval: &mut tokio::time::Interval,
 		heartbeat_interval: &mut tokio::time::Interval,
 	) -> tg::Result<Event> {
@@ -774,7 +742,6 @@ impl Scheduler {
 			_ = cleaner_interval.tick() => Event::CleanerTick,
 			_ = heartbeat_interval.tick() => Event::SchedulerHeartbeatTick,
 			result = Self::receive_message(stream) => Event::Message(result?),
-			result = async { Self::receive_message(sandbox_stream.as_mut().unwrap()).await }, if sandbox_stream.is_some() => Event::Message(result?),
 			operation = state.operations.next(), if !state.operations.is_empty() => Event::Operation(operation.unwrap()),
 			() = tokio::task::yield_now(), if state.can_schedule(self) => Event::Schedule,
 		};

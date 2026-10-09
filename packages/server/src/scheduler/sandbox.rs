@@ -285,9 +285,8 @@ impl State {
 			pending.ids.push(id);
 			return;
 		}
-		if !self.runners.entries.values().any(|runner| runner.ready)
-			|| self.queue.len() + self.sandboxes.loading
-				>= scheduler.config.create_sandbox_queue_capacity
+		if self.queue.len() + self.sandboxes.loading
+			>= scheduler.config.create_sandbox_queue_capacity
 		{
 			let output = EnqueueSandboxResponseOutput { enqueued: false };
 			let response = scheduler.response(id, Ok(ResponseOutput::EnqueueSandbox(output)));
@@ -415,6 +414,9 @@ impl State {
 			retrying: false,
 			state: SandboxState::Pending,
 		};
+		if !self.placeable(&sandbox) {
+			return Ok(EnqueueSandboxResponseOutput { enqueued: false });
+		}
 		self.sandboxes.entries.insert(id.clone(), sandbox);
 		self.queue.insert(id.clone());
 		if let Some(parent) = parent {
@@ -846,7 +848,7 @@ impl State {
 				.runners
 				.entries
 				.values()
-				.any(|runner| placeable(runner, sandbox))
+				.any(|runner| runner.ready && placeable(runner, sandbox))
 	}
 
 	fn requeue_sandbox(&mut self, id: &tg::sandbox::Id) {
