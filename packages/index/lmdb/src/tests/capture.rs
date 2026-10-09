@@ -445,10 +445,7 @@ async fn process_children_and_objects_report_completeness_and_preserve_child_opt
 		.iter()
 		.find(|node| node.node == tg::Id::from(child.process.node.clone()))
 		.unwrap();
-	assert_eq!(
-		node.options,
-		child.without_location_and_tokens().process.options
-	);
+	assert_eq!(node.options, child.process.options);
 }
 
 fn object_id(bytes: &[u8]) -> tg::object::Id {

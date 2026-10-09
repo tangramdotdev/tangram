@@ -198,13 +198,14 @@ impl Session {
 		let now = self.server.clock.unix_timestamp()?;
 		let token_data = arg.data.clone();
 
+		// Preserve the child authorization tokens separately from the canonical process data.
+		let children = arg.data.children.take();
 		arg.data = arg.data.without_location_and_tokens();
 		if let Some(sync) = &sync {
 			Self::inherit_process_authorization_tokens_for_sync(&mut arg.data, sync);
 		}
 
 		// Create the index arguments.
-		let children = arg.data.children.clone();
 		let error_objects = arg.data.error.as_ref().map(|error| match error {
 			tg::Either::Left(data) => {
 				let mut children = BTreeSet::new();

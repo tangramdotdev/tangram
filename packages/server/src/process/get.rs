@@ -138,9 +138,13 @@ impl Session {
 		{
 			return Ok(None);
 		}
-		let Some(data) = runner.processes.get(id).map(|process| process.data()) else {
+		let Some(mut data) = runner.processes.get(id).map(|process| process.data()) else {
 			return Ok(None);
 		};
+		if let Some(children) = &mut data.children {
+			self.mask_process_child_tokens(id, &arg.tokens, children)
+				.await?;
+		}
 
 		let mut output =
 			self.create_process_get_output(id, data, Some(runner.location.clone()), None);
@@ -255,6 +259,11 @@ impl Session {
 		let Some(mut output) = output else {
 			return Ok(None);
 		};
+		if let Some(children) = &mut output.data.children {
+			let tokens = tg::authorization::Tokens::with_authorization(tokens.iter().cloned());
+			self.mask_process_child_tokens(id, &tokens, children)
+				.await?;
+		}
 		if let Some(token) = self.create_process_get_token(id, authorization.expires_at)? {
 			output.tokens.insert_local_authorization(token);
 		}
@@ -531,7 +540,9 @@ impl Session {
 		id: &tg::process::Id,
 	) -> tg::Result<tg::process::Data> {
 		let mut output = self.get_process_control_output(id).await?;
+		let children = output.data.children.take();
 		output.data = output.data.without_location_and_tokens();
+		output.data.children = children;
 		if let Some(sync) = &output.sync {
 			Self::inherit_process_authorization_tokens_for_sync(&mut output.data, sync);
 		}

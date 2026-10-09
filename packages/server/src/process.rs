@@ -66,6 +66,38 @@ impl State {
 }
 
 impl Session {
+	pub(crate) async fn mask_process_child_tokens(
+		&self,
+		id: &tg::process::Id,
+		tokens: &tg::authorization::Tokens,
+		children: &mut [tg::process::data::Child],
+	) -> tg::Result<()> {
+		if children
+			.iter()
+			.all(|child| child.process.options.tokens.is_empty())
+		{
+			return Ok(());
+		}
+		// Reading a process node does not grant its children's parent permissions.
+		let resource = tg::Referent::with_node_and_local_tokens(
+			id.clone(),
+			tokens.local_authorization().to_vec(),
+		);
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		);
+		let authorization = self
+			.authorize(resource, permission)
+			.await?
+			.check_exhaustion()?;
+		if !authorization.permissions.contains(permission) {
+			for child in children {
+				child.process.options.tokens.clear();
+			}
+		}
+		Ok(())
+	}
+
 	pub(crate) fn process_permission_for_data(
 		&self,
 		data: &tg::process::Data,

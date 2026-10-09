@@ -207,12 +207,7 @@ impl Session {
 		}
 		if let Some(children) = &mut data.children {
 			for child in children {
-				self.update_tokens_and_location(
-					&mut child.process.options.tokens,
-					Some(&mut child.process.options.location),
-					location,
-					trusted,
-				)?;
+				self.update_process_child_referent_for_location(child, location, trusted)?;
 			}
 		}
 		if let Some(error) = &mut data.error {
@@ -241,6 +236,38 @@ impl Session {
 		if let Some(output) = &mut data.output {
 			self.update_value_data_referents_for_location(output, location, trusted)?;
 		}
+		Ok(())
+	}
+
+	pub(crate) fn update_process_child_referent_for_location(
+		&self,
+		child: &mut tg::process::data::Child,
+		location: &tg::Location,
+		trusted: bool,
+	) -> tg::Result<()> {
+		// Preserve the child's region when translating the parent's location.
+		let child_location = match (&child.process.options.location, location) {
+			(Some(tg::Location::Local(local)), tg::Location::Local(parent)) => {
+				tg::Location::Local(tg::location::Local {
+					region: local.region.clone().or_else(|| parent.region.clone()),
+				})
+			},
+			(Some(tg::Location::Local(local)), tg::Location::Remote(remote)) => {
+				tg::Location::Remote(tg::location::Remote {
+					name: remote.name.clone(),
+					region: local.region.clone().or_else(|| remote.region.clone()),
+				})
+			},
+			(Some(child_location), _) => child_location.clone(),
+			(None, _) => location.clone(),
+		};
+		self.update_tokens_and_location(
+			&mut child.process.options.tokens,
+			None,
+			location,
+			trusted,
+		)?;
+		child.process.options.location = Some(child_location);
 		Ok(())
 	}
 

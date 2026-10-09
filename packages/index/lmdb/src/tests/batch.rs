@@ -395,6 +395,100 @@ async fn incomplete_process_children_have_values() {
 }
 
 #[tokio::test]
+async fn process_child_tokens_belong_to_the_parent() {
+	let (_dir, index) = new_index();
+	let child = tg::process::Id::new();
+	let parent = tg::process::Id::new();
+	let key =
+		tg::authorization::PrivateKey::generate("test", tg::authorization::Algorithm::Ed25519)
+			.unwrap();
+	let body = tg::authorization::Body {
+		expires_at: 3600,
+		permissions: vec![tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Parent,
+		)],
+		resource: child.clone().into(),
+	};
+	let token = tg::authorization::Token::sign(body, &key).unwrap();
+	let options = tg::referent::Options {
+		location: Some(tg::Location::Local(tg::location::Local {
+			region: Some("secondary".into()),
+		})),
+		tokens: tg::authorization::Tokens::with_authorization([token]),
+		..Default::default()
+	};
+	let mut arg = process_arg(child.clone(), tg::process::Status::Finished);
+	arg.cached = true;
+	arg.options = options.clone();
+	arg.parent = Some(parent.clone());
+	put_process(&index, arg.clone()).await.unwrap();
+	assert!(!index.process_has_ancestor(&child, &parent).await.unwrap());
+	let transaction = index.env.read_txn().unwrap();
+	assert_eq!(
+		Index::get_process_children_with_transaction(
+			&index.db,
+			&index.subspace,
+			&transaction,
+			&parent
+		)
+		.unwrap(),
+		Vec::<tg::process::Id>::new()
+	);
+	drop(transaction);
+
+	put_process(
+		&index,
+		process_arg(parent.clone(), tg::process::Status::Started),
+	)
+	.await
+	.unwrap();
+	put_process(&index, arg.clone()).await.unwrap();
+	assert!(index.process_has_ancestor(&child, &parent).await.unwrap());
+	let children = index
+		.try_get_process_children(&parent, std::io::SeekFrom::Start(0), 1)
+		.await
+		.unwrap()
+		.unwrap();
+	assert_eq!(children[0].process.options, options);
+
+	let mut arg = process_arg(parent.clone(), tg::process::Status::Finished);
+	arg.children = Some(children);
+	put_process(&index, arg).await.unwrap();
+	let children = index
+		.try_get_process_children(&parent, std::io::SeekFrom::Start(0), 1)
+		.await
+		.unwrap()
+		.unwrap();
+	assert_eq!(children[0].process.options, options);
+
+	for _ in 0..4 {
+		let arg = tangram_index::clean::Arg {
+			batch_size: 100,
+			max_object_touched_at: 0,
+			max_process_touched_at: 0,
+			max_sandbox_touched_at: 0,
+			now: 1,
+			partition_end: 1,
+			partition_start: 0,
+		};
+		index.clean(arg).await.unwrap();
+	}
+	assert!(index.try_get_process(&parent).await.unwrap().is_none());
+	assert!(!index.process_has_ancestor(&child, &parent).await.unwrap());
+	let transaction = index.env.read_txn().unwrap();
+	assert_eq!(
+		Index::get_process_children_with_transaction(
+			&index.db,
+			&index.subspace,
+			&transaction,
+			&parent
+		)
+		.unwrap(),
+		Vec::<tg::process::Id>::new()
+	);
+}
+
+#[tokio::test]
 async fn process_children_must_be_unique() {
 	let (_dir, index) = new_index();
 	let child = tg::process::data::Child {

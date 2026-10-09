@@ -162,7 +162,7 @@ impl Session {
 									.location
 									.clone()
 									.unwrap_or_else(|| runner.location.clone());
-								let mut child = child.data.clone().without_location_and_tokens();
+								let mut child = child.data.clone();
 								child.process.options.location = Some(location);
 								child
 							})
@@ -187,6 +187,9 @@ impl Session {
 					}
 					return Ok(());
 				};
+				let mut children = children;
+				self.mask_process_child_tokens(id, &arg.tokens, &mut children)
+					.await?;
 				let length = u64::try_from(children.len()).unwrap();
 				position = std::io::SeekFrom::Start(
 					start
@@ -440,8 +443,11 @@ impl Session {
 				if output.children.is_empty() {
 					break output.status;
 				}
+				let mut children = output.children;
+				self.mask_process_child_tokens(id, &arg.tokens, &mut children)
+					.await?;
 				let chunk = tg::process::children::get::Chunk {
-					data: output.children,
+					data: children,
 					position,
 				};
 
@@ -506,11 +512,7 @@ impl Session {
 			},
 		};
 		if let Some(output) = output.control {
-			let children = output
-				.children
-				.into_iter()
-				.map(tg::process::data::Child::without_location_and_tokens)
-				.collect();
+			let children = output.children;
 			let status = output.status;
 			let output = LocalChildren { children, status };
 			return Ok(output);
@@ -529,10 +531,6 @@ impl Session {
 			.try_get_process_children(id, std::io::SeekFrom::Start(position), length)
 			.await?
 			.ok_or_else(|| tg::error!(%id, "failed to find the process"))?;
-		let children = children
-			.into_iter()
-			.map(tg::process::data::Child::without_location_and_tokens)
-			.collect();
 		let output = LocalChildren { children, status };
 
 		Ok(output)
@@ -687,11 +685,8 @@ impl Session {
 				let mut event = event?;
 				if let tg::process::children::get::Event::Chunk(chunk) = &mut event {
 					for child in &mut chunk.data {
-						session.update_tokens_and_location(
-							&mut child.process.options.tokens,
-							Some(&mut child.process.options.location),
-							&location,
-							trusted,
+						session.update_process_child_referent_for_location(
+							child, &location, trusted,
 						)?;
 					}
 				}
