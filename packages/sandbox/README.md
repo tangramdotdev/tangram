@@ -100,8 +100,11 @@ for that conversion, mixed requests, memory, and the distinct-core requirement.
 Children can borrow their parents' reservations without consuming additional
 runner capacity. Each dedicated parent core can supply one dedicated child CPU
 or up to `cpu_oversubscription` shared child slots. Shared parent slots can supply
-only shared child slots. A borrowed child receives its requested capacity and
-cannot lend more to its own children. CPU leases keep ancestor reservations
+only shared child slots. Borrowing remains exclusive: each parent lends to one
+child at a time. The child inherits the full memory reservation and unused CPU
+headroom for its descendants, while its own sandbox limits use its request.
+Only the dedicated cores needed for shared slots are converted, and converted
+cores remain shared throughout the borrowing chain. CPU leases keep ancestor reservations
 alive until their borrowers finish, and borrowed cgroups follow ancestor CPU
 placement changes. Borrowing can place multiple shared slots on one physical
 core; these slots do not promise simultaneous execution on distinct cores. The

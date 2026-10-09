@@ -45,6 +45,25 @@ impl Capacity {
 		u128::from(requested.cpu.shared) <= slots
 	}
 
+	/// Inherit an exclusive reservation, converting only the cores needed by the request.
+	#[must_use]
+	pub fn try_borrow(self, requested: Self, oversubscription: u64) -> Option<Self> {
+		if !self.contains(requested, oversubscription) {
+			return None;
+		}
+		let remaining = self.subtract(requested, oversubscription);
+		let dedicated = remaining
+			.cpu
+			.dedicated
+			.checked_add(requested.cpu.dedicated)?;
+		let shared = remaining.cpu.shared.checked_add(requested.cpu.shared)?;
+		let cpu = crate::sandbox::Cpu { dedicated, shared };
+		Some(Self {
+			cpu,
+			memory: self.memory,
+		})
+	}
+
 	#[must_use]
 	pub fn subtract(self, requested: Self, oversubscription: u64) -> Self {
 		let dedicated = self.cpu.dedicated.saturating_sub(requested.cpu.dedicated);
@@ -91,6 +110,33 @@ mod tests {
 			Capacity::default().subtract(requested, 4),
 			Capacity::default()
 		);
+	}
+
+	#[test]
+	fn borrowing_preserves_headroom_and_only_converts_required_cores() {
+		let cpu = crate::sandbox::Cpu {
+			dedicated: 4,
+			shared: 1,
+		};
+		let capacity = Capacity { cpu, memory: 16 };
+		let requested = Capacity {
+			cpu: crate::sandbox::Cpu {
+				dedicated: 1,
+				shared: 2,
+			},
+			memory: 1,
+		};
+		let inherited = capacity.try_borrow(requested, 4).unwrap();
+		assert_eq!(inherited.memory, 16);
+		assert_eq!(
+			inherited.cpu,
+			crate::sandbox::Cpu {
+				dedicated: 3,
+				shared: 5
+			}
+		);
+		assert_eq!(inherited.try_borrow(requested, 4), Some(inherited));
+		assert!(inherited.try_borrow(capacity, 4).is_none());
 	}
 
 	#[test]

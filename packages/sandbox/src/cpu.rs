@@ -42,10 +42,14 @@ struct Allocations {
 
 #[derive(Debug)]
 struct Entry {
+	// Preserve borrowing headroom independently of the workload request.
+	capacity: tg::sandbox::Cpu,
 	cpu: tg::sandbox::Cpu,
 	dedicated: BTreeSet<u32>,
 	handle: Option<Handle>,
 	parent: Option<u64>,
+	// Keep unconverted ancestor cores available to descendants.
+	reserved: BTreeSet<u32>,
 	shared: BTreeSet<u32>,
 }
 
@@ -203,11 +207,14 @@ impl Pool {
 			.next_id
 			.checked_add(1)
 			.ok_or_else(|| tg::error!("the CPU allocation ID overflowed"))?;
+		let reserved = dedicated.clone();
 		let entry = Entry {
+			capacity: cpu,
 			cpu,
 			dedicated,
 			handle: None,
 			parent: None,
+			reserved,
 			shared: BTreeSet::new(),
 		};
 		allocations.entries.insert(id, entry);
@@ -244,13 +251,13 @@ impl Pool {
 			.get(&parent.0.id)
 			.ok_or_else(|| tg::error!("the parent CPU reservation is missing"))?;
 		let capacity = tg::runner::Capacity {
-			cpu: entry.cpu,
+			cpu: entry.capacity,
 			memory: 0,
 		};
 		let requested = tg::runner::Capacity { cpu, memory: 0 };
-		if !capacity.contains(requested, self.0.oversubscription) {
-			return Err(tg::error!("the CPU request exceeds the parent reservation"));
-		}
+		let capacity = capacity
+			.try_borrow(requested, self.0.oversubscription)
+			.ok_or_else(|| tg::error!("the CPU request exceeds the parent reservation"))?;
 		if allocations
 			.entries
 			.values()
@@ -260,7 +267,13 @@ impl Pool {
 		}
 		let count = usize::try_from(cpu.dedicated)
 			.map_err(|_| tg::error!("the dedicated CPU request is too large"))?;
-		let dedicated: BTreeSet<_> = entry.dedicated.iter().take(count).copied().collect();
+		let dedicated: BTreeSet<_> = entry.reserved.iter().take(count).copied().collect();
+		let converted = usize::try_from(entry.capacity.dedicated - capacity.cpu.dedicated)
+			.map_err(|_| tg::error!("the converted CPU reservation is too large"))?;
+		let mut reserved = entry.reserved.clone();
+		for core in entry.reserved.difference(&dedicated).take(converted) {
+			reserved.remove(core);
+		}
 		let shared = self
 			.0
 			.cores
@@ -274,10 +287,12 @@ impl Pool {
 			.checked_add(1)
 			.ok_or_else(|| tg::error!("the CPU allocation ID overflowed"))?;
 		let entry = Entry {
+			capacity: capacity.cpu,
 			cpu,
 			dedicated,
 			handle: None,
 			parent: Some(parent.0.id),
+			reserved,
 			shared: BTreeSet::new(),
 		};
 		allocations.entries.insert(id, entry);
@@ -432,7 +447,7 @@ impl Pool {
 				"the shared CPU oversubscription limit was exceeded"
 			));
 		}
-		self.borrowed_assignments(allocations, &mut assignments)?;
+		self.borrowed_assignments(allocations, &mut assignments);
 		Ok(assignments)
 	}
 
@@ -440,34 +455,41 @@ impl Pool {
 		&self,
 		allocations: &Allocations,
 		assignments: &mut BTreeMap<u64, BTreeSet<u32>>,
-	) -> tg::Result<()> {
+	) {
+		// Track inherited slots separately from each sandbox's runnable CPU set.
+		let mut reservations: BTreeMap<u64, BTreeMap<u32, u64>> = BTreeMap::new();
 		for (id, entry) in &allocations.entries {
 			let Some(parent) = entry.parent else {
+				let shared = assignments[id].iter().map(|core| (*core, 1)).collect();
+				reservations.insert(*id, shared);
 				continue;
 			};
 			let parent_entry = &allocations.entries[&parent];
-			let parent_shared = &assignments[&parent];
-			let count = usize::try_from(entry.cpu.shared)
-				.map_err(|_| tg::error!("the shared CPU request is too large"))?;
-			let mut shared: BTreeSet<_> = parent_shared.iter().take(count).copied().collect();
-			// Converted parent cores are private to the borrowing family.
-			let missing = entry.cpu.shared.saturating_sub(parent_entry.cpu.shared);
-			let converted = usize::try_from(missing.div_ceil(self.0.oversubscription))
-				.map_err(|_| tg::error!("the shared CPU request is too large"))?;
-			shared.extend(
-				parent_entry
-					.dedicated
-					.difference(&entry.dedicated)
-					.take(converted)
-					.copied(),
-			);
-			// Keep shared-only borrowers runnable while a mixed ancestor's shared CPU set is being moved.
-			if entry.cpu.shared != 0 && shared.is_empty() && entry.dedicated.is_empty() {
-				shared.extend(parent_entry.dedicated.iter().take(1).copied());
+			let mut reservation = reservations[&parent].clone();
+			let mut shared = BTreeSet::new();
+			let mut remaining = entry.cpu.shared;
+			for (core, slots) in &reservation {
+				if remaining == 0 {
+					break;
+				}
+				shared.insert(*core);
+				remaining = remaining.saturating_sub(*slots);
 			}
+			// Converted cores remain shared throughout the borrowing chain.
+			for core in parent_entry.reserved.difference(&entry.reserved) {
+				reservation.insert(*core, self.0.oversubscription);
+				if remaining != 0 {
+					shared.insert(*core);
+					remaining = remaining.saturating_sub(self.0.oversubscription);
+				}
+			}
+			// Keep borrowers runnable while an ancestor's shared CPU set is being moved.
+			if entry.cpu.shared != 0 && shared.is_empty() && entry.dedicated.is_empty() {
+				shared.extend(parent_entry.reserved.iter().take(1).copied());
+			}
+			reservations.insert(*id, reservation);
 			assignments.insert(*id, shared);
 		}
-		Ok(())
 	}
 
 	fn apply(
@@ -527,7 +549,7 @@ impl Pool {
 				.copied();
 			if let Some(id) = ready {
 				current.insert(id, assignments[&id].clone());
-				self.borrowed_assignments(allocations, &mut current)?;
+				self.borrowed_assignments(allocations, &mut current);
 				Self::write_assignments(allocations, &current, written)?;
 				pending.remove(&id);
 				continue;
@@ -581,7 +603,7 @@ impl Pool {
 				));
 			};
 			current.insert(id, shared);
-			self.borrowed_assignments(allocations, &mut current)?;
+			self.borrowed_assignments(allocations, &mut current);
 			Self::write_assignments(allocations, &current, written)?;
 		}
 		Self::write_assignments(allocations, assignments, written)?;
@@ -735,7 +757,7 @@ mod tests {
 		};
 		let parent = pool.allocate(cpu).unwrap();
 		let lease = parent.lease();
-		let child = pool.borrow(&lease, 4.into()).unwrap();
+		let child = pool.borrow(&lease, 1.into()).unwrap();
 		let child_lease = child.lease();
 		{
 			let allocations = pool.0.allocations.lock().unwrap();
@@ -753,6 +775,43 @@ mod tests {
 		assert!(pool.allocate(cpu).is_err());
 		drop(grandchild);
 		assert!(pool.allocate(cpu).is_ok());
+	}
+
+	#[test]
+	fn descendants_can_use_cores_outside_the_childs_requested_affinity() {
+		let pool = pool(4, 4);
+		let cpu = tg::sandbox::Cpu {
+			dedicated: 4,
+			shared: 0,
+		};
+		let parent = pool.allocate(cpu).unwrap();
+		let child = pool.borrow(&parent.lease(), 1.into()).unwrap();
+		let cpu = tg::sandbox::Cpu {
+			dedicated: 3,
+			shared: 4,
+		};
+		let grandchild = pool.borrow(&child.lease(), cpu).unwrap();
+		assert!(pool.borrow(&parent.lease(), 1.into()).is_err());
+		assert!(pool.allocate(1.into()).is_err());
+		let allocations = pool.0.allocations.lock().unwrap();
+		let child = &allocations.entries[&child.lease.0.id];
+		let grandchild = &allocations.entries[&grandchild.lease.0.id];
+		assert_eq!(child.capacity, cpu);
+		assert_eq!(child.shared, BTreeSet::from([0]));
+		assert!(child.dedicated.is_empty());
+		assert_eq!(grandchild.dedicated, BTreeSet::from([1, 2, 3]));
+		assert_eq!(grandchild.shared, BTreeSet::from([0]));
+	}
+
+	#[test]
+	fn shared_descendants_inherit_the_full_reserved_width() {
+		let pool = pool(3, 4);
+		let parent = pool.allocate(3.into()).unwrap();
+		let child = pool.borrow(&parent.lease(), 1.into()).unwrap();
+		let grandchild = pool.borrow(&child.lease(), 3.into()).unwrap();
+		let allocations = pool.0.allocations.lock().unwrap();
+		assert_eq!(allocations.entries[&child.lease.0.id].shared.len(), 1);
+		assert_eq!(allocations.entries[&grandchild.lease.0.id].shared.len(), 3);
 	}
 
 	#[test]
@@ -882,8 +941,7 @@ mod tests {
 		{
 			let mut allocations = pool.0.allocations.lock().unwrap();
 			let mut assignments = BTreeMap::from([(parent.lease.0.id, BTreeSet::from([2]))]);
-			pool.borrowed_assignments(&allocations, &mut assignments)
-				.unwrap();
+			pool.borrowed_assignments(&allocations, &mut assignments);
 			pool.apply(&mut allocations, assignments).unwrap();
 		}
 		assert_eq!(

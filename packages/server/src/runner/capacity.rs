@@ -245,13 +245,9 @@ impl Allocation {
 		requested: tg::runner::Capacity,
 	) -> Option<Self> {
 		let allocation = parent.as_ref()?;
-		if !allocation
+		let capacity = allocation
 			.capacity
-			.contains(requested, allocation.oversubscription)
-		{
-			return None;
-		}
-		let capacity = requested;
+			.try_borrow(requested, allocation.oversubscription)?;
 		#[cfg(target_os = "linux")]
 		let cpu_parent = allocation.cpu_lease.clone();
 		let oversubscription = allocation.oversubscription;
@@ -321,7 +317,7 @@ mod tests {
 		let parent = Arc::new(tokio::sync::Mutex::new(Some(parent)));
 		let before = pool.get().available;
 		let guard = parent.clone().try_lock_owned().unwrap();
-		let child = Allocation::try_borrow(guard, capacity(0, 4)).unwrap();
+		let child = Allocation::try_borrow(guard, capacity(0, 1)).unwrap();
 		assert_eq!(child.capacity, capacity(0, 4));
 		assert_eq!(pool.get().available, before);
 		let child = Arc::new(tokio::sync::Mutex::new(Some(child)));
@@ -334,6 +330,39 @@ mod tests {
 		assert!(parent.clone().try_lock_owned().is_ok());
 		drop(parent);
 		assert_eq!(pool.get().available, capacity(1, 0));
+	}
+
+	#[test]
+	fn descendants_inherit_memory_and_cpu_headroom_exclusively() {
+		let mut total = capacity(4, 0);
+		total.memory = 16 << 30;
+		let pool = Pool::new(total, 4);
+		let parent = pool.try_acquire(total).unwrap();
+		let parent = Arc::new(tokio::sync::Mutex::new(Some(parent)));
+		let mut requested = capacity(1, 0);
+		requested.memory = 1 << 30;
+		let guard = parent.clone().try_lock_owned().unwrap();
+		let child = Allocation::try_borrow(guard, requested).unwrap();
+		assert_eq!(child.capacity(), total);
+		assert!(parent.clone().try_lock_owned().is_err());
+		let child = Arc::new(tokio::sync::Mutex::new(Some(child)));
+		let mut requested = capacity(4, 0);
+		requested.memory = 8 << 30;
+		let reservations = Reservations::new();
+		let id = tg::sandbox::Id::new();
+		let guard = child.clone().try_lock_owned().unwrap();
+		let (advertised, reservation) = reservations.reserve(guard, id.clone(), requested).unwrap();
+		assert_eq!(advertised, total);
+		let grandchild = reservations.try_acquire(&id, requested).unwrap();
+		assert_eq!(grandchild.capacity(), total);
+		assert_eq!(pool.get().available, tg::runner::Capacity::default());
+		assert!(child.clone().try_lock_owned().is_err());
+		drop(grandchild);
+		drop(reservation);
+		drop(child);
+		assert!(parent.clone().try_lock_owned().is_ok());
+		drop(parent);
+		assert_eq!(pool.get().available, total);
 	}
 
 	#[test]
