@@ -16,4 +16,5 @@ if not ($config_path | path exists) {
 	} | to json | save $config_path
 }
 
-exec .tangram/cloud/tangram --config $config_path --directory .tangram/cloud/runner serve
+# Name the data directory .tangram so that std's wrapper can find the store on macOS.
+exec .tangram/cloud/tangram --config $config_path --directory .tangram/cloud/runner/.tangram serve
