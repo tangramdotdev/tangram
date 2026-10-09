@@ -160,53 +160,39 @@ impl Session {
 		// Read index-only fields at the process's original location.
 		if arg.metadata || arg.availability {
 			let locations = self.locations(Some(&runner.location_arg)).await?;
-			if locations.local.as_ref().is_some_and(|local| local.current) {
-				if let Some(process) = self.server.index.try_get_process(id).await? {
-					if arg.metadata {
-						output.metadata = Self::mask_process_metadata_with_permissions(
-							&process.metadata,
-							permissions,
-						);
-					}
-					if arg.availability {
-						output.availability = Self::compute_process_availability_with_permissions(
-							process.storage,
-							permissions,
-						);
-					}
+			let current = locations.local.as_ref().is_some_and(|local| local.current);
+			let metadata_future = async {
+				if !arg.metadata {
+					return Ok(None);
 				}
-			} else {
-				let indexed = if let Some(local) = &locations.local {
-					self.try_get_process_regions(
-						id,
-						&local.regions,
-						arg.metadata,
-						arg.availability,
-						&arg.tokens,
-						tg::process::Source::Index,
-					)
-					.await?
-				} else {
-					None
-				};
-				let indexed = if indexed.is_some() {
-					indexed
-				} else {
-					self.try_get_process_remotes(
-						id,
-						&locations.remotes,
-						arg.metadata,
-						arg.availability,
-						&arg.tokens,
-						tg::process::Source::Index,
-					)
-					.await?
-				};
-				if let Some(indexed) = indexed {
-					output.metadata = indexed.metadata;
-					output.availability = indexed.availability;
+				if current {
+					return self
+						.try_get_process_metadata_local_with_permissions(id, permissions)
+						.await;
 				}
-			}
+				let arg = tg::process::metadata::Arg {
+					location: Some(runner.location_arg.clone()),
+					tokens: arg.tokens.clone(),
+				};
+				self.try_get_process_metadata(id, arg).await
+			};
+			let availability_future = async {
+				if !arg.availability {
+					return Ok(None);
+				}
+				if current {
+					return self
+						.try_get_process_availability_local_with_permissions(id, permissions)
+						.await;
+				}
+				let arg = tg::process::availability::Arg {
+					location: Some(runner.location_arg.clone()),
+					tokens: arg.tokens.clone(),
+				};
+				self.try_get_process_availability(id, arg).await
+			};
+			(output.metadata, output.availability) =
+				future::try_join(metadata_future, availability_future).await?;
 		}
 
 		Ok(Some(output))
@@ -231,8 +217,10 @@ impl Session {
 		else {
 			return Ok(None);
 		};
-		if let Some(metadata) = output.metadata.take() {
-			output.metadata = Self::mask_process_metadata_with_permissions(&metadata, permissions);
+		if metadata {
+			output.metadata = self
+				.try_get_process_metadata_local_with_permissions(id, permissions)
+				.await?;
 		}
 		Ok(Some(output))
 	}
@@ -301,13 +289,15 @@ impl Session {
 		}
 		let permissions = authorization.permissions;
 		self.add_tokens_to_process_get_output(id, authorization, &mut output)?;
-		if let Some(metadata) = output.metadata.take() {
-			output.metadata = Self::mask_process_metadata_with_permissions(&metadata, permissions);
+		if metadata {
+			output.metadata = self
+				.try_get_process_metadata_local_with_permissions(id, permissions)
+				.await?;
 		}
-		if availability && let Some(storage) = self.server.try_get_process_storage_local(id).await?
-		{
-			output.availability =
-				Self::compute_process_availability_with_permissions(storage, permissions);
+		if availability {
+			output.availability = self
+				.try_get_process_availability_local_with_permissions(id, permissions)
+				.await?;
 		}
 
 		Ok(Some(output))

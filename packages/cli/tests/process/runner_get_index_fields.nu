@@ -45,7 +45,7 @@ tg --url $remote.url --token $root_token checkpoint unwatch process.availability
 let output = job recv --tag $read_job --timeout 10sec
 assert equal $output.location remote
 assert equal $output.data.status started
-assert ($output.metadata? | is-empty) "metadata remains unavailable until the owning index has finished process data"
+assert ('metadata' in ($output | columns)) "the owning index reports the metadata that it has for a started process"
 assert ('availability' in ($output | columns))
 
 # A nonexistent region is ignored for the runner data, but still fails when an index-only field needs routing.

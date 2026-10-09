@@ -69,6 +69,20 @@ impl Session {
 		self.compute_process_availability(id, storage, tokens).await
 	}
 
+	pub(crate) async fn try_get_process_availability_local_with_permissions(
+		&self,
+		id: &tg::process::Id,
+		permissions: tg::authorization::permission::Set,
+	) -> tg::Result<Option<tg::process::Availability>> {
+		let Some(storage) = self.server.try_get_process_storage_local(id).await? else {
+			return Ok(None);
+		};
+		Ok(Self::compute_process_availability_with_permissions(
+			storage,
+			permissions,
+		))
+	}
+
 	pub(crate) async fn compute_process_availability(
 		&self,
 		id: &tg::process::Id,

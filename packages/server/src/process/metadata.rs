@@ -66,6 +66,20 @@ impl Session {
 		self.mask_process_metadata(id, metadata, tokens).await
 	}
 
+	pub(crate) async fn try_get_process_metadata_local_with_permissions(
+		&self,
+		id: &tg::process::Id,
+		permissions: tg::authorization::permission::Set,
+	) -> tg::Result<Option<tg::process::Metadata>> {
+		let Some(metadata) = self.server.try_get_process_metadata_local(id).await? else {
+			return Ok(None);
+		};
+		Ok(Self::mask_process_metadata_with_permissions(
+			&metadata,
+			permissions,
+		))
+	}
+
 	pub(crate) async fn mask_process_metadata(
 		&self,
 		id: &tg::process::Id,
@@ -343,13 +357,12 @@ impl Server {
 		&self,
 		id: &tg::process::Id,
 	) -> tg::Result<Option<tg::process::Metadata>> {
-		let Some(_) = self.try_get_process_local(id, false).await? else {
+		let Some(process) = self.index.try_get_process(id).await? else {
 			return Ok(None);
 		};
-		Ok(self
-			.index
-			.try_get_process(id)
-			.await?
-			.map(|process| process.metadata))
+		if !process.storage.contains(tg::process::storage::Set::NODE) {
+			return Ok(None);
+		}
+		Ok(Some(process.metadata))
 	}
 }
