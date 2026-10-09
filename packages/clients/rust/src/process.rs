@@ -6,6 +6,7 @@ use {
 pub use self::{
 	availability::Availability,
 	build::{build, build_with_instance},
+	checksum::Checksum,
 	connect::{connect, connect_with_instance},
 	data::Data,
 	debug::Debug,
@@ -29,6 +30,7 @@ pub use self::{
 pub mod availability;
 pub mod build;
 pub mod cancel;
+pub mod checksum;
 pub mod children;
 pub mod connect;
 pub mod control;
@@ -62,7 +64,7 @@ pub struct Arg {
 	pub cached: Option<bool>,
 	pub checksum: Option<tg::Checksum>,
 	pub command: Option<tg::Referent<tg::Either<tg::process::spawn::CommandArg, tg::Command>>>,
-	pub cpu: Option<u64>,
+	pub cpu: Option<tg::sandbox::Cpu>,
 	pub cwd: Option<PathBuf>,
 	pub debug: Option<tg::Either<bool, tg::process::Debug>>,
 	pub env: tg::value::Map,
@@ -94,7 +96,7 @@ pub enum SandboxArg {
 
 #[derive(Clone, Debug, Default)]
 pub struct SandboxCreateArg {
-	pub cpu: Option<u64>,
+	pub cpu: Option<tg::sandbox::Cpu>,
 	pub hostname: Option<String>,
 	pub isolation: Option<tg::sandbox::Isolation>,
 	pub location: Option<tg::location::Arg>,

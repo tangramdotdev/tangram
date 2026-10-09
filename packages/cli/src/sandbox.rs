@@ -48,6 +48,9 @@ pub struct Options {
 	#[arg(id = "sandbox.cpu", long = "cpu")]
 	pub cpu: Option<u64>,
 
+	#[arg(id = "sandbox.dedicated_cpu", long = "dedicated-cpu")]
+	pub dedicated_cpu: Option<u64>,
+
 	#[arg(id = "sandbox.hostname", long = "hostname")]
 	pub hostname: Option<String>,
 

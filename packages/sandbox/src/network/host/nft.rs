@@ -11,13 +11,21 @@ use {
 
 const DYNAMIC_RULE_COMMENT_PREFIX: &str = "tangram:identity=";
 const FORWARD_CHAIN: &str = "forward";
+const INPUT_CHAIN: &str = "input";
 const LEGACY_DYNAMIC_RULE_COMMENT_PREFIX: &str = "tangram:path=";
 const NFT_TABLE: &str = "tangram";
 const OUTPUT_CHAIN: &str = "output";
 const POSTROUTING_CHAIN: &str = "postrouting";
 const PREROUTING_CHAIN: &str = "prerouting";
 const TANGRAM_BRIDGE_FORWARD_IN_COMMENT: &str = "tangram:bridge:forward-in";
+const TANGRAM_BRIDGE_FORWARD_IN_DROP_COMMENT: &str = "tangram:bridge:forward-in-drop";
 const TANGRAM_BRIDGE_FORWARD_OUT_COMMENT: &str = "tangram:bridge:forward-out";
+const TANGRAM_BRIDGE_FORWARD_OUT_DNS_COMMENT_PREFIX: &str = "tangram:bridge:forward-out-dns:";
+const TANGRAM_BRIDGE_FORWARD_OUT_PRIVATE_COMMENT: &str = "tangram:bridge:forward-out-private";
+const TANGRAM_BRIDGE_FORWARD_REPLY_COMMENT: &str = "tangram:bridge:forward-reply";
+const TANGRAM_BRIDGE_INPUT_DNS_COMMENT_PREFIX: &str = "tangram:bridge:input-dns:";
+const TANGRAM_BRIDGE_INPUT_DROP_COMMENT: &str = "tangram:bridge:input-drop";
+const TANGRAM_BRIDGE_INPUT_REPLY_COMMENT: &str = "tangram:bridge:input-reply";
 const TANGRAM_BRIDGE_MASQUERADE_COMMENT: &str = "tangram:bridge:masquerade";
 const TANGRAM_TAP_FORWARD_IN_COMMENT: &str = "tangram:tap:forward-in";
 const TANGRAM_TAP_FORWARD_OUT_COMMENT: &str = "tangram:tap:forward-out";
@@ -44,8 +52,21 @@ enum CommentMatcher<'a> {
 
 impl NftRule {
 	fn new(chain: &'static str, comment: String, rule: Vec<String>) -> Self {
+		Self::with_operation("add", chain, comment, rule)
+	}
+
+	fn insert(chain: &'static str, comment: String, rule: Vec<String>) -> Self {
+		Self::with_operation("insert", chain, comment, rule)
+	}
+
+	fn with_operation(
+		operation: &str,
+		chain: &'static str,
+		comment: String,
+		rule: Vec<String>,
+	) -> Self {
 		let mut args = vec![
-			"add".to_owned(),
+			operation.to_owned(),
 			"rule".to_owned(),
 			"ip".to_owned(),
 			NFT_TABLE.to_owned(),
@@ -88,7 +109,11 @@ pub(crate) fn setup_tap_networking() -> tg::Result<()> {
 	Ok(())
 }
 
-pub(crate) fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr) -> tg::Result<()> {
+pub(crate) fn setup_bridge_networking(
+	bridge: &str,
+	addr: Ipv4Addr,
+	dns: &[Ipv4Addr],
+) -> tg::Result<()> {
 	let octets = addr.octets();
 	let subnet = Ipv4Addr::new(octets[0], octets[1], 0, 0);
 	let cidr = format!("{subnet}/16");
@@ -97,6 +122,39 @@ pub(crate) fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr) -> tg::Resul
 		POSTROUTING_CHAIN,
 		TANGRAM_BRIDGE_MASQUERADE_COMMENT,
 		bridge_masquerade_rule(bridge, &cidr),
+	)?;
+	delete_rules_by_comment(
+		INPUT_CHAIN,
+		CommentMatcher::Prefix(TANGRAM_BRIDGE_INPUT_DNS_COMMENT_PREFIX),
+	)?;
+	delete_rules_by_comment(
+		FORWARD_CHAIN,
+		CommentMatcher::Prefix(TANGRAM_BRIDGE_FORWARD_OUT_DNS_COMMENT_PREFIX),
+	)?;
+	for (index, addr) in dns.iter().enumerate() {
+		for protocol in ["tcp", "udp"] {
+			let comment = format!("{TANGRAM_BRIDGE_INPUT_DNS_COMMENT_PREFIX}{index}:{protocol}");
+			run_nft_checked(&nft_add_rule_args(
+				INPUT_CHAIN,
+				dns_rule(bridge, *addr, protocol, &comment),
+			))?;
+			let comment =
+				format!("{TANGRAM_BRIDGE_FORWARD_OUT_DNS_COMMENT_PREFIX}{index}:{protocol}");
+			run_nft_checked(&nft_add_rule_args(
+				FORWARD_CHAIN,
+				dns_rule(bridge, *addr, protocol, &comment),
+			))?;
+		}
+	}
+	replace_nft_rule(
+		INPUT_CHAIN,
+		TANGRAM_BRIDGE_INPUT_DROP_COMMENT,
+		input_drop_rule(bridge, TANGRAM_BRIDGE_INPUT_DROP_COMMENT),
+	)?;
+	replace_nft_rule(
+		FORWARD_CHAIN,
+		TANGRAM_BRIDGE_FORWARD_OUT_PRIVATE_COMMENT,
+		forward_private_drop_rule(bridge, TANGRAM_BRIDGE_FORWARD_OUT_PRIVATE_COMMENT),
 	)?;
 	replace_nft_rule(
 		FORWARD_CHAIN,
@@ -108,6 +166,25 @@ pub(crate) fn setup_bridge_networking(bridge: &str, addr: Ipv4Addr) -> tg::Resul
 		TANGRAM_BRIDGE_FORWARD_IN_COMMENT,
 		forward_in_rule(bridge, TANGRAM_BRIDGE_FORWARD_IN_COMMENT),
 	)?;
+	replace_nft_rule(
+		FORWARD_CHAIN,
+		TANGRAM_BRIDGE_FORWARD_IN_DROP_COMMENT,
+		forward_in_drop_rule(bridge, TANGRAM_BRIDGE_FORWARD_IN_DROP_COMMENT),
+	)?;
+	// Insert replies before all bridge drops, including rules retained from an earlier setup.
+	for (chain, comment) in [
+		(FORWARD_CHAIN, TANGRAM_BRIDGE_FORWARD_REPLY_COMMENT),
+		(INPUT_CHAIN, TANGRAM_BRIDGE_INPUT_REPLY_COMMENT),
+	] {
+		delete_rules_by_comment(chain, CommentMatcher::Exact(comment))?;
+		let rule = NftRule::insert(
+			chain,
+			comment.to_owned(),
+			bridge_reply_rule(bridge, comment),
+		);
+		run_nft_checked(&rule.args)?;
+	}
+
 	Ok(())
 }
 
@@ -210,6 +287,10 @@ fn setup_firewall_inner() -> tg::Result<()> {
 		"{ type nat hook postrouting priority 99; policy accept; }",
 	)?;
 	ensure_nft_chain(
+		INPUT_CHAIN,
+		"{ type filter hook input priority filter; policy accept; }",
+	)?;
+	ensure_nft_chain(
 		FORWARD_CHAIN,
 		"{ type filter hook forward priority filter; policy accept; }",
 	)?;
@@ -309,6 +390,58 @@ fn bridge_masquerade_rule(bridge: &str, cidr: &str) -> Vec<String> {
 	]
 }
 
+fn dns_rule(bridge: &str, addr: Ipv4Addr, protocol: &str, comment: &str) -> Vec<String> {
+	vec![
+		"iifname".to_owned(),
+		quote(bridge),
+		"ip".to_owned(),
+		"daddr".to_owned(),
+		addr.to_string(),
+		protocol.to_owned(),
+		"dport".to_owned(),
+		"53".to_owned(),
+		"accept".to_owned(),
+		"comment".to_owned(),
+		quote(comment),
+	]
+}
+
+fn bridge_reply_rule(bridge: &str, comment: &str) -> Vec<String> {
+	vec![
+		"iifname".to_owned(),
+		quote(bridge),
+		"ct".to_owned(),
+		"state".to_owned(),
+		"established,related".to_owned(),
+		"accept".to_owned(),
+		"comment".to_owned(),
+		quote(comment),
+	]
+}
+
+fn input_drop_rule(bridge: &str, comment: &str) -> Vec<String> {
+	vec![
+		"iifname".to_owned(),
+		quote(bridge),
+		"drop".to_owned(),
+		"comment".to_owned(),
+		quote(comment),
+	]
+}
+
+fn forward_private_drop_rule(bridge: &str, comment: &str) -> Vec<String> {
+	vec![
+		"iifname".to_owned(),
+		quote(bridge),
+		"ip".to_owned(),
+		"daddr".to_owned(),
+		"{ 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16, 198.18.0.0/15, 224.0.0.0/4, 240.0.0.0/4 }".to_owned(),
+		"drop".to_owned(),
+		"comment".to_owned(),
+		quote(comment),
+	]
+}
+
 fn forward_out_rule(interface: &str, comment: &str) -> Vec<String> {
 	vec![
 		"iifname".to_owned(),
@@ -327,6 +460,16 @@ fn forward_in_rule(interface: &str, comment: &str) -> Vec<String> {
 		"state".to_owned(),
 		"established,related".to_owned(),
 		"accept".to_owned(),
+		"comment".to_owned(),
+		quote(comment),
+	]
+}
+
+fn forward_in_drop_rule(interface: &str, comment: &str) -> Vec<String> {
+	vec![
+		"oifname".to_owned(),
+		quote(interface),
+		"drop".to_owned(),
 		"comment".to_owned(),
 		quote(comment),
 	]
@@ -416,7 +559,7 @@ fn port_forward_rule(
 		"comment".to_owned(),
 		quote(comment),
 	];
-	NftRule::new(FORWARD_CHAIN, comment.to_owned(), rule)
+	NftRule::insert(FORWARD_CHAIN, comment.to_owned(), rule)
 }
 
 fn nft_add_rule_args(chain: &'static str, rule: Vec<String>) -> Vec<String> {
@@ -555,5 +698,41 @@ impl Drop for FirewallRuleGuard {
 		{
 			tracing::error!(%error, "failed to clean up the sandbox port forwarding rule");
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn bridge_rules_restrict_private_and_host_traffic() {
+		let private = forward_private_drop_rule("tangram0", "private").join(" ");
+		let input = input_drop_rule("tangram0", "input").join(" ");
+
+		assert!(private.contains("169.254.0.0/16"));
+		assert!(private.contains("172.16.0.0/12"));
+		assert!(private.starts_with("iifname \"tangram0\" ip daddr"));
+		assert_eq!(input, "iifname \"tangram0\" drop comment \"input\"");
+	}
+
+	#[test]
+	fn dns_rule_only_allows_port_fifty_three() {
+		let addr = Ipv4Addr::new(10, 0, 0, 2);
+		let rule = dns_rule("tangram0", addr, "udp", "dns").join(" ");
+
+		assert_eq!(
+			rule,
+			"iifname \"tangram0\" ip daddr 10.0.0.2 udp dport 53 accept comment \"dns\""
+		);
+	}
+
+	#[test]
+	fn published_port_rule_precedes_inbound_drop() {
+		let guest = Ipv4Addr::new(172, 18, 0, 4);
+		let rule = port_forward_rule("tangram0", "tcp", guest, 8080, "port");
+
+		assert_eq!(rule.args[0], "insert");
+		assert!(rule.args.join(" ").contains("tcp dport 8080 accept"));
 	}
 }

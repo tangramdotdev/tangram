@@ -599,6 +599,13 @@ export namespace Error {
 			} else {
 				source = tg.Error.Object.children(object.source.node);
 			}
+			for (let child of source) {
+				tg.Object.inheritLocation(
+					child,
+					object.source?.options?.location ?? null,
+				);
+				tg.Object.inheritTokens(child, object.source?.options?.tokens ?? {});
+			}
 			return [...diagnostics, ...location, ...stack, ...source];
 		};
 	}

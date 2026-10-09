@@ -262,7 +262,7 @@ fn sandbox_data(
 ) -> tg::sandbox::get::Output {
 	tg::sandbox::get::Output {
 		data: tg::sandbox::Data {
-			cpu: Some(2),
+			cpu: Some(2.into()),
 			creator: Some(owner.clone()),
 			hostname: None,
 			id,
@@ -661,7 +661,10 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 			owner,
 			tg::sandbox::Status::Destroyed,
 			Some(tg::sandbox::Usage {
-				cpu: 123,
+				cpu: tg::sandbox::Cpu {
+					dedicated: 789,
+					shared: 123,
+				},
 				memory: 456,
 			}),
 		)),
@@ -691,6 +694,7 @@ async fn records_compute_once_when_a_sandbox_is_destroyed() {
 	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();
 	let usage = index.get_usage(&account, hour(0), now).await.unwrap();
 	assert_eq!(usage.sandbox_cpu, 123);
+	assert_eq!(usage.sandbox_cpu_dedicated, 789);
 	assert_eq!(usage.sandbox_memory, 456);
 	assert_eq!(usage.sandbox_count, 1);
 }
@@ -708,7 +712,10 @@ async fn records_compute_once_when_destroy_precedes_start() {
 		tg::sandbox::Status::Destroyed,
 	] {
 		let usage = status.is_destroyed().then_some(tg::sandbox::Usage {
-			cpu: 123,
+			cpu: tg::sandbox::Cpu {
+				dedicated: 789,
+				shared: 123,
+			},
 			memory: 456,
 		});
 		let arg = tangram_index::sandbox::put::Arg {
@@ -731,6 +738,7 @@ async fn records_compute_once_when_destroy_precedes_start() {
 	let now = jiff::Timestamp::new(60 * 60, 0).unwrap();
 	let usage = index.get_usage(&account, hour(0), now).await.unwrap();
 	assert_eq!(usage.sandbox_cpu, 123);
+	assert_eq!(usage.sandbox_cpu_dedicated, 789);
 	assert_eq!(usage.sandbox_memory, 456);
 	assert_eq!(usage.sandbox_count, 1);
 }
@@ -774,7 +782,10 @@ async fn does_not_record_compute_without_a_destroyed_sandbox_account() {
 			owner,
 			tg::sandbox::Status::Destroyed,
 			Some(tg::sandbox::Usage {
-				cpu: 123,
+				cpu: tg::sandbox::Cpu {
+					dedicated: 789,
+					shared: 123,
+				},
 				memory: 456,
 			}),
 		)),

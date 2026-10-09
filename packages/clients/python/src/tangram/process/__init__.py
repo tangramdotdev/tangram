@@ -101,16 +101,25 @@ class ProcessChildData(TypedDict):
     process: str
 
 
+class ProcessChecksum(TypedDict):
+    actual: str | None
+    expected: str | None
+
+
+class ProcessChecksumData(TypedDict):
+    actual: NotRequired[str | None]
+    expected: NotRequired[str | None]
+
+
 class ProcessDataObject(TypedDict):
-    actual_checksum: NotRequired[str | None]
     cacheable: NotRequired[bool]
+    checksum: NotRequired[ProcessChecksumData]
     children: NotRequired[list[ProcessChildData] | None]
     command: ReferentData[ProcessCommandData | str] | str
     created_at: int | float
     debug: NotRequired[DebugObject | None]
     error: NotRequired[ErrorData | str | None]
     exit: NotRequired[int | None]
-    expected_checksum: NotRequired[str | None]
     finished_at: NotRequired[int | float | None]
     host: str
     log: NotRequired[str | None]
@@ -132,7 +141,7 @@ class ArgObject(CommandArgObject, total=False):
     command: Unresolved[
         Command | CommandArgObject | Referent[Command | CommandArgObject] | None
     ]
-    cpu: FieldInput[int | float]
+    cpu: FieldInput[int | float | dict[str, int]]
     debug: Unresolved[bool | DebugObject | Mutation | None]
     location: Unresolved[LocationArgObject | Mutation | None]
     memory: FieldInput[int | float]
@@ -163,6 +172,7 @@ class Process[O: ValueType]:
     Connect: ClassVar[type[_Connect]]
     Spawn: ClassVar[type[_Spawn]]
     Builder: ClassVar[type[Builder]]
+    Checksum: ClassVar[type[ProcessChecksum]]
     Child: ClassVar[type[Child]]
     Data: ClassVar[type[Data]]
     State: ClassVar[type[State]]
@@ -908,7 +918,9 @@ class Builder[M: Mode, O: ValueType]:
             self.with_options(ports=value)
         return self
 
-    def cpu(self, value: Unresolved[int | float | Mutation | None]) -> Self:
+    def cpu(
+        self, value: Unresolved[int | float | dict[str, int] | Mutation | None]
+    ) -> Self:
         return self.with_options(cpu=value)
 
     def memory(self, value: Unresolved[int | float | Mutation | None]) -> Self:
@@ -1174,10 +1186,8 @@ class State:
         state = {
             key: data.get(key)
             for key in (
-                "actual_checksum",
                 "debug",
                 "exit",
-                "expected_checksum",
                 "finished_at",
                 "sandbox",
                 "started_at",
@@ -1191,6 +1201,11 @@ class State:
         state.update(
             {key: (data.get(key) or "inherit") for key in ("stdin", "stdout", "stderr")}
         )
+        checksum = data.get("checksum") or {}
+        state["checksum"] = {
+            "actual": checksum.get("actual"),
+            "expected": checksum.get("expected"),
+        }
         state["command"] = (
             Referent.from_data_string(data["command"])
             if isinstance(data["command"], str)
@@ -1229,10 +1244,8 @@ class State:
             }
         )
         for key in (
-            "actual_checksum",
             "debug",
             "exit",
-            "expected_checksum",
             "finished_at",
             "sandbox",
             "started_at",
@@ -1240,6 +1253,11 @@ class State:
         ):
             if state.get(key) is not None:
                 data[key] = state[key]
+        checksum = {
+            key: value for key, value in state["checksum"].items() if value is not None
+        }
+        if checksum:
+            data["checksum"] = checksum
         for key in ("cacheable", "retry"):
             if state.get(key):
                 data[key] = state[key]
@@ -1336,6 +1354,7 @@ class Signal:
     USR2 = "USR2"
 
 
+Process.Checksum = ProcessChecksum
 Process.Child = Child
 Process.Data = Data
 Process.State = State

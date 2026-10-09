@@ -11,11 +11,15 @@ use {crate::prelude::*, serde::Deserialize as _, serde_with::serde_as};
 )]
 pub struct Data {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[serde_as(as = "Option<Error>")]
 	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub checksum: Option<tg::Checksum>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[serde_as(as = "Option<Error>")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
 	pub error: Option<tg::Either<tg::error::Data, tg::Referent<tg::error::Id>>>,
 
-	#[tangram_serialize(id = 1)]
+	#[tangram_serialize(id = 2)]
 	pub exit: u8,
 
 	#[serde(
@@ -25,7 +29,7 @@ pub struct Data {
 	)]
 	#[tangram_serialize(
 		default,
-		id = 2,
+		id = 3,
 		skip_serializing_if = "Option::is_none",
 		with = "tangram_serialize::with::unwrap_or_skip"
 	)]

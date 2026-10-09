@@ -74,7 +74,12 @@ impl Cli {
 				.map_err(|error| tg::error!(!error, "failed to serialize the availability"))?;
 			self.print_info_message(&availability);
 		}
-		self.print_serde(output.data, options.print).await?;
+		let data = if options.print.tokens.get() {
+			output.data
+		} else {
+			output.data.without_location_and_tokens()
+		};
+		self.print_serde(data, options.print).await?;
 		Ok(())
 	}
 }

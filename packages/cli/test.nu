@@ -213,14 +213,15 @@ def main [
 	}
 
 	# Add the tangram binary to the path. If --tangram-path was provided, use
-	# its parent directory directly and place the tg symlink in a temp dir;
-	# otherwise build from source.
+	# its parent directory directly and place the tg symlink in the target
+	# directory; otherwise build from source.
 	if $tangram_path != null {
 		if not ($tangram_path | path exists) {
 			error make { msg: $'--tangram-path does not exist: ($tangram_path)' }
 		}
 		let tangram_path = $tangram_path | path expand
-		let tg_dir = mktemp -d -t tangram_test_tg_XXXXXX
+		let tg_dir = $repository_path | path join 'target/test-bin'
+		mkdir $tg_dir
 		ln -sf $tangram_path ($tg_dir | path join 'tg')
 		if $cloud {
 			let scylla_client_path = if $release { build_scylla_client --release } else { build_scylla_client }

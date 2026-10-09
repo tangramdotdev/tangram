@@ -32,6 +32,7 @@ pub(super) struct Runner {
 	pub requests: usize,
 	pub reservations: HashMap<tg::sandbox::Id, Reservation, tg::id::BuildHasher>,
 	pub reserved: tg::runner::Capacity,
+	pub shared_width: u64,
 }
 
 pub(super) struct Reservation {
@@ -99,6 +100,7 @@ impl State {
 			requests: 0,
 			reservations: HashMap::default(),
 			reserved: tg::runner::Capacity::default(),
+			shared_width: 0,
 		};
 		self.runners.entries.insert(request.runner.clone(), runner);
 		self.queue.wake();

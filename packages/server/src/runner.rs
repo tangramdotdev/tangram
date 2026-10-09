@@ -22,6 +22,8 @@ mod tests;
 
 pub(crate) mod capacity;
 pub(crate) mod process;
+#[cfg(target_os = "linux")]
+pub(crate) mod project;
 pub(crate) mod sandbox;
 
 pub mod control;
@@ -35,9 +37,15 @@ type RunnerSender =
 
 type CreateControlConnection<T> = Arc<dyn Fn() -> BoxFuture<'static, tg::Result<T>> + Send + Sync>;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
+#[cfg_attr(not(target_os = "linux"), derive(Copy))]
 pub(super) struct Config {
 	pub capacity: tg::runner::Capacity,
+	pub cpu_oversubscription: u64,
+	#[cfg(target_os = "linux")]
+	pub cpu_pool: Option<tangram_sandbox::cpu::Pool>,
+	#[cfg(target_os = "linux")]
+	pub filesystem_project_ids: crate::config::ContainerRunnerIsolationProjectIds,
 	pub process_control_connection_pool_size: usize,
 	pub process_control_connection_pool_ttl: Duration,
 	pub sandbox_control_connection_pool_size: usize,
@@ -67,7 +75,12 @@ pub struct Runner {
 }
 
 pub struct State {
+	#[cfg(target_os = "linux")]
+	cpu_pool: Option<tangram_sandbox::cpu::Pool>,
 	capacity: self::capacity::Pool,
+	#[cfg(target_os = "linux")]
+	filesystem_project_ids: self::project::Pool,
+	heartbeat_index: AtomicU64,
 	id: Mutex<Option<tg::runner::Id>>,
 	next_sandbox_index: AtomicU64,
 	process_for_token: dashmap::DashMap<String, (u64, tg::process::Id)>,
@@ -82,7 +95,12 @@ impl Runner {
 	pub fn new(config: Config) -> Self {
 		let (scheduler, _) = tokio::sync::watch::channel(None);
 		let state = State {
-			capacity: self::capacity::Pool::new(config.capacity),
+			#[cfg(target_os = "linux")]
+			cpu_pool: config.cpu_pool,
+			capacity: self::capacity::Pool::new(config.capacity, config.cpu_oversubscription),
+			#[cfg(target_os = "linux")]
+			filesystem_project_ids: self::project::Pool::new(config.filesystem_project_ids),
+			heartbeat_index: AtomicU64::new(0),
 			id: Mutex::new(None),
 			next_sandbox_index: AtomicU64::new(1),
 			process_for_token: dashmap::DashMap::new(),
@@ -805,13 +823,32 @@ impl Session {
 		index: u64,
 		cleanup: bool,
 	) -> tg::runner::control::HeartbeatClientNotification {
-		let capacity = if cleanup {
+		// Publish the snapshot index before reading the state so later capacity hints can reject older snapshots.
+		self.server
+			.runner
+			.state
+			.heartbeat_index
+			.store(index, Ordering::Release);
+		let capacity = if cleanup || !self.server.runner.state.healthy() {
 			tg::runner::control::Capacity::default()
 		} else {
 			self.server.runner.state.capacity.get()
 		};
-		tracing::debug!(target: "tangram_server::runner::control", index, cleanup, available_cpus = capacity.available.cpus, available_memory = capacity.available.memory, "sending the runner heartbeat");
-		tg::runner::control::HeartbeatClientNotification { capacity, index }
+		tracing::debug!(target: "tangram_server::runner::control", index, cleanup, available_dedicated_cpus = capacity.available.cpu.dedicated, available_shared_cpus = capacity.available.cpu.shared, available_memory = capacity.available.memory, "sending the runner heartbeat");
+		let sandboxes = self
+			.server
+			.runner
+			.state
+			.sandboxes
+			.iter()
+			.filter(|sandbox| !cleanup && sandbox.allocation.is_some())
+			.map(|sandbox| sandbox.id.clone())
+			.collect();
+		tg::runner::control::HeartbeatClientNotification {
+			capacity,
+			index,
+			sandboxes,
+		}
 	}
 
 	#[must_use]
@@ -843,6 +880,21 @@ impl Session {
 }
 
 impl State {
+	#[cfg_attr(not(target_os = "linux"), allow(clippy::unused_self))]
+	#[must_use]
+	pub(crate) fn healthy(&self) -> bool {
+		#[cfg(target_os = "linux")]
+		if let Some(pool) = &self.cpu_pool {
+			return pool.healthy();
+		}
+		true
+	}
+
+	#[must_use]
+	pub(crate) fn heartbeat_index(&self) -> u64 {
+		self.heartbeat_index.load(Ordering::Acquire)
+	}
+
 	#[must_use]
 	pub(crate) fn capacity(&self) -> &self::capacity::Pool {
 		&self.capacity
@@ -894,6 +946,7 @@ impl State {
 	}
 
 	pub fn set_scheduler(&self, scheduler: Option<tg::scheduler::Id>) {
+		self.heartbeat_index.store(0, Ordering::Release);
 		self.scheduler.send_replace(scheduler);
 	}
 
@@ -903,6 +956,13 @@ impl State {
 		assert_ne!(index, u64::MAX, "exhausted the sandbox indexes");
 
 		index
+	}
+
+	#[cfg(target_os = "linux")]
+	fn create_filesystem_project_id(&self) -> tg::Result<self::project::Id> {
+		self.filesystem_project_ids
+			.acquire()
+			.ok_or_else(|| tg::error!("the container filesystem project ID range is exhausted"))
 	}
 
 	#[must_use]

@@ -10,7 +10,7 @@ use {
 impl Session {
 	pub(crate) async fn process_control_sync_source(
 		&self,
-		arg: tg::process::control::Arg,
+		mut arg: tg::process::control::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
 		completion: watch::Sender<bool>,
 	) -> tg::Result<
@@ -21,6 +21,10 @@ impl Session {
 	> {
 		completion.send_replace(false);
 		let shortcut = !arg.start;
+		let destination = self.server.location(arg.location.as_ref())?;
+		if let Some(data) = &mut arg.data {
+			Self::inherit_process_control_tokens(data, &destination);
+		}
 		let (outcome_sender, outcome_receiver) = watch::channel(false);
 		let (initialization_sender, initialization_receiver) = oneshot::channel();
 		let mut initialization_sender = Some(initialization_sender);
@@ -29,7 +33,8 @@ impl Session {
 				.as_ref()
 				.and_then(|id| self.server.runner.state().try_get_process(id))
 		});
-		if let Some(data) = data {
+		if let Some(mut data) = data {
+			Self::inherit_process_control_tokens(&mut data, &destination);
 			let mut objects = data.command.objects();
 			objects.extend(Self::process_control_outcome_objects(&data));
 			outcome_sender.send_replace(data.status.is_finished());
@@ -42,10 +47,11 @@ impl Session {
 		let (additional_sender, additional_receiver) = mpsc::unbounded_channel();
 		let session = self.clone();
 		let input = input.map(move |message| {
-			let message = message?;
-			if let tg::process::control::ClientMessage::Request(request) = &message {
-				match &request.arg {
+			let mut message = message?;
+			if let tg::process::control::ClientMessage::Request(request) = &mut message {
+				match &mut request.arg {
 					tg::process::control::ClientRequestArg::Finish(finish) => {
+						Self::inherit_process_control_tokens(&mut finish.data, &destination);
 						outcome_sender.send_replace(true);
 						for node in Self::process_control_outcome_objects(&finish.data) {
 							let message = tg::sync::GetNodeMessage {
@@ -62,6 +68,7 @@ impl Session {
 						}
 					},
 					tg::process::control::ClientRequestArg::Start(start) => {
+						Self::inherit_process_control_tokens(&mut start.data, &destination);
 						if let Some(sender) = initialization_sender.take() {
 							let session =
 								session.try_get_process_session(&start.parent).ok_or_else(
@@ -189,5 +196,40 @@ impl Session {
 			.attach(sync_task)
 			.boxed();
 		Ok(Some((header, output)))
+	}
+
+	fn inherit_process_control_tokens(data: &mut tg::process::Data, destination: &tg::Location) {
+		if !destination.is_remote() {
+			return;
+		}
+		let inherit = |tokens: &mut tg::authorization::Tokens| {
+			let Some(entry) = tokens.get(destination).cloned() else {
+				return;
+			};
+			let mut local = tokens.local_entry();
+			local.inherit(&entry);
+			tokens.set(tg::Location::Local(tg::location::Local::default()), local);
+		};
+		inherit(&mut data.command.options.tokens);
+		if let tg::Either::Left(command) = &mut data.command.node {
+			inherit(&mut command.executable.options.tokens);
+			for value in command.args.iter_mut().chain(command.env.values_mut()) {
+				let (tg::command::data::Value::String(value)
+				| tg::command::data::Value::Value(value)) = value;
+				Self::update_process_value_tokens(value, &mut |tokens, _| inherit(tokens));
+			}
+			if let Some(stdin) = &mut command.stdin {
+				inherit(&mut stdin.options.tokens);
+			}
+		}
+		if let Some(output) = &mut data.output {
+			Self::update_process_value_tokens(output, &mut |tokens, _| inherit(tokens));
+		}
+		if let Some(tg::Either::Right(error)) = &mut data.error {
+			inherit(&mut error.options.tokens);
+		}
+		if let Some(log) = &mut data.log {
+			inherit(&mut log.options.tokens);
+		}
 	}
 }

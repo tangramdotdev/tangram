@@ -146,7 +146,7 @@ impl Session {
 				.enumerate()
 				.filter_map(|(index, (_, process))| {
 					let data = process.data.as_ref().unwrap();
-					(data.cacheable && data.expected_checksum == arg.checksum)
+					(data.cacheable && data.checksum.expected == arg.checksum)
 						.then(|| (index, Self::cached_process_outcome(data)))
 				});
 
@@ -207,8 +207,8 @@ impl Session {
 				.enumerate()
 				.filter_map(|(index, (_, process))| {
 					let data = process.data.as_ref().unwrap();
-					let actual_checksum = data.actual_checksum.as_ref()?;
-					let source_expected_checksum = data.expected_checksum.as_ref()?;
+					let actual_checksum = data.checksum.actual.as_ref()?;
+					let source_expected_checksum = data.checksum.expected.as_ref()?;
 					if !data.cacheable
 						|| source_expected_checksum == actual_checksum
 						|| !matches!(
@@ -560,7 +560,7 @@ impl Session {
 		source: tg::process::Data,
 	) -> tg::Result<super::local::Output> {
 		let expected_checksum = arg.checksum.clone().unwrap();
-		let actual_checksum = source.actual_checksum.clone().unwrap();
+		let actual_checksum = source.checksum.actual.clone().unwrap();
 		let (exit, error) = if expected_checksum == actual_checksum {
 			(0, None)
 		} else {
@@ -588,16 +588,19 @@ impl Session {
 			.transpose()?;
 		let now = self.server.clock.unix_timestamp()?;
 		let id = tg::process::Id::new();
+		let checksum = tg::process::Checksum {
+			actual: Some(actual_checksum),
+			expected: Some(expected_checksum),
+		};
 		let data = tg::process::Data {
-			actual_checksum: Some(actual_checksum),
 			cacheable: true,
+			checksum,
 			children: source.children,
 			command: tg::Referent::new(source.command.node, command.options.clone()),
 			created_at: now,
 			debug: arg.debug.clone(),
 			error: error.clone().map(tg::Either::Left),
 			exit: Some(exit),
-			expected_checksum: Some(expected_checksum),
 			finished_at: Some(now),
 			host: host.to_owned(),
 			log: None,

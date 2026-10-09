@@ -1,13 +1,16 @@
-mod cgroup;
+pub(crate) mod cgroup;
+pub(crate) mod filesystem;
+mod seccomp;
 mod spawn;
 mod util;
 mod validate;
 
-pub(crate) use self::spawn::spawn;
+pub(crate) use self::spawn::{enter_cgroup_before_exec, spawn};
 
 pub(crate) mod mount;
 pub(crate) mod network;
 
+pub mod host;
 pub mod init;
 pub mod root;
 pub mod run;

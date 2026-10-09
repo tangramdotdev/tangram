@@ -291,6 +291,7 @@ impl Session {
 			.exit
 			.ok_or_else(|| tg::error!("expected the exit to be set"))?;
 		let mut outcome = tg::process::outcome::Data {
+			checksum: data.checksum.actual.clone(),
 			error: data.error.clone(),
 			exit,
 			output: data.output.clone(),

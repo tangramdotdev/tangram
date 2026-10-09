@@ -141,6 +141,7 @@ impl Cli {
 			&& (output.is_some() || error.is_some())
 		{
 			let outcome = tg::process::Outcome {
+				checksum: None,
 				error,
 				exit,
 				output,

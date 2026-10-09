@@ -1,16 +1,11 @@
 use {
 	super::run::{Arg, Bind, Overlay},
 	bytes::Bytes,
-	num::ToPrimitive,
 	std::{
-		cmp::Reverse,
-		ffi::{CString, OsStr, OsString},
+		ffi::{CString, OsStr},
 		os::{
-			fd::AsRawFd as _,
-			unix::{
-				ffi::{OsStrExt as _, OsStringExt as _},
-				fs::OpenOptionsExt as _,
-			},
+			fd::{AsRawFd as _, FromRawFd as _, OwnedFd, RawFd},
+			unix::{ffi::OsStrExt as _, fs::OpenOptionsExt as _},
 		},
 		path::{Path, PathBuf},
 	},
@@ -18,6 +13,9 @@ use {
 };
 
 const AT_RECURSIVE: libc::c_uint = 0x8000;
+const RESOLVE_BENEATH: u64 = 0x08;
+const RESOLVE_NO_MAGICLINKS: u64 = 0x02;
+const RESOLVE_NO_SYMLINKS: u64 = 0x04;
 const MOUNT_ATTR_NODEV: u64 = 0x0000_0004;
 const MOUNT_ATTR_NOSUID: u64 = 0x0000_0002;
 const MOUNT_ATTR_RDONLY: u64 = 0x0000_0001;
@@ -40,7 +38,6 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 			)
 		})?;
 	}
-
 	let mut overlays = arg.overlays.iter().collect::<Vec<_>>();
 	overlays.sort_unstable_by_key(|overlay| path_depth(&overlay.target));
 	if let Some(overlay) = overlays
@@ -50,34 +47,38 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 		let root = root.ok_or_else(|| tg::error!("an overlay to / requires a scratch path"))?;
 		mount_overlay(&arg.overlay_sources, overlay, root)?;
 	}
+	let mount_root = open_mount_root(root)?;
 
 	let mut tmpfs = arg.tmpfs.iter().collect::<Vec<_>>();
 	tmpfs.sort_unstable_by_key(|path| path_depth(path));
 	for target in tmpfs {
-		mount_tmpfs(&map_target(root, target)?)?;
+		mount_tmpfs(&map_path_target(root, target)?)?;
 	}
 
 	let mut devs = arg.devs.iter().collect::<Vec<_>>();
 	devs.sort_unstable_by_key(|path| path_depth(path));
 	for target in devs {
-		mount_dev(&map_target(root, target)?)?;
+		mount_dev(&map_path_target(root, target)?)?;
 	}
 
 	let mut procs = arg.procs.iter().collect::<Vec<_>>();
 	procs.sort_unstable_by_key(|path| path_depth(path));
 	for target in procs {
-		mount_proc(&map_target(root, target)?)?;
+		mount_proc(&map_path_target(root, target)?)?;
 	}
 
-	if arg.cgroup.is_some() {
-		mount_cgroup(&map_target(root, Path::new("/sys/fs/cgroup"))?)?;
+	if arg.cgroup.is_some() || arg.cgroup_fd.is_some() {
+		mount_cgroup(
+			&map_path_target(root, Path::new("/sys/fs/cgroup"))?,
+			arg.cgroup_readonly,
+		)?;
 	}
 
 	for overlay in overlays
 		.into_iter()
 		.filter(|overlay| overlay.target != Path::new("/"))
 	{
-		let target = map_target(root, &overlay.target)?;
+		let target = map_path_target(root, &overlay.target)?;
 		mount_overlay(&arg.overlay_sources, overlay, &target)?;
 	}
 
@@ -95,7 +96,13 @@ pub fn apply(arg: &Arg, root: Option<&Path>) -> tg::Result<()> {
 			nosuid: arg.unshare_all,
 			readonly,
 		};
-		mount_bind(bind, &target, attributes)?;
+		mount_bind(
+			bind,
+			arg.filesystem_mount_fd,
+			mount_root.as_raw_fd(),
+			&target,
+			attributes,
+		)?;
 	}
 
 	Ok(())
@@ -153,12 +160,18 @@ fn map_target(root: Option<&Path>, target: &Path) -> tg::Result<PathBuf> {
 				"expected an absolute target path"
 			)
 		})?;
-		let target = root.join(suffix);
-		validate_target_path(root, &target)?;
-		Ok(target)
+		Ok(root.join(suffix))
 	} else {
 		Ok(target.to_owned())
 	}
+}
+
+fn map_path_target(root: Option<&Path>, target: &Path) -> tg::Result<PathBuf> {
+	let target = map_target(root, target)?;
+	if let Some(root) = root {
+		validate_target_path(root, &target)?;
+	}
+	Ok(target)
 }
 
 fn validate_target_path(root: &Path, target: &Path) -> tg::Result<()> {
@@ -187,32 +200,346 @@ fn validate_target_path(root: &Path, target: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn mount_bind(bind: &Bind, target: &Path, attributes: MountAttributes) -> tg::Result<()> {
-	create_mountpoint_if_not_exists(&bind.source, target).map_err(|error| {
+fn mount_bind(
+	bind: &Bind,
+	filesystem: Option<RawFd>,
+	root: RawFd,
+	target_path: &Path,
+	attributes: MountAttributes,
+) -> tg::Result<()> {
+	let source = open_bind_source(&bind.source, filesystem).map_err(|error| {
 		tg::error!(
 			!error,
-			error = %bind.source.display(),
-			target = %target.display(),
-			"failed to create the bind mountpoint"
+			path = %bind.source.display(),
+			"failed to securely open the bind source"
 		)
 	})?;
-	let source = cstring(&bind.source);
-	let target_path = target;
-	let target = cstring(target_path);
-	let flags = libc::MS_BIND | libc::MS_REC;
-	mount_raw(Some(&source), &target, None, flags, std::ptr::null_mut()).map_err(|error| {
+	let directory = fd_is_directory(source.as_raw_fd()).map_err(|error| {
 		tg::error!(
 			!error,
-			error = %bind.source.display(),
+			path = %bind.source.display(),
+			"failed to inspect the bind source"
+		)
+	})?;
+	let target = bind.target.strip_prefix("/").unwrap();
+	let target_fd = create_mount_target(root, target, directory).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %bind.target.display(),
+			"failed to securely create the bind target"
+		)
+	})?;
+	mount_bind_modern(
+		source.as_raw_fd(),
+		target_fd.as_raw_fd(),
+		directory,
+		attributes,
+	)
+	.map_err(|error| {
+		tg::error!(
+			!error,
+			source = %bind.source.display(),
 			target = %target_path.display(),
 			"failed to create the bind mount"
 		)
 	})?;
-	set_mount_attributes(target_path, attributes)?;
 	Ok(())
 }
 
-fn set_mount_attributes(target: &Path, attributes: MountAttributes) -> tg::Result<()> {
+fn open_bind_source(path: &Path, filesystem: Option<RawFd>) -> std::io::Result<OwnedFd> {
+	if let Some(filesystem) = filesystem {
+		let root = PathBuf::from(format!("/proc/self/fd/{filesystem}"));
+		if let Ok(path) = path.strip_prefix(root) {
+			let path = if path.as_os_str().is_empty() {
+				Path::new(".")
+			} else {
+				path
+			};
+			return openat2(
+				filesystem,
+				path,
+				libc::O_PATH | libc::O_CLOEXEC,
+				RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_SYMLINKS,
+			);
+		}
+	}
+	open_absolute_path(path)
+}
+
+fn mount_bind_path(bind: &Bind, target: &Path) -> tg::Result<()> {
+	create_mountpoint_if_not_exists(&bind.source, target).map_err(|error| {
+		tg::error!(!error, source = %bind.source.display(), target = %target.display(), "failed to create the bind mountpoint")
+	})?;
+	let source = cstring(&bind.source);
+	let target_cstring = cstring(target);
+	let flags = libc::MS_BIND | libc::MS_REC;
+	mount_raw(
+		Some(&source),
+		&target_cstring,
+		None,
+		flags,
+		std::ptr::null_mut(),
+	)
+	.map_err(|error| {
+		tg::error!(!error, source = %bind.source.display(), target = %target.display(), "failed to create the bind mount")
+	})?;
+	Ok(())
+}
+
+fn open_mount_root(root: Option<&Path>) -> tg::Result<OwnedFd> {
+	let path = root.unwrap_or_else(|| Path::new("/"));
+	open_absolute_path(path).map_err(|error| {
+		tg::error!(
+			!error,
+			path = %path.display(),
+			"failed to securely open the mount root"
+		)
+	})
+}
+
+fn open_absolute_path(path: &Path) -> std::io::Result<OwnedFd> {
+	let suffix = path
+		.strip_prefix("/")
+		.map_err(|_| std::io::Error::from_raw_os_error(libc::EINVAL))?;
+	let root = std::fs::OpenOptions::new()
+		.custom_flags(libc::O_PATH | libc::O_CLOEXEC)
+		.read(true)
+		.open("/")?;
+	let suffix = if suffix.as_os_str().is_empty() {
+		Path::new(".")
+	} else {
+		suffix
+	};
+	openat2(
+		root.as_raw_fd(),
+		suffix,
+		libc::O_PATH | libc::O_CLOEXEC,
+		RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_SYMLINKS,
+	)
+}
+
+fn create_mount_target(root: RawFd, target: &Path, directory: bool) -> std::io::Result<OwnedFd> {
+	let components = target
+		.components()
+		.map(|component| match component {
+			std::path::Component::Normal(component) => Ok(component),
+			_ => Err(std::io::Error::from_raw_os_error(libc::EINVAL)),
+		})
+		.collect::<std::io::Result<Vec<_>>>()?;
+	let (name, parents) = components
+		.split_last()
+		.ok_or_else(|| std::io::Error::from_raw_os_error(libc::EINVAL))?;
+	let mut parent = duplicate_fd(root)?;
+	for component in parents {
+		parent = open_or_create_directory(parent.as_raw_fd(), component)?;
+	}
+	if directory {
+		open_or_create_directory(parent.as_raw_fd(), name)
+	} else {
+		open_or_create_file(parent.as_raw_fd(), name)
+	}
+}
+
+fn open_or_create_directory(parent: RawFd, name: &OsStr) -> std::io::Result<OwnedFd> {
+	match openat2(
+		parent,
+		Path::new(name),
+		libc::O_DIRECTORY | libc::O_PATH | libc::O_CLOEXEC,
+		RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_SYMLINKS,
+	) {
+		Ok(fd) => Ok(fd),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+			let name_cstring = cstring(name);
+			// SAFETY: The parent descriptor and component string are valid for the syscall.
+			let result = unsafe { libc::mkdirat(parent, name_cstring.as_ptr(), 0o755) };
+			if result != 0 {
+				let error = std::io::Error::last_os_error();
+				if error.kind() != std::io::ErrorKind::AlreadyExists {
+					return Err(error);
+				}
+			}
+			openat2(
+				parent,
+				Path::new(name),
+				libc::O_DIRECTORY | libc::O_PATH | libc::O_CLOEXEC,
+				RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_SYMLINKS,
+			)
+		},
+		Err(error) => Err(error),
+	}
+}
+
+fn open_or_create_file(parent: RawFd, name: &OsStr) -> std::io::Result<OwnedFd> {
+	match openat2(
+		parent,
+		Path::new(name),
+		libc::O_PATH | libc::O_CLOEXEC,
+		RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_SYMLINKS,
+	) {
+		Ok(fd) if !fd_is_directory(fd.as_raw_fd())? => Ok(fd),
+		Ok(_) => Err(std::io::Error::from_raw_os_error(libc::EISDIR)),
+		Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+			let name_cstring = cstring(name);
+			// SAFETY: The parent descriptor and component string are valid for the syscall.
+			let fd = unsafe {
+				libc::openat(
+					parent,
+					name_cstring.as_ptr(),
+					libc::O_WRONLY
+						| libc::O_CREAT | libc::O_EXCL
+						| libc::O_CLOEXEC | libc::O_NOFOLLOW,
+					0o644,
+				)
+			};
+			if fd >= 0 {
+				// SAFETY: A nonnegative result from openat is a newly owned descriptor.
+				return Ok(unsafe { OwnedFd::from_raw_fd(fd) });
+			}
+			let error = std::io::Error::last_os_error();
+			if error.kind() != std::io::ErrorKind::AlreadyExists {
+				return Err(error);
+			}
+			let fd = openat2(
+				parent,
+				Path::new(name),
+				libc::O_PATH | libc::O_CLOEXEC,
+				RESOLVE_BENEATH | RESOLVE_NO_MAGICLINKS | RESOLVE_NO_SYMLINKS,
+			)?;
+			if fd_is_directory(fd.as_raw_fd())? {
+				return Err(std::io::Error::from_raw_os_error(libc::EISDIR));
+			}
+			Ok(fd)
+		},
+		Err(error) => Err(error),
+	}
+}
+
+fn openat2(
+	parent: RawFd,
+	path: &Path,
+	flags: libc::c_int,
+	resolve: u64,
+) -> std::io::Result<OwnedFd> {
+	let path = cstring(path);
+	// SAFETY: The open_how type is valid when zero initialized.
+	let mut how: libc::open_how = unsafe { std::mem::zeroed() };
+	how.flags = flags.try_into().unwrap();
+	how.resolve = resolve;
+	// SAFETY: The path and open_how pointers remain valid for the syscall.
+	let fd = unsafe {
+		libc::syscall(
+			libc::SYS_openat2,
+			parent,
+			path.as_ptr(),
+			&raw const how,
+			std::mem::size_of::<libc::open_how>(),
+		)
+	};
+	if fd < 0 {
+		return Err(std::io::Error::last_os_error());
+	}
+	// SAFETY: A nonnegative result from openat2 is a newly owned descriptor.
+	Ok(unsafe { OwnedFd::from_raw_fd(fd.try_into().unwrap()) })
+}
+
+fn duplicate_fd(fd: RawFd) -> std::io::Result<OwnedFd> {
+	// SAFETY: fcntl does not retain the descriptor argument.
+	let fd = unsafe { libc::fcntl(fd, libc::F_DUPFD_CLOEXEC, 0) };
+	if fd < 0 {
+		return Err(std::io::Error::last_os_error());
+	}
+	// SAFETY: F_DUPFD_CLOEXEC returned a newly owned descriptor.
+	Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+fn fd_is_directory(fd: RawFd) -> std::io::Result<bool> {
+	let mut stat = std::mem::MaybeUninit::zeroed();
+	// SAFETY: The stat buffer is writable and valid for the syscall.
+	let result = unsafe { libc::fstat(fd, stat.as_mut_ptr()) };
+	if result != 0 {
+		return Err(std::io::Error::last_os_error());
+	}
+	// SAFETY: A successful fstat initialized the complete stat buffer.
+	let stat = unsafe { stat.assume_init() };
+	Ok(stat.st_mode & libc::S_IFMT == libc::S_IFDIR)
+}
+
+fn mount_bind_modern(
+	source: RawFd,
+	target: RawFd,
+	recursive: bool,
+	attributes: MountAttributes,
+) -> std::io::Result<()> {
+	let recursive_flag = if recursive { AT_RECURSIVE } else { 0 };
+	let flags = libc::OPEN_TREE_CLONE | libc::OPEN_TREE_CLOEXEC | libc::AT_EMPTY_PATH as u32;
+	let flags = flags | recursive_flag;
+	// SAFETY: The empty path selects the valid source descriptor for the syscall.
+	let mount = unsafe { libc::syscall(libc::SYS_open_tree, source, c"".as_ptr(), flags) };
+	if mount < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(std::io::Error::new(
+			error.kind(),
+			format!("open_tree failed: {error}"),
+		));
+	}
+	// SAFETY: A nonnegative result from open_tree is a newly owned descriptor.
+	let mount = unsafe { OwnedFd::from_raw_fd(mount.try_into().unwrap()) };
+	attach_mount(&mount, target, recursive, attributes)
+}
+
+fn attach_mount(
+	mount: &OwnedFd,
+	target: RawFd,
+	recursive: bool,
+	attributes: MountAttributes,
+) -> std::io::Result<()> {
+	let recursive_flag = if recursive { AT_RECURSIVE } else { 0 };
+	let attributes = mount_attributes(attributes);
+	if attributes != 0 {
+		let attributes = [attributes, 0, 0, 0];
+		let flags = libc::AT_EMPTY_PATH as u32 | recursive_flag;
+		// SAFETY: The attribute array remains valid for the syscall.
+		let result = unsafe {
+			libc::syscall(
+				libc::SYS_mount_setattr,
+				mount.as_raw_fd(),
+				c"".as_ptr(),
+				flags,
+				attributes.as_ptr(),
+				std::mem::size_of_val(&attributes),
+			)
+		};
+		if result != 0 {
+			let error = std::io::Error::last_os_error();
+			return Err(std::io::Error::new(
+				error.kind(),
+				format!("mount_setattr failed: {error}"),
+			));
+		}
+	}
+	let flags = libc::MOVE_MOUNT_F_EMPTY_PATH | libc::MOVE_MOUNT_T_EMPTY_PATH;
+	// SAFETY: The empty paths select the valid detached mount and target descriptors.
+	let result = unsafe {
+		libc::syscall(
+			libc::SYS_move_mount,
+			mount.as_raw_fd(),
+			c"".as_ptr(),
+			target,
+			c"".as_ptr(),
+			flags,
+		)
+	};
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(std::io::Error::new(
+			error.kind(),
+			format!("move_mount failed: {error}"),
+		));
+	}
+	Ok(())
+}
+
+fn mount_attributes(attributes: MountAttributes) -> u64 {
 	let mut attribute_set = 0;
 	if attributes.nodev {
 		attribute_set |= MOUNT_ATTR_NODEV;
@@ -223,126 +550,7 @@ fn set_mount_attributes(target: &Path, attributes: MountAttributes) -> tg::Resul
 	if attributes.readonly {
 		attribute_set |= MOUNT_ATTR_RDONLY;
 	}
-	if attribute_set == 0 {
-		return Ok(());
-	}
-
-	match set_mount_attributes_modern(target, attribute_set) {
-		Ok(()) => Ok(()),
-		Err(error)
-			if matches!(
-				error.raw_os_error(),
-				Some(libc::ENOSYS | libc::EINVAL | libc::EOPNOTSUPP | libc::EPERM)
-			) =>
-		{
-			set_mount_attributes_legacy(target, attributes)
-		},
-		Err(error) => Err(tg::error!(
-			!error,
-			target = %target.display(),
-			"failed to set recursive mount attributes"
-		)),
-	}
-}
-
-fn set_mount_attributes_modern(target: &Path, attribute_set: u64) -> std::io::Result<()> {
-	let target = cstring(target);
-	// The array matches Linux's mount_attr ABI: attr_set, attr_clr, propagation, and userns_fd.
-	let attributes = [attribute_set, 0, 0, 0];
-	// SAFETY: The target and attribute pointers remain valid for the duration of the syscall.
-	let result = unsafe {
-		libc::syscall(
-			libc::SYS_mount_setattr,
-			libc::AT_FDCWD,
-			target.as_ptr(),
-			AT_RECURSIVE,
-			attributes.as_ptr(),
-			std::mem::size_of_val(&attributes),
-		)
-	};
-	if result != 0 {
-		return Err(std::io::Error::last_os_error());
-	}
-	Ok(())
-}
-
-fn set_mount_attributes_legacy(target: &Path, attributes: MountAttributes) -> tg::Result<()> {
-	let mut mountpoints = mountpoints_under(target)?;
-	mountpoints.sort_unstable_by_key(|path| Reverse(path_depth(path)));
-	if mountpoints.is_empty() {
-		return Err(tg::error!(
-			target = %target.display(),
-			"failed to find the bind mount in mountinfo"
-		));
-	}
-	for mountpoint in mountpoints {
-		let mountpoint_cstring = cstring(&mountpoint);
-		let mut flags = get_existing_mount_flags(&mountpoint_cstring).map_err(|error| {
-			tg::error!(
-				!error,
-				path = %mountpoint.display(),
-				"failed to get the existing mount attributes"
-			)
-		})?;
-		flags |= libc::MS_BIND | libc::MS_REMOUNT;
-		if attributes.nodev {
-			flags |= libc::MS_NODEV;
-		}
-		if attributes.nosuid {
-			flags |= libc::MS_NOSUID;
-		}
-		if attributes.readonly {
-			flags |= libc::MS_RDONLY;
-		}
-		mount_raw(None, &mountpoint_cstring, None, flags, std::ptr::null_mut()).map_err(
-			|error| {
-				tg::error!(
-					!error,
-					path = %mountpoint.display(),
-					"failed to set the mount attributes"
-				)
-			},
-		)?;
-	}
-	Ok(())
-}
-
-fn mountpoints_under(target: &Path) -> tg::Result<Vec<PathBuf>> {
-	let mountinfo = std::fs::read("/proc/self/mountinfo")
-		.map_err(|error| tg::error!(!error, "failed to read mountinfo"))?;
-	let mut mountpoints = Vec::new();
-	for line in mountinfo.split(|byte| *byte == b'\n') {
-		let Some(field) = line.split(|byte| *byte == b' ').nth(4) else {
-			continue;
-		};
-		let mountpoint = PathBuf::from(decode_mountinfo_path(field)?);
-		if mountpoint == target || mountpoint.starts_with(target) {
-			mountpoints.push(mountpoint);
-		}
-	}
-	Ok(mountpoints)
-}
-
-fn decode_mountinfo_path(input: &[u8]) -> tg::Result<OsString> {
-	let mut output = Vec::with_capacity(input.len());
-	let mut index = 0;
-	while index < input.len() {
-		if input[index] != b'\\' {
-			output.push(input[index]);
-			index += 1;
-			continue;
-		}
-		let digits = input
-			.get(index + 1..index + 4)
-			.ok_or_else(|| tg::error!("invalid escape in mountinfo"))?;
-		if !digits.iter().all(|digit| (b'0'..=b'7').contains(digit)) {
-			return Err(tg::error!("invalid escape in mountinfo"));
-		}
-		let byte = (digits[0] - b'0') * 64 + (digits[1] - b'0') * 8 + digits[2] - b'0';
-		output.push(byte);
-		index += 4;
-	}
-	Ok(OsString::from_vec(output))
+	attribute_set
 }
 
 fn mount_overlay(lowerdirs: &[PathBuf], overlay: &Overlay, target: &Path) -> tg::Result<()> {
@@ -415,7 +623,7 @@ fn mount_proc(target: &Path) -> tg::Result<()> {
 	Ok(())
 }
 
-fn mount_cgroup(target: &Path) -> tg::Result<()> {
+fn mount_cgroup(target: &Path, readonly: bool) -> tg::Result<()> {
 	std::fs::create_dir_all(target).map_err(|error| {
 		tg::error!(
 			!error,
@@ -437,11 +645,15 @@ fn mount_cgroup(target: &Path) -> tg::Result<()> {
 	.map_err(|error| tg::error!(!error, "failed to create the cgroup underlay mount"))?;
 	let source = cstring("cgroup2");
 	let fstype = cstring("cgroup2");
+	let mut flags = libc::MS_NODEV | libc::MS_NOEXEC | libc::MS_NOSUID;
+	if readonly {
+		flags |= libc::MS_RDONLY;
+	}
 	mount_raw(
 		Some(&source),
 		&target,
 		Some(&fstype),
-		libc::MS_NODEV | libc::MS_NOEXEC | libc::MS_NOSUID,
+		flags,
 		std::ptr::null_mut(),
 	)
 	.map_err(|error| tg::error!(!error, "failed to create the cgroup mount"))?;
@@ -547,7 +759,7 @@ fn mount_dev(target: &Path) -> tg::Result<()> {
 			source,
 			target: target.clone(),
 		};
-		mount_bind(&entry, &target, MountAttributes::default())?;
+		mount_bind_path(&entry, &target)?;
 	}
 
 	configure_dev(target)
@@ -659,38 +871,61 @@ fn mount_raw(
 	Ok(())
 }
 
-fn get_existing_mount_flags(path: &CString) -> std::io::Result<libc::c_ulong> {
-	const ST_RELATIME: u64 = 0x400;
-	const FLAGS: [(u64, u64); 7] = [
-		(libc::MS_RDONLY, libc::ST_RDONLY),
-		(libc::MS_NODEV, libc::ST_NODEV),
-		(libc::MS_NOEXEC, libc::ST_NOEXEC),
-		(libc::MS_NOSUID, libc::ST_NOSUID),
-		(libc::MS_NOATIME, libc::ST_NOATIME),
-		(libc::MS_RELATIME, ST_RELATIME),
-		(libc::MS_NODIRATIME, libc::ST_NODIRATIME),
-	];
-	let statfs = unsafe {
-		let mut statfs = std::mem::MaybeUninit::zeroed();
-		let ret = libc::statfs64(path.as_ptr(), statfs.as_mut_ptr());
-		if ret != 0 {
-			return Err(std::io::Error::last_os_error());
-		}
-		statfs.assume_init()
-	};
-	let mut flags = 0;
-	for (mount_flag, stat_flag) in FLAGS {
-		if (statfs.f_flags.to_u64().unwrap() & stat_flag) != 0 {
-			flags |= mount_flag;
-		}
-	}
-	Ok(flags)
-}
-
 fn path_depth(path: &Path) -> usize {
 	path.components().count()
 }
 
 fn cstring(value: impl AsRef<OsStr>) -> CString {
 	CString::new(value.as_ref().as_bytes()).unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn open_absolute_path_rejects_symbolic_links() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let directory = temp.path().join("directory");
+		std::fs::create_dir(&directory).unwrap();
+		let link = temp.path().join("link");
+		std::os::unix::fs::symlink(&directory, &link).unwrap();
+
+		let error = open_absolute_path(&link).unwrap_err();
+
+		assert_eq!(error.raw_os_error(), Some(libc::ELOOP));
+	}
+
+	#[test]
+	fn create_mount_target_rejects_symbolic_link_escape() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let root = temp.path().join("root");
+		let outside = temp.path().join("outside");
+		std::fs::create_dir(&root).unwrap();
+		std::fs::create_dir(&outside).unwrap();
+		std::os::unix::fs::symlink(&outside, root.join("escape")).unwrap();
+		let root = open_absolute_path(&root).unwrap();
+
+		let error =
+			create_mount_target(root.as_raw_fd(), Path::new("escape/file"), false).unwrap_err();
+
+		assert_eq!(error.raw_os_error(), Some(libc::ELOOP));
+		assert!(!outside.join("file").exists());
+	}
+
+	#[test]
+	fn create_mount_target_creates_expected_types() {
+		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
+		let root = open_absolute_path(temp.path()).unwrap();
+
+		let directory =
+			create_mount_target(root.as_raw_fd(), Path::new("a/directory"), true).unwrap();
+		let file = create_mount_target(root.as_raw_fd(), Path::new("a/file"), false).unwrap();
+
+		assert!(fd_is_directory(directory.as_raw_fd()).unwrap());
+		assert!(!fd_is_directory(file.as_raw_fd()).unwrap());
+	}
 }

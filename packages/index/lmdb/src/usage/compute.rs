@@ -25,6 +25,18 @@ impl Index {
 			};
 			Self::add_usage_delta(db, subspace, transaction, entry)?;
 		}
+		if let Some(cpu) = arg.cpu_dedicated {
+			let delta =
+				i64::try_from(cpu).map_err(|_| tg::error!("the compute CPU usage is too large"))?;
+			let entry = tangram_index::usage::DeltaArg {
+				account: arg.account,
+				at: arg.at,
+				delta,
+				kind: tangram_index::usage::DeltaKind::SandboxCpuDedicated,
+				partition,
+			};
+			Self::add_usage_delta(db, subspace, transaction, entry)?;
+		}
 		if let Some(memory) = arg.memory {
 			let delta = i64::try_from(memory)
 				.map_err(|_| tg::error!("the compute memory usage is too large"))?;

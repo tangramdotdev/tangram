@@ -38,6 +38,9 @@ pub enum DeltaKind {
 	#[tangram_serialize(id = 4)]
 	SandboxCpu = 4,
 
+	#[tangram_serialize(id = 6)]
+	SandboxCpuDedicated = 6,
+
 	#[tangram_serialize(id = 5)]
 	SandboxMemory = 5,
 }
@@ -49,6 +52,7 @@ pub struct PartitionAggregate {
 	pub process_count: i128,
 	pub sandbox_count: i128,
 	pub sandbox_cpu: u128,
+	pub sandbox_cpu_dedicated: u128,
 	pub sandbox_memory: u128,
 }
 
@@ -122,6 +126,10 @@ impl PartitionAggregate {
 			.sandbox_cpu
 			.checked_add(other.sandbox_cpu)
 			.ok_or_else(|| tg::error!("the sandbox CPU usage overflowed"))?;
+		self.sandbox_cpu_dedicated = self
+			.sandbox_cpu_dedicated
+			.checked_add(other.sandbox_cpu_dedicated)
+			.ok_or_else(|| tg::error!("the dedicated CPU usage overflowed"))?;
 		self.sandbox_memory = self
 			.sandbox_memory
 			.checked_add(other.sandbox_memory)
@@ -145,6 +153,7 @@ impl PartitionAggregate {
 			process_count,
 			sandbox_count,
 			sandbox_cpu: self.sandbox_cpu,
+			sandbox_cpu_dedicated: self.sandbox_cpu_dedicated,
 			sandbox_memory: self.sandbox_memory,
 		};
 
@@ -180,9 +189,10 @@ pub fn closing_hour(period: Period) -> tg::Result<i64> {
 }
 
 pub fn deserialize_aggregate(bytes: &[u8]) -> tg::Result<PartitionAggregate> {
-	let bytes: &[u8; 96] = bytes
+	let bytes: &[u8; 112] = bytes
 		.try_into()
 		.map_err(|_| tg::error!("invalid usage aggregate"))?;
+	let sandbox_cpu_dedicated = u128::from_le_bytes(bytes[96..112].try_into().unwrap());
 	let sandbox_cpu = u128::from_le_bytes(bytes[0..16].try_into().unwrap());
 	let sandbox_memory = u128::from_le_bytes(bytes[16..32].try_into().unwrap());
 	let object_count = i128::from_le_bytes(bytes[32..48].try_into().unwrap());
@@ -195,6 +205,7 @@ pub fn deserialize_aggregate(bytes: &[u8]) -> tg::Result<PartitionAggregate> {
 		process_count,
 		sandbox_count,
 		sandbox_cpu,
+		sandbox_cpu_dedicated,
 		sandbox_memory,
 	};
 
@@ -203,13 +214,14 @@ pub fn deserialize_aggregate(bytes: &[u8]) -> tg::Result<PartitionAggregate> {
 
 #[must_use]
 pub fn serialize_aggregate(aggregate: &PartitionAggregate) -> Vec<u8> {
-	let mut bytes = Vec::with_capacity(96);
+	let mut bytes = Vec::with_capacity(112);
 	bytes.extend(aggregate.sandbox_cpu.to_le_bytes());
 	bytes.extend(aggregate.sandbox_memory.to_le_bytes());
 	bytes.extend(aggregate.object_count.to_le_bytes());
 	bytes.extend(aggregate.object_size.to_le_bytes());
 	bytes.extend(aggregate.process_count.to_le_bytes());
 	bytes.extend(aggregate.sandbox_count.to_le_bytes());
+	bytes.extend(aggregate.sandbox_cpu_dedicated.to_le_bytes());
 
 	bytes
 }
@@ -226,10 +238,11 @@ mod tests {
 			process_count: -3,
 			sandbox_count: -4,
 			sandbox_cpu: u128::MAX,
+			sandbox_cpu_dedicated: u128::MAX - 1,
 			sandbox_memory: u128::from(u64::MAX) + 1,
 		};
 		let bytes = serialize_aggregate(&expected);
-		assert_eq!(bytes.len(), 96);
+		assert_eq!(bytes.len(), 112);
 		let actual = deserialize_aggregate(&bytes).unwrap();
 		assert_eq!(actual, expected);
 	}

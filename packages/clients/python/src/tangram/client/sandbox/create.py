@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict, cast
 
 if TYPE_CHECKING:
     from tangram.client import Client
-    from tangram.sandbox import SandboxData, SandboxOutput
+    from tangram.sandbox import Cpu, SandboxData, SandboxOutput
 
 from tangram.error import Error, ErrorData
 from tangram.http import Body, Request
@@ -14,7 +14,7 @@ from tangram.location import Location, LocationObject
 
 
 class DataArgObject(TypedDict, total=False):
-    cpu: int | float | None
+    cpu: Cpu | None
     host: str | None
     hostname: str | None
     isolation: dict[str, Literal["container", "seatbelt", "vm"]] | None

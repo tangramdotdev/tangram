@@ -359,6 +359,7 @@ export let waitUnsandboxed = async (
 	try {
 		let hostOutcome = await tg.host.wait(pid, stopper);
 		let outcome_: tg.Process.Outcome = {
+			checksum: null,
 			error: null,
 			exit: hostOutcome.exit,
 		};
@@ -371,6 +372,7 @@ export let waitUnsandboxed = async (
 					tg.encoding.utf8.decode(outcomeBytes),
 				) as tg.Process.Outcome.Data;
 				let value = tg.Process.Outcome.fromData(data);
+				outcome_.checksum = value.checksum;
 				outcome_.error = value.error;
 				if (value.output !== undefined) {
 					outcome_.output = value.output;
@@ -402,6 +404,17 @@ export let waitUnsandboxed = async (
 				}
 			}
 
+			if (outcome_.checksum === null) {
+				let checksumBytes = await tg.host.getxattr(
+					outputPath,
+					"user.tangram.checksum",
+				);
+				if (checksumBytes !== null) {
+					let checksum = tg.encoding.utf8.decode(checksumBytes);
+					tg.assert(tg.Checksum.is(checksum));
+					outcome_.checksum = checksum;
+				}
+			}
 			if (
 				outcomeBytes === null &&
 				outcome_.error === null &&
@@ -1053,7 +1066,8 @@ let normalizeSandbox = (
 	let sandboxNetwork: boolean | tg.Sandbox.Network | null | undefined;
 	if (isSandboxArg(sandbox)) {
 		if (sandbox.cpu !== undefined) {
-			output.cpu = sandbox.cpu;
+			output.cpu =
+				sandbox.cpu === null ? null : tg.Sandbox.Cpu.from(sandbox.cpu);
 		}
 		if (sandbox.hostname !== undefined) {
 			output.hostname = sandbox.hostname;
@@ -1097,7 +1111,7 @@ let normalizeSandbox = (
 		}
 	}
 	if (cpu !== undefined && cpu !== null) {
-		output.cpu = cpu;
+		output.cpu = tg.Sandbox.Cpu.from(cpu);
 	}
 	if (memory !== undefined && memory !== null) {
 		output.memory = memory;

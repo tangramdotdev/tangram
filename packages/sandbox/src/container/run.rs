@@ -1,5 +1,5 @@
 use {
-	super::{cgroup, mount, util::CStringVec, validate::validate},
+	super::{cgroup, mount, seccomp, util::CStringVec, validate::validate},
 	num::ToPrimitive,
 	std::{
 		collections::BTreeMap,
@@ -25,14 +25,23 @@ pub struct Arg {
 	pub binds: Vec<Bind>,
 	pub cgroup: Option<String>,
 	pub cgroup_cpu: Option<u64>,
+	pub cgroup_entered: bool,
+	pub cgroup_fd: Option<i32>,
 	pub cgroup_memory: Option<u64>,
 	pub cgroup_memory_oom_group: bool,
+	pub cgroup_memory_swap: Option<u64>,
 	pub cgroup_pids: Option<u64>,
+	pub cgroup_readonly: bool,
 	pub chdir: PathBuf,
 	pub clearenv: bool,
 	pub command: Vec<OsString>,
 	pub devs: Vec<PathBuf>,
 	pub die_with_parent: bool,
+	pub filesystem_fd: Option<i32>,
+	pub filesystem_inodes: Option<u64>,
+	pub filesystem_mount_fd: Option<i32>,
+	pub filesystem_path: Option<PathBuf>,
+	pub filesystem_size: Option<u64>,
 	pub fuse_fd: Option<i32>,
 	pub fuse_path: Option<PathBuf>,
 	pub gateway_ip: Option<Ipv4Addr>,
@@ -47,11 +56,14 @@ pub struct Arg {
 	pub overlay_sources: Vec<PathBuf>,
 	pub overlays: Vec<Overlay>,
 	pub procs: Vec<PathBuf>,
+	pub rlimit_nofile: Option<u64>,
 	pub ro_binds: Vec<Bind>,
+	pub seccomp: Option<crate::SeccompPolicy>,
 	pub setenvs: Vec<SetEnv>,
 	pub tmpfs: Vec<PathBuf>,
 	pub uid: libc::uid_t,
 	pub unshare_all: bool,
+	pub user_namespace_fd: Option<i32>,
 }
 
 #[derive(Clone, Debug)]
@@ -80,8 +92,8 @@ pub struct SetEnv {
 	pub value: String,
 }
 
-pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
-	validate(arg)?;
+pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
+	validate(&arg)?;
 	if arg.die_with_parent {
 		crate::util::set_parent_death_signal(libc::SIGKILL)?;
 	}
@@ -92,16 +104,40 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		.map(|name| {
 			let entry = cgroup::Options {
 				cpu: arg.cgroup_cpu,
+				cpu_parent: None,
+				cpu_pool: None,
+				cpu_request: None,
 				memory: arg.cgroup_memory,
 				memory_oom_group: arg.cgroup_memory_oom_group,
+				memory_swap: arg.cgroup_memory_swap,
 				pids: arg.cgroup_pids,
 			};
-			cgroup::Cgroup::new(name, entry)
+			cgroup::Cgroup::new(name, &entry)
 		})
 		.transpose()
 		.map_err(|error| tg::error!(!error, "failed to create the cgroup"))?;
+	let cgroup_handle = if let Some(fd) = arg.cgroup_fd {
+		if fd < 0 {
+			return Err(tg::error!(fd = %fd, "the cgroup requires a valid descriptor"));
+		}
+		// SAFETY: The descriptor is inherited from the parent and exclusively owned here.
+		Some(unsafe { cgroup::Handle::from_raw_fd(fd) })
+	} else {
+		cgroup.as_ref().map(cgroup::Cgroup::handle).transpose()?
+	};
+	let mut _filesystem = None;
 	if arg.unshare_all {
-		enter_user_namespace(arg.uid, arg.gid)?;
+		if let Some(fd) = arg.user_namespace_fd {
+			enter_user_namespace_with_parent(fd)?;
+		} else {
+			enter_user_namespace(arg.uid, arg.gid)?;
+		}
+		// Create the host mapping before entering the PID namespace and dropping setup privileges.
+		let host_namespace = if arg.user_namespace_fd.is_some() && arg.filesystem_fd.is_some() {
+			Some(super::filesystem::host_namespace(arg.uid, arg.gid)?)
+		} else {
+			None
+		};
 		match &arg.network {
 			Some(Network::Host) => (),
 			Some(Network::Pasta) => {
@@ -165,6 +201,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 				let guest_name = format!("tg-vc-{suffix}");
 				let mut nl = crate::netlink::Netlink::new()?;
 				nl.link_rename(&guest_name, "eth0")?;
+				crate::network::host::disable_ipv6("eth0")?;
 				nl.addr_add_v4("eth0", guest_ip, 16)?;
 				nl.link_set_up("eth0")?;
 				nl.link_set_up("lo")?;
@@ -185,6 +222,7 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			flags |= libc::CLONE_NEWUTS;
 		}
 		unshare(flags, "failed to unshare the sandbox namespaces")?;
+		_filesystem = prepare_filesystem(&mut arg, host_namespace.as_ref())?;
 
 		// Mount the FUSE filesystem in the new namespaces and send its descriptor to the host.
 		if let Some(fuse_fd) = arg.fuse_fd {
@@ -206,19 +244,23 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 		set_hostname(hostname)?;
 	}
 
-	let root = prepare_root(arg)?;
+	let root = prepare_root(&arg)?;
 	let root_path = root.as_ref().map(|root| root.path().join("root"));
 
-	let (child, move_child_to_cgroup) = if let Some(cgroup) = &cgroup {
+	let parent = arg.die_with_parent.then(open_pidfd).transpose()?;
+	let (child, move_child_to_cgroup) = if arg.cgroup_entered {
+		(fork()?, false)
+	} else if let Some(cgroup) = &cgroup_handle {
 		fork_with_cgroup(cgroup)?
 	} else {
 		(fork()?, false)
 	};
 	if child == 0 {
 		match child_main(
-			arg,
-			cgroup.as_ref(),
+			&arg,
+			cgroup_handle.as_ref(),
 			move_child_to_cgroup,
+			parent.as_ref(),
 			root_path.as_ref(),
 		) {
 			Ok(()) => std::process::exit(0),
@@ -229,11 +271,53 @@ pub fn run(arg: &Arg) -> tg::Result<ExitCode> {
 			},
 		}
 	}
-	let status = wait_for_child(child)?;
-	if let Some(cgroup) = cgroup {
-		drop(cgroup);
-	}
+	let status = wait_for_child(child);
+	let cleanup = cgroup.map(cgroup::Cgroup::cleanup).transpose();
+	let status = status?;
+	cleanup?;
 	Ok(ExitCode::from(status))
+}
+
+fn prepare_filesystem(
+	arg: &mut Arg,
+	host_namespace: Option<&OwnedFd>,
+) -> tg::Result<Option<OwnedFd>> {
+	let (Some(path), Some(socket)) = (arg.filesystem_path.clone(), arg.filesystem_fd) else {
+		return Ok(None);
+	};
+	let filesystem = super::filesystem::open(&path)?;
+	super::filesystem::prepare(&filesystem, arg.uid, arg.gid)?;
+	arg.filesystem_mount_fd = Some(filesystem.as_raw_fd());
+	let target = super::filesystem::path(&filesystem);
+	for bind in arg.binds.iter_mut().chain(&mut arg.ro_binds) {
+		super::filesystem::relocate(&mut bind.source, &path, &target);
+	}
+	for overlay in &mut arg.overlays {
+		super::filesystem::relocate(&mut overlay.upperdir, &path, &target);
+		super::filesystem::relocate(&mut overlay.workdir, &path, &target);
+	}
+	// SAFETY: The descriptor is inherited from the parent and is exclusively owned here.
+	let socket = unsafe { OwnedFd::from_raw_fd(socket) };
+	let host_filesystem = host_namespace
+		.map(|namespace| super::filesystem::host_mount(&filesystem, namespace))
+		.transpose();
+	let host_filesystem = match host_filesystem {
+		Ok(host_filesystem) => host_filesystem,
+		Err(error) => {
+			std::fs::remove_dir_all(&path).map_err(|cleanup_error| {
+				tg::error!(
+					source = cleanup_error,
+					%error,
+					path = %path.display(),
+					"failed to clean up the sandbox filesystem after mapping it for the host"
+				)
+			})?;
+			return Err(error);
+		},
+	};
+	super::filesystem::send(&socket, host_filesystem.as_ref().unwrap_or(&filesystem))?;
+
+	Ok(Some(filesystem))
 }
 
 fn fork() -> tg::Result<libc::pid_t> {
@@ -245,7 +329,7 @@ fn fork() -> tg::Result<libc::pid_t> {
 	Ok(pid)
 }
 
-fn fork_with_cgroup(cgroup: &cgroup::Cgroup) -> tg::Result<(libc::pid_t, bool)> {
+fn fork_with_cgroup(cgroup: &cgroup::Handle) -> tg::Result<(libc::pid_t, bool)> {
 	let cgroup_fd = cgroup.open_fd()?;
 	match fork_into_cgroup(cgroup_fd.as_raw_fd()) {
 		Ok(pid) => Ok((pid, false)),
@@ -281,8 +365,9 @@ fn clone3_cgroup_should_fallback(source: &std::io::Error) -> bool {
 
 fn child_main(
 	arg: &Arg,
-	cgroup: Option<&cgroup::Cgroup>,
+	cgroup: Option<&cgroup::Handle>,
 	move_self: bool,
+	parent: Option<&OwnedFd>,
 	root: Option<&PathBuf>,
 ) -> tg::Result<()> {
 	unsafe {
@@ -319,13 +404,79 @@ fn child_main(
 		mount::pivot_root_into(root)?;
 	}
 	mount::change_directory(&arg.chdir)?;
+	set_rlimit_nofile(arg.rlimit_nofile)?;
 	set_securebits()?;
 	setresgid(arg.gid)?;
 	setresuid(arg.uid)?;
+	if arg.die_with_parent {
+		crate::util::set_parent_death_signal(libc::SIGKILL)?;
+		// The launcher is outside the PID namespace, so getppid cannot detect its death during the credential change.
+		validate_parent(parent.unwrap())?;
+	}
 	set_no_new_privs()?;
 	drop_capabilities()?;
 	close_non_std_fds()?;
+	if let Some(policy) = arg.seccomp {
+		seccomp::install(policy)?;
+	}
 	exec_command(arg)
+}
+
+fn open_pidfd() -> tg::Result<OwnedFd> {
+	// SAFETY: Both system calls take only scalar arguments.
+	let fd = unsafe { libc::syscall(libc::SYS_pidfd_open, libc::getpid(), 0) };
+	if fd < 0 {
+		return Err(tg::error!(
+			source = std::io::Error::last_os_error(),
+			"failed to open the launcher pidfd"
+		));
+	}
+	// SAFETY: The successful syscall returned a newly owned descriptor.
+	let fd = unsafe { OwnedFd::from_raw_fd(fd.try_into().unwrap()) };
+	Ok(fd)
+}
+
+fn validate_parent(parent: &OwnedFd) -> tg::Result<()> {
+	let mut descriptor = libc::pollfd {
+		fd: parent.as_raw_fd(),
+		events: libc::POLLIN,
+		revents: 0,
+	};
+	loop {
+		// SAFETY: The pollfd is valid for one descriptor and poll does not retain its address.
+		let result = unsafe { libc::poll(&raw mut descriptor, 1, 0) };
+		if result == 0 {
+			return Ok(());
+		}
+		if result > 0 {
+			return Err(tg::error!(
+				"the parent exited while changing the sandbox identity"
+			));
+		}
+		let error = std::io::Error::last_os_error();
+		if error.kind() != std::io::ErrorKind::Interrupted {
+			return Err(tg::error!(!error, "failed to query the launcher pidfd"));
+		}
+	}
+}
+
+fn set_rlimit_nofile(limit: Option<u64>) -> tg::Result<()> {
+	let Some(limit) = limit else {
+		return Ok(());
+	};
+	let limit = libc::rlim_t::try_from(limit)
+		.map_err(|error| tg::error!(!error, "the open file limit is too large"))?;
+	let rlimit = libc::rlimit {
+		rlim_cur: limit,
+		rlim_max: limit,
+	};
+	let result = unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raw const rlimit) };
+	if result < 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to set the open file limit"));
+	}
+
+	Ok(())
 }
 
 fn prepare_root(arg: &Arg) -> tg::Result<Option<tangram_util::fs::Temp>> {
@@ -362,6 +513,31 @@ fn enter_user_namespace(uid: libc::uid_t, gid: libc::gid_t) -> tg::Result<()> {
 		.map_err(|error| tg::error!(!error, "failed to deny setgroups"))?;
 	std::fs::write("/proc/self/gid_map", format!("{gid} {host_gid} 1\n"))
 		.map_err(|error| tg::error!(!error, "failed to write the gid map"))?;
+	Ok(())
+}
+
+fn enter_user_namespace_with_parent(fd: RawFd) -> tg::Result<()> {
+	if fd < 0 {
+		return Err(tg::error!(fd = %fd, "the user namespace requires a valid sync fd"));
+	}
+	unshare(libc::CLONE_NEWUSER, "failed to unshare the user namespace")?;
+	// SAFETY: The descriptor is inherited from the parent and is exclusively owned here.
+	let fd = unsafe { OwnedFd::from_raw_fd(fd) };
+	let mut socket = UnixStream::from(fd);
+	// SAFETY: This function has no preconditions.
+	let pid = unsafe { libc::getpid() };
+	socket
+		.write_all(&pid.to_ne_bytes())
+		.map_err(|error| tg::error!(!error, "failed to signal user namespace readiness"))?;
+	let mut buffer = [0];
+	socket
+		.read_exact(&mut buffer)
+		.map_err(|error| tg::error!(!error, "failed to wait for the user namespace mapping"))?;
+	let result = unsafe { libc::setgroups(0, std::ptr::null()) };
+	if result != 0 {
+		let error = std::io::Error::last_os_error();
+		return Err(tg::error!(!error, "failed to clear supplementary groups"));
+	}
 	Ok(())
 }
 

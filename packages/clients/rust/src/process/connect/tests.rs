@@ -150,6 +150,7 @@ async fn reconnect_preserves_the_process_and_read_cursor() {
 					}
 				}
 				let outcome = tg::process::outcome::Data {
+					checksum: None,
 					error: None,
 					exit: 0,
 					output: None,
@@ -332,7 +333,7 @@ fn spawn_metadata_uses_native_types() {
 		"public": true,
 		"retry": true,
 		"sandbox": {
-			"cpu": 2,
+			"cpu": {"dedicated": 0, "shared": 2},
 			"host": "aarch64-darwin",
 			"hostname": "test",
 			"isolation": {"kind": "seatbelt"},
@@ -428,6 +429,7 @@ fn responses_preserve_errors_and_optional_null_outputs() {
 	for error in errors {
 		for value in [None, Some(tg::value::Data::Null)] {
 			let outcome = tg::process::outcome::Data {
+				checksum: None,
 				error: error.clone(),
 				exit: 1,
 				output: value,

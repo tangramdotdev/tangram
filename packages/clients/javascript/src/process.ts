@@ -969,7 +969,9 @@ export namespace Process {
 			return this;
 		}
 
-		cpu(cpu: tg.Unresolved<tg.MaybeMutation<number> | null>): this {
+		cpu(
+			cpu: tg.Unresolved<tg.MaybeMutation<number | tg.Sandbox.Cpu> | null>,
+		): this {
 			this.#args.push({ cpu });
 			return this;
 		}
@@ -1306,7 +1308,7 @@ export namespace Process {
 		command?: tg.MaybeReferent<tg.Command | tg.Command.ResolvedArg> | null;
 
 		/** The sandbox's CPU allocation. */
-		cpu?: number | null;
+		cpu?: number | tg.Sandbox.Cpu | null;
 
 		/** The command's working directory. */
 		cwd?: string | null;
@@ -1364,15 +1366,14 @@ export namespace Process {
 	};
 
 	export type State = {
-		actualChecksum: tg.Checksum | null;
 		cacheable: boolean;
+		checksum: tg.Process.Checksum;
 		children: Array<tg.Process.Child> | null;
 		command: tg.Referent<tg.Process.Data.Command | tg.Command.Id>;
 		createdAt: number;
 		debug: tg.Process.Debug | null;
 		error: tg.Error | null;
 		exit: number | null;
-		expectedChecksum: tg.Checksum | null;
 		finishedAt: number | null;
 		host: string;
 		log: tg.Blob | null;
@@ -1385,6 +1386,11 @@ export namespace Process {
 		stdin: tg.Process.Stdio;
 		stdout: tg.Process.Stdio;
 		tty: tg.Process.Tty | null;
+	};
+
+	export type Checksum = {
+		actual: tg.Checksum | null;
+		expected: tg.Checksum | null;
 	};
 
 	export type Child = {
@@ -1519,11 +1525,17 @@ export namespace Process {
 				host: value.host,
 				status: value.status,
 			};
-			if (value.actualChecksum !== null) {
-				output.actual_checksum = value.actualChecksum;
-			}
 			if (value.cacheable) {
 				output.cacheable = value.cacheable;
+			}
+			if (value.checksum.actual !== null || value.checksum.expected !== null) {
+				output.checksum = {};
+				if (value.checksum.actual !== null) {
+					output.checksum.actual = value.checksum.actual;
+				}
+				if (value.checksum.expected !== null) {
+					output.checksum.expected = value.checksum.expected;
+				}
 			}
 			if (value.children !== null) {
 				output.children = value.children.map(tg.Process.Child.toData);
@@ -1536,9 +1548,6 @@ export namespace Process {
 			}
 			if (value.exit !== null) {
 				output.exit = value.exit;
-			}
-			if (value.expectedChecksum !== null) {
-				output.expected_checksum = value.expectedChecksum;
 			}
 			if (value.finishedAt !== null) {
 				output.finished_at = value.finishedAt;
@@ -1577,8 +1586,11 @@ export namespace Process {
 		export let fromData = (data: tg.Process.Data): tg.Process.State => {
 			let command = commandReferentFromData(data.command);
 			let output: State = {
-				actualChecksum: data.actual_checksum ?? null,
 				cacheable: data.cacheable ?? false,
+				checksum: {
+					actual: data.checksum?.actual ?? null,
+					expected: data.checksum?.expected ?? null,
+				},
 				children:
 					data.children !== undefined && data.children !== null
 						? data.children.map(tg.Process.Child.fromData)
@@ -1598,7 +1610,6 @@ export namespace Process {
 							: tg.Error.fromData(data.error)
 						: null,
 				exit: data.exit ?? null,
-				expectedChecksum: data.expected_checksum ?? null,
 				finishedAt: data.finished_at ?? null,
 				host: data.host,
 				log:
@@ -1664,15 +1675,14 @@ export namespace Process {
 	export type Status = "started" | "finished";
 
 	export type Data = {
-		actual_checksum?: tg.Checksum | null;
 		cacheable?: boolean;
+		checksum?: tg.Process.Data.Checksum;
 		children?: Array<tg.Process.Data.Child> | null;
 		command: tg.Process.Data.CommandReferent;
 		created_at: number;
 		debug?: tg.Process.Debug | null;
 		error?: tg.Error.Data | string | null;
 		exit?: number | null;
-		expected_checksum?: tg.Checksum | null;
 		finished_at?: number | null;
 		host: string;
 		log?: string | null;
@@ -1688,6 +1698,11 @@ export namespace Process {
 	};
 
 	export namespace Data {
+		export type Checksum = {
+			actual?: tg.Checksum | null;
+			expected?: tg.Checksum | null;
+		};
+
 		export type CommandReferent = tg.Referent.Data<
 			tg.Process.Data.Command | tg.Command.Id
 		>;

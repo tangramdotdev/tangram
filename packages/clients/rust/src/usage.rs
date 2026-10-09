@@ -35,8 +35,10 @@ pub struct Aggregate {
 	/// Sandboxes.
 	pub sandbox_count: u64,
 
-	/// Sandbox CPU-milliseconds.
+	/// Shared sandbox CPU-milliseconds.
 	pub sandbox_cpu: u128,
+	/// Dedicated sandbox core-milliseconds.
+	pub sandbox_cpu_dedicated: u128,
 
 	/// Sandbox mebibyte-milliseconds.
 	pub sandbox_memory: u128,
@@ -113,8 +115,10 @@ pub struct Output {
 	/// The number of sandboxes.
 	pub sandbox_count: u64,
 
-	/// The sandbox usage in CPU-milliseconds.
+	/// The shared sandbox usage in CPU-milliseconds.
 	pub sandbox_cpu: u128,
+	/// Dedicated sandbox core-milliseconds.
+	pub sandbox_cpu_dedicated: u128,
 
 	/// The sandbox usage in mebibyte-milliseconds.
 	pub sandbox_memory: u128,
@@ -160,6 +164,10 @@ impl Aggregate {
 			.sandbox_cpu
 			.checked_add(other.sandbox_cpu)
 			.ok_or_else(|| tg::error!("the sandbox CPU usage overflowed"))?;
+		self.sandbox_cpu_dedicated = self
+			.sandbox_cpu_dedicated
+			.checked_add(other.sandbox_cpu_dedicated)
+			.ok_or_else(|| tg::error!("the dedicated CPU usage overflowed"))?;
 		self.sandbox_memory = self
 			.sandbox_memory
 			.checked_add(other.sandbox_memory)

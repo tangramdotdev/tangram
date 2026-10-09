@@ -12,7 +12,7 @@ let local = server spawn
 let id = tg sandbox create --no-tokens --cpu 1 --memory 268435456 | referent node
 
 let sandbox = tg sandbox get $id | from json | get data
-assert equal $sandbox.cpu 1 "the cpu option should be reflected"
+assert equal $sandbox.cpu { dedicated: 0, shared: 1 } "the cpu option should be reflected"
 assert equal $sandbox.memory 268435456 "the memory option should be reflected"
 assert equal $sandbox.status "started" "the sandbox should be started"
 

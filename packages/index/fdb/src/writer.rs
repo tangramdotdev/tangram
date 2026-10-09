@@ -1007,7 +1007,7 @@ impl Index {
 		} else if let Some((left, right)) = Self::try_split_range(0..len) {
 			vec![left, right]
 		} else {
-			std::iter::once(0..len).collect()
+			std::iter::once(0..len).collect::<Vec<_>>()
 		};
 		// Reverse the ranges so they are popped, and therefore committed, in order.
 		pending.reverse();

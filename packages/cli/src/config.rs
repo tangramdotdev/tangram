@@ -1440,6 +1440,12 @@ pub struct RemoteCache {
 #[serde(deny_unknown_fields)]
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cpu_oversubscription: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cpu_pool: Option<PathBuf>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpus: Option<u64>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
@@ -1450,10 +1456,17 @@ pub struct Runner {
 	pub id: Option<tg::runner::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub isolation: Option<RunnerIsolation>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub javascript: Option<JavaScript>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub memory: Option<u64>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub memory_sampling_interval: Option<Duration>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub process_control_connection_pool_size: Option<usize>,
@@ -1497,6 +1510,71 @@ pub struct Runner {
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct RunnerIsolation {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub container: Option<ContainerRunnerIsolation>,
+}
+
+#[serde_as]
+#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerRunnerIsolation {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub filesystem_project_ids: Option<ContainerRunnerIsolationProjectIds>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub gid_map: Option<ContainerRunnerIsolationIdMap>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub harden: Option<bool>,
+
+	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_duration: Option<Duration>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_filesystem_inodes: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_filesystem_size: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_open_files: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub max_pids: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub memory_swap: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub uid_map: Option<ContainerRunnerIsolationIdMap>,
+}
+
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerRunnerIsolationIdMap {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub count: Option<u32>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub helper: Option<PathBuf>,
+
+	pub host: u32,
+}
+
+#[derive(Clone, Copy, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ContainerRunnerIsolationProjectIds {
+	pub count: u32,
+	pub start: u32,
 }
 
 #[serde_as]
@@ -1632,13 +1710,9 @@ pub enum SandboxIsolationDefault {
 	Vm,
 }
 
-#[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
-pub struct ContainerSandboxIsolation {
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub max_pids: Option<u64>,
-}
+pub struct ContainerSandboxIsolation {}
 
 #[serde_as]
 #[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
@@ -3852,7 +3926,19 @@ fn resolve_remote_cache(source: RemoteCache) -> server::RemoteCache {
 }
 
 fn resolve_runner(source: Runner) -> server::Runner {
-	let mut target = server::Runner::default();
+	let mut target = server::Runner {
+		cpu_pool: source.cpu_pool,
+		..Default::default()
+	};
+	if let Some(value) = source.cpu_oversubscription {
+		target.cpu_oversubscription = value;
+	}
+	if let Some(value) = source.memory_sampling_interval {
+		target.memory_sampling_interval = value;
+	}
+	if let Some(source) = source.isolation {
+		target.isolation = resolve_runner_isolation(source);
+	}
 	if let Some(source) = source.javascript {
 		target.javascript = resolve_javascript(source);
 	}
@@ -3905,6 +3991,52 @@ fn resolve_runner(source: Runner) -> server::Runner {
 		target.token = Some(value);
 	}
 	target
+}
+
+fn resolve_runner_isolation(source: RunnerIsolation) -> server::RunnerIsolation {
+	let mut target = server::RunnerIsolation::default();
+	if let Some(source) = source.container {
+		target.container = server::ContainerRunnerIsolation {
+			filesystem_project_ids: source
+				.filesystem_project_ids
+				.map_or_else(Default::default, Into::into),
+			gid_map: source
+				.gid_map
+				.map(|map| resolve_container_runner_isolation_id_map(map, "/usr/bin/newgidmap")),
+			harden: source.harden.unwrap_or_default(),
+			max_duration: source.max_duration,
+			max_filesystem_inodes: source.max_filesystem_inodes,
+			max_filesystem_size: source.max_filesystem_size,
+			max_open_files: source.max_open_files,
+			max_pids: source.max_pids,
+			memory_swap: source.memory_swap,
+			seccomp: source.seccomp,
+			uid_map: source
+				.uid_map
+				.map(|map| resolve_container_runner_isolation_id_map(map, "/usr/bin/newuidmap")),
+		};
+	}
+	target
+}
+
+fn resolve_container_runner_isolation_id_map(
+	source: ContainerRunnerIsolationIdMap,
+	helper: &str,
+) -> server::ContainerRunnerIsolationIdMap {
+	server::ContainerRunnerIsolationIdMap {
+		count: source.count.unwrap_or(65_536),
+		helper: source.helper.unwrap_or_else(|| helper.into()),
+		host: source.host,
+	}
+}
+
+impl From<ContainerRunnerIsolationProjectIds> for server::ContainerRunnerIsolationProjectIds {
+	fn from(value: ContainerRunnerIsolationProjectIds) -> Self {
+		Self {
+			count: value.count,
+			start: value.start,
+		}
+	}
 }
 
 fn resolve_javascript(source: JavaScript) -> server::JavaScript {
@@ -4002,10 +4134,8 @@ fn resolve_sandbox(source: Sandbox) -> tg::Result<server::Sandbox> {
 
 fn resolve_sandbox_isolation(source: SandboxIsolation) -> tg::Result<server::SandboxIsolation> {
 	let mut target = server::SandboxIsolation::default();
-	if let Some(source) = source.container {
-		let max_pids = source.max_pids;
-		let container = server::ContainerSandboxIsolation { max_pids };
-		target.container = Some(container);
+	if source.container.is_some() {
+		target.container = Some(server::ContainerSandboxIsolation {});
 	}
 	if source.seatbelt.is_some() {
 		target.seatbelt = Some(server::SeatbeltSandboxIsolation {});
@@ -4811,31 +4941,71 @@ mod tests {
 	}
 
 	#[test]
-	fn parses_and_resolves_container_max_pids() {
-		let source: Sandbox = serde_json::from_value(serde_json::json!({
+	fn parses_and_resolves_container_runner_isolation() {
+		let source: Runner = serde_json::from_value(serde_json::json!({
 			"isolation": {
-				"container": { "max_pids": 1234 },
+				"container": {
+					"filesystem_project_ids": { "count": 10_000, "start": 20_000 },
+					"gid_map": { "host": 200_000 },
+					"harden": true,
+					"max_duration": 123.5,
+					"max_open_files": 2048,
+					"max_pids": 1234,
+					"memory_swap": 0,
+					"seccomp": "default",
+					"uid_map": { "count": 1000, "helper": "/opt/newuidmap", "host": 100_000 }
+				},
 			},
 		}))
 		.unwrap();
-		let target = resolve_sandbox(source).unwrap();
-		let container = target.isolation.container.unwrap();
+		let target = resolve_runner(source);
+		let container = target.isolation.container;
 
+		assert_eq!(container.filesystem_project_ids.count, 10_000);
+		assert_eq!(container.filesystem_project_ids.start, 20_000);
+		assert_eq!(container.gid_map.as_ref().unwrap().count, 65_536);
+		assert_eq!(
+			container.gid_map.as_ref().unwrap().helper,
+			Path::new("/usr/bin/newgidmap")
+		);
+		assert_eq!(container.gid_map.as_ref().unwrap().host, 200_000);
+		assert!(container.harden);
+		assert_eq!(container.max_duration, Some(Duration::from_millis(123_500)));
+		assert_eq!(container.max_open_files, Some(2048));
 		assert_eq!(container.max_pids, Some(1234));
+		assert_eq!(container.memory_swap, Some(0));
+		assert_eq!(
+			container.seccomp,
+			Some(tangram_sandbox::SeccompPolicy::Default)
+		);
+		assert_eq!(container.uid_map.as_ref().unwrap().count, 1000);
+		assert_eq!(
+			container.uid_map.as_ref().unwrap().helper,
+			Path::new("/opt/newuidmap")
+		);
+		assert_eq!(container.uid_map.as_ref().unwrap().host, 100_000);
 	}
 
 	#[test]
-	fn resolves_container_max_pids_as_optional() {
-		let source: Sandbox = serde_json::from_value(serde_json::json!({
+	fn resolves_container_runner_isolation_as_optional() {
+		let source: Runner = serde_json::from_value(serde_json::json!({
 			"isolation": {
 				"container": {},
 			},
 		}))
 		.unwrap();
-		let target = resolve_sandbox(source).unwrap();
-		let container = target.isolation.container.unwrap();
+		let target = resolve_runner(source);
+		let container = target.isolation.container;
 
+		assert!(!container.harden);
+		assert_eq!(
+			container.filesystem_project_ids.count,
+			i32::MAX.cast_unsigned() - 1
+		);
+		assert_eq!(container.filesystem_project_ids.start, 1);
+		assert!(container.gid_map.is_none());
 		assert_eq!(container.max_pids, None);
+		assert!(container.uid_map.is_none());
 	}
 
 	#[test]

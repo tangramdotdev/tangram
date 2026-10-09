@@ -941,15 +941,23 @@ pub struct RemoteCache {
 
 #[derive(Clone, Debug)]
 pub struct Runner {
+	pub cpu_oversubscription: u64,
+
+	pub cpu_pool: Option<PathBuf>,
+
 	pub cpus: Option<u64>,
 
 	pub heartbeat_interval: Duration,
 
 	pub id: Option<tg::runner::Id>,
 
+	pub isolation: RunnerIsolation,
+
 	pub javascript: JavaScript,
 
 	pub memory: Option<u64>,
+
+	pub memory_sampling_interval: Duration,
 
 	pub process_control_connection_pool_size: usize,
 
@@ -974,6 +982,194 @@ pub struct Runner {
 	pub stdio_drain_timeout: Duration,
 
 	pub token: Option<String>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RunnerIsolation {
+	pub container: ContainerRunnerIsolation,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ContainerRunnerIsolation {
+	pub filesystem_project_ids: ContainerRunnerIsolationProjectIds,
+
+	pub gid_map: Option<ContainerRunnerIsolationIdMap>,
+
+	pub harden: bool,
+
+	pub max_duration: Option<Duration>,
+
+	pub max_filesystem_inodes: Option<u64>,
+
+	pub max_filesystem_size: Option<u64>,
+
+	pub max_open_files: Option<u64>,
+
+	pub max_pids: Option<u64>,
+
+	pub memory_swap: Option<u64>,
+
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
+
+	pub uid_map: Option<ContainerRunnerIsolationIdMap>,
+}
+
+#[derive(Clone, Debug)]
+pub struct ContainerRunnerIsolationIdMap {
+	pub count: u32,
+	pub helper: PathBuf,
+	pub host: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct ContainerRunnerIsolationProjectIds {
+	pub count: u32,
+	pub start: u32,
+}
+
+impl Default for ContainerRunnerIsolationProjectIds {
+	fn default() -> Self {
+		Self {
+			count: i32::MAX.cast_unsigned() - 1,
+			start: 1,
+		}
+	}
+}
+
+impl ContainerRunnerIsolation {
+	#[must_use]
+	pub fn max_duration(&self) -> Option<Duration> {
+		self.max_duration
+			.or(self.harden.then_some(Duration::from_hours(1)))
+	}
+
+	#[must_use]
+	pub fn max_filesystem_inodes(&self) -> Option<u64> {
+		self.max_filesystem_inodes
+			.or(self.harden.then_some(262_144))
+	}
+
+	#[must_use]
+	pub fn max_filesystem_size(&self) -> Option<u64> {
+		self.max_filesystem_size
+			.or(self.harden.then_some(1_073_741_824))
+	}
+
+	#[must_use]
+	pub fn max_open_files(&self) -> Option<u64> {
+		self.max_open_files.or(self.harden.then_some(4096))
+	}
+
+	#[must_use]
+	pub fn max_pids(&self) -> Option<u64> {
+		self.max_pids.or(self.harden.then_some(1024))
+	}
+
+	#[must_use]
+	pub fn memory_swap(&self) -> Option<u64> {
+		self.memory_swap.or(self.harden.then_some(0))
+	}
+
+	#[must_use]
+	pub fn seccomp(&self) -> Option<tangram_sandbox::SeccompPolicy> {
+		self.seccomp.or(self
+			.harden
+			.then_some(tangram_sandbox::SeccompPolicy::Default))
+	}
+}
+
+impl From<&ContainerRunnerIsolationIdMap> for tangram_sandbox::IdMap {
+	fn from(value: &ContainerRunnerIsolationIdMap) -> Self {
+		Self {
+			count: value.count,
+			helper: value.helper.clone(),
+			host: value.host,
+		}
+	}
+}
+
+impl ContainerRunnerIsolationProjectIds {
+	pub(crate) fn validate(self) -> tg::Result<()> {
+		if self.count == 0 {
+			return Err(tg::error!(
+				"the container filesystem project ID count must be greater than zero"
+			));
+		}
+		if self.start == 0 {
+			return Err(tg::error!(
+				"the container filesystem project ID start must be greater than zero"
+			));
+		}
+		let end = self.start.checked_add(self.count).ok_or_else(|| {
+			tg::error!("the container filesystem project ID range exceeds the valid range")
+		})?;
+		// Reserve the highest supported project ID for the quota prerequisite probe.
+		if end > i32::MAX.cast_unsigned() {
+			return Err(tg::error!(
+				"the container filesystem project ID range exceeds the valid range"
+			));
+		}
+
+		Ok(())
+	}
+}
+
+impl ContainerRunnerIsolationIdMap {
+	pub(crate) fn validate(&self, id: u32, kind: &str) -> tg::Result<()> {
+		if self.count == 0 {
+			return Err(tg::error!(
+				"the container {kind} map count must be greater than zero"
+			));
+		}
+		if id >= self.count {
+			return Err(tg::error!(
+				count = %self.count,
+				id = %id,
+				"the container {kind} map does not contain the runner identity"
+			));
+		}
+		let end = self.host.checked_add(self.count).ok_or_else(|| {
+			tg::error!("the container {kind} map exceeds the host identity range")
+		})?;
+		if self.host <= id && id < end {
+			return Err(tg::error!(
+				"the container {kind} map must not contain the runner host identity"
+			));
+		}
+		if !self.helper.is_absolute() {
+			return Err(tg::error!(
+				"the container {kind} map helper path must be absolute"
+			));
+		}
+		// SAFETY: This function has no preconditions.
+		if unsafe { libc::geteuid() } == 0 {
+			return Ok(());
+		}
+		let metadata = std::fs::metadata(&self.helper).map_err(|error| {
+			tg::error!(
+				error = %error,
+				path = %self.helper.display(),
+				"failed to access the container {kind} map helper"
+			)
+		})?;
+		if !metadata.is_file() {
+			return Err(tg::error!(
+				path = %self.helper.display(),
+				"the container {kind} map helper must be a file"
+			));
+		}
+		#[cfg(unix)]
+		{
+			use std::os::unix::fs::PermissionsExt as _;
+			if metadata.permissions().mode() & 0o111 == 0 {
+				return Err(tg::error!(
+					path = %self.helper.display(),
+					"the container {kind} map helper must be executable"
+				));
+			}
+		}
+		Ok(())
+	}
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -1054,9 +1250,7 @@ pub struct SandboxIsolation {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct ContainerSandboxIsolation {
-	pub max_pids: Option<u64>,
-}
+pub struct ContainerSandboxIsolation {}
 
 #[derive(Clone, Copy, Debug)]
 pub enum SandboxIsolationDefault {
@@ -1977,11 +2171,15 @@ impl Default for RemoteCache {
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
+			cpu_oversubscription: 4,
+			cpu_pool: None,
 			cpus: None,
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
+			isolation: RunnerIsolation::default(),
 			javascript: JavaScript::default(),
 			memory: None,
+			memory_sampling_interval: Duration::from_secs(1),
 			process_control_connection_pool_size: 1,
 			process_control_connection_pool_ttl: Duration::from_secs(5),
 			process_state_ttl: Duration::from_mins(1),

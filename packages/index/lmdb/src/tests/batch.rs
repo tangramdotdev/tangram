@@ -31,15 +31,14 @@ fn process_arg(
 	let command = tg::command::Id::new(b"command");
 	let finished = status.is_finished();
 	let data = tg::process::Data {
-		actual_checksum: None,
 		cacheable: false,
+		checksum: tg::process::Checksum::default(),
 		children: None,
 		command: tg::Referent::with_node(tg::Either::Right(command.clone())),
 		created_at: 0,
 		debug: None,
 		error: None,
 		exit: finished.then_some(0),
-		expected_checksum: None,
 		finished_at: finished.then_some(0),
 		host: String::new(),
 		log: None,
@@ -193,15 +192,14 @@ async fn process_children_are_stored_separately_from_data() {
 	let missing = tg::process::Id::new();
 	let process = tg::process::Id::new();
 	let data = tg::process::Data {
-		actual_checksum: None,
 		cacheable: false,
+		checksum: tg::process::Checksum::default(),
 		children: Some(expected.clone()),
 		command: tg::Referent::with_node(tg::Either::Right(command.clone())),
 		created_at: 0,
 		debug: None,
 		error: None,
 		exit: Some(0),
-		expected_checksum: None,
 		finished_at: Some(0),
 		host: String::new(),
 		log: None,

@@ -3,7 +3,7 @@ use ../lib/test.nu *
 # Default usage totals include each regional index exactly once.
 def sum_usage [left: record, right: record] {
 	mut output = $left
-	for field in [object_count object_size process_count sandbox_count sandbox_cpu sandbox_memory] {
+	for field in [object_count object_size process_count sandbox_count sandbox_cpu sandbox_cpu_dedicated sandbox_memory] {
 		$output = $output | update $field (($left | get $field) + ($right | get $field))
 	}
 	$output

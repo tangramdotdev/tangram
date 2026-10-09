@@ -561,11 +561,12 @@ async def wait_unsandboxed(
     outcome = None
     error = None
     try:
-        outcome = {"error": None, **await host.wait(pid, stopper)}
+        outcome = {"checksum": None, "error": None, **await host.wait(pid, stopper)}
         if await host.exists(output_path):
             outcome_bytes = await read_outcome(output_path)
             if outcome_bytes is not None:
                 value = Outcome.from_data(json.loads(outcome_bytes.decode()))
+                outcome["checksum"] = value["checksum"]
                 outcome["error"] = value["error"]
                 if "output" in value:
                     outcome["output"] = value["output"]
@@ -587,6 +588,16 @@ async def wait_unsandboxed(
                         outcome["error"] = Error.with_referent(
                             Referent.from_data_string(string)
                         )
+            if outcome["checksum"] is None:
+                checksum_bytes = await host.getxattr(
+                    output_path, "user.tangram.checksum"
+                )
+                if checksum_bytes is not None:
+                    from ..checksum import Checksum
+
+                    checksum = checksum_bytes.decode()
+                    Checksum.assert_(checksum)
+                    outcome["checksum"] = checksum
             if (
                 outcome_bytes is None
                 and outcome["error"] is None
@@ -764,7 +775,11 @@ def normalize_sandbox(arg):
     output.pop("host", None)
     for key in ("cpu", "memory", "owner"):
         if key in fields:
-            output[key] = fields[key]
+            output[key] = (
+                {"shared": fields[key]}
+                if key == "cpu" and isinstance(fields[key], (int, float))
+                else fields[key]
+            )
     if mounts:
         output["mounts"] = [
             *(output.get("mounts") or []),

@@ -138,6 +138,69 @@ export def foundationdb_cluster_description [] {
 	if $nu.os-info.name == 'linux' { 'local:local@127.0.0.1:4500' } else { 'docker:docker@127.0.0.1:4500' }
 }
 
+export def container_cgroup_parent [controllers: list<string>] {
+	let current = ^awk -F: '$1 == "0" { print $3 }' /proc/self/cgroup | str trim
+	let current = $'/sys/fs/cgroup($current)'
+	for parent in [$current ($current | path dirname)] {
+		let path = $parent | path join cgroup.subtree_control
+		if not ($path | path exists) { continue }
+		let enabled = open --raw $path | str trim | split row ' '
+		if ($controllers | all { $in in $enabled }) {
+			let writable = ^sh -c 'test -w "$1" && test -w "$1/cgroup.procs"' _ $parent | complete
+			if $writable.exit_code == 0 { return $parent }
+		}
+	}
+	skip_test $'this test requires a delegated cgroup parent with ($controllers | str join ", ") enabled'
+}
+
+export def container_id_maps [] {
+	if (id -u | into int) == 0 {
+		return {
+			gid_map: { count: 65_536, host: 100_000 },
+			uid_map: { count: 65_536, host: 100_000 },
+		}
+	}
+	let user = id -un | str trim
+	let uid_ranges = open --raw /etc/subuid | lines | parse '{name}:{host}:{count}' | where name == $user
+	let gid_ranges = open --raw /etc/subgid | lines | parse '{name}:{host}:{count}' | where name == $user
+	if ($uid_ranges | is-empty) or ($gid_ranges | is-empty) {
+		skip_test 'this test requires subordinate uid and gid ranges'
+	}
+	let uid_helpers = which newuidmap
+	let gid_helpers = which newgidmap
+	if ($uid_helpers | is-empty) or ($gid_helpers | is-empty) {
+		skip_test 'this test requires newuidmap and newgidmap'
+	}
+	let uid_range = $uid_ranges | first
+	let gid_range = $gid_ranges | first
+
+	{
+		gid_map: {
+			count: ($gid_range.count | into int),
+			helper: ($gid_helpers | first | get path),
+			host: ($gid_range.host | into int),
+		},
+		uid_map: {
+			count: ($uid_range.count | into int),
+			helper: ($uid_helpers | first | get path),
+			host: ($uid_range.host | into int),
+		},
+	}
+}
+
+export def container_id_mapped_mount_supported [] {
+	if (which unshare | is-empty) or (which mount | is-empty) {
+		return false
+	}
+	let root = mktemp -d
+	mkdir ($root | path join source) ($root | path join target)
+	let script = 'mount --bind "$1/source" "$1/target" && mount --map-users 0:0:1 --map-groups 0:0:1 --bind "$1/target" "$1/target"'
+	let output = ^unshare --user --map-root-user --mount sh -c $script _ $root | complete
+	rm -rf $root
+
+	$output.exit_code == 0
+}
+
 export def artifact [artifact] {
 	def inner [artifact: any, path: string] {
 		let artifact = if ($artifact | describe) == 'string' {

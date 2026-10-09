@@ -20,7 +20,7 @@ wait_until { (tg process status --timeout 0 $build.process | from json) == ["sta
 
 let busy = tg health --fields processes | from json | get processes
 assert equal $busy.started 1 "the started count should reflect the running process"
-assert equal $busy.capacity.available.cpus ($idle.capacity.available.cpus - 1) "the running process should consume one CPU"
+assert equal $busy.capacity.available.cpu.shared ($idle.capacity.available.cpu.shared - 1) "the running process should consume one shared CPU slot"
 assert equal $busy.capacity.available.memory ($idle.capacity.available.memory - 1_073_741_824) "the running process should consume one GiB of memory"
 
 tg cancel $build.process $build.lease

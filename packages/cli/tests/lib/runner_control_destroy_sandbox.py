@@ -28,8 +28,13 @@ def send(event, value):
     chunk(f"event: {event}\ndata: {json.dumps(value)}\n\n".encode())
 
 
-capacity = {"available": {"cpus": 0, "memory": 0}, "total": {"cpus": 0, "memory": 0}}
-arg = {"heartbeat": {"capacity": capacity, "index": 0}, "host": "test", "id": runner, "scheduler_ttl": 300}
+capacity = {
+    "available": {"cpu": {"dedicated": 0, "shared": 0}, "memory": 0},
+    "cpu_oversubscription": 4,
+    "shared_cpu_limit": 0,
+    "total": {"cpu": {"dedicated": 0, "shared": 0}, "memory": 0},
+}
+arg = {"heartbeat": {"capacity": capacity, "index": 0, "sandboxes": []}, "host": "test", "id": runner, "scheduler_ttl": 300}
 payload = json.dumps(arg).encode()
 length = len(payload)
 prefix = bytearray()

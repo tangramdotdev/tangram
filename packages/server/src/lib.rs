@@ -203,7 +203,6 @@ impl Server {
 		verification_search_config(&config.verification.permissions.final_)
 			.validate()
 			.map_err(|error| tg::error!(!error, "invalid final verification configuration"))?;
-
 		// Get or create the directory.
 		let directory = config.directory.clone().unwrap_or_else(|| {
 			let id = uuid::Uuid::now_v7();
@@ -277,6 +276,34 @@ impl Server {
 		tokio::fs::create_dir_all(&temp_path)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
+
+		#[cfg(target_os = "linux")]
+		if config.roles.contains(&self::config::Role::Runner)
+			&& config.runner.isolation.container.harden
+		{
+			tangram_sandbox::container::host::validate(&temp_path).map_err(|error| {
+				tg::error!(
+					!error,
+					"the host does not satisfy the hardened container prerequisites"
+				)
+			})?;
+			let container = &config.runner.isolation.container;
+			tracing::info!(
+				cpu = config.scheduler.default_cpu,
+				filesystem_inodes = ?container.max_filesystem_inodes(),
+				filesystem_size = ?container.max_filesystem_size(),
+				gid_map = ?container.gid_map.as_ref().map(|map| (map.host, map.count)),
+				harden = true,
+				max_duration = ?container.max_duration(),
+				max_open_files = ?container.max_open_files(),
+				max_pids = ?container.max_pids(),
+				memory = config.scheduler.default_memory,
+				memory_swap = ?container.memory_swap(),
+				seccomp = ?container.seccomp(),
+				uid_map = ?container.uid_map.as_ref().map(|map| (map.host, map.count)),
+				"validated the hardened container isolation profile"
+			);
+		}
 
 		// Get the available parallelism.
 		let parallelism =
@@ -689,16 +716,58 @@ impl Server {
 				));
 			}
 		}
-		if config
-			.sandbox
-			.isolation
-			.container
-			.as_ref()
-			.is_some_and(|container| container.max_pids == Some(0))
-		{
+		let container = &config.runner.isolation.container;
+		container.filesystem_project_ids.validate()?;
+		if container.max_open_files == Some(0) {
+			return Err(tg::error!(
+				"the maximum number of container sandbox open files must be greater than zero"
+			));
+		}
+		if container.max_duration == Some(std::time::Duration::ZERO) {
+			return Err(tg::error!(
+				"the maximum container sandbox duration must be greater than zero"
+			));
+		}
+		if container.max_pids == Some(0) {
 			return Err(tg::error!(
 				"the maximum number of container sandbox pids must be greater than zero"
 			));
+		}
+		if config.runner.isolation.container.max_filesystem_inodes == Some(0) {
+			return Err(tg::error!(
+				"the maximum number of container sandbox filesystem inodes must be greater than zero"
+			));
+		}
+		if config.runner.isolation.container.max_filesystem_size == Some(0) {
+			return Err(tg::error!(
+				"the maximum container sandbox filesystem size must be greater than zero"
+			));
+		}
+		if config.advanced.preserve_temp_directories
+			&& (container.max_filesystem_inodes().is_some()
+				|| container.max_filesystem_size().is_some())
+		{
+			return Err(tg::error!(
+				"container filesystem limits are incompatible with preserving temp directories"
+			));
+		}
+		if container.harden && (container.uid_map.is_none() || container.gid_map.is_none()) {
+			return Err(tg::error!(
+				"container uid and gid maps are required when container hardening is enabled"
+			));
+		}
+		if container.uid_map.is_some() != container.gid_map.is_some() {
+			return Err(tg::error!(
+				"container uid and gid maps must be configured together"
+			));
+		}
+		if let Some(map) = &container.uid_map {
+			// SAFETY: This function has no preconditions.
+			map.validate(unsafe { libc::getuid() }, "uid")?;
+		}
+		if let Some(map) = &container.gid_map {
+			// SAFETY: This function has no preconditions.
+			map.validate(unsafe { libc::getgid() }, "gid")?;
 		}
 
 		// Validate the regions.
@@ -764,6 +833,35 @@ impl Server {
 			}
 		}
 
+		// Create the exclusive CPU pool and validate the sampling interval.
+		if config.runner.memory_sampling_interval.is_zero() {
+			return Err(tg::error!(
+				"the memory sampling interval must be greater than zero"
+			));
+		}
+		#[cfg(target_os = "linux")]
+		let cpu_pool = if config.roles.contains(&self::config::Role::Runner) {
+			config
+				.runner
+				.cpu_pool
+				.clone()
+				.map(|parent| {
+					tangram_sandbox::cpu::Pool::new(parent, config.runner.cpu_oversubscription)
+				})
+				.transpose()?
+		} else {
+			None
+		};
+		if config.runner.cpu_oversubscription == 0 {
+			return Err(tg::error!(
+				"the CPU oversubscription factor must be greater than zero"
+			));
+		}
+		#[cfg(target_os = "macos")]
+		if config.runner.cpu_pool.is_some() {
+			return Err(tg::error!("dedicated CPU pools are not supported on macos"));
+		}
+
 		// Create the runner state.
 		let capacity = if config.roles.contains(&self::config::Role::Runner) {
 			let runner = &config.runner;
@@ -774,12 +872,32 @@ impl Server {
 			let memory = runner
 				.memory
 				.unwrap_or_else(|| default_memory.saturating_mul(cpus));
-			let capacity = tg::runner::Capacity { cpus, memory };
-			if capacity.cpus == 0 {
+			let shared = cpus
+				.checked_mul(runner.cpu_oversubscription)
+				.ok_or_else(|| tg::error!("the shared CPU capacity is too large"))?;
+			#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
+			let mut capacity = tg::runner::Capacity {
+				cpu: tg::sandbox::Cpu {
+					dedicated: 0,
+					shared,
+				},
+				memory,
+			};
+			#[cfg(target_os = "linux")]
+			if let Some(pool) = &cpu_pool {
+				if runner.cpus.is_some() {
+					return Err(tg::error!(
+						"an exclusive CPU pool determines the runner CPU capacity"
+					));
+				}
+				capacity.cpu = pool.capacity().cpu;
+			}
+			if capacity.cpu.shared == 0 && capacity.cpu.dedicated == 0 {
 				return Err(tg::error!(
 					"the runner CPU capacity must be greater than zero"
 				));
 			}
+
 			if capacity.memory == 0 {
 				return Err(tg::error!(
 					"the runner memory capacity must be greater than zero"
@@ -789,13 +907,21 @@ impl Server {
 		} else {
 			tg::runner::Capacity::default()
 		};
-		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner) {
+		// Warm sandboxes would claim physical CPU slots before scheduler admission.
+		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner)
+			&& config.runner.cpu_pool.is_none()
+		{
 			config.runner.sandbox_pool_size
 		} else {
 			0
 		};
 		let runner_config = self::runner::Config {
 			capacity,
+			cpu_oversubscription: config.runner.cpu_oversubscription,
+			#[cfg(target_os = "linux")]
+			cpu_pool,
+			#[cfg(target_os = "linux")]
+			filesystem_project_ids: config.runner.isolation.container.filesystem_project_ids,
 			process_control_connection_pool_size: config
 				.runner
 				.process_control_connection_pool_size,

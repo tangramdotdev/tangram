@@ -37,8 +37,10 @@ struct Parent {
 }
 
 struct Borrowable {
+	available: bool,
 	capacity: tg::runner::Capacity,
 	connection_index: Option<u64>,
+	heartbeat_index: u64,
 	runner: tg::runner::Id,
 }
 
@@ -209,6 +211,39 @@ impl Sandboxes {
 	}
 }
 
+impl Borrowable {
+	#[must_use]
+	fn new(
+		notification: BorrowableCapacityNotification,
+		connection_index: Option<u64>,
+		previous: Option<&Self>,
+	) -> Self {
+		// A pending borrower must not revoke an existing unconsumed reservation.
+		let available = notification.available
+			|| previous.is_some_and(|previous| {
+				previous.available
+					&& previous.capacity == notification.capacity
+					&& previous.connection_index == connection_index
+					&& previous.runner == notification.runner
+			});
+		let heartbeat_index = previous
+			.filter(|previous| {
+				previous.runner == notification.runner
+					&& previous.connection_index == connection_index
+			})
+			.map_or(notification.heartbeat_index, |previous| {
+				previous.heartbeat_index.max(notification.heartbeat_index)
+			});
+		Self {
+			available,
+			capacity: notification.capacity,
+			connection_index,
+			heartbeat_index,
+			runner: notification.runner,
+		}
+	}
+}
+
 impl State {
 	pub(super) fn new() -> Self {
 		Self {
@@ -352,16 +387,16 @@ impl State {
 			return Ok(EnqueueSandboxResponseOutput { enqueued: true });
 		}
 		let capacity = tg::runner::Capacity {
-			cpus: request
+			cpu: request
 				.arg
 				.cpu
-				.unwrap_or(scheduler.config.default_capacity.cpus),
+				.unwrap_or(scheduler.config.default_capacity.cpu),
 			memory: request
 				.arg
 				.memory
 				.unwrap_or(scheduler.config.default_capacity.memory),
 		};
-		if capacity.cpus == 0 {
+		if capacity.cpu.shared == 0 && capacity.cpu.dedicated == 0 {
 			return Err(tg::error!("the sandbox CPU must be greater than zero"));
 		}
 		if capacity.memory == 0 {
@@ -379,6 +414,9 @@ impl State {
 			retrying: false,
 			state: SandboxState::Pending,
 		};
+		if !self.placeable(&sandbox) {
+			return Ok(EnqueueSandboxResponseOutput { enqueued: false });
+		}
 		self.sandboxes.entries.insert(id.clone(), sandbox);
 		self.queue.insert(id.clone());
 		if let Some(parent) = parent {
@@ -406,8 +444,8 @@ impl State {
 			.entries
 			.get(&notification.runner)
 			.map(|runner| runner.connection_index);
-		let runner = notification.runner;
-		let parent_id = notification.parent;
+		let runner = notification.runner.clone();
+		let parent_id = notification.parent.clone();
 		let parent = self
 			.parents
 			.0
@@ -416,20 +454,26 @@ impl State {
 				borrowable: None,
 				queue: Queue::new(),
 			});
-		let previous = parent.borrowable.replace(Borrowable {
-			capacity: notification.capacity,
-			connection_index,
-			runner: runner.clone(),
-		});
+		let borrowable =
+			Borrowable::new(notification, connection_index, parent.borrowable.as_ref());
+		let previous = parent.borrowable.take();
+		if borrowable.capacity.cpu.dedicated != 0 || borrowable.capacity.cpu.shared != 0 {
+			parent.borrowable = Some(borrowable);
+		}
 		if let Some(previous) = previous
 			&& let Some(runner) = self.runners.entries.get_mut(&previous.runner)
 		{
 			runner.borrowable.remove(&parent_id);
 		}
-		if let Some(runner) = self.runners.entries.get_mut(&runner) {
+		if parent.borrowable.is_some()
+			&& let Some(runner) = self.runners.entries.get_mut(&runner)
+		{
 			runner.borrowable.insert(parent_id.clone());
 		}
 		let sandbox = parent.queue.head().cloned();
+		if parent.queue.len() == 0 && parent.borrowable.is_none() {
+			self.parents.0.remove(&parent_id);
+		}
 		if let Some(sandbox) = sandbox
 			&& self.sandboxes.attempts < scheduler.config.max_create_sandbox_requests
 		{
@@ -438,11 +482,7 @@ impl State {
 		self.queue.wake();
 	}
 
-	pub(super) fn handle_heartbeat(
-		&mut self,
-		_scheduler: &Scheduler,
-		notification: &HeartbeatNotification,
-	) -> bool {
+	pub(super) fn handle_heartbeat(&mut self, notification: &HeartbeatNotification) -> bool {
 		let Some(runner) = self.runners.entries.get_mut(&notification.runner) else {
 			return false;
 		};
@@ -451,11 +491,45 @@ impl State {
 		{
 			return false;
 		}
+		// Forget potential capacity after a parent is no longer available for borrowing.
+		let expired: Vec<_> = runner
+			.borrowable
+			.iter()
+			.filter(|parent| {
+				!notification.sandboxes.contains(*parent)
+					&& self
+						.parents
+						.0
+						.get(*parent)
+						.and_then(|parent| parent.borrowable.as_ref())
+						.is_some_and(|borrowable| {
+							notification.heartbeat_index > borrowable.heartbeat_index
+						})
+			})
+			.cloned()
+			.collect();
+		for parent_id in expired {
+			runner.borrowable.remove(&parent_id);
+			if let Some(parent) = self.parents.0.get_mut(&parent_id) {
+				parent.borrowable = None;
+				if parent.queue.len() == 0 {
+					self.parents.0.remove(&parent_id);
+				}
+			}
+		}
 		runner.capacity = notification.capacity;
 		runner.committed = tg::runner::Capacity::default();
+		runner.shared_width = runner
+			.reservations
+			.values()
+			.filter(|reservation| matches!(reservation.source, ReservationSource::Regular))
+			.map(|reservation| reservation.capacity.cpu.shared)
+			.max()
+			.unwrap_or(0);
 		runner.heartbeat_at = tokio::time::Instant::now();
 		runner.heartbeat_index = notification.heartbeat_index;
-		runner.ready = true;
+		runner.ready =
+			runner.capacity.total.cpu.dedicated != 0 || runner.capacity.total.cpu.shared != 0;
 		self.queue.wake();
 
 		true
@@ -640,7 +714,10 @@ impl State {
 					&& borrowable.connection_index == Some(runner.connection_index)
 			});
 			if remove {
-				parent.borrowable.as_mut().unwrap().connection_index = None;
+				parent.borrowable = None;
+				if parent.queue.len() == 0 {
+					self.parents.0.remove(&parent_id);
+				}
 			}
 		}
 		let sandboxes = runner.reservations.into_keys().collect::<Vec<_>>();
@@ -686,29 +763,11 @@ impl State {
 	}
 
 	fn find_placement(&self, scheduler: &Scheduler, sandbox: &Sandbox) -> Option<Placement> {
-		if let Some(parent) = sandbox.request.parent.as_ref()
-			&& let Some(borrowable) = self
-				.parents
-				.0
-				.get(parent)
-				.and_then(|parent| parent.borrowable.as_ref())
-			&& contains(borrowable.capacity, sandbox.capacity)
-			&& let Some(runner) = self.runners.entries.get(&borrowable.runner)
-			&& borrowable
-				.connection_index
-				.is_none_or(|connection_index| connection_index == runner.connection_index)
-			&& runner.ready
-			&& matches_host(runner, &sandbox.request)
-			&& runner.requests < scheduler.config.max_create_sandbox_requests_per_runner
-		{
-			let runner = RunnerRef {
-				connection_index: runner.connection_index,
-				id: borrowable.runner.clone(),
-			};
-			return Some(Placement::Borrowed {
-				parent: parent.clone(),
-				runner,
-			});
+		if let Some(placement) = self.borrowed_placement(
+			sandbox,
+			scheduler.config.max_create_sandbox_requests_per_runner,
+		) {
+			return Some(placement);
 		}
 
 		let mut best: Option<(RunnerRef, (u128, u128))> = None;
@@ -729,7 +788,10 @@ impl State {
 				continue;
 			}
 			let available = available(runner);
-			if !contains(available, sandbox.capacity) {
+			if !available.contains(sandbox.capacity, runner.capacity.cpu_oversubscription)
+				|| sandbox.capacity.cpu.shared
+					> shared_cpu_limit(runner).saturating_sub(sandbox.capacity.cpu.dedicated)
+			{
 				continue;
 			}
 			let score = score(runner, available, sandbox.capacity);
@@ -745,6 +807,48 @@ impl State {
 		}
 
 		best.map(|(runner, _)| Placement::Regular { runner })
+	}
+
+	fn borrowed_placement(&self, sandbox: &Sandbox, request_limit: usize) -> Option<Placement> {
+		let (borrowable, runner) = self.borrowable(sandbox)?;
+		if !borrowable.available || runner.requests >= request_limit {
+			return None;
+		}
+		let runner = RunnerRef {
+			connection_index: runner.connection_index,
+			id: borrowable.runner.clone(),
+		};
+		Some(Placement::Borrowed {
+			parent: sandbox.request.parent.clone().unwrap(),
+			runner,
+		})
+	}
+
+	fn borrowable(&self, sandbox: &Sandbox) -> Option<(&Borrowable, &Runner)> {
+		let parent = sandbox.request.parent.as_ref()?;
+		let borrowable = self.parents.0.get(parent)?.borrowable.as_ref()?;
+		let runner = self.runners.entries.get(&borrowable.runner)?;
+		if !borrowable
+			.capacity
+			.contains(sandbox.capacity, runner.capacity.cpu_oversubscription)
+			|| borrowable
+				.connection_index
+				.is_some_and(|index| index != runner.connection_index)
+			|| !runner.ready
+			|| !matches_host(runner, &sandbox.request)
+		{
+			return None;
+		}
+		Some((borrowable, runner))
+	}
+
+	fn placeable(&self, sandbox: &Sandbox) -> bool {
+		self.borrowable(sandbox).is_some()
+			|| self
+				.runners
+				.entries
+				.values()
+				.any(|runner| runner.ready && placeable(runner, sandbox))
 	}
 
 	fn requeue_sandbox(&mut self, id: &tg::sandbox::Id) {
@@ -813,12 +917,7 @@ impl State {
 		}
 		let Some(placement) = self.find_placement(scheduler, sandbox) else {
 			// Keep the sandbox queued if a runner could satisfy it once it has capacity.
-			if self
-				.runners
-				.entries
-				.values()
-				.any(|runner| placeable(runner, sandbox))
-			{
+			if self.placeable(sandbox) {
 				return false;
 			}
 
@@ -860,18 +959,7 @@ impl State {
 		if let Placement::Borrowed { parent, .. } = &placement
 			&& let Some(parent) = self.parents.0.get_mut(parent)
 		{
-			parent.borrowable = None;
-		}
-		if let Placement::Borrowed { parent, .. } = &placement {
-			self.runners
-				.entries
-				.get_mut(&runner_ref.id)
-				.unwrap()
-				.borrowable
-				.remove(parent);
-			if self.parents.0[parent].queue.len() == 0 {
-				self.parents.0.remove(parent);
-			}
+			parent.borrowable.as_mut().unwrap().available = false;
 		}
 		let runner = self.runners.entries.get_mut(&runner_ref.id).unwrap();
 		runner.requests += 1;
@@ -879,6 +967,7 @@ impl State {
 			Placement::Borrowed { .. } => ReservationSource::Borrowed,
 			Placement::Regular { .. } => {
 				add(&mut runner.reserved, capacity);
+				runner.shared_width = runner.shared_width.max(capacity.cpu.shared);
 				ReservationSource::Regular
 			},
 		};
@@ -988,20 +1077,37 @@ async fn create_sandbox(
 }
 
 fn add(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
-	capacity.cpus = capacity.cpus.saturating_add(value.cpus);
+	capacity.cpu.shared = capacity.cpu.shared.saturating_add(value.cpu.shared);
+	capacity.cpu.dedicated = capacity.cpu.dedicated.saturating_add(value.cpu.dedicated);
 	capacity.memory = capacity.memory.saturating_add(value.memory);
 }
 
 fn available(runner: &Runner) -> tg::runner::Capacity {
-	let mut available = runner.capacity.available;
-	subtract(&mut available, runner.reserved);
-	subtract(&mut available, runner.committed);
-
+	let factor = runner.capacity.cpu_oversubscription;
+	let available = runner
+		.capacity
+		.available
+		.subtract(runner.reserved, factor)
+		.subtract(runner.committed, factor);
+	// Keep enough distinct shared cores for newly reserved multi-CPU requests.
+	let width = runner.shared_width;
+	let occupied = shared_cpu_limit(runner).saturating_sub(available.cpu.dedicated);
+	let converted = width.saturating_sub(occupied).min(available.cpu.dedicated);
+	let mut available = available;
+	available.cpu.dedicated -= converted;
+	available.cpu.shared = available
+		.cpu
+		.shared
+		.saturating_add(converted.saturating_mul(factor));
 	available
 }
 
-fn contains(capacity: tg::runner::Capacity, requested: tg::runner::Capacity) -> bool {
-	capacity.cpus >= requested.cpus && capacity.memory >= requested.memory
+fn shared_cpu_limit(runner: &Runner) -> u64 {
+	runner
+		.capacity
+		.shared_cpu_limit
+		.saturating_sub(runner.reserved.cpu.dedicated)
+		.saturating_sub(runner.committed.cpu.dedicated)
 }
 
 fn matches_host(runner: &Runner, request: &EnqueueSandboxRequestArg) -> bool {
@@ -1019,7 +1125,21 @@ fn placeable(runner: &Runner, sandbox: &Sandbox) -> bool {
 		.is_none_or(|owner| sandbox.owner_ancestors.contains(owner));
 	owner_matches
 		&& matches_host(runner, &sandbox.request)
-		&& contains(runner.capacity.total, sandbox.capacity)
+		&& runner
+			.capacity
+			.total
+			.contains(sandbox.capacity, runner.capacity.cpu_oversubscription)
+		&& sandbox.capacity.cpu.shared
+			<= if runner.capacity.total.cpu.dedicated == 0 {
+				runner.capacity.total.cpu.shared / runner.capacity.cpu_oversubscription
+			} else {
+				runner
+					.capacity
+					.total
+					.cpu
+					.dedicated
+					.saturating_sub(sandbox.capacity.cpu.dedicated)
+			}
 }
 
 fn score(
@@ -1027,8 +1147,14 @@ fn score(
 	available: tg::runner::Capacity,
 	requested: tg::runner::Capacity,
 ) -> (u128, u128) {
-	let cpu = u128::from(available.cpus - requested.cpus) * 1_000_000
-		/ u128::from(runner.capacity.total.cpus.max(1));
+	let factor = runner.capacity.cpu_oversubscription;
+	let remaining = available.subtract(requested, factor);
+	let cpu = (u128::from(remaining.cpu.shared)
+		+ u128::from(remaining.cpu.dedicated) * u128::from(factor))
+		* 1_000_000
+		/ (u128::from(runner.capacity.total.cpu.shared)
+			+ u128::from(runner.capacity.total.cpu.dedicated) * u128::from(factor))
+		.max(1);
 	let memory = u128::from(available.memory - requested.memory) * 1_000_000
 		/ u128::from(runner.capacity.total.memory.max(1));
 
@@ -1036,6 +1162,189 @@ fn score(
 }
 
 fn subtract(capacity: &mut tg::runner::Capacity, value: tg::runner::Capacity) {
-	capacity.cpus = capacity.cpus.saturating_sub(value.cpus);
+	capacity.cpu.shared = capacity.cpu.shared.saturating_sub(value.cpu.shared);
+	capacity.cpu.dedicated = capacity.cpu.dedicated.saturating_sub(value.cpu.dedicated);
 	capacity.memory = capacity.memory.saturating_sub(value.memory);
+}
+
+#[cfg(test)]
+mod tests {
+	use {super::*, std::collections::BTreeSet};
+
+	fn borrowing() -> (State, Sandbox, tg::sandbox::Id, tg::runner::Id) {
+		let parent = tg::sandbox::Id::new();
+		let runner_id = tg::runner::Id::new();
+		let capacity = tg::runner::Capacity {
+			cpu: tg::sandbox::Cpu {
+				dedicated: 1,
+				shared: 0,
+			},
+			memory: 16,
+		};
+		let runner = Runner {
+			borrowable: HashSet::from_iter([parent.clone()]),
+			capacity: tg::runner::control::Capacity {
+				available: tg::runner::Capacity::default(),
+				cpu_oversubscription: 4,
+				shared_cpu_limit: 0,
+				total: capacity,
+			},
+			committed: tg::runner::Capacity::default(),
+			connection_index: 1,
+			heartbeat_at: tokio::time::Instant::now(),
+			heartbeat_index: 1,
+			host: tg::host::current().to_owned(),
+			owner: None,
+			ready: true,
+			requests: 0,
+			reservations: HashMap::default(),
+			reserved: tg::runner::Capacity::default(),
+			shared_width: 0,
+		};
+		let borrowable = Borrowable {
+			available: false,
+			capacity,
+			connection_index: Some(1),
+			heartbeat_index: 1,
+			runner: runner_id.clone(),
+		};
+		let entry = Parent {
+			borrowable: Some(borrowable),
+			queue: Queue::new(),
+		};
+		let mut state = State::new();
+		state.parents.0.insert(parent.clone(), entry);
+		state.runners.entries.insert(runner_id.clone(), runner);
+		let request = EnqueueSandboxRequestArg {
+			arg: tg::sandbox::create::Arg::default(),
+			creator: None,
+			parent: Some(parent.clone()),
+			process: None,
+			sandbox: tg::sandbox::Id::new(),
+			scheduler: None,
+			token: None,
+		};
+		let sandbox = Sandbox {
+			attempts: 0,
+			blocked: HashMap::default(),
+			capacity: tg::runner::Capacity {
+				cpu: 4.into(),
+				memory: 16,
+			},
+			dequeue_requests: Vec::new(),
+			owner_ancestors: Arc::new(HashSet::default()),
+			request,
+			retrying: false,
+			state: SandboxState::Pending,
+		};
+		(state, sandbox, parent, runner_id)
+	}
+
+	#[test]
+	fn busy_parent_keeps_convertible_requests_queued_without_admitting_them() {
+		let (mut state, sandbox, parent, runner) = borrowing();
+		assert!(!placeable(&state.runners.entries[&runner], &sandbox));
+		assert!(state.placeable(&sandbox));
+		assert!(state.borrowed_placement(&sandbox, 1).is_none());
+		state
+			.parents
+			.0
+			.get_mut(&parent)
+			.unwrap()
+			.borrowable
+			.as_mut()
+			.unwrap()
+			.available = true;
+		assert!(matches!(
+			state.borrowed_placement(&sandbox, 1),
+			Some(Placement::Borrowed { .. })
+		));
+		state.runners.entries.get_mut(&runner).unwrap().ready = false;
+		assert!(!state.placeable(&sandbox));
+		assert!(state.borrowed_placement(&sandbox, 1).is_none());
+	}
+
+	#[test]
+	fn impossible_borrowing_requests_do_not_wait_on_the_parent() {
+		let (mut state, mut sandbox, parent, _) = borrowing();
+		sandbox.capacity.cpu = 5.into();
+		assert!(!state.placeable(&sandbox));
+		sandbox.capacity.cpu = 4.into();
+		sandbox.capacity.memory = 17;
+		assert!(!state.placeable(&sandbox));
+		sandbox.capacity.memory = 16;
+		sandbox.capacity.cpu = 2.into();
+		state
+			.parents
+			.0
+			.get_mut(&parent)
+			.unwrap()
+			.borrowable
+			.as_mut()
+			.unwrap()
+			.capacity
+			.cpu = 1.into();
+		assert!(!state.placeable(&sandbox));
+		sandbox.capacity.cpu = tg::sandbox::Cpu {
+			dedicated: 1,
+			shared: 0,
+		};
+		assert!(state.borrowable(&sandbox).is_none());
+	}
+
+	#[test]
+	fn only_newer_heartbeats_withdraw_potential_parent_capacity() {
+		let (mut state, sandbox, parent, runner) = borrowing();
+		state
+			.parents
+			.0
+			.get_mut(&parent)
+			.unwrap()
+			.borrowable
+			.as_mut()
+			.unwrap()
+			.heartbeat_index = 2;
+		let capacity = state.runners.entries[&runner].capacity;
+		let notification = HeartbeatNotification {
+			capacity,
+			connection_index: 1,
+			heartbeat_index: 2,
+			runner,
+			sandboxes: BTreeSet::default(),
+		};
+		assert!(state.handle_heartbeat(&notification));
+		assert!(state.placeable(&sandbox));
+		let notification = HeartbeatNotification {
+			heartbeat_index: 3,
+			..notification
+		};
+		assert!(state.handle_heartbeat(&notification));
+		assert!(!state.placeable(&sandbox));
+		assert!(!state.parents.0.contains_key(&parent));
+	}
+
+	#[test]
+	fn pending_borrowers_preserve_unconsumed_reservations() {
+		let (state, _, parent, runner) = borrowing();
+		let previous = state.parents.0[&parent].borrowable.as_ref().unwrap();
+		let notification = BorrowableCapacityNotification {
+			available: true,
+			capacity: previous.capacity,
+			heartbeat_index: 1,
+			parent,
+			runner,
+		};
+		let reserved = Borrowable::new(notification.clone(), Some(1), Some(previous));
+		let notification = BorrowableCapacityNotification {
+			available: false,
+			..notification
+		};
+		assert!(Borrowable::new(notification.clone(), Some(1), Some(&reserved)).available);
+		assert!(!Borrowable::new(notification.clone(), Some(2), Some(&reserved)).available);
+		let notification = BorrowableCapacityNotification {
+			capacity: tg::runner::Capacity::default(),
+			..notification
+		};
+		assert!(!Borrowable::new(notification.clone(), Some(1), Some(&reserved)).available);
+	}
 }

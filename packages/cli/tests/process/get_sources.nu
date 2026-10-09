@@ -84,11 +84,11 @@ tg --url $local_owner.url --token $root_token checkpoint unwatch process.get.ind
 tg --url $local_owner.url --token $root_token checkpoint unwatch process.control.response.published $response_watch
 let output = job recv --tag $get_job --timeout 10sec
 success $output
-assert equal ($output.stdout | from json | get log) $indexed.log
+assert equal ($output.stdout | from json | get log | referent node) ($indexed.log | referent node)
 
 # Retained local runner state must consult the owner for the finished log too.
 let output = tg --url $runner.url --token $root_token get --remote $process | from json
-assert equal ($output.log | split row '?' | first) ($indexed.log | split row '?' | first)
+assert equal ($output.log | referent node) ($indexed.log | referent node)
 let log = tg --url $local_owner.url --token $root_token process log $process | str trim
 assert equal $log 'finished log'
 tg --url $runner.url --token $root_token checkpoint unwatch runner.process.control.retention.finished $retention_watch

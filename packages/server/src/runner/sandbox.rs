@@ -12,7 +12,7 @@ use {
 		future::{self, BoxFuture},
 		stream::{BoxStream, FuturesUnordered},
 	},
-	std::{collections::BTreeMap, pin::pin, sync::Arc, time::Instant},
+	std::{collections::BTreeMap, pin::pin, sync::Arc},
 	tangram_client::prelude::*,
 	tangram_futures::task::{Stopper, Task},
 	tokio::task::JoinSet,
@@ -138,7 +138,6 @@ struct RunSandboxTaskArg {
 	processes: Arc<crate::process::Processes>,
 	sandbox: tangram_sandbox::Sandbox,
 	serve_task: Task<()>,
-	started_at: Instant,
 	state: tg::sandbox::get::Output,
 	stopper: Stopper,
 }
@@ -251,6 +250,9 @@ impl Session {
 			stopper,
 			token,
 		} = arg;
+		#[cfg(target_os = "linux")]
+		let mut allocation = allocation;
+
 		let identity = match (id, token) {
 			(Some(id), Some(token)) => Some((id, token)),
 			(None, None) => None,
@@ -283,7 +285,11 @@ impl Session {
 		let connection_session = self.server.session(&context);
 
 		// Create the sandbox concurrently with its control stream.
-		let create_future = self.create_sandbox_with_pool(arg.clone());
+		let create_future = self.create_sandbox_with_pool(
+			arg.clone(),
+			#[cfg(target_os = "linux")]
+			allocation.cpu_parent(),
+		);
 		let created_at = self.server.clock.unix_timestamp()?;
 		let control_data = tg::sandbox::control::Data {
 			arg: arg.clone(),
@@ -428,6 +434,9 @@ impl Session {
 		});
 
 		// Store the identified sandbox state before starting any processes.
+		#[cfg(target_os = "linux")]
+		allocation.set_cpu_lease(create_output.sandbox.cpu_lease().await);
+		let capacity = allocation.capacity();
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
 		let index = create_output.sandbox.index();
 		let processes = Arc::new(crate::process::Processes::default());
@@ -435,6 +444,7 @@ impl Session {
 		let entry = crate::sandbox::State {
 			allocation: Some(allocation),
 			authorization_tokens: tg::authorization::Tokens::default(),
+			capacity,
 			changed: tokio::sync::watch::channel(()).0,
 			control_sender,
 			data: control_data,
@@ -469,6 +479,9 @@ impl Session {
 		{
 			provider.set_principal(tg::Principal::Sandbox(id.clone()));
 		}
+
+		// Begin accounting before starting any workload processes.
+		create_output.sandbox.start().await?;
 
 		// Spawn the process before waiting for the control stream.
 		let mut process_tasks = JoinSet::new();
@@ -596,6 +609,7 @@ impl Session {
 	async fn create_sandbox_with_pool(
 		&self,
 		arg: tg::sandbox::create::Arg,
+		#[cfg(target_os = "linux")] cpu_parent: Option<tangram_sandbox::cpu::Lease>,
 	) -> tg::Result<CreateSandboxOutput> {
 		if let Some(task) = self.server.runner.sandbox_pool.take(&arg, self) {
 			match task.wait().await {
@@ -630,7 +644,12 @@ impl Session {
 		}
 
 		tracing::debug!("creating a sandbox after a pool miss");
-		self.create_sandbox_inner(arg).await
+		self.create_sandbox_inner(
+			arg,
+			#[cfg(target_os = "linux")]
+			cpu_parent,
+		)
+		.await
 	}
 
 	#[tracing::instrument(
@@ -641,20 +660,32 @@ impl Session {
 	)]
 	async fn create_sandbox_inner(
 		&self,
-		arg: tg::sandbox::create::Arg,
+		mut arg: tg::sandbox::create::Arg,
+		#[cfg(target_os = "linux")] cpu_parent: Option<tangram_sandbox::cpu::Lease>,
 	) -> tg::Result<CreateSandboxOutput> {
-		let isolation = match &arg.isolation {
+		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
+		let mut isolation = match &arg.isolation {
 			Some(tg::sandbox::Isolation::Container) => {
-				let container = self
-					.server
+				self.server
 					.config()
 					.sandbox
 					.isolation
 					.container
 					.as_ref()
 					.ok_or_else(|| tg::error!("container isolation is not configured"))?;
+				let container = &self.server.config().runner.isolation.container;
 				tangram_sandbox::Isolation::Container(tangram_sandbox::ContainerIsolation {
-					max_pids: container.max_pids,
+					cgroup_readonly: container.harden,
+					filesystem_project_id: None,
+					gid_map: container.gid_map.as_ref().map(Into::into),
+					max_duration: container.max_duration(),
+					max_filesystem_inodes: container.max_filesystem_inodes(),
+					max_filesystem_size: container.max_filesystem_size(),
+					max_open_files: container.max_open_files(),
+					max_pids: container.max_pids(),
+					memory_swap: container.memory_swap(),
+					seccomp: container.seccomp(),
+					uid_map: container.uid_map.as_ref().map(Into::into),
 				})
 			},
 			Some(tg::sandbox::Isolation::Seatbelt) => {
@@ -701,6 +732,28 @@ impl Session {
 			},
 			None => self.server.resolve_sandbox_isolation()?,
 		};
+		if matches!(&isolation, tangram_sandbox::Isolation::Container(_))
+			&& self.server.config().runner.isolation.container.harden
+		{
+			if matches!(arg.network.as_ref(), Some(tg::sandbox::Network::Host)) {
+				return Err(tg::error!(
+					"host networking is not allowed for hardened container isolation"
+				));
+			}
+			if arg.mounts.iter().any(|mount| !mount.readonly) {
+				return Err(tg::error!(
+					"writable mounts are not allowed for hardened container isolation"
+				));
+			}
+			arg.cpu
+				.get_or_insert(self.server.config().scheduler.default_cpu.into());
+			arg.memory
+				.get_or_insert(self.server.config().scheduler.default_memory);
+		}
+
+		#[cfg(target_os = "linux")]
+		arg.cpu
+			.get_or_insert(self.server.config.scheduler.default_cpu.into());
 
 		#[cfg(target_os = "linux")]
 		self.ensure_vm_isolation(&isolation).await?;
@@ -712,8 +765,27 @@ impl Session {
 			tangram_sandbox::Isolation::Seatbelt(_) => self.server.sandbox_seatbelt_root.clone(),
 		};
 
+		// Allocate the filesystem project ID.
+		#[cfg(target_os = "linux")]
+		let filesystem_project_id = match &mut isolation {
+			tangram_sandbox::Isolation::Container(container)
+				if container.max_filesystem_inodes.is_some()
+					|| container.max_filesystem_size.is_some() =>
+			{
+				let project_id = self.server.runner.state.create_filesystem_project_id()?;
+				container.filesystem_project_id = Some(project_id.value());
+				Some(project_id)
+			},
+			_ => None,
+		};
+
 		// Create the temp.
-		let temp = Temp::new(&self.server);
+		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
+		let mut temp = Temp::new(&self.server);
+		#[cfg(target_os = "linux")]
+		if let Some(project_id) = filesystem_project_id {
+			temp.set_filesystem_project_id(project_id);
+		}
 		tokio::fs::create_dir_all(temp.path())
 			.await
 			.map_err(|error| tg::error!(!error, "failed to create the temp directory"))?;
@@ -815,6 +887,10 @@ impl Session {
 		};
 		let arg = tangram_sandbox::Arg {
 			cpu: arg.cpu,
+			#[cfg(target_os = "linux")]
+			cpu_parent,
+			#[cfg(target_os = "linux")]
+			cpu_pool: self.server.runner.state.cpu_pool.clone(),
 			dns: self.server.config.sandbox.network.dns.clone(),
 			#[cfg(target_os = "linux")]
 			firewall: match self.server.config.sandbox.network.firewall {
@@ -832,6 +908,7 @@ impl Session {
 			ip_pool: self.server.ip_pool.clone(),
 			isolation,
 			memory: arg.memory,
+			memory_sampling_interval: self.server.config.runner.memory_sampling_interval,
 			mounts,
 			network,
 			nice: self.server.config.sandbox.nice,
@@ -912,7 +989,6 @@ impl Session {
 			mut vfs,
 		} = create_output;
 
-		let started_at = Instant::now();
 		let arg = RunSandboxTaskArg {
 			connected,
 			control,
@@ -926,7 +1002,6 @@ impl Session {
 			processes,
 			sandbox,
 			serve_task,
-			started_at,
 			state,
 			stopper,
 		};
@@ -967,7 +1042,6 @@ impl Session {
 			processes,
 			sandbox,
 			serve_task,
-			started_at,
 			state,
 			stopper,
 		} = arg;
@@ -1197,13 +1271,6 @@ impl Session {
 				}
 			}
 
-			// Release the sandbox's capacity once all of its underlying processes have exited.
-			crate::checkpoint!(
-				self.server,
-				"runner.sandbox.capacity.release",
-				sandbox = %id,
-			)
-			.await;
 			let allocation = {
 				let mut state = self
 					.server
@@ -1217,30 +1284,6 @@ impl Session {
 					.take()
 					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox allocation"))?
 			};
-			let usage = {
-				let mut allocation = allocation.lock().await;
-				let duration = started_at.elapsed();
-				let usage = allocation
-					.as_ref()
-					.ok_or_else(|| tg::error!(%id, "failed to find the sandbox allocation"))?
-					.usage(duration)?;
-				drop(allocation.take());
-
-				usage
-			};
-			let mut state = self
-				.server
-				.runner
-				.state
-				.sandboxes
-				.get_mut_by_id(&id)
-				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
-			state.usage = Some(tg::sandbox::Usage {
-				cpu: usage.cpu,
-				memory: usage.memory,
-			});
-			drop(state);
-
 			// Stop the VFS while the sandbox still owns its mount namespace.
 			#[cfg(target_os = "linux")]
 			if let Some(vfs) = vfs.take() {
@@ -1249,9 +1292,28 @@ impl Session {
 			}
 
 			// Destroy the sandbox while retaining its process and control state.
-			sandbox.destroy().await.map_err(
+			let output = sandbox.destroy().await.map_err(
 				|error| tg::error!(!error, %id, "failed to destroy the sandbox process"),
 			)?;
+
+			let usage = output.usage;
+			// Release the sandbox's capacity after its cgroup is stopped and accounted.
+			crate::checkpoint!(
+				self.server,
+				"runner.sandbox.capacity.release",
+				sandbox = %id,
+			)
+			.await;
+			drop(allocation.lock().await.take());
+			let mut state = self
+				.server
+				.runner
+				.state
+				.sandboxes
+				.get_mut_by_id(&id)
+				.ok_or_else(|| tg::error!(%id, "failed to find the sandbox"))?;
+			state.usage = Some(usage);
+			drop(state);
 
 			// Stop and await the serve task.
 			serve_task.stop();

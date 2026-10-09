@@ -357,7 +357,7 @@ fn get_location(
 		.find(|module| module.data.has_same_identity(&module_data))?;
 
 	// Get the source.
-	let source = tg::error::data::File::Module(module.data.without_token());
+	let source = tg::error::data::File::Module(module.data.clone());
 
 	// Get the line and column and apply a source map if one is available.
 	let mut start_line = line?;

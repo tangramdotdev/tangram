@@ -20,13 +20,25 @@ pub struct Args {
 	pub cgroup_cpu: Option<u64>,
 
 	#[arg(long)]
+	pub cgroup_entered: bool,
+
+	#[arg(long)]
+	pub cgroup_fd: Option<i32>,
+
+	#[arg(long)]
 	pub cgroup_memory: Option<u64>,
 
 	#[arg(long)]
 	pub cgroup_memory_oom_group: bool,
 
 	#[arg(long)]
+	pub cgroup_memory_swap: Option<u64>,
+
+	#[arg(long)]
 	pub cgroup_pids: Option<u64>,
+
+	#[arg(long)]
+	pub cgroup_readonly: bool,
 
 	#[arg(default_value = "/", long)]
 	pub chdir: PathBuf,
@@ -42,6 +54,18 @@ pub struct Args {
 
 	#[arg(long)]
 	pub die_with_parent: bool,
+
+	#[arg(long)]
+	pub filesystem_fd: Option<i32>,
+
+	#[arg(long)]
+	pub filesystem_inodes: Option<u64>,
+
+	#[arg(long)]
+	pub filesystem_path: Option<PathBuf>,
+
+	#[arg(long)]
+	pub filesystem_size: Option<u64>,
 
 	#[arg(long)]
 	pub fuse_fd: Option<i32>,
@@ -85,8 +109,14 @@ pub struct Args {
 	#[arg(action = clap::ArgAction::Append, long = "proc", num_args = 1)]
 	pub procs: Vec<PathBuf>,
 
+	#[arg(long)]
+	pub rlimit_nofile: Option<u64>,
+
 	#[arg(action = clap::ArgAction::Append, long = "ro-bind", num_args = 2)]
 	pub ro_binds: Vec<PathBuf>,
+
+	#[arg(long)]
+	pub seccomp: Option<tangram_sandbox::SeccompPolicy>,
 
 	#[arg(action = clap::ArgAction::Append, long = "setenv", num_args = 2)]
 	pub setenvs: Vec<String>,
@@ -99,6 +129,9 @@ pub struct Args {
 
 	#[arg(long)]
 	pub unshare_all: bool,
+
+	#[arg(long)]
+	pub user_namespace_fd: Option<i32>,
 }
 
 impl Args {
@@ -130,14 +163,23 @@ impl Args {
 			binds,
 			cgroup: self.cgroup,
 			cgroup_cpu: self.cgroup_cpu,
+			cgroup_entered: self.cgroup_entered,
+			cgroup_fd: self.cgroup_fd,
 			cgroup_memory: self.cgroup_memory,
 			cgroup_memory_oom_group: self.cgroup_memory_oom_group,
+			cgroup_memory_swap: self.cgroup_memory_swap,
 			cgroup_pids: self.cgroup_pids,
+			cgroup_readonly: self.cgroup_readonly,
 			chdir: self.chdir,
 			clearenv: self.clearenv,
 			command: self.command,
 			devs: self.devs,
 			die_with_parent: self.die_with_parent,
+			filesystem_fd: self.filesystem_fd,
+			filesystem_inodes: self.filesystem_inodes,
+			filesystem_mount_fd: None,
+			filesystem_path: self.filesystem_path,
+			filesystem_size: self.filesystem_size,
 			fuse_fd: self.fuse_fd,
 			fuse_path: self.fuse_path,
 			gateway_ip: self.gateway_ip,
@@ -152,11 +194,14 @@ impl Args {
 			overlay_sources: self.overlay_sources,
 			overlays,
 			procs: self.procs,
+			rlimit_nofile: self.rlimit_nofile,
 			ro_binds,
+			seccomp: self.seccomp,
 			setenvs,
 			tmpfs: self.tmpfs,
 			uid: self.uid,
 			unshare_all: self.unshare_all,
+			user_namespace_fd: self.user_namespace_fd,
 		}
 	}
 }
@@ -164,6 +209,6 @@ impl Args {
 impl Cli {
 	pub fn command_sandbox_container_run(args: Args) -> tg::Result<std::process::ExitCode> {
 		let arg = args.into_arg();
-		tangram_sandbox::container::run::run(&arg)
+		tangram_sandbox::container::run::run(arg)
 	}
 }
