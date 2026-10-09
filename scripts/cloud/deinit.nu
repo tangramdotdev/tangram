@@ -5,4 +5,7 @@ let scylla = $target | path join debug tangram_scylla_client
 fdbcli -C .tangram/cloud/fdb.cluster --timeout 10 --exec 'writemode on; clearrange "tangram_cloud/" "tangram_cloud0"'
 dropdb -U postgres -h 127.0.0.1 --if-exists --force tangram_cloud
 ^$scylla -e 'drop keyspace if exists tangram_cloud;'
+
+# Restore owner access to read-only artifact directories before removing them.
+^find .tangram/cloud -type d -exec chmod u+rwx '{}' ';'
 rm -rf .tangram/cloud
