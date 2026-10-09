@@ -24,7 +24,6 @@ pub(crate) enum Listener {
 	Tcp(tokio::net::TcpListener),
 	Unix {
 		listener: tokio::net::UnixListener,
-		#[expect(dead_code)]
 		guard: tangram_util::io::unix::Guard,
 	},
 	#[cfg(feature = "vsock")]
