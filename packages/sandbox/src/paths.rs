@@ -276,6 +276,7 @@ impl Sandbox {
 	}
 
 	#[must_use]
+	#[cfg_attr(not(target_os = "linux"), expect(dead_code))]
 	pub(crate) fn host_filesystem_path_from_root(root_path: &Path) -> PathBuf {
 		root_path.join("filesystem")
 	}

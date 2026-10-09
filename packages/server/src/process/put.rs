@@ -9,18 +9,6 @@ use {
 	tangram_index::prelude::*,
 };
 
-pub(crate) struct Authorization {
-	pub(super) command_has_subtree_permission: bool,
-	pub(super) error_has_subtree_permission: bool,
-	pub(super) log_has_subtree_permission: bool,
-	pub(super) output_has_subtree_permission: bool,
-}
-
-pub(crate) enum ObjectPermissions {
-	Authorized(Authorization),
-	Capture,
-}
-
 pub(crate) struct Options {
 	pub defer_index: bool,
 	pub location: Option<tg::Location>,
@@ -68,14 +56,9 @@ impl Session {
 		options: Options,
 	) -> tg::Result<tg::process::put::Output> {
 		Self::validate_process_data(&arg.data)?;
-		let authorization = self.authorize_process_data(&arg.data).await?;
+		let principal = self.context.principal.clone();
 		let output = self
-			.put_process_local_inner(
-				id,
-				arg,
-				ObjectPermissions::Authorized(authorization),
-				options,
-			)
+			.put_process_local_inner(id, arg, principal, options)
 			.await?;
 
 		Ok(output)
@@ -88,13 +71,13 @@ impl Session {
 		options: Options,
 	) -> tg::Result<()> {
 		Self::validate_process_data(&data)?;
-		let object_permissions = ObjectPermissions::Capture;
+		let principal = tg::Principal::Process(id.clone());
 
 		let entry = tg::process::put::Arg {
 			data,
 			location: None,
 		};
-		self.put_process_local_inner(id, entry, object_permissions, options)
+		self.put_process_local_inner(id, entry, principal, options)
 			.await
 			.map_err(|error| tg::error!(!error, %id, "failed to store the finished process"))?;
 
@@ -102,34 +85,7 @@ impl Session {
 	}
 
 	fn finished_process_objects(data: &tg::process::Data) -> Vec<tg::Referent<tg::object::Id>> {
-		let mut roots = data.command.objects();
-		if let Some(error) = &data.error {
-			match error {
-				tg::Either::Left(data) => {
-					let mut children = BTreeSet::new();
-					data.children(&mut children);
-					roots.extend(children.into_iter().map(tg::Referent::with_node));
-				},
-				tg::Either::Right(error) => {
-					roots.push(error.clone().map(tg::object::Id::Error));
-				},
-			}
-		}
-		if let Some(log) = &data.log {
-			roots.push(log.clone().map(tg::object::Id::from));
-		}
-		if let Some(output) = &data.output {
-			output.children_with_tokens(&mut roots);
-		}
-		roots
-	}
-
-	pub(super) async fn authorize_process_data(
-		&self,
-		data: &tg::process::Data,
-	) -> tg::Result<Authorization> {
 		let mut objects = data.command.objects();
-		let command_object_count = objects.len();
 		if let Some(error) = &data.error {
 			match error {
 				tg::Either::Left(data) => {
@@ -142,51 +98,21 @@ impl Session {
 				},
 			}
 		}
-		let error_object_count = objects.len();
 		if let Some(log) = &data.log {
 			objects.push(log.clone().map(tg::object::Id::from));
 		}
-		let log_object_count = objects.len();
 		if let Some(output) = &data.output {
 			output.children_with_tokens(&mut objects);
 		}
-		let output_object_count = objects.len();
-		let permission = tg::authorization::Permission::Object(
-			tg::authorization::permission::object::Permission::Subtree,
-		);
-		let permissions = tg::authorization::permission::Set::from_permission(permission);
-		let authorizations = self
-			.authorize_batch(objects.into_iter().map(|object| (object, permissions)))
-			.await?;
-		crate::authorization::check_exhaustion(&authorizations)?;
-		let has_subtree_permission = |authorizations: &[crate::authorization::Output]| {
-			authorizations
-				.iter()
-				.all(|authorization| authorization.permissions.contains(permission))
-		};
-		let command_has_subtree_permission =
-			has_subtree_permission(&authorizations[..command_object_count]);
-		let error_has_subtree_permission =
-			has_subtree_permission(&authorizations[command_object_count..error_object_count]);
-		let log_has_subtree_permission =
-			has_subtree_permission(&authorizations[error_object_count..log_object_count]);
-		let output_has_subtree_permission =
-			has_subtree_permission(&authorizations[log_object_count..output_object_count]);
-		let authorization = Authorization {
-			command_has_subtree_permission,
-			error_has_subtree_permission,
-			log_has_subtree_permission,
-			output_has_subtree_permission,
-		};
 
-		Ok(authorization)
+		objects
 	}
 
 	pub(crate) async fn put_process_local_inner(
 		&self,
 		id: &tg::process::Id,
 		mut arg: tg::process::put::Arg,
-		object_permissions: ObjectPermissions,
+		principal: tg::Principal,
 		options: Options,
 	) -> tg::Result<tg::process::put::Output> {
 		let Options {
@@ -227,83 +153,17 @@ impl Session {
 			.map(|_| output_objects.into_iter().collect::<Vec<_>>());
 		let log_object: Option<Option<tg::object::Id>> =
 			Some(arg.data.log.clone().map(|log| log.node.into()));
-		let principal = match &object_permissions {
-			ObjectPermissions::Authorized(_) => self.context.principal.clone(),
-			ObjectPermissions::Capture => tg::Principal::Process(id.clone()),
-		};
-		let (subtree_objects, mut put_object_permissions) = match object_permissions {
-			ObjectPermissions::Authorized(authorization) => {
-				let Authorization {
-					command_has_subtree_permission,
-					error_has_subtree_permission,
-					log_has_subtree_permission,
-					output_has_subtree_permission,
-				} = authorization;
-				let mut objects = BTreeSet::new();
-				if command_has_subtree_permission {
-					objects.extend(
-						arg.data
-							.command
-							.objects()
-							.into_iter()
-							.map(|object| object.node),
-					);
-				}
-				if error_has_subtree_permission && let Some(error_objects) = &error_objects {
-					objects.extend(error_objects.iter().cloned());
-				}
-				if log_has_subtree_permission && let Some(Some(log)) = &log_object {
-					objects.insert(log.clone());
-				}
-				if output_has_subtree_permission && let Some(output_objects) = &output_objects {
-					objects.extend(output_objects.iter().cloned());
-				}
-				let destination = id.clone().into();
-				let roots = Self::finished_process_objects(&token_data)
-					.into_iter()
-					.filter(|root| !objects.contains(&root.node))
-					.map(|root| root.map(Into::into));
-				let items = self.create_capture_permissions_batch_items(
-					destination,
-					None,
-					roots,
-					self.context.principal.clone(),
-					now,
-				)?;
-				(objects, items)
-			},
-			ObjectPermissions::Capture => {
-				let destination = id.clone().into();
-				let roots = Self::finished_process_objects(&token_data)
-					.into_iter()
-					.map(|root| root.map(Into::into));
-				let source = tg::Principal::Process(id.clone());
-				let items = self.create_capture_permissions_batch_items(
-					destination,
-					None,
-					roots,
-					source,
-					now,
-				)?;
-				(BTreeSet::new(), items)
-			},
-		};
-		for object in subtree_objects {
-			let arg = tangram_index::permission::put::Arg {
-				created_at: now,
-				creator: Some(tg::Principal::Process(id.clone())),
-				permissions: tg::authorization::Permission::Object(
-					tg::authorization::permission::object::Permission::Subtree,
-				)
-				.into(),
-				resource: object.into(),
-				source: tangram_index::permission::Source::Direct { expires_at: None },
-				subject: tg::authorization::Subject::Process(id.clone()),
-				time_to_touch: None,
-				version: None,
-			};
-			put_object_permissions.push(tangram_index::batch::Item::PutPermission(arg));
-		}
+		let destination = id.clone().into();
+		let objects = Self::finished_process_objects(&token_data)
+			.into_iter()
+			.map(|object| object.map(Into::into));
+		let put_permissions = self.create_capture_permissions_batch_items(
+			destination,
+			None,
+			objects,
+			principal.clone(),
+			now,
+		)?;
 		let data = store_data.then(|| arg.data.clone());
 		let mut put_process_arg = tangram_index::process::put::Arg {
 			cached: false,
@@ -369,7 +229,7 @@ impl Session {
 		// Put the process in the index.
 		let arg = tangram_index::batch::Arg {
 			items: std::iter::once(tangram_index::batch::Item::PutProcess(put_process_arg))
-				.chain(put_object_permissions)
+				.chain(put_permissions)
 				.chain(account.map(|account| {
 					tangram_index::batch::Item::PutAccountProcess(
 						tangram_index::usage::storage::put::ProcessArg {
@@ -393,39 +253,28 @@ impl Session {
 		result
 			.map_err(|error| tg::error!(!error, %id, "failed to put the process in the index"))?;
 
-		// Only issue proofs for permissions the caller actually holds.
+		// Issue tokens only for permissions established by the write or the principal's inherent authority.
 		let tokens = if principal == tg::Principal::Process(id.clone()) && defer_index {
 			tg::authorization::Tokens::default()
 		} else {
-			let permissions = self.process_permission_for_data(&token_data);
-			let authorization = self
-				.authorize(
-					id.clone(),
-					tg::authorization::permission::Set::Process(permissions),
-				)
-				.await?
-				.check_exhaustion()?;
+			let inherent = self.context.principal.is_root()
+				|| self.context.principal == tg::Principal::Process(id.clone());
+			let permissions = if inherent {
+				self.process_permission_for_data(&token_data)
+			} else if token_data.children.is_some() {
+				tg::authorization::permission::process::Set::NODE
+			} else {
+				tg::authorization::permission::process::Set::empty()
+			};
 			let permissions = permissions
 				.iter()
 				.map(tg::authorization::Permission::Process)
-				.filter(|permission| authorization.permissions.contains(*permission))
 				.collect::<Vec<_>>();
-			let expires_at = authorization
-				.expires_at
-				.map_or(permission_expires_at, |expires_at| {
-					expires_at.min(permission_expires_at)
-				});
-			let token =
-				if !authorization
-					.permissions
-					.contains(tg::authorization::Permission::Process(
-						tg::authorization::permission::process::Permission::Node,
-					)) || permissions.is_empty()
-				{
-					None
-				} else {
-					self.create_token(id.clone().into(), permissions, expires_at)?
-				};
+			let token = if permissions.is_empty() {
+				None
+			} else {
+				self.create_token(id.clone().into(), permissions, permission_expires_at)?
+			};
 			tg::authorization::Tokens::with_authorization(token)
 		};
 

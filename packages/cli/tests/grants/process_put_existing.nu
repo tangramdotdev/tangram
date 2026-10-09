@@ -24,7 +24,7 @@ failure (tg --token $bob.token process get $process | complete)
 tg --token $bob.token process put $process ($data | to json)
 success (tg --token $bob.token process get $process | complete)
 
-# Check the returned proof tokens as well as persisted permissions.
+# Check the returned authorization tokens as well as persisted permissions.
 let socket = $local.url | str replace 'http+unix://' '' | url decode
 let response = http put --raw --unix-socket $socket --headers { Authorization: $'Bearer ($bob.token)' } --content-type application/json $'http://localhost/processes/($process)' { data: $data } | from json
 assert (($response | get --optional tokens.local | default [] | length) > 0)

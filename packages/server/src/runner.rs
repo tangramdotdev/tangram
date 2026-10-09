@@ -38,6 +38,7 @@ type RunnerSender =
 type CreateControlConnection<T> = Arc<dyn Fn() -> BoxFuture<'static, tg::Result<T>> + Send + Sync>;
 
 #[derive(Clone, Debug)]
+#[cfg_attr(not(target_os = "linux"), derive(Copy))]
 pub(super) struct Config {
 	pub capacity: tg::runner::Capacity,
 	#[cfg(target_os = "linux")]
