@@ -58,6 +58,7 @@ snapshot --normalize-ids $tree '
 	│ │   ├╴location: "local"
 	│ │   └╴tokens: map
 	│ │     └╴local: array
+	│ │       ├╴"<token>"
 	│ │       └╴"<token>"
 	│ └╴host: "<host>"
 	└╴✓ a.tg.ts#run
@@ -85,7 +86,6 @@ snapshot --normalize-ids $tree '
 	  │ │ │         ├╴location: "local"
 	  │ │ │         └╴tokens: map
 	  │ │ │           └╴local: array
-	  │ │ │             ├╴"<token>"
 	  │ │ │             └╴"<token>"
 	  │ │ ├╴map
 	  │ │ │ ├╴kind: "string"
@@ -94,7 +94,7 @@ snapshot --normalize-ids $tree '
 	  │ │   ├╴kind: "value"
 	  │ │   └╴value: map
 	  │ │     ├╴kind: "object"
-	  │ │     └╴value: "cmd_010000000000000000000000000000000000000000000000000000?location=local&tokens[local][0]=<token>&tokens[local][1]=<token>"
+	  │ │     └╴value: "cmd_010000000000000000000000000000000000000000000000000000?location=local&tokens[local][0]=<token>"
 	  │ ├╴executable: map
 	  │ │ ├╴node: map
 	  │ │ │ └╴path: "tg"
@@ -102,6 +102,8 @@ snapshot --normalize-ids $tree '
 	  │ │   ├╴location: "local"
 	  │ │   └╴tokens: map
 	  │ │     └╴local: array
+	  │ │       ├╴"<token>"
+	  │ │       ├╴"<token>"
 	  │ │       ├╴"<token>"
 	  │ │       └╴"<token>"
 	  │ └╴host: "<host>"
@@ -130,8 +132,6 @@ snapshot --normalize-ids $tree '
 	      │           ├╴location: "local"
 	      │           └╴tokens: map
 	      │             └╴local: array
-	      │               ├╴"<token>"
-	      │               ├╴"<token>"
 	      │               └╴"<token>"
 	      ├╴executable: map
 	      │ ├╴node: map
@@ -140,6 +140,7 @@ snapshot --normalize-ids $tree '
 	      │   ├╴location: "local"
 	      │   └╴tokens: map
 	      │     └╴local: array
+	      │       ├╴"<token>"
 	      │       ├╴"<token>"
 	      │       ├╴"<token>"
 	      │       └╴"<token>"

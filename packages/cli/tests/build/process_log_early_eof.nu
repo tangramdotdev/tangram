@@ -23,7 +23,7 @@ tg --url $local.url push --process-log-objects $id
 
 let log = tg --url $remote.url get $id | from json | get log?
 assert ($log != null) "The completed log should be finished and sent"
-assert equal $log (tg --url $local.url get $id | from json | get log)
+assert equal ($log | referent node) (tg --url $local.url get $id | from json | get log | referent node)
 
 let output = tg --url $remote.url log --no-timeout $id | complete
 success $output "The transferred log should be readable"

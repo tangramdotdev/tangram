@@ -31,11 +31,11 @@ let runner_socket = $runner.url | str replace 'http+unix://' '' | url decode
 let remote_response = http get --unix-socket $remote_socket --headers { Authorization: $'Bearer ($remote_root)' } $'http://localhost/processes/($process)'
 let local_response = http get --unix-socket $runner_socket --headers { Authorization: $'Bearer ($runner_root)' } $'http://localhost/processes/($process)?location=remote'
 
-# Get issues only a node capability, even when the caller has all permissions.
+# Get issues a capability with every permission that the caller holds.
 for response in [$remote_response $local_response] {
-	let body = $response.tokens.local.0 | split row '.' | get 1 | decode base64 | decode utf-8 | from json
+	let body = $response.tokens.local.0 | token body
 	assert equal $body.resource $process
-	assert equal $body.permissions [process_node]
+	assert equal $body.permissions [process_node process_node_command_objects process_node_error_objects process_node_log_objects process_node_output_objects process_parent process_subtree process_subtree_command_objects process_subtree_error_objects process_subtree_log_objects process_subtree_output_objects]
 }
 
 # The owning server must accept its node capability without searching the index for other permissions.
@@ -87,7 +87,7 @@ let sandbox = $remote_response.data.sandbox
 let denied = http get --allow-errors --full --unix-socket $runner_socket --headers $headers $'http://localhost/sandboxes/($sandbox)?location=remote'
 assert equal $denied.status 404
 
-# A node capability must be sufficient to wait through either the runner or local path.
+# A get capability must be sufficient to wait through either the runner or local path.
 let targets = [
 	{ location: remote, reader: $alice.token, root: $runner_root, server: $runner, token: $local_response.tokens.local.0 },
 	{ location: local, reader: $remote_alice.token, root: $remote_root, server: $remote, token: $remote_response.tokens.local.0 },
@@ -118,6 +118,6 @@ for wait in $waits {
 	let response = job recv --tag $wait.job --timeout 10sec
 	let output = $response | into string | lines | where { $in starts-with 'data: ' } | last | str substring 6.. | from json
 	assert equal $output.exit 0
-	assert (not ($output.output.value | str contains 'tokens[')) "waiting must not mint an output capability"
+	assert ($output.output.value | str contains 'tokens[') "waiting with an output object capability must mint an output capability"
 	tg --url $wait.target.server.url --token $wait.target.root checkpoint unwatch verification.index $wait.index_watch
 }

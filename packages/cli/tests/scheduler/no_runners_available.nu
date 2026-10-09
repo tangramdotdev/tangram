@@ -39,6 +39,6 @@ assert equal $output.exit_code 124 "creating a sandbox for an unmatched host sho
 if $nu.os-info.name == 'linux' {
 	let output = timeout 2s tg --url $runner.url sandbox create --no-tokens --dedicated-cpu 2 | complete
 	assert equal $output.exit_code 124 "creating a sandbox with too many CPUs should wait for a compatible runner"
-	let output = timeout 2s tg --url $runner.url sandbox create --no-tokens --memory 2_147_483_648 | complete
+	let output = timeout 2s tg --url $runner.url sandbox create --no-tokens --memory 2147483648 | complete
 	assert equal $output.exit_code 124 "creating a sandbox with too much memory should wait for a compatible runner"
 }
