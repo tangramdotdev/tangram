@@ -932,6 +932,7 @@ mod tests {
 		let parent_temp = tangram_util::fs::Temp::new().unwrap();
 		let child_temp = tangram_util::fs::Temp::new().unwrap();
 		for (allocation, temp) in [(&parent, &parent_temp), (&child, &child_temp)] {
+			std::fs::create_dir(temp.path()).unwrap();
 			std::fs::write(temp.path().join("cpuset.cpus"), "").unwrap();
 			let file = std::fs::File::open(temp.path()).unwrap();
 			// SAFETY: The directory descriptor is transferred from the owned file.
@@ -963,6 +964,7 @@ mod tests {
 		let parent = pool.allocate(1.into()).unwrap();
 		let fourth = pool.allocate(1.into()).unwrap();
 		let temp = tangram_util::fs::Temp::new().unwrap();
+		std::fs::create_dir(temp.path()).unwrap();
 		std::fs::write(temp.path().join("cpuset.cpus"), "").unwrap();
 		let file = std::fs::File::open(temp.path()).unwrap();
 		// SAFETY: The directory descriptor is transferred from the owned file.
