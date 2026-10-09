@@ -6,37 +6,71 @@ use {
 	tangram_util::serde::is_default,
 };
 
+mod connection;
+
+pub use connection::{Connection, Priority, Response, Sender};
+
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-control";
 
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Arg {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub data: Option<tg::process::Data>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 0, default, skip_serializing_if = "Option::is_none")]
 	pub id: Option<tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub lease: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
 	pub location: Option<tg::location::Arg>,
 
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub options: tg::referent::Options,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub parent: Option<tg::process::Id>,
-
-	#[serde(default, skip_serializing_if = "is_default")]
-	pub start: bool,
+	#[tangram_serialize(id = 2)]
+	pub mode: Mode,
 }
 
-#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(content = "value", rename_all = "snake_case", tag = "kind")]
+pub enum Mode {
+	#[tangram_serialize(id = 0)]
+	Resume {
+		#[tangram_serialize(id = 0)]
+		lease: String,
+	},
+	#[tangram_serialize(id = 1)]
+	Start(StartClientRequestArg),
+	#[default]
+	#[tangram_serialize(id = 2)]
+	Wait,
+}
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Header {
+	#[tangram_serialize(id = 0)]
 	pub process: tg::Referent<tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(id = 1, default, skip_serializing_if = "Option::is_none")]
 	pub token: Option<String>,
 }
 
@@ -207,11 +241,13 @@ pub struct StartClientRequestArg {
 	#[tangram_serialize(id = 1)]
 	pub lease: String,
 
-	#[tangram_serialize(id = 2)]
+	#[serde(default, skip_serializing_if = "is_default")]
+	#[tangram_serialize(default, id = 2, skip_serializing_if = "is_default")]
 	pub options: tg::referent::Options,
 
-	#[tangram_serialize(id = 3)]
-	pub parent: tg::process::Id,
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 3, skip_serializing_if = "Option::is_none")]
+	pub parent: Option<tg::process::Id>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	#[tangram_serialize(default, id = 4, skip_serializing_if = "Option::is_none")]
@@ -699,7 +735,7 @@ impl tg::Session {
 			.uri(uri)
 			.header(http::header::ACCEPT, TANGRAM_CONTENT_TYPE)
 			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
-			.arg(&arg, body)
+			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self

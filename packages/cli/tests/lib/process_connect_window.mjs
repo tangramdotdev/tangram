@@ -3,23 +3,40 @@ import { writeFileSync } from "node:fs";
 import http from "node:http";
 
 const [socketPath, command, ready] = process.argv.slice(2);
-const requestWindow = 128;
+const requestCount = 128;
 const maxChunks = 64;
 const chunkSize = 32 * 1024;
 const timer = setTimeout(() => {
-	throw new Error("the connect window test timed out");
+	throw new Error("the connect buffering test timed out");
 }, 25000);
+const arg = {
+	location: "remote",
+	mode: "run",
+	process: {
+		cached: false,
+		command,
+		sandbox: {},
+		stderr: "null",
+		stdin: "pipe",
+		stdout: "null",
+	},
+};
 const request = http.request({
 	socketPath,
 	path: "/processes/connect",
 	method: "POST",
-	headers: { accept: "text/event-stream", "content-type": "text/event-stream" },
+	headers: {
+		accept: "text/event-stream",
+		"content-type": "text/event-stream",
+		"x-tg-arg-in-body": "true",
+	},
 });
 const send = (event, value) =>
 	request.write(`event: ${event}
 data: ${JSON.stringify(value)}
 
 `);
+const header = Promise.withResolvers();
 const completed = new Set();
 let outcomeReceived = false;
 const done = new Promise((resolve, reject) => {
@@ -28,10 +45,20 @@ const done = new Promise((resolve, reject) => {
 		assert.equal(response.statusCode, 200);
 		response.on("error", reject);
 		let buffer = "";
-		response.setEncoding("utf8");
+		let prefix = Buffer.alloc(0);
+		let headerReceived = false;
+
 		response.on("data", (chunk) => {
 			try {
-				buffer += chunk;
+				if (!headerReceived) {
+					prefix = Buffer.concat([prefix, chunk]);
+					if (prefix.length < 3) return;
+					assert.deepEqual(prefix.subarray(0, 3), Buffer.from([2, 123, 125]));
+					headerReceived = true;
+					chunk = prefix.subarray(3);
+					header.resolve({});
+				}
+				buffer += chunk.toString("utf8");
 				while (buffer.includes("\n\n")) {
 					const index = buffer.indexOf("\n\n");
 					const frame = buffer.slice(0, index);
@@ -48,6 +75,12 @@ const done = new Promise((resolve, reject) => {
 							.slice(5),
 					);
 					if (event === "error") throw new Error(JSON.stringify(value));
+					if (
+						event === "notification" &&
+						value.kind === "progress" &&
+						value.value.kind === "output"
+					)
+						send("notification", { kind: "ready" });
 					if (event === "response") {
 						assert.equal(value.error, null, JSON.stringify(value));
 						assert(!completed.has(value.id));
@@ -62,37 +95,30 @@ const done = new Promise((resolve, reject) => {
 						assert.equal(value.value.exit, 0);
 						outcomeReceived = true;
 					}
-					if (outcomeReceived && completed.size === requestWindow + 1) resolve();
+					if (outcomeReceived && completed.size === requestCount) resolve();
 				}
 			} catch (error) {
 				reject(error);
 			}
 		});
 		response.on("end", () => {
-			if (!outcomeReceived || completed.size !== requestWindow + 1)
+			if (!outcomeReceived || completed.size !== requestCount)
 				reject(new Error("the connection closed early"));
 		});
 	});
 });
 try {
-	send("request", {
-		id: 0,
-		arg: {
-			kind: "connect",
-			value: {
-				mode: "run",
-				location: "remote",
-				process: {
-					command,
-					cached: false,
-					sandbox: {},
-					stdin: "pipe",
-					stdout: "null",
-					stderr: "null",
-				},
-			},
-		},
-	});
+	const argBytes = Buffer.from(JSON.stringify(arg));
+	let length = argBytes.length;
+	const prefix = [];
+	while (length >= 128) {
+		prefix.push((length % 128) | 128);
+		length = Math.floor(length / 128);
+	}
+	prefix.push(length);
+	request.write(Buffer.concat([Buffer.from(prefix), argBytes]));
+
+	await header.promise;
 	const bytes = Buffer.alloc(chunkSize, 120);
 	bytes[chunkSize - 1] = 10;
 	for (let index = 0; index < maxChunks; index++) {
@@ -129,8 +155,8 @@ try {
 			},
 		},
 	});
-	for (let id = maxChunks + 2; id <= requestWindow; id++) {
-		send("request", { id, arg: { kind: "close", value: requestWindow + id } });
+	for (let id = maxChunks + 2; id <= requestCount; id++) {
+		send("request", { id, arg: { kind: "close", value: requestCount + id } });
 	}
 	writeFileSync(ready, "ready");
 	await done;

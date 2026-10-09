@@ -167,21 +167,25 @@ async fn missing_args_do_not_read_the_body() {
 }
 
 #[tokio::test]
-async fn empty_args_clear_the_existing_query_and_framing_header() {
+async fn empty_args_clear_the_existing_query() {
 	#[derive(serde::Deserialize, serde::Serialize)]
 	struct Arg {}
 	let arg = Arg {};
-	let request = http::Request::builder()
-		.uri("/objects/id?old=value")
-		.header(body::arg::HEADER, "true")
-		.arg(&arg, body::Bytes::new("payload"))
-		.unwrap()
-		.unwrap();
-	assert!(request.uri().query().is_none());
-	assert!(!request.headers().contains_key(body::arg::HEADER));
-	let (output, request) = request.arg::<Arg>().await.unwrap();
-	assert!(output.is_none());
-	assert_eq!(request.bytes().await.unwrap(), "payload");
+	for force in [false, true] {
+		let mut builder = http::Request::builder().uri("/objects/id?old=value");
+		if force {
+			builder = builder.header(body::arg::HEADER, "true");
+		}
+		let request = builder
+			.arg(&arg, body::Bytes::new("payload"))
+			.unwrap()
+			.unwrap();
+		assert!(request.uri().query().is_none());
+		assert_eq!(request.headers().contains_key(body::arg::HEADER), force);
+		let (output, request) = request.arg::<Arg>().await.unwrap();
+		assert_eq!(output.is_some(), force);
+		assert_eq!(request.bytes().await.unwrap(), "payload");
+	}
 }
 
 #[tokio::test]
@@ -233,4 +237,67 @@ fn invalid_builders_return_the_http_error() {
 			.unwrap();
 		assert!(result.is_err());
 	}
+}
+
+#[tokio::test]
+async fn prefixed_args_follow_the_content_type() {
+	let arg = BTreeMap::from([("tokens".to_owned(), vec!["token".to_owned()])]);
+	for (content_type, encoding) in [
+		("application/json", body::encoding::Encoding::Json),
+		("text/event-stream", body::encoding::Encoding::Json),
+		("application/octet-stream", body::encoding::Encoding::Json),
+		(
+			"application/vnd.tangram.process-connect",
+			body::encoding::Encoding::Tangram,
+		),
+		(
+			"application/vnd.tangram.sync; version=1",
+			body::encoding::Encoding::Tangram,
+		),
+	] {
+		let request = http::Request::builder()
+			.uri("/sync")
+			.header(http::header::CONTENT_TYPE, content_type)
+			.header(body::arg::HEADER, "true")
+			.arg_with_tangram(&arg, body::Bytes::new("payload"))
+			.unwrap()
+			.unwrap();
+		let bytes = request
+			.clone()
+			.into_body()
+			.collect()
+			.await
+			.unwrap()
+			.to_bytes();
+		let prefix = body::arg::get(&mut bytes.as_ref(), body::arg::MAX_LENGTH)
+			.await
+			.unwrap();
+		assert_eq!(prefix, encoding.serialize(&arg).unwrap());
+		let (output, request) = request
+			.arg_with_tangram::<BTreeMap<String, Vec<String>>>()
+			.await
+			.unwrap();
+		assert_eq!(output, Some(arg.clone()));
+		assert_eq!(request.bytes().await.unwrap(), "payload");
+	}
+}
+
+#[tokio::test]
+async fn json_only_args_reject_native_body_prefixes() {
+	let arg = serde_json::json!({"value": "input"});
+	assert!(
+		http::Request::builder()
+			.uri("/sync")
+			.header(http::header::CONTENT_TYPE, "application/vnd.tangram.sync")
+			.header(body::arg::HEADER, "true")
+			.arg(&arg, body::Empty::new())
+			.is_err()
+	);
+	let request = http::Request::builder()
+		.uri("/sync")
+		.header(http::header::CONTENT_TYPE, "application/vnd.tangram.sync")
+		.header(body::arg::HEADER, "true")
+		.body(body::arg::Body::with_arg(body::Empty::new(), &arg).unwrap())
+		.unwrap();
+	assert!(request.arg::<serde_json::Value>().await.is_err());
 }

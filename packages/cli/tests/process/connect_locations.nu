@@ -70,5 +70,5 @@ let path = artifact {
 }
 let output = tg --url $local.url run $path | from json
 assert equal $output "ok"
-assert equal (open --raw $log | lines) ['/processes/connect' '/processes/connect' '/processes/connect' '/processes/connect']
+assert equal (open --raw $log | lines | each { split row '?' | first }) ['/processes/connect' '/processes/connect' '/processes/connect' '/processes/connect']
 job kill $proxy

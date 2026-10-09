@@ -1,5 +1,6 @@
 import * as tg from "../index.ts";
 import { Body } from "./body.ts";
+import { requireJson } from "./encoding.ts";
 import { Headers } from "./headers.ts";
 
 export class Response {
@@ -100,6 +101,61 @@ export class Response {
 
 	async collect() {
 		return await this.body.collect();
+	}
+
+	async bodyHeader<T = unknown>(): Promise<T> {
+		let source = this.body[Symbol.asyncIterator]();
+		let buffer: Uint8Array = new Uint8Array();
+		let offset = 0;
+		let read = async (length: number) => {
+			let bytes = new Uint8Array(length);
+			let position = 0;
+			while (position < length) {
+				if (offset === buffer.length) {
+					let next = await source.next();
+					if (next.done)
+						throw new Error("the response ended inside the header");
+					buffer = next.value;
+					offset = 0;
+					continue;
+				}
+				let count = Math.min(length - position, buffer.length - offset);
+				bytes.set(buffer.subarray(offset, offset + count), position);
+				offset += count;
+				position += count;
+			}
+			return bytes;
+		};
+		try {
+			requireJson(this.headers.get("content-type"));
+			let length = 0;
+			for (let index = 0; ; index++) {
+				if (index === 10) throw new Error("invalid header length");
+				let byte = (await read(1))[0]!;
+				length += (byte & 127) * 2 ** (7 * index);
+				if (length > 1_048_576) throw new Error("header too large");
+				if (byte < 128) break;
+			}
+			let header = JSON.parse(tg.encoding.utf8.decode(await read(length))) as T;
+			this.body = new Body({
+				async *[Symbol.asyncIterator]() {
+					try {
+						if (offset < buffer.length) yield buffer.subarray(offset);
+						while (true) {
+							let next = await source.next();
+							if (next.done) break;
+							yield next.value;
+						}
+					} finally {
+						await source.return?.();
+					}
+				},
+			});
+			return header;
+		} catch (error) {
+			await source.return?.();
+			throw error;
+		}
 	}
 
 	async json<T = unknown>() {

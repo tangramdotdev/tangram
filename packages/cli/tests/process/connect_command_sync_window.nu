@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Command sync must progress while the entire fixed process request window is buffered.
+# The header must arrive before command sync completes; buffered requests must not block sync.
 
 const script = path self ../lib/process_connect_window.mjs
 for await_push in [true false] {
@@ -67,7 +67,7 @@ for await_push in [true false] {
 	tg --url $remote.url --token $root_token checkpoint unwatch sync.get.store.object $watch
 	tg --url $runner.url checkpoint unwatch runner.process.run $run_watch
 	let output = job recv --tag $run --timeout 30sec
-	success $output "the full request window and stdin EOF must not block command sync"
+	success $output "buffered requests and stdin EOF must not block command sync"
 	assert equal ($output.stdout | str trim) 'ok'
 
 }

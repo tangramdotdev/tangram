@@ -44,7 +44,10 @@ def open_stream(path, arg, token=None, messages=()):
 
 
 def connect(arg, token=None, messages=()):
-    arg = {**arg, "start": True}
+    value = {key: value for key, value in arg.items() if key not in ("id", "location")}
+    mode = "start" if "data" in value else "resume"
+    arg = {key: value for key, value in arg.items() if key in ("id", "location")}
+    arg["mode"] = {"kind": mode, "value": value}
     sock, response = open_stream("/processes/control", arg, token, messages)
     length, shift = 0, 0
     while True:
@@ -146,7 +149,12 @@ def early_finish():
 
     # Reconnect after losing an acknowledged Finish; the server owns the sync.
     arg = {"id": output["process"]["node"], "lease": "test"}
-    sock, response, reconnected = connect(arg, output["token"])
+    # Resume must not enter process initialization again.
+    watch = checkpoint("watch", "process.control.index.started")["watch"]
+    try:
+        sock, response, reconnected = connect(arg, output["token"])
+    finally:
+        checkpoint("unwatch", "process.control.index.started", watch)
     assert "sync" not in reconnected, reconnected
     request(sock, response, request_id, finish)
     close(sock, response)

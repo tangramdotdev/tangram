@@ -65,9 +65,18 @@ pub struct Arg {
 }
 
 #[serde_as]
-#[derive(Clone, Debug, Default, serde::Deserialize, serde::Serialize)]
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
 pub struct Header {
 	#[serde_as(as = "Vec<DisplayFromStr>")]
+	#[tangram_serialize(id = 0)]
 	pub nodes: Vec<tg::Referent<tg::Id>>,
 }
 
@@ -142,10 +151,13 @@ impl tg::Session {
 		}
 		// Read the header before consuming the progress stream.
 		let mut reader = response.reader();
-		let header =
-			tangram_http::body::header::get(&mut reader, tangram_http::body::header::MAX_LENGTH)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
+		let header = tangram_http::body::header::get(
+			&mut reader,
+			tangram_http::body::header::MAX_LENGTH,
+			tangram_http::body::encoding::Encoding::Json,
+		)
+		.await
+		.map_err(|error| tg::error!(!error, "failed to deserialize the header"))?;
 
 		let stream = tangram_http::sse::decode(reader)
 			.map_err(|error| tg::error!(!error, "failed to read an event"))

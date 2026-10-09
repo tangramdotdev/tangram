@@ -439,7 +439,7 @@ impl Session {
 			.parse::<tg::process::Id>()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the process id"))?;
 		let (arg, request) = request
-			.arg::<tg::process::stdio::write::stream::Arg>()
+			.arg_with_tangram::<tg::process::stdio::write::stream::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();

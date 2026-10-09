@@ -85,9 +85,15 @@ export class Client {
 	}
 
 	connectProcess(
+		arg: tg.Process.Connect.Arg,
 		input: AsyncIterable<tg.Process.Connect.ClientMessage>,
-	): Promise<AsyncIterableIterator<tg.Process.Connect.ServerMessage>> {
-		return connectProcess(this, input);
+	): Promise<
+		[
+			tg.Process.Connect.Header,
+			AsyncIterableIterator<tg.Process.Connect.ServerMessage>,
+		]
+	> {
+		return connectProcess(this, arg, input);
 	}
 
 	getObject(

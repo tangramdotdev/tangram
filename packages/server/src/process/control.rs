@@ -2,9 +2,12 @@ use {
 	crate::Session,
 	dashmap::DashSet,
 	futures::{FutureExt as _, StreamExt as _, TryStreamExt as _, stream::BoxStream},
-	std::{borrow::Cow, sync::Arc},
+	std::sync::Arc,
 	tangram_client::prelude::*,
-	tangram_futures::{stream::Ext as _, task::Task},
+	tangram_futures::{
+		stream::{Ext as _, TryExt as _},
+		task::Task,
+	},
 	tangram_http::{
 		body::Boxed as BoxBody,
 		request::Ext as _,
@@ -13,16 +16,14 @@ use {
 	tangram_messenger::Messenger,
 };
 
+pub(crate) mod connection;
 pub(crate) mod finish;
 pub(crate) mod local;
 pub(crate) mod read;
 pub(crate) mod sync;
 pub(crate) mod write;
 
-pub(super) type ProcessControlSender = crate::control::Sender<
-	tg::process::control::ClientMessage,
-	tg::process::control::ServerMessage,
->;
+pub(super) type ProcessControlSender = connection::Sender;
 
 #[derive(Clone)]
 pub(crate) struct ClientMessage(pub(crate) tg::process::control::ClientMessage);
@@ -38,7 +39,7 @@ pub(crate) struct Connected {
 
 struct IndexProcessControlArg {
 	assign: bool,
-	data: Option<tg::process::Data>,
+	data: tg::process::Data,
 	id: tg::process::Id,
 	options: tg::referent::Options,
 	parent: Option<tg::process::Id>,
@@ -169,7 +170,7 @@ impl Session {
 		&self,
 		mut arg: tg::process::control::Arg,
 		stream: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
-		start: Option<(String, Option<tg::process::control::Sandbox>)>,
+		start_request: Option<String>,
 		local_process_control: bool,
 		control_sync: Option<sync::Destination>,
 	) -> tg::Result<
@@ -179,9 +180,10 @@ impl Session {
 		)>,
 	> {
 		let assign = arg.id.is_none();
-		let shortcut = start.is_some() || assign;
-		let (start_request, sandbox) =
-			start.map_or((None, None), |(id, sandbox)| (Some(id), sandbox));
+		if assign && matches!(arg.mode, tg::process::control::Mode::Resume { .. }) {
+			return Err(tg::error!("resuming process control requires a process id"));
+		}
+		let shortcut = start_request.is_some() || assign;
 		let (id, token) = if let Some(id) = arg.id.take() {
 			match &self.context.principal {
 				tg::Principal::Process(process) if process == &id => (),
@@ -210,34 +212,25 @@ impl Session {
 			..self.context.clone()
 		};
 		let session = self.server.session(&context);
-		let mut data = arg.data;
-		let lease = arg.lease;
-		let mut options = arg.options;
-		options.tokens.clear();
-		let parent = arg.parent;
+		let data = match &arg.mode {
+			tg::process::control::Mode::Resume { .. } | tg::process::control::Mode::Wait => None,
+			tg::process::control::Mode::Start(start) => Some(&start.data),
+		};
 		let (control_sync, stream, sync_output) = if let Some(sync) = control_sync {
 			(Some(sync), stream, futures::stream::empty().boxed())
 		} else if local_process_control {
 			(None, stream, futures::stream::empty().boxed())
 		} else {
 			let (sync, stream, output) = session
-				.process_control_sync_destination(&id, data.as_ref(), assign, stream)
+				.process_control_sync_destination(&id, data, assign, stream)
 				.await?;
 			(Some(sync), stream, output)
 		};
 		let sync = control_sync.as_ref().map(|sync| sync.referent.clone());
-		if let (Some(sync), Some(data)) = (&sync, &mut data) {
-			data.command.options.tokens.inherit(&sync.options.tokens);
-		}
-		if !arg.start {
+		if matches!(arg.mode, tg::process::control::Mode::Wait) {
 			if assign && !matches!(self.context.principal, tg::Principal::Runner(_)) {
 				return Err(tg::error!(
 					"a deferred process control connection requires a runner"
-				));
-			}
-			if data.is_some() || lease.is_some() || parent.is_some() {
-				return Err(tg::error!(
-					"a deferred process control connection must not have data, a lease, or a parent"
 				));
 			}
 			let wait_token = if assign {
@@ -260,61 +253,68 @@ impl Session {
 
 			return Ok(Some((header, stream)));
 		}
-		if shortcut && data.is_none() {
-			return Err(tg::error!("a process on the shortcut path must have data"));
-		}
-		if shortcut && parent.is_none() {
-			return Err(tg::error!(
-				"a process on the shortcut path must have a parent"
-			));
-		}
-		let lease = lease.ok_or_else(|| tg::error!("missing the process lease"))?;
-		self.server.spawn_publish_process_status_task(&id);
-		// Load the stream configuration once for this connection.
-		let write_data = if let Some(data) = &data {
-			Cow::Borrowed(data)
-		} else {
-			let data = session
-				.get_process_from_index(&id)
-				.await?
-				.data
-				.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
-			Cow::Owned(data)
+		let (data, lease) = match arg.mode {
+			tg::process::control::Mode::Resume { lease } => {
+				if local_process_control {
+					session.index().await?.try_last().await?;
+				}
+				let data = session
+					.get_process_from_index(&id)
+					.await?
+					.data
+					.ok_or_else(|| tg::error!(%id, "missing the process data"))?;
+				(data, lease)
+			},
+			tg::process::control::Mode::Start(start) => {
+				let tg::process::control::StartClientRequestArg {
+					mut data,
+					lease,
+					mut options,
+					parent,
+					sandbox,
+				} = start;
+				if shortcut && parent.is_none() {
+					return Err(tg::error!(
+						"a process on the shortcut path must have a parent"
+					));
+				}
+				options.tokens.clear();
+				if let Some(sync) = &sync {
+					data.command.options.tokens.inherit(&sync.options.tokens);
+				}
+				let index_arg = IndexProcessControlArg {
+					assign: shortcut,
+					data: data.clone(),
+					id: id.clone(),
+					options,
+					parent,
+					sandbox,
+				};
+				// Enqueue initialization before acknowledging the start or accepting subsequent requests.
+				session.index_process_control(index_arg).boxed().await?;
+				(data, lease)
+			},
+			tg::process::control::Mode::Wait => unreachable!(),
 		};
+		self.server.spawn_publish_process_status_task(&id);
+
+		// Load the stream configuration once for this connection.
 		let streams = [
-			write_data
-				.stderr
+			data.stderr
 				.is_log()
 				.then_some(tg::process::stdio::Stream::Stderr),
-			write_data
-				.stdout
+			data.stdout
 				.is_log()
 				.then_some(tg::process::stdio::Stream::Stdout),
 		]
 		.into_iter()
 		.flatten()
 		.collect();
-		let finalized = write_data.log.is_some();
-		drop(write_data);
-		let index_arg = IndexProcessControlArg {
-			assign: shortcut,
-			data,
-			id: id.clone(),
-			options,
-			parent,
-			sandbox,
-		};
-		// Prepare and submit initialization before accepting subsequent requests.
-		session.index_process_control(index_arg).boxed().await?;
+		let finalized = data.log.is_some();
 		let forwarded_requests = Arc::new(DashSet::new());
 		let (sender_high, receiver_high) = tokio::sync::mpsc::channel(512);
 		let (sender_low, receiver_low) = tokio::sync::mpsc::channel(512);
-		let mut control = crate::control::Stream::new_with_priorities(
-			stream,
-			sender_high,
-			sender_low,
-			crate::control::stream_options(),
-		);
+		let mut control = connection::Connection::new(stream, sender_high, sender_low);
 		let control_sender = control.sender();
 		if let Some(id) = &start_request {
 			control.acknowledge_now(id.clone());
@@ -458,9 +458,9 @@ impl Session {
 							let request_id = request.id;
 							let priority = match &request.arg {
 								tg::process::control::ClientRequestArg::Finish(_)
-								| tg::process::control::ClientRequestArg::Start(_) => crate::control::Priority::High,
+								| tg::process::control::ClientRequestArg::Start(_) => tg::process::control::Priority::High,
 								tg::process::control::ClientRequestArg::Write(_) => {
-									crate::control::Priority::Low
+									tg::process::control::Priority::Low
 								},
 							};
 							control
@@ -582,28 +582,17 @@ impl Session {
 			};
 			crate::checkpoint!(session.server, "process.control.start.received", process = %id)
 				.await;
-			let tg::process::control::StartClientRequestArg {
-				data,
-				lease,
-				options,
-				parent,
-				sandbox,
-			} = start;
 			let arg = tg::process::control::Arg {
-				data: Some(data),
 				id: Some(id),
-				lease: Some(lease),
 				location,
-				options,
-				parent: Some(parent),
-				start: true,
+				mode: tg::process::control::Mode::Start(start),
 			};
 			let stream = futures::stream::iter(buffered).chain(stream).boxed();
 			let output = session
 				.try_get_process_control_stream_local_inner(
 					arg,
 					stream,
-					Some((request.id.clone(), sandbox)),
+					Some(request.id.clone()),
 					local_process_control,
 					control_sync,
 				)
@@ -648,112 +637,110 @@ impl Session {
 		} = arg;
 		let session = self;
 		crate::checkpoint!(self.server, "process.control.index.started", process = %id).await;
-		if let Some(data) = data {
-			let command_objects = data.command.objects();
-			let data = data.without_location_and_tokens();
-			let sandbox_id = data
-				.sandbox
-				.as_ref()
-				.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
-			let sandbox = if let Some(sandbox) = sandbox {
-				let authentication = self
-					.server
-					.authenticate(self.context.origin, Some(&sandbox.token))
-					.await?;
-				if authentication.principal != tg::Principal::Sandbox(sandbox_id.clone()) {
-					return Err(tg::error!("invalid sandbox initialization token"));
-				}
-				Some(
-					self.prepare_sandbox_control_index_arg(
-						sandbox_id,
-						sandbox.created_at,
-						sandbox.data,
-						sandbox.runner,
-					)
-					.await?,
+		let command_objects = data.command.objects();
+		let data = data.without_location_and_tokens();
+		let sandbox_id = data
+			.sandbox
+			.as_ref()
+			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
+		let sandbox = if let Some(sandbox) = sandbox {
+			let authentication = self
+				.server
+				.authenticate(self.context.origin, Some(&sandbox.token))
+				.await?;
+			if authentication.principal != tg::Principal::Sandbox(sandbox_id.clone()) {
+				return Err(tg::error!("invalid sandbox initialization token"));
+			}
+			Some(
+				self.prepare_sandbox_control_index_arg(
+					sandbox_id,
+					sandbox.created_at,
+					sandbox.data,
+					sandbox.runner,
 				)
-			} else {
-				None
-			};
-			let account = if let Some(sandbox) = &sandbox {
-				sandbox.account.clone()
-			} else {
-				session
-					.usage_account(&tg::Principal::Sandbox(sandbox_id.clone()))
-					.await?
-			};
-			let touched_at = self.server.clock.unix_timestamp()?;
-			let location = tg::Location::Local(tg::location::Local {
-				region: self.server.config.region.clone(),
-			});
-			let mut items = vec![tangram_index::batch::Item::PutProcess(
-				tangram_index::process::put::Arg {
-					cached: false,
-					children: None,
-					command: Some(
-						data.command
-							.objects()
-							.into_iter()
-							.map(|object| object.node)
-							.collect(),
-					),
-					command_id: data.command.command_id()?.into(),
-					data: Some(data.clone()),
-					error: None,
-					id: id.clone(),
-					location: Some(location),
-					log: None,
-					metadata: tg::process::Metadata::default(),
-					options,
-					output: None,
-					parent: parent.clone(),
-					permissions: Vec::new(),
-					principal: tg::Principal::Process(id.clone()),
-					sandbox: Some(sandbox_id.clone()),
-					storage: tg::process::storage::Set::NODE,
-					time_to_touch: session.server.config.process.time_to_touch,
+				.await?,
+			)
+		} else {
+			None
+		};
+		let account = if let Some(sandbox) = &sandbox {
+			sandbox.account.clone()
+		} else {
+			session
+				.usage_account(&tg::Principal::Sandbox(sandbox_id.clone()))
+				.await?
+		};
+		let touched_at = self.server.clock.unix_timestamp()?;
+		let location = tg::Location::Local(tg::location::Local {
+			region: self.server.config.region.clone(),
+		});
+		let mut items = vec![tangram_index::batch::Item::PutProcess(
+			tangram_index::process::put::Arg {
+				cached: false,
+				children: None,
+				command: Some(
+					data.command
+						.objects()
+						.into_iter()
+						.map(|object| object.node)
+						.collect(),
+				),
+				command_id: data.command.command_id()?.into(),
+				data: Some(data.clone()),
+				error: None,
+				id: id.clone(),
+				location: Some(location),
+				log: None,
+				metadata: tg::process::Metadata::default(),
+				options,
+				output: None,
+				parent: parent.clone(),
+				permissions: Vec::new(),
+				principal: tg::Principal::Process(id.clone()),
+				sandbox: Some(sandbox_id.clone()),
+				storage: tg::process::storage::Set::NODE,
+				time_to_touch: session.server.config.process.time_to_touch,
+				touched_at,
+			},
+		)];
+		if let Some(sandbox) = sandbox {
+			items.insert(0, tangram_index::batch::Item::PutSandbox(sandbox));
+		}
+		let permission_arg =
+			self.create_process_sandbox_permission_arg(&id, sandbox_id, touched_at)?;
+		items.push(tangram_index::batch::Item::PutPermission(permission_arg));
+		if let Some(account) = account {
+			items.push(tangram_index::batch::Item::PutAccountProcess(
+				tangram_index::usage::storage::put::ProcessArg {
+					account,
+					process: id.clone(),
 					touched_at,
 				},
-			)];
-			if let Some(sandbox) = sandbox {
-				items.insert(0, tangram_index::batch::Item::PutSandbox(sandbox));
-			}
-			let permission_arg =
-				self.create_process_sandbox_permission_arg(&id, sandbox_id, touched_at)?;
-			items.push(tangram_index::batch::Item::PutPermission(permission_arg));
-			if let Some(account) = account {
-				items.push(tangram_index::batch::Item::PutAccountProcess(
-					tangram_index::usage::storage::put::ProcessArg {
-						account,
-						process: id.clone(),
-						touched_at,
-					},
-				));
-			}
-			if assign {
-				let parent = parent.as_ref().ok_or_else(|| {
-					tg::error!("a process on the shortcut path must have a parent")
-				})?;
-				let destination = id.clone().into();
-				let roots = command_objects.into_iter().map(|root| root.map(Into::into));
-				let source = tg::Principal::Process(parent.clone());
-				items.extend(self.create_capture_permissions_batch_items(
-					destination,
-					None,
-					roots,
-					source,
-					touched_at,
-				)?);
-			}
-
-			// Submit the prepared batch without waiting for its index commit.
-			let index_arg = tangram_index::batch::Arg { items };
-			session
-				.server
-				.index_batch(index_arg)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to index the process"))?;
+			));
 		}
+		if assign {
+			let parent = parent
+				.as_ref()
+				.ok_or_else(|| tg::error!("a process on the shortcut path must have a parent"))?;
+			let destination = id.clone().into();
+			let roots = command_objects.into_iter().map(|root| root.map(Into::into));
+			let source = tg::Principal::Process(parent.clone());
+			items.extend(self.create_capture_permissions_batch_items(
+				destination,
+				None,
+				roots,
+				source,
+				touched_at,
+			)?);
+		}
+
+		// Submit the prepared batch without waiting for its index commit.
+		let index_arg = tangram_index::batch::Arg { items };
+		session
+			.server
+			.index_batch(index_arg)
+			.await
+			.map_err(|error| tg::error!(!error, "failed to index the process"))?;
 		crate::checkpoint!(self.server, "process.control.index.submitted", process = %id).await;
 
 		Ok(())
@@ -909,8 +896,9 @@ impl Session {
 			region: region.clone(),
 		});
 		let mut arg = arg;
-		arg.options.tokens = arg.options.tokens.for_location(&destination);
-		if let Some(data) = &mut arg.data {
+		if let tg::process::control::Mode::Start(start) = &mut arg.mode {
+			start.options.tokens = start.options.tokens.for_location(&destination);
+			let data = &mut start.data;
 			data.command.options.tokens = data.command.options.tokens.for_location(&destination);
 			if let tg::Either::Left(command) = &mut data.command.node {
 				**command = command.as_ref().clone().for_location(&destination);
@@ -1053,7 +1041,7 @@ impl Session {
 
 		// Parse the arg.
 		let (arg, request) = request
-			.arg::<tg::process::control::Arg>()
+			.arg_with_tangram::<tg::process::control::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
@@ -1077,7 +1065,7 @@ impl Session {
 		// Create the body.
 		let content_type = output_encoding.content_type(tangram_content_type);
 		let body = super::stdio::encode(stream, output_encoding, max_frame_size);
-		let body = tangram_http::body::header::set(body, &header)
+		let body = tangram_http::body::header::set(body, &header, output_encoding.serialization())
 			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 
 		// Create the response.
@@ -1136,118 +1124,5 @@ impl tangram_messenger::Payload for Connected {
 		Self: Sized,
 	{
 		tangram_serialize::from_slice(&bytes).map_err(tangram_messenger::Error::deserialization)
-	}
-}
-
-impl crate::control::Output for tg::process::control::ClientMessage {
-	fn is_request(&self) -> bool {
-		matches!(self, Self::Request(_))
-	}
-
-	fn id(&self) -> Option<&str> {
-		match self {
-			Self::Ack(_) | Self::Notification(_) | Self::Sync(_) => None,
-			Self::Request(request) => Some(&request.id),
-			Self::Response(response) => Some(&response.id),
-		}
-	}
-}
-
-impl crate::control::Input<tg::process::control::ServerMessage>
-	for tg::process::control::ClientMessage
-{
-	fn kind(&self) -> crate::control::InputKind<'_> {
-		match self {
-			Self::Ack(ack) => crate::control::InputKind::Ack { id: &ack.id },
-			Self::Notification(_) | Self::Sync(_) => {
-				crate::control::InputKind::Message { id: None }
-			},
-			Self::Request(request) => crate::control::InputKind::Message {
-				id: Some(&request.id),
-			},
-			Self::Response(response) => crate::control::InputKind::Response { id: &response.id },
-		}
-	}
-
-	fn create_ack_message(id: String) -> tg::process::control::ServerMessage {
-		tg::process::control::ServerMessage::Ack(tg::process::control::ServerAck { id })
-	}
-
-	fn priority(&self) -> crate::control::Priority {
-		let low = matches!(
-			self,
-			Self::Sync(_)
-				| Self::Request(tg::process::control::ClientRequest {
-					arg: tg::process::control::ClientRequestArg::Write(_),
-					..
-				}) | Self::Response(tg::process::control::ClientResponse {
-				output: Some(
-					tg::process::control::ClientResponseOutput::Read(_)
-						| tg::process::control::ClientResponseOutput::Write(_),
-				),
-				..
-			})
-		);
-		if low {
-			crate::control::Priority::Low
-		} else {
-			crate::control::Priority::High
-		}
-	}
-}
-
-impl crate::control::Output for tg::process::control::ServerMessage {
-	fn is_request(&self) -> bool {
-		matches!(self, Self::Request(_))
-	}
-
-	fn id(&self) -> Option<&str> {
-		match self {
-			Self::Ack(_) | Self::Notification(_) | Self::Sync(_) => None,
-			Self::Request(request) => Some(&request.id),
-			Self::Response(response) => Some(&response.id),
-		}
-	}
-}
-
-impl crate::control::Input<tg::process::control::ClientMessage>
-	for tg::process::control::ServerMessage
-{
-	fn kind(&self) -> crate::control::InputKind<'_> {
-		match self {
-			Self::Ack(ack) => crate::control::InputKind::Ack { id: &ack.id },
-			Self::Notification(_) | Self::Sync(_) => {
-				crate::control::InputKind::Message { id: None }
-			},
-			Self::Request(request) => crate::control::InputKind::Message {
-				id: Some(&request.id),
-			},
-			Self::Response(response) => crate::control::InputKind::Response { id: &response.id },
-		}
-	}
-
-	fn create_ack_message(id: String) -> tg::process::control::ClientMessage {
-		tg::process::control::ClientMessage::Ack(tg::process::control::ClientAck { id })
-	}
-
-	fn priority(&self) -> crate::control::Priority {
-		let low = matches!(
-			self,
-			Self::Sync(_)
-				| Self::Request(tg::process::control::ServerRequest {
-					arg: tg::process::control::ServerRequestArg::Close(_)
-						| tg::process::control::ServerRequestArg::Read(_)
-						| tg::process::control::ServerRequestArg::Write(_),
-					..
-				}) | Self::Response(tg::process::control::ServerResponse {
-				output: Some(tg::process::control::ServerResponseOutput::Write(_)),
-				..
-			})
-		);
-		if low {
-			crate::control::Priority::Low
-		} else {
-			crate::control::Priority::High
-		}
 	}
 }

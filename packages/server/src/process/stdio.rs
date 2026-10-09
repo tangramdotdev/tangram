@@ -53,6 +53,13 @@ impl Encoding {
 			.map_err(|_| tg::error!(accept = %value, "invalid accept type"))
 	}
 
+	pub(super) fn serialization(self) -> tangram_http::body::encoding::Encoding {
+		match self {
+			Self::Sse => tangram_http::body::encoding::Encoding::Json,
+			Self::Tangram => tangram_http::body::encoding::Encoding::Tangram,
+		}
+	}
+
 	pub(super) fn content_type(self, tangram_content_type: &str) -> mime::Mime {
 		match self {
 			Self::Sse => mime::TEXT_EVENT_STREAM,
@@ -68,7 +75,10 @@ impl Encoding {
 			return Ok(Self::Sse);
 		}
 		let tangram: mime::Mime = tangram_content_type.parse().unwrap();
-		if value.type_() == tangram.type_() && value.subtype() == tangram.subtype() {
+		if value.type_() == tangram.type_()
+			&& value.subtype() == tangram.subtype()
+			&& value.suffix() == tangram.suffix()
+		{
 			return Ok(Self::Tangram);
 		}
 

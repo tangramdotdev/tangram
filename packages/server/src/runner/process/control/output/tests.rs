@@ -189,11 +189,8 @@ async fn draining_stdout_keeps_stderr_eof_available() {
 	let mut reader = reader();
 	reader.eof = reader.streams.clone();
 	let (sender, mut output) = tokio::sync::mpsc::channel(16);
-	let control = crate::control::Stream::new(
-		stream::pending().boxed(),
-		sender,
-		crate::control::stream_options(),
-	);
+	let control =
+		tg::process::control::Connection::new(stream::pending().boxed(), sender.clone(), sender);
 	let (sender, receiver) = tokio::sync::mpsc::channel(16);
 	let task = tokio::spawn(Session::run_process_control_output_reader_task(
 		reader, receiver,
@@ -239,11 +236,8 @@ async fn draining_stdout_keeps_stderr_eof_available() {
 #[tokio::test]
 async fn reconnect_preserves_local_reads() {
 	let (sender, mut remote) = tokio::sync::mpsc::channel(4);
-	let control = crate::control::Stream::new(
-		stream::pending().boxed(),
-		sender,
-		crate::control::stream_options(),
-	);
+	let control =
+		tg::process::control::Connection::new(stream::pending().boxed(), sender.clone(), sender);
 	let (sender, mut local) = tokio::sync::mpsc::channel(4);
 	let mut reads = BTreeMap::new();
 	for (id, sender) in [
@@ -330,11 +324,8 @@ async fn reconnecting_ends_reads_with_lost_progress() {
 	);
 	reader.eof.insert(tg::process::stdio::Stream::Stdout);
 	let (sender, mut output) = tokio::sync::mpsc::channel(flow::CHANNEL_CAPACITY);
-	let control = crate::control::Stream::new(
-		stream::pending().boxed(),
-		sender,
-		crate::control::stream_options(),
-	);
+	let control =
+		tg::process::control::Connection::new(stream::pending().boxed(), sender.clone(), sender);
 	let (sender, receiver) = tokio::sync::mpsc::channel(16);
 	let task = tokio::spawn(Session::run_process_control_output_reader_task(
 		reader, receiver,

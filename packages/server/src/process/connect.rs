@@ -1,7 +1,7 @@
 use {
 	crate::{Session, process::spawn},
 	futures::{
-		FutureExt as _, StreamExt as _, TryStreamExt as _,
+		FutureExt as _, StreamExt as _, TryFutureExt as _, TryStreamExt as _,
 		future::{AbortHandle, Abortable, BoxFuture},
 		stream::{BoxStream, FuturesUnordered},
 	},
@@ -25,11 +25,12 @@ use {
 	tokio_stream::wrappers::ReceiverStream,
 };
 
+mod connection;
 mod sync;
 
 const MAX_OPERATIONS: usize = 64;
-// Reserve the request window, one detach request, and the opening response acknowledgment.
-const MAX_PENDING: usize = tg::process::connect::REQUEST_WINDOW + 2;
+// Bound messages buffered while command sync or process selection is pending.
+const MAX_PENDING: usize = 256;
 
 type Input = BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>;
 type Operation = BoxFuture<'static, (u64, tg::Result<()>)>;
@@ -39,57 +40,19 @@ type WaitFuture = BoxFuture<'static, tg::Result<Option<tg::process::outcome::Dat
 
 struct Options {
 	arg: tg::process::connect::Arg,
-	id: u64,
 	prepare_output: Option<spawn::PrepareOutput>,
 	wait_future: Option<(WaitFuture, tg::Location)>,
 }
 
-struct State<'a> {
-	cancel: Arc<AtomicBool>,
-	high: &'a Sender,
-	id: tg::process::Id,
-	location: Option<tg::location::Arg>,
-	low: &'a Sender,
-	operations: FuturesUnordered<Operation>,
-	requests: BTreeSet<u64>,
-	responses: BTreeSet<u64>,
-	streams: Streams,
-	tokens: tg::authorization::Tokens,
-	writer: Option<Writer>,
-	writes: BTreeSet<u64>,
-}
-
-struct Streams {
-	aborts: BTreeMap<u64, AbortHandle>,
-	reads: BTreeMap<u64, mpsc::Sender<tg::Result<tg::process::stdio::read::ClientMessage>>>,
-	tasks: FuturesUnordered<Operation>,
-}
-
-struct Writer {
-	closed: bool,
-	input: mpsc::Sender<tg::Result<tg::process::stdio::write::ClientMessage>>,
-	output: BoxStream<'static, tg::Result<tg::process::stdio::write::ServerMessage>>,
-}
-
 impl Session {
-	pub fn try_connect_process(
+	pub fn try_get_process_connect_stream(
 		&self,
-		mut input: Input,
-	) -> BoxFuture<'_, tg::Result<Option<Output>>> {
+		mut arg: tg::process::connect::Arg,
+		input: Input,
+	) -> BoxFuture<'_, tg::Result<Option<(tg::process::connect::Header, Output)>>> {
 		async move {
-			// Read the opening request.
-			let Some(tg::process::connect::ClientMessage::Request(
-				tg::process::connect::ClientRequest {
-					arg: tg::process::connect::ClientRequestArg::Connect(mut arg),
-					id: request_id,
-				},
-			)) = input.try_next().await?
-			else {
-				return Err(tg::error!("expected a connect request"));
-			};
-
 			// Validate the initial reads.
-			if arg.reads.len() > MAX_OPERATIONS || arg.reads.contains_key(&request_id) {
+			if arg.reads.len() > MAX_OPERATIONS {
 				return Err(tg::error!("invalid initial process reads"));
 			}
 			if arg.mode == tg::process::connect::Mode::Spawn && !arg.reads.is_empty() {
@@ -100,7 +63,7 @@ impl Session {
 			let mut input = Some(input);
 			if arg.process.is_right() {
 				return self
-					.try_connect_process_inner(arg, request_id, &mut input)
+					.try_get_process_connect_stream_inner(arg, &mut input)
 					.await;
 			}
 
@@ -119,7 +82,7 @@ impl Session {
 			) || self.spawn_process_runner_matches_location(&location)
 			{
 				return self
-					.try_connect_process_local(arg, request_id, &mut input, Some(prepare_output))
+					.try_get_process_connect_stream_local(arg, &mut input, Some(prepare_output))
 					.await;
 			}
 
@@ -129,14 +92,14 @@ impl Session {
 			let session = self.clone();
 			let mut task = Task::spawn(move |_| async move {
 				if let Err(error) = session
-					.connect_process_spawn_task(arg, request_id, input, prepare_output, &sender)
+					.connect_process_spawn_task(arg, input, prepare_output, &sender)
 					.boxed()
 					.await && sender.send(Err(error.clone())).await.is_err()
 				{
 					tracing::error!(error = %error.trace(), "the detached process connection failed");
 				}
 			});
-			// A spawn response can close the client connection while its command transfer is still running.
+			// The selected process can reach the client while its command transfer is still running.
 			if spawn_only {
 				task.detach();
 			}
@@ -144,13 +107,13 @@ impl Session {
 
 			Ok(Some(output))
 		}
+		.map_ok(|output| output.map(|output| (tg::process::connect::Header {}, output)))
 		.boxed()
 	}
 
 	async fn connect_process_spawn_task(
 		&self,
 		mut arg: tg::process::connect::Arg,
-		id: u64,
 		input: Input,
 		prepare_output: spawn::PrepareOutput,
 		sender: &Sender,
@@ -167,20 +130,28 @@ impl Session {
 
 		let spawned = Arc::new(AtomicBool::new(false));
 
-		// A spawn-only client can disconnect after receiving its response without canceling the command transfer.
-		let input = if arg.mode == tg::process::connect::Mode::Spawn && !arg.command_sync {
+		// A spawn-only client can disconnect after receiving the selected process without canceling the command transfer.
+		let input = if arg.mode == tg::process::connect::Mode::Spawn && !arg.sync {
 			let spawned = spawned.clone();
-			futures::stream::unfold((input, false, spawned), move |(mut input, finished, spawned)| async move {
-				if finished {
-					return None;
-				}
-				let message = input.next().await?;
-				if message.is_err() && spawned.load(Ordering::SeqCst) {
-					return None;
-				}
-				let finished = matches!(&message, Ok(tg::process::connect::ClientMessage::Ack(ack)) if ack.id == id);
-				Some((message, (input, finished, spawned)))
-			})
+			futures::stream::unfold(
+				(input, false, spawned),
+				move |(mut input, finished, spawned)| async move {
+					if finished {
+						return None;
+					}
+					let message = input.next().await?;
+					if message.is_err() && spawned.load(Ordering::SeqCst) {
+						return None;
+					}
+					let finished = matches!(
+						&message,
+						Ok(tg::process::connect::ClientMessage::Notification(
+							tg::process::connect::ClientNotification::Ready
+						))
+					);
+					Some((message, (input, finished, spawned)))
+				},
+			)
 			.boxed()
 		} else {
 			input
@@ -189,13 +160,13 @@ impl Session {
 		// Start a command sync when this is the first routing hop.
 		let mut input = Some(input);
 		let mut sync_sender = None;
-		let start_command_sync = !arg.command_sync;
-		if start_command_sync {
+		let start_sync = !arg.sync;
+		if start_sync {
 			crate::checkpoint!(self.server, "process.connect.command.push.started").await;
 			let source = self
 				.connect_process_command_sync_source(&spawn_arg.command, input.take().unwrap())
 				.await?;
-			arg.command_sync = true;
+			arg.sync = true;
 			input = Some(source.input);
 			sync_sender = Some(source.sender);
 		}
@@ -205,7 +176,7 @@ impl Session {
 			tg::Location::Local(tg::location::Local {
 				region: Some(region),
 			}) => {
-				self.try_connect_process_region(arg, id, &mut input, &region)
+				self.try_get_process_connect_stream_region(arg, &mut input, &region)
 					.await?
 			},
 			tg::Location::Local(tg::location::Local { region: None }) => unreachable!(),
@@ -214,7 +185,7 @@ impl Session {
 					name: remote.name,
 					regions: remote.region.map(|region| vec![region]),
 				};
-				self.try_connect_process_remote(arg, id, &mut input, &remote)
+				self.try_get_process_connect_stream_remote(arg, &mut input, &remote)
 					.await?
 			},
 		}
@@ -259,9 +230,11 @@ impl Session {
 			) {
 				outcome_received = true;
 			}
-			if let tg::process::connect::ServerMessage::Response(response) = &message
-				&& let Some(tg::process::connect::ServerResponseOutput::Connect(output)) =
-					&response.output
+			if let tg::process::connect::ServerMessage::Notification(
+				tg::process::connect::ServerNotification::Progress(tg::progress::Event::Output(
+					output,
+				)),
+			) = &message
 			{
 				notify = None;
 				self.spawn_process_add_child(&spawn_arg, output).await?;
@@ -279,10 +252,9 @@ impl Session {
 		Ok(())
 	}
 
-	async fn try_connect_process_inner(
+	async fn try_get_process_connect_stream_inner(
 		&self,
 		arg: tg::process::connect::Arg,
-		id: u64,
 		input: &mut Option<Input>,
 	) -> tg::Result<Option<Output>> {
 		if let tg::Either::Right(process) = &arg.process {
@@ -295,11 +267,10 @@ impl Session {
 			if let Some(wait_future) = self.try_wait_process_runner(process, &wait_arg).await? {
 				let options = Options {
 					arg,
-					id,
 					prepare_output: None,
 					wait_future: Some(wait_future),
 				};
-				let output = self.connect_process_local(options, input.take().unwrap());
+				let output = self.get_process_connect_stream_local(options, input.take().unwrap());
 				return Ok(Some(output));
 			}
 		}
@@ -310,14 +281,14 @@ impl Session {
 		if let Some(local) = &locations.local {
 			if local.current
 				&& let Some(output) = self
-					.try_connect_process_local(arg.clone(), id, input, None)
+					.try_get_process_connect_stream_local(arg.clone(), input, None)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to connect to the local process"))?
 			{
 				return Ok(Some(output));
 			}
 			if let Some(output) = self
-				.try_connect_process_regions(arg.clone(), id, input, &local.regions)
+				.try_get_process_connect_stream_regions(arg.clone(), input, &local.regions)
 				.await
 				.map_err(|error| {
 					tg::error!(!error, "failed to connect to the process in another region")
@@ -326,7 +297,7 @@ impl Session {
 			}
 		}
 		if let Some(output) = self
-			.try_connect_process_remotes(arg, id, input, &locations.remotes)
+			.try_get_process_connect_stream_remotes(arg, input, &locations.remotes)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to connect to the process on a remote"))?
 		{
@@ -336,10 +307,9 @@ impl Session {
 		Ok(None)
 	}
 
-	async fn try_connect_process_local(
+	async fn try_get_process_connect_stream_local(
 		&self,
 		arg: tg::process::connect::Arg,
-		id: u64,
 		input: &mut Option<Input>,
 		prepare_output: Option<spawn::PrepareOutput>,
 	) -> tg::Result<Option<Output>> {
@@ -365,840 +335,16 @@ impl Session {
 		};
 		let options = Options {
 			arg,
-			id,
 			prepare_output,
 			wait_future,
 		};
-		let output = self.connect_process_local(options, input.take().unwrap());
+		let output = self.get_process_connect_stream_local(options, input.take().unwrap());
 		Ok(Some(output))
 	}
 
-	fn connect_process_local(&self, options: Options, input: Input) -> Output {
-		let (high, receiver_high) = mpsc::channel(64);
-		let (low, receiver_low) = mpsc::channel(16);
-		// The connection owns its lease until completion, detachment, or client disconnect.
-		let mut session = self.clone();
-		session.context.stopper = None;
-		let task = Task::spawn(move |_| async move {
-			if let Err(error) = session
-				.connect_process_local_task(options, input, &high, &low)
-				.boxed()
-				.await
-			{
-				high.send(Err(error)).await.ok();
-			}
-		});
-		crate::control::priority_stream(receiver_high, receiver_low)
-			.attach(task)
-			.boxed()
-	}
-
-	async fn connect_process_local_task(
-		&self,
-		options: Options,
-		mut input: Input,
-		high: &Sender,
-		low: &Sender,
-	) -> tg::Result<()> {
-		// Select the process.
-		let Options {
-			mut arg,
-			id: request_id,
-			prepare_output,
-			wait_future,
-		} = options;
-		let mut sync_task = None;
-		if arg.command_sync {
-			let tg::Either::Left(spawn) = &arg.process else {
-				return Err(tg::error!("command sync requires a spawn"));
-			};
-			let destination = self
-				.connect_process_command_sync_destination(&spawn.command, input, high)
-				.await?;
-			input = destination.input;
-			// Attach the destination-minted tokens to the ephemeral command; process storage strips them.
-			let tg::Either::Left(spawn) = &mut arg.process else {
-				return Err(tg::error!("command sync requires a spawn"));
-			};
-			spawn
-				.command
-				.options
-				.tokens
-				.inherit(&destination.sync.options.tokens);
-			sync_task = Some(destination.task);
-		}
-		Self::send_connect_ack(high, request_id).await?;
-
-		// Buffer the fixed request window while command sync progresses on the same connection.
-		let mut pending = VecDeque::new();
-		if self.server.config.process.await_push {
-			Self::connect_process_await_command_sync(&mut sync_task, &mut input, &mut pending)
-				.await?;
-		}
-
-		let mode = arg.mode;
-		let (output, location) = match arg.process {
-			tg::Either::Left(spawn) => {
-				let output = self
-					.connect_process_spawn_local(
-						*spawn,
-						mode,
-						prepare_output.unwrap(),
-						&mut input,
-						&mut pending,
-						high,
-					)
-					.await?;
-				let location = output.location.clone().map(Into::into);
-				(output, location)
-			},
-			tg::Either::Right(id) => {
-				let location = wait_future.as_ref().unwrap().1.clone();
-				let output = tg::process::spawn::Output {
-					cached: false,
-					command: None,
-					lease: arg.lease,
-					location: Some(location.clone()),
-					outcome: None,
-					process: tg::Either::Right(id),
-					tokens: arg.tokens,
-				};
-				(output, Some(location.into()))
-			},
-		};
-
-		// Complete a spawn-only connection.
-		if mode == tg::process::connect::Mode::Spawn {
-			Self::send_connect_response(
-				high,
-				request_id,
-				Ok(tg::process::connect::ServerResponseOutput::Connect(output)),
-			)
-			.await?;
-			// Keep the transfer alive after responding when command sync runs concurrently.
-			Self::connect_process_finish_command_sync(&mut sync_task).await?;
-			Self::finish_connect_response(&mut input, request_id).await?;
-			return Ok(());
-		}
-
-		// Follow a cached process to its selected location using the same connection routing.
-		if wait_future.is_none()
-			&& !matches!(
-				self.server.location(location.as_ref())?,
-				tg::Location::Local(tg::location::Local { region })
-				if region.as_deref().is_none_or(|region| Some(region) == self.server.config.region.as_deref())
-			) {
-			let arg = tg::process::connect::Arg {
-				command_sync: false,
-				lease: output.lease.clone(),
-				location,
-				mode,
-				process: tg::Either::Right(output.process.as_ref().unwrap_right().clone()),
-				reads: arg.reads,
-				tokens: output.tokens.clone(),
-			};
-			let request = tg::process::connect::ClientRequest {
-				arg: tg::process::connect::ClientRequestArg::Connect(arg),
-				id: request_id,
-			};
-			if let Some(task) = sync_task.take() {
-				task.abort();
-			}
-			let input = futures::stream::once(futures::future::ok(
-				tg::process::connect::ClientMessage::Request(request),
-			))
-			.chain(futures::stream::iter(pending.into_iter().map(Ok)))
-			.chain(input)
-			.boxed();
-			self.connect_process_cached_task(output, input, low).await?;
-			return Ok(());
-		}
-
-		// Attach the wait and transfer cancellation to its guard.
-		let id = output
-			.process
-			.as_ref()
-			.right()
-			.cloned()
-			.ok_or_else(|| tg::error!("expected a sandboxed process"))?;
-		let tokens = output.tokens.clone();
-		let cancel = Arc::new(AtomicBool::new(true));
-		let mut lease_guard = output
-			.outcome
-			.is_none()
-			.then(|| spawn::lease::LeaseGuard::new(self, &output))
-			.flatten();
-		let wait_future = if let Some(outcome) = output.outcome.clone() {
-			futures::future::ready(Ok(Some(outcome))).boxed()
-		} else {
-			let mut wait_arg = tg::process::wait::Arg {
-				lease: None,
-				location: location.clone(),
-				source: tg::process::Source::Auto,
-				tokens: tokens.clone(),
-			};
-
-			// Prefer the runner over the local wait because the runner's outcome retains the result tokens.
-			let future = if let Some((future, _)) = wait_future {
-				future
-			} else if let Some((future, _)) = self.try_wait_process_runner(&id, &wait_arg).await? {
-				future
-			} else {
-				self.try_wait_process_local(
-					&id,
-					wait_arg.tokens.local_authorization().to_vec(),
-					tg::process::Source::Auto,
-				)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find the process"))?
-			};
-			wait_arg.lease = output.lease.clone();
-			self.attach_wait_process_guard(&id, &wait_arg, location.clone(), cancel.clone(), future)
-		};
-		if let Some(guard) = &mut lease_guard {
-			guard.disarm();
-		}
-
-		// Start the initial reads and return the selected process.
-		let streams = Streams {
-			aborts: BTreeMap::new(),
-			reads: BTreeMap::new(),
-			tasks: FuturesUnordered::new(),
-		};
-		let mut state = State {
-			cancel,
-			high,
-			id,
-			location,
-			low,
-			operations: FuturesUnordered::new(),
-			requests: BTreeSet::from([request_id]),
-			responses: BTreeSet::from([request_id]),
-			streams,
-			tokens,
-			writer: None,
-			writes: BTreeSet::new(),
-		};
-		for (request_id, arg) in arg.reads {
-			state.requests.insert(request_id);
-			state.responses.insert(request_id);
-			self.connect_process_read(&mut state, request_id, arg)
-				.await?;
-		}
-		Self::send_connect_response(
-			high,
-			request_id,
-			Ok(tg::process::connect::ServerResponseOutput::Connect(output)),
-		)
-		.await?;
-
-		// Run the connection until completion or detachment.
-		let finished = self
-			.connect_process_run_task(state, wait_future, pending, input)
-			.boxed()
-			.await?;
-		if finished {
-			if let Some(task) = sync_task.take() {
-				task.abort();
-			}
-		} else {
-			Self::connect_process_finish_command_sync(&mut sync_task).await?;
-		}
-
-		Ok(())
-	}
-
-	async fn connect_process_spawn_local(
-		&self,
-		arg: tg::process::spawn::Arg,
-		mode: tg::process::connect::Mode,
-		prepare_output: spawn::PrepareOutput,
-		input: &mut Input,
-		pending: &mut VecDeque<tg::process::connect::ClientMessage>,
-		sender: &Sender,
-	) -> tg::Result<tg::process::spawn::Output> {
-		// Buffer requests while spawning so the client can send stdio immediately.
-		let mut progress = self
-			.try_spawn_process_inner(arg, prepare_output)
-			.await?
-			.boxed();
-		let mut input_open = true;
-		let output = loop {
-			tokio::select! {
-				message = input.try_next(), if input_open => {
-					match message? {
-						Some(message) => Self::connect_process_buffer_message(pending, message)?,
-						None if mode == tg::process::connect::Mode::Spawn => input_open = false,
-						None => return Err(tg::error!("the process connection closed while spawning")),
-					}
-				},
-				event = progress.try_next() => {
-					let event = event?.ok_or_else(|| tg::error!("the spawn stream ended without an output"))?;
-					if let tg::progress::Event::Output(output) = event {
-						break output.ok_or_else(|| tg::error!("expected a process"))?;
-					}
-					let message = tg::process::connect::ServerMessage::Notification(tg::process::connect::ServerNotification::Progress(event.map_output(|_| ())));
-					sender.send(Ok(message)).await.map_err(|_| tg::error!("the process connection closed"))?;
-				},
-			}
-		};
-
-		Ok(output)
-	}
-
-	async fn connect_process_cached_task(
-		&self,
-		output: tg::process::spawn::Output,
-		input: Input,
-		sender: &Sender,
-	) -> tg::Result<()> {
-		// Transfer the lease to a connection at the selected cache location.
-		let mut guard = spawn::lease::LeaseGuard::new(self, &output);
-		let mut stream = self.connect_process(input).boxed().await?;
-		if let Some(guard) = &mut guard {
-			guard.disarm();
-		}
-
-		// Preserve the upstream ordering so terminal responses cannot overtake their read chunks.
-		while let Some(mut message) = stream.try_next().await? {
-			if let tg::process::connect::ServerMessage::Response(response) = &mut message
-				&& let Some(tg::process::connect::ServerResponseOutput::Connect(selected)) =
-					&mut response.output
-			{
-				selected.cached = output.cached;
-				selected.outcome = output.outcome.clone();
-			}
-			sender
-				.send(Ok(message))
-				.await
-				.map_err(|_| tg::error!("the process connection closed"))?;
-		}
-
-		Ok(())
-	}
-
-	async fn connect_process_run_task(
-		&self,
-		mut state: State<'_>,
-		mut wait_future: WaitFuture,
-		mut pending: VecDeque<tg::process::connect::ClientMessage>,
-		mut input: Input,
-	) -> tg::Result<bool> {
-		// Keep completion independent of subscribed output and its EOF handshakes.
-		let mut finished = false;
-		loop {
-			if finished
-				&& pending.is_empty()
-				&& state.streams.tasks.is_empty()
-				&& state.operations.is_empty()
-				&& state.writer.as_ref().is_none_or(|writer| writer.closed)
-				&& state.writes.is_empty()
-				&& state.responses.is_empty()
-			{
-				return Ok(true);
-			}
-			let message = if let Some(message) = pending.pop_front() {
-				message
-			} else {
-				tokio::select! {
-					biased;
-					outcome = &mut wait_future, if !finished => {
-						let outcome = outcome?.ok_or_else(|| tg::error!("the process wait ended before completion"))?;
-						Self::connect_process_handle_outcome(&mut state, outcome).await?;
-						finished = true;
-						continue;
-					},
-					result = state.streams.tasks.next(), if !state.streams.tasks.is_empty() => {
-						let (id, result) = result.unwrap();
-						Self::connect_process_handle_stream(&mut state, id, result).await?;
-						continue;
-					},
-					result = state.operations.next(), if !state.operations.is_empty() => {
-						let (id, result) = result.unwrap();
-						state.requests.remove(&id);
-						result?;
-						continue;
-					},
-					message = async { state.writer.as_mut().unwrap().output.next().await }, if state.writer.is_some() => {
-						Self::connect_process_handle_write(&mut state, message).await?;
-						continue;
-					},
-					message = input.try_next() => message?.ok_or_else(|| tg::error!("the process connection closed before completion"))?,
-				}
-			};
-			if let ControlFlow::Break(id) = self
-				.connect_process_handle_message(&mut state, message)
-				.await?
-			{
-				Self::finish_connect_response(&mut input, id).await?;
-				return Ok(false);
-			}
-		}
-	}
-
-	async fn connect_process_handle_outcome(
-		state: &mut State<'_>,
-		outcome: tg::process::outcome::Data,
-	) -> tg::Result<()> {
-		state.cancel.store(false, Ordering::SeqCst);
-		let notification = tg::process::connect::ServerNotification::Outcome(outcome);
-		let message = tg::process::connect::ServerMessage::Notification(notification);
-		state
-			.high
-			.send(Ok(message))
-			.await
-			.map_err(|_| tg::error!("the process connection closed"))?;
-		Ok(())
-	}
-
-	async fn connect_process_handle_stream(
-		state: &mut State<'_>,
-		id: u64,
-		result: tg::Result<()>,
-	) -> tg::Result<()> {
-		// Release the completed read.
-		state.streams.aborts.remove(&id);
-		let active = state.streams.reads.remove(&id).is_some();
-		state.requests.remove(&id);
-		if active && let Err(error) = result {
-			Self::send_connect_response(state.low, id, Err(error)).await?;
-		}
-
-		Ok(())
-	}
-
-	async fn connect_process_handle_message(
-		&self,
-		state: &mut State<'_>,
-		message: tg::process::connect::ClientMessage,
-	) -> tg::Result<ControlFlow<u64>> {
-		match message {
-			tg::process::connect::ClientMessage::Ack(ack) => {
-				state.responses.remove(&ack.id);
-				if let Some(sender) = state.streams.reads.get(&ack.id) {
-					sender
-						.try_send(Ok(tg::process::stdio::read::ClientMessage::Ack))
-						.map_err(|error| {
-							tg::error!(!error, "failed to acknowledge the read response")
-						})?;
-				}
-			},
-			tg::process::connect::ClientMessage::Notification(
-				tg::process::connect::ClientNotification::Read(notification),
-			) => {
-				Self::connect_process_handle_read(state, &notification)?;
-			},
-
-			tg::process::connect::ClientMessage::Request(request) => {
-				return self.connect_process_handle_request(state, request).await;
-			},
-			tg::process::connect::ClientMessage::Sync(_) => {
-				return Err(tg::error!("unexpected process sync message"));
-			},
-		}
-		Ok(ControlFlow::Continue(()))
-	}
-
-	fn connect_process_handle_read(
-		state: &State<'_>,
-		notification: &tg::process::connect::ReadClientNotification,
-	) -> tg::Result<()> {
-		// Progress already in transit may arrive after an error or cancellation ends the read.
-		let Some(sender) = state.streams.reads.get(&notification.id) else {
-			return Ok(());
-		};
-		sender
-			.try_send(Ok(tg::process::stdio::read::ClientMessage::Notification(
-				notification.progress,
-			)))
-			.map_err(|error| tg::error!(!error, "failed to deliver the read message"))?;
-		Ok(())
-	}
-
-	async fn connect_process_handle_write(
-		state: &mut State<'_>,
-		message: Option<tg::Result<tg::process::stdio::write::ServerMessage>>,
-	) -> tg::Result<()> {
-		let error = match message {
-			Some(Ok(write::ServerMessage::Ack(_))) => return Ok(()),
-			Some(Ok(write::ServerMessage::Response(response))) => {
-				let id = response.id;
-				// Keep the connection open between writes until stdin is confirmed closed.
-				state.writer.as_mut().unwrap().closed |= response.error.is_some()
-					|| response.output.as_ref().is_some_and(|output| output.closed);
-				state
-					.writer
-					.as_ref()
-					.unwrap()
-					.input
-					.try_send(Ok(write::ClientMessage::Ack(
-						tg::process::stdio::write::Ack { id },
-					)))
-					.map_err(|error| {
-						tg::error!(!error, "failed to acknowledge the stdio write response")
-					})?;
-				state.requests.remove(&id);
-				state.writes.remove(&id);
-				let response = tg::process::connect::ServerResponse {
-					error: response.error,
-					id,
-					output: response
-						.output
-						.map(tg::process::connect::ServerResponseOutput::Write),
-				};
-				state
-					.high
-					.send(Ok(tg::process::connect::ServerMessage::Response(response)))
-					.await
-					.map_err(|_| tg::error!("the process connection closed"))?;
-				return Ok(());
-			},
-			Some(Err(error)) => error,
-			None => tg::error!("the stdio write stream closed before completion"),
-		};
-		state.writer = None;
-		for id in std::mem::take(&mut state.writes) {
-			state.requests.remove(&id);
-			Self::send_connect_response(state.high, id, Err(error.clone())).await?;
-		}
-		Ok(())
-	}
-
-	async fn connect_process_handle_request(
-		&self,
-		state: &mut State<'_>,
-		request: tg::process::connect::ClientRequest,
-	) -> tg::Result<ControlFlow<u64>> {
-		// Acknowledge receipt and register the request.
-		Self::send_connect_ack(state.high, request.id).await?;
-		if state.responses.contains(&request.id) || !state.requests.insert(request.id) {
-			return Err(tg::error!("duplicate process request id"));
-		}
-		if state.responses.len() >= MAX_OPERATIONS * 3 + 4 {
-			return Err(tg::error!("too many unacknowledged process responses"));
-		}
-		state.responses.insert(request.id);
-
-		// Keep close and detach available when the operation limit is reached.
-		let limit = match &request.arg {
-			tg::process::connect::ClientRequestArg::Cancel(_)
-			| tg::process::connect::ClientRequestArg::Connect(_)
-			| tg::process::connect::ClientRequestArg::Signal(_)
-			| tg::process::connect::ClientRequestArg::Tty(_) => state.operations.len() >= MAX_OPERATIONS,
-			tg::process::connect::ClientRequestArg::Close(_)
-			| tg::process::connect::ClientRequestArg::Detach => false,
-			tg::process::connect::ClientRequestArg::Read(_) => {
-				state.streams.tasks.len() >= MAX_OPERATIONS
-					|| state.operations.len() >= MAX_OPERATIONS
-			},
-			tg::process::connect::ClientRequestArg::Write(arg) => {
-				let limit = flow::MAX_CHUNKS + usize::from(matches!(arg.data, write::Data::End(_)));
-				state.writes.len() >= limit
-			},
-		};
-		if limit {
-			Self::send_connect_response(
-				state.high,
-				request.id,
-				Err(tg::error!("too many process operations")),
-			)
-			.await?;
-			state.requests.remove(&request.id);
-			return Ok(ControlFlow::Continue(()));
-		}
-
-		// Dispatch the request without blocking the connection on independent operations.
-		let result = match request.arg {
-			arg @ (tg::process::connect::ClientRequestArg::Cancel(_)
-			| tg::process::connect::ClientRequestArg::Signal(_)
-			| tg::process::connect::ClientRequestArg::Tty(_)) => {
-				self.connect_process_start_operation(state, request.id, arg);
-				return Ok(ControlFlow::Continue(()));
-			},
-			tg::process::connect::ClientRequestArg::Close(id) => {
-				Self::connect_process_close(state, id);
-				Ok(tg::process::connect::ServerResponseOutput::Close)
-			},
-			tg::process::connect::ClientRequestArg::Connect(_) => {
-				Err(tg::error!("the process is already connected"))
-			},
-			tg::process::connect::ClientRequestArg::Detach => {
-				Self::connect_process_detach(state, request.id).await?;
-				return Ok(ControlFlow::Break(request.id));
-			},
-			tg::process::connect::ClientRequestArg::Read(arg) => {
-				match self.connect_process_read(state, request.id, arg).await {
-					Ok(()) => return Ok(ControlFlow::Continue(())),
-					Err(error) => Err(error),
-				}
-			},
-			tg::process::connect::ClientRequestArg::Write(arg) => {
-				match self.connect_process_write(state, request.id, arg).await {
-					Ok(()) => return Ok(ControlFlow::Continue(())),
-					Err(error) => Err(error),
-				}
-			},
-		};
-
-		Self::send_connect_response(state.high, request.id, result).await?;
-		if !state.streams.reads.contains_key(&request.id) && !state.writes.contains(&request.id) {
-			state.requests.remove(&request.id);
-		}
-
-		Ok(ControlFlow::Continue(()))
-	}
-
-	fn connect_process_start_operation(
-		&self,
-		state: &mut State<'_>,
-		request_id: u64,
-		arg: tg::process::connect::ClientRequestArg,
-	) {
-		let session = self.clone();
-		let id = state.id.clone();
-		let location = state.location.clone();
-		let sender = state.high.clone();
-		let tokens = state.tokens.clone();
-		let future = async move {
-			let result = session
-				.connect_process_operation(&id, arg, location, tokens)
-				.boxed()
-				.await;
-			let result = Self::send_connect_response(&sender, request_id, result).await;
-			(request_id, result)
-		}
-		.boxed();
-		state.operations.push(future);
-	}
-
-	async fn connect_process_operation(
-		&self,
-		id: &tg::process::Id,
-		arg: tg::process::connect::ClientRequestArg,
-		location: Option<tg::location::Arg>,
-		tokens: tg::authorization::Tokens,
-	) -> tg::Result<tg::process::connect::ServerResponseOutput> {
-		let output = match arg {
-			tg::process::connect::ClientRequestArg::Cancel(mut arg) => {
-				arg.location = location;
-				let output = self
-					.try_cancel_process(id, arg)
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the process"))?;
-				tg::process::connect::ServerResponseOutput::Cancel(output)
-			},
-			tg::process::connect::ClientRequestArg::Close(_)
-			| tg::process::connect::ClientRequestArg::Connect(_)
-			| tg::process::connect::ClientRequestArg::Detach
-			| tg::process::connect::ClientRequestArg::Read(_)
-			| tg::process::connect::ClientRequestArg::Write(_) => unreachable!(),
-			tg::process::connect::ClientRequestArg::Signal(mut arg) => {
-				arg.location = location;
-				arg.tokens.inherit(&tokens);
-				self.try_post_process_signal(id, arg)
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the process"))?;
-				tg::process::connect::ServerResponseOutput::Signal
-			},
-			tg::process::connect::ClientRequestArg::Tty(mut arg) => {
-				arg.location = location;
-				arg.tokens.inherit(&tokens);
-				self.try_set_process_tty_size(id, arg)
-					.await?
-					.ok_or_else(|| tg::error!("failed to find the process"))?;
-				tg::process::connect::ServerResponseOutput::Tty
-			},
-		};
-		Ok(output)
-	}
-
-	fn connect_process_close(state: &mut State<'_>, id: u64) {
-		state.streams.reads.remove(&id);
-		state.responses.remove(&id);
-		if let Some(abort) = state.streams.aborts.get(&id) {
-			abort.abort();
-		}
-	}
-
-	async fn connect_process_detach(state: &mut State<'_>, id: u64) -> tg::Result<()> {
-		state.cancel.store(false, Ordering::SeqCst);
-		// Drop the subscribed reads before acknowledging detach so fallback readers can take over.
-		state.streams.tasks.clear();
-		state.streams.reads.clear();
-		state.streams.aborts.clear();
-		Self::send_connect_response(
-			state.high,
-			id,
-			Ok(tg::process::connect::ServerResponseOutput::Detach),
-		)
-		.await?;
-		Ok(())
-	}
-
-	async fn connect_process_read(
-		&self,
-		state: &mut State<'_>,
-		request_id: u64,
-		mut arg: tg::process::stdio::read::Arg,
-	) -> tg::Result<()> {
-		// Open the local stdio stream.
-		if arg.streams.is_empty() {
-			return Err(tg::error!("expected at least one stdio stream"));
-		}
-		arg.tokens.inherit(&state.tokens);
-		arg.location = state.location.clone();
-		let (input, receiver) = mpsc::channel(4);
-		let output = self
-			.try_read_process_stdio_source(&state.id, arg.clone())
-			.await?
-			.ok_or_else(|| tg::error!("failed to find process stdio"))?;
-		let mut output =
-			self.read_process_stdio_protocol(arg, ReceiverStream::new(receiver).boxed(), output);
-
-		// Register the read request and return its messages.
-		state.streams.reads.insert(request_id, input);
-		let sender = state.low.clone();
-		state.streams.insert(request_id, async move {
-			while let Some(message) = output.try_next().await? {
-				match message {
-					tg::process::stdio::read::ServerMessage::Notification(event) => {
-						let notification = tg::process::connect::ReadServerNotification {
-							event,
-							id: request_id,
-						};
-						let message = tg::process::connect::ServerMessage::Notification(
-							tg::process::connect::ServerNotification::Read(notification),
-						);
-						sender
-							.send(Ok(message))
-							.await
-							.map_err(|_| tg::error!("the process connection closed"))?;
-					},
-					tg::process::stdio::read::ServerMessage::Response(output) => {
-						Self::send_connect_response(
-							&sender,
-							request_id,
-							Ok(tg::process::connect::ServerResponseOutput::Read(output)),
-						)
-						.await?;
-					},
-				}
-			}
-
-			Ok(())
-		});
-
-		Ok(())
-	}
-
-	async fn connect_process_write(
-		&self,
-		state: &mut State<'_>,
-		request_id: u64,
-		mut arg: tg::process::stdio::write::Arg,
-	) -> tg::Result<()> {
-		// Prepare stdin once for the connection, then reuse the standalone write implementation.
-		if state.writer.is_none() {
-			arg.tokens.inherit(&state.tokens);
-			let (input, receiver) = mpsc::channel(flow::CHANNEL_CAPACITY);
-			let write_arg = tg::process::stdio::write::stream::Arg {
-				location: state.location.clone(),
-				streams: vec![Stream::Stdin],
-				tokens: arg.tokens.clone(),
-			};
-			let output = self
-				.try_write_process_stdio(
-					&state.id,
-					write_arg,
-					ReceiverStream::new(receiver).boxed(),
-				)
-				.await?
-				.ok_or_else(|| tg::error!("failed to find process stdio"))?;
-			state.writer = Some(Writer {
-				closed: false,
-				input,
-				output,
-			});
-		}
-		match &arg.data {
-			write::Data::Chunk(chunk) if chunk.stream != Stream::Stdin => {
-				return Err(tg::error!("cannot write process stdout or stderr"));
-			},
-			write::Data::End(end)
-				if end.stream_positions.len() != 1
-					|| !end.stream_positions.contains_key(&Stream::Stdin) =>
-			{
-				return Err(tg::error!("invalid stdin end positions"));
-			},
-			write::Data::Chunk(_) | write::Data::End(_) => {},
-		}
-		let request = write::Request {
-			arg: arg.data,
-			id: request_id,
-		};
-		state
-			.writer
-			.as_ref()
-			.unwrap()
-			.input
-			.try_send(Ok(write::ClientMessage::Request(request)))
-			.map_err(|error| tg::error!(!error, "failed to queue the stdio write"))?;
-		state.writes.insert(request_id);
-		Ok(())
-	}
-
-	async fn send_connect_ack(sender: &Sender, id: u64) -> tg::Result<()> {
-		let message = tg::process::connect::ServerMessage::Ack(tg::process::connect::Ack { id });
-		sender
-			.send(Ok(message))
-			.await
-			.map_err(|_| tg::error!("the process connection closed"))?;
-		Ok(())
-	}
-
-	async fn send_connect_response(
-		sender: &Sender,
-		id: u64,
-		result: tg::Result<tg::process::connect::ServerResponseOutput>,
-	) -> tg::Result<()> {
-		let (error, output) = match result {
-			Err(error) => (Some(Self::connect_process_error(&error)), None),
-			Ok(output) => (None, Some(output)),
-		};
-		let response = tg::process::connect::ServerResponse { error, id, output };
-		sender
-			.send(Ok(tg::process::connect::ServerMessage::Response(response)))
-			.await
-			.map_err(|_| tg::error!("the process connection closed"))?;
-		Ok(())
-	}
-
-	#[must_use]
-	fn connect_process_error(error: &tg::Error) -> tg::error::Data {
-		tg::error::Data {
-			message: Some(error.to_string()),
-			source: Some(tg::Referent::new(
-				error.to_data_or_id().map_left(Box::new),
-				tg::referent::Options::default(),
-			)),
-			..Default::default()
-		}
-	}
-
-	async fn finish_connect_response(input: &mut Input, id: u64) -> tg::Result<()> {
-		// Keep the request body open until the final response is received or the peer closes it.
-		while let Some(message) = input.try_next().await? {
-			if matches!(message, tg::process::connect::ClientMessage::Ack(ack) if ack.id == id) {
-				break;
-			}
-		}
-		Ok(())
-	}
-
-	async fn try_connect_process_regions(
+	async fn try_get_process_connect_stream_regions(
 		&self,
 		arg: tg::process::connect::Arg,
-		id: u64,
 		input: &mut Option<Input>,
 		regions: &[String],
 	) -> tg::Result<Option<Output>> {
@@ -1206,7 +352,7 @@ impl Session {
 		let mut result = Ok(None);
 		for region in regions {
 			match self
-				.try_connect_process_region(arg.clone(), id, input, region)
+				.try_get_process_connect_stream_region(arg.clone(), input, region)
 				.await
 			{
 				Err(error) => result = Err(error),
@@ -1218,10 +364,9 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn try_connect_process_region(
+	async fn try_get_process_connect_stream_region(
 		&self,
 		arg: tg::process::connect::Arg,
-		id: u64,
 		input: &mut Option<Input>,
 		region: &str,
 	) -> tg::Result<Option<Output>> {
@@ -1231,11 +376,14 @@ impl Session {
 		let mut location = tg::Location::Local(tg::location::Local {
 			region: Some(region.to_owned()),
 		});
-		let (stream, sender) =
-			Self::connect_process_input(arg, id, location.clone(), location.clone().into());
-		let Some(output) = client.try_connect_process(stream).await.map_err(
-			|error| tg::error!(!error, region = %region, "failed to connect to the process"),
-		)?
+		let (arg, stream, sender) =
+			Self::connect_process_input(arg, location.clone(), location.clone().into());
+		let Some((_, output)) = client
+			.try_get_process_connect_stream(arg, stream)
+			.await
+			.map_err(
+				|error| tg::error!(!error, region = %region, "failed to connect to the process"),
+			)?
 		else {
 			return Ok(None);
 		};
@@ -1254,9 +402,11 @@ impl Session {
 					&mut location,
 					trusted,
 				)?;
-				if let tg::process::connect::ServerMessage::Response(response) = &message
-					&& let Some(tg::process::connect::ServerResponseOutput::Connect(output)) =
-						&response.output
+				if let tg::process::connect::ServerMessage::Notification(
+					tg::process::connect::ServerNotification::Progress(
+						tg::progress::Event::Output(output),
+					),
+				) = &message
 				{
 					process = output.process.as_ref().right().cloned();
 				}
@@ -1277,17 +427,16 @@ impl Session {
 		Ok(Some(output))
 	}
 
-	async fn try_connect_process_remotes(
+	async fn try_get_process_connect_stream_remotes(
 		&self,
 		arg: tg::process::connect::Arg,
-		id: u64,
 		input: &mut Option<Input>,
 		remotes: &[crate::location::Remote],
 	) -> tg::Result<Option<Output>> {
 		let mut result = Ok(None);
 		for remote in remotes {
 			match self
-				.try_connect_process_remote(arg.clone(), id, input, remote)
+				.try_get_process_connect_stream_remote(arg.clone(), input, remote)
 				.await
 			{
 				Err(error) => result = Err(error),
@@ -1299,10 +448,9 @@ impl Session {
 		Ok(output)
 	}
 
-	async fn try_connect_process_remote(
+	async fn try_get_process_connect_stream_remote(
 		&self,
 		arg: tg::process::connect::Arg,
-		id: u64,
 		input: &mut Option<Input>,
 		remote: &crate::location::Remote,
 	) -> tg::Result<Option<Output>> {
@@ -1321,10 +469,14 @@ impl Session {
 				regions: remote.regions.clone(),
 			},
 		)]);
-		let (stream, sender) = Self::connect_process_input(arg, id, location.clone(), arg_location);
-		let Some(output) = client.try_connect_process(stream).await.map_err(
-			|error| tg::error!(!error, remote = %remote.name, "failed to connect to the process"),
-		)?
+		let (arg, stream, sender) =
+			Self::connect_process_input(arg, location.clone(), arg_location);
+		let Some((_, output)) = client
+			.try_get_process_connect_stream(arg, stream)
+			.await
+			.map_err(
+				|error| tg::error!(!error, remote = %remote.name, "failed to connect to the process"),
+			)?
 		else {
 			return Ok(None);
 		};
@@ -1343,9 +495,11 @@ impl Session {
 					&mut location,
 					trusted,
 				)?;
-				if let tg::process::connect::ServerMessage::Response(response) = &message
-					&& let Some(tg::process::connect::ServerResponseOutput::Connect(output)) =
-						&response.output
+				if let tg::process::connect::ServerMessage::Notification(
+					tg::process::connect::ServerNotification::Progress(
+						tg::progress::Event::Output(output),
+					),
+				) = &message
 				{
 					process = output.process.as_ref().right().cloned();
 				}
@@ -1368,10 +522,9 @@ impl Session {
 
 	fn connect_process_input(
 		arg: tg::process::connect::Arg,
-		id: u64,
 		destination: tg::Location,
 		location: tg::location::Arg,
-	) -> (Input, oneshot::Sender<Input>) {
+	) -> (tg::process::connect::Arg, Input, oneshot::Sender<Input>) {
 		// Keep the operation stream until the endpoint confirms that it found the process.
 		let (sender, receiver) = oneshot::channel::<Input>();
 		let input = futures::stream::once(async move {
@@ -1380,24 +533,19 @@ impl Session {
 				.map_err(|_| tg::error!("the process connection was not selected"))
 		})
 		.try_flatten();
-		let request = tg::process::connect::ClientRequest {
-			arg: tg::process::connect::ClientRequestArg::Connect(arg),
-			id,
-		};
-		let input = futures::stream::once(futures::future::ok(
-			tg::process::connect::ClientMessage::Request(request),
-		))
-		.chain(input)
-		.map_ok(move |mut message| {
-			Self::update_connect_process_request_for_location(
-				&mut message,
-				&destination,
-				&location,
-			);
-			message
-		})
-		.boxed();
-		(input, sender)
+		let mut arg = arg;
+		Self::update_connect_process_arg_for_location(&mut arg, &destination, &location);
+		let input = input
+			.map_ok(move |mut message| {
+				Self::update_connect_process_request_for_location(
+					&mut message,
+					&destination,
+					&location,
+				);
+				message
+			})
+			.boxed();
+		(arg, input, sender)
 	}
 
 	fn update_connect_process_message_referents_for_location(
@@ -1411,9 +559,7 @@ impl Session {
 			| tg::process::connect::ServerMessage::Sync(_)
 			| tg::process::connect::ServerMessage::Notification(
 				tg::process::connect::ServerNotification::Progress(
-					tg::progress::Event::Indicators(_)
-					| tg::progress::Event::Log(_)
-					| tg::progress::Event::Output(()),
+					tg::progress::Event::Indicators(_) | tg::progress::Event::Log(_),
 				)
 				| tg::process::connect::ServerNotification::Read(_),
 			) => (),
@@ -1437,30 +583,54 @@ impl Session {
 					)?;
 				}
 			},
+			tg::process::connect::ServerMessage::Notification(
+				tg::process::connect::ServerNotification::Progress(tg::progress::Event::Output(
+					output,
+				)),
+			) => {
+				if let tg::Location::Remote(remote) = location {
+					remote.region = output
+						.location
+						.as_ref()
+						.and_then(|location| match location {
+							tg::Location::Local(local) => local.region.clone(),
+							tg::Location::Remote(remote) => remote.region.clone(),
+						})
+						.or_else(|| remote.region.clone());
+				}
+				self.update_spawn_process_output_referents_for_location(output, location, trusted)?;
+			},
 			tg::process::connect::ServerMessage::Response(response) => {
 				if let Some(error) = &mut response.error {
 					self.update_error_data_referents_for_location(error, location, trusted)?;
 				}
-				if let Some(tg::process::connect::ServerResponseOutput::Connect(output)) =
-					&mut response.output
-				{
-					if let tg::Location::Remote(remote) = location {
-						remote.region = output
-							.location
-							.as_ref()
-							.and_then(|location| match location {
-								tg::Location::Local(local) => local.region.clone(),
-								tg::Location::Remote(remote) => remote.region.clone(),
-							})
-							.or_else(|| remote.region.clone());
-					}
-					self.update_spawn_process_output_referents_for_location(
-						output, location, trusted,
-					)?;
-				}
 			},
 		}
 		Ok(())
+	}
+
+	fn update_connect_process_arg_for_location(
+		arg: &mut tg::process::connect::Arg,
+		destination: &tg::Location,
+		location: &tg::location::Arg,
+	) {
+		let location = Some(location.clone());
+
+		arg.location = location.clone();
+		arg.tokens = arg.tokens.for_location(destination);
+		for read in arg.reads.values_mut() {
+			read.location = location.clone();
+			read.tokens = read.tokens.for_location(destination);
+		}
+		if let tg::Either::Left(spawn) = &mut arg.process {
+			if let Some(tg::Either::Right(sandbox)) = &mut spawn.sandbox {
+				sandbox.options.tokens = sandbox.options.tokens.for_location(destination);
+				sandbox.options.location =
+					location.as_ref().and_then(tg::location::Arg::to_location);
+			}
+			spawn.location = location;
+			Self::update_spawn_process_command_for_location(&mut spawn.command, destination);
+		}
 	}
 
 	fn update_connect_process_request_for_location(
@@ -1476,26 +646,7 @@ impl Session {
 			tg::process::connect::ClientRequestArg::Cancel(arg) => arg.location = location,
 			tg::process::connect::ClientRequestArg::Close(_)
 			| tg::process::connect::ClientRequestArg::Detach => (),
-			tg::process::connect::ClientRequestArg::Connect(arg) => {
-				arg.location = location.clone();
-				arg.tokens = arg.tokens.for_location(destination);
-				for read in arg.reads.values_mut() {
-					read.location = location.clone();
-					read.tokens = read.tokens.for_location(destination);
-				}
-				if let tg::Either::Left(spawn) = &mut arg.process {
-					if let Some(tg::Either::Right(sandbox)) = &mut spawn.sandbox {
-						sandbox.options.tokens = sandbox.options.tokens.for_location(destination);
-						sandbox.options.location =
-							location.as_ref().and_then(tg::location::Arg::to_location);
-					}
-					spawn.location = location;
-					Self::update_spawn_process_command_for_location(
-						&mut spawn.command,
-						destination,
-					);
-				}
-			},
+
 			tg::process::connect::ClientRequestArg::Read(arg) => {
 				arg.location = location;
 				arg.tokens = arg.tokens.for_location(destination);
@@ -1515,7 +666,7 @@ impl Session {
 		}
 	}
 
-	pub(crate) async fn try_connect_process_request(
+	pub(crate) async fn try_get_process_connect_stream_request(
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
@@ -1544,9 +695,14 @@ impl Session {
 		.map_err(|error| tg::error!(argument, !error, "invalid accept type"))?;
 
 		// Connect the process.
+		let (arg, request) = request
+			.arg_with_tangram::<tg::process::connect::Arg>()
+			.await
+			.map_err(|error| tg::error!(argument, !error, "failed to deserialize the arg"))?;
+		let arg = arg.ok_or_else(|| tg::error!(argument, "missing the arg"))?;
 		let max_frame_size = self.server.config.sync.max_frame_size;
 		let input = super::stdio::decode(request, input_encoding, max_frame_size);
-		let Some(output) = self.try_connect_process(input).await? else {
+		let Some((header, output)) = self.try_get_process_connect_stream(arg, input).await? else {
 			return Ok(http::Response::builder()
 				.not_found()
 				.empty()
@@ -1556,6 +712,8 @@ impl Session {
 
 		// Create the response.
 		let body = super::stdio::encode(output, output_encoding, max_frame_size);
+		let body = tangram_http::body::header::set(body, &header, output_encoding.serialization())
+			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 		let response = http::Response::builder()
 			.header(
 				http::header::CONTENT_TYPE,
@@ -1567,16 +725,5 @@ impl Session {
 			.unwrap();
 
 		Ok(response)
-	}
-}
-
-impl Streams {
-	fn insert(&mut self, id: u64, future: impl Future<Output = tg::Result<()>> + Send + 'static) {
-		let (abort, registration) = AbortHandle::new_pair();
-		self.aborts.insert(id, abort);
-		let future = Abortable::new(future, registration)
-			.map(move |result| (id, result.unwrap_or(Ok(()))))
-			.boxed();
-		self.tasks.push(future);
 	}
 }

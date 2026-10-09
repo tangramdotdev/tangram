@@ -385,9 +385,18 @@ impl Session {
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
+		// Validate the request content type.
+		let content_type = request
+			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
+			.transpose()
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the content type"))?;
+		if content_type != Some(tg::sync::CONTENT_TYPE.parse().unwrap()) {
+			return Err(tg::error!(argument, ?content_type, "invalid content type"));
+		}
+
 		// Parse the arg.
 		let (arg, request) = request
-			.arg()
+			.arg_with_tangram()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
@@ -485,8 +494,12 @@ impl Session {
 			Ok::<_, tg::Error>(frame)
 		});
 		let body = BoxBody::with_stream(stream);
-		let body = tangram_http::body::header::set(body, &header)
-			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
+		let body = tangram_http::body::header::set(
+			body,
+			&header,
+			tangram_http::body::encoding::Encoding::Tangram,
+		)
+		.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 
 		// Create the response.
 		let mut response = http::Response::builder();

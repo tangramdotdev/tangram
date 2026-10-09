@@ -5,7 +5,12 @@ async fn decode_with_header_preserves_error_trailers() {
 	let stream =
 		futures::stream::iter([Ok(7_u64), Err(tg::error!("the test stream failed"))]).boxed();
 	let body = encode(stream, 1024);
-	let body = tangram_http::body::header::set(body, &42_u64).unwrap();
+	let body = tangram_http::body::header::set(
+		body,
+		&42_u64,
+		tangram_http::body::encoding::Encoding::Tangram,
+	)
+	.unwrap();
 	let (header, mut stream) = decode_with_header::<u64, u64>(body, 1024).await.unwrap();
 
 	assert_eq!(header, 42);

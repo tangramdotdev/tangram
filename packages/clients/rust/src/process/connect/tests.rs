@@ -9,17 +9,14 @@ use {
 };
 
 struct MockConnection {
+	arg: Arg,
 	input: BoxStream<'static, tg::Result<ClientMessage>>,
 	output: async_channel::Sender<tg::Result<ServerMessage>>,
 }
 
 impl MockConnection {
 	async fn connect(&mut self, id: &tg::process::Id) -> Arg {
-		let request = self.request().await;
-		assert_eq!(request.id, 0);
-		let ClientRequestArg::Connect(arg) = request.arg else {
-			panic!("expected the opening request");
-		};
+		let arg = self.arg.clone();
 		let tg::Either::Right(process_id) = &arg.process else {
 			panic!("expected to connect to the existing process");
 		};
@@ -34,7 +31,12 @@ impl MockConnection {
 			process: tg::Either::Right(id.clone()),
 			tokens: tg::authorization::Tokens::default(),
 		};
-		self.respond(0, ServerResponseOutput::Connect(output)).await;
+		self.output
+			.send(Ok(ServerMessage::Notification(
+				ServerNotification::Progress(tg::progress::Event::Output(output)),
+			)))
+			.await
+			.unwrap();
 		arg
 	}
 
@@ -60,40 +62,67 @@ impl MockConnection {
 }
 
 #[tokio::test]
+async fn header_does_not_wait_for_input_or_process_selection() {
+	let (client, connections, _server) = mock_server(http::StatusCode::OK).await;
+	let id = tg::process::Id::new();
+	let arg = Arg {
+		lease: Some("lease".repeat(2048)),
+		location: None,
+		mode: Mode::Run,
+		process: tg::Either::Right(id.clone()),
+		reads: BTreeMap::new(),
+		sync: false,
+		tokens: tg::authorization::Tokens::default(),
+	};
+	let (_, mut output) = tokio::time::timeout(
+		Duration::from_secs(5),
+		client.get_process_connect_stream(arg, futures::stream::pending().boxed()),
+	)
+	.await
+	.unwrap()
+	.unwrap();
+	let mut connection = connections.recv().await.unwrap();
+	assert_eq!(
+		connection.arg.lease.as_deref(),
+		Some("lease".repeat(2048).as_str())
+	);
+	connection.connect(&id).await;
+	assert!(matches!(
+		output.try_next().await.unwrap().unwrap(),
+		ServerMessage::Notification(ServerNotification::Progress(tg::progress::Event::Output(_)))
+	));
+}
+
+#[tokio::test]
 async fn handles_preserve_not_found() {
 	let (client, _, _server) = mock_server(http::StatusCode::NOT_FOUND).await;
 	let session = client.session(&client.context);
 	let handles = [tg::Either::Left(client), tg::Either::Right(session)];
-	let input = || {
-		let arg = Arg {
-			command_sync: false,
-			lease: None,
-			location: None,
-			mode: Mode::Run,
-			process: tg::Either::Right(tg::process::Id::new()),
-			reads: BTreeMap::new(),
-			tokens: tg::authorization::Tokens::default(),
-		};
-		let request = ClientRequest {
-			arg: ClientRequestArg::Connect(arg),
-			id: 0,
-		};
-		futures::stream::iter([Ok(ClientMessage::Request(request))]).boxed()
+	let arg = || Arg {
+		lease: None,
+		location: None,
+		mode: Mode::Run,
+		process: tg::Either::Right(tg::process::Id::new()),
+		reads: BTreeMap::new(),
+		sync: false,
+		tokens: tg::authorization::Tokens::default(),
 	};
 	for instance in handles {
 		let instance = tg::instance::dynamic::Instance::new(instance);
 		let output = tokio::time::timeout(
 			Duration::from_secs(5),
-			instance.try_connect_process(input()),
+			instance.try_get_process_connect_stream(arg(), futures::stream::pending().boxed()),
 		)
 		.await
 		.unwrap()
 		.unwrap();
 		assert!(output.is_none());
-		let result =
-			tokio::time::timeout(Duration::from_secs(5), instance.connect_process(input()))
-				.await
-				.unwrap();
+		let result = tokio::time::timeout(
+			Duration::from_secs(5),
+			instance.get_process_connect_stream(arg(), futures::stream::pending().boxed()),
+		)
+		.await
+		.unwrap();
 		assert!(result.is_err());
 	}
 }
@@ -289,12 +318,12 @@ fn opening_metadata_preserves_read_options() {
 	};
 	let id = tg::process::Id::new();
 	let arg = Arg {
-		command_sync: false,
 		lease: Some("lease".to_owned()),
 		location: Some("remote:test".parse().unwrap()),
 		mode: Mode::Run,
 		process: tg::Either::Right(id.clone()),
 		reads: BTreeMap::from([(1, read)]),
+		sync: false,
 		tokens: tg::authorization::Tokens::default(),
 	};
 	let json = serde_json::to_value(&arg).unwrap();
@@ -303,16 +332,12 @@ fn opening_metadata_preserves_read_options() {
 	assert_eq!(json["lease"], "lease");
 	assert_eq!(json["location"], "remote:test");
 	assert!(json.get("target").is_none());
-	let request = ClientRequest {
-		arg: ClientRequestArg::Connect(arg),
-		id: 0,
-	};
-	let message = ClientMessage::Request(request);
-	assert_roundtrip(&message);
+	assert_roundtrip(&arg);
 }
 
-#[test]
-fn spawn_metadata_uses_native_types() {
+#[tokio::test]
+async fn spawn_metadata_uses_native_types() {
+	let (client, connections, _server) = mock_server(http::StatusCode::OK).await;
 	let arg = serde_json::json!({
 		"cache_location": "local",
 		"cached": false,
@@ -350,19 +375,28 @@ fn spawn_metadata_uses_native_types() {
 	let mut arg: tg::process::spawn::Arg = serde_json::from_value(arg).unwrap();
 	for mode in [Mode::Run, Mode::Spawn] {
 		let request = Arg {
-			command_sync: false,
 			lease: None,
 			location: Some("remote:test".parse().unwrap()),
 			mode,
 			process: tg::Either::Left(Box::new(arg.clone())),
 			reads: BTreeMap::new(),
+			sync: false,
 			tokens: tg::authorization::Tokens::default(),
 		};
 		let json = serde_json::to_value(&request).unwrap();
 		assert_eq!(json["process"], serde_json::to_value(&arg).unwrap());
 		assert_eq!(json["mode"], serde_json::to_value(mode).unwrap());
 		assert!(json.get("target").is_none());
-		assert_roundtrip(&ClientRequestArg::Connect(request));
+		assert_roundtrip(&request);
+		let (_, _stream) = tokio::time::timeout(
+			Duration::from_secs(5),
+			client.get_process_connect_stream(request, futures::stream::pending().boxed()),
+		)
+		.await
+		.unwrap()
+		.unwrap();
+		let connection = connections.recv().await.unwrap();
+		assert_eq!(serde_json::to_value(&connection.arg).unwrap(), json);
 		arg.command.node = tg::Either::Right(tg::command::Id::new(b"command"));
 		arg.sandbox = Some(tg::Either::Right(tg::Referent::with_node(
 			tg::sandbox::Id::new(),
@@ -405,10 +439,10 @@ fn progress_preserves_variants() {
 		serde_json::json!({"kind": "log", "value": {"level": "info", "message": "info"}}),
 		serde_json::json!({"kind": "log", "value": {"level": "success", "message": "success"}}),
 		serde_json::json!({"kind": "log", "value": {"level": "warning", "message": "warning"}}),
-		serde_json::json!({"kind": "output", "value": null}),
 	];
 	for event in events {
-		let event: tg::progress::Event<()> = serde_json::from_value(event).unwrap();
+		let event: tg::progress::Event<tg::process::spawn::Output> =
+			serde_json::from_value(event).unwrap();
 		assert_roundtrip(&ServerNotification::Progress(event));
 	}
 }
@@ -446,7 +480,9 @@ fn responses_preserve_errors_and_optional_null_outputs() {
 				process: tg::Either::Right(tg::process::Id::new()),
 				tokens: tg::authorization::Tokens::default(),
 			};
-			assert_roundtrip(&ServerResponseOutput::Connect(output));
+			assert_roundtrip(&ServerNotification::Progress(tg::progress::Event::Output(
+				output,
+			)));
 		}
 	}
 	let output = tg::process::cancel::Output { released: true };
@@ -569,12 +605,26 @@ async fn mock_server(
 								.unwrap();
 							return Ok(response);
 						}
+						let (arg, request) =
+							tangram_http::request::Ext::arg_with_tangram::<Arg>(request)
+								.await
+								.unwrap();
 						let body = tangram_http::body::Boxed::new(request.into_body());
 						let input = stdio::decode(body, 1024 * 1024).boxed();
 						let (output, receiver) = async_channel::unbounded();
-						let connection = MockConnection { input, output };
+						let connection = MockConnection {
+							arg: arg.unwrap(),
+							input,
+							output,
+						};
 						sender.send(connection).await.unwrap();
 						let body = stdio::encode(receiver.boxed(), 1024 * 1024);
+						let body = tangram_http::body::header::set(
+							body,
+							&Header {},
+							tangram_http::body::encoding::Encoding::Tangram,
+						)
+						.unwrap();
 						let response = http::Response::builder()
 							.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
 							.body(body)

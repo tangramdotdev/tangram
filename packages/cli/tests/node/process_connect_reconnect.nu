@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A node process reconnects to its control stream without losing pending events.
+# A node process reconnects without losing pending stdio.
 
 const javascript_path = path self '../../../javascript'
 cd $javascript_path
@@ -39,6 +39,12 @@ let output = timeout 15 node --input-type=module -e '
 		requests.push(request.uri.path);
 		assert.equal(request.uri.path, "/processes/connect");
 		let input = request.body.sse();
+        let query = new URLSearchParams(request.uri.query);
+        let arg = { mode: query.get("mode"), process: query.get("process"), reads: {} };
+        for (let [key, value] of query) {
+            let match = key.match(/^reads\[(\d+)\]\[([^\]]+)\]$/);
+            if (match) (arg.reads[match[1]] ??= {})[match[2]] = match[2] === "position" ? Number(value) : value;
+        }
 		let events = new Queue();
 		let next = async () => {
 			while (true) {
@@ -49,14 +55,15 @@ let output = timeout 15 node --input-type=module -e '
 		};
 		let emit = (event, value) => events.push({ event, data: JSON.stringify(value) });
 		let response = (id, kind, value) => emit("response", { id, error: null, output: { kind, value } });
-		connections.push({ input, next, emit, response, end: (error = null) => events.push(error) });
+		connections.push({ arg, input, next, emit, response, end: (error = null) => events.push(error) });
 		return new tg.Response(200, { "content-type": "text/event-stream" }, {
-			sse: async function* () {
+			[Symbol.asyncIterator]: async function* () {
+                    yield new Uint8Array([2, 123, 125]);
 				while (true) {
 					let event = await events.next();
 					if (event === null) return;
 					if (event instanceof Error) throw event;
-					yield event;
+					yield new TextEncoder().encode("event: " + event.event + "\ndata: " + event.data + "\n\n");
 				}
 			},
 		});
@@ -64,12 +71,10 @@ let output = timeout 15 node --input-type=module -e '
 	const selected = { cached: false, lease: null, location: null, process: id, tokens: {}, outcome: null };
 	const accept = async () => {
 		let connection = await connections.next();
-		let opening = await connection.next();
-		assert.equal(opening.arg.kind, "connect");
-		assert.equal(opening.arg.value.mode, "run");
-		assert.equal(opening.arg.value.process, id);
-		connection.response(0, "connect", selected);
-		return { ...connection, reads: opening.arg.value.reads };
+        assert.equal(connection.arg.mode, "run");
+        assert.equal(connection.arg.process, id);
+        connection.emit("notification", { kind: "progress", value: { kind: "output", value: selected } });
+        return { ...connection, reads: connection.arg.reads };
 	};
 	const chunk = (connection, id, position, text) => connection.emit("notification", {
 		kind: "read", value: { id, event: { kind: "chunk", value: {
@@ -130,11 +135,9 @@ let output = timeout 15 node --input-type=module -e '
 	let interruptedRead = interrupted.next();
 	current.end();
 	let replacement = await connections.next();
-	let reconnect = await replacement.next();
-	assert.equal(reconnect.arg.kind, "connect");
-	assert.equal(reconnect.arg.value.reads[1].streams, "stderr");
+	assert.equal(replacement.arg.reads[1].streams, "stderr");
 	let returning = interrupted.return();
-	replacement.response(0, "connect", selected);
+	replacement.emit("notification", { kind: "progress", value: { kind: "output", value: selected } });
 	assert.equal((await returning).done, true);
 	assert.equal((await interruptedRead).done, true);
 	assert.deepEqual((await replacement.next()).arg, { kind: "close", value: 1 });

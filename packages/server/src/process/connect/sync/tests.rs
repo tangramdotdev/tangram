@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn command_sync_drains_the_full_process_window() {
+async fn command_sync_drains_buffered_process_messages() {
 	let (sender, receiver) = mpsc::channel(64);
 	let mut input = ReceiverStream::new(receiver).boxed();
 	let mut task = Some(Task::spawn(move |_| async move {
@@ -53,5 +53,9 @@ async fn excess_process_traffic_fails_instead_of_blocking_sync() {
 	.await
 	.unwrap()
 	.unwrap_err();
-	assert!(error.to_string().contains("request window was exceeded"));
+	assert!(
+		error
+			.to_string()
+			.contains("too many buffered process messages")
+	);
 }

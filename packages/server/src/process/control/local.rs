@@ -26,9 +26,7 @@ pub(crate) enum Message {
 #[derive(Clone)]
 pub(crate) enum Reply {
 	Local(tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>),
-	Remote(
-		control::Sender<tg::process::control::ServerMessage, tg::process::control::ClientMessage>,
-	),
+	Remote(tg::process::control::Sender),
 }
 
 struct State {

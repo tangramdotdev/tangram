@@ -20,19 +20,21 @@ impl Session {
 		)>,
 	> {
 		completion.send_replace(false);
-		let shortcut = !arg.start;
+		let shortcut = matches!(arg.mode, tg::process::control::Mode::Wait);
 		let destination = self.server.location(arg.location.as_ref())?;
-		if let Some(data) = &mut arg.data {
-			Self::inherit_process_control_tokens(data, &destination);
+		if let tg::process::control::Mode::Start(start) = &mut arg.mode {
+			Self::inherit_process_control_tokens(&mut start.data, &destination);
 		}
 		let (outcome_sender, outcome_receiver) = watch::channel(false);
 		let (initialization_sender, initialization_receiver) = oneshot::channel();
 		let mut initialization_sender = Some(initialization_sender);
-		let data = arg.data.clone().or_else(|| {
-			arg.id
+		let data = match &arg.mode {
+			tg::process::control::Mode::Resume { .. } | tg::process::control::Mode::Wait => arg
+				.id
 				.as_ref()
-				.and_then(|id| self.server.runner.state().try_get_process(id))
-		});
+				.and_then(|id| self.server.runner.state().try_get_process(id)),
+			tg::process::control::Mode::Start(start) => Some(start.data.clone()),
+		};
 		if let Some(mut data) = data {
 			Self::inherit_process_control_tokens(&mut data, &destination);
 			let mut objects = data.command.objects();
@@ -70,11 +72,15 @@ impl Session {
 					tg::process::control::ClientRequestArg::Start(start) => {
 						Self::inherit_process_control_tokens(&mut start.data, &destination);
 						if let Some(sender) = initialization_sender.take() {
+							let parent = start.parent.as_ref().ok_or_else(|| {
+								tg::error!("a process on the shortcut path must have a parent")
+							})?;
+							let data = &start.data;
 							let session =
-								session.try_get_process_session(&start.parent).ok_or_else(
-									|| tg::error!("failed to find the parent process session"),
-								)?;
-							sender.send((session, start.data.command.objects())).ok();
+								session.try_get_process_session(parent).ok_or_else(|| {
+									tg::error!("failed to find the parent process session")
+								})?;
+							sender.send((session, data.command.objects())).ok();
 						}
 					},
 					tg::process::control::ClientRequestArg::Write(_) => {},

@@ -30,7 +30,7 @@ class Connection:
     @classmethod
     async def open(cls, process, **options) -> Self:
         session = await Session.connect(process, **options)
-        session.confirm()
+        session.ready()
         connection = cls(session)
         if options.get("mode") == "spawn":
             await connection.close()

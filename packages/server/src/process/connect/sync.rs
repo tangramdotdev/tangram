@@ -53,7 +53,7 @@ impl Session {
 		message: tg::process::connect::ClientMessage,
 	) -> tg::Result<()> {
 		if pending.len() >= MAX_PENDING {
-			return Err(tg::error!("the process request window was exceeded"));
+			return Err(tg::error!("too many buffered process messages"));
 		}
 		if let tg::process::connect::ClientMessage::Request(request) = &message
 			&& let tg::process::connect::ClientRequestArg::Write(arg) = &request.arg

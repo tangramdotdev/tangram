@@ -1,18 +1,14 @@
 import * as tg from "../../index.ts";
 import { capacity, maxChunks } from "../stdio/flow.ts";
-import {
-	type Connect,
-	connectProcess,
-	requestWindow,
-} from "../../client/process/connect.ts";
+import { type Connect, connectProcess } from "../../client/process/connect.ts";
 import type { Connection as ReadConnection } from "../../client/process/stdio/read.ts";
 import type { Connection as WriteConnection } from "../../client/process/stdio/write.ts";
 import { Channel } from "./channel.ts";
 
 export class Session {
 	#closed = false;
-	#confirmed = false;
-	#credit = Promise.withResolvers<void>();
+	#ready = false;
+	#selected = Promise.withResolvers<tg.Process.Spawn.Output>();
 	#error: unknown;
 	// Reserve room for outstanding requests, response acknowledgments, and batched read progress.
 	#input = new Channel<Connect.ClientMessage>(maxChunks * 6 + 4);
@@ -33,10 +29,11 @@ export class Session {
 			resolve: (output: Connect.ServerResponseOutput) => void;
 		}
 	>();
-	#unacknowledged = new Set<number>();
+	#pending = new Map<number, Connect.ClientRequestArg["kind"]>();
 
 	private constructor() {
 		this.#outcome.promise.catch(() => {});
+		this.#selected.promise.catch(() => {});
 	}
 
 	static async open(
@@ -50,17 +47,11 @@ export class Session {
 			connection.#reads.set(id, output);
 			connection.#nextId = Math.max(connection.#nextId, id + 1);
 		}
-		let initial = connection.#request({ kind: "connect", value: arg }, 0);
-		initial.catch(() => {});
 		try {
-			let output = await connectProcess(tg.client, connection.#input);
+			let [, output] = await connectProcess(tg.client, arg, connection.#input);
 			connection.#receive(output).catch((error) => connection.#finish(error));
-			let response = await initial;
-			if (response.kind !== "connect") {
-				throw new Error("expected a connect response");
-			}
-			connection.output = response.value;
-			return { connection, output: response.value };
+			connection.output = await connection.#selected.promise;
+			return { connection, output: connection.output };
 		} catch (error) {
 			connection.#finish(error);
 			throw error;
@@ -72,13 +63,11 @@ export class Session {
 	): Promise<void> {
 		for await (let message of output) {
 			if (message.kind === "ack") {
-				this.#unacknowledged.delete(message.value.id);
-				this.#credit.resolve();
-				this.#credit = Promise.withResolvers<void>();
 				continue;
 			}
 			if (message.kind === "response") {
 				let response = message.value;
+				this.#pending.delete(response.id);
 				let read = this.#reads.get(response.id);
 				if (read !== undefined) {
 					if (response.error !== null) {
@@ -93,8 +82,7 @@ export class Session {
 					continue;
 				}
 				// Reserve a separate queue for acknowledgments so requests cannot block them.
-				if (response.id !== 0)
-					this.#input.push({ kind: "ack", value: { id: response.id } }, true);
+				this.#input.push({ kind: "ack", value: { id: response.id } }, true);
 				let pending = this.#requests.get(response.id);
 				this.#requests.delete(response.id);
 				if (pending === undefined) {
@@ -112,6 +100,8 @@ export class Session {
 			let notification = message.value;
 			switch (notification.kind) {
 				case "progress":
+					if (notification.value.kind === "output")
+						this.#selected.resolve(notification.value.value);
 					break;
 				case "read":
 					this.#reads
@@ -138,14 +128,11 @@ export class Session {
 				this.#error ?? new Error("the process connection closed"),
 			);
 		}
-		if (this.#requests.size >= requestWindow && arg.kind !== "detach") {
-			return Promise.reject(new Error("too many process requests"));
-		}
 		let pending = Promise.withResolvers<Connect.ServerResponseOutput>();
 		this.#requests.set(id, pending);
 		try {
 			await this.#sendRequest(arg, id);
-			if (arg.kind !== "connect") this.confirm();
+			this.ready();
 		} catch (error) {
 			this.#requests.delete(id);
 			pending.reject(error);
@@ -154,22 +141,27 @@ export class Session {
 	}
 
 	async #sendRequest(arg: Connect.ClientRequestArg, id: number): Promise<void> {
-		if (id !== 0) {
-			const limit = requestWindow + Number(arg.kind === "detach");
-			while (this.#unacknowledged.size >= limit && !this.#closed) {
-				await this.#credit.promise;
-			}
-			if (this.#closed) {
-				throw this.#error ?? new Error("the process connection closed");
-			}
-			this.#unacknowledged.add(id);
+		if (this.#closed)
+			throw this.#error ?? new Error("the process connection closed");
+		const limit = arg.kind === "write" ? maxChunks + 1 : 64;
+		const count = [...this.#pending.values()].filter(
+			(kind) => kind === arg.kind,
+		).length;
+		if (count >= limit || (arg.kind === "read" && this.#reads.size > 64)) {
+			throw new Error("too many pending process requests of this kind");
 		}
+		if (arg.kind !== "close") this.#pending.set(id, arg.kind);
 		try {
-			if (!this.#input.push({ kind: "request", value: { arg, id } })) {
+			if (
+				!this.#input.push(
+					{ kind: "request", value: { arg, id } },
+					arg.kind === "detach",
+				)
+			) {
 				throw new Error("the process connection closed");
 			}
 		} catch (error) {
-			this.#unacknowledged.delete(id);
+			this.#pending.delete(id);
 			throw error;
 		}
 	}
@@ -178,11 +170,11 @@ export class Session {
 		return this.#closed;
 	}
 
-	confirm(): void {
-		if (this.#confirmed) return;
-		this.#confirmed = true;
-		// Keep the opening acknowledgment behind the operation that caused a reconnect.
-		this.#input.push({ kind: "ack", value: { id: 0 } });
+	ready(): void {
+		if (this.#ready) return;
+		this.#ready = true;
+		// Keep the ready notification behind the operation that caused a reconnect.
+		this.#input.push({ kind: "notification", value: { kind: "ready" } });
 	}
 
 	hasInitial(arg: tg.Process.Stdio.Read.Arg): boolean {
@@ -201,7 +193,7 @@ export class Session {
 	}
 
 	async wait(): Promise<tg.Process.Outcome> {
-		this.confirm();
+		this.ready();
 		let outcome = await this.#outcome.promise;
 		if (outcome === null) {
 			throw new Error("the process connection closed before completion");
@@ -275,7 +267,7 @@ export class Session {
 				throw error;
 			}
 		}
-		this.confirm();
+		this.ready();
 		let ended = false;
 		let closed = false;
 		let connection = {
@@ -358,6 +350,7 @@ export class Session {
 	}
 
 	#close(id: number): void {
+		this.#pending.delete(id);
 		if (this.#closed) return;
 		this.#sendRequest({ kind: "close", value: id }, this.#nextId++).catch(
 			(error) => this.#finish(error),
@@ -365,12 +358,15 @@ export class Session {
 	}
 
 	#finish(error?: unknown): void {
+		this.#selected.reject(
+			error ?? new Error("the process connection closed before selection"),
+		);
 		if (this.#closed) {
 			return;
 		}
 		this.#closed = true;
 		this.#error = error;
-		this.#credit.resolve();
+		this.#pending.clear();
 		this.#input.close();
 		for (let request of this.#requests.values()) {
 			request.reject(error ?? new Error("the process connection closed"));

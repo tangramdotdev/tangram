@@ -37,12 +37,8 @@ type ControlConnection = (
 );
 
 pub(super) struct ProcessControlConnection {
-	control: crate::control::Stream<
-		tg::process::control::ServerMessage,
-		tg::process::control::ClientMessage,
-	>,
+	control: tg::process::control::Connection,
 	header: tg::process::control::Header,
-	input: tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
 	sync: tokio::sync::watch::Receiver<bool>,
 }
 
@@ -347,13 +343,6 @@ impl Session {
 		state.command.options = command_options;
 		let process_stopper = Stopper::new();
 		let lease = Self::create_process_lease();
-		let (mut control_sender_high, control_responses_high) = tokio::sync::mpsc::channel(512);
-		let (control_sender_low, control_responses_low) = tokio::sync::mpsc::channel(512);
-		let mut control_responses = Some(
-			crate::control::priority_stream(control_responses_high, control_responses_low)
-				.map(Ok)
-				.boxed(),
-		);
 		let (requests_sender, requests_receiver) = tokio::sync::oneshot::channel::<
 			futures::stream::BoxStream<
 				'static,
@@ -367,12 +356,8 @@ impl Session {
 		})
 		.try_flatten()
 		.boxed();
-		let mut control = crate::control::Stream::new_reconnecting_with_priorities(
-			requests,
-			control_sender_high.clone(),
-			control_sender_low,
-			crate::control::stream_options(),
-		);
+		let mut control = tg::process::control::Connection::with_input(requests);
+		let mut control_sender = control.sender();
 
 		// Obtain the shortcut process identity before starting execution.
 		let (sync_sender, mut sync_receiver) = tokio::sync::watch::channel(false);
@@ -407,14 +392,14 @@ impl Session {
 					data: state.to_data(),
 					lease: lease.clone(),
 					options: options.clone(),
-					parent: parent.clone(),
+					parent: Some(parent.clone()),
 					sandbox: sandbox_initialization,
 				};
-				let control_sender = connection.control.sender();
+				control_sender = connection.control.sender();
 				let response = Self::send_process_control_client_request_inner(
 					&control_sender,
 					tg::process::control::ClientRequestArg::Start(start),
-					crate::control::Priority::High,
+					tg::process::control::Priority::High,
 				)
 				.await?;
 				let process_stopper = process_stopper.clone();
@@ -448,7 +433,7 @@ impl Session {
 				});
 				start_task.detach();
 				sync_receiver = connection.sync;
-				control_sender_high = connection.input;
+				control_sender = connection.control.sender();
 				control = connection.control;
 				(id, token, Some(command_session), Some(connection.header))
 			},
@@ -497,12 +482,12 @@ impl Session {
 			.sandbox
 			.clone()
 			.ok_or_else(|| tg::error!(%id, "the running process has no sandbox"))?;
-		let (control_sender, control_receiver) = crate::process::control::local::Local::new();
+		let (local_control_sender, control_receiver) = crate::process::control::local::Local::new();
 		let entry = crate::process::State {
 			changed: tokio::sync::watch::channel(()).0,
 			children,
-			control: control_sender_high.clone(),
-			control_sender,
+			control: control_sender.clone(),
+			control_sender: local_control_sender,
 			data,
 			finish: None,
 			index_task: index_task.clone(),
@@ -894,17 +879,20 @@ impl Session {
 		let header = if let Some(header) = connection_header {
 			Ok(header)
 		} else {
-			let arg = tg::process::control::Arg {
-				data: Some(data.clone()),
-				id: Some(id.clone()),
-				lease: Some(lease.clone()),
-				location: Some(location.clone().into()),
+			let start = tg::process::control::StartClientRequestArg {
+				data: data.clone(),
+				lease: lease.clone(),
 				options: options.clone(),
 				parent: parent.clone(),
-				start: true,
+				sandbox: None,
+			};
+			let arg = tg::process::control::Arg {
+				id: Some(id.clone()),
+				location: Some(location.clone().into()),
+				mode: tg::process::control::Mode::Start(start),
 			};
 			session
-				.connect_process_control(arg, control_responses.take().unwrap(), sync_sender)
+				.connect_process_control(arg, control_sender, sync_sender)
 				.await
 				.and_then(|(header, requests)| {
 					requests_sender
@@ -1052,34 +1040,31 @@ impl Session {
 				})
 			},
 		);
-		let (input_high, receiver_high) = tokio::sync::mpsc::channel(512);
-		let (input_low, receiver_low) = tokio::sync::mpsc::channel(512);
-		let responses = crate::control::priority_stream(receiver_high, receiver_low)
-			.map(Ok)
-			.boxed();
+
+		let (requests_sender, requests_receiver) = tokio::sync::oneshot::channel();
+		let input = futures::stream::once(async move {
+			requests_receiver
+				.await
+				.map_err(|_| tg::error!("the process control connection closed"))
+		})
+		.try_flatten()
+		.boxed();
+		let control = tg::process::control::Connection::with_input(input);
 		let arg = tg::process::control::Arg {
-			data: None,
 			id: None,
-			lease: None,
 			location: Some(location.into()),
-			options: tg::referent::Options::default(),
-			parent: None,
-			start: false,
+			mode: tg::process::control::Mode::Wait,
 		};
 		let (sync_sender, sync_receiver) = tokio::sync::watch::channel(false);
 		let (header, requests) = self
-			.connect_process_control(arg, responses, sync_sender)
+			.connect_process_control(arg, control.sender(), sync_sender)
 			.await?;
-		let control = crate::control::Stream::new_reconnecting_with_priorities(
-			requests,
-			input_high.clone(),
-			input_low,
-			crate::control::stream_options(),
-		);
+		requests_sender
+			.send(requests)
+			.map_err(|_| tg::error!("the process control connection closed"))?;
 		let connection = ProcessControlConnection {
 			control,
 			header,
-			input: input_high,
 			sync: sync_receiver,
 		};
 
@@ -1090,7 +1075,7 @@ impl Session {
 	async fn connect_process_control(
 		&self,
 		arg: tg::process::control::Arg,
-		responses: BoxStream<'static, tg::Result<tg::process::control::ClientMessage>>,
+		sender: tg::process::control::Sender,
 		sync: tokio::sync::watch::Sender<bool>,
 	) -> tg::Result<ControlConnection> {
 		crate::checkpoint!(
@@ -1127,12 +1112,12 @@ impl Session {
 			}
 			session
 		};
-		let (header, requests) = session
-			.try_get_process_control_stream_all(arg, responses, reconnect)
-			.boxed()
-			.await
-			.map_err(|source| tg::error!(!source, "failed to create the control stream"))?
-			.ok_or_else(|| tg::error!("expected a control stream"))?;
+		let (header, requests) =
+			tg::process::control::Connection::open_stream(&session, arg, sender, reconnect)
+				.boxed()
+				.await
+				.map_err(|source| tg::error!(!source, "failed to create the control stream"))?
+				.ok_or_else(|| tg::error!("expected a control stream"))?;
 		Ok((header, requests.boxed()))
 	}
 
@@ -1358,7 +1343,7 @@ impl Session {
 		let response = Self::send_process_control_client_request_inner(
 			&control,
 			arg,
-			crate::control::Priority::High,
+			tg::process::control::Priority::High,
 		)
 		.await?;
 		finish_sender
@@ -1571,7 +1556,7 @@ impl Session {
 			position = next_position;
 			stderr_position = next_stderr_position;
 			stdout_position = next_stdout_position;
-			let priority = crate::control::Priority::Low;
+			let priority = tg::process::control::Priority::Low;
 			let response =
 				Self::send_process_control_client_request_inner(&sender, arg, priority).await;
 			let response = match response {
@@ -1629,12 +1614,15 @@ impl Session {
 		let arg = tg::process::control::ClientRequestArg::Write(
 			tg::process::stdio::write::Data::End(end),
 		);
-		let output =
-			Self::send_process_control_client_request(sender, arg, crate::control::Priority::Low)
-				.boxed()
-				.await?
-				.try_unwrap_write()
-				.map_err(|_| tg::error!("expected a write process response"))?;
+		let output = Self::send_process_control_client_request(
+			sender,
+			arg,
+			tg::process::control::Priority::Low,
+		)
+		.boxed()
+		.await?
+		.try_unwrap_write()
+		.map_err(|_| tg::error!("expected a write process response"))?;
 		if !output.closed || output.length != 0 {
 			return Err(tg::error!("the log end was not confirmed"));
 		}

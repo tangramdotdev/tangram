@@ -33,7 +33,13 @@ if TYPE_CHECKING:
     from .checkout import Output as CheckoutOutput
     from .process.cancel import Cancel
     from .process.cancel import KeywordOptions as CancelKeywordOptions
-    from .process.connect import ClientMessage, ServerMessage, TtyArg
+    from .process.connect import (
+        ClientMessage,
+        ConnectArgObject,
+        Header,
+        ServerMessage,
+        TtyArg,
+    )
     from .process.get import Get as ProcessGet
     from .process.put import KeywordOptions as PutKeywordOptions
     from .process.put import Put as ProcessPut
@@ -504,11 +510,11 @@ class Client:
         return await wait_process(self, id, **_options(arg, options))
 
     async def connect_process(
-        self, input: AsyncIterable[ClientMessage]
-    ) -> Stream[ServerMessage]:
+        self, arg: ConnectArgObject, input: AsyncIterable[ClientMessage]
+    ) -> tuple[Header, Stream[ServerMessage]]:
         from .process.connect import connect_process
 
-        return await connect_process(self, input)
+        return await connect_process(self, arg, input)
 
     async def try_read_process_stdio(
         self,

@@ -22,7 +22,7 @@ export class Connection {
 		arg: Connect.Arg,
 	): Promise<{ connection: Connection; output: tg.Process.Spawn.Output }> {
 		let { connection: session, output } = await Session.open(arg);
-		session.confirm();
+		session.ready();
 		let connection = new Connection(session);
 		if (arg.mode === "spawn") connection.close();
 		return { connection, output };

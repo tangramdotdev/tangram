@@ -17,6 +17,20 @@ pub trait Ext: Sized {
 	where
 		T: serde::de::DeserializeOwned;
 
+	fn arg_with_tangram<T>(
+		self,
+	) -> impl Future<Output = Result<(Option<T>, http::Request<body::Boxed>), Error>> + Send
+	where
+		T: serde::de::DeserializeOwned + for<'de> tangram_serialize::Deserialize<'de>;
+
+	fn arg_with<T, F>(
+		self,
+		deserialize: F,
+	) -> impl Future<Output = Result<(Option<T>, http::Request<body::Boxed>), Error>> + Send
+	where
+		T: serde::de::DeserializeOwned,
+		F: FnOnce(body::encoding::Encoding, &[u8]) -> Result<T, Error> + Send;
+
 	fn query_params<T>(&self) -> Option<Result<T, Error>>
 	where
 		T: serde::de::DeserializeOwned;
@@ -60,12 +74,37 @@ where
 	where
 		T: serde::de::DeserializeOwned,
 	{
+		self.arg_with(|encoding, bytes| {
+			encoding.require_json()?;
+			Ok(serde_json::from_slice(bytes)?)
+		})
+		.await
+	}
+
+	async fn arg_with_tangram<T>(self) -> Result<(Option<T>, http::Request<body::Boxed>), Error>
+	where
+		T: serde::de::DeserializeOwned + for<'de> tangram_serialize::Deserialize<'de>,
+	{
+		self.arg_with(body::encoding::Encoding::deserialize).await
+	}
+
+	async fn arg_with<T, F>(
+		self,
+		deserialize: F,
+	) -> Result<(Option<T>, http::Request<body::Boxed>), Error>
+	where
+		T: serde::de::DeserializeOwned,
+		F: FnOnce(body::encoding::Encoding, &[u8]) -> Result<T, Error> + Send,
+	{
 		if !body::arg::get_header(self.headers())? {
 			let arg = self.query_params().transpose()?;
 			return Ok((arg, self.boxed_body()));
 		}
 
 		// Read the arg.
+		let encoding = body::encoding::Encoding::from_content_type(
+			self.headers().get(http::header::CONTENT_TYPE),
+		)?;
 		let (mut parts, body) = self.into_parts();
 		let mut frames = body::BodyStream::new(body);
 		let (arg, chunk) = {
@@ -76,7 +115,8 @@ where
 				})
 			});
 			let mut reader = StreamReader::new(stream);
-			let arg = body::arg::get(&mut reader, body::arg::MAX_LENGTH).await?;
+			let bytes = body::arg::get(&mut reader, body::arg::MAX_LENGTH).await?;
+			let arg = deserialize(encoding, &bytes)?;
 			let (_, chunk) = reader.into_inner_with_chunk();
 			(arg, chunk)
 		};

@@ -23,21 +23,12 @@ mod stdin;
 mod sync;
 mod tty;
 
-pub(super) type ProcessControlSender = crate::control::Sender<
-	tg::process::control::ServerMessage,
-	tg::process::control::ClientMessage,
->;
+pub(super) type ProcessControlSender = tg::process::control::Sender;
 
-pub(super) type ProcessControlResponseReceiver = crate::control::Response<
-	tg::process::control::ServerMessage,
-	tg::process::control::ClientMessage,
->;
+pub(super) type ProcessControlResponseReceiver = tg::process::control::Response;
 
 pub(super) struct RunProcessControlTaskArg {
-	pub control: crate::control::Stream<
-		tg::process::control::ServerMessage,
-		tg::process::control::ClientMessage,
-	>,
+	pub control: tg::process::control::Connection,
 	pub exited: Stopper,
 	pub finish: tokio::sync::oneshot::Receiver<ProcessControlResponseReceiver>,
 	pub local: tokio::sync::mpsc::Receiver<local::Message>,
@@ -54,10 +45,7 @@ pub(super) struct RunProcessControlTaskArg {
 }
 
 struct RunProcessControlHandlerTaskArg {
-	control: crate::control::Stream<
-		tg::process::control::ServerMessage,
-		tg::process::control::ClientMessage,
-	>,
+	control: tg::process::control::Connection,
 	local: tokio::sync::mpsc::Receiver<local::Message>,
 	output_sender: tokio::sync::mpsc::Sender<output::Message>,
 	sender: ProcessControlSender,
@@ -275,7 +263,7 @@ impl Session {
 	pub(super) async fn send_process_control_client_request(
 		sender: &ProcessControlSender,
 		arg: tg::process::control::ClientRequestArg,
-		priority: crate::control::Priority,
+		priority: tg::process::control::Priority,
 	) -> tg::Result<tg::process::control::ServerResponseOutput> {
 		let receiver =
 			Self::send_process_control_client_request_inner(sender, arg, priority).await?;
@@ -285,7 +273,7 @@ impl Session {
 	pub(super) fn send_process_control_client_request_inner(
 		sender: &ProcessControlSender,
 		arg: tg::process::control::ClientRequestArg,
-		priority: crate::control::Priority,
+		priority: tg::process::control::Priority,
 	) -> impl Future<Output = tg::Result<ProcessControlResponseReceiver>> + Send {
 		let id = crate::control::id();
 		let request =

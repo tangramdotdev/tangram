@@ -1,5 +1,6 @@
 import * as tg from "../index.ts";
 import { Body } from "./body.ts";
+import { requireJson } from "./encoding.ts";
 import { Headers } from "./headers.ts";
 import { Uri } from "./uri.ts";
 
@@ -22,7 +23,11 @@ export class Request {
 	arg(arg: Record<string, Uri.QueryValue>, body = this.body ?? Body.empty()) {
 		let uri = new Uri({ path: this.uri.path, query: arg });
 		let headers = this.headers.toData();
-		if ((uri.query?.length ?? 0) > 4096) {
+		if (
+			headers["x-tg-arg-in-body"] === "true" ||
+			(uri.query?.length ?? 0) > 4096
+		) {
+			requireJson(this.headers.get("content-type"));
 			let bytes = tg.encoding.utf8.encode(JSON.stringify(arg));
 			let length = bytes.length;
 			let prefix: Array<number> = [];

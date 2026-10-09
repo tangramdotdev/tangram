@@ -4,7 +4,6 @@ use {
 	http_body::{Frame, SizeHint},
 	num::ToPrimitive as _,
 	pin_project::pin_project,
-	serde::de::DeserializeOwned,
 	std::{
 		pin::Pin,
 		task::{Context, Poll},
@@ -39,9 +38,8 @@ pub fn get_header(headers: &http::HeaderMap) -> Result<bool> {
 	}
 }
 
-pub async fn get<T, R>(mut reader: &mut R, max_len: u64) -> Result<T>
+pub async fn get<R>(mut reader: &mut R, max_len: u64) -> Result<Vec<u8>>
 where
-	T: DeserializeOwned,
 	R: AsyncRead + Unpin + Send + ?Sized,
 {
 	let len = reader.read_uvarint().await?;
@@ -53,8 +51,7 @@ where
 		.map_err(|_| std::io::Error::other("invalid arg length"))?;
 	let mut bytes = vec![0; len];
 	reader.read_exact(&mut bytes).await?;
-	let arg = serde_json::from_slice(&bytes)?;
-	Ok(arg)
+	Ok(bytes)
 }
 
 impl<B> Body<B> {
@@ -67,10 +64,14 @@ impl<B> Body<B> {
 	where
 		T: serde::Serialize,
 	{
-		let arg = serde_json::to_vec(arg)?;
+		let bytes = serde_json::to_vec(arg)?;
+		Self::with_bytes(body, &bytes)
+	}
+
+	pub fn with_bytes(body: B, arg: &[u8]) -> Result<Self> {
 		let mut bytes = Vec::with_capacity(10 + arg.len());
 		bytes.write_uvarint(arg.len().to_u64().unwrap())?;
-		bytes.extend_from_slice(&arg);
+		bytes.extend_from_slice(arg);
 		let arg = Some(bytes.into());
 		Ok(Self { arg, body })
 	}

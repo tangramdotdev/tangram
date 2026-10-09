@@ -7,10 +7,7 @@ use {
 	std::{
 		marker::PhantomData,
 		pin::Pin,
-		sync::{
-			Arc,
-			atomic::{AtomicU64, Ordering},
-		},
+		sync::Arc,
 		task::{Context, Poll},
 		time::Duration,
 	},
@@ -64,7 +61,6 @@ pub(crate) struct Sender<I, O> {
 	outbox: Arc<DashMap<String, OutboxEntry<O>>>,
 	outbox_ttl: Option<Duration>,
 	responses: Arc<DashMap<String, tokio::sync::oneshot::Sender<I>>>,
-	sequence: Arc<AtomicU64>,
 }
 
 pub(crate) struct Response<I, O> {
@@ -78,7 +74,6 @@ struct OutboxEntry<O> {
 	acknowledged: bool,
 	message: O,
 	priority: Priority,
-	sequence: u64,
 }
 
 #[derive(Clone, Copy, Eq, PartialEq)]
@@ -169,7 +164,6 @@ where
 			outbox: Arc::new(DashMap::new()),
 			outbox_ttl,
 			responses: Arc::new(DashMap::new()),
-			sequence: Arc::new(AtomicU64::new(0)),
 		};
 		let send_tasks = [Priority::High, Priority::Low].map(|priority| {
 			let retry = retry.clone();
@@ -360,7 +354,6 @@ impl<I, O> Clone for Sender<I, O> {
 			outbox: self.outbox.clone(),
 			outbox_ttl: self.outbox_ttl,
 			responses: self.responses.clone(),
-			sequence: self.sequence.clone(),
 		}
 	}
 }
@@ -391,10 +384,6 @@ where
 		self.send_with_priority(message, Priority::High).await
 	}
 
-	pub(crate) async fn send_low(&self, message: O) -> tg::Result<()> {
-		self.send_with_priority(message, Priority::Low).await
-	}
-
 	async fn send_with_priority(&self, message: O, priority: Priority) -> tg::Result<()> {
 		self.insert(&message, priority);
 		self.send_inner(message, priority).await?;
@@ -408,7 +397,6 @@ where
 				acknowledged: false,
 				message: message.clone(),
 				priority,
-				sequence: self.sequence.fetch_add(1, Ordering::Relaxed),
 			};
 			let previous = self.outbox.insert(id.clone(), entry);
 			if previous.is_none()
@@ -488,6 +476,7 @@ where
 		removed
 	}
 
+	#[cfg(test)]
 	pub(crate) async fn wait_for_empty(&self) {
 		loop {
 			let notified = self.notify.notified();
@@ -503,14 +492,11 @@ where
 	}
 
 	fn messages(&self, priority: Priority) -> Vec<O> {
-		let mut messages = self
-			.outbox
+		self.outbox
 			.iter()
 			.filter(|entry| !entry.value().acknowledged && entry.value().priority == priority)
-			.map(|entry| (entry.value().sequence, entry.value().message.clone()))
-			.collect::<Vec<_>>();
-		messages.sort_unstable_by_key(|(sequence, _)| *sequence);
-		messages.into_iter().map(|(_, message)| message).collect()
+			.map(|entry| entry.value().message.clone())
+			.collect()
 	}
 }
 

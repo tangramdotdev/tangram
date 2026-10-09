@@ -98,10 +98,9 @@ impl Session {
 							Ok(tg::process::control::ClientMessage::Request(mut request)) => {
 								match &mut request.arg {
 									tg::process::control::ClientRequestArg::Start(start) => {
-										sync.add(&start.data)?;
-										start
-											.data
-											.command
+										let data = &mut start.data;
+										sync.add(data)?;
+										data.command
 											.options
 											.tokens
 											.inherit(&sync.referent.options.tokens);

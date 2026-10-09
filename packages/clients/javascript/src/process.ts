@@ -844,6 +844,7 @@ export namespace Process {
 	export namespace Connect {
 		export type Arg = ProcessConnect.Arg;
 		export type ClientMessage = ProcessConnect.ClientMessage;
+		export type Header = ProcessConnect.Header;
 		export type Mode = ProcessConnect.Mode;
 		export type Options = ProcessConnect.Options;
 		export type ServerMessage = ProcessConnect.ServerMessage;

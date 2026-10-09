@@ -1,14 +1,14 @@
-"""A duplex process control session with receipt and read flow control."""
+"""A duplex process connect session with independent stdio flow control."""
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, cast
 
 if TYPE_CHECKING:
-    from ...client.process.connect import ServerResponseOutput
+    from ...client.process.connect import ConnectArgObject, ServerResponseOutput
     from ...client.process.spawn import OutputObject
     from ...value import ValueType
     from ..outcome import ProcessOutcome
@@ -16,14 +16,12 @@ if TYPE_CHECKING:
 
 from ...client import Client
 from ...client import client as default_client
-from ...client.process.connect import request_window
 from ...error import Error
 from ..outcome import Outcome
 from ..stdio import validate_output
 from ..stdio.flow import Receiver, capacity, max_chunks
 from .channel import Channel
 
-REQUEST_WINDOW = request_window
 CHUNK_SIZE = 32 * 1024
 MAX_CHUNKS = 64
 WINDOW = CHUNK_SIZE * MAX_CHUNKS
@@ -35,12 +33,12 @@ class Session:
         self._spawn_output: OutputObject | None = None
         self._input: Channel[dict] = Channel(max_chunks * 6 + 4)
         self._requests: dict[int, asyncio.Future] = {}
-        self._receipts: set[int] = set()
+        self._pending: dict[int, str] = {}
         self._reads: dict[int, Channel[dict]] = {}
         self._next_id = 1
         self._initial_reads: dict[int, dict] = {}
-        self._confirmed = False
-        self._credit = asyncio.Event()
+        self._ready = False
+        self._selected = asyncio.get_running_loop().create_future()
         self._outcome_received = False
         self._wait = asyncio.get_running_loop().create_future()
         self._receiver: asyncio.Task | None = None
@@ -68,33 +66,17 @@ class Session:
         connection._next_id = len(reads) + 1
         for id in reads:
             connection._reads[id] = Channel(capacity)
-        pending = asyncio.get_running_loop().create_future()
-        connection._requests[0] = pending
-        connection._input.push(
-            {
-                "kind": "request",
-                "value": {
-                    "id": 0,
-                    "arg": {
-                        "kind": "connect",
-                        "value": {
-                            "mode": mode,
-                            "process": process,
-                            "reads": reads,
-                            **options,
-                        },
-                    },
-                },
-            }
+        arg = cast(
+            "ConnectArgObject",
+            {"mode": mode, "process": process, "reads": reads, **options},
         )
         try:
-            messages = await connection.client.connect_process(connection._messages())
+            _, messages = await connection.client.connect_process(
+                arg, connection._messages()
+            )
             connection._output = messages
             connection._receiver = asyncio.create_task(connection._receive(messages))
-            response = await pending
-            if response["kind"] != "connect":
-                raise ValueError("expected a process connect response")
-            connection.output = response["value"]
+            connection.output = await connection._selected
             connection._initial_reads = dict(reads)
             return connection
         except BaseException:
@@ -141,12 +123,10 @@ class Session:
                 kind, value = message["kind"], message["value"]
 
                 if kind == "ack":
-                    self._receipts.discard(value["id"])
-                    self._credit.set()
-                    self._credit = asyncio.Event()
                     continue
                 if kind == "response":
                     id = value["id"]
+                    self._pending.pop(id, None)
                     read = self._reads.get(id)
                     if read is not None:
                         if value.get("error") is not None:
@@ -158,8 +138,7 @@ class Session:
                         else:
                             raise ValueError("expected a process read response")
                         continue
-                    if id != 0:
-                        self._input.push({"kind": "ack", "value": {"id": id}}, True)
+                    self._input.push({"kind": "ack", "value": {"id": id}}, True)
                     pending = self._requests.pop(id, None)
                     if pending is None or pending.done():
                         continue
@@ -170,6 +149,12 @@ class Session:
                     else:
                         pending.set_exception(ValueError("invalid process response"))
                     continue
+                if (
+                    value["kind"] == "progress"
+                    and value["value"]["kind"] == "output"
+                    and not self._selected.done()
+                ):
+                    self._selected.set_result(value["value"]["value"])
                 if value["kind"] == "outcome":
                     self._outcome_received = True
                     if not self._wait.done():
@@ -185,11 +170,17 @@ class Session:
             self._finish(error)
 
     def _finish(self, error=None):
+        if not self._selected.done():
+            self._selected.set_exception(
+                error
+                or ConnectionError("the process connection closed before selection")
+            )
+            self._selected.exception()
         if self._closed:
             return
         self._closed = True
         self._error = error
-        self._credit.set()
+        self._pending.clear()
         self._input.close()
         for pending in self._requests.values():
             if not pending.done():
@@ -208,27 +199,27 @@ class Session:
                 self._wait.exception()
 
     async def _send_request(self, arg, id):
-        if id != 0:
-            limit = REQUEST_WINDOW + int(arg["kind"] == "detach")
-            while len(self._receipts) >= limit and not self._closed:
-                await self._credit.wait()
-            if self._closed:
-                raise self._error or ConnectionError("the process connection closed")
-            self._receipts.add(id)
+        if self._closed:
+            raise self._error or ConnectionError("the process connection closed")
+        kind = arg["kind"]
+        limit = max_chunks + 1 if kind == "write" else 64
+        count = sum(pending == kind for pending in self._pending.values())
+        if count >= limit or (kind == "read" and len(self._reads) > 64):
+            raise RuntimeError("too many pending process requests of this kind")
+        if kind != "close":
+            self._pending[id] = kind
         try:
             if not self._input.push(
-                {"kind": "request", "value": {"id": id, "arg": arg}}
+                {"kind": "request", "value": {"id": id, "arg": arg}}, kind == "detach"
             ):
                 raise ConnectionError("the process connection closed")
         except BaseException:
-            self._receipts.discard(id)
+            self._pending.pop(id, None)
             raise
 
     async def _request(self, kind, value=None) -> ServerResponseOutput:
         if self._closed:
             raise self._error or ConnectionError("the process connection closed")
-        if len(self._requests) >= REQUEST_WINDOW and kind != "detach":
-            raise RuntimeError("too many process requests")
         id = self._next_id
         self._next_id += 1
         pending = asyncio.get_running_loop().create_future()
@@ -236,16 +227,16 @@ class Session:
         arg = {"kind": kind, **({"value": value} if value is not None else {})}
         try:
             await self._send_request(arg, id)
-            self.confirm()
+            self.ready()
         except BaseException as error:
             self._requests.pop(id, None)
             pending.set_exception(error)
         return await pending
 
-    def confirm(self):
-        if not self._confirmed:
-            self._confirmed = True
-            self._input.push({"kind": "ack", "value": {"id": 0}})
+    def ready(self):
+        if not self._ready:
+            self._ready = True
+            self._input.push({"kind": "notification", "value": {"kind": "ready"}})
 
     def has_initial(self, arg):
         return any(
@@ -271,7 +262,7 @@ class Session:
         else:
             id = initial
             queue = self._reads[id]
-        self.confirm()
+        self.ready()
         receiver = Receiver()
         position = None
         finished = False
@@ -326,13 +317,14 @@ class Session:
                     )
         finally:
             self._reads.pop(id, None)
+            self._pending.pop(id, None)
             if not finished and not self._closed and self._error is None:
                 close_id = self._next_id
                 self._next_id += 1
                 await self._send_request({"kind": "close", "value": id}, close_id)
 
     async def wait(self) -> ProcessOutcome[ValueType]:
-        self.confirm()
+        self.ready()
         outcome = await asyncio.shield(self._wait)
         if outcome is None:
             raise ConnectionError("the process connection closed before completion")

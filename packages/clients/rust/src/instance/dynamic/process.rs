@@ -97,15 +97,19 @@ impl Instance {
 }
 
 impl tg::instance::Process for Instance {
-	fn try_connect_process(
+	fn try_get_process_connect_stream(
 		&self,
+		arg: tg::process::connect::Arg,
 		input: BoxStream<'static, tg::Result<tg::process::connect::ClientMessage>>,
 	) -> impl Future<
 		Output = tg::Result<
-			Option<BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>>,
+			Option<(
+				tg::process::connect::Header,
+				BoxStream<'static, tg::Result<tg::process::connect::ServerMessage>>,
+			)>,
 		>,
 	> + Send {
-		self.0.try_connect_process(input)
+		self.0.try_get_process_connect_stream(arg, input)
 	}
 
 	fn try_spawn_process(

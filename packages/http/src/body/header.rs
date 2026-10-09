@@ -10,9 +10,13 @@ use {
 
 pub const MAX_LENGTH: u64 = 1_048_576;
 
-pub async fn get<T, R>(mut reader: &mut R, max_len: u64) -> Result<T>
+pub async fn get<T, R>(
+	mut reader: &mut R,
+	max_len: u64,
+	encoding: crate::body::encoding::Encoding,
+) -> Result<T>
 where
-	T: DeserializeOwned,
+	T: DeserializeOwned + for<'de> tangram_serialize::Deserialize<'de>,
 	R: AsyncRead + Unpin + Send + ?Sized,
 {
 	let len = reader.read_uvarint().await?;
@@ -24,15 +28,19 @@ where
 		.map_err(|_| std::io::Error::other("invalid header length"))?;
 	let mut bytes = vec![0; len];
 	reader.read_exact(&mut bytes).await?;
-	let header = serde_json::from_slice(&bytes)?;
+	let header = encoding.deserialize(&bytes)?;
 	Ok(header)
 }
 
-pub fn set<T>(body: body::Boxed, header: &T) -> Result<body::Boxed>
+pub fn set<T>(
+	body: body::Boxed,
+	header: &T,
+	encoding: crate::body::encoding::Encoding,
+) -> Result<body::Boxed>
 where
-	T: serde::Serialize,
+	T: serde::Serialize + tangram_serialize::Serialize,
 {
-	let header = serde_json::to_vec(header)?;
+	let header = encoding.serialize(header)?;
 	let stream = stream::once(async move {
 		let mut bytes = Vec::with_capacity(9 + header.len());
 		bytes.write_uvarint(header.len().to_u64().unwrap()).await?;

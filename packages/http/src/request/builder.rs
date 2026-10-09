@@ -6,7 +6,7 @@ use {
 };
 
 pub trait Ext: Sized {
-	/// Put the arg in the query, or prepend it to the body when the query is too large or cannot represent it.
+	/// Put the arg in the query, or prepend it to the body when requested by the header or required by the query.
 	fn arg<T, B>(
 		self,
 		arg: &T,
@@ -15,6 +15,26 @@ pub trait Ext: Sized {
 	where
 		T: serde::Serialize,
 		B: http_body::Body<Data = Bytes>;
+
+	fn arg_with_tangram<T, B>(
+		self,
+		arg: &T,
+		body: B,
+	) -> Result<http::Result<http::Request<body::arg::Body<B>>>, Error>
+	where
+		T: serde::Serialize + tangram_serialize::Serialize,
+		B: http_body::Body<Data = Bytes>;
+
+	fn arg_with<T, B, F>(
+		self,
+		arg: &T,
+		body: B,
+		serialize: F,
+	) -> Result<http::Result<http::Request<body::arg::Body<B>>>, Error>
+	where
+		T: serde::Serialize,
+		B: http_body::Body<Data = Bytes>,
+		F: FnOnce(body::encoding::Encoding, &T) -> Result<Vec<u8>, Error>;
 
 	fn empty(self) -> http::Result<http::Request<body::Empty>>;
 
@@ -50,7 +70,7 @@ pub trait Ext: Sized {
 
 impl Ext for http::request::Builder {
 	fn arg<T, B>(
-		mut self,
+		self,
 		arg: &T,
 		body: B,
 	) -> Result<http::Result<http::Request<body::arg::Body<B>>>, Error>
@@ -58,14 +78,48 @@ impl Ext for http::request::Builder {
 		T: serde::Serialize,
 		B: http_body::Body<Data = Bytes>,
 	{
+		self.arg_with(arg, body, |encoding, arg| {
+			encoding.require_json()?;
+			Ok(serde_json::to_vec(arg)?)
+		})
+	}
+
+	fn arg_with_tangram<T, B>(
+		self,
+		arg: &T,
+		body: B,
+	) -> Result<http::Result<http::Request<body::arg::Body<B>>>, Error>
+	where
+		T: serde::Serialize + tangram_serialize::Serialize,
+		B: http_body::Body<Data = Bytes>,
+	{
+		self.arg_with(arg, body, body::encoding::Encoding::serialize)
+	}
+
+	fn arg_with<T, B, F>(
+		mut self,
+		arg: &T,
+		body: B,
+		serialize: F,
+	) -> Result<http::Result<http::Request<body::arg::Body<B>>>, Error>
+	where
+		T: serde::Serialize,
+		B: http_body::Body<Data = Bytes>,
+		F: FnOnce(body::encoding::Encoding, &T) -> Result<Vec<u8>, Error>,
+	{
 		// Serialize the arg.
 		let query = serde_qs::Config::new()
 			.use_form_encoding(true)
 			.serialize_string(arg)
 			.ok();
-		let arg_in_body = query
-			.as_ref()
-			.is_none_or(|query| query.len() > body::arg::THRESHOLD);
+		let arg_in_body = self
+			.headers_ref()
+			.map(body::arg::get_header)
+			.transpose()?
+			.unwrap_or(false)
+			|| query
+				.as_ref()
+				.is_none_or(|query| query.len() > body::arg::THRESHOLD);
 		let query = query.unwrap_or_default();
 
 		// Set the query.
@@ -90,7 +144,12 @@ impl Ext for http::request::Builder {
 				);
 				headers.remove(http::header::CONTENT_LENGTH);
 			}
-			body::arg::Body::with_arg(body, arg)?
+			let encoding = body::encoding::Encoding::from_content_type(
+				self.headers_ref()
+					.and_then(|headers| headers.get(http::header::CONTENT_TYPE)),
+			)?;
+			let bytes = serialize(encoding, arg)?;
+			body::arg::Body::with_bytes(body, &bytes)?
 		} else {
 			if let Some(headers) = self.headers_mut() {
 				headers.remove(body::arg::HEADER);

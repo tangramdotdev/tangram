@@ -9,6 +9,7 @@ from collections.abc import AsyncIterable, AsyncIterator, Callable, Mapping
 from typing import Protocol, cast
 
 from .body import Body, SseEvent
+from .encoding import require_json
 from .headers import Headers, HeaderValue
 
 
@@ -132,6 +133,63 @@ class Response:
             return await self.body.collect()
         finally:
             await self.close()
+
+    async def body_header(self) -> object:
+        source = self.body.__aiter__()
+        buffer = b""
+        offset = 0
+
+        async def read(length: int) -> bytes:
+            nonlocal buffer, offset
+            output = bytearray()
+            while len(output) < length:
+                if offset == len(buffer):
+                    try:
+                        buffer = await anext(source)
+                    except StopAsyncIteration:
+                        raise ValueError(
+                            "the response ended inside the header"
+                        ) from None
+                    offset = 0
+                    continue
+                count = min(length - len(output), len(buffer) - offset)
+                output.extend(buffer[offset : offset + count])
+                offset += count
+            return bytes(output)
+
+        try:
+            require_json(self.headers.get("content-type"))
+            length = 0
+            for index in range(10):
+                byte = (await read(1))[0]
+                length += (byte & 127) << (7 * index)
+                if length > 1_048_576:
+                    raise ValueError("header too large")
+                if byte < 128:
+                    break
+            else:
+                raise ValueError("invalid header length")
+            header = json.loads(await read(length))
+
+            async def body() -> AsyncIterator[bytes]:
+                try:
+                    if offset < len(buffer):
+                        yield buffer[offset:]
+                    async for chunk in source:
+                        yield chunk
+                finally:
+                    close = getattr(source, "aclose", None)
+                    if close is not None:
+                        await close()
+
+            self.body = Body(body())
+            return header
+        except BaseException:
+            close = getattr(source, "aclose", None)
+            if close is not None:
+                await close()
+            await self.close()
+            raise
 
     async def json(self) -> object:
         try:

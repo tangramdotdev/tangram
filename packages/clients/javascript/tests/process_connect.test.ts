@@ -1,13 +1,12 @@
 import { strict as assert } from "node:assert";
 import { setImmediate } from "node:timers/promises";
 import { test } from "node:test";
-import { requestWindow } from "../src/client/process/connect.ts";
 import * as tg from "../src/index.ts";
 import { Body } from "../src/http.ts";
 import { Channel } from "../src/process/connect/channel.ts";
 import { Session } from "../src/process/connect/session.ts";
 
-test("reads and closes share the fixed receipt window", async () => {
+test("stdio and operations do not share receipt credit", async () => {
 	const send = tg.client.send;
 	const utf8 = tg.encoding.utf8;
 	tg.encoding.utf8 = {
@@ -23,13 +22,12 @@ test("reads and closes share the fixed receipt window", async () => {
 			new tg.Response(
 				200,
 				{ "content-type": "text/event-stream" },
-				Body.sse(events),
+				Body.sse(events).prepend(new Uint8Array([2, 123, 125])),
 			);
-		emit("response", {
-			id: 0,
-			error: null,
-			output: {
-				kind: "connect",
+		emit("notification", {
+			kind: "progress",
+			value: {
+				kind: "output",
 				value: {
 					cached: false,
 					lease: null,
@@ -45,31 +43,49 @@ test("reads and closes share the fixed receipt window", async () => {
 			process: "pcs_010000000000000000000000000000000000000000000000000000",
 			reads: {},
 		}));
-		for (let i = 0; i < requestWindow / 2; i++) {
+		// Closing reads must not retain requests that have no response waiter.
+		for (let i = 0; i < 70; i++) {
 			(await session.read({ streams: ["stdout"] })).input.close();
 		}
-		let opened = false;
-		const reading = session.read({ streams: ["stdout"] }).then((read) => {
-			opened = true;
-			return read;
-		});
 		await setImmediate();
-		assert.equal(opened, false);
-		emit("ack", { id: 1 });
-		await reading;
-		assert.equal(opened, true);
-
-		// Detachment retains one reserved request even when ordinary credit is exhausted.
+		assert.equal(session.closed, false);
+		const reads = [];
+		for (let i = 0; i < 64; i++)
+			reads.push(await session.read({ streams: ["stdout"] }));
+		const signals = [];
+		for (let i = 0; i < 64; i++) {
+			const signal = session.signal({ signal: "TERM" });
+			signal.catch(() => {});
+			signals.push(signal);
+		}
+		await assert.rejects(
+			session.signal({ signal: "TERM" }),
+			/too many pending/,
+		);
+		// Receipt acknowledgments neither complete operations nor free pending entries.
+		emit("ack", { id: 205 });
+		await setImmediate();
+		await assert.rejects(
+			session.signal({ signal: "TERM" }),
+			/too many pending/,
+		);
+		// The rejected calls consume IDs, but no receipts are needed to send cancellation.
+		const cancelling = session.cancel({ lease: "lease" });
+		emit("response", {
+			id: 271,
+			error: null,
+			output: { kind: "cancel", value: { released: true } },
+		});
+		await cancelling;
+		emit("response", { id: 205, error: null, output: { kind: "signal" } });
+		await signals[0];
+		const signal = session.signal({ signal: "TERM" });
+		emit("response", { id: 272, error: null, output: { kind: "signal" } });
+		await signal;
 		const detaching = session.detach();
-		const detachId = requestWindow + 2;
-		emit("ack", { id: detachId });
-		emit("response", { id: detachId, error: null, output: { kind: "detach" } });
+		emit("response", { id: 273, error: null, output: { kind: "detach" } });
 		await detaching;
-
-		// Closing the connection releases callers waiting for request credit.
-		const blocked = session.read({ streams: ["stdout"] });
-		session.close();
-		await assert.rejects(blocked, /process connection closed/);
+		assert.equal(reads.length, 64);
 	} finally {
 		session?.close();
 		events.close();

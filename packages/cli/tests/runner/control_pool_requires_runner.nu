@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# Only runners may obtain new identities on deferred control connections.
+# Only runners may obtain new identities on control connections waiting for start.
 let root_token = random chars
 let remote = server spawn --name remote --config {
 	authentication: { root: { token: $root_token } },
@@ -8,7 +8,7 @@ let remote = server spawn --name remote --config {
 }
 let socket = $remote.url | str replace 'http+unix://' '' | url decode
 for entry in [
-	{ path: 'processes/control?start=false', content_type: 'application/vnd.tangram.process-control' }
+	{ path: 'processes/control?mode[kind]=wait', content_type: 'application/vnd.tangram.process-control' }
 	{ path: 'sandboxes/control?create=false', content_type: 'text/event-stream' }
 ] {
 	let headers = { Authorization: $'Bearer ($root_token)', 'Content-Type': $entry.content_type }

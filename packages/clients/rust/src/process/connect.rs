@@ -2,20 +2,93 @@ use {
 	crate::prelude::*,
 	futures::{StreamExt as _, stream::BoxStream},
 	tangram_futures::stream::TryExt as _,
-	tangram_http::response::Ext as _,
+	tangram_http::{request::builder::Ext as _, response::Ext as _},
 	tangram_util::serde::is_false,
 };
 
 mod connection;
-mod session;
 #[cfg(test)]
 mod tests;
 
 pub use connection::Connection;
 
-pub const REQUEST_WINDOW: usize = 128;
-
 pub const TANGRAM_CONTENT_TYPE: &str = "application/vnd.tangram.process-connect";
+
+#[derive(
+	Clone,
+	Debug,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Arg {
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
+	pub lease: Option<String>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
+	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
+	pub location: Option<tg::location::Arg>,
+
+	#[serde(default)]
+	#[tangram_serialize(default, id = 2)]
+	pub mode: Mode,
+
+	#[serde(deserialize_with = "deserialize_process")]
+	#[tangram_serialize(id = 3)]
+	pub process: tg::Either<Box<tg::process::spawn::Arg>, tg::process::Id>,
+
+	#[serde(default)]
+	#[tangram_serialize(default, id = 4)]
+	pub reads: std::collections::BTreeMap<u64, tg::process::stdio::read::Arg>,
+
+	#[serde(default, skip_serializing_if = "is_false")]
+	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
+	pub sync: bool,
+
+	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
+	#[tangram_serialize(
+		default,
+		id = 5,
+		skip_serializing_if = "tg::authorization::Tokens::is_empty"
+	)]
+	pub tokens: tg::authorization::Tokens,
+}
+
+#[derive(
+	Clone,
+	Copy,
+	Debug,
+	Default,
+	Eq,
+	PartialEq,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Mode {
+	#[tangram_serialize(id = 0)]
+	Run,
+
+	#[default]
+	#[tangram_serialize(id = 1)]
+	Spawn,
+}
+
+// Process selection is reported in the progress stream after the header.
+#[derive(
+	Clone,
+	Debug,
+	Default,
+	serde::Deserialize,
+	serde::Serialize,
+	tangram_serialize::Deserialize,
+	tangram_serialize::Serialize,
+)]
+pub struct Header {}
 
 #[derive(
 	Clone,
@@ -88,6 +161,9 @@ pub struct Ack {
 pub enum ClientNotification {
 	#[tangram_serialize(id = 0)]
 	Read(ReadClientNotification),
+
+	#[tangram_serialize(id = 1)]
+	Ready,
 }
 
 #[derive(
@@ -138,9 +214,6 @@ pub enum ClientRequestArg {
 	#[tangram_serialize(id = 1)]
 	Close(u64),
 
-	#[tangram_serialize(id = 2)]
-	Connect(Arg),
-
 	#[tangram_serialize(id = 3)]
 	Detach,
 
@@ -165,77 +238,13 @@ pub enum ClientRequestArg {
 	tangram_serialize::Deserialize,
 	tangram_serialize::Serialize,
 )]
-pub struct Arg {
-	#[serde(default, skip_serializing_if = "is_false")]
-	#[tangram_serialize(default, id = 6, skip_serializing_if = "is_false")]
-	pub command_sync: bool,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 0, skip_serializing_if = "Option::is_none")]
-	pub lease: Option<String>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	#[tangram_serialize(default, id = 1, skip_serializing_if = "Option::is_none")]
-	pub location: Option<tg::location::Arg>,
-
-	#[serde(default)]
-	#[tangram_serialize(default, id = 2)]
-	pub mode: Mode,
-
-	#[serde(deserialize_with = "deserialize_process")]
-	#[tangram_serialize(id = 3)]
-	pub process: tg::Either<Box<tg::process::spawn::Arg>, tg::process::Id>,
-
-	#[serde(default)]
-	#[tangram_serialize(default, id = 4)]
-	pub reads: std::collections::BTreeMap<u64, tg::process::stdio::read::Arg>,
-
-	#[serde(default, skip_serializing_if = "tg::authorization::Tokens::is_empty")]
-	#[tangram_serialize(
-		default,
-		id = 5,
-		skip_serializing_if = "tg::authorization::Tokens::is_empty"
-	)]
-	pub tokens: tg::authorization::Tokens,
-}
-
-#[derive(
-	Clone,
-	Copy,
-	Debug,
-	Default,
-	Eq,
-	PartialEq,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
-#[serde(rename_all = "snake_case")]
-pub enum Mode {
-	#[tangram_serialize(id = 0)]
-	Run,
-
-	#[default]
-	#[tangram_serialize(id = 1)]
-	Spawn,
-}
-
-#[derive(
-	Clone,
-	Debug,
-	serde::Deserialize,
-	serde::Serialize,
-	tangram_serialize::Deserialize,
-	tangram_serialize::Serialize,
-)]
 #[serde(content = "value", rename_all = "snake_case", tag = "kind")]
 pub enum ServerNotification {
 	#[tangram_serialize(id = 2)]
 	Outcome(tg::process::outcome::Data),
 
 	#[tangram_serialize(id = 0)]
-	Progress(tg::progress::Event<()>),
+	Progress(tg::progress::Event<tg::process::spawn::Output>),
 
 	#[tangram_serialize(id = 1)]
 	Read(ReadServerNotification),
@@ -291,9 +300,6 @@ pub enum ServerResponseOutput {
 
 	#[tangram_serialize(id = 1)]
 	Close,
-
-	#[tangram_serialize(id = 2)]
-	Connect(tg::process::spawn::Output),
 
 	#[tangram_serialize(id = 3)]
 	Detach,
@@ -378,12 +384,12 @@ impl<O: 'static> tg::Process<O> {
 			})
 			.collect();
 		let arg = Arg {
-			command_sync: false,
 			lease: options.lease,
 			location: options.location,
 			mode: Mode::Run,
 			process: tg::Either::Right(id.clone()),
 			reads,
+			sync: false,
 			tokens: options.tokens,
 		};
 		let (connection, progress) = Connection::open(instance, arg).await?;
@@ -405,18 +411,27 @@ impl<O: 'static> tg::Process<O> {
 }
 
 impl tg::Session {
-	pub async fn try_connect_process(
+	pub async fn try_get_process_connect_stream(
 		&self,
+		arg: Arg,
 		input: BoxStream<'static, tg::Result<ClientMessage>>,
-	) -> tg::Result<Option<BoxStream<'static, tg::Result<ServerMessage>>>> {
+	) -> tg::Result<Option<(Header, BoxStream<'static, tg::Result<ServerMessage>>)>> {
 		let max_frame_size = self.client().sync.max_frame_size;
 		let body = super::stdio::encode(input, max_frame_size);
 		let request = http::Request::builder()
 			.method(http::Method::POST)
 			.uri("/processes/connect")
 			.header(http::header::ACCEPT, TANGRAM_CONTENT_TYPE)
-			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE)
-			.body(body)
+			.header(http::header::CONTENT_TYPE, TANGRAM_CONTENT_TYPE);
+		// Preserve native spawn values that cannot round-trip through a query.
+		let request = if arg.process.is_left() {
+			request.header(tangram_http::body::arg::HEADER, "true")
+		} else {
+			request
+		};
+		let request = request
+			.arg_with_tangram(&arg, body)
+			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
 			.send(request)
@@ -438,8 +453,9 @@ impl tg::Session {
 		if content_type != Some(TANGRAM_CONTENT_TYPE.parse().unwrap()) {
 			return Err(tg::error!(?content_type, "invalid content type"));
 		}
-		let stream = super::stdio::decode(response.into_body(), max_frame_size);
-		Ok(Some(stream.boxed()))
+		let (header, stream) =
+			super::stdio::decode_with_header(response.into_body(), max_frame_size).await?;
+		Ok(Some((header, stream)))
 	}
 }
 

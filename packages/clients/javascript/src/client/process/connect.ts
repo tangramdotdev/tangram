@@ -2,10 +2,8 @@ import * as tg from "../../index.ts";
 import { Body, Request, Uri } from "../../http.ts";
 import type { Client } from "../../client.ts";
 
-// Keep this fixed receipt window aligned with tangram_client::process::connect::REQUEST_WINDOW.
-export const requestWindow = 128;
-
 export namespace Connect {
+	export type Header = Record<string, never>;
 	export type Mode = "run" | "spawn";
 	export type Options = tg.Process.Wait.Arg & {
 		reads?: Array<tg.Process.Stdio.Read.Arg>;
@@ -18,7 +16,6 @@ export namespace Connect {
 	export type ClientRequestArg =
 		| { kind: "cancel"; value: tg.Process.Cancel.Arg }
 		| { kind: "close"; value: number }
-		| { kind: "connect"; value: Arg }
 		| { kind: "detach" }
 		| { kind: "read"; value: tg.Process.Stdio.Read.Arg }
 		| { kind: "signal"; value: tg.Signal.Arg }
@@ -28,18 +25,19 @@ export namespace Connect {
 		| { kind: "ack"; value: { id: number } }
 		| {
 				kind: "notification";
-				value: {
-					kind: "read";
-					value: {
-						id: number;
-						progress: tg.Process.Stdio.Read.Progress;
-					};
-				};
+				value:
+					| { kind: "ready" }
+					| {
+							kind: "read";
+							value: {
+								id: number;
+								progress: tg.Process.Stdio.Read.Progress;
+							};
+					  };
 		  }
 		| { kind: "request"; value: { arg: ClientRequestArg; id: number } };
 	export type ServerResponseOutput =
 		| { kind: "cancel"; value: tg.Process.Cancel.Output }
-		| { kind: "connect"; value: tg.Process.Spawn.Output }
 		| { kind: "read"; value: tg.Process.Stdio.Read.Output }
 		| { kind: "write"; value: tg.Process.Stdio.Write.Output }
 		| { kind: "close" | "detach" | "signal" | "tty" };
@@ -48,7 +46,10 @@ export namespace Connect {
 		| {
 				kind: "notification";
 				value:
-					| { kind: "progress"; value: tg.Progress.Event<null> }
+					| {
+							kind: "progress";
+							value: tg.Progress.Event<tg.Process.Spawn.Output>;
+					  }
 					| {
 							kind: "read";
 							value: {
@@ -70,17 +71,34 @@ export namespace Connect {
 
 export async function connectProcess(
 	client: Client,
+	arg: Connect.Arg,
 	input: AsyncIterable<Connect.ClientMessage>,
-): Promise<AsyncIterableIterator<Connect.ServerMessage>> {
+): Promise<[Connect.Header, AsyncIterableIterator<Connect.ServerMessage>]> {
 	let request = new Request({
 		body: Body.sse(encode(input)),
 		headers: {
 			accept: "text/event-stream",
 			"content-type": "text/event-stream",
+			...(typeof arg.process === "string"
+				? {}
+				: { "x-tg-arg-in-body": "true" }),
 		},
 		method: "POST",
 		uri: new Uri({ path: "/processes/connect" }),
 	});
+	let process = arg.process;
+	request.arg(
+		locationArg({
+			...arg,
+			process:
+				typeof process === "string"
+					? process
+					: tg.Process.Spawn.Arg.toJson(process),
+			reads: Object.fromEntries(
+				Object.entries(arg.reads).map(([id, read]) => [id, stdioArg(read)]),
+			),
+		}) as Record<string, Uri.QueryValue>,
+	);
 	let response = await client.send(request);
 	if (response.status < 200 || response.status >= 300) {
 		throw tg.Error.fromData(await response.json<tg.Error.Data>());
@@ -91,8 +109,10 @@ export async function connectProcess(
 	) {
 		throw new Error("invalid process connect content type");
 	}
-	return (async function* () {
-		for await (let event of response.sse()) {
+	let header = await response.bodyHeader<Connect.Header>();
+	let events = response.sse();
+	let output = (async function* () {
+		for await (let event of events) {
 			if (event.event === "error") {
 				throw tg.Error.fromData(JSON.parse(event.data));
 			}
@@ -108,11 +128,12 @@ export async function connectProcess(
 				value: JSON.parse(event.data),
 			} as Connect.ServerMessage;
 			if (
-				message.kind === "response" &&
-				message.value.output?.kind === "connect"
+				message.kind === "notification" &&
+				message.value.kind === "progress" &&
+				message.value.value.kind === "output"
 			) {
-				message.value.output.value = tg.Process.Spawn.Output.fromJson(
-					message.value.output.value,
+				message.value.value.value = tg.Process.Spawn.Output.fromJson(
+					message.value.value.value,
 				);
 			}
 			if (
@@ -135,6 +156,7 @@ export async function connectProcess(
 			yield message;
 		}
 	})();
+	return [header, output];
 }
 
 async function* encode(
@@ -145,25 +167,7 @@ async function* encode(
 		if (message.kind === "request") {
 			let arg = message.value.arg;
 			let data: unknown = arg;
-			if (arg.kind === "connect") {
-				let process = arg.value.process;
-				data = {
-					kind: arg.kind,
-					value: locationArg({
-						...arg.value,
-						process:
-							typeof process === "string"
-								? process
-								: tg.Process.Spawn.Arg.toJson(process),
-						reads: Object.fromEntries(
-							Object.entries(arg.value.reads).map(([id, arg]) => [
-								id,
-								stdioArg(arg),
-							]),
-						),
-					}),
-				};
-			} else if (arg.kind === "read") {
+			if (arg.kind === "read") {
 				data = { kind: arg.kind, value: stdioArg(arg.value) };
 			} else if (arg.kind === "write") {
 				data = {

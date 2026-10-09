@@ -234,7 +234,7 @@ impl tg::Session {
 			.uri(uri)
 			.header(http::header::ACCEPT, super::TANGRAM_CONTENT_TYPE)
 			.header(http::header::CONTENT_TYPE, super::TANGRAM_CONTENT_TYPE)
-			.arg(&arg, body)
+			.arg_with_tangram(&arg, body)
 			.map_err(|error| tg::error!(!error, "failed to serialize the arg"))?
 			.unwrap();
 		let response = self
