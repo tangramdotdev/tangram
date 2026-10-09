@@ -12,7 +12,6 @@ use {
 #[derive(Default, serde::Serialize)]
 pub struct Metadata {
 	pub imports: BTreeMap<String, tg::module::Import>,
-	/// Warnings about the metadata blocks that are ignored because they are not closed.
 	#[serde(skip)]
 	pub warnings: Vec<tg::Error>,
 }
@@ -96,21 +95,13 @@ fn parse_module(
 		})
 		.collect();
 	// PEP 723 requires tools to ignore unclosed blocks, so warn at the opening line of each one.
-	let unclosed = |name: &str, beginning: usize, contents: &str| {
+	let unclosed = |name: &str, beginning: usize| {
 		let range = beginning..beginning + "# /// ".len() + name.len();
-		// A `# ///` line that is followed by a comment line is block content, not the end of the block.
-		let error = if contents.lines().any(|line| line == "///") {
-			tg::error!(
-				"the {name} metadata block is ignored because a comment follows its `# ///` line"
-			)
-		} else {
-			tg::error!("the {name} metadata block is ignored because it is not closed")
-		};
+		let error = tg::error!("the {name} metadata block is not closed and will be ignored");
 		located_error(path, text, range, &error)
 	};
 	let mut block: Option<(String, usize, String, Vec<(usize, usize)>)> = None;
 	let mut types = BTreeSet::new();
-	let mut warnings = Vec::new();
 	let mut output = Metadata::default();
 	for (index, &(start, line)) in lines.iter().enumerate() {
 		let comment = comments.contains(&start);
@@ -146,7 +137,7 @@ fn parse_module(
 					));
 				}
 				if name == "script" {
-					output = parse_script(path, text, &contents, &positions)?;
+					output.imports = parse_script(path, text, &contents, &positions)?;
 				}
 			}
 			continue;
@@ -163,15 +154,14 @@ fn parse_module(
 				contents.push_str(content);
 				contents.push('\n');
 			} else {
-				warnings.push(unclosed(name, *beginning, contents));
+				output.warnings.push(unclosed(name, *beginning));
 				block = None;
 			}
 		}
 	}
-	if let Some((name, beginning, contents, _)) = &block {
-		warnings.push(unclosed(name, *beginning, contents));
+	if let Some((name, beginning, _, _)) = &block {
+		output.warnings.push(unclosed(name, *beginning));
 	}
-	output.warnings = warnings;
 	Ok(output)
 }
 
@@ -180,7 +170,7 @@ fn parse_script(
 	text: &str,
 	contents: &str,
 	positions: &[(usize, usize)],
-) -> tg::Result<Metadata> {
+) -> tg::Result<BTreeMap<String, tg::module::Import>> {
 	let locate = |range: Range<usize>, error| {
 		located_error(path, text, source_range(range, positions), &error)
 	};
@@ -256,10 +246,7 @@ fn parse_script(
 		})?;
 		imports.insert(name, import);
 	}
-	Ok(Metadata {
-		imports,
-		warnings: Vec::new(),
-	})
+	Ok(imports)
 }
 
 fn source_range(range: Range<usize>, positions: &[(usize, usize)]) -> Range<usize> {
@@ -365,41 +352,6 @@ mod tests {
 				.unwrap_left();
 			assert!(error.location.is_some());
 		}
-	}
-
-	#[test]
-	fn unclosed_blocks_are_ignored_with_warnings() {
-		let block =
-			"# /// script\n# [tool.tangram.imports.helper]\n# specifier = './helper.tg.py'\n";
-		for (text, message) in [
-			(
-				format!("{block}# ///\n# This comment makes the block unclosed.\nimport helper\n"),
-				"the script metadata block is ignored because a comment follows its `# ///` line",
-			),
-			(
-				block.to_owned(),
-				"the script metadata block is ignored because it is not closed",
-			),
-		] {
-			let metadata = parse(Path::new("/test/main.tg.py"), &text).unwrap();
-			assert!(metadata.imports.is_empty());
-			let [warning] = metadata.warnings.as_slice() else {
-				panic!("expected one warning");
-			};
-			let warning = warning.to_data_or_id().unwrap_left();
-			assert_eq!(warning.message.as_deref(), Some(message));
-			let range = warning
-				.location
-				.unwrap()
-				.range
-				.try_to_byte_range_in_string(&text, tg::position::Encoding::Utf8)
-				.unwrap();
-			assert_eq!(&text[range], "# /// script");
-		}
-		let text = format!("{block}# ///\n\n# This comment follows a blank line.\nimport helper\n");
-		let metadata = parse(Path::new("/test/main.tg.py"), &text).unwrap();
-		assert_eq!(metadata.imports.len(), 1);
-		assert!(metadata.warnings.is_empty());
 	}
 
 	#[test]

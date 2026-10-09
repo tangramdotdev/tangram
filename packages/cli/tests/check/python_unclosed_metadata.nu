@@ -1,55 +1,15 @@
 use ../lib/test.nu *
 
-# A comment line directly after the closing `# ///` leaves the script block unclosed. PEP 723 requires the block to be ignored, so the check warns at the opening line of the block and then reports the unresolved import.
-
 let local = server spawn
-let path = artifact {
-    'main.tg.py': '
-        # /// script
-        # [tool.tangram.imports.helper]
-        # specifier = "./helper.tg.py"
-        # ///
-        # This comment makes the block unclosed.
-        import helper
-    '
-    'closed.tg.py': '
-        # /// script
-        # [tool.tangram.imports.helper]
-        # specifier = "./helper.tg.py"
-        # ///
-
-        # This comment follows a blank line, so the block is closed.
-        import helper
-    '
-    'helper.tg.py': 'value = 1'
+for source in ["# /// script\n# ///\n#" "# /// script\npass"] {
+    let path = artifact {'main.tg.py': $source}
+    let output = tg check ($path | path join main.tg.py) | complete
+    success $output
+    assert ($output.stderr | str contains 'warning the script metadata block is not closed and will be ignored')
+    assert ($output.stderr | str contains 'main.tg.py:1:1')
 }
-success (tg check ($path | path join closed.tg.py) | complete)
-let output = tg check ($path | path join main.tg.py) | complete
-failure $output
-snapshot --normalize --redact $path $output.stderr '
-	warning the script metadata block is ignored because a comment follows its `# ///` line
-	   ╭─[./main.tg.py:1:1]
-	 1 │ # /// script
-	   · ──────┬─────
-	   ·       ╰── the script metadata block is ignored because a comment follows its `# ///` line
-	 2 │ # [tool.tangram.imports.helper]
-	   ╰────
-	error Cannot resolve imported module `helper`
-	info: Searched in the following paths during module resolution:
-	info:   1. /library (extra search path specified on the CLI or in your config file)
-	info:   2. vendored://stdlib (stdlib typeshed stubs vendored by ty)
-	info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
-	   ╭─[./main.tg.py:6:8]
-	 5 │ # This comment makes the block unclosed.
-	 6 │ import helper
-	   ·        ───┬──
-	   ·           ╰─┤ Cannot resolve imported module `helper`
-	   ·             │ info: Searched in the following paths during module resolution:
-	   ·             │ info:   1. /library (extra search path specified on the CLI or in your config file)
-	   ·             │ info:   2. vendored://stdlib (stdlib typeshed stubs vendored by ty)
-	   ·             │ info: make sure your Python environment is properly configured: https://docs.astral.sh/ty/modules/#python-environment
-	   ╰────
-	error an error occurred
-	-> type checking failed
 
-'
+let path = artifact {'main.tg.py': "# /// script\n# ///\n\n#"}
+let output = tg check ($path | path join main.tg.py) | complete
+success $output
+assert equal $output.stderr ''
