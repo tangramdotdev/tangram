@@ -1,8 +1,4 @@
-use {
-	super::{Compiler, document},
-	std::collections::BTreeSet,
-	tangram_client::prelude::*,
-};
+use {super::Compiler, tangram_client::prelude::*};
 
 #[derive(Debug, serde::Serialize)]
 pub struct Request {
@@ -51,47 +47,6 @@ impl Compiler {
 			.collect::<tg::Result<Vec<_>>>()?;
 
 		diagnostics.extend(javascript);
-
-		// Remove the diagnostics that both checkers report, such as warnings about the exports of a module that both reach.
-		let mut reported = BTreeSet::new();
-		diagnostics.retain(|diagnostic| {
-			let data = diagnostic.to_data();
-			let location = data.location.map(|location| {
-				let tg::Range { start, end } = location.range;
-				let key = document::Key::new(&location.module);
-				(key, start.line, start.character, end.line, end.character)
-			});
-			reported.insert((location, data.message))
-		});
-
-		Ok(diagnostics)
-	}
-
-	/// Warn about exports that another language must rename or cannot bind.
-	pub(crate) async fn get_export_diagnostics(
-		&self,
-		modules: &[tg::module::Data],
-		encoding: tg::position::Encoding,
-	) -> tg::Result<Vec<tg::Diagnostic>> {
-		let mut diagnostics = Vec::new();
-		if !cfg!(feature = "python") {
-			return Ok(diagnostics);
-		}
-		for module in modules {
-			if !matches!(
-				module.kind,
-				tg::module::Kind::JavaScript | tg::module::Kind::TypeScript
-			) {
-				continue;
-			}
-			// The checker reports a module that cannot be loaded.
-			let Ok(text) = self.load_module(module).await else {
-				continue;
-			};
-			for diagnostic in super::load::diagnostics(module, &text, encoding) {
-				diagnostics.push(diagnostic.try_into()?);
-			}
-		}
 		Ok(diagnostics)
 	}
 }

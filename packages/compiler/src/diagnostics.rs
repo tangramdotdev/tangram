@@ -15,11 +15,10 @@ impl Compiler {
 		&self,
 		modules: Vec<tg::module::Data>,
 	) -> tg::Result<Vec<tg::Diagnostic>> {
-		let encoding = *self.position_encoding.read().unwrap();
-		let mut diagnostics = self.get_export_diagnostics(&modules, encoding).await?;
 		let (python, modules): (Vec<_>, Vec<_>) = modules
 			.into_iter()
 			.partition(|module| module.kind == tg::module::Kind::Python);
+		let mut diagnostics = Vec::new();
 		#[cfg(not(feature = "python"))]
 		if !python.is_empty() {
 			return Err(tg::error!("the python feature is not enabled"));

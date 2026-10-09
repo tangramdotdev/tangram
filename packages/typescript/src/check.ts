@@ -33,13 +33,5 @@ export let handle = (request: Request): Response => {
 		].map(typescript.convertDiagnostic),
 	);
 
-	// Collect the diagnostics that the compiler reports for each module, such as warnings about exports.
-	for (let file of program.getSourceFiles()) {
-		if (!file.isDeclarationFile) {
-			let module = typescript.moduleFromFileName(file.fileName);
-			diagnostics.push(...syscall("module_diagnostics", module, file.text));
-		}
-	}
-
 	return { diagnostics };
 };

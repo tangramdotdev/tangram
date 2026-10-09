@@ -2,10 +2,7 @@
 use tangram_client::prelude::*;
 #[cfg(feature = "python")]
 use {
-	std::{
-		collections::{BTreeMap, BTreeSet},
-		fmt::Write as _,
-	},
+	std::{collections::BTreeMap, fmt::Write as _},
 	tangram_client::prelude::*,
 };
 
@@ -46,7 +43,7 @@ pub fn module(
 			output.push_str("export {};\n");
 		},
 		tg::module::load::Language::Python => {
-			// Bind each export that Python can name. The checker warns about the others.
+			// Bind each export that Python can name.
 			let bindings = exports
 				.iter()
 				.filter_map(|name| {
@@ -96,65 +93,6 @@ pub fn module(
 		return Err(tg::error!("the python feature is not enabled"));
 	}
 	Ok(text.to_owned())
-}
-
-/// Warn about exports that another language must rename or cannot bind.
-#[cfg(feature = "python")]
-#[must_use]
-pub fn diagnostics(
-	module: &tg::module::Data,
-	text: &str,
-	encoding: tg::position::Encoding,
-) -> Vec<tg::diagnostic::Data> {
-	// Only Python renames exports. JavaScript writes every name that a Python module exports as `module.name`.
-	if !matches!(
-		module.kind,
-		tg::module::Kind::JavaScript | tg::module::Kind::TypeScript
-	) {
-		return Vec::new();
-	}
-
-	// A module whose exports cannot be discovered fails when Python imports it, so there is nothing to warn about.
-	let Ok(names) = javascript::declarations(module, text) else {
-		return Vec::new();
-	};
-
-	let exports = names.keys().cloned().collect::<BTreeSet<_>>();
-	names
-		.into_iter()
-		.filter_map(|(name, range)| {
-			let message = match python::binding(&name, &exports) {
-				Ok(binding) if binding == name => return None,
-				Ok(binding) => {
-					format!("python names the export {name} as {binding}")
-				},
-				Err(error) => {
-					format!("python cannot bind the export {name}: {error}")
-				},
-			};
-			let range = tg::Range::try_from_byte_range_in_string(text, range, encoding)?;
-			let location = tg::module::data::Location {
-				module: module.without_token(),
-				range,
-			};
-			let diagnostic = tg::diagnostic::Data {
-				location: Some(location),
-				message,
-				severity: tg::diagnostic::Severity::Warning,
-			};
-			Some(diagnostic)
-		})
-		.collect()
-}
-
-#[cfg(not(feature = "python"))]
-#[must_use]
-pub fn diagnostics(
-	_module: &tg::module::Data,
-	_text: &str,
-	_encoding: tg::position::Encoding,
-) -> Vec<tg::diagnostic::Data> {
-	Vec::new()
 }
 
 #[cfg(feature = "python")]
@@ -286,51 +224,5 @@ mod tests {
 		assert!(!text.contains('$'), "{text}");
 		assert!(!text.contains("def __all__("), "{text}");
 		assert!(text.contains("__all__ = [\"value\"]\n"), "{text}");
-	}
-
-	#[test]
-	fn warns_about_renamed_exports() {
-		let text = "export const lambda = () => 42;\nexport const $ = () => 42;\nexport const match = () => 42;\nexport default () => 42;\n";
-		let warnings = diagnostics(
-			&source(tg::module::Kind::TypeScript),
-			text,
-			tg::position::Encoding::Utf8,
-		);
-		let warnings = warnings
-			.iter()
-			.map(|diagnostic| {
-				let range = diagnostic.location.as_ref().unwrap().range;
-				assert!(diagnostic.severity.is_warning());
-				(
-					range.start.line,
-					range.start.character,
-					range.end.character,
-					diagnostic.message.as_str(),
-				)
-			})
-			.collect::<Vec<_>>();
-		assert_eq!(
-			warnings,
-			[
-				(
-					1,
-					13,
-					14,
-					"python cannot bind the export $: the export name is not a python identifier"
-				),
-				(0, 13, 19, "python names the export lambda as lambda_"),
-			]
-		);
-
-		// JavaScript writes every name that a Python module exports.
-		let text = "def new(): pass\ndef delete(): pass\n";
-		assert!(
-			diagnostics(
-				&source(tg::module::Kind::Python),
-				text,
-				tg::position::Encoding::Utf8
-			)
-			.is_empty()
-		);
 	}
 }

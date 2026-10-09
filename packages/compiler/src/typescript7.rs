@@ -116,25 +116,10 @@ impl Service {
 			.diagnostics(snapshot.snapshot, project, &host)
 			.await
 			.map_err(|error| tg::error!(!error, "failed to get the typescript 7 diagnostics"))?;
-		let mut diagnostics = diagnostics
+		let diagnostics = diagnostics
 			.into_iter()
 			.map(|diagnostic| host.diagnostic(&diagnostic))
 			.collect::<tg::Result<Vec<_>>>()?;
-
-		// Collect the diagnostics that the compiler reports for each module, such as warnings about exports.
-		{
-			let files = host.files.lock().unwrap();
-			for (path, text) in &files.texts {
-				let Some(module) = files.try_module(path)? else {
-					continue;
-				};
-				diagnostics.extend(crate::load::diagnostics(
-					&module,
-					text,
-					tg::position::Encoding::Utf8,
-				));
-			}
-		}
 		client
 			.release_snapshot(snapshot.snapshot, &host)
 			.await

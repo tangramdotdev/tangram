@@ -374,7 +374,6 @@ impl Database {
 			.collect::<tg::Result<Vec<_>>>()?;
 		let mut checked = BTreeSet::new();
 		let mut diagnostics = Vec::new();
-		let mut modules = Vec::new();
 		while let Some(entry) = pending.pop() {
 			if !checked.insert(entry.module.without_token().to_string()) {
 				continue;
@@ -382,7 +381,6 @@ impl Database {
 			if let Some(error) = &entry.error {
 				return Err(error.clone());
 			}
-			modules.push(entry.module.clone());
 			diagnostics.extend(entry.diagnostics.iter().cloned());
 			if entry.module.kind != tg::module::Kind::Python {
 				continue;
@@ -400,14 +398,6 @@ impl Database {
 		if let Some(error) = self.error.lock().unwrap().take() {
 			return Err(error);
 		}
-
-		// Warn about the exports of the checked modules.
-		let warnings = self.compiler.main_runtime_handle.block_on(
-			self.compiler
-				.get_export_diagnostics(&modules, tg::position::Encoding::Utf8),
-		)?;
-		diagnostics.extend(warnings);
-
 		Ok(diagnostics)
 	}
 
