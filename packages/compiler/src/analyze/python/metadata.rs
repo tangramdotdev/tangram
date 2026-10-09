@@ -11,6 +11,7 @@ use {
 
 #[derive(Default, serde::Serialize)]
 pub struct Metadata {
+	pub diagnostics: Vec<tg::diagnostic::Data>,
 	pub imports: BTreeMap<String, tg::module::Import>,
 }
 
@@ -92,6 +93,22 @@ fn parse_module(
 			(start, line.trim_end_matches(['\r', '\n']))
 		})
 		.collect();
+	let unclosed = |name: &str, beginning: usize| {
+		let range = beginning..beginning + "# /// ".len() + name.len();
+		let range =
+			tg::Range::try_from_byte_range_in_string(text, range, tg::position::Encoding::Utf8)
+				.unwrap();
+		let location = tg::module::data::Location {
+			module: module.clone(),
+			range,
+		};
+		let message = format!("the {name} metadata block is not closed and will be ignored");
+		tg::diagnostic::Data {
+			location: Some(location),
+			message,
+			severity: tg::diagnostic::Severity::Warning,
+		}
+	};
 	let mut block: Option<(String, usize, String, Vec<(usize, usize)>)> = None;
 	let mut types = BTreeSet::new();
 	let mut output = Metadata::default();
@@ -129,12 +146,12 @@ fn parse_module(
 					));
 				}
 				if name == "script" {
-					output = parse_script(path, text, &contents, &positions)?;
+					output.imports = parse_script(path, text, &contents, &positions)?;
 				}
 			}
 			continue;
 		}
-		if let Some((_, _, contents, positions)) = &mut block {
+		if let Some((name, beginning, contents, positions)) = &mut block {
 			let content = if comment {
 				line.strip_prefix("# ")
 					.or_else(|| (line == "#").then_some(""))
@@ -146,10 +163,13 @@ fn parse_module(
 				contents.push_str(content);
 				contents.push('\n');
 			} else {
-				// PEP 723 requires tools to ignore unclosed blocks.
+				output.diagnostics.push(unclosed(name, *beginning));
 				block = None;
 			}
 		}
+	}
+	if let Some((name, beginning, _, _)) = &block {
+		output.diagnostics.push(unclosed(name, *beginning));
 	}
 	Ok(output)
 }
@@ -159,7 +179,7 @@ fn parse_script(
 	text: &str,
 	contents: &str,
 	positions: &[(usize, usize)],
-) -> tg::Result<Metadata> {
+) -> tg::Result<BTreeMap<String, tg::module::Import>> {
 	let locate = |range: Range<usize>, error| {
 		located_error(path, text, source_range(range, positions), &error)
 	};
@@ -235,7 +255,7 @@ fn parse_script(
 		})?;
 		imports.insert(name, import);
 	}
-	Ok(Metadata { imports })
+	Ok(imports)
 }
 
 fn source_range(range: Range<usize>, positions: &[(usize, usize)]) -> Range<usize> {
