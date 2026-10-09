@@ -127,13 +127,7 @@ impl Session {
 						crate::checkpoint!(session.server, "runner.process.outcome.sync.started")
 							.await;
 					}
-					let message = message
-						.and_then(|message| {
-							tangram_serialize::to_vec(&message).map_err(|error| {
-								tg::error!(!error, "failed to serialize the sync message")
-							})
-						})
-						.map(tg::process::control::ClientMessage::Sync);
+					let message = message.map(tg::process::control::ClientMessage::Sync);
 					sync_sender
 						.send(message)
 						.await
@@ -172,11 +166,7 @@ impl Session {
 				let mut end_sender = Some(end_sender);
 				while let Some(message) = output.next().await {
 					match message {
-						Ok(tg::process::control::ServerMessage::Sync(bytes)) => {
-							let message: tg::sync::Message = tangram_serialize::from_slice(&bytes)
-								.map_err(|error| {
-									tg::error!(!error, "failed to deserialize the sync message")
-								})?;
+						Ok(tg::process::control::ServerMessage::Sync(message)) => {
 							if matches!(message, tg::sync::Message::End)
 								&& let Some(sender) = end_sender.take()
 							{

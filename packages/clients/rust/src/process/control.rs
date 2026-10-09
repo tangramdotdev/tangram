@@ -97,7 +97,7 @@ pub enum ClientMessage {
 	Response(ClientResponse),
 
 	#[tangram_serialize(id = 4)]
-	Sync(Vec<u8>),
+	Sync(tg::sync::Message),
 }
 
 #[derive(
@@ -455,7 +455,7 @@ pub enum ServerMessage {
 	Response(ServerResponse),
 
 	#[tangram_serialize(id = 4)]
-	Sync(Vec<u8>),
+	Sync(tg::sync::Message),
 }
 
 #[derive(

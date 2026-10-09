@@ -33,13 +33,13 @@ pub mod read;
 pub mod write;
 
 #[derive(Clone, Copy)]
-pub(super) enum Encoding {
+pub(crate) enum Encoding {
 	Sse,
 	Tangram,
 }
 
 impl Encoding {
-	pub(super) fn from_accept(
+	pub(crate) fn from_accept(
 		value: Option<&mime::Mime>,
 		tangram_content_type: &str,
 	) -> tg::Result<Self> {
@@ -53,21 +53,21 @@ impl Encoding {
 			.map_err(|_| tg::error!(accept = %value, "invalid accept type"))
 	}
 
-	pub(super) fn serialization(self) -> tangram_http::body::encoding::Encoding {
+	pub(crate) fn serialization(self) -> tangram_http::body::encoding::Encoding {
 		match self {
 			Self::Sse => tangram_http::body::encoding::Encoding::Json,
 			Self::Tangram => tangram_http::body::encoding::Encoding::Tangram,
 		}
 	}
 
-	pub(super) fn content_type(self, tangram_content_type: &str) -> mime::Mime {
+	pub(crate) fn content_type(self, tangram_content_type: &str) -> mime::Mime {
 		match self {
 			Self::Sse => mime::TEXT_EVENT_STREAM,
 			Self::Tangram => tangram_content_type.parse().unwrap(),
 		}
 	}
 
-	pub(super) fn from_content_type(
+	pub(crate) fn from_content_type(
 		value: &mime::Mime,
 		tangram_content_type: &str,
 	) -> tg::Result<Self> {
@@ -86,7 +86,7 @@ impl Encoding {
 	}
 }
 
-pub(super) fn decode<T>(
+pub(crate) fn decode<T>(
 	request: http::Request<BoxBody>,
 	encoding: Encoding,
 	max_frame_size: u64,
@@ -107,7 +107,7 @@ where
 	}
 }
 
-pub(super) fn encode<T>(
+pub(crate) fn encode<T>(
 	stream: BoxStream<'static, tg::Result<T>>,
 	encoding: Encoding,
 	max_frame_size: u64,

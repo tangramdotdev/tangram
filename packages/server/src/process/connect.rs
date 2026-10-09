@@ -205,23 +205,24 @@ impl Session {
 			let Some(message) = message else {
 				break;
 			};
-			if let tg::process::connect::ServerMessage::Sync(message) = &message
-				&& sync_sender.is_some()
-			{
-				let sync_message = Self::connect_process_decode_sync_message(message)?;
-				if matches!(sync_message, tg::sync::Message::End) {
-					sync_sender = None;
-					crate::checkpoint!(self.server, "process.connect.command.push.finished").await;
-				} else {
-					sync_sender
-						.as_ref()
-						.unwrap()
-						.send(Ok(sync_message))
-						.await
-						.map_err(|_| tg::error!("the command sync closed"))?;
-				}
-				continue;
-			}
+			let message = match message {
+				tg::process::connect::ServerMessage::Sync(message) if sync_sender.is_some() => {
+					if matches!(message, tg::sync::Message::End) {
+						sync_sender = None;
+						crate::checkpoint!(self.server, "process.connect.command.push.finished")
+							.await;
+					} else {
+						sync_sender
+							.as_ref()
+							.unwrap()
+							.send(Ok(message))
+							.await
+							.map_err(|_| tg::error!("the command sync closed"))?;
+					}
+					continue;
+				},
+				message => message,
+			};
 			if matches!(
 				message,
 				tg::process::connect::ServerMessage::Notification(

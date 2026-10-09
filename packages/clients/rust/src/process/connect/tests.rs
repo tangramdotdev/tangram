@@ -522,9 +522,19 @@ fn stdio_keeps_binary_bytes_and_eof_positions() {
 
 #[test]
 fn sync_frames_preserve_binary_bytes() {
-	let bytes = vec![0, 1, 127, 128, 255];
-	assert_roundtrip(&ClientMessage::Sync(bytes.clone()));
-	assert_roundtrip(&ServerMessage::Sync(bytes));
+	let bytes = bytes::Bytes::from_static(&[0, 1, 127, 128, 255]);
+	let object = tg::sync::PutNodeObjectMessage {
+		bytes: bytes.clone(),
+		id: tg::blob::Id::new(&bytes).into(),
+		metadata: None,
+	};
+	let message = tg::sync::Message::Put(tg::sync::PutMessage::Node(
+		tg::sync::PutNodeMessage::Object(object),
+	));
+	assert_sync_roundtrip(&ClientMessage::Sync(message.clone()));
+	assert_sync_roundtrip(&ServerMessage::Sync(message.clone()));
+	assert_sync_roundtrip(&tg::process::control::ClientMessage::Sync(message.clone()));
+	assert_sync_roundtrip(&tg::process::control::ServerMessage::Sync(message));
 }
 
 #[test]
@@ -559,6 +569,29 @@ fn read_completion_preserves_and_validates_positions() {
 		assert!(output.validate(&[Stream::Stdout], 6).is_err());
 		assert!(output.validate(&[Stream::Stdout], 8).is_err());
 	}
+}
+
+fn assert_sync_roundtrip<T>(value: &T)
+where
+	T: Clone
+		+ serde::Serialize
+		+ serde::de::DeserializeOwned
+		+ tangram_serialize::Serialize
+		+ for<'de> tangram_serialize::Deserialize<'de>
+		+ TryFrom<tangram_http::sse::Event, Error = tg::Error>,
+	tangram_http::sse::Event: TryFrom<T, Error = tg::Error>,
+{
+	assert_roundtrip(value);
+	let json = serde_json::to_value(value).unwrap();
+	assert_eq!(
+		json["value"]["value"]["value"]["value"]["bytes"],
+		"AAF/gP8="
+	);
+	let decoded: T = serde_json::from_value(json.clone()).unwrap();
+	assert_eq!(serde_json::to_value(decoded).unwrap(), json);
+	let event = tangram_http::sse::Event::try_from(value.clone()).unwrap();
+	let decoded = T::try_from(event).unwrap();
+	assert_eq!(serde_json::to_value(decoded).unwrap(), json);
 }
 
 fn assert_roundtrip<T>(value: &T) -> T

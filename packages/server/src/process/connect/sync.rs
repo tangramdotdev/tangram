@@ -121,10 +121,6 @@ impl Session {
 		let sender = sender.clone();
 		let task = Task::spawn(move |_| async move {
 			while let Some(message) = sync_output.next().await {
-				let message = message
-					.as_ref()
-					.map_err(Clone::clone)
-					.and_then(Self::connect_process_encode_sync_message);
 				let message = message.map(tg::process::connect::ServerMessage::Sync);
 				let failed = message.is_err();
 				sender
@@ -174,13 +170,8 @@ impl Session {
 		let (_, sync_output) = self.sync_inner(arg, sync_input).await?;
 
 		// Add the source sync messages to the process connection.
-		let sync_output = sync_output.map(|message| {
-			message
-				.as_ref()
-				.map_err(Clone::clone)
-				.and_then(Self::connect_process_encode_sync_message)
-				.map(tg::process::connect::ClientMessage::Sync)
-		});
+		let sync_output =
+			sync_output.map(|message| message.map(tg::process::connect::ClientMessage::Sync));
 		let input = stream::select(input, sync_output).boxed();
 		let source = Source { input, sender };
 
@@ -196,7 +187,6 @@ impl Session {
 		while let Some(message) = input.next().await {
 			let message = match message {
 				Ok(tg::process::connect::ClientMessage::Sync(message)) => {
-					let message = Self::connect_process_decode_sync_message(&message)?;
 					if matches!(message, tg::sync::Message::End) {
 						sync_sender = None;
 					} else {
@@ -219,21 +209,5 @@ impl Session {
 		}
 
 		Ok(())
-	}
-
-	pub(super) fn connect_process_decode_sync_message(
-		message: &[u8],
-	) -> tg::Result<tg::sync::Message> {
-		let message = tangram_serialize::from_slice(message)
-			.map_err(|error| tg::error!(!error, "failed to deserialize the sync message"))?;
-
-		Ok(message)
-	}
-
-	fn connect_process_encode_sync_message(message: &tg::sync::Message) -> tg::Result<Vec<u8>> {
-		let message = tangram_serialize::to_vec(message)
-			.map_err(|error| tg::error!(!error, "failed to serialize the sync message"))?;
-
-		Ok(message)
 	}
 }

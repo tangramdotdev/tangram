@@ -206,7 +206,7 @@ impl Session {
 
 	async fn spawn_process_send_borrowable_capacity(
 		&self,
-		control: &tokio::sync::mpsc::Sender<tg::process::control::ClientMessage>,
+		control: &tg::process::control::Sender,
 		notification: tg::process::control::BorrowableCapacityClientNotification,
 	) -> tg::Result<()> {
 		let parent = notification.parent.clone();

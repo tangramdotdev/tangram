@@ -6,9 +6,8 @@ use {
 		sync::{Arc, Mutex},
 	},
 	tangram_client::prelude::*,
-	tangram_futures::{read::Ext as _, stream::Ext as _, task::Task, write::Ext as _},
+	tangram_futures::{stream::Ext as _, task::Task},
 	tangram_http::{body::Boxed as BoxBody, request::Ext as _},
-	tokio::io::AsyncReadExt as _,
 	tokio_stream::wrappers::ReceiverStream,
 	tracing::Instrument,
 };
@@ -385,18 +384,20 @@ impl Session {
 		&self,
 		request: http::Request<BoxBody>,
 	) -> tg::Result<http::Response<BoxBody>> {
-		// Validate the request content type.
+		// Select the request encoding.
 		let content_type = request
 			.parse_header::<mime::Mime, _>(http::header::CONTENT_TYPE)
 			.transpose()
-			.map_err(|error| tg::error!(argument, !error, "failed to parse the content type"))?;
-		if content_type != Some(tg::sync::CONTENT_TYPE.parse().unwrap()) {
-			return Err(tg::error!(argument, ?content_type, "invalid content type"));
-		}
+			.map_err(|error| tg::error!(argument, !error, "failed to parse the content type"))?
+			.ok_or_else(|| tg::error!(argument, "missing the content type"))?;
+		let input_encoding = crate::process::stdio::Encoding::from_content_type(
+			&content_type,
+			tg::sync::CONTENT_TYPE,
+		)?;
 
 		// Parse the arg.
 		let (arg, request) = request
-			.arg_with_tangram()
+			.arg_with_tangram::<tg::sync::Arg>()
 			.await
 			.map_err(|error| tg::error!(!error, "failed to deserialize the arg"))?;
 		let arg = arg.unwrap_or_default();
@@ -407,39 +408,13 @@ impl Session {
 			.transpose()
 			.map_err(|error| tg::error!(argument, !error, "failed to parse the accept header"))?;
 
-		// Create the request body.
-		let reader = request.reader();
+		// Select the response encoding.
+		let output_encoding =
+			crate::process::stdio::Encoding::from_accept(accept.as_ref(), tg::sync::CONTENT_TYPE)?;
+
+		// Decode the request body.
 		let max_frame_size = self.server.config.sync.max_frame_size;
-		let stream = stream::try_unfold(reader, move |mut reader| async move {
-			let Some(len) = reader
-				.try_read_uvarint()
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read the length"))?
-			else {
-				return Ok(None);
-			};
-			if len > max_frame_size {
-				return Err(tg::error!(
-					argument,
-					len = %len,
-					max = %max_frame_size,
-					"sync frame too large"
-				));
-			}
-			let len = usize::try_from(len).map_err(
-				|error| tg::error!(argument, !error, len = %len, "sync frame length out of range"),
-			)?;
-			let mut bytes = vec![0; len];
-			reader
-				.read_exact(&mut bytes)
-				.await
-				.map_err(|error| tg::error!(!error, "failed to read the message"))?;
-			let message = tangram_serialize::from_slice(&bytes).map_err(|error| {
-				tg::error!(argument, !error, "failed to deserialize the message")
-			})?;
-			Ok(Some((message, reader)))
-		})
-		.boxed();
+		let stream = crate::process::stdio::decode(request, input_encoding, max_frame_size);
 
 		let (header, stream) = self
 			.sync(arg, stream)
@@ -447,65 +422,15 @@ impl Session {
 			.map_err(|error| tg::error!(!error, "failed to start the sync"))?;
 		crate::checkpoint!(self.server, "sync.request.response").await;
 
-		// Validate the accept header.
-		let sync_content_type: mime::Mime = tg::sync::CONTENT_TYPE.parse().unwrap();
-		match accept.as_ref() {
-			None => (),
-			Some(accept) if accept.type_() == mime::STAR && accept.subtype() == mime::STAR => (),
-			Some(accept) if *accept == sync_content_type => (),
-			Some(accept) => {
-				let type_ = accept.type_();
-				let subtype = accept.subtype();
-				return Err(tg::error!(argument, %type_, %subtype, "invalid accept type"));
-			},
-		}
-
 		// Create the response body.
-		let content_type = Some(tg::sync::CONTENT_TYPE);
-		let max_frame_size = self.server.config.sync.max_frame_size;
-		let stream = stream.then(move |result| async move {
-			let frame = match result {
-				Ok(message) => {
-					let message = tangram_serialize::to_vec(&message).unwrap();
-					let message_len = message.len();
-					let len = u64::try_from(message_len).map_err(
-						|error| tg::error!(!error, len = %message_len, "sync frame length out of range"),
-					)?;
-					if len > max_frame_size {
-						return Err(tg::error!(
-							len = %len,
-							max = %max_frame_size,
-							"sync frame too large"
-						));
-					}
-					let mut bytes = Vec::with_capacity(9 + message.len());
-					bytes.write_uvarint(len).await.unwrap();
-					bytes.write_all(&message).await.unwrap();
-					hyper::body::Frame::data(bytes.into())
-				},
-				Err(error) => {
-					let mut trailers = http::HeaderMap::new();
-					trailers.insert("x-tg-event", http::HeaderValue::from_static("error"));
-					let json = serde_json::to_string(&error.to_data_or_id()).unwrap();
-					trailers.insert("x-tg-data", http::HeaderValue::from_str(&json).unwrap());
-					hyper::body::Frame::trailers(trailers)
-				},
-			};
-			Ok::<_, tg::Error>(frame)
-		});
-		let body = BoxBody::with_stream(stream);
-		let body = tangram_http::body::header::set(
-			body,
-			&header,
-			tangram_http::body::encoding::Encoding::Tangram,
-		)
-		.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
+		let content_type = output_encoding.content_type(tg::sync::CONTENT_TYPE);
+		let body = crate::process::stdio::encode(stream.boxed(), output_encoding, max_frame_size);
+		let body = tangram_http::body::header::set(body, &header, output_encoding.serialization())
+			.map_err(|error| tg::error!(!error, "failed to serialize the header"))?;
 
 		// Create the response.
 		let mut response = http::Response::builder();
-		if let Some(content_type) = content_type {
-			response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
-		}
+		response = response.header(http::header::CONTENT_TYPE, content_type.to_string());
 		let response = response.body(body).unwrap();
 
 		Ok(response)

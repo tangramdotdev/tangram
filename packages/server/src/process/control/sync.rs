@@ -85,12 +85,8 @@ impl Session {
 					let mut input = input;
 					while let Some(message) = input.next().await {
 						let message = match message {
-							Ok(tg::process::control::ClientMessage::Sync(bytes)) => {
-								let message =
-									tangram_serialize::from_slice(&bytes).map_err(|error| {
-										tg::error!(!error, "failed to deserialize the sync message")
-									});
-								if sync_sender.send(message).await.is_err() {
+							Ok(tg::process::control::ClientMessage::Sync(message)) => {
+								if sync_sender.send(Ok(message)).await.is_err() {
 									break;
 								}
 								continue;
@@ -127,14 +123,7 @@ impl Session {
 		});
 		let input = ReceiverStream::new(receiver).attach(input_task).boxed();
 		let output = output
-			.map(|message| {
-				message.and_then(|message| {
-					let bytes = tangram_serialize::to_vec(&message).map_err(|error| {
-						tg::error!(!error, "failed to serialize the sync message")
-					})?;
-					Ok(tg::process::control::ServerMessage::Sync(bytes))
-				})
-			})
+			.map(|message| message.map(tg::process::control::ServerMessage::Sync))
 			.attach(get_task)
 			.boxed();
 		Ok((sync, input, output))
