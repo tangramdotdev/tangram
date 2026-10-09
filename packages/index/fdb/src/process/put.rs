@@ -114,7 +114,13 @@ impl Index {
 			&& existing
 				.as_ref()
 				.is_none_or(|existing| !existing.set.output_objects);
-		let parent_changed = arg.parent.is_some();
+		// A child relationship belongs to the indexed parent.
+		let parent_changed = if let Some(parent) = &arg.parent {
+			crate::propagate!(Self::try_get_process_with_transaction(txn, subspace, parent).await)
+				.is_some()
+		} else {
+			false
+		};
 		let sandbox_changed = arg.sandbox.is_some();
 		let mut set = arg.set();
 		if merge && let Some(ref existing) = existing {
@@ -213,7 +219,7 @@ impl Index {
 			let (begin, end) = range_subspace.range();
 			txn.clear_range(&begin, &end);
 			for (position, child) in children.iter().enumerate() {
-				let child = child.clone().without_location_and_tokens();
+				let child = child.clone();
 				let position = i64::try_from(position)
 					.map_err(|_| tg::error!("the process has too many children"))?;
 				let key = Key::Process(crate::process::Key::ProcessChild {
@@ -272,8 +278,7 @@ impl Index {
 				let child = tg::process::data::Child {
 					cached: arg.cached,
 					process: tg::Referent::new(id.clone(), arg.options.clone()),
-				}
-				.without_location_and_tokens();
+				};
 				let process_child_key = Key::Process(crate::process::Key::ProcessChild {
 					child: id.clone(),
 					position,

@@ -44,7 +44,7 @@ for permission in [process_node process_node_command_objects process_node_output
 tg --token $root index
 let baseline = get-process $socket $reader.token $process '' true true
 let scoped = $baseline.tokens.local.0
-assert not ($baseline.data.children.0.process | referent tokens local | is-empty) 'the runner must preserve the child tokens already in its state'
+assert ($baseline.data.children.0.process | referent tokens local | is-empty) 'a node reader must not receive the stored child authorization tokens'
 advance_time $local 10sec
 let watch = tg --token $root checkpoint watch verification.index | from json | get watch
 for flags in [[false false] [true false] [false true] [true true]] {
@@ -63,9 +63,6 @@ for flags in [[false false] [true false] [false true] [true true]] {
 	let child_token = referent-token $result.data.children.0.process
 	assert (('process_subtree' in (token-body $child_token).permissions) or ('process_parent' in (token-body $child_token).permissions))
 	assert (('process_subtree_output_objects' in (token-body $child_token).permissions) or ('process_parent' in (token-body $child_token).permissions))
-	if not ($baseline.data.children.0.process | str contains 'tokens') {
-		assert not ('process_parent' in (token-body $child_token).permissions)
-	}
 	assert ((token-body $child_token).expires_at <= (token-body $token).expires_at)
 	let child = get-process $socket $stranger.token ($result.data.children.0.process | referent node) $child_token
 	assert ('object_subtree' in (token-body (referent-token $child.data.output.value)).permissions)
