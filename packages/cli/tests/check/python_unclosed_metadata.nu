@@ -1,6 +1,6 @@
 use ../lib/test.nu *
 
-# A comment line directly after the closing `# ///` leaves the script block unclosed, so the block is ignored and the check reports only the unresolved import, with no diagnostic about the block.
+# A comment line directly after the closing `# ///` leaves the script block unclosed. PEP 723 requires the block to be ignored, so the check warns at the opening line of the block and then reports the unresolved import.
 
 let local = server spawn
 let path = artifact {
@@ -27,6 +27,13 @@ success (tg check ($path | path join closed.tg.py) | complete)
 let output = tg check ($path | path join main.tg.py) | complete
 failure $output
 snapshot --normalize --redact $path $output.stderr '
+	warning the script metadata block is ignored because a comment follows its `# ///` line
+	   ╭─[./main.tg.py:1:1]
+	 1 │ # /// script
+	   · ──────┬─────
+	   ·       ╰── the script metadata block is ignored because a comment follows its `# ///` line
+	 2 │ # [tool.tangram.imports.helper]
+	   ╰────
 	error Cannot resolve imported module `helper`
 	info: Searched in the following paths during module resolution:
 	info:   1. /library (extra search path specified on the CLI or in your config file)
