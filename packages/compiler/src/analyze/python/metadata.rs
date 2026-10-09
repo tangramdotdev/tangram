@@ -93,7 +93,6 @@ fn parse_module(
 			(start, line.trim_end_matches(['\r', '\n']))
 		})
 		.collect();
-	// PEP 723 requires tools to ignore unclosed blocks, so warn at the opening line of each one.
 	let unclosed = |name: &str, beginning: usize| {
 		let range = beginning..beginning + "# /// ".len() + name.len();
 		let range =
