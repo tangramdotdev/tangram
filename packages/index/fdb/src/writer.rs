@@ -936,10 +936,38 @@ impl Index {
 					Request::Batch(arg) if arg.items.len() > 1 => {
 						Self::execute_ordered_batch(database, subspace, arg, config).await
 					},
-					_ => Err(tg::error!(
+					Request::Batch(_)
+					| Request::CompletePermissionCapture(_)
+					| Request::DeleteIndexer(_)
+					| Request::PutIndexer(_)
+					| Request::UpdateIndexer(_) => Err(tg::error!(
 						!error,
 						"failed to execute a request that cannot be split"
 					)),
+					request => {
+						let (mut items, kind) = Self::request_into_operations(request);
+						if items.len() <= 1 {
+							Self::fail_tracker(
+								&tracker,
+								&tg::error!(
+									!error,
+									"failed to execute a request that cannot be split"
+								),
+							);
+							return;
+						}
+						let right = items.split_off(items.len() / 2);
+						tracker.lock().unwrap().remaining += 1;
+						for items in [items, right] {
+							let request = Self::request_from_operations(items, &kind);
+							let batch = Batch {
+								requests: vec![request],
+								trackers: vec![tracker.clone()],
+							};
+							Box::pin(Self::execute_batch(database, subspace, batch, config)).await;
+						}
+						return;
+					},
 				};
 				match result {
 					Ok(result) => Self::complete_tracker(&tracker, Ok(Response::Mutation(result))),
