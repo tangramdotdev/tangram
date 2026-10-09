@@ -527,6 +527,8 @@ def magic(value: Any) -> MagicOutput:
         if not names:
             raise ValueError("failed to find an export for the function")
         name = names[0]
+    if module.kind in ("javascript", "typescript"):
+        name = getattr(function, "__tangram_export__", name)
     return {"module": module.to_data(), "export": name}
 
 
