@@ -880,6 +880,7 @@ impl Session {
 }
 
 impl State {
+	#[cfg_attr(not(target_os = "linux"), allow(clippy::unused_self))]
 	#[must_use]
 	pub(crate) fn healthy(&self) -> bool {
 		#[cfg(target_os = "linux")]

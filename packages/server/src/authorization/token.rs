@@ -59,6 +59,18 @@ impl Session {
 				.as_secs()
 				.to_i64()
 				.unwrap();
+		self.add_token_to_object_referent_with_expires_at(referent, expires_at)?;
+		Ok(())
+	}
+
+	pub(crate) fn add_token_to_object_referent_with_expires_at<T>(
+		&self,
+		referent: &mut tg::Referent<T>,
+		expires_at: i64,
+	) -> tg::Result<()>
+	where
+		T: Clone + Into<tg::Id>,
+	{
 		let token = self.create_token(
 			referent.node.clone().into(),
 			vec![tg::authorization::Permission::Object(
@@ -337,7 +349,7 @@ impl Session {
 		Ok(())
 	}
 
-	fn add_tokens_to_value_data_with_expires_at(
+	pub(crate) fn add_tokens_to_value_data_with_expires_at(
 		&self,
 		data: &mut tg::value::Data,
 		expires_at: i64,
@@ -369,24 +381,7 @@ impl Session {
 				self.add_tokens_to_mutation_data(mutation, expires_at)?;
 			},
 			tg::value::Data::Module(module) => {
-				let mut children = std::collections::BTreeSet::new();
-				module.children(&mut children);
-				if let Some(id) = children.into_iter().next() {
-					let token = self.create_token(
-						id.into(),
-						vec![tg::authorization::Permission::Object(
-							tg::authorization::permission::object::Permission::Subtree,
-						)],
-						expires_at,
-					)?;
-					if let Some(token) = token {
-						module
-							.referent
-							.options
-							.tokens
-							.insert_local_authorization(token);
-					}
-				}
+				self.add_tokens_to_module_data_with_expires_at(module, expires_at)?;
 			},
 			tg::value::Data::Template(template) => {
 				self.add_tokens_to_template_data(template, expires_at)?;
@@ -397,6 +392,32 @@ impl Session {
 			| tg::value::Data::Number(_)
 			| tg::value::Data::Placeholder(_)
 			| tg::value::Data::String(_) => {},
+		}
+		Ok(())
+	}
+
+	pub(crate) fn add_tokens_to_module_data_with_expires_at(
+		&self,
+		module: &mut tg::module::Data,
+		expires_at: i64,
+	) -> tg::Result<()> {
+		let mut children = std::collections::BTreeSet::new();
+		module.children(&mut children);
+		if let Some(id) = children.into_iter().next() {
+			let token = self.create_token(
+				id.into(),
+				vec![tg::authorization::Permission::Object(
+					tg::authorization::permission::object::Permission::Subtree,
+				)],
+				expires_at,
+			)?;
+			if let Some(token) = token {
+				module
+					.referent
+					.options
+					.tokens
+					.insert_local_authorization(token);
+			}
 		}
 		Ok(())
 	}

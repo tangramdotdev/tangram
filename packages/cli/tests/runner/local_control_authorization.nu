@@ -49,7 +49,9 @@ for authority in [remote local] {
 		let capability = $spawned.tokens.local.0 | split row '.' | get 1 | decode base64 | decode utf-8 | from json
 		assert equal $capability.resource $process
 		assert equal $capability.permissions [process_parent]
-		let response = http get --unix-socket $socket --headers { Authorization: $'Bearer ($runner_root)' } $'http://localhost/processes/($process)?location=remote'
+		tg --url $runner.url --token $runner_root grant $alice.user.id process_node $process | ignore
+		tg --url $runner.url --token $runner_root index
+		let response = http get --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/processes/($process)?location=remote'
 		let node = $response.tokens.local.0
 		let tokens = { local: [$node] }
 		let query = $'location=remote&tokens[local][0]=($node | url encode --all)'
@@ -84,6 +86,14 @@ for authority in [remote local] {
 			tg --url $runner.url --token $runner_root grant $alice.user.id process_parent $process
 			tg --url $runner.url --token $runner_root index
 			$tokens
+		}
+		if $authority == remote {
+			let remote_token = $tokens.remote.0 | url encode --all
+			for flags in [[true false] [false true] [true true]] {
+				let response = http get --max-time 10sec --unix-socket $socket --headers { Authorization: $'Bearer ($alice.token)' } $'http://localhost/processes/($process)?($query)&source=runner&tokens[remote][0]=($remote_token)&metadata=($flags.0)&availability=($flags.1)'
+				if $flags.0 { assert ($response.metadata? != null) }
+				if $flags.1 { assert ($response.availability? != null) }
+			}
 		}
 		if $protocol == standalone {
 			let query = if $authority == remote {

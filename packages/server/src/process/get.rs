@@ -12,6 +12,8 @@ use {
 	tangram_index::prelude::*,
 };
 
+mod token;
+
 pub(super) struct Output<T> {
 	pub control: Option<T>,
 	pub indexed: Option<tangram_index::process::Process>,
@@ -127,15 +129,18 @@ impl Session {
 		let Some(runner) = self.try_get_process_runner_inner(id, arg.location.as_ref()) else {
 			return Ok(None);
 		};
-		if self
-			.authorize_process_runner(
+		let authorization = self
+			.authorize_process_get(
 				id,
-				&arg.tokens,
-				tg::authorization::permission::process::Set::NODE,
+				arg.metadata,
+				arg.availability,
+				arg.tokens.local_authorization(),
 			)
-			.await?
-			.is_none()
-		{
+			.await?;
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		);
+		if !authorization.permissions.contains(permission) {
 			return Ok(None);
 		}
 		let Some(data) = runner.processes.get(id).map(|process| process.data()) else {
@@ -145,33 +150,61 @@ impl Session {
 		let mut output =
 			self.create_process_get_output(id, data, Some(runner.location.clone()), None);
 		output.tokens = arg.tokens.clone();
-		if let Some(token) = self.create_process_get_token(id, None)? {
-			output.tokens.insert_local_authorization(token);
-		}
+		output.tokens.remove_local_authorization();
+		let permissions = authorization.permissions;
+		self.add_tokens_to_process_get_output(id, authorization, &mut output)?;
 
 		// Read index-only fields at the process's original location.
-		let metadata_future = async {
-			if !arg.metadata {
-				return Ok(None);
+		if arg.metadata || arg.availability {
+			let locations = self.locations(Some(&runner.location_arg)).await?;
+			if locations.local.as_ref().is_some_and(|local| local.current) {
+				if let Some(process) = self.server.index.try_get_process(id).await? {
+					if arg.metadata {
+						output.metadata = Self::mask_process_metadata_with_permissions(
+							&process.metadata,
+							permissions,
+						);
+					}
+					if arg.availability {
+						output.availability = Self::compute_process_availability_with_permissions(
+							process.storage,
+							permissions,
+						);
+					}
+				}
+			} else {
+				let indexed = if let Some(local) = &locations.local {
+					self.try_get_process_regions(
+						id,
+						&local.regions,
+						arg.metadata,
+						arg.availability,
+						&arg.tokens,
+						tg::process::Source::Index,
+					)
+					.await?
+				} else {
+					None
+				};
+				let indexed = if indexed.is_some() {
+					indexed
+				} else {
+					self.try_get_process_remotes(
+						id,
+						&locations.remotes,
+						arg.metadata,
+						arg.availability,
+						&arg.tokens,
+						tg::process::Source::Index,
+					)
+					.await?
+				};
+				if let Some(indexed) = indexed {
+					output.metadata = indexed.metadata;
+					output.availability = indexed.availability;
+				}
 			}
-			let arg = tg::process::metadata::Arg {
-				location: Some(runner.location_arg.clone()),
-				tokens: arg.tokens.clone(),
-			};
-			self.try_get_process_metadata(id, arg).await
-		};
-		let availability_future = async {
-			if !arg.availability {
-				return Ok(None);
-			}
-			let arg = tg::process::availability::Arg {
-				location: Some(runner.location_arg.clone()),
-				tokens: arg.tokens.clone(),
-			};
-			self.try_get_process_availability(id, arg).await
-		};
-		(output.metadata, output.availability) =
-			future::try_join(metadata_future, availability_future).await?;
+		}
 
 		Ok(Some(output))
 	}
@@ -214,20 +247,13 @@ impl Session {
 			tg::authorization::permission::process::Permission::Node,
 		);
 		let authorize_future = self
-			.authorize_with_permissions(
-				resource.clone(),
-				permission.into(),
-				permission.into(),
-				tg::authorization::permission::Set::Process(
-					tg::authorization::permission::process::Set::empty(),
-				),
-			)
+			.authorize_process_get(id, metadata, availability, tokens)
 			.boxed();
 		let get_future = self
 			.try_get_process_local_inner(id, metadata, source)
 			.boxed();
 		let (authorization, output) = future::join(authorize_future, get_future).await;
-		let authorization = authorization?.check_exhaustion()?;
+		let authorization = authorization?;
 		if !authorization.permissions.contains(permission) {
 			return Ok(None);
 		}
@@ -255,29 +281,82 @@ impl Session {
 		let Some(mut output) = output else {
 			return Ok(None);
 		};
-		if let Some(token) = self.create_process_get_token(id, authorization.expires_at)? {
-			output.tokens.insert_local_authorization(token);
-		}
-		if let Some(metadata) = output.metadata.take() {
-			output.metadata = self
-				.mask_process_metadata(id, metadata, tokens)
-				.boxed()
+		if output.data.status.is_finished()
+			&& output.data.children.is_none()
+			&& self
+				.server
+				.index
+				.try_get_process_children_count(id)
+				.await?
+				.is_some()
+		{
+			self.set_process_children_from_index(id, true, &mut output.data)
 				.await?;
+		}
+		let permissions = authorization.permissions;
+		self.add_tokens_to_process_get_output(id, authorization, &mut output)?;
+		if let Some(metadata) = output.metadata.take() {
+			output.metadata = Self::mask_process_metadata_with_permissions(&metadata, permissions);
 		}
 		if availability && let Some(storage) = self.server.try_get_process_storage_local(id).await?
 		{
-			output.availability = self
-				.compute_process_availability(id, storage, tokens)
-				.await?;
+			output.availability =
+				Self::compute_process_availability_with_permissions(storage, permissions);
 		}
+
 		Ok(Some(output))
 	}
 
-	fn create_process_get_token(
+	async fn authorize_process_get(
 		&self,
 		id: &tg::process::Id,
+		metadata: bool,
+		availability: bool,
+		tokens: &[tg::authorization::Token],
+	) -> tg::Result<crate::authorization::Output> {
+		let resource = tg::Referent::with_node_and_local_tokens(id.clone(), tokens.to_vec());
+		let permission = tg::authorization::Permission::Process(
+			tg::authorization::permission::process::Permission::Node,
+		);
+		let mut requested = tg::authorization::permission::process::Set::NODE;
+		if metadata
+			|| availability
+			|| self.context.principal.is_root()
+			|| self.context.principal == tg::Principal::Process(id.clone())
+		{
+			requested = tg::authorization::permission::process::Set::all();
+		} else {
+			for token in tokens {
+				if token.body.resource != tg::Id::from(id.clone()) {
+					continue;
+				}
+				let permissions = tg::authorization::permission::process::Set::all()
+					.iter()
+					.filter(|permission| {
+						token
+							.body
+							.authorizes(tg::authorization::Permission::Process(*permission))
+					})
+					.collect::<Vec<_>>();
+				requested.insert(permissions.into());
+			}
+		}
+		self.authorize_with_permissions(
+			resource,
+			tg::authorization::permission::Set::Process(requested),
+			permission.into(),
+			tg::authorization::permission::Set::Process(
+				tg::authorization::permission::process::Set::empty(),
+			),
+		)
+		.await?
+		.check_exhaustion()
+	}
+
+	fn process_get_token_expires_at(
+		&self,
 		authorization_expires_at: Option<i64>,
-	) -> tg::Result<Option<tg::authorization::Token>> {
+	) -> tg::Result<i64> {
 		let created_at = self.server.clock.unix_timestamp()?;
 		let time_to_live = i64::try_from(
 			self.server.config.process.permission_time_to_live.as_secs(),
@@ -288,11 +367,7 @@ impl Session {
 			.ok_or_else(|| tg::error!("the permission expiration overflowed"))?;
 		let expires_at =
 			authorization_expires_at.map_or(expires_at, |expiration| expiration.min(expires_at));
-		let resource = tg::Id::from(id.clone());
-		let permission = tg::authorization::Permission::Process(
-			tg::authorization::permission::process::Permission::Node,
-		);
-		self.create_token(resource, vec![permission], expires_at)
+		Ok(expires_at)
 	}
 
 	pub(crate) async fn get_process_local(
@@ -531,7 +606,6 @@ impl Session {
 		id: &tg::process::Id,
 	) -> tg::Result<tg::process::Data> {
 		let mut output = self.get_process_control_output(id).await?;
-		output.data = output.data.without_location_and_tokens();
 		if let Some(sync) = &output.sync {
 			Self::inherit_process_authorization_tokens_for_sync(&mut output.data, sync);
 		}
