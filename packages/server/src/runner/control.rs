@@ -287,6 +287,7 @@ impl Session {
 								connection_index,
 								heartbeat_index: heartbeat.index,
 								runner: runner.clone(),
+								sandboxes: heartbeat.sandboxes,
 							};
 							heartbeat_sender.send(notification).await.map_err(|_| {
 								tg::error!("failed to track the runner heartbeat acknowledgement")

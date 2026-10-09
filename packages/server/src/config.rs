@@ -941,11 +941,11 @@ pub struct RemoteCache {
 
 #[derive(Clone, Debug)]
 pub struct Runner {
+	pub cpu_oversubscription: u64,
+
 	pub cpu_pool: Option<PathBuf>,
 
 	pub cpus: Option<u64>,
-
-	pub dedicated_cpus: Vec<u32>,
 
 	pub heartbeat_interval: Duration,
 
@@ -2171,9 +2171,9 @@ impl Default for RemoteCache {
 impl Default for Runner {
 	fn default() -> Self {
 		Self {
+			cpu_oversubscription: 4,
 			cpu_pool: None,
 			cpus: None,
-			dedicated_cpus: Vec::new(),
 			heartbeat_interval: Duration::from_secs(1),
 			id: None,
 			isolation: RunnerIsolation::default(),

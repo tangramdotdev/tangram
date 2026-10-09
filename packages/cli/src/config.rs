@@ -1440,13 +1440,13 @@ pub struct RemoteCache {
 #[serde(deny_unknown_fields)]
 pub struct Runner {
 	#[serde(default, skip_serializing_if = "Option::is_none")]
+	pub cpu_oversubscription: Option<u64>,
+
+	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpu_pool: Option<PathBuf>,
 
 	#[serde(default, skip_serializing_if = "Option::is_none")]
 	pub cpus: Option<u64>,
-
-	#[serde(default, skip_serializing_if = "Option::is_none")]
-	pub dedicated_cpus: Option<Vec<u32>>,
 
 	#[serde_as(as = "Option<DurationSecondsWithFrac>")]
 	#[serde(default, skip_serializing_if = "Option::is_none")]
@@ -3930,8 +3930,8 @@ fn resolve_runner(source: Runner) -> server::Runner {
 		cpu_pool: source.cpu_pool,
 		..Default::default()
 	};
-	if let Some(value) = source.dedicated_cpus {
-		target.dedicated_cpus = value;
+	if let Some(value) = source.cpu_oversubscription {
+		target.cpu_oversubscription = value;
 	}
 	if let Some(value) = source.memory_sampling_interval {
 		target.memory_sampling_interval = value;

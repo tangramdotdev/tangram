@@ -108,8 +108,14 @@ pub enum ClientNotification {
 	tangram_serialize::Serialize,
 )]
 pub struct BorrowableCapacityClientNotification {
+	#[tangram_serialize(id = 4)]
+	pub available: bool,
+
 	#[tangram_serialize(id = 0)]
 	pub capacity: tg::runner::Capacity,
+
+	#[tangram_serialize(id = 5)]
+	pub heartbeat_index: u64,
 
 	#[tangram_serialize(id = 1)]
 	pub parent: tg::sandbox::Id,

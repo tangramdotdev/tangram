@@ -250,6 +250,9 @@ impl Session {
 			stopper,
 			token,
 		} = arg;
+		#[cfg(target_os = "linux")]
+		let mut allocation = allocation;
+
 		let identity = match (id, token) {
 			(Some(id), Some(token)) => Some((id, token)),
 			(None, None) => None,
@@ -282,7 +285,11 @@ impl Session {
 		let connection_session = self.server.session(&context);
 
 		// Create the sandbox concurrently with its control stream.
-		let create_future = self.create_sandbox_with_pool(arg.clone());
+		let create_future = self.create_sandbox_with_pool(
+			arg.clone(),
+			#[cfg(target_os = "linux")]
+			allocation.cpu_parent(),
+		);
 		let created_at = self.server.clock.unix_timestamp()?;
 		let control_data = tg::sandbox::control::Data {
 			arg: arg.clone(),
@@ -427,6 +434,9 @@ impl Session {
 		});
 
 		// Store the identified sandbox state before starting any processes.
+		#[cfg(target_os = "linux")]
+		allocation.set_cpu_lease(create_output.sandbox.cpu_lease().await);
+		let capacity = allocation.capacity();
 		let allocation = Arc::new(tokio::sync::Mutex::new(Some(allocation)));
 		let index = create_output.sandbox.index();
 		let processes = Arc::new(crate::process::Processes::default());
@@ -434,6 +444,7 @@ impl Session {
 		let entry = crate::sandbox::State {
 			allocation: Some(allocation),
 			authorization_tokens: tg::authorization::Tokens::default(),
+			capacity,
 			changed: tokio::sync::watch::channel(()).0,
 			control_sender,
 			data: control_data,
@@ -598,6 +609,7 @@ impl Session {
 	async fn create_sandbox_with_pool(
 		&self,
 		arg: tg::sandbox::create::Arg,
+		#[cfg(target_os = "linux")] cpu_parent: Option<tangram_sandbox::cpu::Lease>,
 	) -> tg::Result<CreateSandboxOutput> {
 		if let Some(task) = self.server.runner.sandbox_pool.take(&arg, self) {
 			match task.wait().await {
@@ -632,7 +644,12 @@ impl Session {
 		}
 
 		tracing::debug!("creating a sandbox after a pool miss");
-		self.create_sandbox_inner(arg).await
+		self.create_sandbox_inner(
+			arg,
+			#[cfg(target_os = "linux")]
+			cpu_parent,
+		)
+		.await
 	}
 
 	#[tracing::instrument(
@@ -644,6 +661,7 @@ impl Session {
 	async fn create_sandbox_inner(
 		&self,
 		mut arg: tg::sandbox::create::Arg,
+		#[cfg(target_os = "linux")] cpu_parent: Option<tangram_sandbox::cpu::Lease>,
 	) -> tg::Result<CreateSandboxOutput> {
 		#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
 		let mut isolation = match &arg.isolation {
@@ -869,6 +887,8 @@ impl Session {
 		};
 		let arg = tangram_sandbox::Arg {
 			cpu: arg.cpu,
+			#[cfg(target_os = "linux")]
+			cpu_parent,
 			#[cfg(target_os = "linux")]
 			cpu_pool: self.server.runner.state.cpu_pool.clone(),
 			dns: self.server.config.sandbox.network.dns.clone(),

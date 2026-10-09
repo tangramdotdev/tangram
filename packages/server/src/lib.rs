@@ -846,19 +846,19 @@ impl Server {
 				.cpu_pool
 				.clone()
 				.map(|parent| {
-					tangram_sandbox::cpu::Pool::new(parent, &config.runner.dedicated_cpus)
+					tangram_sandbox::cpu::Pool::new(parent, config.runner.cpu_oversubscription)
 				})
 				.transpose()?
 		} else {
 			None
 		};
-		if config.runner.cpu_pool.is_none() && !config.runner.dedicated_cpus.is_empty() {
+		if config.runner.cpu_oversubscription == 0 {
 			return Err(tg::error!(
-				"dedicated CPUs require an exclusive sandbox CPU pool"
+				"the CPU oversubscription factor must be greater than zero"
 			));
 		}
 		#[cfg(target_os = "macos")]
-		if config.runner.cpu_pool.is_some() || !config.runner.dedicated_cpus.is_empty() {
+		if config.runner.cpu_pool.is_some() {
 			return Err(tg::error!("dedicated CPU pools are not supported on macos"));
 		}
 
@@ -872,28 +872,32 @@ impl Server {
 			let memory = runner
 				.memory
 				.unwrap_or_else(|| default_memory.saturating_mul(cpus));
+			let shared = cpus
+				.checked_mul(runner.cpu_oversubscription)
+				.ok_or_else(|| tg::error!("the shared CPU capacity is too large"))?;
 			#[cfg_attr(not(target_os = "linux"), expect(unused_mut))]
 			let mut capacity = tg::runner::Capacity {
-				cpus,
-				dedicated_cpus: 0,
+				cpu: tg::sandbox::Cpu {
+					dedicated: 0,
+					shared,
+				},
 				memory,
 			};
 			#[cfg(target_os = "linux")]
 			if let Some(pool) = &cpu_pool {
-				let cpus = pool.capacity();
-				capacity.cpus = runner.cpus.unwrap_or(cpus.cpus);
-				capacity.dedicated_cpus = cpus.dedicated_cpus;
-				if capacity.cpus > cpus.cpus {
+				if runner.cpus.is_some() {
 					return Err(tg::error!(
-						"the runner shared CPU capacity exceeds the sandbox CPU pool"
+						"an exclusive CPU pool determines the runner CPU capacity"
 					));
 				}
+				capacity.cpu = pool.capacity().cpu;
 			}
-			if capacity.cpus == 0 && capacity.dedicated_cpus == 0 {
+			if capacity.cpu.shared == 0 && capacity.cpu.dedicated == 0 {
 				return Err(tg::error!(
 					"the runner CPU capacity must be greater than zero"
 				));
 			}
+
 			if capacity.memory == 0 {
 				return Err(tg::error!(
 					"the runner memory capacity must be greater than zero"
@@ -903,13 +907,17 @@ impl Server {
 		} else {
 			tg::runner::Capacity::default()
 		};
-		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner) {
+		// Warm sandboxes would claim physical CPU slots before scheduler admission.
+		let sandbox_pool_size = if config.roles.contains(&self::config::Role::Runner)
+			&& config.runner.cpu_pool.is_none()
+		{
 			config.runner.sandbox_pool_size
 		} else {
 			0
 		};
 		let runner_config = self::runner::Config {
 			capacity,
+			cpu_oversubscription: config.runner.cpu_oversubscription,
 			#[cfg(target_os = "linux")]
 			cpu_pool,
 			#[cfg(target_os = "linux")]

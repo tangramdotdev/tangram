@@ -379,6 +379,7 @@ fn validate_cgroup_v2() -> tg::Result<()> {
 	let name = format!("tangram-probe-{:016x}", rand::random::<u64>());
 	let options = super::cgroup::Options {
 		cpu: Some(1),
+		cpu_parent: None,
 		cpu_pool: None,
 		cpu_request: None,
 		memory: Some(64 * 1024 * 1024),

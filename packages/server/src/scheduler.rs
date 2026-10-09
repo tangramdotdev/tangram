@@ -6,7 +6,7 @@ use {
 		stream::{self, BoxStream, FuturesUnordered},
 	},
 	std::{
-		collections::{HashMap, HashSet},
+		collections::{BTreeSet, HashMap, HashSet},
 		fmt::Display,
 		ops::ControlFlow,
 		pin::pin,
@@ -140,7 +140,9 @@ pub(crate) enum Notification {
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub(crate) struct BorrowableCapacityNotification {
+	pub available: bool,
 	pub capacity: tg::runner::Capacity,
+	pub heartbeat_index: u64,
 	pub parent: tg::sandbox::Id,
 	pub runner: tg::runner::Id,
 }
@@ -190,6 +192,7 @@ pub(crate) struct HeartbeatNotification {
 	pub connection_index: u64,
 	pub heartbeat_index: u64,
 	pub runner: tg::runner::Id,
+	pub sandboxes: BTreeSet<tg::sandbox::Id>,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -647,8 +650,7 @@ impl Scheduler {
 			create_sandbox_queue_capacity: config.create_sandbox_queue_capacity,
 			create_sandbox_timeout: config.create_sandbox_timeout,
 			default_capacity: tg::runner::Capacity {
-				cpus: config.default_cpu,
-				dedicated_cpus: 0,
+				cpu: config.default_cpu.into(),
 				memory: config.default_memory,
 			},
 			heartbeat_interval: config.heartbeat_interval,
@@ -767,7 +769,7 @@ impl Scheduler {
 					state.handle_borrowable_capacity(self, notification);
 				},
 				Notification::Heartbeat(notification) => {
-					if state.handle_heartbeat(self, &notification) {
+					if state.handle_heartbeat(&notification) {
 						self.publish_runner_heartbeat_ack(state, &notification);
 					}
 				},

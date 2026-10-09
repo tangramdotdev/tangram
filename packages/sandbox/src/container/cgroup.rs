@@ -22,6 +22,7 @@ pub struct Cgroup {
 	removed: bool,
 }
 
+#[derive(Debug)]
 pub struct Handle {
 	directory: OwnedFd,
 }
@@ -29,6 +30,7 @@ pub struct Handle {
 #[derive(Clone, Debug, Default)]
 pub struct Options {
 	pub cpu: Option<u64>,
+	pub cpu_parent: Option<crate::cpu::Lease>,
 	pub cpu_pool: Option<crate::cpu::Pool>,
 	pub cpu_request: Option<tg::sandbox::Cpu>,
 	pub memory: Option<u64>,
@@ -66,7 +68,13 @@ impl Cgroup {
 		let allocation = options
 			.cpu_pool
 			.as_ref()
-			.map(|pool| pool.allocate(options.cpu_request.unwrap_or(1.into())))
+			.map(|pool| {
+				let cpu = options.cpu_request.unwrap_or(1.into());
+				match &options.cpu_parent {
+					Some(parent) => pool.borrow(parent, cpu),
+					None => pool.allocate(cpu),
+				}
+			})
 			.transpose()?;
 		if allocation.is_some() {
 			controllers.push("cpuset");
@@ -124,11 +132,7 @@ impl Cgroup {
 				.map_err(|error| tg::error!(!error, "failed to read the CPU pool memory nodes"))?;
 			write_file(&path.join("cpuset.mems"), mems.as_bytes())
 				.map_err(|error| tg::error!(!error, "failed to set the sandbox memory nodes"))?;
-			write_file(
-				&path.join("cpuset.cpus"),
-				crate::cpu::format_list(&allocation.cpus()).as_bytes(),
-			)
-			.map_err(|error| tg::error!(!error, "failed to assign the sandbox CPUs"))?;
+			allocation.bind(cgroup.handle()?)?;
 		}
 
 		if let Some(cpu) = options.cpu {
@@ -196,6 +200,11 @@ impl Cgroup {
 		Ok(cgroup)
 	}
 
+	#[must_use]
+	pub(crate) fn cpu_lease(&self) -> Option<crate::cpu::Lease> {
+		self.allocation.as_ref().map(crate::cpu::Allocation::lease)
+	}
+
 	pub fn handle(&self) -> tg::Result<Handle> {
 		let directory = self.directory.try_clone().map_err(|error| {
 			tg::error!(
@@ -209,6 +218,8 @@ impl Cgroup {
 
 	pub fn cleanup(mut self) -> tg::Result<()> {
 		self.stop()?;
+		// Release the stopped allocation before unlinking its cgroup so concurrent reassignments cannot access a removed directory.
+		drop(self.allocation.take());
 		unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR).map_err(|error| {
 			tg::error!(
 				!error,
@@ -282,6 +293,12 @@ impl Handle {
 		Ok(contents)
 	}
 
+	pub(crate) fn write(&self, name: &CStr, bytes: &[u8]) -> tg::Result<()> {
+		write_file_at(&self.directory, name, bytes)
+			.map_err(|error| tg::error!(!error, "failed to update the sandbox cgroup"))?;
+		Ok(())
+	}
+
 	pub fn move_self(&self) -> tg::Result<()> {
 		write_file_at(&self.directory, c"cgroup.procs", b"0\n")
 			.map_err(|error| tg::error!(!error, "failed to move the process into the cgroup"))
@@ -297,10 +314,11 @@ impl Drop for Cgroup {
 			tracing::error!(%error, path = %self.path.display(), "failed to stop the cgroup");
 			// Retain the core reservation when processes could still be executing on it.
 			if let Some(allocation) = self.allocation.take() {
-				std::mem::forget(allocation);
+				allocation.retain();
 			}
 			return;
 		}
+		drop(self.allocation.take());
 		if let Err(error) = unlinkat(&self.parent, self.name.as_str(), AtFlags::REMOVEDIR) {
 			tracing::error!(%error, path = %self.path.display(), "failed to remove cgroup");
 		}

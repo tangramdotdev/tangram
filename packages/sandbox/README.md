@@ -63,7 +63,7 @@ empty, writable partition owned exclusively by this runner:
 {
 	"runner": {
 		"cpu_pool": "/sys/fs/cgroup/tangram-cpus",
-		"dedicated_cpus": [2, 3],
+		"cpu_oversubscription": 4,
 		"memory_sampling_interval": 0.1
 	}
 }
@@ -74,12 +74,46 @@ exclusive CPU sets, no processes or child cgroups, and the `cpu`, `cpuset`,
 `memory`, and `pids` controllers enabled for children. The host must keep the
 partition exclusive to this runner throughout its lifetime.
 
-`dedicated_cpus` lists one logical CPU representative for each physical core to
-reserve. Every SMT sibling of those cores must be in the partition. All siblings
-are removed from the shared pool, and each assigned dedicated core exposes one
-hardware thread. The remaining logical CPUs form the shared pool. Capacity
-advertisements and admission distinguish the two pools. Dedicated allocations
-are never borrowed by another sandbox and are released after the cgroup empties.
+The partition must contain every SMT sibling of each physical core. All cores
+start available for dedicated allocation; no fixed shared/dedicated split is
+configured. An allocation exposes one hardware thread per physical core while
+excluding all siblings of dedicated cores from other sandboxes.
+
+`cpu_oversubscription` defaults to 4 and must be a positive integer. Each core
+can serve at most that many shared sandbox CPU allocations. Shared requests use
+distinct physical cores, preserving their requested parallelism. The allocator
+packs shared requests, moves them by updating their cgroup CPU sets, and frees
+whole cores for dedicated requests. Existing placements are retained where
+possible, and dedicated requests prefer idle cores. Live CPU-set updates keep
+sandboxes runnable while shared workloads move; dedicated cores remain in each
+sandbox's CPU set throughout the transition. Dedicated cores return to shared
+eligibility when released after their cgroups empty. Mixed accounting monitors
+every potential shared core, so CPU-set changes preserve execution accounting.
+Failed teardown or recovery disables pool admission and causes runner heartbeats
+to advertise zero capacity until restart.
+
+Runner capacity uses `cpu: { dedicated, shared }`: free exclusive cores and free
+slots on currently shared cores. These are convertible resources. For example,
+four idle cores advertise `{ dedicated: 4, shared: 0 }`; admitting one shared CPU
+at factor 4 leaves `{ dedicated: 3, shared: 3 }`. Scheduler reservations account
+for that conversion, mixed requests, memory, and the distinct-core requirement.
+Children can borrow their parents' reservations without consuming additional
+runner capacity. Each dedicated parent core can supply one dedicated child CPU
+or up to `cpu_oversubscription` shared child slots. Shared parent slots can supply
+only shared child slots. Borrowing remains exclusive: each parent lends to one
+child at a time. The child inherits the full memory reservation and unused CPU
+headroom for its descendants, while its own sandbox limits use its request.
+Only the dedicated cores needed for shared slots are converted, and converted
+cores remain shared throughout the borrowing chain. CPU leases keep ancestor reservations
+alive until their borrowers finish, and borrowed cgroups follow ancestor CPU
+placement changes. Borrowing can place multiple shared slots on one physical
+core; these slots do not promise simultaneous execution on distinct cores. The
+runner advertises potential parent capacity before waiting for a current borrower
+to finish. The scheduler keeps eligible children queued until that capacity can
+be lent, and newer runner heartbeats remove hints for parents that have stopped.
+
+Sandbox prewarming is disabled for exclusive pools because unclaimed sandboxes would consume physical slots outside admission.
+Without an exclusive pool, `runner.cpus` selects the shared CPU base capacity, and the factor determines the shared admission limit.
 
 This reserves CPU scheduling capacity. Frequency scaling, thermal limits, memory
 bandwidth, and interrupts can still affect performance.

@@ -104,6 +104,7 @@ pub fn run(mut arg: Arg) -> tg::Result<ExitCode> {
 		.map(|name| {
 			let entry = cgroup::Options {
 				cpu: arg.cgroup_cpu,
+				cpu_parent: None,
 				cpu_pool: None,
 				cpu_request: None,
 				memory: arg.cgroup_memory,

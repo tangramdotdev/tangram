@@ -431,7 +431,9 @@ impl Session {
 							let notification = crate::scheduler::Message::Notification(
 								crate::scheduler::Notification::BorrowableCapacity(
 									crate::scheduler::BorrowableCapacityNotification {
+										available: notification.available,
 										capacity: notification.capacity,
+										heartbeat_index: notification.heartbeat_index,
 										parent: notification.parent,
 										runner,
 									},

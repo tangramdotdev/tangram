@@ -97,7 +97,11 @@ impl Pool {
 			let session = session.clone();
 			move |_| async move {
 				session
-					.create_sandbox_inner(tg::sandbox::create::Arg::default())
+					.create_sandbox_inner(
+						tg::sandbox::create::Arg::default(),
+						#[cfg(target_os = "linux")]
+						None,
+					)
 					.await
 					.map_err(|error| tg::error!(!error, "failed to warm a sandbox"))
 			}

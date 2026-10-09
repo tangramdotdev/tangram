@@ -36,7 +36,7 @@ impl Source {
 		shared: Option<&BTreeSet<u32>>,
 		mixed: bool,
 	) -> tg::Result<Self> {
-		// Count execution on each shared CPU independently when dedicated cores are also assigned.
+		// Monitor every potential shared CPU so moving shared workloads preserves the counters.
 		let counters = if mixed {
 			let shared = shared
 				.ok_or_else(|| tg::error!("mixed CPU accounting requires a sandbox CPU pool"))?;
