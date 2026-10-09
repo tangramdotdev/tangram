@@ -6,6 +6,8 @@
 
 Tangram is a build system and package manager.
 
+For development, see [running a local cloud API and remote runner](scripts/cloud/README.md).
+
 - **TypeScript** makes writing builds easy with autocomplete and type checking.
 - **Sandboxing** ensures builds do not have unspecified dependencies.
 - **Lockfiles** covering all dependencies make builds reliable and reproducible.
