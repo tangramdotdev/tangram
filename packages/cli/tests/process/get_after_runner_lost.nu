@@ -48,15 +48,20 @@ let path = artifact {
 }
 
 let id = tg --url $local.url build --no-tokens --remote --detach $path | referent node
-let started = tg --url $remote.url --token $root_token get $id | from json
+let started = tg --url $remote.url --token $root_token get --no-tokens $id | from json
 assert ($started.status == 'started') "the process must be started"
+
+# Ensure the index has the started process before losing the runner.
+tg --url $remote.url --token $root_token index
+let indexed = tg --url $remote.url --token $root_token get --no-tokens --source index $id | from json
+assert equal $indexed.status started
 
 # Lose the runner. The index keeps the started process until the scheduler expires
 # its heartbeat, so the get has an answer to give the whole time.
 job kill $runner.job
 
 let start = (date now)
-let process = tg --url $remote.url --token $root_token get $id | from json
+let process = tg --url $remote.url --token $root_token get --no-tokens $id | from json
 let elapsed = (((date now) - $start) / 1sec | math round -p 2)
 assert ($elapsed < 5) $"getting a process without a runner took ($elapsed)s"
 assert ($process.command == $started.command) "the get must return the process"

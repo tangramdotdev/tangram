@@ -429,7 +429,17 @@ impl State {
 		if let Some(pending) = self
 			.pending
 			.values_mut()
-			.find(|pending| !pending.sent && !pending.acknowledged && pending.priority == priority)
+			.find(|pending| {
+				if pending.sent || pending.acknowledged || pending.priority != priority {
+					return false;
+				}
+				if let ClientMessage::Response(response) = &pending.message {
+					return !self.untracked.iter().any(|(message, _)| {
+						matches!(message, ClientMessage::Notification(ClientNotification::Read(notification)) if notification.id == response.id)
+					});
+				}
+				true
+			})
 		{
 			pending.sent = true;
 			return Some(pending.message.clone());
