@@ -2,7 +2,7 @@
 
 Run these commands from the repository root. This starts a cloud API backed by
 PostgreSQL, FoundationDB, NATS, and Scylla, plus a separate runner with local
-backends. The client uses its own directory and sends `--remote` builds to that API.
+backends. Your existing local client sends builds to the API through a named remote.
 
 1. Start the infrastructure in a terminal and leave it running:
 
@@ -12,10 +12,10 @@ backends. The client uses its own directory and sends `--remote` builds to that 
 
    Install the missing programs reported by the command. On Linux this uses
    native database servers; on macOS it also requires Docker. The macOS supervisor
-   runs FoundationDB 7.3.68. Use a matching 7.3 client: the build links
-   `/usr/local/lib/libfdb_c.dylib` when present. A newer client cannot connect to
-   that container, causing timeouts and hanging remote builds. On Linux, match the
-   client library to the native server version.
+   runs FoundationDB 7.3.68. Use a matching 7.3 client library and `fdbcli`: the build
+   links `/usr/local/lib/libfdb_c.dylib` when present. A newer client cannot connect
+   to that container, causing timeouts and hanging remote builds. On Linux, match
+   the client library and `fdbcli` to the native server version.
 
 2. Build the binaries and initialize the stores once, then start the API:
 
@@ -30,12 +30,15 @@ backends. The client uses its own directory and sends `--remote` builds to that 
    bun run cloud:runner
    ```
 
-4. Start the client and build:
+4. Add a named remote to your usual local Tangram server and build:
 
    ```sh
-   bun run cloud:tg server start
-   bun run cloud:tg build --remote /absolute/path/to/project
+   tg remote put local-cloud http://127.0.0.1:8476
+   tg build --remote=local-cloud /absolute/path/to/project
    ```
+
+   Use `tg` from this checkout. If your client config declares `remotes`, add
+   `local-cloud` there too, or repeat `remote put` after restarting the client.
 
 On Linux, the runner and client require delegated CPU and memory cgroups. If your
 shell does not provide them, run steps 3 and 4 from shells launched with:
@@ -47,18 +50,18 @@ systemd-run --user --scope -p Delegate=yes -p DelegateSubgroup=supervisor "$SHEL
 This requires a systemd user session with systemd 254 or newer. Clear any
 `TANGRAM_*` environment overrides before using these scripts.
 
-State lives in a temporary directory linked at `.tangram/cloud` to keep Unix socket
-paths short. The runner and client data directories are named `.tangram` because
-std's wrapper locates the store by that name on macOS. The API listens on
-`127.0.0.1:8476` without user authentication. Stop the client with
-`bun run cloud:tg server stop` and stop
-the API and runner with Ctrl-C. Restart with the same commands; runner registration
-and signing keys are retained. To reset, stop all three servers and run
-`bun run cloud:deinit` while the databases are still running. This requires `fdbcli`
-on the host unless using the macOS test container, which supplies its own client.
-This removes only the `tangram_cloud` database, keyspace, FoundationDB prefix, and
-local state. Reset before restarting the temporary database supervisor or using
-`test.nu --clean`, then initialize again.
+The scripts use the normal Cargo target directory. API and runner state lives in
+`.tangram/cloud`. The runner's data directory is named `.tangram` because std's
+wrapper locates the store by that name on macOS. The API listens on `127.0.0.1:8476`
+without user authentication. Stop the API and runner with Ctrl-C. Restart with the
+same commands; runner registration and signing keys are retained.
+
+To reset, stop the API and runner and run `bun run cloud:deinit` while the databases
+are still running. This uses the saved FoundationDB cluster file and removes only
+the `tangram_cloud` database, keyspace, FoundationDB prefix, and `.tangram/cloud`.
+Reset before restarting the temporary database supervisor or using
+`test.nu --clean`, then initialize again. Remove the client remote with
+`tg remote delete local-cloud` when you no longer need it.
 
 The existing `bun run cloud:up` Kubernetes infrastructure also works. Supply its
 FoundationDB cluster file with `bun run cloud:init --fdb-cluster /path/to/fdb.cluster`
