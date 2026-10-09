@@ -80,7 +80,11 @@ export const testCli = async (arg: CliArg = {}) => {
 		def main [options_path: path, tangram_path: path] {
 			let options = open --raw $options_path | from json
 			let offline = if $options.offline { ['--offline'] } else { [] }
-			nu packages/cli/test.nu --no-cloud --no-clients --no-progress-details --preserve-failing-temps --tangram-path $tangram_path --jobs $options.jobs --timeout ($options.timeout | into duration) ...$offline ...$options.filters
+			# The test servers have independent stores, so inherit rendered environment values.
+			for key in ($env | columns | where { $in starts-with 'TANGRAM_ENV_' }) {
+				hide-env $key
+			}
+			nu packages/cli/test.nu --no-cloud --no-clients --no-progress-details --preserve-failing-temps --tangram-path $tangram_path --jobs $options.jobs --timeout $options.timeout ...$offline ...$options.filters
 		}
 	`;
 	const output = await std.build`
