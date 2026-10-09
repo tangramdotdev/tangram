@@ -253,6 +253,7 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_getrandom,
 		libc::SYS_getresgid,
 		libc::SYS_getresuid,
+		libc::SYS_getrlimit,
 		libc::SYS_get_robust_list,
 		libc::SYS_getrusage,
 		libc::SYS_getsid,
@@ -380,6 +381,7 @@ fn allowed_syscalls() -> Vec<u32> {
 		libc::SYS_setresgid,
 		libc::SYS_setresuid,
 		libc::SYS_setreuid,
+		libc::SYS_setrlimit,
 		libc::SYS_set_robust_list,
 		libc::SYS_setsid,
 		libc::SYS_setsockopt,
@@ -448,7 +450,6 @@ fn allowed_syscalls() -> Vec<u32> {
 			libc::SYS_eventfd,
 			libc::SYS_fork,
 			libc::SYS_getdents,
-			libc::SYS_getrlimit,
 			libc::SYS_inotify_init,
 			libc::SYS_lchown,
 			libc::SYS_link,
@@ -463,7 +464,6 @@ fn allowed_syscalls() -> Vec<u32> {
 			libc::SYS_renameat,
 			libc::SYS_rmdir,
 			libc::SYS_select,
-			libc::SYS_setrlimit,
 			libc::SYS_signalfd,
 			libc::SYS_stat,
 			libc::SYS_sync_file_range,
@@ -564,6 +564,20 @@ mod tests {
 				std::io::Error::last_os_error().raw_os_error(),
 				Some(libc::ENOSYS)
 			);
+
+			// Exercise the legacy syscalls because libc may use prlimit64 instead.
+			let mut limit = libc::rlimit {
+				rlim_cur: 0,
+				rlim_max: 0,
+			};
+			// SAFETY: The pointer refers to valid storage for the resource limit.
+			let result =
+				unsafe { libc::syscall(libc::SYS_getrlimit, libc::RLIMIT_STACK, &raw mut limit) };
+			assert_eq!(result, 0);
+			// SAFETY: The pointer refers to the resource limit initialized by getrlimit.
+			let result =
+				unsafe { libc::syscall(libc::SYS_setrlimit, libc::RLIMIT_STACK, &raw const limit) };
+			assert_eq!(result, 0);
 
 			assert!(unsafe { libc::getpid() } > 0);
 			assert!(unsafe { libc::syscall(libc::SYS_personality, u32::MAX) } >= 0);
