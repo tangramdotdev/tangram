@@ -1,13 +1,11 @@
-do --capture-errors { cargo build --package tangram_scylla_client }
-let target_directory = cargo metadata --format-version 1 --no-deps | from json | get target_directory
-let scylla_client_path = $target_directory | path join debug tangram_scylla_client
+# Stop the Tangram servers before removing their stores and state.
+let target = cargo metadata --format-version 1 --no-deps | from json | get target_directory
+let scylla = $target | path join debug tangram_scylla_client
 
-dropdb -U postgres -h localhost --if-exists --force database | ignore
+fdbcli -C .tangram/cloud/fdb.cluster --timeout 10 --exec 'writemode on; clearrange "tangram_cloud/" "tangram_cloud0"'
+dropdb -U postgres -h 127.0.0.1 --if-exists --force tangram_cloud
+^$scylla -e 'drop keyspace if exists tangram_cloud;'
 
-let cluster_path = mktemp -t
-"docker:docker@localhost:4500" | save -f $cluster_path
-fdbcli -C $cluster_path --exec 'writemode on; clearrange "" \xff' | ignore
-
-dropdb -U postgres -h localhost --if-exists --force processes | ignore
-
-^$scylla_client_path -e 'drop keyspace cache;' | ignore
+# Restore owner access to read-only artifact directories before removing them.
+^find .tangram/cloud -type d -exec chmod u+rwx '{}' ';'
+rm -rf .tangram/cloud

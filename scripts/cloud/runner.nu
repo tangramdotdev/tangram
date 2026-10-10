@@ -1,0 +1,20 @@
+# Register once, then run the remote runner in the foreground.
+let config_path = '.tangram/cloud/runner.json'
+if not ($config_path | path exists) {
+	let created = cargo run --quiet --all-features -- --config $config_path --mode client --url http://127.0.0.1:8476 runner create | from json
+	{
+		advanced: { disable_version_check: true },
+		remotes: {
+			default: { token: $created.token.token, url: 'http://127.0.0.1:8476' },
+		},
+		runner: {
+			id: $created.data.id,
+			remote: 'default',
+			token: $created.token.token,
+		},
+		vfs: false,
+	} | to json | save $config_path
+}
+
+# Name the data directory .tangram so that std's wrapper can find the store on macOS.
+exec cargo run --all-features -- --config $config_path --directory .tangram/cloud/runner/.tangram serve
